@@ -34,8 +34,12 @@ function sub(name: string, props: z.ZodObject, description: string): DefinedComp
 
 const Series = sub(
   "Series",
-  z.object({ points: z.array(z.number()), name: z.string().optional(), color: z.string().optional() }),
-  "One chart series. color: hex like \"#A7F3D0\"; omit for the default palette.",
+  z.object({
+    points: z.array(z.number()),
+    name: z.string().optional(),
+    color: z.string().optional(),
+  }),
+  'One chart series. color: hex like "#A7F3D0"; omit for the default palette.',
 );
 const Delta = sub(
   "Delta",
@@ -98,7 +102,10 @@ const Email = sub(
 );
 const Reviewer = sub(
   "Reviewer",
-  z.object({ name: z.string(), state: z.enum(["approved", "changes", "pending", "commented"]).optional() }),
+  z.object({
+    name: z.string(),
+    state: z.enum(["approved", "changes", "pending", "commented"]).optional(),
+  }),
   "A PR reviewer; state defaults to pending.",
 );
 const PrCheck = sub(
@@ -164,7 +171,11 @@ const Tab = sub(
 const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]> = {
   // Layout
   card: [
-    z.object({ children, title: z.string().optional(), width: z.enum(["compact", "full"]).optional() }),
+    z.object({
+      children,
+      title: z.string().optional(),
+      width: z.enum(["compact", "full"]).optional(),
+    }),
     'Groups children inside a hairline border with an optional heading. A root Card is the widget\'s frame; don\'t nest cards for decoration. width "compact" keeps a small tool (calculator, keypad, short form) phone-sized on wide screens; default "full".',
   ],
   stack: [
@@ -206,7 +217,7 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
   ],
   badge: [
     z.object({ label: z.string(), tone: tone.optional() }),
-    "A small pill. Put several in a horizontal Stack with gap \"xs\".",
+    'A small pill. Put several in a horizontal Stack with gap "xs".',
   ],
   divider: [z.object({}), "A hairline."],
   callout: [
@@ -374,8 +385,8 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
 /** The component name of a widget key: its PascalCase (`pr` -> `Pr`). */
 const componentName = (kind: string) => kind.charAt(0).toUpperCase() + kind.slice(1);
 
-const WIDGETS: DefinedComponent[] = Object.entries(WIDGET_DEFS).map(([kind, [props, description]]) =>
-  sub(componentName(kind), props, description),
+const WIDGETS: DefinedComponent[] = Object.entries(WIDGET_DEFS).map(
+  ([kind, [props, description]]) => sub(componentName(kind), props, description),
 );
 
 const SUBS = [
@@ -417,7 +428,17 @@ export const relayLibrary = createLibrary({
     },
     {
       name: "Text blocks",
-      components: ["Text", "Rows", "Row", "Badge", "Divider", "Callout", "Quote", "List", "ListItem"],
+      components: [
+        "Text",
+        "Rows",
+        "Row",
+        "Badge",
+        "Divider",
+        "Callout",
+        "Quote",
+        "List",
+        "ListItem",
+      ],
       notes: ['- tone is one of "accent" | "ok" | "warn" | "danger" | "muted".'],
     },
     {
@@ -431,16 +452,44 @@ export const relayLibrary = createLibrary({
     },
     {
       name: "Data",
-      components: ["Stat", "Delta", "Chart", "Series", "Table", "Column", "Cell", "Tickets", "Ticket"],
+      components: [
+        "Stat",
+        "Delta",
+        "Chart",
+        "Series",
+        "Table",
+        "Column",
+        "Cell",
+        "Tickets",
+        "Ticket",
+      ],
       notes: ["- Never put numbers you did not compute or were not given into a widget."],
     },
     {
       name: "Records",
-      components: ["Emails", "Email", "Pr", "Reviewer", "PrCheck", "PrFile", "Recipe", "Ingredient"],
+      components: [
+        "Emails",
+        "Email",
+        "Pr",
+        "Reviewer",
+        "PrCheck",
+        "PrFile",
+        "Recipe",
+        "Ingredient",
+      ],
     },
     {
       name: "Media",
-      components: ["Image", "Gallery", "GalleryImage", "Compare", "Side", "Audio", "Video", "Model"],
+      components: [
+        "Image",
+        "Gallery",
+        "GalleryImage",
+        "Compare",
+        "Side",
+        "Audio",
+        "Video",
+        "Model",
+      ],
       notes: [
         '- Media src is a host drop path "/drops/<id>/<token>" (share the file first: `cd ~/Code/relay/apps/linux && bun run src/main.ts share <path>`) or an absolute https URL; local file paths are rejected.',
       ],

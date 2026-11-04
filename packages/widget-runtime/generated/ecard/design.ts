@@ -2,12 +2,12 @@
 import type { EcardDesign } from "../../src/systems/ecard";
 
 export const ECARD_DESIGN: EcardDesign = {
-  "source": {
-    "repo": "eCardSystems/react-client-reports-app",
-    "ref": "origin/main",
-    "commit": "0f6916138e0f6d68807db8a5e673581d55214f57",
-    "committedAt": "2026-11-03T12:37:40-07:00",
-    "files": [
+  source: {
+    repo: "eCardSystems/react-client-reports-app",
+    ref: "origin/main",
+    commit: "0f6916138e0f6d68807db8a5e673581d55214f57",
+    committedAt: "2026-11-03T12:37:40-07:00",
+    files: [
       "src/design-system/theme/theme.ts",
       "src/design-system/theme/tokens.ts",
       "src/design-system/theme/cssTokens.ts",
@@ -19,23 +19,25 @@ export const ECARD_DESIGN: EcardDesign = {
       "src/design-system/theme/ScrollArea.module.css",
       "src/design-system/components/BaseTextInput.module.css",
       "src/design-system/components/BaseRoles.module.css",
-      "index.html (font: https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap)"
+      "index.html (font: https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap)",
     ],
-    "skipped": {
+    skipped: {
       "components/BaseCheckboxGroup.tsx": "imports ./ecardFieldChrome",
       "components/BaseCopyFeedback.tsx": "imports @hugeicons-pro/core-stroke-standard",
       "components/BaseDataTable.tsx": "imports mantine-datatable",
       "components/BaseDatePickerInput.tsx": "imports @mantine/dates",
       "components/BaseFilterSelect.tsx": "imports @hugeicons-pro/core-stroke-standard",
-      "components/BaseMultiSelect.tsx": "imports @ecardsystems/js-core/general/parsers/parsing.helper",
+      "components/BaseMultiSelect.tsx":
+        "imports @ecardsystems/js-core/general/parsers/parsing.helper",
       "components/BaseSelect.tsx": "imports @ecardsystems/js-core/general/parsers/parsing.helper",
-      "components/BaseTagsInput.tsx": "imports @ecardsystems/js-core/general/parsers/parsing.helper",
-      "components/ecardFieldChrome.tsx": "imports @hugeicons-pro/core-stroke-standard"
-    }
+      "components/BaseTagsInput.tsx":
+        "imports @ecardsystems/js-core/general/parsers/parsing.helper",
+      "components/ecardFieldChrome.tsx": "imports @hugeicons-pro/core-stroke-standard",
+    },
   },
-  "theme": {
-    "colors": {
-      "primary": [
+  theme: {
+    colors: {
+      primary: [
         "#e3f8ff",
         "#d1ebfd",
         "#bde1f8",
@@ -45,9 +47,9 @@ export const ECARD_DESIGN: EcardDesign = {
         "#4da2e1",
         "#3d8ecb",
         "#157ec5",
-        "#0070b1"
+        "#0070b1",
       ],
-      "secondary": [
+      secondary: [
         "#fff2f5",
         "#ece6e7",
         "#cfcdcd",
@@ -57,9 +59,9 @@ export const ECARD_DESIGN: EcardDesign = {
         "#7b7b7b",
         "#737171",
         "#686465",
-        "#5f5457"
+        "#5f5457",
       ],
-      "error": [
+      error: [
         "#ffebeb",
         "#fbd6d7",
         "#efacac",
@@ -69,9 +71,9 @@ export const ECARD_DESIGN: EcardDesign = {
         "#d32f2f",
         "#bc2627",
         "#a81f21",
-        "#94141a"
+        "#94141a",
       ],
-      "blue": [
+      blue: [
         "#e6f6ff",
         "#d2e8fd",
         "#a6cdf4",
@@ -81,9 +83,9 @@ export const ECARD_DESIGN: EcardDesign = {
         "#2885e4",
         "#1976d2",
         "#0865b6",
-        "#0057a2"
+        "#0057a2",
       ],
-      "green": [
+      green: [
         "#e9fced",
         "#daf3df",
         "#b6e4c0",
@@ -93,9 +95,9 @@ export const ECARD_DESIGN: EcardDesign = {
         "#49ba61",
         "#3da553",
         "#329348",
-        "#237f3b"
+        "#237f3b",
       ],
-      "red": [
+      red: [
         "#ffebeb",
         "#fbd6d7",
         "#efacac",
@@ -105,9 +107,9 @@ export const ECARD_DESIGN: EcardDesign = {
         "#d32f2f",
         "#bc2627",
         "#a81f21",
-        "#94141a"
+        "#94141a",
       ],
-      "yellow": [
+      yellow: [
         "#fff7e0",
         "#ffeeca",
         "#ffdc9a",
@@ -117,9 +119,9 @@ export const ECARD_DESIGN: EcardDesign = {
         "#fda805",
         "#e29200",
         "#c98100",
-        "#af6f00"
+        "#af6f00",
       ],
-      "success": [
+      success: [
         "#e9fced",
         "#daf3df",
         "#b6e4c0",
@@ -129,9 +131,9 @@ export const ECARD_DESIGN: EcardDesign = {
         "#49ba61",
         "#3da553",
         "#329348",
-        "#237f3b"
+        "#237f3b",
       ],
-      "warning": [
+      warning: [
         "#fff7e0",
         "#ffeeca",
         "#ffdc9a",
@@ -141,9 +143,9 @@ export const ECARD_DESIGN: EcardDesign = {
         "#fdb022",
         "#e29200",
         "#c98100",
-        "#af6f00"
+        "#af6f00",
       ],
-      "info": [
+      info: [
         "#e6f6ff",
         "#d2e8fd",
         "#a6cdf4",
@@ -153,14 +155,15 @@ export const ECARD_DESIGN: EcardDesign = {
         "#1976d2",
         "#0865b6",
         "#0057a2",
-        "#00488a"
-      ]
+        "#00488a",
+      ],
     },
-    "primaryColor": "primary",
-    "fontFamily": "\"Inter\", sans-serif",
-    "fontFamilyMonospace": "\"SF Mono\", Monaco, Inconsolata, \"Roboto Mono\", monospace",
-    "headingsFontFamily": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif, Apple Color Emoji, Segoe UI Emoji",
-    "radius": {
+    primaryColor: "primary",
+    fontFamily: '"Inter", sans-serif',
+    fontFamilyMonospace: '"SF Mono", Monaco, Inconsolata, "Roboto Mono", monospace',
+    headingsFontFamily:
+      "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif, Apple Color Emoji, Segoe UI Emoji",
+    radius: {
       "2": "2px",
       "4": "4px",
       "6": "6px",
@@ -170,14 +173,14 @@ export const ECARD_DESIGN: EcardDesign = {
       "14": "14px",
       "16": "16px",
       "20": "20px",
-      "xs": "calc(0.125rem * var(--mantine-scale))",
-      "sm": "calc(0.25rem * var(--mantine-scale))",
-      "md": "calc(0.5rem * var(--mantine-scale))",
-      "lg": "calc(1rem * var(--mantine-scale))",
-      "xl": "calc(2rem * var(--mantine-scale))",
-      "13-6": "0.85rem"
+      xs: "calc(0.125rem * var(--mantine-scale))",
+      sm: "calc(0.25rem * var(--mantine-scale))",
+      md: "calc(0.5rem * var(--mantine-scale))",
+      lg: "calc(1rem * var(--mantine-scale))",
+      xl: "calc(2rem * var(--mantine-scale))",
+      "13-6": "0.85rem",
     },
-    "fontSizes": {
+    fontSizes: {
       "10": "10px",
       "11": "11px",
       "12": "12px",
@@ -194,11 +197,11 @@ export const ECARD_DESIGN: EcardDesign = {
       "40": "40px",
       "220": "220px",
       "11-5": "0.72rem",
-      "17-6": "1.1rem"
-    }
+      "17-6": "1.1rem",
+    },
   },
-  "cssVariables": {
-    "variables": {
+  cssVariables: {
+    variables: {
       "--color-white": "#fff",
       "--color-black": "#000",
       "--color-green": "#49ba61",
@@ -244,8 +247,10 @@ export const ECARD_DESIGN: EcardDesign = {
       "--color-info-contrast-text-2": "var(--color-blue-5)",
       "--color-primary-main": "#121212",
       "--color-primary-light": "color-mix(in srgb, var(--color-primary-main) 50%, transparent)",
-      "--color-primary-contrast-text-1": "color-mix(in srgb, var(--color-primary-main) 10%, transparent)",
-      "--color-primary-contrast-text-2": "color-mix(in srgb, var(--color-primary-main) 5%, transparent)",
+      "--color-primary-contrast-text-1":
+        "color-mix(in srgb, var(--color-primary-main) 10%, transparent)",
+      "--color-primary-contrast-text-2":
+        "color-mix(in srgb, var(--color-primary-main) 5%, transparent)",
       "--color-secondary-main": "#7b7b7b",
       "--color-secondary-dark": "#475467",
       "--color-background-main": "#f4f4f4",
@@ -301,9 +306,9 @@ export const ECARD_DESIGN: EcardDesign = {
       "--primary-main": "var(--color-primary-main)",
       "--secondary-main": "var(--color-secondary-main)",
       "--mantine-color-white": "var(--color-white)",
-      "--mantine-color-black": "var(--color-black)"
+      "--mantine-color-black": "var(--color-black)",
     },
-    "light": {
+    light: {
       "--mantine-color-body": "var(--color-white)",
       "--mantine-color-anchor": "var(--mantine-color-primary-9)",
       "--mantine-color-primary-text": "var(--mantine-color-primary-9)",
@@ -317,9 +322,9 @@ export const ECARD_DESIGN: EcardDesign = {
       "--color-resize-handle": "var(--mantine-color-gray-4)",
       "--color-resize-handle-active": "var(--mantine-color-gray-5)",
       "--color-text-secondary": "var(--mantine-color-gray-7)",
-      "--color-status-neutral": "var(--mantine-color-gray-5)"
+      "--color-status-neutral": "var(--mantine-color-gray-5)",
     },
-    "dark": {
+    dark: {
       "--color-scrollbar-thumb": "var(--mantine-color-dark-4)",
       "--color-scrollbar-thumb-hover": "var(--mantine-color-dark-3)",
       "--color-stroke-hover": "var(--mantine-color-dark-2)",
@@ -328,12 +333,12 @@ export const ECARD_DESIGN: EcardDesign = {
       "--color-resize-handle": "var(--mantine-color-dark-3)",
       "--color-resize-handle-active": "var(--mantine-color-dark-2)",
       "--color-text-secondary": "var(--mantine-color-dark-1)",
-      "--color-status-neutral": "var(--mantine-color-dark-3)"
-    }
+      "--color-status-neutral": "var(--mantine-color-dark-3)",
+    },
   },
-  "button": {
-    "vars": {
-      "primary": {
+  button: {
+    vars: {
+      primary: {
         "(none)": {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
@@ -341,273 +346,273 @@ export const ECARD_DESIGN: EcardDesign = {
           "--button-fz": "var(--mantine-font-size-14)",
           "--button-bg": "var(--color-button-main-solid)",
           "--button-hover": "var(--color-button-main-hover)",
-          "--button-color": "var(--mantine-color-white)"
+          "--button-color": "var(--mantine-color-white)",
         },
-        "filled": {
+        filled: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
           "--button-fz": "var(--mantine-font-size-14)",
           "--button-bg": "var(--color-button-main-solid)",
           "--button-hover": "var(--color-button-main-hover)",
-          "--button-color": "var(--mantine-color-white)"
+          "--button-color": "var(--mantine-color-white)",
         },
-        "light": {
+        light: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "outline": {
+        outline: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "subtle": {
+        subtle: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "default": {
+        default: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "transparent": {
+        transparent: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "white": {
+        white: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "gradient": {
+        gradient: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "contained": {
+        contained: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
           "--button-fz": "var(--mantine-font-size-14)",
           "--button-bg": "var(--color-button-main-solid)",
           "--button-hover": "var(--color-button-main-hover)",
-          "--button-color": "var(--mantine-color-white)"
+          "--button-color": "var(--mantine-color-white)",
         },
-        "outlined": {
+        outlined: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "22px",
           "--button-fz": "var(--mantine-font-size-14)",
           "--button-bd": "1px solid var(--color-button-main-solid)",
           "--button-color": "var(--color-button-main-solid)",
-          "--button-hover": "rgba(77, 162, 225, 0.08)"
+          "--button-hover": "rgba(77, 162, 225, 0.08)",
         },
-        "text": {
+        text: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "11px",
           "--button-fz": "var(--mantine-font-size-14)",
           "--button-color": "var(--color-button-main-solid)",
-          "--button-hover": "rgba(77, 162, 225, 0.08)"
+          "--button-hover": "rgba(77, 162, 225, 0.08)",
         },
-        "quiet": {
+        quiet: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "8px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
         "(other)": {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
-        }
+          "--button-fz": "var(--mantine-font-size-14)",
+        },
       },
-      "other": {
+      other: {
         "(none)": {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "filled": {
+        filled: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "light": {
+        light: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "outline": {
+        outline: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "subtle": {
+        subtle: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "default": {
+        default: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "transparent": {
+        transparent: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "white": {
+        white: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "gradient": {
+        gradient: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "contained": {
+        contained: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "outlined": {
+        outlined: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "22px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "text": {
+        text: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "11px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
-        "quiet": {
+        quiet: {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "8px",
-          "--button-fz": "var(--mantine-font-size-14)"
+          "--button-fz": "var(--mantine-font-size-14)",
         },
         "(other)": {
           "--button-height": "40px",
           "--button-radius": "var(--mantine-radius-12)",
           "--button-padding-x": "24px",
-          "--button-fz": "var(--mantine-font-size-14)"
-        }
-      }
+          "--button-fz": "var(--mantine-font-size-14)",
+        },
+      },
     },
-    "rootStyles": {
-      "fontWeight": 600,
-      "lineHeight": "16px",
-      "letterSpacing": "-0.01em"
+    rootStyles: {
+      fontWeight: 600,
+      lineHeight: "16px",
+      letterSpacing: "-0.01em",
     },
-    "classNames": {
-      "section": "ecard-ButtonBase-button-section"
-    }
+    classNames: {
+      section: "ecard-ButtonBase-button-section",
+    },
   },
-  "scrollArea": {
-    "vars": {
-      "--scrollarea-scrollbar-size": "var(--scrollbar-size)"
+  scrollArea: {
+    vars: {
+      "--scrollarea-scrollbar-size": "var(--scrollbar-size)",
     },
-    "classNames": {
-      "scrollbar": "ecard-ScrollArea-scrollbar",
-      "thumb": "ecard-ScrollArea-thumb",
-      "corner": "ecard-ScrollArea-corner"
-    }
-  },
-  "inputDefaultRadius": "6",
-  "variants": {
-    "map": {
-      "contained": "filled",
-      "outlined": "outline",
-      "text": "subtle"
+    classNames: {
+      scrollbar: "ecard-ScrollArea-scrollbar",
+      thumb: "ecard-ScrollArea-thumb",
+      corner: "ecard-ScrollArea-corner",
     },
-    "custom": {
-      "quiet": {
-        "background": "transparent",
-        "hover": "transparent",
-        "border": "1px solid transparent",
-        "color": "var(--color-text-secondary)",
-        "hoverColor": "var(--mantine-color-text)"
-      }
-    }
   },
-  "facades": {
-    "BaseAccordion": "Accordion",
-    "BaseActionIcon": "ActionIcon",
-    "BaseAlert": "Alert",
-    "BaseAnchor": "Anchor",
-    "BaseAvatar": "Avatar",
-    "BaseBadge": "Badge",
-    "BaseBox": "Box",
-    "BaseBreadcrumbs": "Breadcrumbs",
-    "BaseButton": "Button",
-    "BaseCard": "Card",
-    "BaseCenter": "Center",
-    "BaseCheckbox": "Checkbox",
-    "BaseCloseButton": "CloseButton",
-    "BaseCode": "Code",
-    "BaseCollapse": "Collapse",
-    "BaseCombobox": "Combobox",
-    "BaseContainer": "Container",
-    "BaseCopyButton": "CopyButton",
-    "BaseDataList": "DataList",
-    "BaseDivider": "Divider",
-    "BaseDrawer": "Drawer",
-    "BaseFileButton": "FileButton",
-    "BaseFlex": "Flex",
-    "BaseGrid": "Grid",
-    "BaseGroup": "Group",
-    "BaseImage": "Image",
-    "BaseInput": "Input",
-    "BaseInputLabel": "InputLabel",
-    "BaseList": "List",
-    "BaseLoader": "Loader",
-    "BaseMenu": "Menu",
-    "BaseModal": "Modal",
-    "BasePaper": "Paper",
-    "BasePill": "Pill",
-    "BasePopover": "Popover",
-    "BaseProgress": "Progress",
-    "BaseRadio": "Radio",
-    "BaseScrollArea": "ScrollArea",
-    "BaseScroller": "Scroller",
-    "BaseSegmentedControl": "SegmentedControl",
-    "BaseSimpleGrid": "SimpleGrid",
-    "BaseSkeleton": "Skeleton",
-    "BaseStack": "Stack",
-    "BaseSwitch": "Switch",
-    "BaseTable": "Table",
-    "BaseTabs": "Tabs",
-    "BaseText": "Text",
-    "BaseThemeIcon": "ThemeIcon",
-    "BaseTitle": "Title",
-    "BaseTooltip": "Tooltip",
-    "BaseTransition": "Transition",
-    "BaseUnstyledButton": "UnstyledButton"
-  }
+  inputDefaultRadius: "6",
+  variants: {
+    map: {
+      contained: "filled",
+      outlined: "outline",
+      text: "subtle",
+    },
+    custom: {
+      quiet: {
+        background: "transparent",
+        hover: "transparent",
+        border: "1px solid transparent",
+        color: "var(--color-text-secondary)",
+        hoverColor: "var(--mantine-color-text)",
+      },
+    },
+  },
+  facades: {
+    BaseAccordion: "Accordion",
+    BaseActionIcon: "ActionIcon",
+    BaseAlert: "Alert",
+    BaseAnchor: "Anchor",
+    BaseAvatar: "Avatar",
+    BaseBadge: "Badge",
+    BaseBox: "Box",
+    BaseBreadcrumbs: "Breadcrumbs",
+    BaseButton: "Button",
+    BaseCard: "Card",
+    BaseCenter: "Center",
+    BaseCheckbox: "Checkbox",
+    BaseCloseButton: "CloseButton",
+    BaseCode: "Code",
+    BaseCollapse: "Collapse",
+    BaseCombobox: "Combobox",
+    BaseContainer: "Container",
+    BaseCopyButton: "CopyButton",
+    BaseDataList: "DataList",
+    BaseDivider: "Divider",
+    BaseDrawer: "Drawer",
+    BaseFileButton: "FileButton",
+    BaseFlex: "Flex",
+    BaseGrid: "Grid",
+    BaseGroup: "Group",
+    BaseImage: "Image",
+    BaseInput: "Input",
+    BaseInputLabel: "InputLabel",
+    BaseList: "List",
+    BaseLoader: "Loader",
+    BaseMenu: "Menu",
+    BaseModal: "Modal",
+    BasePaper: "Paper",
+    BasePill: "Pill",
+    BasePopover: "Popover",
+    BaseProgress: "Progress",
+    BaseRadio: "Radio",
+    BaseScrollArea: "ScrollArea",
+    BaseScroller: "Scroller",
+    BaseSegmentedControl: "SegmentedControl",
+    BaseSimpleGrid: "SimpleGrid",
+    BaseSkeleton: "Skeleton",
+    BaseStack: "Stack",
+    BaseSwitch: "Switch",
+    BaseTable: "Table",
+    BaseTabs: "Tabs",
+    BaseText: "Text",
+    BaseThemeIcon: "ThemeIcon",
+    BaseTitle: "Title",
+    BaseTooltip: "Tooltip",
+    BaseTransition: "Transition",
+    BaseUnstyledButton: "UnstyledButton",
+  },
 };

@@ -10,6 +10,6 @@ document.documentElement.dataset["embed"] = env.embed;
 
 const root = document.getElementById("root");
 if (root) {
-	const state = await loadIdentity();
-	createRoot(root).render(<App state={state} />);
+  const state = await loadIdentity();
+  createRoot(root).render(<App state={state} />);
 }

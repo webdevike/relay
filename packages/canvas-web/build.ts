@@ -8,21 +8,21 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const result = await Bun.build({
-	entrypoints: [join(here, "src", "main.tsx")],
-	target: "browser",
-	format: "esm",
-	minify: true,
-	define: { "process.env.NODE_ENV": JSON.stringify("production") },
+  entrypoints: [join(here, "src", "main.tsx")],
+  target: "browser",
+  format: "esm",
+  minify: true,
+  define: { "process.env.NODE_ENV": JSON.stringify("production") },
 });
 if (!result.success) {
-	for (const log of result.logs) console.error(log);
-	process.exit(1);
+  for (const log of result.logs) console.error(log);
+  process.exit(1);
 }
 let js = "";
 let css = "";
 for (const out of result.outputs) {
-	if (out.path.endsWith(".js")) js += await out.text();
-	else if (out.path.endsWith(".css")) css += await out.text();
+  if (out.path.endsWith(".js")) js += await out.text();
+  else if (out.path.endsWith(".css")) css += await out.text();
 }
 if (!js) throw new Error("Bun.build produced no script");
 // Inlined in <script>/<style> elements: nothing may close them early.
@@ -48,4 +48,6 @@ const html = `<!doctype html>
 const out = join(here, "generated", "canvas.html");
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, html);
-console.log(`wrote ${out}: ${(html.length / 1024).toFixed(0)} KB (js ${(js.length / 1024).toFixed(0)} KB, css ${(css.length / 1024).toFixed(0)} KB)`);
+console.log(
+  `wrote ${out}: ${(html.length / 1024).toFixed(0)} KB (js ${(js.length / 1024).toFixed(0)} KB, css ${(css.length / 1024).toFixed(0)} KB)`,
+);

@@ -24,7 +24,9 @@ export function checkOpenUIBlocks(markdown: string): OpenUIBlockFinding[] {
     const fence = OPEN.exec(lines[i] ?? "")?.[1];
     if (fence === undefined) continue;
     // Closed by a run of the same fence character at least as long (CommonMark).
-    const close = new RegExp(`^ {0,3}${fence.startsWith("`") ? "`" : "~"}{${String(fence.length)},}\\s*$`);
+    const close = new RegExp(
+      `^ {0,3}${fence.startsWith("`") ? "`" : "~"}{${String(fence.length)},}\\s*$`,
+    );
     let end = i + 1;
     while (end < lines.length && !close.test(lines[end] ?? "")) end++;
     const unclosed = end >= lines.length;

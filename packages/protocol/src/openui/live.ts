@@ -22,7 +22,15 @@ export interface LiveOpenUICheck {
 /** Checks a live source; never throws. */
 export function checkLiveOpenUI(text: string): LiveOpenUICheck {
   if (text.length > MAX_LIVE_OPENUI)
-    return { errors: [{ code: "parse-exception", message: `source is ${String(text.length)} chars, at most ${String(MAX_LIVE_OPENUI)}` }], queries: [] };
+    return {
+      errors: [
+        {
+          code: "parse-exception",
+          message: `source is ${String(text.length)} chars, at most ${String(MAX_LIVE_OPENUI)}`,
+        },
+      ],
+      queries: [],
+    };
   const program = compileProgram(text, false);
   const errors = program.errors.filter((e) => e.severity !== "warning");
   const defaults = program.result?.stateDeclarations ?? {};
@@ -30,12 +38,19 @@ export function checkLiveOpenUI(text: string): LiveOpenUICheck {
   for (const call of queries) {
     const at = { statementId: call.id, component: "Query" };
     if (call.tool === null) {
-      errors.push({ code: "query-error", message: "Query's first argument must be a tool name string", ...at });
+      errors.push({
+        code: "query-error",
+        message: "Query's first argument must be a tool name string",
+        ...at,
+      });
       continue;
     }
     const args = checkQueryArgs(call.tool, call.args);
     if (!args.ok) errors.push({ code: "query-error", message: args.error, ...at });
-    if (call.refreshSec !== null && (call.refreshSec < QUERY_MIN_REFRESH_SEC || call.refreshSec > QUERY_MAX_REFRESH_SEC))
+    if (
+      call.refreshSec !== null &&
+      (call.refreshSec < QUERY_MIN_REFRESH_SEC || call.refreshSec > QUERY_MAX_REFRESH_SEC)
+    )
       errors.push({
         code: "query-error",
         message: `refresh is ${String(call.refreshSec)}s; give ${String(QUERY_MIN_REFRESH_SEC)} to ${String(QUERY_MAX_REFRESH_SEC)} seconds, or leave it out to fetch once`,
@@ -54,7 +69,10 @@ export interface LiveOpenUIRender {
 }
 
 /** Checks the source, runs its queries through `run` and evaluates it into a static tree. */
-export async function renderLiveOpenUI(text: string, run: (tool: string, args: Record<string, unknown>) => Promise<unknown>): Promise<LiveOpenUIRender> {
+export async function renderLiveOpenUI(
+  text: string,
+  run: (tool: string, args: Record<string, unknown>) => Promise<unknown>,
+): Promise<LiveOpenUIRender> {
   const check = checkLiveOpenUI(text);
   if (check.errors.length > 0) return { node: null, errors: check.errors, warnings: [] };
   const warnings: OpenUIError[] = [];
@@ -66,15 +84,31 @@ export async function renderLiveOpenUI(text: string, run: (tool: string, args: R
       } catch (error) {
         data.set(call.id, call.defaults);
         const message = error instanceof Error ? error.message : String(error);
-        warnings.push({ code: "query-error", message: `${call.tool ?? "Query"}: ${message}`, statementId: call.id, severity: "warning" });
+        warnings.push({
+          code: "query-error",
+          message: `${call.tool ?? "Query"}: ${message}`,
+          statementId: call.id,
+          severity: "warning",
+        });
       }
     }),
   );
   const program = compileProgram(text, false);
   const defaults = program.result?.stateDeclarations ?? {};
-  const built = buildTree(program, (name) => defaults[name] ?? null, (name) => data.get(name) ?? null);
-  for (const e of built.errors) if (!program.errors.includes(e)) warnings.push({ ...e, severity: "warning" });
+  const built = buildTree(
+    program,
+    (name) => defaults[name] ?? null,
+    (name) => data.get(name) ?? null,
+  );
+  for (const e of built.errors)
+    if (!program.errors.includes(e)) warnings.push({ ...e, severity: "warning" });
   if (built.node === null)
-    return { node: null, errors: [{ code: "no-root", message: "the root does not render with the data its queries returned" }], warnings };
+    return {
+      node: null,
+      errors: [
+        { code: "no-root", message: "the root does not render with the data its queries returned" },
+      ],
+      warnings,
+    };
   return { node: built.node, errors: [], warnings };
 }

@@ -31,7 +31,15 @@ export function emojify(text: string): string {
   // Odd pieces of a split on backtick runs are code: `:not_this:` stays literal.
   return text
     .split(/(`{1,3}[^`]*`{1,3})/)
-    .map((part, index) => (index % 2 === 1 ? part : part.replace(SHORTCODE, (whole: string, name: string, tone: string | undefined) => slackEmoji(name, tone) ?? whole)))
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        : part.replace(
+            SHORTCODE,
+            (whole: string, name: string, tone: string | undefined) =>
+              slackEmoji(name, tone) ?? whole,
+          ),
+    )
     .join("");
 }
 

@@ -32,7 +32,7 @@ describe('readLayoutText', () => {
   it('reads the old panel width and tool for the migration', () => {
     const r = readLayoutText('{"panel_width":500,"panel_tool":"files","panel_choices":{"a":true}}')
     expect(r.legacyPanel).toEqual({ width: 500, tool: 'files' })
-    expect(readLayoutText('{"panel_tool":"terminal"}').legacyPanel).toEqual(defaults.legacyPanel)
+    expect(readLayoutText('{"panel_tool":"nope"}').legacyPanel).toEqual(defaults.legacyPanel)
   })
   it('a saved split tree wins over the old panel, a dockview layout over both', () => {
     const tiling = { version: 1, root: { type: 'pane', id: 'chat', tabs: [], active: null } }

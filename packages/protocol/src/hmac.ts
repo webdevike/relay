@@ -6,7 +6,11 @@ export type Sha256 = (data: Uint8Array) => Promise<ArrayBuffer>;
 
 const BLOCK = 64;
 
-export async function hmacSha256(key: Uint8Array, message: Uint8Array, sha256: Sha256): Promise<Uint8Array> {
+export async function hmacSha256(
+  key: Uint8Array,
+  message: Uint8Array,
+  sha256: Sha256,
+): Promise<Uint8Array> {
   const k = key.length > BLOCK ? new Uint8Array(await sha256(key)) : key;
   const padded = new Uint8Array(BLOCK);
   padded.set(k);

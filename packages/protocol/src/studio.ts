@@ -31,7 +31,13 @@ export const StudioMode = z.enum(["image", "video"]);
 export type StudioMode = z.infer<typeof StudioMode>;
 
 /** `ltx`: local LTX-2.5 video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `kontext`: local FLUX.1 Kontext image edit. `higgsfield`: paid. */
-export const StudioBackendId = z.enum(["ltx", "codex-image", "codex-edit", "kontext", "higgsfield"]);
+export const StudioBackendId = z.enum([
+  "ltx",
+  "codex-image",
+  "codex-edit",
+  "kontext",
+  "higgsfield",
+]);
 export type StudioBackendId = z.infer<typeof StudioBackendId>;
 
 export const StudioAspect = z.enum(["9:16", "16:9", "1:1"]);
@@ -156,7 +162,10 @@ export type StudioBackend = z.infer<typeof StudioBackend>;
 
 const StudioImage = z.object({
   mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
-  data: z.string().min(1).max(6 * 1024 * 1024),
+  data: z
+    .string()
+    .min(1)
+    .max(6 * 1024 * 1024),
 });
 
 export const StudioOp = z.discriminatedUnion("kind", [
@@ -224,7 +233,14 @@ export function studioEtaLabel(etaMs: number | undefined): string | undefined {
 }
 
 /** Resolutions the spec's backend (or model) offers for an aspect. */
-export function studioResolutions(backend: StudioBackend, aspect: StudioAspect, model?: string): StudioResolution[] {
-  const list = model === undefined ? backend.resolutions : (backend.models?.find((m) => m.id === model)?.resolutions ?? []);
+export function studioResolutions(
+  backend: StudioBackend,
+  aspect: StudioAspect,
+  model?: string,
+): StudioResolution[] {
+  const list =
+    model === undefined
+      ? backend.resolutions
+      : (backend.models?.find((m) => m.id === model)?.resolutions ?? []);
   return list.filter((r) => r.aspect === aspect);
 }

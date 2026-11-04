@@ -37,6 +37,7 @@ import { createPrSource, toolRunner } from './context-popover/pr-source'
 import { startStatusReader } from './relay/artifacts-status'
 import { registerRoomsIpc } from './rooms/rooms-ipc'
 import { registerFilesIpc } from './files/files-ipc'
+import { registerTerminalIpc } from './terminal/terminal-ipc'
 import { registerAgentControl } from './agent-control'
 import { reportFatal } from './fatal'
 import { registerUpdate } from './update'
@@ -198,6 +199,7 @@ function bootstrap(): void {
       registerReviewsIpc(ctx, run, ctx.env.relayRemote ? createHostApprove(chat.frames) : null)
       registerRoomsIpc(ctx)
       registerFilesIpc(ctx, chat)
+      registerTerminalIpc(ctx, chat)
       registerBrowser(ctx)
       const update = registerUpdate(ctx, {
         chatWorking: () => chat.anyWorking(),

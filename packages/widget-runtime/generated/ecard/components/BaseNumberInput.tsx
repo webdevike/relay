@@ -3,10 +3,8 @@
 // Stock Mantine field chrome and up/down stepper controls (6px radius from the theme) with the shared
 // eCard field label, and Mantine's loader in place of the controls while loading. Mantine props passed
 // explicitly win over the eCard defaults.
-import {
-  NumberInput, type NumberInputProps,
-} from "@mantine/core";
-const textInputStyles: Record<string, string> = {"label":"ecard-BaseTextInput-label"};
+import { NumberInput, type NumberInputProps } from "@mantine/core";
+const textInputStyles: Record<string, string> = { label: "ecard-BaseTextInput-label" };
 
 export type BaseNumberInputProps = NumberInputProps & {
   /** Shows Mantine's loader instead of the stepper controls and "Loading..." as the placeholder. */
@@ -25,12 +23,7 @@ export function BaseNumberInput({
       hideControls={hideControls || isLoading}
       loading={isLoading}
       classNames={{ label: textInputStyles["label"] }}
-      inputWrapperOrder={[
-        "label",
-        "input",
-        "description",
-        "error",
-      ]}
+      inputWrapperOrder={["label", "input", "description", "error"]}
       {...props}
     />
   );

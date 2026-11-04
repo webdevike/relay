@@ -1652,7 +1652,13 @@ export const ServerMessage = z.discriminatedUnion("t", [
   /** An item's Astra session changed (streamed text, a turn ending); pushed to every device. */
   z.object({ t: z.literal("reviews.astra"), item: AstraItem }),
   /** Answer to `query.req`: the tool's result, or why it was refused (unknown tool, bad args, rate limit, a source failing). */
-  z.object({ t: z.literal("query.res"), rid: z.string().min(1).max(64), ok: z.boolean(), data: z.unknown().optional(), error: z.string().optional() }),
+  z.object({
+    t: z.literal("query.res"),
+    rid: z.string().min(1).max(64),
+    ok: z.boolean(),
+    data: z.unknown().optional(),
+    error: z.string().optional(),
+  }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),

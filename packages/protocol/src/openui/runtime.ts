@@ -72,10 +72,19 @@ export function createOpenUIRuntime(text: string, opts: OpenUIRuntimeOptions = {
     snapshot() {
       if (!snapshot) {
         const { node, errors, complete } = current();
-        const issues = queries.issues().map(
-          ({ id, message }): OpenUIError => ({ code: "query-error", message, statementId: id, severity: "warning" }),
-        );
-        snapshot = { node, errors: issues.length === 0 ? errors : [...errors, ...issues], complete };
+        const issues = queries
+          .issues()
+          .map(({ id, message }): OpenUIError => ({
+            code: "query-error",
+            message,
+            statementId: id,
+            severity: "warning",
+          }));
+        snapshot = {
+          node,
+          errors: issues.length === 0 ? errors : [...errors, ...issues],
+          complete,
+        };
       }
       return snapshot;
     },
@@ -99,7 +108,8 @@ export function createOpenUIRuntime(text: string, opts: OpenUIRuntimeOptions = {
           for (const step of plan.steps) {
             if (step.type === "set") store.set(step.target, evaluate(step.valueAST, ctx));
             else if (step.type === "reset")
-              for (const target of step.targets) store.set(target, defaults()[target] ?? null, { pristine: true });
+              for (const target of step.targets)
+                store.set(target, defaults()[target] ?? null, { pristine: true });
             else if (step.type === "run") queries.refetch(step.statementId);
             else if (step.type === "continue_conversation") out.reply ??= step.message;
             else if (step.type === "open_url") out.url ??= step.url;

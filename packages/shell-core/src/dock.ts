@@ -23,9 +23,11 @@ export type Side = 'left' | 'right' | 'up' | 'down'
 
 // Tool tabs ------------------------------------------------------------------------------------
 
-export type ToolKind = 'browser' | 'files'
+export type ToolKind = 'browser' | 'files' | 'terminal'
+/** The tools a fresh layout opens; Terminal is added from a pane's + menu. */
 export const TOOL_KINDS: readonly ToolKind[] = ['browser', 'files']
-export const isToolKind = (v: unknown): v is ToolKind => v === 'browser' || v === 'files'
+export const isToolKind = (v: unknown): v is ToolKind =>
+  v === 'browser' || v === 'files' || v === 'terminal'
 
 export type ToolTab =
   | { kind: ToolKind }

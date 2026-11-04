@@ -13,6 +13,7 @@ import {
   IconPhotoSpark,
   IconPlus,
   IconSchema,
+  IconTerminal2,
   IconX,
 } from '@tabler/icons-react'
 import type { IDockviewHeaderActionsProps } from 'dockview-react'
@@ -120,6 +121,7 @@ export function LeftActions({ group }: IDockviewHeaderActionsProps) {
 const ADDABLE: Array<{ label: string; Icon: typeof IconGlobe; add: ToolTab | Place }> = [
   { label: 'Browser', Icon: IconGlobe, add: { kind: 'browser' } },
   { label: 'Files', Icon: IconFiles, add: { kind: 'files' } },
+  { label: 'Terminal', Icon: IconTerminal2, add: { kind: 'terminal' } },
   { label: 'Test Bench', Icon: IconListCheck, add: placeOf('test-bench') },
   { label: 'Canvas', Icon: IconSchema, add: placeOf('canvas') },
   { label: 'Studio', Icon: IconPhotoSpark, add: placeOf('studio') },

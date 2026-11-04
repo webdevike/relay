@@ -3,10 +3,8 @@
 // Stock Mantine field chrome (1px border, primary focus border, error and disabled states; 6px radius
 // from the theme) with the shared eCard field label, and description and error below the input.
 // Mantine props passed explicitly win over the eCard defaults.
-import {
-  TextInput, type TextInputProps,
-} from "@mantine/core";
-const styles: Record<string, string> = {"label":"ecard-BaseTextInput-label"};
+import { TextInput, type TextInputProps } from "@mantine/core";
+const styles: Record<string, string> = { label: "ecard-BaseTextInput-label" };
 
 export type BaseTextInputProps = TextInputProps;
 
@@ -14,12 +12,7 @@ export function BaseTextInput(props: BaseTextInputProps) {
   return (
     <TextInput
       classNames={{ label: styles["label"] }}
-      inputWrapperOrder={[
-        "label",
-        "input",
-        "description",
-        "error",
-      ]}
+      inputWrapperOrder={["label", "input", "description", "error"]}
       {...props}
     />
   );

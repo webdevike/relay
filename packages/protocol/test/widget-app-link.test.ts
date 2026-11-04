@@ -22,13 +22,18 @@ describe("relay:// app links", () => {
 
   it("takes a relay:// url on a card, link and button; a card drops a bad one", () => {
     const kids = [{ widget: "divider" }];
-    expect(parse({ widget: "card", title: "Nova", url: "relay://assistant/nova", children: kids })).toMatchObject({
+    expect(
+      parse({ widget: "card", title: "Nova", url: "relay://assistant/nova", children: kids }),
+    ).toMatchObject({
       url: "relay://assistant/nova",
     });
     expect(parse({ widget: "card", url: "https://example.com/x", children: kids })).toMatchObject({
       url: "https://example.com/x",
     });
-    expect(parse({ widget: "card", url: "relay://nope/x", children: kids })).toEqual({ widget: "card", children: kids });
+    expect(parse({ widget: "card", url: "relay://nope/x", children: kids })).toEqual({
+      widget: "card",
+      children: kids,
+    });
     expect(parse({ widget: "link", label: "Nova", url: "relay://assistant/nova" })).not.toBeNull();
     expect(parse({ widget: "link", label: "Bad", url: "relay://nope" })).toBeNull();
     expect(parse({ widget: "button", label: "Go", url: "relay://open/jobs" })).not.toBeNull();
@@ -51,7 +56,9 @@ describe("relay://assistant/<id>/avatar sources", () => {
 
   it("keeps it as an avatar src next to drops and https, and drops anything else", () => {
     const avatar = (src: string) => parse({ widget: "avatar", name: "Nova", src });
-    expect(avatar("relay://assistant/nova/avatar")).toMatchObject({ src: "relay://assistant/nova/avatar" });
+    expect(avatar("relay://assistant/nova/avatar")).toMatchObject({
+      src: "relay://assistant/nova/avatar",
+    });
     expect(avatar("/drops/a/b")).toMatchObject({ src: "/drops/a/b" });
     expect(avatar("https://x.com/a.png")).toMatchObject({ src: "https://x.com/a.png" });
     expect(avatar("relay://assistant/nova")).toEqual({ widget: "avatar", name: "Nova" });

@@ -16,7 +16,12 @@ const EVERY_TYPE: Record<WidgetSpec["widget"], unknown> = {
     labels: ["W1", "W2"],
     series: [{ name: "calls", color: "#A7F3D0", points: [-3.5, 1e-7] }, { points: [2, 4] }],
   },
-  stat: { widget: "stat", label: "Collected", value: "$7.9k", delta: { value: "12%", direction: "up" } },
+  stat: {
+    widget: "stat",
+    label: "Collected",
+    value: "$7.9k",
+    delta: { value: "12%", direction: "up" },
+  },
   tickets: {
     widget: "tickets",
     title: "Mine",
@@ -46,7 +51,10 @@ const EVERY_TYPE: Record<WidgetSpec["widget"], unknown> = {
   gallery: {
     widget: "gallery",
     title: "Refs",
-    images: [{ src: DROP, title: "A", caption: "c", url: "https://dribbble.com/shots/1" }, { src: DROP }],
+    images: [
+      { src: DROP, title: "A", caption: "c", url: "https://dribbble.com/shots/1" },
+      { src: DROP },
+    ],
   },
   model: { widget: "model", src: DROP, title: "Mug", caption: "54 KB", autoRotate: true },
   recipe: {
@@ -58,15 +66,32 @@ const EVERY_TYPE: Record<WidgetSpec["widget"], unknown> = {
     source: "https://example.com/r",
   },
   text: { widget: "text", text: "Hello", style: "heading" },
-  rows: { widget: "rows", rows: [{ label: "a", value: "b", tone: "ok" }, { label: "c", value: "d" }] },
+  rows: {
+    widget: "rows",
+    rows: [
+      { label: "a", value: "b", tone: "ok" },
+      { label: "c", value: "d" },
+    ],
+  },
   badge: { widget: "badge", label: "eCard", tone: "accent" },
   divider: { widget: "divider" },
-  diff: { widget: "diff", file: "src/a.ts", patch: '@@ -1 +1 @@\n-const a = "x";\n+const a = "y\\n";\n' },
+  diff: {
+    widget: "diff",
+    file: "src/a.ts",
+    patch: '@@ -1 +1 @@\n-const a = "x";\n+const a = "y\\n";\n',
+  },
   emails: {
     widget: "emails",
     title: "Inbox",
     emails: [
-      { from: "A", subject: "S", snippet: "sn", date: "9:41", unread: true, url: "https://mail.google.com/mail/u/0/#all/1" },
+      {
+        from: "A",
+        subject: "S",
+        snippet: "sn",
+        date: "9:41",
+        unread: true,
+        url: "https://mail.google.com/mail/u/0/#all/1",
+      },
       { from: "B", subject: "T" },
     ],
   },
@@ -82,12 +107,28 @@ const EVERY_TYPE: Record<WidgetSpec["widget"], unknown> = {
     url: "https://github.com/o/r/pull/412",
     body: "## Why\n\nBecause.",
     reviewers: [{ name: "noah", state: "approved" }, { name: "steve" }],
-    checks: [{ name: "lint", status: "success", duration: "42s", url: "https://github.com/o/r/runs/1" }, { name: "e2e" }],
+    checks: [
+      { name: "lint", status: "success", duration: "42s", url: "https://github.com/o/r/runs/1" },
+      { name: "e2e" },
+    ],
     files: [{ file: "a.ts", patch: "@@ -1 +1 @@\n-a\n+b", additions: 1, deletions: 1 }],
   },
-  button: { widget: "button", label: "Nudge", reply: "nudge Noah", variant: "primary", tone: "warn" },
+  button: {
+    widget: "button",
+    label: "Nudge",
+    reply: "nudge Noah",
+    variant: "primary",
+    tone: "warn",
+  },
   link: { widget: "link", label: "Docs", url: "https://example.com/docs" },
-  image: { widget: "image", src: DROP, alt: "a", caption: "c", url: "https://example.com", aspect: 1.5 },
+  image: {
+    widget: "image",
+    src: DROP,
+    alt: "a",
+    caption: "c",
+    url: "https://example.com",
+    aspect: 1.5,
+  },
   table: {
     widget: "table",
     title: "Checks",
@@ -97,27 +138,63 @@ const EVERY_TYPE: Record<WidgetSpec["widget"], unknown> = {
       [{ text: "e2e", tone: "danger", bold: true }, "6m", { text: "", icon: "linear" }],
     ],
   },
-  progress: { widget: "progress", value: 7, max: 9, label: "Checks", caption: "7 of 9", tone: "ok" },
-  list: { widget: "list", style: "check", items: ["one", { text: "two", caption: "c", checked: true }] },
+  progress: {
+    widget: "progress",
+    value: 7,
+    max: 9,
+    label: "Checks",
+    caption: "7 of 9",
+    tone: "ok",
+  },
+  list: {
+    widget: "list",
+    style: "check",
+    items: ["one", { text: "two", caption: "c", checked: true }],
+  },
   callout: { widget: "callout", text: "Two approvals needed.", title: "Waiting", tone: "warn" },
-  code: { widget: "code", code: 'const s = "q\\"\\\\";\n\ttab é 😀 `t` ${x}', language: "ts", title: "a.ts" },
+  code: {
+    widget: "code",
+    code: 'const s = "q\\"\\\\";\n\ttab é 😀 `t` ${x}',
+    language: "ts",
+    title: "a.ts",
+  },
   quote: { widget: "quote", text: "Ship it.", cite: "Isaac" },
   avatar: { widget: "avatar", name: "Noah", subtitle: "Reviewer", src: DROP },
-  timeline: { widget: "timeline", items: [{ title: "Opened", time: "9:00", text: "t", tone: "accent" }, { title: "Merged" }] },
-  input: { widget: "input", placeholder: "Name", button: "Go", reply: "call me {value}", multiline: true },
+  timeline: {
+    widget: "timeline",
+    items: [{ title: "Opened", time: "9:00", text: "t", tone: "accent" }, { title: "Merged" }],
+  },
+  input: {
+    widget: "input",
+    placeholder: "Name",
+    button: "Go",
+    reply: "call me {value}",
+    multiline: true,
+  },
   stack: {
     widget: "stack",
     direction: "horizontal",
     gap: "xs",
-    children: [{ widget: "badge", label: "a" }, { widget: "badge", label: "b" }],
+    children: [
+      { widget: "badge", label: "a" },
+      { widget: "badge", label: "b" },
+    ],
   },
   card: {
     widget: "card",
     title: "Brief",
     width: "compact",
-    children: [{ widget: "text", text: "0", style: "display", align: "right" }, { widget: "divider" }],
+    children: [
+      { widget: "text", text: "0", style: "display", align: "right" },
+      { widget: "divider" },
+    ],
   },
-  grid: { widget: "grid", columns: 3, gap: "lg", children: [{ widget: "stat", label: "a", value: "1" }] },
+  grid: {
+    widget: "grid",
+    columns: 3,
+    gap: "lg",
+    children: [{ widget: "stat", label: "a", value: "1" }],
+  },
   tabs: {
     widget: "tabs",
     tabs: [
@@ -125,23 +202,166 @@ const EVERY_TYPE: Record<WidgetSpec["widget"], unknown> = {
       { label: "Two", children: [{ widget: "card", children: [{ widget: "text", text: "2" }] }] },
     ],
   },
-  collapse: { widget: "collapse", title: "More", open: true, children: [{ widget: "text", text: "hidden" }] },
+  collapse: {
+    widget: "collapse",
+    title: "More",
+    open: true,
+    children: [{ widget: "text", text: "hidden" }],
+  },
 };
 
 /** The JSON examples of the relay-widgets skill. */
 const SKILL_EXAMPLES: unknown[] = [
-  {"widget":"chart","kind":"bar","title":"Weekly calls","labels":["W1","W2","W3","W4","W5","W6"],"series":[{"name":"calls","points":[120,180,150,240,300,260]}]},
-  {"widget":"chart","kind":"bar","stacked":true,"title":"Calls by outcome","labels":["W1","W2","W3"],"series":[{"name":"connected","color":"#A7F3D0","points":[40,60,55]},{"name":"voicemail","color":"#FDE68A","points":[50,70,60]}]},
-  {"widget":"stat","label":"Collected","value":"$7.9k","delta":{"value":"12%","direction":"up"}},
-  {"widget":"tickets","title":"My Linear tickets","tickets":[{"id":"ENG-5514","title":"Black Buttons: more stragglers","summary":"Merged; waiting on Steve's QA on dev before closing.","state":"In QA","stateType":"started","priority":"Low","updated":"2d ago","url":"https://linear.app/ecard-systems/issue/ENG-5514/black-buttons-more-stragglers"}]},
-  {"widget":"compare","title":"Admin tabs","before":{"src":"/drops/a/b","label":"Before · dev"},"after":{"src":"/drops/c/d","label":"After · local"}},
-  {"widget":"audio","title":"Pocket TTS · stuart_bell","src":"/drops/a/b"},
-  {"widget":"gallery","title":"Data tables","images":[{"src":"https://cdn.dribbble.com/userupload/1.png?resize=1600x1200","title":"Nested Data Table","caption":"Jon Moore · 561 likes","url":"https://dribbble.com/shots/15627284"}]},
-  {"widget":"recipe","title":"Smashed Pork Tacos","meta":["15 minutes","Serves 6"],"ingredients":[{"section":"Tacos","item":"1 lb ground pork"},{"item":"6 corn tortillas"},{"section":"Glaze","item":"3 tbsp soy sauce"}],"directions":["Mix and portion the pork.","Sear each taco meat-side down."],"source":"https://example.com/recipe"},
-  {"widget":"model","title":"Mug on a coaster","src":"/drops/a/b","caption":"Blender export · 54 KB","autoRotate":true},
-  {"widget":"card","title":"Morning brief","children":[{"widget":"stack","direction":"horizontal","children":[{"widget":"stat","label":"Open tickets","value":"12"},{"widget":"stat","label":"In review","value":"1"}]},{"widget":"divider"},{"widget":"rows","rows":[{"label":"ENG-5533","value":"In Review","tone":"accent"},{"label":"ENG-5514","value":"Waiting on QA","tone":"warn"}]},{"widget":"stack","direction":"horizontal","gap":"xs","children":[{"widget":"badge","label":"eCard","tone":"accent"},{"widget":"badge","label":"Dev green","tone":"ok"}]}]},
-  {"widget":"card","title":"ENG-6211 review","children":[{"widget":"callout","tone":"warn","title":"Waiting on Noah","text":"Two approvals needed before merge."},{"widget":"table","columns":["Check",{"label":"Time","align":"right"}],"rows":[["lint","42s"],[{"text":"e2e","tone":"danger","bold":true},"6m"]]},{"widget":"progress","label":"Checks","value":7,"max":9,"tone":"ok"},{"widget":"stack","direction":"horizontal","children":[{"widget":"button","label":"Nudge Noah","reply":"nudge Noah on ENG-6211","variant":"primary"},{"widget":"button","label":"Open PR","url":"https://github.com"}]}]},
-  {"widget":"table","columns":["PR","Issue","Title","State"],"rows":[[{"text":"#412","url":"https://github.com/o/r/pull/412","icon":"github"},{"text":"ENG-6211","url":"https://linear.app/team/issue/ENG-6211","icon":"linear"},"Fix login","In review"]]},
+  {
+    widget: "chart",
+    kind: "bar",
+    title: "Weekly calls",
+    labels: ["W1", "W2", "W3", "W4", "W5", "W6"],
+    series: [{ name: "calls", points: [120, 180, 150, 240, 300, 260] }],
+  },
+  {
+    widget: "chart",
+    kind: "bar",
+    stacked: true,
+    title: "Calls by outcome",
+    labels: ["W1", "W2", "W3"],
+    series: [
+      { name: "connected", color: "#A7F3D0", points: [40, 60, 55] },
+      { name: "voicemail", color: "#FDE68A", points: [50, 70, 60] },
+    ],
+  },
+  { widget: "stat", label: "Collected", value: "$7.9k", delta: { value: "12%", direction: "up" } },
+  {
+    widget: "tickets",
+    title: "My Linear tickets",
+    tickets: [
+      {
+        id: "ENG-5514",
+        title: "Black Buttons: more stragglers",
+        summary: "Merged; waiting on Steve's QA on dev before closing.",
+        state: "In QA",
+        stateType: "started",
+        priority: "Low",
+        updated: "2d ago",
+        url: "https://linear.app/ecard-systems/issue/ENG-5514/black-buttons-more-stragglers",
+      },
+    ],
+  },
+  {
+    widget: "compare",
+    title: "Admin tabs",
+    before: { src: "/drops/a/b", label: "Before · dev" },
+    after: { src: "/drops/c/d", label: "After · local" },
+  },
+  { widget: "audio", title: "Pocket TTS · stuart_bell", src: "/drops/a/b" },
+  {
+    widget: "gallery",
+    title: "Data tables",
+    images: [
+      {
+        src: "https://cdn.dribbble.com/userupload/1.png?resize=1600x1200",
+        title: "Nested Data Table",
+        caption: "Jon Moore · 561 likes",
+        url: "https://dribbble.com/shots/15627284",
+      },
+    ],
+  },
+  {
+    widget: "recipe",
+    title: "Smashed Pork Tacos",
+    meta: ["15 minutes", "Serves 6"],
+    ingredients: [
+      { section: "Tacos", item: "1 lb ground pork" },
+      { item: "6 corn tortillas" },
+      { section: "Glaze", item: "3 tbsp soy sauce" },
+    ],
+    directions: ["Mix and portion the pork.", "Sear each taco meat-side down."],
+    source: "https://example.com/recipe",
+  },
+  {
+    widget: "model",
+    title: "Mug on a coaster",
+    src: "/drops/a/b",
+    caption: "Blender export · 54 KB",
+    autoRotate: true,
+  },
+  {
+    widget: "card",
+    title: "Morning brief",
+    children: [
+      {
+        widget: "stack",
+        direction: "horizontal",
+        children: [
+          { widget: "stat", label: "Open tickets", value: "12" },
+          { widget: "stat", label: "In review", value: "1" },
+        ],
+      },
+      { widget: "divider" },
+      {
+        widget: "rows",
+        rows: [
+          { label: "ENG-5533", value: "In Review", tone: "accent" },
+          { label: "ENG-5514", value: "Waiting on QA", tone: "warn" },
+        ],
+      },
+      {
+        widget: "stack",
+        direction: "horizontal",
+        gap: "xs",
+        children: [
+          { widget: "badge", label: "eCard", tone: "accent" },
+          { widget: "badge", label: "Dev green", tone: "ok" },
+        ],
+      },
+    ],
+  },
+  {
+    widget: "card",
+    title: "ENG-6211 review",
+    children: [
+      {
+        widget: "callout",
+        tone: "warn",
+        title: "Waiting on Noah",
+        text: "Two approvals needed before merge.",
+      },
+      {
+        widget: "table",
+        columns: ["Check", { label: "Time", align: "right" }],
+        rows: [
+          ["lint", "42s"],
+          [{ text: "e2e", tone: "danger", bold: true }, "6m"],
+        ],
+      },
+      { widget: "progress", label: "Checks", value: 7, max: 9, tone: "ok" },
+      {
+        widget: "stack",
+        direction: "horizontal",
+        children: [
+          {
+            widget: "button",
+            label: "Nudge Noah",
+            reply: "nudge Noah on ENG-6211",
+            variant: "primary",
+          },
+          { widget: "button", label: "Open PR", url: "https://github.com" },
+        ],
+      },
+    ],
+  },
+  {
+    widget: "table",
+    columns: ["PR", "Issue", "Title", "State"],
+    rows: [
+      [
+        { text: "#412", url: "https://github.com/o/r/pull/412", icon: "github" },
+        { text: "ENG-6211", url: "https://linear.app/team/issue/ENG-6211", icon: "linear" },
+        "Fix login",
+        "In review",
+      ],
+    ],
+  },
 ];
 
 /** A large tree for the streaming test: nested containers, tabs, tables, actions. */
@@ -149,26 +369,40 @@ const LARGE: unknown = {
   widget: "card",
   title: "Release dashboard",
   children: [
-    { widget: "grid", columns: 3, children: [
-      { widget: "stat", label: "Open", value: "12", delta: { value: "3", direction: "down" } },
-      { widget: "stat", label: "Merged", value: "41" },
-      { widget: "stat", label: "Failing", value: "2", delta: { value: "1", direction: "up" } },
-    ] },
-    { widget: "tabs", tabs: [
-      { label: "Checks", children: [
-        EVERY_TYPE.table,
-        { widget: "progress", label: "Checks", value: 7, max: 9, tone: "ok" },
-      ] },
-      { label: "Tickets", children: [EVERY_TYPE.tickets, EVERY_TYPE.rows] },
-      { label: "Activity", children: [EVERY_TYPE.timeline, EVERY_TYPE.chart] },
-    ] },
+    {
+      widget: "grid",
+      columns: 3,
+      children: [
+        { widget: "stat", label: "Open", value: "12", delta: { value: "3", direction: "down" } },
+        { widget: "stat", label: "Merged", value: "41" },
+        { widget: "stat", label: "Failing", value: "2", delta: { value: "1", direction: "up" } },
+      ],
+    },
+    {
+      widget: "tabs",
+      tabs: [
+        {
+          label: "Checks",
+          children: [
+            EVERY_TYPE.table,
+            { widget: "progress", label: "Checks", value: 7, max: 9, tone: "ok" },
+          ],
+        },
+        { label: "Tickets", children: [EVERY_TYPE.tickets, EVERY_TYPE.rows] },
+        { label: "Activity", children: [EVERY_TYPE.timeline, EVERY_TYPE.chart] },
+      ],
+    },
     EVERY_TYPE.callout,
     { widget: "collapse", title: "Details", children: [EVERY_TYPE.list, EVERY_TYPE.code] },
-    { widget: "stack", direction: "horizontal", children: [
-      EVERY_TYPE.button,
-      { widget: "button", label: "Open PR", url: "https://github.com/o/r/pull/412" },
-      { widget: "button", label: "Thanks", reply: "thanks" },
-    ] },
+    {
+      widget: "stack",
+      direction: "horizontal",
+      children: [
+        EVERY_TYPE.button,
+        { widget: "button", label: "Open PR", url: "https://github.com/o/r/pull/412" },
+        { widget: "button", label: "Thanks", reply: "thanks" },
+      ],
+    },
   ],
 };
 
@@ -202,14 +436,26 @@ describe("OpenUI library", () => {
 });
 
 describe("parseOpenUI / toOpenUI round trip", () => {
-  for (const [kind, json] of Object.entries(EVERY_TYPE)) it(kind, () => { roundTrip(json); });
+  for (const [kind, json] of Object.entries(EVERY_TYPE))
+    it(kind, () => {
+      roundTrip(json);
+    });
   SKILL_EXAMPLES.forEach((json, i) => {
-    it(`skill example ${String(i + 1)}`, () => { roundTrip(json); });
+    it(`skill example ${String(i + 1)}`, () => {
+      roundTrip(json);
+    });
   });
   it("puts statements top-down from root", () => {
     const program = toOpenUI(WidgetNode.parse(SKILL_EXAMPLES[9]));
     expect(program.split("\n").map((line) => line.split(" = ")[0])).toEqual([
-      "root", "stack1", "stat1", "stat2", "rows1", "stack2", "badge1", "badge2",
+      "root",
+      "stack1",
+      "stat1",
+      "stat2",
+      "rows1",
+      "stack2",
+      "badge1",
+      "badge2",
     ]);
   });
 });
@@ -230,7 +476,10 @@ describe("parseOpenUI", () => {
     );
     expect(result.node).toEqual({
       widget: "card",
-      children: [{ widget: "stat", label: "a", value: "1" }, { widget: "text", text: "ok" }],
+      children: [
+        { widget: "stat", label: "a", value: "1" },
+        { widget: "text", text: "ok" },
+      ],
     });
     expect(result.errors.map((e) => [e.code, e.component])).toEqual([
       ["invalid-widget", "Image"],
@@ -261,7 +510,9 @@ describe("parseOpenUI", () => {
   });
 
   it("reads Card width and Text align/display positionally", () => {
-    const result = parseOpenUI('root = Card([Text("42", "display", "right"), Text("hi", null, "center")], "Calc", "compact")');
+    const result = parseOpenUI(
+      'root = Card([Text("42", "display", "right"), Text("hi", null, "center")], "Calc", "compact")',
+    );
     expect(result.errors).toEqual([]);
     expect(result.node).toEqual({
       widget: "card",
@@ -272,7 +523,11 @@ describe("parseOpenUI", () => {
         { widget: "text", text: "hi", align: "center" },
       ],
     });
-    const loose = WidgetNode.parse({ widget: "card", width: "huge", children: [{ widget: "text", text: "x", align: "middle" }] });
+    const loose = WidgetNode.parse({
+      widget: "card",
+      width: "huge",
+      children: [{ widget: "text", text: "x", align: "middle" }],
+    });
     expect(loose).toEqual({ widget: "card", children: [{ widget: "text", text: "x" }] });
   });
 
@@ -291,9 +546,13 @@ describe("parseOpenUI", () => {
   });
 
   it("evaluates expressions against the declared defaults", () => {
-    const result = parseOpenUI('root = Stack([Text("a" + "b"), Text($n * 2), Text($n > 1 ? "big" : "small")])\n$n = 3');
+    const result = parseOpenUI(
+      'root = Stack([Text("a" + "b"), Text($n * 2), Text($n > 1 ? "big" : "small")])\n$n = 3',
+    );
     expect(result.errors).toEqual([]);
-    expect(result.node).toMatchObject({ children: [{ text: "ab" }, { text: "6" }, { text: "big" }] });
+    expect(result.node).toMatchObject({
+      children: [{ text: "ab" }, { text: "6" }, { text: "big" }],
+    });
   });
 
   it("shows a Query's defaults with a warning and rejects Mutation", () => {

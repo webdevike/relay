@@ -92,7 +92,11 @@ export const ReviewQueue = z.object({
   snoozed: z.record(z.string(), ms).default({}),
   /** Item urls Isaac has seen, each with the item's `updatedAt` then; newer activity is unread again. "Unread" removes the mark. */
   read: z.record(z.string(), ms).default({}),
-  sources: z.object({ github: ReviewSourceState, linear: ReviewSourceState, slack: ReviewSourceState }),
+  sources: z.object({
+    github: ReviewSourceState,
+    linear: ReviewSourceState,
+    slack: ReviewSourceState,
+  }),
 });
 export type ReviewQueue = z.infer<typeof ReviewQueue>;
 
@@ -202,7 +206,9 @@ export const LinearTicket = z.object({
   project: z.string().nullable(),
   team: z.string(),
   parent: z.object({ key: z.string(), title: z.string(), url: z.string() }).nullable(),
-  children: z.array(z.object({ key: z.string(), title: z.string(), url: z.string(), state: z.string() })),
+  children: z.array(
+    z.object({ key: z.string(), title: z.string(), url: z.string(), state: z.string() }),
+  ),
   /** Linked GitHub PRs and other attachments. */
   links: z.array(z.object({ title: z.string(), url: z.string(), kind: z.string() })),
   comments: z.array(LinearComment),
@@ -239,7 +245,9 @@ export const SlackMessage = z.object({
    * The files with Slack's id and, for an image the host fetched through the Slack app, its host
    * path (`/reviews/media/<file>/<token>`); `src` null for other files. Older hosts send none.
    */
-  attachments: z.array(z.object({ name: z.string(), id: z.string(), src: z.string().nullable() })).default([]),
+  attachments: z
+    .array(z.object({ name: z.string(), id: z.string(), src: z.string().nullable() }))
+    .default([]),
   at: ms,
 });
 export type SlackMessage = z.infer<typeof SlackMessage>;
@@ -290,7 +298,10 @@ const Body = z.string().min(1).max(MAX_REVIEW_TEXT);
  * on Isaac. `ready` may be tapped, `sent` was handed to Astra and waits for the ledger to move,
  * `running` is the self-review loop that follows.
  */
-export const ReviewApprove = z.object({ key: z.string(), state: z.enum(["ready", "sent", "running"]) });
+export const ReviewApprove = z.object({
+  key: z.string(),
+  state: z.enum(["ready", "sent", "running"]),
+});
 export type ReviewApprove = z.infer<typeof ReviewApprove>;
 
 /** Where an eCard auto-work PR stands: its ledger (stage, move), Astra's phase and self-review loop, and the Approve button's state. */
@@ -299,7 +310,9 @@ export const ReviewWork = z.object({
   stage: z.string(),
   move: z.string(),
   phase: z.string().nullable(),
-  loop: z.object({ running: z.boolean(), rounds: z.number(), outcome: z.string().nullable() }).nullable(),
+  loop: z
+    .object({ running: z.boolean(), rounds: z.number(), outcome: z.string().nullable() })
+    .nullable(),
   approve: z.enum(["ready", "sent", "running"]).nullable(),
 });
 export type ReviewWork = z.infer<typeof ReviewWork>;
@@ -312,10 +325,20 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("guide"), repo: RepoName, number: z.number().int().positive() }),
   z.object({ kind: z.literal("linear"), key: LinearKey }),
   /** The last read thread at once, or (`refresh`) a fresh read, which takes a minute or more. */
-  z.object({ kind: z.literal("slack"), channel: SlackId, threadTs: SlackTs.nullable(), refresh: z.boolean() }),
+  z.object({
+    kind: z.literal("slack"),
+    channel: SlackId,
+    threadTs: SlackTs.nullable(),
+    refresh: z.boolean(),
+  }),
   z.object({ kind: z.literal("done"), url: nonEmpty, updatedAt: ms, done: z.boolean() }),
   /** A GitHub PR comment, exactly `body`, after Isaac confirmed it. */
-  z.object({ kind: z.literal("comment"), repo: RepoName, number: z.number().int().positive(), body: Body }),
+  z.object({
+    kind: z.literal("comment"),
+    repo: RepoName,
+    number: z.number().int().positive(),
+    body: Body,
+  }),
   z.object({
     kind: z.literal("review"),
     repo: RepoName,
@@ -323,9 +346,19 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
     event: z.enum(["approve", "request-changes", "comment"]),
     body: z.string().max(MAX_REVIEW_TEXT),
   }),
-  z.object({ kind: z.literal("linearComment"), issueId: nonEmpty, parentId: nonEmpty.nullable(), body: Body }),
+  z.object({
+    kind: z.literal("linearComment"),
+    issueId: nonEmpty,
+    parentId: nonEmpty.nullable(),
+    body: Body,
+  }),
   /** Hands `text` to Astra's main thread as a Slack send request; she posts it from the Slack app. */
-  z.object({ kind: z.literal("slackSend"), channel: SlackId, threadTs: SlackTs.nullable(), text: Body }),
+  z.object({
+    kind: z.literal("slackSend"),
+    channel: SlackId,
+    threadTs: SlackTs.nullable(),
+    text: Body,
+  }),
   /** Isaac's question to the item's Astra session, starting or resuming it first. */
   z.object({ kind: z.literal("astraAsk"), url: nonEmpty, ref: ReviewRef, text: Body }),
   /** The item's Astra session, if it has one. */
@@ -341,7 +374,12 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
   /** Where the PR stands in Astra's flow (ledger stage and move, auto-work phase, self-review loop); answers `work`. */
   z.object({ kind: z.literal("work"), repo: RepoName, number: z.number().int().positive() }),
   /** Uploads an image to Linear for a comment; answers its `url` to embed as Markdown. `data` is base64. */
-  z.object({ kind: z.literal("linearUpload"), name: z.string().min(1).max(200), mime: z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]), data: z.string().min(1).max(MAX_REVIEW_UPLOAD) }),
+  z.object({
+    kind: z.literal("linearUpload"),
+    name: z.string().min(1).max(200),
+    mime: z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]),
+    data: z.string().min(1).max(MAX_REVIEW_UPLOAD),
+  }),
 ]);
 export type ReviewsOp = z.infer<typeof ReviewsOp>;
 
@@ -372,27 +410,45 @@ export type ReviewsResult = z.infer<typeof ReviewsResult>;
 // ---------------------------------------------------------------------------------------------
 
 /** Hidden after Done until it changes again. */
-export function isReviewDone(item: Pick<ReviewItem, "url" | "updatedAt">, done: Readonly<Record<string, number>>): boolean {
+export function isReviewDone(
+  item: Pick<ReviewItem, "url" | "updatedAt">,
+  done: Readonly<Record<string, number>>,
+): boolean {
   const at = done[item.url];
   return at !== undefined && item.updatedAt <= at;
 }
 
 /** Unread: the source says so and Isaac has not seen this activity here. */
-export function isReviewUnread(item: Pick<ReviewItem, "url" | "updatedAt" | "unread">, read: Readonly<Record<string, number>>): boolean {
+export function isReviewUnread(
+  item: Pick<ReviewItem, "url" | "updatedAt" | "unread">,
+  read: Readonly<Record<string, number>>,
+): boolean {
   const at = read[item.url];
   return item.unread && !(at !== undefined && item.updatedAt <= at);
 }
 
 /** The rows that still wait on Isaac (not Done, not snoozed at `now`), newest first, optionally from one source. */
-export function liveReviewItems(queue: Pick<ReviewQueue, "items" | "done"> & Partial<Pick<ReviewQueue, "snoozed">>, source: ReviewSource | null = null, now = Date.now()): ReviewItem[] {
+export function liveReviewItems(
+  queue: Pick<ReviewQueue, "items" | "done"> & Partial<Pick<ReviewQueue, "snoozed">>,
+  source: ReviewSource | null = null,
+  now = Date.now(),
+): ReviewItem[] {
   const snoozed = queue.snoozed ?? {};
   return queue.items
-    .filter((item) => (source === null || item.ref.kind === source) && !isReviewDone(item, queue.done) && !((snoozed[item.url] ?? 0) > now))
+    .filter(
+      (item) =>
+        (source === null || item.ref.kind === source) &&
+        !isReviewDone(item, queue.done) &&
+        !((snoozed[item.url] ?? 0) > now),
+    )
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 /** Rows split into Today (since local midnight of `now`) and Earlier; empty groups left out. */
-export function reviewDayGroups(items: readonly ReviewItem[], now: number): Array<{ label: "Today" | "Earlier"; items: ReviewItem[] }> {
+export function reviewDayGroups(
+  items: readonly ReviewItem[],
+  now: number,
+): Array<{ label: "Today" | "Earlier"; items: ReviewItem[] }> {
   const midnight = new Date(now);
   midnight.setHours(0, 0, 0, 0);
   const today = items.filter((item) => item.updatedAt >= midnight.getTime());

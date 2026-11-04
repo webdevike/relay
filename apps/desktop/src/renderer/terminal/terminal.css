@@ -1,0 +1,120 @@
+/* Terminal tool: a tab strip over xterm screens, flat like Files, on the panel's own surface. */
+.eva-terminal {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--eva-c-border);
+  background: var(--eva-c-background);
+}
+.eva-terminal[hidden] {
+  display: none;
+}
+
+.eva-terminal-tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-terminal-tabs-scroll {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.eva-terminal-tabs-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-terminal-tab {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  max-width: 220px;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4) 0 var(--mantine-spacing-xs);
+  border-right: 1px solid var(--eva-c-border);
+  color: var(--eva-c-muted-foreground);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.eva-terminal-tab:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-terminal-tab[data-active] {
+  color: var(--eva-c-foreground);
+  background: var(--mantine-color-default-hover);
+}
+.eva-terminal-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-terminal-tab-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.eva-terminal-tab-close:hover {
+  background: var(--mantine-color-default-hover);
+}
+.eva-terminal-tab-close svg {
+  opacity: 0;
+}
+.eva-terminal-tab[data-active] .eva-terminal-tab-close svg,
+.eva-terminal-tab:hover .eva-terminal-tab-close svg {
+  opacity: 1;
+}
+
+.eva-terminal-body {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.eva-terminal-slot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+.eva-terminal-slot[hidden] {
+  display: none;
+}
+/* The screen is padded by its own box so xterm fits the content area, not the padding. */
+.eva-terminal-screen {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: calc(var(--mantine-spacing-xs) * 0.6) 0 0 var(--mantine-spacing-xs);
+  background: var(--eva-c-background);
+}
+.eva-terminal-screen .xterm {
+  height: 100%;
+}
+/* xterm paints its scroll viewport black; the screen sits on the panel's surface instead. */
+.eva-terminal-screen .xterm .xterm-viewport {
+  background-color: var(--eva-c-background) !important;
+}
+.eva-terminal-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

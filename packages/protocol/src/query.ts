@@ -161,7 +161,9 @@ export const QUERY_TOOLS = {
       'GitHub pull requests through gh: filter "authored" (default), "review-requested", "assigned" or "mentioned" (all relative to Isaac); state "open" (default), "closed" or "merged"; optional owner or repo ("owner/name").',
     args: z
       .object({
-        filter: z.enum(["authored", "review-requested", "assigned", "mentioned"]).default("authored"),
+        filter: z
+          .enum(["authored", "review-requested", "assigned", "mentioned"])
+          .default("authored"),
         state: z.enum(["open", "closed", "merged"]).default("open"),
         owner: z
           .string()
@@ -272,11 +274,22 @@ export type QueryRequest = z.infer<typeof QueryRequest>;
 export type QueryAnswer = { ok: true; data: unknown } | { ok: false; error: string };
 
 /** A tool's args checked against its schema: the parsed args, or why they are refused. */
-export function checkQueryArgs(tool: string, args: unknown): { ok: true; tool: QueryToolName; args: Record<string, unknown> } | { ok: false; error: string } {
-  if (!isQueryTool(tool)) return { ok: false, error: `unknown query tool "${tool}" (tools: ${QUERY_TOOL_NAMES.join(", ")})` };
+export function checkQueryArgs(
+  tool: string,
+  args: unknown,
+): { ok: true; tool: QueryToolName; args: Record<string, unknown> } | { ok: false; error: string } {
+  if (!isQueryTool(tool))
+    return {
+      ok: false,
+      error: `unknown query tool "${tool}" (tools: ${QUERY_TOOL_NAMES.join(", ")})`,
+    };
   const parsed = QUERY_TOOLS[tool].args.safeParse(args ?? {});
   if (!parsed.success) {
-    const why = parsed.error.issues.map((issue) => (issue.path.length === 0 ? issue.message : `${issue.path.join(".")}: ${issue.message}`)).join("; ");
+    const why = parsed.error.issues
+      .map((issue) =>
+        issue.path.length === 0 ? issue.message : `${issue.path.join(".")}: ${issue.message}`,
+      )
+      .join("; ");
     return { ok: false, error: `${tool} args: ${why}` };
   }
   return { ok: true, tool, args: parsed.data };

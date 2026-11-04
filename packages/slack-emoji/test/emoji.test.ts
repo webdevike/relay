@@ -3,8 +3,12 @@ import { emojify, reactionEmoji, slackEmoji } from "../src/index";
 
 describe("emojify", () => {
   it("turns Slack shortcodes and their aliases into emoji", () => {
-    expect(emojify("Ship it :clapper: :+1: :thumbsup: :white_check_mark:")).toBe("Ship it 🎬 👍 👍 ✅");
-    expect(emojify("I may seek tips there :slightly_smiling_face:")).toBe("I may seek tips there 🙂");
+    expect(emojify("Ship it :clapper: :+1: :thumbsup: :white_check_mark:")).toBe(
+      "Ship it 🎬 👍 👍 ✅",
+    );
+    expect(emojify("I may seek tips there :slightly_smiling_face:")).toBe(
+      "I may seek tips there 🙂",
+    );
   });
 
   it("applies skin tones", () => {
@@ -14,8 +18,12 @@ describe("emojify", () => {
   });
 
   it("leaves custom emoji, code and times alone", () => {
-    expect(emojify(":partyparrot: and :custom::skin-tone-2:")).toBe(":partyparrot: and :custom::skin-tone-2:");
-    expect(emojify("run `:clapper:` then\n```\n:+1:\n```\n:+1:")).toBe("run `:clapper:` then\n```\n:+1:\n```\n👍");
+    expect(emojify(":partyparrot: and :custom::skin-tone-2:")).toBe(
+      ":partyparrot: and :custom::skin-tone-2:",
+    );
+    expect(emojify("run `:clapper:` then\n```\n:+1:\n```\n:+1:")).toBe(
+      "run `:clapper:` then\n```\n:+1:\n```\n👍",
+    );
     expect(emojify("at 10:30:45 on 2026-10-31")).toBe("at 10:30:45 on 2026-10-31");
   });
 

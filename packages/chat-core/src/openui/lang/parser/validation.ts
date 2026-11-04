@@ -1,90 +1,90 @@
 // @ts-nocheck: vendored upstream code, type-checked upstream under its own tsconfig (see LICENSE-openui).
 // From github.com/thesysdev/openui packages/lang-core/src/parser/validation.ts, MIT License, Copyright (c) Thesys Inc.
-import { isASTNode } from "./ast";
+import { isASTNode } from './ast'
 import {
   isElementNode,
   type ElementNode,
   type MaterializeCtx,
   type ParamDef,
   type ScalarParamType,
-} from "./types";
+} from './types'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Schema & value introspection
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** `typeof` results a scalar/enum leaf can be checked against. */
-const SCALAR_TYPEOFS: readonly string[] = ["string", "number", "boolean"];
+const SCALAR_TYPEOFS: readonly string[] = ['string', 'number', 'boolean']
 
-const NO_PROPS: Record<string, unknown> = {};
-const NO_REQUIRED: readonly string[] = [];
+const NO_PROPS: Record<string, unknown> = {}
+const NO_REQUIRED: readonly string[] = []
 
 function jsType(value: unknown): string {
-  return Array.isArray(value) ? "array" : typeof value;
+  return Array.isArray(value) ? 'array' : typeof value
 }
 
 /** `{ $ref: "#/$defs/Name" }` → `"Name"`. */
 function refName(s: Record<string, unknown>): string | undefined {
-  return typeof s["$ref"] === "string" ? s["$ref"].split("/").pop() : undefined;
+  return typeof s['$ref'] === 'string' ? s['$ref'].split('/').pop() : undefined
 }
 
 /** Composite shapes can't be reliably matched to a single plain value. */
 function isCompositeSchema(s: Record<string, unknown>): boolean {
-  return "$ref" in s || "anyOf" in s || "oneOf" in s || "allOf" in s;
+  return '$ref' in s || 'anyOf' in s || 'oneOf' in s || 'allOf' in s
 }
 
 /** Scalar type/enum info extracted from a JSON Schema leaf, for describeTypeMismatch. */
 interface ScalarTypeInfo {
   /** Scalar leaf type, when the property is a plain string/number/boolean. */
-  expectedType?: ScalarParamType;
+  expectedType?: ScalarParamType
   /** Allowed literal values from `enum`/`const`. */
-  enumValues?: readonly unknown[];
+  enumValues?: readonly unknown[]
 }
 
 /** Extract the scalar leaf type/enum from an already-narrowed JSON Schema object. */
 export function getScalarTypeInfo(s: Record<string, unknown>): ScalarTypeInfo {
-  if (Array.isArray(s["enum"])) return { enumValues: s["enum"] };
-  if ("const" in s) return { enumValues: [s["const"]] };
-  switch (s["type"]) {
-    case "string":
-      return { expectedType: "string" };
-    case "number":
-    case "integer":
-      return { expectedType: "number" };
-    case "boolean":
-      return { expectedType: "boolean" };
+  if (Array.isArray(s['enum'])) return { enumValues: s['enum'] }
+  if ('const' in s) return { enumValues: [s['const']] }
+  switch (s['type']) {
+    case 'string':
+      return { expectedType: 'string' }
+    case 'number':
+    case 'integer':
+      return { expectedType: 'number' }
+    case 'boolean':
+      return { expectedType: 'boolean' }
     default:
-      return {};
+      return {}
   }
 }
 
 /** Read a JSON Schema fragment's `default`, if it carries one. */
 export function getSchemaDefaultValue(property: unknown): unknown {
-  if (!property || typeof property !== "object" || Array.isArray(property)) {
-    return undefined;
+  if (!property || typeof property !== 'object' || Array.isArray(property)) {
+    return undefined
   }
-  return (property as { default?: unknown }).default;
+  return (property as { default?: unknown }).default
 }
 
 /** Returns the expected type for a param from its schema properties */
 export function getTypeFromSchema(property: unknown): string | undefined {
-  if (!property || typeof property !== "object" || Array.isArray(property)) {
-    return undefined;
+  if (!property || typeof property !== 'object' || Array.isArray(property)) {
+    return undefined
   }
-  const p = property as Record<string, unknown>;
+  const p = property as Record<string, unknown>
   // $refs and compound types aren't validator-checkable but still make useful hints.
-  const ref = refName(p);
-  if (ref) return ref;
+  const ref = refName(p)
+  if (ref) return ref
   // Scalar/enum leaves: share the validator's schema-leaf interpretation so
   // signatures and type-mismatch messages never disagree.
-  const leaf = getScalarTypeInfo(p);
+  const leaf = getScalarTypeInfo(p)
   if (leaf.enumValues) {
-    return leaf.enumValues.map((v) => JSON.stringify(v)).join("|");
+    return leaf.enumValues.map((v) => JSON.stringify(v)).join('|')
   }
   if (leaf.expectedType) {
-    return leaf.expectedType;
+    return leaf.expectedType
   }
-  return typeof p.type === "string" ? p.type : undefined;
+  return typeof p.type === 'string' ? p.type : undefined
 }
 
 /**
@@ -95,12 +95,12 @@ export function getTypeFromSchema(property: unknown): string | undefined {
 export function buildParamsSignature(component: string, params: ParamDef[]): string {
   const rendered = params
     .map((p) => {
-      const type = getTypeFromSchema(p.schema);
-      const marked = p.required ? `${p.name}*` : p.name;
-      return type ? `${marked}: ${type}` : marked;
+      const type = getTypeFromSchema(p.schema)
+      const marked = p.required ? `${p.name}*` : p.name
+      return type ? `${marked}: ${type}` : marked
     })
-    .join(", ");
-  return `${component}(${rendered})`;
+    .join(', ')
+  return `${component}(${rendered})`
 }
 
 /** Checks a param's returned value against its expected value */
@@ -108,19 +108,19 @@ function checkTypeMismatch(
   value: unknown,
   info: ScalarTypeInfo,
 ): { expected: string; actual: string } | null {
-  const actual = typeof value;
+  const actual = typeof value
   if (info.enumValues) {
-    if (!SCALAR_TYPEOFS.includes(actual)) return null;
-    if (info.enumValues.includes(value)) return null;
+    if (!SCALAR_TYPEOFS.includes(actual)) return null
+    if (info.enumValues.includes(value)) return null
     return {
-      expected: `one of [${info.enumValues.map((v) => JSON.stringify(v)).join(", ")}]`,
+      expected: `one of [${info.enumValues.map((v) => JSON.stringify(v)).join(', ')}]`,
       actual: JSON.stringify(value),
-    };
+    }
   }
   if (info.expectedType && info.expectedType !== actual) {
-    return { expected: info.expectedType, actual: jsType(value) };
+    return { expected: info.expectedType, actual: jsType(value) }
   }
-  return null;
+  return null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,39 +133,39 @@ function checkTypeMismatch(
  * supply the varying parts.
  */
 export type ValidationIssue =
-  | { code: "type-mismatch"; expected: string; actual: string }
-  | { code: "missing-required"; signature?: string }
-  | { code: "null-required"; signature?: string }
-  | { code: "unknown-component"; available?: string[] }
-  | { code: "inline-reserved" }
-  | { code: "excess-args"; declared: number; got: number }
-  | { code: "unknown-function" }
-  | { code: "no-root"; reason: "missing" | "not-component" | "fallback" };
+  | { code: 'type-mismatch'; expected: string; actual: string }
+  | { code: 'missing-required'; signature?: string }
+  | { code: 'null-required'; signature?: string }
+  | { code: 'unknown-component'; available?: string[] }
+  | { code: 'inline-reserved' }
+  | { code: 'excess-args'; declared: number; got: number }
+  | { code: 'unknown-function' }
+  | { code: 'no-root'; reason: 'missing' | 'not-component' | 'fallback' }
 
 function validationMessage(component: string, path: string, issue: ValidationIssue): string {
   switch (issue.code) {
-    case "type-mismatch":
-      return `field "${path}" expects ${issue.expected} but got ${issue.actual}`;
-    case "missing-required":
-      return `missing required field "${path}"${issue.signature ? ` — signature: ${issue.signature}` : ""}`;
-    case "null-required":
-      return `required field "${path}" cannot be null${issue.signature ? ` — signature: ${issue.signature}` : ""}`;
-    case "unknown-component":
-      return `Unknown component "${component}" — not found in catalog or builtins${issue.available?.length ? `. Available components: ${issue.available.join(", ")}` : ""}`;
-    case "inline-reserved":
-      return `${component}() must be declared as a top-level statement, not used inline as a value`;
-    case "excess-args":
-      return `${component} takes ${issue.declared} arg(s), got ${issue.got} (${issue.got - issue.declared} excess dropped)`;
-    case "unknown-function":
-      return `Unknown function "@${component}": not a built-in or action step. The call evaluates to null`;
-    case "no-root":
-      if (issue.reason === "not-component") return "root does not evaluate to a component";
-      if (issue.reason === "fallback") {
-        return `No root statement. Rendering the first statement that calls the root component ${component}`;
+    case 'type-mismatch':
+      return `field "${path}" expects ${issue.expected} but got ${issue.actual}`
+    case 'missing-required':
+      return `missing required field "${path}"${issue.signature ? ` — signature: ${issue.signature}` : ''}`
+    case 'null-required':
+      return `required field "${path}" cannot be null${issue.signature ? ` — signature: ${issue.signature}` : ''}`
+    case 'unknown-component':
+      return `Unknown component "${component}" — not found in catalog or builtins${issue.available?.length ? `. Available components: ${issue.available.join(', ')}` : ''}`
+    case 'inline-reserved':
+      return `${component}() must be declared as a top-level statement, not used inline as a value`
+    case 'excess-args':
+      return `${component} takes ${issue.declared} arg(s), got ${issue.got} (${issue.got - issue.declared} excess dropped)`
+    case 'unknown-function':
+      return `Unknown function "@${component}": not a built-in or action step. The call evaluates to null`
+    case 'no-root':
+      if (issue.reason === 'not-component') return 'root does not evaluate to a component'
+      if (issue.reason === 'fallback') {
+        return `No root statement. Rendering the first statement that calls the root component ${component}`
       }
       return component
         ? `No root statement, and no statement calls the root component ${component}`
-        : "No root statement";
+        : 'No root statement'
   }
 }
 
@@ -182,9 +182,9 @@ export function pushValidationIssue(
     path,
     message: validationMessage(component, path, issue),
     statementId: ctx.currentStatementId,
-    ...(issue.code === "no-root" &&
-      issue.reason === "fallback" && { severity: "warning" as const }),
-  });
+    ...(issue.code === 'no-root' &&
+      issue.reason === 'fallback' && { severity: 'warning' as const }),
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -192,12 +192,12 @@ export function pushValidationIssue(
 // ─────────────────────────────────────────────────────────────────────────────
 
 // "x" against {type: "number"} -> INVALID, after reporting the type-mismatch
-export const INVALID: unique symbol = Symbol("invalid");
+export const INVALID: unique symbol = Symbol('invalid')
 
 // invalid value: default 5 -> 5; no default -> INVALID if required, else undefined (omit)
 export function resolveInvalidValue(required: boolean, defaultValue: unknown): unknown {
-  if (defaultValue !== undefined) return defaultValue;
-  return required ? INVALID : undefined;
+  if (defaultValue !== undefined) return defaultValue
+  return required ? INVALID : undefined
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -217,27 +217,27 @@ function validateElementPosition(
   path: string,
   ctx: MaterializeCtx,
 ): boolean {
-  if (isCompositeSchema(s)) return false;
-  if (typeof s["type"] === "string" || Array.isArray(s["enum"]) || "const" in s) {
+  if (isCompositeSchema(s)) return false
+  if (typeof s['type'] === 'string' || Array.isArray(s['enum']) || 'const' in s) {
     pushValidationIssue(ctx, component, path, {
-      code: "type-mismatch",
-      expected: typeof s["type"] === "string" ? s["type"] : "a literal value",
+      code: 'type-mismatch',
+      expected: typeof s['type'] === 'string' ? s['type'] : 'a literal value',
       actual: `component "${element.typeName}"`,
-    });
-    return true;
+    })
+    return true
   }
-  return false;
+  return false
 }
 
 /** The `$ref` names a slot allows: one for `$ref`, several for anyOf/oneOf. */
 function slotRefNames(s: Record<string, unknown>): (string | undefined)[] {
-  return ((s["anyOf"] ?? s["oneOf"] ?? [s]) as Record<string, unknown>[]).map(refName);
+  return ((s['anyOf'] ?? s['oneOf'] ?? [s]) as Record<string, unknown>[]).map(refName)
 }
 
 /** True when every option of the slot is a `$ref` to a component. */
 function isOnlyComponentSlot(s: Record<string, unknown>, ctx: MaterializeCtx): boolean {
-  const names = slotRefNames(s);
-  return names.length > 0 && names.every((n) => n !== undefined && ctx.cat?.has(n));
+  const names = slotRefNames(s)
+  return names.length > 0 && names.every((n) => n !== undefined && ctx.cat?.has(n))
 }
 
 /**
@@ -253,56 +253,56 @@ function validateObjectValue(
   path: string,
   ctx: MaterializeCtx,
 ): unknown {
-  if (typeof value !== "object" || Array.isArray(value)) {
+  if (typeof value !== 'object' || Array.isArray(value)) {
     pushValidationIssue(ctx, component, path, {
-      code: "type-mismatch",
-      expected: "object",
+      code: 'type-mismatch',
+      expected: 'object',
       actual: jsType(value),
-    });
-    return INVALID;
+    })
+    return INVALID
   }
-  const obj = value as Record<string, unknown>;
-  let out: Record<string, unknown> | undefined;
+  const obj = value as Record<string, unknown>
+  let out: Record<string, unknown> | undefined
   const props =
-    s["properties"] && typeof s["properties"] === "object"
-      ? (s["properties"] as Record<string, unknown>)
-      : NO_PROPS;
-  const required = Array.isArray(s["required"]) ? (s["required"] as string[]) : NO_REQUIRED;
-  let invalid = false;
+    s['properties'] && typeof s['properties'] === 'object'
+      ? (s['properties'] as Record<string, unknown>)
+      : NO_PROPS
+  const required = Array.isArray(s['required']) ? (s['required'] as string[]) : NO_REQUIRED
+  let invalid = false
   // Structural checks are streaming-sensitive — only run on complete input.
   if (!ctx.partial) {
     for (const key of required) {
-      const present = key in obj;
+      const present = key in obj
       if (!present || obj[key] == null) {
-        const fallback = getSchemaDefaultValue(props[key]);
+        const fallback = getSchemaDefaultValue(props[key])
         if (fallback !== undefined) {
-          (out ??= { ...obj })[key] = fallback;
-          continue;
+          ;(out ??= { ...obj })[key] = fallback
+          continue
         }
         pushValidationIssue(ctx, component, `${path}/${key}`, {
-          code: present ? "null-required" : "missing-required",
-        });
-        invalid = true;
+          code: present ? 'null-required' : 'missing-required',
+        })
+        invalid = true
       }
     }
   }
   for (const key of Object.keys(props)) {
-    if (!(key in obj)) continue;
-    const sub = props[key];
-    let next = validateSchemaValue(obj[key], sub, component, `${path}/${key}`, ctx);
+    if (!(key in obj)) continue
+    const sub = props[key]
+    let next = validateSchemaValue(obj[key], sub, component, `${path}/${key}`, ctx)
     if (next === INVALID) {
-      next = resolveInvalidValue(required.includes(key), getSchemaDefaultValue(sub));
+      next = resolveInvalidValue(required.includes(key), getSchemaDefaultValue(sub))
       if (next === INVALID) {
-        invalid = true;
-        continue;
+        invalid = true
+        continue
       }
     }
-    if (next === obj[key]) continue;
-    out ??= { ...obj };
-    if (next === undefined) delete out[key];
-    else out[key] = next;
+    if (next === obj[key]) continue
+    out ??= { ...obj }
+    if (next === undefined) delete out[key]
+    else out[key] = next
   }
-  return invalid ? INVALID : (out ?? obj);
+  return invalid ? INVALID : (out ?? obj)
 }
 
 /**
@@ -318,21 +318,21 @@ function validateArrayValue(
 ): unknown {
   if (!Array.isArray(value)) {
     pushValidationIssue(ctx, component, path, {
-      code: "type-mismatch",
-      expected: "array",
+      code: 'type-mismatch',
+      expected: 'array',
       actual: jsType(value),
-    });
-    return INVALID;
+    })
+    return INVALID
   }
-  const items = s["items"];
-  if (!items || typeof items !== "object" || Array.isArray(items)) return value;
-  let out: unknown[] | undefined;
+  const items = s['items']
+  if (!items || typeof items !== 'object' || Array.isArray(items)) return value
+  let out: unknown[] | undefined
   for (let i = 0; i < value.length; i++) {
-    const next = validateSchemaValue(value[i], items, component, `${path}/${i}`, ctx);
-    if (next !== value[i] && !out) out = value.slice(0, i);
-    if (out && next !== INVALID) out.push(next);
+    const next = validateSchemaValue(value[i], items, component, `${path}/${i}`, ctx)
+    if (next !== value[i] && !out) out = value.slice(0, i)
+    if (out && next !== INVALID) out.push(next)
   }
-  return out ?? value;
+  return out ?? value
 }
 
 /**
@@ -347,15 +347,15 @@ function validateLeafValue(
   path: string,
   ctx: MaterializeCtx,
 ): boolean {
-  const leaf = getScalarTypeInfo(s);
-  if (leaf.expectedType == null && leaf.enumValues == null) return false;
-  if (leaf.enumValues && ctx.partial) return false;
-  const mismatch = checkTypeMismatch(value, leaf);
+  const leaf = getScalarTypeInfo(s)
+  if (leaf.expectedType == null && leaf.enumValues == null) return false
+  if (leaf.enumValues && ctx.partial) return false
+  const mismatch = checkTypeMismatch(value, leaf)
   if (mismatch) {
-    pushValidationIssue(ctx, component, path, { code: "type-mismatch", ...mismatch });
-    return true;
+    pushValidationIssue(ctx, component, path, { code: 'type-mismatch', ...mismatch })
+    return true
   }
-  return false;
+  return false
 }
 
 /**
@@ -381,33 +381,33 @@ export function validateSchemaValue(
   path: string,
   ctx: MaterializeCtx,
 ): unknown {
-  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return value;
-  const s = schema as Record<string, unknown>;
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return value
+  const s = schema as Record<string, unknown>
   // Absence is handled by required checks on the parent; skip null/undefined.
-  if (value == null) return value;
+  if (value == null) return value
   // Dynamic runtime expressions ($var, builtins) resolve later — don't flag.
-  if (isASTNode(value)) return value;
+  if (isASTNode(value)) return value
   // Child components: only their position is checked here.
   if (isElementNode(value)) {
-    return validateElementPosition(value, s, component, path, ctx) ? INVALID : value;
+    return validateElementPosition(value, s, component, path, ctx) ? INVALID : value
   }
   if (isCompositeSchema(s)) {
     // Data (an object, array, string, number or boolean) in a component-only slot is invalid.
-    if (!isOnlyComponentSlot(s, ctx)) return value;
+    if (!isOnlyComponentSlot(s, ctx)) return value
     pushValidationIssue(ctx, component, path, {
-      code: "type-mismatch",
-      expected: slotRefNames(s).join(" | "),
+      code: 'type-mismatch',
+      expected: slotRefNames(s).join(' | '),
       actual: Array.isArray(value)
-        ? "array"
-        : typeof value === "object"
-          ? "plain object"
+        ? 'array'
+        : typeof value === 'object'
+          ? 'plain object'
           : typeof value,
-    });
-    return INVALID;
+    })
+    return INVALID
   }
 
-  const type = s["type"];
-  if (type === "object") return validateObjectValue(value, s, component, path, ctx);
-  if (type === "array") return validateArrayValue(value, s, component, path, ctx);
-  return validateLeafValue(value, s, component, path, ctx) ? INVALID : value;
+  const type = s['type']
+  if (type === 'object') return validateObjectValue(value, s, component, path, ctx)
+  if (type === 'array') return validateArrayValue(value, s, component, path, ctx)
+  return validateLeafValue(value, s, component, path, ctx) ? INVALID : value
 }

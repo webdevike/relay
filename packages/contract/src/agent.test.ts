@@ -73,7 +73,8 @@ describe('agent action registry', () => {
     expect(open.safeParse({ kind: 'browser', pane: 'p2', scope: 'agent:nova' }).success).toBe(true)
     expect(open.safeParse({ kind: 'page', args: { page: 'test-bench' } }).success).toBe(true)
     expect(open.safeParse({ kind: 'page', args: { page: 'chat' } }).success).toBe(false)
-    expect(open.safeParse({ kind: 'terminal' }).success).toBe(false)
+    expect(open.safeParse({ kind: 'terminal' }).success).toBe(true)
+    expect(open.safeParse({ kind: 'terminal', args: { cmd: 'ls' } }).success).toBe(false)
     expect(open.safeParse({ kind: 'subagent', args: { name: 'x' } }).success).toBe(false)
     const split = agentActions['pane.split'].params
     expect(split.safeParse({ dir: 'down', tab: 'browser' }).success).toBe(true)

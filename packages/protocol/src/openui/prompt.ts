@@ -69,7 +69,8 @@ actions = Stack([Button("Nudge Noah", @ToAssistant("nudge Noah on ENG-6211"), nu
     program: `root = Chart("bar", [Series([40, 60, 55], "connected", "#A7F3D0"), Series([50, 70, 60], "voicemail", "#FDE68A")], ["W1", "W2", "W3"], "Calls by outcome", true)`,
   },
   {
-    title: "An interactive calculator: $variables, @Set and @Reset, fully on the device (12+7*2= shows 38: each operator applies to the running total)",
+    title:
+      "An interactive calculator: $variables, @Set and @Reset, fully on the device (12+7*2= shows 38: each operator applies to the running total)",
     program: CALCULATOR,
   },
 ];
@@ -88,7 +89,9 @@ const RULES = [
 export function relayWidgetPrompt(): string {
   return relayLibrary.prompt({
     preamble: PREAMBLE,
-    examples: OPENUI_EXAMPLES.map((e) => `Example — ${e.title}:\n\`\`\`openui\n${e.program}\n\`\`\``),
+    examples: OPENUI_EXAMPLES.map(
+      (e) => `Example — ${e.title}:\n\`\`\`openui\n${e.program}\n\`\`\``,
+    ),
     additionalRules: RULES,
     toolCalls: false,
     bindings: true,

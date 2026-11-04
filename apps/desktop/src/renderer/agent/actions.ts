@@ -263,6 +263,7 @@ async function paneTabOf(spec: PaneTabSpec): Promise<ToolTab | Place> {
   switch (spec.kind) {
     case 'browser':
     case 'files':
+    case 'terminal':
       return { kind: spec.kind }
     case 'subagent':
       return { kind: 'subagent', ...spec.args }

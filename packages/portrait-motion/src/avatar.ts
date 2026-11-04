@@ -14,7 +14,11 @@ const STYLES: Record<PortraitStyle, Style<object>> = { notionists, micah };
 const drawn = new Map<string, string>();
 
 /** The registry's portrait for an assistant: its designed one, else notionists from its `avatar` seed, else from its id. */
-export function assistantPortrait(agent: { id: string; avatar?: string | undefined; portrait?: Portrait | undefined }): Portrait {
+export function assistantPortrait(agent: {
+  id: string;
+  avatar?: string | undefined;
+  portrait?: Portrait | undefined;
+}): Portrait {
   if (agent.portrait !== undefined) return agent.portrait;
   const seed = agent.avatar?.trim();
   return { style: "notionists", seed: seed === undefined || seed === "" ? agent.id : seed };

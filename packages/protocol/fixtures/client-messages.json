@@ -164,6 +164,6 @@
       "password": "hunter2"
     }
   },
-  {"t":"canvas.get"},
-  {"t":"canvas.open","slug":"artifacts"}
+  { "t": "canvas.get" },
+  { "t": "canvas.open", "slug": "artifacts" }
 ]

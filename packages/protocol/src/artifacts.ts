@@ -59,7 +59,10 @@ export const ARTIFACT_TAB_ICONS = [
   "rocket",
 ] as const;
 /** `robot` was the Subagents icon before `subtask`; tabs.json files and agents that still say it get `subtask`. */
-export const ArtifactTabIcon = z.preprocess((value) => (value === "robot" ? "subtask" : value), z.enum(ARTIFACT_TAB_ICONS));
+export const ArtifactTabIcon = z.preprocess(
+  (value) => (value === "robot" ? "subtask" : value),
+  z.enum(ARTIFACT_TAB_ICONS),
+);
 export type ArtifactTabIcon = (typeof ARTIFACT_TAB_ICONS)[number];
 
 /**
@@ -69,7 +72,9 @@ export type ArtifactTabIcon = (typeof ARTIFACT_TAB_ICONS)[number];
  */
 export const ArtifactStatus = z.object({
   state: z.string().min(1).max(40),
-  stateType: z.enum(["triage", "backlog", "unstarted", "started", "completed", "canceled"]).optional(),
+  stateType: z
+    .enum(["triage", "backlog", "unstarted", "started", "completed", "canceled"])
+    .optional(),
   draft: z.boolean().optional(),
   /** The ticket's or PR's title as gh / Linear give it; the host moves it to the item's `title`. */
   title: z.string().min(1).max(300).optional(),
@@ -215,14 +220,22 @@ export function isDefaultTab(id: string): id is DefaultTabId {
 
 /** The tab bar of a thread nobody has changed. */
 export function defaultTabs(): ArtifactTab[] {
-  return DEFAULT_TAB_IDS.map((id) => ({ id, ...DEFAULT_TAB_LOOK[id], createdBy: "default", createdAt: 0, rule: DEFAULT_TAB_RULES[id], hidden: false }));
+  return DEFAULT_TAB_IDS.map((id) => ({
+    id,
+    ...DEFAULT_TAB_LOOK[id],
+    createdBy: "default",
+    createdAt: 0,
+    rule: DEFAULT_TAB_RULES[id],
+    hidden: false,
+  }));
 }
 
 /** A rule with its lists sorted and lower-cased, so two rules compare by meaning. */
 export function normalizeRule(rule: TabRule): TabRule {
   const out: TabRule = {};
   if (rule.kind !== undefined) out.kind = [...new Set(rule.kind)].sort();
-  if (rule.state !== undefined) out.state = [...new Set(rule.state.map((s) => s.toLowerCase().trim()))].sort();
+  if (rule.state !== undefined)
+    out.state = [...new Set(rule.state.map((s) => s.toLowerCase().trim()))].sort();
   if (rule.caption !== undefined) out.caption = rule.caption.toLowerCase().trim();
   if (rule.repo !== undefined) out.repo = rule.repo.toLowerCase().trim();
   if (rule.since !== undefined) out.since = rule.since;
@@ -255,7 +268,11 @@ export function ruleMatches(rule: TabRule, item: Artifact): boolean {
     const wanted = rule.state.map((s) => s.toLowerCase());
     const state = artifactState(item)?.toLowerCase();
     const type = item.status?.stateType;
-    if (!((state !== undefined && wanted.includes(state)) || (type !== undefined && wanted.includes(type)))) return false;
+    if (!(
+      (state !== undefined && wanted.includes(state)) ||
+      (type !== undefined && wanted.includes(type))
+    ))
+      return false;
   }
   if (rule.repo !== undefined) {
     const repo = item.repo?.toLowerCase();
@@ -264,7 +281,13 @@ export function ruleMatches(rule: TabRule, item: Artifact): boolean {
   }
   if (rule.caption !== undefined) {
     const text = `${item.caption ?? ""} ${item.title}`.toLowerCase();
-    if (!rule.caption.toLowerCase().split("|").some((part) => part.trim() !== "" && text.includes(part.trim()))) return false;
+    if (
+      !rule.caption
+        .toLowerCase()
+        .split("|")
+        .some((part) => part.trim() !== "" && text.includes(part.trim()))
+    )
+      return false;
   }
   return true;
 }
@@ -278,18 +301,26 @@ export const ARTIFACT_DONE_MS = 2 * DAY_MS;
 function sameLocalDay(a: number, b: number): boolean {
   const x = new Date(a);
   const y = new Date(b);
-  return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate();
+  return (
+    x.getFullYear() === y.getFullYear() &&
+    x.getMonth() === y.getMonth() &&
+    x.getDate() === y.getDate()
+  );
 }
 
 /** True when an item has faded out of the tabs: pins never fade; finished subagents stay for the day. */
 export function artifactFaded(item: Artifact, now: number): boolean {
   if (item.pinned !== undefined) return false;
   const sub = item.subagent;
-  if (sub !== undefined) return sub.state !== "running" && !sameLocalDay(sub.endedAt ?? item.lastSeen, now);
+  if (sub !== undefined)
+    return sub.state !== "running" && !sameLocalDay(sub.endedAt ?? item.lastSeen, now);
   const status = item.status;
   const finished =
     status !== undefined &&
-    (status.state === "merged" || status.state === "closed" || status.stateType === "completed" || status.stateType === "canceled");
+    (status.state === "merged" ||
+      status.state === "closed" ||
+      status.stateType === "completed" ||
+      status.stateType === "canceled");
   if (finished && now - (status.changedAt ?? item.lastSeen) > ARTIFACT_DONE_MS) return true;
   return now - item.lastSeen > ARTIFACT_STALE_MS;
 }
@@ -298,7 +329,7 @@ export function artifactFaded(item: Artifact, now: number): boolean {
 export function compareArtifacts(a: Artifact, b: Artifact): number {
   const pa = a.pinned?.at ?? -1;
   const pb = b.pinned?.at ?? -1;
-  if ((pa >= 0) !== (pb >= 0)) return pa >= 0 ? -1 : 1;
+  if (pa >= 0 !== pb >= 0) return pa >= 0 ? -1 : 1;
   if (pa !== pb) return pb - pa;
   const ra = a.subagent?.state === "running";
   const rb = b.subagent?.state === "running";
@@ -317,10 +348,15 @@ export function tabItems(tab: ArtifactTab, items: readonly Artifact[], now: numb
       const item = byId.get(id);
       return item === undefined ? [] : [item];
     });
-    return [...picked.filter((i) => i.pinned !== undefined), ...picked.filter((i) => i.pinned === undefined)];
+    return [
+      ...picked.filter((i) => i.pinned !== undefined),
+      ...picked.filter((i) => i.pinned === undefined),
+    ];
   }
   const rule = tab.rule ?? {};
-  return items.filter((item) => ruleMatches(rule, item) && !artifactFaded(item, now)).sort(compareArtifacts);
+  return items
+    .filter((item) => ruleMatches(rule, item) && !artifactFaded(item, now))
+    .sort(compareArtifacts);
 }
 
 /** Visible tabs in bar order. */
@@ -349,7 +385,13 @@ export const TIDY_LINK_AGE_MS = DAY_MS;
 /** A link named by none of this many newest messages is tidied. */
 export const TIDY_LINK_MESSAGES = 20;
 
-const TIDY_LINK_KINDS: Readonly<Record<string, true>> = { linear: true, "gh-pr": true, "gh-issue": true, url: true, branch: true };
+const TIDY_LINK_KINDS: Readonly<Record<string, true>> = {
+  linear: true,
+  "gh-pr": true,
+  "gh-issue": true,
+  url: true,
+  branch: true,
+};
 
 /** The omp time of a bubble key `<role>@<ms>`; 0 when it has none. */
 const bubbleAt = (key: string): number => Number(key.slice(key.lastIndexOf("@") + 1)) || 0;
@@ -363,7 +405,8 @@ function newestMessages(items: readonly Artifact[], n: number): Set<string> {
 /** What makes two entries the same thing: a URL without its fragment or trailing slash, else kind and title. */
 function dupeKey(item: Artifact): string | null {
   if (item.kind === "subagent") return null;
-  if (item.url !== undefined && /^https?:/i.test(item.url)) return `url:${item.url.replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase()}`;
+  if (item.url !== undefined && /^https?:/i.test(item.url))
+    return `url:${item.url.replace(/#.*$/, "").replace(/\/+$/, "").toLowerCase()}`;
   return `${item.kind}:${item.title.trim().toLowerCase()}`;
 }
 
@@ -377,7 +420,10 @@ export function tidyIds(items: readonly Artifact[], now: number): string[] {
   const live = items.filter((i) => i.tidied === undefined);
   const recent = newestMessages(live, TIDY_KEEP_MESSAGES);
   const wide = newestMessages(live, TIDY_LINK_MESSAGES);
-  const kept = (i: Artifact): boolean => subagentView(i, now) === "running" || i.pinned !== undefined || i.sources.some((s) => recent.has(s));
+  const kept = (i: Artifact): boolean =>
+    subagentView(i, now) === "running" ||
+    i.pinned !== undefined ||
+    i.sources.some((s) => recent.has(s));
   const out = new Set<string>();
   for (const i of live) {
     if (kept(i)) continue;
@@ -387,8 +433,14 @@ export function tidyIds(items: readonly Artifact[], now: number): string[] {
     }
     if (TIDY_LINK_KINDS[i.kind] !== true) continue;
     const st = i.status;
-    const closed = st !== undefined && (st.stateType === "completed" || st.stateType === "canceled" || st.state === "merged" || st.state === "closed");
-    if (closed || now - i.lastSeen > TIDY_LINK_AGE_MS || !i.sources.some((s) => wide.has(s))) out.add(i.id);
+    const closed =
+      st !== undefined &&
+      (st.stateType === "completed" ||
+        st.stateType === "canceled" ||
+        st.state === "merged" ||
+        st.state === "closed");
+    if (closed || now - i.lastSeen > TIDY_LINK_AGE_MS || !i.sources.some((s) => wide.has(s)))
+      out.add(i.id);
   }
   // Of each group of the same thing, the pinned, then newest, one stays.
   const groups = new Map<string, Artifact[]>();
@@ -398,7 +450,10 @@ export function tidyIds(items: readonly Artifact[], now: number): string[] {
   }
   for (const g of groups.values()) {
     if (g.length < 2) continue;
-    const [, ...rest] = [...g].sort((a, b) => Number(b.pinned !== undefined) - Number(a.pinned !== undefined) || b.lastSeen - a.lastSeen);
+    const [, ...rest] = [...g].sort(
+      (a, b) =>
+        Number(b.pinned !== undefined) - Number(a.pinned !== undefined) || b.lastSeen - a.lastSeen,
+    );
     for (const d of rest) if (!kept(d)) out.add(d.id);
   }
   return [...out];
@@ -440,8 +495,15 @@ export const ArtifactAction = z.discriminatedUnion("op", [
   /** Agents remove only tabs they made; defaults are never removed (Isaac hides them). */
   z.object({ op: z.literal("tab.remove"), tab: z.string().min(1).max(48) }),
   /** Live states by item id, from Relay desktop's gh and Linear reads. */
-  z.object({ op: z.literal("status"), statuses: z.record(z.string().min(1).max(2100), ArtifactStatus) }),
+  z.object({
+    op: z.literal("status"),
+    statuses: z.record(z.string().min(1).max(2100), ArtifactStatus),
+  }),
   /** Tidy (`tidied: true`) or bring back (`false`) items: hidden from the tabs, never deleted. Pinned and running items are left alone. */
-  z.object({ op: z.literal("tidy"), ids: z.array(z.string().min(1).max(2100)).min(1).max(MAX_ARTIFACTS), tidied: z.boolean() }),
+  z.object({
+    op: z.literal("tidy"),
+    ids: z.array(z.string().min(1).max(2100)).min(1).max(MAX_ARTIFACTS),
+    tidied: z.boolean(),
+  }),
 ]);
 export type ArtifactAction = z.infer<typeof ArtifactAction>;

@@ -1,8 +1,15 @@
-import { IconFiles, IconFlask, IconGlobe, IconRobot, type Icon } from '@tabler/icons-react'
+import {
+  IconFiles,
+  IconFlask,
+  IconGlobe,
+  IconRobot,
+  IconTerminal2,
+  type Icon,
+} from '@tabler/icons-react'
 import type { ToolTab } from '@evaos/shell-core'
 
-const TOOL_TITLES = { browser: 'Browser', files: 'Files' } as const
-const TOOL_ICONS = { browser: IconGlobe, files: IconFiles } as const
+const TOOL_TITLES = { browser: 'Browser', files: 'Files', terminal: 'Terminal' } as const
+const TOOL_ICONS = { browser: IconGlobe, files: IconFiles, terminal: IconTerminal2 } as const
 
 /** A tool tab's title, as its pane strip and layout.read name it. Text only. */
 export function paneTabTitle(tab: ToolTab): string {

@@ -41,13 +41,19 @@ export interface QueryIssue {
 }
 
 /** Evaluates every Query statement's tool, args, defaults and refresh against `getState`. */
-export function queryCalls(result: ParseResult | null, getState: (name: string) => unknown): QueryCall[] {
+export function queryCalls(
+  result: ParseResult | null,
+  getState: (name: string) => unknown,
+): QueryCall[] {
   if (!result) return [];
   const ctx = { getState, resolveRef: () => null };
   return result.queryStatements.map((statement): QueryCall => {
     const tool = statement.toolAST ? evaluate(statement.toolAST, ctx) : null;
     const rawArgs = statement.argsAST ? evaluate(statement.argsAST, ctx) : {};
-    const args = typeof rawArgs === "object" && rawArgs !== null && !Array.isArray(rawArgs) ? (rawArgs as Record<string, unknown>) : {};
+    const args =
+      typeof rawArgs === "object" && rawArgs !== null && !Array.isArray(rawArgs)
+        ? (rawArgs as Record<string, unknown>)
+        : {};
     const refresh = statement.refreshAST ? evaluate(statement.refreshAST, ctx) : null;
     const name = typeof tool === "string" && tool !== "" ? tool : null;
     return {
@@ -95,7 +101,15 @@ export class QueryRunner {
     for (const call of calls) {
       const entry = this.entries.get(call.id);
       if (!entry) {
-        this.entries.set(call.id, { call, data: undefined, error: null, fetchedAt: 0, inFlight: null, timer: null, timerSec: null });
+        this.entries.set(call.id, {
+          call,
+          data: undefined,
+          error: null,
+          fetchedAt: 0,
+          inFlight: null,
+          timer: null,
+          timerSec: null,
+        });
         continue;
       }
       const changed = entry.call.key !== call.key;
@@ -133,9 +147,16 @@ export class QueryRunner {
   issues(): QueryIssue[] {
     const out: QueryIssue[] = [];
     for (const [id, entry] of this.entries) {
-      if (this.client === null) out.push({ id, message: "Query shows its defaults here: live data runs on dashboards and canvas ui nodes" });
-      else if (entry.call.tool === null) out.push({ id, message: "Query's first argument must be a tool name string" });
-      else if (entry.error !== null) out.push({ id, message: `${entry.call.tool}: ${entry.error}` });
+      if (this.client === null)
+        out.push({
+          id,
+          message:
+            "Query shows its defaults here: live data runs on dashboards and canvas ui nodes",
+        });
+      else if (entry.call.tool === null)
+        out.push({ id, message: "Query's first argument must be a tool name string" });
+      else if (entry.error !== null)
+        out.push({ id, message: `${entry.call.tool}: ${entry.error}` });
     }
     return out;
   }
@@ -143,7 +164,8 @@ export class QueryRunner {
   private refreshDue(): void {
     for (const entry of this.entries.values()) {
       const sec = clampRefresh(entry.call.refreshSec);
-      const stale = entry.fetchedAt === 0 || (sec !== null && this.now() - entry.fetchedAt >= sec * 1000);
+      const stale =
+        entry.fetchedAt === 0 || (sec !== null && this.now() - entry.fetchedAt >= sec * 1000);
       if (stale) this.fetch(entry);
       if (entry.timerSec !== sec) {
         this.clearTimer(entry);
@@ -163,24 +185,26 @@ export class QueryRunner {
     if (client === null || tool === null || entry.inFlight === key) return;
     entry.inFlight = key;
     // A client that throws synchronously still lands as a failed fetch.
-    Promise.resolve().then(() => client.run(tool, args)).then(
-      (data) => {
-        if (entry.inFlight === key) entry.inFlight = null;
-        if (entry.call.key !== key || this.entries.get(entry.call.id) !== entry) return;
-        entry.data = data;
-        entry.error = null;
-        entry.fetchedAt = this.now();
-        this.onChange();
-      },
-      (error: unknown) => {
-        if (entry.inFlight === key) entry.inFlight = null;
-        if (entry.call.key !== key || this.entries.get(entry.call.id) !== entry) return;
-        entry.error = error instanceof Error ? error.message : String(error);
-        // Try again at the next interval (or the next start), not in a tight loop.
-        entry.fetchedAt = this.now();
-        this.onChange();
-      },
-    );
+    Promise.resolve()
+      .then(() => client.run(tool, args))
+      .then(
+        (data) => {
+          if (entry.inFlight === key) entry.inFlight = null;
+          if (entry.call.key !== key || this.entries.get(entry.call.id) !== entry) return;
+          entry.data = data;
+          entry.error = null;
+          entry.fetchedAt = this.now();
+          this.onChange();
+        },
+        (error: unknown) => {
+          if (entry.inFlight === key) entry.inFlight = null;
+          if (entry.call.key !== key || this.entries.get(entry.call.id) !== entry) return;
+          entry.error = error instanceof Error ? error.message : String(error);
+          // Try again at the next interval (or the next start), not in a tight loop.
+          entry.fetchedAt = this.now();
+          this.onChange();
+        },
+      );
   }
 
   private clearTimer(entry: Entry): void {

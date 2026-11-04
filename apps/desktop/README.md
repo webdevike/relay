@@ -105,7 +105,7 @@ change the face; the agent's crumb says them.
 
 ## Right panel
 
-The panel card holds two tools, picked by the Browser / Files tabs in its header, plus transient
+The panel card holds tools, picked by the Browser / Files / Terminal tabs in its header, plus transient
 views over them (a subagent's transcript, an experiment arm). The last tool picked survives chat
 switches; a new browser tab brings the browser back (`shell/layout-store.ts`).
 
@@ -135,8 +135,30 @@ A slim editor over one folder: the open chat's active worktree, else its cwd, el
 - **Safety**: main serves only roots it resolved itself; every path is checked to stay inside the
   root after symlinks; `.git` and `secrets` are locked; saves never create files.
 
-Not included on purpose: extensions, debugger, terminal, settings UI, file create/rename/delete,
+Not included on purpose: extensions, debugger, settings UI, file create/rename/delete,
 replace across files, a language server.
+
+## Terminal
+
+A tool tab next to Files: real terminals, xterm.js in the page over node-pty in main
+(`terminal.*` channels; code in `src/main/terminal/` and `src/renderer/terminal/`).
+
+- **Shells**: the user's login shell (`$SHELL -l`) in the open chat's active worktree, else its cwd,
+  else the Eva root. A tab strip holds several; each keeps its screen and process while the tab
+  exists (switching tabs, panes or panels never remounts it), and closing a terminal, or the
+  Terminal tab, ends its pty. `exit` closes the terminal's tab. Up to 16 at once; all end on quit.
+- **Attach to session**: a chat that runs in herdr (`herdr agent list` reports its session file) gets
+  an attach button. It starts `herdr agent attach <pane> --takeover` in a pty, so the tab shows that
+  session's live omp/Claude Code/Codex TUI and takes keystrokes. Detach is herdr's `ctrl+b q`, or
+  closing the tab; the session itself keeps running in herdr either way. One attach tab per chat.
+  Without herdr, or for a chat that is not in herdr, only shells are offered.
+- **Environment**: `TERM=xterm-256color`, `COLORTERM=truecolor`; Electron's `ELECTRON_*` and herdr's
+  pane markers (`HERDR_ENV`, `HERDR_PANE_ID`, ...) are dropped so a nested `herdr` still starts.
+- **Look**: colors come from the panel's Mantine surface and accent, with a fixed ANSI palette per
+  scheme; they follow light/dark. Links open through Settings > Links. While a terminal has focus,
+  app chords yield to it except the pass-through list (`TERMINAL_PASS_THROUGH`).
+- **Safety**: only the app shell page can call `terminal.*`, and it names a chat's session file and
+  a mode, never a command or folder; main picks both.
 
 ## Agent control
 

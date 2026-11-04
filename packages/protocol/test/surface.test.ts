@@ -3,7 +3,9 @@ import { untagged } from "../src";
 
 describe("untagged", () => {
   it("strips the desktop's tag", () => {
-    expect(untagged("<surface>Mac Mini - Relay Desktop</surface>\nfix the dock")).toBe("fix the dock");
+    expect(untagged("<surface>Mac Mini - Relay Desktop</surface>\nfix the dock")).toBe(
+      "fix the dock",
+    );
   });
   it("strips the phone's tag", () => {
     expect(untagged("<surface>iPhone - Relay</surface>\nship it")).toBe("ship it");

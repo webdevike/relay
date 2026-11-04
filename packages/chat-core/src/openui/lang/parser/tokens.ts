@@ -49,6 +49,6 @@ export const enum T {
 }
 
 export type Token = {
-  t: T;
-  v?: string | number;
-};
+  t: T
+  v?: string | number
+}

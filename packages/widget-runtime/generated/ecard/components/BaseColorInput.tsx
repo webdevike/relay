@@ -2,10 +2,8 @@
 // Base facade over Mantine ColorInput. Pages import BaseX from @design-system, never @mantine/core.
 // Stock Mantine field chrome (6px radius from the theme) with the BaseTextInput label (so color labels
 // match text-input labels), and description and error below the input. Mantine props passed explicitly win.
-import {
-  ColorInput, type ColorInputProps,
-} from "@mantine/core";
-const textInputStyles: Record<string, string> = {"label":"ecard-BaseTextInput-label"};
+import { ColorInput, type ColorInputProps } from "@mantine/core";
+const textInputStyles: Record<string, string> = { label: "ecard-BaseTextInput-label" };
 
 export type BaseColorInputProps = ColorInputProps;
 
@@ -13,12 +11,7 @@ export function BaseColorInput(props: BaseColorInputProps) {
   return (
     <ColorInput
       classNames={{ label: textInputStyles["label"] }}
-      inputWrapperOrder={[
-        "label",
-        "input",
-        "description",
-        "error",
-      ]}
+      inputWrapperOrder={["label", "input", "description", "error"]}
       {...props}
     />
   );

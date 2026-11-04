@@ -1,10 +1,23 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createOpenUIRuntime, parseOpenUI, parseWidget, type OpenUIRuntime, type WidgetSpec } from "../src";
+import {
+  createOpenUIRuntime,
+  parseOpenUI,
+  parseWidget,
+  type OpenUIRuntime,
+  type WidgetSpec,
+} from "../src";
 import { CALCULATOR } from "../src/openui/prompt";
 
-const KEY_IDS: Record<string, string> = { "+": "kadd", "-": "ksub", "*": "kmul", "/": "kdiv", "=": "keq", ".": "kdot" };
+const KEY_IDS: Record<string, string> = {
+  "+": "kadd",
+  "-": "ksub",
+  "*": "kmul",
+  "/": "kdiv",
+  "=": "keq",
+  ".": "kdot",
+};
 
 /** Taps the calculator keys of `keys`, e.g. "12+7*2=". */
 function press(runtime: OpenUIRuntime, keys: string): void {
@@ -65,11 +78,14 @@ more = Text("tap to count", "muted")`;
     const runtime = createOpenUIRuntime(counter.slice(0, cut), { partial: true });
     runtime.dispatch("inc");
     runtime.dispatch("inc");
-    for (let end = cut + 1; end <= counter.length; end++) runtime.update(counter.slice(0, end), { partial: true });
+    for (let end = cut + 1; end <= counter.length; end++)
+      runtime.update(counter.slice(0, end), { partial: true });
     runtime.update(counter.replace("$step = 1", "$step = 5"));
     const node = runtime.snapshot().node;
     expect(runtime.snapshot().errors).toEqual([]);
-    expect(node).toMatchObject({ children: [{ text: "Count: 2" }, { action: "inc" }, { text: "tap to count" }] });
+    expect(node).toMatchObject({
+      children: [{ text: "Count: 2" }, { action: "inc" }, { text: "tap to count" }],
+    });
     // An untouched $variable takes its new default; a changed one keeps the user's value.
     runtime.dispatch("inc");
     expect(runtime.snapshot().node).toMatchObject({ children: [{ text: "Count: 7" }, {}, {}] });
@@ -80,7 +96,25 @@ more = Text("tap to count", "muted")`;
     const first = runtime.snapshot();
     expect(runtime.snapshot()).toBe(first);
     const ids = actionIds(first.node);
-    expect(ids).toEqual(["k7", "k8", "k9", "kdiv", "k4", "k5", "k6", "kmul", "k1", "k2", "k3", "ksub", "k0", "kdot", "keq", "kadd", "clear"]);
+    expect(ids).toEqual([
+      "k7",
+      "k8",
+      "k9",
+      "kdiv",
+      "k4",
+      "k5",
+      "k6",
+      "kmul",
+      "k1",
+      "k2",
+      "k3",
+      "ksub",
+      "k0",
+      "kdot",
+      "keq",
+      "kadd",
+      "clear",
+    ]);
     let calls = 0;
     const unsubscribe = runtime.subscribe(() => calls++);
     press(runtime, "5");
@@ -97,7 +131,9 @@ more = Text("tap to count", "muted")`;
   });
 
   it("gives inline buttons path ids, unique per occurrence", () => {
-    const runtime = createOpenUIRuntime('root = Stack([b, b, Button("x", @Set($n, 1))])\nb = Button("b", @Set($n, 2))');
+    const runtime = createOpenUIRuntime(
+      'root = Stack([b, b, Button("x", @Set($n, 1))])\nb = Button("b", @Set($n, 2))',
+    );
     expect(actionIds(runtime.snapshot().node)).toEqual(["b", "b#2", "root/children/2"]);
   });
 
@@ -117,16 +153,24 @@ ask = Button("Ask", @ToAssistant("why " + $n + "?"))`);
     const runtime = createOpenUIRuntime(`root = Stack([field, Text("Hi " + $name)])
 $name = "you"
 field = Input("Name", "Ask", "Tell me about {value}", false, $name)`);
-    expect(runtime.snapshot().node).toMatchObject({ children: [{ bind: "field", value: "you" }, { text: "Hi you" }] });
+    expect(runtime.snapshot().node).toMatchObject({
+      children: [{ bind: "field", value: "you" }, { text: "Hi you" }],
+    });
     runtime.setInput("field", "Ada");
-    expect(runtime.snapshot().node).toMatchObject({ children: [{ bind: "field", value: "Ada" }, { text: "Hi Ada" }] });
+    expect(runtime.snapshot().node).toMatchObject({
+      children: [{ bind: "field", value: "Ada" }, { text: "Hi Ada" }],
+    });
     const submit = createOpenUIRuntime(
       'root = Stack([Input("x", null, null, null, $q), Button("Go", Action([@Set($last, $value), @Reset($q)])), Text("Last: " + $last)])\n$q = "draft"\n$last = "none"',
     );
-    expect(submit.snapshot().node).toMatchObject({ children: [{ value: "draft" }, {}, { text: "Last: none" }] });
+    expect(submit.snapshot().node).toMatchObject({
+      children: [{ value: "draft" }, {}, { text: "Last: none" }],
+    });
     submit.setInput("root/children/0", "typed");
     expect(submit.dispatch("root/children/1", { value: "typed" })).toEqual({});
-    expect(submit.snapshot().node).toMatchObject({ children: [{ value: "draft" }, {}, { text: "Last: typed" }] });
+    expect(submit.snapshot().node).toMatchObject({
+      children: [{ value: "draft" }, {}, { text: "Last: typed" }],
+    });
   });
 
   it("parseOpenUI evaluates stateful buttons to action ids", () => {
@@ -148,7 +192,11 @@ describe("runtime-only widget fields", () => {
       reply: "y",
       variant: "secondary",
     });
-    expect(parseWidget('{"widget":"input","bind":"b","value":"v"}')).toEqual({ widget: "input", button: "Send", reply: "{value}" });
+    expect(parseWidget('{"widget":"input","bind":"b","value":"v"}')).toEqual({
+      widget: "input",
+      button: "Send",
+      reply: "{value}",
+    });
     expect(parseWidget('{"widget":"stat","label":"l","value":"v"}')).toMatchObject({ value: "v" });
   });
 });
@@ -160,20 +208,28 @@ describe("vendored lang-core", () => {
       return statSync(path).isDirectory() ? files(path) : path.endsWith(".ts") ? [path] : [];
     });
   const openui = join(import.meta.dirname, "../src/openui");
-  const runtimeFiles = [...files(join(openui, "lang")), join(openui, "parse.ts"), join(openui, "runtime.ts")];
+  const runtimeFiles = [
+    ...files(join(openui, "lang")),
+    join(openui, "parse.ts"),
+    join(openui, "runtime.ts"),
+  ];
 
   it("never evaluates code", () => {
     expect(runtimeFiles.length).toBeGreaterThan(10);
     for (const file of runtimeFiles) {
       const source = readFileSync(file, "utf8");
-      expect(source, file).not.toMatch(/(?<![\w.])eval\s*\(|\bnew\s+Function\b|(?<![\w.])Function\s*\(/);
+      expect(source, file).not.toMatch(
+        /(?<![\w.])eval\s*\(|\bnew\s+Function\b|(?<![\w.])Function\s*\(/,
+      );
     }
   });
 
   it("imports no Node or DOM APIs", () => {
     for (const file of runtimeFiles) {
       const source = readFileSync(file, "utf8");
-      expect(source, file).not.toMatch(/from\s+["'](?:node:|fs|path|process)|\b(?:window|document|process)\.\w/);
+      expect(source, file).not.toMatch(
+        /from\s+["'](?:node:|fs|path|process)|\b(?:window|document|process)\.\w/,
+      );
     }
   });
 });

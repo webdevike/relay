@@ -26,7 +26,7 @@ import {
  * `destructive` actions need `confirm: true` from the agent and Isaac's approval in the app.
  *
  * The window is a tiling of panes (shell-core tiling.ts): the chat pane holds the app tabs, tool
- * panes hold tool tabs (browser, files, transcripts, arm details, pages).
+ * panes hold tool tabs (browser, files, terminal, transcripts, arm details, pages).
  * `layout.read` shows the tree; `pane.*` and `tab.*` change it.
  *
  * Content actions (files.open, browser.*, tab.open, testbench.open with an arm) take an optional
@@ -140,6 +140,12 @@ export const PaneTabSpecSchema = z.discriminatedUnion('kind', [
         })
         .strict()
         .optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('terminal'),
+      args: z.object({}).strict().optional(),
     })
     .strict(),
   z
@@ -263,10 +269,10 @@ export const agentActions = {
   'tab.open': {
     title: 'Open a tool tab',
     description:
-      'Shows a tool tab: `browser` (args.url also opens that page), `files` (args.path shows a file or folder, at args.line), `subagent` (args: session file, subagent .jsonl, name), `experiment-arm` (args: experiment, arm) or `page` (args.page: test-bench, canvas with args.canvas, studio, jobs, a workspace:<slug>...; not chats). Already open: it comes to the front (moved to `pane` when one is named). Else it opens in `pane`, the focused or last tool pane, or a new pane right of the chat. Answers the pane and tab ids.',
+      'Shows a tool tab: `browser` (args.url also opens that page), `files` (args.path shows a file or folder, at args.line), `terminal` (a shell in the chat folder, or the herdr session of the chat), `subagent` (args: session file, subagent .jsonl, name), `experiment-arm` (args: experiment, arm) or `page` (args.page: test-bench, canvas with args.canvas, studio, jobs, a workspace:<slug>...; not chats). Already open: it comes to the front (moved to `pane` when one is named). Else it opens in `pane`, the focused or last tool pane, or a new pane right of the chat. Answers the pane and tab ids.',
     params: z
       .object({
-        kind: z.enum(['browser', 'files', 'subagent', 'experiment-arm', 'page']),
+        kind: z.enum(['browser', 'files', 'terminal', 'subagent', 'experiment-arm', 'page']),
         args: z.record(z.string(), z.unknown()).optional(),
         pane: PaneId.optional(),
         scope,

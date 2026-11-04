@@ -13,12 +13,18 @@ const FilesPanel = lazy(() =>
   import('../files/FilesPanel').then((m) => ({ default: m.FilesPanel })),
 )
 
+// xterm loads the first time a Terminal opens.
+const TerminalPanel = lazy(() =>
+  import('../terminal/TerminalPanel').then((m) => ({ default: m.TerminalPanel })),
+)
+
 /**
  * Every tool tab's content renders once, through a portal, into its own detached node; its
  * dockview panel shows it by moving that node into the panel's body, and parks it out of sight
  * otherwise. Moving a tab to another pane, splitting or maximizing never remounts it (the
  * browser keeps its view, Files its editors). The browser and Files stay mounted after their tab
- * closes, like the old side panel kept them, so closing a tab or pane never loses an edit.
+ * closes, like the old side panel kept them, so closing a tab or pane never loses an edit; a
+ * Terminal does not, closing it ends its shells.
  */
 const nodes = new Map<string, HTMLDivElement>()
 /** Scroll offsets inside a parked node, put back when it shows again. */
@@ -100,6 +106,12 @@ function TabContent({ tab, visible }: { tab: ToolTab; visible: boolean }) {
       return (
         <Suspense fallback={null}>
           <FilesPanel hidden={!visible} />
+        </Suspense>
+      )
+    case 'terminal':
+      return (
+        <Suspense fallback={null}>
+          <TerminalPanel hidden={!visible} />
         </Suspense>
       )
     case 'subagent':

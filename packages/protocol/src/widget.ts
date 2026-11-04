@@ -457,7 +457,7 @@ type Leaf =
   | z.infer<typeof Quote>
   | z.infer<typeof Avatar>
   | z.infer<typeof Timeline>
-  | z.infer<typeof Input>
+  | z.infer<typeof Input>;
 
 const Gap = z.enum(["xs", "sm", "md", "lg"]);
 export type Gap = z.infer<typeof Gap>;
@@ -558,42 +558,42 @@ function aliasType(raw: unknown): unknown {
 const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.preprocess(
   aliasType,
   z
-  .discriminatedUnion("widget", [
-    Chart,
-    Stat,
-    Tickets,
-    Compare,
-    Audio,
-    Video,
-    Gallery,
-    Model,
-    Recipe,
-    TextNode,
-    Rows,
-    Badge,
-    Divider,
-    Diff,
-    Emails,
-    Pr,
-    Button,
-    Link,
-    ImageNode,
-    Table,
-    Progress,
-    List,
-    Callout,
-    Code,
-    Quote,
-    Avatar,
-    Timeline,
-    Input,
-    Stack,
-    Card,
-    Grid,
-    Tabs,
-    Collapse,
-  ])
-  .transform(finish),
+    .discriminatedUnion("widget", [
+      Chart,
+      Stat,
+      Tickets,
+      Compare,
+      Audio,
+      Video,
+      Gallery,
+      Model,
+      Recipe,
+      TextNode,
+      Rows,
+      Badge,
+      Divider,
+      Diff,
+      Emails,
+      Pr,
+      Button,
+      Link,
+      ImageNode,
+      Table,
+      Progress,
+      List,
+      Callout,
+      Code,
+      Quote,
+      Avatar,
+      Timeline,
+      Input,
+      Stack,
+      Card,
+      Grid,
+      Tabs,
+      Collapse,
+    ])
+    .transform(finish),
 );
 
 /** Rules spanning several fields, which zod's discriminated union members can't carry themselves. */
@@ -602,7 +602,10 @@ function finish(node: WidgetSpec, ctx: z.RefinementCtx): WidgetSpec {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message });
     return z.NEVER;
   };
-  if (node.widget === "button" && [node.url, node.reply, node.action].filter((v) => v !== undefined).length !== 1)
+  if (
+    node.widget === "button" &&
+    [node.url, node.reply, node.action].filter((v) => v !== undefined).length !== 1
+  )
     return reject("a button needs exactly one of url, reply or action");
   if (node.widget === "table" && node.rows.some((row) => row.length !== node.columns.length))
     return reject("every table row needs one cell per column");

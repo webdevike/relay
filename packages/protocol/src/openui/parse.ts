@@ -96,7 +96,11 @@ export function parseOpenUI(text: string, opts: ParseOpenUIOptions = {}): ParseO
   const defaults = program.result?.stateDeclarations ?? {};
   const getState = (name: string) => defaults[name] ?? null;
   const calls = new Map(queryCalls(program.result, getState).map((call) => [call.id, call]));
-  const { node, errors, complete } = buildTree(program, getState, (name) => calls.get(name)?.defaults ?? null);
+  const { node, errors, complete } = buildTree(
+    program,
+    getState,
+    (name) => calls.get(name)?.defaults ?? null,
+  );
   for (const id of calls.keys())
     errors.push({
       code: "query-error",
@@ -118,7 +122,12 @@ export function compileProgram(text: string, partial: boolean): Program {
     result = parser.parse(partial ? text.replace(UNFINISHED_NUMBER, "$1$2") : text);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return { result: null, errors: [{ code: "parse-exception", message }], complete: false, partial };
+    return {
+      result: null,
+      errors: [{ code: "parse-exception", message }],
+      complete: false,
+      partial,
+    };
   }
   const errors: OpenUIError[] = result.meta.errors.map((e) =>
     withOptional({ code: e.code, message: e.message }, e),
@@ -126,11 +135,21 @@ export function compileProgram(text: string, partial: boolean): Program {
   const { incomplete, unresolved, orphaned, statementCount } = result.meta;
   if (!partial) {
     if (statementCount === 0)
-      errors.push({ code: "no-root", message: "no statements: a program starts with `root = Component(...)`" });
+      errors.push({
+        code: "no-root",
+        message: "no statements: a program starts with `root = Component(...)`",
+      });
     else if (incomplete)
-      errors.push({ code: "incomplete", message: "the program ends mid-statement (unclosed string, bracket or call)" });
+      errors.push({
+        code: "incomplete",
+        message: "the program ends mid-statement (unclosed string, bracket or call)",
+      });
     for (const name of unresolved)
-      errors.push({ code: "unresolved", message: `"${name}" is referenced but never defined`, statementId: name });
+      errors.push({
+        code: "unresolved",
+        message: `"${name}" is referenced but never defined`,
+        statementId: name,
+      });
     for (const name of orphaned)
       errors.push({
         code: "orphaned",
@@ -140,13 +159,21 @@ export function compileProgram(text: string, partial: boolean): Program {
       });
   }
   for (const { statementId } of result.mutationStatements)
-    errors.push({ code: "unsupported-expression", message: "Relay widgets don't run Mutation: a widget never writes", statementId });
+    errors.push({
+      code: "unsupported-expression",
+      message: "Relay widgets don't run Mutation: a widget never writes",
+      statementId,
+    });
   return { result, errors, complete: !incomplete && unresolved.length === 0, partial };
 }
 
 /** Evaluates a program against `getState` into a validated tree; `resolveRef` answers references to
  * Query statements (their data). Never throws. */
-export function buildTree(program: Program, getState: (name: string) => unknown, resolveRef: (name: string) => unknown = () => null): Built {
+export function buildTree(
+  program: Program,
+  getState: (name: string) => unknown,
+  resolveRef: (name: string) => unknown = () => null,
+): Built {
   const ctx: Ctx = {
     errors: [...program.errors],
     partial: program.partial,
@@ -165,11 +192,15 @@ export function buildTree(program: Program, getState: (name: string) => unknown,
   const { result } = program;
   if (!result) return built(null);
   try {
-    const root = result.root ?? (result.rootExpression ? ctx.evaluate(result.rootExpression) : null);
+    const root =
+      result.root ?? (result.rootExpression ? ctx.evaluate(result.rootExpression) : null);
     if (!isElementNode(root)) return built(null);
     return built(validWidget(root, ctx, "root") ?? null);
   } catch (error) {
-    ctx.errors.push({ code: "runtime-error", message: error instanceof Error ? error.message : String(error) });
+    ctx.errors.push({
+      code: "runtime-error",
+      message: error instanceof Error ? error.message : String(error),
+    });
     ctx.actions.clear();
     ctx.bindings.clear();
     return built(null);
@@ -186,7 +217,11 @@ function validWidget(el: ElementNode, ctx: Ctx, path: string): WidgetSpec | unde
   const raw = widgetJSON(el, ctx, path);
   if (raw === undefined) return undefined;
   let parsed = WidgetNode.safeParse(raw);
-  for (let i = 0; !parsed.success && ctx.partial && i < MAX_REPAIRS && trimInvalid(raw, parsed.error); i++)
+  for (
+    let i = 0;
+    !parsed.success && ctx.partial && i < MAX_REPAIRS && trimInvalid(raw, parsed.error);
+    i++
+  )
     parsed = WidgetNode.safeParse(raw);
   if (parsed.success) return parsed.data;
   ctx.errors.push(invalid(el, parsed.error));
@@ -210,7 +245,10 @@ const STRING_PROPS: ReadonlyMap<string, ReadonlySet<string>> = new Map(
     name,
     new Set(
       Object.entries(def.properties ?? {})
-        .filter(([, prop]) => typeof prop === "object" && prop !== null && "type" in prop && prop.type === "string")
+        .filter(
+          ([, prop]) =>
+            typeof prop === "object" && prop !== null && "type" in prop && prop.type === "string",
+        )
         .map(([key]) => key),
     ),
   ]),
@@ -224,7 +262,10 @@ function widgetJSON(el: ElementNode, ctx: Ctx, path: string): Record<string, Jso
   if (kind === undefined) {
     ctx.errors.push(
       withOptional(
-        { code: "not-a-widget", message: `${el.typeName} is not a widget; it only goes inside the widget that takes it` },
+        {
+          code: "not-a-widget",
+          message: `${el.typeName} is not a widget; it only goes inside the widget that takes it`,
+        },
         { component: el.typeName, statementId: el.statementId },
       ),
     );
@@ -247,7 +288,9 @@ function propsJSON(el: ElementNode, ctx: Ctx, path: string): Record<string, Json
     const json =
       key === "children"
         ? childrenJSON(value, ctx, `${path}/${key}`)
-        : typeof value === "number" && Number.isFinite(value) && STRING_PROPS.get(el.typeName)?.has(key)
+        : typeof value === "number" &&
+            Number.isFinite(value) &&
+            STRING_PROPS.get(el.typeName)?.has(key)
           ? String(value)
           : valueJSON(value, el, ctx, `${path}/${key}`);
     if (json !== undefined) out[key] = json;
@@ -265,7 +308,10 @@ function childrenJSON(value: unknown, ctx: Ctx, path: string): Json[] | undefine
     // A conditional child (`$open ? Text("x") : null`) evaluates to null when hidden.
     if (child === null || child === undefined) return;
     if (!isElementNode(child)) {
-      ctx.errors.push({ code: "not-a-widget", message: `a container child must be a widget, got ${JSON.stringify(child)}` });
+      ctx.errors.push({
+        code: "not-a-widget",
+        message: `a container child must be a widget, got ${JSON.stringify(child)}`,
+      });
       return;
     }
     const widget = validWidget(child, ctx, `${path}/${String(i)}`);
@@ -278,7 +324,9 @@ function valueJSON(raw: unknown, owner: ElementNode, ctx: Ctx, path: string): Js
   const value = isASTNode(raw) ? ctx.evaluate(raw) : raw;
   if (value === null || value === undefined || isActionPlan(value)) return undefined;
   if (isElementNode(value))
-    return WIDGET_KIND_BY_NAME.has(value.typeName) ? widgetJSON(value, ctx, path) : propsJSON(value, ctx, path);
+    return WIDGET_KIND_BY_NAME.has(value.typeName)
+      ? widgetJSON(value, ctx, path)
+      : propsJSON(value, ctx, path);
   if (Array.isArray(value)) {
     const items: Json[] = [];
     value.forEach((item: unknown, i) => {
@@ -316,16 +364,27 @@ function buttonAction(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: 
   }
   const plan = isASTNode(raw) ? ctx.evaluate(raw) : raw;
   const error = (code: OpenUIErrorCode, message: string) =>
-    ctx.errors.push(withOptional({ code, message, component: "Button", path: "/action" }, { statementId: el.statementId }));
+    ctx.errors.push(
+      withOptional(
+        { code, message, component: "Button", path: "/action" },
+        { statementId: el.statementId },
+      ),
+    );
   if (!isActionPlan(plan)) {
-    error("type-mismatch", 'Button action must be an @step or Action([...]), e.g. @ToAssistant("text")');
+    error(
+      "type-mismatch",
+      'Button action must be an @step or Action([...]), e.g. @ToAssistant("text")',
+    );
     labelReply(out);
     return;
   }
-  if (plan.steps.some((step) => step.type === "set" || step.type === "reset" || step.type === "run")) {
+  if (
+    plan.steps.some((step) => step.type === "set" || step.type === "reset" || step.type === "run")
+  ) {
     const actionId = uniqueId(id, ctx.actions);
     // Kept per step, so a later step reads the state the earlier ones set.
-    const list = isASTNode(raw) && raw.k === "Comp" && raw.name === "Action" ? raw.args[0] : undefined;
+    const list =
+      isASTNode(raw) && raw.k === "Comp" && raw.name === "Action" ? raw.args[0] : undefined;
     ctx.actions.set(actionId, list?.k === "Arr" ? list.els : [plan]);
     out["action"] = actionId;
     return;
@@ -333,12 +392,20 @@ function buttonAction(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: 
   const step = plan.steps.find((s) => s.type === "continue_conversation" || s.type === "open_url");
   if (step?.type === "open_url") out["url"] = step.url;
   else if (step?.type === "continue_conversation") out["reply"] = step.message;
-  else error("unsupported-expression", "Relay buttons run @ToAssistant, @OpenUrl, @Set, @Reset and @Run(query) only");
+  else
+    error(
+      "unsupported-expression",
+      "Relay buttons run @ToAssistant, @OpenUrl, @Set, @Reset and @Run(query) only",
+    );
   labelReply(out);
 }
 
 function labelReply(button: Record<string, Json>): void {
-  if (button["reply"] === undefined && button["url"] === undefined && button["action"] === undefined)
+  if (
+    button["reply"] === undefined &&
+    button["url"] === undefined &&
+    button["action"] === undefined
+  )
     button["reply"] = button["label"];
 }
 
@@ -350,7 +417,12 @@ function inputBinding(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: 
   ctx.bindings.set(bindId, raw.n);
   out["bind"] = bindId;
   const value = ctx.getState(raw.n);
-  out["value"] = typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : "";
+  out["value"] =
+    typeof value === "string"
+      ? value
+      : typeof value === "number" || typeof value === "boolean"
+        ? String(value)
+        : "";
 }
 
 /** While streaming, the last table row may still be missing cells; hide it until it is whole. */
@@ -377,7 +449,8 @@ function trimInvalid(raw: Record<string, Json>, error: ZodError): boolean {
   for (const key of path.slice(0, cut))
     parent = typeof parent === "object" && parent !== null ? Reflect.get(parent, key) : undefined;
   const key = path[cut];
-  if (Array.isArray(parent) && typeof key === "number" && key < parent.length) parent.splice(key, 1);
+  if (Array.isArray(parent) && typeof key === "number" && key < parent.length)
+    parent.splice(key, 1);
   else if (typeof parent === "object" && parent !== null && key !== undefined && key in parent)
     Reflect.deleteProperty(parent, key);
   else return false;
@@ -387,10 +460,16 @@ function trimInvalid(raw: Record<string, Json>, error: ZodError): boolean {
 
 function invalid(el: ElementNode, error: ZodError): OpenUIError {
   const detail = error.issues
-    .map((issue) => (issue.path.length ? `/${issue.path.join("/")}: ${issue.message}` : issue.message))
+    .map((issue) =>
+      issue.path.length ? `/${issue.path.join("/")}: ${issue.message}` : issue.message,
+    )
     .join("; ");
   return withOptional(
-    { code: "invalid-widget", message: `${el.typeName} dropped: ${detail}`, component: el.typeName },
+    {
+      code: "invalid-widget",
+      message: `${el.typeName} dropped: ${detail}`,
+      component: el.typeName,
+    },
     { statementId: el.statementId },
   );
 }
@@ -398,7 +477,12 @@ function invalid(el: ElementNode, error: ZodError): OpenUIError {
 /** Copies the optional fields that are set (exactOptionalPropertyTypes forbids explicit undefined). */
 function withOptional(
   base: OpenUIError,
-  extra: { statementId?: string | undefined; component?: string | undefined; path?: string | undefined; severity?: "warning" | undefined },
+  extra: {
+    statementId?: string | undefined;
+    component?: string | undefined;
+    path?: string | undefined;
+    severity?: "warning" | undefined;
+  },
 ): OpenUIError {
   const out: OpenUIError = { ...base };
   if (extra.statementId !== undefined) out.statementId = extra.statementId;

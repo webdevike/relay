@@ -31,29 +31,29 @@
  */
 export type ASTNode =
   | {
-      k: "Comp";
-      name: string;
-      args: ASTNode[];
-      mappedProps?: Record<string, ASTNode>;
+      k: 'Comp'
+      name: string
+      args: ASTNode[]
+      mappedProps?: Record<string, ASTNode>
       /** Set on an `@Name(...)` call whose name is not a built-in or action step. */
-      fn?: true;
+      fn?: true
     }
-  | { k: "Str"; v: string }
-  | { k: "Num"; v: number }
-  | { k: "Bool"; v: boolean }
-  | { k: "Null" }
-  | { k: "Arr"; els: ASTNode[] }
-  | { k: "Obj"; entries: [string, ASTNode][] }
-  | { k: "Ref"; n: string }
-  | { k: "Ph"; n: string }
-  | { k: "StateRef"; n: string }
-  | { k: "RuntimeRef"; n: string; refType: "query" | "mutation" }
-  | { k: "BinOp"; op: string; left: ASTNode; right: ASTNode }
-  | { k: "UnaryOp"; op: string; operand: ASTNode }
-  | { k: "Ternary"; cond: ASTNode; then: ASTNode; else: ASTNode }
-  | { k: "Member"; obj: ASTNode; field: string }
-  | { k: "Index"; obj: ASTNode; index: ASTNode }
-  | { k: "Assign"; target: string; value: ASTNode };
+  | { k: 'Str'; v: string }
+  | { k: 'Num'; v: number }
+  | { k: 'Bool'; v: boolean }
+  | { k: 'Null' }
+  | { k: 'Arr'; els: ASTNode[] }
+  | { k: 'Obj'; entries: [string, ASTNode][] }
+  | { k: 'Ref'; n: string }
+  | { k: 'Ph'; n: string }
+  | { k: 'StateRef'; n: string }
+  | { k: 'RuntimeRef'; n: string; refType: 'query' | 'mutation' }
+  | { k: 'BinOp'; op: string; left: ASTNode; right: ASTNode }
+  | { k: 'UnaryOp'; op: string; operand: ASTNode }
+  | { k: 'Ternary'; cond: ASTNode; then: ASTNode; else: ASTNode }
+  | { k: 'Member'; obj: ASTNode; field: string }
+  | { k: 'Index'; obj: ASTNode; index: ASTNode }
+  | { k: 'Assign'; target: string; value: ASTNode }
 
 /**
  * Subset of ASTNode that must be preserved for runtime evaluation.
@@ -61,101 +61,101 @@ export type ASTNode =
  */
 export type RuntimeExprNode = Extract<
   ASTNode,
-  | { k: "StateRef" }
-  | { k: "RuntimeRef" }
-  | { k: "BinOp" }
-  | { k: "UnaryOp" }
-  | { k: "Ternary" }
-  | { k: "Member" }
-  | { k: "Index" }
-  | { k: "Assign" }
->;
+  | { k: 'StateRef' }
+  | { k: 'RuntimeRef' }
+  | { k: 'BinOp' }
+  | { k: 'UnaryOp' }
+  | { k: 'Ternary' }
+  | { k: 'Member' }
+  | { k: 'Index' }
+  | { k: 'Assign' }
+>
 
 /** Type guard for runtime expression nodes that survive parser lowering. */
 export function isRuntimeExpr(node: ASTNode): node is RuntimeExprNode {
   switch (node.k) {
-    case "StateRef":
-    case "RuntimeRef":
-    case "BinOp":
-    case "UnaryOp":
-    case "Ternary":
-    case "Member":
-    case "Index":
-    case "Assign":
-      return true;
+    case 'StateRef':
+    case 'RuntimeRef':
+    case 'BinOp':
+    case 'UnaryOp':
+    case 'Ternary':
+    case 'Member':
+    case 'Index':
+    case 'Assign':
+      return true
     default:
-      return false;
+      return false
   }
 }
 
 /** Valid AST discriminant values. */
 const AST_KINDS = new Set([
-  "Comp",
-  "Ref",
-  "StateRef",
-  "RuntimeRef",
-  "BinOp",
-  "UnaryOp",
-  "Ternary",
-  "Member",
-  "Index",
-  "Assign",
-  "Str",
-  "Num",
-  "Bool",
-  "Null",
-  "Arr",
-  "Obj",
-  "Ph",
-]);
+  'Comp',
+  'Ref',
+  'StateRef',
+  'RuntimeRef',
+  'BinOp',
+  'UnaryOp',
+  'Ternary',
+  'Member',
+  'Index',
+  'Assign',
+  'Str',
+  'Num',
+  'Bool',
+  'Null',
+  'Arr',
+  'Obj',
+  'Ph',
+])
 
 /** Check if a value is an AST node (has a valid `k` discriminant field). */
 export function isASTNode(value: unknown): value is ASTNode {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  return AST_KINDS.has((value as Record<string, unknown>).k as string);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return AST_KINDS.has((value as Record<string, unknown>).k as string)
 }
 
 export function walkAST(node: ASTNode, visit: (node: ASTNode) => void): void {
   const walk = (current: ASTNode) => {
-    visit(current);
+    visit(current)
 
     switch (current.k) {
-      case "Comp":
-        current.args.forEach(walk);
-        Object.values(current.mappedProps ?? {}).forEach(walk);
-        break;
-      case "Arr":
-        current.els.forEach(walk);
-        break;
-      case "Obj":
-        current.entries.forEach(([, value]) => walk(value));
-        break;
-      case "BinOp":
-        walk(current.left);
-        walk(current.right);
-        break;
-      case "UnaryOp":
-        walk(current.operand);
-        break;
-      case "Ternary":
-        walk(current.cond);
-        walk(current.then);
-        walk(current.else);
-        break;
-      case "Member":
-        walk(current.obj);
-        break;
-      case "Index":
-        walk(current.obj);
-        walk(current.index);
-        break;
-      case "Assign":
-        walk(current.value);
-        break;
+      case 'Comp':
+        current.args.forEach(walk)
+        Object.values(current.mappedProps ?? {}).forEach(walk)
+        break
+      case 'Arr':
+        current.els.forEach(walk)
+        break
+      case 'Obj':
+        current.entries.forEach(([, value]) => walk(value))
+        break
+      case 'BinOp':
+        walk(current.left)
+        walk(current.right)
+        break
+      case 'UnaryOp':
+        walk(current.operand)
+        break
+      case 'Ternary':
+        walk(current.cond)
+        walk(current.then)
+        walk(current.else)
+        break
+      case 'Member':
+        walk(current.obj)
+        break
+      case 'Index':
+        walk(current.obj)
+        walk(current.index)
+        break
+      case 'Assign':
+        walk(current.value)
+        break
     }
-  };
+  }
 
-  walk(node);
+  walk(node)
 }
 
 // ─── Typed Statement model ─────────────────────────────────────────────────
@@ -164,61 +164,61 @@ export function walkAST(node: ASTNode, visit: (node: ASTNode) => void): void {
 
 /** Tool/Query call shape extracted from Comp nodes */
 export interface CallNode {
-  callee: string;
-  args: ASTNode[];
+  callee: string
+  args: ASTNode[]
 }
 
 /** Typed statement — kind known at parse time */
 export type Statement =
-  | { kind: "value"; id: string; expr: ASTNode }
-  | { kind: "state"; id: string; init: ASTNode }
-  | { kind: "query"; id: string; call: CallNode; expr: ASTNode; deps?: string[] }
-  | { kind: "mutation"; id: string; call: CallNode; expr: ASTNode };
+  | { kind: 'value'; id: string; expr: ASTNode }
+  | { kind: 'state'; id: string; init: ASTNode }
+  | { kind: 'query'; id: string; call: CallNode; expr: ASTNode; deps?: string[] }
+  | { kind: 'mutation'; id: string; call: CallNode; expr: ASTNode }
 
 // {n: [1]} -> {k:"Obj", entries: [["n", {k:"Arr", els:[Num 1]}]]}
 export function toLiteralAST(value: unknown): ASTNode {
-  if (value === null || value === undefined) return { k: "Null" };
-  if (typeof value === "string") return { k: "Str", v: value };
-  if (typeof value === "number") return { k: "Num", v: value };
-  if (typeof value === "boolean") return { k: "Bool", v: value };
-  if (Array.isArray(value)) return { k: "Arr", els: value.map(toLiteralAST) };
-  if (typeof value === "object") {
+  if (value === null || value === undefined) return { k: 'Null' }
+  if (typeof value === 'string') return { k: 'Str', v: value }
+  if (typeof value === 'number') return { k: 'Num', v: value }
+  if (typeof value === 'boolean') return { k: 'Bool', v: value }
+  if (Array.isArray(value)) return { k: 'Arr', els: value.map(toLiteralAST) }
+  if (typeof value === 'object') {
     return {
-      k: "Obj",
+      k: 'Obj',
       entries: Object.entries(value).map(([k, v]) => [k, toLiteralAST(v)] as [string, ASTNode]),
-    };
+    }
   }
-  return { k: "Null" };
+  return { k: 'Null' }
 }
 
 // {k:"Arr", els:[Num 1]} -> {v: [1]}; a Ref or call -> undefined
 export function literalValue(node: ASTNode): { v: unknown } | undefined {
   switch (node.k) {
-    case "Str":
-    case "Num":
-    case "Bool":
-      return { v: node.v };
-    case "Null":
-      return { v: null };
-    case "Arr": {
-      const v: unknown[] = [];
+    case 'Str':
+    case 'Num':
+    case 'Bool':
+      return { v: node.v }
+    case 'Null':
+      return { v: null }
+    case 'Arr': {
+      const v: unknown[] = []
       for (const e of node.els) {
-        const lit = literalValue(e);
-        if (!lit) return undefined;
-        v.push(lit.v);
+        const lit = literalValue(e)
+        if (!lit) return undefined
+        v.push(lit.v)
       }
-      return { v };
+      return { v }
     }
-    case "Obj": {
-      const v: Record<string, unknown> = {};
+    case 'Obj': {
+      const v: Record<string, unknown> = {}
       for (const [k, e] of node.entries) {
-        const lit = literalValue(e);
-        if (!lit) return undefined;
-        v[k] = lit.v;
+        const lit = literalValue(e)
+        if (!lit) return undefined
+        v[k] = lit.v
       }
-      return { v };
+      return { v }
     }
     default:
-      return undefined;
+      return undefined
   }
 }
