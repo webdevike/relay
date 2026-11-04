@@ -175,8 +175,8 @@ test('sidebar-subpage-settings', async ({ app, shell }) => {
   const sb = shell.locator(sel('sidebar'))
   await expect(sb).toHaveAttribute('data-sidebar-level', 'settings')
   await expect(shell.locator(sel('sidebar-back'))).toBeVisible()
-  // Theme, Chat, Links, Connections, About, Changelog (Setup is for starter hosts only).
-  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(6)
+  // Theme, Chat, Links, Notifications, Connections, About, Changelog (Setup is for starter hosts only).
+  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(7)
   await expect
     .poll(() =>
       shell
