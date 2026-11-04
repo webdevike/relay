@@ -1,11 +1,13 @@
 import { Alert, Progress, Text } from '@mantine/core'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Place } from '@evaos/shell-core'
-import { SETUP_STEPS, type SetupDetect, type SetupState, type SetupStep } from '@evaos/contract'
+import type { SetupDetect, SetupState, SetupStep } from '@evaos/contract'
 import { invoke } from '../ipc'
 import '../settings/settings.css'
 import './setup.css'
 import { firstIncomplete } from './run'
+import { neighbour, visibleSteps } from './hindsight-state'
+import { MemoryStep } from './steps-memory'
 import { AiStep, CheckStep, InstallStep, WelcomeStep } from './steps-system'
 import { AssistantsStep, HomeStep, HostStep } from './steps-home'
 import { DoneStep, PhoneStep } from './steps-finish'
@@ -18,6 +20,7 @@ const TITLES: Record<SetupStep, string> = {
   ai: 'Connect AI',
   home: 'Your home base',
   assistants: 'Your assistants',
+  hindsight: 'Long-term memory (optional)',
   host: 'Relay Host',
   phone: 'Your iPhone',
   done: 'All set',
@@ -27,17 +30,12 @@ interface Loaded {
   computerName: string
   defaultRoot: string
   rerun: boolean
+  profile: 'eva' | 'starter'
   state: SetupState
 }
 
 /** A rerun only re-checks: it never touches the home base or its assistants. */
 const RERUN_SKIPS: SetupStep[] = ['home', 'assistants']
-
-function stepFrom(index: number, dir: 1 | -1, rerun: boolean): SetupStep | undefined {
-  let i = index + dir
-  while (rerun && SETUP_STEPS[i] && RERUN_SKIPS.includes(SETUP_STEPS[i]!)) i += dir
-  return SETUP_STEPS[i]
-}
 
 /**
  * First-run wizard (also reachable from Settings, Setup). Progress is saved after every step, so a
@@ -83,14 +81,16 @@ export function SetupPage(_props: { place: Place }) {
       // A rerun starts at the check; a first run resumes where it stopped.
       const saved: SetupState = rerun ? { done: ['welcome'] } : info.value.state
       setState(saved)
-      setStep(rerun ? 'check' : firstIncomplete(saved))
+      setStep(rerun ? 'check' : firstIncomplete(saved, app.ok ? app.value.profile : 'starter'))
       setLoaded({
         computerName: info.value.computerName,
         defaultRoot: rerun && app.ok ? app.value.homeRoot : info.value.defaultRoot,
         rerun,
+        profile: app.ok ? app.value.profile : 'starter',
         state: saved,
       })
-      if (!rerun && firstIncomplete(saved) !== 'welcome') void recheck()
+      if (!rerun && firstIncomplete(saved, app.ok ? app.value.profile : 'starter') !== 'welcome')
+        void recheck()
     })()
     return () => {
       cancelled = true
@@ -124,7 +124,9 @@ export function SetupPage(_props: { place: Place }) {
     )
   }
 
-  const index = SETUP_STEPS.indexOf(step)
+  const steps = visibleSteps(loaded.profile)
+  const index = steps.indexOf(step)
+  const skips = loaded.rerun ? RERUN_SKIPS : []
   const ctx: WizardCtx = {
     computerName: loaded.computerName,
     defaultRoot: loaded.defaultRoot,
@@ -137,11 +139,11 @@ export function SetupPage(_props: { place: Place }) {
     finish: () => {
       const cur = stateRef.current
       persist({ ...cur, done: cur.done.includes(step) ? cur.done : [...cur.done, step] })
-      const next = stepFrom(index, 1, loaded.rerun)
+      const next = neighbour(steps, step, 1, skips)
       if (next) setStep(next)
     },
     back: () => {
-      const prev = stepFrom(index, -1, loaded.rerun)
+      const prev = neighbour(steps, step, -1, skips)
       if (prev) setStep(prev)
     },
   }
@@ -150,9 +152,9 @@ export function SetupPage(_props: { place: Place }) {
     <div className="eva-settings" data-testid="setup-page" data-step={step}>
       <div className="eva-settings-col eva-setup-col">
         <Text size="xs" c="dimmed" fw={600} data-testid="setup-progress-label">
-          Step {index + 1} of {SETUP_STEPS.length}
+          Step {index + 1} of {steps.length}
         </Text>
-        <Progress value={((index + 1) / SETUP_STEPS.length) * 100} size="xs" />
+        <Progress value={((index + 1) / steps.length) * 100} size="xs" />
         <h1 className="eva-settings-title">{TITLES[step]}</h1>
         {step === 'welcome' ? <WelcomeStep ctx={ctx} /> : null}
         {step === 'check' ? <CheckStep ctx={ctx} /> : null}
@@ -160,6 +162,7 @@ export function SetupPage(_props: { place: Place }) {
         {step === 'ai' ? <AiStep ctx={ctx} /> : null}
         {step === 'home' ? <HomeStep ctx={ctx} /> : null}
         {step === 'assistants' ? <AssistantsStep ctx={ctx} /> : null}
+        {step === 'hindsight' ? <MemoryStep ctx={ctx} /> : null}
         {step === 'host' ? <HostStep ctx={ctx} /> : null}
         {step === 'phone' ? <PhoneStep ctx={ctx} /> : null}
         {step === 'done' ? <DoneStep ctx={ctx} /> : null}
