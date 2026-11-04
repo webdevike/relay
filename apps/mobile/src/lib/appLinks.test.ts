@@ -8,6 +8,10 @@ describe("appLinkRoute", () => {
     expect(appLinkRoute("relay://expo-development-client/?url=http%3A%2F%2Fx")).toBeNull();
   });
 
+  it("opens the singular relay://open/setting as Settings, like desktop", () => {
+    expect(appLinkRoute("relay://open/setting")).toEqual({ how: "navigate", href: "/settings" });
+  });
+
   it("maps pages to screens and a Reviews item to a push", () => {
     expect(appLinkRoute("relay://assistant/nova")).toEqual({ how: "navigate", href: { pathname: "/eva", params: { agent: "nova" } } });
     expect(appLinkRoute("relay://open/settings/connections?connect=github")).toEqual({ how: "navigate", href: "/settings" });
