@@ -2,9 +2,15 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
+import { SESSIONS_FIXTURE_DIR } from './helpers/paths'
 import { proofShot } from './helpers/proofShot'
 import { test, expect } from './fixtures'
 
+// A disposable copy of the sessions: answering a question writes to the chat, and a chat written in
+// the last 10 minutes (a fresh checkout, or an earlier test here) opens the "Chat is open
+// elsewhere" prompt that covers the card.
+const SESSIONS = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-questions-sessions-'))
+fs.cpSync(SESSIONS_FIXTURE_DIR, SESSIONS, { recursive: true })
 const LOG = path.join(os.tmpdir(), `evaos-fake-omp-questions-${process.pid}.log`)
 
 type Ev = { event: string; detail: Record<string, unknown> | null }
@@ -31,9 +37,13 @@ async function ask(shell: Page, text: string): Promise<void> {
 }
 
 test.describe('question cards and extension UI', () => {
-  test.use({ launchEnv: { FAKE_OMP_LOG: LOG, FAKE_OMP_DELAY_MS: '10' } })
+  test.use({ launchEnv: { EVAOS_SESSIONS_DIR: SESSIONS, FAKE_OMP_SESSIONS_DIR: SESSIONS, FAKE_OMP_LOG: LOG, FAKE_OMP_DELAY_MS: '10' } })
   test.beforeEach(async ({ shell }) => {
     fs.rmSync(LOG, { force: true })
+    // Earlier tests wrote to the chat: age it again so no writer prompt opens.
+    const old = new Date(Date.now() - 60 * 60_000)
+    for (const n of fs.readdirSync(SESSIONS))
+      if (n.endsWith('.jsonl')) fs.utimesSync(path.join(SESSIONS, n), old, old)
     await shell.getByTestId('nav-chat').click()
     await shell
       .getByTestId('chat-tree')
@@ -44,6 +54,7 @@ test.describe('question cards and extension UI', () => {
     await expect(logOf(shell)).toContainText('Please sketch a tiny greeter.')
   })
   test.afterAll(() => {
+    fs.rmSync(SESSIONS, { recursive: true, force: true })
     fs.rmSync(LOG, { force: true })
   })
 
@@ -65,6 +76,44 @@ test.describe('question cards and extension UI', () => {
     await expect(card(shell)).toHaveCount(0)
   })
 
+  test('[ask] Skip cancels, collapses to Skipped and the agent carries on', async ({
+    app,
+    shell,
+  }) => {
+    await ask(shell, '[ask] q')
+    await expect(card(shell)).toBeVisible()
+    await card(shell).getByRole('button', { name: 'Skip' }).click()
+    await expect.poll(() => uiResponses().length).toBe(1)
+    expect(uiResponses()[0]).toMatchObject({ cancelled: true })
+    await expect(logOf(shell)).toContainText('Answer received: cancelled')
+    await expect(logOf(shell).getByText('Skipped', { exact: true })).toBeVisible()
+    await expect(card(shell)).toHaveCount(0)
+    await proofShot(app, shell, 'question-skipped', { phase: 'phase-4' })
+  })
+
+  test('[ask] Escape inside the card skips it', async ({ shell }) => {
+    await ask(shell, '[ask] q')
+    await expect(card(shell)).toBeVisible()
+    await card(shell).getByRole('radio').first().focus()
+    await shell.keyboard.press('Escape')
+    await expect.poll(() => uiResponses().length).toBe(1)
+    expect(uiResponses()[0]).toMatchObject({ cancelled: true })
+    await expect(card(shell)).toHaveCount(0)
+  })
+
+  test('[ask] a single Escape in the composer blurs it and leaves the question open', async ({
+    shell,
+  }) => {
+    await ask(shell, '[ask] q')
+    await expect(card(shell)).toBeVisible()
+    const box = shell.locator('[data-testid=composer-input]')
+    await box.focus()
+    await shell.keyboard.press('Escape')
+    await expect(box).not.toBeFocused()
+    expect(uiResponses()).toHaveLength(0)
+    await expect(card(shell)).toBeVisible()
+  })
+
   test('digits type into the composer while it is focused', async ({ shell }) => {
     await ask(shell, '[ask] q')
     await expect(card(shell)).toBeVisible()
@@ -84,12 +133,20 @@ test.describe('question cards and extension UI', () => {
   test('[ask-multi] sends one frame once every question is answered', async ({ shell }) => {
     await ask(shell, '[ask-multi] q')
     await expect(card(shell)).toBeVisible()
-    const send = card(shell).getByRole('button', { name: 'Send answer' })
-    await expect(send).toBeDisabled()
+    // One page per question: a single choice moves on, Send answer waits for the last page.
+    await expect(card(shell).getByRole('button', { name: 'Next' })).toBeDisabled()
     await card(shell)
       .getByRole('radio', { name: /SQLite/ })
       .click()
     expect(uiResponses()).toHaveLength(0)
+    const send = card(shell).getByRole('button', { name: 'Send answer' })
+    await expect(send).toBeDisabled()
+    await card(shell).getByRole('button', { name: 'Back' }).click()
+    await expect(card(shell).getByRole('radio', { name: /SQLite/ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    await card(shell).getByRole('button', { name: 'Next' }).click()
     await card(shell).getByRole('checkbox', { name: /Auth/ }).click()
     await card(shell)
       .getByRole('checkbox', { name: /Export/ })

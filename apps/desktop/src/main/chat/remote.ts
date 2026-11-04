@@ -1,7 +1,7 @@
 // What the chat pane shows of a session omp runs outside this app (a terminal, a job, herdr), read
 // from its session file and driven through Relay: native chat_view.rs's past chat with the Relay
 // stream row, the question card and the `Starting omp in herdr` row.
-import { answerSummary, type DialogAnswer } from '@evaos/chat-core/dialogs'
+import { answerSummary, SKIPPED, type DialogAnswer } from '@evaos/chat-core/dialogs'
 import { makeMessage, type ChatMessage, type Dialog } from '@evaos/chat-core/message'
 import { answerCommand, decideCommand, type RelayCommand, type RelayImage } from '../relay/commands'
 import type { RelayApproval, RelayAsk } from '../relay/feed'
@@ -131,7 +131,7 @@ export function answerFor(
     if (answer.kind === 'cancel') {
       return {
         cmd: { kind: 'agent.ask.cancel', sessionId: session, askId: b.ask.id },
-        summary: answerSummary(answer),
+        summary: SKIPPED,
       }
     }
     return null

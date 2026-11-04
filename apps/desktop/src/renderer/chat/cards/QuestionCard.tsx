@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { DISMISS_PRIORITY, useDismissable } from '../../hotkeys/dismiss'
 import {
   Box,
   Button,
@@ -55,6 +56,7 @@ export function QuestionCard({
   const [typed, setTyped] = useState<string[]>(() => qs.map(() => ''))
   const [page, setPage] = useState(0)
   const sent = useRef(false)
+  const [focusIn, setFocusIn] = useState(false)
   // One lone single-choice question answers on click; anything else waits for Send answer.
   const immediate = qs.length === 1 && !qs[0]!.multi
   const answered = (i: number): boolean => picks[i]!.length > 0 || typed[i]!.trim() !== ''
@@ -71,6 +73,18 @@ export function QuestionCard({
       if (ok === false) sent.current = false
     })
   }
+
+  // Skipping tells the agent the question was dismissed, so it carries on instead of waiting.
+  const skip = (): void => {
+    if (sent.current || dead) return
+    sent.current = true
+    void Promise.resolve(onAnswer({ kind: 'cancel' })).then((ok) => {
+      if (ok === false) sent.current = false
+    })
+  }
+  // Escape cancels only while focus is inside the card; the composer's own Escape (blur, then a
+  // second press to stop) is unchanged because it is active only while the composer has focus.
+  useDismissable(DISMISS_PRIORITY.subPageBack + 1, skip, focusIn && !dead)
 
   const choose = (qi: number, label: string): void => {
     if (dead || sent.current) return
@@ -130,6 +144,10 @@ export function QuestionCard({
       className="eva-question"
       data-testid="pending-dialog"
       data-dead={dead ? 'true' : undefined}
+      onFocus={() => setFocusIn(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusIn(false)
+      }}
     >
       <Stack gap="sm">
         {q.header || qs.length > 1 ? (
@@ -203,8 +221,11 @@ export function QuestionCard({
             />
           ) : null}
         </Stack>
-        {showActions ? (
+        {!dead ? (
           <Group gap="xs" justify="flex-end">
+            <Button variant="subtle" color="gray" size="xs" onClick={skip}>
+              Skip
+            </Button>
             {qs.length > 1 ? (
               <Group gap={6} mr="auto" aria-hidden>
                 {qs.map((x, i) => (
@@ -223,7 +244,9 @@ export function QuestionCard({
                   />
                 ))}
               </Group>
-            ) : null}
+            ) : (
+              <Box mr="auto" />
+            )}
             {page > 0 ? (
               <Button
                 variant="subtle"
@@ -235,20 +258,22 @@ export function QuestionCard({
                 Back
               </Button>
             ) : null}
-            {last ? (
-              <Button size="xs" disabled={!complete} onClick={() => submit(picks)}>
-                Send answer
-              </Button>
-            ) : (
-              <Button
-                size="xs"
-                disabled={!answered(page)}
-                rightSection={<IconArrowRight size={14} />}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </Button>
-            )}
+            {showActions ? (
+              last ? (
+                <Button size="xs" disabled={!complete} onClick={() => submit(picks)}>
+                  Send answer
+                </Button>
+              ) : (
+                <Button
+                  size="xs"
+                  disabled={!answered(page)}
+                  rightSection={<IconArrowRight size={14} />}
+                  onClick={() => setPage(page + 1)}
+                >
+                  Next
+                </Button>
+              )
+            ) : null}
           </Group>
         ) : null}
         {dead ? (
