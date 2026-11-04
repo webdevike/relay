@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Builds release/Relay-<version>-arm64.dmg with the Relay Host app and the setup scripts bundled.
+# The signed app it leaves in release/mac-arm64/Relay.app is what `relay-desktop-deploy.ts public` zips for the update feed.
 # Usage: bash scripts/package-onboarding.sh        (RELAY_REPO overrides the repo holding apps/mac-host)
 set -euo pipefail
 
@@ -25,7 +26,14 @@ ditto "$HOST_SRC" "$DEST/Relay Host.app"
 echo "==> Building desktop and packaging dmg"
 cd "$DESKTOP"
 pnpm exec electron-vite build
-pnpm exec electron-builder --mac dmg --arm64 --publish never
+# The updater (src/main/update/packaged.ts) only runs for a build that carries its commit as a string in
+# package.json (`relayBuild`); a config file keeps the CLI from parsing an all-digit sha as a number.
+BUILD="$(git -C "$DESKTOP" rev-parse --short=10 HEAD)"
+STAMP="$DESKTOP/.relay-stamp.builder.json"
+printf '{"extends":"./electron-builder.yml","extraMetadata":{"relayBuild":"%s"}}' "$BUILD" > "$STAMP"
+trap 'rm -f "$STAMP"' EXIT
+pnpm exec electron-builder --mac dmg --arm64 --publish never --config "$STAMP"
+grep -aq "\"relayBuild\": \"$BUILD\"" "$DESKTOP/release/mac-arm64/Relay.app/Contents/Resources/app.asar" || { echo "app.asar does not carry relayBuild $BUILD" >&2; exit 1; }
 
 OUT="$DESKTOP/release/Relay-$VERSION-arm64.dmg"
 [ -f "$OUT" ] || { echo "expected $OUT was not produced" >&2; exit 1; }
