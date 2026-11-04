@@ -90,12 +90,9 @@ async function fetchIssue(key: string, token: string): Promise<LinearIssue | nul
 /** One issue by key, cached briefly; throws `no-linear-key` without an API key. */
 export type LinearRead = (key: string) => Promise<LinearIssue | null>
 
-/** Reads issues for the ticket badge card and the Artifacts status reader, through one cache. */
-export function linearReader(evaRoot: string, configDir: string): LinearRead {
-  const cache = new Map<string, { at: number; issue: Promise<LinearIssue | null> }>()
+/** One issue from Linear with this Mac's key (the Mini's own app; a thin client asks its host). */
+export function localLinearIssue(evaRoot: string, configDir: string): LinearRead {
   return async (key) => {
-    const hit = cache.get(key)
-    if (hit && Date.now() - hit.at < TTL_MS) return hit.issue
     const token = await apiKey(evaRoot, configDir)
     if (!token) {
       throw Object.assign(
@@ -105,7 +102,17 @@ export function linearReader(evaRoot: string, configDir: string): LinearRead {
         },
       )
     }
-    const issue = fetchIssue(key, token)
+    return fetchIssue(key, token)
+  }
+}
+
+/** Reads issues for the ticket badge card and the Artifacts status reader, through one cache. */
+export function linearReader(fetchOne: LinearRead): LinearRead {
+  const cache = new Map<string, { at: number; issue: Promise<LinearIssue | null> }>()
+  return async (key) => {
+    const hit = cache.get(key)
+    if (hit && Date.now() - hit.at < TTL_MS) return hit.issue
+    const issue = fetchOne(key)
     cache.set(key, { at: Date.now(), issue })
     // A failure is not cached: the next read retries.
     issue.catch(() => cache.delete(key))

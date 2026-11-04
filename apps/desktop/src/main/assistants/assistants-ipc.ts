@@ -3,8 +3,14 @@ import * as path from 'node:path'
 import type { Assistants } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
-import type { RelayLink } from '../relay/client'
-import { assistantIdFrom, AssistantsService, REGISTRY_FILE } from './assistants'
+import type { RelayFrames, RelayLink } from '../relay/client'
+import {
+  assistantIdFrom,
+  AssistantsService,
+  parseHostAgents,
+  REGISTRY_FILE,
+  type Agent,
+} from './assistants'
 
 /** Relay's deltas come in bursts; one recompute per burst. */
 const COALESCE_MS = 30
@@ -19,16 +25,21 @@ const START_TIMEOUT_MS = 45_000
  * `assistants.list` / `assistants.start` / `assistants.create`, and `assistants.changed` whenever
  * what the Assistants area shows moves (Relay's session list, a thread's file, the registry: an
  * assistant Relay Host adds or changes shows here without a restart). `refresh` schedules that check.
+ * On a thin client (`remote` frames) the registry is the Mini's, as its host lists it
+ * (`assistant.agents`, asked on every connection and pushed on every change), not this Mac's Eva root.
  */
 export function registerAssistantsIpc(
   ctx: MainContext,
   relay: RelayLink,
   sessionsDirs: readonly string[],
+  remote: RelayFrames | null = null,
 ): { list(): Assistants; refresh(): void; close(): void } {
+  let hostAgents: Agent[] | null = null
   const service = new AssistantsService({
     evaRoot: ctx.env.evaRoot,
     sessionsDirs,
     relay: () => relay.sessions(),
+    ...(remote && { hostAgents: () => hostAgents }),
   })
   let shown = ''
   const list = (): Assistants => {
@@ -72,6 +83,15 @@ export function registerAssistantsIpc(
     }, COALESCE_MS)
   }
   const offRelay = relay.onChange(refresh)
+  const offHost = remote?.onFrame((f) => {
+    if (f.t === 'welcome') remote.sendFrame({ t: 'assistant.agents' })
+    else if (f.t === 'assistant.agents') {
+      hostAgents = parseHostAgents(f.agents) ?? hostAgents
+      refresh()
+    }
+  })
+  // Already connected (registered after the welcome): ask now.
+  remote?.sendFrame({ t: 'assistant.agents' })
   let registryWatch: fs.FSWatcher | null = null
   try {
     // The directory, not the file: the host replaces agents.json by renaming a new one over it.
@@ -89,6 +109,7 @@ export function registerAssistantsIpc(
     refresh,
     close: () => {
       offRelay()
+      offHost?.()
       registryWatch?.close()
       clearTimeout(timer)
     },

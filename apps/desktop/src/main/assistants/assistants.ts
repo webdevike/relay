@@ -87,6 +87,33 @@ export function parseRegistry(text: string): Agent[] {
   return out
 }
 
+const HostAgentSchema = z.object({
+  id: z.string().min(1),
+  title: z.string(),
+  scope: z.string().optional().catch(undefined),
+  /** A notionists seed; `portrait`, when there is one, is drawn instead. */
+  avatar: z.string().optional().catch(undefined),
+  portrait: AssistantPortraitSchema.optional().catch(undefined),
+})
+
+/** The host's `assistant.agents` list as the registry's agents; null when it is not a list. */
+export function parseHostAgents(raw: unknown): Agent[] | null {
+  if (!Array.isArray(raw)) return null
+  return raw.flatMap((a) => {
+    const r = HostAgentSchema.safeParse(a)
+    if (!r.success) return []
+    const { id, title, scope, avatar, portrait } = r.data
+    return [
+      {
+        id,
+        title,
+        scope: scope ?? '',
+        avatar: portrait ?? { style: 'notionists' as const, seed: avatar?.trim() || id },
+      },
+    ]
+  })
+}
+
 /** The session Relay lists for agent `agent`'s thread, if any (native relay::assistant_session). */
 export function assistantSession(
   sessions: ReadonlyMap<string, RelaySession> | null,
@@ -199,6 +226,11 @@ export interface AssistantsDeps {
   sessionsDirs: readonly string[]
   /** Relay's sessions by id while connected, else null. */
   relay: () => ReadonlyMap<string, RelaySession> | null
+  /**
+   * A thin client's registry: the agents the Mini's Relay Host lists (`assistant.agents`), null
+   * until it has answered (the Eva root's file stands in meanwhile). Absent on the Mini itself.
+   */
+  hostAgents?: () => Agent[] | null
 }
 
 /**
@@ -216,6 +248,8 @@ export class AssistantsService {
   constructor(private readonly deps: AssistantsDeps) {}
 
   agents(): Agent[] {
+    const hosted = this.deps.hostAgents?.()
+    if (hosted) return hosted
     const file = path.join(this.deps.evaRoot, REGISTRY_FILE)
     let mtimeMs: number
     try {

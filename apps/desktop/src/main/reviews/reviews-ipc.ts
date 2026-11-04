@@ -1,7 +1,8 @@
 // The Reviews page: Isaac's GitHub review queue for the eCardSystems org and one PR's detail, read
 // with `gh`. Writes leave the app only on an explicit action: a GitHub comment or review after
 // Isaac confirms the text in the renderer. Test instances (EVAOS_E2E=1) never post. @Astra asks go
-// to the item's own Astra session (astra-sessions.ts), never to GitHub.
+// to the item's own Astra session (astra-sessions.ts), never to GitHub. In remote mode (a thin
+// client) none of this runs here: the Mini's Relay Host answers every call (remote-reviews.ts).
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { z } from 'zod'
@@ -21,7 +22,8 @@ import {
   readTicketWork,
   workOf,
 } from './approve'
-import { OLD_HOST, type HostApprove } from '../relay/host-approve'
+import { registerRemoteReviews, type RemoteReviewsDeps } from './remote-reviews'
+import { checkState, rowStatusOf, type RawCheck } from './row-status'
 import { registerAstraSessions } from './astra-sessions'
 import { REVIEWS_MEDIA_DIR, isGithubUpload, isLinearUpload, localizeImages } from './review-media'
 import { apiKey } from '../linear/linear-ipc'
@@ -101,31 +103,11 @@ interface Raw {
   labels: Array<{ name: string; color: string }>
   milestone: { title: string } | null
   projectItems: Array<{ title?: string }>
-  statusCheckRollup: Array<{
-    __typename?: string
-    name?: string
-    context?: string
-    status?: string | null
-    conclusion?: string | null
-    state?: string | null
-    detailsUrl?: string | null
-    targetUrl?: string | null
-  }>
+  statusCheckRollup: RawCheck[]
 }
 
 export const PR_JSON_FIELDS =
   'number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup'
-
-const PASSED = ['SUCCESS', 'NEUTRAL']
-const FAILED = ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']
-
-function checkState(c: Raw['statusCheckRollup'][number]): string {
-  const v = (c.conclusion || c.state || '').toUpperCase()
-  if (v === 'SKIPPED') return 'skipped'
-  if (PASSED.includes(v)) return 'pass'
-  if (FAILED.includes(v)) return 'fail'
-  return 'pending'
-}
 
 const CHECK_ORDER = ['fail', 'pending', 'pass', 'skipped']
 
@@ -209,11 +191,15 @@ export function toPr(repo: string, raw: Raw, diff: string): ReviewPr {
 export function registerReviewsIpc(
   ctx: MainContext,
   run: ToolRun,
-  host: HostApprove | null = null,
+  remote: Omit<RemoteReviewsDeps, 'writes'> | null = null,
 ): void {
+  const writes = !ctx.env.e2e
+  if (remote) {
+    registerRemoteReviews(ctx, { ...remote, writes })
+    return
+  }
   // gh reads real GitHub: the live app, or a test instance that opts in with EVAOS_REVIEWS_GH=1.
   const readsGitHub = ctx.env.live || process.env.EVAOS_REVIEWS_GH === '1'
-  const writes = !ctx.env.e2e
   const cwd = os.homedir()
 
   const gh = async (args: string[]): Promise<string> => {
@@ -365,9 +351,7 @@ export function registerReviewsIpc(
     return { status: 'sent', command }
   }
 
-  // Approve on an auto-work draft: the hand-off is the only action; Astra runs ready.ts. The ledgers,
-  // auto-work.json and Astra's thread are the Mini's: on a thin client (remote mode) the Mini's
-  // Relay Host answers, since this laptop has no work/items to read.
+  // Approve on an auto-work draft: the hand-off is the only action; Astra runs ready.ts.
   const APPROVED_FILE = 'reviews-approved.json'
   const approveOf = (repo: string, number: number): ReviewApprove | null => {
     const sent = ctx.config.readJson<Record<string, number>>(APPROVED_FILE, {})
@@ -383,9 +367,7 @@ export function registerReviewsIpc(
     return { key, state }
   }
 
-  handle(ctx, 'reviews.approvable', ({ repo, number }) =>
-    host ? host.approvable(repo, number) : approveOf(repo, number),
-  )
+  handle(ctx, 'reviews.approvable', ({ repo, number }) => approveOf(repo, number))
 
   handle(ctx, 'reviews.rowStatus', async ({ repo, number }) => {
     const out = await gh([
@@ -397,53 +379,21 @@ export function registerReviewsIpc(
       '--json',
       'statusCheckRollup,reviewDecision,isDraft',
     ])
-    const v = JSON.parse(out) as Pick<Raw, 'statusCheckRollup' | 'isDraft'> & {
-      reviewDecision?: string | null
-    }
-    const states = v.statusCheckRollup.map(checkState).filter((s) => s !== 'skipped')
-    const ci = !states.length
-      ? ('none' as const)
-      : states.includes('fail')
-        ? ('fail' as const)
-        : states.includes('pending')
-          ? ('pending' as const)
-          : ('pass' as const)
-    const decision = (['APPROVED', 'CHANGES_REQUESTED', 'REVIEW_REQUIRED'] as const).find(
-      (d) => d === v.reviewDecision,
-    )
-    return { draft: v.isDraft, ci, decision: decision ?? null }
+    const status = rowStatusOf(JSON.parse(out))
+    if (!status) throw fail('gh-failed', `gh pr view ${repo}#${number} answered something else`)
+    return status
   })
 
-  // An old Mini host does not know the `work` op and never answers it: ask once, then stop.
-  let hostWorkOff = false
-  handle(ctx, 'reviews.work', async ({ repo, number }) => {
-    if (host) {
-      if (hostWorkOff) return null
-      try {
-        return await host.work(repo, number)
-      } catch (e) {
-        if (e instanceof Error && e.message === OLD_HOST) hostWorkOff = true
-        return null
-      }
-    }
-    return workOf(
+  handle(ctx, 'reviews.work', ({ repo, number }) =>
+    workOf(
       readLedgers(ctx.env.evaRoot),
       `https://github.com/${repo}/pull/${number}`,
       (key) => readTicketWork(ctx.env.evaRoot, key),
       approveOf(repo, number),
-    )
-  })
+    ),
+  )
 
   handle(ctx, 'reviews.approve', async ({ repo, number }) => {
-    if (host) {
-      if (!writes) return { status: 'dry-run', command: `reviews.req approve ${repo}#${number}` }
-      try {
-        await host.approve(repo, number)
-      } catch (e) {
-        throw fail('astra-failed', e instanceof Error ? e.message : String(e))
-      }
-      return { status: 'sent', command: `reviews.req approve ${repo}#${number}` }
-    }
     const a = approveOf(repo, number)
     if (a === null) throw fail('not-approvable', 'That PR is no longer waiting on your approval')
     if (a.state !== 'ready') throw fail('already-sent', `${a.key} was already handed to Astra`)

@@ -13,7 +13,7 @@ import { linearItem, reasonOf, ReviewMedia, toActivity, toRows as linearRows } f
 import { DRY_RUN_ERROR, ReviewsService, type ReviewsMessage, type ReviewsServiceDeps } from "../src/reviews/service";
 import { sendLine, slackItem, slackLink, toRows as slackRows, toThread, tsMs } from "../src/reviews/slack";
 import { systemClock } from "../src/session";
-import { MAX_REVIEW_DIFF } from "@relay/protocol";
+import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS } from "@relay/protocol";
 
 let dir: string;
 beforeEach(() => {
@@ -556,6 +556,28 @@ describe("service", () => {
     expect(statSync(file).mode & 0o777).toBe(0o600);
     expect(service().reviews.queue().done).toEqual({ [url]: 42 });
     expect(await reviews.handle({ kind: "done", url, updatedAt: 42, done: false })).toEqual({ ok: true, done: {} });
+  });
+
+  it("answers Relay Desktop's Completed and Created lists and a PR's facts from gh", async () => {
+    const calls: string[][] = [];
+    const view = { number: 7, title: "t", isDraft: false, reviewDecision: "APPROVED", statusCheckRollup: [] };
+    const run: ToolRun = (argv) => {
+      calls.push([...argv]);
+      if (argv.includes("search/issues")) return Promise.resolve({ code: 0, stdout: JSON.stringify({ total_count: 31, items: [searchRow] }), stderr: "", timedOut: false });
+      if (argv[1] === "pr" && argv[2] === "view") return Promise.resolve({ code: 0, stdout: JSON.stringify(view), stderr: "", timedOut: false });
+      return Promise.resolve({ code: 1, stdout: "", stderr: "nope", timedOut: false });
+    };
+    const { reviews } = service({ run });
+    const completed = await reviews.handle({ kind: "prList", list: "completed" });
+    expect(completed.prs?.total).toBe(31);
+    expect(completed.prs?.items[0]).toMatchObject({ label: "#1", reason: "you reviewed" });
+    expect(completed.prs?.items[0]).not.toHaveProperty("group");
+    expect(calls.at(-1)).toContain("q=is:pr org:eCardSystems reviewed-by:@me -author:@me is:closed");
+    expect(calls.at(-1)).toContain("per_page=20");
+    expect((await reviews.handle({ kind: "prList", list: "created" })).prs?.items[0]?.reason).toBe("you opened");
+    expect(calls.at(-1)).toContain("q=is:pr org:eCardSystems is:open author:@me");
+    expect(await reviews.handle({ kind: "prView", repo: "eCardSystems/api", number: 7 })).toEqual({ ok: true, view });
+    expect(calls.at(-1)).toEqual(["gh", "pr", "view", "7", "-R", "eCardSystems/api", "--json", PR_VIEW_FIELDS]);
   });
 
   it("refuses every write on a test host and posts nothing", async () => {

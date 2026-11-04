@@ -1,6 +1,7 @@
-// Pull request facts from gh, shared by the context popover and the Artifacts status reader: one
+// Pull request facts, shared by the context popover and the Artifacts status reader: one
 // BackgroundCache, so a PR both show is fetched once. Reads never wait; a refresh that changes a
-// value tells every listener.
+// value tells every listener. They come from gh on this Mac, or from the Mini's Relay Host on a
+// thin client (remote-reviews.ts `hostPrFacts`), which has no gh login of its own.
 import * as os from 'node:os'
 import type { MainContext } from '../context'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
@@ -41,7 +42,15 @@ export interface PrSource {
   onChange(cb: () => void): () => void
 }
 
-export function createPrSource(ctx: MainContext, run: ToolRun): PrSource {
+/** One PR's facts, or null when they can't be read. */
+export type PrRead = (repo: string, number: number) => Promise<PrFacts | null>
+
+/** One PR's facts from this Mac's gh. */
+export function localPrFacts(ctx: MainContext, run: ToolRun): PrRead {
+  return (repo, number) => fetchPr((args) => run('gh', args, ctx.env.evaRoot), repo, number)
+}
+
+export function createPrSource(ctx: MainContext, read: PrRead): PrSource {
   const listeners = new Set<() => void>()
   const allowed = ctx.env.live && !ctx.env.e2e
   const prs = new BackgroundCache<PrFacts>({
@@ -55,11 +64,7 @@ export function createPrSource(ctx: MainContext, run: ToolRun): PrSource {
   return {
     allowed,
     get: (repo, number, hot) =>
-      allowed
-        ? prs.get(`${repo}#${number}`, hot, () =>
-            fetchPr((args) => run('gh', args, ctx.env.evaRoot), repo, number),
-          )
-        : null,
+      allowed ? prs.get(`${repo}#${number}`, hot, () => read(repo, number)) : null,
     onChange: (cb) => {
       listeners.add(cb)
       return () => listeners.delete(cb)

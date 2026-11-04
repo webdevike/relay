@@ -25,6 +25,11 @@ export interface ConnectionsDeps {
   configDir: string
   /** Live app only: run gh and omp and ask Linear. A test or dev instance reports what files say. */
   probe: boolean
+  /**
+   * A thin client (remote mode): GitHub, Linear, Slack and the model sign-ins live on the Mini,
+   * whose Relay Host reads them for this Mac, so this Mac neither checks nor changes them.
+   */
+  onMini: boolean
   /** The connected Relay Host as its welcome named it, or null. */
   host(): { name: string; version: string } | null
   /** Runs a CLI to its end (gh, omp) with the app's PATH. */
@@ -60,6 +65,14 @@ export interface Connections {
 const linkTo = (id: ConnectionId): string => appLinkFor({ connection: id }).url
 
 const NOT_CHECKED = 'Not checked outside the live app'
+const ON_MINI = 'Set up on the Mini; its Relay Host reads it for this Mac'
+
+function refuseOnMini(id: ConnectionId): never {
+  fail(
+    'on-the-mini',
+    `${CONNECTIONS[id].title} is set up on the Mini, not on this Mac. Change it there (Relay on the Mini, Settings > Connections).`,
+  )
+}
 
 export function createConnections(deps: ConnectionsDeps): Connections {
   const listeners = new Set<(rows: Connection[]) => void>()
@@ -147,6 +160,26 @@ export function createConnections(deps: ConnectionsDeps): Connections {
 
   const list = async (): Promise<Connection[]> => {
     const host = deps.host()
+    const hostRow = row('relay-host', {
+      status: host ? 'connected' : 'not-connected',
+      account: host ? host.name : null,
+      detail: host ? `Relay Host ${host.version}` : 'No Relay Host connected',
+      canAdd: !host,
+      canRemove: false,
+    })
+    if (deps.onMini) {
+      return CONNECTION_IDS.map((id) =>
+        id === 'relay-host'
+          ? hostRow
+          : row(id, {
+              status: 'unknown',
+              account: null,
+              detail: ON_MINI,
+              canAdd: false,
+              canRemove: false,
+            }),
+      )
+    }
     const providers = deps.probe ? await ompProviders() : null
     const ai = (id: 'anthropic' | 'openai'): Connection => {
       const signed = providers?.filter((p) => p.startsWith(id)) ?? []
@@ -166,13 +199,7 @@ export function createConnections(deps: ConnectionsDeps): Connections {
       })
     }
     const rows: Record<ConnectionId, Connection> = {
-      'relay-host': row('relay-host', {
-        status: host ? 'connected' : 'not-connected',
-        account: host ? host.name : null,
-        detail: host ? `Relay Host ${host.version}` : 'No Relay Host connected',
-        canAdd: !host,
-        canRemove: false,
-      }),
+      'relay-host': hostRow,
       github: await github(),
       linear: await linear(),
       slack: row('slack', {
@@ -260,6 +287,7 @@ export function createConnections(deps: ConnectionsDeps): Connections {
     changed,
 
     async add(id, secret) {
+      if (deps.onMini && id !== 'relay-host') refuseOnMini(id)
       if (secret !== undefined) return saveLinear(secret)
       const now = (await list()).find((c) => c.id === id)!
       if (now.status === 'connected') return { status: 'connected', id, account: now.account }
@@ -267,6 +295,7 @@ export function createConnections(deps: ConnectionsDeps): Connections {
     },
 
     async connect(id, secret) {
+      if (deps.onMini && id !== 'relay-host') refuseOnMini(id)
       if (id === 'linear' && secret !== undefined) return saveLinear(secret)
       if (id !== 'github') return needsUser(id)
       if (!deps.probe) fail('not-live', 'GitHub sign-in runs only in the live app')
@@ -286,6 +315,7 @@ export function createConnections(deps: ConnectionsDeps): Connections {
     },
 
     async remove(id) {
+      if (deps.onMini && id !== 'relay-host') refuseOnMini(id)
       if (id === 'linear') {
         const found = await linearKey(deps.evaRoot, deps.configDir)
         if (found === null) fail('not-connected', 'Linear is not connected')
