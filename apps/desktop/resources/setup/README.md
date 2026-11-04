@@ -10,6 +10,13 @@ Common rules
 - Steps that need admin rights use the macOS password prompt (`osascript ... with administrator privileges`). The scripts never see a password.
 - `lib.sh` holds the shared helpers (protocol, tool discovery, JSON reading); it is sourced, not run. It puts `~/.local/bin`, `~/.bun/bin`, `/opt/homebrew/bin` and `/usr/local/bin` on PATH because a GUI app starts with a minimal PATH.
 
+## Tests
+
+On macOS, run `node --test apps/desktop/scripts/setup-json.test.mjs` from the repository root
+(or `pnpm test:setup` in `apps/desktop`). These tests exercise the system `plutil` and scaffold
+temporary homes, checking that omitted optional values do not become error messages in the
+assistant configuration. They skip on other platforms and are separate from the Vitest suite.
+
 ## detect.sh
 
 Read-only; installs, starts and writes nothing.
