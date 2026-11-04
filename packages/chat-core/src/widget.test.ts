@@ -89,6 +89,11 @@ const EVERY_NODE: Record<WidgetSpec['widget'], object> = {
   code: { widget: 'code', code: 'let a = 1', language: 'ts' },
   quote: { widget: 'quote', text: 'ship it', cite: 'Noah' },
   avatar: { widget: 'avatar', name: 'Noah Kim', subtitle: 'Reviewer' },
+  avatarEditor: {
+    widget: 'avatarEditor',
+    agent: 'nova',
+    current: { style: 'micah', seed: 'Nova' },
+  },
   timeline: { widget: 'timeline', items: [{ title: 'Merged', time: '2h', tone: 'ok' }] },
   input: { widget: 'input', placeholder: 'Name', reply: 'rename to {value}' },
   stack: { widget: 'stack', direction: 'horizontal', gap: 'xs', children: [{ widget: 'divider' }] },
