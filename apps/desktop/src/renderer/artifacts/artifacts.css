@@ -350,10 +350,6 @@
   gap: calc(var(--mantine-spacing-xs) * 0.4);
   min-width: 0;
 }
-.eva-art-owner {
-  flex: none;
-  font-weight: 500;
-}
 .eva-art-kind {
   display: inline-flex;
   flex: none;

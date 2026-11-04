@@ -9,8 +9,9 @@ import { EVA_FIXTURE_ROOT } from './helpers/paths'
 // The Working tab of an assistant's Artifacts popover: everything agents run, from the host's one
 // activity list. A helper shows once (the Artifacts rows draw it, the activity row for it is left
 // out), sessions, harnesses and canvas agents carry their kind and live intent line, what waits on
-// Isaac is pinned on top with its question, other owners get their own group, and what finished
-// sits under "Finished today". The composer chips show the in-progress work this chat's assistant
+// Isaac is pinned on top with its question, and what finished sits under "Finished today". The
+// popover on an assistant's page lists only that assistant's work (no other owner's rows, no owner
+// groups). The composer chips show the in-progress work this chat's assistant
 // spun off, with the kind icon. EVAOS_WORKING_SHOTS=<dir> also writes dark and light screenshots.
 const SHOTS = process.env.EVAOS_WORKING_SHOTS ?? ''
 
@@ -110,6 +111,24 @@ const items = (autoWork: 'working' | 'done'): Array<Record<string, unknown>> => 
     intent: 'Approve bash: git push origin main',
     open: chatOf('ask1'),
   }),
+  // Another assistant's work and a chat of nobody's: the popover on Nova's page lists neither.
+  row({
+    id: 'session:astra-run',
+    kind: 'session',
+    owner: 'assistant:astra',
+    title: 'ENG-6632 auto-work',
+    intent: 'Astra is running this',
+    open: chatOf('astra-run'),
+  }),
+  row({
+    id: 'session:nova-ask',
+    kind: 'session',
+    owner: 'assistant:nova',
+    title: 'ENG-6633 auto-work',
+    status: 'waiting',
+    intent: 'Approve bash: git push origin main',
+    open: chatOf('nova-ask'),
+  }),
   row({
     id: 'harness:w1:p4',
     kind: 'harness',
@@ -165,13 +184,16 @@ test("an assistant's Working tab lists everything its agents run, and the compos
   ])
   host.setActivity(items('working'))
 
-  // The composer chips: this assistant's in-progress sessions and canvas agents, kind icon each.
-  // Not the harness nobody owns, not what waits under another assistant, not finished work.
+  // The composer chips follow the same owner: this assistant's in-progress sessions (the one
+  // waiting on Isaac too) and canvas agents, kind icon each. Not the harness nobody owns, not
+  // anything of another assistant's, not finished work.
   const chip = (id: string) => shell.locator(sel(`activity-chip-${id}`))
   await expect(chip('session:aw1')).toHaveAttribute('data-kind', 'session')
   await expect(chip('canvas:roadmap')).toHaveAttribute('data-kind', 'canvas')
   await expect(chip('session:aw1').locator('svg')).toHaveCount(1)
-  await expect(shell.locator('[data-testid^="activity-chip-"]')).toHaveCount(2)
+  await expect(shell.locator('[data-testid^="activity-chip-"]')).toHaveCount(3)
+  await expect(chip('session:nova-ask')).toHaveCount(1)
+  await expect(chip('session:astra-run')).toHaveCount(0)
 
   // The popover: the tab is called Working, and what waits on Isaac is on top with its question.
   await shell.locator(sel('artifacts-button')).click()
@@ -181,16 +203,20 @@ test("an assistant's Working tab lists everything its agents run, and the compos
   const list = shell.locator(sel('working-list'))
   await expect(list).toContainText('Waiting on you')
   await expect(shell.locator(sel('working-waiting-head'))).toContainText('Waiting on you')
-  // Waiting on you is the first group, Running after it.
+  // Waiting on you is first, then Running, then Finished today: no other group between them.
   const order = await list
     .locator('[data-testid$="-head"]')
     .evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))
-  expect(order.slice(0, 2)).toEqual(['working-waiting-head', 'working-running-head'])
-  const asking = shell.locator(sel('activity-row-session:ask1'))
+  expect(order).toEqual(['working-waiting-head', 'working-running-head', 'working-finished-head'])
+  // Only Nova's own ask: Astra's (waiting too) shows on Astra's page.
+  await expect(
+    shell.locator(sel('working-waiting')).locator('[data-testid^="activity-row-"]'),
+  ).toHaveCount(1)
+  const asking = shell.locator(sel('activity-row-session:nova-ask'))
   await expect(asking).toHaveAttribute('data-state', 'waiting')
   await expect(asking).toContainText('Approve bash: git push origin main')
   await expect(asking).toContainText('Session')
-  await expect(asking.locator('.eva-art-owner')).toHaveText('Astra')
+  await expect(asking.locator('.eva-art-owner')).toHaveCount(0)
 
   // One row per helper: the Artifacts row, not a second one from the activity list.
   await expect(shell.locator('[data-testid^="artifact-row-subagent:"]')).toHaveCount(1)
@@ -210,10 +236,14 @@ test("an assistant's Working tab lists everything its agents run, and the compos
   const session = shell.locator(sel('activity-row-session:aw1'))
   await expect(session.locator('.eva-art-kind')).toHaveText('Session')
   await expect(session).not.toContainText('Opus')
-  // Other owners get their own group: the harness nobody owns sits under Other chats.
-  const harness = shell.locator(sel('activity-row-harness:w1:p3'))
-  await expect(harness.locator('.eva-art-kind')).toHaveText('Harness')
-  await expect(list).toContainText('Other chats')
+  // Only Nova's own: the harness nobody owns and everything of Astra's stay out, and with one
+  // owner there are no owner group headers.
+  await expect(shell.locator(sel('activity-row-harness:w1:p3'))).toHaveCount(0)
+  await expect(shell.locator(sel('activity-row-session:ask1'))).toHaveCount(0)
+  await expect(shell.locator(sel('activity-row-session:astra-run'))).toHaveCount(0)
+  await expect(list).not.toContainText('Other chats')
+  await expect(list).not.toContainText('Astra is running this')
+  await expect(shell.locator('[data-testid^="working-owner-"]')).toHaveCount(0)
   // What finished is under Finished today, and nothing finished is listed as running.
   await expect(list).toContainText('Finished today')
   await expect(shell.locator(sel('activity-row-harness:w1:p4'))).toHaveAttribute(

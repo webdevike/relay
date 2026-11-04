@@ -73,11 +73,11 @@ export const isSelf = (item: ActivityItem, thread: string | null): boolean =>
   item.open.to === 'chat' && item.open.thread === thread && item.owner === thread
 
 export interface ActivitySections {
-  /** Blocked on Isaac, any owner, oldest ask first. */
+  /** Blocked on Isaac, oldest ask first. With a thread: its own; without one: any owner's. */
   waiting: ActivityItem[]
   /** In progress under this thread (helpers are the Artifacts rows, so they are not repeated here). */
   mine: ActivityItem[]
-  /** In progress under other owners, grouped. */
+  /** In progress under other owners, grouped. Empty when a thread is given: its page shows its own work only. */
   others: Array<{ owner: string; items: ActivityItem[] }>
   /** Finished or failed today under this thread. */
   earlier: ActivityItem[]
@@ -87,9 +87,11 @@ const sameDay = (a: number, b: number): boolean =>
   new Date(a).toDateString() === new Date(b).toDateString()
 
 /**
- * The popover's sections for `thread`. Helpers of `thread` are left out: the Artifacts rows draw
- * those (with their transcripts), so one helper is never listed twice. `ownerOrder` ranks the
- * other owners (assistants first); anything else sorts by name after them.
+ * The popover's sections for `thread`. With a thread (an assistant's page or a chat) only what that
+ * thread owns is listed: waiting on Isaac, running, finished today. Helpers of `thread` are left
+ * out: the Artifacts rows draw those (with their transcripts), so one helper is never listed twice.
+ * Without a thread (a page with no owner) everything is listed, the other owners grouped:
+ * `ownerOrder` ranks them (assistants first); anything else sorts by name after them.
  */
 export function activitySections(
   items: readonly ActivityItem[],
@@ -100,13 +102,12 @@ export function activitySections(
   const notMyHelper = (i: ActivityItem): boolean => !(i.kind === 'helper' && sameOwner(i, thread))
   const shown = items.filter((i) => notMyHelper(i) && !isSelf(i, thread))
   const waiting = shown
-    .filter((i) => i.status === 'waiting')
+    .filter((i) => i.status === 'waiting' && (thread === null || sameOwner(i, thread)))
     .sort((a, b) => a.updatedAt - b.updatedAt)
   const working = shown.filter((i) => i.status === 'working')
   const mine = working.filter((i) => sameOwner(i, thread)).sort((a, b) => b.startedAt - a.startedAt)
   const byOwner = new Map<string, ActivityItem[]>()
-  for (const i of working) {
-    if (sameOwner(i, thread)) continue
+  for (const i of thread === null ? working : []) {
     byOwner.set(i.owner, [...(byOwner.get(i.owner) ?? []), i])
   }
   const rank = (owner: string): number => {
