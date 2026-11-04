@@ -106,8 +106,10 @@ describe('contract', () => {
     expect(i.safeParse({ extra: 1 }).success).toBe(false)
     expect(i.safeParse({ tabs: { active: 0, list: [tab(51)] } }).success).toBe(false)
     expect(i.safeParse({ tabs: { active: 0, list: [tab(50)] } }).success).toBe(true)
-    expect(i.safeParse({ tiling: { version: 1, root: {} } }).success).toBe(true)
-    expect(i.safeParse({ tiling: [] }).success).toBe(false)
+    // The dockview layout is the saved panes now; the split tree it replaced is read, never saved.
+    expect(i.safeParse({ dock: { grid: {}, panels: {} } }).success).toBe(true)
+    expect(i.safeParse({ dock: [] }).success).toBe(false)
+    expect(i.safeParse({ tiling: { version: 1, root: {} } }).success).toBe(false)
     expect(i.safeParse({ panelChoices: { a: true } }).success).toBe(false)
     expect(i.safeParse({ panelTool: 'files' }).success).toBe(false)
   })
