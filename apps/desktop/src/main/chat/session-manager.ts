@@ -4,6 +4,7 @@ import { parseFrame } from '@evaos/chat-core/frames'
 import { cmd } from '@evaos/chat-core/frames'
 import { LiveReducer, promptRow } from '@evaos/chat-core/reducer'
 import {
+  answerRowText,
   answerSummary,
   dialogResponse,
   dialogStatus,
@@ -901,7 +902,7 @@ export class SessionManager {
     const summary = this.answering.get(dialogId)
     if (summary === undefined) return
     this.answering.delete(dialogId)
-    const note = makeMessage(dialogRowId(dialogId), 'notice', `Answered: ${summary}`)
+    const note = makeMessage(dialogRowId(dialogId), 'notice', answerRowText(summary))
     for (const pane of this.panes.values()) {
       const r = pane.remote
       if (r?.session === session) r.notes = [...r.notes.filter((n) => n.id !== note.id), note]
@@ -1575,7 +1576,7 @@ export class SessionManager {
     await t.write(dialogResponse(id, answer))
     // The write awaited: only the same dialog may be marked answered.
     if (pane.reducer.dialog?.id !== id) return true
-    this.applyDialogChange(pane, pane.reducer.answer(id, answerSummary(answer)))
+    this.applyDialogChange(pane, pane.reducer.answer(id, answerSummary(answer, d.kind)))
     return true
   }
 

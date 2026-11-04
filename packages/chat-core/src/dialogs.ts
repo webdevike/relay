@@ -156,8 +156,19 @@ const oneLined = (t: string, max: number): string => {
   return flat.length > max ? flat.slice(0, max) : flat
 }
 
-/** What the log row shows after the user answered: `Answered: {summary}`. */
-export function answerSummary(a: DialogAnswer): string {
+/** The summary of a question the user dismissed: its log row reads just `Skipped`. */
+export const SKIPPED = 'Skipped'
+
+/** The log row text for a settled dialog: `Answered: {summary}`, or `Skipped`. */
+export function answerRowText(summary: string): string {
+  return summary === SKIPPED ? SKIPPED : `Answered: ${summary}`
+}
+
+/**
+ * What the log row shows after the user answered: `Answered: {summary}`. A cancel of a question
+ * card (`select` or `ask`, pass its kind) is `Skipped`; a declined confirm stays `Declined`.
+ */
+export function answerSummary(a: DialogAnswer, dialogKind?: Dialog['kind']): string {
   switch (a.kind) {
     case 'select':
       return a.value
@@ -166,7 +177,7 @@ export function answerSummary(a: DialogAnswer): string {
     case 'text':
       return oneLined(a.value, 80)
     case 'cancel':
-      return 'Declined'
+      return dialogKind === 'select' || dialogKind === 'ask' ? SKIPPED : 'Declined'
     case 'ask': {
       const parts = a.answers.flatMap((x) => ('typed' in x ? [x.typed] : x.picked))
       return oneLined(parts.join(', '), 160) || 'Declined'

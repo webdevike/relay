@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { EOF_ERROR, LiveReducer, promptRow } from './reducer'
 import { makeMessage } from './message'
+import { answerSummary } from './dialogs'
 
 const meta = { model: null, thinking: null, contextTokens: null }
 const asst = (content: unknown[]) => ({ role: 'assistant', content })
@@ -289,6 +290,20 @@ describe('LiveReducer', () => {
     expect(res.dirty).toEqual(['dialog-u1'])
     expect(res.meta).toEqual({ dialog: null })
     expect(r.messages().find((m) => m.id === 'dialog-u1')?.text).toBe('Answered: A')
+  })
+
+  it('a skipped question leaves a one-line Skipped row', () => {
+    const r = mk()
+    r.apply({
+      type: 'extension_ui_request',
+      id: 'u1',
+      method: 'select',
+      title: 'Pick',
+      options: ['A'],
+    })
+    r.answer('u1', answerSummary({ kind: 'cancel' }, 'select'))
+    expect(r.messages().find((m) => m.id === 'dialog-u1')?.text).toBe('Skipped')
+    expect(answerSummary({ kind: 'cancel' }, 'confirm')).toBe('Declined')
   })
 
   it('eof with a pending dialog marks it dead and clears it, expected or not', () => {
