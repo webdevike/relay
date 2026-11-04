@@ -7,6 +7,7 @@ export {
   parseOpenUI,
   parseWidget,
   type AudioSpec,
+  type AvatarEditorSpec,
   type AvatarSpec,
   type BadgeSpec,
   type ButtonSpec,

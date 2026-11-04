@@ -1,3 +1,29 @@
+export {
+  ACCENT_SWATCHES,
+  COLOR_ROWS,
+  PAPER_SWATCHES,
+  PART_DEFS,
+  PORTRAIT_STYLES,
+  SAVE_PREFIX,
+  colorValue,
+  parseSaveMessage,
+  partChoices,
+  partThumbSvg,
+  partValue,
+  pinPortrait,
+  portraitSvg,
+  randomSeed,
+  saveMessage,
+  shortName,
+  shuffle,
+  shufflePart,
+  withColor,
+  withPalette,
+  withPart,
+  withStyle,
+  type ColorRow,
+  type PartDef,
+} from "./editor";
 export { assistantAvatarSvg, assistantPortrait } from "./avatar";
 export * from "./affine";
 export { bbox, centre, type Box } from "./bbox";

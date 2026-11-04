@@ -384,6 +384,20 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
     }),
     'An interactive 3D model (GLB, or glTF with embedded buffers): drag orbits, pinch zooms; autoRotate spins it until touched.',
   ],
+  avatarEditor: [
+    z.object({
+      agent: z.string(),
+      current: z.object({
+        style: z.enum(['micah', 'notionists']),
+        seed: z.string(),
+        options: z.record(z.string(), z.unknown()).optional(),
+        colors: z
+          .object({ paper: z.string().optional(), accent: z.string().optional() })
+          .optional(),
+      }),
+    }),
+    'A live editor for an assistant\'s avatar: animated preview, style, shuffle, part pickers, colors, Save and Cancel. agent: the registry id (e.g. "nova"). current: its avatar as in agents.json {style, seed, options, colors:{paper, accent}}. Save sends "Save my avatar: {json}" as the user\'s next message; apply it to the agent\'s agents.json entry. Show it when the user asks to change the look of an assistant.',
+  ],
 }
 
 /** The component name of a widget key: its PascalCase (`pr` -> `Pr`). */
@@ -447,7 +461,15 @@ export const relayLibrary = createLibrary({
     },
     {
       name: 'Rich blocks',
-      components: ['Progress', 'Avatar', 'Timeline', 'TimelineEntry', 'Code', 'Diff'],
+      components: [
+        'Progress',
+        'Avatar',
+        'AvatarEditor',
+        'Timeline',
+        'TimelineEntry',
+        'Code',
+        'Diff',
+      ],
     },
     {
       name: 'Actions',

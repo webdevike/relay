@@ -133,6 +133,31 @@
   border-radius: 50%;
   background: var(--mantine-color-gray-1);
 }
+/*
+ * The portrait in a chat header turns editable on hover: a small pencil sits on its corner and a
+ * click opens the edit menu. The notch itself ignores the pointer (the header stays draggable
+ * through it); only the portrait takes it.
+ */
+.eva-as-edit {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+.eva-as-edit-pencil {
+  position: absolute;
+  right: calc(var(--mantine-spacing-xs) / -2);
+  bottom: calc(var(--mantine-spacing-xs) / -2);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) ease;
+}
+.eva-as-edit:hover .eva-as-edit-pencil,
+.eva-as-edit[data-open] .eva-as-edit-pencil,
+.eva-as-edit-pencil:focus-visible {
+  opacity: 1;
+}
+
 .eva-as-notch-text {
   flex: 1 1 auto;
   min-width: 0;

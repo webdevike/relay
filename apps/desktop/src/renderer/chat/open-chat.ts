@@ -1,6 +1,7 @@
 import { notifications } from '@mantine/notifications'
 import { invoke } from '../ipc'
 import { chatStore } from './chat-store'
+import { dropLocalRows } from './local-rows'
 
 /** Each pane's opens in flight; calls reach main in order, so the latest is what main holds. */
 interface Opening {
@@ -90,5 +91,6 @@ export function dropChatPane(paneId: string): void {
   opening.delete(paneId)
   if (o) o.latest += 1
   chatStore.getState().dropPane(paneId)
+  dropLocalRows(paneId)
   void (o?.sent ?? Promise.resolve()).then(() => invoke('chat.drop', { paneId }))
 }

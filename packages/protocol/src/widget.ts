@@ -120,6 +120,29 @@ const Model = z.object({
   autoRotate: z.boolean().optional().catch(undefined),
 });
 
+/** The portrait the avatar editor starts from and Save sends back; the shape of the registry's
+ * `avatar` (`AssistantPortrait` in `./index`, whose schema this file cannot import). */
+const EditorPortrait = z.object({
+  style: z.enum(["notionists", "micah"]),
+  seed: z.string().min(1),
+  options: z.record(z.string(), z.union([z.array(z.string()), z.number(), z.boolean()])).optional(),
+  colors: z
+    .object({
+      paper: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+      accent: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+    })
+    .optional(),
+});
+
+/** A live editor for assistant `agent`'s avatar: animated preview, style, shuffle, part pickers and
+ * colors starting from `current`. Save sends `Save my avatar: {"agent":...,"avatar":{...}}` as the
+ * user's next message; the assistant applies it. */
+const AvatarEditor = z.object({
+  widget: z.literal("avatarEditor"),
+  agent: z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/),
+  current: EditorPortrait,
+});
+
 /** An absolute http(s) URL, validated strictly: required links reject the spec when it's bad. */
 const WebUrl = z
   .string()
@@ -492,6 +515,7 @@ type Leaf =
   | z.infer<typeof Video>
   | z.infer<typeof Gallery>
   | z.infer<typeof Model>
+  | z.infer<typeof AvatarEditor>
   | z.infer<typeof Recipe>
   | z.infer<typeof TextNode>
   | z.infer<typeof Rows>
@@ -621,6 +645,7 @@ const Node: z.ZodType<WidgetSpec, z.ZodTypeDef, unknown> = z.preprocess(
       Video,
       Gallery,
       Model,
+      AvatarEditor,
       Recipe,
       TextNode,
       Rows,
@@ -678,6 +703,7 @@ export type AudioSpec = z.infer<typeof Audio>;
 export type VideoSpec = z.infer<typeof Video>;
 export type GallerySpec = z.infer<typeof Gallery>;
 export type ModelSpec = z.infer<typeof Model>;
+export type AvatarEditorSpec = z.infer<typeof AvatarEditor>;
 export type RecipeIngredient = z.infer<typeof RecipeIngredient>;
 export type RecipeSpec = z.infer<typeof Recipe>;
 export type TextSpec = z.infer<typeof TextNode>;

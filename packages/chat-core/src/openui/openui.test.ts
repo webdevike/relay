@@ -95,6 +95,16 @@ const EVERY_TYPE: Record<Exclude<WidgetSpec['widget'], 'diagram'>, unknown> = {
     ],
   },
   model: { widget: 'model', src: DROP, title: 'Mug', caption: '54 KB', autoRotate: true },
+  avatarEditor: {
+    widget: 'avatarEditor',
+    agent: 'nova',
+    current: {
+      style: 'micah',
+      seed: 'nova-17',
+      options: { hair: ['pixie'], glassesProbability: 0 },
+      colors: { paper: '#e7f5ff', accent: '#1c7ed6' },
+    },
+  },
   recipe: {
     widget: 'recipe',
     title: 'Tacos',

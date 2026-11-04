@@ -57,6 +57,16 @@ const EVERY_TYPE: Record<WidgetSpec["widget"], unknown> = {
     ],
   },
   model: { widget: "model", src: DROP, title: "Mug", caption: "54 KB", autoRotate: true },
+  avatarEditor: {
+    widget: "avatarEditor",
+    agent: "nova",
+    current: {
+      style: "micah",
+      seed: "nova-17",
+      options: { hair: ["pixie"], glassesProbability: 0 },
+      colors: { paper: "#e7f5ff", accent: "#1c7ed6" },
+    },
+  },
   recipe: {
     widget: "recipe",
     title: "Tacos",
@@ -633,5 +643,40 @@ describe("relayWidgetPrompt", () => {
     for (const name of Object.keys(relayLibrary.components)) expect(prompt).toContain(`\n${name}(`);
     expect(prompt).toContain("```openui");
     expect(prompt).not.toContain("Query(");
+  });
+});
+
+describe("AvatarEditor", () => {
+  const block = `root = AvatarEditor("nova", {style: "micah", seed: "nova-17", options: {hair: ["pixie"], glassesProbability: 0}, colors: {paper: "#e7f5ff", accent: "#1c7ed6"}})`;
+
+  it("parses an agent and its current avatar", () => {
+    const { node: tree, errors } = parseOpenUI(block);
+    expect(errors).toEqual([]);
+    expect(tree).toEqual({
+      widget: "avatarEditor",
+      agent: "nova",
+      current: {
+        style: "micah",
+        seed: "nova-17",
+        options: { hair: ["pixie"], glassesProbability: 0 },
+        colors: { paper: "#e7f5ff", accent: "#1c7ed6" },
+      },
+    });
+  });
+
+  it("takes a bare avatar and sits inside a card", () => {
+    const { node: tree } = parseOpenUI(
+      `root = Card([AvatarEditor("astra", {style: "notionists", seed: "astra"})], "Look")`,
+    );
+    expect(tree).toMatchObject({ widget: "card", children: [{ widget: "avatarEditor", agent: "astra" }] });
+  });
+
+  it("drops one with an unknown style, a bad color or a bad agent id", () => {
+    for (const bad of [
+      `AvatarEditor("nova", {style: "pixel", seed: "a"})`,
+      `AvatarEditor("nova", {style: "micah", seed: "a", colors: {paper: "red"}})`,
+      `AvatarEditor("Nova Prime", {style: "micah", seed: "a"})`,
+    ])
+      expect(parseOpenUI(`root = ${bad}`).node).toBeNull();
   });
 });
