@@ -1,8 +1,8 @@
 import { Button } from '@mantine/core'
-import { IconWorld } from '@tabler/icons-react'
 import { BLOCKED_URL_CODE } from '@evaos/browser-core/address'
 import type { TabState } from '@evaos/contract'
 import { invoke } from '../ipc'
+import { ToolsLauncher } from './ToolsLauncher'
 
 /** The card over the slot: an error, or the new-tab state (a blank tab, or a scope with none). */
 export function PageStateCard({ tab }: { tab: TabState | undefined }) {
@@ -30,11 +30,5 @@ export function PageStateCard({ tab }: { tab: TabState | undefined }) {
       </div>
     )
   }
-  return (
-    <div className="eva-page-card" data-testid="page-blank">
-      <IconWorld className="eva-page-card-icon" aria-hidden="true" />
-      <h2 className="eva-heading">New tab</h2>
-      <p className="eva-dim">Type a web address, a search, or a local port such as 3000.</p>
-    </div>
-  )
+  return <ToolsLauncher tab={tab} />
 }

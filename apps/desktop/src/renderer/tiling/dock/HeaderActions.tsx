@@ -5,32 +5,25 @@ import {
   IconArrowRight,
   IconArrowsMaximize,
   IconArrowsMinimize,
-  IconFiles,
-  IconGlobe,
   IconLayoutColumns,
   IconLayoutRows,
-  IconListCheck,
-  IconPhotoSpark,
   IconPlus,
-  IconSchema,
-  IconTerminal2,
   IconX,
 } from '@tabler/icons-react'
 import type { IDockviewHeaderActionsProps } from 'dockview-react'
-import { appTabOf, placeOf, type Place, type ToolTab } from '@evaos/shell-core'
+import { appTabOf } from '@evaos/shell-core'
 import { EvaMenu } from '../../overlay'
 import { useLayout } from '../../shell/layout-store'
 import { goBack, goForward, useTabs } from '../../tabs/tabs-store'
 import {
   closePaneById,
   newChatTabIn,
-  openPlaceInPane,
-  openTab,
   splitAt,
   useTiling,
   zoomPane,
   type PaneView,
 } from '../tiling-store'
+import { openToolIn, TOOLS } from '../tools'
 
 function tip(label: string, chord?: string) {
   return (
@@ -117,16 +110,6 @@ export function LeftActions({ group }: IDockviewHeaderActionsProps) {
   )
 }
 
-/** What a pane's + menu adds (moved here when open elsewhere). */
-const ADDABLE: Array<{ label: string; Icon: typeof IconGlobe; add: ToolTab | Place }> = [
-  { label: 'Browser', Icon: IconGlobe, add: { kind: 'browser' } },
-  { label: 'Files', Icon: IconFiles, add: { kind: 'files' } },
-  { label: 'Terminal', Icon: IconTerminal2, add: { kind: 'terminal' } },
-  { label: 'Test Bench', Icon: IconListCheck, add: placeOf('test-bench') },
-  { label: 'Canvas', Icon: IconSchema, add: placeOf('canvas') },
-  { label: 'Studio', Icon: IconPhotoSpark, add: placeOf('studio') },
-]
-
 /**
  * The end of a strip holding a tool tab: the + menu (add a tab, split, maximize), restore while
  * maximized, and close; a page added there (Studio) keeps them. A pane of app tabs alone shows
@@ -176,11 +159,11 @@ export function RightActions({ group }: IDockviewHeaderActionsProps) {
           </Tooltip>
         </EvaMenu.Target>
         <EvaMenu.Dropdown data-testid={`pane-add-menu-${id}`}>
-          {ADDABLE.map(({ label, Icon, add }) => (
+          {TOOLS.map(({ label, Icon, add }) => (
             <EvaMenu.Item
               key={label}
               leftSection={<Icon size={16} stroke={1.5} />}
-              onClick={() => ('kind' in add ? openTab(add, id) : openPlaceInPane(add, id))}
+              onClick={() => openToolIn(add, id)}
             >
               {label}
             </EvaMenu.Item>

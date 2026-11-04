@@ -129,7 +129,7 @@ test('tabs: create, switch, close, target=_blank, last tab, hotkeys from the gue
     await expect.poll(() => tabCount(shell)).toBe(left - 1)
   }
   await expect.poll(() => tabCount(shell)).toBe(0)
-  await expect(shell.locator('[data-testid=page-blank]')).toContainText('New tab')
+  await expect(shell.locator('[data-testid=page-blank]')).toContainText('Tools')
   await expect(shell.locator('[data-testid=browser-panel]')).toBeVisible()
   expect((await states(app)).length).toBe(0)
 

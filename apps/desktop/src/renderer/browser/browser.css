@@ -184,6 +184,61 @@
   height: var(--eva-tile-md);
   color: var(--eva-text-dim);
 }
+/* The new-tab launcher: flat two-column rows, no cards, quiet hover. */
+.eva-browser-slot:has(> .eva-tools) {
+  align-items: flex-start;
+}
+.eva-tools {
+  width: 100%;
+  max-width: 440px;
+  padding: var(--mantine-spacing-lg) var(--mantine-spacing-md);
+}
+.eva-tools-title {
+  margin: 0 0 var(--mantine-spacing-sm);
+  padding: 0 var(--mantine-spacing-sm);
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-semibold);
+  color: var(--eva-text-dim);
+}
+.eva-tools-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mantine-spacing-xs);
+}
+.eva-tools-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+  padding: var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius);
+  color: var(--eva-text);
+}
+.eva-tools-row:hover,
+.eva-tools-row:focus-visible {
+  background: var(--eva-surface-2);
+}
+.eva-tools-row svg {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-tools-row .eva-tools-more + svg {
+  margin-left: auto;
+}
+.eva-tools-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-tools-more {
+  color: var(--eva-text-dim);
+}
+.eva-tools-hint {
+  margin: var(--mantine-spacing-md) 0 0;
+  padding: 0 var(--mantine-spacing-sm);
+}
 .eva-overlay-body {
   margin: 0 0 var(--eva-space-md);
 }

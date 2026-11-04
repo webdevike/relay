@@ -12,6 +12,7 @@ import { GAP } from '@evaos/shell-core'
 import { useBrowserHotkeys } from '../../browser/useBrowserHotkeys'
 import { ChatRuntime } from '../../chat/ChatPane'
 import { useFilesHotkeys } from '../../files/files-hotkeys'
+import { useTerminalHotkeys } from '../../terminal/terminal-hotkeys'
 import { setFocusedPane } from '../../hotkeys/pane-focus'
 import { addOverlay, removeOverlay } from '../../overlay/overlay-store'
 import { TabContentHost } from '../tab-content'
@@ -89,6 +90,7 @@ export function DockRoot() {
   const zoomed = useTiling((s) => s.zoom !== null)
   useFilesHotkeys()
   useBrowserHotkeys()
+  useTerminalHotkeys()
 
   useEffect(() => () => detach.current?.(), [])
 
