@@ -44,13 +44,26 @@ export function roomQueryClient(env: PageEnv): OpenUIQueryClient {
 const Runtime = createContext<OpenUIRuntime | null>(null);
 
 /** One live widget: its own runtime while mounted; a new source replaces the program, keeping `$variables`. */
-export function LiveWidget({ source, query }: { source: string; query: OpenUIQueryClient }) {
+export function LiveWidget({
+  source,
+  query,
+  onReady,
+}: {
+  source: string;
+  query: OpenUIQueryClient;
+  /** Called once the widget has drawn (or shows its error): the card can leave its skeleton. */
+  onReady?: () => void;
+}) {
   const [runtime] = useState(() => createOpenUIRuntime(source, { query }));
   useEffect(() => runtime.update(source), [runtime, source]);
   const snap = useSyncExternalStore(runtime.subscribe, runtime.snapshot);
   const issue =
     snap.errors.find((e) => e.code === "query-error") ??
     (snap.node === null ? snap.errors[0] : undefined);
+  const drawn = snap.node !== null || issue !== undefined;
+  useEffect(() => {
+    if (drawn) onReady?.();
+  }, [drawn, onReady]);
   return (
     <Runtime.Provider value={runtime}>
       {snap.node !== null ? <Node spec={snap.node} /> : <pre className="cv-w-source">{source}</pre>}
