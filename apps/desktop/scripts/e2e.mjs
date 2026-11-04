@@ -7,6 +7,7 @@
 // `--project`, that one run is the whole thing. E2E_JSON_DIR=<dir> (with `--reporter=json`) writes
 // each project's report to <dir>/<project>.json (the nightly job reads them).
 import { spawnSync } from 'node:child_process'
+import process from 'node:process'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 

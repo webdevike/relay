@@ -192,10 +192,12 @@ async function panel(shell: Page, open: boolean) {
   await expect(toggle).toHaveAttribute('aria-pressed', String(open))
 }
 
-/** Switches the colour scheme (the sidebar no longer has the appearance buttons). */
+/** Switches the colour scheme and leaves the sidebar on its root level, as the old sidebar buttons did. */
 async function scheme(shell: Page, s: Scheme) {
   await pickScheme(shell, s)
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', s)
+  const back = shell.locator('[data-testid=sidebar-back]')
+  if (await back.isVisible()) await back.click()
 }
 
 async function openGallery(shell: Page) {

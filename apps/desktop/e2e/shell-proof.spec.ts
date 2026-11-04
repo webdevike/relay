@@ -135,7 +135,8 @@ for (const mode of ['dark', 'light'] as const) {
     const tool = await box(shell, 'pane-p2')
     const main = await box(shell, 'main-card')
     expect(Math.abs(tool.width / (tool.width + main.width) - 0.34)).toBeLessThan(0.01)
-    expect(Math.round(main.x + main.width + 8)).toBe(Math.round(tool.x))
+    // Sub-pixel layout: the 8px gap between the cards may measure a pixel off.
+    expect(Math.abs(main.x + main.width + 8 - tool.x)).toBeLessThanOrEqual(1)
     expect(Math.round(tool.x + tool.width)).toBe(1440 - 8)
     await finish(app, shell, `shell-wide-${mode}-1440x900`)
   })

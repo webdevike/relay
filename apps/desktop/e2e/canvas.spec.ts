@@ -41,9 +41,12 @@ async function size(app: ElectronApplication, shell: Page, w: number, h: number)
   await expect.poll(() => shell.evaluate(() => window.innerWidth)).toBe(w)
 }
 
+/** Switches the colour scheme and, as the old sidebar buttons did, leaves the sidebar on its root level. */
 async function scheme(shell: Page, mode: 'dark' | 'light'): Promise<void> {
   await pickScheme(shell, mode)
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', mode)
+  const back = shell.locator(sel('sidebar-back'))
+  if (await back.isVisible()) await back.click()
 }
 
 async function openCanvas(shell: Page): Promise<void> {
