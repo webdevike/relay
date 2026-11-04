@@ -28,11 +28,24 @@
   align-items: flex-end;
 }
 .eva-image-viewer {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   height: calc(90vh - 96px);
+}
+.eva-image-viewer .eva-viewer-nav {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  transform: translateY(-50%);
+}
+.eva-image-viewer .eva-viewer-nav[data-side='prev'] {
+  left: var(--eva-space-native-xs);
+}
+.eva-image-viewer .eva-viewer-nav[data-side='next'] {
+  right: var(--eva-space-native-xs);
 }
 .eva-viewer-img {
   max-width: 100%;
