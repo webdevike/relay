@@ -50,20 +50,10 @@ export function StatusMark({ status }: { status: ActivityItem['status'] }) {
 /** Dollars as a person says them: `$0.42`. */
 export const costText = (usd: number): string => `$${usd.toFixed(2)}`
 
-/** A row's meta line: the owner when away from it, the kind, then the live intent (a waiting item's is the question). */
-export function KindMeta({
-  kind,
-  intent,
-  owner,
-}: {
-  kind: ActivityKind
-  intent: string
-  /** Whose it is, when the row is listed away from its owner (Waiting on you). */
-  owner?: string
-}): ReactNode {
+/** A row's meta line: the kind, then the live intent (a waiting item's is the question). */
+export function KindMeta({ kind, intent }: { kind: ActivityKind; intent: string }): ReactNode {
   return (
     <span className="eva-art-meta-line">
-      {owner === undefined ? null : <span className="eva-art-owner">{owner}</span>}
       <KindTag kind={kind} />
       {intent === '' ? null : <span className="eva-art-intent">{intent}</span>}
     </span>
@@ -78,13 +68,10 @@ export function KindMeta({
 export function ActivityRow({
   item,
   now,
-  owner,
   onOpen,
 }: {
   item: ActivityItem
   now: number
-  /** The owner's name, shown when the row is listed away from its owner. */
-  owner?: string
   onOpen: (item: ActivityItem) => void
 }) {
   const live = item.status === 'working' || item.status === 'waiting'
@@ -95,17 +82,10 @@ export function ActivityRow({
       data-kind={item.kind}
       leading={<StatusMark status={item.status} />}
       title={item.title}
-      meta={
-        <KindMeta
-          kind={item.kind}
-          intent={item.intent}
-          {...(owner === undefined ? {} : { owner })}
-        />
-      }
+      meta={<KindMeta kind={item.kind} intent={item.intent} />}
       tooltip={rowTip(
         item.title,
         item.intent,
-        owner !== undefined && `Owner: ${owner}`,
         item.model !== undefined && `Model: ${item.model}`,
         item.cost !== undefined && `Spent: ${costText(item.cost)}`,
       )}

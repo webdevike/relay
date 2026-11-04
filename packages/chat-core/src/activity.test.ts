@@ -27,6 +27,7 @@ describe('activitySections', () => {
       updatedAt: NOW - 5000,
     }),
     item({ id: 'ask-older', owner: 'session:x', status: 'waiting', updatedAt: NOW - 9000 }),
+    item({ id: 'ask-nova', status: 'waiting', updatedAt: NOW - 7000 }),
     item({
       id: 'mine',
       kind: 'harness',
@@ -49,11 +50,11 @@ describe('activitySections', () => {
     item({ id: 'failed-today', status: 'failed', updatedAt: NOW - 600_000 }),
   ]
 
-  it('pins what waits on Isaac on top, oldest ask first, from every owner', () => {
+  it("pins what waits on Isaac on top, oldest ask first, only this thread's own", () => {
     expect(activitySections(rows, 'assistant:nova', NOW).waiting.map((i) => i.id)).toEqual([
-      'ask-older',
-      'ask',
+      'ask-nova',
     ])
+    expect(activitySections(rows, 'assistant:astra', NOW).waiting.map((i) => i.id)).toEqual(['ask'])
   })
 
   it("lists this thread's own work (newest first) without its helpers, which the Artifacts rows draw, and without itself", () => {
@@ -61,13 +62,25 @@ describe('activitySections', () => {
     expect(s.mine.map((i) => i.id)).toEqual(['mine', 'canvas'])
   })
 
-  it('groups the other owners, assistants first in the order given, loose ones last', () => {
-    const s = activitySections(rows, 'assistant:nova', NOW, [
+  it("has no other owner's work or groups on an owner's page", () => {
+    const s = activitySections(rows, 'assistant:nova', NOW, ['assistant:astra'])
+    expect(s.others).toEqual([])
+    const chat = activitySections(rows, 'session:x', NOW)
+    expect(chat.waiting.map((i) => i.id)).toEqual(['ask-older'])
+    expect(chat.mine).toEqual([])
+    expect(chat.others).toEqual([])
+  })
+
+  it('without an owner lists everything: every ask, the owners grouped, assistants first in the order given, loose ones last', () => {
+    const s = activitySections(rows, null, NOW, [
       'assistant:nova',
       'assistant:astra',
       'assistant:polaris',
     ])
+    expect(s.waiting.map((i) => i.id)).toEqual(['ask-older', 'ask-nova', 'ask'])
+    expect(s.mine).toEqual([])
     expect(s.others.map((g) => [g.owner, g.items.map((i) => i.id)])).toEqual([
+      ['assistant:nova', ['mine', 'canvas', 'helper', 'self']],
       ['assistant:astra', ['other-helper']],
       ['assistant:polaris', ['polaris']],
       ['other', ['loose']],
