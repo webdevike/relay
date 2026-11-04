@@ -1,0 +1,104 @@
+{
+ "window": [
+  767.0,
+  830.0
+ ],
+ "reference": {
+  "mic": "Thank you. Yeah. Um yeah, so as S As Sage mentioned there uh got up the platform access and dev uh that that redesign um added a few filters and and uh just a a little bit of a cleaner look. Um the there's some follow-ups at as she mentioned as well on on the that owner uh GUID that uh we are potentially looking to um make that that owner visible instead of just like a an ID. Uh there's there's some suggestions on on how to do that properly without adding like new custom fields that we need to uh maintain. Uh so working with with Claude on that to figure out um how we can make that happen. Uh seems like there's a way forward so it should um it's useful as like a a visual but maybe not as like some a a brand new field that we need to maintain. So I think there's a way to to achieve that.",
+  "app": "Awesome. Okay. Yeah, Isaac, do you want to talk a little bit about where you're at? So transition that into the UI stuff."
+ },
+ "rows": [
+  {
+   "step": "parakeet load",
+   "s": 156.04
+  },
+  {
+   "engine": "parakeet-v3 offline",
+   "track": "app",
+   "wall_s": 0.91,
+   "rtf": 0.0144,
+   "peak_gb": 2.82,
+   "wer_vs_mt": 0.087,
+   "text": "Okay. Yeah, Isaac, you want to talk a little bit about where you're at, so transition that into the UI stuff."
+  },
+  {
+   "engine": "parakeet-v3 stream 0.5s",
+   "track": "app",
+   "wall_s": 32.99,
+   "rtf": 0.5237,
+   "chunk_ms_p50": 207.6,
+   "chunk_ms_p95": 568.5,
+   "chunk_ms_max": 1785.8,
+   "first_final_audio_s": 21.5,
+   "peak_gb": 2.33,
+   "wer_vs_mt": 0.652,
+   "text": "Yeah, I think do you want to talk a little bit about where you're at transfer? So that you're not going to be able to do that."
+  },
+  {
+   "engine": "parakeet-v3 stream 1.0s",
+   "track": "app",
+   "wall_s": 13.38,
+   "rtf": 0.2124,
+   "chunk_ms_p50": 199.8,
+   "chunk_ms_p95": 312.4,
+   "chunk_ms_max": 402.4,
+   "first_final_audio_s": 22.0,
+   "peak_gb": 2.34,
+   "wer_vs_mt": 0.478,
+   "text": "Okay. Yeah, I'm not sure. Do you want to talk a little bit about where you're not? Transition."
+  },
+  {
+   "engine": "parakeet-v3 offline",
+   "track": "mic",
+   "wall_s": 1.61,
+   "rtf": 0.0256,
+   "peak_gb": 2.82,
+   "wer_vs_mt": 0.053,
+   "text": "Yeah. Yeah. So as Sage mentioned, I got up the platform access and dev uh that that redesign. Added a few filters and and uh just a little bit of a cleaner look. Um the there's some follow-ups at as she mentioned as well on on the that owner uh GUID that uh we are potentially looking to um make that that owner visible instead of just like a an ID. Uh there's there's some suggestions on on how to do that properly without adding like new custom fields that we need to uh maintain. Uh so working with with Claude on that to figure out um how we can make that happen. Uh seems like there's a way forward, so it should um it's useful as like a a visual, but maybe not as like some a brand new field that we need to maintain. So I think there's a way to to achieve that. Um yeah."
+  },
+  {
+   "engine": "parakeet-v3 stream 0.5s",
+   "track": "mic",
+   "wall_s": 93.98,
+   "rtf": 1.4918,
+   "chunk_ms_p50": 734.2,
+   "chunk_ms_p95": 1469.8,
+   "chunk_ms_max": 2269.8,
+   "first_final_audio_s": 25.5,
+   "peak_gb": 2.33,
+   "wer_vs_mt": 0.225,
+   "text": "Yeah so as mentioned the uh got up the platform assessment have uh that that redesign um added a few does and uh just a little bit of a clean look um the there's some uh as she mentioned as well and the that own uh GUIDA we are potentially looking um makes that owner visible instead of like a an idea uh uh there's there's some suggestions on how to do that properly without adding like new some fields that need uh maintain. Uh so working with with Clara on that to figure out um how we can make that happen. Uh seems like there's a way forward, so it should um as useful as like a a visual, but maybe not as like some a brand new field that we need to maintain. So I think there's a way to to achieve that. Um"
+  },
+  {
+   "engine": "parakeet-v3 stream 1.0s",
+   "track": "mic",
+   "wall_s": 20.75,
+   "rtf": 0.3293,
+   "chunk_ms_p50": 298.6,
+   "chunk_ms_p95": 700.9,
+   "chunk_ms_max": 771.0,
+   "first_final_audio_s": 26.0,
+   "peak_gb": 2.34,
+   "wer_vs_mt": 0.146,
+   "text": "Yeah, so as Siege mentioned the platform assets in dev uh that that re design um added a few filters and and uh just a little bit of a clean look. Um the there's some follow-ups as she mentioned as well on on the that owner uh GUID that uh we are potentially looking to go and make that that owner visible instead of just like an ID. Uh there's there's some suggestions on on how to do that properly without adding like new custom fields that we uh maintain. Uh so working with with Claude on that to figure out um how we can make that happen. Uh seems like there's a way forward, so it should um it's useful as like a a visual, but maybe not as like some a brand new field that we need to maintain. So I think there's a way to to achieve that. Um"
+  },
+  {
+   "engine": "whisper-large-v3-turbo offline",
+   "track": "app",
+   "wall_s": 1.13,
+   "rtf": 0.018,
+   "peak_gb": 3.61,
+   "wer_vs_mt": 0.174,
+   "text": "Awesome. Okay. Yeah, Isaac, you want to talk a little bit about where you're at, transition that into the UI stuff? Mm-hmm. Mm-hmm. Thank you."
+  },
+  {
+   "engine": "whisper-large-v3-turbo offline",
+   "track": "mic",
+   "wall_s": 1.12,
+   "rtf": 0.0178,
+   "peak_gb": 3.61,
+   "wer_vs_mt": 0.179,
+   "text": "yeah yeah so as Sage mentioned I got up the platform assets in dev that redesign added a few filters and just a little bit of a cleaner look there's some follow ups as she mentioned as well on that owner GUID that we are potentially looking to make that owner visible instead of just like an ID. There's some suggestions on how to do that properly without adding like new custom fields that we need to maintain. So working with Claude on that to figure out how we can make that happen. It seems like there's a way forward. So it's useful as like a visual, but maybe not as like a brand new field that we need to maintain. So I think there's a way to achieve that. Yeah."
+  }
+ ]
+}

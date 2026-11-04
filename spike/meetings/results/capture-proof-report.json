@@ -1,0 +1,42 @@
+{
+ "helper": {
+  "ws_frames": 619,
+  "wall_s": 34.014986991882324,
+  "mic_starts_before_app_ms": -120.83333333333333,
+  "t": "meeting.end",
+  "frontmost_after": "dev.eva.relay-desktop",
+  "ws_error": null,
+  "frontmost_before": "dev.eva.relay-desktop",
+  "tracks": [
+   {
+    "track": "app",
+    "nonzero_share": 0.889778865368518,
+    "rms_dbfs": -16.472325735354094,
+    "peak": 26863,
+    "seconds": 34.1223125
+   },
+   {
+    "nonzero_share": 0.9993785942257063,
+    "seconds": 33.9955,
+    "rms_dbfs": -40.03976418492687,
+    "track": "mic",
+    "peak": 1474
+   }
+  ],
+  "ws_bytes": 2185341
+ },
+ "app": {
+  "frames": 320,
+  "seconds": 34.1223125,
+  "sampleIndexGaps": 0,
+  "interArrivalMsP50": 106.67545799999789,
+  "interArrivalMsP99": 119.68416700000034
+ },
+ "mic": {
+  "frames": 299,
+  "seconds": 33.9955,
+  "sampleIndexGaps": 0,
+  "interArrivalMsP50": 98.30916699999943,
+  "interArrivalMsP99": 204.34158299999945
+ }
+}

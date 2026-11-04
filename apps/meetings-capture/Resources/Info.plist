@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.eva.relay-meetings</string>
+	<key>CFBundleName</key>
+	<string>Relay Meetings</string>
+	<key>CFBundleDisplayName</key>
+	<string>Relay Meetings</string>
+	<key>CFBundleExecutable</key>
+	<string>RelayMeetingCapture</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.4</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Relay records the call audio of your meetings so it can transcribe them.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Relay records your side of the meeting so it can transcribe it.</string>
+</dict>
+</plist>

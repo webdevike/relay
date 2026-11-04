@@ -1,6 +1,24 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { defaultTabs, type AgentApproval, type AgentAsk, type AgentAskAnswer, type AgentImage, type AgentMessage, type AgentOptions, type AgentSession, type ApprovalConfirmation, type AssistantAgent, type AssistantSnapshot, type ClientMessage, type GateStatus, type InboxItem, type InputEvent, type KeyName, type ServerMessage } from "@relay/protocol";
+import {
+  defaultTabs,
+  type AgentApproval,
+  type AgentAsk,
+  type AgentAskAnswer,
+  type AgentImage,
+  type AgentMessage,
+  type AgentOptions,
+  type AgentSession,
+  type ApprovalConfirmation,
+  type AssistantAgent,
+  type AssistantSnapshot,
+  type ClientMessage,
+  type GateStatus,
+  type InboxItem,
+  type InputEvent,
+  type KeyName,
+  type ServerMessage,
+} from "@relay/protocol";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 import type { SessionFiles } from "../src/agents/session-files";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -15,8 +33,41 @@ import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
 import type { ActivityRelaying } from "../src/activity/service";
 import type { QueryRelaying } from "../src/query/service";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type ControlRelaying, type DeviceStore, type DropBox, type FilePresenceRelaying, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type ReviewsRelaying, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
-import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
+import {
+  AckFailure,
+  type AgentConfigChange,
+  type AgentProvider,
+  type AssistantRelaying,
+  type AssistantThread,
+  type CallClientMessage,
+  type CallRelaying,
+  type CanvasRelaying,
+  type ControlRelaying,
+  type DeviceStore,
+  type DropBox,
+  type FilePresenceRelaying,
+  type FrameSink,
+  type GateCommand,
+  type InboxRelaying,
+  type InputSink,
+  type LiveClientMessage,
+  type LiveRelaying,
+  type MeetingsRelaying,
+  type PairedDevice,
+  type PairingUI,
+  type PushRegistry,
+  type ReviewsRelaying,
+  type StudioRelaying,
+  type TextInjecting,
+  type VncAccess,
+} from "../src/seams";
+import {
+  ASSISTANT_FOLLOW_MS,
+  ClientSession,
+  PAIRING_TIMEOUT_MS,
+  type SessionClock,
+  type SessionDeps,
+} from "../src/session";
 import { ltxSpec, studioHarness } from "./studio-fakes";
 
 class RecordingSink implements FrameSink {
@@ -57,7 +108,9 @@ class MemoryDevices implements DeviceStore {
     this.secrets[deviceId] = secret;
   }
   forget(deviceId: string): void {
-    this.secrets = Object.fromEntries(Object.entries(this.secrets).filter(([id]) => id !== deviceId));
+    this.secrets = Object.fromEntries(
+      Object.entries(this.secrets).filter(([id]) => id !== deviceId),
+    );
   }
   pairedDevices(): PairedDevice[] {
     return [];
@@ -124,6 +177,7 @@ interface HarnessOptions {
   reviews?: ReviewsRelaying;
   query?: QueryRelaying;
   files?: FilePresenceRelaying;
+  meetings?: MeetingsRelaying;
   control?: ControlRelaying;
 }
 
@@ -140,7 +194,8 @@ function harness(options: HarnessOptions = {}): Harness {
   };
   const text: TextInjecting = {
     insert: (value) => {
-      if (options.failText === true) return Promise.reject(new AckFailure({ code: "invalid_command", message: "nope" }));
+      if (options.failText === true)
+        return Promise.reject(new AckFailure({ code: "invalid_command", message: "nope" }));
       typed.push(value);
       return Promise.resolve();
     },
@@ -182,6 +237,7 @@ function harness(options: HarnessOptions = {}): Harness {
     reviews: options.reviews ?? null,
     query: options.query ?? null,
     files: options.files ?? null,
+    meetings: options.meetings ?? null,
     control: options.control ?? null,
   };
   const sink = new RecordingSink();
@@ -190,7 +246,13 @@ function harness(options: HarnessOptions = {}): Harness {
   return { sink, session, devices, clock, pins, typed, pressed, input, closed };
 }
 
-const hello: ClientMessage = { t: "hello", v: 1, deviceId: "phone-1", deviceName: "Isaac's iPhone", platform: "ios" };
+const hello: ClientMessage = {
+  t: "hello",
+  v: 1,
+  deviceId: "phone-1",
+  deviceName: "Isaac's iPhone",
+  platform: "ios",
+};
 
 function pair(h: Harness, deviceId = "phone-1"): string {
   h.session.receive({ t: "hello", v: 1, deviceId, deviceName: "Isaac's iPhone", platform: "ios" });
@@ -214,7 +276,12 @@ describe("pairing", () => {
     expect(h.sink.last()).toEqual({
       t: "welcome",
       state: {
-        mac: { name: "omarchy", version: "0.1.0", accessibilityGranted: true, agentsAvailable: false },
+        mac: {
+          name: "omarchy",
+          version: "0.1.0",
+          accessibilityGranted: true,
+          agentsAvailable: false,
+        },
         agents: { rev: 0, sessions: [] },
       },
     });
@@ -271,7 +338,9 @@ describe("reconnect auth", () => {
     good.session.receive(hello);
     const challenge = good.sink.last();
     if (challenge.t !== "challenge") throw new Error("expected challenge");
-    const proof = createHmac("sha256", Buffer.from(secret, "hex")).update(challenge.nonce).digest("hex");
+    const proof = createHmac("sha256", Buffer.from(secret, "hex"))
+      .update(challenge.nonce)
+      .digest("hex");
     good.session.receive({ t: "auth", proof });
     expect(good.sink.last().t).toBe("welcome");
 
@@ -316,13 +385,21 @@ describe("authenticated traffic", () => {
     pair(denied);
     denied.session.receive({ t: "cmd", id: "c3", cmd: { kind: "key.press", key: "tab" } });
     await denied.sink.sentCount(5);
-    expect(denied.sink.last()).toMatchObject({ t: "nack", id: "c3", error: { code: "accessibility_denied" } });
+    expect(denied.sink.last()).toMatchObject({
+      t: "nack",
+      id: "c3",
+      error: { code: "accessibility_denied" },
+    });
 
     const failing = harness({ failText: true });
     pair(failing);
     failing.session.receive({ t: "cmd", id: "c4", cmd: { kind: "text.insert", text: "x" } });
     await failing.sink.sentCount(5);
-    expect(failing.sink.last()).toMatchObject({ t: "nack", id: "c4", error: { code: "invalid_command", message: "nope" } });
+    expect(failing.sink.last()).toMatchObject({
+      t: "nack",
+      id: "c4",
+      error: { code: "invalid_command", message: "nope" },
+    });
   });
 
   it("replays the original response for a retried command id across reconnects", async () => {
@@ -337,7 +414,10 @@ describe("authenticated traffic", () => {
     second.session.receive(hello);
     const challenge = second.sink.last();
     if (challenge.t !== "challenge") throw new Error("expected challenge");
-    second.session.receive({ t: "auth", proof: createHmac("sha256", Buffer.from(secret, "hex")).update(challenge.nonce).digest("hex") });
+    second.session.receive({
+      t: "auth",
+      proof: createHmac("sha256", Buffer.from(secret, "hex")).update(challenge.nonce).digest("hex"),
+    });
     second.session.receive({ t: "cmd", id: "same", cmd: { kind: "text.insert", text: "once" } });
     await second.sink.sentCount(3); // challenge, welcome, replayed ack
     expect(second.typed).toEqual([]);
@@ -347,9 +427,17 @@ describe("authenticated traffic", () => {
   it("nacks agent.reply because Linux v1 has no agent provider", async () => {
     const h = harness();
     pair(h);
-    h.session.receive({ t: "cmd", id: "a1", cmd: { kind: "agent.reply", sessionId: "s", text: "go", submit: true } });
+    h.session.receive({
+      t: "cmd",
+      id: "a1",
+      cmd: { kind: "agent.reply", sessionId: "s", text: "go", submit: true },
+    });
     await h.sink.sentCount(5);
-    expect(h.sink.last()).toMatchObject({ t: "nack", id: "a1", error: { code: "agent_cannot_respond" } });
+    expect(h.sink.last()).toMatchObject({
+      t: "nack",
+      id: "a1",
+      error: { code: "agent_cannot_respond" },
+    });
   });
 
   it("answers ping with the server clock and rejects a second hello", () => {
@@ -390,16 +478,33 @@ class FakeProvider implements AgentProvider {
   readonly replies: [string, string, boolean, readonly AgentImage[] | undefined][] = [];
   started = false;
   sessions: AgentSession[] = [
-    { id: "s1", provider: "omp", title: "relay", projectPath: "/w/relay", status: "idle", lastActivity: "done", lastActivityAt: 5, canRespond: true },
+    {
+      id: "s1",
+      provider: "omp",
+      title: "relay",
+      projectPath: "/w/relay",
+      status: "idle",
+      lastActivity: "done",
+      lastActivityAt: 5,
+      canRespond: true,
+    },
   ];
   start(): void {
     this.started = true;
   }
   conversation(sessionId: string): Promise<AgentMessage[] | null> {
-    return Promise.resolve(sessionId === "s1" ? [{ id: "m1", role: "user", text: "hi", at: 1 }] : null);
+    return Promise.resolve(
+      sessionId === "s1" ? [{ id: "m1", role: "user", text: "hi", at: 1 }] : null,
+    );
   }
-  reply(sessionId: string, text: string, submit: boolean, images?: readonly AgentImage[]): Promise<void> {
-    if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+  reply(
+    sessionId: string,
+    text: string,
+    submit: boolean,
+    images?: readonly AgentImage[],
+  ): Promise<void> {
+    if (sessionId !== "s1")
+      return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
     this.replies.push([sessionId, text, submit, images]);
     return Promise.resolve();
   }
@@ -409,12 +514,24 @@ class FakeProvider implements AgentProvider {
     return Promise.resolve(sessionId === "s1");
   }
   image(sessionId: string, id: string): Promise<AgentImage | null> {
-    return Promise.resolve(sessionId === "s1" && id === "img1" ? { mimeType: "image/png", data: "iVBOR" } : null);
+    return Promise.resolve(
+      sessionId === "s1" && id === "img1" ? { mimeType: "image/png", data: "iVBOR" } : null,
+    );
   }
-  readonly launched: [string | undefined, string | undefined, "personal" | "work" | undefined, string | undefined][] = [];
+  readonly launched: [
+    string | undefined,
+    string | undefined,
+    "personal" | "work" | undefined,
+    string | undefined,
+  ][] = [];
   /** Settles the latest launch's `joined`, as the launched omp's bridge registering would. */
   join: (sessionId: string) => void = () => undefined;
-  launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work", resume?: string): Promise<{ readonly joined: Promise<string> }> {
+  launch(
+    prompt?: string,
+    thinkingLevel?: string,
+    profile?: "personal" | "work",
+    resume?: string,
+  ): Promise<{ readonly joined: Promise<string> }> {
     this.launched.push([prompt, thinkingLevel, profile, resume]);
     const { promise, resolve } = Promise.withResolvers<string>();
     this.join = resolve;
@@ -424,15 +541,26 @@ class FakeProvider implements AgentProvider {
     return Promise.resolve(
       sessionId === "s1"
         ? {
-            models: [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }],
-            skills: [{ name: "deploy", description: "Ship it", command: "/skill:deploy", takesText: true }],
+            models: [
+              {
+                provider: "anthropic",
+                id: "m",
+                name: "M",
+                vendor: "anthropic",
+                thinkingLevels: ["off", "low"],
+              },
+            ],
+            skills: [
+              { name: "deploy", description: "Ship it", command: "/skill:deploy", takesText: true },
+            ],
           }
         : null,
     );
   }
   readonly configured: AgentConfigChange[] = [];
   configure(change: AgentConfigChange): Promise<void> {
-    if (change.sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+    if (change.sessionId !== "s1")
+      return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
     this.configured.push(change);
     return Promise.resolve();
   }
@@ -448,13 +576,15 @@ class FakeProvider implements AgentProvider {
   }
   readonly answered: [string, string, readonly AgentAskAnswer[]][] = [];
   answerAsk(sessionId: string, askId: string, results: readonly AgentAskAnswer[]): Promise<void> {
-    if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+    if (sessionId !== "s1")
+      return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
     this.answered.push([sessionId, askId, results]);
     return Promise.resolve();
   }
   readonly cancelled: [string, string][] = [];
   cancelAsk(sessionId: string, askId: string): Promise<void> {
-    if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+    if (sessionId !== "s1")
+      return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
     this.cancelled.push([sessionId, askId]);
     return Promise.resolve();
   }
@@ -463,10 +593,18 @@ class FakeProvider implements AgentProvider {
     return sessionId === "s1" ? this.pending : null;
   }
   readonly decided: [string, string, boolean, ApprovalConfirmation | undefined][] = [];
-  decideApproval(sessionId: string, approvalId: string, allow: boolean, confirmed?: ApprovalConfirmation): Promise<void> {
-    if (sessionId !== "s1") return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
+  decideApproval(
+    sessionId: string,
+    approvalId: string,
+    allow: boolean,
+    confirmed?: ApprovalConfirmation,
+  ): Promise<void> {
+    if (sessionId !== "s1")
+      return Promise.reject(new AckFailure({ code: "agent_not_found", message: "gone" }));
     if (allow && this.approval?.requiresBiometric === true && confirmed === undefined) {
-      return Promise.reject(new AckFailure({ code: "biometric_required", message: "needs Face ID" }));
+      return Promise.reject(
+        new AckFailure({ code: "biometric_required", message: "needs Face ID" }),
+      );
     }
     this.decided.push([sessionId, approvalId, allow, confirmed]);
     return Promise.resolve();
@@ -478,7 +616,8 @@ class FakeProvider implements AgentProvider {
   gate: GateStatus | null = null;
   readonly gateRuns: GateCommand[] = [];
   runGate(cmd: GateCommand): Promise<void> {
-    if (cmd.kind === "gate.done" && cmd.photo === undefined) return Promise.reject(new AckFailure({ code: "gate_failed", message: "Draw needs a photo" }));
+    if (cmd.kind === "gate.done" && cmd.photo === undefined)
+      return Promise.reject(new AckFailure({ code: "gate_failed", message: "Draw needs a photo" }));
     this.gateRuns.push(cmd);
     return Promise.resolve();
   }
@@ -491,7 +630,10 @@ describe("agent topics", () => {
     tracker.seed(agents.sessions);
     const h = harness({ agents, tracker });
     pair(h);
-    expect(h.sink.last()).toMatchObject({ t: "welcome", state: { mac: { agentsAvailable: true }, agents: { rev: 0, sessions: [{ id: "s1" }] } } });
+    expect(h.sink.last()).toMatchObject({
+      t: "welcome",
+      state: { mac: { agentsAvailable: true }, agents: { rev: 0, sessions: [{ id: "s1" }] } },
+    });
     h.session.receive({ t: "agents.get" });
     expect(h.sink.last()).toMatchObject({ t: "agents.snapshot", rev: 0, sessions: [{ id: "s1" }] });
   });
@@ -501,7 +643,12 @@ describe("agent topics", () => {
     pair(h);
     h.session.receive({ t: "agent.subscribe", sessionId: "s1" });
     await h.sink.sentCount(5);
-    expect(h.sink.last()).toEqual({ t: "agent.conversation", sessionId: "s1", rev: 0, messages: [{ id: "m1", role: "user", text: "hi", at: 1 }] });
+    expect(h.sink.last()).toEqual({
+      t: "agent.conversation",
+      sessionId: "s1",
+      rev: 0,
+      messages: [{ id: "m1", role: "user", text: "hi", at: 1 }],
+    });
     const appended: AgentMessage[] = [{ id: "m2", role: "assistant", text: "yo", at: 2 }];
     h.session.agentConversationAppended("s1", appended);
     h.session.agentConversationAppended("s1", appended);
@@ -519,8 +666,16 @@ describe("agent topics", () => {
     const agents = new FakeProvider();
     const h = harness({ agents });
     pair(h);
-    h.session.receive({ t: "cmd", id: "r1", cmd: { kind: "agent.reply", sessionId: "s1", text: "ship it", submit: true } });
-    h.session.receive({ t: "cmd", id: "r2", cmd: { kind: "agent.reply", sessionId: "nope", text: "x", submit: false } });
+    h.session.receive({
+      t: "cmd",
+      id: "r1",
+      cmd: { kind: "agent.reply", sessionId: "s1", text: "ship it", submit: true },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "r2",
+      cmd: { kind: "agent.reply", sessionId: "nope", text: "x", submit: false },
+    });
     await h.sink.sentCount(6);
     expect(agents.replies).toEqual([["s1", "ship it", true, undefined]]);
     expect(h.sink.sent.slice(-2)).toEqual([
@@ -534,7 +689,11 @@ describe("agent topics", () => {
     const h = harness({ agents });
     pair(h);
     const images: AgentImage[] = [{ mimeType: "image/jpeg", data: "/9j/4AAQ" }];
-    h.session.receive({ t: "cmd", id: "i1", cmd: { kind: "agent.reply", sessionId: "s1", text: "", submit: true, images } });
+    h.session.receive({
+      t: "cmd",
+      id: "i1",
+      cmd: { kind: "agent.reply", sessionId: "s1", text: "", submit: true, images },
+    });
     await h.sink.sentCount(5);
     expect(agents.replies).toEqual([["s1", "", true, images]]);
     expect(h.sink.last()).toEqual({ t: "ack", id: "i1" });
@@ -544,8 +703,22 @@ describe("agent topics", () => {
     const agents = new FakeProvider();
     const h = harness({ agents });
     pair(h);
-    h.session.receive({ t: "cmd", id: "e1", cmd: { kind: "agent.reply", sessionId: "s1", text: "", submit: true } });
-    h.session.receive({ t: "cmd", id: "e2", cmd: { kind: "agent.reply", sessionId: "s1", text: "look", submit: false, images: [{ mimeType: "image/png", data: "iVBOR" }] } });
+    h.session.receive({
+      t: "cmd",
+      id: "e1",
+      cmd: { kind: "agent.reply", sessionId: "s1", text: "", submit: true },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "e2",
+      cmd: {
+        kind: "agent.reply",
+        sessionId: "s1",
+        text: "look",
+        submit: false,
+        images: [{ mimeType: "image/png", data: "iVBOR" }],
+      },
+    });
     await h.sink.sentCount(6);
     expect(agents.replies).toEqual([]);
     expect(h.sink.sent.slice(-2)).toMatchObject([
@@ -558,7 +731,11 @@ describe("agent topics", () => {
     const agents = new FakeProvider();
     const h = harness({ agents });
     pair(h);
-    h.session.receive({ t: "cmd", id: "start-profile", cmd: { kind: "agent.start", prompt: "hello", thinkingLevel: "high", profile: "work" } });
+    h.session.receive({
+      t: "cmd",
+      id: "start-profile",
+      cmd: { kind: "agent.start", prompt: "hello", thinkingLevel: "high", profile: "work" },
+    });
     await h.sink.sentCount(5);
     expect(agents.launched).toEqual([["hello", "high", "work", undefined]]);
     expect(h.sink.last()).toEqual({ t: "ack", id: "start-profile" });
@@ -574,7 +751,12 @@ describe("agent topics", () => {
     h.session.receive({ t: "agent.image", sessionId: "s1", id: "nope" });
     await h.sink.sentCount(6);
     expect(h.sink.sent.slice(-2)).toEqual([
-      { t: "agent.image", sessionId: "s1", id: "img1", image: { mimeType: "image/png", data: "iVBOR" } },
+      {
+        t: "agent.image",
+        sessionId: "s1",
+        id: "img1",
+        image: { mimeType: "image/png", data: "iVBOR" },
+      },
       { t: "agent.image", sessionId: "s1", id: "nope", image: null },
     ]);
   });
@@ -589,8 +771,18 @@ describe("agent topics", () => {
       {
         t: "agent.options",
         sessionId: "s1",
-        models: [{ provider: "anthropic", id: "m", name: "M", vendor: "anthropic", thinkingLevels: ["off", "low"] }],
-        skills: [{ name: "deploy", description: "Ship it", command: "/skill:deploy", takesText: true }],
+        models: [
+          {
+            provider: "anthropic",
+            id: "m",
+            name: "M",
+            vendor: "anthropic",
+            thinkingLevels: ["off", "low"],
+          },
+        ],
+        skills: [
+          { name: "deploy", description: "Ship it", command: "/skill:deploy", takesText: true },
+        ],
       },
       { t: "agent.options", sessionId: "nope", models: [], skills: [] },
     ]);
@@ -600,10 +792,20 @@ describe("agent topics", () => {
     const agents = new FakeProvider();
     const h = harness({ agents });
     pair(h);
-    h.session.receive({ t: "cmd", id: "c1", cmd: { kind: "agent.configure", sessionId: "s1", title: "Renamed", thinkingLevel: "high" } });
-    h.session.receive({ t: "cmd", id: "c2", cmd: { kind: "agent.configure", sessionId: "nope", title: "x" } });
+    h.session.receive({
+      t: "cmd",
+      id: "c1",
+      cmd: { kind: "agent.configure", sessionId: "s1", title: "Renamed", thinkingLevel: "high" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "c2",
+      cmd: { kind: "agent.configure", sessionId: "nope", title: "x" },
+    });
     await h.sink.sentCount(6);
-    expect(agents.configured).toEqual([{ sessionId: "s1", title: "Renamed", thinkingLevel: "high" }]);
+    expect(agents.configured).toEqual([
+      { sessionId: "s1", title: "Renamed", thinkingLevel: "high" },
+    ]);
     expect(h.sink.sent.slice(-2)).toEqual([
       { t: "ack", id: "c1" },
       { t: "nack", id: "c2", error: { code: "agent_not_found", message: "gone" } },
@@ -612,7 +814,10 @@ describe("agent topics", () => {
 
   it("replays a pending ask on subscribe, forwards its resolve, and drives answerAsk", async () => {
     const agents = new FakeProvider();
-    const ask: AgentAsk = { id: "a1", questions: [{ id: "q1", question: "Ship it?", options: [{ label: "yes" }, { label: "no" }] }] };
+    const ask: AgentAsk = {
+      id: "a1",
+      questions: [{ id: "q1", question: "Ship it?", options: [{ label: "yes" }, { label: "no" }] }],
+    };
     agents.pending = ask;
     const h = harness({ agents });
     pair(h);
@@ -620,7 +825,12 @@ describe("agent topics", () => {
     // The session was already blocked on the ask: the phone gets the card right after the conversation.
     await h.sink.sentCount(6);
     expect(h.sink.sent.slice(-2)).toEqual([
-      { t: "agent.conversation", sessionId: "s1", rev: 0, messages: [{ id: "m1", role: "user", text: "hi", at: 1 }] },
+      {
+        t: "agent.conversation",
+        sessionId: "s1",
+        rev: 0,
+        messages: [{ id: "m1", role: "user", text: "hi", at: 1 }],
+      },
       { t: "agent.ask", sessionId: "s1", ask },
     ]);
     // A resolve only reaches the subscribed session.
@@ -629,8 +839,16 @@ describe("agent topics", () => {
     expect(h.sink.last()).toEqual({ t: "agent.ask.resolved", sessionId: "s1", id: "a1" });
     // Answering drives the provider and acks; an unknown session nacks.
     const results: AgentAskAnswer[] = [{ id: "q1", selectedOptions: ["yes"] }];
-    h.session.receive({ t: "cmd", id: "k1", cmd: { kind: "agent.ask.answer", sessionId: "s1", askId: "a1", results } });
-    h.session.receive({ t: "cmd", id: "k2", cmd: { kind: "agent.ask.answer", sessionId: "nope", askId: "a1", results } });
+    h.session.receive({
+      t: "cmd",
+      id: "k1",
+      cmd: { kind: "agent.ask.answer", sessionId: "s1", askId: "a1", results },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "k2",
+      cmd: { kind: "agent.ask.answer", sessionId: "nope", askId: "a1", results },
+    });
     await h.sink.sentCount(9);
     expect(agents.answered).toEqual([["s1", "a1", results]]);
     expect(h.sink.sent.slice(-2)).toEqual([
@@ -643,7 +861,13 @@ describe("agent topics", () => {
 describe("tool approvals", () => {
   it("replays a pending approval on subscribe, forwards its resolve, and drives decideApproval", async () => {
     const agents = new FakeProvider();
-    const approval: AgentApproval = { id: "t1", toolName: "bash", command: "Command: git push --force", destructive: "force push", requiresBiometric: true };
+    const approval: AgentApproval = {
+      id: "t1",
+      toolName: "bash",
+      command: "Command: git push --force",
+      destructive: "force push",
+      requiresBiometric: true,
+    };
     agents.approval = approval;
     const h = harness({ agents });
     pair(h);
@@ -654,10 +878,26 @@ describe("tool approvals", () => {
     h.session.agentApprovalResolved("other", "t1");
     expect(h.sink.last()).toEqual({ t: "agent.approval.resolved", sessionId: "s1", id: "t1" });
     // Destructive: approving needs a confirmation, denying never does, an unknown session nacks.
-    h.session.receive({ t: "cmd", id: "k1", cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1" } });
-    h.session.receive({ t: "cmd", id: "k2", cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1", confirmed: "biometric" } });
-    h.session.receive({ t: "cmd", id: "k3", cmd: { kind: "agent.deny", sessionId: "s1", approvalId: "t1" } });
-    h.session.receive({ t: "cmd", id: "k4", cmd: { kind: "agent.deny", sessionId: "nope", approvalId: "t1" } });
+    h.session.receive({
+      t: "cmd",
+      id: "k1",
+      cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "k2",
+      cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1", confirmed: "biometric" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "k3",
+      cmd: { kind: "agent.deny", sessionId: "s1", approvalId: "t1" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "k4",
+      cmd: { kind: "agent.deny", sessionId: "nope", approvalId: "t1" },
+    });
     await h.sink.sentCount(11);
     expect(agents.decided).toEqual([
       ["s1", "t1", true, "biometric"],
@@ -720,13 +960,40 @@ describe("phone escalation inbox", () => {
   it("claims a phone's approve, deny and ask answer before running it, and gives the claim back when it fails", async () => {
     const inbox = new FakeInbox();
     const agents = new FakeProvider();
-    agents.approval = { id: "t1", toolName: "bash", command: "git push --force", destructive: "force push", requiresBiometric: true };
+    agents.approval = {
+      id: "t1",
+      toolName: "bash",
+      command: "git push --force",
+      destructive: "force push",
+      requiresBiometric: true,
+    };
     const h = harness({ agents, inbox });
     pair(h);
-    h.session.receive({ t: "cmd", id: "k1", cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1" } });
-    h.session.receive({ t: "cmd", id: "k2", cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1", confirmed: "biometric" } });
-    h.session.receive({ t: "cmd", id: "k3", cmd: { kind: "agent.deny", sessionId: "s1", approvalId: "t2" } });
-    h.session.receive({ t: "cmd", id: "k4", cmd: { kind: "agent.ask.answer", sessionId: "s1", askId: "a1", results: [{ id: "q1", selectedOptions: ["Yes"] }] } });
+    h.session.receive({
+      t: "cmd",
+      id: "k1",
+      cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "k2",
+      cmd: { kind: "agent.approve", sessionId: "s1", approvalId: "t1", confirmed: "biometric" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "k3",
+      cmd: { kind: "agent.deny", sessionId: "s1", approvalId: "t2" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "k4",
+      cmd: {
+        kind: "agent.ask.answer",
+        sessionId: "s1",
+        askId: "a1",
+        results: [{ id: "q1", selectedOptions: ["Yes"] }],
+      },
+    });
     await h.sink.sentCount(5);
     expect(inbox.claims).toEqual([
       ["approval:t1", "phone-1", "Approved"],
@@ -757,20 +1024,41 @@ describe("usage", () => {
     const bare = harness();
     pair(bare);
     bare.session.receive({ t: "usage.get" });
-    expect(bare.sink.last()).toEqual({ t: "usage.snapshot", usage: { accounts: [], updatedAt: null, refreshing: false } });
+    expect(bare.sink.last()).toEqual({
+      t: "usage.snapshot",
+      usage: { accounts: [], updatedAt: null, refreshing: false },
+    });
   });
 });
 
 describe("catch up", () => {
   it("answers catchup.list with the deck; mark, handoff and bounce change it or re-send the deck when nothing changed; note answers whether it was saved", () => {
-    const card = { id: "slack:1", source: "slack" as const, label: "#general", title: "t", body: "", ts: "2026-10-24T00:00:00.000Z", importance: 3, read: false };
+    const card = {
+      id: "slack:1",
+      source: "slack" as const,
+      label: "#general",
+      title: "t",
+      body: "",
+      ts: "2026-10-24T00:00:00.000Z",
+      importance: 3,
+      read: false,
+    };
     const marks: string[] = [];
     const catchup: CatchUpDeck = {
       snapshot: () => ({ items: [card], unreadCount: 1 }),
       mark: (id, read) => (marks.push(`${id}:${String(read)}`), id === "slack:1"),
-      handoff: (id, agent, note) => (marks.push(`handoff ${id} ${agent} ${note ?? "-"}`), agent === "astra"),
-      bounce: (id, agent, reason) => (marks.push(`bounce ${id} ${agent} ${reason}`), id === "slack:1"),
-      note: (id, text, signal) => (marks.push(`note ${id} ${signal ?? "-"} ${text}`), id === "slack:1"),
+      handoff: (id, agent, note) => (
+        marks.push(`handoff ${id} ${agent} ${note ?? "-"}`),
+        agent === "astra"
+      ),
+      bounce: (id, agent, reason) => (
+        marks.push(`bounce ${id} ${agent} ${reason}`),
+        id === "slack:1"
+      ),
+      note: (id, text, signal) => (
+        marks.push(`note ${id} ${signal ?? "-"} ${text}`),
+        id === "slack:1"
+      ),
     };
     const h = harness({ catchup });
     pair(h);
@@ -817,20 +1105,43 @@ describe("reactions", () => {
     const calls: string[] = [];
     const reactions: ReactionRelaying = {
       snapshot: (id) => (id === "assistant:astra" ? thread : {}),
-      set: (id, key, emoji, excerpt) => (calls.push(`set ${id} ${key} ${emoji} ${excerpt}`), emoji !== "👍"),
+      set: (id, key, emoji, excerpt) => (
+        calls.push(`set ${id} ${key} ${emoji} ${excerpt}`),
+        emoji !== "👍"
+      ),
       clear: (id, key) => (calls.push(`clear ${id} ${key}`), key === "assistant@5"),
       observe: () => undefined,
     };
     const h = harness({ reactions });
     pair(h);
     h.session.receive({ t: "reactions.get", thread: "assistant:astra" });
-    expect(h.sink.last()).toEqual({ t: "reactions.snapshot", thread: "assistant:astra", reactions: thread });
+    expect(h.sink.last()).toEqual({
+      t: "reactions.snapshot",
+      thread: "assistant:astra",
+      reactions: thread,
+    });
     const sent = h.sink.sent.length;
-    h.session.receive({ t: "reaction.set", thread: "assistant:astra", message: "assistant@5", emoji: "❤️", excerpt: "Done." });
+    h.session.receive({
+      t: "reaction.set",
+      thread: "assistant:astra",
+      message: "assistant@5",
+      emoji: "❤️",
+      excerpt: "Done.",
+    });
     h.session.receive({ t: "reaction.clear", thread: "assistant:astra", message: "assistant@5" });
     expect(h.sink.sent.length).toBe(sent); // changes go out through the service's broadcast
-    h.session.receive({ t: "reaction.set", thread: "assistant:astra", message: "assistant@5", emoji: "👍", excerpt: "Done." });
-    expect(h.sink.last()).toEqual({ t: "reactions.snapshot", thread: "assistant:astra", reactions: thread });
+    h.session.receive({
+      t: "reaction.set",
+      thread: "assistant:astra",
+      message: "assistant@5",
+      emoji: "👍",
+      excerpt: "Done.",
+    });
+    expect(h.sink.last()).toEqual({
+      t: "reactions.snapshot",
+      thread: "assistant:astra",
+      reactions: thread,
+    });
     h.session.receive({ t: "reaction.clear", thread: "session:s1", message: "user@1" });
     expect(h.sink.last()).toEqual({ t: "reactions.snapshot", thread: "session:s1", reactions: {} });
     expect(calls).toEqual([
@@ -841,8 +1152,18 @@ describe("reactions", () => {
     ]);
     const bare = harness();
     pair(bare);
-    bare.session.receive({ t: "reaction.set", thread: "session:s1", message: "user@1", emoji: "👍", excerpt: "" });
-    expect(bare.sink.last()).toEqual({ t: "reactions.snapshot", thread: "session:s1", reactions: {} });
+    bare.session.receive({
+      t: "reaction.set",
+      thread: "session:s1",
+      message: "user@1",
+      emoji: "👍",
+      excerpt: "",
+    });
+    expect(bare.sink.last()).toEqual({
+      t: "reactions.snapshot",
+      thread: "session:s1",
+      reactions: {},
+    });
   });
 });
 
@@ -851,7 +1172,10 @@ describe("artifacts", () => {
     const calls: string[] = [];
     const artifacts: ArtifactRelaying = {
       get: (thread) => void calls.push(`get ${thread}`),
-      act: (thread, by, action) => (calls.push(`act ${thread} ${by} ${action.op}`), action.op === "pin" ? { ok: true } : { ok: false, error: "nope" }),
+      act: (thread, by, action) => (
+        calls.push(`act ${thread} ${by} ${action.op}`),
+        action.op === "pin" ? { ok: true } : { ok: false, error: "nope" }
+      ),
       openMedia: () => null,
       observe: () => undefined,
     };
@@ -860,16 +1184,43 @@ describe("artifacts", () => {
     const sent = h.sink.sent.length;
     h.session.receive({ t: "artifacts.get", thread: "assistant:astra" });
     expect(h.sink.sent.length).toBe(sent);
-    h.session.receive({ t: "artifacts.act", thread: "assistant:astra", rid: "r1", by: "isaac", action: { op: "pin", id: "linear:ENG-1", pinned: true } });
+    h.session.receive({
+      t: "artifacts.act",
+      thread: "assistant:astra",
+      rid: "r1",
+      by: "isaac",
+      action: { op: "pin", id: "linear:ENG-1", pinned: true },
+    });
     expect(h.sink.last()).toEqual({ t: "artifacts.acted", rid: "r1", ok: true });
-    h.session.receive({ t: "artifacts.act", thread: "session:s1", rid: "r2", by: "nova", action: { op: "tab.remove", tab: "links" } });
+    h.session.receive({
+      t: "artifacts.act",
+      thread: "session:s1",
+      rid: "r2",
+      by: "nova",
+      action: { op: "tab.remove", tab: "links" },
+    });
     expect(h.sink.last()).toEqual({ t: "artifacts.acted", rid: "r2", ok: false, error: "nope" });
-    expect(calls).toEqual(["get assistant:astra", "act assistant:astra isaac pin", "act session:s1 nova tab.remove"]);
+    expect(calls).toEqual([
+      "get assistant:astra",
+      "act assistant:astra isaac pin",
+      "act session:s1 nova tab.remove",
+    ]);
     const bare = harness();
     pair(bare);
     bare.session.receive({ t: "artifacts.get", thread: "session:s1" });
-    expect(bare.sink.last()).toEqual({ t: "artifacts.snapshot", thread: "session:s1", items: [], tabs: defaultTabs() });
-    bare.session.receive({ t: "artifacts.act", thread: "session:s1", rid: "r3", by: "isaac", action: { op: "pin", id: "x", pinned: true } });
+    expect(bare.sink.last()).toEqual({
+      t: "artifacts.snapshot",
+      thread: "session:s1",
+      items: [],
+      tabs: defaultTabs(),
+    });
+    bare.session.receive({
+      t: "artifacts.act",
+      thread: "session:s1",
+      rid: "r3",
+      by: "isaac",
+      action: { op: "pin", id: "x", pinned: true },
+    });
     expect(bare.sink.last()).toMatchObject({ t: "artifacts.acted", rid: "r3", ok: false });
   });
 });
@@ -877,7 +1228,11 @@ describe("artifacts", () => {
 describe("activity", () => {
   it("hands activity.get to the service (which broadcasts), and answers an empty list without one", () => {
     const calls: string[] = [];
-    const activity: ActivityRelaying = { get: () => void calls.push("get"), poke: () => undefined, observe: () => undefined };
+    const activity: ActivityRelaying = {
+      get: () => void calls.push("get"),
+      poke: () => undefined,
+      observe: () => undefined,
+    };
     const h = harness({ activity });
     pair(h);
     const sent = h.sink.sent.length;
@@ -892,7 +1247,16 @@ describe("activity", () => {
 });
 
 describe("habit gate", () => {
-  const locked: GateStatus = { locked: true, blocked: true, reason: "planned break", active: null, habits: [{ id: "draw", name: "Draw", minutes: 10, photo: true }], tasks: [], canFinish: false, remainingSeconds: null };
+  const locked: GateStatus = {
+    locked: true,
+    blocked: true,
+    reason: "planned break",
+    active: null,
+    habits: [{ id: "draw", name: "Draw", minutes: 10, photo: true }],
+    tasks: [],
+    canFinish: false,
+    remainingSeconds: null,
+  };
 
   it("answers gate.get with the provider's gate, or null without a provider", () => {
     const agents = new FakeProvider();
@@ -935,7 +1299,11 @@ describe("habit gate", () => {
     pair(h);
     h.session.receive({ t: "cmd", id: "g1", cmd: { kind: "gate.start", id: "walk" } });
     await h.sink.sentCount(5);
-    expect(h.sink.last()).toMatchObject({ t: "nack", id: "g1", error: { code: "gate_unavailable" } });
+    expect(h.sink.last()).toMatchObject({
+      t: "nack",
+      id: "g1",
+      error: { code: "gate_unavailable" },
+    });
   });
 });
 
@@ -948,16 +1316,30 @@ describe("assistant threads", () => {
       readonly id: string,
       readonly title: string,
     ) {
-      this.snapshotValue = { rev: 3, messages: [{ id: `${id}-a1`, role: "assistant", text: `hi from ${title}`, at: 1 }], busy: true, sessionId: `${id}-1` };
+      this.snapshotValue = {
+        rev: 3,
+        messages: [{ id: `${id}-a1`, role: "assistant", text: `hi from ${title}`, at: 1 }],
+        busy: true,
+        sessionId: `${id}-1`,
+      };
     }
     snapshot(): Promise<AssistantSnapshot> {
       return Promise.resolve(this.snapshotValue);
     }
     listing(): Promise<AssistantAgent> {
-      return Promise.resolve({ id: this.id, title: this.title, scope: `${this.title} scope`, status: "idle", lastReply: { text: `hi from ${this.title}`, at: 1 } });
+      return Promise.resolve({
+        id: this.id,
+        title: this.title,
+        scope: `${this.title} scope`,
+        status: "idle",
+        lastReply: { text: `hi from ${this.title}`, at: 1 },
+      });
     }
     turn(text: string, images?: readonly AgentImage[]): Promise<void> {
-      if (text === "fail") return Promise.reject(new AckFailure({ code: "agent_launch_failed", message: `${this.title} did not come up` }));
+      if (text === "fail")
+        return Promise.reject(
+          new AckFailure({ code: "agent_launch_failed", message: `${this.title} did not come up` }),
+        );
       this.turns.push(text);
       this.turnImages.push(images);
       return Promise.resolve();
@@ -967,7 +1349,10 @@ describe("assistant threads", () => {
     }
     readonly signins: string[][] = [];
     signin(messageId: string, url: string, username: string, password: string): Promise<void> {
-      if (password === "wrong") return Promise.reject(new AckFailure({ code: "invalid_command", message: "Incorrect password." }));
+      if (password === "wrong")
+        return Promise.reject(
+          new AckFailure({ code: "invalid_command", message: "Incorrect password." }),
+        );
       this.signins.push([messageId, url, username, password]);
       return Promise.resolve();
     }
@@ -995,7 +1380,11 @@ describe("assistant threads", () => {
     expect(h.session.isFollowingAssistant("astra")).toBe(false);
     h.session.receive({ t: "assistant.get" });
     await h.sink.sentCount(5);
-    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", agent: "astra", snapshot: assistant.astra.snapshotValue });
+    expect(h.sink.last()).toEqual({
+      t: "assistant.snapshot",
+      agent: "astra",
+      snapshot: assistant.astra.snapshotValue,
+    });
     expect(h.session.isFollowingAssistant("astra")).toBe(true);
     expect(h.session.isFollowingAssistant("nova")).toBe(false);
     h.clock.advance(ASSISTANT_FOLLOW_MS + 1);
@@ -1010,7 +1399,11 @@ describe("assistant threads", () => {
     pair(h);
     h.session.receive({ t: "assistant.get", agent: "nova" });
     await h.sink.sentCount(5);
-    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", agent: "nova", snapshot: assistant.nova.snapshotValue });
+    expect(h.sink.last()).toEqual({
+      t: "assistant.snapshot",
+      agent: "nova",
+      snapshot: assistant.nova.snapshotValue,
+    });
     expect(h.session.isFollowingAssistant("nova")).toBe(true);
     expect(h.session.isFollowingAssistant("astra")).toBe(false);
   });
@@ -1020,7 +1413,11 @@ describe("assistant threads", () => {
     pair(h);
     h.session.receive({ t: "assistant.get", agent: "eva" });
     await h.sink.sentCount(5);
-    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", agent: "eva", snapshot: { rev: 0, messages: [], busy: false, sessionId: "" } });
+    expect(h.sink.last()).toEqual({
+      t: "assistant.snapshot",
+      agent: "eva",
+      snapshot: { rev: 0, messages: [], busy: false, sessionId: "" },
+    });
     expect(h.session.isFollowingAssistant("eva")).toBe(false);
     const bare = harness();
     pair(bare);
@@ -1028,7 +1425,11 @@ describe("assistant threads", () => {
     bare.session.receive({ t: "assistant.get" });
     expect(bare.sink.sent).toHaveLength(before);
     bare.session.receive({ t: "assistant.get", agent: "astra" });
-    expect(bare.sink.last()).toEqual({ t: "assistant.snapshot", agent: "astra", snapshot: { rev: 0, messages: [], busy: false, sessionId: "" } });
+    expect(bare.sink.last()).toEqual({
+      t: "assistant.snapshot",
+      agent: "astra",
+      snapshot: { rev: 0, messages: [], busy: false, sessionId: "" },
+    });
   });
 
   it("lists the agents in registry order with their scope, status and last reply, and none on a host without threads", async () => {
@@ -1039,8 +1440,20 @@ describe("assistant threads", () => {
     expect(h.sink.last()).toEqual({
       t: "assistant.agents",
       agents: [
-        { id: "astra", title: "Astra", scope: "Astra scope", status: "idle", lastReply: { text: "hi from Astra", at: 1 } },
-        { id: "nova", title: "Nova", scope: "Nova scope", status: "idle", lastReply: { text: "hi from Nova", at: 1 } },
+        {
+          id: "astra",
+          title: "Astra",
+          scope: "Astra scope",
+          status: "idle",
+          lastReply: { text: "hi from Astra", at: 1 },
+        },
+        {
+          id: "nova",
+          title: "Nova",
+          scope: "Nova scope",
+          status: "idle",
+          lastReply: { text: "hi from Nova", at: 1 },
+        },
       ],
     });
     const bare = harness();
@@ -1053,15 +1466,31 @@ describe("assistant threads", () => {
     const assistant = new FakeThreads();
     const h = harness({ assistant });
     pair(h);
-    h.session.receive({ t: "cmd", id: "t1", cmd: { kind: "assistant.turn", text: "what did the run do?" } });
-    h.session.receive({ t: "cmd", id: "t2", cmd: { kind: "assistant.turn", agent: "nova", text: "fail" } });
-    h.session.receive({ t: "cmd", id: "t3", cmd: { kind: "assistant.turn", agent: "nova", text: "dinner?" } });
+    h.session.receive({
+      t: "cmd",
+      id: "t1",
+      cmd: { kind: "assistant.turn", text: "what did the run do?" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "t2",
+      cmd: { kind: "assistant.turn", agent: "nova", text: "fail" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "t3",
+      cmd: { kind: "assistant.turn", agent: "nova", text: "dinner?" },
+    });
     await h.sink.sentCount(7);
     expect(assistant.astra.turns).toEqual(["what did the run do?"]);
     expect(assistant.nova.turns).toEqual(["dinner?"]);
     expect(h.sink.sent.slice(-3)).toEqual([
       { t: "ack", id: "t1" },
-      { t: "nack", id: "t2", error: { code: "agent_launch_failed", message: "Nova did not come up" } },
+      {
+        t: "nack",
+        id: "t2",
+        error: { code: "agent_launch_failed", message: "Nova did not come up" },
+      },
       { t: "ack", id: "t3" },
     ]);
   });
@@ -1069,8 +1498,23 @@ describe("assistant threads", () => {
   it("nacks assistant.turn and assistant.signin for an unknown agent as agent_not_found", async () => {
     const h = harness({ assistant: new FakeThreads() });
     pair(h);
-    h.session.receive({ t: "cmd", id: "t1", cmd: { kind: "assistant.turn", agent: "eva", text: "hello?" } });
-    h.session.receive({ t: "cmd", id: "s1", cmd: { kind: "assistant.signin", agent: "eva", messageId: "a1", url: "https://github.com/login", username: "u", password: "p" } });
+    h.session.receive({
+      t: "cmd",
+      id: "t1",
+      cmd: { kind: "assistant.turn", agent: "eva", text: "hello?" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "s1",
+      cmd: {
+        kind: "assistant.signin",
+        agent: "eva",
+        messageId: "a1",
+        url: "https://github.com/login",
+        username: "u",
+        password: "p",
+      },
+    });
     await h.sink.sentCount(6);
     expect(h.sink.sent.slice(-2)).toMatchObject([
       { t: "nack", id: "t1", error: { code: "agent_not_found" } },
@@ -1083,8 +1527,23 @@ describe("assistant threads", () => {
     const h = harness({ assistant });
     pair(h);
     const url = "https://github.com/login";
-    h.session.receive({ t: "cmd", id: "s1", cmd: { kind: "assistant.signin", agent: "nova", messageId: "a1", url, username: "isaac", password: "pw" } });
-    h.session.receive({ t: "cmd", id: "s2", cmd: { kind: "assistant.signin", messageId: "a1", url, username: "isaac", password: "wrong" } });
+    h.session.receive({
+      t: "cmd",
+      id: "s1",
+      cmd: {
+        kind: "assistant.signin",
+        agent: "nova",
+        messageId: "a1",
+        url,
+        username: "isaac",
+        password: "pw",
+      },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "s2",
+      cmd: { kind: "assistant.signin", messageId: "a1", url, username: "isaac", password: "wrong" },
+    });
     await h.sink.sentCount(6);
     expect(assistant.nova.signins).toEqual([["a1", url, "isaac", "pw"]]);
     expect(assistant.astra.signins).toEqual([]);
@@ -1097,9 +1556,23 @@ describe("assistant threads", () => {
   it("nacks assistant.signin as agent_launch_failed on a host without threads", async () => {
     const h = harness();
     pair(h);
-    h.session.receive({ t: "cmd", id: "s1", cmd: { kind: "assistant.signin", messageId: "a1", url: "https://github.com/login", username: "u", password: "p" } });
+    h.session.receive({
+      t: "cmd",
+      id: "s1",
+      cmd: {
+        kind: "assistant.signin",
+        messageId: "a1",
+        url: "https://github.com/login",
+        username: "u",
+        password: "p",
+      },
+    });
     await h.sink.sentCount(5);
-    expect(h.sink.last()).toMatchObject({ t: "nack", id: "s1", error: { code: "agent_launch_failed" } });
+    expect(h.sink.last()).toMatchObject({
+      t: "nack",
+      id: "s1",
+      error: { code: "agent_launch_failed" },
+    });
   });
 
   it("hands assistant.create to the host's threads with its start flag, and nacks where the host cannot add assistants", async () => {
@@ -1108,14 +1581,27 @@ describe("assistant threads", () => {
       create: (input: { title: string }, start: boolean) => {
         created.push([input, start]);
         return input.title === "Nova"
-          ? Promise.reject(new AckFailure({ code: "invalid_command", message: "an assistant called Nova already exists" }))
+          ? Promise.reject(
+              new AckFailure({
+                code: "invalid_command",
+                message: "an assistant called Nova already exists",
+              }),
+            )
           : Promise.resolve({ id: "vega", title: input.title });
       },
     });
     const h = harness({ assistant });
     pair(h);
-    h.session.receive({ t: "cmd", id: "c1", cmd: { kind: "assistant.create", title: "Vega", scope: "Driving", start: true } });
-    h.session.receive({ t: "cmd", id: "c2", cmd: { kind: "assistant.create", id: "nova2", title: "Nova" } });
+    h.session.receive({
+      t: "cmd",
+      id: "c1",
+      cmd: { kind: "assistant.create", title: "Vega", scope: "Driving", start: true },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "c2",
+      cmd: { kind: "assistant.create", id: "nova2", title: "Nova" },
+    });
     await h.sink.sentCount(6);
     expect(created).toEqual([
       [{ title: "Vega", scope: "Driving" }, true],
@@ -1123,13 +1609,21 @@ describe("assistant threads", () => {
     ]);
     expect(h.sink.sent.slice(-2)).toEqual([
       { t: "ack", id: "c1" },
-      { t: "nack", id: "c2", error: { code: "invalid_command", message: "an assistant called Nova already exists" } },
+      {
+        t: "nack",
+        id: "c2",
+        error: { code: "invalid_command", message: "an assistant called Nova already exists" },
+      },
     ]);
     const bare = harness({ assistant: new FakeThreads() });
     pair(bare);
     bare.session.receive({ t: "cmd", id: "c3", cmd: { kind: "assistant.create", title: "Vega" } });
     await bare.sink.sentCount(5);
-    expect(bare.sink.last()).toMatchObject({ t: "nack", id: "c3", error: { code: "invalid_command", message: "this host cannot add assistants" } });
+    expect(bare.sink.last()).toMatchObject({
+      t: "nack",
+      id: "c3",
+      error: { code: "invalid_command", message: "this host cannot add assistants" },
+    });
   });
 
   it("passes assistant.turn images through, and nacks a turn with neither text nor images as invalid_command", async () => {
@@ -1137,7 +1631,11 @@ describe("assistant threads", () => {
     const h = harness({ assistant });
     pair(h);
     const image = { mimeType: "image/png" as const, data: "AAAA" };
-    h.session.receive({ t: "cmd", id: "t1", cmd: { kind: "assistant.turn", text: "", images: [image] } });
+    h.session.receive({
+      t: "cmd",
+      id: "t1",
+      cmd: { kind: "assistant.turn", text: "", images: [image] },
+    });
     h.session.receive({ t: "cmd", id: "t2", cmd: { kind: "assistant.turn", text: "" } });
     await h.sink.sentCount(6);
     expect(assistant.astra.turns).toEqual([""]);
@@ -1153,26 +1651,63 @@ describe("assistant threads", () => {
     pair(h);
     h.session.receive({ t: "cmd", id: "t1", cmd: { kind: "assistant.turn", text: "hello?" } });
     await h.sink.sentCount(5);
-    expect(h.sink.last()).toMatchObject({ t: "nack", id: "t1", error: { code: "agent_launch_failed" } });
+    expect(h.sink.last()).toMatchObject({
+      t: "nack",
+      id: "t1",
+      error: { code: "agent_launch_failed" },
+    });
   });
 });
 
 describe("AgentsDeltaTracker", () => {
   it("emits upserts for changed sessions, removes for missing ids, and bumps rev", () => {
     const tracker = new AgentsDeltaTracker();
-    const a: AgentSession = { id: "a", provider: "omp", title: "a", projectPath: "/a", status: "idle", lastActivity: "", lastActivityAt: 1, canRespond: true };
+    const a: AgentSession = {
+      id: "a",
+      provider: "omp",
+      title: "a",
+      projectPath: "/a",
+      status: "idle",
+      lastActivity: "",
+      lastActivityAt: 1,
+      canRespond: true,
+    };
     const b: AgentSession = { ...a, id: "b" };
     tracker.seed([a, b]);
-    expect(tracker.apply([{ ...a, status: "working" }])).toEqual({ t: "agents.delta", rev: 1, upsert: [{ ...a, status: "working" }], remove: ["b"] });
+    expect(tracker.apply([{ ...a, status: "working" }])).toEqual({
+      t: "agents.delta",
+      rev: 1,
+      upsert: [{ ...a, status: "working" }],
+      remove: ["b"],
+    });
     expect(tracker.apply([{ ...a, status: "working" }])).toEqual({ t: "agents.delta", rev: 2 });
   });
 
   it("treats a model or thinking-level change as an upsert", () => {
     const tracker = new AgentsDeltaTracker();
-    const a: AgentSession = { id: "a", provider: "omp", title: "a", projectPath: "/a", status: "idle", lastActivity: "", lastActivityAt: 1, canRespond: true, model: "M", thinkingLevel: "medium" };
+    const a: AgentSession = {
+      id: "a",
+      provider: "omp",
+      title: "a",
+      projectPath: "/a",
+      status: "idle",
+      lastActivity: "",
+      lastActivityAt: 1,
+      canRespond: true,
+      model: "M",
+      thinkingLevel: "medium",
+    };
     tracker.seed([a]);
-    expect(tracker.apply([{ ...a, thinkingLevel: "low" }])).toEqual({ t: "agents.delta", rev: 1, upsert: [{ ...a, thinkingLevel: "low" }] });
-    expect(tracker.apply([{ ...a, thinkingLevel: "low", model: "N" }])).toEqual({ t: "agents.delta", rev: 2, upsert: [{ ...a, thinkingLevel: "low", model: "N" }] });
+    expect(tracker.apply([{ ...a, thinkingLevel: "low" }])).toEqual({
+      t: "agents.delta",
+      rev: 1,
+      upsert: [{ ...a, thinkingLevel: "low" }],
+    });
+    expect(tracker.apply([{ ...a, thinkingLevel: "low", model: "N" }])).toEqual({
+      t: "agents.delta",
+      rev: 2,
+      upsert: [{ ...a, thinkingLevel: "low", model: "N" }],
+    });
   });
 });
 
@@ -1194,7 +1729,9 @@ describe("boards", () => {
       subscribed.session.receive({ t: "board.subscribe" });
       expect(subscribed.sink.last()).toEqual({ t: "board.snapshot", rev: 1, boards: [first] });
       const otherSent = other.sink.sent.length;
-      const next = await boards.apply("ops", [{ op: "upsert", id: "a", spec: { widget: "divider" } }]);
+      const next = await boards.apply("ops", [
+        { op: "upsert", id: "a", spec: { widget: "divider" } },
+      ]);
       expect(subscribed.sink.last()).toEqual({ t: "board.delta", rev: 2, board: next });
       expect(other.sink.sent).toHaveLength(otherSent);
       other.session.receive({ t: "board.get" });
@@ -1236,7 +1773,12 @@ describe("query", () => {
     pair(h);
     expect(h.sink.last()).not.toHaveProperty("features");
     h.session.receive({ t: "query.req", rid: "r2", tool: "jobs" });
-    expect(h.sink.last()).toEqual({ t: "query.res", rid: "r2", ok: false, error: "This host runs no queries." });
+    expect(h.sink.last()).toEqual({
+      t: "query.res",
+      rid: "r2",
+      ok: false,
+      error: "This host runs no queries.",
+    });
   });
 });
 
@@ -1254,7 +1796,10 @@ describe("files presence", () => {
     pair(h);
     expect(h.sink.last()).toMatchObject({ t: "welcome", features: ["files.presence"] });
     h.session.receive({ t: "files.open", paths: ["/Users/ike/Eva/a.md"] });
-    h.session.receive({ t: "files.caret", focus: { path: "/Users/ike/Eva/a.md", caret: { line: 3, column: 1 } } });
+    h.session.receive({
+      t: "files.caret",
+      focus: { path: "/Users/ike/Eva/a.md", caret: { line: 3, column: 1 } },
+    });
     h.session.receive({ t: "files.saved", path: "/Users/ike/Eva/a.md", hash: "abc" });
     h.session.handleDisconnect();
     expect(calls).toEqual([
@@ -1412,18 +1957,47 @@ describe("calls", () => {
       observe: () => undefined,
       file: (req) => {
         asked.push(req);
-        return { ok: true, kind: "text", text: "You are Nova.", version: { mtimeMs: 1, size: 13, hash: "h" } };
+        return {
+          ok: true,
+          kind: "text",
+          text: "You are Nova.",
+          version: { mtimeMs: 1, size: 13, hash: "h" },
+        };
       },
     };
     const h = harness({ assistant });
     pair(h);
-    h.session.receive({ t: "assistant.file.req", rid: "r1", agent: "nova", file: "prime", op: "read" });
+    h.session.receive({
+      t: "assistant.file.req",
+      rid: "r1",
+      agent: "nova",
+      file: "prime",
+      op: "read",
+    });
     expect(asked).toHaveLength(1);
-    expect(h.sink.last()).toEqual({ t: "assistant.file.res", rid: "r1", ok: true, kind: "text", text: "You are Nova.", version: { mtimeMs: 1, size: 13, hash: "h" } });
+    expect(h.sink.last()).toEqual({
+      t: "assistant.file.res",
+      rid: "r1",
+      ok: true,
+      kind: "text",
+      text: "You are Nova.",
+      version: { mtimeMs: 1, size: 13, hash: "h" },
+    });
     const bare = harness();
     pair(bare);
-    bare.session.receive({ t: "assistant.file.req", rid: "r2", agent: "nova", file: "thread", op: "read" });
-    expect(bare.sink.last()).toMatchObject({ t: "assistant.file.res", rid: "r2", ok: false, code: "invalid" });
+    bare.session.receive({
+      t: "assistant.file.req",
+      rid: "r2",
+      agent: "nova",
+      file: "thread",
+      op: "read",
+    });
+    expect(bare.sink.last()).toMatchObject({
+      t: "assistant.file.res",
+      rid: "r2",
+      ok: false,
+      code: "invalid",
+    });
   });
 
   it("hands every call frame to the calls with this socket's sink, and hangs up when the socket goes", () => {
@@ -1450,7 +2024,13 @@ describe("calls", () => {
     h.session.receive({ t: "call.audio", callId: "c1", pcm: "AAAA" });
     expect(h.sink.sent).toHaveLength(before);
     h.session.receive({ t: "call.start", callId: "c1", agent: "astra" });
-    expect(h.sink.last()).toEqual({ t: "call.state", callId: "c1", agent: "astra", state: "ended", error: "This host cannot take calls" });
+    expect(h.sink.last()).toEqual({
+      t: "call.state",
+      callId: "c1",
+      agent: "astra",
+      state: "ended",
+      error: "This host cannot take calls",
+    });
   });
 
   it("refuses call frames before authentication", () => {
@@ -1488,7 +2068,14 @@ describe("live calls", () => {
     const h = harness();
     pair(h);
     h.session.receive({ t: "live.start", callId: "l1", agent: "nova", sdp: "v=0" });
-    expect(h.sink.last()).toEqual({ t: "live.state", callId: "l1", agent: "nova", state: "ended", error: "This host cannot take live calls", fallback: true });
+    expect(h.sink.last()).toEqual({
+      t: "live.state",
+      callId: "l1",
+      agent: "nova",
+      state: "ended",
+      error: "This host cannot take live calls",
+      fallback: true,
+    });
   });
 });
 
@@ -1499,7 +2086,15 @@ describe("live canvas frames", () => {
       snapshot: () => ({ t: "canvas.rooms", rev: 3, rooms: [] }),
       open: (slug, deviceId) => {
         opened.push(`${slug} ${deviceId}`);
-        return slug === "live" ? { t: "canvas.access", slug, path: `/canvas/${slug}/?token=tok`, token: "tok", expiresAt: 5 } : { t: "canvas.unavailable", slug, reason: "The canvas session on Old has ended." };
+        return slug === "live"
+          ? {
+              t: "canvas.access",
+              slug,
+              path: `/canvas/${slug}/?token=tok`,
+              token: "tok",
+              expiresAt: 5,
+            }
+          : { t: "canvas.unavailable", slug, reason: "The canvas session on Old has ended." };
       },
     };
     const h = harness({ canvas });
@@ -1507,9 +2102,19 @@ describe("live canvas frames", () => {
     h.session.receive({ t: "canvas.get" });
     expect(h.sink.last()).toEqual({ t: "canvas.rooms", rev: 3, rooms: [] });
     h.session.receive({ t: "canvas.open", slug: "live" });
-    expect(h.sink.last()).toEqual({ t: "canvas.access", slug: "live", path: "/canvas/live/?token=tok", token: "tok", expiresAt: 5 });
+    expect(h.sink.last()).toEqual({
+      t: "canvas.access",
+      slug: "live",
+      path: "/canvas/live/?token=tok",
+      token: "tok",
+      expiresAt: 5,
+    });
     h.session.receive({ t: "canvas.open", slug: "old" });
-    expect(h.sink.last()).toEqual({ t: "canvas.unavailable", slug: "old", reason: "The canvas session on Old has ended." });
+    expect(h.sink.last()).toEqual({
+      t: "canvas.unavailable",
+      slug: "old",
+      reason: "The canvas session on Old has ended.",
+    });
     expect(opened).toEqual(["live phone-1", "old phone-1"]);
   });
 
@@ -1525,25 +2130,67 @@ describe("live canvas frames", () => {
 
 describe("session files", () => {
   const sessionFiles = {
-    list: () => [{ dir: "-Eva", name: "a_1.jsonl", size: 3, mtime: 5 }, { profile: "work", dir: "-Eva", name: "b_2.jsonl", size: 1, mtime: 4 }],
+    list: () => [
+      { dir: "-Eva", name: "a_1.jsonl", size: 3, mtime: 5 },
+      { profile: "work", dir: "-Eva", name: "b_2.jsonl", size: 1, mtime: 4 },
+    ],
     read: (profile: string | undefined, dir: string, name: string, offset: number) =>
-      dir === "-Eva" && name === (profile === "work" ? "b_2.jsonl" : "a_1.jsonl") ? { data: "YWI=", size: 3 + offset } : null,
+      dir === "-Eva" && name === (profile === "work" ? "b_2.jsonl" : "a_1.jsonl")
+        ? { data: "YWI=", size: 3 + offset }
+        : null,
     blob: (hash: string) => (hash === "h" ? { mime: "image/png", data: "eA==" } : null),
     fileForSessionId: (id: string) =>
-      ({ "1": { path: "/omp/agent/sessions/-Eva/a_1.jsonl" }, "2": { profile: "work", path: "/omp/profiles/work/agent/sessions/-Eva/b_2.jsonl" } })[id] ?? null,
+      ({
+        "1": { path: "/omp/agent/sessions/-Eva/a_1.jsonl" },
+        "2": { profile: "work", path: "/omp/profiles/work/agent/sessions/-Eva/b_2.jsonl" },
+      })[id] ?? null,
   } as unknown as SessionFiles;
 
   it("answers list, read and blob requests for an authenticated device", () => {
     const h = harness({ sessionFiles });
     pair(h);
     h.session.receive({ t: "sessions.list" });
-    expect(h.sink.last()).toMatchObject({ t: "sessions.list", files: [{ dir: "-Eva", name: "a_1.jsonl" }, { profile: "work", name: "b_2.jsonl" }] });
+    expect(h.sink.last()).toMatchObject({
+      t: "sessions.list",
+      files: [
+        { dir: "-Eva", name: "a_1.jsonl" },
+        { profile: "work", name: "b_2.jsonl" },
+      ],
+    });
     h.session.receive({ t: "session.read", dir: "-Eva", name: "a_1.jsonl", offset: 1 });
-    expect(h.sink.last()).toEqual({ t: "session.chunk", dir: "-Eva", name: "a_1.jsonl", offset: 1, data: "YWI=", size: 4 });
-    h.session.receive({ t: "session.read", profile: "work", dir: "-Eva", name: "b_2.jsonl", offset: 0 });
-    expect(h.sink.last()).toEqual({ t: "session.chunk", profile: "work", dir: "-Eva", name: "b_2.jsonl", offset: 0, data: "YWI=", size: 3 });
+    expect(h.sink.last()).toEqual({
+      t: "session.chunk",
+      dir: "-Eva",
+      name: "a_1.jsonl",
+      offset: 1,
+      data: "YWI=",
+      size: 4,
+    });
+    h.session.receive({
+      t: "session.read",
+      profile: "work",
+      dir: "-Eva",
+      name: "b_2.jsonl",
+      offset: 0,
+    });
+    expect(h.sink.last()).toEqual({
+      t: "session.chunk",
+      profile: "work",
+      dir: "-Eva",
+      name: "b_2.jsonl",
+      offset: 0,
+      data: "YWI=",
+      size: 3,
+    });
     h.session.receive({ t: "session.read", dir: "..", name: "x.jsonl", offset: 0 });
-    expect(h.sink.last()).toEqual({ t: "session.chunk", dir: "..", name: "x.jsonl", offset: 0, data: null, size: 0 });
+    expect(h.sink.last()).toEqual({
+      t: "session.chunk",
+      dir: "..",
+      name: "x.jsonl",
+      offset: 0,
+      data: null,
+      size: 0,
+    });
     h.session.receive({ t: "blob.read", hash: "h" });
     expect(h.sink.last()).toEqual({ t: "blob.data", hash: "h", mime: "image/png", data: "eA==" });
   });
@@ -1552,7 +2199,11 @@ describe("session files", () => {
     const agents = new FakeProvider();
     const h = harness({ agents, sessionFiles });
     pair(h);
-    h.session.receive({ t: "cmd", id: "r1", cmd: { kind: "agent.start", resume: "1", profile: "work" } });
+    h.session.receive({
+      t: "cmd",
+      id: "r1",
+      cmd: { kind: "agent.start", resume: "1", profile: "work" },
+    });
     await h.sink.sentCount(5);
     expect(h.sink.last()).toEqual({ t: "ack", id: "r1" });
     agents.join("1");
@@ -1567,7 +2218,10 @@ describe("session files", () => {
     ]);
     const answers = h.sink.sent.slice(-2);
     expect(answers).toContainEqual({ t: "ack", id: "r2" });
-    expect(answers.find((m) => m.t === "nack")).toMatchObject({ id: "r3", error: { code: "agent_not_found" } });
+    expect(answers.find((m) => m.t === "nack")).toMatchObject({
+      id: "r3",
+      error: { code: "agent_not_found" },
+    });
   });
 
   it("refuses them before authentication", () => {
@@ -1589,20 +2243,43 @@ describe("studio", () => {
       await studio.service.handle({ kind: "refresh" });
       h.session.receive({ t: "studio.list" });
       expect(h.sink.last()).toEqual({ t: "studio.state", ...studio.service.state() });
-      expect(studio.service.state().backends.map((backend) => backend.id)).toEqual(["ltx", "codex-image", "codex-edit", "kontext", "higgsfield"]);
+      expect(studio.service.state().backends.map((backend) => backend.id)).toEqual([
+        "ltx",
+        "codex-image",
+        "codex-edit",
+        "kontext",
+        "higgsfield",
+      ]);
 
       const sent = h.sink.sent.length;
-      h.session.receive({ t: "studio.req", rid: "r1", op: { kind: "create", spec: ltxSpec(), origin: "phone" } });
+      h.session.receive({
+        t: "studio.req",
+        rid: "r1",
+        op: { kind: "create", spec: ltxSpec(), origin: "phone" },
+      });
       await h.sink.sentCount(sent + 1);
       const answer = h.sink.last();
       if (answer.t !== "studio.res") throw new Error(`expected studio.res, got ${answer.t}`);
-      expect(answer).toMatchObject({ rid: "r1", ok: true, job: { state: "running", spec: { prompt: "a fox in snow" } } });
+      expect(answer).toMatchObject({
+        rid: "r1",
+        ok: true,
+        job: { state: "running", spec: { prompt: "a fox in snow" } },
+      });
       // The job's own frames go to every device through the service's broadcast.
       expect(studio.sent).toContainEqual({ t: "studio.job", job: answer.job });
 
-      h.session.receive({ t: "studio.req", rid: "r2", op: { kind: "delete", id: answer.job?.id ?? "" } });
+      h.session.receive({
+        t: "studio.req",
+        rid: "r2",
+        op: { kind: "delete", id: answer.job?.id ?? "" },
+      });
       await h.sink.sentCount(sent + 2);
-      expect(h.sink.last()).toEqual({ t: "studio.res", rid: "r2", ok: false, error: "Cancel the job before deleting it" });
+      expect(h.sink.last()).toEqual({
+        t: "studio.res",
+        rid: "r2",
+        ok: false,
+        error: "Cancel the job before deleting it",
+      });
       studio.service.stop();
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -1615,7 +2292,12 @@ describe("studio", () => {
     h.session.receive({ t: "studio.list" });
     expect(h.sink.last()).toEqual({ t: "studio.state", jobs: [], uploads: [], backends: [] });
     h.session.receive({ t: "studio.req", rid: "r9", op: { kind: "refresh" } });
-    expect(h.sink.last()).toEqual({ t: "studio.res", rid: "r9", ok: false, error: "This host runs no Studio." });
+    expect(h.sink.last()).toEqual({
+      t: "studio.res",
+      rid: "r9",
+      ok: false,
+      error: "This host runs no Studio.",
+    });
   });
 });
 
@@ -1625,7 +2307,11 @@ describe("reviews", () => {
     const reviews: ReviewsRelaying = {
       handle: (op) => {
         ops.push(op);
-        return Promise.resolve(op.kind === "done" ? { ok: true, done: { [op.url]: op.updatedAt } } : { ok: false, error: "gh pr view failed" });
+        return Promise.resolve(
+          op.kind === "done"
+            ? { ok: true, done: { [op.url]: op.updatedAt } }
+            : { ok: false, error: "gh pr view failed" },
+        );
       },
       openMedia: () => null,
       observe: () => undefined,
@@ -1633,12 +2319,26 @@ describe("reviews", () => {
     const h = harness({ reviews });
     pair(h);
     const sent = h.sink.sent.length;
-    h.session.receive({ t: "reviews.req", rid: "q1", op: { kind: "done", url: "https://github.com/o/r/pull/1", updatedAt: 5, done: true } });
+    h.session.receive({
+      t: "reviews.req",
+      rid: "q1",
+      op: { kind: "done", url: "https://github.com/o/r/pull/1", updatedAt: 5, done: true },
+    });
     await h.sink.sentCount(sent + 1);
-    expect(h.sink.last()).toEqual({ t: "reviews.res", rid: "q1", ok: true, done: { "https://github.com/o/r/pull/1": 5 } });
+    expect(h.sink.last()).toEqual({
+      t: "reviews.res",
+      rid: "q1",
+      ok: true,
+      done: { "https://github.com/o/r/pull/1": 5 },
+    });
     h.session.receive({ t: "reviews.req", rid: "q2", op: { kind: "pr", repo: "o/r", number: 1 } });
     await h.sink.sentCount(sent + 2);
-    expect(h.sink.last()).toEqual({ t: "reviews.res", rid: "q2", ok: false, error: "gh pr view failed" });
+    expect(h.sink.last()).toEqual({
+      t: "reviews.res",
+      rid: "q2",
+      ok: false,
+      error: "gh pr view failed",
+    });
     expect(ops).toHaveLength(2);
   });
 
@@ -1646,6 +2346,11 @@ describe("reviews", () => {
     const h = harness();
     pair(h);
     h.session.receive({ t: "reviews.req", rid: "r9", op: { kind: "queue", refresh: false } });
-    expect(h.sink.last()).toEqual({ t: "reviews.res", rid: "r9", ok: false, error: "This host runs no Reviews." });
+    expect(h.sink.last()).toEqual({
+      t: "reviews.res",
+      rid: "r9",
+      ok: false,
+      error: "This host runs no Reviews.",
+    });
   });
 });

@@ -1,0 +1,6 @@
+parakeet-mlx==0.7.0
+mlx==0.32.4
+livekit==1.2.0
+sherpa-onnx==2.0.1
+numpy==2.5.4
+soundfile==0.14.0

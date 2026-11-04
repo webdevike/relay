@@ -37,9 +37,11 @@ mac:
   identity: 'Apple Development: Created via API (9KJ57Q4A39)'
   hardenedRuntime: false
   gatekeeperAssess: false
-  # Relay Assist (Contents/Helpers, started by Relay) asks for these under Relay's name: macOS
-  # reads the reason from the responsible app, which is Relay.
+  # Relay Assist and Relay Meetings (Contents/Helpers, started by Relay) ask for these under Relay's
+  # name: macOS reads the reason from the responsible app, which is Relay. Without
+  # NSAudioCaptureUsageDescription the meeting tap records silence and macOS reports no error.
   extendInfo:
-    NSMicrophoneUsageDescription: Relay listens while you talk to your assistants, in a call or while you hold the Assist talk key.
+    NSMicrophoneUsageDescription: Relay listens while you talk to your assistants, in a call or while you hold the Assist talk key, and records your side of your meetings.
+    NSAudioCaptureUsageDescription: Relay records the call audio of your meetings so it can transcribe them.
     NSScreenCaptureUsageDescription: Relay Assist looks at the window you ask about so your assistant can point at the right control.
     NSAccessibilityUsageDescription: Relay Assist reads the names and positions of controls in the window you ask about.

@@ -29,7 +29,12 @@ import * as awarenessProtocol from "y-protocols/awareness";
 import * as syncProtocol from "y-protocols/sync";
 import * as Y from "yjs";
 import { encode, parseServerMessage, type ServerMessage } from "@relay/protocol";
-import { DOC_KEYS, type ChatMsg, type Presence, type ServerMetrics } from "@relay/canvas-live/shared";
+import {
+  DOC_KEYS,
+  type ChatMsg,
+  type Presence,
+  type ServerMetrics,
+} from "@relay/canvas-live/shared";
 import { defaultSocketPath, OmpBridgeProvider } from "../src/agents/bridge";
 import { loadRegistry } from "../src/assistant/registry";
 import { canvasAgentConfig } from "../src/canvas/agent-config";
@@ -79,18 +84,34 @@ async function access(): Promise<void> {
       const parsed = parseServerMessage(event.data);
       if (!parsed.ok) return;
       const message = parsed.value;
-      if (message.t === "challenge") relay.send(encode({ t: "auth", proof: createHmac("sha256", secret).update(message.nonce, "utf8").digest("hex") }));
+      if (message.t === "challenge")
+        relay.send(
+          encode({
+            t: "auth",
+            proof: createHmac("sha256", secret).update(message.nonce, "utf8").digest("hex"),
+          }),
+        );
       if (message.t === "welcome") relay.send(encode({ t: "canvas.open", slug }));
-      if (message.t === "canvas.access" || message.t === "canvas.unavailable") reply.resolve(message);
+      if (message.t === "canvas.access" || message.t === "canvas.unavailable")
+        reply.resolve(message);
     };
     const opened = Promise.withResolvers<undefined>();
-    relay.addEventListener("open", () => { opened.resolve(undefined); }, { once: true });
+    relay.addEventListener(
+      "open",
+      () => {
+        opened.resolve(undefined);
+      },
+      { once: true },
+    );
     await opened.promise;
     relay.send(encode({ t: "hello", v: 1, deviceId, deviceName: "Canvas e2e", platform: "ios" }));
     const answer = await reply.promise;
     relay.close();
-    if (answer.t !== "canvas.access") throw new Error(answer.t === "canvas.unavailable" ? answer.reason : "no access");
-    process.stdout.write(`${JSON.stringify({ url: `http://127.0.0.1:${String(port)}${answer.path}` })}\n`);
+    if (answer.t !== "canvas.access")
+      throw new Error(answer.t === "canvas.unavailable" ? answer.reason : "no access");
+    process.stdout.write(
+      `${JSON.stringify({ url: `http://127.0.0.1:${String(port)}${answer.path}` })}\n`,
+    );
   } finally {
     devices.forget(deviceId);
   }
@@ -98,7 +119,11 @@ async function access(): Promise<void> {
 }
 
 function host(): void {
-  if (process.env["XDG_CONFIG_HOME"] === undefined || process.env["RELAY_AGENTS_SOCKET"] === undefined) throw new Error("set XDG_CONFIG_HOME and RELAY_AGENTS_SOCKET to a temp dir");
+  if (
+    process.env["XDG_CONFIG_HOME"] === undefined ||
+    process.env["RELAY_AGENTS_SOCKET"] === undefined
+  )
+    throw new Error("set XDG_CONFIG_HOME and RELAY_AGENTS_SOCKET to a temp dir");
   const canvasDir = values.canvases ?? "";
   if (canvasDir === "") throw new Error("missing --canvases <dir>");
   const omp = resolveOmp();
@@ -107,9 +132,19 @@ function host(): void {
   const chatFile = values.chat;
   const rows = values.rows ?? "";
   const record = (row: object): void => {
-    if (rows !== "") appendFileSync(rows, `${JSON.stringify({ at: new Date().toISOString(), ...row })}\n`);
+    if (rows !== "")
+      appendFileSync(rows, `${JSON.stringify({ at: new Date().toISOString(), ...row })}\n`);
   };
-  const smoke = { id: "s-smoke", provider: "omp" as const, title: "Canvas agent smoke", projectPath: "/tmp", status: "idle" as const, lastActivity: "", lastActivityAt: 1, canRespond: true };
+  const smoke = {
+    id: "s-smoke",
+    provider: "omp" as const,
+    title: "Canvas agent smoke",
+    projectPath: "/tmp",
+    status: "idle" as const,
+    lastActivity: "",
+    lastActivityAt: 1,
+    canRespond: true,
+  };
   const chats: CanvasChats =
     chatFile === undefined
       ? bridge
@@ -132,7 +167,16 @@ function host(): void {
     canvasDir,
     chats,
     registry: loadRegistry(join(homedir(), "Eva")),
-    minds: ompMinds({ omp, profile: "personal", configs: [mindConfigOverlay(configDir)], stateDir: join(configDir, "canvas", "rooms"), agentHome, canvasDir, config, log }),
+    minds: ompMinds({
+      omp,
+      profile: "personal",
+      configs: [mindConfigOverlay(configDir)],
+      stateDir: join(configDir, "canvas", "rooms"),
+      agentHome,
+      canvasDir,
+      config,
+      log,
+    }),
     model: config.model,
     agentHome,
     log,
@@ -166,6 +210,7 @@ function host(): void {
       reviews: null,
       query: null,
       files: null,
+      meetings: null,
       control: null,
       canvasPage: () => CANVAS_PAGE,
       // PINs print here, so a simulator on 127.0.0.1 can pair with this host (and never the live one).
@@ -176,7 +221,9 @@ function host(): void {
   const bound = server.start();
   mkdirSync(configDir, { recursive: true });
   writeFileSync(join(configDir, "serve.json"), JSON.stringify({ port: bound, pid: process.pid }));
-  log(`canvas e2e host on http://127.0.0.1:${String(bound)} (bridge ${defaultSocketPath()}, boards ${canvasDir}, omp ${omp})`);
+  log(
+    `canvas e2e host on http://127.0.0.1:${String(bound)} (bridge ${defaultSocketPath()}, boards ${canvasDir}, omp ${omp})`,
+  );
   process.on("SIGTERM", () => {
     canvas.stop();
     server.stop();
@@ -196,7 +243,9 @@ async function client(): Promise<void> {
     // 1. Relay socket: rooms and a token.
     const relay = new WebSocket(`ws://127.0.0.1:${String(port)}/relay`);
     const frames: ServerMessage[] = [];
-    const waitFrame = async <T extends ServerMessage["t"]>(t: T): Promise<Extract<ServerMessage, { t: T }>> => {
+    const waitFrame = async <T extends ServerMessage["t"]>(
+      t: T,
+    ): Promise<Extract<ServerMessage, { t: T }>> => {
       for (;;) {
         const found = frames.find((f) => f.t === t);
         if (found !== undefined) {
@@ -211,18 +260,34 @@ async function client(): Promise<void> {
       const parsed = parseServerMessage(event.data);
       if (!parsed.ok) return;
       const message = parsed.value;
-      if (message.t === "challenge") relay.send(encode({ t: "auth", proof: createHmac("sha256", secret).update(message.nonce, "utf8").digest("hex") }));
+      if (message.t === "challenge")
+        relay.send(
+          encode({
+            t: "auth",
+            proof: createHmac("sha256", secret).update(message.nonce, "utf8").digest("hex"),
+          }),
+        );
       frames.push(message);
     };
-    await new Promise((resolve) => { relay.addEventListener("open", resolve, { once: true }); });
+    await new Promise((resolve) => {
+      relay.addEventListener("open", resolve, { once: true });
+    });
     relay.send(encode({ t: "hello", v: 1, deviceId, deviceName: "Canvas e2e", platform: "ios" }));
     await waitFrame("welcome");
     relay.send(encode({ t: "canvas.get" }));
     const rooms = await waitFrame("canvas.rooms");
-    report["rooms"] = rooms.rooms.map((r) => ({ slug: r.slug, live: r.live, agent: r.agent.name, chat: r.chat }));
+    report["rooms"] = rooms.rooms.map((r) => ({
+      slug: r.slug,
+      live: r.live,
+      agent: r.agent.name,
+      chat: r.chat,
+    }));
     relay.send(encode({ t: "canvas.open", slug }));
     const access = await waitFrame("canvas.access");
-    report["access"] = { path: access.path.replace(/token=[^&]+/, "token=…"), expiresAt: access.expiresAt };
+    report["access"] = {
+      path: access.path.replace(/token=[^&]+/, "token=…"),
+      expiresAt: access.expiresAt,
+    };
     const base = `http://127.0.0.1:${String(port)}/canvas/${slug}`;
     report["page"] = (await fetch(`${base}/?token=${access.token}`)).status;
     report["me"] = await (await fetch(`${base}/me?token=${access.token}`)).json();
@@ -239,7 +304,9 @@ async function client(): Promise<void> {
     // 2. The room, as Isaac, over the y-websocket protocol.
     const doc = new Y.Doc();
     const awareness = new awarenessProtocol.Awareness(doc);
-    const ws = new WebSocket(`ws://127.0.0.1:${String(port)}/canvas/${slug}/ws?token=${access.token}`);
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${String(port)}/canvas/${slug}/ws?token=${access.token}`,
+    );
     ws.binaryType = "arraybuffer";
     const frame = (type: number, write: (e: encoding.Encoder) => void): Uint8Array => {
       const e = encoding.createEncoder();
@@ -256,17 +323,50 @@ async function client(): Promise<void> {
         syncProtocol.readSyncMessage(decoder, reply, doc, "remote");
         if (encoding.length(reply) > 1) ws.send(encoding.toUint8Array(reply));
       } else if (type === 1) {
-        awarenessProtocol.applyAwarenessUpdate(awareness, decoding.readVarUint8Array(decoder), "remote");
+        awarenessProtocol.applyAwarenessUpdate(
+          awareness,
+          decoding.readVarUint8Array(decoder),
+          "remote",
+        );
       }
     };
     doc.on("update", (update: Uint8Array, origin: unknown) => {
-      if (origin !== "remote" && ws.readyState === WebSocket.OPEN) ws.send(frame(0, (e) => { syncProtocol.writeUpdate(e, update); }));
+      if (origin !== "remote" && ws.readyState === WebSocket.OPEN)
+        ws.send(
+          frame(0, (e) => {
+            syncProtocol.writeUpdate(e, update);
+          }),
+        );
     });
-    awareness.on("update", ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }, origin: unknown) => {
-      if (origin !== "remote" && ws.readyState === WebSocket.OPEN) ws.send(frame(1, (e) => { encoding.writeVarUint8Array(e, awarenessProtocol.encodeAwarenessUpdate(awareness, [...added, ...updated, ...removed])); }));
+    awareness.on(
+      "update",
+      (
+        { added, updated, removed }: { added: number[]; updated: number[]; removed: number[] },
+        origin: unknown,
+      ) => {
+        if (origin !== "remote" && ws.readyState === WebSocket.OPEN)
+          ws.send(
+            frame(1, (e) => {
+              encoding.writeVarUint8Array(
+                e,
+                awarenessProtocol.encodeAwarenessUpdate(awareness, [
+                  ...added,
+                  ...updated,
+                  ...removed,
+                ]),
+              );
+            }),
+          );
+      },
+    );
+    await new Promise((resolve) => {
+      ws.addEventListener("open", resolve, { once: true });
     });
-    await new Promise((resolve) => { ws.addEventListener("open", resolve, { once: true }); });
-    ws.send(frame(0, (e) => { syncProtocol.writeSyncStep1(e, doc); }));
+    ws.send(
+      frame(0, (e) => {
+        syncProtocol.writeSyncStep1(e, doc);
+      }),
+    );
     const until = async (check: () => boolean, what: string): Promise<void> => {
       while (!check()) {
         if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
@@ -277,17 +377,38 @@ async function client(): Promise<void> {
     const chat = doc.getArray<ChatMsg>(DOC_KEYS.chat);
     await until(() => nodes.size > 0, "the board to sync");
     const joinedAt = performance.now();
-    awareness.setLocalState({ user: { name: "Isaac", color: "#0ea5e9", kind: "human" }, cursor: { x: 0, y: 0 }, selected: [] } satisfies Presence);
-    const agentState = (): Presence | undefined => [...(awareness.getStates() as Map<number, Presence>).values()].find((p) => p.user.kind === "agent");
+    awareness.setLocalState({
+      user: { name: "Isaac", color: "#0ea5e9", kind: "human" },
+      cursor: { x: 0, y: 0 },
+      selected: [],
+    } satisfies Presence);
+    const agentState = (): Presence | undefined =>
+      [...(awareness.getStates() as Map<number, Presence>).values()].find(
+        (p) => p.user.kind === "agent",
+      );
     await until(() => chat.toArray().some((m) => m.kind === "agent"), "the opener");
     const opener = chat.toArray().find((m) => m.kind === "agent");
-    report["opener"] = { ms: Math.round(performance.now() - joinedAt), said: opener?.text, agendaAdded: nodes.has("agenda"), decisionsAdded: nodes.has("decisions") };
+    report["opener"] = {
+      ms: Math.round(performance.now() - joinedAt),
+      said: opener?.text,
+      agendaAdded: nodes.has("agenda"),
+      decisionsAdded: nodes.has("decisions"),
+    };
 
     // 3. A note at the first node, and the reply.
     const target = [...nodes.keys()].find((id) => id !== "agenda" && id !== "decisions") ?? "";
     const before = JSON.stringify(nodes.toJSON());
     const cursorBefore = JSON.stringify(agentState()?.cursor);
-    const note: ChatMsg = { id: `n-${Date.now().toString(36)}`, kind: "human", name: "Isaac", color: "#0ea5e9", text: values.note, nodeIds: [target], at: null, ts: Date.now() };
+    const note: ChatMsg = {
+      id: `n-${Date.now().toString(36)}`,
+      kind: "human",
+      name: "Isaac",
+      color: "#0ea5e9",
+      text: values.note,
+      nodeIds: [target],
+      at: null,
+      ts: Date.now(),
+    };
     awareness.setLocalState({ ...(awareness.getLocalState() as Presence), selected: [target] });
     const sentAt = performance.now();
     chat.push([note]);
@@ -297,11 +418,23 @@ async function client(): Promise<void> {
     const watch = setInterval(() => {
       const now = performance.now() - sentAt;
       const agent = agentState();
-      if (cursorMs === null && (agent?.status === "thinking" || JSON.stringify(agent?.cursor) !== cursorBefore)) cursorMs = now;
-      if (firstTokenMs === null && (agent?.bubble?.text ?? "") !== "" && agent?.bubble?.replyTo === note.id) firstTokenMs = now;
+      if (
+        cursorMs === null &&
+        (agent?.status === "thinking" || JSON.stringify(agent?.cursor) !== cursorBefore)
+      )
+        cursorMs = now;
+      if (
+        firstTokenMs === null &&
+        (agent?.bubble?.text ?? "") !== "" &&
+        agent?.bubble?.replyTo === note.id
+      )
+        firstTokenMs = now;
       if (firstEditMs === null && JSON.stringify(nodes.toJSON()) !== before) firstEditMs = now;
     }, 2);
-    await until(() => chat.toArray().some((m) => m.kind === "agent" && m.replyTo === note.id), "the reply");
+    await until(
+      () => chat.toArray().some((m) => m.kind === "agent" && m.replyTo === note.id),
+      "the reply",
+    );
     const doneMs = performance.now() - sentAt;
     clearInterval(watch);
     const server = doc.getMap(DOC_KEYS.metrics).get(`s:${note.id}`) as ServerMetrics | undefined;
@@ -310,7 +443,17 @@ async function client(): Promise<void> {
       note: note.text,
       said: chat.toArray().find((m) => m.replyTo === note.id)?.text,
       client: { cursorMs, firstTokenMs, firstEditMs, doneMs: Math.round(doneMs) },
-      server: server === undefined ? null : { cursor: server.cursor, firstToken: Math.round(server.firstToken), firstEdit: server.firstEdit === null ? null : Math.round(server.firstEdit), modelDone: Math.round(server.modelDone), done: Math.round(server.done), output: server.output },
+      server:
+        server === undefined
+          ? null
+          : {
+              cursor: server.cursor,
+              firstToken: Math.round(server.firstToken),
+              firstEdit: server.firstEdit === null ? null : Math.round(server.firstEdit),
+              modelDone: Math.round(server.modelDone),
+              done: Math.round(server.done),
+              output: server.output,
+            },
       boardChanged: JSON.stringify(nodes.toJSON()) !== before,
     };
 

@@ -1,0 +1,82 @@
+diff --git a/.omp/tools/meeting-digest.ts b/.omp/tools/meeting-digest.ts
+index f9194db..fc86b2c 100755
+--- a/.omp/tools/meeting-digest.ts
++++ b/.omp/tools/meeting-digest.ts
+@@ -24,6 +24,8 @@ import { homedir } from "node:os";
+ import { dirname, join } from "node:path";
+ 
+ const PROTOCOLS = join(homedir(), "Downloads/MeetingTranscriber/protocols");
++/** Relay Meetings' notes, written here once Relay is primary (shadow runs go to work/meetings/shadow, not read). */
++const RELAY_PROTOCOLS = join(import.meta.dir, "..", "..", "work", "meetings", "protocols");
+ const OUT = join(import.meta.dir, "..", "..", "work", "elysia", "meetings.md");
+ const OWNER = /\bIsaac\b/i;
+ const WINDOW_DAYS = 7;
+@@ -114,17 +116,17 @@ export function render(protocols: Protocol[], now: Date): string {
+ }
+ 
+ if (import.meta.main) {
+-	let files: string[];
+-	try {
+-		files = readdirSync(PROTOCOLS).filter((f) => f.endsWith(".md"));
+-	} catch (e) {
+-		// Missing folder = no meetings yet. Anything else (e.g. a macOS privacy
+-		// denial on ~/Downloads) must not wipe the surface.
+-		if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+-		files = [];
++	const files: string[] = [];
++	for (const dir of [RELAY_PROTOCOLS, PROTOCOLS]) {
++		try {
++			for (const f of readdirSync(dir)) if (f.endsWith(".md")) files.push(join(dir, f));
++		} catch (e) {
++			// Missing folder = no meetings yet. Anything else (e.g. a macOS privacy
++			// denial on ~/Downloads) must not wipe the surface.
++			if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
++		}
+ 	}
+-	const protocols = files.flatMap((f) => {
+-		const path = join(PROTOCOLS, f);
++	const protocols = files.flatMap((path) => {
+ 		const parsed = parseProtocol(path, readFileSync(path, "utf8"));
+ 		return parsed ? [parsed] : [];
+ 	});
+diff --git a/.omp/tools/meeting-memory.ts b/.omp/tools/meeting-memory.ts
+index 5027f8d..3e5ed18 100755
+--- a/.omp/tools/meeting-memory.ts
++++ b/.omp/tools/meeting-memory.ts
+@@ -31,7 +31,9 @@ import { parseProtocol, parseTasks } from "./meeting-digest";
+ import { createSelector } from "./lib/selectors/jev.mjs";
+ 
+ const EVA = join(import.meta.dir, "..", "..");
++/** MeetingTranscriber's notes (history) and Relay Meetings' (work/meetings/protocols, written once Relay is primary). */
+ const PROTOCOLS = join(homedir(), "Downloads/MeetingTranscriber/protocols");
++const RELAY_PROTOCOLS = join(EVA, "work", "meetings", "protocols");
+ const RECORDS = join(EVA, "work", "meetings");
+ const WINDOW_DAYS = 7;
+ const SETTLE_MS = 60_000;
+@@ -309,15 +311,19 @@ if (import.meta.main) {
+ 	const jev = createSelector();
+ 	const ask: Ask = async (state, questions) => (await jev.ask(state, questions, AbortSignal.timeout(30_000))).answers;
+ 
+-	let files: string[] = [];
+-	try {
+-		files = readdirSync(PROTOCOLS).filter((f) => f.endsWith(".md"));
+-	} catch (e) {
+-		if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
++	// `--dir <path>` reads one other folder instead (the shadow run: `--dir work/meetings/shadow --dry`).
++	const dirs = args.includes("--dir") ? [args[args.indexOf("--dir") + 1] ?? ""] : [RELAY_PROTOCOLS, PROTOCOLS];
++	const found: { f: string; dir: string }[] = [];
++	for (const dir of dirs) {
++		try {
++			for (const f of readdirSync(dir)) if (f.endsWith(".md")) found.push({ f, dir });
++		} catch (e) {
++			if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
++		}
+ 	}
+ 	const now = Date.now();
+-	const todo = files
+-		.map((f) => ({ f, path: join(PROTOCOLS, f), stem: f.replace(/\.md$/, "") }))
++	const todo = found
++		.map(({ f, dir }) => ({ f, path: join(dir, f), stem: f.replace(/\.md$/, "") }))
+ 		.filter((x) => (wantStem ? x.stem === wantStem : true))
+ 		.filter((x) => dry || wantStem || !existsSync(join(RECORDS, `${x.stem}.json`)))
+ 		.filter((x) => {

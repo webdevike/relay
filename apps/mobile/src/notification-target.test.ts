@@ -3,8 +3,14 @@ import { notificationTarget } from "./notification-target";
 
 describe("notificationTarget", () => {
   it("opens the thread of the agent an assistant push names", () => {
-    expect(notificationTarget({ assistant: true, agent: "nova" })).toEqual({ pathname: "/eva", params: { agent: "nova" } });
-    expect(notificationTarget({ assistant: true, agent: "astra" })).toEqual({ pathname: "/eva", params: { agent: "astra" } });
+    expect(notificationTarget({ assistant: true, agent: "nova" })).toEqual({
+      pathname: "/eva",
+      params: { agent: "nova" },
+    });
+    expect(notificationTarget({ assistant: true, agent: "astra" })).toEqual({
+      pathname: "/eva",
+      params: { agent: "astra" },
+    });
   });
 
   it("goes nowhere for an assistant push without an agent", () => {
@@ -14,7 +20,18 @@ describe("notificationTarget", () => {
   });
 
   it("opens the session for a session notification", () => {
-    expect(notificationTarget({ sessionId: "s1" })).toEqual({ pathname: "/agents", params: { sessionId: "s1" } });
+    expect(notificationTarget({ sessionId: "s1" })).toEqual({
+      pathname: "/agents",
+      params: { sessionId: "s1" },
+    });
+  });
+
+  it("opens the meeting a recording or notes push names", () => {
+    expect(notificationTarget({ meeting: "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10" })).toEqual({
+      pathname: "/meetings/[id]",
+      params: { id: "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10" },
+    });
+    expect(notificationTarget({ meeting: "" })).toBeNull();
   });
 
   it("ignores anything else", () => {

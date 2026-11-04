@@ -24,14 +24,29 @@ const EMIT_MS = 150;
 /** Where Isaac's own words start in a prompt Reviews sent; the seed above it is not shown. */
 export const ASK_MARK = "\n\n---\nIsaac asks:\n";
 
-const Store = z.record(z.string(), z.object({ title: z.string(), sessionFile: z.string().nullable(), sessionId: z.string().nullable() }));
+const Store = z.record(
+  z.string(),
+  z.object({
+    title: z.string(),
+    sessionFile: z.string().nullable(),
+    sessionId: z.string().nullable(),
+  }),
+);
 type StoreEntry = z.infer<typeof Store>[string];
 
 /**
  * The first message of an item session: Astra's prime, what is different about this session, her
  * thread memory, the item, then Isaac's question after `ASK_MARK`.
  */
-export function seedPrompt(o: { prime: string; memory: string | null; title: string; label: string; url: string; context: string; question: string }): string {
+export function seedPrompt(o: {
+  prime: string;
+  memory: string | null;
+  title: string;
+  label: string;
+  url: string;
+  context: string;
+  question: string;
+}): string {
   return `${o.prime}
 
 ---
@@ -52,7 +67,9 @@ ${o.context.trim()}${ASK_MARK}${o.question.trim()}`;
 }
 
 /** A transcript row: the provider's `AgentMessage` or a parsed session-file row (a streamed one has no time yet). */
-type Row = Pick<AgentMessage, "id" | "role" | "text" | "tool" | "streaming"> & { readonly at?: number };
+type Row = Pick<AgentMessage, "id" | "role" | "text" | "tool" | "streaming"> & {
+  readonly at?: number;
+};
 
 /**
  * Rows as Reviews shows them: Isaac's words only (the seed above `ASK_MARK` hidden), tool rows as
@@ -66,14 +83,24 @@ export function toTurns(messages: readonly Row[]): AstraTurn[] {
     if (m.role === "system") continue;
     if (m.role === "user") {
       const mark = m.text.lastIndexOf(ASK_MARK);
-      turns.push({ id: m.id, role: "user", text: mark >= 0 ? m.text.slice(mark + ASK_MARK.length) : m.text, streaming: false, ...at });
+      turns.push({
+        id: m.id,
+        role: "user",
+        text: mark >= 0 ? m.text.slice(mark + ASK_MARK.length) : m.text,
+        streaming: false,
+        ...at,
+      });
     } else if (m.role === "tool") {
-      const line = (m.tool === undefined ? m.text : `${m.tool.name} ${m.tool.summary}`).trim().split("\n")[0] ?? "";
+      const line =
+        (m.tool === undefined ? m.text : `${m.tool.name} ${m.tool.summary}`)
+          .trim()
+          .split("\n")[0] ?? "";
       if (line !== "") turns.push({ id: m.id, role: "tool", text: line, streaming, ...at });
     } else if (m.text.trim() !== "" || streaming) {
       // Her prime ends replies with a `[[replies: a | b]]` chip token for the phone's thread; Reviews has no chips.
       const { text } = splitReplies(m.text, streaming);
-      if (text.trim() !== "" || streaming) turns.push({ id: m.id, role: "assistant", text, streaming, ...at });
+      if (text.trim() !== "" || streaming)
+        turns.push({ id: m.id, role: "assistant", text, streaming, ...at });
     }
   }
   return turns;
@@ -88,7 +115,8 @@ function userTurns(turns: readonly AstraTurn[], text: string): number {
 export interface AstraSessionsDeps {
   readonly agents: Pick<AgentProvider, "sessions" | "conversation" | "reply" | "configure">;
   /** The bridge's `launchJoined`; null when the host has no agent home. */
-  readonly launch: ((options: LaunchOptions) => Promise<{ readonly joined: Promise<string> }>) | null;
+  readonly launch:
+    ((options: LaunchOptions) => Promise<{ readonly joined: Promise<string> }>) | null;
   /** A live session's transcript file, when omp reported one. */
   readonly sessionFile: (sessionId: string) => string | null;
   readonly agentHome: string | null;
@@ -99,6 +127,8 @@ export interface AstraSessionsDeps {
   readonly emit: (item: AstraItem) => void;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
+  /** The first message of a new session; Reviews' `seedPrompt` when absent. */
+  readonly seed?: (o: Parameters<typeof seedPrompt>[0]) => string;
 }
 
 /** A launch that has not registered yet, or failed. */
@@ -135,8 +165,12 @@ export class AstraSessions {
     writeJson(this.deps.storePath, this.store);
   }
 
-  private live(sessionId: string | null | undefined): AgentProvider["sessions"][number] | undefined {
-    return sessionId === null || sessionId === undefined ? undefined : this.deps.agents.sessions.find((s) => s.id === sessionId && s.status !== "ended");
+  private live(
+    sessionId: string | null | undefined,
+  ): AgentProvider["sessions"][number] | undefined {
+    return sessionId === null || sessionId === undefined
+      ? undefined
+      : this.deps.agents.sessions.find((s) => s.id === sessionId && s.status !== "ended");
   }
 
   private readHome(rel: string): string | null {
@@ -151,21 +185,36 @@ export class AstraSessions {
   /**
    * Isaac's question to the item's session: a turn in the live one, else a launch (resuming its
    * file, or seeded with `context()` for a first ask). Answers the item as it stands; the launch's
-   * join and every later change go out through `emit`.
+   * join and every later change go out through `emit`. `turn` is what a live or resumed session
+   * receives instead of the bare question (Meetings adds the transcript since the last ask above
+   * ASK_MARK); the question alone is what the item shows.
    */
-  async ask(url: string, title: string, label: string, context: () => Promise<string>, text: string): Promise<AstraItem> {
+  async ask(
+    url: string,
+    title: string,
+    label: string,
+    context: () => Promise<string>,
+    text: string,
+    turn: string = text,
+  ): Promise<AstraItem> {
     const launch = this.deps.launch;
-    if (launch === null || this.deps.agentHome === null) throw new Error("Astra asks need the host's --agent-home");
+    if (launch === null || this.deps.agentHome === null)
+      throw new Error("Astra asks need the host's --agent-home");
     const saved = this.store[url];
     const live = this.live(saved?.sessionId);
     const shown = await this.snapshot(url);
     const askedAt = this.deps.clock.now();
-    this.asked.set(url, { text: text.trim(), before: userTurns(shown?.turns ?? [], text), at: askedAt });
+    this.asked.set(url, {
+      text: text.trim(),
+      before: userTurns(shown?.turns ?? [], text),
+      at: askedAt,
+    });
     if (live !== undefined) {
-      await this.deps.agents.reply(live.id, text, true);
+      await this.deps.agents.reply(live.id, turn, true);
       return this.snapshot(url).then((item) => item ?? this.empty(url, title));
     }
-    if (this.pending.get(url)?.starting === true) throw new Error("Astra is still starting on this item");
+    if (this.pending.get(url)?.starting === true)
+      throw new Error("Astra is still starting on this item");
     let astra;
     try {
       astra = loadRegistry(this.deps.agentHome).find((a) => a.id === AGENT);
@@ -173,12 +222,22 @@ export class AstraSessions {
       throw new Error(error instanceof Error ? error.message : String(error));
     }
     if (astra === undefined) throw new Error("Astra is not in .omp/assistant/agents.json");
-    const file = saved?.sessionFile != null && existsSync(saved.sessionFile) ? saved.sessionFile : null;
-    let prompt = text;
+    const file =
+      saved?.sessionFile != null && existsSync(saved.sessionFile) ? saved.sessionFile : null;
+    let prompt = turn;
     if (file === null) {
       const prime = this.readHome(join(".omp", "assistant", "agents", AGENT, "prime.md"))?.trim();
-      if (!prime) throw new Error("Astra's prime (.omp/assistant/agents/astra/prime.md) is missing");
-      prompt = seedPrompt({ prime, memory: this.readHome(join("work", "eva", "agents", AGENT, "thread.md")), title, label, url, context: await context(), question: text });
+      if (!prime)
+        throw new Error("Astra's prime (.omp/assistant/agents/astra/prime.md) is missing");
+      prompt = (this.deps.seed ?? seedPrompt)({
+        prime,
+        memory: this.readHome(join("work", "eva", "agents", AGENT, "thread.md")),
+        title,
+        label,
+        url,
+        context: await context(),
+        question: text,
+      });
     }
     this.remember(url, { title, sessionFile: file, sessionId: null });
     this.pending.set(url, { question: text, at: askedAt, starting: true, error: null });
@@ -203,18 +262,31 @@ export class AstraSessions {
     joined.then(
       (sessionId) => {
         this.pending.delete(url);
-        this.remember(url, { title, sessionFile: this.deps.sessionFile(sessionId) ?? file, sessionId });
+        this.remember(url, {
+          title,
+          sessionFile: this.deps.sessionFile(sessionId) ?? file,
+          sessionId,
+        });
         this.deps.agents.configure({ sessionId, title }).catch((error: unknown) => {
-          this.deps.log(`reviews: could not name ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+          this.deps.log(
+            `reviews: could not name ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
         });
         this.schedule(url);
       },
       (error: unknown) => {
-        this.pending.set(url, { question: text, at: askedAt, starting: false, error: `Couldn't start Astra: ${error instanceof Error ? error.message : String(error)}` });
+        this.pending.set(url, {
+          question: text,
+          at: askedAt,
+          starting: false,
+          error: `Couldn't start Astra: ${error instanceof Error ? error.message : String(error)}`,
+        });
         this.schedule(url);
       },
     );
-    this.deps.log(`reviews: Astra session for ${label} launching${file === null ? "" : ` (resuming ${file})`}`);
+    this.deps.log(
+      `reviews: Astra session for ${label} launching${file === null ? "" : ` (resuming ${file})`}`,
+    );
     return (await this.snapshot(url)) ?? this.empty(url, title);
   }
 
@@ -238,7 +310,8 @@ export class AstraSessions {
           return stream === undefined ? row : { ...row, ...stream };
         });
         const known = new Set(rows.map((row) => row.id));
-        for (const [id, stream] of streams) if (!known.has(id)) merged.push({ id, role: "assistant", ...stream });
+        for (const [id, stream] of streams)
+          if (!known.has(id)) merged.push({ id, role: "assistant", ...stream });
         rows.splice(0, rows.length, ...merged);
       }
       const detail = live.statusDetail?.trim();
@@ -246,30 +319,65 @@ export class AstraSessions {
         live.status === "needs_permission"
           ? `Waiting for your approval${detail ? `: ${detail}` : ""}`
           : live.status === "waiting"
-            ? detail !== undefined && detail !== "" ? detail : "Astra is asking you something"
+            ? detail !== undefined && detail !== ""
+              ? detail
+              : "Astra is asking you something"
             : null;
       const turns = toTurns(rows);
       const asked = this.asked.get(url);
       if (asked !== undefined && userTurns(turns, asked.text) <= asked.before) {
         // Sent, not in the transcript yet: his bubble stays and she counts as working.
-        turns.push({ id: "pending", role: "user", text: asked.text, streaming: false, at: asked.at });
+        turns.push({
+          id: "pending",
+          role: "user",
+          text: asked.text,
+          streaming: false,
+          at: asked.at,
+        });
         return { url, title, sessionId: live.id, turns, working: true, waiting, error: null };
       }
       this.asked.delete(url);
-      return { url, title, sessionId: live.id, turns, working: live.status === "working", waiting, error: null };
+      return {
+        url,
+        title,
+        sessionId: live.id,
+        turns,
+        working: live.status === "working",
+        waiting,
+        error: null,
+      };
     }
     let rows: Row[] = [];
     if (saved?.sessionFile != null) {
       try {
         let next = 0;
-        rows = parseSessionRows(readFileSync(saved.sessionFile, "utf8"), null, () => `r${String((next += 1))}`);
+        rows = parseSessionRows(
+          readFileSync(saved.sessionFile, "utf8"),
+          null,
+          () => `r${String((next += 1))}`,
+        );
       } catch {
         // A missing file shows an empty session; the next ask starts a new one.
       }
     }
     const turns = toTurns(rows);
-    if (pending?.starting === true) turns.push({ id: "pending", role: "user", text: pending.question, streaming: false, at: pending.at });
-    return { url, title, sessionId: null, turns, working: pending?.starting === true, waiting: null, error: pending?.error ?? null };
+    if (pending?.starting === true)
+      turns.push({
+        id: "pending",
+        role: "user",
+        text: pending.question,
+        streaming: false,
+        at: pending.at,
+      });
+    return {
+      url,
+      title,
+      sessionId: null,
+      turns,
+      working: pending?.starting === true,
+      waiting: null,
+      error: pending?.error ?? null,
+    };
   }
 
   /** Every provider change: the items whose session it touches are pushed (debounced). */
@@ -281,7 +389,8 @@ export class AstraSessions {
         const live = this.live(entry.sessionId);
         if (live !== undefined) {
           const file = this.deps.sessionFile(live.id);
-          if (file !== null && file !== entry.sessionFile) this.remember(url, { ...entry, sessionFile: file });
+          if (file !== null && file !== entry.sessionFile)
+            this.remember(url, { ...entry, sessionFile: file });
         }
         const key = live === undefined ? "gone" : `${live.status}|${live.statusDetail ?? ""}`;
         if (this.statusKeys.get(url) === key) continue;
@@ -290,10 +399,14 @@ export class AstraSessions {
       }
       return;
     }
-    const url = Object.keys(this.store).find((key) => this.store[key]?.sessionId === change.sessionId);
+    const url = Object.keys(this.store).find(
+      (key) => this.store[key]?.sessionId === change.sessionId,
+    );
     if (url === undefined) return;
     if (change.kind === "message") {
-      const streams = this.streams.get(change.sessionId) ?? new Map<string, { text: string; streaming: boolean }>();
+      const streams =
+        this.streams.get(change.sessionId) ??
+        new Map<string, { text: string; streaming: boolean }>();
       streams.set(change.id, { text: change.text, streaming: change.streaming });
       this.streams.set(change.sessionId, streams);
     } else if (change.kind === "conversation") {
@@ -314,7 +427,9 @@ export class AstraSessions {
             if (item !== null) this.deps.emit(item);
           },
           (error: unknown) => {
-            this.deps.log(`reviews: Astra item ${url}: ${error instanceof Error ? error.message : String(error)}`);
+            this.deps.log(
+              `reviews: Astra item ${url}: ${error instanceof Error ? error.message : String(error)}`,
+            );
           },
         );
       }),

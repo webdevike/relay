@@ -1,0 +1,31 @@
+diff --git a/.omp/tools/relay-desktop-deploy.ts b/.omp/tools/relay-desktop-deploy.ts
+index 34cfd025..1dc0fb5d 100755
+--- a/.omp/tools/relay-desktop-deploy.ts
++++ b/.omp/tools/relay-desktop-deploy.ts
+@@ -320,9 +320,10 @@ export function restoreProof(repo: string): void {
+ /**
+  * Builds the packaged Relay.app of the checkout `repo` (its apps/desktop at its current state, with
+  * `relayBuild` = `sha` stamped in package.json) into `dest`: Relay Assist (apps/assist) goes in as
+- * `Contents/Helpers/Relay Assist.app`, which Relay starts as its child (apps/desktop/src/main/
+- * assist.ts), and both are signed with the stable identity (SIGNING_NAME). Returns the designated
+- * requirement, the same for every build.
++ * `Contents/Helpers/Relay Assist.app` and the meeting recorder (apps/meetings-capture) as
++ * `Contents/Helpers/Relay Meetings.app`, which Relay starts as its children (apps/desktop/src/main/
++ * assist.ts, meetings-capture.ts), and all are signed with the stable identity (SIGNING_NAME).
++ * Returns the designated requirement, the same for every build.
+  */
+ export function buildBundle(repo: string, sha: string, dest: string): string {
+ 	const identity = signingIdentity();
+@@ -347,6 +348,12 @@ export function buildBundle(repo: string, sha: string, dest: string): string {
+ 		mkdirSync(join(built, "Contents/Helpers"), { recursive: true });
+ 		run("ditto", [join(assist, "build/RelayBuddy.app"), join(built, "Contents/Helpers/Relay Assist.app")], desktop);
+ 	}
++	const meetings = join(repo, "apps/meetings-capture");
++	if (existsSync(join(meetings, "build.sh"))) {
++		run("sh", ["build.sh"], meetings);
++		mkdirSync(join(built, "Contents/Helpers"), { recursive: true });
++		run("ditto", [join(meetings, "build/Relay Meetings.app"), join(built, "Contents/Helpers/Relay Meetings.app")], desktop);
++	}
+ 	// --deep signs the Electron helpers, frameworks and Assist (Contents/Helpers) inside-out.
+ 	run("codesign", ["--force", "--deep", "--keychain", SIGNING_KEYCHAIN, "-s", identity, built], desktop);
+ 	run("codesign", ["--verify", "--deep", "--strict", built], desktop);

@@ -3,12 +3,25 @@
 // mutation runs on it, so the session needs no locking. The session never sees the socket; it
 // only calls `FrameSink.send`, wired here to `ws.send`.
 
-import { ESCALATOR_DEVICE_ID, encode, MAX_DROP_BYTES, VNC_PATH, WS_PATH, type ServerMessage } from "@relay/protocol";
+import {
+  ESCALATOR_DEVICE_ID,
+  encode,
+  MAX_DROP_BYTES,
+  MEETINGS_INGEST_PATH,
+  VNC_PATH,
+  WS_PATH,
+  type ServerMessage,
+} from "@relay/protocol";
 import { basename } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { SessionFiles } from "./agents/session-files";
-import { handleAssistantAdmin, handleAssistantSay, isAssistantAdminPath, type AssistantAdmin } from "./assistant/http";
+import {
+  handleAssistantAdmin,
+  handleAssistantSay,
+  isAssistantAdminPath,
+  type AssistantAdmin,
+} from "./assistant/http";
 import { handleCatchUpBounce } from "./catchup/http";
 import { handleBoardRequest, isLoopback } from "./boards/http";
 import { authorizeCanvasSocket, handleCanvasRequest } from "./canvas/http";
@@ -49,6 +62,9 @@ import type {
   InputSink,
   PairingUI,
   PushRegistry,
+  IngestConnection,
+  IngestGrant,
+  MeetingsRelaying,
   ReviewsRelaying,
   StudioRelaying,
   TextInjecting,
@@ -112,6 +128,8 @@ export interface ServerDeps {
   readonly query: QueryRelaying | null;
   /** Live file presence for Relay desktop's editor; null leaves `files.*` frames unanswered and the feature out of `welcome`. */
   readonly files: FilePresence | null;
+  /** Meetings (recordings, their ingest sockets, the records); null disables `MEETINGS_INGEST_PATH` and refuses `meetings.*`. */
+  readonly meetings: MeetingsRelaying | null;
   /** Remote control of the connected Relay Desktops; null disables `/control/*` and leaves the feature out of `welcome`. */
   readonly control: ControlRelay | null;
   /** The canvas web client's HTML, served at `/canvas/<slug>/`. */
@@ -127,14 +145,16 @@ export interface ConnectedDevice {
 }
 
 /**
- * A relay socket carries a session; a `VNC_PATH` socket carries a bridge instead, and a
- * `/canvas/<slug>/ws` socket a canvas room's peer (`session` null for both).
+ * A relay socket carries a session; a `VNC_PATH` socket carries a bridge instead, a
+ * `/canvas/<slug>/ws` socket a canvas room's peer and a `MEETINGS_INGEST_PATH` socket one
+ * recording's upload (`session` null for all three).
  */
 interface SocketData {
   session: ClientSession | null;
   connectedAt: number;
   vnc: { readonly deviceId: string; bridge: VncBridge | null } | null;
   canvas: { readonly room: CanvasRoom; peer: CanvasPeer | null } | null;
+  ingest: { readonly grant: IngestGrant; conn: IngestConnection | null } | null;
 }
 
 type Socket = ServerWebSocket<SocketData>;
@@ -163,6 +183,7 @@ export class RelayServer {
   private readonly sockets = new Set<Socket>();
   private readonly vncSockets = new Set<Socket>();
   private readonly canvasSockets = new Set<Socket>();
+  private readonly ingestSockets = new Set<Socket>();
   private readonly vncTickets: VncTickets;
   private server: Server<SocketData> | null = null;
 
@@ -205,7 +226,17 @@ export class RelayServer {
       fetch: (request, srv) => {
         const path = new URL(request.url).pathname;
         if (path === WS_PATH) {
-          if (srv.upgrade(request, { data: { session: null, connectedAt: Date.now(), vnc: null, canvas: null } }))
+          if (
+            srv.upgrade(request, {
+              data: {
+                session: null,
+                connectedAt: Date.now(),
+                vnc: null,
+                canvas: null,
+                ingest: null,
+              },
+            })
+          )
             return undefined;
           return new Response("websocket upgrade required", { status: 426 });
         }
@@ -213,54 +244,120 @@ export class RelayServer {
           const grant = authorizeVnc(request, this.vncTickets);
           if (grant instanceof Response) return grant;
           const upgraded = srv.upgrade(request, {
-            data: { session: null, connectedAt: Date.now(), vnc: { deviceId: grant.deviceId, bridge: null }, canvas: null },
-            ...(grant.protocol === null ? {} : { headers: { "Sec-WebSocket-Protocol": grant.protocol } }),
+            data: {
+              session: null,
+              connectedAt: Date.now(),
+              vnc: { deviceId: grant.deviceId, bridge: null },
+              canvas: null,
+              ingest: null,
+            },
+            ...(grant.protocol === null
+              ? {}
+              : { headers: { "Sec-WebSocket-Protocol": grant.protocol } }),
+          });
+          return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
+        }
+        if (path === MEETINGS_INGEST_PATH) {
+          // One recording's upload from a Mac, opened with a ticket from `meeting.ingest.open`.
+          const ticket = new URL(request.url).searchParams.get("ticket");
+          const grant = ticket === null ? null : (this.deps.meetings?.redeem(ticket) ?? null);
+          if (grant === null) return new Response("ticket required", { status: 401 });
+          const upgraded = srv.upgrade(request, {
+            data: {
+              session: null,
+              connectedAt: Date.now(),
+              vnc: null,
+              canvas: null,
+              ingest: { grant, conn: null },
+            },
           });
           return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
         }
         const canvasRoom = authorizeCanvasSocket(this.deps.canvas, request, path);
         if (canvasRoom instanceof Response) return canvasRoom;
         if (canvasRoom !== null) {
-          const upgraded = srv.upgrade(request, { data: { session: null, connectedAt: Date.now(), vnc: null, canvas: { room: canvasRoom, peer: null } } });
+          const upgraded = srv.upgrade(request, {
+            data: {
+              session: null,
+              connectedAt: Date.now(),
+              vnc: null,
+              canvas: { room: canvasRoom, peer: null },
+              ingest: null,
+            },
+          });
           return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
         }
         const remote = srv.requestIP(request)?.address ?? "";
         if (path === "/drops" || path.startsWith("/drops/"))
           return this.handleDropRequest(request, path, remote);
-        if (path.startsWith("/artifacts/media/") && (request.method === "GET" || request.method === "HEAD")) {
+        if (
+          path.startsWith("/artifacts/media/") &&
+          (request.method === "GET" || request.method === "HEAD")
+        ) {
           // `/artifacts/media/<sha>/<token>`: an image Isaac pasted into a thread, for anyone holding its token.
           const [, , , sha, token, ...rest] = path.split("/");
-          const blob = sha === undefined || token === undefined || rest.length > 0 ? null : (this.deps.artifacts?.openMedia(sha, token) ?? null);
-          return blob === null ? new Response("not found", { status: 404 }) : serveBlob(request, blob);
+          const blob =
+            sha === undefined || token === undefined || rest.length > 0
+              ? null
+              : (this.deps.artifacts?.openMedia(sha, token) ?? null);
+          return blob === null
+            ? new Response("not found", { status: 404 })
+            : serveBlob(request, blob);
         }
-        if (path.startsWith("/studio/")) return handleStudioRequest(this.deps.studio, request, path);
-        if (path.startsWith("/reviews/media/")) return handleReviewsMedia(this.deps.reviews, request, path);
+        if (path.startsWith("/studio/"))
+          return handleStudioRequest(this.deps.studio, request, path);
+        if (path.startsWith("/reviews/media/"))
+          return handleReviewsMedia(this.deps.reviews, request, path);
         if (path === "/boards" || path.startsWith("/boards/"))
           return handleBoardRequest(this.deps.boards, request, path, remote);
         if (path === "/canvas" || path.startsWith("/canvas/"))
-          return handleCanvasRequest(this.deps.canvas, this.deps.canvasPage, request, path, remote, this.deps.query);
+          return handleCanvasRequest(
+            this.deps.canvas,
+            this.deps.canvasPage,
+            request,
+            path,
+            remote,
+            this.deps.query,
+          );
         if (path === "/query") return handleQueryRequest(this.deps.query, request, remote);
-        if (path === "/assistant/say") return handleAssistantSay(this.deps.assistant, request, remote);
+        if (path === "/assistant/say")
+          return handleAssistantSay(this.deps.assistant, request, remote);
         if (isAssistantAdminPath(path))
-          return handleAssistantAdmin({ registry: null, ...this.deps.assistantAdmin, assistant: this.deps.assistant }, request, remote, path);
-        if (path === "/catchup/bounce") return handleCatchUpBounce(this.deps.catchup, request, remote);
-        if (path === "/reactions/agent") return handleAgentReaction(this.deps.reactions, this.deps.assistant, request, remote);
-        if (path.startsWith("/control/")) return handleControlRequest(this.deps.control, request, path, remote);
+          return handleAssistantAdmin(
+            { registry: null, ...this.deps.assistantAdmin, assistant: this.deps.assistant },
+            request,
+            remote,
+            path,
+          );
+        if (path === "/catchup/bounce")
+          return handleCatchUpBounce(this.deps.catchup, request, remote);
+        if (path === "/reactions/agent")
+          return handleAgentReaction(this.deps.reactions, this.deps.assistant, request, remote);
+        if (path.startsWith("/control/"))
+          return handleControlRequest(this.deps.control, request, path, remote);
         return new Response("not found", { status: 404 });
       },
       websocket: {
         // The phone pings every 5 s; anything quieter than a minute is a dead peer.
         idleTimeout: 60,
         open: (ws) => {
-          if (ws.data.vnc !== null) this.openVnc(ws, ws.data.vnc);
+          if (ws.data.ingest !== null) this.openIngest(ws, ws.data.ingest);
+          else if (ws.data.vnc !== null) this.openVnc(ws, ws.data.vnc);
           else if (ws.data.canvas !== null) this.openCanvas(ws, ws.data.canvas);
           else this.accept(ws);
         },
         message: (ws, raw) => {
+          const ingest = ws.data.ingest;
+          if (ingest !== null) {
+            if (typeof raw === "string") ingest.conn?.text(raw);
+            else ingest.conn?.binary(new Uint8Array(raw));
+            return;
+          }
           const canvas = ws.data.canvas;
           if (canvas !== null) {
             // y-websocket: binary frames only.
-            if (canvas.peer !== null && typeof raw !== "string") canvas.room.sync.receive(canvas.peer, new Uint8Array(raw));
+            if (canvas.peer !== null && typeof raw !== "string")
+              canvas.room.sync.receive(canvas.peer, new Uint8Array(raw));
             return;
           }
           const vnc = ws.data.vnc;
@@ -282,6 +379,11 @@ export class RelayServer {
           ws.data.vnc?.bridge?.drain();
         },
         close: (ws) => {
+          if (ws.data.ingest !== null) {
+            ws.data.ingest.conn?.closed();
+            this.ingestSockets.delete(ws);
+            return;
+          }
           const canvas = ws.data.canvas;
           if (canvas !== null) {
             if (canvas.peer !== null) this.deps.canvas?.disconnect(canvas.room, canvas.peer);
@@ -317,9 +419,11 @@ export class RelayServer {
     for (const ws of this.sockets) ws.close();
     for (const ws of this.vncSockets) ws.close();
     for (const ws of this.canvasSockets) ws.close();
+    for (const ws of this.ingestSockets) ws.close();
     this.sockets.clear();
     this.vncSockets.clear();
     this.canvasSockets.clear();
+    this.ingestSockets.clear();
     void this.server?.stop(true);
     this.server = null;
   }
@@ -366,7 +470,8 @@ export class RelayServer {
   isViewingAssistant(deviceId: string, agent: string): boolean {
     for (const ws of this.sockets) {
       const session = ws.data.session;
-      if (session !== null && session.deviceId === deviceId && session.isFollowingAssistant(agent)) return true;
+      if (session !== null && session.deviceId === deviceId && session.isFollowingAssistant(agent))
+        return true;
     }
     return false;
   }
@@ -390,7 +495,8 @@ export class RelayServer {
   escalatorConnected(): boolean {
     for (const ws of this.sockets) {
       const session = ws.data.session;
-      if (session !== null && session.isAuthenticated && session.deviceId === ESCALATOR_DEVICE_ID) return true;
+      if (session !== null && session.isAuthenticated && session.deviceId === ESCALATOR_DEVICE_ID)
+        return true;
     }
     return false;
   }
@@ -403,6 +509,7 @@ export class RelayServer {
     this.deps.artifacts?.observe(change);
     this.deps.activity?.observe(change);
     this.deps.reviews?.observe(change);
+    this.deps.meetings?.observe(change);
     this.deps.files?.observe(change);
     if (change.kind === "sessions") {
       const sessions = this.deps.agents?.sessions ?? [];
@@ -412,7 +519,13 @@ export class RelayServer {
       return;
     }
     if (change.kind === "message") {
-      for (const ws of this.sockets) ws.data.session?.agentMessageUpdated(change.sessionId, change.id, change.text, change.streaming);
+      for (const ws of this.sockets)
+        ws.data.session?.agentMessageUpdated(
+          change.sessionId,
+          change.id,
+          change.text,
+          change.streaming,
+        );
       return;
     }
     if (change.kind === "ask") {
@@ -425,13 +538,15 @@ export class RelayServer {
       return;
     }
     if (change.kind === "approval") {
-      for (const ws of this.sockets) ws.data.session?.agentApproval(change.sessionId, change.approval);
+      for (const ws of this.sockets)
+        ws.data.session?.agentApproval(change.sessionId, change.approval);
       return;
     }
     if (change.kind === "approval.resolved") {
       // Before the frame below, so EvaOS hears "phone" ahead of the plain resolve it reacts to.
       this.deps.inbox?.settled("approval", change.id);
-      for (const ws of this.sockets) ws.data.session?.agentApprovalResolved(change.sessionId, change.id);
+      for (const ws of this.sockets)
+        ws.data.session?.agentApprovalResolved(change.sessionId, change.id);
       return;
     }
     if (change.kind === "gate") {
@@ -471,7 +586,11 @@ export class RelayServer {
       if (id === undefined || token === undefined || token === "" || rest.length > 0)
         return new Response("not found", { status: 404 });
       const blob =
-        part === undefined ? drops.open(id, token) : part === "poster" ? drops.openPoster(id, token) : null;
+        part === undefined
+          ? drops.open(id, token)
+          : part === "poster"
+            ? drops.openPoster(id, token)
+            : null;
       if (blob === null) return new Response("not found", { status: 404 });
       return serveBlob(request, blob);
     }
@@ -502,7 +621,10 @@ export class RelayServer {
   }
 
   /** A token holder opened a canvas room's websocket: it becomes a peer of the room's doc. */
-  private openCanvas(ws: Socket, canvas: { readonly room: CanvasRoom; peer: CanvasPeer | null }): void {
+  private openCanvas(
+    ws: Socket,
+    canvas: { readonly room: CanvasRoom; peer: CanvasPeer | null },
+  ): void {
     const peer: CanvasPeer = {
       send: (data) => {
         ws.sendBinary(data);
@@ -514,6 +636,28 @@ export class RelayServer {
     canvas.peer = peer;
     this.canvasSockets.add(ws);
     this.deps.canvas?.connect(canvas.room, peer);
+  }
+
+  /** A Mac opened `MEETINGS_INGEST_PATH` with a ticket: its frames go to the recording it was issued for. */
+  private openIngest(
+    ws: Socket,
+    ingest: { readonly grant: IngestGrant; conn: IngestConnection | null },
+  ): void {
+    const meetings = this.deps.meetings;
+    if (meetings === null) {
+      ws.close(1011, "meetings off");
+      return;
+    }
+    ingest.conn = meetings.connect(ingest.grant, {
+      sendText: (frame) => {
+        ws.send(JSON.stringify(frame));
+      },
+      close: (code, reason) => {
+        ws.close(code, reason);
+      },
+    });
+    this.ingestSockets.add(ws);
+    this.deps.log(`meetings: upload of ${ingest.grant.id} from ${ingest.grant.deviceName}`);
   }
 
   /** A ticket-holding device opened `VNC_PATH`: connect it to the Mac's VNC server. */
@@ -567,6 +711,7 @@ export class RelayServer {
         reviews: this.deps.reviews,
         query: this.deps.query,
         files: this.deps.files,
+        meetings: this.deps.meetings,
         control: this.deps.control,
       },
       (closed) => {

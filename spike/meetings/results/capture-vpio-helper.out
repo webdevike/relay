@@ -1,0 +1,4 @@
+{"auth":3,"event":"mic","format":"<AVAudioFormat 0x7ca088d270:  3 ch,  48000 Hz, Float32, deinterleaved>","vpio":true}
+{"event":"tap","format":"<AVAudioFormat 0x7ca088d180:  2 ch,  48000 Hz, Float32, interleaved>","output":"BuiltInSpeakerDevice"}
+{"event":"recording","frontmost":"dev.eva.relay-desktop","seconds":34,"setup_s":1.0198490619659424}
+{"frontmost_after":"dev.eva.relay-desktop","frontmost_before":"dev.eva.relay-desktop","mic_starts_before_app_ms":86.417166666666674,"t":"meeting.end","tracks":[{"nonzero_share":0,"peak":0,"rms_dbfs":-999,"seconds":33.983625000000004,"track":"app"},{"nonzero_share":0.99714668117839123,"peak":11922,"rms_dbfs":-24.298239389820743,"seconds":33.9955,"track":"mic"}],"wall_s":34.018218994140625,"ws_bytes":2180894,"ws_error":"Could not connect to the server.","ws_frames":618}

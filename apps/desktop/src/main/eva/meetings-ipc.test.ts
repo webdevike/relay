@@ -8,12 +8,12 @@ import {
   meetingsDismiss,
   meetingsGet,
   meetingsList,
-  meetingsOpenNotes,
-} from './meetings-ipc'
+} from '@evaos/eva-core/model/meetings-ops'
+import { meetingsOpenNotes } from './meetings-ipc'
 
 const fixtures: Array<{ cleanup(): void }> = []
 const NOW = new Date(2026, 9, 15, 12, 0, 0)
-const clock = { now: () => NOW }
+const clock = NOW
 
 function tmpRoot(): string {
   const fx = makeEvaFixture({ now: NOW })
@@ -48,7 +48,8 @@ describe('meetings.list', () => {
 
 describe('meetings.get', () => {
   it('returns proposals, memorized and parsed notes', () => {
-    const r = meetingsGet(tmpRoot(), 'standup')
+    const root = tmpRoot()
+    const r = meetingsGet(root, 'standup', [root])
     expect(r.notes).toBe('ok')
     expect(r.meeting!.proposals).toHaveLength(3)
     expect(r.meeting!.memorized).toHaveLength(2)
@@ -62,9 +63,9 @@ describe('meetings.get', () => {
     const rec = JSON.parse(fs.readFileSync(file, 'utf8'))
     rec.notes = path.join(root, 'work/meetings/notes/gone.md')
     fs.writeFileSync(file, JSON.stringify(rec))
-    expect(meetingsGet(root, 'standup')).toMatchObject({ notes: 'missing', protocol: null })
-    expect(meetingsGet(root, 'planning')).toMatchObject({ notes: 'none', protocol: null })
-    expect(meetingsGet(root, 'nope').meeting).toBeNull()
+    expect(meetingsGet(root, 'standup', [root])).toMatchObject({ notes: 'missing', protocol: null })
+    expect(meetingsGet(root, 'planning', [root])).toMatchObject({ notes: 'none', protocol: null })
+    expect(meetingsGet(root, 'nope', [root]).meeting).toBeNull()
   })
 })
 
@@ -112,7 +113,7 @@ describe('meetings.openNotes', () => {
 })
 
 describe('meetings.accept and meetings.dismiss', () => {
-  const clk = { today: () => '2026-10-15' }
+  const clk = '2026-10-15'
   const rd = (root: string, rel: string): string => fs.readFileSync(path.join(root, rel), 'utf8')
 
   it('accepts a todo proposal: row after T11, status accepted, fields kept', async () => {

@@ -3,7 +3,8 @@ import { Button } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import type { Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
-import { loadMeeting, useMeetings, useMeetingsSurface } from './meetings-store'
+import { isRecordingId, loadMeeting, useMeetings, useMeetingsSurface } from './meetings-store'
+import { RecordingPage } from './RecordingPage'
 import { ProposalRow } from './ProposalRow'
 import './meetings.css'
 
@@ -44,7 +45,16 @@ function Bullets({ items }: { items: string[] }) {
   )
 }
 
+/** A meeting's page: one of Relay's recordings (live or after the call), else a record's notes. */
 export function MeetingPage({ place }: { place: Place }) {
+  return isRecordingId(place.meeting ?? '') ? (
+    <RecordingPage place={place} />
+  ) : (
+    <RecordPage place={place} />
+  )
+}
+
+function RecordPage({ place }: { place: Place }) {
   const stem = place.meeting ?? ''
   useMeetingsSurface()
   const detail = useMeetings((s) => s.details[stem])

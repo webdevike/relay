@@ -18,7 +18,9 @@ export type DictationTarget =
    * the moment it is sent (before the command leaves), with the delivery, so the thread can show the
    * echo at once and mark a refusal.
    */
-  | { kind: "assistant"; agent: string; onTurn?: (text: string, delivery: Promise<void>) => void };
+  | { kind: "assistant"; agent: string; onTurn?: (text: string, delivery: Promise<void>) => void }
+  /** A screen of the phone's own (a meeting's Ask): the words go to `onText` and no command is sent. */
+  | { kind: "local"; onText: (text: string) => Promise<void> };
 
 const INSERT: DictationTarget = { kind: "insert" };
 let target: DictationTarget = INSERT;
@@ -42,7 +44,9 @@ export function setLaunchThinkingLevel(level: string): void {
  * Called with the delivered text (possibly empty) the moment a launch dictation is sent, before
  * any command goes out, with the delivery itself so a refused launch can show where it failed.
  */
-export function setLaunchListener(listener: ((prompt: string, delivery: Promise<void>) => void) | null): void {
+export function setLaunchListener(
+  listener: ((prompt: string, delivery: Promise<void>) => void) | null,
+): void {
   onLaunch = listener;
 }
 
@@ -75,7 +79,9 @@ export function commandsFor(input: DeliverInput, to: DictationTarget): Command[]
   }
   if (to.kind === "assistant") {
     const images = input.images.map(({ mimeType, data }) => ({ mimeType, data }));
-    return [{ kind: "assistant.turn", agent: to.agent, text, ...(images.length > 0 ? { images } : {}) }];
+    return [
+      { kind: "assistant.turn", agent: to.agent, text, ...(images.length > 0 ? { images } : {}) },
+    ];
   }
   if (to.kind === "agent") {
     const images = input.images.map(({ mimeType, data }) => ({ mimeType, data }));
@@ -99,6 +105,7 @@ export async function deliverDictation(
   input: DeliverInput,
   send: (cmd: Command) => Promise<void>,
 ): Promise<void> {
+  if (target.kind === "local" && !input.launch) return target.onText(deliveredText(input));
   const commands = commandsFor(input, target);
   const run = async (): Promise<void> => {
     for (const cmd of commands) await send(cmd);

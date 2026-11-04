@@ -155,6 +155,12 @@ export interface RelayFrames {
   sendFrame(frame: Record<string, unknown>): boolean
 }
 
+/** What the connected host answers beyond the base protocol. */
+export interface RelayFeatures {
+  /** Whether the connected, authenticated host lists `feature` in `welcome.features`. */
+  hostHas(feature: string): boolean
+}
+
 /**
  * Tapbacks on chat bubbles: the threads the app shows, as the host's snapshots have them. Sending
  * is fire and forget; the host pushes the thread's new snapshot to every device, this one too.
@@ -339,6 +345,7 @@ export class RelayClient
     RelayActivity,
     RelayCanvas,
     RelayFrames,
+    RelayFeatures,
     RelayStudio,
     RelayQueries,
     RelayHostInfo
@@ -504,6 +511,10 @@ export class RelayClient
     if (!this.feed?.authenticated) return false
     this.send(frame)
     return true
+  }
+
+  hostHas(feature: string): boolean {
+    return this.feed?.authenticated === true && this.feed.features.includes(feature)
   }
 
   onEvent(cb: (e: RelaySessionEvent) => void): () => void {
@@ -1010,6 +1021,7 @@ export class StaticRelay
     RelayActivity,
     RelayCanvas,
     RelayFrames,
+    RelayFeatures,
     RelayStudio,
     RelayQueries,
     RelayHostInfo
@@ -1066,6 +1078,10 @@ export class StaticRelay
   }
 
   sendFrame(): boolean {
+    return false
+  }
+
+  hostHas(): boolean {
     return false
   }
 

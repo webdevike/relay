@@ -83,7 +83,8 @@ export function createEvaFs(opts: { root: string }): EvaFs {
       const abs = accept(kind, relPath)
       return stampOf(abs)
     },
-    async edit(kind, relPath, fn, o = {}) {
+    async edit(kind, relPath, fn, options) {
+      let o = options ?? {}
       if (kind === 'job-delete')
         throw new EvaFsDenied(kind, relPath, 'edit() cannot target job-delete')
       const abs = accept(kind, relPath)
@@ -109,7 +110,8 @@ export function createEvaFs(opts: { root: string }): EvaFs {
           ) {
             if (o.retryOnChange && attempt === 0 && again) {
               // retry once from the fresh text; expected no longer applies
-              o = { ...o, expected: undefined }
+              const { expected: _stale, ...rest } = o
+              o = rest
               continue
             }
             throw coded(`${relPath} changed on disk since it was opened`, 'changed-on-disk')

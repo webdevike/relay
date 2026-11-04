@@ -3,7 +3,7 @@ import { readTodoTexts } from '@evaos/eva-core/model/read-eva'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
 import { clockFor, evaFsFor } from './runtime'
-import { appendTodoVia, knownTags } from './todo-write'
+import { appendTodoVia, knownTags } from '@evaos/eva-core/model/todo-write'
 
 function bad(message: string): Error {
   return Object.assign(new Error(message), { code: 'invalid-input' })

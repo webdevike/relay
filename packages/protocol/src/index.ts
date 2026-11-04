@@ -31,6 +31,7 @@ import {
   MAX_ARTIFACT_TABS,
 } from "./artifacts";
 import { StudioJob, StudioOp, StudioResult, StudioRid, StudioState } from "./studio";
+import { MeetingsClientFrames, MeetingsServerFrames } from "./meetings";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
 
@@ -501,7 +502,13 @@ export const AgentMessage = z.object({
    * are the files an editing tool (edit, write, ...) writes, as it named them (relative to the
    * session's `projectPath` unless absolute), so the host can tell whose edit an open file got.
    */
-  tool: z.object({ name: nonEmpty, summary: z.string(), paths: z.array(z.string().min(1).max(4096)).max(20).optional() }).optional(),
+  tool: z
+    .object({
+      name: nonEmpty,
+      summary: z.string(),
+      paths: z.array(z.string().min(1).max(4096)).max(20).optional(),
+    })
+    .optional(),
   /** Images the message carried (a pasted screenshot, a tool's rendered page). */
   images: z.array(AgentImageRef).optional(),
   /** True while the assistant is still producing `text`; `agent.message.update` frames carry the growth. */
@@ -543,7 +550,11 @@ export const FileFocus = z.object({
 export type FileFocus = z.infer<typeof FileFocus>;
 
 /** Another device's focus, as the host relays it. */
-export const DeviceFileFocus = FileFocus.extend({ device: nonEmpty, deviceName: z.string().max(200), at: ms });
+export const DeviceFileFocus = FileFocus.extend({
+  device: nonEmpty,
+  deviceName: z.string().max(200),
+  at: ms,
+});
 export type DeviceFileFocus = z.infer<typeof DeviceFileFocus>;
 
 /** Who wrote an edit: the session's agent look (as on a canvas), or the generic "Agent" when no tool claimed the file. */
@@ -1419,7 +1430,11 @@ export const AssistantFileReq = z.object({
 export type AssistantFileReq = z.infer<typeof AssistantFileReq>;
 
 /** What a file was when read; a save refuses when the host's copy no longer matches `hash` (sha1 of its bytes). */
-export const AssistantFileVersion = z.object({ mtimeMs: z.number(), size: z.number().int().nonnegative(), hash: z.string().max(128) });
+export const AssistantFileVersion = z.object({
+  mtimeMs: z.number(),
+  size: z.number().int().nonnegative(),
+  hash: z.string().max(128),
+});
 export type AssistantFileVersion = z.infer<typeof AssistantFileVersion>;
 
 /** Answer to `assistant.file.req`. `code` names a failure a client acts on; `error` is for people. */
@@ -1617,6 +1632,7 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("files.caret"), focus: FileFocus.nullable() }),
   /** Isaac's editor is saving `path` with these bytes (sha1 hex): that write is his, not an agent's. */
   z.object({ t: z.literal("files.saved"), path: HostFilePath, hash: z.string().min(1).max(128) }),
+  ...MeetingsClientFrames,
   /** This desktop can be driven by the host's agents (ControlPresence). Only sent to a host whose `welcome.features` has CONTROL_FEATURE. */
   ControlPresence,
   /** The answer to `control.req` with the same rid. */
@@ -1892,6 +1908,7 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),
+  ...MeetingsServerFrames,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
@@ -1935,4 +1952,5 @@ export * from "./artifacts";
 export * from "./activity";
 export * from "./studio";
 export * from "./reviews";
+export * from "./meetings";
 export * from "./query";

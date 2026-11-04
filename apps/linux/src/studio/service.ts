@@ -26,7 +26,14 @@ import {
 } from "@relay/protocol";
 import type { DropBlob, StudioRelaying } from "../seams";
 import type { SessionClock } from "../session";
-import { BACKEND_BASE, baseEstimateMs, parseSize, STUDIO_BACKENDS, STUDIO_POOLS, validateSpec } from "./backends";
+import {
+  BACKEND_BASE,
+  baseEstimateMs,
+  parseSize,
+  STUDIO_BACKENDS,
+  STUDIO_POOLS,
+  validateSpec,
+} from "./backends";
 import type { StudioMedia } from "./media";
 import { oneLine, type StudioRunInput, type StudioRunner } from "./runner";
 import { settledJob, StudioStore } from "./store";
@@ -37,9 +44,14 @@ const MAX_PROGRESS = 0.97;
 export const GPU_NOTE = "Waiting for the GPU";
 /** A running LTX job whose draft.py waits for the machine-wide GPU lock (another LTX user holds it). */
 export const GPU_BUSY_NOTE = "Waiting for the GPU (another job is using it)";
+/** A queued GPU job held back while a call is transcribed live on this Mac. */
+export const MEETING_NOTE = "Waiting for the meeting to end";
 const SLOT_NOTE = "Waiting for a free slot";
 
-export type StudioMessage = Extract<ServerMessage, { t: "studio.state" | "studio.job" | "studio.removed" }>;
+export type StudioMessage = Extract<
+  ServerMessage,
+  { t: "studio.state" | "studio.job" | "studio.removed" }
+>;
 type Result = Omit<StudioResult, "rid">;
 
 export interface StudioServiceDeps {
@@ -51,6 +63,8 @@ export interface StudioServiceDeps {
   readonly emit: (message: StudioMessage) => void;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
+  /** True while a call is transcribed live: new GPU jobs wait (running ones finish). Call `resume()` when it turns false. */
+  readonly gpuHeld?: () => boolean;
   /** A seed for a job whose spec has none; random by default. */
   readonly seed?: () => number;
 }
@@ -85,6 +99,11 @@ export class StudioService implements StudioRelaying {
     this.pump();
   }
 
+  /** `gpuHeld` changed: start what it held back, or mark the queue as waiting for the meeting. */
+  resume(): void {
+    this.pump();
+  }
+
   /** Aborts running jobs (killing LTX's processes) and leaves them `running` in the index, so the next start fails them. */
   stop(): void {
     this.stopped = true;
@@ -93,7 +112,11 @@ export class StudioService implements StudioRelaying {
   }
 
   state(): StudioState {
-    return { jobs: [...this.store.jobs], uploads: [...this.store.uploads], backends: STUDIO_BACKENDS.flatMap((id) => this.backends.get(id) ?? []) };
+    return {
+      jobs: [...this.store.jobs],
+      uploads: [...this.store.uploads],
+      backends: STUDIO_BACKENDS.flatMap((id) => this.backends.get(id) ?? []),
+    };
   }
 
   open(id: string, token: string): DropBlob | null {
@@ -130,14 +153,20 @@ export class StudioService implements StudioRelaying {
 
   private async create(spec: StudioSpec, origin: StudioOrigin): Promise<Result> {
     const backend = await this.backend(spec.backend);
-    if (backend.paid && origin === "agent") return { ok: false, error: "Paid jobs need Isaac's confirm tap in Studio" };
-    if (backend.paid && spec.confirmCredits === undefined) return { ok: false, error: "Paid jobs need a confirmed price; get a quote and confirm it" };
+    if (backend.paid && origin === "agent")
+      return { ok: false, error: "Paid jobs need Isaac's confirm tap in Studio" };
+    if (backend.paid && spec.confirmCredits === undefined)
+      return { ok: false, error: "Paid jobs need a confirmed price; get a quote and confirm it" };
     const refused = this.refusal(spec, backend);
     if (refused !== null) return { ok: false, error: refused };
     let credits: number | undefined;
     if (backend.paid) {
       credits = await this.priceOf(spec);
-      if (credits > (spec.confirmCredits ?? 0)) return { ok: false, error: `The price changed to ${String(credits)} credits; confirm again` };
+      if (credits > (spec.confirmCredits ?? 0))
+        return {
+          ok: false,
+          error: `The price changed to ${String(credits)} credits; confirm again`,
+        };
     }
     const job: StudioJob = {
       id: randomUUID(),
@@ -147,7 +176,9 @@ export class StudioService implements StudioRelaying {
       createdAt: this.deps.clock.now(),
       progress: 0,
       outputs: [],
-      ...(backend.seed ? { seed: spec.seed ?? this.deps.seed?.() ?? randomInt(0, 2_147_483_647) } : {}),
+      ...(backend.seed
+        ? { seed: spec.seed ?? this.deps.seed?.() ?? randomInt(0, 2_147_483_647) }
+        : {}),
       ...(credits === undefined ? {} : { credits }),
     };
     this.save(job);
@@ -161,14 +192,22 @@ export class StudioService implements StudioRelaying {
     const refused = this.refusal(spec, backend);
     if (refused !== null) return { ok: false, error: refused };
     const credits = await this.priceOf(spec);
-    return { ok: true, credits, ...(backend.balance === undefined ? {} : { balance: backend.balance }) };
+    return {
+      ok: true,
+      credits,
+      ...(backend.balance === undefined ? {} : { balance: backend.balance }),
+    };
   }
 
   private cancel(id: string): Result {
     const job = this.store.job(id);
     if (job === undefined) return { ok: false, error: "No such job" };
     if (!studioJobActive(job)) return { ok: false, error: "The job already ended" };
-    const cancelled: StudioJob = { ...settledJob(job), state: "cancelled", finishedAt: this.deps.clock.now() };
+    const cancelled: StudioJob = {
+      ...settledJob(job),
+      state: "cancelled",
+      finishedAt: this.deps.clock.now(),
+    };
     this.save(cancelled);
     // A running job keeps its slot until its runner has stopped (the GPU frees when LTX exits).
     this.running.get(id)?.controller.abort();
@@ -200,7 +239,14 @@ export class StudioService implements StudioRelaying {
   private async frame(id: string, at: "first" | "last"): Promise<Result> {
     const found = this.store.asset(id);
     if (found === undefined) return { ok: false, error: "No such image or video" };
-    if (found.asset.kind === "image") return this.keepUpload(await this.store.ingest({ bytes: readFileSync(found.path) }, found.asset.mimeType, "upload"));
+    if (found.asset.kind === "image")
+      return this.keepUpload(
+        await this.store.ingest(
+          { bytes: readFileSync(found.path) },
+          found.asset.mimeType,
+          "upload",
+        ),
+      );
     const scratch = `frame-${randomUUID()}`;
     try {
       const dest = join(this.store.workDir(scratch), "frame.png");
@@ -221,7 +267,12 @@ export class StudioService implements StudioRelaying {
   private refresh(): Promise<void> {
     this.refreshing ??= Promise.all(
       STUDIO_BACKENDS.map(async (id) => {
-        const backend = await this.deps.runners[id].describe().catch((error: unknown): StudioBackend => ({ ...BACKEND_BASE[id], reason: oneLine(error, 400) }));
+        const backend = await this.deps.runners[id]
+          .describe()
+          .catch((error: unknown): StudioBackend => ({
+            ...BACKEND_BASE[id],
+            reason: oneLine(error, 400),
+          }));
         this.backends.set(id, backend);
       }),
     ).then(() => {
@@ -239,13 +290,15 @@ export class StudioService implements StudioRelaying {
 
   /** Why `spec` can't run now, or null. */
   private refusal(spec: StudioSpec, backend: StudioBackend): string | null {
-    if (!backend.available) return `${backend.label} is unavailable${backend.reason === undefined ? "" : `: ${backend.reason}`}`;
+    if (!backend.available)
+      return `${backend.label} is unavailable${backend.reason === undefined ? "" : `: ${backend.reason}`}`;
     return validateSpec(spec, backend, (id) => this.store.asset(id)?.asset);
   }
 
   private async priceOf(spec: StudioSpec): Promise<number> {
     const runner = this.deps.runners[spec.backend];
-    if (runner.quote === undefined) throw new Error(`${BACKEND_BASE[spec.backend].label} cannot price jobs`);
+    if (runner.quote === undefined)
+      throw new Error(`${BACKEND_BASE[spec.backend].label} cannot price jobs`);
     return runner.quote(spec);
   }
 
@@ -259,7 +312,10 @@ export class StudioService implements StudioRelaying {
     for (const job of [...this.store.jobs].reverse()) {
       if (job.state !== "queued") continue;
       const { pool, max } = STUDIO_POOLS[job.spec.backend];
-      const busy = [...this.running.values()].filter((slot) => STUDIO_POOLS[slot.backend].pool === pool).length;
+      if (pool === "gpu" && this.deps.gpuHeld?.() === true) continue;
+      const busy = [...this.running.values()].filter(
+        (slot) => STUDIO_POOLS[slot.backend].pool === pool,
+      ).length;
       if (busy < max) this.begin(job);
     }
     this.updateWaiting();
@@ -267,9 +323,21 @@ export class StudioService implements StudioRelaying {
 
   private begin(job: StudioJob): void {
     const now = this.deps.clock.now();
-    const slot: Running = { backend: job.spec.backend, controller: new AbortController(), startedAt: now, estimateMs: this.estimateMs(job.spec), blocked: false };
+    const slot: Running = {
+      backend: job.spec.backend,
+      controller: new AbortController(),
+      startedAt: now,
+      estimateMs: this.estimateMs(job.spec),
+      blocked: false,
+    };
     this.running.set(job.id, slot);
-    const started: StudioJob = { ...settledJob(job), state: "running", startedAt: now, progress: 0, etaMs: slot.estimateMs };
+    const started: StudioJob = {
+      ...settledJob(job),
+      state: "running",
+      startedAt: now,
+      progress: 0,
+      etaMs: slot.estimateMs,
+    };
     this.save(started);
     this.scheduleTick();
     void this.execute(started, slot);
@@ -281,13 +349,18 @@ export class StudioService implements StudioRelaying {
       const input: StudioRunInput = {
         spec,
         ...(job.seed === undefined ? {} : { seed: job.seed }),
-        frames: Object.fromEntries(Object.entries(spec.frames ?? {}).flatMap(([name, id]) => (id === undefined ? [] : [[name, this.assetPath(id)] as const]))),
+        frames: Object.fromEntries(
+          Object.entries(spec.frames ?? {}).flatMap(([name, id]) =>
+            id === undefined ? [] : [[name, this.assetPath(id)] as const],
+          ),
+        ),
         refs: (spec.refs ?? []).map((id) => this.assetPath(id)),
         workDir: this.store.workDir(job.id),
         signal: slot.controller.signal,
         note: (text) => {
           const current = this.store.job(job.id);
-          if (current?.state === "running" && current.note !== text) this.touch({ ...current, note: text });
+          if (current?.state === "running" && current.note !== text)
+            this.touch({ ...current, note: text });
         },
         blocked: (waiting) => {
           const current = this.store.job(job.id);
@@ -307,20 +380,36 @@ export class StudioService implements StudioRelaying {
       const output = await this.deps.runners[spec.backend].run(input);
       if (this.store.job(job.id)?.state !== "running") return;
       const size = parseSize(spec.resolution);
-      const asset = await this.store.ingest({ path: output.path }, output.mimeType, "output", size === null ? undefined : { width: size[0], height: size[1] });
+      const asset = await this.store.ingest(
+        { path: output.path },
+        output.mimeType,
+        "output",
+        size === null ? undefined : { width: size[0], height: size[1] },
+      );
       const current = this.store.job(job.id);
       if (this.stopped || current?.state !== "running") {
         this.store.discard(asset.id);
         return;
       }
       const now = this.deps.clock.now();
-      this.save({ ...settledJob(current), state: "done", progress: 1, finishedAt: now, outputs: [asset] });
+      this.save({
+        ...settledJob(current),
+        state: "done",
+        progress: 1,
+        finishedAt: now,
+        outputs: [asset],
+      });
       this.store.calibrate(spec.backend, (now - slot.startedAt) / baseEstimateMs(spec));
     } catch (error) {
       const current = this.store.job(job.id);
       if (this.stopped || current?.state !== "running") return;
       this.deps.log(`studio: ${spec.backend} job ${job.id} failed: ${oneLine(error)}`);
-      this.save({ ...settledJob(current), state: "failed", error: oneLine(error), finishedAt: this.deps.clock.now() });
+      this.save({
+        ...settledJob(current),
+        state: "failed",
+        error: oneLine(error),
+        finishedAt: this.deps.clock.now(),
+      });
     } finally {
       if (!this.stopped) {
         this.store.clearWork(job.id);
@@ -333,7 +422,8 @@ export class StudioService implements StudioRelaying {
 
   private assetPath(id: string): string {
     const found = this.store.asset(id);
-    if (found === undefined) throw new Error("A frame or reference image was deleted before the job started");
+    if (found === undefined)
+      throw new Error("A frame or reference image was deleted before the job started");
     return found.path;
   }
 
@@ -360,7 +450,11 @@ export class StudioService implements StudioRelaying {
       const job = this.store.job(id);
       if (job?.state !== "running" || slot.blocked) continue;
       const elapsed = now - slot.startedAt;
-      this.touch({ ...job, progress: Math.min(MAX_PROGRESS, elapsed / slot.estimateMs), etaMs: Math.max(0, slot.estimateMs - elapsed) });
+      this.touch({
+        ...job,
+        progress: Math.min(MAX_PROGRESS, elapsed / slot.estimateMs),
+        etaMs: Math.max(0, slot.estimateMs - elapsed),
+      });
     }
     this.updateWaiting();
     if (this.running.size > 0) this.scheduleTick();
@@ -374,7 +468,8 @@ export class StudioService implements StudioRelaying {
     const now = this.deps.clock.now();
     let gpuFreeInMs = 0;
     for (const slot of this.running.values()) {
-      if (STUDIO_POOLS[slot.backend].pool === "gpu") gpuFreeInMs += Math.max(0, slot.estimateMs - (now - slot.startedAt));
+      if (STUDIO_POOLS[slot.backend].pool === "gpu")
+        gpuFreeInMs += Math.max(0, slot.estimateMs - (now - slot.startedAt));
     }
     for (const job of [...this.store.jobs].reverse()) {
       if (job.state !== "queued") continue;
@@ -383,7 +478,12 @@ export class StudioService implements StudioRelaying {
         continue;
       }
       gpuFreeInMs += this.estimateMs(job.spec);
-      if (job.note !== GPU_NOTE || Math.abs((job.etaMs ?? 0) - gpuFreeInMs) >= 1000) this.touch({ ...job, note: GPU_NOTE, etaMs: gpuFreeInMs });
+      if (this.deps.gpuHeld?.() === true) {
+        if (job.note !== MEETING_NOTE) this.touch({ ...job, note: MEETING_NOTE });
+        continue;
+      }
+      if (job.note !== GPU_NOTE || Math.abs((job.etaMs ?? 0) - gpuFreeInMs) >= 1000)
+        this.touch({ ...job, note: GPU_NOTE, etaMs: gpuFreeInMs });
     }
   }
 

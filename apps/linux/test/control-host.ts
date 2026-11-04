@@ -52,6 +52,7 @@ const server = new RelayServer(
     reviews: null,
     query: null,
     files: null,
+    meetings: null,
     control,
     canvasPage: () => "",
     pairing: new TerminalPairingUI(),

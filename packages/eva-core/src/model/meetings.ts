@@ -76,24 +76,25 @@ export function isSkipped(value: unknown): boolean {
 function parseProposal(v: unknown): Proposal | null {
   if (!isObj(v)) return null
   return {
-    id: str(v.id).slice(0, 300),
-    kind: str(v.kind).slice(0, 32),
-    text: str(v.text),
-    workspace: strOrNull(v.workspace),
-    item: strOrNull(v.item),
-    p: numOrNull(v.p),
-    source: strOrNull(v.source),
-    status: statusOf(v.status),
+    id: str(v['id']).slice(0, 300),
+    kind: str(v['kind']).slice(0, 32),
+    text: str(v['text']),
+    workspace: strOrNull(v['workspace']),
+    item: strOrNull(v['item']),
+    p: numOrNull(v['p']),
+    source: strOrNull(v['source']),
+    status: statusOf(v['status']),
   }
 }
 
 function parseMemory(v: unknown): Memory | null {
   if (!isObj(v)) return null
+  const where = v['where']
   return {
-    kind: str(v.kind).slice(0, 32),
-    text: str(v.text),
-    where: Array.isArray(v.where) ? v.where.filter((w): w is string => typeof w === 'string') : [],
-    p: numOrNull(v.p),
+    kind: str(v['kind']).slice(0, 32),
+    text: str(v['text']),
+    where: Array.isArray(where) ? where.filter((w): w is string => typeof w === 'string') : [],
+    p: numOrNull(v['p']),
   }
 }
 
@@ -108,16 +109,16 @@ export function parseMeeting(stem: string, jsonText: string): Meeting | null {
   if (!isObj(raw)) return null
   const list = <T>(v: unknown, f: (x: unknown) => T | null): T[] =>
     Array.isArray(v) ? v.map(f).filter((x): x is T => x !== null) : []
+  const skipped = raw['skipped']
   return {
     stem,
-    title: str(raw.title),
-    start: strOrNull(raw.start),
-    notes: strOrNull(raw.notes),
-    skipped: isSkipped(raw.skipped),
-    skippedReason:
-      typeof raw.skipped === 'string' && raw.skipped.trim() !== '' ? raw.skipped : null,
-    proposals: list(raw.proposals, parseProposal),
-    memorized: list(raw.memorized, parseMemory),
+    title: str(raw['title']),
+    start: strOrNull(raw['start']),
+    notes: strOrNull(raw['notes']),
+    skipped: isSkipped(skipped),
+    skippedReason: typeof skipped === 'string' && skipped.trim() !== '' ? skipped : null,
+    proposals: list(raw['proposals'], parseProposal),
+    memorized: list(raw['memorized'], parseMemory),
   }
 }
 
@@ -297,17 +298,18 @@ export function setProposalStatus(
   } catch {
     throw new MeetingError('invalid-record', 'The meeting record is not valid JSON.')
   }
-  const proposals = isObj(record) && Array.isArray(record.proposals) ? record.proposals : []
+  const list = isObj(record) ? record['proposals'] : undefined
+  const proposals: unknown[] = Array.isArray(list) ? list : []
   const proposal = proposals.find(
-    (p): p is Record<string, unknown> => isObj(p) && p.id === proposalId,
+    (p): p is Record<string, unknown> => isObj(p) && p['id'] === proposalId,
   )
   if (!proposal) throw new MeetingError('not-found', `No proposal ${proposalId}.`)
-  if (statusOf(proposal.status) !== 'proposed') {
+  if (statusOf(proposal['status']) !== 'proposed') {
     throw new MeetingError(
       'not-proposed',
-      `Proposal ${proposalId} is already ${String(proposal.status)}.`,
+      `Proposal ${proposalId} is already ${String(proposal['status'])}.`,
     )
   }
-  proposal.status = status
+  proposal['status'] = status
   return `${JSON.stringify(record, null, 2)}\n`
 }

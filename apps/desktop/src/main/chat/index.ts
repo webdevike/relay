@@ -18,6 +18,7 @@ import { registerStudioIpc } from '../relay/studio-ipc'
 import type {
   RelayArtifacts,
   RelayCanvas,
+  RelayFeatures,
   RelayFrames,
   RelaySource,
   RelayStudio,
@@ -61,8 +62,8 @@ export interface ChatHandles {
   studio: RelaySource & RelayStudio & Pick<RelayCanvas, 'canvasOrigin'>
   /** The Mini's omp in remote mode (`relayRemote`), else null. */
   mini: Mini | null
-  /** Raw frames of the Relay connection (the remote host's `reviews.req` answers). */
-  frames: RelayFrames
+  /** Raw frames of the Relay connection (the remote host's `reviews.req` answers) and its features. */
+  frames: RelayFrames & RelayFeatures
   /** The connected Relay Host's name and version, null while not connected. */
   hostInfo(): { name: string; version: string } | null
   /** Desktop notifications: the update flow tells it about a build that is ready. */

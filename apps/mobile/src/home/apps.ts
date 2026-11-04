@@ -17,6 +17,7 @@ import { countOf } from "@/lib/format";
 import { USAGE_WARN, usageHint, usagePeak } from "@/lib/usage";
 import { liveReviewItems } from "@relay/protocol";
 import { useReviewsStore } from "@/state/reviews";
+import { recordingTitle, useMeetingsStore } from "@/state/meetings";
 
 export interface HomeApp {
   key: string;
@@ -61,6 +62,10 @@ export function useHomeApps(): HomeApp[] {
   const reviewsQueue = useReviewsStore((state) => state.queue);
   const reviewsWaiting = reviewsQueue === null ? null : liveReviewItems(reviewsQueue).length;
   const usageTop = usagePeak(usage);
+  // A call being recorded right now on any Mac; pushed live while connected.
+  const meetingsState = useMeetingsStore((state) => state.state);
+  const inCall = meetingsState?.recordings.find((r) => r.stage === "recording") ?? null;
+  const meetingsWaiting = meetingsState?.digest.waiting.length ?? 0;
   const hostLine =
     mac === null
       ? "Waiting for a host"
@@ -89,9 +94,29 @@ export function useHomeApps(): HomeApp[] {
       symbol: "checklist",
       label: "Reviews",
       color: "green",
-      hint: reviewsWaiting === null ? "PRs, tickets and threads for you" : reviewsWaiting === 0 ? "Nothing waiting on you" : `${String(reviewsWaiting)} waiting on you`,
+      hint:
+        reviewsWaiting === null
+          ? "PRs, tickets and threads for you"
+          : reviewsWaiting === 0
+            ? "Nothing waiting on you"
+            : `${String(reviewsWaiting)} waiting on you`,
       ...(reviewsWaiting === null ? {} : { value: reviewsWaiting }),
       href: "/reviews",
+    },
+    {
+      key: "meetings",
+      symbol: inCall === null ? "person.3.fill" : "record.circle",
+      label: inCall === null ? "Meetings" : "In a call",
+      color: inCall === null ? "teal" : "pink",
+      hint:
+        inCall !== null
+          ? `Recording ${recordingTitle(inCall)}`
+          : meetingsWaiting > 0
+            ? `${String(meetingsWaiting)} waiting on you`
+            : "Live transcripts and notes",
+      ...(inCall === null && meetingsWaiting > 0 ? { value: meetingsWaiting } : {}),
+      href:
+        inCall === null ? "/meetings" : { pathname: "/meetings/[id]", params: { id: inCall.id } },
     },
     {
       key: "usage",

@@ -1,0 +1,70 @@
+{
+ "window": [
+  767.0,
+  830.0
+ ],
+ "rows": [
+  {
+   "track": "app",
+   "strategy": "stream ctx=(256, 8) 1s",
+   "compute_share": 0.11,
+   "update_ms_p50": 110,
+   "update_ms_max": 125,
+   "first_final_audio_s": 3.0,
+   "final_lag_s": 0.64,
+   "wer_vs_mt": 0.217
+  },
+  {
+   "track": "app",
+   "strategy": "stream ctx=(128, 4) 1s",
+   "compute_share": 0.066,
+   "update_ms_p50": 61,
+   "update_ms_max": 258,
+   "first_final_audio_s": 3.0,
+   "final_lag_s": 0.32,
+   "wer_vs_mt": 0.783
+  },
+  {
+   "track": "app",
+   "strategy": "utterance windows (VAD 0.6 s, 15 s cap, 1 s drafts)",
+   "compute_share": 0.017,
+   "update_ms_p50": 54,
+   "update_ms_max": 248,
+   "utterances": 5,
+   "final_lag_s_p50": 0.65,
+   "wer_vs_mt": 0.217,
+   "text": "Awesome. Okay. Yeah, Isaac, do you wanna talk a little bit about where you're at? So transition that into the UI stuff. Mm-hmm. Okay. Hey. No."
+  },
+  {
+   "track": "mic",
+   "strategy": "stream ctx=(256, 8) 1s",
+   "compute_share": 0.116,
+   "update_ms_p50": 114,
+   "update_ms_max": 253,
+   "first_final_audio_s": 5.0,
+   "final_lag_s": 0.64,
+   "wer_vs_mt": 0.437
+  },
+  {
+   "track": "mic",
+   "strategy": "stream ctx=(128, 4) 1s",
+   "compute_share": 0.066,
+   "update_ms_p50": 67,
+   "update_ms_max": 87,
+   "first_final_audio_s": 5.0,
+   "final_lag_s": 0.32,
+   "wer_vs_mt": 0.55
+  },
+  {
+   "track": "mic",
+   "strategy": "utterance windows (VAD 0.6 s, 15 s cap, 1 s drafts)",
+   "compute_share": 0.09,
+   "update_ms_p50": 73,
+   "update_ms_max": 198,
+   "utterances": 9,
+   "final_lag_s_p50": 0.67,
+   "wer_vs_mt": 0.053,
+   "text": "Yeah. Um Yeah, so as Sage mentioned, uh got up the platform access and dev, uh that that redesign. Um added a few filters and and uh just a a little bit of a cleaner look. Um The there's some follow ups at as she mentioned as well on on the that owner uh Goid that Uh we are potentially looking to um make that that owner visible instead of just like a an ID. Uh there's there's some suggestions on on how to do that properly without adding like new custom fields that we need to uh maintain. Uh so working with with Claude on that to figure out Um how we can make that happen. Uh seems like there's a way forward. So it should um it's useful as like a a visual, but maybe not as like some a brand new field that we need to maintain. So I think there's a way to to achieve that. Yeah."
+  }
+ ]
+}

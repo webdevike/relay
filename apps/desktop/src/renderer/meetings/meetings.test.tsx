@@ -63,6 +63,7 @@ const sum = (stem: string, title: string, start: string | null, over = {}) => ({
 
 const LIST = {
   now: NOW,
+  recordings: [] as unknown[],
   meetings: [
     sum('test-call', 'Test call', at(0, 16, 0), { skipped: true, skippedReason: 'test' }),
     sum('standup', 'Daily standup', at(0, 9, 30), { pending: 2, hasNotes: true }),
