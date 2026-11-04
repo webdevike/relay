@@ -14,7 +14,7 @@ import { DOC_KEYS, type ChatMsg, type Presence } from "@relay/canvas-live/shared
 import { OmpBridgeProvider } from "../src/agents/bridge";
 import { parseSessionRows } from "../src/agents/transcript";
 import { toAssistantMessages } from "../src/assistant/service";
-import type { CanvasBrain } from "../src/canvas/brain";
+import type { CanvasMind, HostTool, MindSetup, TurnHandlers } from "../src/canvas/brain";
 import { LIVE_UI_EXAMPLES } from "../src/canvas/liveui-prompt";
 import { PROTO_EXAMPLES } from "../src/canvas/proto-prompt";
 import { protoSourceRefusal } from "../../../packages/widget-runtime/src/proto";
@@ -39,24 +39,101 @@ async function until(check: () => boolean, what: string, timeoutMs = 4000): Prom
   }
 }
 
-/** A scripted model: answers by what the prompt asks for, streamed in small chunks. */
-class FakeBrain implements CanvasBrain {
-  readonly ready = Promise.resolve();
+/** The opener's turn has run (its agenda is on the board) and the agent is idle: the next note is a turn of its own. */
+async function openerDone(tab: { doc: Y.Doc; awareness: awarenessProtocol.Awareness }): Promise<void> {
+  const agent = (): Presence | undefined => [...(tab.awareness.getStates() as Map<number, Presence>).values()].find((p) => p.user.kind === "agent");
+  await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("agenda") && brains[0]?.prompts.length === 1 && !brains[0].busy && agent()?.status === "idle", "the opener");
+}
+
+/**
+ * A scripted mind: answers by what the prompt asks for. `@say` lines are spoken text; every other
+ * line goes to the board through its canvas_act tool, in order, as the real agent would call it.
+ */
+class FakeMind implements CanvasMind {
   readonly prompts: string[] = [];
+  readonly steered: string[] = [];
+  /** canvas_act results, in order. */
+  readonly results: string[] = [];
+  readonly usage = { requests: 0, tokens: 0, costUsd: 0 };
+  exhausted: string | null = null;
   disposed = false;
+  model: string;
+  private running = false;
 
-  constructor(
-    readonly system: string,
-    private readonly answer: (message: string) => string,
-  ) {}
+  constructor(readonly setup: MindSetup) {
+    this.model = setup.model;
+  }
 
-  async run(message: string, onDelta: (delta: string) => void): Promise<void> {
+  get system(): string {
+    return this.setup.systemPrompt;
+  }
+
+  private tool(name: string): HostTool {
+    const tool = this.setup.tools.find((t) => t.name === name);
+    if (tool === undefined) throw new Error(`no ${name} tool`);
+    return tool;
+  }
+
+  get busy(): boolean {
+    return this.running;
+  }
+
+  async turn(message: string, on: TurnHandlers): Promise<void> {
     this.prompts.push(message);
-    const out = this.answer(message);
-    for (let i = 0; i < out.length; i += 7) {
-      onDelta(out.slice(i, i + 7));
-      await Promise.resolve();
+    this.usage.requests += 1;
+    this.running = true;
+    try {
+      let block: string[] = [];
+      const act = async (): Promise<void> => {
+        if (block.length === 0) return;
+        const script = block.join("\n");
+        block = [];
+        on.drafting(JSON.stringify({ script }));
+        on.tool("canvas_act", "");
+        const result = (await this.tool("canvas_act").run({ script })).text;
+        this.results.push(result);
+        const fix = repair(result);
+        if (fix !== null) this.results.push((await this.tool("canvas_act").run({ script: fix })).text);
+      };
+      // Like omp, a steered message is answered in the same turn, after what was under way.
+      const lines = answer(message).split("\n");
+      for (let line = lines.shift(); line !== undefined; line = lines.shift()) {
+        const say = /^@say (.*)$/.exec(line);
+        const work = /^@work (\S+) (.*)$/.exec(line);
+        if (say !== null || work !== null) await act();
+        if (say !== null) {
+          for (let i = 0; i < (say[1] ?? "").length; i += 7) {
+            on.text((say[1] ?? "").slice(i, i + 7));
+            await Promise.resolve();
+          }
+          on.textEnd();
+        } else if (work !== null) {
+          // A real tool call: its status line shows while the scripted work waits on the test.
+          on.tool(work[1] ?? "", work[2] ?? "");
+          await gate.promise;
+        } else if (line !== "") block.push(line);
+        if (lines.length === 0) {
+          await act();
+          const steered = this.inbox.shift();
+          if (steered !== undefined) lines.push(...answer(steered).split("\n"));
+        }
+      }
+    } finally {
+      this.running = false;
     }
+  }
+
+  private readonly inbox: string[] = [];
+
+  steer(message: string): boolean {
+    if (!this.running) return false;
+    this.steered.push(message);
+    this.inbox.push(message);
+    return true;
+  }
+
+  setModel(model: string): void {
+    this.model = model;
   }
 
   dispose(): void {
@@ -64,14 +141,24 @@ class FakeBrain implements CanvasBrain {
   }
 }
 
+/** Released by a test to let a mind's `@work` step finish. */
+let gate = Promise.withResolvers<undefined>();
+
 function answer(message: string): string {
-  if (message.includes("# Session start")) return "@say Last time we mapped the roles. Open questions go on the left.\n@add_node agenda note -900 0 480\nAgenda\n1 · Is support staff?\n@end\n@say First one: is support staff?\n";
-  if (message.includes("# Session end")) return "We renamed the root and settled that support is staff. Still open: ops.";
-  if (message.includes("# Handoff landed")) return "@point tab-shot\n@say Done, the settings tab is on the board.\n";
-  if (message.includes("Isaac says: show me the settings tab")) return "@handoff main grab a screenshot of the settings tab, put it at 2000,0\n@say On it, Eva is grabbing that.\n";
-  if (message.includes("Isaac says: create me a dashboard")) return '@say On it.\n@add_ui dash-bad 7000 0 420\nInbox\nroot = Stat("Unread", "" + inbox.n)\ninbox = Query("inbox", {}, {n: 0}, 30)\n@end\n';
-  if (message.includes("# Did not run")) return '@say Fixed.\n@add_ui dash-jobs 7000 0 420\nJobs\nroot = Stat("Failing", "" + jobs.failing)\njobs = Query("jobs", {}, {failing: 0}, 30)\n@end\n';
-  return "@say Done, renamed it.\n@set_text root title\nECS roles, renamed live\n@end\n";
+  if (message.includes("# Session start")) return "@say Last time we mapped the roles. Open questions go on the left.\n@add_node agenda note -900 0 480\nAgenda\n1 · Is support staff?\n@end\n@say First one: is support staff?";
+  if (message.includes("# Session end")) return "@say We renamed the root and settled that support is staff. Still open: ops.";
+  if (message.includes("# Handoff landed")) return "@point tab-shot\n@say Done, the settings tab is on the board.";
+  if (message.includes("Isaac says: deploy it")) return "@handoff main deploy the board's mockup to dev\n@say That needs your yes, so I've handed the deploy to Eva in the chat.";
+  if (message.includes("Isaac says: create me a dashboard")) return '@say On it.\n@add_ui dash-bad 7000 0 420\nInbox\nroot = Stat("Unread", "" + inbox.n)\ninbox = Query("inbox", {}, {n: 0}, 30)\n@end';
+  if (message.includes("Isaac says: build a clickable mockup")) return '@say Building that mockup now.\n@work bash Rendering the mockup\n@add_proto mock 3000 0 960 600 relay\nMockup\n<Button>Go</Button>\n@end\n@say The mockup is on the right.';
+  if (message.includes("Isaac says: make the button say Approve")) return "@set_text mock body\n<Button>Approve</Button>\n@end\n@say Done, it says Approve now.";
+  return "@say Done, renamed it.\n@set_text root title\nECS roles, renamed live\n@end";
+}
+
+/** The scripted agent's fix for a skipped batch, from what canvas_act told it. */
+function repair(result: string): string | null {
+  if (!/skipped: add_ui dash-bad: openui: .*unknown query tool "inbox"/.test(result)) return null;
+  return '@add_ui dash-jobs 7000 0 420\nJobs\nroot = Stat("Failing", "" + jobs.failing)\njobs = Query("jobs", {}, {failing: 0}, 30)\n@end\n@say Fixed, that one reads the jobs.';
 }
 
 /** A browser tab speaking the y-websocket protocol to a room, through a `CanvasPeer`. */
@@ -128,7 +215,7 @@ let subagentFile: string;
 let novaFile: string;
 let posted: { sessionId: string; content: string; details: CanvasEntry }[];
 let replies: { sessionId: string; text: string; submit: boolean }[];
-let brains: FakeBrain[];
+let brains: FakeMind[];
 let chats: CanvasChats;
 let service: CanvasService;
 
@@ -149,6 +236,7 @@ beforeEach(() => {
   posted = [];
   replies = [];
   brains = [];
+  gate = Promise.withResolvers<undefined>();
   const live = [session("s-chat"), session("s-nova", { kind: "assistant", assistant: "nova", title: "Nova" }), session("s-chat:Build.Worker", { title: "Worker" })];
   const files: Record<string, string> = { "s-chat": chatFile, "s-nova": novaFile };
   chats = {
@@ -168,13 +256,14 @@ beforeEach(() => {
     canvasDir,
     chats,
     registry: [{ id: "nova", title: "Nova", avatar: "nova-17", portrait: { style: "micah", seed: "nova-17", colors: { accent: "#f76707" } } }],
-    brains: (system) => {
-      const brain = new FakeBrain(system, answer);
-      brains.push(brain);
-      return brain;
+    minds: (setup) => {
+      const mind = new FakeMind(setup);
+      brains.push(mind);
+      return mind;
     },
     log: () => undefined,
     watch: false,
+    agentHome: root,
     pacing: { frameMs: 0, typeMs: 0 },
     participants: { paceMs: 0 },
   });
@@ -303,7 +392,7 @@ describe("a session at the canvas", () => {
     const room = service.roomById(started.roomId);
     if (room === undefined) throw new Error("no room");
     const tab = joinRoom(service, room, "Isaac");
-    await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("agenda"), "the opener's agenda note");
+    await openerDone(tab);
     expect(service.snapshot().rooms[0]?.humans).toEqual(["Isaac"]);
     const agent = [...tab.awareness.getStates().values()].find((p) => (p as Presence).user.kind === "agent") as Presence | undefined;
     expect(agent?.user.name).toBe("Eva");
@@ -564,19 +653,95 @@ describe("agents joining a live room", () => {
     }
   });
 
-  it("a note turn whose action is refused gets one correction turn naming why, and the fix lands", async () => {
+  it("tells the agent what a canvas_act batch skipped and why, so its fix lands in the same turn", async () => {
     const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
     const room = service.roomById(started.roomId);
     if (room === undefined) throw new Error("no room");
     const tab = joinRoom(service, room, "Isaac");
-    await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("agenda"), "the opener");
+    await openerDone(tab);
     const chat = tab.doc.getArray<ChatMsg>(DOC_KEYS.chat);
     chat.push([{ id: "n-dash", kind: "human", name: "Isaac", color: "#0ea5e9", text: "create me a dashboard with ui widgets", nodeIds: [], at: null, ts: Date.now() }]);
     await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("dash-jobs"), "the corrected widget");
-    const correction = brains[0]?.prompts.at(-1) ?? "";
-    expect(correction).toContain("# Did not run");
-    expect(correction).toMatch(/skipped: add_ui dash-bad: openui: .*unknown query tool "inbox" \(tools: work_items, jobs, linear_issues, github_prs, relay_sessions, goodops_collections\)/);
+    expect(brains[0]?.results.find((r) => r.includes("dash-bad"))).toMatch(/skipped: add_ui dash-bad: openui: .*unknown query tool "inbox" \(tools: work_items, jobs, linear_issues, github_prs, relay_sessions, goodops_collections\)/);
     expect(tab.doc.getMap(DOC_KEYS.nodes).has("dash-bad")).toBe(false);
+    // One turn did it all: no correction turn.
+    expect(brains[0]?.prompts.filter((p) => p.includes("Isaac says:"))).toHaveLength(1);
+    await until(() => chat.toArray().some((m) => m.text === "Fixed, that one reads the jobs."), "the fix line");
+    tab.leave();
+  });
+});
+
+describe("a live collaborator", () => {
+  it("builds a mockup itself: a line first, a status line while it works, the card, then where it landed; no handoff", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    const chat = tab.doc.getArray<ChatMsg>(DOC_KEYS.chat);
+    const eva = (): Presence | undefined => [...(tab.awareness.getStates() as Map<number, Presence>).values()].find((p) => p.user.name === "Eva");
+    chat.push([{ id: "n-mock", kind: "human", name: "Isaac", color: "#0ea5e9", text: "build a clickable mockup of the approve sheet", nodeIds: ["root"], at: null, ts: Date.now() }]);
+    await until(() => eva()?.doing === "rendering the mockup…", "the status line");
+    expect(eva()?.status).toBe("thinking");
+    expect(chat.toArray().some((m) => m.kind === "agent" && m.text === "Building that mockup now.")).toBe(true);
+
+    // A note sent while it works is steered into the same turn, not queued behind it.
+    chat.push([{ id: "n-tweak", kind: "human", name: "Isaac", color: "#0ea5e9", text: "make the button say Approve", nodeIds: [], at: null, ts: Date.now() }]);
+    await until(() => brains[0]?.steered.length === 1, "the steer");
+    expect(brains[0]?.steered[0]).toContain("Isaac says: make the button say Approve");
+    gate.resolve(undefined);
+
+    await until(() => (tab.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes).get("mock")?.get("body") as Y.Text | undefined)?.toJSON() === "<Button>Approve</Button>", "the prototype, tweaked");
+    expect(tab.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes).get("mock")?.get("type")).toBe("proto");
+    await until(() => posted.filter((p) => p.details.kind === "turn").length === 2, "turn rows for both notes");
+    expect(posted.filter((p) => p.details.kind === "turn").map((p) => p.details.human?.text)).toEqual(["build a clickable mockup of the approve sheet", "make the button say Approve"]);
+    expect(posted.find((p) => p.details.kind === "turn")?.details.text).toBe("Building that mockup now. The mockup is on the right. Done, it says Approve now.");
+    await until(() => eva()?.status === "idle" && eva()?.doing === null, "back to idle");
+    expect(replies).toEqual([]);
+    expect(service.view("ecs-roles").handoffs).toEqual([]);
+    expect(brains[0]?.prompts.filter((p) => p.includes("Isaac says:"))).toHaveLength(1);
+    tab.leave();
+  });
+
+  it("glances at what Isaac selects, with no model call", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    const eva = (): Presence | undefined => [...(tab.awareness.getStates() as Map<number, Presence>).values()].find((p) => p.user.name === "Eva");
+    const box = service.view("ecs-roles").board.nodes.find((n) => n.id === "agenda");
+    tab.awareness.setLocalState({ ...(tab.awareness.getLocalState() as Presence), selected: ["agenda"] });
+    await until(() => eva()?.cursor?.x === (box?.x ?? 0) + (box?.w ?? 0) - 30, "the cursor at the selected card");
+    expect(brains[0]?.prompts).toHaveLength(1);
+    tab.leave();
+  });
+
+  it("starts on Opus with the assistant's thread memory, follows the room's model toggle, and hands notes to the chat once the budget is spent", async () => {
+    mkdirSync(join(root, "work", "eva", "agents", "nova"), { recursive: true });
+    writeFileSync(join(root, "work", "eva", "agents", "nova", "thread.md"), "## Tracking\n- 2026-11-03 canvas agent redesign, waiting on Isaac\n");
+    const started = await service.start({ slug: "ecs-roles", caller: { assistant: "nova" } });
+    expect(brains[0]?.setup.model).toBe("opus");
+    expect(brains[0]?.system).toContain("canvas agent redesign, waiting on Isaac");
+    expect(brains[0]?.system).toContain(`You write files only under ${join(root, "work")}`);
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    tab.doc.getMap(DOC_KEYS.settings).set("model", "sonnet");
+    const chat = tab.doc.getArray<ChatMsg>(DOC_KEYS.chat);
+    chat.push([{ id: "n1", kind: "human", name: "Isaac", color: "#0ea5e9", text: "rename the root", nodeIds: ["root"], at: null, ts: Date.now() }]);
+    await until(() => posted.some((p) => p.details.kind === "turn"), "the turn");
+    expect(brains[0]?.model).toBe("sonnet");
+
+    const mind = brains[0];
+    if (mind === undefined) throw new Error("no mind");
+    mind.exhausted = "this canvas session used its budget (150 model requests, 6000k tokens, about $40.00)";
+    chat.push([{ id: "n2", kind: "human", name: "Isaac", color: "#0ea5e9", text: "now add a timeline", nodeIds: [], at: null, ts: Date.now() }]);
+    await until(() => replies.length === 1, "the budget handoff");
+    expect(replies[0]?.text).toMatch(/^\[Canvas request from Isaac\] now add a timeline\n/);
+    expect(chat.toArray().some((m) => m.kind === "agent" && m.text === "I've used up this canvas session's budget, so I'm handing that to Nova in the chat.")).toBe(true);
+    expect(mind.prompts.filter((p) => p.includes("now add a timeline"))).toEqual([]);
     tab.leave();
   });
 });
@@ -585,25 +750,27 @@ describe("handing work off", () => {
   const selfAct = (slug: string, body: unknown): Promise<Response> =>
     handleCanvasRequest(service, () => "", new Request(`http://h/canvas/sessions/${slug}/self/act`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }), `/canvas/sessions/${slug}/self/act`, "127.0.0.1", null);
 
-  it("hands a tool request to the chat, which lands it as the canvas self, and the canvas self confirms", async () => {
+  it("hands what needs Isaac's yes to the chat, which lands it as the canvas self, and the canvas self confirms", async () => {
     const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
     const room = service.roomById(started.roomId);
     if (room === undefined) throw new Error("no room");
     const tab = joinRoom(service, room, "Isaac");
-    await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("agenda"), "the opener");
+    await openerDone(tab);
     const chat = tab.doc.getArray<ChatMsg>(DOC_KEYS.chat);
-    chat.push([{ id: "n-tab", kind: "human", name: "Isaac", color: "#0ea5e9", text: "show me the settings tab", nodeIds: [], at: null, ts: Date.now() }]);
+    chat.push([{ id: "n-tab", kind: "human", name: "Isaac", color: "#0ea5e9", text: "deploy it", nodeIds: [], at: null, ts: Date.now() }]);
     await until(() => replies.length === 1, "the handoff");
     const delivered = replies[0];
     expect(delivered).toMatchObject({ sessionId: "s-chat", submit: true });
-    expect(delivered?.text).toMatch(/^\[Canvas request from Isaac\] grab a screenshot of the settings tab, put it at 2000,0\n/);
+    expect(delivered?.text).toMatch(/^\[Canvas request from Isaac\] deploy the board's mockup to dev\n/);
+    expect(delivered?.text).toContain("ask Isaac here first, in one line, and do it only once the answer is yes");
     expect(delivered?.text).toContain("canvas act ecs-roles --handoff h");
     const id = /handoff (h\w+)\./.exec(delivered?.text ?? "")?.[1] ?? "";
     expect(service.view("ecs-roles").handoffs).toMatchObject([{ id, to: "main", toName: "Eva", from: "Isaac", state: "open" }]);
     const eva = (): Presence | undefined => [...(tab.awareness.getStates() as Map<number, Presence>).values()].find((p) => p.user.name === "Eva");
-    await until(() => eva()?.task === "grab a screenshot of the settings tab, put it at 2000,0", "Eva shown working on it");
-    expect(chat.toArray().some((m) => m.kind === "event" && m.text === "Handed to Eva: grab a screenshot of the settings tab, put it at 2000,0")).toBe(true);
-    expect(chat.toArray().some((m) => m.kind === "agent" && m.text === "On it, Eva is grabbing that.")).toBe(true);
+    await until(() => eva()?.task === "deploy the board's mockup to dev", "Eva shown waiting on it");
+    expect(chat.toArray().some((m) => m.kind === "event" && m.text === "Handed to Eva: deploy the board's mockup to dev")).toBe(true);
+    await until(() => chat.toArray().some((m) => m.kind === "agent" && m.text === "That needs your yes, so I've handed the deploy to Eva in the chat."), "the line");
+    expect(brains[0]?.results.at(-1)).toContain("handed off (the chat does it once Isaac says yes): main: deploy the board's mockup to dev");
 
     // The chat does the work and lands it on the board as its canvas self.
     const image = join(root, "settings.png");
@@ -612,7 +779,7 @@ describe("handing work off", () => {
     expect(await res.json()).toEqual({ ran: 1, said: [], skipped: [], added: ["tab-shot"] });
     expect(tab.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes).get("tab-shot")?.toJSON()).toMatchObject({ type: "image", x: 2000, y: 0, src: image });
     await until(() => chat.toArray().some((m) => m.kind === "agent" && m.text === "Done, the settings tab is on the board."), "the confirmation");
-    expect(brains[0]?.prompts.at(-1)).toContain(`Eva finished what Isaac asked for: "grab a screenshot of the settings tab, put it at 2000,0". New cards: tab-shot ("Settings tab").`);
+    expect(brains[0]?.prompts.at(-1)).toContain(`Eva finished what Isaac asked for: "deploy the board's mockup to dev". New cards: tab-shot ("Settings tab").`);
     expect(eva()?.task).toBeNull();
     expect(service.view("ecs-roles").handoffs).toEqual([]);
     await expect(service.selfAct("ecs-roles", "@say again", id)).rejects.toMatchObject({ status: 409 });
@@ -625,7 +792,7 @@ describe("handing work off", () => {
     const room = service.roomById(started.roomId);
     if (room === undefined) throw new Error("no room");
     const tab = joinRoom(service, room, "Isaac");
-    await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("agenda"), "the opener");
+    await openerDone(tab);
     expect(() => service.join("ecs-roles", { name: "Ghost", session: "NoSuchAgent" })).toThrow(/No live omp session/);
     expect(() => service.join("ecs-roles", { name: "main" })).toThrow(CanvasError);
     const theo = service.join("ecs-roles", { name: "Theo", purpose: "logs and screenshots", session: "Worker" }).participant;

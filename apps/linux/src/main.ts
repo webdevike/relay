@@ -52,7 +52,9 @@ import {
 } from "./catchup/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService } from "./reactions/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
-import { brainConfigOverlay, ompBrains, resolveOmp } from "./canvas/brain";
+import { canvasAgentConfig, type CanvasAgentConfig } from "./canvas/agent-config";
+import { mindConfigOverlay, ompMinds, resolveOmp } from "./canvas/brain";
+import { MODELS } from "@relay/canvas-live/shared";
 import { detectCaller, systemCallerDeps } from "./canvas/caller";
 import { CANVAS_PAGE } from "./canvas/page";
 import { CanvasService } from "./canvas/service";
@@ -110,7 +112,11 @@ const USAGE = `relay-linux <command>
                                    Sharing (VNC) on 127.0.0.1, port --vnc-port (default ${String(DEFAULT_VNC_PORT)}).
                                    Live canvas rooms run on the EvaOS boards in --canvases
                                    (default on macOS: ~/Library/Application Support/EvaOS/canvases;
-                                   elsewhere off) with omp from PATH or $RELAY_CANVAS_OMP.
+                                   elsewhere off) with omp from PATH or $RELAY_CANVAS_OMP; each
+                                   room's canvas self is a full omp agent working in the agent
+                                   home ($RELAY_CANVAS_MODEL opus, $RELAY_CANVAS_EFFORT low|medium,
+                                   budget $RELAY_CANVAS_MAX_TURNS / _MAX_TOKENS / _MAX_TURN_MIN,
+                                   idle stop $RELAY_CANVAS_IDLE_STOP_MIN).
                                    Studio keeps jobs in $XDG_CONFIG_HOME/relay/studio; local
                                    video runs <agent-home>/work/local-video/draft.py
                                    ($RELAY_STUDIO_LTX_DIR), Codex images and Higgsfield use
@@ -168,7 +174,7 @@ const USAGE = `relay-linux <command>
                                    --handoff lands that handoff (the canvas self confirms it);
                                    --leave takes <Name> out of the room after the batch
   canvas show <slug>               the live room's board, who is in it (working or idle), open
-                                   handoffs, and the latest chat (JSON)
+                                   handoffs, what its canvas self has spent, and the latest chat (JSON)
   canvas leave <slug> --as <Name>  take <Name>'s cursor out of the room
   canvas list                      list the running host's canvas rooms
   catchup bounce <id> <reason> [--agent <id>]
@@ -686,8 +692,9 @@ function serve(
 }
 
 /**
- * Live canvas rooms on the boards in `canvasDir`, their agents' brains a warm omp each; null (and
- * logged) without a canvases dir or an omp binary.
+ * Live canvas rooms on the boards in `canvasDir`, each with its canvas self as a full omp agent
+ * (canvas/agent-config.ts); null (and logged) without a canvases dir, an omp binary, or with a bad
+ * $RELAY_CANVAS_* setting.
  */
 function liveCanvas(
   canvasDir: string | null,
@@ -705,10 +712,20 @@ function liveCanvas(
     log("live canvas disabled: omp not found (set $RELAY_CANVAS_OMP)");
     return null;
   }
+  let agentConfig: CanvasAgentConfig;
+  try {
+    agentConfig = canvasAgentConfig();
+  } catch (error) {
+    log(`live canvas disabled: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
   const configDir = relayConfigDir();
+  const home = agentHome ?? homedir();
   // The sign-ins live in omp's `personal` profile on the owner's host; a starter host has only omp's default.
   const profile = existsSync(join(homedir(), ".omp", "profiles", "personal")) ? "personal" : null;
-  log(`live canvas on boards in ${canvasDir} (brains: ${omp})`);
+  log(
+    `live canvas on boards in ${canvasDir}: canvas self ${MODELS[agentConfig.model].id} (${agentConfig.effort}) via ${omp}, working in ${home}; per room ${String(agentConfig.maxRequests)} requests, ${String(Math.round(agentConfig.maxTokens / 1000))}k tokens`,
+  );
   return new CanvasService({
     canvasDir,
     chats: agents,
@@ -717,7 +734,9 @@ function liveCanvas(
       return registry();
     },
     ...(config === null || registry().length === 0 ? {} : { defaultAgentName: registry()[0]?.title ?? "" }),
-    brains: ompBrains({ omp, profile, configs: [brainConfigOverlay(configDir)], log }),
+    minds: ompMinds({ omp, profile, configs: [mindConfigOverlay(configDir)], stateDir: join(configDir, "canvas", "rooms"), agentHome: home, canvasDir, config: agentConfig, log }),
+    model: agentConfig.model,
+    agentHome: home,
     log,
   });
 }

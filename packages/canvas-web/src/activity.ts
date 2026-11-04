@@ -35,7 +35,7 @@ export function describeActivity(input: {
     let next: Activity | null = null;
     let nextRank = 0;
     if (status === "thinking") {
-      next = { avatar, color, text: `${name} is thinking…`, working: true };
+      next = { avatar, color, text: p.doing ? `${name} is ${clip(p.doing)}` : `${name} is thinking…`, working: true };
       nextRank = 3;
     } else if (status !== "idle") {
       const text =
