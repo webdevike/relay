@@ -25,7 +25,7 @@ cd apps/mac-host
 ./build.sh 0.2.0 --dist     # self-contained app for other machines: dist/Relay Host.app
 ```
 
-`--dist` bundles the `relay-host` binary (compiled with Bun), the input dylib and `Contents/Resources/omp-extension/` (`relay-bridge.ts`, plus herdr's `herdr-omp-agent-state.ts` when the build machine has it), signs everything with the first local `Apple Development` identity (ad hoc when none), and copies the app to `dist/Relay Host.app`. No GitHub release. Bundle ids are unchanged (`com.ike.relay.host`, `.daemon`, `.input`). Requires `bun`, `swiftc` and `clang`.
+`--dist` bundles the `relay-host` binary (compiled with Bun), the input dylib, `Contents/Resources/omp-extension/` (`relay-bridge.ts`, plus herdr's `herdr-omp-agent-state.ts` when the build machine has it) and `Contents/Resources/asr/relay_asr.py` (the meetings transcription worker; every build has it, its venv comes from `apps/linux/asr/setup.sh`), signs everything with the first local `Apple Development` identity (ad hoc when none), and copies the app to `dist/Relay Host.app`. No GitHub release. Bundle ids are unchanged (`com.ike.relay.host`, `.daemon`, `.input`). Requires `bun`, `swiftc` and `clang`.
 
 On first start `relay-host` copies the bundled omp extensions into `~/.omp/agent/extensions/` when they are missing (never overwriting) and starts herdr's server through the user LaunchAgent `dev.relay.herdr` when none is running.
 

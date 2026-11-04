@@ -21,7 +21,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
 import { Drop, sessionReactionThread, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "./agents/herdr";
-import { AsrWorker, asrPython } from "./meetings/asr";
+import { ASR_SCRIPT, AsrWorker, asrPython } from "./meetings/asr";
 import { loadAutoname, MeetingPipeline, type Autoname } from "./meetings/pipeline";
 import { MeetingsService } from "./meetings/service";
 import { defaultMeetingsDir, RecordingStore } from "./meetings/store";
@@ -955,7 +955,7 @@ function meetingsService(o: {
     log,
   });
   log(
-    `meetings in ${defaultMeetingsDir()}, notes in ${protocolsDir}${shadow ? " (shadow)" : ""}, transcription ${asr === null ? `off (no ${asrPython()})` : "by relay-asr"}`,
+    `meetings in ${defaultMeetingsDir()}, notes in ${protocolsDir}${shadow ? " (shadow)" : ""}, transcription ${asr === null ? `off (no ${existsSync(asrPython()) ? ASR_SCRIPT : asrPython()})` : "by relay-asr"}`,
   );
   return service;
 }

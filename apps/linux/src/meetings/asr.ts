@@ -7,7 +7,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 
 export function asrHome(): string {
@@ -27,7 +27,14 @@ export function asrModels(): string {
   return process.env["RELAY_ASR_MODELS"] ?? join(asrHome(), "models");
 }
 
-export const ASR_SCRIPT = join(import.meta.dirname, "..", "..", "asr", "relay_asr.py");
+/**
+ * relay_asr.py: `Resources/asr` in Relay Host.app (build.sh copies it there; a compiled host's
+ * `import.meta.dirname` is inside its virtual filesystem), `apps/linux/asr` in a checkout.
+ */
+const BUNDLED_ASR_SCRIPT = join(dirname(process.execPath), "..", "Resources", "asr", "relay_asr.py");
+export const ASR_SCRIPT = existsSync(BUNDLED_ASR_SCRIPT)
+  ? BUNDLED_ASR_SCRIPT
+  : join(import.meta.dirname, "..", "..", "asr", "relay_asr.py");
 
 const WorkerLine = z.object({
   ev: z.literal("line"),
@@ -88,9 +95,9 @@ export class AsrWorker implements Asr {
 
   constructor(private readonly deps: AsrWorkerDeps) {}
 
-  /** Whether the worker can run here (its venv exists). */
-  static available(python = asrPython()): boolean {
-    return existsSync(python);
+  /** Whether the worker can run here (its venv and script exist). */
+  static available(python = asrPython(), script = ASR_SCRIPT): boolean {
+    return existsSync(python) && existsSync(script);
   }
 
   private ensure(): ChildProcessWithoutNullStreams {
