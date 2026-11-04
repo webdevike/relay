@@ -248,9 +248,7 @@ function ChatView({
                 pane.title
               )}
             </h2>
-            {agent !== null ? (
-              <AgentNotch id={agent} edit={{ paneId, reply: widgetActions.reply }} />
-            ) : null}
+            {agent !== null ? <AgentNotch id={agent} edit={{ paneId }} /> : null}
             {pane.file && !pane.extras.running && !pane.owner && !pane.away ? (
               <span className="eva-chat-saved">Saved session</span>
             ) : null}

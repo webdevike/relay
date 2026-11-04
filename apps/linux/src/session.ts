@@ -680,6 +680,12 @@ export class ClientSession {
         });
         break;
       }
+      case "assistant.file.req": {
+        const assistant = this.deps.assistant;
+        const result = assistant?.file === undefined ? { ok: false, code: "invalid" as const, error: "This host has no assistants." } : assistant.file(message);
+        this.sink.send({ t: "assistant.file.res", rid: message.rid, ...result });
+        break;
+      }
       case "query.req": {
         const query = this.deps.query;
         if (query === null) {

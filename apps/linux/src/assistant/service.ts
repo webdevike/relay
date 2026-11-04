@@ -17,7 +17,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
+import { untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
@@ -600,6 +600,8 @@ export interface AssistantThreadsDeps {
   readonly create?: (agent: AssistantAgentConfig) => AssistantService;
   /** Adds an agent to the registry (`AssistantRegistry.create`); without it `create` nacks. */
   readonly register?: (input: unknown) => { readonly id: string; readonly title: string };
+  /** Reads or saves an agent's prime.md or thread memory (`handleAssistantFile`); without it `assistant.file.req` answers that the host has no agent home. */
+  readonly file?: (req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">) => Omit<AssistantFileRes, "t" | "rid">;
 }
 
 /**
@@ -634,6 +636,10 @@ export class AssistantThreads implements AssistantRelaying {
   async agents(): Promise<AssistantAgent[]> {
     this.lastSent = null;
     return this.list();
+  }
+
+  file(req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">): Omit<AssistantFileRes, "t" | "rid"> {
+    return this.deps?.file?.(req) ?? { ok: false, code: "invalid", error: "This host has no agent home." };
   }
 
   observe(change: AgentProviderChange): void {

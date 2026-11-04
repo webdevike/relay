@@ -1303,6 +1303,38 @@ describe("calls", () => {
     expect(calls.warms).toBe(1);
   });
 
+  it("answers assistant.file.req from the assistants, and refuses it on a host without any", () => {
+    const nova: AssistantThread = {
+      id: "nova",
+      title: "Nova",
+      snapshot: () => Promise.resolve({ rev: 0, messages: [], busy: false, sessionId: "" }),
+      listing: () => Promise.resolve({ id: "nova", title: "Nova" }),
+      turn: () => Promise.resolve(),
+      say: () => Promise.resolve(),
+      signin: () => Promise.resolve(),
+    };
+    const asked: unknown[] = [];
+    const assistant: AssistantRelaying = {
+      threads: [nova],
+      thread: () => nova,
+      agents: () => Promise.resolve([]),
+      observe: () => undefined,
+      file: (req) => {
+        asked.push(req);
+        return { ok: true, kind: "text", text: "You are Nova.", version: { mtimeMs: 1, size: 13, hash: "h" } };
+      },
+    };
+    const h = harness({ assistant });
+    pair(h);
+    h.session.receive({ t: "assistant.file.req", rid: "r1", agent: "nova", file: "prime", op: "read" });
+    expect(asked).toHaveLength(1);
+    expect(h.sink.last()).toEqual({ t: "assistant.file.res", rid: "r1", ok: true, kind: "text", text: "You are Nova.", version: { mtimeMs: 1, size: 13, hash: "h" } });
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "assistant.file.req", rid: "r2", agent: "nova", file: "thread", op: "read" });
+    expect(bare.sink.last()).toMatchObject({ t: "assistant.file.res", rid: "r2", ok: false, code: "invalid" });
+  });
+
   it("hands every call frame to the calls with this socket's sink, and hangs up when the socket goes", () => {
     const calls = new FakeCalls();
     const h = harness({ calls });

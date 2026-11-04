@@ -388,6 +388,19 @@ draft.py's generation grid, about 210 s for 5 s at 480x848; Codex 25 s, edits 45
 long jobs really took (a moving average). After a restart running jobs read "Stopped when the host restarted" and
 queued ones run again.
 
+## Assistant instruction files (`assistant.file.req`, `assistant.file.res`)
+
+A desktop that does not run omp itself (Relay Desktop on a MacBook pointed at this host) edits an assistant's
+instructions through the host: `assistant.file.req { rid, agent, file: "prime" | "thread", op: "read" | "version" | "save" }`
+is answered by `assistant.file.res` with the same rid (`src/assistant/files.ts`). `prime` is
+`.omp/assistant/agents/<agent>/prime.md`; `thread` is the agent's thread memory (`work/eva/agents/<agent>/thread.md`,
+or `work/agents/<agent>/thread.md` in a starter home), both under the agent home. The frame names an agent from the
+registry and one of the two files, never a path, so nothing else is reachable; a file that is missing, or a symlink
+out of the agent home, is refused (a save never creates a file). `read` answers `text`, `version { mtimeMs, size,
+hash }` (sha1 of the bytes) and the file's absolute `path` on the host; `version` is the same without the text (a poll).
+`save` carries `text`, `expectedHash` and `force`, writes tmp + rename, and fails `code: "changed-on-disk"` when the
+file no longer has `expectedHash` unless `force`. Saving a prime takes effect on the assistant's next fresh session.
+
 ## Reviews (`reviews.req`, `reviews.queue`, `reviews.astra`)
 
 What waits on Isaac's reply, on the phone as in Relay Desktop's Reviews page (`packages/protocol/src/reviews.ts` is

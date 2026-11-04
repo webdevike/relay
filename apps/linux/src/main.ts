@@ -16,6 +16,7 @@ import pkg from "../package.json";
 import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
+import { handleAssistantFile } from "./assistant/files";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { SessionFiles } from "./agents/session-files";
@@ -395,6 +396,7 @@ function serve(
     log,
     create: thread,
     ...(registryAdmin === null ? {} : { register: (input: unknown) => registryAdmin.create(input) }),
+    ...(agentHome === null ? {} : { file: (req) => handleAssistantFile(agentHome, req) }),
   });
   const stopRegistryWatch =
     registryAdmin === null || assistant === null

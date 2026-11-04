@@ -75,6 +75,8 @@ export interface FilesState {
   quickOpen: boolean
   /** Bumped by Cmd+Shift+F: the search input takes focus each time. */
   searchFocus: number
+  /** Which open files are an assistant's instructions, by `agentFileKey(root, path)`. */
+  agentFiles: Record<string, AgentFileNote>
 }
 
 export const filesStore = createStore<FilesState>(() => ({
@@ -84,6 +86,7 @@ export const filesStore = createStore<FilesState>(() => ({
   sideOpen: true,
   quickOpen: false,
   searchFocus: 0,
+  agentFiles: {},
 }))
 
 export function useFiles<T>(selector: (s: FilesState) => T): T {
@@ -132,45 +135,56 @@ export function setEditorBridge(b: EditorBridge | null): void {
 let rootSeq = 0
 /** The chat whose Files panel shows the Eva root instead of its worktree (`showPath`). */
 let evaRootFor: string | null | undefined
+/**
+ * The chat whose Files panel shows an assistant's instruction files (`openAgentFiles`): its root
+ * is the Eva root, or on a thin client the Mini's virtual root, instead of the chat's worktree.
+ */
+let agentRootFor: { file: string | null; root: string; name: string } | undefined
+
+function ensureSpace(root: string, name: string): void {
+  if (space(root)) return
+  filesStore.setState((s) => ({
+    spaces: {
+      ...s.spaces,
+      [root]: {
+        root,
+        name,
+        children: {},
+        expanded: new Set(),
+        git: null,
+        showIgnored: false,
+        selected: null,
+        tabs: [],
+        active: null,
+        recent: [],
+        allFiles: null,
+        search: {
+          query: '',
+          regex: false,
+          caseSensitive: false,
+          wholeWord: false,
+          running: false,
+          result: null,
+          error: null,
+        },
+        reveal: null,
+        closing: null,
+        error: null,
+      },
+    },
+  }))
+}
 
 /** Points the panel at the chat's root (its worktree), or the Eva root without a chat. */
 export async function followChat(file: string | null): Promise<void> {
   const seq = ++rootSeq
-  const r = await invoke('files.root', { file: file === evaRootFor ? null : file })
+  const pinned = agentRootFor?.file === file ? agentRootFor : undefined
+  const r = pinned
+    ? ({ ok: true, value: { root: pinned.root, name: pinned.name } } as const)
+    : await invoke('files.root', { file: file === evaRootFor ? null : file })
   if (seq !== rootSeq || !r.ok) return
   const { root, name } = r.value
-  if (!space(root)) {
-    filesStore.setState((s) => ({
-      spaces: {
-        ...s.spaces,
-        [root]: {
-          root,
-          name,
-          children: {},
-          expanded: new Set(),
-          git: null,
-          showIgnored: false,
-          selected: null,
-          tabs: [],
-          active: null,
-          recent: [],
-          allFiles: null,
-          search: {
-            query: '',
-            regex: false,
-            caseSensitive: false,
-            wholeWord: false,
-            running: false,
-            result: null,
-            error: null,
-          },
-          reveal: null,
-          closing: null,
-          error: null,
-        },
-      },
-    }))
-  }
+  ensureSpace(root, name)
   filesStore.setState({ root })
   if (space(root)?.children[''] === undefined) void loadDir(root, '')
   void refreshGit(root)
@@ -239,6 +253,7 @@ export async function showPath(
 ): Promise<ShownPath> {
   const { root, path: rel, kind, evaRoot } = await locate(target, chatFile)
   evaRootFor = root === evaRoot && chatFile !== null ? chatFile : undefined
+  agentRootFor = undefined
   await followChat(chatFile)
   // The tree's autoReveal effect runs for the new root first; reveal after it. (The renderer's
   // lib is ES2023, without Promise.withResolvers.)
@@ -254,6 +269,51 @@ export async function showPath(
     revealInTree(root, rel)
   }
   return { root, path: rel, kind }
+}
+
+/** An open file that is one of an assistant's two instruction files. */
+export interface AgentFileNote {
+  agent: string
+  /** The assistant's name, for the notice in the editor. */
+  title: string
+  kind: 'prime' | 'thread'
+  /** On the Mini (a thin client), not on this Mac. */
+  remote: boolean
+}
+
+export const agentFileKey = (root: string, path: string): string => `${root}\0${path}`
+
+/**
+ * Opens assistant `agent`'s instruction files in the panel of `chatFile`: prime.md in front and
+ * thread.md as the second tab. On a thin client both are the Mini's, read and saved through its
+ * Relay Host (main's `files.agent`).
+ */
+export async function openAgentFiles(
+  agent: string,
+  title: string,
+  chatFile: string | null,
+): Promise<void> {
+  const r = await invoke('files.agent', { agent })
+  if (!r.ok) throw Object.assign(new Error(r.error.message), { code: r.error.code })
+  const { root, name, prime, thread, remote } = r.value
+  evaRootFor = undefined
+  agentRootFor = { file: chatFile, root, name }
+  await followChat(chatFile)
+  // The tree's autoReveal effect runs for the new root first, like `showPath`.
+  await new Promise<void>((done) => setTimeout(done, 50))
+  filesStore.setState((s) => ({
+    side: 'explorer',
+    sideOpen: true,
+    agentFiles: {
+      ...s.agentFiles,
+      [agentFileKey(root, prime)]: { agent, title, kind: 'prime', remote },
+      [agentFileKey(root, thread)]: { agent, title, kind: 'thread', remote },
+    },
+  }))
+  openFile(root, prime, { pin: true })
+  openFile(root, thread, { pin: true })
+  activateTab(root, prime)
+  revealInTree(root, prime)
 }
 
 // Tree ------------------------------------------------------------------------------------
@@ -639,6 +699,7 @@ export function resetFilesStoreForTests(): void {
   dirtyOff.clear()
   loadingDirs.clear()
   evaRootFor = undefined
+  agentRootFor = undefined
   filesStore.setState({
     root: null,
     spaces: {},
@@ -646,5 +707,6 @@ export function resetFilesStoreForTests(): void {
     sideOpen: true,
     quickOpen: false,
     searchFocus: 0,
+    agentFiles: {},
   })
 }
