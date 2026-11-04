@@ -237,7 +237,6 @@
     "padding: var(--eva-sidebar-top) 0 0": 1,
     "padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-native-xs)": 1,
     "padding: var(--eva-space-native-xs) var(--eva-space-native-sm)": 1,
-    "padding: var(--eva-space-native-xs) var(--eva-space-xs) var(--eva-space-xs)": 1,
     "padding: var(--eva-space-sm) 12px": 1
   },
   "apps/desktop/src/renderer/styles/tokens.css": {

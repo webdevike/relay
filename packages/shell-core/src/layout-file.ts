@@ -16,6 +16,8 @@ export interface LayoutRead {
   tiling: Record<string, unknown> | null
   /** The old panel's width and tool, while neither layout is saved. */
   legacyPanel: LegacyPanel | null
+  /** The sidebar customization (shown/hidden items, order, favorites); the renderer validates it. */
+  sidebar: Record<string, unknown> | null
   malformed: boolean
 }
 
@@ -24,6 +26,8 @@ export interface LayoutPatch {
   tabs?: unknown
   /** The dockview layout (its toJSON). */
   dock?: Record<string, unknown>
+  /** The sidebar customization, replaced whole. */
+  sidebar?: Record<string, unknown>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -39,6 +43,7 @@ export function readLayoutText(text: string | null): LayoutRead {
     dock: null,
     tiling: null,
     legacyPanel: null,
+    sidebar: null,
     malformed: false,
   }
   if (text === null) return defaults
@@ -68,6 +73,7 @@ export function readLayoutText(text: string | null): LayoutRead {
     dock,
     tiling,
     legacyPanel,
+    sidebar: isObject(body['sidebar']) ? body['sidebar'] : null,
     malformed: false,
   }
 }
@@ -83,6 +89,7 @@ export function mergeLayout(existing: unknown, patch: LayoutPatch): Record<strin
     out['sidebar_width'] = Math.round(sidebarClamp(patch.sidebarWidth))
   }
   if ('tabs' in patch) out['tabs'] = patch.tabs
+  if (patch.sidebar !== undefined) out['sidebar'] = patch.sidebar
   if (patch.dock !== undefined) {
     out['dock'] = patch.dock
     delete out['tiling']

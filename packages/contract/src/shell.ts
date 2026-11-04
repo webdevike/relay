@@ -75,6 +75,8 @@ export const shellInvoke = {
       tiling: z.unknown().nullable(),
       /** The side panel before panes, while neither layout is saved: seeds the first layout. */
       legacyPanel: z.object({ width: z.number(), tool: ToolKindSchema }).nullable(),
+      /** The sidebar customization saved in layout.json; the renderer validates it. */
+      sidebar: z.record(z.string(), z.unknown()).nullable(),
       reset: z.boolean(),
     }),
   },
@@ -85,6 +87,8 @@ export const shellInvoke = {
         tabs: SavedTabsSchema.optional(),
         /** The dockview layout (its toJSON); saving it drops the split tree and old panel keys. */
         dock: z.record(z.string(), z.unknown()).optional(),
+        /** The sidebar customization (visibility, order, favorites), replaced whole. */
+        sidebar: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
     output: Empty,

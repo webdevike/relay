@@ -7,6 +7,7 @@ const defaults = {
   dock: null,
   tiling: null,
   legacyPanel: { width: 420, tool: 'browser' },
+  sidebar: null,
   malformed: false,
 }
 
@@ -77,5 +78,22 @@ describe('mergeLayout', () => {
     )
     expect(out).toEqual({ zoom: 2, dock })
     expect(mergeLayout({}, {})).toEqual({})
+  })
+})
+
+describe('sidebar customization', () => {
+  it('reads the saved object and ignores anything else', () => {
+    const sidebar = { badgeStyle: 'dot', visibility: { jobs: 'never' } }
+    expect(readLayoutText(JSON.stringify({ sidebar })).sidebar).toEqual(sidebar)
+    expect(readLayoutText('{"sidebar": [1]}').sidebar).toBeNull()
+    expect(readLayoutText('{"sidebar": "x"}').sidebar).toBeNull()
+  })
+  it('replaces it whole and keeps every other key', () => {
+    const next = mergeLayout(
+      { sidebar_width: 300, sidebar: { a: 1 }, dock: { x: 1 } },
+      { sidebar: { b: 2 } },
+    )
+    expect(next).toEqual({ sidebar_width: 300, sidebar: { b: 2 }, dock: { x: 1 } })
+    expect(mergeLayout({ sidebar: { a: 1 } }, { sidebarWidth: 280 })['sidebar']).toEqual({ a: 1 })
   })
 })
