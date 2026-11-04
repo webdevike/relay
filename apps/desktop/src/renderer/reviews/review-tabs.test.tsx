@@ -66,10 +66,10 @@ vi.mock('../navigation/navigate', () => ({
 }))
 const openLink = vi.fn()
 vi.mock('../navigation/open-link', () => ({ openLink: (...a: unknown[]) => openLink(...a) }))
-const openTab = vi.fn()
+const openPlaceBeside = vi.fn()
 vi.mock('../tiling/tiling-store', async (orig) => ({
   ...(await orig<typeof TilingStore>()),
-  openTab: (...a: unknown[]) => openTab(...a),
+  openPlaceBeside: (...a: unknown[]) => openPlaceBeside(...a),
 }))
 
 import { createTabs, placeOf, type Place } from '@evaos/shell-core'
@@ -101,7 +101,7 @@ beforeEach(() => {
   invoke.mockClear()
   openPlace.mockClear()
   openLink.mockClear()
-  openTab.mockClear()
+  openPlaceBeside.mockClear()
   resetReviewsForTests()
   reviewsStore.setState({ view: 'for-me' })
   seed(placeOf('reviews'))
@@ -127,7 +127,7 @@ describe('queue rows open review places', () => {
     wrap(<ReviewsList />)
     const pr = await screen.findByTestId('review-row-172')
     fireEvent.click(pr, { metaKey: true })
-    expect(openTab).toHaveBeenLastCalledWith({ kind: 'page', place: PR_PLACE })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(PR_PLACE)
     expect(openPlace).not.toHaveBeenCalled()
     fireEvent.click(pr, { metaKey: true, shiftKey: true })
     expect(openPlace).toHaveBeenLastCalledWith(PR_PLACE, { newTab: true })
@@ -153,7 +153,7 @@ describe('queue rows open review places', () => {
     expect(openPlace).toHaveBeenLastCalledWith(PR_PLACE, { newTab: true })
     fireEvent.contextMenu(await screen.findByTestId('review-ticket-ENG-6648'))
     fireEvent.click(await screen.findByTestId('review-row-menu-split'))
-    expect(openTab).toHaveBeenLastCalledWith({ kind: 'page', place: TICKET_PLACE })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(TICKET_PLACE)
     fireEvent.contextMenu(await screen.findByTestId('review-row-172'))
     fireEvent.click(await screen.findByTestId('review-row-menu-link'))
     expect(openLink).toHaveBeenLastCalledWith(ROW.url, { reviews: false })

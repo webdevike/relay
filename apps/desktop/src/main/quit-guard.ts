@@ -27,7 +27,7 @@ const MAX_LABELS = 5
 export function confirmDetail(entries: Entry[]): string {
   const shown = entries.slice(0, MAX_LABELS).map((e) => e.label)
   if (entries.length > MAX_LABELS) shown.push(`and ${entries.length - MAX_LABELS} more`)
-  return `${shown.join('\n')}\n\nSave them before EvaOS closes, or discard them. Cancel keeps EvaOS open.`
+  return `${shown.join('\n')}\n\nSave them before Relay closes, or discard them. Cancel keeps Relay open.`
 }
 
 export function createQuitGuard(deps: QuitGuardDeps): {
@@ -43,7 +43,7 @@ export function createQuitGuard(deps: QuitGuardDeps): {
     if (entries !== null && entries.length === 0) return true
     const detail =
       entries === null
-        ? `EvaOS could not check for unsaved edits.\n\nSave them before EvaOS closes, or discard them. Cancel keeps EvaOS open.`
+        ? `Relay could not check for unsaved edits.\n\nSave them before Relay closes, or discard them. Cancel keeps Relay open.`
         : confirmDetail(entries)
     const choice = await deps.dialog.confirm('You have unsaved changes', detail)
     if (choice === 2) return false
@@ -51,7 +51,7 @@ export function createQuitGuard(deps: QuitGuardDeps): {
     const failures = await deps.saveAll()
     if (failures.length === 0) return true
     const f = failures[0]!
-    await deps.dialog.failure(`Could not save ${f.label}. EvaOS stays open so nothing is lost.`)
+    await deps.dialog.failure(`Could not save ${f.label}. Relay stays open so nothing is lost.`)
     return false
   }
 

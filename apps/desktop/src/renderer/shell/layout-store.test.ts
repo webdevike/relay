@@ -21,15 +21,22 @@ import {
   toggleSidebar,
 } from './layout-store'
 import { resetTilingForTests, tilingStore, toggleToolPanes } from '../tiling/tiling-store'
+import { mountTestDock } from '../tiling/test-dock'
+import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
 import { openPlace, setNavigator } from '../navigation/navigate'
-import { placeOf, tilingToJson, defaultTiling } from '@evaos/shell-core'
+import { defaultDock, placeOf } from '@evaos/shell-core'
 
 const g = () => layoutStore.getState()
 
+let unmount = (): void => {}
 beforeEach(() => {
+  unmount()
+  unmount = () => {}
   invoke.mockReset()
   invoke.mockResolvedValue({ ok: true, value: {} })
   show.mockReset()
+  resetTabsForTests()
+  tabsStore.setState({ loaded: true })
   resetTilingForTests()
   resetLayoutStoreForTests()
   setWindowWidth(1280)
@@ -48,6 +55,7 @@ describe('derived widths', () => {
 
   it('hiding the tool panes gives the sidebar its room back', () => {
     setWindowWidth(935)
+    unmount = mountTestDock()
     toggleToolPanes(false)
     expect(g()).toMatchObject({ contentMin: 480, sidebarPx: 272, state: 'open' })
   })
@@ -117,6 +125,7 @@ describe('loadLayout', () => {
               value: {
                 sidebarWidth: 272,
                 tabs: null,
+                dock: null,
                 tiling: null,
                 legacyPanel: null,
                 reset: false,
@@ -137,31 +146,46 @@ describe('loadLayout', () => {
   })
 
   it('keeps defaults when the call fails, and the panes still count as loaded', async () => {
-    invoke.mockRejectedValue(new Error('x'))
+    unmount = mountTestDock(null, false)
+    invoke.mockImplementation((ch: string) =>
+      ch === 'layout.load'
+        ? Promise.reject(new Error('x'))
+        : Promise.resolve({ ok: true, value: {} }),
+    )
     await loadLayout()
     expect(g().sidebarWidth).toBe(272)
     expect(show).not.toHaveBeenCalled()
     expect(tilingStore.getState().loaded).toBe(true)
   })
 
-  it('restores the saved pane tree', async () => {
-    const saved = tilingToJson(defaultTiling(0.5, 'files'))
-    loaded({ tiling: saved })
+  it('restores the saved panes without writing them back', async () => {
+    unmount = mountTestDock(null, false)
+    const saved = defaultDock(
+      tabsStore.getState().tabs,
+      { width: 1200, height: 800 },
+      (id) => id,
+      0.5,
+      'files',
+    )
+    loaded({ dock: saved })
     await loadLayout()
-    expect(tilingToJson(tilingStore.getState().tiling)).toEqual(saved)
-    // A restored tree is not written back.
+    expect(tilingStore.getState().panes.map((p) => [p.id, p.active])).toEqual([
+      ['p1', 'tab:0'],
+      ['p2', 'files'],
+    ])
     expect(invoke).not.toHaveBeenCalledWith('layout.save', expect.anything())
   })
 
   it("migrates the old side panel: its width as the tool pane's share, its tool in front", async () => {
+    unmount = mountTestDock(null, false)
     loaded({ legacyPanel: { width: 420, tool: 'files' } })
     await loadLayout()
-    const t = tilingStore.getState().tiling
+    const [chat, tools] = tilingStore.getState().panes
     // The old width over the room the panes had next to the sidebar (at least chat + panel).
     const room = Math.max(window.innerWidth - 272 - 24, 420 + 480)
-    expect(t.root.type === 'split' && t.root.sizes[1]).toBeCloseTo(420 / room)
-    expect(t.root.type === 'split' && t.root.children[1]).toMatchObject({ active: 'files' })
-    expect(invoke).toHaveBeenCalledWith('layout.save', { tiling: tilingToJson(t) })
+    expect(tools!.rect!.w / (chat!.rect!.w + tools!.rect!.w)).toBeCloseTo(420 / room, 1)
+    expect(tools!.active).toBe('files')
+    expect(invoke).toHaveBeenCalledWith('layout.save', { dock: expect.any(Object) })
   })
 })
 

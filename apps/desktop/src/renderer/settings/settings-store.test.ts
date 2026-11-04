@@ -84,7 +84,7 @@ describe('settings store', () => {
     expect(settingsStore.getState().show_tools).toBe(false)
     expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: SAVE_ERROR_COPY }))
     expect(SAVE_ERROR_COPY).toBe(
-      'Could not save your settings. Check that the EvaOS config folder is writable, then try again.',
+      'Could not save your settings. Check that the Relay config folder is writable, then try again.',
     )
     invoke.mockRejectedValueOnce(new Error('boom'))
     await setSetting('show_tools', true)

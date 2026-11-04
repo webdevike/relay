@@ -1,7 +1,7 @@
+import { isToolKind, type ToolKind } from './dock'
 import { PANEL_DEFAULT, SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN } from './fit'
-import { isToolKind, tilingFromJson, tilingToJson, type Tiling, type ToolKind } from './tiling'
 
-/** What the side panel was before tiling: read once to seed the first tiling. */
+/** What the side panel was before panes: read once to seed the first layout. */
 export interface LegacyPanel {
   width: number
   tool: ToolKind
@@ -10,9 +10,11 @@ export interface LegacyPanel {
 export interface LayoutRead {
   sidebarWidth: number
   tabs: unknown | null
-  /** The saved pane tree, validated; null when there is none yet. */
-  tiling: Tiling | null
-  /** The old panel's width and tool, while no tiling is saved. */
+  /** The saved dockview layout (shell-core reconcileDock reads it); null when there is none yet. */
+  dock: Record<string, unknown> | null
+  /** The split tree kept before dockview, while no `dock` is saved: migrated once (migrateTiling). */
+  tiling: Record<string, unknown> | null
+  /** The old panel's width and tool, while neither layout is saved. */
   legacyPanel: LegacyPanel | null
   malformed: boolean
 }
@@ -20,7 +22,8 @@ export interface LayoutRead {
 export interface LayoutPatch {
   sidebarWidth?: number
   tabs?: unknown
-  tiling?: Tiling
+  /** The dockview layout (its toJSON). */
+  dock?: Record<string, unknown>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -33,6 +36,7 @@ export function readLayoutText(text: string | null): LayoutRead {
   const defaults: LayoutRead = {
     sidebarWidth: SIDEBAR_DEFAULT,
     tabs: null,
+    dock: null,
     tiling: null,
     legacyPanel: null,
     malformed: false,
@@ -46,9 +50,10 @@ export function readLayoutText(text: string | null): LayoutRead {
   }
   if (!isObject(body)) return { ...defaults, malformed: true }
   const sw = body['sidebar_width']
-  const tiling = tilingFromJson(body['tiling'])
+  const dock = isObject(body['dock']) ? body['dock'] : null
+  const tiling = dock === null && isObject(body['tiling']) ? body['tiling'] : null
   let legacyPanel: LegacyPanel | null = null
-  if (!tiling) {
+  if (dock === null && tiling === null) {
     const pw = body['panel_width']
     const tool = body['panel_tool']
     legacyPanel = {
@@ -60,6 +65,7 @@ export function readLayoutText(text: string | null): LayoutRead {
     sidebarWidth:
       typeof sw === 'number' && Number.isFinite(sw) ? sidebarClamp(sw) : SIDEBAR_DEFAULT,
     tabs: body['tabs'] ?? null,
+    dock,
     tiling,
     legacyPanel,
     malformed: false,
@@ -67,8 +73,9 @@ export function readLayoutText(text: string | null): LayoutRead {
 }
 
 /**
- * Applies a patch over the existing body, keeping every other key verbatim. Saving a tiling
- * drops the side panel's per-page choices and tool, which it replaces.
+ * Applies a patch over the existing body, keeping every other key verbatim. Saving the dockview
+ * layout drops what it replaces: the split tree and the side panel's width, per-page choices and
+ * tool.
  */
 export function mergeLayout(existing: unknown, patch: LayoutPatch): Record<string, unknown> {
   const out: Record<string, unknown> = isObject(existing) ? { ...existing } : {}
@@ -76,8 +83,10 @@ export function mergeLayout(existing: unknown, patch: LayoutPatch): Record<strin
     out['sidebar_width'] = Math.round(sidebarClamp(patch.sidebarWidth))
   }
   if ('tabs' in patch) out['tabs'] = patch.tabs
-  if (patch.tiling !== undefined) {
-    out['tiling'] = tilingToJson(patch.tiling)
+  if (patch.dock !== undefined) {
+    out['dock'] = patch.dock
+    delete out['tiling']
+    delete out['panel_width']
     delete out['panel_choices']
     delete out['panel_tool']
   }

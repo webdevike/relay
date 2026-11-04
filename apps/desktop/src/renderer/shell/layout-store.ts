@@ -4,7 +4,10 @@ import { createStore } from 'zustand/vanilla'
 import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, fitSidebar } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { registerAction } from '../hotkeys/router'
-import { applySavedTiling, contentMinWidth, tilingStore } from '../tiling/tiling-store'
+import { applySavedLayout, tilingStore } from '../tiling/tiling-store'
+
+export const FOLDED_LABEL =
+  'Sidebar hidden to fit the window. Widen the window or close a pane to bring it back.'
 
 export type SidebarState = 'open' | 'hidden' | 'folded'
 
@@ -15,7 +18,7 @@ export interface LayoutState {
   sidebarWidth: number
   /** Preference, memory only (D-04). */
   sidebarWanted: boolean
-  /** The smallest width the panes on screen take (tiling-store contentMinWidth). */
+  /** The smallest width the panes on screen take (tiling-store contentMin). */
   contentMin: number
   loaded: boolean
   /** Derived through shell-core fitSidebar only (D-01). */
@@ -39,7 +42,7 @@ function initial(): LayoutState {
     windowWidth: typeof window === 'undefined' ? 1280 : window.innerWidth,
     sidebarWidth: SIDEBAR_DEFAULT,
     sidebarWanted: true,
-    contentMin: contentMinWidth(tilingStore.getState().tiling),
+    contentMin: tilingStore.getState().contentMin,
     loaded: false,
   }
   return { ...base, ...derive(base) }
@@ -56,9 +59,8 @@ function patch(p: Partial<Base>): void {
 
 // The sidebar folds when the panes on screen need its room.
 tilingStore.subscribe((s, prev) => {
-  if (s.tiling === prev.tiling) return
-  const contentMin = contentMinWidth(s.tiling)
-  if (contentMin !== layoutStore.getState().contentMin) patch({ contentMin })
+  if (s.contentMin === prev.contentMin) return
+  if (s.contentMin !== layoutStore.getState().contentMin) patch({ contentMin: s.contentMin })
 })
 
 const clampSidebar = (n: number): number => Math.min(Math.max(n, SIDEBAR_MIN), SIDEBAR_MAX)
@@ -103,13 +105,18 @@ export function resetSidebarWidth(): void {
 
 let resetToastShown = false
 
-/** Loads the sidebar width and the pane tree from layout.json; the defaults stand on failure. */
+/** Loads the sidebar width and the pane layout from layout.json; the defaults stand on failure. */
 export async function loadLayout(): Promise<void> {
   try {
     const r = await invoke('layout.load', {})
     if (r.ok) {
       const sidebarWidth = clampSidebar(r.value.sidebarWidth)
-      applySavedTiling(r.value.tiling, r.value.legacyPanel, sidebarWidth)
+      applySavedLayout({
+        dock: r.value.dock,
+        tiling: r.value.tiling,
+        legacy: r.value.legacyPanel,
+        sidebarWidth,
+      })
       patch({ sidebarWidth, loaded: true })
       if (r.value.reset && !resetToastShown) {
         resetToastShown = true
@@ -120,7 +127,7 @@ export async function loadLayout(): Promise<void> {
   } catch {
     // keep defaults silently
   }
-  tilingStore.setState({ loaded: true })
+  applySavedLayout({ dock: null, tiling: null, legacy: null, sidebarWidth: SIDEBAR_DEFAULT })
 }
 
 /** Test seam. */

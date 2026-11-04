@@ -4,12 +4,12 @@ import { placeOf } from '@evaos/shell-core'
 
 const invoke = vi.fn()
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: vi.fn() }))
-const tiling = { focus: 'chat' }
-const openTab = vi.fn()
+const openPlaceBeside = vi.fn()
+const openPlaceHere = vi.fn()
 vi.mock('../tiling/tiling-store', () => ({
   revealTool: vi.fn(),
-  openTab: (...a: unknown[]) => openTab(...a),
-  tilingStore: { getState: () => ({ tiling }) },
+  openPlaceBeside: (...a: unknown[]) => openPlaceBeside(...a),
+  openPlaceHere: (...a: unknown[]) => openPlaceHere(...a),
 }))
 const navigateTo = vi.fn()
 vi.mock('../tabs/tabs-store', () => ({ navigateTo: (...a: unknown[]) => navigateTo(...a) }))
@@ -27,7 +27,6 @@ import { navTargetOf, openTargetOf } from './open-target'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  tiling.focus = 'chat'
   linkPrefsStore.setState({
     prefs: DEFAULT_LINK_PREFS,
     apps: ['Arc', 'Linear', 'Slack'],
@@ -51,9 +50,9 @@ describe('openLink', () => {
   it('opens an item in Reviews: split by default, Cmd a new tab, Option here', () => {
     const reviews = placeOf('reviews')
     openLink('https://linear.app/w/issue/ENG-6693')
-    expect(openTab).toHaveBeenLastCalledWith({ kind: 'page', place: reviews })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(reviews)
     openLink('https://github.com/o/r/pull/2', { target: 'here' })
-    expect(navigateTo).toHaveBeenLastCalledWith(reviews)
+    expect(openPlaceHere).toHaveBeenLastCalledWith(reviews)
     openLink('https://ecard.slack.com/archives/C1ABC/p1730000000123456', { target: 'tab' })
     expect(navigateTo).toHaveBeenLastCalledWith(reviews, { newTab: true })
     expect(openReviewItem.mock.calls.map((c) => c[0])).toEqual([
@@ -71,34 +70,33 @@ describe('openLink', () => {
   })
   it('opens relay:// links as in-app places beside the chat, never in a browser', () => {
     openLink('relay://assistant/nova')
-    expect(openTab).toHaveBeenLastCalledWith({ kind: 'page', place: placeOf('agent:nova') })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(placeOf('agent:nova'))
     openLink('relay://assistant/astra', { target: 'tab' })
     expect(navigateTo).toHaveBeenLastCalledWith(placeOf('agent:astra'), { newTab: true })
     openLink('relay://open/jobs', { target: 'here' })
-    expect(navigateTo).toHaveBeenLastCalledWith(placeOf('jobs'))
-    expect(openTab).toHaveBeenCalledTimes(1)
-    expect(navigateTo).toHaveBeenCalledTimes(2)
+    expect(openPlaceHere).toHaveBeenLastCalledWith(placeOf('jobs'))
+    expect(openPlaceBeside).toHaveBeenCalledTimes(1)
+    expect(navigateTo).toHaveBeenCalledTimes(1)
+    expect(openPlaceHere).toHaveBeenCalledTimes(1)
     // Unknown pages and malformed links go nowhere.
     openLink('relay://open/nope')
     openLink('relay://assistant/')
     openLink('relay://assistant/Nova')
-    expect(openTab).toHaveBeenCalledTimes(1)
-    expect(navigateTo).toHaveBeenCalledTimes(2)
+    expect(openPlaceBeside).toHaveBeenCalledTimes(1)
+    expect(navigateTo).toHaveBeenCalledTimes(1)
+    expect(openPlaceHere).toHaveBeenCalledTimes(1)
     expect(invoke).not.toHaveBeenCalled()
   })
-  it('a chat place cannot split: it gets a new tab', () => {
-    openInApp(placeOf('chat', { chat: '/s/a.jsonl' }))
-    expect(openTab).not.toHaveBeenCalled()
-    expect(navigateTo).toHaveBeenCalledWith(placeOf('chat', { chat: '/s/a.jsonl' }), {
-      newTab: true,
-    })
+  it('a chat place splits like a page: any pane holds chats', () => {
+    const chat = placeOf('chat', { chat: '/s/a.jsonl' })
+    openInApp(chat)
+    expect(openPlaceBeside).toHaveBeenCalledWith(chat)
+    expect(navigateTo).not.toHaveBeenCalled()
   })
   it('Option replaces what the focused pane shows', () => {
     openInApp(placeOf('jobs'), 'here')
-    expect(navigateTo).toHaveBeenLastCalledWith(placeOf('jobs'))
-    tiling.focus = 'tools-1'
-    openInApp(placeOf('jobs'), 'here')
-    expect(openTab).toHaveBeenLastCalledWith({ kind: 'page', place: placeOf('jobs') }, 'tools-1')
+    expect(openPlaceHere).toHaveBeenLastCalledWith(placeOf('jobs'))
+    expect(openPlaceBeside).not.toHaveBeenCalled()
   })
 })
 
@@ -122,14 +120,14 @@ describe('click targets', () => {
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('jobs'), { newTab: false })
     openFromNav(placeOf('jobs'), { metaKey: true, shiftKey: true })
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('jobs'), { newTab: true })
-    expect(openTab).not.toHaveBeenCalled()
+    expect(openPlaceBeside).not.toHaveBeenCalled()
     openFromNav(placeOf('jobs'), { metaKey: true })
-    expect(openTab).toHaveBeenLastCalledWith({ kind: 'page', place: placeOf('jobs') })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(placeOf('jobs'))
     expect(openPlace).toHaveBeenCalledTimes(2)
   })
   it('Cmd keeps an app override: a Linear link still opens the app, not a pane', () => {
     openLink('https://linear.app/w/view/all', { target: openTargetOf({ metaKey: true }) })
     expect(invoke).toHaveBeenLastCalledWith('links.open', { url: 'https://linear.app/w/view/all' })
-    expect(openTab).not.toHaveBeenCalled()
+    expect(openPlaceBeside).not.toHaveBeenCalled()
   })
 })

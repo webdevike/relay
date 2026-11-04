@@ -1,6 +1,6 @@
 import { MantineProvider } from '@mantine/core'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ArmCost, ArmSummary, ExperimentDetail, ExperimentRow } from '@evaos/contract'
 
 const invoke = vi.fn()
@@ -14,8 +14,9 @@ vi.mock('../ipc', () => ({
 }))
 
 import { placeOf } from '@evaos/shell-core'
-import { findTab } from '@evaos/shell-core'
-import { tilingStore } from '../tiling/tiling-store'
+import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
+import { resetTilingForTests, tilingStore, toolTabOfId } from '../tiling/tiling-store'
+import { mountTestDock } from '../tiling/test-dock'
 import { ExperimentArmPanel } from './ExperimentArmPanel'
 import { TestBenchPage } from './TestBenchPage'
 
@@ -170,10 +171,16 @@ function mount(ui: React.ReactNode) {
   return render(<MantineProvider env="test">{ui}</MantineProvider>)
 }
 
+let unmountDock = (): void => {}
+afterEach(() => unmountDock())
 beforeEach(() => {
+  resetTabsForTests()
+  resetTilingForTests()
+  tabsStore.setState({ loaded: true })
   invoke.mockReset()
   listeners.clear()
   invoke.mockImplementation(async (channel: string, input: { id?: string; arm?: string }) => {
+    if (channel === 'layout.save') return { ok: true, value: {} }
     if (channel === 'experiments.list') return { ok: true, value: ROWS }
     if (channel === 'experiments.get')
       return { ok: true, value: input.id === SUMMARIZED.id ? SUMMARIZED : FALLBACK }
@@ -211,6 +218,7 @@ beforeEach(() => {
       }
     throw new Error(`unexpected ${channel}`)
   })
+  unmountDock = mountTestDock()
 })
 
 describe('TestBenchPage', () => {
@@ -260,14 +268,15 @@ describe('TestBenchPage', () => {
     )
     expect(rows[2]!.textContent).toContain('$0.010 billed')
     fireEvent.click(rows[1]!)
-    const tiling = tilingStore.getState().tiling
-    expect(findTab(tiling, 'arm:2026-10-28-live/treatment')?.tab).toEqual({
+    const id = 'arm:2026-10-28-live/treatment'
+    expect(toolTabOfId(id)).toEqual({
       kind: 'experiment-arm',
       experiment: '2026-10-28-live',
       arm: 'treatment',
       label: 'treatment arm',
     })
-    expect(tiling.focus).toBe(findTab(tiling, 'arm:2026-10-28-live/treatment')?.pane.id)
+    const { panes, focus } = tilingStore.getState()
+    expect(focus).toBe(panes.find((p) => p.views.includes(id))?.id)
   })
 
   it('renders results.md and the record verdict for an experiment without summary.json', async () => {

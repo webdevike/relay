@@ -2,9 +2,6 @@ import { notifications } from '@mantine/notifications'
 import { invoke } from '../ipc'
 import { chatStore } from './chat-store'
 
-/** Main's chat pane: the app tab in front shows here. */
-export const PANE_ID = 'pane-1'
-
 /** Each pane's opens in flight; calls reach main in order, so the latest is what main holds. */
 interface Opening {
   inflight: string | null
@@ -25,21 +22,24 @@ function openingOf(paneId: string): Opening {
   return o
 }
 
-let toolPanes = 0
+let chatPanes = 0
 
-/** A new id for a chat a tool pane's tab shows (never main's, never one used before). */
-export function newToolPaneId(): string {
-  toolPanes += 1
-  return `tool-${toolPanes}`
+/**
+ * A new id for the chat an app tab shows while it is on screen (never one used before, so a
+ * drop of the last mount's pane can never land on this one).
+ */
+export function newChatPaneId(): string {
+  chatPanes += 1
+  return `pane-${chatPanes}`
 }
 
 /**
- * Opens a session file into chat pane `paneId` (main's by default). A no-op when the pane already
- * shows it (and no other open is in flight) or is loading it. Clicking the shown chat while
- * another open is in flight re-opens it, so main (which already took the other open) and the pane
- * agree again; older results are dropped.
+ * Opens a session file into chat pane `paneId`. A no-op when the pane already shows it (and no
+ * other open is in flight) or is loading it. Opening the shown chat while another open is in
+ * flight re-opens it, so main (which already took the other open) and the pane agree again;
+ * older results are dropped.
  */
-export async function openChatFile(file: string, paneId = PANE_ID): Promise<void> {
+export async function openChatFile(file: string, paneId: string): Promise<void> {
   const o = openingOf(paneId)
   const shown = chatStore.getState().panes[paneId]?.file === file
   if ((shown && o.inflight === null) || o.inflight === file) return
@@ -57,17 +57,18 @@ export async function openChatFile(file: string, paneId = PANE_ID): Promise<void
   }
 }
 
-/** Opens an empty `New chat` in main's pane (chat.openDraft). A no-op while it is already an unused draft. */
-export async function openDraftPane(): Promise<void> {
-  const o = openingOf(PANE_ID)
-  const cur = chatStore.getState().panes[PANE_ID]
+/** Opens an empty `New chat` in `paneId` (chat.openDraft). A no-op while it is already an unused draft. */
+export async function openDraftPane(paneId: string): Promise<void> {
+  const o = openingOf(paneId)
+  const cur = chatStore.getState().panes[paneId]
   if ((cur && cur.file === '') || o.draftInflight) return
   o.draftInflight = true
   const mine = ++o.latest
   try {
-    const r = await invoke('chat.openDraft', { paneId: PANE_ID })
+    const r = await invoke('chat.openDraft', { paneId })
+    o.sent = Promise.resolve(r)
     if (r.ok && mine === o.latest) {
-      chatStore.getState().openPane(PANE_ID, {
+      chatStore.getState().openPane(paneId, {
         file: '',
         title: 'New chat',
         messages: [],
@@ -80,8 +81,9 @@ export async function openDraftPane(): Promise<void> {
 }
 
 /**
- * A tool pane's chat went away: the store forgets it at once, an open in flight lands nowhere, and
- * main forgets it once that open has answered (it may still be fetching the file, then registers).
+ * A chat pane went away (its tab closed or went behind another): the store forgets it at once,
+ * an open in flight lands nowhere, and main forgets it once that open has answered (it may still
+ * be fetching the file, then registers).
  */
 export function dropChatPane(paneId: string): void {
   const o = opening.get(paneId)

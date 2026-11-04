@@ -15,7 +15,9 @@ vi.mock('@mantine/notifications', () => ({
 }))
 
 import { chatStore } from './chat-store'
-import { dropChatPane, newToolPaneId, openChatFile, PANE_ID } from './open-chat'
+import { dropChatPane, newChatPaneId, openChatFile } from './open-chat'
+
+const MAIN = 'pane-main'
 
 const ok = (title: string) => ({
   ok: true,
@@ -35,34 +37,34 @@ beforeEach(() => {
 
 describe('openChatFile', () => {
   it('re-opens the shown chat when another open is in flight, dropping the stale result', async () => {
-    const a = openChatFile('/s/a.jsonl')
+    const a = openChatFile('/s/a.jsonl', MAIN)
     pending.get('/s/a.jsonl')!(ok('A'))
     await a
-    expect(chatStore.getState().panes[PANE_ID]?.file).toBe('/s/a.jsonl')
+    expect(chatStore.getState().panes[MAIN]?.file).toBe('/s/a.jsonl')
 
-    const b = openChatFile('/s/b.jsonl')
-    const again = openChatFile('/s/a.jsonl')
+    const b = openChatFile('/s/b.jsonl', MAIN)
+    const again = openChatFile('/s/a.jsonl', MAIN)
     expect(invoke).toHaveBeenCalledTimes(3)
     pending.get('/s/b.jsonl')!(ok('B'))
     pending.get('/s/a.jsonl')!(ok('A'))
     await Promise.all([b, again])
-    expect(chatStore.getState().panes[PANE_ID]?.file).toBe('/s/a.jsonl')
+    expect(chatStore.getState().panes[MAIN]?.file).toBe('/s/a.jsonl')
   })
 
   it('surfaces a failed open', async () => {
-    const p = openChatFile('/s/c.jsonl')
+    const p = openChatFile('/s/c.jsonl', MAIN)
     pending.get('/s/c.jsonl')!({ ok: false, error: { code: 'x', message: 'nope' } })
     await p
     expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: 'nope' }))
   })
 
-  it("opens a tool pane's chat beside main's; a drop waits for its open, which then lands nowhere", async () => {
-    const main = openChatFile('/s/m.jsonl')
+  it("opens a second pane's chat beside another; a drop waits for its open, which then lands nowhere", async () => {
+    const main = openChatFile('/s/m.jsonl', MAIN)
     pending.get('/s/m.jsonl')!(ok('M'))
     await main
-    const id = newToolPaneId()
-    expect(id).toMatch(/^tool-\d+$/)
-    expect(newToolPaneId()).not.toBe(id)
+    const id = newChatPaneId()
+    expect(id).toMatch(/^pane-\d+$/)
+    expect(newChatPaneId()).not.toBe(id)
     const tool = openChatFile('/s/nova.jsonl', id)
     expect(invoke).toHaveBeenLastCalledWith('chat.open', { paneId: id, file: '/s/nova.jsonl' })
     dropChatPane(id)
@@ -72,6 +74,6 @@ describe('openChatFile', () => {
     await tool
     await vi.waitFor(() => expect(invoke).toHaveBeenLastCalledWith('chat.drop', { paneId: id }))
     expect(chatStore.getState().panes[id]).toBeUndefined()
-    expect(chatStore.getState().panes[PANE_ID]?.file).toBe('/s/m.jsonl')
+    expect(chatStore.getState().panes[MAIN]?.file).toBe('/s/m.jsonl')
   })
 })

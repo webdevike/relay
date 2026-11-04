@@ -52,7 +52,7 @@ import {
 } from '@evaos/chat-core/artifacts'
 import { AgentPortrait } from '../assistants/AgentPortrait'
 import { chatStore, useChatStore } from '../chat/chat-store'
-import { PANE_ID } from '../chat/open-chat'
+import { frontChatPaneOf, useFrontChatPane } from '../chat/front-chat'
 import { agentTitle, useNamesVersion } from '../eva/names-store'
 import { showPath } from '../files/files-store'
 import { invoke } from '../ipc'
@@ -671,7 +671,7 @@ function ItemMenu({
               leftSection={<IconFolder {...ICON} />}
               onClick={() => {
                 revealTool('files')
-                void showPath(path, chatStore.getState().panes[PANE_ID]?.file || null)
+                void showPath(path, chatStore.getState().panes[frontChatPaneOf()]?.file || null)
               }}
             >
               Show in Files
@@ -727,7 +727,8 @@ export function ArtifactsPanel({
   const tabs = view && view.tabs.length > 0 ? view.tabs : defaultTabs()
   const shownTabs = visibleTabs(tabs)
   const tab = shownTabs.find((t) => t.id === activeId) ?? shownTabs[0]
-  const chatPane = useChatStore((s) => s.panes[PANE_ID])
+  const frontPane = useFrontChatPane()
+  const chatPane = useChatStore((s) => s.panes[frontPane])
   const hostItems = view?.items
   // The open chat's subagents are read from its transcripts too, the facts the context button's
   // dot uses, so the tab's spinner, this list and that dot agree.
@@ -828,7 +829,7 @@ export function ArtifactsPanel({
           return
         case 'files':
           revealTool('files')
-          void showPath(to.path, chatStore.getState().panes[PANE_ID]?.file || null)
+          void showPath(to.path, chatStore.getState().panes[frontChatPaneOf()]?.file || null)
           onNavigate?.()
           return
         case 'testbench':
@@ -842,7 +843,7 @@ export function ArtifactsPanel({
           return
         case 'subagent':
           openSubagentTab({
-            session: chatStore.getState().panes[PANE_ID]?.file || '',
+            session: chatStore.getState().panes[frontChatPaneOf()]?.file || '',
             file: to.file,
             name: to.name,
           })

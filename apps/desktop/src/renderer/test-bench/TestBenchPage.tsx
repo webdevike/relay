@@ -22,8 +22,7 @@ import {
 } from '@evaos/contract'
 import { invoke, on } from '../ipc'
 import { Markdown } from '../chat/markdown/Markdown'
-import { frontTabs } from '@evaos/shell-core'
-import { openArmTab, useTiling } from '../tiling/tiling-store'
+import { frontToolTabs, openArmTab, useTiling } from '../tiling/tiling-store'
 import { STATUS_LABEL, duration, pct, primaryRate, tokenCount, usd } from './experiment-format'
 import { onExperimentRequest, takeExperimentRequest } from './bench-request'
 import { ListEmpty, ListRow, ListView, rowTip, type ListColumn } from '../ui/list'
@@ -241,7 +240,7 @@ function RunsList({
 function ArmsTable({ detail }: { detail: ExperimentDetail }) {
   const arms = detail.armSummaries ?? []
   const selected = useTiling((s) => {
-    const tab = frontTabs(s.tiling).find(
+    const tab = frontToolTabs(s).find(
       (t) => t.kind === 'experiment-arm' && t.experiment === detail.id,
     )
     return tab?.kind === 'experiment-arm' ? tab.arm : null

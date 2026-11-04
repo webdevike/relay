@@ -34,6 +34,7 @@ vi.mock('../chat/ChatLog', () => ({
 import type { Assistant } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 import { chatStore } from '../chat/chat-store'
+import { TabChat } from '../chat/ChatPane'
 import { AgentPage } from './AgentPage'
 import { assistantsStore } from './assistants-store'
 
@@ -64,7 +65,7 @@ afterEach(() => {
   invoke.mockClear()
 })
 
-describe('AgentPage in a tool pane', () => {
+describe('AgentPage', () => {
   it('shows the start card until the assistant has a thread', () => {
     assistantsStore.setState({ data: { agents: [nova(null)], relayUp: true } })
     ui()
@@ -72,20 +73,31 @@ describe('AgentPage in a tool pane', () => {
     expect(calls('chat.open')).toEqual([])
   })
 
-  it('is the full chat under its own pane: thread, crumb, notch, composer that sends, dropped on close', async () => {
+  it('steps aside once the thread exists: the app tab shows the chat instead', () => {
     assistantsStore.setState({ data: { agents: [nova('/s/nova.jsonl')], relayUp: true } })
-    const { unmount } = ui()
-    expect(screen.queryByTestId('agent-start-nova')).toBeNull()
+    const { container } = ui()
+    expect(container.querySelector('[data-testid="agent-start-nova"]')).toBeNull()
+    expect(calls('chat.open')).toEqual([])
+  })
+
+  it("the thread is its app tab's full chat under its own pane: crumb, notch, composer that sends, dropped on close", async () => {
+    assistantsStore.setState({ data: { agents: [nova('/s/nova.jsonl')], relayUp: true } })
+    // Once the thread exists, AppPanel shows the app tab as this chat.
+    const { unmount } = render(
+      <MantineProvider>
+        <TabChat tab={1} place={placeOf('agent:nova')} lead={false} />
+      </MantineProvider>,
+    )
     await waitFor(() => expect(calls('chat.open')).toHaveLength(1))
     const { paneId } = calls('chat.open')[0]!
-    expect(paneId).toMatch(/^tool-\d+$/)
+    expect(paneId).toMatch(/^pane-\d+$/)
     expect(calls('chat.open')[0]).toEqual({ paneId, file: '/s/nova.jsonl' })
     expect(await screen.findByText('Hi Isaac, dentist at five.')).toBeTruthy()
     const pane = screen.getByTestId('chat-pane')
     expect(pane.getAttribute('data-chat-pane')).toBe(paneId)
     expect(screen.getByTestId('agent-crumb')).toBeTruthy()
     expect(screen.getByTestId('agent-notch')).toBeTruthy()
-    // Main's own controls (sidebar, tool panes) stay in main's header.
+    // A pane that is not the lead one has no sidebar or tool pane toggles.
     expect(screen.queryByTestId('sidebar-toggle')).toBeNull()
     expect(screen.queryByTestId('panel-toggle')).toBeNull()
 

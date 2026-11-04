@@ -57,7 +57,7 @@ export class CodedError extends Error {
 }
 
 export const ALREADY_OWNED =
-  'This session is already open in another EvaOS window or pane. Close it there first.'
+  'This session is already open in another Relay window or pane. Close it there first.'
 export const OWNED_ELSEWHERE =
   'Another pane is writing to this chat. Sending from here may interleave messages.'
 export const MAYBE_RUNNING_ELSEWHERE =

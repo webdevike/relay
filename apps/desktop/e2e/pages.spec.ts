@@ -12,7 +12,7 @@ type Hooks = {
 const open = (shell: Page, slug: string): Promise<void> =>
   shell.evaluate((s) => (window as unknown as Hooks).__evaosShell.openPlace(s), slug)
 // Tool panes have tabs too: the app tab in front is the tab bar's.
-const ACTIVE_APP_TAB = '[data-testid=tabbar] [role=tab][data-active=true]'
+const ACTIVE_APP_TAB = '[data-testid=tabbar] .eva-tab[data-active=true]'
 
 test('dashboard renders its data and tab title', async ({ shell }) => {
   await open(shell, 'jobs')
@@ -65,9 +65,10 @@ test('chat pane survives tab switches', async ({ shell }) => {
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toContainText('Please sketch a tiny greeter.')
 
+  // The tab moves on to Dashboard: its chat leaves the screen (it mounts again from the chat
+  // store when the tab comes back to it).
   await open(shell, 'dashboard')
   await expect(shell.locator('[data-testid=chat-pane]')).toBeHidden()
-  await expect(shell.locator('[data-testid=chat-pane]')).toHaveCount(1)
 
   await shell.locator('[data-testid=tabbar-drag]').click()
   await shell.keyboard.press('Meta+[')

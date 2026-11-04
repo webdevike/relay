@@ -64,14 +64,17 @@ export function buildLaunchEnv(
   return env
 }
 
+/** `recordVideo`: Playwright records the window (still hidden) into that dir as webm. */
 export function launchApp(
   configDir: string,
   launchEnv: Record<string, string> = {},
+  recordVideo?: { dir: string; size?: { width: number; height: number } },
 ): Promise<ElectronApplication> {
   return _electron.launch({
     args: ['.'],
     cwd: APP_DIR,
     env: buildLaunchEnv(configDir, launchEnv),
+    ...(recordVideo ? { recordVideo } : {}),
   })
 }
 
@@ -111,7 +114,7 @@ export const test = base.extend<Fixtures>({
     }
     if (!toolPanes) {
       type Hooks = { __evaosShell: { setPanel(open: boolean): void } }
-      await page.waitForSelector('[data-pane-id=chat]', { state: 'attached' })
+      await page.waitForSelector('[data-pane-kind=app]', { state: 'attached' })
       await page.evaluate(() => (window as unknown as Hooks).__evaosShell.setPanel(false))
       await page.waitForSelector('[data-pane-kind=tool]', { state: 'hidden' })
     }

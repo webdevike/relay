@@ -11,6 +11,7 @@ import { runAction } from '../hotkeys/router'
 import { openPlace } from '../navigation/navigate'
 import { setMeetingTitles, setWorkspaceNames } from '../eva/names-store'
 import { tabIconName, tabTitle } from './tab-meta'
+import { resetTilingForTests, startTiling } from '../tiling/tiling-store'
 import {
   activePlace,
   navigateTo,
@@ -139,6 +140,9 @@ describe('navigation', () => {
   })
 
   it('actions: new, close, pinned skip, last tab, history', () => {
+    // New and close tab are pane actions now (tiling-store), history stays here.
+    resetTilingForTests()
+    const stopTiling = startTiling()
     runAction('new-tab')
     expect(t().list).toHaveLength(2)
     expect(activePlace(tabsStore.getState()).page).toBe('chat')
@@ -156,6 +160,7 @@ describe('navigation', () => {
     expect(activePlace(tabsStore.getState()).page).toBe('dashboard')
     runAction('history-forward')
     expect(activePlace(tabsStore.getState()).page).toBe('habits')
+    stopTiling()
   })
 
   it('openPlace reaches the store with newTab forwarded', () => {

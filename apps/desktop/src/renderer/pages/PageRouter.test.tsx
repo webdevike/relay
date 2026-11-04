@@ -6,9 +6,6 @@ vi.mock('../ipc', () => ({
   invoke: async () => ({ ok: true, value: {} }),
   on: () => () => {},
 }))
-vi.mock('../chat/ChatPane', () => ({
-  ChatPane: () => <main data-testid="chat-pane">chat</main>,
-}))
 vi.mock('../jobs/JobsPage', () => ({
   JobsPage: () => <div data-testid="page-jobs">jobs</div>,
 }))
@@ -43,8 +40,8 @@ vi.mock('../ui/ScrollArea', () => ({
 }))
 
 import { createTabs, placeOf, type Place } from '@evaos/shell-core'
-import { tabsStore } from '../tabs/tabs-store'
-import { PageRouter } from './PageRouter'
+import { activePlace, tabsStore } from '../tabs/tabs-store'
+import { PageView } from './PageRouter'
 import { pageRegistry } from './registry'
 import { WorkspacePage } from '../workspace/WorkspacePage'
 
@@ -62,13 +59,13 @@ function go(place: Place): void {
 const ui = () =>
   render(
     <MantineProvider>
-      <PageRouter />
+      <PageView place={activePlace(tabsStore.getState())} />
     </MantineProvider>,
   )
 
 beforeEach(() => scrollAreaProps.mockClear())
 
-describe('PageRouter', () => {
+describe('PageView', () => {
   it('renders the jobs page for the jobs place', () => {
     go(placeOf('jobs'))
     ui()
@@ -107,21 +104,6 @@ describe('PageRouter', () => {
     go(placeOf('review:linear:ENG-6648'))
     ui()
     expect(screen.getByTestId('page-review')).toHaveTextContent('review:linear:ENG-6648')
-  })
-
-  it('keeps the chat pane mounted and hidden off the chat place', () => {
-    go(placeOf('chat'))
-    ui()
-    const pane = screen.getByTestId('chat-pane')
-    const wrap = screen.getByTestId('page-chat-wrap')
-    expect(wrap.style.display).toBe('flex')
-    expect(screen.queryByTestId('page-scroll')).toBeNull()
-    go(placeOf('jobs'))
-    expect(screen.getByTestId('chat-pane')).toBe(pane)
-    expect(wrap.style.display).toBe('none')
-    go(placeOf('chat'))
-    expect(screen.getByTestId('chat-pane')).toBe(pane)
-    expect(wrap.style.display).toBe('flex')
   })
 
   it('renders settings through the registry', () => {

@@ -38,7 +38,7 @@ import { openTargetOf, type OpenTarget } from '../navigation/open-target'
 import { openSubagentTab, revealTool } from '../tiling/tiling-store'
 import { showPath } from '../files/files-store'
 import { chatStore } from '../chat/chat-store'
-import { PANE_ID } from '../chat/open-chat'
+import { frontChatPaneOf } from '../chat/front-chat'
 import { fillComposer } from '../chat/composer-fill'
 import { requestExperiment } from '../test-bench/bench-request'
 import {
@@ -103,11 +103,10 @@ function openRow(open: ContextOpen, target: OpenTarget): void {
       break
     case 'files':
       revealTool('files')
-      void showPath(open.path, chatStore.getState().panes[PANE_ID]?.file || null)
+      void showPath(open.path, chatStore.getState().panes[frontChatPaneOf()]?.file || null)
       break
     case 'chat':
-      // A chat can't split off: it opens in this tab unless Cmd asks for a new one.
-      openInApp(placeOf('chat', { chat: open.file }), target === 'split' ? 'here' : target)
+      openInApp(placeOf('chat', { chat: open.file }), target)
       break
     case 'subagent':
       openSubagentTab({ session: open.session, file: open.file, name: open.name })
@@ -263,8 +262,8 @@ function runAction(a: ContextAction, target: OpenTarget): void {
   if (a.id === 'open-pr') openLink(a.url, { target })
   else if (a.id === 'open-files') {
     revealTool('files')
-    void showPath(a.path, chatStore.getState().panes[PANE_ID]?.file || null)
-  } else fillComposer(PANE_ID, a.prompt)
+    void showPath(a.path, chatStore.getState().panes[frontChatPaneOf()]?.file || null)
+  } else fillComposer(frontChatPaneOf(), a.prompt)
 }
 
 const ACTION_TIPS: Record<ContextAction['id'], string> = {
