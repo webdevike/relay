@@ -10,7 +10,15 @@ import type { Command } from "@relay/protocol";
 import type { DeliverInput } from "./machine";
 import { tagged } from "./surface";
 
-export type DictationTarget = { kind: "insert" } | { kind: "agent"; sessionId: string };
+export type DictationTarget =
+  | { kind: "insert" }
+  | { kind: "agent"; sessionId: string }
+  /**
+   * An assistant's thread: the words are Isaac's next `assistant.turn`. `onTurn` hears of the turn
+   * the moment it is sent (before the command leaves), with the delivery, so the thread can show the
+   * echo at once and mark a refusal.
+   */
+  | { kind: "assistant"; agent: string; onTurn?: (text: string, delivery: Promise<void>) => void };
 
 const INSERT: DictationTarget = { kind: "insert" };
 let target: DictationTarget = INSERT;
@@ -65,6 +73,10 @@ export function commandsFor(input: DeliverInput, to: DictationTarget): Command[]
       },
     ];
   }
+  if (to.kind === "assistant") {
+    const images = input.images.map(({ mimeType, data }) => ({ mimeType, data }));
+    return [{ kind: "assistant.turn", agent: to.agent, text, ...(images.length > 0 ? { images } : {}) }];
+  }
   if (to.kind === "agent") {
     const images = input.images.map(({ mimeType, data }) => ({ mimeType, data }));
     return [
@@ -91,6 +103,11 @@ export async function deliverDictation(
   const run = async (): Promise<void> => {
     for (const cmd of commands) await send(cmd);
   };
+  if (target.kind === "assistant") {
+    const delivery = Promise.resolve().then(run);
+    target.onTurn?.(deliveredText(input), delivery);
+    return delivery;
+  }
   if (!input.launch) return run();
   // The listener hears of the launch before the first command leaves.
   const delivery = Promise.resolve().then(run);

@@ -14,13 +14,12 @@
  * dedicated header above the scrolling conversation (tapping them opens a menu); the user's
  * words are blue bubbles on the right with a delivery receipt, the agent's replies are dark grey bubbles
  * on the left with three typing dots while she works before her reply text streams. The rounded composer keeps multiline text
- * above a persistent row of attachment, dictation and send controls. Dictation fills the draft.
+ * above a persistent row of attachment, hold-to-talk mic and send controls. The mic is the Agent Inbox's: hold to talk, release to send.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActionSheetIOS, AppState, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
+import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-speech-recognition";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { assistantReactionThread, MAX_REPLY_IMAGES, type AssistantMessage } from "@relay/protocol";
 import { AttachmentTray } from "@/ui/AttachmentTray";
@@ -61,7 +60,10 @@ import { CallScreen } from "@/call/CallScreen";
 import { startVoiceCall } from "@/call/live";
 import { useCallStore } from "@/state/call";
 import { useLiveCallStore } from "@/state/liveCall";
-import "@/dictation/session";
+import { DictationButton } from "@/dictation/DictationButton";
+import { ListeningOrb } from "@/dictation/ListeningOrb";
+import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
+import { useDictation } from "@/dictation/useDictation";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
@@ -117,10 +119,9 @@ function Thread({ agent }: { agent: string }) {
   const composer = useRef<TextInput>(null);
   // Where the composer's cursor is, for Reply to quote above it.
   const cursor = useRef(0);
-  const [listening, setListening] = useState(false);
-  const recording = useRef(false);
-  const dictationBase = useRef("");
-  const dictationFinal = useRef("");
+  // The hold-to-talk mic's pipeline, from pressing to the words being sent: the composer is inert meanwhile.
+  const dictationPhase = useDictation().phase;
+  const listening = dictationPhase === "listening" || dictationPhase === "finishing" || dictationPhase === "sending";
   const [inputHeight, setInputHeight] = useState(40);
   const [failure, setFailure] = useState<string | null>(null);
   // A legacy call that a live call's fallback (Action Button, Call) could not start.
@@ -149,71 +150,6 @@ function Thread({ agent }: { agent: string }) {
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   // Follow the thread's artifacts while it shows, so the header button's dot is live.
   useEffect(() => watchArtifacts(artifactsThread), [artifactsThread]);
-
-  useSpeechRecognitionEvent("result", (event) => {
-    if (!recording.current) return;
-    const transcript = event.results[0]?.transcript ?? "";
-    setDraft([dictationBase.current, dictationFinal.current, transcript].filter(Boolean).join(" "));
-    if (event.isFinal) {
-      dictationFinal.current = [dictationFinal.current, transcript].filter(Boolean).join(" ");
-    }
-  });
-  useSpeechRecognitionEvent("end", () => {
-    recording.current = false;
-    setListening(false);
-  });
-  useSpeechRecognitionEvent("error", (event) => {
-    if (!recording.current) return;
-    recording.current = false;
-    setListening(false);
-    if (event.error !== "aborted") setFailure(event.message || "Couldn't start dictation.");
-  });
-  const focused = useRef(false);
-  const requestingMic = useRef(false);
-  useFocusEffect(useCallback(() => {
-    focused.current = true;
-    // Dictation stops when the app leaves the foreground, as when the thread does.
-    const appState = AppState.addEventListener("change", (next) => {
-      if (next === "background" && recording.current) ExpoSpeechRecognitionModule.abort();
-    });
-    return () => {
-      appState.remove();
-      focused.current = false;
-      if (recording.current) ExpoSpeechRecognitionModule.abort();
-      recording.current = false;
-      setListening(false);
-    };
-  }, []));
-
-  const dictate = async (): Promise<void> => {
-    if (recording.current) {
-      ExpoSpeechRecognitionModule.stop();
-      return;
-    }
-    if (requestingMic.current) return;
-    requestingMic.current = true;
-    Keyboard.dismiss();
-    setFailure(null);
-    try {
-      if (!ExpoSpeechRecognitionModule.isRecognitionAvailable()) throw new Error("Speech recognition is unavailable.");
-      const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!focused.current) return;
-      if (!permission.granted) throw new Error("Allow microphone and speech recognition access in Settings to dictate.");
-      dictationBase.current = draft.trim();
-      dictationFinal.current = "";
-      recording.current = true;
-      setListening(true);
-      ExpoSpeechRecognitionModule.start({
-        lang: "en-US", interimResults: true, continuous: true, addsPunctuation: true, iosTaskHint: "dictation",
-      });
-    } catch (error) {
-      recording.current = false;
-      setListening(false);
-      setFailure(error instanceof Error ? error.message : "Couldn't start dictation.");
-    } finally {
-      requestingMic.current = false;
-    }
-  };
 
   // The thread is fetched only while this screen shows; the driver re-asks on every welcome in between.
   useFocusEffect(
@@ -255,27 +191,51 @@ function Thread({ agent }: { agent: string }) {
    * and photos, and gets them back on failure; a chip leaves the draft alone and shows again.
    */
   const sendTurn = (words: string, sent: Photo[], fromComposer: boolean): void => {
-    setFailure(null);
-    setTurnFailed(false);
-    setPending(agent, { text: words, images: sent });
     if (fromComposer) {
       setDraft("");
       setPhotos([]);
     }
-    sendCommand({ kind: "assistant.turn", agent, text: words, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) }).catch(
-      (error: unknown) => {
-        notifyHaptic("error");
-        setTurnFailed(true);
-        setPending(agent, null);
-        // The words and pictures come back to the composer, so a lost connection never eats a message.
-        if (fromComposer) {
-          setDraft((current) => (current === "" ? words : current));
-          setPhotos((current) => (current.length === 0 ? sent : current));
-        }
-        setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${title}.`);
-      },
-    );
+    const delivery = sendCommand({ kind: "assistant.turn", agent, text: words, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) });
+    trackTurn(words, sent, delivery, (error) => {
+      // The words and pictures come back to the composer, so a lost connection never eats a message.
+      if (fromComposer) {
+        setDraft((current) => (current === "" ? words : current));
+        setPhotos((current) => (current.length === 0 ? sent : current));
+      }
+      setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${title}.`);
+    });
   };
+
+  /** Shows a turn in flight as the pending echo; a refusal clears it, marks the portrait and hands the error to `fail`. */
+  const trackTurn = (words: string, sent: Photo[], delivery: Promise<void>, fail: (error: unknown) => void): void => {
+    setFailure(null);
+    setTurnFailed(false);
+    setPending(agent, { text: words, images: sent });
+    delivery.catch((error: unknown) => {
+      notifyHaptic("error");
+      setTurnFailed(true);
+      setPending(agent, null);
+      fail(error);
+    });
+  };
+
+  // Hold-to-talk (the Agent Inbox's mic) delivers what was heard as Isaac's next turn, to this thread.
+  const trackTurnRef = useRef(trackTurn);
+  trackTurnRef.current = trackTurn;
+  useFocusEffect(useCallback(() => {
+    setDictationTarget({
+      kind: "assistant",
+      agent,
+      onTurn: (words, delivery) => {
+        trackTurnRef.current(words, [], delivery, (error) => {
+          setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${title}.`);
+        });
+      },
+    });
+    return () => {
+      resetDictationTarget();
+    };
+  }, [agent, title]));
 
   const send = (): void => {
     if (!canSend) return;
@@ -520,7 +480,7 @@ function Thread({ agent }: { agent: string }) {
               <View style={styles.composerToolbar}>
                 <AttachButton onPress={openAttach} disabled={!connected || listening} />
                 <View style={styles.composerActions}>
-                  <DictateButton onPress={() => { void dictate(); }} active={listening} disabled={!connected} />
+                  <DictationButton size={44} backgroundColor={colors.hairline} />
                   <SendButton onPress={send} disabled={!canSend} />
                 </View>
               </View>
@@ -535,6 +495,7 @@ function Thread({ agent }: { agent: string }) {
           setViewing(null);
         }}
       />
+      <ListeningOrb />
       {onCall && <CallScreen agent={agent} title={title} portrait={portrait} />}
     </SafeAreaView>
   );
@@ -574,12 +535,6 @@ function AttachButton({ onPress, disabled }: { onPress: () => void; disabled: bo
     backgroundColor={colors.hairline} accessibilityLabel="Attach image" />;
 }
 
-function DictateButton({ onPress, active, disabled }: { onPress: () => void; active: boolean; disabled: boolean }) {
-  const colors = useColors();
-  return <IconButton symbol={active ? "stop.fill" : "mic"} size={44} glyphSize={21} onPress={onPress} disabled={disabled}
-    backgroundColor={active ? colors.accent : colors.hairline}
-    accessibilityLabel={active ? "Stop dictation" : "Dictate message"} />;
-}
 
 function SendButton({ onPress, disabled }: { onPress: () => void; disabled: boolean }) {
   const colors = useColors();

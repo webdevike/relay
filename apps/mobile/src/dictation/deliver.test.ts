@@ -247,4 +247,38 @@ describe("deliverDictation", () => {
     await expect(heard).rejects.toBe(refused);
     setLaunchListener(null);
   });
+
+  it("an assistant thread gets the words as Isaac's assistant.turn, untagged, whatever the flick said", async () => {
+    setDictationTarget({ kind: "assistant", agent: "nova" });
+    const { sent, send } = recorder();
+    await deliverDictation(
+      { text: "what did the run do", submit: true, skill: null, images: [], pasted: null, launch: false },
+      send,
+    );
+    expect(sent).toEqual([{ kind: "assistant.turn", agent: "nova", text: "what did the run do" }]);
+  });
+
+  it("an assistant turn tells its listener first, with the delivery, so a refusal shows in the thread", async () => {
+    const order: string[] = [];
+    let heard: Promise<void> | null = null;
+    setDictationTarget({
+      kind: "assistant",
+      agent: "astra",
+      onTurn: (text, delivery) => {
+        order.push(`turn:${text}`);
+        heard = delivery;
+      },
+    });
+    const refused = new Error("offline");
+    const done = deliverDictation(
+      { text: "hello", submit: false, skill: null, images: [], pasted: null, launch: false },
+      (cmd) => {
+        order.push(`send:${cmd.kind}`);
+        return Promise.reject(refused);
+      },
+    );
+    await expect(done).rejects.toBe(refused);
+    expect(order).toEqual(["turn:hello", "send:assistant.turn"]);
+    await expect(heard).rejects.toBe(refused);
+  });
 });

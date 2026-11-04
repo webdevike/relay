@@ -7,7 +7,9 @@ import Animated, {
   useAnimatedStyle,
   useDerivedValue,
   useFrameCallback,
+  useReducedMotion,
   useSharedValue,
+  withRepeat,
   withSpring,
   withTiming,
   type SharedValue,
@@ -31,11 +33,11 @@ const SCREEN_RADIUS = 55;
  * clients working.
  */
 export function ListeningOrb() {
-  const { orb } = useDictation();
+  const { orb, phase } = useDictation();
   if (orb === "hidden" || orb === "gone") return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <EdgeBody orb={orb} />
+      <EdgeBody orb={orb} transcribing={phase === "finishing" || phase === "sending"} />
     </View>
   );
 }
@@ -55,7 +57,8 @@ function useWindowFrame(): { ref: RefObject<View | null>; onLayout: () => void; 
   return { ref, onLayout, offset };
 }
 
-function EdgeBody({ orb }: { orb: OrbState }) {
+function EdgeBody({ orb, transcribing }: { orb: OrbState; transcribing: boolean }) {
+  const reduceMotion = useReducedMotion();
   const { width, height } = useWindowDimensions();
   const frame = useWindowFrame();
 
@@ -82,6 +85,18 @@ function EdgeBody({ orb }: { orb: OrbState }) {
         : 0;
   }, [orb, presence, collapse, held, flight]);
 
+  // Transcribing: the mic is silent, so the glow breathes on its own until the words are sent.
+  const breath = useSharedValue(0);
+  useEffect(() => {
+    cancelAnimation(breath);
+    if (!transcribing) breath.value = withTiming(0, { duration: motion.duration.fast });
+    else if (reduceMotion) breath.value = withTiming(0.5, { duration: motion.duration.fast });
+    else breath.value = withRepeat(withTiming(1, { duration: 800, easing: Easing.inOut(Easing.sin) }), -1, true);
+    return () => {
+      cancelAnimation(breath);
+    };
+  }, [transcribing, reduceMotion, breath]);
+
   // Smoothed level: fast attack, slow release, so speech reads as pulses not jitter.
   const smoothed = useSharedValue(0);
   useFrameCallback((frame) => {
@@ -99,11 +114,11 @@ function EdgeBody({ orb }: { orb: OrbState }) {
     [tracksFinger],
   );
   // Swelling with the voice, flaring as a submit arms, flaring once more as it sends.
-  const level = useDerivedValue(() => Math.min(1, Math.max(smoothed.value, lift.value * 0.9) + flight.value * 0.6));
+  const level = useDerivedValue(() => Math.min(1, Math.max(smoothed.value, lift.value * 0.9) + flight.value * 0.6 + breath.value * 0.4));
   const glowStyle = useAnimatedStyle(() => ({
     opacity: presence.value * (1 - collapse.value) * (1 - flight.value),
     // Breathes in from slightly outside the screen on appear.
-    transform: [{ scale: 1 + (1 - presence.value) * 0.04 }],
+    transform: [{ scale: 1 + (reduceMotion ? 0 : (1 - presence.value) * 0.04) }],
   }));
 
   return (
@@ -179,9 +194,11 @@ half4 main(float2 xy) {
 function SkiaEdge({ sk, width, height, level }: { sk: SkiaModule; width: number; height: number; level: SharedValue<number> }) {
   const { Canvas, Fill, Shader, Skia } = sk;
   const [effect] = useState(() => Skia.RuntimeEffect.Make(EDGE_SHADER));
+  const reduceMotion = useReducedMotion();
   const time = useSharedValue(0);
+  // Reduce Motion: the colours hold still, only the level lights the edge.
   useFrameCallback((frame) => {
-    time.value += (frame.timeSincePreviousFrame ?? 16) / 1000;
+    if (!reduceMotion) time.value += (frame.timeSincePreviousFrame ?? 16) / 1000;
   });
   const uniforms = useDerivedValue(() => ({
     u_res: [width, height],
