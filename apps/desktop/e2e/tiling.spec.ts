@@ -195,11 +195,19 @@ async function sashBetween(shell: Page, left: string, right: string) {
   }
   throw new Error(`no sash between ${left} and ${right}`)
 }
+type Zone = { x: number; y: number; width: number; height: number }
 /**
  * Drags `from` (a tab) to the point (x, y) with the mouse, in steps so dockview's drop overlay
- * follows, and answers the overlay's box just before the drop.
+ * follows. The overlay slides to the zone under the pointer, so `settled` (when given) says when
+ * it has arrived; the drop waits for it. Answers the overlay's box just before the drop.
  */
-async function dragTo(shell: Page, from: string, x: number, y: number) {
+async function dragTo(
+  shell: Page,
+  from: string,
+  x: number,
+  y: number,
+  settled: (zone: Zone) => boolean = () => true,
+): Promise<Zone> {
   const t = await box(shell, from)
   await shell.mouse.move(t.x + t.width / 2, t.y + t.height / 2)
   await shell.mouse.down()
@@ -207,17 +215,14 @@ async function dragTo(shell: Page, from: string, x: number, y: number) {
   await shell.mouse.move(x, y, { steps: 16 })
   const overlay = shell.locator('.dv-drop-target-anchor, .dv-drop-target-selection').first()
   await expect(overlay).toBeVisible()
-  // The overlay slides to the zone under the pointer: read it once it holds still.
-  let zone = await overlay.boundingBox()
+  let zone: Zone | null = null
   await expect
     .poll(
       async () => {
-        const now = await overlay.boundingBox()
-        const still = JSON.stringify(now) === JSON.stringify(zone)
-        zone = now
-        return still
+        zone = await overlay.boundingBox()
+        return zone !== null && settled(zone)
       },
-      { intervals: [150] },
+      { intervals: [100] },
     )
     .toBe(true)
   await shell.mouse.up()
@@ -456,16 +461,19 @@ test('dragging a tool tab onto a pane edge makes a new pane, and the layout surv
   await size(app, shell, 1400, 900)
   await expect.poll(() => panes(shell)).toEqual(DEFAULT)
 
-  // Drag Files to the app pane's bottom edge: the overlay shows the half it would take.
+  // Drag Files to the app pane's bottom edge: the overlay shows the half of the pane (header and
+  // body) it would take.
   const body = await box(shell, sel('pane-body-p1'))
+  const pane = await box(shell, sel('pane-p1'))
   const zone = await dragTo(
     shell,
     sel('pane-tab-files'),
     body.x + body.width / 2,
     body.y + body.height - 24,
+    (z) => Math.abs(z.height - pane.height / 2) <= 4,
   )
-  expect(Math.abs(zone.y + zone.height - (body.y + body.height))).toBeLessThanOrEqual(4)
-  expect(Math.abs(zone.height - body.height / 2)).toBeLessThanOrEqual(4)
+  expect(Math.abs(zone.y + zone.height - (pane.y + pane.height))).toBeLessThanOrEqual(4)
+  expect(Math.abs(zone.height - pane.height / 2)).toBeLessThanOrEqual(4)
 
   await expect
     .poll(async () => (await panes(shell)).sort((a, b) => a.id.localeCompare(b.id)))
@@ -524,6 +532,7 @@ test('dragging an app tab onto the pane edge splits the app tabs; each pane gets
     `${sel('tabbar')} [data-app-tab="${jobs.slice(4)}"]`,
     body.x + body.width - 24,
     body.y + body.height / 2,
+    (z) => Math.abs(z.width - body.width / 2) <= 4,
   )
   // The overlay is the pane's right half.
   expect(Math.abs(zone.x + zone.width - (body.x + body.width))).toBeLessThanOrEqual(4)

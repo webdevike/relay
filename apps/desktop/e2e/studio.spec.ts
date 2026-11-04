@@ -61,11 +61,14 @@ async function shot(app: ElectronApplication, shell: Page, name: string): Promis
 const creates = (): Array<Record<string, unknown>> =>
   host.studioOps.filter((op) => op.kind === 'create')
 
+/** Studio's app tab in the tool pane's strip (pages there are app tabs too). */
+const STUDIO_TAB = `${sel('pane-header-p2')} .eva-tab[aria-label="Studio"]`
+
 /** Opens Studio from the tool pane's + menu, as a page tab beside the chat. */
 async function openStudioTab(shell: Page): Promise<void> {
   await shell.locator(sel('pane-add-p2')).click()
   await shell.locator(sel('pane-add-menu-p2')).getByText('Studio', { exact: true }).click()
-  await expect(shell.locator(sel('pane-tab-page:studio'))).toHaveAttribute('data-active', 'true')
+  await expect(shell.locator(STUDIO_TAB)).toHaveAttribute('data-active', 'true')
   await expect(shell.locator(`${sel('pane-p2')} ${sel('page-studio')}`)).toBeVisible()
 }
 
@@ -234,7 +237,7 @@ test('agents generate, list and open Studio through the control API', async ({
   const { job } = MadeSchema.parse(made.value)
   expect(job).toMatchObject({ backend: 'codex-image', state: 'queued' })
   expect(creates().at(-1)).toMatchObject({ origin: 'agent', spec: { prompt: 'A red kite' } })
-  await expect(shell.locator(sel('pane-tab-page:studio'))).toBeVisible()
+  await expect(shell.locator(STUDIO_TAB)).toBeVisible()
   const studio = shell.locator(`${sel('pane-p2')} ${sel('page-studio')}`)
   await expect(studio.locator(sel('studio-queue-row'))).toContainText('A red kite')
   host.finishStudio(job.id)

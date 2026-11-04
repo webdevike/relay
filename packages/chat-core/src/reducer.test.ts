@@ -252,7 +252,7 @@ describe('LiveReducer', () => {
     const res = r.apply({ type: 'extension_ui_request', id: 'u9', method: 'ask', questions: 'x' })
     expect(res.effect).toEqual({ type: 'extension_ui_response', id: 'u9', cancelled: true })
     expect(r.messages().at(-1)?.text).toBe(
-      "omp asked a question EvaOS couldn't read, so it was cancelled.",
+      "omp asked a question Relay couldn't read, so it was cancelled.",
     )
     expect(r.dialog).toBeNull()
   })

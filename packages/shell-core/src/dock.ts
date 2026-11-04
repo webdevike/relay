@@ -130,7 +130,14 @@ export interface DockPanelJson {
 }
 
 export interface DockJson {
-  grid: { root: DockNode; width: number; height: number; orientation: DockOrientation }
+  grid: {
+    root: DockNode
+    width: number
+    height: number
+    orientation: DockOrientation
+    /** The maximized group's path of child indices (the tool panes hidden). */
+    maximizedNode?: { location: number[] }
+  }
   panels: Record<string, DockPanelJson>
   activeGroup?: string
   [key: string]: unknown
@@ -169,6 +176,16 @@ export function toolTabOfPanel(panel: DockPanelJson | undefined): ToolTab | null
 /** Every group in the grid, left to right and top to bottom. */
 export function dockGroups(node: DockNode): DockGroupJson[] {
   return node.type === 'leaf' ? [node.data] : node.data.flatMap(dockGroups)
+}
+
+/** The path of child indices to group `id` (dockview's grid location), or null. */
+function locateGroup(node: DockNode, id: string): number[] | null {
+  if (node.type === 'leaf') return node.data.id === id ? [] : null
+  for (const [i, child] of node.data.entries()) {
+    const rest = locateGroup(child, id)
+    if (rest) return [i, ...rest]
+  }
+  return null
 }
 
 /**
@@ -374,8 +391,19 @@ export function reconcileDock(
 
   const rootRaw = read(grid['root'], 0)
   if (!rootRaw) return null
+  // The maximized group, by id: the location is of the saved tree, which normalizing may change.
+  let zoomed: unknown = grid['root']
+  const zoomAt = isObject(grid['maximizedNode']) ? grid['maximizedNode']['location'] : null
+  for (const i of Array.isArray(zoomAt) ? zoomAt : [null]) {
+    zoomed =
+      isObject(zoomed) && Array.isArray(zoomed['data']) && typeof i === 'number'
+        ? zoomed['data'][i]
+        : null
+  }
+  const zoomId = isObject(zoomed) && isObject(zoomed['data']) ? zoomed['data']['id'] : null
   const fixed = normalizeDock(rootRaw, orientation)
   if (!fixed) return null
+  const location = typeof zoomId === 'string' ? locateGroup(fixed.root, zoomId) : null
   // App tabs no group shows join the active one's group, else the first group.
   const groups = dockGroups(fixed.root)
   const missing = tabs.list.map((t) => appPanelId(t.id)).filter((id) => !seenViews.has(id))
@@ -396,7 +424,13 @@ export function reconcileDock(
       ? saved['activeGroup']
       : groups[0]?.id
   return {
-    grid: { root: fixed.root, width, height, orientation: fixed.orientation },
+    grid: {
+      root: fixed.root,
+      width,
+      height,
+      orientation: fixed.orientation,
+      ...(location && location.length > 0 ? { maximizedNode: { location } } : {}),
+    },
     panels,
     ...(activeGroup ? { activeGroup } : {}),
   }

@@ -52,7 +52,7 @@ describe('quit guard', () => {
     const m = make({ choice: 0, failures: [{ id: 'f', label: 'notes.md', message: 'x' }] })
     expect(await m.g.guardedClose()).toBe(false)
     expect(m.failure).toHaveBeenCalledWith(
-      'Could not save notes.md. EvaOS stays open so nothing is lost.',
+      'Could not save notes.md. Relay stays open so nothing is lost.',
     )
   })
   it('hung renderer fails closed and asks the user', async () => {
@@ -86,6 +86,6 @@ describe('quit guard', () => {
     const many = Array.from({ length: 7 }, (_, i) => ({ id: `${i}`, label: `f${i}` }))
     const d = confirmDetail(many)
     expect(d.split('\n').slice(0, 6)).toEqual(['f0', 'f1', 'f2', 'f3', 'f4', 'and 2 more'])
-    expect(d).toContain('Save them before EvaOS closes, or discard them. Cancel keeps EvaOS open.')
+    expect(d).toContain('Save them before Relay closes, or discard them. Cancel keeps Relay open.')
   })
 })

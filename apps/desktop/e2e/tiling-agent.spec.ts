@@ -6,10 +6,10 @@ import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { FakeRelayHost } from './helpers/fake-relay-host'
 import { EVA_FIXTURE_ROOT } from './helpers/paths'
 
-// An assistant's thread is a page like any other: dragging its tab out of the app tab bar onto the
-// chat's edge splits it into a pane that is the whole chat, as main's pane shows it: the thread,
-// its header with the notch, and a composer whose replies go through Relay and stream back there.
-// Real thread file, real (fake) Relay session.
+// An assistant's thread is a page like any other: dragging its app tab onto the right edge of its
+// pane splits it into a pane of app tabs of its own (a dockview group) that is the whole chat, as
+// the first pane shows it: the thread, its header with the notch, and a composer whose replies go
+// through Relay and stream back there. Real thread file, real (fake) Relay session.
 
 let fx: ChatFixture
 let host: FakeRelayHost
@@ -71,6 +71,7 @@ const test = base.extend({
 test.use({ startOnChat: false })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
+type ShellHooks = { __evaosShell: { openPlace(page: string, newTab?: boolean): void } }
 
 /** The hanging notch never covers the log: the log starts at or below the notch's bottom edge. */
 async function expectLogBelowNotch(chat: Locator): Promise<void> {
@@ -79,32 +80,41 @@ async function expectLogBelowNotch(chat: Locator): Promise<void> {
   expect(log.y).toBeGreaterThanOrEqual(Math.floor(notch.y + notch.height))
 }
 
-test("Nova's thread tab, dragged onto the chat's edge, splits into a pane that is the full chat", async ({
+test("Nova's thread tab, dragged onto its pane's edge, splits into a pane that is the full chat", async ({
   shell,
   rendererErrors,
 }) => {
   await shell.locator(sel('nav-assistants')).click()
   await shell.locator(sel('sidebar-agent-nova')).click()
+  // A second app tab, so the pane the thread leaves keeps one; then Nova's in front again.
+  await shell.evaluate(() => (window as unknown as ShellHooks).__evaosShell.openPlace('jobs', true))
+  await expect(shell.locator(`${sel('tabbar')} .eva-tab`)).toHaveCount(2)
+  await shell.locator(`${sel('tabbar')} .eva-tab[aria-label=Nova]`).click()
   await expect(shell.locator(sel('chat-log'))).toContainText('Hi Nova', { timeout: 10_000 })
-  await expectLogBelowNotch(shell.locator(`${sel('pane-chat')} ${sel('chat-pane')}`))
+  await expectLogBelowNotch(shell.locator(`${sel('pane-body-p1')} ${sel('chat-pane')}`))
+  await expect(shell.locator('[data-pane-kind=app]')).toHaveCount(1)
 
-  const tab = shell.locator('[data-testid=tabbar] [role=tab][aria-selected=true]')
+  const tab = shell.locator(`${sel('tabbar')} .eva-tab[data-active=true]`)
   const t = (await tab.boundingBox())!
-  const chat = (await shell.locator(sel('pane-chat')).boundingBox())!
+  const body = (await shell.locator(sel('pane-body-p1')).boundingBox())!
   await shell.mouse.move(t.x + t.width / 2, t.y + t.height / 2)
   await shell.mouse.down()
-  await shell.mouse.move(chat.x + chat.width - 24, chat.y + chat.height / 2, { steps: 12 })
-  await expect(shell.locator(sel('drop-zone'))).toHaveAttribute('data-zone', 'right')
+  await shell.mouse.move(t.x + t.width / 2 + 6, t.y + t.height / 2 + 6, { steps: 3 })
+  await shell.mouse.move(body.x + body.width - 24, body.y + body.height / 2, { steps: 12 })
+  await expect(
+    shell.locator('.dv-drop-target-anchor, .dv-drop-target-selection').first(),
+  ).toBeVisible()
   await shell.mouse.up()
 
-  const pane = shell.locator('[data-pane-kind=tool]:visible', { hasText: 'Hi Nova' })
+  const pane = shell.locator('[data-pane-kind=app]:not([data-pane-id=p1])')
   await expect(pane).toHaveCount(1)
+  await expect(shell.locator(sel('pane-body-p1'))).not.toContainText('Hi Nova')
   await expect(pane).toContainText('Hi Nova')
   await expect(pane).toContainText('dentist at five')
   // Not the read-only transcript: the chat pane itself, its header and composer.
   await expect(pane.locator(sel('subagent-transcript'))).toHaveCount(0)
   const view = pane.locator(sel('chat-pane'))
-  await expect(view).toHaveAttribute('data-chat-pane', /^tool-\d+$/)
+  await expect(view).toHaveAttribute('data-chat-pane', /^pane-\d+$/)
   await expect(view.locator(sel('agent-crumb'))).toBeVisible()
   await expect(view.locator(sel('agent-notch'))).toBeVisible()
   await expect(view.locator(sel('artifacts-button'))).toBeVisible()

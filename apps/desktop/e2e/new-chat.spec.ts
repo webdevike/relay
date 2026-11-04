@@ -84,10 +84,16 @@ test.describe('new chat on omp', () => {
     await expect(log).toContainText('hello new chat')
     await expect(log).toContainText('Foxes are primarily nocturnal hunters')
 
-    const main = await app.evaluate(() =>
-      (
-        globalThis as unknown as { __evaosTest: { hooks: { chat: Hooks } } }
-      ).__evaosTest.hooks.chat.stats('pane-1'),
+    // The chat's pane id (each app tab's chat mounts under a fresh one).
+    const paneId = await shell
+      .locator('[data-testid=chat-pane][data-chat-pane]:visible')
+      .getAttribute('data-chat-pane')
+    const main = await app.evaluate(
+      (_e, p) =>
+        (
+          globalThis as unknown as { __evaosTest: { hooks: { chat: Hooks } } }
+        ).__evaosTest.hooks.chat.stats(p),
+      paneId!,
     )
     expect(main.spawnArgs).toContain('--mode')
     expect(main.spawnArgs).toContain('rpc-ui')

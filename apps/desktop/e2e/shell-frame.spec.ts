@@ -1,6 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { test, expect, launchApp } from './fixtures'
 
 type G = {
@@ -39,8 +39,9 @@ const layoutFile = (dir: string): Record<string, unknown> => {
   }
 }
 
-async function drag(shell: Page, id: string, dx: number): Promise<void> {
-  const b = await box(shell, id)
+/** Drags `id` (a test id) or the box `b` sideways by `dx`. */
+async function drag(shell: Page, id: string | Box, dx: number): Promise<void> {
+  const b = typeof id === 'string' ? await box(shell, id) : id
   const x = b.x + b.width / 2
   const y = b.y + b.height / 2
   await shell.mouse.move(x, y)
@@ -50,26 +51,48 @@ async function drag(shell: Page, id: string, dx: number): Promise<void> {
   await shell.mouse.up()
 }
 
+type Box = { x: number; y: number; width: number; height: number }
+/** The sash between the app pane and the tool pane (dockview's, in the gap between them). */
+async function sash(shell: Page): Promise<{ box: Box; el: Locator }> {
+  const a = await box(shell, 'pane-p1')
+  const b = await box(shell, 'pane-p2')
+  for (const el of await shell.locator('.dv-sash').all()) {
+    const r = await el.boundingBox()
+    if (r && r.x >= a.x + a.width - 2 && r.x + r.width <= b.x + 2 && r.height > 0) {
+      return { box: r, el }
+    }
+  }
+  throw new Error('no sash between p1 and p2')
+}
+
 const state = (shell: Page) =>
   shell.locator('[data-testid=shell]').getAttribute('data-sidebar-state')
 
-/** The tool pane's share of its row in the saved tree (the root split's last child). */
+type SavedDock = { grid?: { root?: { data?: Array<{ size: number }> } } }
+/** The saved sizes of the root row's panes: the app pane, then the tool pane. */
+const savedSizes = (dir: string): number[] =>
+  ((layoutFile(dir)['dock'] as SavedDock | undefined)?.grid?.root?.data ?? []).map((c) => c.size)
+/** The tool pane's share of the root row in the saved dock. */
 const savedToolShare = (dir: string): number | undefined => {
-  const t = layoutFile(dir)['tiling'] as { root?: { sizes?: number[] } } | undefined
-  return t?.root?.sizes?.[1]
+  const [a, b] = savedSizes(dir)
+  return a !== undefined && b !== undefined ? b / (a + b) : undefined
 }
 
 test('widths at 1280 and the fold vectors', async ({ app, shell }) => {
   await size(app, shell, 1280)
   expect((await box(shell, 'sidebar')).width).toBe(272)
-  // The chat and the default tool pane share the room right of the sidebar, 8px apart, with
-  // 8px to the window edge; the tool pane's card starts level with the chat's card.
-  const main = await box(shell, 'main-card')
+  // The app pane and the default tool pane share the room right of the sidebar, 8px apart, with
+  // 8px to the window edge; the tool pane's card starts level with the app pane's card.
+  const main = await box(shell, 'pane-p1')
   const tool = await box(shell, 'pane-p2')
   expect(main.x).toBe(272)
   expect(Math.round(tool.x - (main.x + main.width))).toBe(8)
   expect(Math.round(tool.x + tool.width)).toBe(1280 - 8)
-  expect(tool.y).toBe(main.y)
+  const card = await box(shell, 'pane-body-p1')
+  const toolCard = await shell
+    .locator('[data-testid=pane-p2] > .dv-tabs-and-actions-container')
+    .boundingBox()
+  expect(toolCard?.y).toBe(card.y)
   expect(Math.abs(tool.width / (tool.width + main.width) - 0.34)).toBeLessThan(0.01)
   expect((await box(shell, 'footer')).height).toBe(32)
 
@@ -82,7 +105,7 @@ test('widths at 1280 and the fold vectors', async ({ app, shell }) => {
   await size(app, shell, 935)
   await expect.poll(() => state(shell)).toBe('folded')
   await expect.poll(async () => (await box(shell, 'sidebar')).width).toBe(0)
-  await expect.poll(async () => (await box(shell, 'main-card')).x).toBe(8)
+  await expect.poll(async () => (await box(shell, 'pane-p1')).x).toBe(8)
 
   for (const w of [800, 760]) {
     await size(app, shell, w)
@@ -93,7 +116,7 @@ test('widths at 1280 and the fold vectors', async ({ app, shell }) => {
       })
       .toBe(w - 8)
     const p = await box(shell, 'pane-p2')
-    const m = await box(shell, 'main-card')
+    const m = await box(shell, 'pane-p1')
     expect(m.x + m.width).toBeLessThanOrEqual(p.x)
     expect(m.width).toBeGreaterThanOrEqual(480)
     expect(p.width).toBeGreaterThanOrEqual(240)
@@ -164,9 +187,11 @@ test('grips and dividers drag, reset, occlude and keep unknown keys', async ({
   await expect.poll(() => layoutFile(configDir)['sidebar_width']).toBe(272)
   expect((await box(shell, 'sidebar')).width).toBe(272)
 
-  // The divider between the chat and the tool pane: the browser view hides while it moves.
+  // The sash between the app pane and the tool pane: the browser view hides while it moves.
+  // The panes first settle beside the narrower sidebar.
+  await expect.poll(async () => (await box(shell, 'pane-p1')).x).toBe(272)
   const before = await box(shell, 'pane-p2')
-  const p = await box(shell, 'divider-s1-0')
+  const p = (await sash(shell)).box
   const px = p.x + p.width / 2
   const py = p.y + p.height / 2
   await shell.mouse.move(px, py)
@@ -185,22 +210,24 @@ test('grips and dividers drag, reset, occlude and keep unknown keys', async ({
   await shell.mouse.up()
   const want = Math.round(before.width + 80)
   await expect.poll(async () => Math.round((await box(shell, 'pane-p2')).width)).toBe(want)
-  // The share is of the row's room without its gap.
-  const room = (await box(shell, 'tiling')).width - 8
-  await expect
-    .poll(() => Math.abs((savedToolShare(configDir) ?? 0) - want / room))
-    .toBeLessThan(0.002)
+  // The saved tool pane is the width on screen.
+  await expect.poll(() => Math.abs((savedSizes(configDir)[1] ?? 0) - want)).toBeLessThanOrEqual(1)
   expect(layoutFile(configDir)['zoom']).toBe(2)
   // Double-click shares the two evenly.
-  await shell.locator('[data-testid=divider-s1-0]').dblclick()
-  await expect.poll(() => savedToolShare(configDir)).toBe(0.5)
+  await (await sash(shell)).el.dblclick()
+  await expect
+    .poll(() => {
+      const [a = 0, b = 0] = savedSizes(configDir)
+      return Math.abs(a - b)
+    })
+    .toBeLessThanOrEqual(1)
   expect(layoutFile(configDir)['zoom']).toBe(2)
 })
 
 test('widths survive a relaunch', async ({ app, shell, configDir }) => {
   await size(app, shell, 1280)
   await drag(shell, 'grip-sidebar', 28)
-  await drag(shell, 'divider-s1-0', -40)
+  await drag(shell, (await sash(shell)).box, -40)
   await expect.poll(() => layoutFile(configDir)['sidebar_width']).toBe(300)
   const tool = Math.round((await box(shell, 'pane-p2')).width)
   // The divider drag is saved before the app quits.
@@ -216,7 +243,10 @@ test('widths survive a relaunch', async ({ app, shell, configDir }) => {
     )
     await expect.poll(() => page.evaluate(() => window.innerWidth)).toBe(1280)
     await expect.poll(async () => (await box(page, 'sidebar')).width).toBe(300)
-    await expect.poll(async () => Math.round((await box(page, 'pane-p2')).width)).toBe(tool)
+    // dockview lays the saved sizes out again at the new window size: within a pixel.
+    await expect
+      .poll(async () => Math.abs((await box(page, 'pane-p2')).width - tool))
+      .toBeLessThanOrEqual(1)
   } finally {
     await app2.close()
   }
@@ -242,7 +272,7 @@ test('an old side panel seeds the first tree once', async ({ configDir }) => {
     )
     // Its width becomes the tool pane's share, so the pane opens about as wide as the panel was.
     expect(Math.abs((await box(page, 'pane-p2')).width - 420)).toBeLessThanOrEqual(8)
-    await expect.poll(() => layoutFile(configDir)['tiling']).toBeTruthy()
+    await expect.poll(() => layoutFile(configDir)['dock']).toBeTruthy()
     expect(layoutFile(configDir)).not.toHaveProperty('panel_choices')
     expect(layoutFile(configDir)).not.toHaveProperty('panel_tool')
   } finally {
@@ -274,7 +304,7 @@ test.describe('tool panes hidden', () => {
     await expect(tools).toBeHidden()
     await shell.reload()
     await shell.waitForSelector('[data-testid=rail]')
-    await shell.waitForSelector('[data-pane-id=chat]', { state: 'attached' })
+    await shell.waitForSelector('[data-pane-kind=app]', { state: 'attached' })
     await expect(tools).toBeHidden()
     await expect(shell.locator('[data-testid=panel-toggle]:visible').first()).toHaveAttribute(
       'aria-pressed',

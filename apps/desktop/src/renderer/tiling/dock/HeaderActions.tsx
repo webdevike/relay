@@ -126,8 +126,9 @@ const ADDABLE: Array<{ label: string; Icon: typeof IconGlobe; add: ToolTab | Pla
 ]
 
 /**
- * The end of a tool pane's strip: the + menu (add a tab, split, maximize), restore while
- * maximized, and close. A pane holding app tabs shows restore only, like the tab bar did.
+ * The end of a strip holding a tool tab: the + menu (add a tab, split, maximize), restore while
+ * maximized, and close; a page added there (Studio) keeps them. A pane of app tabs alone shows
+ * restore only, like the tab bar did.
  */
 export function RightActions({ group }: IDockviewHeaderActionsProps) {
   const pane = usePane(group.id)
@@ -149,7 +150,9 @@ export function RightActions({ group }: IDockviewHeaderActionsProps) {
       </ActionIcon>
     </Tooltip>
   ) : null
-  if (pane.app) return <div className="eva-dock-actions">{restore}</div>
+  if (pane.views.every((v) => appTabOf(v) !== null)) {
+    return <div className="eva-dock-actions">{restore}</div>
+  }
   return (
     <div className="eva-dock-actions">
       <EvaMenu opened={menu} onChange={setMenu} position="bottom-end" width={200}>

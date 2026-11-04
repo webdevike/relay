@@ -16,7 +16,7 @@ export type Harness = 'omp' | 'claude'
 export type SettingKey = 'show_thinking' | 'show_tools'
 
 export const SAVE_ERROR_COPY =
-  'Could not save your settings. Check that the EvaOS config folder is writable, then try again.'
+  'Could not save your settings. Check that the Relay config folder is writable, then try again.'
 
 export const settingsStore = createStore<SettingsState>(() => ({
   show_thinking: false,

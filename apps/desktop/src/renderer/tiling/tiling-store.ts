@@ -170,7 +170,11 @@ export function attachDock(dock: DockviewApi, element: HTMLElement): () => void 
       scheduleSave()
     }),
     dock.onDidActiveGroupChange(() => refresh()),
-    dock.onDidMaximizedGroupChange(() => refresh()),
+    // A maximized pane is how the tool panes hide: it is saved, so they stay hidden.
+    dock.onDidMaximizedGroupChange(() => {
+      refresh()
+      scheduleSave()
+    }),
     dock.onDidActivePanelChange((e) => {
       const panel = 'panel' in e ? e.panel : (e as IDockviewPanel | undefined)
       onActivePanel(panel)
@@ -303,6 +307,9 @@ function refresh(): void {
     else delete el.dataset['top']
     const header = el.querySelector<HTMLElement>(':scope > .dv-tabs-and-actions-container')
     if (header) header.dataset['testid'] = g.id === leadPane?.id ? 'tabbar' : `pane-header-${g.id}`
+    // The strip's empty end: window chrome to drag the window by (the tab bar's spacer).
+    const drag = header?.querySelector<HTMLElement>(':scope > .dv-void-container')
+    if (drag) drag.dataset['testid'] = g.id === leadPane?.id ? 'tabbar-drag' : `pane-drag-${g.id}`
     const body = el.querySelector<HTMLElement>(':scope > .dv-content-container')
     if (body) body.dataset['testid'] = `pane-body-${g.id}`
     const minimumWidth = app ? MAIN_MIN : TILE_MIN_W

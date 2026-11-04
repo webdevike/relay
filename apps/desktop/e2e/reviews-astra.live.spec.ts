@@ -146,16 +146,18 @@ test('@Astra starts a private thread; a plain reply in it goes to the same sessi
   await shell.getByRole('button', { name: 'Cancel' }).last().click()
   await box.fill('')
 
-  // Beside the chat: tab.open shows Reviews on the PR in a tool pane.
+  // Beside the chat: tab.open shows Reviews on the PR in the pane right of the chat's.
   expect(
     await agent(configDir, 'tab.open', { kind: 'page', args: { page: 'reviews', item: URL } }),
   ).toMatchObject({ ok: true })
-  await expect(shell.locator(`[data-pane-kind=tool] ${sel('reviews-page')}`)).toBeVisible()
+  await expect(
+    shell.locator(`[data-pane-kind]:not([data-pane-id=p1]) ${sel('reviews-page')}`),
+  ).toBeVisible()
   await shell.waitForTimeout(1500)
   await shot(shell, 'thread-5-side-pane')
 
   // Open session: the normal chat view on the same file.
-  const main = shell.locator(`[data-pane-id=chat] ${sel('review-conversation')}`)
+  const main = shell.locator(`${sel('pane-body-p1')} ${sel('review-conversation')}`)
   await main.locator(sel('review-astra-open')).last().click()
   await expect(shell.locator(sel('page-chat-wrap'))).toBeVisible({ timeout: 20_000 })
   await shot(shell, 'thread-6-session')

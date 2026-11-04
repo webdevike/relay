@@ -64,14 +64,17 @@ export function buildLaunchEnv(
   return env
 }
 
+/** `recordVideo`: Playwright records the window (still hidden) into that dir as webm. */
 export function launchApp(
   configDir: string,
   launchEnv: Record<string, string> = {},
+  recordVideo?: { dir: string; size?: { width: number; height: number } },
 ): Promise<ElectronApplication> {
   return _electron.launch({
     args: ['.'],
     cwd: APP_DIR,
     env: buildLaunchEnv(configDir, launchEnv),
+    ...(recordVideo ? { recordVideo } : {}),
   })
 }
 

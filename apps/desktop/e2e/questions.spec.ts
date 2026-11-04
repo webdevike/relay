@@ -159,7 +159,7 @@ test.describe('question cards and extension UI', () => {
   test('[ask-bad] is cancelled with a notice', async ({ shell }) => {
     await ask(shell, '[ask-bad] q')
     await expect(logOf(shell)).toContainText(
-      "omp asked a question EvaOS couldn't read, so it was cancelled.",
+      "omp asked a question Relay couldn't read, so it was cancelled.",
     )
     await expect.poll(() => uiResponses().length).toBe(1)
     expect(uiResponses()[0]).toMatchObject({ cancelled: true })

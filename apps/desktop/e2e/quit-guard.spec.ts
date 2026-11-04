@@ -53,7 +53,7 @@ test.afterEach(async ({ app }) => {
   await answer(app, 1).catch(() => undefined)
 })
 
-const TAIL = 'Save them before EvaOS closes, or discard them. Cancel keeps EvaOS open.'
+const TAIL = 'Save them before Relay closes, or discard them. Cancel keeps Relay open.'
 
 test('Cancel keeps the window and the dialog has the UI-SPEC copy', async ({ app, shell }) => {
   await stub(app)

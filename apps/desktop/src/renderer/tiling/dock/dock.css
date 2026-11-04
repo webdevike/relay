@@ -322,6 +322,12 @@
   background: var(--eva-grip-active);
 }
 
+/* The drop overlay moves on Relay's fast beat (dockview's own 300ms lags the pointer), and holds
+   still when motion is reduced. */
+.dockview-theme-relay .dv-drop-target-container,
+.dockview-theme-relay .dv-drop-target {
+  --dv-transition-duration: var(--eva-dur-fast);
+}
 /* The drop overlay: the pane half (or whole pane) a drop fills, in Relay's ring color. */
 .dockview-theme-relay .dv-drop-target-container .dv-drop-target-anchor,
 .dockview-theme-relay .dv-drop-target > .dv-drop-target-dropzone > .dv-drop-target-selection {

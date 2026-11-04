@@ -32,7 +32,7 @@ export type DialogAnswer =
   | { kind: 'cancel' }
 
 export const UNREADABLE_ASK_NOTICE =
-  "omp asked a question EvaOS couldn't read, so it was cancelled."
+  "omp asked a question Relay couldn't read, so it was cancelled."
 
 const nonEmpty = (v: unknown): string | undefined =>
   typeof v === 'string' && v !== '' ? v : undefined

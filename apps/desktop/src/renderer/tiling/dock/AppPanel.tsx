@@ -1,4 +1,5 @@
 import { useCallback, useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { Tooltip } from '@mantine/core'
 import { IconAsterisk, IconPin, IconX } from '@tabler/icons-react'
 import type { IDockviewPanelHeaderProps, IDockviewPanelProps } from 'dockview-react'
@@ -152,13 +153,18 @@ export function AppTab({ api }: IDockviewPanelHeaderProps) {
         position="bottom-start"
         offset={0}
       >
-        <EvaMenu.Target>
-          <span
-            className="eva-tab-menu-anchor"
-            style={{ left: menu?.x ?? 0, top: menu?.y ?? 0 }}
-            aria-hidden
-          />
-        </EvaMenu.Target>
+        {/* At the pointer, outside the strip: dockview's tab strip clips, and a clipped anchor
+            hides its menu. */}
+        {createPortal(
+          <EvaMenu.Target>
+            <span
+              className="eva-tab-menu-anchor"
+              style={{ left: menu?.x ?? 0, top: menu?.y ?? 0 }}
+              aria-hidden
+            />
+          </EvaMenu.Target>,
+          document.body,
+        )}
         <EvaMenu.Dropdown data-testid="tab-menu">
           <EvaMenu.Item
             data-testid="tab-menu-pin"

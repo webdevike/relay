@@ -55,8 +55,9 @@ async function focusShell(shell: Page): Promise<void> {
   await shell.locator('[data-testid=tabbar-drag]').click()
 }
 
-// Tool panes have tabs too: the app's tabs are the ones in the tab bar.
-const APP_TAB = '[data-testid=tabbar] [role=tab]'
+// Tool panes have tabs too: the app's tabs are the ones in the tab bar (dockview's tab element
+// holds Relay's `.eva-tab`, which says whether it is in front).
+const APP_TAB = '[data-testid=tabbar] .eva-tab'
 
 test('fresh launch has one active Dashboard tab', async ({ shell }) => {
   await expect(shell.locator(APP_TAB)).toHaveCount(1)

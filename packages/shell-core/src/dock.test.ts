@@ -90,6 +90,31 @@ describe('reconcileDock', () => {
     expect(fixed.panels['browser']).toBeUndefined()
   })
 
+  it('keeps the maximized group, found again after the tree is fixed', () => {
+    const saved = defaultDock(TABS, BOX, title) as DockJson
+    const zoomAt = (location: number[], root: unknown = saved.grid.root) =>
+      reconcileDock(
+        { ...saved, grid: { ...saved.grid, root, maximizedNode: { location } } },
+        TABS,
+        title,
+      )!
+    // The app tabs' group maximized (the tool panes hidden).
+    expect(zoomAt([0]).grid.maximizedNode).toEqual({ location: [0] })
+    // The tools' group saved inside a one-child branch, which normalizing unwraps: the path
+    // follows the group.
+    const [apps, tools] = saved.grid.root.type === 'branch' ? saved.grid.root.data : []
+    const wrapped = zoomAt([0, 0], {
+      type: 'branch',
+      size: 1,
+      data: [{ type: 'branch', size: 1, data: [tools] }, apps],
+    })
+    expect(brief(dockShape(wrapped))).toEqual({ row: ['p2[browser,files]', 'p1[tab:0,tab:1]'] })
+    expect(wrapped.grid.maximizedNode).toEqual({ location: [0] })
+    // A path to no group keeps nothing maximized; neither does a layout that saved none.
+    expect(zoomAt([5]).grid.maximizedNode).toBeUndefined()
+    expect(reconcileDock(saved, TABS, title)!.grid.maximizedNode).toBeUndefined()
+  })
+
   it('refuses what is no layout', () => {
     expect(reconcileDock(null, TABS, title)).toBeNull()
     expect(reconcileDock({ grid: {}, panels: {} }, TABS, title)).toBeNull()
