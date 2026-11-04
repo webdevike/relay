@@ -8,8 +8,18 @@ const invoke = vi.fn(async (...a: unknown[]) => {
       ok: true,
       value: {
         entries: [
-          { kind: 'desktop', build: 'bbbbbbb222', at: '2026-11-03T10:00:00Z', changes: ['Calmer sidebar'] },
-          { kind: 'desktop', build: 'aaaaaaa111', at: '2026-11-02T10:00:00Z', changes: ['Old thing'] },
+          {
+            kind: 'desktop',
+            build: 'bbbbbbb222',
+            at: '2026-11-03T10:00:00Z',
+            changes: ['Calmer sidebar'],
+          },
+          {
+            kind: 'desktop',
+            build: 'aaaaaaa111',
+            at: '2026-11-02T10:00:00Z',
+            changes: ['Old thing'],
+          },
         ],
       },
     }

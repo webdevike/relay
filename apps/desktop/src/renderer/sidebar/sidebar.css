@@ -173,7 +173,7 @@ html[data-eva-motion='off'] .eva-sb-track {
 /* Update waiting for a restart: a small quiet pill above Settings; the details open on hover. */
 .eva-update-badge {
   align-self: flex-start;
-  margin-left: var(--eva-space-native-sm);
+  margin-left: var(--mantine-spacing-sm);
   cursor: pointer;
 }
 .eva-update-changes {

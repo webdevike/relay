@@ -28,7 +28,10 @@ export function changesSince(
   const builds = entries.filter((e) => e.kind === 'desktop')
   const mine = shortBuild(running)
   const at = mine === null ? -1 : builds.findIndex((e) => shortBuild(e.build) === mine)
-  const newer = at >= 0 ? builds.slice(0, at) : builds.filter((e) => shortBuild(e.build) === shortBuild(pending))
+  const newer =
+    at >= 0
+      ? builds.slice(0, at)
+      : builds.filter((e) => shortBuild(e.build) === shortBuild(pending))
   return newer.flatMap((e) => e.changes)
 }
 

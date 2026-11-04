@@ -40,7 +40,11 @@ describe('updateSummaryLine', () => {
 
 describe('changesSince', () => {
   it('lists every desktop deploy newer than the running build, skipping host installs', () => {
-    expect(changesSince(HISTORY, 'aaaaaaa333', 'ccccccc111')).toEqual(['Third A', 'Third B', 'Second'])
+    expect(changesSince(HISTORY, 'aaaaaaa333', 'ccccccc111')).toEqual([
+      'Third A',
+      'Third B',
+      'Second',
+    ])
     expect(changesSince(HISTORY, 'bbbbbbb222xyz', 'ccccccc111')).toEqual(['Third A', 'Third B'])
   })
   it('falls back to the pending build when the running build is not in the history', () => {
