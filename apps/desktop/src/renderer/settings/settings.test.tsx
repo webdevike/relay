@@ -347,7 +347,9 @@ describe('SettingsPage', () => {
     expect(screen.getByTestId('links-opener-github.com/*/*/pull')).toHaveValue('Relay Reviews')
     expect(screen.getByTestId('links-opener-fallback')).toHaveValue('Relay browser')
 
-    await user.type(screen.getByTestId('links-add-input'), 'https://Docs.Example.com/a?b=1')
+    // Pasted, not typed key by key: per-key events pushed this flow past 5 s under a loaded full run.
+    await user.click(screen.getByTestId('links-add-input'))
+    await user.paste('https://Docs.Example.com/a?b=1')
     await user.click(screen.getByTestId('links-add'))
     const added = {
       rules: [
@@ -378,7 +380,8 @@ describe('SettingsPage', () => {
       expect(screen.queryByTestId('links-rule-github.com')).not.toBeInTheDocument(),
     )
 
-    await user.type(screen.getByTestId('links-add-input'), 'localhost')
+    await user.click(screen.getByTestId('links-add-input'))
+    await user.paste('localhost')
     await user.click(screen.getByTestId('links-add'))
     expect(screen.getByText('Type a site like example.com or *.example.com')).toBeInTheDocument()
   })
