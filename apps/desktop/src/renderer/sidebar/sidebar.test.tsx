@@ -9,6 +9,7 @@ const invoke = vi.fn(async (...a: unknown[]) =>
         value: {
           now: Date.now(),
           meetings: [],
+          recordings: [],
           digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
         },
       }
