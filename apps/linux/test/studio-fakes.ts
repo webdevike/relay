@@ -38,7 +38,12 @@ export class FakeClock implements SessionClock {
 
 export interface FakeMedia extends StudioMedia {
   readonly frameCalls: { readonly src: string; readonly at: string }[];
-  readonly coverCalls: { readonly src: string; readonly dest: string; readonly width: number; readonly height: number }[];
+  readonly coverCalls: {
+    readonly src: string;
+    readonly dest: string;
+    readonly width: number;
+    readonly height: number;
+  }[];
 }
 
 /** Images probe 100x200, mp4s 480x848 and 5 s; thumbs, frames and crops are placeholder bytes. */
@@ -48,7 +53,12 @@ export function fakeMedia(): FakeMedia {
   return {
     frameCalls,
     coverCalls,
-    probe: (path) => Promise.resolve(path.endsWith(".mp4") ? { width: 480, height: 848, durationMs: 5000 } : { width: 100, height: 200, durationMs: 40 }),
+    probe: (path) =>
+      Promise.resolve(
+        path.endsWith(".mp4")
+          ? { width: 480, height: 848, durationMs: 5000 }
+          : { width: 100, height: 200, durationMs: 40 },
+      ),
     thumb: (_src, dest) => {
       writeFileSync(dest, JPEG);
       return Promise.resolve(true);
@@ -148,7 +158,7 @@ export interface StudioHarness {
 }
 
 /** A started service on `dir` with fake runners (every backend available), seed 42. */
-export function studioHarness(dir: string): StudioHarness {
+export function studioHarness(dir: string, gpuHeld?: () => boolean): StudioHarness {
   const clock = new FakeClock();
   const sent: StudioMessage[] = [];
   const backends = availableBackends();
@@ -168,6 +178,7 @@ export function studioHarness(dir: string): StudioHarness {
     clock,
     log: () => undefined,
     seed: () => 42,
+    ...(gpuHeld === undefined ? {} : { gpuHeld }),
   });
   service.start();
   return { dir, clock, sent, runners, media, service };
@@ -185,13 +196,37 @@ export async function flush(): Promise<void> {
 }
 
 export function ltxSpec(over: Partial<StudioSpec> = {}): StudioSpec {
-  return { mode: "video", backend: "ltx", prompt: "a fox in snow", aspect: "9:16", resolution: "480x848", seconds: 5, ...over };
+  return {
+    mode: "video",
+    backend: "ltx",
+    prompt: "a fox in snow",
+    aspect: "9:16",
+    resolution: "480x848",
+    seconds: 5,
+    ...over,
+  };
 }
 
 export function imageSpec(over: Partial<StudioSpec> = {}): StudioSpec {
-  return { mode: "image", backend: "codex-image", prompt: "a red kite", aspect: "9:16", resolution: "1088x1920", ...over };
+  return {
+    mode: "image",
+    backend: "codex-image",
+    prompt: "a red kite",
+    aspect: "9:16",
+    resolution: "1088x1920",
+    ...over,
+  };
 }
 
 export function paidSpec(over: Partial<StudioSpec> = {}): StudioSpec {
-  return { mode: "video", backend: "higgsfield", model: "kling3_0", prompt: "a slow pan", aspect: "9:16", resolution: "std", seconds: 5, ...over };
+  return {
+    mode: "video",
+    backend: "higgsfield",
+    model: "kling3_0",
+    prompt: "a slow pan",
+    aspect: "9:16",
+    resolution: "std",
+    seconds: 5,
+    ...over,
+  };
 }

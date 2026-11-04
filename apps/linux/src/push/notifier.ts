@@ -19,7 +19,8 @@ export type PushData =
   | { readonly dropId: string }
   | { readonly id: string; readonly kind: string; readonly sessionId?: string }
   | { readonly withdraw: string }
-  | { readonly assistant: true; readonly agent: string };
+  | { readonly assistant: true; readonly agent: string }
+  | { readonly meeting: string };
 
 export interface PushMessage {
   readonly to: string;
@@ -41,7 +42,9 @@ export interface PushMessage {
   readonly sound?: string | null;
 }
 
-export type PushOutcome = { readonly ok: true } | { readonly ok: false; readonly error: string; readonly unregistered: boolean };
+export type PushOutcome =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly error: string; readonly unregistered: boolean };
 
 /** One HTTP round trip to the push service; outcomes line up with `messages`. */
 export interface PushSender {
@@ -109,16 +112,27 @@ export class AttentionNotifier {
     if (entry === undefined || !waitsOnUser(entry.session.status)) return;
     const session = entry.session;
     entry.cancelReminder?.();
-    entry.cancelReminder = reminder ? null : this.deps.clock.after(REMINDER_MS, () => {
-      this.notify(sessionId, true);
-    });
+    entry.cancelReminder = reminder
+      ? null
+      : this.deps.clock.after(REMINDER_MS, () => {
+          this.notify(sessionId, true);
+        });
 
     const name = reminder ? `${session.title} is still waiting` : session.title;
     // An assistant's own session is titled with its name; anything else says what kind of run it is.
-    const title = session.kind === "assistant" ? name : `${session.kind === "job" ? "Job" : "Session"} · ${name}`;
+    const title =
+      session.kind === "assistant"
+        ? name
+        : `${session.kind === "job" ? "Job" : "Session"} · ${name}`;
     // The body is display: a session's activity line never shows a client's surface tag.
-    const body = session.status === "needs_permission" ? `Needs permission${session.statusDetail === undefined ? "" : `: ${session.statusDetail}`}` : untagged(session.lastActivity);
-    this.send({ title, body, data: { sessionId: session.id }, threadId: `session:${session.id}` }, (deviceId) => this.deps.isViewing(deviceId, session.id));
+    const body =
+      session.status === "needs_permission"
+        ? `Needs permission${session.statusDetail === undefined ? "" : `: ${session.statusDetail}`}`
+        : untagged(session.lastActivity);
+    this.send(
+      { title, body, data: { sessionId: session.id }, threadId: `session:${session.id}` },
+      (deviceId) => this.deps.isViewing(deviceId, session.id),
+    );
   }
 
   private send(message: Omit<PushMessage, "to">, skip: (deviceId: string) => boolean): void {

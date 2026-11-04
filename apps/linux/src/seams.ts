@@ -1,7 +1,40 @@
 // Seams between transport, input and storage. Mirrors apps/mac/Sources/RelayCore/Seams.swift:
 // the session only ever talks to these; input/ and the stores implement them; main.ts wires them.
 
-import type { AckError, AgentApproval, AgentAsk, AgentAskAnswer, AgentImage, AgentMessage, AgentOptions, AgentSession, ApprovalConfirmation, AssistantAgent, AssistantFileReq, AssistantFileRes, AssistantSnapshot, ClientMessage, Command, Drop, DropOrigin, FileFocus, GateStatus, InboxItem, InboxResolve, InputEvent, KeyName, ReviewsOp, ReviewsResult, ServerMessage, StudioOp, StudioResult, StudioState } from "@relay/protocol";
+import type {
+  AckError,
+  AgentApproval,
+  AgentAsk,
+  AgentAskAnswer,
+  AgentImage,
+  AgentMessage,
+  AgentOptions,
+  AgentSession,
+  ApprovalConfirmation,
+  AssistantAgent,
+  AssistantFileReq,
+  AssistantFileRes,
+  AssistantSnapshot,
+  ClientMessage,
+  Command,
+  Drop,
+  DropOrigin,
+  FileFocus,
+  GateStatus,
+  InboxItem,
+  InboxResolve,
+  InputEvent,
+  KeyName,
+  MeetingsOp,
+  MeetingsResult,
+  MeetingsState,
+  ReviewsOp,
+  ReviewsResult,
+  ServerMessage,
+  StudioOp,
+  StudioResult,
+  StudioState,
+} from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
 export interface FrameSink {
@@ -134,12 +167,17 @@ export interface AssistantRelaying {
    * `assistant.create`: adds an assistant to the registry (its prime runs the setup interview) and,
    * with `start`, starts its thread. Rejects with `AckFailure`. Absent where the host cannot write the registry.
    */
-  create?(input: { readonly id?: string; readonly title: string; readonly scope?: string }, start: boolean): Promise<{ readonly id: string; readonly title: string }>;
+  create?(
+    input: { readonly id?: string; readonly title: string; readonly scope?: string },
+    start: boolean,
+  ): Promise<{ readonly id: string; readonly title: string }>;
   /**
    * `assistant.file.req`: reads or saves agent `agent`'s prime.md or thread memory (`assistant/files.ts`).
    * Absent where the host has no agent home.
    */
-  file?(req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">): Omit<AssistantFileRes, "t" | "rid">;
+  file?(
+    req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">,
+  ): Omit<AssistantFileRes, "t" | "rid">;
 }
 
 /** What the session needs of the host's live canvas rooms (`canvas/service.ts`). */
@@ -147,7 +185,10 @@ export interface CanvasRelaying {
   /** `canvas.rooms`: every room the host holds, at its current rev. */
   snapshot(): Extract<ServerMessage, { t: "canvas.rooms" }>;
   /** `canvas.open` from `deviceId`: a token for the live room on `slug`, or why there is none. */
-  open(slug: string, deviceId: string): Extract<ServerMessage, { t: "canvas.access" | "canvas.unavailable" }>;
+  open(
+    slug: string,
+    deviceId: string,
+  ): Extract<ServerMessage, { t: "canvas.access" | "canvas.unavailable" }>;
 }
 
 /** The phone's `call.*` frames. */
@@ -178,7 +219,9 @@ export interface LiveRelaying {
   observe(change: AgentProviderChange): void;
 }
 
-export type DropChange = { readonly kind: "added"; readonly drop: Drop } | { readonly kind: "removed"; readonly id: string };
+export type DropChange =
+  | { readonly kind: "added"; readonly drop: Drop }
+  | { readonly kind: "removed"; readonly id: string };
 
 /** Bytes behind an `image` or `file` drop, resolved for an HTTP response. */
 export interface DropBlob {
@@ -198,9 +241,15 @@ export interface DropBox {
   /** Text becomes a `link` drop when it is a single URL. */
   putText(origin: DropOrigin, text: string): Drop;
   /** `bytes` larger than `MAX_DROP_BYTES` throw, `video/*` ones larger than the video cap throw `VideoTooLarge`. Images (by `mimeType`) become `image` drops. */
-  putBlob(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Drop;
+  putBlob(
+    origin: DropOrigin,
+    blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array },
+  ): Drop;
   /** A `video/*` blob (kind `file`) with its duration, display size and poster filled in where the host can read them. */
-  putVideo(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Promise<Drop>;
+  putVideo(
+    origin: DropOrigin,
+    blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array },
+  ): Promise<Drop>;
   /** False when no such drop. */
   remove(id: string): boolean;
   /** The blob for `id` iff `token` matches its `DropFile.path`; null otherwise (also for text drops). */
@@ -238,6 +287,48 @@ export interface ReviewsRelaying {
   observe(change: AgentProviderChange): void;
 }
 
+/** The text frames a recording's ingest socket carries out (`ack`, `meeting.done`, `meeting.stop`). */
+export interface IngestPeer {
+  sendText(frame: Record<string, unknown>): void;
+  close(code?: number, reason?: string): void;
+}
+
+/** One open ingest socket, as the server feeds it. */
+export interface IngestConnection {
+  text(raw: string): void;
+  binary(data: Uint8Array): void;
+  closed(): void;
+}
+
+/** What a redeemed ingest ticket lets its socket do: upload recording `id` from device `deviceId`. */
+export interface IngestGrant {
+  readonly id: string;
+  readonly deviceId: string;
+  readonly deviceName: string;
+}
+
+/**
+ * What the session and server need of Meetings (`meetings/service.ts`): the state `meetings.list`
+ * answers, one `meetings.req` op at a time, ingest tickets and their sockets, and every provider
+ * change (Astra's session about a meeting). Changes reach every device through the service's own
+ * broadcast.
+ */
+export interface MeetingsRelaying {
+  state(): MeetingsState;
+  /** Never rejects: a failure is `{ ok: false, error }`. */
+  handle(op: MeetingsOp): Promise<Omit<MeetingsResult, "rid">>;
+  /** A Mac's `meeting.ingest.open`: a one-time ticket for its socket, or why not. */
+  openIngest(
+    deviceId: string,
+    deviceName: string,
+    open: { id: string; app: string; title?: string | undefined; startedAt: number },
+  ): { ticket: string } | { refused: string };
+  /** Spends a ticket; null when unknown, spent or expired. */
+  redeem(ticket: string): IngestGrant | null;
+  connect(grant: IngestGrant, peer: IngestPeer): IngestConnection;
+  observe(change: AgentProviderChange): void;
+}
+
 /** Shows / hides the pairing PIN. Exactly one `endPairing` per `beginPairing`. */
 export interface PairingUI {
   beginPairing(deviceName: string, pin: string): void;
@@ -258,9 +349,19 @@ export type AgentProviderChange =
   /** The session list (or any session's status/activity) changed; read `sessions` again. */
   | { readonly kind: "sessions" }
   /** New messages were appended to a conversation the transport may be subscribed to. */
-  | { readonly kind: "conversation"; readonly sessionId: string; readonly appended: readonly AgentMessage[] }
+  | {
+      readonly kind: "conversation";
+      readonly sessionId: string;
+      readonly appended: readonly AgentMessage[];
+    }
   /** A streaming message's text so far (full text, idempotent); `streaming: false` is the settled text. */
-  | { readonly kind: "message"; readonly sessionId: string; readonly id: string; readonly text: string; readonly streaming: boolean }
+  | {
+      readonly kind: "message";
+      readonly sessionId: string;
+      readonly id: string;
+      readonly text: string;
+      readonly streaming: boolean;
+    }
   /** The session is now blocked on an ask; the transport shows it to subscribed phones. */
   | { readonly kind: "ask"; readonly sessionId: string; readonly ask: AgentAsk }
   /** A pending ask closed (answered in the TUI, cancelled, or answered from a phone); dismiss its card. */
@@ -291,7 +392,12 @@ export interface AgentProvider {
    * Deliver `text` (and any `images`) as the next user turn, or only `text` into the session's
    * input. The session enforces the protocol's rule that images require `submit`. Rejects with `AckFailure`.
    */
-  reply(sessionId: string, text: string, submit: boolean, images?: readonly AgentImage[]): Promise<void>;
+  reply(
+    sessionId: string,
+    text: string,
+    submit: boolean,
+    images?: readonly AgentImage[],
+  ): Promise<void>;
   /**
    * Hand `text` to the session as a quiet note: in the model's context from its next turn on, never
    * shown and never a turn of its own. Resolves false when the session's bridge predates notes;
@@ -303,7 +409,12 @@ export interface AgentProvider {
    * launched; `joined` then settles with the session id it registers under. Rejects with
    * `AckFailure` (`agent_launch_failed`).
    */
-  launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work", resume?: string): Promise<{ readonly joined: Promise<string> }>;
+  launch(
+    prompt?: string,
+    thinkingLevel?: string,
+    profile?: "personal" | "work",
+    resume?: string,
+  ): Promise<{ readonly joined: Promise<string> }>;
   /** Models and skills the session offers; null when the session is unknown. */
   options(sessionId: string): Promise<AgentOptions | null>;
   /** Bytes behind an `AgentImageRef`; null when the session or the image is unknown. */
@@ -325,7 +436,12 @@ export interface AgentProvider {
    * destructive call needs `confirmed`. Rejects with `AckFailure` (`agent_not_found`,
    * `agent_cannot_respond` when the approval is gone, `biometric_required`).
    */
-  decideApproval(sessionId: string, approvalId: string, allow: boolean, confirmed?: ApprovalConfirmation): Promise<void>;
+  decideApproval(
+    sessionId: string,
+    approvalId: string,
+    allow: boolean,
+    confirmed?: ApprovalConfirmation,
+  ): Promise<void>;
   /** The approval the session is currently blocked on, replayed to a phone that subscribes late; null when none. */
   pendingApproval(sessionId: string): AgentApproval | null;
   /** The habit gate as the omp bridge last reported it; null when no session reports one. */
@@ -342,4 +458,3 @@ export interface AgentProvider {
 export type AgentConfigChange = Omit<Extract<Command, { kind: "agent.configure" }>, "kind">;
 
 export type GateCommand = Extract<Command, { kind: "gate.start" | "gate.done" | "gate.override" }>;
-

@@ -80,6 +80,14 @@ final class Uplink {
     queue.async { self.finish(nil, notify: false) }
   }
 
+  /// The recording's health (`ok`, `silent-app`, `no-mic`) for the host's page.
+  func sendHealth(_ state: String, detail: String) {
+    queue.async {
+      guard !self.closed else { return }
+      self.sendText(["t": "meeting.health", "state": state, "detail": detail])
+    }
+  }
+
   private func sendText(_ obj: [String: Any]) {
     guard let data = try? JSONSerialization.data(withJSONObject: obj), let s = String(data: data, encoding: .utf8) else { return }
     task.send(.string(s)) { [weak self] e in

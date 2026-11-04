@@ -9,6 +9,7 @@ import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import {
   ESCALATOR_DEVICE_ID,
   FILES_PRESENCE_FEATURE,
+  MEETINGS_FEATURE,
   PROTOCOL_VERSION,
   defaultTabs,
   parseClientMessage,
@@ -52,6 +53,7 @@ import {
   type InboxRelaying,
   type InputAccess,
   type InputSink,
+  type MeetingsRelaying,
   type PushRegistry,
   type ReviewsRelaying,
   type StudioRelaying,
@@ -111,6 +113,8 @@ export interface SessionDeps {
   readonly query: QueryRelaying | null;
   /** null when the host runs no live file presence; `files.*` frames are then ignored and `welcome.features` leaves it out. */
   readonly files: FilePresenceRelaying | null;
+  /** null when the host runs no Meetings; `meetings.list` then answers empty, `meetings.req` and `meeting.ingest.open` are refused. */
+  readonly meetings: MeetingsRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -221,7 +225,11 @@ export class ClientSession {
   /** Whether the phone has agent `agent`'s thread open on this socket (asked for it within ASSISTANT_FOLLOW_MS). */
   isFollowingAssistant(agent: string): boolean {
     const askedAt = this.assistantAskedAt.get(agent);
-    return this.phase.kind === "authenticated" && askedAt !== undefined && this.clock.now() - askedAt <= ASSISTANT_FOLLOW_MS;
+    return (
+      this.phase.kind === "authenticated" &&
+      askedAt !== undefined &&
+      this.clock.now() - askedAt <= ASSISTANT_FOLLOW_MS
+    );
   }
 
   /** Forwards appended agent messages iff subscribed to `sessionId`; bumps that subscription's rev. */
@@ -509,14 +517,31 @@ export class ClientSession {
         break;
       case "session.read": {
         const { profile, dir, parent, name, offset } = message;
-        const chunk = this.deps.sessionFiles?.read(profile, dir, name, offset, message.limit, parent) ?? null;
-        const echo = { ...(profile === undefined ? {} : { profile }), ...(parent === undefined ? {} : { parent }) };
-        this.sink.send({ t: "session.chunk", ...echo, dir, name, offset, data: chunk?.data ?? null, size: chunk?.size ?? 0 });
+        const chunk =
+          this.deps.sessionFiles?.read(profile, dir, name, offset, message.limit, parent) ?? null;
+        const echo = {
+          ...(profile === undefined ? {} : { profile }),
+          ...(parent === undefined ? {} : { parent }),
+        };
+        this.sink.send({
+          t: "session.chunk",
+          ...echo,
+          dir,
+          name,
+          offset,
+          data: chunk?.data ?? null,
+          size: chunk?.size ?? 0,
+        });
         break;
       }
       case "blob.read": {
         const blob = this.deps.sessionFiles?.blob(message.hash) ?? null;
-        this.sink.send({ t: "blob.data", hash: message.hash, mime: blob?.mime ?? null, data: blob?.data ?? null });
+        this.sink.send({
+          t: "blob.data",
+          hash: message.hash,
+          mime: blob?.mime ?? null,
+          data: blob?.data ?? null,
+        });
         break;
       }
       case "push.register":
@@ -550,11 +575,18 @@ export class ClientSession {
         break;
       case "usage.refresh":
         // The refreshing and finished snapshots arrive through the server's broadcast.
-        if (this.deps.usage === null) this.sink.send({ t: "usage.snapshot", usage: { accounts: [], updatedAt: null, refreshing: false } });
+        if (this.deps.usage === null)
+          this.sink.send({
+            t: "usage.snapshot",
+            usage: { accounts: [], updatedAt: null, refreshing: false },
+          });
         else void this.deps.usage.refresh();
         break;
       case "catchup.list":
-        this.sink.send({ t: "catchup.snapshot", ...(this.deps.catchup?.snapshot() ?? EMPTY_CATCHUP) });
+        this.sink.send({
+          t: "catchup.snapshot",
+          ...(this.deps.catchup?.snapshot() ?? EMPTY_CATCHUP),
+        });
         break;
       case "catchup.mark":
       case "catchup.handoff":
@@ -567,28 +599,50 @@ export class ClientSession {
               ? deck?.handoff(message.id, message.agent, message.note)
               : deck?.bounce(message.id, message.agent, message.reason);
         // A change reaches every phone through the server's broadcast; otherwise this phone's optimistic deck is put right.
-        if (changed !== true) this.sink.send({ t: "catchup.snapshot", ...(deck?.snapshot() ?? EMPTY_CATCHUP) });
+        if (changed !== true)
+          this.sink.send({ t: "catchup.snapshot", ...(deck?.snapshot() ?? EMPTY_CATCHUP) });
         break;
       }
       case "catchup.note":
-        this.sink.send({ t: "catchup.noted", id: message.id, ok: this.deps.catchup?.note(message.id, message.text, message.signal) === true });
+        this.sink.send({
+          t: "catchup.noted",
+          id: message.id,
+          ok: this.deps.catchup?.note(message.id, message.text, message.signal) === true,
+        });
         break;
       case "reactions.get":
-        this.sink.send({ t: "reactions.snapshot", thread: message.thread, reactions: this.deps.reactions?.snapshot(message.thread) ?? {} });
+        this.sink.send({
+          t: "reactions.snapshot",
+          thread: message.thread,
+          reactions: this.deps.reactions?.snapshot(message.thread) ?? {},
+        });
         break;
       case "reaction.set":
       case "reaction.clear": {
         const reactions = this.deps.reactions;
         const changed =
           reactions !== null &&
-          (message.t === "reaction.set" ? reactions.set(message.thread, message.message, message.emoji, message.excerpt) : reactions.clear(message.thread, message.message));
+          (message.t === "reaction.set"
+            ? reactions.set(message.thread, message.message, message.emoji, message.excerpt)
+            : reactions.clear(message.thread, message.message));
         // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
-        if (!changed) this.sink.send({ t: "reactions.snapshot", thread: message.thread, reactions: reactions?.snapshot(message.thread) ?? {} });
+        if (!changed)
+          this.sink.send({
+            t: "reactions.snapshot",
+            thread: message.thread,
+            reactions: reactions?.snapshot(message.thread) ?? {},
+          });
         break;
       }
       case "artifacts.get":
         // The service pushes the snapshot to every device, this one included.
-        if (this.deps.artifacts === null) this.sink.send({ t: "artifacts.snapshot", thread: message.thread, items: [], tabs: defaultTabs() });
+        if (this.deps.artifacts === null)
+          this.sink.send({
+            t: "artifacts.snapshot",
+            thread: message.thread,
+            items: [],
+            tabs: defaultTabs(),
+          });
         else this.deps.artifacts.get(message.thread);
         break;
       case "activity.get":
@@ -597,7 +651,10 @@ export class ClientSession {
         else this.deps.activity.get();
         break;
       case "artifacts.act": {
-        const result = this.deps.artifacts?.act(message.thread, message.by, message.action) ?? { ok: false, error: "This host keeps no artifacts." };
+        const result = this.deps.artifacts?.act(message.thread, message.by, message.action) ?? {
+          ok: false,
+          error: "This host keeps no artifacts.",
+        };
         this.sink.send({ t: "artifacts.acted", rid: message.rid, ...result });
         break;
       }
@@ -605,7 +662,12 @@ export class ClientSession {
         // An unknown agent, or no agent from an old phone on a host without threads, follows nothing.
         const thread = this.deps.assistant?.thread(message.agent);
         if (thread === undefined) {
-          if (message.agent !== undefined) this.sink.send({ t: "assistant.snapshot", agent: message.agent, snapshot: EMPTY_ASSISTANT });
+          if (message.agent !== undefined)
+            this.sink.send({
+              t: "assistant.snapshot",
+              agent: message.agent,
+              snapshot: EMPTY_ASSISTANT,
+            });
           break;
         }
         this.assistantAskedAt.set(thread.id, this.clock.now());
@@ -613,10 +675,16 @@ export class ClientSession {
         this.deps.calls?.warm();
         void thread.snapshot().then(
           (snapshot) => {
-            if (!this.closed) this.sink.send({ t: "assistant.snapshot", agent: thread.id, snapshot });
+            if (!this.closed)
+              this.sink.send({ t: "assistant.snapshot", agent: thread.id, snapshot });
           },
           () => {
-            if (!this.closed) this.sink.send({ t: "assistant.snapshot", agent: thread.id, snapshot: EMPTY_ASSISTANT });
+            if (!this.closed)
+              this.sink.send({
+                t: "assistant.snapshot",
+                agent: thread.id,
+                snapshot: EMPTY_ASSISTANT,
+              });
           },
         );
         break;
@@ -636,12 +704,21 @@ export class ClientSession {
         this.sink.send(this.deps.canvas?.snapshot() ?? { t: "canvas.rooms", rev: 0, rooms: [] });
         break;
       case "canvas.open":
-        this.sink.send(this.deps.canvas?.open(message.slug, deviceId) ?? { t: "canvas.unavailable", slug: message.slug, reason: "This host runs no live canvas." });
+        this.sink.send(
+          this.deps.canvas?.open(message.slug, deviceId) ?? {
+            t: "canvas.unavailable",
+            slug: message.slug,
+            reason: "This host runs no live canvas.",
+          },
+        );
         break;
       case "vnc.open":
         void this.deps.vnc.open(deviceId).then(
           (ticket) => {
-            if (!this.closed) this.sink.send(ticket === null ? { t: "vnc.unavailable" } : { t: "vnc.ticket", ticket });
+            if (!this.closed)
+              this.sink.send(
+                ticket === null ? { t: "vnc.unavailable" } : { t: "vnc.ticket", ticket },
+              );
           },
           () => {
             if (!this.closed) this.sink.send({ t: "vnc.unavailable" });
@@ -659,21 +736,44 @@ export class ClientSession {
       case "call.mute":
       case "call.end":
         if (this.deps.calls !== null) this.deps.calls.receive(this.sink, message);
-        else if (message.t === "call.start") this.sink.send({ t: "call.state", callId: message.callId, agent: message.agent, state: "ended", error: "This host cannot take calls" });
+        else if (message.t === "call.start")
+          this.sink.send({
+            t: "call.state",
+            callId: message.callId,
+            agent: message.agent,
+            state: "ended",
+            error: "This host cannot take calls",
+          });
         break;
       case "live.start":
       case "live.end":
         if (this.deps.live !== null) this.deps.live.receive(this.sink, message);
-        else if (message.t === "live.start") this.sink.send({ t: "live.state", callId: message.callId, agent: message.agent, state: "ended", error: "This host cannot take live calls", fallback: true });
+        else if (message.t === "live.start")
+          this.sink.send({
+            t: "live.state",
+            callId: message.callId,
+            agent: message.agent,
+            state: "ended",
+            error: "This host cannot take live calls",
+            fallback: true,
+          });
         break;
       case "studio.list":
-        this.sink.send({ t: "studio.state", ...(this.deps.studio?.state() ?? { jobs: [], uploads: [], backends: [] }) });
+        this.sink.send({
+          t: "studio.state",
+          ...(this.deps.studio?.state() ?? { jobs: [], uploads: [], backends: [] }),
+        });
         break;
       case "studio.req": {
         // Changes reach every device (this one included) through the service's broadcast; this is the answer.
         const studio = this.deps.studio;
         if (studio === null) {
-          this.sink.send({ t: "studio.res", rid: message.rid, ok: false, error: "This host runs no Studio." });
+          this.sink.send({
+            t: "studio.res",
+            rid: message.rid,
+            ok: false,
+            error: "This host runs no Studio.",
+          });
           break;
         }
         void studio.handle(message.op).then((result) => {
@@ -685,7 +785,12 @@ export class ClientSession {
         // Queue and Astra changes reach every device through the service's broadcast; this is the answer.
         const reviews = this.deps.reviews;
         if (reviews === null) {
-          this.sink.send({ t: "reviews.res", rid: message.rid, ok: false, error: "This host runs no Reviews." });
+          this.sink.send({
+            t: "reviews.res",
+            rid: message.rid,
+            ok: false,
+            error: "This host runs no Reviews.",
+          });
           break;
         }
         void reviews.handle(message.op).then((result) => {
@@ -693,16 +798,71 @@ export class ClientSession {
         });
         break;
       }
+      case "meetings.list":
+        this.sink.send({
+          t: "meetings.state",
+          ...(this.deps.meetings?.state() ?? {
+            recordings: [],
+            meetings: [],
+            digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
+            now: this.clock.now(),
+          }),
+        });
+        break;
+      case "meetings.req": {
+        // Changes reach every device through the service's broadcast; this is the answer.
+        const meetings = this.deps.meetings;
+        if (meetings === null) {
+          this.sink.send({
+            t: "meetings.res",
+            rid: message.rid,
+            ok: false,
+            error: "This host runs no Meetings.",
+          });
+          break;
+        }
+        void meetings.handle(message.op).then((result) => {
+          if (!this.closed) this.sink.send({ t: "meetings.res", rid: message.rid, ...result });
+        });
+        break;
+      }
+      case "meeting.ingest.open": {
+        const meetings = this.deps.meetings;
+        const open = {
+          id: message.id,
+          app: message.app,
+          title: message.title,
+          startedAt: message.startedAt,
+        };
+        const r =
+          meetings === null
+            ? { refused: "This host runs no Meetings." }
+            : meetings.openIngest(deviceId, this.deviceName ?? deviceId, open);
+        this.sink.send(
+          "ticket" in r
+            ? { t: "meeting.ingest.ticket", id: message.id, ticket: r.ticket }
+            : { t: "meeting.ingest.refused", id: message.id, reason: r.refused },
+        );
+        break;
+      }
       case "assistant.file.req": {
         const assistant = this.deps.assistant;
-        const result = assistant?.file === undefined ? { ok: false, code: "invalid" as const, error: "This host has no assistants." } : assistant.file(message);
+        const result =
+          assistant?.file === undefined
+            ? { ok: false, code: "invalid" as const, error: "This host has no assistants." }
+            : assistant.file(message);
         this.sink.send({ t: "assistant.file.res", rid: message.rid, ...result });
         break;
       }
       case "query.req": {
         const query = this.deps.query;
         if (query === null) {
-          this.sink.send({ t: "query.res", rid: message.rid, ok: false, error: "This host runs no queries." });
+          this.sink.send({
+            t: "query.res",
+            rid: message.rid,
+            ok: false,
+            error: "This host runs no queries.",
+          });
           break;
         }
         void query.run(message.tool, message.args ?? {}, deviceId).then((answer) => {
@@ -711,10 +871,16 @@ export class ClientSession {
         break;
       }
       case "files.open":
-        this.deps.files?.open({ sink: this.sink, device: deviceId, deviceName: this.name ?? deviceId }, message.paths);
+        this.deps.files?.open(
+          { sink: this.sink, device: deviceId, deviceName: this.name ?? deviceId },
+          message.paths,
+        );
         break;
       case "files.caret":
-        this.deps.files?.caret({ sink: this.sink, device: deviceId, deviceName: this.name ?? deviceId }, message.focus);
+        this.deps.files?.caret(
+          { sink: this.sink, device: deviceId, deviceName: this.name ?? deviceId },
+          message.focus,
+        );
         break;
       case "files.saved":
         this.deps.files?.saved(message.path, message.hash);
@@ -769,7 +935,12 @@ export class ClientSession {
    * can land before `act` returns, and the Mac's row must hear who answered. A failed answer
    * (Face ID missing, approval already gone) gives the claim back.
    */
-  private claimed(id: string, deviceId: string, answer: string, act: () => Promise<void>): Promise<void> {
+  private claimed(
+    id: string,
+    deviceId: string,
+    answer: string,
+    act: () => Promise<void>,
+  ): Promise<void> {
     const inbox = this.deps.inbox;
     if (inbox === null) return act();
     inbox.claim(id, deviceId, answer);
@@ -891,24 +1062,48 @@ export class ClientSession {
       case "gate.done":
       case "gate.override":
         if (this.deps.agents === null) {
-          return Promise.reject(new AckFailure({ code: "gate_unavailable", message: "this host has no agent bridge to reach the habit gate" }));
+          return Promise.reject(
+            new AckFailure({
+              code: "gate_unavailable",
+              message: "this host has no agent bridge to reach the habit gate",
+            }),
+          );
         }
         return this.deps.agents.runGate(cmd);
       case "assistant.turn":
         if (cmd.text.length === 0 && cmd.images === undefined) {
-          return Promise.reject(new AckFailure({ code: "invalid_command", message: "turn has neither text nor images" }));
+          return Promise.reject(
+            new AckFailure({
+              code: "invalid_command",
+              message: "turn has neither text nor images",
+            }),
+          );
         }
         return this.assistantThread(cmd.agent).turn(cmd.text, cmd.images);
       case "assistant.signin":
-        return this.assistantThread(cmd.agent).signin(cmd.messageId, cmd.url, cmd.username, cmd.password);
+        return this.assistantThread(cmd.agent).signin(
+          cmd.messageId,
+          cmd.url,
+          cmd.username,
+          cmd.password,
+        );
       case "assistant.create": {
         const assistant = this.deps.assistant;
         if (assistant?.create === undefined) {
-          return Promise.reject(new AckFailure({ code: "invalid_command", message: "this host cannot add assistants" }));
+          return Promise.reject(
+            new AckFailure({ code: "invalid_command", message: "this host cannot add assistants" }),
+          );
         }
         const { id, title, scope } = cmd;
         return assistant
-          .create({ title, ...(id === undefined ? {} : { id }), ...(scope === undefined ? {} : { scope }) }, cmd.start === true)
+          .create(
+            {
+              title,
+              ...(id === undefined ? {} : { id }),
+              ...(scope === undefined ? {} : { scope }),
+            },
+            cmd.start === true,
+          )
           .then(() => undefined);
       }
     }
@@ -917,9 +1112,17 @@ export class ClientSession {
   /** Thread `agent` (the default when absent); throws `AckFailure` on a host without threads or for an unknown agent. */
   private assistantThread(agent: string | undefined): AssistantThread {
     const assistant = this.deps.assistant;
-    if (assistant === null) throw new AckFailure({ code: "agent_launch_failed", message: "this host has no assistant threads" });
+    if (assistant === null)
+      throw new AckFailure({
+        code: "agent_launch_failed",
+        message: "this host has no assistant threads",
+      });
     const thread = assistant.thread(agent);
-    if (thread === undefined) throw new AckFailure({ code: "agent_not_found", message: `no assistant ${agent ?? "(default)"} on this host` });
+    if (thread === undefined)
+      throw new AckFailure({
+        code: "agent_not_found",
+        message: `no assistant ${agent ?? "(default)"} on this host`,
+      });
     return thread;
   }
 
@@ -927,14 +1130,24 @@ export class ClientSession {
    * Launches (or, with `resume`, relaunches in its own profile) an omp session; resolves once it is
    * launched, and sends `agent.started` for request `id` when it joins. An unknown `resume` is refused.
    */
-  private async startAgent(id: string, cmd: Extract<Command, { kind: "agent.start" }>): Promise<void> {
+  private async startAgent(
+    id: string,
+    cmd: Extract<Command, { kind: "agent.start" }>,
+  ): Promise<void> {
     let profile = cmd.profile;
     let file: string | undefined;
     if (cmd.resume !== undefined) {
       const found = this.deps.sessionFiles?.fileForSessionId(cmd.resume) ?? null;
-      if (found === null) throw new AckFailure({ code: "agent_not_found", message: `no omp session ${cmd.resume} on this host` });
+      if (found === null)
+        throw new AckFailure({
+          code: "agent_not_found",
+          message: `no omp session ${cmd.resume} on this host`,
+        });
       if (found.profile !== undefined && found.profile !== "personal" && found.profile !== "work") {
-        throw new AckFailure({ code: "agent_launch_failed", message: `cannot resume sessions of omp profile ${found.profile}` });
+        throw new AckFailure({
+          code: "agent_launch_failed",
+          message: `cannot resume sessions of omp profile ${found.profile}`,
+        });
       }
       profile = found.profile;
       file = found.path;
@@ -967,11 +1180,20 @@ export class ClientSession {
 
   private authenticate(deviceId: string): void {
     this.phase = { kind: "authenticated", deviceId };
-    const features = [...(this.deps.query === null ? [] : [QUERY_FEATURE]), ...(this.deps.files === null ? [] : [FILES_PRESENCE_FEATURE])];
-    this.sink.send({ t: "welcome", state: this.snapshot(), ...(features.length === 0 ? {} : { features }) });
+    const features = [
+      ...(this.deps.query === null ? [] : [QUERY_FEATURE]),
+      ...(this.deps.files === null ? [] : [FILES_PRESENCE_FEATURE]),
+      ...(this.deps.meetings === null ? [] : [MEETINGS_FEATURE]),
+    ];
+    this.sink.send({
+      t: "welcome",
+      state: this.snapshot(),
+      ...(features.length === 0 ? {} : { features }),
+    });
     // Items that opened while this device was away; the escalator itself is the one that sent them.
     if (deviceId !== ESCALATOR_DEVICE_ID) {
-      for (const item of this.deps.inbox?.pending() ?? []) this.sink.send({ t: "inbox.item", item });
+      for (const item of this.deps.inbox?.pending() ?? [])
+        this.sink.send({ t: "inbox.item", item });
     }
   }
 

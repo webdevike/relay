@@ -123,22 +123,35 @@ final class Recording {
     }
   }
 
+  /// DIR/app.wav and DIR/mic.wav (16 kHz mono s16) fed at real time, paced by the wall clock so a
+  /// late timer tick catches up instead of slowing the recording down.
   private func startReplay(_ src: URL) throws {
-    let sources = try ["app", "mic"].map { try AVAudioFile(forReading: src.appendingPathComponent("\($0).wav")) }
+    let sources = try ["app", "mic"].map { name -> AVAudioFile in
+      let f = try AVAudioFile(forReading: src.appendingPathComponent("\(name).wav"), commonFormat: .pcmFormatInt16, interleaved: true)
+      guard f.processingFormat.sampleRate == Double(sampleRate), f.processingFormat.channelCount == 1 else {
+        throw TapError(description: "replay \(name).wav must be 16 kHz mono")
+      }
+      return f
+    }
     let tracks = [app, mic]
+    let begin = Date()
+    var fed: Int64 = 0
     let t = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "replay"))
     t.schedule(deadline: .now(), repeating: 0.1)
     t.setEventHandler {
+      let due = Int64(Date().timeIntervalSince(begin) * Double(sampleRate))
+      let n = Int(due - fed)
+      guard n > 0 else { return }
+      fed = due
       for (file, track) in zip(sources, tracks) {
-        let n = AVAudioFrameCount(file.processingFormat.sampleRate / 10)
-        guard let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: n) else { continue }
+        var samples = [Int16](repeating: 0, count: n)
         // Past the end of a file the track keeps going with silence, as a live track would.
-        if (try? file.read(into: buf, frameCount: n)) == nil || buf.frameLength == 0 {
-          buf.frameLength = n
-          for c in 0..<Int(buf.format.channelCount) { memset(buf.floatChannelData![c], 0, Int(n) * 4) }
+        if let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(n)),
+          (try? file.read(into: buf, frameCount: AVAudioFrameCount(n))) != nil, buf.frameLength > 0
+        {
+          for i in 0..<Int(buf.frameLength) { samples[i] = buf.int16ChannelData![0][i] }
         }
-        let host = mach_absolute_time()
-        track.queue.async { track.push(buf, hostTime: host) }
+        track.queue.async { samples.withUnsafeBufferPointer { track.append($0.baseAddress!, count: n) } }
       }
     }
     replayTimer = t

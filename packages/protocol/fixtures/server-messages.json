@@ -304,5 +304,65 @@
         }
       ]
     }
-  }
+  },
+  {
+    "t": "meetings.state",
+    "recordings": [
+      {
+        "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10",
+        "app": "Microsoft Teams",
+        "title": "Weekly Engineering Team Sync",
+        "startedAt": 1793800000000,
+        "endedAt": null,
+        "device": "Isaac's Mac mini",
+        "stage": "recording",
+        "health": "ok",
+        "healthDetail": "Hearing Microsoft Teams and your mic",
+        "error": null,
+        "shadow": true,
+        "stem": null,
+        "seconds": 312.4
+      }
+    ],
+    "meetings": [
+      {
+        "stem": "20261102_1004_sync",
+        "title": "Weekly Engineering Team Sync",
+        "start": "2026-11-02T10:04:00-06:00",
+        "skipped": false,
+        "skippedReason": null,
+        "pending": 1,
+        "hasNotes": true
+      }
+    ],
+    "digest": { "recentCount": 1, "waiting": [], "out": [], "decisions": [] },
+    "now": 1793800312400
+  },
+  {
+    "t": "meeting.live",
+    "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10",
+    "rev": 42,
+    "upsert": [
+      {
+        "id": "app-17",
+        "track": "app",
+        "speaker": "Remote",
+        "startMs": 301200,
+        "endMs": 304800,
+        "text": "Release is Tuesday.",
+        "final": true
+      },
+      {
+        "id": "mic-9",
+        "track": "mic",
+        "speaker": "Isaac",
+        "startMs": 305100,
+        "endMs": 306000,
+        "text": "Sounds",
+        "final": false
+      }
+    ]
+  },
+  { "t": "meeting.ingest.ticket", "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10", "ticket": "4f9d" },
+  { "t": "meetings.res", "rid": "m-2", "ok": true, "todoId": "T120", "tag": "ecardsystems" }
 ]

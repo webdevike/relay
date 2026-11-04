@@ -212,6 +212,7 @@ final class Daemon {
         case .noMic: detail = "Relay stopped hearing your mic."
         }
         emit(["ev": "health", "id": id, "state": rec.health.rawValue, "detail": detail])
+        uplinks[id]?.sendHealth(rec.health.rawValue, detail: detail)
       }
     }
   }

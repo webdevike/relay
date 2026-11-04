@@ -165,5 +165,27 @@
     }
   },
   { "t": "canvas.get" },
-  { "t": "canvas.open", "slug": "artifacts" }
+  { "t": "canvas.open", "slug": "artifacts" },
+  { "t": "meetings.list" },
+  {
+    "t": "meetings.req",
+    "rid": "m-1",
+    "op": {
+      "kind": "ask",
+      "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10",
+      "question": "What did Todd say about the release?"
+    }
+  },
+  {
+    "t": "meetings.req",
+    "rid": "m-2",
+    "op": { "kind": "accept", "stem": "20261102_1004_sync", "proposalId": "20261102_1004_sync#1" }
+  },
+  {
+    "t": "meeting.ingest.open",
+    "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10",
+    "app": "Microsoft Teams",
+    "title": "Weekly Engineering Team Sync",
+    "startedAt": 1793800000000
+  }
 ]

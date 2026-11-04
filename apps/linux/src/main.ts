@@ -5,12 +5,25 @@
 // over its loopback HTTP endpoint; `serve` leaves its port in `relay/serve.json` so `share`
 // can find it.
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
-import { Drop, sessionReactionThread } from "@relay/protocol";
+import { Drop, sessionReactionThread, type ServerMessage } from "@relay/protocol";
+import type { LaunchOptions } from "./agents/herdr";
+import { AsrWorker, asrPython } from "./meetings/asr";
+import { loadAutoname, MeetingPipeline, type Autoname } from "./meetings/pipeline";
+import { MeetingsService } from "./meetings/service";
+import { defaultMeetingsDir, RecordingStore } from "./meetings/store";
 import { z } from "zod";
 import pkg from "../package.json";
 import { bundleVersion } from "./bundle-version";
@@ -70,7 +83,16 @@ import { UinputDevice } from "./input/uinput";
 import { BonjourAdvertiser } from "./mdns";
 import { PinFilePairingUI, TerminalPairingUI } from "./pairing";
 import { PAIRING_TIMEOUT_MS, systemClock } from "./session";
-import { featureOn, human, loadHostConfig, relayConfigDir, resolveHuman, setHuman, toolPath, type HostConfig } from "./host-config";
+import {
+  featureOn,
+  human,
+  loadHostConfig,
+  relayConfigDir,
+  resolveHuman,
+  setHuman,
+  toolPath,
+  type HostConfig,
+} from "./host-config";
 import { ExpoPushSender } from "./push/expo";
 import { InboxService } from "./inbox/service";
 import { AttentionNotifier } from "./push/notifier";
@@ -249,7 +271,9 @@ function serve(
     if (device instanceof MacInputDevice) {
       // No prompt here: a new Mac would get an unexplained Accessibility dialog at login. The first
       // pointer/keyboard command from a phone asks instead (session `inputAllowed`).
-      log(`macOS input: Accessibility ${device.granted ? "granted" : "not granted yet (asked on first phone input)"}`);
+      log(
+        `macOS input: Accessibility ${device.granted ? "granted" : "not granted yet (asked on first phone input)"}`,
+      );
     } else {
       log("virtual input device created");
     }
@@ -309,7 +333,14 @@ function serve(
   // Catch Up reads a feed an Eva job builds; a host without that feed (and without features.catchup) has none.
   const feedPath = defaultCatchUpFeedPath(agentHome);
   const catchupFeed =
-    feedPath !== null && featureOn(config, "catchup", existsSync(feedPath) || process.env["RELAY_CATCHUP_FEED"] !== undefined) ? feedPath : null;
+    feedPath !== null &&
+    featureOn(
+      config,
+      "catchup",
+      existsSync(feedPath) || process.env["RELAY_CATCHUP_FEED"] !== undefined,
+    )
+      ? feedPath
+      : null;
   const catchup =
     catchupFeed === null
       ? null
@@ -332,7 +363,9 @@ function serve(
             ? {}
             : {
                 handoffOptions: {
-                  scopes: registry.map((agent) => `${agent.title}: ${agent.scope ?? "any work"}`).join("; "),
+                  scopes: registry
+                    .map((agent) => `${agent.title}: ${agent.scope ?? "any work"}`)
+                    .join("; "),
                   bounce: (id: string) => `"${process.execPath}" catchup bounce ${id} "<reason>"`,
                 },
               }),
@@ -398,7 +431,9 @@ function serve(
     clock: systemClock,
     log,
     create: thread,
-    ...(registryAdmin === null ? {} : { register: (input: unknown) => registryAdmin.create(input) }),
+    ...(registryAdmin === null
+      ? {}
+      : { register: (input: unknown) => registryAdmin.create(input) }),
     ...(agentHome === null ? {} : { file: (req) => handleAssistantFile(agentHome, req) }),
   });
   const stopRegistryWatch =
@@ -417,7 +452,9 @@ function serve(
       ? null
       : (process.env["RELAY_VOICE_ROOT"] ?? join(agentHome, "apps", "eva-realtime"));
   const voice =
-    assistant === null || voiceRoot === null || !featureOn(config, "voiceLocal", existsSync(voiceRoot))
+    assistant === null ||
+    voiceRoot === null ||
+    !featureOn(config, "voiceLocal", existsSync(voiceRoot))
       ? null
       : new EvaRealtimeVoice({
           root: voiceRoot,
@@ -563,7 +600,12 @@ function serve(
       const ask = agents.pendingAsk(sessionId);
       if (ask !== null) return ask.questions[0]?.question ?? null;
       const approval = agents.pendingApproval(sessionId);
-      return approval === null ? null : `Approve ${approval.toolName}${approval.command === "" ? "" : `: ${approval.command}`}`.slice(0, 300);
+      return approval === null
+        ? null
+        : `Approve ${approval.toolName}${approval.command === "" ? "" : `: ${approval.command}`}`.slice(
+            0,
+            300,
+          );
     },
     helpers: () => artifacts.helpers(),
     harnesses: listHerdrAgents,
@@ -582,9 +624,15 @@ function serve(
     log,
   });
   // Jobs and state go out long after `server` below is initialised.
-  const studio = studioService(agentHome, config, (message) => {
-    server.broadcastExcept(message, null);
-  });
+  // A call transcribed live holds new Studio GPU jobs until it ends; `meetings` exists by the time Studio asks.
+  const studio = studioService(
+    agentHome,
+    config,
+    (message) => {
+      server.broadcastExcept(message, null);
+    },
+    () => meetings?.transcribingLive() === true,
+  );
   // Reviews is Isaac's eCard queue, answered by his assistant Astra; a host without that assistant
   // (and without features.reviews) has no Reviews.
   const reviewsWrites = process.env["RELAY_REVIEWS_DRY_RUN"] !== "1";
@@ -614,12 +662,37 @@ function serve(
         clock: systemClock,
         log,
       });
+  const meetings = meetingsService({
+    agentHome,
+    config,
+    human: human(),
+    agents,
+    launch: agentHome === null ? null : (options) => agents.launchJoined(options),
+    broadcast: (message) => {
+      server.broadcastExcept(message, null);
+    },
+    push: (title, body, id) => {
+      const messages = [...pushTokens.tokens()].map(([, token]) => ({
+        to: token,
+        title,
+        body,
+        data: { meeting: id },
+        threadId: `meeting:${id}`,
+      }));
+      if (messages.length > 0)
+        void new ExpoPushSender().send(messages).catch((error: unknown) => {
+          log(`meetings push failed: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    },
+    onLiveChange: () => studio?.resume(),
+  });
   // Agent cursors in Relay desktop's Files editor: who wrote which lines of an open file, and where Isaac's caret is.
   const files = new FilePresence({
     sessions: () => agents.sessions,
     registry: () => registry,
     // Plain chats' agent, named as on a canvas (liveCanvas below).
-    defaultAgentName: () => (config === null || registry.length === 0 ? undefined : registry[0]?.title),
+    defaultAgentName: () =>
+      config === null || registry.length === 0 ? undefined : registry[0]?.title,
     clock: systemClock,
     log,
   });
@@ -662,6 +735,7 @@ function serve(
       reviews,
       query,
       files,
+      meetings,
       canvasPage: () => CANVAS_PAGE,
       pairing: new PinFilePairingUI(new TerminalPairingUI(), pairingPinPath(), PAIRING_TIMEOUT_MS),
       log,
@@ -696,6 +770,7 @@ function serve(
   clipboard?.start();
   catchup?.start();
   studio?.start();
+  meetings?.start();
   log(
     reviews === null
       ? "reviews disabled (no astra assistant and no features.reviews)"
@@ -724,6 +799,7 @@ function serve(
     activity?.stop();
     studio?.stop();
     reviews?.stop();
+    meetings?.stop();
     server.stop();
     voice?.stop();
     stopRegistryWatch?.();
@@ -777,12 +853,95 @@ function liveCanvas(
     get registry() {
       return registry();
     },
-    ...(config === null || registry().length === 0 ? {} : { defaultAgentName: registry()[0]?.title ?? "" }),
-    minds: ompMinds({ omp, profile, configs: [mindConfigOverlay(configDir)], stateDir: join(configDir, "canvas", "rooms"), agentHome: home, canvasDir, config: agentConfig, log }),
+    ...(config === null || registry().length === 0
+      ? {}
+      : { defaultAgentName: registry()[0]?.title ?? "" }),
+    minds: ompMinds({
+      omp,
+      profile,
+      configs: [mindConfigOverlay(configDir)],
+      stateDir: join(configDir, "canvas", "rooms"),
+      agentHome: home,
+      canvasDir,
+      config: agentConfig,
+      log,
+    }),
     model: agentConfig.model,
     agentHome: home,
     log,
   });
+}
+
+/**
+ * Meetings in `$XDG_CONFIG_HOME/relay/meetings`: recordings from every Mac's Relay Meetings helper,
+ * transcribed by relay-asr (`apps/linux/asr`, venv from `setup.sh`; without it recordings are kept
+ * but not transcribed), notes in `<agent-home>/work/meetings/shadow` while `features.meetingsShadow`
+ * is on (the default; MeetingTranscriber still owns the journal) and `work/meetings/protocols` after
+ * cutover. Off without an agent home or with `features.meetings: false`.
+ */
+function meetingsService(o: {
+  agentHome: string | null;
+  config: HostConfig | null;
+  human: string;
+  agents: OmpBridgeProvider;
+  launch: ((options: LaunchOptions) => Promise<{ readonly joined: Promise<string> }>) | null;
+  broadcast: (message: ServerMessage) => void;
+  push: (title: string, body: string, id: string) => void;
+  onLiveChange: () => void;
+}): MeetingsService | null {
+  if (!featureOn(o.config, "meetings", o.agentHome !== null)) {
+    log("meetings disabled (no agent home and no features.meetings)");
+    return null;
+  }
+  const store = new RecordingStore(defaultMeetingsDir());
+  const shadow = featureOn(o.config, "meetingsShadow", true);
+  const protocolsDir = join(
+    o.agentHome ?? join(homedir(), "Eva"),
+    "work",
+    "meetings",
+    shadow ? "shadow" : "protocols",
+  );
+  let service: MeetingsService | null = null;
+  const asr = AsrWorker.available()
+    ? new AsrWorker({
+        onLine: (line) => service?.line(line),
+        onRestart: () => service?.workerRestarted(),
+        log,
+      })
+    : null;
+  let autoname: Promise<Autoname | null> | null = null;
+  const pipeline = new MeetingPipeline({
+    store,
+    asr,
+    agentHome: o.agentHome,
+    protocolsDir,
+    human: o.human,
+    claude: resolveClaude(),
+    run: bunRun,
+    autoname: () => (autoname ??= loadAutoname(o.agentHome, log)),
+    log,
+  });
+  service = new MeetingsService({
+    store,
+    asr,
+    agentHome: o.agentHome,
+    shadow,
+    human: o.human,
+    afterCall: pipeline,
+    agents: o.agents,
+    launch: o.launch,
+    sessionFile: (sessionId) => o.agents.sessionFile(sessionId),
+    socketPath: defaultSocketPath(),
+    broadcast: o.broadcast,
+    push: o.push,
+    onLiveChange: o.onLiveChange,
+    clock: systemClock,
+    log,
+  });
+  log(
+    `meetings in ${defaultMeetingsDir()}, notes in ${protocolsDir}${shadow ? " (shadow)" : ""}, transcription ${asr === null ? `off (no ${asrPython()})` : "by relay-asr"}`,
+  );
+  return service;
 }
 
 /**
@@ -794,6 +953,7 @@ function studioService(
   agentHome: string | null,
   config: HostConfig | null,
   emit: (message: StudioMessage) => void,
+  gpuHeld: () => boolean,
 ): StudioService | null {
   const ltxDir =
     process.env["RELAY_STUDIO_LTX_DIR"] ??
@@ -814,6 +974,7 @@ function studioService(
   try {
     const studio = new StudioService({
       dir: defaultStudioDir(),
+      gpuHeld,
       runners: {
         ltx: new LtxRunner(ltxDir),
         "codex-image": new CodexRunner({
@@ -986,7 +1147,11 @@ interface AssistantCliOptions {
 /** A change as the assistant reports it: `scope: "Personal" -> "Driving"`. */
 function describeChange(change: FieldChange): string {
   const show = (value: unknown): string =>
-    value === null ? "(none)" : typeof value === "object" && "seed" in value ? `face ${String(value.seed)}` : JSON.stringify(value);
+    value === null
+      ? "(none)"
+      : typeof value === "object" && "seed" in value
+        ? `face ${String(value.seed)}`
+        : JSON.stringify(value);
   return `${change.field}: ${show(change.from)} -> ${show(change.to)}`;
 }
 
@@ -995,7 +1160,8 @@ async function assistantAdminCommand(verb: string, options: AssistantCliOptions)
   const base = `${hostUrl()}/assistant`;
   const agent = options.agent ?? process.env["RELAY_ASSISTANT"];
   const need = (): string => {
-    if (agent === undefined || agent === "") throw new Error(`assistant ${verb}: missing --agent <id> (or $RELAY_ASSISTANT)`);
+    if (agent === undefined || agent === "")
+      throw new Error(`assistant ${verb}: missing --agent <id> (or $RELAY_ASSISTANT)`);
     return agent;
   };
   const call = async (path: string, init: RequestInit = {}): Promise<Response> => {
@@ -1006,7 +1172,10 @@ async function assistantAdminCommand(verb: string, options: AssistantCliOptions)
     }
     return response;
   };
-  const json = (body: unknown): RequestInit => ({ headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const json = (body: unknown): RequestInit => ({
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
   switch (verb) {
     case "list":
       console.log(JSON.stringify(await (await call("/registry")).json(), null, 2));
@@ -1019,8 +1188,13 @@ async function assistantAdminCommand(verb: string, options: AssistantCliOptions)
         ...(options.scope === undefined ? {} : { scope: options.scope }),
         start: options.start,
       };
-      const entry = (await (await call("/registry", { method: "POST", ...json(body) })).json()) as { id: string; title: string };
-      console.log(`created ${entry.title} (${entry.id})${options.start ? "; its thread has started" : ""}`);
+      const entry = (await (await call("/registry", { method: "POST", ...json(body) })).json()) as {
+        id: string;
+        title: string;
+      };
+      console.log(
+        `created ${entry.title} (${entry.id})${options.start ? "; its thread has started" : ""}`,
+      );
       return;
     }
     case "set": {
@@ -1034,26 +1208,38 @@ async function assistantAdminCommand(verb: string, options: AssistantCliOptions)
         ...Object.fromEntries(options.unset.map((field) => [field, null])),
       };
       if (Object.keys(fields).length === 0) throw new Error("assistant set: nothing to change");
-      const { changes } = (await (await call(`/registry/${encodeURIComponent(id)}`, { method: "PATCH", ...json(fields) })).json()) as { changes: FieldChange[] };
-      console.log(changes.length === 0 ? "nothing changed" : `changed ${changes.map(describeChange).join("; ")}`);
+      const { changes } = (await (
+        await call(`/registry/${encodeURIComponent(id)}`, { method: "PATCH", ...json(fields) })
+      ).json()) as { changes: FieldChange[] };
+      console.log(
+        changes.length === 0
+          ? "nothing changed"
+          : `changed ${changes.map(describeChange).join("; ")}`,
+      );
       return;
     }
     case "retire": {
       const id = need();
-      const entry = (await (await call(`/registry/${encodeURIComponent(id)}`, { method: "DELETE" })).json()) as { title: string };
+      const entry = (await (
+        await call(`/registry/${encodeURIComponent(id)}`, { method: "DELETE" })
+      ).json()) as { title: string };
       console.log(`retired ${entry.title} (${id}); its prime.md and thread memory stay`);
       return;
     }
     default:
-      throw new Error(`assistant: unknown subcommand ${verb}; try say, list, create, set or retire`);
+      throw new Error(
+        `assistant: unknown subcommand ${verb}; try say, list, create, set or retire`,
+      );
   }
 }
 
 /** `catchup bounce <id> <reason>`: the running host gets Catch Up card `id` handed back by assistant `agent`. */
 async function catchupBounce(agent: string | undefined, positionals: string[]): Promise<void> {
   const [id, ...reason] = positionals;
-  if (agent === undefined || agent === "") throw new Error("catchup bounce: missing --agent <id> (or $RELAY_ASSISTANT)");
-  if (id === undefined || reason.length === 0) throw new Error("catchup bounce: expected <id> <reason>");
+  if (agent === undefined || agent === "")
+    throw new Error("catchup bounce: missing --agent <id> (or $RELAY_ASSISTANT)");
+  if (id === undefined || reason.length === 0)
+    throw new Error("catchup bounce: expected <id> <reason>");
   const response = await fetch(`${hostUrl()}/catchup/bounce`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1478,7 +1664,11 @@ async function main(argv: string[]): Promise<void> {
       // The Eva boards dir exists only on the owner's Mac; other hosts keep canvases under Relay's own support dir.
       const evaCanvases = join(homedir(), "Library", "Application Support", "EvaOS", "canvases");
       const defaultCanvases =
-        process.platform !== "darwin" ? null : config === null || existsSync(evaCanvases) ? evaCanvases : join(homedir(), "Library", "Application Support", "Relay", "canvases");
+        process.platform !== "darwin"
+          ? null
+          : config === null || existsSync(evaCanvases)
+            ? evaCanvases
+            : join(homedir(), "Library", "Application Support", "Relay", "canvases");
       serve(
         port,
         name,
@@ -1492,7 +1682,8 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case "catchup": {
-      if (positionals[1] !== "bounce") throw new Error("catchup: try `catchup bounce <id> <reason>`");
+      if (positionals[1] !== "bounce")
+        throw new Error("catchup: try `catchup bounce <id> <reason>`");
       await catchupBounce(values.agent ?? process.env["RELAY_ASSISTANT"], positionals.slice(2));
       return;
     }
