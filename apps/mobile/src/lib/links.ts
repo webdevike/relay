@@ -1,9 +1,7 @@
 import { Linking } from "react-native";
 import { router } from "expo-router";
-import { parseAppLink } from "@relay/protocol";
+import { appLinkRoute } from "./appLinks";
 import { reviewLinkOf } from "@/reviews/model";
-
-const CANVAS_SLUG = /^[a-z0-9-]{1,80}$/;
 
 /** Opens a URL in the system handler, ignoring failures (e.g. no app can handle it). */
 export function openExternal(url: string): void {
@@ -12,46 +10,15 @@ export function openExternal(url: string): void {
 
 /**
  * Follows a `relay://assistant/<id>` (that assistant's thread) or `relay://open/<page>[/<sub>]`
- * link inside the app (a Reviews `?item=` opens that item). Returns false when `url` isn't one, so
- * callers fall through to the web; a page this app has no screen for (Test Bench, Jobs) is
- * swallowed: it never goes to the system handler.
+ * link inside the app (a Reviews `?item=` opens that item; the table is `lib/appLinks.ts`, shared
+ * with links opened from outside the app). Returns false when `url` isn't one, so callers fall
+ * through to the web; a page this app has no screen for (Test Bench, Jobs) is swallowed: it never
+ * goes to the system handler.
  */
 function openAppLink(url: string): boolean {
-  const link = parseAppLink(url);
-  if (link === null) return false;
-  if (link.kind === "assistant") {
-    router.navigate({ pathname: "/eva", params: { agent: link.id } });
-    return true;
-  }
-  switch (link.page) {
-    case "assistants":
-      router.navigate("/assistants");
-      break;
-    // The phone's Settings is one screen: every desktop section (theme, connections) lands there.
-    case "settings":
-      router.navigate("/settings");
-      break;
-    // A canvas room is opened by its board slug (`?canvas=`); the screen has nothing to show without one.
-    case "canvas": {
-      const slug = link.params?.canvas;
-      if (slug !== undefined && CANVAS_SLUG.test(slug)) router.navigate({ pathname: "/canvas", params: { slug } });
-      break;
-    }
-    // `relay://open/board/<slug>` is that board; bare, the list of boards.
-    case "board":
-      if (link.sub === undefined) router.navigate("/boards");
-      else router.navigate({ pathname: "/boards", params: { slug: link.sub } });
-      break;
-    case "studio":
-      router.navigate("/studio");
-      break;
-    case "reviews": {
-      const item = link.params?.item;
-      if (item === undefined) router.navigate("/reviews");
-      else router.push(`/reviews?item=${encodeURIComponent(item)}`);
-      break;
-    }
-  }
+  const route = appLinkRoute(url);
+  if (route === null) return false;
+  if (route !== "none") router[route.how](route.href);
   return true;
 }
 
