@@ -525,6 +525,9 @@ export class ClientSession {
       case "push.unregister":
         this.deps.push?.unregister(deviceId);
         break;
+      case "push.prefs":
+        this.deps.push?.setMuted(deviceId, message.muted);
+        break;
       case "drop.list":
         this.sink.send({
           t: "drop.list",

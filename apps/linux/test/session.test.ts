@@ -360,11 +360,12 @@ describe("authenticated traffic", () => {
     expect(h.sink.closed).toBe(true);
   });
 
-  it("binds push.register / push.unregister to the authenticated device and never before auth", () => {
+  it("binds push.register / push.prefs / push.unregister to the authenticated device and never before auth", () => {
     const calls: string[] = [];
     const push: PushRegistry = {
       register: (deviceId, token) => calls.push(`+${deviceId}:${token}`),
       unregister: (deviceId) => calls.push(`-${deviceId}`),
+      setMuted: (deviceId, muted) => calls.push(`~${deviceId}:${muted.join(",")}`),
     };
     const h = harness({ push });
     h.session.receive(hello);
@@ -374,8 +375,9 @@ describe("authenticated traffic", () => {
     const paired = harness({ push, devices: h.devices });
     pair(paired);
     paired.session.receive({ t: "push.register", token: "ExponentPushToken[x]" });
+    paired.session.receive({ t: "push.prefs", muted: ["nova", "astra"] });
     paired.session.receive({ t: "push.unregister" });
-    expect(calls).toEqual(["+phone-1:ExponentPushToken[x]", "-phone-1"]);
+    expect(calls).toEqual(["+phone-1:ExponentPushToken[x]", "~phone-1:nova,astra", "-phone-1"]);
   });
 });
 

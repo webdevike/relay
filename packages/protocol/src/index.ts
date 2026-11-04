@@ -1404,6 +1404,12 @@ export const ClientMessage = z.discriminatedUnion("t", [
    */
   z.object({ t: z.literal("push.register"), token: nonEmpty }),
   z.object({ t: z.literal("push.unregister") }),
+  /**
+   * The assistants this device wants no pushes from (replies, waits, canvas invitations). The host
+   * keeps the list per paired device (`muted` replaces it) and filters every push on it. Sent on
+   * each connection and on each change; an older host ignores the frame.
+   */
+  z.object({ t: z.literal("push.prefs"), muted: z.array(AssistantAgentId).max(100) }),
   /** Ask for the drop history; answered by `drop.list`. */
   z.object({ t: z.literal("drop.list") }),
   /** Start receiving `board.delta` on this socket; answered by `board.snapshot`. */

@@ -80,6 +80,8 @@ export interface DeviceStore {
 export interface PushRegistry {
   register(deviceId: string, token: string): void;
   unregister(deviceId: string): void;
+  /** The assistants `deviceId` wants no pushes from (`push.prefs`); replaces the list. */
+  setMuted(deviceId: string, muted: readonly string[]): void;
 }
 
 /**

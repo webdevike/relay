@@ -708,6 +708,12 @@ export function unregisterPush(): void {
   socket.send(encode({ t: "push.unregister" }));
 }
 
+/** The assistants this phone wants no pushes from; the host replaces its list for this device. Re-sent on every connection. */
+export function sendPushPrefs(muted: readonly string[]): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "push.prefs", muted: [...muted] }));
+}
+
 /**
  * Reconnects now. A notification action can wake the app in the background, where it closed its
  * socket on backgrounding and no `appActive` will come; without this the answer would have no host
