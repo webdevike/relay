@@ -1,6 +1,6 @@
-// Live states for the tickets and PRs threads hold. The host cannot reach gh or Linear, so this
-// app reads them (gh through the context popover's PR cache, Linear through the badge card's
-// reader) and sends each thread one `artifacts.act {op:"status"}` batch. It runs on every snapshot,
+// Live states for the tickets and PRs threads hold. This app reads them (PRs through the context
+// popover's PR cache, Linear through the badge card's reader; on a thin client both ask the Mini's
+// Relay Host) and sends each thread one `artifacts.act {op:"status"}` batch. It runs on every snapshot,
 // any thread: an item whose status is missing or older than STATUS_STALE_MS is read again, and an
 // item is read and sent at most once per STATUS_STALE_MS, so the snapshot a batch causes does not
 // start another.

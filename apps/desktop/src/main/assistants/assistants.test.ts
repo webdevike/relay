@@ -8,8 +8,10 @@ import {
   AssistantsService,
   REGISTRY_FILE,
   lastReply,
+  parseHostAgents,
   parseRegistry,
   readTail,
+  type Agent,
 } from './assistants'
 
 const dirs: string[] = []
@@ -302,5 +304,35 @@ describe('registry', () => {
     const s = setup()
     fs.rmSync(path.join(s.root, REGISTRY_FILE))
     expect(s.svc.list().agents).toEqual([])
+  })
+
+  it("on a thin client lists the Mini host's agents once it answered, the Eva root's file until then", () => {
+    const micah = { style: 'micah', seed: 'vega-3' }
+    const hosted = parseHostAgents([
+      { id: 'astra', title: 'Astra', scope: 'eCard', avatar: 'astra-2', status: 'idle' },
+      { id: 'vega', title: 'Vega', avatar: 'old', portrait: micah },
+      { title: 'No id' },
+    ])
+    expect(hosted).toEqual([
+      {
+        id: 'astra',
+        title: 'Astra',
+        scope: 'eCard',
+        avatar: { style: 'notionists', seed: 'astra-2' },
+      },
+      { id: 'vega', title: 'Vega', scope: '', avatar: micah },
+    ])
+    expect(parseHostAgents({})).toBeNull()
+    const s = setup()
+    let fromHost: Agent[] | null = null
+    const svc = new AssistantsService({
+      evaRoot: s.root,
+      sessionsDirs: [],
+      relay: () => null,
+      hostAgents: () => fromHost,
+    })
+    expect(svc.agents().map((a) => a.id)).toEqual(['astra', 'nova'])
+    fromHost = hosted
+    expect(svc.agents().map((a) => a.id)).toEqual(['astra', 'vega'])
   })
 })

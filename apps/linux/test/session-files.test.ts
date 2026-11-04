@@ -70,6 +70,27 @@ describe("SessionFiles", () => {
     expect(files.read(undefined, "-Eva", "Sub.jsonl", 0, undefined, "")).toBeNull();
   });
 
+  it("lists a recent transcript's subagent files and reads their result notes", () => {
+    const chat = join(root, "agent", "sessions", "-Eva");
+    const recent = "2026-10-02T00-00-00-000Z_new";
+    mkdirSync(join(chat, recent, "Scout"), { recursive: true });
+    writeFileSync(join(chat, recent, "Scout.jsonl"), "{}\n");
+    writeFileSync(join(chat, recent, "Scout.md"), "\"Found it.\"");
+    writeFileSync(join(chat, recent, "notes.txt"), "x");
+    utimesSync(join(chat, recent, "Scout.md"), 2000, 2000);
+    writeFileSync(join(chat, `${recent}.md`), "top");
+    const list = files.list();
+    expect(list[0]?.subs?.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+      { name: "Scout.jsonl", size: 3, mtime: expect.any(Number) as number },
+      { name: "Scout.md", size: 11, mtime: 2_000_000 },
+    ]);
+    // An old transcript lists none, even with a subagent folder.
+    expect(list[1]?.subs).toBeUndefined();
+    expect(files.read(undefined, "-Eva", "Scout.md", 0, undefined, recent)).toEqual({ data: Buffer.from("\"Found it.\"").toString("base64"), size: 11 });
+    expect(files.read(undefined, "-Eva", "notes.txt", 0, undefined, recent)).toBeNull();
+    expect(files.read(undefined, "-Eva", `${recent}.md`, 0)).toBeNull();
+  });
+
   it("returns a blob's bytes and mime by hash", () => {
     expect(files.blob(HASH)).toEqual({ mime: "image/png", data: PNG.toString("base64") });
     expect(files.blob("b".repeat(64))).toBeNull();

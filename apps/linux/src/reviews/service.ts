@@ -282,6 +282,10 @@ export class ReviewsService implements ReviewsRelaying {
       }
       case "astra":
         return { astra: await this.astra.snapshot(op.url) };
+      case "prList":
+        return { prs: await this.github.list(op.list) };
+      case "prView":
+        return { view: await this.github.view(op.repo, op.number) };
     }
   }
 

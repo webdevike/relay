@@ -1246,6 +1246,13 @@ export const ClientHello = z.object({
   platform: z.literal("ios"),
 });
 
+/** A file in a transcript's subagent folder: a subagent's transcript (`.jsonl`) or its result note (`.md`). */
+export const SessionSub = z.object({
+  name: nonEmpty,
+  size: z.number().int().nonnegative(),
+  mtime: z.number(),
+});
+export type SessionSub = z.infer<typeof SessionSub>;
 /** A top-level omp transcript on the host: `sessions/<dir>/<name>`, `mtime` in ms. */
 export const SessionFile = z.object({
   /** The named omp profile whose store holds the transcript; absent for the default `~/.omp/agent`. */
@@ -1254,6 +1261,11 @@ export const SessionFile = z.object({
   name: nonEmpty,
   size: z.number().int().nonnegative(),
   mtime: z.number(),
+  /**
+   * A recently written transcript's direct subagent files (`<dir>/<session stem>/<name>`), read with
+   * `session.read` and `parent` = the session stem; absent when it has none (or older hosts).
+   */
+  subs: z.array(SessionSub).optional(),
 });
 export type SessionFile = z.infer<typeof SessionFile>;
 export const ClientMessage = z.discriminatedUnion("t", [

@@ -3,7 +3,13 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { blobAgentDirs, readBlobImage } from './media'
-import { HEAD_BYTES, RECENT_MS, RemoteSessions, remoteSessionsDir } from './remote-sessions'
+import {
+  HEAD_BYTES,
+  RECENT_MS,
+  RemoteSessions,
+  SUBS_POLL_MS,
+  remoteSessionsDir,
+} from './remote-sessions'
 
 type Frame = Record<string, unknown>
 
@@ -13,6 +19,8 @@ class FakeHost {
   mtimes = new Map<string, number>()
   blobs = new Map<string, Buffer>()
   sent: Frame[] = []
+  /** Lists each top-level file's direct subagent files, as a current host does. */
+  listSubs = false
   private cb: ((f: Frame) => void) | null = null
   onFrame(cb: (f: Frame) => void): () => void {
     this.cb = cb
@@ -28,12 +36,25 @@ class FakeHost {
   }
   private answer(f: Frame): void {
     if (f.t === 'sessions.list') {
-      const files = [...this.files].map(([name, b]) => ({
-        dir: '--Users-ike-Eva--',
-        name,
-        size: b.length,
-        mtime: this.mtimes.get(name) ?? Date.now(),
-      }))
+      const files = [...this.files]
+        .filter(([name]) => !name.includes('/'))
+        .map(([name, b]) => {
+          const stem = name.replace(/\.jsonl$/, '')
+          const subs = [...this.files]
+            .filter(([k]) => k.startsWith(`${stem}/`) && !k.slice(stem.length + 1).includes('/'))
+            .map(([k, s]) => ({
+              name: k.slice(stem.length + 1),
+              size: s.length,
+              mtime: this.mtimes.get(k) ?? Date.now(),
+            }))
+          return {
+            dir: '--Users-ike-Eva--',
+            name,
+            size: b.length,
+            mtime: this.mtimes.get(name) ?? Date.now(),
+            ...(this.listSubs && subs.length > 0 && { subs }),
+          }
+        })
       this.push({ t: 'sessions.list', files })
     } else if (f.t === 'session.read') {
       const key = typeof f.parent === 'string' ? `${f.parent}/${f.name}` : (f.name as string)
@@ -175,5 +196,40 @@ describe('RemoteSessions', () => {
     host.files.set('2026_abc.jsonl', Buffer.from('{}\n'))
     mirror.start()
     expect(await mirror.openSubagent('/h/agent/sessions/d/2026_abc/9-Nope.jsonl')).toBeNull()
+  })
+
+  it('mirrors the subagent files the host lists, with their times, and polls while one runs', () => {
+    host.listSubs = true
+    const at = Date.now() - 60_000
+    host.files.set('2026_abc.jsonl', Buffer.from('{}\n'))
+    host.files.set('2026_abc/0-Scout.jsonl', Buffer.from('{"a":1}\n'))
+    host.mtimes.set('2026_abc/0-Scout.jsonl', at)
+    host.files.set('2026_abc/1-Done.jsonl', Buffer.from('{"d":1}\n'))
+    host.files.set('2026_abc/1-Done.md', Buffer.from('"All three fixed."'))
+    const changed = vi.fn()
+    mirror.onSubagentChange = changed
+    mirror.start()
+    expect(fs.readFileSync(local('2026_abc/0-Scout.jsonl'), 'utf8')).toBe('{"a":1}\n')
+    expect(fs.readFileSync(local('2026_abc/1-Done.md'), 'utf8')).toBe('"All three fixed."')
+    expect(Math.round(fs.statSync(local('2026_abc/0-Scout.jsonl')).mtimeMs / 1000)).toBe(
+      Math.round(at / 1000),
+    )
+    expect(changed).toHaveBeenCalled()
+    // Scout has no result note yet: the list is asked for again without any frame from the host.
+    host.files.set('2026_abc/0-Scout.jsonl', Buffer.from('{"a":1}\n{"b":2}\n'))
+    host.files.set('2026_abc/0-Scout.md', Buffer.from('done'))
+    const lists = (): number => host.sent.filter((f) => f.t === 'sessions.list').length
+    const before = lists()
+    vi.advanceTimersByTime(SUBS_POLL_MS)
+    expect(lists()).toBe(before + 1)
+    expect(fs.readFileSync(local('2026_abc/0-Scout.jsonl'), 'utf8')).toBe('{"a":1}\n{"b":2}\n')
+    expect(fs.existsSync(local('2026_abc/0-Scout.md'))).toBe(true)
+    // Every subagent finished: no more polling, and unchanged files are not read again.
+    const reads = host.sent.filter((f) => f.t === 'session.read').length
+    vi.advanceTimersByTime(SUBS_POLL_MS * 3)
+    expect(lists()).toBe(before + 1)
+    host.push({ t: 'agents.delta' })
+    vi.advanceTimersByTime(1000)
+    expect(host.sent.filter((f) => f.t === 'session.read').length).toBe(reads)
   })
 })

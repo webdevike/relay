@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { SUBAGENT_STALE_MS } from '@evaos/chat-core/artifacts'
 import type { RelayFrames } from '../relay/client'
 
 /** Bytes fetched of a chat that is neither open nor recent: its header lines, for the list. */
@@ -16,6 +17,10 @@ const ACTIVITY: Record<string, true> = {
   'agent.message.update': true,
 }
 const RELIST_MS = 300
+/** While a listed subagent runs, the host's list is asked for this often (its writes push no frame). */
+export const SUBS_POLL_MS = 2_000
+/** What a host lists of a subagent folder: transcripts and their result notes. */
+const SUB_FILE = /\.(?:jsonl|md)$/
 const HASH = /^[0-9a-f]{64}$/
 
 /** `<userData>/remote-sessions`: one flat sessions dir and the blobs beside it (`<root>/blobs`). */
@@ -37,7 +42,11 @@ interface Entry {
   waiters: Array<() => void>
 }
 
-/** A subagent transcript on the host, mirrored at `<dir>/<parent>/<name>` and tailed while it is watched. */
+/**
+ * A subagent file on the host (its transcript, or the `.md` result note once it finished), mirrored at
+ * `<dir>/<parent>/<name>`. Listed ones (the host's list names recent sessions' subagent files) are
+ * read up to the listed size; opened ones (a transcript asked for by path) are tailed while watched.
+ */
 interface Sub {
   dir: string
   profile?: string
@@ -46,6 +55,9 @@ interface Sub {
   name: string
   size: number
   have: number
+  /** The host's mtime when listed: the mirror keeps it, since chips order and age subagents by it. */
+  mtime: number | null
+  listed: boolean
   reading: boolean
   waiters: Array<() => void>
 }
@@ -54,12 +66,15 @@ interface Sub {
  * Mirrors the remote Relay Host's omp transcripts into `dir` so the file-based chat stack works
  * unchanged. Every file's head is fetched for the list; recent and opened files in full, then
  * tailed by offset when a re-list shows them grown. Host files share one dir by name
- * (`<stamp>_<id>.jsonl`), whatever their store or project dir.
+ * (`<stamp>_<id>.jsonl`), whatever their store or project dir. A recent session's subagent folder
+ * (transcripts and result notes, as the host lists them) is mirrored beside it with the host's
+ * times, so the composer's subagent chips, their transcripts and the Working list read the same
+ * files as on the Mini.
  */
 export class RemoteSessions {
   private readonly entries = new Map<string, Entry>()
   private readonly subs = new Map<string, Sub>()
-  /** Called when a mirrored subagent transcript gained bytes (the chat's extras re-read their folder). */
+  /** Called when a mirrored subagent file appeared or gained bytes (the chat's extras re-read their folder). */
   onSubagentChange: (() => void) | undefined
   private readonly blobWaiters = new Map<string, Array<() => void>>()
   private readonly blobsDir: string
@@ -98,7 +113,7 @@ export class RemoteSessions {
     const key = `${at.parent}/${at.name}`
     let s = this.subs.get(key)
     if (!s) {
-      s = { ...at, size: 0, have: 0, reading: false, waiters: [] }
+      s = { ...at, size: 0, have: 0, mtime: null, listed: false, reading: false, waiters: [] }
       this.subs.set(key, s)
       try {
         s.have = fs.statSync(this.subLocal(s)).size
@@ -111,7 +126,9 @@ export class RemoteSessions {
     return fs.existsSync(this.subLocal(sub)) ? this.subLocal(sub) : null
   }
 
-  private locate(file: string): Omit<Sub, 'size' | 'have' | 'reading' | 'waiters'> | null {
+  private locate(
+    file: string,
+  ): Omit<Sub, 'size' | 'have' | 'mtime' | 'listed' | 'reading' | 'waiters'> | null {
     const own = path.relative(this.dir, file)
     if (!own.startsWith('..') && !path.isAbsolute(own)) {
       const parts = own.split(path.sep)
@@ -177,14 +194,23 @@ export class RemoteSessions {
     if (f.offset !== s.have) return
     s.reading = false
     const bytes = Buffer.from(f.data, 'base64')
-    if (bytes.length > 0 || !fs.existsSync(this.subLocal(s))) {
+    const created = !fs.existsSync(this.subLocal(s))
+    if (bytes.length > 0 || created) {
       fs.mkdirSync(path.dirname(this.subLocal(s)), { recursive: true })
       fs.appendFileSync(this.subLocal(s), bytes)
     }
     s.have += bytes.length
     s.size = f.size
-    if (bytes.length > 0) this.onSubagentChange?.()
-    if (s.have < s.size && bytes.length > 0) this.pullSub(s)
+    const more = s.have < s.size && bytes.length > 0
+    if (!more && (bytes.length > 0 || created) && s.mtime !== null) {
+      try {
+        fs.utimesSync(this.subLocal(s), new Date(), new Date(s.mtime))
+      } catch {
+        // the next list writes it
+      }
+    }
+    if (bytes.length > 0 || created) this.onSubagentChange?.()
+    if (more) this.pullSub(s)
     else for (const done of [...s.waiters]) done()
   }
 
@@ -251,6 +277,7 @@ export class RemoteSessions {
 
   private list(files: Array<Record<string, unknown>>): void {
     const seen = new Set<string>()
+    let running = false
     for (const f of files) {
       const { dir, name, size, mtime, profile } = f
       if (typeof dir !== 'string' || typeof name !== 'string') continue
@@ -275,6 +302,9 @@ export class RemoteSessions {
       e.mtime = mtime
       if (this.now() - mtime < RECENT_MS) e.full = true
       this.pull(e)
+      if (Array.isArray(f.subs) && this.listSubs(e, f.subs as Array<Record<string, unknown>>)) {
+        running = true
+      }
     }
     for (const [name, e] of this.entries) {
       if (seen.has(name)) continue
@@ -285,7 +315,66 @@ export class RemoteSessions {
       for (const [key, s] of this.subs) if (s.parent.split('/')[0] === folder) this.subs.delete(key)
     }
     // Watched subagent transcripts grow with their chat: ask for what they gained.
-    for (const s of this.subs.values()) this.pullSub(s)
+    for (const s of this.subs.values()) if (!s.listed) this.pullSub(s)
+    // A running subagent writes without a frame the host pushes: ask again soon.
+    if (running) {
+      this.relistTimer ??= setTimeout(() => {
+        this.relistTimer = undefined
+        this.link.sendFrame({ t: 'sessions.list' })
+      }, SUBS_POLL_MS)
+    }
+  }
+
+  /**
+   * Mirrors the subagent files the host listed for `e` up to their listed size; true while one of
+   * them runs (a transcript with no result note yet, written lately).
+   */
+  private listSubs(e: Entry, subs: Array<Record<string, unknown>>): boolean {
+    const parent = e.name.replace(/\.jsonl$/, '')
+    const transcripts = new Map<string, number>()
+    const notes = new Set<string>()
+    for (const { name, size, mtime } of subs) {
+      if (typeof name !== 'string' || typeof size !== 'number' || typeof mtime !== 'number')
+        continue
+      if (name !== path.basename(name) || !SUB_FILE.test(name)) continue
+      if (name.endsWith('.md')) notes.add(name.slice(0, -'.md'.length))
+      else transcripts.set(name.slice(0, -'.jsonl'.length), mtime)
+      const key = `${parent}/${name}`
+      let s = this.subs.get(key)
+      if (!s) {
+        s = {
+          dir: e.dir,
+          ...(e.profile !== undefined && { profile: e.profile }),
+          parent,
+          name,
+          size,
+          have: 0,
+          mtime,
+          listed: true,
+          reading: false,
+          waiters: [],
+        }
+        this.subs.set(key, s)
+        try {
+          s.have = fs.statSync(this.subLocal(s)).size
+        } catch {
+          // not mirrored yet
+        }
+      }
+      s.listed = true
+      s.size = size
+      s.mtime = mtime
+      if (s.have > size) {
+        // Rewritten on the host: start over.
+        fs.rmSync(this.subLocal(s), { force: true })
+        s.have = 0
+      }
+      if (s.have < size || !fs.existsSync(this.subLocal(s))) this.pullSub(s)
+    }
+    const now = this.now()
+    return [...transcripts].some(
+      ([stem, mtime]) => !notes.has(stem) && now - mtime < SUBAGENT_STALE_MS,
+    )
   }
 
   /** Asks for the next bytes `e` lacks; false when nothing is asked. */
