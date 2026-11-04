@@ -194,8 +194,8 @@
   gap: var(--mantine-spacing-xl);
   width: 100%;
   max-width: 520px;
-  margin: 56px auto 0;
-  padding: 0 var(--mantine-spacing-md);
+  margin: 0 auto;
+  padding: var(--mantine-spacing-xl) var(--mantine-spacing-md) 0;
 }
 .eva-tools-grid {
   display: flex;
