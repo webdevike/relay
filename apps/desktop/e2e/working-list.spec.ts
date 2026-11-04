@@ -32,7 +32,11 @@ const test = base.extend({
       }),
     )
     host = await FakeRelayHost.start(path.join(fx.root, 'relay'))
-    await use({ ...fx.launchEnv, EVAOS_EVA_ROOT: evaRoot, EVAOS_RELAY_DIR: path.join(fx.root, 'relay') })
+    await use({
+      ...fx.launchEnv,
+      EVAOS_EVA_ROOT: evaRoot,
+      EVAOS_RELAY_DIR: path.join(fx.root, 'relay'),
+    })
     await host.close()
     fx.cleanup()
   },
@@ -191,8 +195,12 @@ test("an assistant's Working tab lists everything its agents run, and the compos
   // One row per helper: the Artifacts row, not a second one from the activity list.
   await expect(shell.locator('[data-testid^="artifact-row-subagent:"]')).toHaveCount(1)
   await expect(shell.locator(sel(`activity-row-helper:${HELPER_PATH}`))).toHaveCount(0)
-  await expect(shell.locator(`${sel(`artifact-row-subagent:${HELPER_PATH}`)} .eva-art-kind`)).toHaveText('Helper')
-  await expect(shell.locator(sel(`artifact-row-subagent:${HELPER_PATH}`))).toContainText('Reading the popover')
+  await expect(
+    shell.locator(`${sel(`artifact-row-subagent:${HELPER_PATH}`)} .eva-art-kind`),
+  ).toHaveText('Helper')
+  await expect(shell.locator(sel(`artifact-row-subagent:${HELPER_PATH}`))).toContainText(
+    'Reading the popover',
+  )
 
   // Each kind carries its label and its live intent line; model and cost stay out of the row.
   const canvas = shell.locator(sel('activity-row-canvas:roadmap'))
@@ -208,7 +216,10 @@ test("an assistant's Working tab lists everything its agents run, and the compos
   await expect(list).toContainText('Other chats')
   // What finished is under Finished today, and nothing finished is listed as running.
   await expect(list).toContainText('Finished today')
-  await expect(shell.locator(sel('activity-row-harness:w1:p4'))).toHaveAttribute('data-state', 'done')
+  await expect(shell.locator(sel('activity-row-harness:w1:p4'))).toHaveAttribute(
+    'data-state',
+    'done',
+  )
   await expect(session).toHaveAttribute('data-state', 'working')
 
   if (SHOTS !== '') {

@@ -158,7 +158,10 @@ describe('RelayClient artifacts', () => {
       updatedAt: 2,
       open: { to: 'terminal', pane: 'w1:p3' },
     }
-    socket.say({ t: 'activity.snapshot', items: [row, { ...row, id: 'bad', open: { to: 'nowhere' } }] })
+    socket.say({
+      t: 'activity.snapshot',
+      items: [row, { ...row, id: 'bad', open: { to: 'nowhere' } }],
+    })
     expect(heard).toHaveBeenCalledTimes(1)
     expect(client.activity().map((i) => i.id)).toEqual(['harness:w1:p3'])
     client.stop()

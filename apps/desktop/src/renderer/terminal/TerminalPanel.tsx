@@ -66,7 +66,16 @@ export function TerminalPanel({ hidden }: { hidden: boolean }) {
         return t
       }
       setActive(key)
-      return [...t, { key, mode: 'attach', file: null, title: `${request.title} (view only)`, watch: request.pane }]
+      return [
+        ...t,
+        {
+          key,
+          mode: 'attach',
+          file: null,
+          title: `${request.title} (view only)`,
+          watch: request.pane,
+        },
+      ]
     })
     takeWatchRequest()
   }, [request])
@@ -90,7 +99,9 @@ export function TerminalPanel({ hidden }: { hidden: boolean }) {
     }
   }, [hidden, chatFile])
 
-  const attached = tabs.find((t) => t.mode === 'attach' && t.watch === undefined && t.file === chatFile)
+  const attached = tabs.find(
+    (t) => t.mode === 'attach' && t.watch === undefined && t.file === chatFile,
+  )
   const attach = (): void => {
     if (attached) setActive(attached.key)
     else open('attach', chatFile)

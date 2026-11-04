@@ -347,7 +347,7 @@
 .eva-art-meta-line {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-xs);
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
   min-width: 0;
 }
 .eva-art-owner {
@@ -358,7 +358,7 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 3px;
+  gap: calc(var(--mantine-spacing-xs) * 0.3);
   color: var(--eva-text-dim);
 }
 .eva-art-intent {

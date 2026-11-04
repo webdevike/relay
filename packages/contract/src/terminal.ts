@@ -25,7 +25,10 @@ export const terminalInvoke = {
         mode: TerminalModeSchema,
         cols: Cols,
         rows: Rows,
-        watch: z.string().regex(/^[A-Za-z0-9:_-]{1,40}$/).optional(),
+        watch: z
+          .string()
+          .regex(/^[A-Za-z0-9:_-]{1,40}$/)
+          .optional(),
       })
       .strict(),
     output: z.object({ id: Id, cwd: z.string(), title: z.string() }).strict(),

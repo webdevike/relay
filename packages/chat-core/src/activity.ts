@@ -20,7 +20,11 @@ export const ActivityOwner = z.string().min(1).max(200)
 
 /** Where a click goes. */
 export const ActivityOpen = z.discriminatedUnion('to', [
-  z.object({ to: z.literal('chat'), thread: ActivityOwner, session: z.string().max(200).optional() }),
+  z.object({
+    to: z.literal('chat'),
+    thread: ActivityOwner,
+    session: z.string().max(200).optional(),
+  }),
   z.object({ to: z.literal('subagent'), file: z.string().max(4096), name: z.string().max(200) }),
   z.object({ to: z.literal('terminal'), pane: z.string().max(100) }),
   z.object({ to: z.literal('canvas'), slug: z.string().regex(/^[a-z0-9-]{1,80}$/) }),
@@ -79,7 +83,8 @@ export interface ActivitySections {
   earlier: ActivityItem[]
 }
 
-const sameDay = (a: number, b: number): boolean => new Date(a).toDateString() === new Date(b).toDateString()
+const sameDay = (a: number, b: number): boolean =>
+  new Date(a).toDateString() === new Date(b).toDateString()
 
 /**
  * The popover's sections for `thread`. Helpers of `thread` are left out: the Artifacts rows draw
@@ -94,7 +99,9 @@ export function activitySections(
 ): ActivitySections {
   const notMyHelper = (i: ActivityItem): boolean => !(i.kind === 'helper' && sameOwner(i, thread))
   const shown = items.filter((i) => notMyHelper(i) && !isSelf(i, thread))
-  const waiting = shown.filter((i) => i.status === 'waiting').sort((a, b) => a.updatedAt - b.updatedAt)
+  const waiting = shown
+    .filter((i) => i.status === 'waiting')
+    .sort((a, b) => a.updatedAt - b.updatedAt)
   const working = shown.filter((i) => i.status === 'working')
   const mine = working.filter((i) => sameOwner(i, thread)).sort((a, b) => b.startedAt - a.startedAt)
   const byOwner = new Map<string, ActivityItem[]>()
@@ -104,13 +111,20 @@ export function activitySections(
   }
   const rank = (owner: string): number => {
     const at = ownerOrder.indexOf(owner)
-    return at >= 0 ? at : ownerOrder.length + (owner === 'other' || owner.startsWith('session:') ? 1 : 0)
+    return at >= 0
+      ? at
+      : ownerOrder.length + (owner === 'other' || owner.startsWith('session:') ? 1 : 0)
   }
   const others = [...byOwner]
     .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
     .map(([owner, list]) => ({ owner, items: list.sort((a, b) => b.startedAt - a.startedAt) }))
   const earlier = shown
-    .filter((i) => (i.status === 'done' || i.status === 'failed') && sameOwner(i, thread) && sameDay(i.updatedAt, now))
+    .filter(
+      (i) =>
+        (i.status === 'done' || i.status === 'failed') &&
+        sameOwner(i, thread) &&
+        sameDay(i.updatedAt, now),
+    )
     .sort((a, b) => b.updatedAt - a.updatedAt)
   return { waiting, mine, others, earlier }
 }

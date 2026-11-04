@@ -125,7 +125,13 @@ describe('terminal service', () => {
 
   it('shows a harness pane view-only: attached without takeover, and every keystroke is dropped', async () => {
     const t = setup({ pane: null })
-    const { id } = await t.svc.spawn({ file: null, mode: 'attach', cols: 80, rows: 24, watch: 'w1:p3' })
+    const { id } = await t.svc.spawn({
+      file: null,
+      mode: 'attach',
+      cols: 80,
+      rows: 24,
+      watch: 'w1:p3',
+    })
     expect(t.spawned[0]).toMatchObject({ file: '/bin/herdr', argv: ['agent', 'attach', 'w1:p3'] })
     t.svc.write(id, 'rm -rf /\r')
     expect(t.ptys[0]!.written).toEqual([])

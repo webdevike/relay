@@ -382,7 +382,8 @@ function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions
 }
 
 /** A row of the Working tab: one of this thread's helpers (from its transcripts) or anything else the host lists. */
-type WorkRow = { type: 'helper'; row: TreeRow } | { type: 'activity'; item: ActivityItem; owner?: string }
+type WorkRow =
+  { type: 'helper'; row: TreeRow } | { type: 'activity'; item: ActivityItem; owner?: string }
 
 /** `assistant:nova` is Nova; a chat, a session of its own or nothing's is "Other chats". */
 function ownerName(owner: string): string {
@@ -398,7 +399,12 @@ function ownerName(owner: string): string {
 function WorkingView({ thread, rows, now, actions }: ViewProps) {
   const activity = useActivity((s) => s.items)
   const { running, finished } = subagentTree(rows, now)
-  const sections = activitySections(activity, thread, now, ['nova', 'astra', 'polaris'].map((a) => `assistant:${a}`))
+  const sections = activitySections(
+    activity,
+    thread,
+    now,
+    ['nova', 'astra', 'polaris'].map((a) => `assistant:${a}`),
+  )
   const open = (item: ActivityItem): void => {
     openActivity(item)
   }
@@ -409,9 +415,18 @@ function WorkingView({ thread, rows, now, actions }: ViewProps) {
       id: 'waiting',
       label: 'Waiting on you',
       testid: 'working-waiting',
-      items: sections.waiting.map((item): WorkRow => ({ type: 'activity', item, owner: ownerName(item.owner) })),
+      items: sections.waiting.map((item): WorkRow => ({
+        type: 'activity',
+        item,
+        owner: ownerName(item.owner),
+      })),
     },
-    { id: 'running', label: 'Running', testid: 'working-running', items: [...running.map(helper), ...sections.mine.map(own)] },
+    {
+      id: 'running',
+      label: 'Running',
+      testid: 'working-running',
+      items: [...running.map(helper), ...sections.mine.map(own)],
+    },
     ...sections.others.map(({ owner, items }) => ({
       id: `owner:${owner}`,
       label: ownerName(owner),
@@ -822,8 +837,7 @@ export function ArtifactsPanel({
     anyRunning(
       subagentsTab ? tabItems(subagentsTab, items, now).filter((i) => i.kind === 'subagent') : [],
       now,
-    ) ||
-    activityItems.some((i) => isActive(i) && i.kind !== 'helper' && i.owner === thread)
+    ) || activityItems.some((i) => isActive(i) && i.kind !== 'helper' && i.owner === thread)
 
   const tidy = async (): Promise<void> => {
     if (!thread) return
@@ -1012,7 +1026,9 @@ export function ArtifactsPanel({
                   }}
                 >
                   <TabMark tab={t} spinning={t.id === 'subagents' && running} />
-                  <span>{t.id === 'subagents' && t.createdBy === 'default' ? 'Working' : t.title}</span>
+                  <span>
+                    {t.id === 'subagents' && t.createdBy === 'default' ? 'Working' : t.title}
+                  </span>
                   {t.fresh ? <span className="eva-art-dot" aria-label="New" /> : null}
                 </button>
               ))}

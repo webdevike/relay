@@ -95,7 +95,13 @@ export function ActivityRow({
       data-kind={item.kind}
       leading={<StatusMark status={item.status} />}
       title={item.title}
-      meta={<KindMeta kind={item.kind} intent={item.intent} {...(owner === undefined ? {} : { owner })} />}
+      meta={
+        <KindMeta
+          kind={item.kind}
+          intent={item.intent}
+          {...(owner === undefined ? {} : { owner })}
+        />
+      }
       tooltip={rowTip(
         item.title,
         item.intent,
@@ -103,7 +109,9 @@ export function ActivityRow({
         item.model !== undefined && `Model: ${item.model}`,
         item.cost !== undefined && `Spent: ${costText(item.cost)}`,
       )}
-      trailing={<ListTime>{live ? ageText(item.startedAt, now) : whenText(item.updatedAt, now)}</ListTime>}
+      trailing={
+        <ListTime>{live ? ageText(item.startedAt, now) : whenText(item.updatedAt, now)}</ListTime>
+      }
       onActivate={() => onOpen(item)}
     />
   )

@@ -46,8 +46,13 @@ describe('openActivity', () => {
       expect.objectContaining({ page: 'chat', chat: '/s/aw1.jsonl' }),
       'split',
     )
-    expect(openActivity(item({ to: 'chat', thread: 'assistant:astra', session: 'unknown' }), 'tab')).toBe(true)
-    expect(m.openInApp).toHaveBeenLastCalledWith(expect.objectContaining({ page: 'agent:astra' }), 'tab')
+    expect(
+      openActivity(item({ to: 'chat', thread: 'assistant:astra', session: 'unknown' }), 'tab'),
+    ).toBe(true)
+    expect(m.openInApp).toHaveBeenLastCalledWith(
+      expect.objectContaining({ page: 'agent:astra' }),
+      'tab',
+    )
     // A chat the list does not know goes nowhere.
     m.openInApp.mockClear()
     expect(openActivity(item({ to: 'chat', thread: 'session:gone', session: 'gone' }))).toBe(false)
@@ -63,7 +68,7 @@ describe('openActivity', () => {
     })
   })
 
-  it("shows a harness in the Terminal tool, attached to its pane view-only", () => {
+  it('shows a harness in the Terminal tool, attached to its pane view-only', () => {
     openActivity(item({ to: 'terminal', pane: 'w1:p3' }, { kind: 'harness', title: 'demo-claude' }))
     expect(m.requestWatch).toHaveBeenCalledWith('w1:p3', 'demo-claude')
     expect(m.revealTool).toHaveBeenCalledWith('terminal')

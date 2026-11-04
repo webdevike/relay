@@ -58,10 +58,14 @@ const work = (
 })
 
 describe('SubagentChips activity badges', () => {
-  it("a badge per in-progress session, harness or canvas agent, with its kind icon, opened through the same call", async () => {
+  it('a badge per in-progress session, harness or canvas agent, with its kind icon, opened through the same call', async () => {
     const user = userEvent.setup()
     const opened = vi.fn()
-    const session = work('session:aw1', 'session', 'working', { to: 'chat', thread: 'session:aw1', session: 'aw1' })
+    const session = work('session:aw1', 'session', 'working', {
+      to: 'chat',
+      thread: 'session:aw1',
+      session: 'aw1',
+    })
     const harness = work('harness:w1:p3', 'harness', 'waiting', { to: 'terminal', pane: 'w1:p3' })
     const canvas = work('canvas:roadmap', 'canvas', 'working', { to: 'canvas', slug: 'roadmap' })
     wrap(
@@ -103,7 +107,12 @@ describe('SubagentChips activity badges', () => {
     expect(screen.getByTestId('activity-chip-canvas:r')).toBeInTheDocument()
     rerender(
       <MantineProvider>
-        <SubagentChips subagents={[]} hidden={new Set()} onOpen={() => undefined} onClearDone={() => undefined} />
+        <SubagentChips
+          subagents={[]}
+          hidden={new Set()}
+          onOpen={() => undefined}
+          onClearDone={() => undefined}
+        />
       </MantineProvider>,
     )
     expect(container.querySelector('[data-testid=subagent-chips]')).toBeNull()

@@ -271,12 +271,18 @@ function onePerSubagent(items: readonly Artifact[]): Artifact[] {
     if (item.subagent === undefined || item.path === undefined) continue
     const key = subagentKey(item.path)
     const have = best.get(key)
-    if (have === undefined || (fresher(item, have) && !(item.pinned === undefined && have.pinned !== undefined))) {
+    if (
+      have === undefined ||
+      (fresher(item, have) && !(item.pinned === undefined && have.pinned !== undefined))
+    ) {
       best.set(key, item)
     }
   }
   return items.filter(
-    (item) => item.subagent === undefined || item.path === undefined || best.get(subagentKey(item.path)) === item,
+    (item) =>
+      item.subagent === undefined ||
+      item.path === undefined ||
+      best.get(subagentKey(item.path)) === item,
   )
 }
 

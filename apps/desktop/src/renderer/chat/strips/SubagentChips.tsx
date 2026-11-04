@@ -1,7 +1,13 @@
 import './strips.css'
 import { useEffect, useState } from 'react'
 import { Scroller, Tooltip } from '@mantine/core'
-import { IconAlertCircle, IconCheck, IconChevronLeft, IconChevronRight, IconHandStop } from '@tabler/icons-react'
+import {
+  IconAlertCircle,
+  IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
+  IconHandStop,
+} from '@tabler/icons-react'
 import type { ActivityItem } from '@evaos/chat-core/activity'
 import { subagentFinished } from '@evaos/chat-core/jobs'
 import type { Subagent } from '@evaos/chat-core/message'
@@ -124,7 +130,11 @@ export function SubagentChips({
                 aria-label={`${item.kind} ${item.title}, ${waiting ? 'waiting on you' : 'running'}`}
                 onClick={() => onOpenActivity?.(item)}
               >
-                {waiting ? <IconHandStop size={12} aria-hidden="true" /> : <span className="eva-spinner" aria-hidden="true" />}
+                {waiting ? (
+                  <IconHandStop size={12} aria-hidden="true" />
+                ) : (
+                  <span className="eva-spinner" aria-hidden="true" />
+                )}
                 <Kind size={12} stroke={1.5} aria-hidden="true" />
                 <span className="eva-chip-name">{item.title}</span>
               </button>
