@@ -107,9 +107,9 @@ export function registerSetup(ctx: MainContext): void {
   })
 
   /**
-   * Hindsight's deps. RELAY_HINDSIGHT_NAME / RELAY_HINDSIGHT_PORT / RELAY_HINDSIGHT_DIR /
-   * RELAY_HINDSIGHT_LABEL / RELAY_HINDSIGHT_LAUNCH_AGENTS let a smoke run use throwaway names,
-   * ports, folders and LaunchAgent label.
+   * Hindsight's deps. RELAY_HINDSIGHT_NAME / PORT / DIR / LABEL / LAUNCH_AGENTS / UV / RAM_GB let a
+   * smoke run or e2e use throwaway names, ports, folders, a LaunchAgent label, a stand-in uv and a
+   * pretend amount of memory.
    */
   const hindsightDeps = async () => {
     const name = process.env.RELAY_HINDSIGHT_NAME
@@ -117,6 +117,8 @@ export function registerSetup(ctx: MainContext): void {
     const nativeDir = process.env.RELAY_HINDSIGHT_DIR
     const label = process.env.RELAY_HINDSIGHT_LABEL
     const launchAgentsDir = process.env.RELAY_HINDSIGHT_LAUNCH_AGENTS
+    const uv = process.env.RELAY_HINDSIGHT_UV
+    const ramGb = Number.parseInt(process.env.RELAY_HINDSIGHT_RAM_GB ?? '', 10)
     return realDeps({
       homedir: home,
       agentDir: ctx.env.agentDir,
@@ -127,6 +129,8 @@ export function registerSetup(ctx: MainContext): void {
       ...(nativeDir ? { nativeDir } : {}),
       ...(label ? { label } : {}),
       ...(launchAgentsDir ? { launchAgentsDir } : {}),
+      ...(uv ? { uvCandidates: [uv] } : {}),
+      ...(Number.isFinite(ramGb) ? { ramBytes: ramGb * 1024 ** 3 } : {}),
     })
   }
 

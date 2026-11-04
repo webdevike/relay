@@ -890,6 +890,13 @@ describe('classifyOperations', () => {
     // A still-pending operation newer than the failure does not hide it.
     expect(classifyOperations([{ status: 'pending' }, login], true)?.kind).toBe('login')
   })
+  it('counts a retain that is still pending but already carries the login error', () => {
+    const retrying = { status: 'pending', error_message: login.error_message }
+    expect(classifyOperations([{ status: 'pending' }, retrying], true)).toMatchObject({
+      kind: 'login',
+      fix: 'sign-in',
+    })
+  })
   it('says the key was refused when it is not a ChatGPT sign-in', () => {
     const p = classifyOperations(
       [{ status: 'failed', error_message: 'Error code: 401 invalid api key' }],

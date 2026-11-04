@@ -162,7 +162,7 @@ function MemoryControls({
       ) : null}
       {status?.problem ? (
         <Alert color="red" title="Memory isn't saving" data-testid="memory-problem">
-          {status.problem.message}
+          {status.problem.message.replace(/^Memory isn't saving: /, '')}
           <Group mt="xs">
             <Button
               size="compact-sm"

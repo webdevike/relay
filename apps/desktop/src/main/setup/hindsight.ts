@@ -328,15 +328,18 @@ const LOGIN_ERROR =
 
 /**
  * Reads Hindsight's recent operations (newest first) and says why saving stopped, when it did:
- * the newest operation that finished (not still pending) is the one that counts, so one old
- * failure does not nag after a later success.
+ * the newest operation that finished is the one that counts, so one old failure does not nag
+ * after a later success. A retain whose model call failed stays `pending` while Hindsight retries
+ * it, with the error already on it (seen with an expired ChatGPT login), so an error counts too.
  */
 export function classifyOperations(
   ops: readonly OperationRow[],
   usingChatGpt: boolean,
 ): HindsightProblem | null {
-  const last = ops.find((o) => o.status === 'completed' || o.status === 'failed')
-  if (!last || last.status !== 'failed') return null
+  const failing = (o: OperationRow): boolean =>
+    o.status === 'failed' || (typeof o.error_message === 'string' && o.error_message !== '')
+  const last = ops.find((o) => o.status === 'completed' || failing(o))
+  if (!last || !failing(last)) return null
   const detail = typeof last.error_message === 'string' ? last.error_message : ''
   if (LOGIN_ERROR.test(detail)) {
     return usingChatGpt
@@ -486,7 +489,11 @@ function llmOnHand(d: HindsightDeps): HindsightStatus['llm'] {
     hasCodexAuth: fs.existsSync(codexAuth(d)),
     ompEnv: readText(path.join(d.agentDir, '.env')),
   })
-  return c.kind === 'existing' ? 'saved' : c.kind === 'codex' || c.kind === 'key' ? c.kind : 'none'
+  if (c.kind === 'existing') {
+    const saved = [nativePaths(d).env, dockerEnvPath(d)].some(usesChatGpt)
+    return saved ? 'codex' : 'saved'
+  }
+  return c.kind === 'codex' || c.kind === 'key' ? c.kind : 'none'
 }
 
 /**

@@ -531,7 +531,10 @@ export async function updateNative(
       timeoutMs: 45 * 60_000,
     }),
     p.dir,
-    (b) => progress(40, `Downloading: ${formatBytes(b)}`),
+    (b) =>
+      b > 0
+        ? progress(15 + Math.min(50, Math.round(b / 40_000_000)), `Downloading: ${formatBytes(b)}`)
+        : undefined,
   )
   if (pip.code !== 0) throw new HindsightError(`Updating failed: ${lastLine(pip.stderr)}`)
   const to = installedVersion(p) ?? from
