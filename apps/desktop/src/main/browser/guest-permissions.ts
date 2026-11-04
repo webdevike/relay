@@ -6,7 +6,8 @@
  *   tailnet hosts) and only within {@link GESTURE_WINDOW_MS} of a click or key press in that tab,
  *   so a page cannot silently read whatever Isaac last copied.
  * Electron's permission details carry no user-gesture flag, so the host tracks the last input
- * event per guest webContents and passes its age in.
+ * event per guest webContents and passes its age in. Sign-in popups follow the same gesture rule
+ * ({@link allowGuestPopup}).
  */
 
 /** Chromium's transient user activation lasts about 5 s; a read must follow input this closely. */
@@ -62,4 +63,23 @@ export function allowGuestPermission(
     return gestureAgeMs <= GESTURE_WINDOW_MS && isClipboardReadTrusted(requestingUrl)
   }
   return false
+}
+
+/**
+ * Whether a page's `window.open` with window features (Electron's `new-window` disposition) may
+ * open a real popup window. Sign-in buttons (Google, Apple, GitHub, Auth0) open one and talk to it
+ * through `window.opener`/`postMessage`, so a tab would break them. Allowed only for http(s) (or
+ * `about:blank`, which Auth0-style flows open first and then point at the provider) and only
+ * within {@link GESTURE_WINDOW_MS} of a click or key press in the opener; the caller consumes the
+ * gesture so one click opens at most one popup.
+ */
+export function allowGuestPopup(url: string, gestureAgeMs: number): boolean {
+  if (gestureAgeMs > GESTURE_WINDOW_MS) return false
+  if (url === '' || url === 'about:blank') return true
+  try {
+    const p = new URL(url).protocol
+    return p === 'http:' || p === 'https:'
+  } catch {
+    return false
+  }
 }

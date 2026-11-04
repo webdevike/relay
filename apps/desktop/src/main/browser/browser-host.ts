@@ -1,4 +1,12 @@
-import { WebContentsView, clipboard, shell } from 'electron'
+import {
+  BrowserWindow,
+  WebContentsView,
+  clipboard,
+  shell,
+  type HandlerDetails,
+  type WebContents,
+  type WindowOpenHandlerResponse,
+} from 'electron'
 import { BLOCKED_URL_CODE, loadableUrl } from '@evaos/browser-core/address'
 import { isAppSwitchUrl } from '@evaos/browser-core/app-switch'
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
@@ -6,7 +14,8 @@ import { FORWARD_FROM_GUEST, PINNED_SCOPE, chordOfInput } from '@evaos/shell-cor
 import type { TabState, TabsSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit } from '../ipc/handle'
-import { GUEST_PARTITION } from './guest-session'
+import { allowGuestPopup } from './guest-permissions'
+import { GUEST_PARTITION, consumeGesture, gestureAge } from './guest-session'
 import { HistoryStore } from './history-store'
 import { PageControl } from './page-control'
 import { SavedTabsStore, type SavedBrowserTabs } from './saved-tabs'
@@ -84,6 +93,8 @@ export class BrowserHost {
   private created: TabListener[] = []
   private activated: TabListener[] = []
   private closed: TabListener[] = []
+  /** Sign-in popups by webContents id, with the tab that opened them. */
+  private popups = new Map<number, Tab>()
 
   readonly history: HistoryStore
   private readonly saved: SavedTabsStore
@@ -342,30 +353,10 @@ export class BrowserHost {
   private wire(tab: Tab, view: WebContentsView): void {
     const wc = view.webContents
     const s = tab.state
-    // Always deny; only http(s) foreground/background tab dispositions from the active tab
-    // become app-created tabs in the same hardened partition (a background page cannot spawn
-    // tabs). new-window popups stay denied (T-01-37). The new tab joins its opener's scope; a
-    // pinned opener belongs to no session, so its tabs join the scope in front.
-    wc.setWindowOpenHandler((details) => {
-      if (tab.state.id !== this.activeId || tab.view !== view) return { action: 'deny' }
-      if (details.disposition === 'foreground-tab' || details.disposition === 'background-tab') {
-        try {
-          const p = new URL(details.url).protocol
-          if (p === 'http:' || p === 'https:') {
-            const fg = details.disposition === 'foreground-tab'
-            const front = this.scope
-            setImmediate(() => {
-              if (this.ctx.win.isDestroyed()) return
-              const scope = tab.scope === PINNED_SCOPE ? front : tab.scope
-              this.createTab(details.url, fg, { scope, switchApp: tab.switchApp })
-            })
-          }
-        } catch {
-          /* not a URL */
-        }
-      }
-      return { action: 'deny' }
-    })
+    wc.setWindowOpenHandler((details) =>
+      tab.view === view ? this.windowOpen(tab, wc, details) : { action: 'deny' },
+    )
+    wc.on('did-create-window', (win) => this.wirePopup(tab, win))
     wc.on('before-input-event', (event, input) => {
       if (matchesAppChord(input) === 'devtools') {
         event.preventDefault()
@@ -411,7 +402,11 @@ export class BrowserHost {
       this.navState(tab)
       this.changed()
     }
-    wc.on('did-navigate', (_e, url) => nav(url, true))
+    wc.on('did-navigate', (_e, url) => {
+      // A new document starts without the last one's passkey bar.
+      delete s.passkey
+      nav(url, true)
+    })
     wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
       if (isMainFrame) nav(url, false)
     })
@@ -428,6 +423,107 @@ export class BrowserHost {
       s.favicon = favicons[0] ?? null
       this.changed()
     })
+  }
+
+  /**
+   * Always decides here (T-01-37). Only the active tab (or a sign-in popup of it) opens anything,
+   * and only web pages, in the same hardened partition:
+   * - `foreground-tab`/`background-tab` (target=_blank, window.open without features): an
+   *   app-created tab in the opener's scope. A pinned opener belongs to no session, so its tabs
+   *   join the scope in front. A background page cannot spawn tabs.
+   * - `new-window` (window.open with features, as "Sign in with Google/Apple/GitHub" buttons do):
+   *   a real popup window that keeps `window.opener`, so the provider's postMessage and
+   *   window.close flow works. Only right after a click or key press in the opener, one popup per
+   *   gesture (allowGuestPopup); the popup gets the partition's permission policy like any tab.
+   * Anything else is denied.
+   */
+  private windowOpen(
+    tab: Tab,
+    opener: WebContents,
+    details: HandlerDetails,
+  ): WindowOpenHandlerResponse {
+    if (tab.state.id !== this.activeId || !tab.view) return { action: 'deny' }
+    if (details.disposition === 'new-window') {
+      if (!allowGuestPopup(details.url, gestureAge(opener))) return { action: 'deny' }
+      consumeGesture(opener)
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          parent: this.ctx.win,
+          // Hidden test instances show it in did-create-window, invisible like their window.
+          show: !this.ctx.env.hiddenWindow,
+          fullscreenable: false,
+          backgroundColor: '#ffffff',
+          webPreferences: {
+            partition: GUEST_PARTITION,
+            sandbox: true,
+            contextIsolation: true,
+            nodeIntegration: false,
+            webSecurity: true,
+          },
+        },
+      }
+    }
+    if (details.disposition === 'foreground-tab' || details.disposition === 'background-tab') {
+      try {
+        const p = new URL(details.url).protocol
+        if (p === 'http:' || p === 'https:') {
+          const fg = details.disposition === 'foreground-tab'
+          const front = this.scope
+          setImmediate(() => {
+            if (this.ctx.win.isDestroyed()) return
+            const scope = tab.scope === PINNED_SCOPE ? front : tab.scope
+            this.createTab(details.url, fg, { scope, switchApp: tab.switchApp })
+          })
+        }
+      } catch {
+        /* not a URL */
+      }
+    }
+    return { action: 'deny' }
+  }
+
+  /**
+   * A sign-in popup of `tab`: the tab rules for what it opens and loads, closed with its opener's
+   * page. The page's own window.close() closes it (Electron allows it for script-opened windows).
+   */
+  private wirePopup(tab: Tab, win: BrowserWindow): void {
+    const wc = win.webContents
+    const id = wc.id
+    this.popups.set(id, tab)
+    wc.once('destroyed', () => this.popups.delete(id))
+    if (this.ctx.env.hiddenWindow) {
+      win.setOpacity(0)
+      win.setIgnoreMouseEvents(true)
+      win.showInactive()
+    }
+    wc.setWindowOpenHandler((details) => this.windowOpen(tab, wc, details))
+    wc.on('did-create-window', (child) => this.wirePopup(tab, child))
+    const guard = (event: { preventDefault(): void }, url: string): void => {
+      if (!loadableUrl(url)) event.preventDefault()
+    }
+    wc.on('will-navigate', (e) => guard(e, e.url))
+    wc.on('will-redirect', (e) => guard(e, e.url))
+    tab.view?.webContents.once('destroyed', () => {
+      if (!win.isDestroyed()) win.close()
+    })
+  }
+
+  /**
+   * A guest page asked for a passkey (`start`) or got one (`done`), as the guest preload reports
+   * (preload/guest.ts). A popup's request marks its opener tab. Unknown senders are ignored.
+   */
+  passkey(wcId: number, phase: 'start' | 'done'): void {
+    const tab = this.popups.get(wcId) ?? this.tabs.get(this.tabByWebContents(wcId)?.id ?? '')
+    if (!tab) return
+    if (phase === 'start') tab.state.passkey = true
+    else delete tab.state.passkey
+    this.changed()
+  }
+
+  dismissPasskey(id: string): void {
+    delete this.tab(id).state.passkey
+    this.changed()
   }
 
   private navState(tab: Tab): void {

@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Provider</title>
+  </head>
+  <body>
+    <p>Provider sign-in</p>
+    <script>
+      setTimeout(() => {
+        window.opener.postMessage({ code: 'abc123' }, location.origin)
+        window.close()
+      }, 300)
+    </script>
+  </body>
+</html>

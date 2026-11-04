@@ -53,10 +53,11 @@ export default defineConfig({
     },
   },
   // A sandboxed preload cannot require node_modules, so the browser-action element injector is bundled in.
+  // `guest` is the guest pages' passkey watcher (src/preload/guest.ts), registered on persist:browser.
   preload: {
     build: {
       externalizeDeps: { exclude: ['electron-chrome-extensions'] },
-      rollupOptions: { input: { index: 'src/preload/index.ts' } },
+      rollupOptions: { input: { index: 'src/preload/index.ts', guest: 'src/preload/guest.ts' } },
     },
   },
   renderer: {

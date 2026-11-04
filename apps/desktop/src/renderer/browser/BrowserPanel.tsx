@@ -4,6 +4,7 @@ import './browser.css'
 import { AddressRow } from './AddressRow'
 import { AppSwitcher } from './AppSwitcher'
 import { PageStateCard } from './PageStateCard'
+import { PasskeyBar } from './PasskeyBar'
 import { TabStrip } from './TabStrip'
 import { activeTab, useBrowserStore } from './browser-store'
 import { useSlotSync } from './useSlotSync'
@@ -33,6 +34,7 @@ export function BrowserPanel({ hidden = false }: { hidden?: boolean }) {
         <TabStrip tabs={tabs} activeId={activeId} />
         {tab && isAppSwitchUrl(tab.url) ? <AppSwitcher key={tab.id} tab={tab} /> : null}
       </div>
+      {tab?.passkey && !showCard ? <PasskeyBar tab={tab} /> : null}
       <div className="eva-browser-slot" data-testid="browser-slot" ref={slot}>
         {showCard ? <PageStateCard tab={tab} /> : null}
       </div>

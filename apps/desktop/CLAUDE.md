@@ -105,8 +105,9 @@ A port of EvaOS, Isaac's desktop app for his AI assistant Eva, from Rust + gpui-
 - **DevTools:** `view.webContents.setDevToolsWebContents(devToolsView.webContents)` then `openDevTools()` to dock DevTools in a second WebContentsView (or `openDevTools({ mode: 'detach' })` for a window).
 - **CDP:** `webContents.debugger.attach('1.3')` + `sendCommand` (Page, Runtime, DOM, Network). Only one debugger client can attach at a time; DevTools docking uses the same connection path, so test that DevTools and our CDP client coexist (they generally do via the multi-client protocol; verify). Use CDP for navigation history, title/favicon, screenshot, and agent page control.
 - Title following: `page-title-updated`, `did-navigate`, `did-navigate-in-page`, `page-favicon-updated`. Address-bar resolution (URL / search / bare local port like `3000`) is pure TS, unit-test it in Vitest.
-- `setWindowOpenHandler` routes `target=_blank` to a new subtab; "open in default browser" uses `shell.openExternal` (allow-list `http/https`).
+- `setWindowOpenHandler` routes `target=_blank` to a new subtab and `window.open` with features (sign-in buttons) to a real popup `BrowserWindow` in the same partition with `window.opener` kept, only right after a click in the opener (one popup per click); "open in default browser" uses `shell.openExternal` (allow-list `http/https`).
 - Permissions: `session.setPermissionRequestHandler` deny-by-default for the browser partition.
+- Passkeys: Electron 44 shows no WebAuthn UI and has no iCloud Keychain, phone (hybrid) or PIN support; touch-only USB security keys are serviced (tested with a virtual CTAP2 key). The guest preload (`src/preload/guest.ts`) reports passkey requests and the panel offers "Open in <default browser>". Keep Electron's own user agent: Google refuses a stock Chrome one.
 ### Terminal
 | Library | Version | Purpose | Why | Confidence |
 |---------|---------|---------|-----|------------|

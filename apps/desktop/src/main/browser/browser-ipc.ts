@@ -1,7 +1,7 @@
 import { normalize } from '@evaos/browser-core/address'
 import type { MainContext } from '../context'
 import { handle } from '../ipc/handle'
-import { session } from 'electron'
+import { app, session } from 'electron'
 import { listSwitchApps, type SessionFetch } from './app-switch'
 import { importArcLogins } from './arc-import'
 import { GUEST_PARTITION } from './guest-session'
@@ -24,6 +24,7 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
     ['browser.stop', (id: string) => host.stop(id)],
     ['browser.copyLink', (id: string) => host.copyLink(id)],
     ['browser.openExternal', (id: string) => host.openExternal(id)],
+    ['browser.dismissPasskey', (id: string) => host.dismissPasskey(id)],
   ] as const
   for (const [channel, fn] of simple) {
     handle(ctx, channel, ({ tabId }) => {
@@ -31,6 +32,9 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
       return { ok: true as const }
     })
   }
+  handle(ctx, 'browser.systemBrowser', () => ({
+    name: app.getApplicationNameForProtocol('https://') || null,
+  }))
   handle(ctx, 'browser.createTab', async ({ url, scope }) => {
     await host.ready
     const tab = host.createTab(url ? (normalize(url) ?? undefined) : undefined, true, { scope })

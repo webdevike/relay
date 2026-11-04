@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   allowGuestPermission,
+  allowGuestPopup,
   GESTURE_WINDOW_MS,
   isClipboardReadTrusted,
 } from './guest-permissions'
@@ -77,5 +78,40 @@ describe('isClipboardReadTrusted', () => {
   it('matches loopback, eCard dev/stage over https, and tailnet hosts only', () => {
     expect(TRUSTED.every(isClipboardReadTrusted)).toBe(true)
     expect(UNTRUSTED.some(isClipboardReadTrusted)).toBe(false)
+  })
+})
+
+describe('allowGuestPopup', () => {
+  it('allows http(s) and about:blank popups right after a gesture', () => {
+    for (const url of [
+      'https://accounts.google.com/o/oauth2/v2/auth?client_id=x',
+      'https://appleid.apple.com/auth/authorize',
+      'http://localhost:3000/callback',
+      'about:blank',
+      '',
+    ]) {
+      expect(allowGuestPopup(url, FRESH)).toBe(true)
+    }
+    expect(allowGuestPopup('https://github.com/login/oauth', GESTURE_WINDOW_MS)).toBe(true)
+  })
+
+  it('denies popups without a recent gesture', () => {
+    expect(allowGuestPopup('https://accounts.google.com/', GESTURE_WINDOW_MS + 1)).toBe(false)
+    expect(allowGuestPopup('https://accounts.google.com/', Infinity)).toBe(false)
+    expect(allowGuestPopup('about:blank', Infinity)).toBe(false)
+  })
+
+  it('denies other schemes even with a gesture', () => {
+    for (const url of [
+      'file:///Users/ike/secret.html',
+      'data:text/html,<p>x</p>',
+      'javascript:alert(1)',
+      'chrome://settings',
+      'chrome-extension://abc/popup.html',
+      'about:srcdoc',
+      'not a url',
+    ]) {
+      expect(allowGuestPopup(url, FRESH)).toBe(false)
+    }
   })
 })

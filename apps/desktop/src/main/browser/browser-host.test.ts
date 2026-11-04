@@ -1,10 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { FakeView, views } = vi.hoisted(() => {
+const { FakeView, FakeWebContents, views, gesture } = vi.hoisted(() => {
   let wcSeq = 0
   const views: FakeView[] = []
+  /** Milliseconds since the last click per webContents id, as guest-session tracks it. */
+  const gesture = new Map<number, number>()
   type Listener = (...args: unknown[]) => void
-  type OpenHandler = (d: { url: string; disposition: string }) => { action: string }
+  type OpenHandler = (d: { url: string; disposition: string }) => {
+    action: string
+    overrideBrowserWindowOptions?: Record<string, unknown>
+  }
 
   class FakeWebContents {
     id = ++wcSeq
@@ -30,6 +35,14 @@ const { FakeView, views } = vi.hoisted(() => {
     fire(name: string, ...args: unknown[]): void {
       for (const fn of this.listeners.get(name) ?? []) fn(...args)
     }
+    once(name: string, fn: Listener): void {
+      let done = false
+      this.on(name, (...args) => {
+        if (done) return
+        done = true
+        fn(...args)
+      })
+    }
   }
 
   class FakeView {
@@ -46,18 +59,41 @@ const { FakeView, views } = vi.hoisted(() => {
     }
     setBounds(): void {}
   }
-  return { FakeView, views }
+  return { FakeView, FakeWebContents, views, gesture }
 })
 type FakeView = InstanceType<typeof FakeView>
+
+/** A popup window as Electron hands it to did-create-window. */
+class FakePopup {
+  webContents = new FakeWebContents()
+  closed = false
+  shownInactive = false
+  isDestroyed = (): boolean => this.closed
+  close = (): void => {
+    this.closed = true
+  }
+  setOpacity(): void {}
+  setIgnoreMouseEvents(): void {}
+  showInactive(): void {
+    this.shownInactive = true
+  }
+}
 
 vi.mock('electron', () => ({
   app: {},
   ipcMain: {},
   dialog: {},
   BaseWindow: class {},
+  BrowserWindow: class {},
   WebContentsView: FakeView,
   clipboard: { writeText: vi.fn() },
   shell: { openExternal: vi.fn() },
+}))
+
+vi.mock('./guest-session', () => ({
+  GUEST_PARTITION: 'persist:browser',
+  gestureAge: (wc: { id: number } | null) => (wc && gesture.get(wc.id)) ?? Infinity,
+  consumeGesture: (wc: { id: number }) => gesture.delete(wc.id),
 }))
 
 import { setImmediate as nextTick } from 'node:timers/promises'
@@ -78,8 +114,9 @@ function memoryConfig(files = new Map<string, unknown>()) {
   }
 }
 
-function makeHost(config = memoryConfig()): BrowserHost {
+function makeHost(config = memoryConfig(), env = { hiddenWindow: false }): BrowserHost {
   const ctx = {
+    env,
     win: {
       isDestroyed: () => false,
       contentView: {
@@ -108,6 +145,7 @@ beforeEach(() => {
   views.length = 0
   sent.length = 0
   children.clear()
+  gesture.clear()
   host = makeHost()
 })
 
@@ -245,6 +283,138 @@ describe('BrowserHost scopes', () => {
     other.openHandler!({ url: 'https://d.test/', disposition: 'foreground-tab' })
     await nextTick()
     expect(host.snapshot().tabs).toHaveLength(2)
+  })
+})
+
+describe('BrowserHost sign-in popups (T-01-37)', () => {
+  const GOOGLE = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=x'
+  const opened = (): { tab: string; wc: FakeView['webContents'] } => {
+    host.setScope('A')
+    const t = host.createTab('https://app.test/login', true)!
+    return { tab: t.id, wc: viewOf(host, t.id)!.webContents }
+  }
+
+  it('opens a real popup window in the guest partition right after a click, once per click', () => {
+    const { wc } = opened()
+    gesture.set(wc.id, 120)
+    const res = wc.openHandler!({ url: GOOGLE, disposition: 'new-window' })
+    expect(res.action).toBe('allow')
+    expect(res.overrideBrowserWindowOptions).toMatchObject({
+      show: true,
+      webPreferences: {
+        partition: 'persist:browser',
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+        webSecurity: true,
+      },
+    })
+    // The click is used up: a second popup from the same gesture is refused.
+    expect(wc.openHandler!({ url: GOOGLE, disposition: 'new-window' })).toEqual({ action: 'deny' })
+    // about:blank (Auth0 opens it first, then points it at the provider) is a popup too.
+    gesture.set(wc.id, 10)
+    expect(wc.openHandler!({ url: 'about:blank', disposition: 'new-window' }).action).toBe('allow')
+    expect(host.snapshot().tabs).toHaveLength(1)
+  })
+
+  it('refuses popups without a gesture, to other schemes, and from background tabs', async () => {
+    const { tab, wc } = opened()
+    expect(wc.openHandler!({ url: GOOGLE, disposition: 'new-window' })).toEqual({ action: 'deny' })
+    gesture.set(wc.id, 10)
+    for (const url of ['file:///etc/hosts', 'data:text/html,x', 'javascript:alert(1)']) {
+      expect(wc.openHandler!({ url, disposition: 'new-window' })).toEqual({ action: 'deny' })
+    }
+    const other = host.createTab('https://b.test/', true)!
+    expect(host.activeTabId()).toBe(other.id)
+    expect(wc.openHandler!({ url: GOOGLE, disposition: 'new-window' })).toEqual({ action: 'deny' })
+    // Other dispositions never open windows.
+    host.activateTab(tab)
+    expect(wc.openHandler!({ url: GOOGLE, disposition: 'save-to-disk' })).toEqual({
+      action: 'deny',
+    })
+    await nextTick()
+    expect(host.snapshot().tabs).toHaveLength(2)
+  })
+
+  it('a popup keeps the tab rules and closes with its opener page', async () => {
+    const { wc } = opened()
+    const popup = new FakePopup()
+    wc.fire('did-create-window', popup, {})
+    expect(popup.shownInactive).toBe(false)
+    const pwc = popup.webContents
+    // Links with target=_blank in the popup open as tabs of the opener's scope.
+    pwc.openHandler!({ url: 'https://policies.google.com/terms', disposition: 'foreground-tab' })
+    await nextTick()
+    expect(host.snapshot().tabs.map((t) => t.url)).toEqual([
+      'https://app.test/login',
+      'https://policies.google.com/terms',
+    ])
+    // Its own popups follow the gesture rule in the popup.
+    expect(pwc.openHandler!({ url: GOOGLE, disposition: 'new-window' })).toEqual({ action: 'deny' })
+    const blocked = { preventDefault: vi.fn(), url: 'file:///etc/passwd' }
+    pwc.fire('will-navigate', blocked)
+    expect(blocked.preventDefault).toHaveBeenCalled()
+    const ok = { preventDefault: vi.fn(), url: 'https://app.test/callback?code=1' }
+    pwc.fire('will-redirect', ok)
+    expect(ok.preventDefault).not.toHaveBeenCalled()
+    wc.fire('destroyed')
+    expect(popup.closed).toBe(true)
+  })
+
+  it('hidden test instances show the popup invisibly, never on screen', () => {
+    host = makeHost(memoryConfig(), { hiddenWindow: true })
+    const { wc } = opened()
+    gesture.set(wc.id, 10)
+    expect(wc.openHandler!({ url: GOOGLE, disposition: 'new-window' })).toMatchObject({
+      action: 'allow',
+      overrideBrowserWindowOptions: { show: false },
+    })
+    const popup = new FakePopup()
+    wc.fire('did-create-window', popup, {})
+    expect(popup.shownInactive).toBe(true)
+  })
+})
+
+describe('BrowserHost passkey bar', () => {
+  it('marks the tab when its page or its popup asks for a passkey; clears on success, dismiss or a new page', () => {
+    host.setScope('A')
+    const t = host.createTab('https://app.test/', true)!
+    const wc = viewOf(host, t.id)!.webContents
+    const passkey = (): boolean | undefined => host.snapshot().tabs[0]!.passkey
+
+    host.passkey(wc.id, 'start')
+    expect(passkey()).toBe(true)
+    expect(sent.at(-1)).toEqual(['browser.tabs', host.snapshot()])
+    host.passkey(wc.id, 'done')
+    expect(passkey()).toBeUndefined()
+
+    host.passkey(wc.id, 'start')
+    host.dismissPasskey(t.id)
+    expect(passkey()).toBeUndefined()
+
+    host.passkey(wc.id, 'start')
+    wc.fire('did-navigate-in-page', {}, 'https://app.test/#step2', true)
+    expect(passkey()).toBe(true)
+    wc.fire('did-navigate', {}, 'https://app.test/next')
+    expect(passkey()).toBeUndefined()
+
+    const popup = new FakePopup()
+    wc.fire('did-create-window', popup, {})
+    host.passkey(popup.webContents.id, 'start')
+    expect(passkey()).toBe(true)
+    popup.webContents.fire('destroyed')
+    host.dismissPasskey(t.id)
+    host.passkey(popup.webContents.id, 'start')
+    expect(passkey()).toBeUndefined()
+  })
+
+  it('ignores senders that are not its tabs', () => {
+    host.setScope('A')
+    host.createTab('https://app.test/', true)
+    const before = sent.length
+    host.passkey(-1, 'start')
+    expect(sent.length).toBe(before)
+    expect(host.snapshot().tabs[0]!.passkey).toBeUndefined()
   })
 })
 

@@ -14,6 +14,11 @@ export const TabStateSchema = z.object({
   favicon: z.string().nullable(),
   /** Pinned tabs belong to no session and show in every scope. */
   pinned: z.boolean(),
+  /**
+   * The page asked for a passkey, which this browser can't offer: the panel shows the "Open in
+   * <default browser>" bar until the page navigates, gets a credential, or the bar is dismissed.
+   */
+  passkey: z.boolean().optional(),
 })
 export type TabState = z.output<typeof TabStateSchema>
 
@@ -67,6 +72,13 @@ export const browserInvoke = {
   'browser.stop': { input: tabOnly, output: okOut },
   'browser.copyLink': { input: tabOnly, output: okOut },
   'browser.openExternal': { input: tabOnly, output: okOut },
+  /** Hides the tab's passkey bar. */
+  'browser.dismissPasskey': { input: tabOnly, output: okOut },
+  /** The macOS default browser's name (`Arc`), for "Open in Arc"; null when unknown. */
+  'browser.systemBrowser': {
+    input: z.object({}).strict(),
+    output: z.object({ name: z.string().nullable() }),
+  },
   'browser.setSlot': {
     input: z
       .object({

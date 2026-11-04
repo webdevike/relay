@@ -148,6 +148,26 @@
   display: inline-flex;
   gap: calc(var(--mantine-spacing-xs) / 2);
 }
+/* The page asked for a passkey this browser can't offer: one quiet row above the page. */
+.eva-passkey-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  flex: none;
+  min-width: 0;
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs);
+  background: var(--eva-surface-2);
+  border-top: 1px solid var(--eva-border);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-caption);
+}
+.eva-passkey-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .eva-browser-slot {
   position: relative;
   display: flex;
