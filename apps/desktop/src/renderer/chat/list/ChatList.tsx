@@ -25,7 +25,6 @@ import {
 import { ChatAgentSchema, type ChatAgent, type ChatRow as Row } from '@evaos/contract'
 import { Categories } from '@evaos/chat-core/categories'
 import { placeOf } from '@evaos/shell-core'
-import { openPlace } from '../../navigation/navigate'
 import { openFromNav } from '../../navigation/open-in-app'
 import { activePlace, useTabs } from '../../tabs/tabs-store'
 import { ChatRow } from './ChatRow'
@@ -39,7 +38,6 @@ import { GroupMenu } from './GroupMenu'
 import { GroupHeader } from './GroupHeader'
 import { registerReloader } from '../../reload/reload'
 import { listStore, subscribeListChanges, useListStore } from './list-store'
-import { on } from '../../ipc'
 import { folderShown, folders, isRead, isSettled, isWorking, split, type Folder } from './look'
 import { useProfile } from '../../pages/profile'
 
@@ -138,15 +136,10 @@ export function ChatList({
   useEffect(() => {
     void listStore.getState().load()
     const off = subscribeListChanges()
-    // A clicked desktop notification opens its chat.
-    const offOpen = on('chat.openRequested', ({ file }) =>
-      openPlace(placeOf('chat', { chat: file })),
-    )
     // Belt: window focus (and the reload action) rescans, as the Rust app does.
     const offReload = registerReloader('chat-list', () => listStore.getState().load(), [])
     return () => {
       off()
-      offOpen()
       offReload()
     }
   }, [])

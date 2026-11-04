@@ -27,6 +27,7 @@ export const SETTINGS_SECTIONS = [
   'Theme',
   'Chat',
   'Links',
+  'Notifications',
   'Connections',
   'Setup',
   'About',

@@ -1,5 +1,6 @@
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
 import {
+  IconBell,
   IconChevronLeft,
   IconEdit,
   IconHistory,
@@ -31,6 +32,7 @@ const SECTION_ICON = {
   Theme: IconPalette,
   Chat: IconMessage,
   Links: IconLink,
+  Notifications: IconBell,
   Connections: IconPlugConnected,
   Setup: IconTool,
   About: IconInfoCircle,
