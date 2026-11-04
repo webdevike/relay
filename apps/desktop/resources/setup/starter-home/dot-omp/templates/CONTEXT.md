@@ -8,7 +8,9 @@ One job: hold the empty shape of each kind of record, so a new one starts by cop
 | `runbook.md` | `workflows/<task>.md` | by hand |
 | `job.md` | `work/jobs/<name>.md` | by hand; a job is a runbook an assistant runs on a schedule |
 | `ledger.md` | `work/items/<key>.md` | by hand, below its marker line |
+| `assistant-prime.md` | `.omp/assistant/agents/<id>/prime.md` | by the new assistant at the end of its setup interview, filling every `{{placeholder}}` |
 
-- `<like-this>` placeholders are replaced by hand.
+- `<like-this>` placeholders are replaced by hand; `{{like-this}}` ones by the assistant or code that copies the template.
+<!-- icm: no-h1 assistant-prime.md, a prime is its assistant's first message and must start with "You are" and the name -->
 - Load only the template being used. Don't load this folder at the start of a session.
 - `bun .omp/tools/icm-lint.ts` checks the result: H1 first, size budgets, every backticked path resolves. Record a deliberate exception where it lives, as `<!-- icm: budget N, reason -->` or `<!-- icm: no-h1, reason -->`.

@@ -6,16 +6,17 @@
  * again whenever it gains focus, and the host pushes a fresh list when a status or reply changes.
  */
 import { useCallback, useEffect, useState } from "react";
-import { FlatList, Pressable, StyleSheet, View } from "react-native";
+import { Alert, FlatList, Pressable, StyleSheet, View } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import type { AssistantAgent, AssistantStatus } from "@relay/protocol";
 import { EmptyState } from "@/ui/EmptyState";
+import { IconButton } from "@/ui/IconButton";
 import { Pill } from "@/ui/Pill";
 import { Screen } from "@/ui/Screen";
 import { BreathingPortrait } from "@/ui/BreathingPortrait";
 import { Separator } from "@/ui/Separator";
 import { Text } from "@/ui/Text";
-import { requestAssistantAgents } from "@/connection";
+import { requestAssistantAgents, sendCommand } from "@/connection";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
 import { portraitOf } from "@/lib/portrait";
@@ -56,7 +57,10 @@ export default function Assistants() {
   }, []);
 
   return (
-    <Screen title="Assistants">
+    <Screen
+      title="Assistants"
+      headerRight={<IconButton symbol="plus" size={44} accessibilityLabel="New assistant" onPress={newAssistant} />}
+    >
       <Text variant="body" color="textMuted" style={styles.subtext}>
         Assistants that work in the background and text you when something needs you.
       </Text>
@@ -64,7 +68,7 @@ export default function Assistants() {
         <EmptyState
           symbol="bubble.left.and.text.bubble.right"
           title={agents === null ? "No assistants yet" : "No assistants on this host"}
-          body={agents === null ? "They appear here once your host is connected." : "Add one to the host's registry and restart the host."}
+          body={agents === null ? "They appear here once your host is connected." : "Tap + to add one; it sets itself up in its first chat with you."}
         />
       ) : (
         <FlatList
@@ -85,6 +89,31 @@ export default function Assistants() {
         />
       )}
     </Screen>
+  );
+}
+
+/**
+ * "+": the host adds an assistant with this name (`assistant.create`) and starts its thread on a
+ * setup interview; the fresh list brings its row, and its first question arrives as a push.
+ */
+function newAssistant(): void {
+  tapHaptic();
+  Alert.prompt(
+    "New assistant",
+    "What should it be called? It asks you the rest in its first chat.",
+    (name) => {
+      const title = name.trim().slice(0, 40);
+      if (title === "") return;
+      sendCommand({ kind: "assistant.create", title, start: true }).then(
+        () => {
+          requestAssistantAgents();
+        },
+        (error: unknown) => {
+          Alert.alert("Couldn't add it", error instanceof Error ? error.message : String(error));
+        },
+      );
+    },
+    "plain-text",
   );
 }
 

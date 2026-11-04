@@ -1076,6 +1076,36 @@ describe("assistant threads", () => {
     expect(h.sink.last()).toMatchObject({ t: "nack", id: "s1", error: { code: "agent_launch_failed" } });
   });
 
+  it("hands assistant.create to the host's threads with its start flag, and nacks where the host cannot add assistants", async () => {
+    const created: unknown[] = [];
+    const assistant = Object.assign(new FakeThreads(), {
+      create: (input: { title: string }, start: boolean) => {
+        created.push([input, start]);
+        return input.title === "Nova"
+          ? Promise.reject(new AckFailure({ code: "invalid_command", message: "an assistant called Nova already exists" }))
+          : Promise.resolve({ id: "vega", title: input.title });
+      },
+    });
+    const h = harness({ assistant });
+    pair(h);
+    h.session.receive({ t: "cmd", id: "c1", cmd: { kind: "assistant.create", title: "Vega", scope: "Driving", start: true } });
+    h.session.receive({ t: "cmd", id: "c2", cmd: { kind: "assistant.create", id: "nova2", title: "Nova" } });
+    await h.sink.sentCount(6);
+    expect(created).toEqual([
+      [{ title: "Vega", scope: "Driving" }, true],
+      [{ title: "Nova", id: "nova2" }, false],
+    ]);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "ack", id: "c1" },
+      { t: "nack", id: "c2", error: { code: "invalid_command", message: "an assistant called Nova already exists" } },
+    ]);
+    const bare = harness({ assistant: new FakeThreads() });
+    pair(bare);
+    bare.session.receive({ t: "cmd", id: "c3", cmd: { kind: "assistant.create", title: "Vega" } });
+    await bare.sink.sentCount(5);
+    expect(bare.sink.last()).toMatchObject({ t: "nack", id: "c3", error: { code: "invalid_command", message: "this host cannot add assistants" } });
+  });
+
   it("passes assistant.turn images through, and nacks a turn with neither text nor images as invalid_command", async () => {
     const assistant = new FakeThreads();
     const h = harness({ assistant });

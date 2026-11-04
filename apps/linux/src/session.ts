@@ -873,6 +873,16 @@ export class ClientSession {
         return this.assistantThread(cmd.agent).turn(cmd.text, cmd.images);
       case "assistant.signin":
         return this.assistantThread(cmd.agent).signin(cmd.messageId, cmd.url, cmd.username, cmd.password);
+      case "assistant.create": {
+        const assistant = this.deps.assistant;
+        if (assistant?.create === undefined) {
+          return Promise.reject(new AckFailure({ code: "invalid_command", message: "this host cannot add assistants" }));
+        }
+        const { id, title, scope } = cmd;
+        return assistant
+          .create({ title, ...(id === undefined ? {} : { id }), ...(scope === undefined ? {} : { scope }) }, cmd.start === true)
+          .then(() => undefined);
+      }
     }
   }
 

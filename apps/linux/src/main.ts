@@ -16,6 +16,8 @@ import pkg from "../package.json";
 import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
+import { AssistantRegistry, type FieldChange } from "./assistant/admin";
+import { InterviewSamples, openAiSpeech, pocketSpeech, rasterizeSvg } from "./assistant/samples";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { SessionFiles } from "./agents/session-files";
 import {
@@ -64,7 +66,7 @@ import { UinputDevice } from "./input/uinput";
 import { BonjourAdvertiser } from "./mdns";
 import { PinFilePairingUI, TerminalPairingUI } from "./pairing";
 import { PAIRING_TIMEOUT_MS, systemClock } from "./session";
-import { featureOn, loadHostConfig, relayConfigDir, resolveHuman, setHuman, toolPath, type HostConfig } from "./host-config";
+import { featureOn, human, loadHostConfig, relayConfigDir, resolveHuman, setHuman, toolPath, type HostConfig } from "./host-config";
 import { ExpoPushSender } from "./push/expo";
 import { InboxService } from "./inbox/service";
 import { AttentionNotifier } from "./push/notifier";
@@ -135,6 +137,20 @@ const USAGE = `relay-linux <command>
                                    hand assistant thread <id> (from <agent-home>/${REGISTRY_FILE})
                                    of the running host a message from a background job; it
                                    relays it to Isaac. \`say -\` or no text reads stdin
+  assistant list                   the running host's registry entries (JSON)
+  assistant create --title <Name> [--scope "what it is for"] [--id <id>] [--start]
+                                   add an assistant: registry entry, a prime.md that runs a setup
+                                   interview on its first turn, and its thread memory. It shows on
+                                   every phone and desktop at once; --start begins the interview
+  assistant set --agent <id> [--title T] [--scope S] [--model M] [--voice V] [--live-voice V]
+                [--avatar-choice N] [--unset <field>]...
+                                   change an assistant's registry entry (--agent defaults to
+                                   $RELAY_ASSISTANT); prints what changed
+  assistant retire --agent <id>    take an assistant out of the registry (prime and memory stay)
+  assistant avatars --agent <id> [--page N]
+  assistant voices --agent <id>    the setup interview's face and voice pickers: a \`\`\`openui
+                                   block to paste into a reply (taps send "Avatar <n>" /
+                                   "Voice: <name>")
   canvas start [<slug>] [--title "New board"] [--prompt "what this session is for"]
                                    from an omp session: start a live canvas on board <slug> (an
                                    EvaOS board; a new one when it does not exist or no slug is
@@ -334,40 +350,60 @@ function serve(
     isViewing: (deviceId, sessionId): boolean => server.isViewing(deviceId, sessionId),
     log,
   });
-  const assistant = assistantThreads(
-    agentHome,
-    (agent) =>
-      new AssistantService({
-        agent,
-        agents,
-        launch: (options) => agents.launchWith(options),
-        sessionFile: (sessionId) => agents.sessionFile(sessionId),
-        holder: (file) => agents.sessionForFile(file),
-        close: (sessionId) => agents.close(sessionId),
-        reconnected: () => agents.reconnected(),
-        agentHome,
-        store: new FileAssistantStore(defaultAssistantPath(agent.id)),
-        tokens: pushTokens,
-        sender: new ExpoPushSender(),
-        broadcast: (message): void => {
-          server.broadcastAssistant(agent.id, message);
-        },
-        isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId, agent.id),
-        clock: systemClock,
-        log,
-        spawn: spawnFill,
-        aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
-        logPath: hostLogPath(),
-      }),
-    {
-      // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
+  // Registry writes (`assistant create|set|retire`, `assistant.create` from a device) and hand edits
+  // reach the threads at once; the host CLI is what an assistant runs to change itself.
+  const registryAdmin =
+    agentHome === null
+      ? null
+      : new AssistantRegistry({
+          agentHome,
+          userName: human,
+          cli: Bun.main.endsWith(".ts") ? `bun "${Bun.main}"` : `"${process.execPath}"`,
+          log,
+        });
+  const thread = (agent: AssistantAgentConfig): AssistantService =>
+    new AssistantService({
+      agent,
+      agents,
+      launch: (options) => agents.launchWith(options),
+      sessionFile: (sessionId) => agents.sessionFile(sessionId),
+      holder: (file) => agents.sessionForFile(file),
+      close: (sessionId) => agents.close(sessionId),
+      reconnected: () => agents.reconnected(),
+      agentHome,
+      store: new FileAssistantStore(defaultAssistantPath(agent.id)),
+      tokens: pushTokens,
+      sender: new ExpoPushSender(),
       broadcast: (message): void => {
-        server.broadcastExcept(message, null);
+        server.broadcastAssistant(agent.id, message);
       },
+      isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId, agent.id),
       clock: systemClock,
       log,
+      spawn: spawnFill,
+      aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
+      logPath: hostLogPath(),
+    });
+  const assistant = assistantThreads(agentHome, thread, {
+    // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
+    broadcast: (message): void => {
+      server.broadcastExcept(message, null);
     },
-  );
+    clock: systemClock,
+    log,
+    create: thread,
+    ...(registryAdmin === null ? {} : { register: (input: unknown) => registryAdmin.create(input) }),
+  });
+  const stopRegistryWatch =
+    registryAdmin === null || assistant === null
+      ? null
+      : (() => {
+          registryAdmin.onChange = (entries) => {
+            registry = entries;
+            assistant.reload(entries);
+          };
+          return registryAdmin.watch();
+        })();
   // Local voice calls run on Eva's speech stack (eva-realtime venv + pocket-tts); a host without it has none.
   const voiceRoot =
     agentHome === null
@@ -402,6 +438,15 @@ function serve(
           log,
         });
   const liveKey = assistant === null ? null : openAiKey(agentHome);
+  // The setup interview's face and voice pickers: drops the chat loads, voices as calls would speak them.
+  const samples = new InterviewSamples({
+    drops,
+    cacheDir: join(relayConfigDir(), "voice-samples"),
+    rasterize: rasterizeSvg,
+    speakLive: liveKey === null ? null : openAiSpeech(liveKey),
+    speakLocal: voice === null ? null : pocketSpeech(`http://127.0.0.1:${process.env["POCKET_PORT"] ?? "8853"}`),
+    log,
+  });
   const live =
     assistant === null
       ? null
@@ -511,7 +556,7 @@ function serve(
             clipboard.expect(mimeType, bytes);
           },
   });
-  const canvas = liveCanvas(canvasDir, agentHome, agents, registry, config);
+  const canvas = liveCanvas(canvasDir, agentHome, agents, () => registry, config);
   // Jobs and state go out long after `server` below is initialised.
   const studio = studioService(agentHome, config, (message) => {
     server.broadcastExcept(message, null);
@@ -570,6 +615,7 @@ function serve(
       notifier,
       inbox,
       assistant,
+      assistantAdmin: { registry: registryAdmin, samples },
       calls,
       live,
       usage,
@@ -643,6 +689,7 @@ function serve(
     reviews?.stop();
     server.stop();
     voice?.stop();
+    stopRegistryWatch?.();
     catchup?.stop();
     device?.close();
     process.exit(0);
@@ -659,7 +706,7 @@ function liveCanvas(
   canvasDir: string | null,
   agentHome: string | null,
   agents: OmpBridgeProvider,
-  registry: readonly AssistantAgentConfig[],
+  registry: () => readonly AssistantAgentConfig[],
   config: HostConfig | null,
 ): CanvasService | null {
   if (canvasDir === null) {
@@ -678,8 +725,11 @@ function liveCanvas(
   return new CanvasService({
     canvasDir,
     chats: agents,
-    registry,
-    ...(config === null || registry[0] === undefined ? {} : { defaultAgentName: registry[0].title }),
+    // Read on use, so an assistant added while the host runs joins rooms with its own face.
+    get registry() {
+      return registry();
+    },
+    ...(config === null || registry().length === 0 ? {} : { defaultAgentName: registry()[0]?.title ?? "" }),
     brains: ompBrains({ omp, profile, configs: [brainConfigOverlay(configDir)], log }),
     log,
   });
@@ -754,8 +804,9 @@ function studioService(
 }
 
 /**
- * One thread per agent in `<agentHome>/.omp/assistant/agents.json`, read once at start; null (and
- * logged) when there is no agent home or the registry is missing or invalid.
+ * One thread per agent in `<agentHome>/.omp/assistant/agents.json`, read at start and reloaded on
+ * every change (`AssistantRegistry.watch`); null (and logged) when there is no agent home or the
+ * registry is missing or invalid at start.
  */
 function assistantThreads(
   agentHome: string | null,
@@ -777,8 +828,13 @@ function assistantThreads(
   return new AssistantThreads(registry.map(create), deps);
 }
 
-/** The running host's loopback base URL, from the port `serve` left in serve.json. */
+/**
+ * The running host's loopback base URL: `$RELAY_HOST_URL` (a host on another port hands it to the
+ * sessions it starts), else the port `serve` left in serve.json.
+ */
 function hostUrl(): string {
+  const override = process.env["RELAY_HOST_URL"]?.trim();
+  if (override !== undefined && override !== "") return override.replace(/\/+$/, "");
   let info: z.infer<typeof ServeInfo>;
   try {
     info = ServeInfo.parse(JSON.parse(readFileSync(serveInfoPath(), "utf8")));
@@ -863,6 +919,95 @@ async function assistantSay(agent: string | undefined, positionals: string[]): P
     process.exit(1);
   }
   console.log(`told ${agent}`);
+}
+
+interface AssistantCliOptions {
+  readonly agent: string | undefined;
+  readonly id: string | undefined;
+  readonly title: string | undefined;
+  readonly scope: string | undefined;
+  readonly model: string | undefined;
+  readonly voice: string | undefined;
+  readonly liveVoice: string | undefined;
+  readonly avatarChoice: string | undefined;
+  readonly page: string | undefined;
+  readonly unset: readonly string[];
+  readonly start: boolean;
+}
+
+/** A change as the assistant reports it: `scope: "Personal" -> "Driving"`. */
+function describeChange(change: FieldChange): string {
+  const show = (value: unknown): string =>
+    value === null ? "(none)" : typeof value === "object" && "seed" in value ? `face ${String(value.seed)}` : JSON.stringify(value);
+  return `${change.field}: ${show(change.from)} -> ${show(change.to)}`;
+}
+
+/** `assistant list|create|set|retire|avatars|voices`: the running host's registry and the setup interview's pickers. */
+async function assistantAdminCommand(verb: string, options: AssistantCliOptions): Promise<void> {
+  const base = `${hostUrl()}/assistant`;
+  const agent = options.agent ?? process.env["RELAY_ASSISTANT"];
+  const need = (): string => {
+    if (agent === undefined || agent === "") throw new Error(`assistant ${verb}: missing --agent <id> (or $RELAY_ASSISTANT)`);
+    return agent;
+  };
+  const call = async (path: string, init: RequestInit = {}): Promise<Response> => {
+    const response = await fetch(`${base}${path}`, init);
+    if (!response.ok) {
+      console.error(await response.text());
+      process.exit(1);
+    }
+    return response;
+  };
+  const json = (body: unknown): RequestInit => ({ headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  switch (verb) {
+    case "list":
+      console.log(JSON.stringify(await (await call("/registry")).json(), null, 2));
+      return;
+    case "create": {
+      if (options.title === undefined) throw new Error("assistant create: missing --title <Name>");
+      const body = {
+        title: options.title,
+        ...(options.id === undefined ? {} : { id: options.id }),
+        ...(options.scope === undefined ? {} : { scope: options.scope }),
+        start: options.start,
+      };
+      const entry = (await (await call("/registry", { method: "POST", ...json(body) })).json()) as { id: string; title: string };
+      console.log(`created ${entry.title} (${entry.id})${options.start ? "; its setup interview has started" : ""}`);
+      return;
+    }
+    case "set": {
+      const id = need();
+      const fields: Record<string, unknown> = {
+        ...(options.title === undefined ? {} : { title: options.title }),
+        ...(options.scope === undefined ? {} : { scope: options.scope }),
+        ...(options.model === undefined ? {} : { model: options.model }),
+        ...(options.voice === undefined ? {} : { voice: options.voice }),
+        ...(options.liveVoice === undefined ? {} : { liveVoice: options.liveVoice }),
+        ...(options.avatarChoice === undefined ? {} : { avatarChoice: Number.parseInt(options.avatarChoice, 10) }),
+        ...Object.fromEntries(options.unset.map((field) => [field, null])),
+      };
+      if (Object.keys(fields).length === 0) throw new Error("assistant set: nothing to change");
+      const { changes } = (await (await call(`/registry/${encodeURIComponent(id)}`, { method: "PATCH", ...json(fields) })).json()) as { changes: FieldChange[] };
+      console.log(changes.length === 0 ? "nothing changed" : `changed ${changes.map(describeChange).join("; ")}`);
+      return;
+    }
+    case "retire": {
+      const id = need();
+      const entry = (await (await call(`/registry/${encodeURIComponent(id)}`, { method: "DELETE" })).json()) as { title: string };
+      console.log(`retired ${entry.title} (${id}); its prime.md and thread memory stay`);
+      return;
+    }
+    case "avatars":
+    case "voices": {
+      const id = need();
+      const page = verb === "avatars" && options.page !== undefined ? `&page=${encodeURIComponent(options.page)}` : "";
+      const program = await (await call(`/${verb}?agent=${encodeURIComponent(id)}${page}`, { method: "POST" })).text();
+      console.log(`\`\`\`openui\n${program}\n\`\`\``);
+      return;
+    }
+    default:
+      throw new Error(`assistant: unknown subcommand ${verb}; try say, list, create, set, retire, avatars or voices`);
+  }
 }
 
 /** `catchup bounce <id> <reason>`: the running host gets Catch Up card `id` handed back by assistant `agent`. */
@@ -1264,6 +1409,15 @@ async function main(argv: string[]): Promise<void> {
       session: { type: "string" },
       handoff: { type: "string" },
       leave: { type: "boolean", default: false },
+      id: { type: "string" },
+      scope: { type: "string" },
+      model: { type: "string" },
+      voice: { type: "string" },
+      "live-voice": { type: "string" },
+      "avatar-choice": { type: "string" },
+      page: { type: "string" },
+      unset: { type: "string", multiple: true, default: [] },
+      start: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -1334,11 +1488,24 @@ async function main(argv: string[]): Promise<void> {
       return;
     case "assistant": {
       const verb = positionals[1];
-      if (verb !== "say")
-        throw new Error(
-          `assistant: unknown subcommand ${verb ?? "(none)"}; try \`assistant say --agent <id> <text>\``,
-        );
-      await assistantSay(values.agent, positionals.slice(2));
+      if (verb === "say") {
+        await assistantSay(values.agent, positionals.slice(2));
+        return;
+      }
+      if (verb === undefined) throw new Error("assistant: try say, list, create, set, retire, avatars or voices");
+      await assistantAdminCommand(verb, {
+        agent: values.agent,
+        id: values.id,
+        title: values.title,
+        scope: values.scope,
+        model: values.model,
+        voice: values.voice,
+        liveVoice: values["live-voice"],
+        avatarChoice: values["avatar-choice"],
+        page: values.page,
+        unset: values.unset,
+        start: values.start,
+      });
       return;
     }
     case "canvas":

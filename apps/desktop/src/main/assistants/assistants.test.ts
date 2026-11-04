@@ -3,7 +3,14 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { RelaySession, RelayStatus } from '../relay/feed'
-import { AssistantsService, REGISTRY_FILE, lastReply, parseRegistry, readTail } from './assistants'
+import {
+  assistantIdFrom,
+  AssistantsService,
+  REGISTRY_FILE,
+  lastReply,
+  parseRegistry,
+  readTail,
+} from './assistants'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -229,6 +236,14 @@ describe('last reply', () => {
 })
 
 describe('registry', () => {
+  it("makes a new assistant's id the way Relay Host does", () => {
+    expect(assistantIdFrom('Vega')).toBe('vega')
+    expect(assistantIdFrom('  Drive Buddy! ')).toBe('drive-buddy')
+    expect(assistantIdFrom('Zoë')).toBe('zoe')
+    expect(assistantIdFrom('4x4')).toBe('a-4x4')
+    expect(assistantIdFrom('!!!')).toBe('')
+  })
+
   it('keeps file order, gives an absent scope as empty and drops entries without an id', () => {
     expect(
       parseRegistry(

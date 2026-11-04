@@ -69,6 +69,17 @@ export async function startAgent(id: string): Promise<void> {
   })
 }
 
+/**
+ * Adds an assistant through Relay Host, which writes its registry entry and starts its thread on a
+ * setup interview. Resolves with its id, or rejects with Relay's reason (a taken name, Relay down).
+ */
+export async function createAgent(title: string, scope: string): Promise<string> {
+  const r = await invoke('assistants.create', { title, ...(scope.trim() ? { scope } : {}) })
+  if (!r.ok) throw new Error(r.error.message)
+  await load()
+  return r.value.id
+}
+
 export function startAssistants(): () => void {
   const off = on('assistants.changed', apply)
   // The registry rereads with the rest of Eva's repo (the refresh shortcut, window focus); main

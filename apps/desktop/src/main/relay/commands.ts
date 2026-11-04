@@ -61,6 +61,8 @@ export type RelayCommand =
   | { kind: 'agent.start'; resume?: string; profile?: Profile; thinkingLevel?: string }
   /** Isaac's words to registry agent `agent`'s thread; the host starts the thread if needed. */
   | { kind: 'assistant.turn'; agent: string; text: string }
+  /** Adds an assistant to the host's registry; with `start`, its thread opens with "Hi <title>". */
+  | { kind: 'assistant.create'; id: string; title: string; scope?: string; start: boolean }
 
 /**
  * Relay's images for a reply, or why Relay would refuse them (native reply_away's GIF check, plus

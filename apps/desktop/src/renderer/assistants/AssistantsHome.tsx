@@ -1,11 +1,12 @@
-import { Avatar } from '@mantine/core'
-import type { ReactNode } from 'react'
+import { Avatar, Button } from '@mantine/core'
+import { useState, type ReactNode } from 'react'
 import {
   IconBellRinging,
   IconCircleDashed,
   IconLoader2,
   IconMessageChatbot,
   IconMoon,
+  IconPlus,
 } from '@tabler/icons-react'
 import type { Assistant, AssistantStatus } from '@evaos/contract'
 import { agoLabel } from '@evaos/eva-core/model/jobs'
@@ -23,6 +24,7 @@ import {
   type ListTone,
 } from '../ui/list'
 import { useAssistants } from './assistants-store'
+import { NewAssistantModal } from './NewAssistantModal'
 import { PortraitMotion } from './PortraitMotion'
 import './assistants.css'
 
@@ -55,12 +57,27 @@ export function AssistantsHome({ place }: { place: Place }) {
   const data = useAssistants((s) => s.data)
   const meta = pageMeta(place)
   const now = Date.now()
+  const [creating, setCreating] = useState(false)
   return (
     <div className="eva-as-col" data-testid="assistants-home">
       <div className="eva-as-head">
-        <h1 className="eva-as-title">{meta.title}</h1>
+        <div className="eva-as-head-row">
+          <h1 className="eva-as-title">{meta.title}</h1>
+          <Button
+            variant="default"
+            size="xs"
+            leftSection={<IconPlus size={14} stroke={1.5} aria-hidden />}
+            disabled={data?.relayUp !== true}
+            title={data?.relayUp === true ? undefined : 'Relay is not connected'}
+            onClick={() => setCreating(true)}
+            data-testid="assistants-new"
+          >
+            New assistant
+          </Button>
+        </div>
         <p className="eva-as-dim">{meta.description}</p>
       </div>
+      <NewAssistantModal opened={creating} onClose={() => setCreating(false)} />
       {data === null ? null : (
         <ListView<Assistant>
           groups={[{ id: 'agents', items: data.agents }]}
@@ -108,7 +125,7 @@ export function AssistantsHome({ place }: { place: Place }) {
               icon={<IconMessageChatbot size={28} stroke={1.5} aria-hidden />}
               title="No assistants yet"
             >
-              Add agents to .omp/assistant/agents.json and they appear here.
+              Create one with New assistant: it sets itself up in its first chat with you.
             </ListEmpty>
           }
         />

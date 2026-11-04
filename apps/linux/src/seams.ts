@@ -111,6 +111,11 @@ export interface AssistantRelaying {
   agents(): Promise<AssistantAgent[]>;
   /** Every provider change; each thread picks out its own session's. */
   observe(change: AgentProviderChange): void;
+  /**
+   * `assistant.create`: adds an assistant to the registry (its prime runs the setup interview) and,
+   * with `start`, starts its thread. Rejects with `AckFailure`. Absent where the host cannot write the registry.
+   */
+  create?(input: { readonly id?: string; readonly title: string; readonly scope?: string }, start: boolean): Promise<{ readonly id: string; readonly title: string }>;
 }
 
 /** What the session needs of the host's live canvas rooms (`canvas/service.ts`). */
