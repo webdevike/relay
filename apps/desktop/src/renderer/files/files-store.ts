@@ -672,7 +672,8 @@ async function refreshTab(root: string, path: string, by: string | null): Promis
       dirty: false,
     }
     if (!synced.ok) {
-      updateTab(root, path, { conflict: true, conflictBy: by })
+      // The local watcher hears the same write without a name: keep the agent's.
+      updateTab(root, path, { conflict: true, conflictBy: by ?? now.conflictBy })
       return
     }
     if (synced.ranges)
@@ -687,7 +688,7 @@ async function refreshTab(root: string, path: string, by: string | null): Promis
     setDirty(root, path, synced.dirty)
     return
   }
-  if (now.dirty) updateTab(root, path, { conflict: true, conflictBy: by })
+  if (now.dirty) updateTab(root, path, { conflict: true, conflictBy: by ?? now.conflictBy })
   else
     updateTab(root, path, {
       content: next,

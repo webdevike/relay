@@ -50,18 +50,18 @@ export interface FilePresenceDeps {
   /** What plain chats' agent is called (the canvas uses the same); Eva when unset. */
   defaultAgentName(): string | undefined;
   /** Watches folder `dir`; `onChange` gets the changed entry's name (null when unknown). Returns the stop. */
-  watchDir?(dir: string, onChange: (name: string | null) => void): () => void;
+  watchDir?: (dir: string, onChange: (name: string | null) => void) => () => void;
   /** The file's bytes, or null when it is gone, not a file or too large. */
-  read?(path: string): Buffer | null;
+  read?: (path: string) => Buffer | null;
   clock: SessionClock;
   log(line: string): void;
 }
 
 function defaultWatchDir(dir: string, onChange: (name: string | null) => void): () => void {
   try {
-    const w = watch(dir, { persistent: false }, (_event, name) => onChange(name === null ? null : String(name)));
-    w.on("error", () => w.close());
-    return () => w.close();
+    const w = watch(dir, { persistent: false }, (_event, name) => { onChange(name); });
+    w.on("error", () => { w.close(); });
+    return () => { w.close(); };
   } catch {
     return () => undefined;
   }
@@ -88,7 +88,7 @@ export class FilePresence implements FilePresenceRelaying {
   private readonly pending = new Map<string, () => void>();
   private readonly claims = new Map<string, Claim>();
   /** Claims on paths named relative to a folder other than the file's: matched by suffix. */
-  private loose: Array<{ suffix: string; claim: Claim }> = [];
+  private loose: { suffix: string; claim: Claim }[] = [];
   private readonly humanSaves = new Map<string, { hash: string; at: number }>();
   private readonly watchDir: NonNullable<FilePresenceDeps["watchDir"]>;
   private readonly read: NonNullable<FilePresenceDeps["read"]>;
@@ -216,13 +216,13 @@ export class FilePresence implements FilePresenceRelaying {
     if (before === undefined) return;
     const now = this.deps.clock.now();
     const human = this.humanSaves.get(file);
-    if (human !== undefined && human.hash === hash && now - human.at <= HUMAN_SAVE_MS) {
+    if (human?.hash === hash && now - human.at <= HUMAN_SAVE_MS) {
       this.humanSaves.delete(file);
       return;
     }
     const ranges = changedRanges(before.text, text);
-    if (ranges.length === 0) return;
-    const last = ranges[ranges.length - 1] as (typeof ranges)[number];
+    const last = ranges.at(-1);
+    if (last === undefined) return;
     const lines = text.split("\n");
     const caretLine = Math.min(last.endLine, lines.length);
     const claim = this.claimOf(file, now);

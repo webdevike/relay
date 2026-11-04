@@ -12,7 +12,7 @@ import type { SessionClock } from "../src/session";
 
 class Clock implements SessionClock {
   t = 1_000_000;
-  private timers: Array<{ at: number; fn: () => void }> = [];
+  private timers: { at: number; fn: () => void }[] = [];
   now(): number {
     return this.t;
   }
@@ -36,8 +36,11 @@ class Sink implements FrameSink {
   send(message: ServerMessage): void {
     this.sent.push(message);
   }
-  close(): void {}
-  of<T extends ServerMessage["t"]>(t: T): Array<Extract<ServerMessage, { t: T }>> {
+  closed = false;
+  close(): void {
+    this.closed = true;
+  }
+  of<T extends ServerMessage["t"]>(t: T): Extract<ServerMessage, { t: T }>[] {
     return this.sent.filter((m): m is Extract<ServerMessage, { t: T }> => m.t === t);
   }
 }
