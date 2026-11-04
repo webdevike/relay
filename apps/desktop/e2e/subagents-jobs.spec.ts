@@ -97,6 +97,25 @@ test('subagent chips: running and done, transcript panel, Clear done, live updat
   await expect(shell.getByRole('button', { name: 'Clear done' })).toBeEnabled()
 })
 
+test('a finished subagent whose result is a JSON object never floats a "{" tooltip', async ({
+  app,
+  shell,
+}) => {
+  // The shape of a real structured result: a pretty-printed object, so its first line is `{`.
+  fs.writeFileSync(
+    path.join(subFolder(), 'a.md'),
+    JSON.stringify({ method: 'Slack over CDP', awaiting_isaac: [] }, null, 2) + '\n',
+  )
+  await openChat(shell, 'p4-subagents')
+  await expect(chip(shell, 'a')).toHaveAttribute('data-state', 'done')
+  await chip(shell, 'a').hover()
+  await shell.waitForTimeout(900) // past the tooltip's 400 ms open delay
+  await proofShot(app, shell, 'subagent-json-result-tooltip', { phase: 'brace-bug' })
+  const tip = shell.locator('.mantine-Tooltip-tooltip:visible')
+  const texts = await tip.allTextContents()
+  expect(texts.filter((t) => /^[\s{[]*$/.test(t))).toEqual([])
+})
+
 test('jobs strip: only while omp runs and a job is unfinished', async ({ app, shell }) => {
   await openChat(shell, 'p4-jobs')
   await expect(strip(shell)).toHaveCount(0)

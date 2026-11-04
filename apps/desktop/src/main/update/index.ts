@@ -27,6 +27,8 @@ export function registerUpdate(
     /** The packaged updater's check-now; `unavailable` where there is none (Relay Dev). */
     checkNow(): Promise<UpdateCheckStatus>
     changelog(): Promise<ChangelogEntry[]>
+    /** A build is waiting for a restart (desktop notification: "Update ready", once per build). */
+    announce(state: UpdateState): void
   },
 ): UpdateHandle {
   let state: UpdateState = { pending: false, build: null, summary: null }
@@ -45,6 +47,7 @@ export function registerUpdate(
     state: () => state,
     offer({ summary, build }) {
       state = { pending: true, build, summary }
+      deps.announce(state)
       // A page that is not loaded yet reads update.state when it starts.
       emit(ctx, 'update.changed', state)
       timer ??= setInterval(() => {

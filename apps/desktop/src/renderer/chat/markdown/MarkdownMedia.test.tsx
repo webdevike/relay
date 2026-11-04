@@ -4,6 +4,7 @@ import { MantineProvider } from '@mantine/core'
 import { mediaUrl } from '../widgets/media-url'
 import { Markdown } from './Markdown'
 import { clearMediaProbes, urlIsVideo } from './MarkdownMedia'
+import { collectMessageImages } from './collect-images'
 import { dismissTop } from '../../hotkeys/dismiss'
 
 vi.mock('../../ipc', () => ({ invoke: vi.fn(), on: vi.fn() }))
@@ -109,6 +110,39 @@ describe('markdown media: image or inline video', () => {
     show('[![Logo](https://cdn.example.com/logo.png)](https://example.com)')
     expect(screen.getByAltText('Logo').closest('a')).toHaveAttribute('href', 'https://example.com')
     expect(screen.queryByTestId('md-image')).toBeNull()
+  })
+
+  it('opens every image of the message in order, from the clicked one, skipping video and linked images', async () => {
+    show(
+      [
+        '![A](https://cdn.example.com/a.png)',
+        '![Clip](https://cdn.example.com/c.mp4)',
+        '[![Linked](https://cdn.example.com/l.png)](https://example.com)',
+        '![B](https://cdn.example.com/b.png)',
+        '![C](https://cdn.example.com/c.png)',
+      ].join('\n\n'),
+    )
+    expect(collectMessageImages(screen.getByRole('button', { name: 'Open B' }))).toEqual({
+      images: ['A', 'B', 'C'].map((n) => ({
+        label: n,
+        src: mediaUrl(`https://cdn.example.com/${n.toLowerCase()}.png`),
+      })),
+      start: 1,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Open B' }))
+    expect(await screen.findByAltText('Image 2 of 3')).toHaveAttribute(
+      'src',
+      mediaUrl('https://cdn.example.com/b.png'),
+    )
+    fireEvent.click(screen.getByTestId('viewer-next'))
+    expect(await screen.findByAltText('Image 3 of 3')).toBeInTheDocument()
+    expect(screen.getByTestId('viewer-next')).toBeDisabled()
+    fireEvent.click(screen.getByTestId('viewer-prev'))
+    fireEvent.click(screen.getByTestId('viewer-prev'))
+    expect(await screen.findByAltText('Image 1 of 3')).toHaveAttribute(
+      'src',
+      mediaUrl('https://cdn.example.com/a.png'),
+    )
   })
 })
 

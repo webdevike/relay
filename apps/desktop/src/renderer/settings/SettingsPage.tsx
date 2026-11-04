@@ -5,6 +5,7 @@ import { ChangelogSection } from './ChangelogSection'
 import { ChatSection } from './ChatSection'
 import { ConnectionsSection } from './ConnectionsSection'
 import { LinksSection } from './LinksSection'
+import { NotificationsSection } from './NotificationsSection'
 import { SetupSection } from '../setup/SetupSection'
 import { ThemeSection } from './ThemeSection'
 import { startSettings } from './settings-store'
@@ -14,6 +15,10 @@ const SECTIONS = {
   Theme: { Body: ThemeSection, desc: 'Colors, fonts and shape for the whole app.' },
   Chat: { Body: ChatSection, desc: "What conversations show besides Eva's replies." },
   Links: { Body: LinksSection, desc: 'Where clicked links open, by site.' },
+  Notifications: {
+    Body: NotificationsSection,
+    desc: 'Desktop notifications on this Mac: what shows, and which assistants stay quiet.',
+  },
   Connections: {
     Body: ConnectionsSection,
     desc: 'The services Relay reads from or signs in to. A key you save here stays in Relay: nobody, agents included, can read it back.',

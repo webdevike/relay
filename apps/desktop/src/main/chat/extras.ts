@@ -61,21 +61,45 @@ export function lastAssistantLine(text: string): string {
   return ''
 }
 
+/** Fields a structured (JSON object) result most likely summarizes itself in, best first. */
+const SUMMARY_KEYS = ['summary', 'outcome', 'result', 'message', 'answer', 'description', 'status', 'title']
+
 /**
  * A finished subagent's outcome: the first line of its result `.md` (omp writes the summary as a
- * JSON string, so a quoted body is decoded first). '' when it is empty or unreadable.
+ * JSON string, so a quoted body is decoded first). A structured result (a JSON object or array, as
+ * a subagent with an output schema leaves) shows its summary-like string field, or nothing: its
+ * first line is just `{`, never a label. '' when it is empty, unreadable or has no prose.
  */
 export function outcomeLine(md: string): string {
   let body = md.trim()
   if (body.startsWith('"')) {
     try {
       const parsed: unknown = JSON.parse(body)
-      if (typeof parsed === 'string') body = parsed
+      if (typeof parsed === 'string') body = parsed.trim()
     } catch {
       // not a JSON string: read it as plain text
     }
   }
-  const first = body.split('\n').find((l) => l.trim() !== '') ?? ''
+  if (body.startsWith('{') || body.startsWith('[')) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(body)
+    } catch {
+      // A truncated object has no label to offer; `[text](link) ...` is prose, read below.
+      if (body.startsWith('{')) return ''
+    }
+    if (parsed !== undefined) {
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return ''
+      const rec = parsed as Record<string, unknown>
+      for (const key of SUMMARY_KEYS) {
+        const v = rec[key]
+        if (typeof v === 'string' && /[\p{L}\p{N}]/u.test(v)) return oneLine(v, LAST_LINE_MAX)
+      }
+      return ''
+    }
+  }
+  // First line with a letter or digit, so a stray `{`, `---` or fence never becomes the label.
+  const first = body.split('\n').find((l) => /[\p{L}\p{N}]/u.test(l)) ?? ''
   return oneLine(first.replace(/^#+\s*/, '').replace(/\*\*/g, ''), LAST_LINE_MAX)
 }
 

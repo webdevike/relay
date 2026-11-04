@@ -103,6 +103,30 @@ change the face; the agent's crumb says them.
   signals with the e2e hook `__evaosShell.portraitSignals`, since a start card has no quiet
   thread), recorded, plus CPU samples.
 
+## Desktop notifications
+
+`main/notifications/` (policy.ts when, events.ts what, notifier.ts ties them to the app). Events:
+an assistant's new reply (held until its thread stops working, so a turn is one notification;
+`(nothing to report)` is none), a chat or Working-list item that starts waiting on Isaac (approval,
+question, permission), a live canvas room (the Join card), a quiet "Finished" for a chat that is
+not an assistant thread, and "Relay update ready", once per build (`notifications-state.json`).
+Replies, waiting items and rooms come through Relay, so a thin client (the MacBook) notifies from
+the Mini host's events like the Mini does. Rules, in order:
+
+- Settings > Notifications: a global switch and one switch per assistant (a mute silences its
+  replies, questions and canvases), saved per Mac in `notifications.json`.
+- Only while Isaac is at this Mac: input in the last 10 minutes (`powerMonitor.getSystemIdleTime`).
+  Otherwise the phone's push is the notification. An update is exempt (only this app knows it).
+- A focused window stays quiet for the chats in front (the window reports them as
+  `notifications.visible`); another chat, or an unfocused window, still notifies.
+- The same thing within a minute is told once; each assistant is one stack in Notification Center
+  (`groupId`). A click raises the window and opens the chat (`chat.openRequested`) or a relay://
+  link (`app.openLink`).
+- Fixture runs never notify unless `EVAOS_NOTIFY_REAL=1`; e2e records them instead
+  (`__evaosTest.hooks.notifications`).
+- macOS only shows a notification for a signed bundle with its own id (`dev.eva.relay-desktop`);
+  a dev Electron run is dropped by the system.
+
 ## Right panel
 
 The panel card holds tools, picked by the Browser / Files / Terminal tabs in its header, plus transient

@@ -31,6 +31,7 @@ export const AGENT_SETTINGS_SECTIONS = [
   'Theme',
   'Chat',
   'Links',
+  'Notifications',
   'Connections',
   'Setup',
   'About',

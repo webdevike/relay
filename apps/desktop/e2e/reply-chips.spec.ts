@@ -15,6 +15,7 @@ import { test as base, expect } from './fixtures'
 import { writeChatPrefs } from './helpers/chat-fixture'
 import { FIXTURES_DIR, REPO_ROOT } from './helpers/paths'
 import { proofShot } from './helpers/proofShot'
+import { pickScheme } from './helpers/appearance'
 
 const OUT = path.join(REPO_ROOT, 'proof', 'reply-chips')
 const TEMPLATE = path.join(FIXTURES_DIR, 'agent-replies')
@@ -93,9 +94,7 @@ const frames = (shell: Page): Promise<void> =>
   )
 
 async function scheme(shell: Page, s: 'light' | 'dark') {
-  const button = shell.locator(`[data-testid=appearance-${s}]`)
-  if (!(await button.isVisible())) await shell.locator('[data-testid=sidebar-back]').click()
-  await button.click()
+  await pickScheme(shell, s)
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', s)
 }
 
