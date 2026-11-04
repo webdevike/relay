@@ -1,14 +1,18 @@
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   KICK_FILE,
   LatestSchema,
+  PUBLIC_FEED,
   bundleOf,
+  createPackagedUpdater,
   keepsIdentity,
   ownBuild,
   readSource,
+  resolveSource,
   swapScript,
   watchKick,
   parseHistory,
@@ -84,5 +88,91 @@ describe('packaged updater helpers', () => {
     await promise
     stop()
     expect(existsSync(path.join(d, KICK_FILE))).toBe(false)
+  })
+})
+
+describe('public https update source', () => {
+  const stable =
+    'identifier "dev.eva.relay-desktop" and anchor apple generic and certificate leaf[subject.CN] = "Apple Development: X"'
+  const zipBytes = Buffer.from('pretend this is a zip of Relay.app')
+  const sha = createHash('sha256').update(zipBytes).digest('hex')
+
+  /** A packaged app on build `old` with no update-source.json, and a feed serving `latest` + the zip. */
+  function setup(opts: { sha256?: string; staged?: string }) {
+    const configDir = tmp()
+    const appPath = tmp()
+    writeFileSync(path.join(appPath, 'package.json'), '{"relayBuild":"old"}')
+    const urls: string[] = []
+    const offered: string[] = []
+    const updater = createPackagedUpdater({
+      configDir,
+      appPath,
+      execPath: '/Applications/Relay.app/Contents/MacOS/Relay',
+      pid: 1,
+      offer: (u) => offered.push(u.build),
+      tools: {
+        fetch: (url) => {
+          urls.push(String(url))
+          if (String(url).endsWith('latest.json')) {
+            return Promise.resolve(
+              Response.json({
+                build: 'new',
+                summary: 'Newer',
+                zip: 'Relay-new.zip',
+                sha256: opts.sha256 ?? sha,
+              }),
+            )
+          }
+          return Promise.resolve(new Response(zipBytes))
+        },
+        unzip: (_zip, dir) => {
+          mkdirSync(path.join(dir, 'Relay.app'))
+          return Promise.resolve()
+        },
+        verify: () => Promise.resolve(),
+        requirement: (bundle) =>
+          Promise.resolve(bundle.endsWith('updates/Relay.app') ? (opts.staged ?? stable) : stable),
+      },
+    })
+    return { configDir, updater, urls, offered }
+  }
+
+  it('defaults to the public feed when there is no update-source.json, and reads a url source', () => {
+    const d = tmp()
+    expect(resolveSource(d)).toEqual({ url: PUBLIC_FEED })
+    writeFileSync(path.join(d, 'update-source.json'), '{"dir":"/x"}')
+    expect(resolveSource(d)).toEqual({ dir: '/x' })
+    writeFileSync(path.join(d, 'update-source.json'), '{"url":"http://insecure/latest.json"}')
+    expect(resolveSource(d)).toBeNull()
+    writeFileSync(path.join(d, 'update-source.json'), '{"url":"https://example.com/latest.json"}')
+    expect(resolveSource(d)).toEqual({ url: 'https://example.com/latest.json' })
+  })
+
+  it('downloads, verifies and stages a build, then offers it', async () => {
+    const { configDir, updater, urls, offered } = setup({})
+    expect(await updater.checkNow()).toBe('ready')
+    expect(urls).toEqual([PUBLIC_FEED, new URL('Relay-new.zip', PUBLIC_FEED).href])
+    expect(offered).toEqual(['new'])
+    expect(existsSync(path.join(configDir, 'updates', 'Relay.app'))).toBe(true)
+    expect(existsSync(path.join(configDir, 'updates', 'Relay.zip'))).toBe(false)
+    expect(readFileSync(path.join(configDir, 'updates', 'staged.json'), 'utf8')).toBe(
+      '{"build":"new"}',
+    )
+  })
+
+  it('rejects a zip whose sha256 is not the published one, and does not fetch it again', async () => {
+    const { configDir, updater, urls, offered } = setup({ sha256: 'f'.repeat(64) })
+    expect(await updater.checkNow()).toBe('failed')
+    expect(await updater.checkNow()).toBe('failed')
+    expect(offered).toEqual([])
+    expect(existsSync(path.join(configDir, 'updates', 'Relay.app'))).toBe(false)
+    expect(urls.filter((u) => u.endsWith('.zip'))).toHaveLength(1)
+  })
+
+  it('rejects a bundle signed with another identity than the running app', async () => {
+    const { configDir, updater, offered } = setup({ staged: 'cdhash H"6a17"' })
+    expect(await updater.checkNow()).toBe('failed')
+    expect(offered).toEqual([])
+    expect(existsSync(path.join(configDir, 'updates', 'staged.json'))).toBe(false)
   })
 })
