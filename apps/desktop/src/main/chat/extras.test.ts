@@ -83,6 +83,30 @@ describe('ExtrasService', () => {
     ])
   })
 
+  it('a structured JSON .md never labels the chip with its opening brace', () => {
+    const { svc, texts, dirs, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: false }])
+    const names = ['obj', 'summary', 'array', 'cut', 'link']
+    dirs['/s/x'] = names.flatMap((n) => [
+      { name: `${n}.jsonl`, mtimeMs: 1 },
+      { name: `${n}.md`, mtimeMs: 2 },
+    ])
+    for (const n of names) texts[`/s/x/${n}.jsonl`] = [user, asst(`note ${n}`)].join('\n')
+    // Shape of the real SlackNeedsIsaac.md: pretty-printed object whose first line is just `{`.
+    texts['/s/x/obj.md'] = '{\n  "method": "Slack over CDP",\n  "awaiting_isaac": []\n}'
+    texts['/s/x/summary.md'] = '{\n  "summary": "Two threads need you.",\n  "n": 2\n}'
+    texts['/s/x/array.md'] = '[\n  "a"\n]'
+    texts['/s/x/cut.md'] = '{\n  "method": "Sl'
+    texts['/s/x/link.md'] = '[#7](https://x/pull/7) is ready'
+    svc.refresh()
+    expect(Object.fromEntries(out[0]!.subagents.map((s) => [s.name, s.lastLine]))).toEqual({
+      obj: 'note obj',
+      summary: 'Two threads need you.',
+      array: 'note array',
+      cut: 'note cut',
+      link: '[#7](https://x/pull/7) is ready',
+    })
+  })
+
   it('a subagent whose transcript ended on yield/session_exit is done without a .md (mirror, missed event)', () => {
     const { svc, texts, dirs, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: false }])
     // Trimmed tail of a real finished subagent (AssistVoiceFix.jsonl, 2026-11-03).
