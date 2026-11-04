@@ -74,44 +74,45 @@ const activeChatPlace = (shell: Page): Promise<string | null> =>
   })
 
 test.describe('new chat on omp', () => {
-  test('streams a reply, binds the new session file and tags the prompt', async ({
-    app,
-    shell,
-  }) => {
-    await newChat(shell)
-    await send(shell, 'hello new chat')
-    const log = shell.locator('[data-testid=chat-log]')
-    await expect(log).toContainText('hello new chat')
-    await expect(log).toContainText('Foxes are primarily nocturnal hunters')
+  test(
+    'streams a reply, binds the new session file and tags the prompt',
+    { tag: '@smoke' },
+    async ({ app, shell }) => {
+      await newChat(shell)
+      await send(shell, 'hello new chat')
+      const log = shell.locator('[data-testid=chat-log]')
+      await expect(log).toContainText('hello new chat')
+      await expect(log).toContainText('Foxes are primarily nocturnal hunters')
 
-    // The chat's pane id (each app tab's chat mounts under a fresh one).
-    const paneId = await shell
-      .locator('[data-testid=chat-pane][data-chat-pane]:visible')
-      .getAttribute('data-chat-pane')
-    const main = await app.evaluate(
-      (_e, p) =>
-        (
-          globalThis as unknown as { __evaosTest: { hooks: { chat: Hooks } } }
-        ).__evaosTest.hooks.chat.stats(p),
-      paneId!,
-    )
-    expect(main.spawnArgs).toContain('--mode')
-    expect(main.spawnArgs).toContain('rpc-ui')
-    expect(main.spawnArgs).not.toContain('--resume')
+      // The chat's pane id (each app tab's chat mounts under a fresh one).
+      const paneId = await shell
+        .locator('[data-testid=chat-pane][data-chat-pane]:visible')
+        .getAttribute('data-chat-pane')
+      const main = await app.evaluate(
+        (_e, p) =>
+          (
+            globalThis as unknown as { __evaosTest: { hooks: { chat: Hooks } } }
+          ).__evaosTest.hooks.chat.stats(p),
+        paneId!,
+      )
+      expect(main.spawnArgs).toContain('--mode')
+      expect(main.spawnArgs).toContain('rpc-ui')
+      expect(main.spawnArgs).not.toContain('--resume')
 
-    await expect.poll(() => jsonl().filter((n) => !before.includes(n)).length).toBe(1)
-    const created = path.join(
-      fx.sessionsDir,
-      jsonl().find((n) => !before.includes(n))!,
-    )
-    await expect.poll(() => activeChatPlace(shell)).toBe(created)
+      await expect.poll(() => jsonl().filter((n) => !before.includes(n)).length).toBe(1)
+      const created = path.join(
+        fx.sessionsDir,
+        jsonl().find((n) => !before.includes(n))!,
+      )
+      await expect.poll(() => activeChatPlace(shell)).toBe(created)
 
-    const first = prompts()[0]!
-    expect(first.startsWith('<surface>')).toBe(true)
-    expect(first).toContain(' - Relay Desktop</surface>')
-    expect(first).toContain('hello new chat')
-    await proofShot(app, shell, 'new-chat', { phase: 'phase-4' })
-  })
+      const first = prompts()[0]!
+      expect(first.startsWith('<surface>')).toBe(true)
+      expect(first).toContain(' - Relay Desktop</surface>')
+      expect(first).toContain('hello new chat')
+      await proofShot(app, shell, 'new-chat', { phase: 'phase-4' })
+    },
+  )
 
   test('a steer carries exactly one surface tag', async ({ shell }) => {
     await newChat(shell)

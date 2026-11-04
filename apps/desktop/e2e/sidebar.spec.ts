@@ -25,7 +25,7 @@ const sel = (id: string): string => `[data-testid=${id}]`
 const level = (shell: Page): Promise<string | null> =>
   shell.locator(sel('sidebar')).getAttribute('data-sidebar-level')
 
-test('nav rows and counts come from the fixture root', async ({ shell }) => {
+test('nav rows and counts come from the fixture root', { tag: '@smoke' }, async ({ shell }) => {
   const ids = await shell.$$eval('[data-testid=sidebar-main] [data-testid^="nav-"]', (els) =>
     els.map((e) => e.getAttribute('data-testid')),
   )
