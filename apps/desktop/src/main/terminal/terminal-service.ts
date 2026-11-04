@@ -53,6 +53,8 @@ export interface TerminalService {
     mode: TerminalMode
     cols: number
     rows: number
+    /** A herdr pane to attach to view-only (mode `attach`): no takeover, input ignored. */
+    watch?: string
   }): Promise<{ id: string; cwd: string; title: string }>
   write(id: string, data: string): void
   resize(id: string, cols: number, rows: number): void
@@ -67,6 +69,8 @@ interface Live {
   pty: PtyLike
   pending: string
   timer: unknown
+  /** A view-only attach: what the user types is dropped. */
+  viewOnly: boolean
 }
 
 const isDir = (p: string): boolean => {
@@ -127,7 +131,7 @@ export function createTerminalService(deps: TerminalDeps): TerminalService {
   }
 
   return {
-    async spawn({ file, mode, cols, rows }) {
+    async spawn({ file, mode, cols, rows, watch }) {
       if (live.size >= MAX_TERMINALS) {
         throw new CodedError('too-many', `At most ${MAX_TERMINALS} terminals can be open.`)
       }
@@ -136,12 +140,12 @@ export function createTerminalService(deps: TerminalDeps): TerminalService {
       let command: { file: string; argv: string[]; title: string }
       if (mode === 'attach') {
         if (deps.herdrBin === null) throw new CodedError('no-herdr', 'herdr is not installed.')
-        const pane = file === null ? null : await deps.paneOf(file)
+        const pane = watch ?? (file === null ? null : await deps.paneOf(file))
         if (pane === null)
           throw new CodedError('not-in-herdr', 'This chat is not running in herdr.')
         command = {
           file: deps.herdrBin,
-          argv: ['agent', 'attach', pane, '--takeover'],
+          argv: ['agent', 'attach', pane, ...(watch === undefined ? ['--takeover'] : [])],
           title: 'herdr',
         }
       } else {
@@ -149,7 +153,7 @@ export function createTerminalService(deps: TerminalDeps): TerminalService {
       }
       const id = `t${++seq}`
       const pty = deps.spawn({ file: command.file, argv: command.argv, cwd, env, cols, rows })
-      const entry: Live = { pty, pending: '', timer: null }
+      const entry: Live = { pty, pending: '', timer: null, viewOnly: watch !== undefined }
       live.set(id, entry)
       pty.onData((data) => {
         entry.pending += data
@@ -163,7 +167,10 @@ export function createTerminalService(deps: TerminalDeps): TerminalService {
       })
       return { id, cwd, title: command.title }
     },
-    write: (id, data) => known(id).pty.write(data),
+    write(id, data) {
+      const t = known(id)
+      if (!t.viewOnly) t.pty.write(data)
+    },
     resize: (id, cols, rows) => known(id).pty.resize(cols, rows),
     kill(id) {
       const t = live.get(id)

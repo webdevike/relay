@@ -14,7 +14,7 @@ const ArtifactsPanel = lazy(() =>
 /**
  * The header's Artifacts button on an assistant's page: icon only, a small accent dot while any of
  * its subagents, jobs or auto-work run. It opens an overlay anchored to it with this assistant's
- * artifacts (the Subagents tab lists what runs first).
+ * artifacts (the Working tab lists what runs first).
  */
 export function ArtifactsButton({ agent }: { agent: string }) {
   const [open, setOpen] = useState(false)

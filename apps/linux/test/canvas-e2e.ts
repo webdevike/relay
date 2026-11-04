@@ -159,6 +159,7 @@ function host(): void {
       catchup: null,
       reactions: null,
       artifacts: null,
+      activity: null,
       canvas,
       sessionFiles: null,
       studio: null,

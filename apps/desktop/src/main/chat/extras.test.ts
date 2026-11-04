@@ -110,6 +110,35 @@ describe('ExtrasService', () => {
     ])
   })
 
+  it('a helper woken by a follow-up shows running although its old .md is still there', () => {
+    const { svc, texts, dirs, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: false }])
+    const yielded =
+      '{"type":"message","message":{"role":"toolResult","toolCallId":"k1","toolName":"yield","content":[{"type":"text","text":"Result submitted."}]}}'
+    dirs['/s/x'] = [
+      // woken: transcript written 9 s after the .md
+      { name: 'woken.jsonl', mtimeMs: 10_000 },
+      { name: 'woken.md', mtimeMs: 1000 },
+      // finished: the .md is the last write
+      { name: 'over.jsonl', mtimeMs: 1000 },
+      { name: 'over.md', mtimeMs: 1000 },
+      // finished a second time: the new result ended the transcript again
+      { name: 'again.jsonl', mtimeMs: 10_000 },
+      { name: 'again.md', mtimeMs: 1000 },
+    ]
+    texts['/s/x/woken.jsonl'] = [user, yielded, user, call('k2', 'read')].join('\n') + '\n'
+    texts['/s/x/woken.md'] = JSON.stringify('First result.')
+    texts['/s/x/over.jsonl'] = [user, yielded].join('\n') + '\n'
+    texts['/s/x/over.md'] = JSON.stringify('Done.')
+    texts['/s/x/again.jsonl'] = [user, yielded, user, yielded].join('\n') + '\n'
+    texts['/s/x/again.md'] = JSON.stringify('Second result.')
+    svc.refresh()
+    expect(out[0]!.subagents.map((s) => [s.name, s.done, s.tool]).sort()).toEqual([
+      ['again', true, null],
+      ['over', true, null],
+      ['woken', false, 'read'],
+    ])
+  })
+
   it('a live pane lists unfinished jobs', () => {
     const { svc, texts, out } = setup([{ paneId: 'pane-1', file: '/s/x.jsonl', live: true }])
     texts['/s/x.jsonl'] = started('bg_1')

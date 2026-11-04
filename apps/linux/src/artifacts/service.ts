@@ -591,7 +591,11 @@ export class ArtifactService implements ArtifactRelaying {
       const sub = item.subagent;
       if (sub === undefined || item.path === undefined) continue;
       if (sub.state === "running") changed = this.followSubagent(state, item, now) || changed;
-      else if (now - (sub.endedAt ?? item.lastSeen) < DAY_MS) changed = this.followChildren(state, item, item.path, now) || changed;
+      else if (now - (sub.endedAt ?? item.lastSeen) < DAY_MS) {
+        // A helper woken by a follow-up message writes to its transcript again: it is running, not finished.
+        changed = this.reviveSubagent(state, item, now) || changed;
+        changed = this.followChildren(state, item, item.path, now) || changed;
+      }
     }
     return changed;
   }
@@ -607,7 +611,7 @@ export class ArtifactService implements ArtifactRelaying {
       const stat = statSync(path);
       const line = lastIntent(path, stat.size);
       if (line !== null && line !== sub.line) next = { ...next, line };
-      if (existsSync(result)) next = { ...next, state: "done", endedAt: statSync(result).mtimeMs };
+      if (existsSync(result) && !reopened(path, result, stat.mtimeMs, stat.size)) next = { ...next, state: "done", endedAt: statSync(result).mtimeMs };
       else if (now - stat.mtimeMs > SUBAGENT_STALE_MS) next = { ...next, state: "done", endedAt: stat.mtimeMs };
       changed = this.followChildren(state, item, path, now) || changed;
     } else if (now - sub.startedAt > SUBAGENT_STALE_MS) {
@@ -618,6 +622,38 @@ export class ArtifactService implements ArtifactRelaying {
       changed = true;
     }
     return changed;
+  }
+
+  /** A finished helper whose transcript grew after its result was written, and does not end there, runs again. */
+  private reviveSubagent(state: ThreadState, item: Artifact, now: number): boolean {
+    const sub = item.subagent;
+    const path = item.path;
+    if (sub === undefined || path === undefined || !existsSync(path)) return false;
+    const stat = statSync(path);
+    const result = path.replace(/\.jsonl$/, ".md");
+    const endedAt = existsSync(result) ? statSync(result).mtimeMs : (sub.endedAt ?? 0);
+    if (now - stat.mtimeMs > SUBAGENT_STALE_MS || !reopenedSince(path, endedAt, stat.mtimeMs, stat.size)) return false;
+    const { endedAt: _ended, ...rest } = sub;
+    const line = lastIntent(path, stat.size);
+    state.items.set(item.id, { ...item, subagent: { ...rest, state: "running", startedAt: now, ...(line === null ? {} : { line }) }, lastSeen: Math.max(item.lastSeen, stat.mtimeMs) });
+    return true;
+  }
+
+  /** Helpers of every loaded thread that run or finished today: the activity list's helper rows. */
+  helpers(): { thread: string; item: Artifact }[] {
+    const now = this.deps.clock.now();
+    const out: { thread: string; item: Artifact }[] = [];
+    const seen = new Set<string>();
+    for (const state of this.threads.values()) {
+      for (const item of state.items.values()) {
+        const sub = item.subagent;
+        if (sub === undefined || item.path === undefined || seen.has(item.path)) continue;
+        if (sub.state !== "running" && now - (sub.endedAt ?? item.lastSeen) >= DAY_MS) continue;
+        seen.add(item.path);
+        out.push({ thread: state.thread, item });
+      }
+    }
+    return out;
   }
 
   /** Subagents a subagent started: `<its dir>/<its name>.<child>.jsonl`. */
@@ -654,8 +690,11 @@ export class ArtifactService implements ArtifactRelaying {
   /** While any loaded thread has a running subagent, look at them every SUBAGENT_POLL_MS. */
   private schedulePoll(): void {
     if (this.poll !== null) return;
-    const running = [...this.threads.values()].some((state) => [...state.items.values()].some((item) => item.subagent?.state === "running"));
-    if (!running) return;
+    const now = this.deps.clock.now();
+    const watched = [...this.threads.values()].some((state) =>
+      [...state.items.values()].some((item) => item.subagent !== undefined && (item.subagent.state === "running" || now - (item.subagent.endedAt ?? item.lastSeen) < DAY_MS)),
+    );
+    if (!watched) return;
     this.poll = this.deps.clock.after(SUBAGENT_POLL_MS, () => {
       this.poll = null;
       const now = this.deps.clock.now();
@@ -667,8 +706,8 @@ export class ArtifactService implements ArtifactRelaying {
   }
 }
 
-/** The intent of the last tool call in a transcript's tail: the subagent's status line. */
-function lastIntent(path: string, size: number): string | null {
+/** The last TAIL_BYTES of a transcript. */
+function tailOf(path: string, size: number): string {
   const length = Math.min(size, TAIL_BYTES);
   const bytes = Buffer.alloc(length);
   const fd = openSync(path, "r");
@@ -677,7 +716,45 @@ function lastIntent(path: string, size: number): string | null {
   } finally {
     closeSync(fd);
   }
-  const matches = [...bytes.toString("utf8").matchAll(/"intent":"((?:[^"\\]|\\.){1,400})"/g)];
+  return bytes.toString("utf8");
+}
+
+/** Whether an omp subagent transcript ends where the helper does: `session_exit`, or the result of its `yield` call. */
+function transcriptEnded(path: string, size: number): boolean {
+  const lines = tailOf(path, size).split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = (lines[i] ?? "").trim();
+    if (line === "") continue;
+    let record: { type?: unknown; customType?: unknown; message?: { role?: unknown; toolName?: unknown } };
+    try {
+      record = JSON.parse(line) as typeof record;
+    } catch {
+      continue;
+    }
+    if (record.type === "custom") {
+      if (record.customType === "session_exit") return true;
+      continue;
+    }
+    if (record.type !== "message" || typeof record.message !== "object") continue;
+    return record.message.role === "toolResult" && record.message.toolName === "yield";
+  }
+  return false;
+}
+
+/** A transcript written to after `since` (a result file's mtime, or when the helper ended) that does not end: the helper was woken again. */
+function reopenedSince(path: string, since: number, mtimeMs: number, size: number): boolean {
+  return mtimeMs > since + 1000 && !transcriptEnded(path, size);
+}
+
+/** `reopenedSince` against the result file's own mtime. */
+function reopened(path: string, result: string, mtimeMs: number, size: number): boolean {
+  return reopenedSince(path, statSync(result).mtimeMs, mtimeMs, size);
+}
+
+/** The intent of the last tool call in a transcript's tail: the subagent's status line. */
+function lastIntent(path: string, size: number): string | null {
+  const text = tailOf(path, size);
+  const matches = [...text.matchAll(/"intent":"((?:[^"\\]|\\.){1,400})"/g)];
   const last = matches.at(-1)?.[1];
   if (last === undefined) return null;
   try {
