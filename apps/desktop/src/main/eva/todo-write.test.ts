@@ -3,7 +3,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { createEvaFs } from '@evaos/eva-core'
-import { appendTodoVia, knownTags } from './todo-write'
+import { appendTodoVia, knownTags } from '@evaos/eva-core/model/todo-write'
 import { addTodoHandler } from './todo-ipc'
 
 const TODOS =

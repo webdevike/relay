@@ -1,8 +1,8 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { appendTodo } from '@evaos/eva-core/model/todos'
-import { workspaceFiles } from '@evaos/eva-core/model/read-eva'
-import type { EvaFs } from '@evaos/eva-core'
+import type { EvaFs } from '../fs/eva-fs'
+import { workspaceFiles } from './read-eva'
+import { appendTodo } from './todos'
 
 /** Workspace ids from the checkout plus the built-in 'eva'. */
 export function knownTags(root: string): Set<string> {
