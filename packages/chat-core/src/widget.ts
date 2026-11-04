@@ -71,6 +71,8 @@ export type AppLink =
 
 const LINK_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/
 const LINK_SUB = /^[a-z0-9][a-z0-9._-]{0,199}$/
+/** Slips an agent makes in the page name, read as the page it meant (`relay://open/setting`). */
+const PAGE_ALIASES: Readonly<Record<string, string>> = { setting: 'settings' }
 const MAX_APP_LINK = 4096
 const MAX_LINK_VALUE = 2048
 
@@ -109,7 +111,7 @@ export function parseAppLink(url: string): AppLink | null {
   if (params === null) return null
   return {
     kind: 'open',
-    page: name,
+    page: PAGE_ALIASES[name] ?? name,
     ...(sub === undefined ? {} : { sub }),
     ...(params === undefined ? {} : { params }),
   }

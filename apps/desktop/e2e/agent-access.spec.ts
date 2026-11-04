@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { REPO_ROOT } from './helpers/paths'
+import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 
 // Agent access end to end, the way an omp session uses it: relay-mcp (Eva's .omp/tools/relay-mcp.ts,
 // stdio MCP) against a hidden test instance. The agent describes the screen, switches the theme
@@ -228,4 +229,49 @@ test('an agent tours and configures Relay through relay-mcp', async ({
     )
     mcp.close()
   }
+})
+
+// A relay:// link in a reply is an in-app button; clicking it (a real DOM click, not link.open)
+// opens the place it names. The agent's usual slips (`relay://open/setting`, the singular) open
+// Settings too instead of dying silently.
+let fx: ChatFixture
+const linkTest = base.extend({
+  launchEnv: async ({}, use) => {
+    fx = makeChatFixture()
+    await fx.append(
+      'p4-ecard',
+      JSON.stringify({
+        type: 'message',
+        id: 'a9',
+        parentId: 'a1',
+        message: {
+          role: 'assistant',
+          provider: 'anthropic',
+          model: 'claude-opus-5-5',
+          content: [
+            {
+              type: 'text',
+              text: '[Open Settings](relay://open/setting) and [Open Nova](relay://assistant/nova) and [Connect](relay://open/settings/connections?connect=github)',
+            },
+          ],
+          stopReason: 'stop',
+        },
+      }),
+    )
+    await use({ ...fx.launchEnv, FAKE_OMP_DELAY_MS: '5' })
+    fx.cleanup()
+  },
+})
+
+linkTest('chat relay:// buttons open their place on click', async ({ shell }) => {
+  await shell.getByTestId('nav-chat').click()
+  await shell.getByTestId('chat-row-p4-ecard').click()
+  const links = shell.getByTestId('chat-log').getByTestId('app-link')
+  await expect(links).toHaveCount(3)
+  await links.nth(0).click()
+  await expect(shell.getByTestId('settings-theme')).toBeVisible()
+  await links.nth(1).click()
+  await expect(shell.getByTestId('agent-start-nova')).toBeVisible()
+  await links.nth(2).click()
+  await expect(shell.getByTestId('settings-connections')).toBeVisible()
 })

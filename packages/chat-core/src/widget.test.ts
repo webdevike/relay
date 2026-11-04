@@ -135,6 +135,16 @@ describe('parseWidget', () => {
     ).toBeNull()
   })
 
+  it('reads the singular `setting` page as Settings', () => {
+    expect(parseAppLink('relay://open/setting')).toEqual({ kind: 'open', page: 'settings' })
+    expect(parseAppLink('relay://open/setting/connections?connect=github')).toEqual({
+      kind: 'open',
+      page: 'settings',
+      sub: 'connections',
+      params: { connect: 'github' },
+    })
+  })
+
   it('parses relay:// app links and only those', () => {
     expect(parseAppLink('relay://assistant/nova')).toEqual({ kind: 'assistant', id: 'nova' })
     expect(parseAppLink('relay://open/test-bench')).toEqual({ kind: 'open', page: 'test-bench' })
