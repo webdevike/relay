@@ -20,7 +20,7 @@ import { createWriteQueue } from './write-queue'
 import { installAppMenu } from './menu'
 import { installWriteGuard } from './eva/write-guard'
 import { startEvaWatch } from './eva/watch'
-import { installTestHooks } from './test-hooks'
+import { installTestHooks, registerTestHook } from './test-hooks'
 import { WINDOW_MIN, createMainWindow } from './window'
 import { WINDOW_STATE_FILE, restorableWindow, trackWindowState } from './window-state'
 import { registerExperimentsIpc } from './experiments/experiments-ipc'
@@ -207,6 +207,7 @@ function bootstrap(): void {
         checkNow: async () => (await packagedUpdater?.checkNow()) ?? 'unavailable',
         changelog: async () => (await packagedUpdater?.changelog()) ?? [],
       })
+      registerTestHook('update', update)
       registerAboutIpc(ctx, chat.hostInfo)
       if (app.isPackaged) {
         packagedUpdater = createPackagedUpdater({
