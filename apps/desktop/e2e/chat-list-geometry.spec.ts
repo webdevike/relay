@@ -18,6 +18,7 @@ import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { REPO_ROOT } from './helpers/paths'
+import { pickScheme } from './helpers/appearance'
 
 /** Minimum distance between two painted surfaces (the design's row gap is spacing-xs / 2). */
 const GAP_PX = 4
@@ -63,9 +64,7 @@ interface Box {
 }
 
 async function scheme(shell: Page, s: Scheme): Promise<void> {
-  const button = shell.locator(`[data-testid=appearance-${s}]`)
-  if (!(await button.isVisible())) await shell.locator('[data-testid=sidebar-back]').click()
-  await button.click()
+  await pickScheme(shell, s)
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', s)
 }
 

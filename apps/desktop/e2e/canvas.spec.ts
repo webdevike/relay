@@ -3,6 +3,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { test, expect } from './fixtures'
 import { REPO_ROOT } from './helpers/paths'
+import { pickScheme } from './helpers/appearance'
 
 type G = { __evaosTest: { win: { setContentSize(w: number, h: number): void } } }
 
@@ -41,9 +42,7 @@ async function size(app: ElectronApplication, shell: Page, w: number, h: number)
 }
 
 async function scheme(shell: Page, mode: 'dark' | 'light'): Promise<void> {
-  const button = shell.locator(sel(`appearance-${mode}`))
-  if (!(await button.isVisible())) await shell.locator(sel('sidebar-back')).click()
-  await button.click()
+  await pickScheme(shell, mode)
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', mode)
 }
 

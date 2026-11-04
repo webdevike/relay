@@ -52,17 +52,24 @@ async function drag(shell: Page, id: string | Box, dx: number): Promise<void> {
 }
 
 type Box = { x: number; y: number; width: number; height: number }
-/** The sash between the app pane and the tool pane (dockview's, in the gap between them). */
+/**
+ * The sash between the app pane and the tool pane (dockview's, in the gap between them). It is
+ * absent while the layout settles after a resize or drag, so look again for up to 5 s.
+ */
 async function sash(shell: Page): Promise<{ box: Box; el: Locator }> {
-  const a = await box(shell, 'pane-p1')
-  const b = await box(shell, 'pane-p2')
-  for (const el of await shell.locator('.dv-sash').all()) {
-    const r = await el.boundingBox()
-    if (r && r.x >= a.x + a.width - 2 && r.x + r.width <= b.x + 2 && r.height > 0) {
-      return { box: r, el }
+  const deadline = Date.now() + 5_000
+  for (;;) {
+    const a = await box(shell, 'pane-p1')
+    const b = await box(shell, 'pane-p2')
+    for (const el of await shell.locator('.dv-sash').all()) {
+      const r = await el.boundingBox()
+      if (r && r.x >= a.x + a.width - 2 && r.x + r.width <= b.x + 2 && r.height > 0) {
+        return { box: r, el }
+      }
     }
+    if (Date.now() > deadline) throw new Error('no sash between p1 and p2')
+    await shell.waitForTimeout(50)
   }
-  throw new Error('no sash between p1 and p2')
 }
 
 const state = (shell: Page) =>

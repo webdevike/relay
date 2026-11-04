@@ -29,54 +29,55 @@ const shot = async (shell: Page, name: string): Promise<void> => {
 
 test.use({ startOnChat: false, toolPanes: false })
 
-test('update badge sits above Settings, opens details on hover, survives Later; chip covers a hidden sidebar', async ({
-  app,
-  shell,
-}) => {
-  await expect(shell.locator('[data-testid=update-badge]')).toHaveCount(0)
-  await offer(app)
-  const badge = shell.locator('[data-testid=update-badge]')
-  await expect(shell.locator('[data-testid=update-toast]')).toBeVisible()
-  await expect(badge).toBeVisible()
-  await expect(badge).toContainText('Update')
+test(
+  'update badge sits above Settings, opens details on hover, survives Later; chip covers a hidden sidebar',
+  { tag: '@smoke' },
+  async ({ app, shell }) => {
+    await expect(shell.locator('[data-testid=update-badge]')).toHaveCount(0)
+    await offer(app)
+    const badge = shell.locator('[data-testid=update-badge]')
+    await expect(shell.locator('[data-testid=update-toast]')).toBeVisible()
+    await expect(badge).toBeVisible()
+    await expect(badge).toContainText('Update')
 
-  // Small, and directly above the Settings row.
-  const b = (await badge.boundingBox())!
-  const s = (await shell.locator('[data-testid=nav-setting]').boundingBox())!
-  expect(b.height).toBeLessThan(28)
-  expect(b.y + b.height).toBeLessThanOrEqual(s.y)
-  expect(s.y - (b.y + b.height)).toBeLessThan(16)
+    // Small, and directly above the Settings row.
+    const b = (await badge.boundingBox())!
+    const s = (await shell.locator('[data-testid=nav-setting]').boundingBox())!
+    expect(b.height).toBeLessThan(28)
+    expect(b.y + b.height).toBeLessThanOrEqual(s.y)
+    expect(s.y - (b.y + b.height)).toBeLessThan(16)
 
-  // Hover opens the details: build and Restart (no history here, so the summary line).
-  await badge.hover()
-  const pop = shell.locator('[data-testid=update-popover]')
-  await expect(pop).toBeVisible()
-  await expect(pop.locator('[data-testid=update-popover-build]')).toHaveText('Build e2e1234')
-  await expect(pop.locator('[data-testid=update-popover-summary]')).toHaveText(
-    'Faster chat list and a calmer sidebar',
-  )
-  await expect(pop.locator('[data-testid=update-popover-restart]')).toBeVisible()
+    // Hover opens the details: build and Restart (no history here, so the summary line).
+    await badge.hover()
+    const pop = shell.locator('[data-testid=update-popover]')
+    await expect(pop).toBeVisible()
+    await expect(pop.locator('[data-testid=update-popover-build]')).toHaveText('Build e2e1234')
+    await expect(pop.locator('[data-testid=update-popover-summary]')).toHaveText(
+      'Faster chat list and a calmer sidebar',
+    )
+    await expect(pop.locator('[data-testid=update-popover-restart]')).toBeVisible()
 
-  // Dark and light, badge alone and with the popover open.
-  for (const scheme of ['dark', 'light'] as const) {
-    await pickScheme(shell, scheme)
-    await shell.locator('[data-testid=update-popover]').waitFor()
-    await shot(shell, `popover-${scheme}.png`)
-  }
-  await shell.mouse.move(600, 300)
-  await expect(pop).toHaveCount(0)
-  for (const scheme of ['dark', 'light'] as const) {
-    await pickScheme(shell, scheme)
-    await shot(shell, `badge-${scheme}.png`)
-  }
+    // Dark and light, badge alone and with the popover open.
+    for (const scheme of ['dark', 'light'] as const) {
+      await pickScheme(shell, scheme)
+      await shell.locator('[data-testid=update-popover]').waitFor()
+      await shot(shell, `popover-${scheme}.png`)
+    }
+    await shell.mouse.move(600, 300)
+    await expect(pop).toHaveCount(0)
+    for (const scheme of ['dark', 'light'] as const) {
+      await pickScheme(shell, scheme)
+      await shot(shell, `badge-${scheme}.png`)
+    }
 
-  // Later hides the toast only.
-  await shell.getByRole('button', { name: 'Later' }).click()
-  await expect(shell.locator('[data-testid=update-toast]')).toHaveCount(0)
-  await expect(badge).toBeVisible()
-  await expect(shell.locator('[data-testid=update-chip]')).toHaveCount(0)
+    // Later hides the toast only.
+    await shell.getByRole('button', { name: 'Later' }).click()
+    await expect(shell.locator('[data-testid=update-toast]')).toHaveCount(0)
+    await expect(badge).toBeVisible()
+    await expect(shell.locator('[data-testid=update-chip]')).toHaveCount(0)
 
-  // Hidden sidebar: the footer chip offers the restart.
-  await shell.keyboard.press('Meta+b')
-  await expect(shell.locator('[data-testid=update-chip]')).toBeVisible()
-})
+    // Hidden sidebar: the footer chip offers the restart.
+    await shell.keyboard.press('Meta+b')
+    await expect(shell.locator('[data-testid=update-chip]')).toBeVisible()
+  },
+)

@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { makeEvaFixture, EXPECT_P3, type EvaFixture } from './helpers/eva-fixture'
 import { proofShot } from './helpers/proofShot'
+import { pickScheme } from './helpers/appearance'
 
 type Shell = { __evaosShell: { openPlace(p: string, n?: boolean): void } }
 
@@ -25,7 +26,7 @@ const sel = (id: string): string => `[data-testid=${id}]`
 const NAMES = ['broken', 'manual-check', 'nightly', 'script-job', 'stale-lock', 'weekly-digest']
 
 async function setScheme(shell: Page, mode: 'dark' | 'light'): Promise<void> {
-  await shell.locator(sel(`appearance-${mode}`)).click()
+  await pickScheme(shell, mode)
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', mode)
 }
 

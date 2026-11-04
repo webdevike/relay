@@ -112,7 +112,7 @@ test('shell-light-1280x800', async ({ app, shell }) => {
 
 for (const mode of ['dark', 'light'] as const) {
   test(`shell-folded-${mode}-760x720`, async ({ app, shell }) => {
-    await shell.locator(sel(`appearance-${mode}`)).click()
+    await pickScheme(shell, mode)
     await resolved(shell).toHaveAttribute('data-resolved', mode)
     await size(app, shell, 760, 720)
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'folded')
@@ -127,7 +127,7 @@ for (const mode of ['dark', 'light'] as const) {
   })
 
   test(`shell-wide-${mode}-1440x900`, async ({ app, shell }) => {
-    await shell.locator(sel(`appearance-${mode}`)).click()
+    await pickScheme(shell, mode)
     await resolved(shell).toHaveAttribute('data-resolved', mode)
     await size(app, shell, 1440, 900)
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')

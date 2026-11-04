@@ -31,25 +31,29 @@ const readJson = (file: string): Record<string, unknown> | null => {
   }
 }
 
-test('sections render their native content and tab titles', async ({ shell }) => {
-  const cases: [Section, string | null][] = [
-    ['Theme', null],
-    ['Chat', "What conversations show besides Eva's replies."],
-  ]
-  for (const [section, desc] of cases) {
-    await open(shell, section)
-    const root = shell.locator(`[data-testid=settings-${section.toLowerCase()}]`)
-    if (desc) {
-      await expect(root.locator('h1')).toHaveText(section)
-      await expect(root).toContainText(desc)
-    } else {
-      await expect(root.getByTestId('theme-editor')).toBeVisible()
-      await expect(root.getByRole('heading', { name: 'Buttons', exact: true })).toBeVisible()
+test(
+  'sections render their native content and tab titles',
+  { tag: '@smoke' },
+  async ({ shell }) => {
+    const cases: [Section, string | null][] = [
+      ['Theme', null],
+      ['Chat', "What conversations show besides Eva's replies."],
+    ]
+    for (const [section, desc] of cases) {
+      await open(shell, section)
+      const root = shell.locator(`[data-testid=settings-${section.toLowerCase()}]`)
+      if (desc) {
+        await expect(root.locator('h1')).toHaveText(section)
+        await expect(root).toContainText(desc)
+      } else {
+        await expect(root.getByTestId('theme-editor')).toBeVisible()
+        await expect(root.getByRole('heading', { name: 'Buttons', exact: true })).toBeVisible()
+      }
+      const tabs = await shell.evaluate(() => (window as unknown as W).__evaosShell!.tabs())
+      expect(tabs.list[tabs.active]!.title).toBe(`Settings: ${section}`)
     }
-    const tabs = await shell.evaluate(() => (window as unknown as W).__evaosShell!.tabs())
-    expect(tabs.list[tabs.active]!.title).toBe(`Settings: ${section}`)
-  }
-})
+  },
+)
 
 test('chat switches persist, survive relaunch', async ({ app, shell, configDir }) => {
   await open(shell, 'Chat')
