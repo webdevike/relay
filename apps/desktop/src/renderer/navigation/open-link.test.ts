@@ -94,7 +94,9 @@ describe('openLink', () => {
   it('reads the singular `relay://open/setting` as Settings', () => {
     show.mockClear()
     openLink('relay://open/setting', { target: 'here' })
-    expect(openPlaceHere).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Theme' }))
+    expect(openPlaceHere).toHaveBeenLastCalledWith(
+      placeOf('settings', { settingsSection: 'Theme' }),
+    )
     expect(show).not.toHaveBeenCalled()
   })
   it('a chat place splits like a page: any pane holds chats', () => {
