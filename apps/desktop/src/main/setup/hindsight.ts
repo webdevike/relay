@@ -1,23 +1,43 @@
 import { execFile } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as net from 'node:net'
+import * as os from 'node:os'
 import * as path from 'node:path'
-import type { HindsightStatus } from '@evaos/contract'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as WebReadableStream } from 'node:stream/web'
+import type { HindsightLocal, HindsightProblem, HindsightStatus } from '@evaos/contract'
+import {
+  NATIVE_API_BASE_PORT,
+  NATIVE_LABEL,
+  NATIVE_UNSUPPORTED,
+  installNative,
+  localModelFor,
+  nativeInfo,
+  restartNative,
+  type LocalModel,
+  type NativeInfo,
+  nativePaths,
+  stopNative,
+  updateNative,
+} from './hindsight-native'
+import { HindsightError, firstFreePort, lastLine, readText, writeAtomic } from './hindsight-util'
 
 /**
- * Long-term memory for a starter user: Hindsight (https://github.com/vectorize-io/hindsight) in
- * Docker, wired into omp the way Eva's own is (workflows/hindsight.md): same image, a named volume
- * at /home/hindsight/.pg0, ports published on 127.0.0.1 only, a fixed worker id, and omp's
- * config.yml set to `memory.backend: hindsight` with `hindsight.apiUrl` and `hindsight.bankId`.
+ * Long-term memory for a starter user: Hindsight (https://github.com/vectorize-io/hindsight),
+ * wired into omp the way Eva's own is (workflows/hindsight.md): omp's config.yml set to
+ * `memory.backend: hindsight` with `hindsight.apiUrl` and `hindsight.bankId`.
  *
- * Names and ports never collide with Eva's `hindsight` container (8888/9999): ours is
- * `relay-hindsight` on the first free ports from 18888/19999, and it is only ever touched when it
- * carries our label.
+ * Default engine: Relay's own install under Application Support, no Docker (hindsight-native.ts).
+ * Fallback engine, only when the user asks for it after the native install failed (or on an Intel
+ * Mac): the same image Eva's runs in Docker, as `relay-hindsight` on the first free ports from
+ * 18888/19999, only ever touched when it carries our label. Neither collides with Eva's own
+ * `hindsight` container (8888/9999).
  */
 
 export const HINDSIGHT_IMAGE = 'ghcr.io/vectorize-io/hindsight:latest'
 export const HINDSIGHT_LABEL = 'io.relay.hindsight'
-export const HINDSIGHT_API_BASE_PORT = 18888
+export const HINDSIGHT_API_BASE_PORT = NATIVE_API_BASE_PORT
 export const HINDSIGHT_UI_BASE_PORT = 19999
 const WORKER_ID = 'hindsight-relay'
 /** Model Hindsight uses on a ChatGPT login (Codex CLI); the image's default is rejected there. */
@@ -36,20 +56,39 @@ export interface DockerResult {
   code: number
   stdout: string
   stderr: string
-  /** The docker CLI is not installed. */
+  /** The command is not installed. */
   missing?: boolean
+}
+
+export interface ExecOptions {
+  /** Added to the process environment. */
+  env?: Record<string, string>
+  timeoutMs?: number
 }
 
 export interface HindsightDeps {
   docker(args: string[], timeoutMs?: number): Promise<DockerResult>
+  /** Runs a command (uv, launchctl, tar). Never rejects. */
+  exec(cmd: string, args: string[], o?: ExecOptions): Promise<DockerResult>
+  /** Saves `url` to `dest`; rejects with a readable message. */
+  download(url: string, dest: string): Promise<void>
+  /** Total bytes under a folder (0 when it does not exist). */
+  dirSize(dir: string): Promise<number>
   /** Never rejects; status 0 when nothing answered. */
-  http(method: 'GET' | 'PUT', url: string, body?: unknown): Promise<{ status: number }>
+  http(
+    method: 'GET' | 'PUT',
+    url: string,
+    body?: unknown,
+  ): Promise<{
+    status: number
+    /** Parsed JSON of a 2xx reply, when there is one. */ body?: unknown
+  }>
   portFree(port: number): Promise<boolean>
   sleep(ms: number): Promise<void>
   homedir: string
   /** omp's agent dir (holds config.yml and .env). */
   agentDir: string
-  /** Relay's own config dir (holds hindsight.env). */
+  /** Relay's own config dir (holds the Docker fallback's hindsight.env). */
   configDir: string
   names: HindsightNames
   /** First API port to try; the UI port is tried at the same offset from its own base. */
@@ -57,6 +96,21 @@ export interface HindsightDeps {
   uiBasePort: number
   /** How long to wait for the API to answer after a start. */
   healthTimeoutMs: number
+  /** `process.arch`: the native install needs `arm64`. */
+  arch: string
+  /** The user id launchctl's `gui/<uid>` domain is keyed on. */
+  uid: number
+  /** `~/Library/Application Support/Relay/hindsight`: venv, Python, uv, models and memories. */
+  nativeDir: string
+  launchAgentsDir: string
+  /** The LaunchAgent label. */
+  label: string
+  /** Where an existing uv may be; the private one under nativeDir is used when none works. */
+  uvCandidates: string[]
+  /** Installed memory; decides whether a model can run on this Mac. */
+  ramBytes: number
+  /** PATH for finding tools a GUI app does not have on its own (codex). */
+  toolPath: string
 }
 
 export interface HindsightProgress {
@@ -217,6 +271,8 @@ export type LlmChoice =
   | { kind: 'codex' }
   | { kind: 'key'; provider: 'openai' | 'anthropic'; key: string }
   | { kind: 'existing' }
+  /** Relay runs a model on this Mac (native install only). */
+  | { kind: 'local' }
   | { kind: 'none' }
 
 function envFileValue(text: string | null, name: string): string | null {
@@ -227,17 +283,18 @@ function envFileValue(text: string | null, name: string): string | null {
 }
 
 /**
- * Which LLM Hindsight runs on, first match: a key the user just typed; the key file from an earlier
- * install (kept so a re-run never asks again); a Codex CLI login (same wiring as Eva's); an API key
- * already in omp's own `.env`. `none` means the wizard has to ask for a key.
+ * Which LLM Hindsight reads your conversations with, first match: the model on this Mac when the
+ * user asked for it (only ever on request: it is a 17 GB download); the settings from an earlier
+ * install (kept so a re-run never asks again); a Codex CLI login (same wiring as Eva's); an API
+ * key already in omp's own `.env` (put there by the AI step). `none` means there is nothing yet.
  */
 export function pickLlm(i: {
-  typed?: { provider: 'openai' | 'anthropic'; key: string }
+  wantLocal?: boolean
   hasSavedEnv: boolean
   hasCodexAuth: boolean
   ompEnv: string | null
 }): LlmChoice {
-  if (i.typed) return { kind: 'key', provider: i.typed.provider, key: i.typed.key }
+  if (i.wantLocal) return { kind: 'local' }
   if (i.hasSavedEnv) return { kind: 'existing' }
   if (i.hasCodexAuth) return { kind: 'codex' }
   const openai = envFileValue(i.ompEnv, 'OPENAI_API_KEY')
@@ -256,6 +313,52 @@ export function llmEnvText(c: LlmChoice): string | null {
     return `HINDSIGHT_API_LLM_PROVIDER=${c.provider}\nHINDSIGHT_API_LLM_API_KEY=${c.key}\n`
   }
   return null
+}
+
+// ---- why memory is not saving ---------------------------------------------------------------
+
+interface OperationRow {
+  status?: unknown
+  error_message?: unknown
+}
+
+/** A login that no longer works, as the providers and Hindsight word it. */
+const LOGIN_ERROR =
+  /authentication|auth(?:orization)? (?:failed|error)|refresh_token|unauthori[sz]ed|\b40[13]\b|expired|invalid.{0,12}(?:token|api key)|codex (?:auth )?login/i
+
+/**
+ * Reads Hindsight's recent operations (newest first) and says why saving stopped, when it did:
+ * the newest operation that finished is the one that counts, so one old failure does not nag
+ * after a later success. A retain whose model call failed stays `pending` while Hindsight retries
+ * it, with the error already on it (seen with an expired ChatGPT login), so an error counts too.
+ */
+export function classifyOperations(
+  ops: readonly OperationRow[],
+  usingChatGpt: boolean,
+): HindsightProblem | null {
+  const failing = (o: OperationRow): boolean =>
+    o.status === 'failed' || (typeof o.error_message === 'string' && o.error_message !== '')
+  const last = ops.find((o) => o.status === 'completed' || failing(o))
+  if (!last || !failing(last)) return null
+  const detail = typeof last.error_message === 'string' ? last.error_message : ''
+  if (LOGIN_ERROR.test(detail)) {
+    return usingChatGpt
+      ? {
+          kind: 'login',
+          message: "Memory isn't saving: your ChatGPT sign-in for memory expired.",
+          fix: 'sign-in',
+        }
+      : {
+          kind: 'login',
+          message: "Memory isn't saving: the AI key for memory was refused.",
+          fix: 'restart',
+        }
+  }
+  return {
+    kind: 'llm',
+    message: "Memory isn't saving: the AI model for memory returned an error.",
+    fix: 'restart',
+  }
 }
 
 // ---- docker -----------------------------------------------------------------------------------
@@ -303,19 +406,6 @@ export function parseInspect(stdout: string): ContainerInfo | null {
   }
 }
 
-/** First `base`, `base+1`, ... for which `free` says yes. Gives up after `tries`. */
-export async function firstFreePort(
-  base: number,
-  free: (port: number) => Promise<boolean>,
-  taken: ReadonlySet<number> = new Set(),
-  tries = 100,
-): Promise<number> {
-  for (let p = base; p < base + tries; p++) {
-    if (!taken.has(p) && (await free(p))) return p
-  }
-  throw new Error(`No free port found from ${base}.`)
-}
-
 export interface RunPlan {
   names: HindsightNames
   apiPort: number
@@ -355,30 +445,18 @@ export function dockerRunArgs(p: RunPlan): string[] {
 
 // ---- orchestration ----------------------------------------------------------------------------
 
-export class HindsightError extends Error {}
-
 const ompConfig = (d: HindsightDeps): string => path.join(d.agentDir, 'config.yml')
-const envPath = (d: HindsightDeps): string => path.join(d.configDir, 'hindsight.env')
+/** The Docker fallback's LLM settings; the native install keeps its own beside its venv. */
+const dockerEnvPath = (d: HindsightDeps): string => path.join(d.configDir, 'hindsight.env')
 const codexAuth = (d: HindsightDeps): string => path.join(d.homedir, '.codex', 'auth.json')
 
-function readText(p: string): string | null {
-  try {
-    return fs.readFileSync(p, 'utf8')
-  } catch {
-    return null
-  }
-}
-
-function writeAtomic(p: string, text: string, mode?: number): void {
-  fs.mkdirSync(path.dirname(p), { recursive: true })
-  const tmp = `${p}.${process.pid}.tmp`
-  fs.writeFileSync(tmp, text, mode !== undefined ? { mode } : undefined)
-  fs.renameSync(tmp, p)
+function hasSavedEnv(d: HindsightDeps): boolean {
+  return fs.existsSync(nativePaths(d).env) || fs.existsSync(dockerEnvPath(d))
 }
 
 async function inspect(
   d: HindsightDeps,
-): Promise<{ info: ContainerInfo | null; docker: HindsightStatus['docker'] }> {
+): Promise<{ info: ContainerInfo | null; docker: 'missing' | 'down' | 'ok' }> {
   const r = await d.docker(['inspect', d.names.container], 15_000)
   if (r.missing) return { info: null, docker: 'missing' }
   const info = r.code === 0 ? parseInspect(r.stdout) : null
@@ -404,37 +482,158 @@ export function firstAssistant(root: string): { id: string; title: string } | nu
   }
 }
 
+/** What is on hand for Hindsight to read with, as the status reports it. */
+function llmOnHand(d: HindsightDeps): HindsightStatus['llm'] {
+  const c = pickLlm({
+    hasSavedEnv: hasSavedEnv(d),
+    hasCodexAuth: fs.existsSync(codexAuth(d)),
+    ompEnv: readText(path.join(d.agentDir, '.env')),
+  })
+  if (c.kind === 'existing') {
+    const saved = [nativePaths(d).env, dockerEnvPath(d)].some(usesChatGpt)
+    return saved ? 'codex' : 'saved'
+  }
+  return c.kind === 'codex' || c.kind === 'key' ? c.kind : 'none'
+}
+
+/**
+ * The model on this Mac: installed and how it is doing, or offered when this Mac can run one and a
+ * ChatGPT login does not already do the job.
+ */
+function localStatus(
+  d: HindsightDeps,
+  llm: HindsightStatus['llm'],
+  native: NativeInfo,
+): HindsightLocal | null {
+  const m = d.arch === 'arm64' ? localModelFor(d.ramBytes) : null
+  const sizes = { downloadBytes: m?.downloadBytes ?? 0, ramBytes: m?.ramBytes ?? 0 }
+  if (native.local) {
+    return { model: native.local.model, ...sizes, installed: true, running: native.localRunning }
+  }
+  if (m !== null && llm !== 'codex') {
+    return { model: m.repo, ...sizes, installed: false, running: false }
+  }
+  return null
+}
+
+function usesChatGpt(envFile: string): boolean {
+  return /HINDSIGHT_API_LLM_PROVIDER=openai-codex/.test(readText(envFile) ?? '')
+}
+
+/**
+ * Why memory is not saving, when it is. Only for a service omp already points at: it is stopped,
+ * its model is down, or Hindsight's own latest finished operation failed (an expired login shows
+ * up there as a failed retain).
+ */
+async function findProblem(
+  d: HindsightDeps,
+  s: {
+    configured: boolean
+    running: boolean
+    healthy: boolean
+    apiUrl: string | null
+    bankId: string | null
+    chatGpt: boolean
+    localDown: boolean
+  },
+): Promise<HindsightProblem | null> {
+  if (!s.configured) return null
+  if (!s.running || !s.healthy) {
+    return { kind: 'down', message: "Memory isn't saving: it is not running.", fix: 'restart' }
+  }
+  if (s.localDown) {
+    return {
+      kind: 'llm',
+      message: "Memory isn't saving: the model on this Mac is not running.",
+      fix: 'restart',
+    }
+  }
+  if (s.apiUrl === null || s.bankId === null) return null
+  const r = await d.http('GET', `${s.apiUrl}/v1/default/banks/${s.bankId}/operations?limit=10`)
+  const ops = (r.body as { operations?: unknown } | undefined)?.operations
+  return Array.isArray(ops) ? classifyOperations(ops as OperationRow[], s.chatGpt) : null
+}
+
 export async function hindsightStatus(d: HindsightDeps): Promise<HindsightStatus> {
-  const { info, docker } = await inspect(d)
   const cfg = readConfig(readText(ompConfig(d)) ?? '')
+  const llm = llmOnHand(d)
+  const nativeSupported = d.arch === 'arm64'
+
+  const native = await nativeInfo(d)
+  if (native.installed) {
+    const apiUrl = native.apiPort ? `http://127.0.0.1:${native.apiPort}` : null
+    const healthy =
+      apiUrl !== null && native.running && (await d.http('GET', `${apiUrl}/health`)).status === 200
+    const configured = apiUrl !== null && cfg.backend === 'hindsight' && cfg.apiUrl === apiUrl
+    const bankId = cfg.apiUrl !== null && cfg.apiUrl === apiUrl ? cfg.bankId : null
+    return {
+      engine: 'native',
+      nativeSupported,
+      docker: 'unchecked',
+      service: native.running ? 'running' : 'stopped',
+      healthy,
+      apiUrl,
+      uiUrl: null,
+      bankId,
+      configured,
+      llm,
+      local: localStatus(d, llm, native),
+      problem: await findProblem(d, {
+        configured,
+        running: native.running,
+        healthy,
+        apiUrl,
+        bankId,
+        chatGpt: usesChatGpt(nativePaths(d).env),
+        localDown: native.local !== null && !native.localRunning,
+      }),
+      version: native.version,
+      diskBytes: await d.dirSize(nativePaths(d).dir),
+    }
+  }
+
+  const { info, docker } = await inspect(d)
   const ours = info?.ours === true ? info : null
   const apiUrl = ours?.apiPort ? `http://127.0.0.1:${ours.apiPort}` : null
   const healthy =
     apiUrl !== null &&
     ours?.running === true &&
     (await d.http('GET', `${apiUrl}/health`)).status === 200
-  const llm = pickLlm({
-    hasSavedEnv: fs.existsSync(envPath(d)),
-    hasCodexAuth: fs.existsSync(codexAuth(d)),
-    ompEnv: readText(path.join(d.agentDir, '.env')),
-  })
+  const configured = apiUrl !== null && cfg.backend === 'hindsight' && cfg.apiUrl === apiUrl
+  const bankId = cfg.apiUrl !== null && cfg.apiUrl === apiUrl ? cfg.bankId : null
   return {
+    engine: ours === null ? 'none' : 'docker',
+    nativeSupported,
     docker,
-    container: ours === null ? 'none' : ours.running ? 'running' : 'stopped',
+    service: ours === null ? 'none' : ours.running ? 'running' : 'stopped',
     healthy,
     apiUrl,
     uiUrl: ours?.uiPort ? `http://127.0.0.1:${ours.uiPort}` : null,
-    bankId: cfg.apiUrl !== null && cfg.apiUrl === apiUrl ? cfg.bankId : null,
-    configured: apiUrl !== null && cfg.backend === 'hindsight' && cfg.apiUrl === apiUrl,
-    llmReady: llm.kind !== 'none',
+    bankId,
+    configured,
+    llm,
+    local: localStatus(d, llm, native),
+    problem: await findProblem(d, {
+      configured,
+      running: ours?.running === true,
+      healthy,
+      apiUrl,
+      bankId,
+      chatGpt: usesChatGpt(dockerEnvPath(d)),
+      localDown: false,
+    }),
+    version: null,
+    diskBytes: null,
   }
 }
 
 export interface InstallInput {
   root: string
   userName?: string
-  key?: string
-  keyProvider?: 'openai' | 'anthropic'
+  /** `native` (Relay's own install, the default) or `docker` (the fallback). */
+  engine?: 'native' | 'docker'
+  /** `local`: also run a model on this Mac for Hindsight to read with (native, 32 GB or more). */
+  llm?: 'auto' | 'local'
 }
 
 async function waitHealthy(d: HindsightDeps, apiUrl: string): Promise<boolean> {
@@ -446,22 +645,94 @@ async function waitHealthy(d: HindsightDeps, apiUrl: string): Promise<boolean> {
   return false
 }
 
+const needsKey = (): HindsightError =>
+  new HindsightError(
+    'Hindsight needs an AI key or a ChatGPT sign-in to read and summarise your conversations. Add one in the AI step (Settings, Setup), then try again.',
+  )
+
 /**
  * Sets Hindsight up, or finishes setting it up: every step checks what is already there. Throws a
- * HindsightError whose message is safe to show; the container is left in place for the next try.
+ * HindsightError whose message is safe to show; whatever was installed is left for the next try.
  */
 export async function installHindsight(
   d: HindsightDeps,
   input: InstallInput,
   progress: HindsightProgress,
-): Promise<{ apiUrl: string; uiUrl: string; bankId: string }> {
+): Promise<{ apiUrl: string; uiUrl: string | null; bankId: string }> {
   const assistant = firstAssistant(input.root)
   if (!assistant) {
     throw new HindsightError(
       'Your assistants file was not found, so there is no bank to create yet.',
     )
   }
+  const engine = input.engine ?? 'native'
+  if (engine === 'native' && d.arch !== 'arm64') throw new HindsightError(NATIVE_UNSUPPORTED)
 
+  // The LLM: decide before touching anything, so a missing account fails before a download.
+  const wantLocal = input.llm === 'local'
+  let localPlan: LocalModel | null = null
+  if (wantLocal) {
+    if (engine !== 'native') {
+      throw new HindsightError(
+        'The model on this Mac only runs with the Relay install, not Docker.',
+      )
+    }
+    localPlan = localModelFor(d.ramBytes)
+    if (localPlan === null) {
+      throw new HindsightError(
+        `A model that is good enough for memory needs a Mac with 32 GB of memory or more. This one has ${Math.round(d.ramBytes / 1024 ** 3)} GB.`,
+      )
+    }
+  }
+  const llm = pickLlm({
+    wantLocal,
+    hasSavedEnv: hasSavedEnv(d),
+    hasCodexAuth: fs.existsSync(codexAuth(d)),
+    ompEnv: readText(path.join(d.agentDir, '.env')),
+  })
+
+  let apiUrl: string
+  let uiUrl: string | null = null
+  if (engine === 'native') {
+    if (llm.kind === 'none' && !(await nativeInfo(d)).installed) throw needsKey()
+    apiUrl = await installNative(
+      d,
+      { text: llmEnvText(llm), legacy: readText(dockerEnvPath(d)) },
+      localPlan,
+      progress,
+    )
+  } else {
+    ;({ apiUrl, uiUrl } = await installDocker(d, llm, progress))
+    // The native install that did not work is not left behind to win over this one.
+    if ((await nativeInfo(d)).installed) await stopNative(d, 'remove')
+  }
+
+  progress(90, `Creating the memory bank "${assistant.id}"`)
+  const bank = await d.http('PUT', `${apiUrl}/v1/default/banks/${assistant.id}`, {
+    name: assistant.title,
+  })
+  if (bank.status < 200 || bank.status >= 300) {
+    throw new HindsightError(`Hindsight would not create the bank (HTTP ${bank.status}).`)
+  }
+
+  progress(96, 'Pointing your assistant at it')
+  const who = input.userName?.trim() || 'the user'
+  const next = enableInConfig(readText(ompConfig(d)) ?? '', {
+    apiUrl,
+    bankId: assistant.id,
+    retainContext: `Conversation between ${who} and their assistant ${assistant.title} (omp session); ${who}'s own statements are their decisions and preferences`,
+  })
+  writeAtomic(ompConfig(d), next)
+  progress(100, 'Done')
+  return { apiUrl, uiUrl, bankId: assistant.id }
+}
+
+/** The Docker fallback: pulls the image and runs the labelled container; returns its urls. */
+async function installDocker(
+  d: HindsightDeps,
+  llm: LlmChoice,
+  progress: HindsightProgress,
+): Promise<{ apiUrl: string; uiUrl: string }> {
   progress(5, 'Checking Docker')
   const first = await inspect(d)
   if (first.docker === 'missing') {
@@ -479,22 +750,7 @@ export async function installHindsight(
       `A container named ${d.names.container} already exists and Relay did not create it, so it was left alone.`,
     )
   }
-
-  // The LLM: decide before touching anything, so a missing key fails before a download.
-  const typed = input.key
-    ? { provider: input.keyProvider ?? 'openai', key: input.key.trim() }
-    : undefined
-  const llm = pickLlm({
-    ...(typed ? { typed } : {}),
-    hasSavedEnv: fs.existsSync(envPath(d)),
-    hasCodexAuth: fs.existsSync(codexAuth(d)),
-    ompEnv: readText(path.join(d.agentDir, '.env')),
-  })
-  if (llm.kind === 'none' && !first.info) {
-    throw new HindsightError(
-      'Hindsight needs an AI key to read and summarise your conversations. Paste one to continue.',
-    )
-  }
+  if (llm.kind === 'none' && !first.info) throw needsKey()
 
   let info = first.info
   if (info && !info.loopbackOnly) {
@@ -507,7 +763,7 @@ export async function installHindsight(
     progress(15, 'Looking for the Hindsight image')
     const have = await d.docker(['image', 'inspect', HINDSIGHT_IMAGE], 30_000)
     if (have.code !== 0) {
-      progress(20, 'Downloading Hindsight (about 2 GB, a few minutes)')
+      progress(20, 'Downloading Hindsight (about 3.5 GB, a few minutes)')
       const pull = await d.docker(['pull', HINDSIGHT_IMAGE], 30 * 60_000)
       if (pull.code !== 0) {
         throw new HindsightError(
@@ -525,15 +781,15 @@ export async function installHindsight(
     const uiPort = await firstFreePort(d.uiBasePort, d.portFree, new Set([apiPort]))
 
     const envText = llmEnvText(llm)
-    if (envText !== null) writeAtomic(envPath(d), envText, 0o600)
+    if (envText !== null) writeAtomic(dockerEnvPath(d), envText, 0o600)
 
     progress(65, 'Starting Hindsight')
-    const run = await d.docker(
+    const started = await d.docker(
       dockerRunArgs({
         names: d.names,
         apiPort,
         uiPort,
-        envFile: envPath(d),
+        envFile: dockerEnvPath(d),
         codexDir:
           (llm.kind === 'codex' || (llm.kind === 'existing' && envIsCodex(d))) &&
           fs.existsSync(codexAuth(d))
@@ -542,84 +798,126 @@ export async function installHindsight(
       }),
       120_000,
     )
-    if (run.code !== 0)
-      throw new HindsightError(`Could not start Hindsight: ${lastLine(run.stderr)}`)
+    if (started.code !== 0)
+      throw new HindsightError(`Could not start Hindsight: ${lastLine(started.stderr)}`)
     info = { running: true, ours: true, apiPort, uiPort, loopbackOnly: true }
-  } else {
-    if (!info.running) {
-      progress(40, 'Starting Hindsight')
-      const start = await d.docker(['start', d.names.container], 60_000)
-      if (start.code !== 0)
-        throw new HindsightError(`Could not start Hindsight: ${lastLine(start.stderr)}`)
-    }
+  } else if (!info.running) {
+    progress(40, 'Starting Hindsight')
+    const start = await d.docker(['start', d.names.container], 60_000)
+    if (start.code !== 0)
+      throw new HindsightError(`Could not start Hindsight: ${lastLine(start.stderr)}`)
   }
 
   const apiUrl = `http://127.0.0.1:${info.apiPort}`
-  const uiUrl = `http://127.0.0.1:${info.uiPort}`
   progress(70, 'Waiting for Hindsight to answer (the first start takes a minute)')
   if (!(await waitHealthy(d, apiUrl))) {
     throw new HindsightError(
       `Hindsight did not answer at ${apiUrl}. Check the container's log with: docker logs ${d.names.container}`,
     )
   }
-
-  progress(85, `Creating the memory bank "${assistant.id}"`)
-  const bank = await d.http('PUT', `${apiUrl}/v1/default/banks/${assistant.id}`, {
-    name: assistant.title,
-  })
-  if (bank.status < 200 || bank.status >= 300) {
-    throw new HindsightError(`Hindsight would not create the bank (HTTP ${bank.status}).`)
-  }
-
-  progress(95, 'Pointing your assistant at it')
-  const who = input.userName?.trim() || 'the user'
-  const next = enableInConfig(readText(ompConfig(d)) ?? '', {
-    apiUrl,
-    bankId: assistant.id,
-    retainContext: `Conversation between ${who} and their assistant ${assistant.title} (omp session); ${who}'s own statements are their decisions and preferences`,
-  })
-  writeAtomic(ompConfig(d), next)
-  progress(100, 'Done')
-  return { apiUrl, uiUrl, bankId: assistant.id }
+  return { apiUrl, uiUrl: `http://127.0.0.1:${info.uiPort}` }
 }
 
 function envIsCodex(d: HindsightDeps): boolean {
-  return /HINDSIGHT_API_LLM_PROVIDER=openai-codex/.test(readText(envPath(d)) ?? '')
+  return /HINDSIGHT_API_LLM_PROVIDER=openai-codex/.test(readText(dockerEnvPath(d)) ?? '')
 }
 
-function lastLine(s: string): string {
-  return s.trim().split('\n').pop()?.trim() || 'no details'
+/** Starts the service again (a crash, a stopped model, or after Turn off), keeping every setting. */
+export async function restartHindsight(
+  d: HindsightDeps,
+  progress: HindsightProgress,
+): Promise<void> {
+  if ((await nativeInfo(d)).installed) {
+    await restartNative(d, progress)
+  } else {
+    progress(20, 'Restarting the Docker container')
+    const r = await d.docker(['restart', d.names.container], 120_000)
+    if (r.code !== 0) throw new HindsightError(`Docker said: ${lastLine(r.stderr)}`)
+  }
+  progress(100, 'Done')
 }
 
 /**
- * `disable` stops the container and takes omp off it; the memories stay. `remove` also deletes the
- * container, the volume and the saved key. Only our own labelled container is ever touched.
+ * Signs in to ChatGPT again for memory: `codex login` opens the browser and rewrites
+ * ~/.codex/auth.json, which Hindsight reads on its next call (no restart needed).
+ */
+export async function reloginHindsight(
+  d: HindsightDeps,
+  progress: HindsightProgress,
+): Promise<void> {
+  progress(10, 'Opening the ChatGPT sign-in in your browser')
+  const r = await d.exec('codex', ['login'], {
+    env: { PATH: d.toolPath },
+    timeoutMs: 5 * 60_000,
+  })
+  if (r.missing) {
+    throw new HindsightError(
+      'The codex command was not found, so Relay cannot sign in for you. Run "codex login" in Terminal, then try again.',
+    )
+  }
+  if (r.code !== 0) {
+    throw new HindsightError(
+      `The ChatGPT sign-in did not finish: ${lastLine(r.stderr || r.stdout)}`,
+    )
+  }
+  progress(100, 'Done')
+}
+
+/** Upgrades the native install to the newest hindsight-api and restarts it. */
+export async function updateHindsight(
+  d: HindsightDeps,
+  progress: HindsightProgress,
+): Promise<{ from: string; to: string }> {
+  const r = await updateNative(d, progress)
+  progress(100, 'Done')
+  return r
+}
+
+/**
+ * `disable` stops the service and takes omp off it; the memories stay. `remove` also deletes the
+ * install (native: the whole folder; Docker: container, volume and saved key). Docker is only
+ * touched when our own labelled container is there.
  */
 export async function removeHindsight(
   d: HindsightDeps,
   action: 'disable' | 'remove',
   progress: HindsightProgress,
 ): Promise<void> {
-  progress(10, 'Checking Docker')
-  const { info, docker } = await inspect(d)
-  if (docker !== 'ok') {
-    throw new HindsightError('Docker is not running. Open Docker and try again.')
+  progress(10, 'Checking what is installed')
+  const native = await nativeInfo(d)
+  const docker = await inspect(d)
+  if (!native.installed) {
+    if (docker.docker === 'down') {
+      throw new HindsightError('Docker is not running. Open Docker and try again.')
+    }
+    if (docker.info && !docker.info.ours) {
+      throw new HindsightError(
+        `${d.names.container} was not created by Relay, so it was left alone.`,
+      )
+    }
   }
-  if (info && !info.ours) {
-    throw new HindsightError(`${d.names.container} was not created by Relay, so it was left alone.`)
-  }
+  const container = docker.info?.ours === true ? docker.info : null
 
   progress(30, 'Switching your assistant back to its own memory')
   const cfgPath = ompConfig(d)
   const text = readText(cfgPath)
-  const url = info?.apiPort ? `http://127.0.0.1:${info.apiPort}` : null
-  if (text !== null && url !== null) {
-    const next = disableInConfig(text, url)
+  if (text !== null) {
+    const next = [native.apiPort, container?.apiPort ?? null].reduce<string>(
+      (t, port) => (port === null ? t : disableInConfig(t, `http://127.0.0.1:${port}`)),
+      text,
+    )
     if (next !== text) writeAtomic(cfgPath, next)
   }
 
-  if (info) {
-    progress(60, action === 'remove' ? 'Removing the container' : 'Stopping Hindsight')
+  if (native.installed) {
+    progress(
+      55,
+      action === 'remove' ? 'Deleting the install and its memories' : 'Stopping Hindsight',
+    )
+    await stopNative(d, action)
+  }
+  if (container) {
+    progress(65, action === 'remove' ? 'Removing the container' : 'Stopping the Docker container')
     const r = await d.docker(
       action === 'remove' ? ['rm', '-f', d.names.container] : ['stop', d.names.container],
       60_000,
@@ -627,10 +925,12 @@ export async function removeHindsight(
     if (r.code !== 0) throw new HindsightError(`Docker said: ${lastLine(r.stderr)}`)
   }
   if (action === 'remove') {
-    progress(80, 'Deleting the saved memories')
-    const v = await d.docker(['volume', 'rm', '-f', d.names.volume], 60_000)
-    if (v.code !== 0) throw new HindsightError(`Docker said: ${lastLine(v.stderr)}`)
-    fs.rmSync(envPath(d), { force: true })
+    if (docker.docker === 'ok' && (container || !native.installed)) {
+      progress(80, 'Deleting the saved memories')
+      const v = await d.docker(['volume', 'rm', '-f', d.names.volume], 60_000)
+      if (v.code !== 0) throw new HindsightError(`Docker said: ${lastLine(v.stderr)}`)
+    }
+    fs.rmSync(dockerEnvPath(d), { force: true })
   }
   progress(100, 'Done')
 }
@@ -649,6 +949,33 @@ export function dockerPath(base: string, homedir: string): string {
   return [...new Set([...base.split(':').filter(Boolean), ...extra])].join(':')
 }
 
+function run(
+  cmd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number,
+): Promise<DockerResult> {
+  const { promise, resolve } = Promise.withResolvers<DockerResult>()
+  execFile(
+    cmd,
+    args,
+    { env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
+    (err, stdout, stderr) => {
+      if (!err) return resolve({ code: 0, stdout, stderr })
+      const e = err as NodeJS.ErrnoException & { code?: number | string }
+      if (e.code === 'ENOENT') {
+        return resolve({ code: 127, stdout: '', stderr: `${cmd} not found`, missing: true })
+      }
+      resolve({
+        code: typeof e.code === 'number' ? e.code : 1,
+        stdout,
+        stderr: stderr || e.message,
+      })
+    },
+  )
+  return promise
+}
+
 export function realDeps(o: {
   homedir: string
   agentDir: string
@@ -657,28 +984,30 @@ export function realDeps(o: {
   names?: HindsightNames
   apiBasePort?: number
   uiBasePort?: number
+  nativeDir?: string
+  launchAgentsDir?: string
+  label?: string
+  uvCandidates?: string[]
+  arch?: string
+  healthTimeoutMs?: number
+  ramBytes?: number
 }): HindsightDeps {
-  const env = { ...process.env, PATH: dockerPath(o.pathEnv, o.homedir) }
+  const dockerEnv = { ...process.env, PATH: dockerPath(o.pathEnv, o.homedir) }
   return {
-    docker: (args, timeoutMs = 60_000) =>
-      new Promise((resolve) => {
-        execFile(
-          'docker',
-          args,
-          { env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
-          (err, stdout, stderr) => {
-            if (!err) return resolve({ code: 0, stdout, stderr })
-            const e = err as NodeJS.ErrnoException & { code?: number | string }
-            if (e.code === 'ENOENT')
-              return resolve({ code: 127, stdout: '', stderr: 'docker not found', missing: true })
-            resolve({
-              code: typeof e.code === 'number' ? e.code : 1,
-              stdout,
-              stderr: stderr || e.message,
-            })
-          },
-        )
-      }),
+    docker: (args, timeoutMs = 60_000) => run('docker', args, dockerEnv, timeoutMs),
+    exec: (cmd, args, x = {}) =>
+      run(cmd, args, { ...process.env, ...x.env }, x.timeoutMs ?? 60_000),
+    download: async (url, dest) => {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10 * 60_000) })
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+      await pipeline(Readable.fromWeb(res.body as WebReadableStream), fs.createWriteStream(dest))
+    },
+    dirSize: async (dir) => {
+      if (!fs.existsSync(dir)) return 0
+      const r = await run('/usr/bin/du', ['-sk', dir], process.env, 60_000)
+      const kb = Number.parseInt(r.stdout, 10)
+      return Number.isFinite(kb) ? kb * 1024 : 0
+    },
     http: async (method, url, body) => {
       try {
         const res = await fetch(url, {
@@ -688,24 +1017,48 @@ export function realDeps(o: {
             ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
             : {}),
         })
-        return { status: res.status }
+        const parsed = res.ok ? ((await res.json().catch(() => undefined)) as unknown) : undefined
+        return { status: res.status, ...(parsed !== undefined ? { body: parsed } : {}) }
       } catch {
         return { status: 0 }
       }
     },
-    portFree: (port) =>
-      new Promise((resolve) => {
-        const s = net.createServer()
-        s.once('error', () => resolve(false))
-        s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)))
-      }),
-    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    portFree: (port) => {
+      const { promise, resolve } = Promise.withResolvers<boolean>()
+      const s = net.createServer()
+      s.once('error', () => resolve(false))
+      s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)))
+      return promise
+    },
+    sleep: (ms) => {
+      const { promise, resolve } = Promise.withResolvers<void>()
+      setTimeout(resolve, ms)
+      return promise
+    },
     homedir: o.homedir,
     agentDir: o.agentDir,
     configDir: o.configDir,
     names: o.names ?? DEFAULT_NAMES,
     apiBasePort: o.apiBasePort ?? HINDSIGHT_API_BASE_PORT,
     uiBasePort: o.uiBasePort ?? HINDSIGHT_UI_BASE_PORT,
-    healthTimeoutMs: 180_000,
+    healthTimeoutMs: o.healthTimeoutMs ?? 15 * 60_000,
+    ramBytes: o.ramBytes ?? os.totalmem(),
+    toolPath: [
+      dockerPath(o.pathEnv, o.homedir),
+      path.join(o.homedir, '.bun/bin'),
+      path.join(o.homedir, '.local/bin'),
+      path.join(o.homedir, '.npm-global/bin'),
+    ].join(':'),
+    arch: o.arch ?? process.arch,
+    uid: process.getuid?.() ?? 0,
+    nativeDir: o.nativeDir ?? path.join(o.homedir, 'Library/Application Support/Relay/hindsight'),
+    launchAgentsDir: o.launchAgentsDir ?? path.join(o.homedir, 'Library/LaunchAgents'),
+    label: o.label ?? NATIVE_LABEL,
+    uvCandidates: o.uvCandidates ?? [
+      '/opt/homebrew/bin/uv',
+      '/usr/local/bin/uv',
+      path.join(o.homedir, '.local/bin/uv'),
+      path.join(o.homedir, '.cargo/bin/uv'),
+    ],
   }
 }
