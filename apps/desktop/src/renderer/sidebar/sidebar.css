@@ -108,18 +108,6 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-scroll > .eva-scroll {
   height: 100%;
 }
-.eva-sb-section {
-  font-size: var(--eva-fz-caption);
-  font-weight: var(--eva-fw-regular);
-  color: var(--eva-text-dim);
-}
-.eva-sb-section-main {
-  padding: var(--eva-space-native-xs) var(--eva-space-xs) var(--eva-space-xs);
-}
-/* The Dashboards group: more space above it than between its rows. */
-.eva-sb-dashboards {
-  margin-top: var(--mantine-spacing-sm);
-}
 .eva-sb-row {
   display: flex;
   align-items: center;

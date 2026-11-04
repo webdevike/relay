@@ -128,6 +128,7 @@ describe('loadLayout', () => {
                 dock: null,
                 tiling: null,
                 legacyPanel: null,
+                sidebar: null,
                 reset: false,
                 ...value,
               },

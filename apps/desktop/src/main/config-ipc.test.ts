@@ -33,6 +33,7 @@ describe('layout', () => {
       dock: null,
       tiling: null,
       legacyPanel: null,
+      sidebar: null,
       reset: false,
     })
     fs.writeFileSync(path.join(dir, 'layout.json'), '{not json')
@@ -74,6 +75,13 @@ describe('layout', () => {
     expect(loadLayout(config)).toMatchObject({ dock, tiling: null, legacyPanel: null })
     expect(read('layout.json')).not.toHaveProperty('tiling')
     expect(read('layout.json')).not.toHaveProperty('panel_width')
+  })
+  it('keeps the sidebar customization across dock saves and reloads', () => {
+    const sidebar = { badgeStyle: 'dot', visibility: { jobs: 'badged' }, favorites: [] }
+    saveLayout(config, { sidebar })
+    saveLayout(config, { sidebarWidth: 280 })
+    expect(loadLayout(config)).toMatchObject({ sidebar, sidebarWidth: 280 })
+    expect(read('layout.json')).toHaveProperty('sidebar', sidebar)
   })
   it('queue survives a rejected task', async () => {
     const q = createWriteQueue()
