@@ -3,6 +3,7 @@ import { createStore } from 'zustand/vanilla'
 import type { FileContent, FileEntry, FileVersion, GitStatus, SearchResult } from '@evaos/contract'
 import { registerDirty } from '../dirty/dirty-store'
 import { invoke, on } from '../ipc'
+import { recordFile } from '../tiling/recent'
 import { ancestorsOf, nameOf, parentOf } from './tree-model'
 
 export interface EditorTab {
@@ -346,6 +347,7 @@ let revealNonce = 0
 export function openFile(root: string, path: string, opts: OpenOptions = {}): void {
   const w = space(root)
   if (!w) return
+  recordFile(root, path)
   const pin = opts.pin === true
   const existing = w.tabs.find((t) => t.path === path)
   const reveal: Reveal | null =

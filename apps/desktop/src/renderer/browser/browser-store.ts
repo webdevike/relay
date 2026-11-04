@@ -3,6 +3,7 @@ import { createStore } from 'zustand/vanilla'
 import { notifications } from '@mantine/notifications'
 import type { TabState, TabsSnapshot } from '@evaos/contract'
 import { invoke, on } from '../ipc'
+import { recordPage } from '../tiling/recent'
 import { reportScopeTabs } from '../tiling/tiling-store'
 
 export interface BrowserState {
@@ -19,6 +20,8 @@ export const browserStore = createStore<BrowserState>((set) => ({
   scope: '',
   set: (s) => {
     set({ tabs: s.tabs, activeId: s.activeId, scope: s.scope })
+    const front = s.tabs.find((t) => t.id === s.activeId)
+    if (front && !front.blank && !front.loading && !front.error) recordPage(front.url, front.title)
     reportScopeTabs(
       s.scope,
       s.tabs.filter((t) => !t.pinned).map((t) => t.id),

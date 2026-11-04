@@ -128,7 +128,7 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
         ref={input}
         className="eva-address-input"
         size="xs"
-        placeholder="Search or enter address"
+        placeholder="Search, URL, or port such as 3000"
         aria-label="Address"
         data-testid="address-input"
         value={text}
