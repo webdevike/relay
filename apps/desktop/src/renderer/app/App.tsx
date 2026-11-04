@@ -24,6 +24,7 @@ import { Shell } from '../shell/Shell'
 import { RelayPinModal } from '../settings/RelayPinModal'
 import { startAgentControl } from '../agent/control'
 import { startUpdate } from '../update/update-store'
+import { startMemoryWatch } from '../setup/memory-watch'
 import { startContext } from '../context/context-store'
 import { startDeepLinks } from '../navigation/deep-links'
 import { Spotlight } from '../tour/Spotlight'
@@ -78,6 +79,8 @@ export function App() {
   const profile = useProfile()
   // The habit gate is Isaac's: a starter home never polls it or shows its break screen.
   useEffect(() => (profile === 'eva' ? startHabits() : undefined), [profile])
+  // A starter home's memory runs here; tell the user when it stops saving.
+  useEffect(() => (profile === 'starter' ? startMemoryWatch() : undefined), [profile])
   return (
     <>
       <Shell />

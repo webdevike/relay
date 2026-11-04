@@ -110,36 +110,75 @@ export const SetupRunSchema = z.discriminatedUnion('task', [
     hostName: z.string().min(1).max(100),
   }),
   /**
-   * Long-term memory (Hindsight in Docker). `install` is idempotent; `disable` stops it and points omp
-   * back at its own memory, keeping the data; `remove` also deletes the container and its data.
+   * Long-term memory (Hindsight). `install` is idempotent and installs Relay's own copy (no Docker)
+   * unless `engine` is `docker`, the fallback when that fails; `llm: local` also runs a model on
+   * this Mac. `update` upgrades the native install; `restart` starts it again; `relogin` signs in
+   * to ChatGPT again; `disable` stops it and points omp back at its own memory, keeping the data;
+   * `remove` also deletes the install and its data.
    */
   z.object({
     task: z.literal('hindsight'),
-    action: z.enum(['install', 'disable', 'remove']),
+    action: z.enum(['install', 'update', 'restart', 'relogin', 'disable', 'remove']),
+    engine: z.enum(['native', 'docker']).optional(),
+    llm: z.enum(['auto', 'local']).optional(),
     root: z.string().min(1).max(1000),
     userName: z.string().max(80).optional(),
-    /** An LLM API key for Hindsight when none is already on this Mac. Never logged. */
-    key: z.string().min(1).max(500).optional(),
-    keyProvider: SetupProviderSchema.optional(),
   }),
 ])
 export type SetupRun = z.infer<typeof SetupRunSchema>
 
 const Empty = z.object({})
 
-/** What Docker and the Hindsight container look like right now (setup.hindsight.status). */
+/** A model run by Relay on this Mac, for Hindsight's own reading. */
+export const HindsightLocalSchema = z.object({
+  model: z.string(),
+  downloadBytes: z.number(),
+  /** Memory it holds while running. */
+  ramBytes: z.number(),
+  installed: z.boolean(),
+  running: z.boolean(),
+})
+export type HindsightLocal = z.infer<typeof HindsightLocalSchema>
+
+/** `login`: the ChatGPT login expired. `llm`: the model errors. `down`: the service is not running. */
+export const HindsightProblemSchema = z.object({
+  kind: z.enum(['login', 'llm', 'down']),
+  message: z.string(),
+  fix: z.enum(['sign-in', 'restart']),
+})
+export type HindsightProblem = z.infer<typeof HindsightProblemSchema>
+
+/** What Relay's Hindsight install looks like right now (setup.hindsight.status). */
 export const HindsightStatusSchema = z.object({
-  /** `missing`: no docker CLI. `down`: CLI present, daemon not answering. */
-  docker: z.enum(['missing', 'down', 'ok']),
-  container: z.enum(['none', 'stopped', 'running']),
+  /** Which install is in use: Relay's own (`native`), the Docker fallback, or none yet. */
+  engine: z.enum(['none', 'native', 'docker']),
+  /** The native install can run on this Mac (Apple Silicon); false on Intel. */
+  nativeSupported: z.boolean(),
+  /**
+   * The Docker fallback. `missing`: no docker CLI. `down`: CLI present, daemon not answering.
+   * `unchecked`: not looked at because the native install is in use.
+   */
+  docker: z.enum(['missing', 'down', 'ok', 'unchecked']),
+  service: z.enum(['none', 'stopped', 'running']),
   healthy: z.boolean(),
   apiUrl: z.string().nullable(),
   uiUrl: z.string().nullable(),
   bankId: z.string().nullable(),
-  /** omp's config.yml points at this container. */
+  /** omp's config.yml points at this service. */
   configured: z.boolean(),
-  /** Hindsight can already reach an LLM without asking the user for a key. */
-  llmReady: z.boolean(),
+  /** What Hindsight reads your conversations with right now: a saved choice, a ChatGPT login, an AI key from setup, or nothing yet. */
+  llm: z.enum(['saved', 'codex', 'key', 'none']),
+  /**
+   * The model that can run on this Mac (null when this Mac cannot, or a ChatGPT login makes it
+   * pointless): what it is, what it costs to download and run, and whether it is installed.
+   */
+  local: HindsightLocalSchema.nullable(),
+  /** Why memory is not saving, when it is not (null when fine or not set up). */
+  problem: HindsightProblemSchema.nullable(),
+  /** The installed hindsight-api version (native only). */
+  version: z.string().nullable(),
+  /** Disk used by the native install, models and memories included. */
+  diskBytes: z.number().nullable(),
 })
 export type HindsightStatus = z.infer<typeof HindsightStatusSchema>
 
