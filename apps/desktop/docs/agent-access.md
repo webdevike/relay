@@ -45,6 +45,16 @@ live in `@evaos/chat-core/widget` and `@relay/protocol` (same grammar, tested bo
 `link` builds one from `{page, section, setting, connection, item, ...}` and answers
 `{url, label, markdown}`.
 
+## Which Mac
+
+Agents run on the Mini; Isaac may be on the MacBook (a thin client of the Mini's Relay Host).
+relay-ctl and relay-mcp send every action to `--device active` by default (relay-mcp: a `device`
+argument on each tool, `relay_devices` lists them): the Mini's Relay Host forwards it
+(`POST /control/run`, apps/linux README "Remote control") to the desktop Isaac used last, the
+Mini's own app while none has been used, and that desktop runs it exactly like a local request.
+`--device <id or name>` picks one, `--device local` skips the host. Toasts (Undo, approvals,
+"waiting for you to finish typing") show on the Mac that ran the action.
+
 ## Rules
 
 - Settings changes: ask Isaac first. Every agent change shows "<Agent> changed <setting> to <value> · Undo"; `settings.undo` and the toast's Undo put it back.

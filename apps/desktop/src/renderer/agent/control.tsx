@@ -11,6 +11,7 @@ import { readState, rendererActions } from './actions'
 import { actorOf, announceChange } from './access'
 import { decide, isTyping, snapshotFocus, withFocusHold } from './focus-safety'
 import { isAway, startScopeWatch } from './scope'
+import { startPresence } from './presence'
 
 interface Queued {
   action: AgentActionId
@@ -171,6 +172,7 @@ export function startAgentControl(): () => void {
     askIsaac(id, title, detail, timeoutMs),
   )
   const offScopes = startScopeWatch()
+  const offPresence = startPresence()
   // focusout fires before the next element takes focus; check once it has.
   const later = (): void => void setTimeout(drain, 0)
   document.addEventListener('focusout', later, true)
@@ -179,6 +181,7 @@ export function startAgentControl(): () => void {
     offRun()
     offConfirm()
     offScopes()
+    offPresence()
     document.removeEventListener('focusout', later, true)
     window.removeEventListener('blur', later)
   }

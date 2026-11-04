@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { randomBytes } from 'node:crypto'
+import * as os from 'node:os'
 import {
   AGENT_PAGES,
   AGENT_SETTINGS_SECTIONS,
@@ -16,19 +17,28 @@ import { emit, handle } from '../ipc/handle'
 import { createReplyRegistry } from '../quit-guard'
 import { removeControlFile, writeControlFile } from './control-file'
 import { runAgentRequest } from './run'
+import { startRemoteControl, type RemoteControl } from './remote'
 import { captureWindow } from './screenshot'
-import { startControlServer } from './server'
+import { startControlServer, type RunBody } from './server'
 import { artifactsRunners } from '../relay/artifacts-agent'
 import { canvasLiveRunners } from '../relay/canvas-live-agent'
 import { studioRunners } from '../relay/studio-agent'
-import type { RelayArtifacts, RelayCanvas, RelaySource, RelayStudio } from '../relay/client'
+import type {
+  RelayArtifacts,
+  RelayCanvas,
+  RelayFrames,
+  RelaySource,
+  RelayStudio,
+} from '../relay/client'
 
 const RENDERER_TIMEOUT_MS = 15_000
 const CONFIRM_TIMEOUT_MS = 60_000
 
 /**
  * The agent control API (see server.ts): agents drive the app through the action registry in
- * @evaos/contract instead of CDP. Nothing here shows, raises or focuses the window.
+ * @evaos/contract instead of CDP. Nothing here shows, raises or focuses the window. The same
+ * requests also arrive from the Relay Host (remote.ts), for agents on the Mini when Isaac uses
+ * this Mac.
  */
 export function registerAgentControl(
   ctx: MainContext,
@@ -37,6 +47,7 @@ export function registerAgentControl(
   canvas: RelayCanvas,
   studio: RelayStudio & Pick<RelayCanvas, 'canvasOrigin'>,
   connections: Connections,
+  frames: RelayFrames,
 ): void {
   const runs = createReplyRegistry()
   const confirms = createReplyRegistry()
@@ -46,6 +57,16 @@ export function registerAgentControl(
   })
   handle(ctx, 'agent.confirm.reply', ({ id, approved }) => {
     confirms.resolve(id, approved)
+    return {}
+  })
+  // When Isaac last used the window and what is in front, for the host's "active" Mac.
+  let lastInputAt: number | null = null
+  let page: string | null = null
+  let remote: RemoteControl | null = null
+  handle(ctx, 'agent.presence', ({ page: p, input }) => {
+    page = p
+    if (input) lastInputAt = Date.now()
+    remote?.changed()
     return {}
   })
   if (!ctx.env.agentControl) return
@@ -115,31 +136,28 @@ export function registerAgentControl(
   }
 
   const token = randomBytes(32).toString('hex')
-  void startControlServer({
-    token,
-    catalog: agentCatalog,
-    screenshot,
-    run: (id, body) =>
-      runAgentRequest(id, body, {
-        run: async (aid, spec, params) => {
-          if (spec.side === 'renderer') return renderer(aid, params)
-          const fn = main[aid as keyof typeof main] as (p: unknown) => unknown
-          return { ok: true, value: await fn(params) }
-        },
-        ask: (aid, spec, params) =>
-          confirms.request<boolean>(
-            (id) =>
-              emit(ctx, 'agent.confirm', {
-                id,
-                title: spec.title,
-                detail: `${aid} ${JSON.stringify(params)}`.slice(0, 300),
-                timeoutMs: CONFIRM_TIMEOUT_MS,
-              }),
-            CONFIRM_TIMEOUT_MS,
-            false,
-          ),
-      }),
-  })
+  const run = (id: string, body: RunBody): Promise<AgentResult> =>
+    runAgentRequest(id, body, {
+      run: async (aid, spec, params) => {
+        if (spec.side === 'renderer') return renderer(aid, params)
+        const fn = main[aid as keyof typeof main] as (p: unknown) => unknown
+        return { ok: true, value: await fn(params) }
+      },
+      ask: (aid, spec, params) =>
+        confirms.request<boolean>(
+          (id) =>
+            emit(ctx, 'agent.confirm', {
+              id,
+              title: spec.title,
+              detail: `${aid} ${JSON.stringify(params)}`.slice(0, 300),
+              timeoutMs: CONFIRM_TIMEOUT_MS,
+            }),
+          CONFIRM_TIMEOUT_MS,
+          false,
+        ),
+    })
+
+  void startControlServer({ token, catalog: agentCatalog, screenshot, run })
     .then((server) => {
       const file = writeControlFile(ctx.env.configDir, { port: server.port, token })
       app.on('will-quit', () => removeControlFile(file))
@@ -149,4 +167,26 @@ export function registerAgentControl(
     .catch((e: unknown) => {
       console.error('Agent control did not start:', e)
     })
+
+  const live = startRemoteControl({
+    frames,
+    run,
+    catalog: agentCatalog,
+    presence: () => ({
+      name: os.hostname().replace(/\.local$/, ''),
+      instance: ctx.env.instance,
+      idleMs: lastInputAt === null ? null : Math.max(0, Date.now() - lastInputAt),
+      page,
+      focused: !ctx.win.isDestroyed() && ctx.win.isFocused(),
+      remote: ctx.env.relayRemote !== null,
+    }),
+  })
+  remote = live
+  // Bringing the window forward is using it; leaving it changes only `focused`.
+  ctx.win.on('focus', () => {
+    lastInputAt = Date.now()
+    live.changed()
+  })
+  ctx.win.on('blur', () => live.changed())
+  ctx.onBeforeQuit(async () => live.stop())
 }

@@ -15,7 +15,7 @@ import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
 import type { ActivityRelaying } from "../src/activity/service";
 import type { QueryRelaying } from "../src/query/service";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FilePresenceRelaying, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type ReviewsRelaying, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
+import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type ControlRelaying, type DeviceStore, type DropBox, type FilePresenceRelaying, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type ReviewsRelaying, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
 import { ltxSpec, studioHarness } from "./studio-fakes";
 
@@ -124,6 +124,7 @@ interface HarnessOptions {
   reviews?: ReviewsRelaying;
   query?: QueryRelaying;
   files?: FilePresenceRelaying;
+  control?: ControlRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -181,6 +182,7 @@ function harness(options: HarnessOptions = {}): Harness {
     reviews: options.reviews ?? null,
     query: options.query ?? null,
     files: options.files ?? null,
+    control: options.control ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1259,6 +1261,45 @@ describe("files presence", () => {
       ["saved", "/Users/ike/Eva/a.md", "abc"],
       ["drop", true],
     ]);
+  });
+});
+
+describe("remote control", () => {
+  it("says so on welcome, registers this socket's desktop with where it connects from, and drops it on close", () => {
+    const calls: unknown[] = [];
+    const control = (address: string) =>
+      harness({
+        remoteAddress: address,
+        control: {
+          presence: (client, p) => calls.push(["presence", client.device, client.loopback, p.name, p.idleMs]),
+          result: (_sink, rid, result) => calls.push(["result", rid, result]),
+          drop: () => calls.push(["drop"]),
+        },
+      });
+    const local = control("127.0.0.1");
+    pair(local, "relay-desktop");
+    expect(local.sink.last()).toMatchObject({ t: "welcome", features: ["control"] });
+    const presence = { t: "control.presence", name: "Isaacs-Mac-mini", instance: "stable", idleMs: 40, page: "chat", focused: true, remote: false } as const;
+    local.session.receive(presence);
+    local.session.receive({ t: "control.res", rid: "ctl-1", result: { ok: true, value: { text: "hi" } } });
+    local.session.handleDisconnect();
+    const lan = control("192.168.1.20");
+    pair(lan, "relay-desktop-book");
+    lan.session.receive({ ...presence, name: "Isaacs-MacBook-Pro" });
+    expect(calls).toEqual([
+      ["presence", "relay-desktop", true, "Isaacs-Mac-mini", 40],
+      ["result", "ctl-1", { ok: true, value: { text: "hi" } }],
+      ["drop"],
+      ["presence", "relay-desktop-book", false, "Isaacs-MacBook-Pro", 40],
+    ]);
+  });
+
+  it("closes a client that sends control.req: only the host asks a desktop to act", () => {
+    const h = harness({ control: { presence: () => undefined, result: () => undefined, drop: () => undefined } });
+    pair(h);
+    h.session.receiveRaw(JSON.stringify({ t: "control.req", rid: "r1", action: "settings.set", params: { key: "theme.mode", value: "light" } }));
+    expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
+    expect(h.sink.closed).toBe(true);
   });
 });
 
