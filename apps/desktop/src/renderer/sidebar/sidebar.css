@@ -182,25 +182,17 @@ html[data-eva-motion='off'] .eva-sb-track {
   gap: var(--eva-space-xs);
   padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-native-xs);
 }
-/* Update waiting for a restart: compact bordered card above Settings, no shadow. */
-.eva-update-card {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
-  padding: var(--mantine-spacing-xs);
-  box-sizing: border-box;
-  border: 1px solid var(--mantine-color-default-border);
-  border-radius: var(--mantine-radius-md);
-  background: var(--mantine-color-body);
-  color: var(--eva-chrome-text);
+/* Update waiting for a restart: a small quiet pill above Settings; the details open on hover. */
+.eva-update-badge {
+  align-self: flex-start;
+  margin-left: var(--eva-space-native-sm);
+  cursor: pointer;
 }
-.eva-update-card-icon {
-  flex: none;
-  color: var(--mantine-primary-color-filled);
-}
-.eva-update-card-text {
-  flex: 1;
-  min-width: 0;
+.eva-update-changes {
+  margin: 0;
+  padding-left: var(--mantine-spacing-md);
+  max-height: 180px;
+  overflow-y: auto;
 }
 /* Pinned below a sub-page's scrolling list (the chats Settled fold); opens upward, scrolls itself. */
 .eva-sb-subfooter {

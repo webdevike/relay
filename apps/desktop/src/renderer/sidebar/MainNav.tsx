@@ -13,7 +13,7 @@ import { ScrollArea } from '../ui/ScrollArea'
 import { ListRow, ListView } from '../ui/list'
 import { navIcon } from './icons'
 import { NavRow } from './NavRow'
-import { UpdateCard } from '../update/UpdateCard'
+import { UpdateBadge } from '../update/UpdateBadge'
 import { openSub } from './nav-level'
 import { countLabel, useSidebarData } from './sidebar-store'
 
@@ -159,7 +159,7 @@ export function MainNav() {
             Could not read counts. Press the refresh shortcut to try again.
           </div>
         ) : null}
-        <UpdateCard />
+        <UpdateBadge />
         <NavRow
           slug={SETTING.slug}
           title={SETTING.title}

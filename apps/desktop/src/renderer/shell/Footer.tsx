@@ -3,7 +3,7 @@ import type { AppInfo } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { UsageMeter } from '../usage/UsageMeter'
 import { restartForUpdate, useUpdate } from '../update/update-store'
-import { updateChipVisible } from '../update/update-card'
+import { updateChipVisible } from '../update/update-badge'
 import { useLayout } from './layout-store'
 
 /** True once the dev server reports a main/preload edit that HMR cannot apply. Never in packaged builds. */
