@@ -59,6 +59,20 @@ describe("openWidgetUrl", () => {
     expect(openURL).not.toHaveBeenCalled();
   });
 
+  it("opens the board and the canvas room a link names", () => {
+    openChatLink("relay://open/board/mind-map");
+    expect(navigate).toHaveBeenLastCalledWith({ pathname: "/boards", params: { slug: "mind-map" } });
+    openChatLink("relay://open/board");
+    expect(navigate).toHaveBeenLastCalledWith("/boards");
+    openChatLink("relay://open/canvas?canvas=artifacts");
+    expect(navigate).toHaveBeenLastCalledWith({ pathname: "/canvas", params: { slug: "artifacts" } });
+    const calls = navigate.mock.calls.length;
+    openChatLink("relay://open/canvas");
+    openChatLink("relay://open/canvas?canvas=Not%20A%20Slug");
+    expect(navigate).toHaveBeenCalledTimes(calls);
+    expect(openURL).not.toHaveBeenCalled();
+  });
+
   it("opens a web url externally", () => {
     openWidgetUrl("https://example.com");
     expect(openURL).toHaveBeenCalledWith("https://example.com");
