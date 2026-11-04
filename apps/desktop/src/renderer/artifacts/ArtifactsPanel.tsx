@@ -382,29 +382,18 @@ function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions
 }
 
 /** A row of the Working tab: one of this thread's helpers (from its transcripts) or anything else the host lists. */
-type WorkRow =
-  { type: 'helper'; row: TreeRow } | { type: 'activity'; item: ActivityItem; owner?: string }
-
-/** `assistant:nova` is Nova; a chat, a session of its own or nothing's is "Other chats". */
-function ownerName(owner: string): string {
-  return owner.startsWith('assistant:') ? nameOf(owner.slice('assistant:'.length)) : 'Other chats'
-}
+type WorkRow = { type: 'helper'; row: TreeRow } | { type: 'activity'; item: ActivityItem }
 
 /**
- * The Working tab: everything in progress under this thread, one row per run. Blocked on Isaac
- * first (any owner, with the question), then what this thread runs (helpers, sessions, harnesses,
- * canvas agents), then what the other owners run, then what finished today. The helpers keep the
- * rows the transcripts give them; the host's activity list adds the rest.
+ * The Working tab: what runs under this page's owner (an assistant, or the chat), one row per run,
+ * none of another assistant's, so there are no owner groups. Blocked on Isaac first (with the
+ * question), then running (helpers, sessions, harnesses, canvas agents), then finished today. The
+ * helpers keep the rows the transcripts give them; the host's activity list adds the rest.
  */
 function WorkingView({ thread, rows, now, actions }: ViewProps) {
   const activity = useActivity((s) => s.items)
   const { running, finished } = subagentTree(rows, now)
-  const sections = activitySections(
-    activity,
-    thread,
-    now,
-    ['nova', 'astra', 'polaris'].map((a) => `assistant:${a}`),
-  )
+  const sections = activitySections(activity, thread, now)
   const open = (item: ActivityItem): void => {
     openActivity(item)
   }
@@ -415,11 +404,7 @@ function WorkingView({ thread, rows, now, actions }: ViewProps) {
       id: 'waiting',
       label: 'Waiting on you',
       testid: 'working-waiting',
-      items: sections.waiting.map((item): WorkRow => ({
-        type: 'activity',
-        item,
-        owner: ownerName(item.owner),
-      })),
+      items: sections.waiting.map((item): WorkRow => ({ type: 'activity', item })),
     },
     {
       id: 'running',
@@ -427,12 +412,6 @@ function WorkingView({ thread, rows, now, actions }: ViewProps) {
       testid: 'working-running',
       items: [...running.map(helper), ...sections.mine.map(own)],
     },
-    ...sections.others.map(({ owner, items }) => ({
-      id: `owner:${owner}`,
-      label: ownerName(owner),
-      testid: `working-owner-${owner.replace(/[^a-z0-9]+/gi, '-')}`,
-      items: items.map((item): WorkRow => ({ type: 'activity', item })),
-    })),
     {
       id: 'finished',
       label: 'Finished today',
@@ -450,13 +429,7 @@ function WorkingView({ thread, rows, now, actions }: ViewProps) {
           r.type === 'helper' ? (
             <SubagentRow key={r.row.item.id} row={r.row} now={now} actions={actions} />
           ) : (
-            <ActivityRow
-              key={r.item.id}
-              item={r.item}
-              now={now}
-              {...(r.owner === undefined ? {} : { owner: r.owner })}
-              onOpen={open}
-            />
+            <ActivityRow key={r.item.id} item={r.item} now={now} onOpen={open} />
           )
         }
         empty={

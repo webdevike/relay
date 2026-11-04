@@ -9,12 +9,15 @@ import { writeHome } from '../env'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { emit, handle } from '../ipc/handle'
 import {
-  HindsightError,
   installHindsight,
   hindsightStatus,
   realDeps,
+  reloginHindsight,
   removeHindsight,
+  restartHindsight,
+  updateHindsight,
 } from './hindsight'
+import { HindsightError } from './hindsight-util'
 import {
   checkRoot,
   missingScripts,
@@ -103,10 +106,19 @@ export function registerSetup(ctx: MainContext): void {
     return { detect: detect.data }
   })
 
-  /** Hindsight's deps. RELAY_HINDSIGHT_NAME / RELAY_HINDSIGHT_PORT let a smoke run use throwaway names and ports. */
+  /**
+   * Hindsight's deps. RELAY_HINDSIGHT_NAME / PORT / DIR / LABEL / LAUNCH_AGENTS / UV / RAM_GB let a
+   * smoke run or e2e use throwaway names, ports, folders, a LaunchAgent label, a stand-in uv and a
+   * pretend amount of memory.
+   */
   const hindsightDeps = async () => {
     const name = process.env.RELAY_HINDSIGHT_NAME
     const port = Number.parseInt(process.env.RELAY_HINDSIGHT_PORT ?? '', 10)
+    const nativeDir = process.env.RELAY_HINDSIGHT_DIR
+    const label = process.env.RELAY_HINDSIGHT_LABEL
+    const launchAgentsDir = process.env.RELAY_HINDSIGHT_LAUNCH_AGENTS
+    const uv = process.env.RELAY_HINDSIGHT_UV
+    const ramGb = Number.parseInt(process.env.RELAY_HINDSIGHT_RAM_GB ?? '', 10)
     return realDeps({
       homedir: home,
       agentDir: ctx.env.agentDir,
@@ -114,6 +126,11 @@ export function registerSetup(ctx: MainContext): void {
       pathEnv: await childPathFor(ctx.env.live, home),
       ...(name ? { names: { container: name, volume: `${name}-data` } } : {}),
       ...(Number.isFinite(port) ? { apiBasePort: port, uiBasePort: port + 1000 } : {}),
+      ...(nativeDir ? { nativeDir } : {}),
+      ...(label ? { label } : {}),
+      ...(launchAgentsDir ? { launchAgentsDir } : {}),
+      ...(uv ? { uvCandidates: [uv] } : {}),
+      ...(Number.isFinite(ramGb) ? { ramBytes: ramGb * 1024 ** 3 } : {}),
     })
   }
 
@@ -136,12 +153,32 @@ export function registerSetup(ctx: MainContext): void {
               deps,
               {
                 root,
+                ...(run.engine ? { engine: run.engine } : {}),
+                ...(run.llm ? { llm: run.llm } : {}),
                 ...(run.userName ? { userName: run.userName } : {}),
-                ...(run.key ? { key: run.key, keyProvider: run.keyProvider ?? 'openai' } : {}),
               },
               say,
             )
             return { ok: true, version: r.apiUrl, message: `Running at ${r.apiUrl}` }
+          }
+          if (run.action === 'update') {
+            const r = await updateHindsight(deps, say)
+            return {
+              ok: true,
+              version: r.to,
+              message:
+                r.from === r.to
+                  ? `Already on the newest version (${r.to})`
+                  : `Updated ${r.from} to ${r.to}`,
+            }
+          }
+          if (run.action === 'restart') {
+            await restartHindsight(deps, say)
+            return { ok: true }
+          }
+          if (run.action === 'relogin') {
+            await reloginHindsight(deps, say)
+            return { ok: true }
           }
           await removeHindsight(deps, run.action, say)
           return { ok: true }

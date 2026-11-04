@@ -19,6 +19,8 @@ Isaac is asleep. Sessions run headless, one per phase. Never wait for input.
 
 ## Isaac's decisions
 
+- Phone parity (Isaac, 2026-11-04): anything user-facing that makes sense on a phone (chat features, cards and widgets, assistants, Working/activity, notifications, meetings, approvals, avatar editing) ships to apps/mobile in the same change, not later. Desktop-only is fine for desktop concepts (window/panes, Terminal, Files editor, sidebar layout, updater). Say in your result which parts reached mobile and how they ship (OTA vs new TestFlight build).
+
 - Browser keeps Bitwarden and Arc login import; do not drop them as anti-features. Prefer real Chrome extensions over reimplementation: load them with `electron-chrome-extensions` + `electron-chrome-web-store` (Bitwarden extension from the Chrome Web Store) in the browser panel's session. If the roadmap omitted this, add it to the browser phase (or insert a decimal phase) before marking browser parity complete.
 
 <!-- GSD:project-start source:PROJECT.md -->
