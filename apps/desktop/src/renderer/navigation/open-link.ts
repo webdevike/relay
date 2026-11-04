@@ -1,9 +1,13 @@
-import { resolveLink } from '@evaos/contract'
-import { parseAppLink } from '@evaos/chat-core/widget'
+import { resolveLink, settingsSectionOf } from '@evaos/contract'
+import { parseAppLink, type AppLink } from '@evaos/chat-core/widget'
 import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { openReviewItem } from '../reviews/reviews-store'
-import { revealTool } from '../tiling/tiling-store'
+import { openArmTab, revealTool } from '../tiling/tiling-store'
+import { requestExperiment } from '../test-bench/bench-request'
+import { requestStudioOpen } from '../studio/studio-store'
+import { pointAtSetting } from '../settings/setting-targets'
+import { focusConnection } from '../settings/connections-store'
 import { linkPrefsStore } from './link-prefs'
 import { openInApp } from './open-in-app'
 import type { OpenTarget } from './open-target'
@@ -16,15 +20,14 @@ export interface OpenLinkOptions {
 }
 
 /**
- * Opens a link. `relay://assistant/<id>` and `relay://open/<page>` are in-app places (never the
+ * Opens a link. `relay://assistant/<id>` and `relay://open/...` are in-app places (never the
  * browser) and open per `target`. A web link goes where Settings > Links says: an item in Reviews
  * (in-app, per `target`), a new tab of the current scope's browser, or (an app, a URL scheme, the
  * default browser) through main. Other schemes go nowhere.
  */
 export function openLink(href: string, opts: OpenLinkOptions = {}): void {
   if (href.startsWith('relay://')) {
-    const place = appLinkPlace(href)
-    if (place !== null) openInApp(place, opts.target)
+    openAppLink(href, opts.target)
     return
   }
   const { prefs, apps } = linkPrefsStore.getState()
@@ -46,11 +49,45 @@ export function openLink(href: string, opts: OpenLinkOptions = {}): void {
   })
 }
 
-/** The place a `relay://` link names, or null for one this app can't open. */
-function appLinkPlace(href: string): Place | null {
+/**
+ * Opens a `relay://` link: the place it names per `target`, then what it shows there (a Reviews
+ * item, a Test Bench run and arm, a Studio job, a setting's control pointed out, a connection's
+ * Connect step). False when it names nothing this app opens.
+ */
+export function openAppLink(href: string, target?: OpenTarget): boolean {
   const link = parseAppLink(href)
-  if (link === null) return null
+  const place = link === null ? null : appLinkPlace(link)
+  if (link === null || place === null) return false
+  if (link.kind === 'open' && link.params?.experiment !== undefined) {
+    requestExperiment(link.params.experiment)
+  }
+  openInApp(place, target)
+  if (link.kind === 'assistant') return true
+  const { item, job, setting, connect, experiment, arm } = link.params ?? {}
+  if (item !== undefined) openReviewItem(item)
+  if (job !== undefined) requestStudioOpen({ job })
+  if (experiment !== undefined && arm !== undefined) openArmTab({ experiment, arm, label: arm })
+  if (connect !== undefined) focusConnection(connect)
+  if (setting !== undefined) pointAtSetting(setting)
+  return true
+}
+
+/** The place a `relay://` link names, or null for one this app can't open. */
+export function appLinkPlace(link: AppLink): Place | null {
   if (link.kind === 'assistant') return placeOf(`agent:${link.id}`)
+  const params = link.params ?? {}
+  if (link.page === 'workspace' || link.page === 'board') {
+    return link.sub === undefined ? null : placeOf(`${link.page}:${link.sub}`)
+  }
   const page = pageFromKey(link.page)
-  return page === null ? null : placeOf(page)
+  if (page === null) return null
+  if (page === 'settings') {
+    const section = link.sub === undefined ? 'Theme' : settingsSectionOf(link.sub)
+    return section === null ? null : placeOf('settings', { settingsSection: section })
+  }
+  if (link.sub !== undefined) return null
+  return placeOf(page, {
+    ...(page === 'canvas' && params.canvas !== undefined ? { canvas: params.canvas } : {}),
+    ...(page === 'meetings' && params.meeting !== undefined ? { meeting: params.meeting } : {}),
+  })
 }

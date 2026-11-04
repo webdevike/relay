@@ -64,7 +64,7 @@ export function ThemeSection() {
 
   return (
     <div className="eva-theme-split" data-testid="theme-editor">
-      <aside className="eva-theme-tools" aria-label="Theme properties">
+      <aside className="eva-theme-tools" aria-label="Theme properties" data-tour="theme-properties">
         <Group className="eva-theme-picker-row" gap="xs" wrap="nowrap">
           <div className="eva-theme-picker">
             <ThemePicker onChange={applyPreset} options={options} value={preset} />

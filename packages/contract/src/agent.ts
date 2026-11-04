@@ -12,6 +12,17 @@ import {
   StudioJobStateSchema,
   StudioModeSchema,
 } from './studio'
+import {
+  AGENT_FIXED_PAGES,
+  AgentLinkParamsSchema,
+  AgentSettingKeySchema,
+  AgentSettingsSectionSchema,
+  ConnectionIdSchema,
+  LinearKeySchema,
+  TourTargetSchema,
+  parseSettingValue,
+} from './agent-access'
+import { parseAppLink } from '@evaos/chat-core/widget'
 
 /**
  * Agent control: every user-reachable action an agent (Eva, Nova, any omp session) may run in the
@@ -51,22 +62,6 @@ export interface AgentActionSpec {
   /** A `panel` action that lays out the whole window: the request's scope does not apply. */
   unscoped?: boolean
 }
-
-/** Top-level pages (shell-core FixedPage); `workspace:`, `agent:` and `board:` keys open details. */
-export const AGENT_FIXED_PAGES = [
-  'dashboard',
-  'assistants',
-  'chat',
-  'jobs',
-  'test-bench',
-  'habits',
-  'meetings',
-  'canvas',
-  'rooms',
-  'studio',
-  'reviews',
-  'settings',
-] as const
 
 /** Hotkey-router actions (shell-core ActionId) an agent may run; `focus-search` is left out. */
 export const AGENT_SHORTCUTS = [
@@ -110,7 +105,7 @@ const PageTabArgs = z
         .max(300)
         .regex(/^(workspace|board):.+$/),
     ]),
-    settingsSection: z.enum(['Theme', 'Chat', 'Links', 'About', 'Changelog']).optional(),
+    settingsSection: AgentSettingsSectionSchema.optional(),
     canvas: z.string().max(200).optional(),
     meeting: z.string().max(500).optional(),
     /** Reviews only: the item to open (a GitHub PR, Linear issue or Slack message link). */
@@ -238,7 +233,7 @@ export const agentActions = {
             .regex(/^(workspace|agent|board):.+$/),
         ]),
         newTab: z.boolean().optional(),
-        settingsSection: z.enum(['Theme', 'Chat', 'Links', 'About', 'Changelog']).optional(),
+        settingsSection: AgentSettingsSectionSchema.optional(),
         canvas: z.string().max(200).optional(),
         meeting: z.string().max(500).optional(),
         item: ReviewItemUrl.optional(),
@@ -695,6 +690,153 @@ export const agentActions = {
       }),
     side: 'renderer',
     focus: 'panel',
+    destructive: false,
+  },
+  describe: {
+    title: 'Describe the screen',
+    description:
+      'What Isaac sees now, in plain words and as data: the page in front (its title, Settings section, open chat, Reviews item, board) with its deep link, what is selected, each pane on screen with its tabs, the controls on screen a tour can point at (`target`, label), and whether the window is in front. Changes nothing.',
+    params: Empty,
+    side: 'renderer',
+    focus: 'none',
+    destructive: false,
+  },
+  'pages.list': {
+    title: 'List the pages',
+    description:
+      'Every page and Settings section: its key, what it shows, its relay:// deep link, and which actions and settings read or change it there.',
+    params: Empty,
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+  },
+  'settings.get': {
+    title: 'Read settings',
+    description:
+      'Every setting an agent may change (or one `key`, or one `section`): key, title, Settings section, current value, the values it takes when they are few (theme presets with their names, light/dark, primary colors), and its deep link.',
+    params: z
+      .object({
+        key: AgentSettingKeySchema.optional(),
+        section: AgentSettingsSectionSchema.optional(),
+      })
+      .strict(),
+    side: 'renderer',
+    focus: 'none',
+    destructive: false,
+  },
+  'settings.set': {
+    title: 'Change a setting',
+    description:
+      'Changes one setting (keys and value types: settings.get): `theme.mode` light|dark, `theme.preset` a theme\'s value or name, `theme.primaryColor`, `theme.radius`, `theme.scale`, `theme.fontFamily`, `theme.colors.<light|dark>.<slot>` #rrggbb, `chat.showThinking`, `chat.showTools`, `chat.harness`. Ask Isaac first. He sees a toast "<you> changed <setting> to <value>" with Undo. Answers the previous value and a `changeId` for settings.undo.',
+    params: z
+      .object({ key: AgentSettingKeySchema, value: z.unknown(), scope })
+      .strict()
+      .superRefine((v, ctx) => {
+        const r = parseSettingValue(v.key, v.value)
+        if (!r.ok) ctx.addIssue({ code: 'custom', path: ['value'], message: r.message })
+      }),
+    side: 'renderer',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'settings.undo': {
+    title: 'Undo a setting change',
+    description:
+      "Puts a setting back as it was before an agent's settings.set: `changeId` from its answer, else the latest agent change not undone yet. Same as the toast's Undo.",
+    params: z.object({ changeId: z.string().min(1).max(64).optional(), scope }).strict(),
+    side: 'renderer',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'connections.list': {
+    title: 'List connections',
+    description:
+      'The services Relay reads from or signs in to (Relay Host, GitHub, Linear, Slack, Claude, ChatGPT): status, who it is signed in as, where it comes from, what uses it, whether Relay can add or remove it, and its deep link. Never any part of a secret.',
+    params: Empty,
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+  },
+  'connections.add': {
+    title: 'Add a connection',
+    description:
+      "Connects a service. Ask Isaac first. Linear with `secret` (a lin_api_ key he gave you) saves it to Relay's config (0600) and checks it; it is never echoed back. Anything that needs his sign-in (GitHub, Claude, ChatGPT, Linear without a key, pairing a Relay Host) answers `needs-user` with a relay:// `link` to its row in Settings > Connections and the `step` he takes there: send him the link.",
+    params: z
+      .object({ id: ConnectionIdSchema, secret: LinearKeySchema.optional(), scope })
+      .strict()
+      .refine((v) => v.secret === undefined || v.id === 'linear', {
+        message: 'only linear takes a secret',
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'connections.remove': {
+    title: 'Remove a connection',
+    description:
+      "Disconnects a service Relay manages: Linear (the key Relay saved) or GitHub (gh auth logout). Needs confirm and Isaac's approval. A key that comes from elsewhere (an env var, Eva's secrets) is not touched; the refusal says where it lives.",
+    params: z.object({ id: ConnectionIdSchema, scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: true,
+    scoped: true,
+  },
+  link: {
+    title: 'Build a deep link',
+    description:
+      "A relay:// link to a page (`page`), a Settings section (`section`), a setting (`setting`, which points its control out), a connection's Connect step (`connection`), a Reviews item (`item`), a board (`canvas`), a Test Bench run (`experiment`, `arm`) or a Studio job (`job`). Answers {url, label, markdown}: put `markdown` in a chat reply and it shows as a button that opens that place (desktop and iPhone). Changes nothing.",
+    params: AgentLinkParamsSchema,
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+  },
+  'link.open': {
+    title: 'Open a deep link',
+    description:
+      'Opens a relay:// link (from `link`) in the app: `here` in the app tab in front (default), `tab` a new app tab, `split` beside the chat.',
+    params: z
+      .object({
+        url: z
+          .string()
+          .max(4096)
+          .refine((u) => parseAppLink(u) !== null, { message: 'a relay:// link (see link)' }),
+        target: z.enum(['here', 'tab', 'split']).optional(),
+      })
+      .strict(),
+    side: 'renderer',
+    focus: 'main',
+    destructive: false,
+  },
+  'tour.highlight': {
+    title: 'Point out a control',
+    description:
+      'Spotlights one control on screen (a `target` from describe: its data-tour or data-testid) and shows `caption` beside it, for a tour or to show where something is. It stays until Isaac clicks, presses Escape, the next highlight, tour.clear or `ms` (default 15 s). Changes nothing; answers where the control is. Open its page first (page.open, link.open).',
+    params: z
+      .object({
+        target: TourTargetSchema,
+        caption: z.string().trim().min(1).max(300),
+        title: z.string().trim().min(1).max(80).optional(),
+        /** "Step 2 of 5" under the caption. */
+        step: z
+          .object({ n: z.number().int().min(1), of: z.number().int().min(1) })
+          .strict()
+          .optional(),
+        ms: z.number().int().min(1000).max(120_000).optional(),
+      })
+      .strict(),
+    side: 'renderer',
+    focus: 'none',
+    destructive: false,
+  },
+  'tour.clear': {
+    title: 'Clear the spotlight',
+    description: 'Removes the tour.highlight spotlight.',
+    params: Empty,
+    side: 'renderer',
+    focus: 'none',
     destructive: false,
   },
 } as const satisfies Record<string, AgentActionSpec>

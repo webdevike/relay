@@ -8,6 +8,7 @@ import {
 } from '@evaos/contract'
 import { invoke, on } from '../ipc'
 import { readState, rendererActions } from './actions'
+import { actorOf, announceChange } from './access'
 import { decide, isTyping, snapshotFocus, withFocusHold } from './focus-safety'
 import { isAway, startScopeWatch } from './scope'
 
@@ -94,6 +95,12 @@ export async function dispatch(action: string, params: unknown): Promise<AgentRe
     } catch (e) {
       return errorResult(e)
     }
+  }
+  // Main's connections.* say what they changed, as the agent that asked.
+  if (action === '@announce') {
+    const p = params as { scope?: string; text?: string }
+    announceChange(`${actorOf(p.scope)} ${p.text ?? 'changed something'}`)
+    return { ok: true, value: {} }
   }
   if (!isAgentActionId(action)) {
     return { ok: false, code: 'unknown-action', message: `No action ${action}` }

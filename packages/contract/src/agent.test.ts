@@ -10,9 +10,9 @@ import {
 import { EVENT_CHANNELS, INVOKE_CHANNELS } from './index'
 
 describe('agent action registry', () => {
-  it('names every action <area>[.<part>].<verb> with a title, description and side', () => {
+  it('names every action <area>[.<part>].<verb> (or a bare verb) with a title, description and side', () => {
     for (const id of AGENT_ACTION_IDS) {
-      expect(id).toMatch(/^[a-z]+(?:\.[a-z]+)?\.[a-zA-Z]+$/)
+      expect(id).toMatch(/^[a-z]+(?:\.[a-z]+)?(?:\.[a-zA-Z]+)?$/)
       const a = agentActions[id]
       expect(a.title.length).toBeGreaterThan(0)
       expect(a.description.length).toBeGreaterThan(0)
@@ -28,9 +28,9 @@ describe('agent action registry', () => {
     expect(files.params).toMatchObject({ required: ['path'], additionalProperties: false })
   })
 
-  it('marks quitting and sending as Isaac destructive, nothing else', () => {
+  it('marks quitting, sending as Isaac and removing a connection destructive, nothing else', () => {
     const destructive = AGENT_ACTION_IDS.filter((id) => agentActions[id].destructive)
-    expect(destructive.sort()).toEqual(['app.quit', 'chat.start'])
+    expect(destructive.sort()).toEqual(['app.quit', 'chat.start', 'connections.remove'])
   })
 
   it('says what each action replaces, so it can wait while Isaac types there', () => {

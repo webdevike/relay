@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_CHILDREN,
   MAX_DEPTH,
+  buildAppLink,
   parseAppLink,
   parseAssistantAvatar,
   parseWidget,
@@ -143,6 +144,45 @@ describe('parseWidget', () => {
       'https://example.com',
     ])
       expect(parseAppLink(bad)).toBeNull()
+  })
+
+  it('reads page parts and params, and builds the same link back', () => {
+    const links = [
+      'relay://open/settings/connections',
+      'relay://open/settings/connections?connect=github',
+      'relay://open/settings/theme?setting=theme.colors.dark.body',
+      'relay://open/workspace/relay-agent-access',
+      'relay://open/board/mind-map',
+      `relay://open/reviews?item=${encodeURIComponent('https://github.com/o/r/pull/12')}`,
+      'relay://open/test-bench?experiment=eva-hillclimb&arm=a2',
+      'relay://open/canvas?canvas=artifacts',
+      'relay://assistant/nova',
+    ]
+    for (const url of links) {
+      const link = parseAppLink(url)
+      expect(link, url).not.toBeNull()
+      expect(buildAppLink(link!)).toBe(url)
+    }
+    expect(parseAppLink('relay://open/settings/connections?connect=github')).toEqual({
+      kind: 'open',
+      page: 'settings',
+      sub: 'connections',
+      params: { connect: 'github' },
+    })
+    expect(
+      parseAppLink(`relay://open/reviews?item=${encodeURIComponent('https://x.dev/a?b=1&c=2')}`),
+    ).toMatchObject({ params: { item: 'https://x.dev/a?b=1&c=2' } })
+    for (const bad of [
+      'relay://open/settings/a/b',
+      'relay://open/settings/Theme',
+      'relay://open/settings?',
+      'relay://open/settings?nope=1',
+      'relay://open/settings?item=',
+      'relay://open/settings?item=a&item=b',
+      'relay://open/settings?item=%E0%A4%A',
+      `relay://open/reviews?item=${'a'.repeat(5000)}`,
+    ])
+      expect(parseAppLink(bad), bad).toBeNull()
   })
 
   it('keeps relay://assistant/<id>/avatar as an avatar src and drops other relay:// sources', () => {

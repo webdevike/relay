@@ -234,3 +234,18 @@
   font-weight: var(--eva-fw-medium);
   color: var(--eva-c-muted-foreground);
 }
+/* Settings > Connections */
+.eva-conn-row {
+  align-items: flex-start;
+}
+.eva-conn-row[data-focused='true'] {
+  background: var(--mantine-primary-color-light);
+}
+.eva-conn-actions {
+  flex: 0 0 auto;
+}
+.eva-conn-form {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}

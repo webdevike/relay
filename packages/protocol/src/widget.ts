@@ -129,18 +129,72 @@ const WebUrl = z
 /** An optional http(s) link that degrades to absent when it's bad, rather than rejecting. */
 const HttpUrl = WebUrl.optional().catch(undefined);
 
-/** An in-app destination a widget can link to: `relay://assistant/<id>` opens that assistant's
- * thread, `relay://open/<page>` a top-level page. The app resolves it; nothing leaves the app. */
-export type AppLink = { kind: "assistant"; id: string } | { kind: "open"; page: string };
+/** Query keys a `relay://open/...` link may carry: what to show inside the page. */
+export const APP_LINK_PARAMS = ["item", "setting", "connect", "canvas", "meeting", "experiment", "arm", "job"] as const;
+export type AppLinkParam = (typeof APP_LINK_PARAMS)[number];
 
-const APP_LINK = /^relay:\/\/(assistant|open)\/([a-z0-9][a-z0-9-]{0,63})$/;
+/** An in-app destination a widget or a chat message can link to: `relay://assistant/<id>` opens
+ * that assistant's thread, `relay://open/<page>[/<sub>][?<param>=<value>&...]` a page, its part
+ * (`settings/connections`, `workspace/<slug>`) and what to show in it (`?item=<review url>`,
+ * `?connect=github`). The app resolves it; nothing leaves the app. Same grammar as
+ * @evaos/chat-core's `parseAppLink`. */
+export type AppLink =
+  | { kind: "assistant"; id: string }
+  | { kind: "open"; page: string; sub?: string; params?: Partial<Record<AppLinkParam, string>> };
 
-/** Parses a `relay://assistant/<id>` or `relay://open/<page>` URL; null for anything else. */
+const LINK_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const LINK_SUB = /^[a-z0-9][a-z0-9._-]{0,199}$/;
+const MAX_APP_LINK = 4096;
+const MAX_LINK_VALUE = 2048;
+
+const isLinkParam = (key: string): key is AppLinkParam => (APP_LINK_PARAMS as readonly string[]).includes(key);
+
+function parseLinkQuery(query: string): Partial<Record<AppLinkParam, string>> | null {
+  const out: Partial<Record<AppLinkParam, string>> = {};
+  for (const pair of query.split("&")) {
+    const eq = pair.indexOf("=");
+    const key = eq < 0 ? pair : pair.slice(0, eq);
+    if (eq <= 0 || !isLinkParam(key) || out[key] !== undefined) return null;
+    let value: string;
+    try {
+      value = decodeURIComponent(pair.slice(eq + 1));
+    } catch {
+      return null;
+    }
+    if (value === "" || value.length > MAX_LINK_VALUE) return null;
+    out[key] = value;
+  }
+  return out;
+}
+
+/** Parses a `relay://assistant/<id>` or `relay://open/...` URL; null for anything else. */
 export function parseAppLink(url: string): AppLink | null {
-  const m = APP_LINK.exec(url);
-  if (m === null) return null;
-  const [, kind, name] = m;
-  return kind === "assistant" ? { kind, id: name! } : { kind: "open", page: name! };
+  if (url.length > MAX_APP_LINK || !url.startsWith("relay://")) return null;
+  const rest = url.slice("relay://".length);
+  const q = rest.indexOf("?");
+  const path = q < 0 ? rest : rest.slice(0, q);
+  const [kind, name, sub, ...more] = path.split("/");
+  if (more.length > 0 || name === undefined || !LINK_NAME.test(name)) return null;
+  if (kind === "assistant") return sub === undefined && q < 0 ? { kind, id: name } : null;
+  if (kind !== "open" || (sub !== undefined && !LINK_SUB.test(sub))) return null;
+  const params = q < 0 ? undefined : parseLinkQuery(rest.slice(q + 1));
+  if (params === null) return null;
+  return {
+    kind: "open",
+    page: name,
+    ...(sub === undefined ? {} : { sub }),
+    ...(params === undefined ? {} : { params }),
+  };
+}
+
+/** The canonical URL of `link` (params in APP_LINK_PARAMS order); parseAppLink reads it back. */
+export function buildAppLink(link: AppLink): string {
+  if (link.kind === "assistant") return `relay://assistant/${link.id}`;
+  const query = APP_LINK_PARAMS.flatMap((k) => {
+    const v = link.params?.[k];
+    return v === undefined ? [] : [`${k}=${encodeURIComponent(v)}`];
+  }).join("&");
+  return `relay://open/${link.page}${link.sub === undefined ? "" : `/${link.sub}`}${query ? `?${query}` : ""}`;
 }
 
 const ASSISTANT_AVATAR = /^relay:\/\/assistant\/([a-z0-9][a-z0-9-]{0,63})\/avatar$/;

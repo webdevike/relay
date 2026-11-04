@@ -62,6 +62,7 @@ import {
 } from '../context/context-store'
 import { snapshotFocus } from './focus-safety'
 import { announce, inFront, targetOf, whenShown, type ScopeTarget } from './scope'
+import { accessActions } from './access'
 
 /** A failure with a stable code; main reports it as `{ ok: false, code, message }`. */
 function fail(code: string, message: string): never {
@@ -673,4 +674,5 @@ export const rendererActions: AgentRunners<'renderer'> = {
       },
     )
   },
+  ...accessActions,
 }

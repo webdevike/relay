@@ -1,6 +1,15 @@
 import { app } from 'electron'
 import { randomBytes } from 'node:crypto'
-import { agentCatalog, type AgentResult, type AgentRunners } from '@evaos/contract'
+import {
+  AGENT_PAGES,
+  AGENT_SETTINGS_SECTIONS,
+  CONNECTIONS,
+  agentCatalog,
+  appLinkFor,
+  type AgentResult,
+  type AgentRunners,
+} from '@evaos/contract'
+import type { Connections } from '../connections/connections'
 import type { MainContext } from '../context'
 import type { UpdateHandle } from '../update'
 import { emit, handle } from '../ipc/handle'
@@ -27,6 +36,7 @@ export function registerAgentControl(
   artifacts: RelaySource & RelayArtifacts,
   canvas: RelayCanvas,
   studio: RelayStudio & Pick<RelayCanvas, 'canvasOrigin'>,
+  connections: Connections,
 ): void {
   const runs = createReplyRegistry()
   const confirms = createReplyRegistry()
@@ -84,6 +94,21 @@ export function registerAgentControl(
       return { quitting: true }
     },
     'update.offer': (params) => update.offer(params),
+    'pages.list': () => ({ pages: AGENT_PAGES, settingsSections: AGENT_SETTINGS_SECTIONS }),
+    'connections.list': async () => ({ connections: await connections.list() }),
+    'connections.add': async ({ id, secret, scope }) => {
+      const r = await connections.add(id, secret)
+      if (r.status === 'connected' && secret !== undefined) {
+        await renderer('@announce', { scope, text: `connected ${CONNECTIONS[id].title}` })
+      }
+      return r
+    },
+    'connections.remove': async ({ id, scope }) => {
+      await connections.remove(id)
+      await renderer('@announce', { scope, text: `disconnected ${CONNECTIONS[id].title}` })
+      return { removed: id }
+    },
+    link: (params) => appLinkFor(params),
     ...artifactsRunners(artifacts),
     ...canvasLiveRunners(canvas),
     ...studioRunners(studio, (p) => renderer('studio.open', p)),
