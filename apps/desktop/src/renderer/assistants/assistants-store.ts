@@ -69,6 +69,17 @@ export async function startAgent(id: string): Promise<void> {
   })
 }
 
+/**
+ * Adds an assistant ("New assistant") through Relay Host, which writes its registry entry and opens
+ * its thread; it gets to know Isaac by chatting. Resolves with its id, or rejects with Relay's reason.
+ */
+export async function createAgent(): Promise<string> {
+  const r = await invoke('assistants.create', {})
+  if (!r.ok) throw new Error(r.error.message)
+  await load()
+  return r.value.id
+}
+
 export function startAssistants(): () => void {
   const off = on('assistants.changed', apply)
   // The registry rereads with the rest of Eva's repo (the refresh shortcut, window focus); main

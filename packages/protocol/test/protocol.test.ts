@@ -394,6 +394,15 @@ describe("assistant thread", () => {
       ).ok,
     ).toBe(false);
   });
+  it("assistant.create takes a title, and an optional id, scope and start", () => {
+    const create = (cmd: object) => parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.create", ...cmd } })).ok;
+    expect(create({ title: "Vega" })).toBe(true);
+    expect(create({ id: "vega", title: "Vega", scope: "Driving and the car", start: true })).toBe(true);
+    expect(create({ title: "  " })).toBe(false);
+    expect(create({ title: "x".repeat(41) })).toBe(false);
+    expect(create({ id: "Vega", title: "Vega" })).toBe(false);
+    expect(create({ title: "Vega", scope: "x".repeat(201) })).toBe(false);
+  });
   it("assistant.signin carries credentials, and a message may carry a signin handoff", () => {
     const signin = (cmd: object) =>
       parseClientMessage(

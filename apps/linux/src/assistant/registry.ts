@@ -1,8 +1,9 @@
-// The assistant threads the host runs, read once at start from the agent home's registry,
+// The assistant threads the host runs, read from the agent home's registry,
 // `<agentHome>/.omp/assistant/agents.json`: `{ "agents": [{ "id", "title", "scope"?, "avatar"?, ... }, ...] }`.
 // `avatar` is a notionists seed, or a designed portrait `{ style, seed, options?, colors? }`.
 // Each entry gets its own long-lived omp session, store file and prime. The first entry is the
 // default, used only for phone requests that name no agent (builds from before there were several).
+// `admin.ts` writes it (create, update, retire) and watches it, so the host rereads every change.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -11,6 +12,9 @@ import { z } from "zod";
 
 /** The registry, under the agent home. */
 export const REGISTRY_FILE = join(".omp", "assistant", "agents.json");
+
+/** A registry write the caller can fix (a bad or taken value, an unknown agent): an HTTP 400, a nack, a CLI error line. */
+export class RegistryError extends Error {}
 
 export interface AssistantAgentConfig {
   /** `^[a-z][a-z0-9-]*$`; names the store file, the prime dir and `RELAY_ASSISTANT`. */
@@ -33,7 +37,8 @@ export interface AssistantAgentConfig {
   readonly portrait?: AssistantPortrait;
 }
 
-const Registry = z
+/** The registry file as validated: what `loadRegistry` reads and what `admin.ts` writes. */
+export const Registry = z
   .object({
     agents: z
       .array(
@@ -89,4 +94,12 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
 /** The GPT-Live voice of agent `id`: its registry `liveVoice`, else `envVoice` ($RELAY_LIVE_VOICE), else "marin". */
 export function liveVoiceFor(agents: readonly { readonly id: string; readonly liveVoice?: string | undefined }[], id: string, envVoice: string | undefined): string {
   return agents.find((agent) => agent.id === id)?.liveVoice ?? envVoice ?? "marin";
+}
+
+/** The DiceBear seed an agent's registry `avatar` draws with (a notionists seed or a designed portrait's); its id when it has none. */
+export function avatarSeed(agent: { readonly id: string; readonly avatar?: unknown }): string {
+  const avatar = agent.avatar;
+  if (typeof avatar === "string" && avatar.trim() !== "") return avatar.trim();
+  if (typeof avatar === "object" && avatar !== null && "seed" in avatar && typeof avatar.seed === "string") return avatar.seed;
+  return agent.id;
 }

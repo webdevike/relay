@@ -43,6 +43,24 @@ const AgentSchema = z.object({
   avatar: z.union([z.string(), AssistantPortraitSchema]).optional().catch(undefined),
 })
 
+/** Longest registry id the host takes. */
+const MAX_ID = 32
+
+/**
+ * `Drive Buddy` -> `drive-buddy`: the registry id Relay Host makes from a new assistant's name
+ * (apps/linux/src/assistant/admin.ts `idFromTitle`; keep the two in step). Empty when nothing usable is left.
+ */
+export function assistantIdFrom(title: string): string {
+  const slug = title
+    .normalize('NFKD')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, MAX_ID)
+    .replace(/-+$/, '')
+  return slug === '' ? '' : /^[a-z]/.test(slug) ? slug : `a-${slug}`.slice(0, MAX_ID)
+}
+
 /** The registry's agents in file order; empty when it is missing or unreadable (native load_agents). */
 export function parseRegistry(text: string): Agent[] {
   let raw: unknown
