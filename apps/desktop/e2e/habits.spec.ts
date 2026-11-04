@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { makeEvaFixture, type EvaFixture } from './helpers/eva-fixture'
+import { pickScheme } from './helpers/appearance'
 import { proofShot } from './helpers/proofShot'
 
 type Shell = { __evaosShell: { openPlace(p: string, n?: boolean): void } }
@@ -28,7 +29,7 @@ const argvs = (fx: EvaFixture): string[][] =>
   (fx.gateLog() as Array<{ argv: string[] }>).map((e) => e.argv)
 
 async function setScheme(shell: Page, mode: 'dark' | 'light'): Promise<void> {
-  await shell.locator(sel(`appearance-${mode}`)).click()
+  await pickScheme(shell, mode)
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', mode)
 }
 

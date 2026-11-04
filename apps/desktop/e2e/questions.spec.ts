@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { Page } from '@playwright/test'
 import { proofShot } from './helpers/proofShot'
+import { SESSIONS_FIXTURE_DIR } from './helpers/paths'
 import { test, expect } from './fixtures'
 
 const LOG = path.join(os.tmpdir(), `evaos-fake-omp-questions-${process.pid}.log`)
@@ -32,6 +33,13 @@ async function ask(shell: Page, text: string): Promise<void> {
 
 test.describe('question cards and extension UI', () => {
   test.use({ launchEnv: { FAKE_OMP_LOG: LOG, FAKE_OMP_DELAY_MS: '10' } })
+  // Git gives the fixture session the checkout's mtime; a chat written to in the last 10 minutes
+  // asks "Chat is open elsewhere" before the first send, so a fresh checkout would fail here.
+  test.beforeAll(() => {
+    const old = new Date('2026-10-01T09:00:00Z')
+    for (const f of fs.readdirSync(SESSIONS_FIXTURE_DIR))
+      if (f.endsWith('.jsonl')) fs.utimesSync(path.join(SESSIONS_FIXTURE_DIR, f), old, old)
+  })
   test.beforeEach(async ({ shell }) => {
     fs.rmSync(LOG, { force: true })
     await shell.getByTestId('nav-chat').click()
