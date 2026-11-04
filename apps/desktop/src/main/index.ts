@@ -240,6 +240,7 @@ function bootstrap(): void {
         restart: restartForUpdate,
         checkNow: async () => (await packagedUpdater?.checkNow()) ?? 'unavailable',
         changelog: async () => (await packagedUpdater?.changelog()) ?? [],
+        announce: (s) => chat.notifier.onUpdate(s),
       })
       registerTestHook('update', update)
       registerAboutIpc(ctx, chat.hostInfo)

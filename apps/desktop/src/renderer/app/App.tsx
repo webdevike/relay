@@ -26,6 +26,7 @@ import { startAgentControl } from '../agent/control'
 import { startUpdate } from '../update/update-store'
 import { startContext } from '../context/context-store'
 import { startDeepLinks } from '../navigation/deep-links'
+import { startNotificationBridge } from '../notifications/visible-threads'
 import { Spotlight } from '../tour/Spotlight'
 
 export function App() {
@@ -75,6 +76,8 @@ export function App() {
       stopDeepLinks()
     }
   }, [])
+  // Main's notifications stay quiet for the chats this window shows; a click opens its chat.
+  useEffect(() => startNotificationBridge(), [])
   const profile = useProfile()
   // The habit gate is Isaac's: a starter home never polls it or shows its break screen.
   useEffect(() => (profile === 'eva' ? startHabits() : undefined), [profile])

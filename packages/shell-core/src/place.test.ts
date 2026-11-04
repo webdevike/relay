@@ -49,7 +49,7 @@ describe('pages', () => {
       expect(placeFromJson({ page })).toBeNull()
     }
     expect(
-      placeFromJson({ page: 'settings', settings_section: 'Notifications' })?.settingsSection,
+      placeFromJson({ page: 'settings', settings_section: 'Shortcuts' })?.settingsSection,
     ).toBe('Theme')
   })
 })
