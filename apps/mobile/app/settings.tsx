@@ -13,7 +13,7 @@ import { useSettingsStore, type AppearanceChoice, type PointerSpeed, type Recogn
 import { actions } from "@/state/actions";
 import { MANUAL_HOST_PLACEHOLDER, parseManualHost } from "@/connection/manual-host";
 import { browseHosts } from "@/connection";
-import { setNotificationsEnabled } from "@/notifications";
+import { setAssistantMuted, setNotificationsEnabled } from "@/notifications";
 import { warmVoz } from "@/dictation/actor";
 import { VozDictation } from "../modules/voz-dictation";
 import { applyLatestUpdate, runningUpdate } from "@/lib/otaUpdates";
@@ -150,29 +150,57 @@ function HostsSection() {
   );
 }
 
-/** The switch only lands on when the system permission is granted; a refusal snaps it back. */
+/**
+ * The switch only lands on when the system permission is granted; a refusal snaps it back. With it
+ * on, one switch per assistant: off, the host sends this phone none of its replies, waits or canvas
+ * invitations (`push.prefs`).
+ */
 function NotificationsRow() {
   const colors = useColors();
   const enabled = useSettingsStore((state) => state.notificationsEnabled);
+  const muted = useSettingsStore((state) => state.mutedAssistants);
+  const agents = useAssistantStore((state) => state.agents);
   const [refused, setRefused] = useState(false);
   return (
-    <Row
-      title="Notifications"
-      subtitle={
-        refused ? "Allow notifications for Relay in iOS Settings" : "When a session waits on you"
-      }
-      leading={<SymbolView name="bell.badge" size={22} tintColor={colors.textMuted} />}
-      trailing={
-        <Switch
-          value={enabled}
-          onValueChange={(value) => {
-            void setNotificationsEnabled(value).then((ok) => {
-              setRefused(value && !ok);
-            });
-          }}
-        />
-      }
-    />
+    <>
+      <Row
+        title="Notifications"
+        subtitle={
+          refused ? "Allow notifications for Relay in iOS Settings" : "Replies, questions waiting on you, canvases to join"
+        }
+        leading={<SymbolView name="bell.badge" size={22} tintColor={colors.textMuted} />}
+        trailing={
+          <Switch
+            value={enabled}
+            onValueChange={(value) => {
+              void setNotificationsEnabled(value).then((ok) => {
+                setRefused(value && !ok);
+              });
+            }}
+          />
+        }
+      />
+      {enabled
+        ? (agents ?? []).map((agent) => (
+            <View key={agent.id}>
+              <Separator />
+              <Row
+                title={agent.title}
+                subtitle={muted.includes(agent.id) ? "Muted" : "Notifies"}
+                leading={<SymbolView name={muted.includes(agent.id) ? "bell.slash" : "bell"} size={22} tintColor={colors.textMuted} />}
+                trailing={
+                  <Switch
+                    value={!muted.includes(agent.id)}
+                    onValueChange={(on) => {
+                      setAssistantMuted(agent.id, !on);
+                    }}
+                  />
+                }
+              />
+            </View>
+          ))
+        : null}
+    </>
   );
 }
 

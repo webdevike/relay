@@ -60,6 +60,7 @@ import { mindConfigOverlay, ompMinds, resolveOmp } from "./canvas/brain";
 import { MODELS } from "@relay/canvas-live/shared";
 import { detectCaller, systemCallerDeps } from "./canvas/caller";
 import { CANVAS_PAGE } from "./canvas/page";
+import { CanvasInvitations } from "./push/canvas-invites";
 import { CanvasService } from "./canvas/service";
 import { detectTextTyper, KeyboardInjector } from "./input/keyboard";
 import { MacInputDevice } from "./input/macos";
@@ -669,6 +670,16 @@ function serve(
   );
   rmSync(pairingPinPath(), { force: true });
   const boundPort = server.start();
+  if (canvas !== null) {
+    // The server's own hook pushes `canvas.rooms` to the devices; a new live room also invites the phones.
+    const invitations = new CanvasInvitations({ tokens: pushTokens, sender: new ExpoPushSender(), log });
+    invitations.seed(canvas.list());
+    const broadcast = canvas.onChange;
+    canvas.onChange = () => {
+      broadcast?.();
+      invitations.observe(canvas.list());
+    };
+  }
   activity.start();
   const infoPath = serveInfoPath();
   mkdirSync(dirname(infoPath), { recursive: true, mode: 0o700 });

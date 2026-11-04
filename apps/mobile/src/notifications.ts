@@ -9,8 +9,9 @@ import { useEffect } from "react";
 import Constants from "expo-constants";
 import * as Notifications from "expo-notifications";
 import { router } from "expo-router";
-import { registerPush, unregisterPush } from "@/connection";
+import { registerPush, sendPushPrefs, unregisterPush } from "@/connection";
 import { warn } from "@/connection/log";
+import { withMuted } from "@/notification-prefs";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
 import { registerWithdrawTask } from "@/inbox/background";
@@ -34,15 +35,24 @@ async function fetchToken(): Promise<string> {
   return token;
 }
 
-/** Sends `push.register` when the setting is on and the socket is up; a no-op otherwise. */
+/** Sends `push.register` and the muted assistants when the setting is on and the socket is up; a no-op otherwise. */
 async function syncRegistration(): Promise<void> {
   if (!useSettingsStore.getState().notificationsEnabled) return;
   if (useConnectionStore.getState().status !== "connected") return;
   try {
     registerPush(await fetchToken());
+    sendPushPrefs(useSettingsStore.getState().mutedAssistants);
   } catch (error) {
     warn("push", "token unavailable", error);
   }
+}
+
+/** Mutes or unmutes one assistant's pushes (replies, waits, canvas invitations) and tells the host. */
+export function setAssistantMuted(agent: string, mute: boolean): void {
+  const settings = useSettingsStore.getState();
+  const next = withMuted(settings.mutedAssistants, agent, mute);
+  settings.set({ mutedAssistants: next });
+  sendPushPrefs(next);
 }
 
 /**

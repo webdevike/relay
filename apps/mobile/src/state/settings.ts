@@ -20,6 +20,8 @@ export interface SettingsState {
   skillWheelEnabled: boolean;
   /** Push a notification when a session starts waiting on the user. Requires system permission. */
   notificationsEnabled: boolean;
+  /** Assistant ids whose pushes (replies, waits, canvas invitations) this phone does not get; sent to the host as `push.prefs`. */
+  mutedAssistants: string[];
   /** Which speech recognizer hold-to-talk uses. `voz` falls back to `apple` until its model is downloaded. */
   recognizer: Recognizer;
   /** Thinking level new phone-started sessions open with; empty leaves omp's own default. */
@@ -42,6 +44,7 @@ export const useSettingsStore = create<SettingsState>()(
       manualHost: "",
       skillWheelEnabled: false,
       notificationsEnabled: false,
+      mutedAssistants: [],
       recognizer: "voz",
       defaultThinkingLevel: "",
       appearance: "system",
