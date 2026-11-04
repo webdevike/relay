@@ -1,0 +1,6 @@
+20261102_1004_sharepoint_52d8d305 (2413 s, 16 kHz mono tracks), Mac mini M5 Pro, 2026-11-04
+parakeet-tdt-0.6b-v3 (parakeet-mlx 120 s chunks, 15 s overlap), app track: 57.7 s wall, RTF 0.0239, 6424 words, peak 3.14 GB
+parakeet-tdt-0.6b-v3 (parakeet-mlx), mic track: 50.8 s wall, RTF 0.0210, 322 words, peak 3.28 GB
+sherpa-onnx diarization (pyannote seg 3.0 + titanet-small, 4 CPU threads, threshold 0.7), app track: 264.1 s wall, RTF 0.109, 65 clusters / 12 with >30 s talk, 367 turns
+MeetingTranscriber 0.8.1 on the same call (stage_timing.jsonl, FluidAudio CoreML): transcribing 17.9 s, diarizing 58.4 s, protocol (claude) 34.3 s
+WebRTC AEC3 (livekit APM) on the 34 s capture proof, mic holding only speaker echo: -40.0 -> -55.6 dBFS (15.6 dB), RTF 0.021; parakeet on the cleaned mic: ~90 echoed words -> 9 garbled words
