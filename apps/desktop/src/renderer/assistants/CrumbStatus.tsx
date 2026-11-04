@@ -4,7 +4,7 @@ import { useAgentStatus } from './motion-store'
 
 /**
  * The muted words after an agent's name in its crumb ("is thinking", "needs you", "hit a snag";
- * nothing while it rests). A change crossfades: the old words fade out over the new ones in the
+ * `rest` while it rests, else nothing). A change crossfades: the old words fade out over the new ones in the
  * same grid cell, so nothing beside them moves; with motion off they swap at once. Long words end
  * in an ellipsis.
  */

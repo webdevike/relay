@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom'
-import type { Ref } from 'react'
+import { useEffect, useState, type Ref } from 'react'
 import { IconArrowBackUp, IconCopy, IconMarkdown, IconSelectAll } from '@tabler/icons-react'
 import { EvaMenu } from '../../overlay'
 
@@ -28,9 +28,16 @@ export function BubbleMenu({
   actions: BubbleMenuActions
   dropdownRef?: Ref<HTMLDivElement>
 }) {
+  // Reply puts focus in the composer; the menu's own return of focus to whatever held it when it
+  // opened (the pane body) would take it straight back. Every other item returns it.
+  const [replied, setReplied] = useState(false)
+  const opened = at !== null
+  useEffect(() => {
+    if (opened) setReplied(false)
+  }, [opened])
   return createPortal(
     <EvaMenu
-      opened={at !== null}
+      opened={opened}
       onChange={(o) => {
         if (!o) onClose()
       }}
@@ -38,6 +45,7 @@ export function BubbleMenu({
       position="bottom-start"
       offset={0}
       closeOnClickOutside={false}
+      returnFocus={!replied}
     >
       <EvaMenu.Target>
         <span
@@ -50,7 +58,10 @@ export function BubbleMenu({
         <EvaMenu.Item
           data-testid="bubble-menu-reply"
           leftSection={<IconArrowBackUp size={16} stroke={1.5} />}
-          onClick={actions.reply}
+          onClick={() => {
+            setReplied(true)
+            actions.reply()
+          }}
         >
           Reply
         </EvaMenu.Item>
