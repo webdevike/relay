@@ -33,6 +33,8 @@ const SERIAL_SPECS = [
   '**/chat-visual.spec.ts',
   // Real pointer drags of the dock sashes and the compare slider: mouse events delayed by CPU
   // contention leave the layout a few pixels off (both failed in the first four-worker run).
+  // shell-frame 'widths survive a relaunch' also flakes about 1 run in 8 on one worker (the
+  // relaunched dock lays out ~16px off the saved width): a product-or-spec bug to chase, not load.
   '**/shell-frame.spec.ts',
   '**/chat-rich.spec.ts',
   // Needs the composer to hold real focus after a reply action; with several Electron apps
