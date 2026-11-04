@@ -26,11 +26,15 @@ async function run(shell: Page, command: string): Promise<void> {
   await shell.keyboard.press('Enter')
 }
 
-test('runs commands in a shell that starts in the chat folder', async ({ shell }) => {
-  await openTerminal(shell)
-  await run(shell, 'echo relay-$((20+22)) && pwd')
-  await expect(screen(shell)).toContainText('relay-42')
-})
+test(
+  'runs commands in a shell that starts in the chat folder',
+  { tag: '@smoke' },
+  async ({ shell }) => {
+    await openTerminal(shell)
+    await run(shell, 'echo relay-$((20+22)) && pwd')
+    await expect(screen(shell)).toContainText('relay-42')
+  },
+)
 
 test('keeps the shell alive across tab switches and ends it with its tab', async ({ shell }) => {
   await openTerminal(shell)

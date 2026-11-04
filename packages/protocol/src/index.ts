@@ -574,6 +574,79 @@ export const FileEdit = z.object({
 });
 export type FileEdit = z.infer<typeof FileEdit>;
 
+// ---------------------------------------------------------------------------------------------
+// Remote control: agents on the host's Mac drive Relay Desktop on whichever Mac Isaac is using.
+// A desktop on a host whose `welcome.features` has CONTROL_FEATURE says it can be driven
+// (`control.presence`, again after input, a page change or a focus change); the host forwards an
+// agent's request (loopback `POST /control/run`, apps/linux README) as `control.req` to the device
+// it targets, which runs it like a request to its own loopback control API and answers
+// `control.res` with the same rid. `control.req` is a host frame only: no phone or desktop can
+// send one, so only processes on the host's Mac reach another device's app.
+// ---------------------------------------------------------------------------------------------
+
+export const CONTROL_FEATURE = "control";
+
+export const ControlRid = z.string().min(1).max(64);
+/** An agent action id from Relay Desktop's catalog (`settings.set`), or `@actions` for the catalog itself. */
+export const ControlAction = z.string().regex(/^@?[A-Za-z][\w.-]{0,63}$/);
+/** The page or chat a panel action lands in (Relay Desktop's AgentScopeSchema). */
+export const ControlScope = z.string().min(1).max(4096);
+
+/** What the desktop answers: its control API's result as is. */
+export const ControlResult = z.union([
+  z.object({ ok: z.literal(true), value: z.unknown().optional(), queued: z.boolean().optional() }),
+  z.object({ ok: z.literal(false), code: z.string().min(1).max(64), message: z.string().max(4000) }),
+]);
+export type ControlResult = z.infer<typeof ControlResult>;
+
+/** One action for one desktop: the body its loopback `POST /actions/<action>` takes. */
+export const ControlRun = z.object({
+  action: ControlAction,
+  params: z.unknown().optional(),
+  confirm: z.boolean().optional(),
+  scope: ControlScope.optional(),
+});
+export type ControlRun = z.infer<typeof ControlRun>;
+
+/** An agent's request to the host: `target` is "active" (the desktop Isaac used last), a device id or a device name. */
+export const ControlRequest = ControlRun.extend({ target: z.string().min(1).max(200).default("active") });
+export type ControlRequest = z.infer<typeof ControlRequest>;
+
+export const ControlPresence = z.object({
+  t: z.literal("control.presence"),
+  /** The Mac's name (`Isaacs-MacBook-Pro`). */
+  name: z.string().min(1).max(200),
+  /** Which build answers (`stable`, `dev`): two instances on one Mac are two devices. */
+  instance: z.string().min(1).max(40),
+  /** Ms since Isaac last used the window (key, click, scroll, focus); null before any input. */
+  idleMs: z.number().int().min(0).nullable(),
+  /** The page in front (`chat`, `agent:nova`, `settings`), null before the window says. */
+  page: z.string().max(300).nullable(),
+  /** Whether the window has OS focus. */
+  focused: z.boolean(),
+  /** A thin client of a host on another Mac (remote mode). */
+  remote: z.boolean(),
+});
+export type ControlPresence = z.infer<typeof ControlPresence>;
+
+/** A desktop the host can drive, as `GET /control/devices` lists it. */
+export const ControlDevice = z.object({
+  /** The hello's device id, `:<instance>` appended for builds other than `stable`. */
+  id: nonEmpty,
+  name: z.string(),
+  instance: z.string(),
+  /** Runs on the host's Mac (loopback, not remote mode): "active" falls back to it. */
+  local: z.boolean(),
+  /** When Isaac last used it, on the host's clock; null before any input. */
+  lastInputAt: ms.nullable(),
+  page: z.string().nullable(),
+  focused: z.boolean(),
+  connectedAt: ms,
+  /** The one "active" resolves to now. */
+  active: z.boolean(),
+});
+export type ControlDevice = z.infer<typeof ControlDevice>;
+
 /** Where an assistant's thread stands, from its live omp session: no session is "not_started". */
 export const AssistantStatus = z.enum(["working", "needs_you", "idle", "not_started"]);
 export type AssistantStatus = z.infer<typeof AssistantStatus>;
@@ -1419,6 +1492,12 @@ export const ClientMessage = z.discriminatedUnion("t", [
    */
   z.object({ t: z.literal("push.register"), token: nonEmpty }),
   z.object({ t: z.literal("push.unregister") }),
+  /**
+   * The assistants this device wants no pushes from (replies, waits, canvas invitations). The host
+   * keeps the list per paired device (`muted` replaces it) and filters every push on it. Sent on
+   * each connection and on each change; an older host ignores the frame.
+   */
+  z.object({ t: z.literal("push.prefs"), muted: z.array(AssistantAgentId).max(100) }),
   /** Ask for the drop history; answered by `drop.list`. */
   z.object({ t: z.literal("drop.list") }),
   /** Start receiving `board.delta` on this socket; answered by `board.snapshot`. */
@@ -1554,6 +1633,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   /** Isaac's editor is saving `path` with these bytes (sha1 hex): that write is his, not an agent's. */
   z.object({ t: z.literal("files.saved"), path: HostFilePath, hash: z.string().min(1).max(128) }),
   ...MeetingsClientFrames,
+  /** This desktop can be driven by the host's agents (ControlPresence). Only sent to a host whose `welcome.features` has CONTROL_FEATURE. */
+  ControlPresence,
+  /** The answer to `control.req` with the same rid. */
+  z.object({ t: z.literal("control.res"), rid: ControlRid, result: ControlResult }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessage>;
 
@@ -1820,6 +1903,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   FileEdit.extend({ t: z.literal("files.edit") }),
   /** Every other device's caret in an open file (`files.caret`), newest first; sent on `files.open` and on every change. */
   z.object({ t: z.literal("files.presence"), focus: z.array(DeviceFileFocus).max(20) }),
+  /** Run one agent action in this desktop's app; answered by `control.res`. Sent only to sockets that sent `control.presence`. */
+  ControlRun.extend({ t: z.literal("control.req"), rid: ControlRid }),
   z.object({ t: z.literal("ack"), id: nonEmpty }),
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),

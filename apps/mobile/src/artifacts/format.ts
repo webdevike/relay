@@ -5,6 +5,7 @@
  * only decides how they look.
  */
 import { artifactFaded, compareArtifacts, subagentView, type AgentApproval, type AgentAsk, type AgentSession, type Artifact, type ArtifactKind, type ArtifactTab, type AssistantAgent, type TabRule } from "@relay/protocol";
+import { ACTIVITY_KIND_LABEL, activitySections, type ActivityItem } from "@evaos/chat-core/activity";
 import { elapsed, mediaClock } from "@/lib/format";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -254,8 +255,18 @@ export function subagentLine(item: Artifact, now: number): string {
 /** Where a task row stands; the sheet draws its glyph and tone from this. */
 export type TaskState = "ask" | "approval" | "waiting" | "review" | "running" | "done" | "failed";
 
-/** What tapping a task row does: close the sheet (answer in the chat), open a URL, or push a subagent's session; null when it has nowhere to go. */
-export type TaskOpen = { kind: "close" } | { kind: "url"; url: string } | { kind: "session"; sessionId: string } | null;
+/**
+ * What tapping a task row does: close the sheet (answer in the chat), open a URL, push a session's
+ * screen, another assistant's thread or a live canvas room; null when it has nowhere to go (a
+ * harness runs in a terminal pane, which the phone has no view of).
+ */
+export type TaskOpen =
+  | { kind: "close" }
+  | { kind: "url"; url: string }
+  | { kind: "session"; sessionId: string }
+  | { kind: "assistant"; agent: string }
+  | { kind: "canvas"; slug: string }
+  | null;
 
 export interface TaskRow {
   key: string;
@@ -291,6 +302,8 @@ export interface TaskInputs {
   /** The thread's assistant as the registry lists it. */
   agent: AssistantAgent | undefined;
   agentTitle: string;
+  /** The host's `activity.snapshot` list, and the owner key (`assistant:<id>`) whose items join the groups below. */
+  activity?: { items: readonly ActivityItem[]; thread: string };
 }
 
 const TASK_TITLES: Record<TaskGroupId, string> = {
@@ -352,10 +365,40 @@ function resolvedLine(item: Artifact, session: AgentSession | undefined): string
   return failed ? `Failed · ${summary}` : summary;
 }
 
+/** Where an activity row goes on the phone: a chat it knows, another assistant's thread, a canvas room; a harness or helper transcript nowhere. */
+function activityOpen(item: ActivityItem, sessions: Readonly<Record<string, AgentSession>>): TaskOpen {
+  const to = item.open;
+  if (to.to === "canvas") return { kind: "canvas", slug: to.slug };
+  if (to.to !== "chat") return null;
+  if (to.session !== undefined && sessions[to.session] !== undefined) return { kind: "session", sessionId: to.session };
+  return to.thread.startsWith("assistant:") ? { kind: "assistant", agent: to.thread.slice("assistant:".length) } : null;
+}
+
+/** One row for something the host's activity list holds: its live intent as the line (a waiting item's is the question). */
+export function activityRow(item: ActivityItem, sessions: Readonly<Record<string, AgentSession>>): TaskRow {
+  const live = item.status === "working";
+  const intent = item.intent.trim();
+  const state: TaskState = item.status === "working" ? "running" : item.status;
+  return {
+    key: `activity:${item.id}`,
+    state,
+    title: item.title === "" ? ACTIVITY_KIND_LABEL[item.kind] : item.title,
+    line: intent !== "" ? intent : item.status === "waiting" ? "Waiting on you" : item.status === "failed" ? "Failed" : item.status === "done" ? "Done" : ACTIVITY_KIND_LABEL[item.kind],
+    at: live ? item.startedAt : item.updatedAt,
+    timeStyle: live ? "elapsed" : "clock",
+    tone: item.status === "working" ? "working" : item.status === "waiting" ? "warn" : item.status === "failed" ? "danger" : "ok",
+    depth: 0,
+    open: activityOpen(item, sessions),
+  };
+}
+
 /**
  * The Subagents tab as task states, in order: Needs input (the thread blocked on Isaac), Ready for
  * review (its open PRs), Working (running subagents, children under their parent) and Resolved
- * (subagents that finished today, newest first). Groups with no rows are left out.
+ * (subagents that finished today, newest first). Groups with no rows are left out. What the host's
+ * activity list says this assistant owns (sessions, harnesses, canvas rooms; its helpers are the
+ * subagent rows already) joins the same groups: waiting ones in Needs input after the thread's
+ * own ask, running ones in Working, finished ones in Resolved.
  */
 export function taskGroups(input: TaskInputs): TaskGroup[] {
   const { items, now, threadSession, sessions } = input;
@@ -408,7 +451,14 @@ export function taskGroups(input: TaskInputs): TaskGroup[] {
         open: session === undefined ? null : { kind: "session", sessionId: session.id },
       };
     });
-  const groups: Record<TaskGroupId, TaskRow[]> = { needs: needs === null ? [] : [needs], review, working, resolved };
+  const owned = input.activity === undefined ? null : activitySections(input.activity.items, input.activity.thread, now);
+  const rowsOf = (list: readonly ActivityItem[] | undefined): TaskRow[] => (list ?? []).map((entry) => activityRow(entry, sessions));
+  const groups: Record<TaskGroupId, TaskRow[]> = {
+    needs: [...(needs === null ? [] : [needs]), ...rowsOf(owned?.waiting)],
+    review,
+    working: [...working, ...rowsOf(owned?.mine)],
+    resolved: [...resolved, ...rowsOf(owned?.earlier)].sort((a, b) => (b.at ?? 0) - (a.at ?? 0)),
+  };
   return (Object.keys(TASK_TITLES) as TaskGroupId[]).filter((id) => groups[id].length > 0).map((id) => ({ id, title: TASK_TITLES[id], rows: groups[id] }));
 }
 

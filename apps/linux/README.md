@@ -401,6 +401,26 @@ hash }` (sha1 of the bytes) and the file's absolute `path` on the host; `version
 `save` carries `text`, `expectedHash` and `force`, writes tmp + rename, and fails `code: "changed-on-disk"` when the
 file no longer has `expectedHash` unless `force`. Saving a prime takes effect on the assistant's next fresh session.
 
+## Remote control (`/control/*`, `control.presence`, `control.req`, `control.res`)
+
+Agents on this Mac (relay-ctl, relay-mcp) drive Relay Desktop on whichever Mac Isaac is using (`src/control/`).
+A desktop on a host whose `welcome.features` has `control` sends `control.presence { name, instance, idleMs, page,
+focused, remote }` on connect and after input, page and focus changes; the host keeps one entry per socket and turns
+`idleMs` into a last-input time on its own clock. "active" is the desktop with the most recent input; with none heard,
+the one on this Mac (loopback socket, not remote mode), else the newest connection.
+
+- `GET /control/devices`: `{ok, value: {active, devices: [{id, name, instance, local, lastInputAt, page, focused,
+  connectedAt, active}]}}`. A device id is the hello's device id, `:<instance>` appended for builds other than `stable`.
+- `POST /control/run {target?: "active" | <id> | <name>, action, params?, confirm?, scope?}` sends `control.req` with a
+  fresh rid to that desktop and answers its `control.res` result (the desktop's control API result, plus `device {id,
+  name}`), with the desktop API's HTTP statuses. Host failures: `no-device` 404, `device-gone` 502 (it disconnected),
+  `device-timeout` 504 (90 s: a destructive action waits up to 60 s for Isaac). `action: "@actions"` is the catalog.
+
+Both need a loopback peer, a loopback `Host`, no `Origin` and `Authorization: Bearer <controlToken>`, the random token
+`serve` writes into `serve.json` (0600) at start. `control.req` is a host frame only: a phone or desktop sending one is
+a malformed frame, and only the socket a request went to can answer its rid. `features.control: false` in host.json
+turns it off.
+
 ## Reviews (`reviews.req`, `reviews.queue`, `reviews.astra`)
 
 What waits on Isaac's reply, on the phone as in Relay Desktop's Reviews page (`packages/protocol/src/reviews.ts` is

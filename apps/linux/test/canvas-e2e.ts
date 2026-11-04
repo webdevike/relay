@@ -211,6 +211,7 @@ function host(): void {
       query: null,
       files: null,
       meetings: null,
+      control: null,
       canvasPage: () => CANVAS_PAGE,
       // PINs print here, so a simulator on 127.0.0.1 can pair with this host (and never the live one).
       pairing: new TerminalPairingUI(),

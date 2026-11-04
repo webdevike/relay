@@ -27,6 +27,7 @@ import { openExternal } from "@/lib/links";
 import { tapHaptic } from "@/lib/haptics";
 import { agentPortrait, agentTitle, useAssistantStore } from "@/state/assistant";
 import { useAgentsStore } from "@/state/agents";
+import { useActivityStore } from "@/state/activity";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useArtifactsSeenStore } from "@/state/artifactsSeen";
 import { useConnectionStore } from "@/state/connection";
@@ -103,6 +104,8 @@ export interface ArtifactsSheetProps {
   /** The omp session the thread runs in, or null while it is not running. */
   session: string | null;
   open: boolean;
+  /** The tab to open on (a composer badge opens "subagents", the Working group); null keeps the last one shown. */
+  tab?: string | null;
   onClose: () => void;
 }
 
@@ -111,7 +114,7 @@ function Backdrop(props: BottomSheetBackdropProps) {
 }
 
 /** Render last inside a full-screen container so it lays over the whole screen. */
-export function ArtifactsSheet({ thread, agent, session, open, onClose }: ArtifactsSheetProps) {
+export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = null, onClose }: ArtifactsSheetProps) {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -128,6 +131,7 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
   const sessions = useAgentsStore((state) => state.sessions);
   const ask = useAgentsStore((state) => (session === null ? undefined : state.asks[session]));
   const approval = useAgentsStore((state) => (session === null ? undefined : state.approvals[session]));
+  const activity = useActivityStore((state) => state.items);
   const markSeen = useArtifactsSeenStore((state) => state.markSeen);
   useConnectionStore((state) => state.status);
   const base = hostBaseUrl();
@@ -140,10 +144,11 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
   useEffect(() => {
     if (open) {
       setNow(Date.now());
+      if (openTab !== null) setSelected(openTab);
       markSeen(thread, Date.now());
       ref.current?.snapToIndex(0);
     } else ref.current?.close();
-  }, [open, thread, markSeen]);
+  }, [open, thread, openTab, markSeen]);
   // Whatever lands while the sheet shows counts as seen.
   useEffect(() => {
     if (open) markSeen(thread, Date.now());
@@ -158,11 +163,11 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
   const counts = useMemo(() => Object.fromEntries(Object.entries(rowsByTab).map(([id, rows]) => [id, rows.length])), [rowsByTab]);
   const current = initialTab(visible, counts, selected);
   const tab = visible.find((entry) => entry.id === current) ?? null;
-  const running = items.some((item) => subagentView(item, now) === "running");
+  const running = items.some((item) => subagentView(item, now) === "running") || activity.some((item) => item.owner === thread && item.status === "working");
   const nameOf = useCallback((agentId: string) => agentTitle(agents, agentId), [agents]);
   const tasks = useMemo(
-    () => taskGroups({ items, now, threadSession: session, sessions, ask, approval, agent: agents?.find((entry) => entry.id === agent), agentTitle: agentTitle(agents, agent) }),
-    [items, now, session, sessions, ask, approval, agents, agent],
+    () => taskGroups({ items, now, threadSession: session, sessions, ask, approval, agent: agents?.find((entry) => entry.id === agent), agentTitle: agentTitle(agents, agent), activity: { items: activity, thread } }),
+    [items, now, session, sessions, ask, approval, agents, agent, activity, thread],
   );
   const needsYou = tasks.some((group) => group.id === "needs");
 
@@ -286,6 +291,8 @@ export function ArtifactsSheet({ thread, agent, session, open, onClose }: Artifa
     // An ask or approval is answered in the chat under the sheet; a subagent opens its own screen.
     ref.current?.close();
     if (target.kind === "session") router.push({ pathname: "/agents/[sessionId]", params: { sessionId: target.sessionId } });
+    if (target.kind === "assistant" && target.agent !== agent) router.push({ pathname: "/eva", params: { agent: target.agent } });
+    if (target.kind === "canvas") router.push({ pathname: "/canvas", params: { slug: target.slug } });
   };
 
   const rows = tab === null ? NO_ITEMS : (rowsByTab[tab.id] ?? NO_ITEMS);

@@ -1,7 +1,7 @@
 import { attachResult, messagesFrom, oneLine } from './session'
 import { makeMessage, type ChatMessage, type Goal, type SessionMeta } from './message'
 import type { MetaPatch } from './batcher'
-import { parseDialog, UNREADABLE_ASK_NOTICE, type Dialog } from './dialogs'
+import { answerRowText, parseDialog, UNREADABLE_ASK_NOTICE, type Dialog } from './dialogs'
 import { goalCommand, isHandoff } from './launch'
 
 type Json = Record<string, unknown>
@@ -422,12 +422,12 @@ export class LiveReducer {
     dirty.add(`dialog-${id}`)
   }
 
-  /** The user answered the pending dialog `id`; the row now reads `Answered: {summary}`. */
+  /** The user answered the pending dialog `id`; the row now reads `Answered: {summary}` (or `Skipped`). */
   answer(id: string, summary: string): { dirty: string[]; meta?: MetaPatch } {
     if (this.dialog?.id !== id) return { dirty: [] }
     const dirty = new Set<string>()
     this.dialog = null
-    this.setDialogRow(id, `Answered: ${summary}`, dirty)
+    this.setDialogRow(id, answerRowText(summary), dirty)
     return { dirty: [...dirty], meta: { dialog: null } }
   }
 

@@ -79,12 +79,18 @@ test('menu order, pin and unpin edit session-pins.json', async ({ app, shell }) 
   await openChats(shell)
   await rowOf(shell, 'p4-other2').click({ button: 'right' })
   await expect(shell.locator(sel('row-menu'))).toBeVisible()
-  // Native order: Rename chat, Pin chat, the Snooze presets, Settle, then Move to and Delete.
+  // Native order: Rename chat, Pin chat, the Snooze presets, Settle, then Add to favorites, Move to
+  // and Delete.
   const ids = await menuIds(shell)
   expect(ids.slice(0, 2)).toEqual(['row-menu-rename', 'row-menu-pin'])
-  expect(ids.slice(2, -3).length).toBeGreaterThan(0)
-  expect(ids.slice(2, -3).every((id) => id.startsWith('row-menu-snooze-'))).toBe(true)
-  expect(ids.slice(-3)).toEqual(['row-menu-settle', 'row-menu-move', 'row-menu-delete'])
+  expect(ids.slice(2, -4).length).toBeGreaterThan(0)
+  expect(ids.slice(2, -4).every((id) => id.startsWith('row-menu-snooze-'))).toBe(true)
+  expect(ids.slice(-4)).toEqual([
+    'row-menu-settle',
+    'sidebar-menu-favorite',
+    'row-menu-move',
+    'row-menu-delete',
+  ])
   await expect(shell.locator(sel('row-menu-rename'))).toHaveText('Rename chat')
   await expect(shell.locator(sel('row-menu-pin'))).toHaveText('Pin chat')
   await expect(shell.locator(sel('row-menu-settle'))).toHaveText('Settle')

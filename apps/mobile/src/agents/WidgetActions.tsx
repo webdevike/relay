@@ -50,3 +50,15 @@ export function ReplyWidgetActions({ reply, children }: { reply: ((text: string)
   const actions = useMemo<WidgetActions | null>(() => (reply === null ? null : { reply }), [reply]);
   return <Context.Provider value={actions}>{children}</Context.Provider>;
 }
+
+const CloseContext = createContext<(() => void) | null>(null);
+
+/** Where `close` is set, a widget the app opened itself (the header's avatar editor) can dismiss its own row; null for one an agent wrote. */
+export function useWidgetClose(): (() => void) | null {
+  return useContext(CloseContext);
+}
+
+/** Gives the widgets below a `close` that removes the row they sit in. */
+export function WidgetCloseProvider({ close, children }: { close: () => void; children: ReactNode }) {
+  return <CloseContext.Provider value={close}>{children}</CloseContext.Provider>;
+}

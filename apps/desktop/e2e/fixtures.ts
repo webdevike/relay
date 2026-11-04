@@ -82,8 +82,9 @@ export const test = base.extend<Fixtures>({
   launchEnv: [{}, { option: true }],
   startOnChat: [true, { option: true }],
   toolPanes: [true, { option: true }],
-  configDir: async ({}, use) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-e2e-'))
+  configDir: async ({}, use, testInfo) => {
+    // Per-worker prefix: parallel workers never share a config dir (or a path to confuse by hand).
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), `evaos-e2e-w${testInfo.parallelIndex}-`))
     await use(dir)
     fs.rmSync(dir, { recursive: true, force: true })
   },

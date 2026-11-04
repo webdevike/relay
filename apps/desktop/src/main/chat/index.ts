@@ -2,9 +2,9 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { sessionId } from '@evaos/chat-core/session-id'
-import { Notification } from 'electron'
 import type { MainContext } from '../context'
-import { ChatAlertTracker, type ChatAlert } from './chat-alerts'
+import { ChatAlertTracker } from './chat-alerts'
+import { registerNotifications, type Notifier } from '../notifications'
 import { registerAssistantsIpc } from '../assistants/assistants-ipc'
 import { emit } from '../ipc/handle'
 import { startRelay } from '../relay'
@@ -66,6 +66,8 @@ export interface ChatHandles {
   frames: RelayFrames & RelayFeatures
   /** The connected Relay Host's name and version, null while not connected. */
   hostInfo(): { name: string; version: string } | null
+  /** Desktop notifications: the update flow tells it about a build that is ready. */
+  notifier: Notifier
 }
 
 const STATUS_COALESCE_MS = 30
@@ -113,30 +115,6 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     relay: () => relay.sessions(),
   })
   const alerts = new ChatAlertTracker()
-  // Held until closed or clicked: a collected Notification loses its click handler on macOS.
-  const shown = new Set<Notification>()
-  const notify = (a: ChatAlert): void => {
-    const n = new Notification({ title: a.title, body: a.body, silent: a.kind === 'finished' })
-    shown.add(n)
-    n.on('click', () => {
-      shown.delete(n)
-      if (ctx.win.isMinimized()) ctx.win.restore()
-      ctx.win.show()
-      ctx.win.focus()
-      emit(ctx, 'chat.openRequested', { file: a.file })
-    })
-    n.on('close', () => shown.delete(n))
-    n.show()
-  }
-  const emitList = (): void => {
-    const l = list.list()
-    emit(ctx, 'chat.listChanged', l)
-    const due = alerts.update(l)
-    // Fixture sessions (dev, e2e) never notify; a focused window already shows the change.
-    if (!ctx.env.live || ctx.win.isFocused() || !Notification.isSupported()) return
-    for (const a of due) notify(a)
-  }
-  registerChatListIpc(ctx, queue, list, manager, sessionsDirs, emitList)
   // Assistant threads: Relay says how each stands, their files hold the last reply; a thin client
   // takes the registry from the Mini's host.
   const assistants = registerAssistantsIpc(
@@ -144,7 +122,24 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     relay,
     sessionsDirs,
     ctx.env.relayRemote ? relay : null,
+    (l) => notifier.onAssistants(l),
   )
+  // Desktop notifications. A thin client hears the same things from the host: its assistants and
+  // their replies, the Working list and the canvas rooms all come through Relay.
+  const notifier = registerNotifications(
+    ctx,
+    (file) => assistants.list().agents.find((a) => a.file === file)?.id ?? null,
+  )
+  notifier.onAssistants(assistants.list())
+  relay.watchActivity()
+  const offNotifyActivity = relay.onActivity(() => notifier.onActivity(relay.activity()))
+  const offNotifyRooms = relay.onCanvasRoomsChange(() => notifier.onRooms(relay.canvasRooms()))
+  const emitList = (): void => {
+    const l = list.list()
+    emit(ctx, 'chat.listChanged', l)
+    notifier.onChatList(l, alerts.update(l))
+  }
+  registerChatListIpc(ctx, queue, list, manager, sessionsDirs, emitList)
   // The host's dashboards, as Relay streams them.
   const offBoards = registerBoardsIpc(ctx, relay)
   // Tapbacks on the bubbles of the chats shown, as Relay keeps them for every device.
@@ -200,6 +195,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offReactions()
     offArtifacts()
     offActivity()
+    offNotifyActivity()
+    offNotifyRooms()
     offCanvasLive()
     offStudio()
     clearTimeout(statusTimer)
@@ -209,6 +206,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   // Quit ends stdin on every omp this app started and waits; it never signals (D-17).
   ctx.onBeforeQuit(() => manager.closeAll())
   return {
+    notifier,
     onSessionsChanged: (cb) => watch.onChange(cb),
     placeOf: (file) => list.placeOf(resolveInsideSessionsDir(sessionsDirs, file)),
     anyWorking: () => manager.anyWorking(),

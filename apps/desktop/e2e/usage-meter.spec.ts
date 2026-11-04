@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { FIXTURES_DIR, REPO_ROOT } from './helpers/paths'
+import { pickScheme } from './helpers/appearance'
 
 type G = { __evaosTest: { win: { setContentSize(w: number, h: number): void } } }
 
@@ -37,7 +38,7 @@ async function size(app: ElectronApplication, shell: Page, w: number, h: number)
 }
 
 async function setScheme(shell: Page, mode: 'dark' | 'light'): Promise<void> {
-  await shell.locator(sel(`appearance-${mode}`)).click()
+  await pickScheme(shell, mode)
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', mode)
 }
 

@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
+import type { ChatImage } from '@evaos/chat-core/message'
 import { ImageViewer } from '../ImageViewer'
+import { collectMessageImages } from './collect-images'
 import { mediaUrl } from '../widgets/media-url'
 
 /**
@@ -132,7 +134,7 @@ export const InLink = createContext(false)
 
 /** An image in a reply: a click (or Enter) opens it full size in the image viewer, like a widget's. */
 function MarkdownImage({ src, alt }: { src: string; alt: string }) {
-  const [viewing, setViewing] = useState(false)
+  const [viewing, setViewing] = useState<{ images: ChatImage[]; start: number } | null>(null)
   const url = mediaUrl(src)
   if (useContext(InLink)) return <img src={url} alt={alt} draggable={false} />
   return (
@@ -142,16 +144,18 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         className="eva-md-image"
         aria-label={`Open ${alt || 'image'}`}
         data-testid="md-image"
-        onClick={() => setViewing(true)}
+        onClick={(e) => setViewing(collectMessageImages(e.currentTarget))}
       >
         <img src={url} alt={alt} draggable={false} />
       </button>
-      <ImageViewer
-        images={[{ label: alt, src: url }]}
-        start={0}
-        opened={viewing}
-        onClose={() => setViewing(false)}
-      />
+      {viewing ? (
+        <ImageViewer
+          images={viewing.images}
+          start={viewing.start}
+          opened
+          onClose={() => setViewing(null)}
+        />
+      ) : null}
     </>
   )
 }

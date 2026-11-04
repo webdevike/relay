@@ -20,6 +20,16 @@ describe("relay:// app links", () => {
       expect(parseAppLink(bad)).toBeNull();
   });
 
+  it("reads the singular `setting` page as Settings", () => {
+    expect(parseAppLink("relay://open/setting")).toEqual({ kind: "open", page: "settings" });
+    expect(parseAppLink("relay://open/setting/connections?connect=github")).toEqual({
+      kind: "open",
+      page: "settings",
+      sub: "connections",
+      params: { connect: "github" },
+    });
+  });
+
   it("reads page parts and params, and builds the same link back", () => {
     for (const url of [
       "relay://open/settings/connections?connect=github",

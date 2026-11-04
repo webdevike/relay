@@ -31,6 +31,7 @@ import { useVncStore } from "@/state/vnc";
 import { useBoardsStore } from "@/state/boards";
 import { useGateStore } from "@/state/gate";
 import { useUsageStore } from "@/state/usage";
+import { useActivityStore } from "@/state/activity";
 import { useCatchUpStore } from "@/state/catchup";
 import { useAssistantStore } from "@/state/assistant";
 import { useReactionsStore } from "@/state/reactions";
@@ -52,6 +53,7 @@ import { createVncFrameRouter } from "./vnc";
 import { createBoardFrameRouter } from "./boards";
 import { createGateFrameRouter } from "./gate";
 import { createUsageFrameRouter } from "./usage";
+import { createActivityFrameRouter } from "./activity";
 import { createCatchUpFrameRouter } from "./catchup";
 import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
@@ -140,6 +142,7 @@ const routeVncFrame = createVncFrameRouter(useVncStore.getState(), () => hostAut
 const routeBoardFrame = createBoardFrameRouter(useBoardsStore.getState());
 const routeGateFrame = createGateFrameRouter(useGateStore.getState());
 const routeUsageFrame = createUsageFrameRouter(useUsageStore.getState());
+const routeActivityFrame = createActivityFrameRouter(useActivityStore.getState());
 const routeCatchUpFrame = createCatchUpFrameRouter(useCatchUpStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
 const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState());
@@ -220,6 +223,8 @@ socket.onMessage = (data) => {
     socket.send(encode({ t: "gate.get" }));
     // Plan usage moves while the phone is away; the host refreshes it when its copy is over a minute old.
     socket.send(encode({ t: "usage.get" }));
+    // What agents run on the host moved while away; the answer goes to every device.
+    socket.send(encode({ t: "activity.get" }));
     // The Catch Up feed and its read state may have changed while away.
     socket.send(encode({ t: "catchup.list" }));
     // The Assistants list comes from the host's registry and live sessions, which may have changed while away.
@@ -257,6 +262,7 @@ socket.onMessage = (data) => {
   routeBoardFrame(message);
   routeGateFrame(message);
   routeUsageFrame(message);
+  routeActivityFrame(message);
   routeCatchUpFrame(message);
   routeReactionFrame(message);
   routeArtifactFrame(message);
@@ -438,6 +444,7 @@ async function retarget(id: string | null): Promise<void> {
   useBoardsStore.getState().setAll([]);
   useGateStore.getState().set(null);
   useUsageStore.getState().set(null);
+  useActivityStore.getState().set([]);
   useCatchUpStore.getState().set(null);
   useReactionsStore.getState().clear();
   useArtifactsStore.getState().clear();
@@ -814,6 +821,12 @@ export function registerPush(token: string): void {
 export function unregisterPush(): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "push.unregister" }));
+}
+
+/** The assistants this phone wants no pushes from; the host replaces its list for this device. Re-sent on every connection. */
+export function sendPushPrefs(muted: readonly string[]): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "push.prefs", muted: [...muted] }));
 }
 
 /**

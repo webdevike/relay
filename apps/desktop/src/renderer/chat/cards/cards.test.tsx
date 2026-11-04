@@ -198,6 +198,42 @@ describe('QuestionCard', () => {
     expect(document.activeElement).toBe(radios[1])
   })
 
+  it('Skip sends a cancel once, from a lone single-choice question too', async () => {
+    const onAnswer = vi.fn(async (..._a: unknown[]) => true)
+    render(<QuestionCard dialog={ask} onAnswer={onAnswer} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(onAnswer).toHaveBeenCalledTimes(1)
+    expect(onAnswer).toHaveBeenCalledWith({ kind: 'cancel' })
+  })
+
+  it('Escape cancels only while focus is inside the card', async () => {
+    const onAnswer = vi.fn(async (..._a: unknown[]) => true)
+    render(<QuestionCard dialog={ask} onAnswer={onAnswer} />)
+    fireEvent.keyDown(document.body, { key: 'Escape' })
+    expect(onAnswer).not.toHaveBeenCalled()
+    act(() => screen.getByRole('radio', { name: /SQLite/ }).focus())
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+    expect(onAnswer).toHaveBeenCalledWith({ kind: 'cancel' })
+  })
+
+  it('Back returns to the previous page and Skip is offered on every page', async () => {
+    const two: Dialog = {
+      kind: 'ask',
+      id: 'u3',
+      questions: [
+        { id: 'a', question: 'First?', options: [{ label: 'x' }, { label: 'y' }], multi: false },
+        { id: 'b', question: 'Second?', options: [{ label: 'p' }, { label: 'q' }], multi: false },
+      ],
+    }
+    render(<QuestionCard dialog={two} onAnswer={vi.fn()} />)
+    await userEvent.click(screen.getByRole('radio', { name: /x/ }))
+    expect(screen.getByText('Second?')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Skip' })).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(screen.getByText('First?')).toBeTruthy()
+  })
+
   it('dead renders disabled options and the caption, and answers nothing', () => {
     const onAnswer = vi.fn()
     render(<QuestionCard dialog={select} dead onAnswer={onAnswer} />)

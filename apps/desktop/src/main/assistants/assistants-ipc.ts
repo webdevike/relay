@@ -33,6 +33,8 @@ export function registerAssistantsIpc(
   relay: RelayLink,
   sessionsDirs: readonly string[],
   remote: RelayFrames | null = null,
+  /** Called with each list `assistants.changed` carries (desktop notifications read replies from it). */
+  onChanged: (list: Assistants) => void = () => {},
 ): { list(): Assistants; refresh(): void; close(): void } {
   let hostAgents: Agent[] | null = null
   const service = new AssistantsService({
@@ -80,6 +82,7 @@ export function registerAssistantsIpc(
       if (next === shown) return
       shown = next
       emit(ctx, 'assistants.changed', out)
+      onChanged(out)
     }, COALESCE_MS)
   }
   const offRelay = relay.onChange(refresh)

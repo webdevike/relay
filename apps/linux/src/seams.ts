@@ -17,6 +17,8 @@ import type {
   AssistantSnapshot,
   ClientMessage,
   Command,
+  ControlPresence,
+  ControlResult,
   Drop,
   DropOrigin,
   FileFocus,
@@ -58,6 +60,24 @@ export interface FilePresenceRelaying {
   /** `files.saved`: Isaac's editor is writing `path` with bytes of this sha1. */
   saved(path: string, hash: string): void;
   /** The socket closed: forget its files and its caret. */
+  drop(sink: FrameSink): void;
+}
+
+/** A desktop's socket as remote control knows it. */
+export interface ControlClient {
+  readonly sink: FrameSink;
+  readonly device: string;
+  /** The socket comes from this Mac (loopback). */
+  readonly loopback: boolean;
+}
+
+/** What the session needs of remote control (`control/relay.ts`): one desktop per socket, named by its sink. */
+export interface ControlRelaying {
+  /** `control.presence`: this socket's desktop can be driven; how long since Isaac used it. */
+  presence(client: ControlClient, presence: ControlPresence): void;
+  /** `control.res`: the answer to a `control.req` this socket was sent. */
+  result(sink: FrameSink, rid: string, result: ControlResult): void;
+  /** The socket closed: forget its desktop and fail what it still owed. */
   drop(sink: FrameSink): void;
 }
 
@@ -113,6 +133,8 @@ export interface DeviceStore {
 export interface PushRegistry {
   register(deviceId: string, token: string): void;
   unregister(deviceId: string): void;
+  /** The assistants `deviceId` wants no pushes from (`push.prefs`); replaces the list. */
+  setMuted(deviceId: string, muted: readonly string[]): void;
 }
 
 /**

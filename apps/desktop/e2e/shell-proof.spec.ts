@@ -112,7 +112,7 @@ test('shell-light-1280x800', async ({ app, shell }) => {
 
 for (const mode of ['dark', 'light'] as const) {
   test(`shell-folded-${mode}-760x720`, async ({ app, shell }) => {
-    await shell.locator(sel(`appearance-${mode}`)).click()
+    await pickScheme(shell, mode)
     await resolved(shell).toHaveAttribute('data-resolved', mode)
     await size(app, shell, 760, 720)
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'folded')
@@ -127,7 +127,7 @@ for (const mode of ['dark', 'light'] as const) {
   })
 
   test(`shell-wide-${mode}-1440x900`, async ({ app, shell }) => {
-    await shell.locator(sel(`appearance-${mode}`)).click()
+    await pickScheme(shell, mode)
     await resolved(shell).toHaveAttribute('data-resolved', mode)
     await size(app, shell, 1440, 900)
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')
@@ -135,7 +135,8 @@ for (const mode of ['dark', 'light'] as const) {
     const tool = await box(shell, 'pane-p2')
     const main = await box(shell, 'main-card')
     expect(Math.abs(tool.width / (tool.width + main.width) - 0.34)).toBeLessThan(0.01)
-    expect(Math.round(main.x + main.width + 8)).toBe(Math.round(tool.x))
+    // Sub-pixel layout: the 8px gap between the cards may measure a pixel off.
+    expect(Math.abs(main.x + main.width + 8 - tool.x)).toBeLessThanOrEqual(1)
     expect(Math.round(tool.x + tool.width)).toBe(1440 - 8)
     await finish(app, shell, `shell-wide-${mode}-1440x900`)
   })
@@ -174,8 +175,8 @@ test('sidebar-subpage-settings', async ({ app, shell }) => {
   const sb = shell.locator(sel('sidebar'))
   await expect(sb).toHaveAttribute('data-sidebar-level', 'settings')
   await expect(shell.locator(sel('sidebar-back'))).toBeVisible()
-  // Theme, Chat, Links, Connections, About, Changelog (Setup is for starter hosts only).
-  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(6)
+  // Theme, Chat, Links, Notifications, Connections, About, Changelog (Setup is for starter hosts only).
+  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(7)
   await expect
     .poll(() =>
       shell

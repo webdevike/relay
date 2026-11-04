@@ -27,6 +27,8 @@ import { handleBoardRequest, isLoopback } from "./boards/http";
 import { authorizeCanvasSocket, handleCanvasRequest } from "./canvas/http";
 import type { CanvasPeer } from "./canvas/room";
 import type { CanvasRoom, CanvasService } from "./canvas/service";
+import { handleControlRequest } from "./control/http";
+import type { ControlRelay } from "./control/relay";
 import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
 import type { CatchUpDeck } from "./catchup/service";
@@ -128,6 +130,8 @@ export interface ServerDeps {
   readonly files: FilePresence | null;
   /** Meetings (recordings, their ingest sockets, the records); null disables `MEETINGS_INGEST_PATH` and refuses `meetings.*`. */
   readonly meetings: MeetingsRelaying | null;
+  /** Remote control of the connected Relay Desktops; null disables `/control/*` and leaves the feature out of `welcome`. */
+  readonly control: ControlRelay | null;
   /** The canvas web client's HTML, served at `/canvas/<slug>/`. */
   readonly canvasPage: () => string;
   readonly pairing: PairingUI;
@@ -329,6 +333,8 @@ export class RelayServer {
           return handleCatchUpBounce(this.deps.catchup, request, remote);
         if (path === "/reactions/agent")
           return handleAgentReaction(this.deps.reactions, this.deps.assistant, request, remote);
+        if (path.startsWith("/control/"))
+          return handleControlRequest(this.deps.control, request, path, remote);
         return new Response("not found", { status: 404 });
       },
       websocket: {
@@ -706,6 +712,7 @@ export class RelayServer {
         query: this.deps.query,
         files: this.deps.files,
         meetings: this.deps.meetings,
+        control: this.deps.control,
       },
       (closed) => {
         const reason = closed.closeReason;

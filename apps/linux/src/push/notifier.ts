@@ -12,7 +12,7 @@ export const REMINDER_MS = 30 * 60_000;
 /**
  * Tap routing on the phone: a session opens the inbox card, a drop opens the Drops list, an
  * inbox push carries what the phone needs to answer it (`InboxPushData`) or, for a withdraw, the id
- * of the notification to remove, and an assistant reply opens that agent's thread.
+ * of the notification to remove, an assistant reply opens that agent's thread, and a canvas invitation opens that board's room.
  */
 export type PushData =
   | { readonly sessionId: string }
@@ -20,7 +20,8 @@ export type PushData =
   | { readonly id: string; readonly kind: string; readonly sessionId?: string }
   | { readonly withdraw: string }
   | { readonly assistant: true; readonly agent: string }
-  | { readonly meeting: string };
+  | { readonly meeting: string }
+  | { readonly canvas: string };
 
 export interface PushMessage {
   readonly to: string;
@@ -129,18 +130,20 @@ export class AttentionNotifier {
       session.status === "needs_permission"
         ? `Needs permission${session.statusDetail === undefined ? "" : `: ${session.statusDetail}`}`
         : untagged(session.lastActivity);
+    // Phones that muted the assistant this run belongs to (its own thread, or one it started) get nothing.
     this.send(
       { title, body, data: { sessionId: session.id }, threadId: `session:${session.id}` },
       (deviceId) => this.deps.isViewing(deviceId, session.id),
+      session.assistant ?? session.owner,
     );
   }
 
-  private send(message: Omit<PushMessage, "to">, skip: (deviceId: string) => boolean): void {
+  private send(message: Omit<PushMessage, "to">, skip: (deviceId: string) => boolean, assistant?: string): void {
     // EvaOS applies the away, 45 s, quiet hours, habit break and rate-limit rules and sends what passes
     // as `inbox.item`; pushing here too would ping Isaac while he sits at the Mac.
     if (this.deps.suppressed?.() === true) return;
     const recipients: { deviceId: string; token: string }[] = [];
-    for (const [deviceId, token] of this.deps.tokens.tokens()) {
+    for (const [deviceId, token] of this.deps.tokens.tokens(assistant)) {
       if (skip(deviceId)) continue;
       recipients.push({ deviceId, token });
     }

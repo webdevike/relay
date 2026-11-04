@@ -565,7 +565,7 @@ export class AssistantService implements AssistantThread {
     const { text: shown, signin } = splitSignin(raw, false);
     const text = signin === undefined ? withoutDetailsMarker(raw) : shown.trim().length > 0 ? withoutDetailsMarker(shown.trim()) : `Sign in to ${signin.host}`;
     const recipients: { deviceId: string; token: string }[] = [];
-    for (const [deviceId, token] of this.deps.tokens.tokens()) {
+    for (const [deviceId, token] of this.deps.tokens.tokens(this.id)) {
       if (this.deps.isViewing(deviceId)) continue;
       recipients.push({ deviceId, token });
     }

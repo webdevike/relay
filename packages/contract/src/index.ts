@@ -35,6 +35,7 @@ import {
 import { updateEvents, updateInvoke } from './update'
 import { setupEvents, setupInvoke } from './setup'
 import { contextEvents, contextInvoke } from './context'
+import { notificationsEvents, notificationsInvoke } from './notifications'
 export * from './experiments'
 export * from './canvas'
 export * from './canvas-live'
@@ -61,6 +62,7 @@ export * from './build'
 export * from './update'
 export * from './context'
 export * from './setup'
+export * from './notifications'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo, AppAboutSchema, type AppAbout } from './app'
@@ -113,6 +115,7 @@ export const invokeContract = {
   ...updateInvoke,
   ...contextInvoke,
   ...setupInvoke,
+  ...notificationsInvoke,
 }
 export const eventContract = {
   ...linksEvents,
@@ -142,6 +145,7 @@ export const eventContract = {
   ...contextEvents,
   ...reviewsEvents,
   ...setupEvents,
+  ...notificationsEvents,
 }
 
 export type InvokeChannel = keyof typeof invokeContract

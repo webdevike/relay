@@ -16,7 +16,7 @@
  * on the left with three typing dots while she works before her reply text streams. The rounded composer keeps multiline text
  * above a persistent row of attachment, hold-to-talk mic and send controls. The mic is the Agent Inbox's: hold to talk, release to send.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -70,6 +70,9 @@ import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 import { draftKey, useThreadDraft } from "@/state/drafts";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
 import { OWNED_ROW_HEIGHT, OwnedSessions, useOwnedSessionIds } from "@/agents/OwnedSessions";
+import { ActivityBadges } from "@/agents/ActivityBadges";
+import { WidgetCloseProvider } from "@/agents/WidgetActions";
+import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
 
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
 const PENDING_ID = "pending-turn";
@@ -148,8 +151,13 @@ function Thread({ agent }: { agent: string }) {
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
   const artifactsThread = assistantReactionThread(agent);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
+  // The Artifacts tab the sheet opens on: the Working group when a badge was tapped, else wherever it was left.
+  const [artifactsTab, setArtifactsTab] = useState<string | null>(null);
   // Follow the thread's artifacts while it shows, so the header button's dot is live.
   useEffect(() => watchArtifacts(artifactsThread), [artifactsThread]);
+  // Rows this screen adds to the thread (the avatar editor) go with it.
+  const localRows = useLocalRowsStore((state) => localRowsOf(state, agent));
+  useEffect(() => () => { useLocalRowsStore.getState().clear(agent); }, [agent]);
 
   // The thread is fetched only while this screen shows; the driver re-asks on every welcome in between.
   useFocusEffect(
@@ -255,15 +263,18 @@ function Thread({ agent }: { agent: string }) {
 
   // Background messages (the host's job lines arrive as `status` rows) show as quiet rows; any other status row is machinery, never shown.
   const messages = (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null);
-  const rows: AssistantMessage[] =
-    pending === null ? messages : [...messages, { id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
+  const pendingRow: AssistantMessage[] = pending === null ? [] : [{ id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
+  // What the host's transcript (plus the echo of a turn in flight) says; local rows come after it and never count as its newest reply.
+  const settled = [...messages, ...pendingRow];
+  const rows: AssistantMessage[] = [...messages, ...localRows, ...pendingRow];
   const newestFirst = [...rows].reverse();
   const enteringMessages = useMessageEntrances(rows, snapshot !== null);
   const busy = snapshot?.busy === true;
   // The dots stand in for a reply that has not started: while the host says the session is working
   // and the newest row is not an assistant message already showing words. Once text streams, it is the indicator.
   const newest = newestFirst[0];
-  const typing = busy && !(newest?.role === "assistant" && newest.text.trim() !== "");
+  const newestSettled = settled[settled.length - 1];
+  const typing = busy && !(newestSettled?.role === "assistant" && newestSettled.text.trim() !== "");
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending) : null;
 
@@ -284,11 +295,14 @@ function Thread({ agent }: { agent: string }) {
   const openMenu = (): void => {
     Keyboard.dismiss();
     ActionSheetIOS.showActionSheetWithOptions(
-      { title, options: [`${title}'s computer`, "Mac live view", "Agent Inbox", "Cancel"], cancelButtonIndex: 3 },
+      { title, options: ["Edit avatar", "Edit instructions", `${title}'s computer`, "Mac live view", "Agent Inbox", "Cancel"], cancelButtonIndex: 5 },
       (index) => {
-        if (index === 0) router.push("/eva-computer");
-        if (index === 1) router.push("/screen");
-        if (index === 2) router.push("/agents");
+        if (index === 0) useLocalRowsStore.getState().openAvatarEditor(agent, portrait);
+        // The phone has no Files tab: the assistant takes the change as a chat turn.
+        if (index === 1) sendTurn("I'd like to change your instructions", [], false);
+        if (index === 2) router.push("/eva-computer");
+        if (index === 3) router.push("/screen");
+        if (index === 4) router.push("/agents");
       },
     );
   };
@@ -360,22 +374,24 @@ function Thread({ agent }: { agent: string }) {
                 renderItem={({ item, index }) => (
                   // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
                   <MessageAppearance animate={enteringMessages.has(item.id)} user={senderOf(item) === "user"} gap={gapAbove(item, newestFirst[index + 1])}>
-                    <Row
-                      agent={agent}
-                      message={item}
-                      receipt={item.id === latestUserId ? receipt : null}
-                      streaming={busy && index === 0 && item.role === "assistant"}
-                      sessionId={sessionId}
-                      local={item.id === PENDING_ID ? pending?.images : undefined}
-                      replies={index === 0 ? replies : null}
-                      onReply={(reply) => {
-                        sendTurn(reply, [], false);
-                      }}
-                      onOpenImages={(uris, start) => {
-                        setViewing({ uris, start });
-                      }}
-                      onSignIn={openSignIn}
-                    />
+                    <LocalRowFrame agent={agent} id={item.id}>
+                      <Row
+                        agent={agent}
+                        message={item}
+                        receipt={item.id === latestUserId ? receipt : null}
+                        streaming={busy && item === newestSettled && item.role === "assistant"}
+                        sessionId={sessionId}
+                        local={item.id === PENDING_ID ? pending?.images : undefined}
+                        replies={item === newestSettled ? replies : null}
+                        onReply={(reply) => {
+                          sendTurn(reply, [], false);
+                        }}
+                        onOpenImages={(uris, start) => {
+                          setViewing({ uris, start });
+                        }}
+                        onSignIn={openSignIn}
+                      />
+                    </LocalRowFrame>
                   </MessageAppearance>
                 )}
                 // Inverted: the header sits at the visual bottom, below the newest row.
@@ -443,6 +459,14 @@ function Thread({ agent }: { agent: string }) {
               <Banner tone="danger" message={banner} />
             </View>
           )}
+          <ActivityBadges
+            thread={artifactsThread}
+            onPress={() => {
+              Keyboard.dismiss();
+              setArtifactsTab("subagents");
+              setArtifactsOpen(true);
+            }}
+          />
           <View style={styles.pillRow}>
             <View style={[styles.composerCard, { backgroundColor: dark ? BUBBLE_DARK : colors.surface, borderColor: colors.hairline }]}>
               {photos.length > 0 && (
@@ -508,8 +532,10 @@ function Thread({ agent }: { agent: string }) {
           agent={agent}
           session={sessionId}
           open={artifactsOpen}
+          tab={artifactsTab}
           onClose={() => {
             setArtifactsOpen(false);
+            setArtifactsTab(null);
           }}
         />
       </View>
@@ -525,6 +551,20 @@ function BackButton({ onPress }: { onPress: () => void }) {
     <IconButton symbol="chevron.left" onPress={onPress} tone="overlay" accessibilityLabel="Back" />
   ) : (
     <IconButton symbol="chevron.left" onPress={onPress} backgroundColor={colors.surface} tintColor={colors.text} accessibilityLabel="Back" />
+  );
+}
+
+/** A row this screen added itself (the avatar editor) can close itself; host rows pass through. */
+function LocalRowFrame({ agent, id, children }: { agent: string; id: string; children: ReactNode }) {
+  if (!isLocalRow(id)) return <>{children}</>;
+  return (
+    <WidgetCloseProvider
+      close={() => {
+        useLocalRowsStore.getState().dismiss(agent, id);
+      }}
+    >
+      {children}
+    </WidgetCloseProvider>
   );
 }
 

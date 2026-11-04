@@ -1,3 +1,4 @@
+import type { ActivityItem } from "@evaos/chat-core/activity";
 import { describe, expect, it } from "vitest";
 import { defaultTabs, type AgentSession, type Artifact, type ArtifactTab } from "@relay/protocol";
 import {
@@ -281,5 +282,70 @@ describe("task groups", () => {
       ["Old", "done", "Done", "ok"],
     ]);
     expect(rows?.[1] === undefined ? null : taskTime(rows[1], NOW)).toBe("8:30 PM");
+  });
+  describe("host activity", () => {
+    const act = (id: string, over: Partial<ActivityItem> = {}): ActivityItem => ({
+      id,
+      kind: "session",
+      owner: "assistant:nova",
+      title: id,
+      status: "working",
+      intent: "Reading logs",
+      startedAt: at(22, 40),
+      updatedAt: at(22, 50),
+      open: { to: "chat", thread: `session:${id}`, session: id },
+      ...over,
+    });
+    const withActivity = (items: ActivityItem[], over: Partial<TaskInputs> = {}) => taskGroups(input({ activity: { items, thread: "assistant:nova" }, ...over }));
+
+    it("pins what waits on Isaac with its question, lists running with elapsed time, folds today's finished", () => {
+      const groups = withActivity([
+        act("run"),
+        act("ask", { status: "waiting", intent: "Which branch should I deploy?", updatedAt: at(22, 45) }),
+        act("fin", { status: "done", intent: "", updatedAt: at(21, 0) }),
+        act("bad", { status: "failed", intent: "Timed out", updatedAt: at(21, 30) }),
+        act("yesterday", { status: "done", updatedAt: at(22, 0) - 24 * 3600 * 1000 }),
+        act("other", { owner: "assistant:astra" }),
+      ]);
+      expect(groups.map((group) => [group.id, group.rows.map((row) => row.title)])).toEqual([
+        ["needs", ["ask"]],
+        ["working", ["run"]],
+        ["resolved", ["bad", "fin"]],
+      ]);
+      expect(groups[0]?.rows[0]).toMatchObject({ state: "waiting", line: "Which branch should I deploy?", tone: "warn", timeStyle: "clock" });
+      expect(groups[1]?.rows[0]).toMatchObject({ state: "running", line: "Reading logs", at: at(22, 40), timeStyle: "elapsed" });
+      expect(groups[1]?.rows[0] === undefined ? null : taskTime(groups[1].rows[0], NOW)).toBe("13m 0s");
+      expect(groups[2]?.rows.map((row) => [row.state, row.line])).toEqual([["failed", "Timed out"], ["done", "Done"]]);
+    });
+
+    it("keeps the thread's own ask first and its subagents in Working, host rows after", () => {
+      const ask = { id: "q", questions: [{ id: "1", question: "Ship it?", options: [{ label: "Yes" }] }] };
+      const groups = withActivity([act("run"), act("w", { status: "waiting", intent: "Pick one" })], { ask, items: [sub("a", "running")] });
+      expect(groups.find((group) => group.id === "needs")?.rows.map((row) => row.line)).toEqual(["Ship it?", "Pick one"]);
+      expect(groups.find((group) => group.id === "working")?.rows.map((row) => row.title)).toEqual(["a", "run"]);
+    });
+
+    it("leaves out the assistant's own helpers (the subagent rows) and itself", () => {
+      const groups = withActivity([act("h", { kind: "helper", open: { to: "subagent", file: "/s/h.jsonl", name: "h" } }), act("self", { open: { to: "chat", thread: "assistant:nova" } })]);
+      expect(groups).toEqual([]);
+    });
+
+    it("sends a row to a known session, another assistant's thread or a canvas room; a harness only has its intent line", () => {
+      const sessions = { S2: session("S2") };
+      const rows = withActivity(
+        [
+          act("S2"),
+          act("far", { open: { to: "chat", thread: "assistant:astra", session: "unknown" } }),
+          act("room", { kind: "canvas", open: { to: "canvas", slug: "mind-map" } }),
+          act("term", { kind: "harness", title: "claude", intent: "Running tests", open: { to: "terminal", pane: "p1" } }),
+        ],
+        { sessions },
+      )[0]?.rows;
+      const byTitle = Object.fromEntries((rows ?? []).map((row) => [row.title, row]));
+      expect(byTitle["S2"]?.open).toEqual({ kind: "session", sessionId: "S2" });
+      expect(byTitle["far"]?.open).toEqual({ kind: "assistant", agent: "astra" });
+      expect(byTitle["room"]?.open).toEqual({ kind: "canvas", slug: "mind-map" });
+      expect(byTitle["claude"]).toMatchObject({ open: null, line: "Running tests" });
+    });
   });
 });

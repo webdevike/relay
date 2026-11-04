@@ -43,7 +43,18 @@ Legend: **R** read, **C** change, **L** relay:// deep link. "before" is main at 
 `item, setting, connect, canvas, meeting, experiment, arm, job`. `parseAppLink` / `buildAppLink`
 live in `@evaos/chat-core/widget` and `@relay/protocol` (same grammar, tested both ways).
 `link` builds one from `{page, section, setting, connection, item, ...}` and answers
-`{url, label, markdown}`.
+`{url, label, markdown}`. `relay://open/setting` (singular) is read as `settings`; a link that names
+no place shows a "no place for that link" toast instead of doing nothing.
+
+## Which Mac
+
+Agents run on the Mini; Isaac may be on the MacBook (a thin client of the Mini's Relay Host).
+relay-ctl and relay-mcp send every action to `--device active` by default (relay-mcp: a `device`
+argument on each tool, `relay_devices` lists them): the Mini's Relay Host forwards it
+(`POST /control/run`, apps/linux README "Remote control") to the desktop Isaac used last, the
+Mini's own app while none has been used, and that desktop runs it exactly like a local request.
+`--device <id or name>` picks one, `--device local` skips the host. Toasts (Undo, approvals,
+"waiting for you to finish typing") show on the Mac that ran the action.
 
 ## Rules
 

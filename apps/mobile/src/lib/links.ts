@@ -1,6 +1,6 @@
 import { Linking } from "react-native";
-import { router } from "expo-router";
-import { parseAppLink } from "@relay/protocol";
+import { router, type Href } from "expo-router";
+import { appLinkRoute } from "./appLinks";
 import { reviewLinkOf } from "@/reviews/model";
 
 /** Opens a URL in the system handler, ignoring failures (e.g. no app can handle it). */
@@ -10,41 +10,17 @@ export function openExternal(url: string): void {
 
 /**
  * Follows a `relay://assistant/<id>` (that assistant's thread) or `relay://open/<page>[/<sub>]`
- * link inside the app (a Reviews `?item=` opens that item). Returns false when `url` isn't one, so
- * callers fall through to the web; a page this app has no screen for (Test Bench, Jobs) is
- * swallowed: it never goes to the system handler.
+ * link inside the app (a Reviews `?item=` opens that item; the table is `lib/appLinks.ts`, shared
+ * with links opened from outside the app). Returns false when `url` isn't one, so callers fall
+ * through to the web; a page this app has no screen for (Test Bench, Jobs) is swallowed: it never
+ * goes to the system handler.
  */
 function openAppLink(url: string): boolean {
-  const link = parseAppLink(url);
-  if (link === null) return false;
-  if (link.kind === "assistant") {
-    router.navigate({ pathname: "/eva", params: { agent: link.id } });
-    return true;
-  }
-  switch (link.page) {
-    case "assistants":
-      router.navigate("/assistants");
-      break;
-    // The phone's Settings is one screen: every desktop section (theme, connections) lands there.
-    case "settings":
-      router.navigate("/settings");
-      break;
-    case "canvas":
-      router.navigate("/canvas");
-      break;
-    case "board":
-      router.navigate("/boards");
-      break;
-    case "studio":
-      router.navigate("/studio");
-      break;
-    case "reviews": {
-      const item = link.params?.item;
-      if (item === undefined) router.navigate("/reviews");
-      else router.push(`/reviews?item=${encodeURIComponent(item)}`);
-      break;
-    }
-  }
+  const route = appLinkRoute(url);
+  if (route === null) return false;
+  // appLinks.ts stays free of expo-router (the +native-intent hook and its tests use it), so its
+  // route table is untyped; every href it builds names a screen in app/.
+  if (route !== "none") router[route.how](route.href as Href);
   return true;
 }
 

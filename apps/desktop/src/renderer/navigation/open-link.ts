@@ -1,3 +1,4 @@
+import { notifications } from '@mantine/notifications'
 import { resolveLink, settingsSectionOf } from '@evaos/contract'
 import { parseAppLink, type AppLink } from '@evaos/chat-core/widget'
 import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
@@ -27,7 +28,9 @@ export interface OpenLinkOptions {
  */
 export function openLink(href: string, opts: OpenLinkOptions = {}): void {
   if (href.startsWith('relay://')) {
-    openAppLink(href, opts.target)
+    if (!openAppLink(href, opts.target)) {
+      notifications.show({ message: 'Relay has no place for that link.', color: 'yellow' })
+    }
     return
   }
   const { prefs, apps } = linkPrefsStore.getState()

@@ -189,9 +189,10 @@ test("Astra's thread draws a reply exactly like a normal chat; a clicked image o
   await expect(composer).toBeVisible()
   await shot(app, shell, 'astra-thread')
 
-  // A click on an image opens it full size; Esc closes it, and so does a click outside.
+  // A click on an image opens it full size among the message's images; Esc closes it, and so does a
+  // click outside.
   await log.getByRole('button', { name: 'Open After the fix' }).click()
-  const viewer = shell.getByAltText('Image 1 of 1')
+  const viewer = shell.getByAltText('Image 2 of 2')
   await expect(viewer).toBeVisible()
   await expect(viewer).toHaveAttribute('src', /drops%2Fimg2%2Ftok2/)
   await expect.poll(() => viewer.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1440)
@@ -199,9 +200,9 @@ test("Astra's thread draws a reply exactly like a normal chat; a clicked image o
   await shell.keyboard.press('Escape')
   await expect(viewer).toHaveCount(0)
   await log.getByRole('button', { name: 'Open Before the fix' }).click()
-  await expect(shell.getByAltText('Image 1 of 1')).toHaveAttribute('src', /drops%2Fimg1%2Ftok1/)
+  await expect(shell.getByAltText('Image 1 of 2')).toHaveAttribute('src', /drops%2Fimg1%2Ftok1/)
   await shell.mouse.click(8, 500)
-  await expect(shell.getByAltText('Image 1 of 1')).toHaveCount(0)
+  await expect(shell.getByAltText('Image 1 of 2')).toHaveCount(0)
 
   // The same reply in a normal chat draws the same row, element for element.
   // The sidebar shows the Assistants list now; back to the main one.

@@ -42,6 +42,7 @@ import {
   type CallClientMessage,
   type CallRelaying,
   type CanvasRelaying,
+  type ControlRelaying,
   type DeviceStore,
   type DropBox,
   type FilePresenceRelaying,
@@ -177,6 +178,7 @@ interface HarnessOptions {
   query?: QueryRelaying;
   files?: FilePresenceRelaying;
   meetings?: MeetingsRelaying;
+  control?: ControlRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -236,6 +238,7 @@ function harness(options: HarnessOptions = {}): Harness {
     query: options.query ?? null,
     files: options.files ?? null,
     meetings: options.meetings ?? null,
+    control: options.control ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -447,11 +450,12 @@ describe("authenticated traffic", () => {
     expect(h.sink.closed).toBe(true);
   });
 
-  it("binds push.register / push.unregister to the authenticated device and never before auth", () => {
+  it("binds push.register / push.prefs / push.unregister to the authenticated device and never before auth", () => {
     const calls: string[] = [];
     const push: PushRegistry = {
       register: (deviceId, token) => calls.push(`+${deviceId}:${token}`),
       unregister: (deviceId) => calls.push(`-${deviceId}`),
+      setMuted: (deviceId, muted) => calls.push(`~${deviceId}:${muted.join(",")}`),
     };
     const h = harness({ push });
     h.session.receive(hello);
@@ -461,8 +465,9 @@ describe("authenticated traffic", () => {
     const paired = harness({ push, devices: h.devices });
     pair(paired);
     paired.session.receive({ t: "push.register", token: "ExponentPushToken[x]" });
+    paired.session.receive({ t: "push.prefs", muted: ["nova", "astra"] });
     paired.session.receive({ t: "push.unregister" });
-    expect(calls).toEqual(["+phone-1:ExponentPushToken[x]", "-phone-1"]);
+    expect(calls).toEqual(["+phone-1:ExponentPushToken[x]", "~phone-1:nova,astra", "-phone-1"]);
   });
 });
 
@@ -1803,6 +1808,45 @@ describe("files presence", () => {
       ["saved", "/Users/ike/Eva/a.md", "abc"],
       ["drop", true],
     ]);
+  });
+});
+
+describe("remote control", () => {
+  it("says so on welcome, registers this socket's desktop with where it connects from, and drops it on close", () => {
+    const calls: unknown[] = [];
+    const control = (address: string) =>
+      harness({
+        remoteAddress: address,
+        control: {
+          presence: (client, p) => calls.push(["presence", client.device, client.loopback, p.name, p.idleMs]),
+          result: (_sink, rid, result) => calls.push(["result", rid, result]),
+          drop: () => calls.push(["drop"]),
+        },
+      });
+    const local = control("127.0.0.1");
+    pair(local, "relay-desktop");
+    expect(local.sink.last()).toMatchObject({ t: "welcome", features: ["control"] });
+    const presence = { t: "control.presence", name: "Isaacs-Mac-mini", instance: "stable", idleMs: 40, page: "chat", focused: true, remote: false } as const;
+    local.session.receive(presence);
+    local.session.receive({ t: "control.res", rid: "ctl-1", result: { ok: true, value: { text: "hi" } } });
+    local.session.handleDisconnect();
+    const lan = control("192.168.1.20");
+    pair(lan, "relay-desktop-book");
+    lan.session.receive({ ...presence, name: "Isaacs-MacBook-Pro" });
+    expect(calls).toEqual([
+      ["presence", "relay-desktop", true, "Isaacs-Mac-mini", 40],
+      ["result", "ctl-1", { ok: true, value: { text: "hi" } }],
+      ["drop"],
+      ["presence", "relay-desktop-book", false, "Isaacs-MacBook-Pro", 40],
+    ]);
+  });
+
+  it("closes a client that sends control.req: only the host asks a desktop to act", () => {
+    const h = harness({ control: { presence: () => undefined, result: () => undefined, drop: () => undefined } });
+    pair(h);
+    h.session.receiveRaw(JSON.stringify({ t: "control.req", rid: "r1", action: "settings.set", params: { key: "theme.mode", value: "light" } }));
+    expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
+    expect(h.sink.closed).toBe(true);
   });
 });
 

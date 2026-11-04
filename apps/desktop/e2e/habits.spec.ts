@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { makeEvaFixture, type EvaFixture } from './helpers/eva-fixture'
 import { proofShot } from './helpers/proofShot'
+import { pickScheme } from './helpers/appearance'
 
 type Shell = { __evaosShell: { openPlace(p: string, n?: boolean): void } }
 
@@ -28,7 +29,7 @@ const argvs = (fx: EvaFixture): string[][] =>
   (fx.gateLog() as Array<{ argv: string[] }>).map((e) => e.argv)
 
 async function setScheme(shell: Page, mode: 'dark' | 'light'): Promise<void> {
-  await shell.locator(sel(`appearance-${mode}`)).click()
+  await pickScheme(shell, mode)
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', mode)
 }
 
@@ -53,7 +54,11 @@ test('shows gate status, habits, tasks, breaks and history, polled since launch'
   const strip = shell.locator(sel('habit-gate-strip'))
   await expect(shell.locator(sel('habit-gate'))).toContainText('Unlocked')
   await expect(shell.locator(sel('habit-next-break'))).toContainText('11:30 PM')
-  await expect(strip).toContainText('From your calendar')
+  // The plan source is read off the strip's info icon, not shown inline.
+  await expect(strip.locator(sel('list-kpis-more'))).toHaveAttribute(
+    'aria-label',
+    /From your calendar/,
+  )
   await expect(shell.locator(sel('habit-row-stretch'))).toContainText('2 days')
   await expect(shell.locator(sel('task-row-taxes'))).toBeVisible()
   const breaks = shell.locator(sel('breaks-today'))
@@ -89,7 +94,8 @@ test('adds, edits and removes a habit through the CLI', async ({ shell, evaFx })
   await shell.locator(sel('habit-row-read')).click()
   await shell.locator(sel('habit-minutes')).fill('20')
   await shell.locator(sel('habit-save')).click()
-  await expect(shell.locator(sel('habit-row-read'))).toContainText('20')
+  // Minutes live in the row's tooltip; the row itself shows the streak.
+  await expect(shell.locator(sel('habit-row-read'))).toHaveAttribute('title', /20 min/)
   expect(argvs(evaFx)).toContainEqual([
     'habit',
     'edit',

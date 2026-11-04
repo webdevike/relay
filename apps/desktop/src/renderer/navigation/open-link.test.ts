@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_LINK_PREFS } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 
+const { show } = vi.hoisted(() => ({ show: vi.fn() }))
+vi.mock('@mantine/notifications', () => ({ notifications: { show } }))
 const invoke = vi.fn()
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: vi.fn() }))
 const openPlaceBeside = vi.fn()
@@ -86,6 +88,16 @@ describe('openLink', () => {
     expect(navigateTo).toHaveBeenCalledTimes(1)
     expect(openPlaceHere).toHaveBeenCalledTimes(1)
     expect(invoke).not.toHaveBeenCalled()
+    expect(show).toHaveBeenCalledTimes(3)
+    expect(show).toHaveBeenLastCalledWith(expect.objectContaining({ message: expect.any(String) }))
+  })
+  it('reads the singular `relay://open/setting` as Settings', () => {
+    show.mockClear()
+    openLink('relay://open/setting', { target: 'here' })
+    expect(openPlaceHere).toHaveBeenLastCalledWith(
+      placeOf('settings', { settingsSection: 'Theme' }),
+    )
+    expect(show).not.toHaveBeenCalled()
   })
   it('a chat place splits like a page: any pane holds chats', () => {
     const chat = placeOf('chat', { chat: '/s/a.jsonl' })

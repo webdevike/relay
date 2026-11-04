@@ -25,7 +25,7 @@ const sel = (id: string): string => `[data-testid=${id}]`
 const level = (shell: Page): Promise<string | null> =>
   shell.locator(sel('sidebar')).getAttribute('data-sidebar-level')
 
-test('nav rows and counts come from the fixture root', async ({ shell }) => {
+test('nav rows and counts come from the fixture root', { tag: '@smoke' }, async ({ shell }) => {
   const ids = await shell.$$eval('[data-testid=sidebar-main] [data-testid^="nav-"]', (els) =>
     els.map((e) => e.getAttribute('data-testid')),
   )
@@ -98,8 +98,8 @@ test('chats sub-page slides, Back and Esc return, Cmd+F focuses its search', asy
 test('settings sub-page opens a settings section', async ({ shell }) => {
   await shell.locator(sel('nav-setting')).click()
   await expect.poll(() => level(shell)).toBe('settings')
-  // Theme, Chat, Links, Connections, About, Changelog (Setup is for starter hosts only).
-  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(6)
+  // Theme, Chat, Links, Notifications, Connections, About, Changelog (Setup is for starter hosts only).
+  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(7)
   await shell.locator(sel('settings-item-chat')).click()
   await expect
     .poll(async () => (await tabs(shell)).list[(await tabs(shell)).active]!.title)
