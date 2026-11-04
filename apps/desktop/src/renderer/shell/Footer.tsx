@@ -3,6 +3,8 @@ import type { AppInfo } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { UsageMeter } from '../usage/UsageMeter'
 import { restartForUpdate, useUpdate } from '../update/update-store'
+import { updateChipVisible } from '../update/update-badge'
+import { useLayout } from './layout-store'
 
 /** True once the dev server reports a main/preload edit that HMR cannot apply. Never in packaged builds. */
 function useNeedsRestart(): boolean {
@@ -45,7 +47,8 @@ const BUILD_KIND = import.meta.env.DEV
 export function Footer() {
   const needsRestart = useNeedsRestart()
   const info = useAppInfo()
-  const updateChip = useUpdate((s) => s.update.pending && s.dismissed)
+  const sidebar = useLayout((s) => s.state)
+  const updateChip = useUpdate((s) => updateChipVisible(s.update, sidebar))
   return (
     <footer className="eva-footer" data-testid="footer">
       {/* Dev copies say which copy they are; the installed app shows nothing. */}
