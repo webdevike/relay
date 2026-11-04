@@ -1,5 +1,5 @@
 import { Linking } from "react-native";
-import { router } from "expo-router";
+import { router, type Href } from "expo-router";
 import { appLinkRoute } from "./appLinks";
 import { reviewLinkOf } from "@/reviews/model";
 
@@ -18,7 +18,9 @@ export function openExternal(url: string): void {
 function openAppLink(url: string): boolean {
   const route = appLinkRoute(url);
   if (route === null) return false;
-  if (route !== "none") router[route.how](route.href);
+  // appLinks.ts stays free of expo-router (the +native-intent hook and its tests use it), so its
+  // route table is untyped; every href it builds names a screen in app/.
+  if (route !== "none") router[route.how](route.href as Href);
   return true;
 }
 

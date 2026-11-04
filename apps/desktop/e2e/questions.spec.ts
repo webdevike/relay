@@ -37,7 +37,14 @@ async function ask(shell: Page, text: string): Promise<void> {
 }
 
 test.describe('question cards and extension UI', () => {
-  test.use({ launchEnv: { EVAOS_SESSIONS_DIR: SESSIONS, FAKE_OMP_SESSIONS_DIR: SESSIONS, FAKE_OMP_LOG: LOG, FAKE_OMP_DELAY_MS: '10' } })
+  test.use({
+    launchEnv: {
+      EVAOS_SESSIONS_DIR: SESSIONS,
+      FAKE_OMP_SESSIONS_DIR: SESSIONS,
+      FAKE_OMP_LOG: LOG,
+      FAKE_OMP_DELAY_MS: '10',
+    },
+  })
   test.beforeEach(async ({ shell }) => {
     fs.rmSync(LOG, { force: true })
     // Earlier tests wrote to the chat: age it again so no writer prompt opens.
