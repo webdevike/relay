@@ -251,6 +251,36 @@ export interface TranscriptFact {
 }
 
 /**
+ * A subagent transcript's identity across machines: its folder (the session's name) and its file.
+ * The host lists the path as it is on its own disk and a thin client reads a mirror under another
+ * root, so the full paths differ for one subagent; these two segments do not.
+ */
+export const subagentKey = (p: string): string => p.split('/').slice(-2).join('/')
+
+/** Whether `a` is the better row for one subagent than `b`: running beats finished, then the newer. */
+const fresher = (a: Artifact, b: Artifact): boolean => {
+  const aRun = a.subagent?.state === 'running'
+  const bRun = b.subagent?.state === 'running'
+  return aRun !== bRun ? aRun : a.lastSeen >= b.lastSeen
+}
+
+/** One row per subagent: the same transcript listed under two paths (host and mirror) shows once. */
+function onePerSubagent(items: readonly Artifact[]): Artifact[] {
+  const best = new Map<string, Artifact>()
+  for (const item of items) {
+    if (item.subagent === undefined || item.path === undefined) continue
+    const key = subagentKey(item.path)
+    const have = best.get(key)
+    if (have === undefined || (fresher(item, have) && !(item.pinned === undefined && have.pinned !== undefined))) {
+      best.set(key, item)
+    }
+  }
+  return items.filter(
+    (item) => item.subagent === undefined || item.path === undefined || best.get(subagentKey(item.path)) === item,
+  )
+}
+
+/**
  * The open chat's subagents as the host's items plus what the transcripts on disk say (the same
  * facts the context button's dot reads). The files win on state: a transcript with its `.md` is
  * done whatever the host still says, and one written within SUBAGENT_STALE_MS without it is
@@ -264,15 +294,16 @@ export function withTranscripts(
   facts: readonly TranscriptFact[],
   now: number,
 ): Artifact[] {
+  const unique = onePerSubagent(items)
   const dir = session.replace(/\.jsonl$/, '')
-  if (dir === session || facts.length === 0) return [...items]
-  const byPath = new Map(facts.map((f) => [`${dir}/${f.file}`, f]))
+  if (dir === session || facts.length === 0) return unique
+  const byPath = new Map(facts.map((f) => [subagentKey(`${dir}/${f.file}`), f]))
   const seen = new Set<string>()
   const today = new Date(now).toDateString()
-  const out = items.map((item): Artifact => {
-    const fact = item.path !== undefined ? byPath.get(item.path) : undefined
+  const out = unique.map((item): Artifact => {
+    const fact = item.path !== undefined ? byPath.get(subagentKey(item.path)) : undefined
     if (fact === undefined || item.subagent === undefined) return item
-    seen.add(item.path!)
+    seen.add(subagentKey(item.path!))
     const state: SubagentState = fact.done
       ? fact.failed
         ? 'failed'
@@ -280,24 +311,33 @@ export function withTranscripts(
       : now - fact.mtimeMs > SUBAGENT_STALE_MS
         ? 'done'
         : 'running'
+    // A helper woken after it finished is running again: its old outcome is not its line now.
+    const resumed = state === 'running' && item.subagent.state !== 'running'
     const line =
-      state !== 'running' && fact.lastLine !== '' ? fact.lastLine.slice(0, 200) : undefined
+      (state !== 'running' || resumed) && fact.lastLine !== ''
+        ? fact.lastLine.slice(0, 200)
+        : undefined
     if (state === item.subagent.state && (line === undefined || line === item.subagent.line)) {
       return item
     }
+    const { endedAt, ...running } = item.subagent
     return {
       ...item,
       lastSeen: Math.max(item.lastSeen, fact.mtimeMs),
-      subagent: {
-        ...item.subagent,
-        state,
-        ...(line !== undefined ? { line } : {}),
-        ...(state === 'running' ? {} : { endedAt: item.subagent.endedAt ?? fact.mtimeMs }),
-      },
+      subagent:
+        state === 'running'
+          ? { ...running, state, ...(line !== undefined ? { line } : {}) }
+          : {
+              ...running,
+              state,
+              ...(line !== undefined ? { line } : {}),
+              endedAt: endedAt ?? fact.mtimeMs,
+            },
     }
   })
-  for (const [path, fact] of byPath) {
-    if (seen.has(path)) continue
+  for (const [key, fact] of byPath) {
+    if (seen.has(key)) continue
+    const path = `${dir}/${fact.file}`
     const running = !fact.done && now - fact.mtimeMs <= SUBAGENT_STALE_MS
     // An abandoned transcript (no `.md`, quiet for 30 minutes) is not a finished subagent.
     if (!running && !fact.done) continue

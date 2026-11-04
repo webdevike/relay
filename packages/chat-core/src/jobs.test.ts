@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { backgroundJobs, claudeSubagentDone, ompSubagentEnded, subagentsFromListing } from './jobs'
+import {
+  backgroundJobs,
+  claudeSubagentDone,
+  ompSubagentEnded,
+  subagentOver,
+  subagentsFromListing,
+} from './jobs'
 
 const j = (o: unknown) => JSON.stringify(o)
 const call = j({
@@ -98,11 +104,45 @@ describe('subagentsFromListing', () => {
       ]),
     ).toEqual([
       { name: 'b', file: 'b.jsonl', mtimeMs: 5, done: false },
-      { name: 'a', file: 'a.jsonl', mtimeMs: 1, done: true },
+      { name: 'a', file: 'a.jsonl', mtimeMs: 1, done: true, resultMtimeMs: 2 },
     ])
+  })
+  it('says when the `.md` was written, so a transcript newer than it is seen', () => {
+    expect(
+      subagentsFromListing([
+        { name: 'a.jsonl', mtimeMs: 9000 },
+        { name: 'a.md', mtimeMs: 2000 },
+      ]),
+    ).toEqual([{ name: 'a', file: 'a.jsonl', mtimeMs: 9000, done: true, resultMtimeMs: 2000 }])
   })
   it('yields nothing for md alone', () => {
     expect(subagentsFromListing([{ name: 'a.md', mtimeMs: 1 }])).toEqual([])
+  })
+})
+
+describe('subagentOver', () => {
+  const msg = (m: unknown) => j({ type: 'message', message: m })
+  const result = msg({ role: 'toolResult', toolName: 'yield', content: [] })
+  const followUp = msg({ role: 'user', content: 'one more thing' })
+  const listed = (mtimeMs: number, resultMtimeMs?: number) =>
+    subagentsFromListing([
+      { name: 'a.jsonl', mtimeMs },
+      ...(resultMtimeMs === undefined ? [] : [{ name: 'a.md', mtimeMs: resultMtimeMs }]),
+    ])[0]!
+
+  it('is over once omp wrote the `.md` and the transcript has not moved since', () => {
+    expect(subagentOver(listed(5000, 5000), [followUp, result].join('\n'))).toBe(true)
+    expect(subagentOver(listed(5200, 5000), '')).toBe(true)
+  })
+  it('is running again when a follow-up woke it: the transcript is newer than the `.md` and does not end', () => {
+    expect(subagentOver(listed(9000, 5000), [result, followUp].join('\n'))).toBe(false)
+  })
+  it('is over again at its next result, even though the old `.md` is older than the transcript', () => {
+    expect(subagentOver(listed(9000, 5000), [result, followUp, result].join('\n'))).toBe(true)
+  })
+  it('without a `.md` it is over only where its transcript ends', () => {
+    expect(subagentOver(listed(9000), [followUp].join('\n'))).toBe(false)
+    expect(subagentOver(listed(9000), [followUp, result].join('\n'))).toBe(true)
   })
 })
 

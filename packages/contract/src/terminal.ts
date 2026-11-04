@@ -13,9 +13,21 @@ export const TerminalModeSchema = z.enum(['shell', 'attach'])
 export type TerminalMode = z.infer<typeof TerminalModeSchema>
 
 export const terminalInvoke = {
-  /** Starts a pty: the user's login shell in the chat's folder, or `herdr agent attach` to the chat's session. */
+  /**
+   * Starts a pty: the user's login shell in the chat's folder, or `herdr agent attach` to the chat's
+   * session. `watch` names a herdr pane (a harness the Working tab lists) to attach to instead:
+   * the terminal shows it and ignores every keystroke.
+   */
   'terminal.spawn': {
-    input: z.object({ file: ChatFile, mode: TerminalModeSchema, cols: Cols, rows: Rows }).strict(),
+    input: z
+      .object({
+        file: ChatFile,
+        mode: TerminalModeSchema,
+        cols: Cols,
+        rows: Rows,
+        watch: z.string().regex(/^[A-Za-z0-9:_-]{1,40}$/).optional(),
+      })
+      .strict(),
     output: z.object({ id: Id, cwd: z.string(), title: z.string() }).strict(),
   },
   'terminal.write': {

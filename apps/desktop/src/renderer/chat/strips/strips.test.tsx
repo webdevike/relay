@@ -3,6 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import type { BgJob, Subagent } from '@evaos/chat-core/message'
+import type { ActivityItem } from '@evaos/chat-core/activity'
 const { invoke } = vi.hoisted(() => ({
   invoke: vi.fn((channel: string, _input?: unknown): Promise<unknown> =>
     Promise.resolve({
@@ -39,6 +40,75 @@ const sub = (
 const job = (id: string): BgJob => ({ id, label: `cmd ${id}`, kind: 'bash', startedAt: 1000 })
 const wrap = (ui: React.ReactElement) => render(<MantineProvider>{ui}</MantineProvider>)
 
+const work = (
+  id: string,
+  kind: ActivityItem['kind'],
+  status: ActivityItem['status'],
+  open: ActivityItem['open'],
+): ActivityItem => ({
+  id,
+  kind,
+  owner: 'assistant:nova',
+  title: id,
+  status,
+  intent: 'Running the tests',
+  startedAt: 1,
+  updatedAt: 1,
+  open,
+})
+
+describe('SubagentChips activity badges', () => {
+  it("a badge per in-progress session, harness or canvas agent, with its kind icon, opened through the same call", async () => {
+    const user = userEvent.setup()
+    const opened = vi.fn()
+    const session = work('session:aw1', 'session', 'working', { to: 'chat', thread: 'session:aw1', session: 'aw1' })
+    const harness = work('harness:w1:p3', 'harness', 'waiting', { to: 'terminal', pane: 'w1:p3' })
+    const canvas = work('canvas:roadmap', 'canvas', 'working', { to: 'canvas', slug: 'roadmap' })
+    wrap(
+      <SubagentChips
+        subagents={[sub('b', false)]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+        activity={[session, harness, canvas]}
+        onOpenActivity={opened}
+      />,
+    )
+    // The helper's badge stays, and carries the helper icon beside its state.
+    expect(screen.getByTestId('subagent-chip-b').querySelectorAll('svg')).toHaveLength(1)
+    for (const [item, kind, state] of [
+      [session, 'session', 'running'],
+      [harness, 'harness', 'waiting'],
+      [canvas, 'canvas', 'running'],
+    ] as const) {
+      const chip = screen.getByTestId(`activity-chip-${item.id}`)
+      expect(chip).toHaveAttribute('data-kind', kind)
+      expect(chip).toHaveAttribute('data-state', state)
+      expect(chip.querySelectorAll('svg').length).toBeGreaterThanOrEqual(1)
+    }
+    await user.click(screen.getByTestId('activity-chip-harness:w1:p3'))
+    expect(opened).toHaveBeenCalledWith(harness)
+  })
+
+  it('shows the strip for activity alone, and nothing when there is neither', () => {
+    const { container, rerender } = wrap(
+      <SubagentChips
+        subagents={[]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+        activity={[work('canvas:r', 'canvas', 'working', { to: 'canvas', slug: 'r' })]}
+      />,
+    )
+    expect(screen.getByTestId('activity-chip-canvas:r')).toBeInTheDocument()
+    rerender(
+      <MantineProvider>
+        <SubagentChips subagents={[]} hidden={new Set()} onOpen={() => undefined} onClearDone={() => undefined} />
+      </MantineProvider>,
+    )
+    expect(container.querySelector('[data-testid=subagent-chips]')).toBeNull()
+  })
+})
 describe('SubagentChips', () => {
   it('Clear done is always there, disabled until a chip is done, and clearing calls back', async () => {
     const user = userEvent.setup()

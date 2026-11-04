@@ -13,6 +13,7 @@ import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
+import type { ActivityRelaying } from "../src/activity/service";
 import type { QueryRelaying } from "../src/query/service";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AssistantRelaying, type AssistantThread, type CallClientMessage, type CallRelaying, type CanvasRelaying, type DeviceStore, type DropBox, type FrameSink, type GateCommand, type InboxRelaying, type InputSink, type LiveClientMessage, type LiveRelaying, type PairedDevice, type PairingUI, type PushRegistry, type ReviewsRelaying, type StudioRelaying, type TextInjecting, type VncAccess } from "../src/seams";
 import { ASSISTANT_FOLLOW_MS, ClientSession, PAIRING_TIMEOUT_MS, type SessionClock, type SessionDeps } from "../src/session";
@@ -116,6 +117,7 @@ interface HarnessOptions {
   catchup?: CatchUpDeck;
   reactions?: ReactionRelaying;
   artifacts?: ArtifactRelaying;
+  activity?: ActivityRelaying;
   canvas?: CanvasRelaying;
   sessionFiles?: SessionFiles;
   studio?: StudioRelaying;
@@ -171,6 +173,7 @@ function harness(options: HarnessOptions = {}): Harness {
     catchup: options.catchup ?? null,
     reactions: options.reactions ?? null,
     artifacts: options.artifacts ?? null,
+    activity: options.activity ?? null,
     canvas: options.canvas ?? null,
     sessionFiles: options.sessionFiles ?? null,
     studio: options.studio ?? null,
@@ -862,6 +865,23 @@ describe("artifacts", () => {
     expect(bare.sink.last()).toEqual({ t: "artifacts.snapshot", thread: "session:s1", items: [], tabs: defaultTabs() });
     bare.session.receive({ t: "artifacts.act", thread: "session:s1", rid: "r3", by: "isaac", action: { op: "pin", id: "x", pinned: true } });
     expect(bare.sink.last()).toMatchObject({ t: "artifacts.acted", rid: "r3", ok: false });
+  });
+});
+
+describe("activity", () => {
+  it("hands activity.get to the service (which broadcasts), and answers an empty list without one", () => {
+    const calls: string[] = [];
+    const activity: ActivityRelaying = { get: () => void calls.push("get"), poke: () => undefined, observe: () => undefined };
+    const h = harness({ activity });
+    pair(h);
+    const sent = h.sink.sent.length;
+    h.session.receive({ t: "activity.get" });
+    expect(calls).toEqual(["get"]);
+    expect(h.sink.sent.length).toBe(sent);
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "activity.get" });
+    expect(bare.sink.last()).toEqual({ t: "activity.snapshot", items: [] });
   });
 });
 

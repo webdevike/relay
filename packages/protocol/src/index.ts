@@ -32,6 +32,7 @@ import {
 } from "./artifacts";
 import { StudioJob, StudioOp, StudioResult, StudioRid, StudioState } from "./studio";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
+import { ActivityItem, MAX_ACTIVITY } from "./activity";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const BONJOUR_SERVICE_TYPE = "_relay._tcp" as const;
@@ -1373,6 +1374,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("reaction.clear"), thread: ReactionThread, message: ReactionKey }),
   /** Ask for a thread's artifacts; every device gets its `artifacts.snapshot` (Relay desktop refreshes stale states from it). */
   z.object({ t: z.literal("artifacts.get"), thread: ArtifactThread }),
+  /** Ask for the activity list; every device gets its `activity.snapshot` (the host also pushes one after every change). */
+  z.object({ t: z.literal("activity.get") }),
   /**
    * Change a thread's artifacts or tabs as `by` (`isaac` from the UI, else the agent). Answered by
    * `artifacts.acted` with the same `rid`; a change also pushes the thread's snapshot to every device.
@@ -1593,6 +1596,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
     items: z.array(Artifact).max(MAX_ARTIFACTS),
     tabs: z.array(ArtifactTab).max(MAX_ARTIFACT_TABS),
   }),
+  /** Everything agents are running now and earlier today: helpers, sessions, harnesses and canvas rooms. */
+  z.object({ t: z.literal("activity.snapshot"), items: z.array(ActivityItem).max(MAX_ACTIVITY) }),
   /** Answer to `artifacts.act`: `error` says why it was refused (shown to the agent as is); `id` names what `add` / `tab.add` made. */
   z.object({
     t: z.literal("artifacts.acted"),
@@ -1728,6 +1733,7 @@ export * from "./widget";
 export * from "./openui";
 export * from "./surface";
 export * from "./artifacts";
+export * from "./activity";
 export * from "./studio";
 export * from "./reviews";
 export * from "./query";

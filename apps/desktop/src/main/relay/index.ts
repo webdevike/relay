@@ -6,6 +6,7 @@ import { registerTestHook } from '../test-hooks'
 import {
   RelayClient,
   StaticRelay,
+  type RelayActivity,
   type RelayArtifacts,
   type RelayCanvas,
   type RelayFrames,
@@ -17,7 +18,7 @@ import {
   type RemoteHost,
 } from './client'
 import { remoteDeviceId, remoteSecretStore, type RelayRemote } from './device'
-import { parseArtifacts, parseSession, type RelaySession } from './feed'
+import { parseActivity, parseArtifacts, parseSession, type RelaySession } from './feed'
 
 /** How long the PIN prompt waits: the host gives a pairing two minutes. */
 const PIN_WAIT_MS = 120_000
@@ -34,6 +35,7 @@ export function startRelay(
 ): RelayLink &
   RelayReactions &
   RelayArtifacts &
+  RelayActivity &
   RelayCanvas &
   RelayFrames &
   RelayStudio &
@@ -61,6 +63,8 @@ export function startRelay(
       // A thread's `artifacts.snapshot`, in Relay's wire shape.
       artifacts: (thread: string, items: unknown[], tabs: unknown[]) =>
         fake.setArtifacts(thread, parseArtifacts(items, tabs)),
+      // The host's activity list, in Relay's wire shape.
+      activity: (items: unknown[]) => fake.setActivity(parseActivity(items)),
     })
   }
   return fake

@@ -46,6 +46,7 @@ import {
   type Artifact as ArtifactItem,
   type ArtifactTab as ArtifactTabItem,
 } from '@evaos/chat-core/artifacts'
+import { ActivityItem, type ActivityItem as ActivityRow } from '@evaos/chat-core/activity'
 
 /** How this app shows up in Relay's paired devices (native uses `evaos` / `EvaOS`). */
 export const DEVICE_ID = 'relay-desktop'
@@ -394,6 +395,11 @@ export function parseArtifacts(
   }
 }
 
+/** The activity list as Relay sends it; a row that does not parse is dropped. */
+export function parseActivity(items: readonly unknown[]): ActivityRow[] {
+  return items.flatMap((raw) => ActivityItem.safeParse(raw).data ?? [])
+}
+
 export type Frame = Record<string, unknown>
 
 /** What the app hears from one frame. */
@@ -423,6 +429,8 @@ export type FeedEvent =
   | { kind: 'reactions'; thread: string; reactions: ThreadReactions }
   /** Thread `thread`'s artifacts and tab bar now (an `artifacts.snapshot`, any thread). */
   | { kind: 'artifacts'; thread: string; items: ArtifactItem[]; tabs: ArtifactTabItem[] }
+  /** Everything agents are running now (an `activity.snapshot`, answer or push). */
+  | { kind: 'activity'; items: ActivityRow[] }
   /** The host's answer to `artifacts.act` request `rid`; `id` is a new item's or tab's. */
   | { kind: 'acted'; rid: string; ok: boolean; error?: string; id?: string }
   /** Every canvas room the host holds now (a `canvas.rooms`, answer or push); bad rooms dropped. */
@@ -649,6 +657,11 @@ export class Feed {
             thread: s.data.thread,
             ...parseArtifacts(s.data.items, s.data.tabs),
           })
+        break
+      }
+      case 'activity.snapshot': {
+        const s = z.object({ items: list }).safeParse(f)
+        if (s.success) events.push({ kind: 'activity', items: parseActivity(s.data.items) })
         break
       }
       case 'artifacts.acted': {

@@ -20,6 +20,7 @@ import type { CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
 import { handleAgentReaction } from "./reactions/http";
 import type { ArtifactRelaying } from "./artifacts/service";
+import type { ActivityRelaying } from "./activity/service";
 import { CommandDedupStore } from "./dedup";
 import { serveBlob } from "./drops/serve";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
@@ -94,6 +95,8 @@ export interface ServerDeps {
   readonly reactions: ReactionRelaying | null;
   /** Per-thread artifacts; null answers `artifacts.get` with empty default tabs and refuses acts. */
   readonly artifacts: ArtifactRelaying | null;
+  /** What agents are running (helpers, sessions, harnesses, canvas rooms); null answers `activity.get` empty. */
+  readonly activity: ActivityRelaying | null;
   /** Live canvas rooms; null disables `/canvas` and answers `canvas.*` empty. */
   readonly canvas: CanvasService | null;
   /** omp transcripts and blobs for `sessions.list`/`session.read`/`blob.read`; null answers them empty. */
@@ -177,6 +180,7 @@ export class RelayServer {
     if (canvas !== null) {
       canvas.onChange = () => {
         const message = canvas.snapshot();
+        this.deps.activity?.poke();
         for (const ws of this.sockets) ws.data.session?.broadcast(message);
       };
     }
@@ -389,6 +393,7 @@ export class RelayServer {
     this.deps.live?.observe(change);
     this.deps.reactions?.observe(change);
     this.deps.artifacts?.observe(change);
+    this.deps.activity?.observe(change);
     this.deps.reviews?.observe(change);
     if (change.kind === "sessions") {
       const sessions = this.deps.agents?.sessions ?? [];
@@ -546,6 +551,7 @@ export class RelayServer {
         catchup: this.deps.catchup,
         reactions: this.deps.reactions,
         artifacts: this.deps.artifacts,
+        activity: this.deps.activity,
         canvas: this.deps.canvas,
         sessionFiles: this.deps.sessionFiles,
         studio: this.deps.studio,

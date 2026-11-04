@@ -30,6 +30,7 @@ import type { BoardDelta, FileBoardStore } from "./boards/store";
 import { EMPTY_CATCHUP, type CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
 import type { ArtifactRelaying } from "./artifacts/service";
+import type { ActivityRelaying } from "./activity/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
@@ -94,6 +95,8 @@ export interface SessionDeps {
   readonly reactions: ReactionRelaying | null;
   /** null when the host keeps no artifacts; `artifacts.get` then answers the default tabs with no items and every act is refused. */
   readonly artifacts: ArtifactRelaying | null;
+  /** null when the host keeps no activity list; `activity.get` then answers an empty one. */
+  readonly activity: ActivityRelaying | null;
   /** null when the host runs no live canvas; `canvas.get` then answers no rooms and `canvas.open` is unavailable. */
   readonly canvas: CanvasRelaying | null;
   /** null when the host has no omp agent dir; `sessions.list` then answers empty and reads answer null. */
@@ -582,6 +585,11 @@ export class ClientSession {
         // The service pushes the snapshot to every device, this one included.
         if (this.deps.artifacts === null) this.sink.send({ t: "artifacts.snapshot", thread: message.thread, items: [], tabs: defaultTabs() });
         else this.deps.artifacts.get(message.thread);
+        break;
+      case "activity.get":
+        // The service pushes the list to every device, this one included.
+        if (this.deps.activity === null) this.sink.send({ t: "activity.snapshot", items: [] });
+        else this.deps.activity.get();
         break;
       case "artifacts.act": {
         const result = this.deps.artifacts?.act(message.thread, message.by, message.action) ?? { ok: false, error: "This host keeps no artifacts." };

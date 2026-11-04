@@ -12,6 +12,7 @@ import { awaySignature } from '../relay/away'
 import { registerBoardsIpc } from '../relay/boards-ipc'
 import { registerReactionsIpc } from '../relay/reactions-ipc'
 import { registerArtifactsIpc } from '../relay/artifacts-ipc'
+import { registerActivityIpc } from '../relay/activity-ipc'
 import { registerCanvasLiveIpc } from '../relay/canvas-live-ipc'
 import { registerStudioIpc } from '../relay/studio-ipc'
 import type {
@@ -149,6 +150,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const offReactions = registerReactionsIpc(ctx, relay)
   // What each thread holds (tickets, PRs, media, subagents), for the Artifacts panel.
   const offArtifacts = registerArtifactsIpc(ctx, relay)
+  // What agents are running (helpers, sessions, harnesses, canvas), for the Working tab and the chips.
+  const offActivity = registerActivityIpc(ctx, relay)
   // Live canvas rooms on the host, and the way into one (the Canvas page's frame).
   const offCanvasLive = registerCanvasLiveIpc(ctx, relay)
   // Image and video jobs on the host, for the Studio page.
@@ -195,6 +198,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offBoards()
     offReactions()
     offArtifacts()
+    offActivity()
     offCanvasLive()
     offStudio()
     clearTimeout(statusTimer)

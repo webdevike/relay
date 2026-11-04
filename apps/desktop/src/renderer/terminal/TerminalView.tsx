@@ -16,6 +16,8 @@ export interface TerminalViewProps {
   /** The chat whose folder (shell) or herdr session (attach) this terminal belongs to. */
   file: string | null
   mode: TerminalMode
+  /** A herdr pane to show view-only: keystrokes are dropped here and in main. */
+  watch?: string
   /** The terminal in front of a visible panel: it spawns on first show, fits and takes focus. */
   active: boolean
   /** The pty started: where it runs and what. */
@@ -31,7 +33,7 @@ const FONT_SIZE = 12
  * One xterm over one pty in main. Mounted for as long as its tab exists, so switching tabs or
  * panels keeps the screen and the process; unmounting ends the pty.
  */
-export function TerminalView({ file, mode, active, onSpawn, onExit }: TerminalViewProps) {
+export function TerminalView({ file, mode, watch, active, onSpawn, onExit }: TerminalViewProps) {
   const host = useRef<HTMLDivElement>(null)
   const scheme = useColorScheme()
   const config = useThemeConfig()
@@ -56,7 +58,7 @@ export function TerminalView({ file, mode, active, onSpawn, onExit }: TerminalVi
     const term = new Terminal({
       fontFamily: font || 'Menlo, monospace',
       fontSize: FONT_SIZE,
-      cursorBlink: true,
+      cursorBlink: watch === undefined,
       scrollback: SCROLLBACK,
       macOptionIsMeta: true,
       allowProposedApi: false,
@@ -87,7 +89,13 @@ export function TerminalView({ file, mode, active, onSpawn, onExit }: TerminalVi
       if (starting || disposed) return
       starting = true
       fitNow()
-      void invoke('terminal.spawn', { file, mode, cols: term.cols, rows: term.rows }).then((r) => {
+      void invoke('terminal.spawn', {
+        file,
+        mode,
+        cols: term.cols,
+        rows: term.rows,
+        ...(watch === undefined ? {} : { watch }),
+      }).then((r) => {
         if (!r.ok) {
           term.write(`\r\n\x1b[31m${r.error.message}\x1b[0m\r\n`)
           return
@@ -111,7 +119,7 @@ export function TerminalView({ file, mode, active, onSpawn, onExit }: TerminalVi
     }
 
     term.onData((data) => {
-      if (id !== null) void invoke('terminal.write', { id, data })
+      if (id !== null && watch === undefined) void invoke('terminal.write', { id, data })
     })
     term.onResize(({ cols, rows }) => {
       if (id !== null) void invoke('terminal.resize', { id, cols, rows })

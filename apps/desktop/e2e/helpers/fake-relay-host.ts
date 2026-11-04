@@ -14,6 +14,7 @@ import type { AddressInfo } from 'node:net'
 import * as path from 'node:path'
 import type { Duplex } from 'node:stream'
 import { z } from 'zod'
+import { defaultTabs } from '@evaos/chat-core/artifacts'
 import { FIXTURES_DIR } from './paths'
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -185,6 +186,10 @@ export class FakeRelayHost {
   readonly reactionFrames: Json[] = []
   /** The host's canvas rooms (CanvasRoomInfo), sent on `canvas.get` and pushed on change. */
   private canvasRooms: Json[] = []
+  /** The host's activity list (ActivityItem), sent on `activity.get` and pushed on change. */
+  private activityItems: Json[] = []
+  /** Each thread's artifact items, answered to `artifacts.get` with the default tab bar. */
+  private readonly artifactItems = new Map<string, Json[]>()
   /** Every `canvas.open` slug the app sent, in order. */
   readonly canvasOpens: string[] = []
   /** Every room page the app loaded (path and query), in order. */
@@ -238,6 +243,18 @@ export class FakeRelayHost {
   setCanvasRooms(rooms: Json[]): void {
     this.canvasRooms = rooms
     this.broadcast({ t: 'canvas.rooms', rev: Date.now(), rooms })
+  }
+
+  /** Sets the activity list and pushes it to every device, as the host does on any change. */
+  setActivity(items: Json[]): void {
+    this.activityItems = items
+    this.broadcast({ t: 'activity.snapshot', items })
+  }
+
+  /** Sets what `thread` holds (its artifact items; the tab bar is the default one) and pushes it. */
+  setArtifacts(thread: string, items: Json[]): void {
+    this.artifactItems.set(thread, items)
+    this.broadcast({ t: 'artifacts.snapshot', thread, items, tabs: defaultTabs() })
   }
 
   /** Serves `body` at `pathname` (a drop, `/drops/<id>/<token>`), as the host serves shared files. */
@@ -650,6 +667,15 @@ export class FakeRelayHost {
         return peer.send(this.snapshotOf(String(f.thread)))
       case 'canvas.get':
         return peer.send({ t: 'canvas.rooms', rev: 1, rooms: this.canvasRooms })
+      case 'activity.get':
+        return peer.send({ t: 'activity.snapshot', items: this.activityItems })
+      case 'artifacts.get':
+        return peer.send({
+          t: 'artifacts.snapshot',
+          thread: String(f.thread),
+          items: this.artifactItems.get(String(f.thread)) ?? [],
+          tabs: defaultTabs(),
+        })
       case 'canvas.open': {
         const slug = String(f.slug)
         this.canvasOpens.push(slug)

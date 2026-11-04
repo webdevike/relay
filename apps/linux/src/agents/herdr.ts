@@ -257,6 +257,28 @@ export async function closeHerdrPane(paneId: string): Promise<void> {
   }
 }
 
+const AgentList = z.object({
+  agents: z.array(
+    z.object({
+      agent: z.string(),
+      agent_status: z.string().optional(),
+      pane_id: z.string(),
+      workspace_id: z.string().optional(),
+      cwd: z.string().optional(),
+      terminal_title_stripped: z.string().optional(),
+      terminal_title: z.string().optional(),
+    }),
+  ),
+});
+
+/** One pane `herdr agent list` reports: omp's own panes included (the host's sessions already cover those). */
+export type HerdrAgent = z.infer<typeof AgentList>["agents"][number];
+
+/** Every agent pane herdr knows; rejects when herdr is missing, down or answers something else. */
+export async function listHerdrAgents(): Promise<HerdrAgent[]> {
+  return result(AgentList, await herdr(["agent", "list"])).agents;
+}
+
 function profileIntegrations(): string[] {
   const agent = join(homedir(), ".omp", "agent");
   const args = ["--config", join(agent, "config.yml")];
