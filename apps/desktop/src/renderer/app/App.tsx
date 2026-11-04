@@ -25,6 +25,8 @@ import { RelayPinModal } from '../settings/RelayPinModal'
 import { startAgentControl } from '../agent/control'
 import { startUpdate } from '../update/update-store'
 import { startContext } from '../context/context-store'
+import { startDeepLinks } from '../navigation/deep-links'
+import { Spotlight } from '../tour/Spotlight'
 
 export function App() {
   useEffect(() => {
@@ -49,6 +51,7 @@ export function App() {
     const stopAgent = startAgentControl()
     const stopUpdate = startUpdate()
     const stopContext = startContext()
+    const stopDeepLinks = startDeepLinks()
     return () => {
       stopRouter()
       stopQuit()
@@ -69,6 +72,7 @@ export function App() {
       stopAgent()
       stopUpdate()
       stopContext()
+      stopDeepLinks()
     }
   }, [])
   const profile = useProfile()
@@ -80,6 +84,7 @@ export function App() {
       <NewTodoModal />
       {profile === 'eva' ? <GateOverlay /> : null}
       <RelayPinModal />
+      <Spotlight />
     </>
   )
 }

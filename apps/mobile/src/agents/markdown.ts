@@ -111,7 +111,7 @@ export function parseInline(text: string, style: Style = {}): Inline[] {
       }
     }
 
-    if ((c === "h" || c === "H" || c === "w" || c === "W") && style.href === undefined) {
+    if ((c === "h" || c === "H" || c === "w" || c === "W" || c === "r") && style.href === undefined) {
       const url = matchAutolink(text, i);
       if (url) {
         flush();
@@ -156,7 +156,8 @@ function matchLink(text: string, at: number): { label: string; href: string; end
   return { label, href, end: paren + 1 };
 }
 
-const AUTOLINK = /^(?:https?:\/\/|www\.)[^\s<>()[\]{}]+(?:\([^\s<>()]*\))?[^\s<>()[\]{}]*/i;
+// http(s), www. and Relay's own relay:// app links (relay://open/settings, relay://assistant/nova).
+const AUTOLINK = /^(?:https?:\/\/|www\.|relay:\/\/)[^\s<>()[\]{}]+(?:\([^\s<>()]*\))?[^\s<>()[\]{}]*/i;
 
 /**
  * Matches a bare URL at `at` when it sits on a word boundary. Trailing sentence

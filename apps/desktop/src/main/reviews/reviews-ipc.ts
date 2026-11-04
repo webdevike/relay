@@ -301,7 +301,7 @@ export function registerReviewsIpc(
       {
         match: isLinearUpload,
         headers: async (): Promise<Record<string, string>> => {
-          const key = await apiKey(ctx.env.evaRoot)
+          const key = await apiKey(ctx.env.evaRoot, ctx.env.configDir)
           return key ? { authorization: key } : {}
         },
       },

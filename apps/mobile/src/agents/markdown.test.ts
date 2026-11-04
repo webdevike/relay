@@ -62,6 +62,14 @@ describe("parseInline", () => {
     ]);
   });
 
+  it("autolinks a bare relay:// app link", () => {
+    expect(parseInline("open relay://open/settings/connections?connect=github.")).toEqual([
+      { text: "open " },
+      { text: "relay://open/settings/connections?connect=github", href: "relay://open/settings/connections?connect=github" },
+      { text: "." },
+    ]);
+  });
+
   it("does not autolink inside a markdown link href", () => {
     expect(parseInline("[site](https://x.dev)")).toEqual([{ text: "site", href: "https://x.dev" }]);
   });

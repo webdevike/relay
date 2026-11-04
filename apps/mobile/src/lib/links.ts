@@ -9,9 +9,10 @@ export function openExternal(url: string): void {
 }
 
 /**
- * Follows a `relay://assistant/<id>` (that assistant's thread) or `relay://open/<page>` link inside
- * the app. Returns false when `url` isn't one, so callers fall through to the web; a page this app
- * has no screen for is swallowed (it never goes to the system handler).
+ * Follows a `relay://assistant/<id>` (that assistant's thread) or `relay://open/<page>[/<sub>]`
+ * link inside the app (a Reviews `?item=` opens that item). Returns false when `url` isn't one, so
+ * callers fall through to the web; a page this app has no screen for (Test Bench, Jobs) is
+ * swallowed: it never goes to the system handler.
  */
 function openAppLink(url: string): boolean {
   const link = parseAppLink(url);
@@ -24,18 +25,25 @@ function openAppLink(url: string): boolean {
     case "assistants":
       router.navigate("/assistants");
       break;
+    // The phone's Settings is one screen: every desktop section (theme, connections) lands there.
     case "settings":
       router.navigate("/settings");
       break;
     case "canvas":
       router.navigate("/canvas");
       break;
+    case "board":
+      router.navigate("/boards");
+      break;
     case "studio":
       router.navigate("/studio");
       break;
-    case "reviews":
-      router.navigate("/reviews");
+    case "reviews": {
+      const item = link.params?.item;
+      if (item === undefined) router.navigate("/reviews");
+      else router.push(`/reviews?item=${encodeURIComponent(item)}`);
       break;
+    }
   }
   return true;
 }

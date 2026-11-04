@@ -19,6 +19,12 @@ asarUnpack:
   - '**/node_modules/node-pty/**'
   - '**/node_modules/electron-chrome-extensions/**'
 npmRebuild: false
+# relay:// deep links (relay://open/settings/connections, relay://assistant/nova) open in Relay:
+# Info.plist CFBundleURLTypes; main/deep-links.ts takes macOS's open-url.
+protocols:
+  - name: Relay
+    schemes:
+      - relay
 mac:
   icon: resources/icon.icns
   target:
