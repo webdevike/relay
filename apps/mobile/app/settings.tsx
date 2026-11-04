@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useRouter } from "expo-router";
 import { Switch, TextInput, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { Screen } from "@/ui/Screen";
@@ -42,6 +43,7 @@ function HostsSection() {
   const status = useConnectionStore((state) => state.status);
   const discovered = useConnectionStore((state) => state.discovered);
   const [draft, setDraft] = useState("");
+  const router = useRouter();
   const invalid = draft.trim().length > 0 && parseManualHost(draft) === null;
 
   useEffect(() => {
@@ -52,11 +54,17 @@ function HostsSection() {
   }, []);
 
   const unpaired = discovered.filter((service) => !hosts.some((host) => host.id === service.name));
+  // Pairing needs the PIN screen: Settings has no field for the code, so a new host always opens it.
+  const pair = (id: string) => {
+    if (id !== activeId || status !== "pairing") actions.switchHost(id);
+    router.push("/pairing");
+  };
   const add = () => {
     const next = draft.trim();
     if (next === "" || invalid) return;
     setDraft("");
-    actions.switchHost(next);
+    if (hosts.some((host) => host.id === next)) actions.switchHost(next);
+    else pair(next);
   };
 
   return (
@@ -102,10 +110,10 @@ function HostsSection() {
         <View key={service.name}>
           <Row
             title={service.name}
-            subtitle={service.name === activeId ? "Pairing: enter the PIN shown on the computer" : "Found nearby · tap to pair"}
+            subtitle={service.name === activeId ? "Pairing · tap to enter the code" : "Found nearby · tap to pair"}
             leading={<SymbolView name="plus.circle" size={22} tintColor={colors.textMuted} />}
             onPress={() => {
-              actions.switchHost(service.name);
+              pair(service.name);
             }}
           />
           <Separator />
