@@ -92,3 +92,15 @@ Installs Relay Host for this user and starts it.
 The LaunchAgent runs the `relay-host` binary directly; the SwiftUI wrapper (`RelayHost` login item) is not opened, so two hosts never fight over the port.
 
 Manual test only on a clean Mac or VM: `RELAY_HOST_APP="/path/to/Relay Host.app" ./install-host.sh ~/Relay "Test Mac"`. Undo: `launchctl bootout gui/$(id -u)/dev.relay.host`, delete `~/Library/LaunchAgents/dev.relay.*.plist`, `~/Applications/Relay Host.app`, `~/.config/relay/host.json`.
+
+## Long-term memory (Hindsight), no script
+
+The optional wizard step "Long-term memory" (starter profile only; Eva's profile hides it) runs in the app, not as a script: `src/main/setup/hindsight.ts`, started by `setup.run` with `{ task: 'hindsight', action: 'install' | 'disable' | 'remove' }`. It wires omp the way Eva's Hindsight is wired (`workflows/hindsight.md`).
+
+- Needs Docker (Docker Desktop or OrbStack, installed by the user; Relay only links to them). Missing or stopped Docker is reported, never installed.
+- Image `ghcr.io/vectorize-io/hindsight:latest` (pulled only when absent), container `relay-hindsight` (label `io.relay.hindsight=1`), volume `relay-hindsight-data` at `/home/hindsight/.pg0`, `--restart unless-stopped`, worker id `hindsight-relay`. Ports are published on `127.0.0.1` only, the first free from 18888 (API) and 19999 (UI), so Eva's `hindsight` on 8888/9999 is never touched. A container with that name but no label is refused and left alone.
+- LLM for Hindsight, first match: a key pasted in the step; the key file from an earlier install (`<config dir>/hindsight.env`, chmod 600, passed with `--env-file`, never on the command line); the Codex CLI login (`~/.codex` mounted, provider `openai-codex`); `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` in `~/.omp/agent/.env`. With none the step asks for a key.
+- Bank id is the first assistant's id in `<home>/.omp/assistant/agents.json`, created with `PUT /v1/default/banks/<id>`.
+- omp: `~/.omp/agent/config.yml` gets `memory.backend: hindsight` and `hindsight.apiUrl` / `bankId` / `recallTypes` / `retainContext`; every other line is kept.
+- Re-running the step reuses the container (starts it if stopped) and rewrites nothing that is already right. Settings, Setup has Turn off (stop, omp back to its own memory, data kept) and Remove and delete memories (container, volume, key file).
+- Test hooks: `RELAY_HINDSIGHT_NAME` (container name, volume `<name>-data`) and `RELAY_HINDSIGHT_PORT` (first API port; UI is +1000).

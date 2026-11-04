@@ -108,8 +108,15 @@ export function useSetupRun(): {
 }
 
 /** The first step the wizard has not finished yet. */
-export function firstIncomplete(state: SetupState): SetupStep {
-  return SETUP_STEPS.find((s) => !state.done.includes(s)) ?? 'done'
+export function firstIncomplete(
+  state: SetupState,
+  profile: 'eva' | 'starter' = 'starter',
+): SetupStep {
+  return (
+    SETUP_STEPS.find(
+      (s) => !state.done.includes(s) && (profile === 'starter' || s !== 'hindsight'),
+    ) ?? 'done'
+  )
 }
 
 /**

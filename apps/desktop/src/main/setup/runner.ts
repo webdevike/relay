@@ -134,7 +134,10 @@ export interface ScriptPlan {
 
 const MIN = 60_000
 
-export function planRun(run: SetupRun, homedir: string): ScriptPlan {
+/** Runs that are shell scripts; `hindsight` runs in-process (see hindsight.ts). */
+export type ScriptRun = Exclude<SetupRun, { task: 'hindsight' }>
+
+export function planRun(run: ScriptRun, homedir: string): ScriptPlan {
   switch (run.task) {
     case 'install':
       return { script: 'install.sh', args: [run.tool], timeoutMs: 30 * MIN }

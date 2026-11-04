@@ -9,6 +9,13 @@ import { writeHome } from '../env'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { emit, handle } from '../ipc/handle'
 import {
+  HindsightError,
+  installHindsight,
+  hindsightStatus,
+  realDeps,
+  removeHindsight,
+} from './hindsight'
+import {
   checkRoot,
   missingScripts,
   planRun,
@@ -96,8 +103,60 @@ export function registerSetup(ctx: MainContext): void {
     return { detect: detect.data }
   })
 
+  /** Hindsight's deps. RELAY_HINDSIGHT_NAME / RELAY_HINDSIGHT_PORT let a smoke run use throwaway names and ports. */
+  const hindsightDeps = async () => {
+    const name = process.env.RELAY_HINDSIGHT_NAME
+    const port = Number.parseInt(process.env.RELAY_HINDSIGHT_PORT ?? '', 10)
+    return realDeps({
+      homedir: home,
+      agentDir: ctx.env.agentDir,
+      configDir: ctx.config.dir,
+      pathEnv: await childPathFor(ctx.env.live, home),
+      ...(name ? { names: { container: name, volume: `${name}-data` } } : {}),
+      ...(Number.isFinite(port) ? { apiBasePort: port, uiBasePort: port + 1000 } : {}),
+    })
+  }
+
+  handle(ctx, 'setup.hindsight.status', async () => hindsightStatus(await hindsightDeps()))
+
   handle(ctx, 'setup.run', async ({ runId, run }) => {
     if (running.has(runId)) fail('setup-busy', 'That step is already running.')
+    if (run.task === 'hindsight') {
+      if (ctx.env.profile === 'eva')
+        fail('hindsight-eva', 'Eva already has long-term memory set up.')
+      const root = checkRoot(run.root, home)
+      const deps = await hindsightDeps()
+      const say = (percent: number | null, line: string): void => {
+        emit(ctx, 'setup.progress', { runId, percent, line })
+      }
+      const job = (async () => {
+        try {
+          if (run.action === 'install') {
+            const r = await installHindsight(
+              deps,
+              {
+                root,
+                ...(run.userName ? { userName: run.userName } : {}),
+                ...(run.key ? { key: run.key, keyProvider: run.keyProvider ?? 'openai' } : {}),
+              },
+              say,
+            )
+            return { ok: true, version: r.apiUrl, message: `Running at ${r.apiUrl}` }
+          }
+          await removeHindsight(deps, run.action, say)
+          return { ok: true }
+        } catch (e) {
+          if (e instanceof HindsightError) return { ok: false, message: e.message }
+          throw e
+        }
+      })()
+      running.set(runId, { task: run.task, cancel: () => {}, send: () => false, done: job })
+      try {
+        return await job
+      } finally {
+        running.delete(runId)
+      }
+    }
     if (run.task === 'ai-login') {
       // One browser sign-in at a time: a second `omp login` could not bind the callback port the
       // first still holds, so a retry ends the earlier one first.

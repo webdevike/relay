@@ -52,6 +52,7 @@ export const SETUP_STEPS = [
   'ai',
   'home',
   'assistants',
+  'hindsight',
   'host',
   'phone',
   'done',
@@ -108,10 +109,39 @@ export const SetupRunSchema = z.discriminatedUnion('task', [
     root: z.string().min(1).max(1000),
     hostName: z.string().min(1).max(100),
   }),
+  /**
+   * Long-term memory (Hindsight in Docker). `install` is idempotent; `disable` stops it and points omp
+   * back at its own memory, keeping the data; `remove` also deletes the container and its data.
+   */
+  z.object({
+    task: z.literal('hindsight'),
+    action: z.enum(['install', 'disable', 'remove']),
+    root: z.string().min(1).max(1000),
+    userName: z.string().max(80).optional(),
+    /** An LLM API key for Hindsight when none is already on this Mac. Never logged. */
+    key: z.string().min(1).max(500).optional(),
+    keyProvider: SetupProviderSchema.optional(),
+  }),
 ])
 export type SetupRun = z.infer<typeof SetupRunSchema>
 
 const Empty = z.object({})
+
+/** What Docker and the Hindsight container look like right now (setup.hindsight.status). */
+export const HindsightStatusSchema = z.object({
+  /** `missing`: no docker CLI. `down`: CLI present, daemon not answering. */
+  docker: z.enum(['missing', 'down', 'ok']),
+  container: z.enum(['none', 'stopped', 'running']),
+  healthy: z.boolean(),
+  apiUrl: z.string().nullable(),
+  uiUrl: z.string().nullable(),
+  bankId: z.string().nullable(),
+  /** omp's config.yml points at this container. */
+  configured: z.boolean(),
+  /** Hindsight can already reach an LLM without asking the user for a key. */
+  llmReady: z.boolean(),
+})
+export type HindsightStatus = z.infer<typeof HindsightStatusSchema>
 
 export const setupInvoke = {
   'setup.info': {
@@ -149,6 +179,7 @@ export const setupInvoke = {
     output: Empty,
   },
   'setup.state.save': { input: z.object({ state: SetupStateSchema }).strict(), output: Empty },
+  'setup.hindsight.status': { input: Empty.strict(), output: HindsightStatusSchema },
   'setup.openTailscale': { input: Empty.strict(), output: Empty },
   /** Is the new home base ready: its assistants file and how many assistants it lists. */
   'setup.health': {
