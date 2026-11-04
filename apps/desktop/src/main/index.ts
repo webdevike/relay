@@ -30,10 +30,11 @@ import {
   registerWidgetSchemes,
 } from './chat/widget-protocols'
 import { registerUsageIpc } from './usage/usage-ipc'
-import { linearReader, registerLinearIpc } from './linear/linear-ipc'
+import { linearReader, localLinearIssue, registerLinearIpc } from './linear/linear-ipc'
 import { registerReviewsIpc } from './reviews/reviews-ipc'
-import { createHostApprove } from './relay/host-approve'
-import { createPrSource, toolRunner } from './context-popover/pr-source'
+import { hostLinearIssue, hostPrFacts } from './reviews/remote-reviews'
+import { createHostReviews } from './relay/host-reviews'
+import { createPrSource, localPrFacts, toolRunner } from './context-popover/pr-source'
 import { startStatusReader } from './relay/artifacts-status'
 import { registerRoomsIpc } from './rooms/rooms-ipc'
 import { registerFilesIpc } from './files/files-ipc'
@@ -182,9 +183,14 @@ function bootstrap(): void {
       const chat = registerChat(ctx, queue)
       const experiments = registerExperimentsIpc(ctx)
       const run = toolRunner(ctx)
-      // One gh PR cache for the context popover and the Artifacts status reader.
-      const prs = createPrSource(ctx, run)
-      const linear = linearReader(ctx.env.evaRoot, ctx.env.configDir)
+      // A thin client (remote mode) has no gh login or Linear key: the Mini's Relay Host reads
+      // GitHub, Linear and the rest of Reviews for it.
+      const host = ctx.env.relayRemote ? createHostReviews(chat.frames) : null
+      // One PR cache for the context popover and the Artifacts status reader.
+      const prs = createPrSource(ctx, host ? hostPrFacts(host) : localPrFacts(ctx, run))
+      const linear = linearReader(
+        host ? hostLinearIssue(host) : localLinearIssue(ctx.env.evaRoot, ctx.env.configDir),
+      )
       registerContext(ctx, queue, chat, experiments, run, prs)
       // Linear and PR status polling is Isaac's eCard workflow; a starter home never starts it.
       if (ctx.env.profile === 'eva') {
@@ -203,7 +209,18 @@ function bootstrap(): void {
       registerCanvasIpc(ctx)
       registerUsageIpc(ctx, chat.mini)
       registerLinearIpc(ctx, linear)
-      registerReviewsIpc(ctx, run, ctx.env.relayRemote ? createHostApprove(chat.frames) : null)
+      registerReviewsIpc(
+        ctx,
+        run,
+        host
+          ? {
+              host,
+              frames: chat.frames,
+              origin: () => chat.canvas.canvasOrigin(),
+              sessionFile: (id) => chat.sessionFile(id),
+            }
+          : null,
+      )
       registerRoomsIpc(ctx)
       registerFilesIpc(ctx, chat)
       registerTerminalIpc(ctx, chat)

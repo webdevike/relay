@@ -135,8 +135,14 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     for (const a of due) notify(a)
   }
   registerChatListIpc(ctx, queue, list, manager, sessionsDirs, emitList)
-  // Assistant threads: Relay says how each stands, their files hold the last reply.
-  const assistants = registerAssistantsIpc(ctx, relay, sessionsDirs)
+  // Assistant threads: Relay says how each stands, their files hold the last reply; a thin client
+  // takes the registry from the Mini's host.
+  const assistants = registerAssistantsIpc(
+    ctx,
+    relay,
+    sessionsDirs,
+    ctx.env.relayRemote ? relay : null,
+  )
   // The host's dashboards, as Relay streams them.
   const offBoards = registerBoardsIpc(ctx, relay)
   // Tapbacks on the bubbles of the chats shown, as Relay keeps them for every device.

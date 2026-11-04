@@ -1,9 +1,10 @@
 // omp chat transcripts and image blobs under the host's omp dir (`~/.omp`), read raw for paired
 // devices. Each store is an omp agent dir: the default `agent/` and every named profile's
-// `profiles/<profile>/agent/`. In each: `sessions/<dir>/<name>.jsonl` (top-level transcripts, the
-// only ones listed) and `blobs/<sha256>[.<ext>]`. Subagent transcripts nest in folders below
-// (`sessions/<dir>/<session stem>[/<subagent stem>...]/<name>.jsonl`); they are read by naming
-// that folder path as `parent`, never listed.
+// `profiles/<profile>/agent/`. In each: `sessions/<dir>/<name>.jsonl` (top-level transcripts) and
+// `blobs/<sha256>[.<ext>]`. Subagent transcripts nest in folders below
+// (`sessions/<dir>/<session stem>[/<subagent stem>...]/<name>.jsonl`, each with its `<name>.md`
+// result once it finished); they are read by naming that folder path as `parent`. The list carries
+// a recent transcript's direct subagent files (`subs`) so a device can show its subagents.
 // Every request names single path segments, and symlinks are refused, so nothing outside those
 // dirs is ever opened.
 import { closeSync, lstatSync, openSync, readdirSync, readFileSync, readSync, type Dirent, type Stats } from "node:fs";
@@ -12,6 +13,10 @@ import { join } from "node:path";
 import type { SessionFile } from "@relay/protocol";
 /** Largest raw slice one `session.chunk` carries (base64 on the wire). */
 export const MAX_SESSION_CHUNK = 256 * 1024;
+/** A transcript written this recently lists its subagent files. */
+export const SUBS_RECENT_MS = 2 * 24 * 60 * 60 * 1000;
+/** What a subagent folder holds that a device reads: transcripts and their result notes. */
+const SUB_FILE = /\.(?:jsonl|md)$/;
 const HASH = /^[0-9a-f]{64}$/;
 /** omp stores a blob as `<hash>` or `<hash>.<ext>`. */
 const BLOB_NAMES = ["", ".png", ".jpg", ".jpeg", ".webp", ".gif"];
@@ -53,10 +58,14 @@ function entries(dir: string): Dirent[] {
   }
 }
 export class SessionFiles {
-  constructor(private readonly ompDir: string = join(homedir(), ".omp")) {}
-  /** Every top-level transcript of every store, newest first. */
+  constructor(
+    private readonly ompDir: string = join(homedir(), ".omp"),
+    private readonly now: () => number = Date.now,
+  ) {}
+  /** Every top-level transcript of every store, newest first; recent ones with their subagent files. */
   list(): SessionFile[] {
     const files: SessionFile[] = [];
+    const recent = this.now() - SUBS_RECENT_MS;
     for (const profile of this.profiles()) {
       const sessionsDir = join(this.agentDir(profile), "sessions");
       const store = profile === undefined ? {} : { profile };
@@ -65,11 +74,23 @@ export class SessionFiles {
         for (const file of entries(join(sessionsDir, dir.name))) {
           if (!file.isFile() || !segment(file.name) || !file.name.endsWith(".jsonl")) continue;
           const stats = lstat(join(sessionsDir, dir.name, file.name));
-          if (stats !== null) files.push({ ...store, dir: dir.name, name: file.name, size: stats.size, mtime: stats.mtimeMs });
+          if (stats === null) continue;
+          const subs = stats.mtimeMs >= recent ? this.subs(join(sessionsDir, dir.name, file.name.slice(0, -".jsonl".length))) : [];
+          files.push({ ...store, dir: dir.name, name: file.name, size: stats.size, mtime: stats.mtimeMs, ...(subs.length > 0 && { subs }) });
         }
       }
     }
     return files.sort((a, b) => b.mtime - a.mtime);
+  }
+  /** The direct `.jsonl`/`.md` files of a transcript's subagent folder. */
+  private subs(folder: string): NonNullable<SessionFile["subs"]> {
+    const out: NonNullable<SessionFile["subs"]> = [];
+    for (const file of entries(folder)) {
+      if (!file.isFile() || !segment(file.name) || !SUB_FILE.test(file.name)) continue;
+      const stats = lstat(join(folder, file.name));
+      if (stats !== null) out.push({ name: file.name, size: stats.size, mtime: stats.mtimeMs });
+    }
+    return out;
   }
   /** Raw bytes from `offset`, at most `limit` and `MAX_SESSION_CHUNK`; null when the file is not an allowed transcript. */
   read(profile: string | undefined, dir: string, name: string, offset: number, limit = MAX_SESSION_CHUNK, parent?: string): SessionChunk | null {
@@ -118,7 +139,9 @@ export class SessionFiles {
   }
   private transcript(profile: string | undefined, dir: string, name: string, parent?: string): string | null {
     const folders = parent === undefined ? [] : parent.split("/");
-    if (!segment(dir) || !segment(name) || !name.endsWith(".jsonl") || !folders.every(segment)) return null;
+    // A subagent's result note (`.md`) is read like its transcript; top-level files are transcripts only.
+    const allowed = parent === undefined ? name.endsWith(".jsonl") : SUB_FILE.test(name);
+    if (!segment(dir) || !segment(name) || !allowed || !folders.every(segment)) return null;
     if (profile !== undefined && (!segment(profile) || lstat(join(this.ompDir, "profiles", profile))?.isDirectory() !== true)) return null;
     const agentDir = this.agentDir(profile);
     if (lstat(agentDir)?.isDirectory() !== true || lstat(join(agentDir, "sessions"))?.isDirectory() !== true) return null;

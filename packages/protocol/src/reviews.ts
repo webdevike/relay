@@ -27,6 +27,9 @@ export const MAX_REVIEW_TEXT = 20_000;
 export const MAX_REVIEW_DIFF = 400_000;
 /** Base64 characters an uploaded image may carry (about 6 MB of image); the phone scales photos well under it. */
 export const MAX_REVIEW_UPLOAD = 8_000_000;
+/** The fields a `prView` answer carries (Relay Desktop's PR facts: popover, row pills, thread statuses). */
+export const PR_VIEW_FIELDS =
+  "number,title,url,state,isDraft,reviewDecision,baseRefName,headRefName,additions,deletions,statusCheckRollup,latestReviews";
 
 export const ReviewSource = z.enum(["github", "linear", "slack"]);
 export type ReviewSource = z.infer<typeof ReviewSource>;
@@ -128,6 +131,10 @@ export const ReviewPr = z.object({
   reviewers: z.array(z.object({ login: z.string(), state: z.string() })),
   assignees: z.array(z.string()),
   labels: z.array(z.object({ name: z.string(), color: z.string() })),
+  /** Absent from older hosts. */
+  milestone: z.string().nullable().optional(),
+  /** GitHub project boards it is on; absent from older hosts. */
+  projects: z.array(z.string()).optional(),
   /** Conversation: issue comments, reviews with a body or a verdict, and pushed commits, oldest first. */
   timeline: z.array(
     z.object({
@@ -380,6 +387,10 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
     mime: z.enum(["image/jpeg", "image/png", "image/gif", "image/webp"]),
     data: z.string().min(1).max(MAX_REVIEW_UPLOAD),
   }),
+  /** Relay Desktop's Completed and Created views: PRs he reviewed that closed, or open PRs he wrote; answers `prs`. */
+  z.object({ kind: z.literal("prList"), list: z.enum(["completed", "created"]) }),
+  /** One PR's state, checks and reviews as `gh pr view --json PR_VIEW_FIELDS` reports them; answers `view`. */
+  z.object({ kind: z.literal("prView"), repo: RepoName, number: z.number().int().positive() }),
 ]);
 export type ReviewsOp = z.infer<typeof ReviewsOp>;
 
@@ -402,6 +413,10 @@ export const ReviewsResult = z.object({
   approve: ReviewApprove.nullable().optional(),
   /** The auto-work ledger and self-review loop behind the PR; null when auto-work did not open it. */
   work: ReviewWork.nullable().optional(),
+  /** Answer to `prList`: the rows (newest first, at most 50) and how many GitHub counts in all. */
+  prs: z.object({ items: z.array(ReviewItem).max(50), total: z.number().int().nonnegative() }).optional(),
+  /** Answer to `prView`: gh's JSON of `PR_VIEW_FIELDS`, as gh wrote it. */
+  view: z.record(z.string(), z.unknown()).optional(),
 });
 export type ReviewsResult = z.infer<typeof ReviewsResult>;
 

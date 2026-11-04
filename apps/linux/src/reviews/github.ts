@@ -3,7 +3,7 @@
 // comment or a review.
 
 import { homedir } from "node:os";
-import { MAX_REVIEW_DIFF, type ReviewItem, type ReviewPr } from "@relay/protocol";
+import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS, type ReviewItem, type ReviewPr } from "@relay/protocol";
 import { z } from "zod";
 import type { ToolRun } from "./exec";
 import type { Fetch, ReviewMedia } from "./linear";
@@ -27,19 +27,20 @@ export interface SearchItem {
   draft?: boolean;
 }
 
-/** A search row as a queue row: `needs` (his review is requested) or `reviewing` (he reviewed, it moved). */
-export function toItem(item: SearchItem, group: "needs" | "reviewing"): ReviewItem {
+/** A search row as a queue row: `needs` (his review is requested), `reviewing` (he reviewed, it moved), or one of Relay Desktop's `completed`/`created` lists (no group). */
+export function toItem(item: SearchItem, group: "needs" | "reviewing" | "completed" | "created"): ReviewItem {
+  const reason = { needs: "requested your review", reviewing: "updated since your review", completed: "you reviewed", created: "you opened" }[group];
   return {
     url: item.html_url,
     ref: { kind: "github", repo: item.repository_url.replace(/^https:\/\/api\.github\.com\/repos\//, ""), number: item.number },
     title: item.title,
     actor: item.user?.login ?? "ghost",
-    reason: group === "needs" ? "requested your review" : "updated since your review",
+    reason,
     label: `#${String(item.number)}`,
     updatedAt: ms(item.updated_at),
     unread: true,
     draft: item.draft === true,
-    group,
+    ...(group === "needs" || group === "reviewing" ? { group } : {}),
   };
 }
 
@@ -76,6 +77,8 @@ export interface RawPr {
   comments: { author: { login: string } | null; body: string; createdAt: string }[];
   assignees: { login: string }[];
   labels: { name: string; color: string }[];
+  milestone?: { title: string } | null;
+  projectItems?: { title?: string }[];
   statusCheckRollup: {
     __typename?: string;
     name?: string;
@@ -89,7 +92,7 @@ export interface RawPr {
 }
 
 export const PR_JSON_FIELDS =
-  "number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,statusCheckRollup";
+  "number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup";
 
 const PASSED = ["SUCCESS", "NEUTRAL"];
 const FAILED = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"];
@@ -141,6 +144,8 @@ export function toPr(repo: string, raw: RawPr, diff: string): ReviewPr {
     reviewers: [...requested.map((l) => ({ login: l, state: "PENDING" })), ...reviewed],
     assignees: raw.assignees.map((a) => a.login),
     labels: raw.labels.map((l) => ({ name: l.name, color: l.color })),
+    milestone: raw.milestone?.title ?? null,
+    projects: (raw.projectItems ?? []).map((p) => p.title ?? "").filter((t) => t !== ""),
     timeline,
     checks: raw.statusCheckRollup
       .map((c) => ({ name: c.name ?? c.context ?? "check", state: checkState(c), url: c.detailsUrl ?? c.targetUrl ?? null }))
@@ -178,19 +183,33 @@ export class GitHub {
     return res.stdout;
   }
 
-  private async search(q: string, group: "needs" | "reviewing"): Promise<ReviewItem[]> {
-    const out = await this.call(["api", "-X", "GET", "search/issues", "-f", `q=is:pr org:${REVIEWS_ORG} ${q}`, "-f", "per_page=50", "-f", "sort=updated"]);
-    const body = JSON.parse(out) as { items: SearchItem[] };
-    return body.items.map((item) => toItem(item, group));
+  private async search(q: string, perPage: number): Promise<{ total: number; items: SearchItem[] }> {
+    const out = await this.call(["api", "-X", "GET", "search/issues", "-f", `q=is:pr org:${REVIEWS_ORG} ${q}`, "-f", `per_page=${String(perPage)}`, "-f", "sort=updated"]);
+    const body = JSON.parse(out) as { total_count: number; items: SearchItem[] };
+    return { total: body.total_count, items: body.items };
   }
 
   /** The PRs waiting on his review, then the ones he reviewed that moved since. */
   async queue(): Promise<ReviewItem[]> {
     const [needs, reviewing] = await Promise.all([
-      this.search("is:open review-requested:@me", "needs"),
-      this.search("is:open reviewed-by:@me -author:@me -review-requested:@me", "reviewing"),
+      this.search("is:open review-requested:@me", 50),
+      this.search("is:open reviewed-by:@me -author:@me -review-requested:@me", 50),
     ]);
-    return [...needs, ...reviewing];
+    return [...needs.items.map((i) => toItem(i, "needs")), ...reviewing.items.map((i) => toItem(i, "reviewing"))];
+  }
+
+  /** Relay Desktop's other views: closed PRs he reviewed (20 and a count), or open PRs he wrote. */
+  async list(list: "completed" | "created"): Promise<{ items: ReviewItem[]; total: number }> {
+    const found = list === "completed" ? await this.search("reviewed-by:@me -author:@me is:closed", 20) : await this.search("is:open author:@me", 50);
+    return { items: found.items.map((i) => toItem(i, list)), total: found.total };
+  }
+
+  /** `gh pr view --json PR_VIEW_FIELDS`, as gh wrote it. */
+  async view(repo: string, number: number): Promise<Record<string, unknown>> {
+    const out = await this.call(["pr", "view", String(number), "-R", repo, "--json", PR_VIEW_FIELDS]);
+    const parsed: unknown = JSON.parse(out);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("gh pr view answered something else");
+    return parsed as Record<string, unknown>;
   }
 
   async pr(repo: string, number: number): Promise<ReviewPr> {

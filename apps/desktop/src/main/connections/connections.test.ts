@@ -24,6 +24,7 @@ function deps(over: Partial<ConnectionsDeps> = {}): ConnectionsDeps {
     evaRoot: path.join(root, 'eva'),
     configDir: path.join(root, 'config'),
     probe: true,
+    onMini: false,
     host: () => ({ name: 'Mac mini', version: '0.2.45' }),
     ompBin: 'omp',
     run: async (bin, args) =>
@@ -44,6 +45,32 @@ function deps(over: Partial<ConnectionsDeps> = {}): ConnectionsDeps {
     ...over,
   }
 }
+
+describe('connections on a thin client', () => {
+  it('shows every service as the Mini’s, checks nothing here and changes nothing here', async () => {
+    const run = vi.fn(deps().run)
+    const c = createConnections(deps({ onMini: true, run }))
+    const rows = await c.list()
+    for (const r of rows) ConnectionSchema.parse(r)
+    expect(rows.find((r) => r.id === 'relay-host')).toMatchObject({
+      status: 'connected',
+      account: 'Mac mini',
+    })
+    for (const r of rows.filter((r) => r.id !== 'relay-host')) {
+      expect(r).toMatchObject({
+        status: 'unknown',
+        canAdd: false,
+        canRemove: false,
+        detail: expect.stringContaining('on the Mini'),
+      })
+    }
+    expect(run).not.toHaveBeenCalled()
+    await expect(c.connect('github', undefined)).rejects.toMatchObject({ code: 'on-the-mini' })
+    await expect(c.add('linear', KEY)).rejects.toMatchObject({ code: 'on-the-mini' })
+    await expect(c.remove('github')).rejects.toMatchObject({ code: 'on-the-mini' })
+    expect(fs.existsSync(path.join(root, 'config/connections/linear.env'))).toBe(false)
+  })
+})
 
 describe('connections', () => {
   it('lists every service with where it comes from, and no secret anywhere', async () => {

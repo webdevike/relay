@@ -35,6 +35,7 @@ export function registerConnections(
     evaRoot: ctx.env.evaRoot,
     configDir: ctx.env.configDir,
     probe: ctx.env.live && !ctx.env.e2e,
+    onMini: ctx.env.relayRemote !== null,
     host,
     ompBin: ctx.env.ompBin,
     run: async (bin, args) =>
