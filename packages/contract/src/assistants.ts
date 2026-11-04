@@ -64,6 +64,15 @@ export const assistantsInvoke = {
     input: z.object({ agent: z.string().min(1).max(128) }).strict(),
     output: z.object({ started: z.literal(true) }),
   },
+  /**
+   * Adds an assistant through Relay (`assistant.create`): the host writes its registry entry and a
+   * first-run prime, then opens its thread with "Hi <title>"; the assistant gets to know Isaac by
+   * chatting and names itself. Without a title it is "New assistant" (numbered when taken). Answers its id.
+   */
+  'assistants.create': {
+    input: z.object({ title: z.string().trim().min(1).max(40).optional() }).strict(),
+    output: z.object({ id: z.string().min(1) }),
+  },
 } as const
 
 export const assistantsEvents = {

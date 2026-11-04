@@ -5,6 +5,7 @@ import { SIDEBAR_DEFAULT, SIDEBAR_MAX, SIDEBAR_MIN, fitSidebar } from '@evaos/sh
 import { invoke } from '../ipc'
 import { registerAction } from '../hotkeys/router'
 import { applySavedLayout, tilingStore } from '../tiling/tiling-store'
+import { applySidebarPrefs } from '../sidebar/sidebar-prefs'
 
 export const FOLDED_LABEL =
   'Sidebar hidden to fit the window. Widen the window or close a pane to bring it back.'
@@ -118,6 +119,7 @@ export async function loadLayout(): Promise<void> {
         sidebarWidth,
       })
       patch({ sidebarWidth, loaded: true })
+      applySidebarPrefs(r.value.sidebar)
       if (r.value.reset && !resetToastShown) {
         resetToastShown = true
         notifications.show({ message: 'Layout was reset to defaults.' })

@@ -25,7 +25,7 @@ import { pushPreview } from "../push/preview";
 import type { PushTokenSource } from "../push/token-store";
 import { AckFailure, type AgentProvider, type AgentProviderChange, type AssistantRelaying, type AssistantThread } from "../seams";
 import type { SessionClock } from "../session";
-import type { AssistantAgentConfig } from "./registry";
+import { type AssistantAgentConfig, RegistryError } from "./registry";
 import { splitReplies } from "./replies";
 import { type FillSpawn, runFill, signinHost, splitSignin } from "./signin";
 import type { AssistantStore } from "./store";
@@ -60,7 +60,7 @@ export const SNAPSHOT_DEBOUNCE_MS = 150;
 export const REGISTER_TIMEOUT_MS = 30_000;
 
 export interface AssistantServiceDeps {
-  /** The registry entry this thread runs. */
+  /** The registry entry this thread starts with; `configure` takes later versions of it. */
   readonly agent: AssistantAgentConfig;
   readonly agents: AgentProvider;
   /** Starts omp in the agent home with the given options (the bridge provider's `launchWith`). */
@@ -201,13 +201,10 @@ interface Starting {
 
 export class AssistantService implements AssistantThread {
   readonly id: string;
-  readonly title: string;
-  /** The pocket-tts voice calls with this agent speak in; undefined for the host's default. */
-  readonly voice: string | undefined;
-  /** The registry's GPT-Live voice for this agent; undefined for the host's default. */
-  readonly liveVoice: string | undefined;
+  /** The registry entry as last read; a registry change swaps it in (`configure`). */
+  private agent: AssistantAgentConfig;
   /** This agent's job-line prefix (`statusPrefix(title)`). */
-  private readonly prefix: string;
+  private prefix: string;
   private rev = 0;
   /** Id and status of the assistant session as last seen, so unrelated session changes stay quiet. */
   private seen: string | null = null;
@@ -225,10 +222,46 @@ export class AssistantService implements AssistantThread {
 
   constructor(private readonly deps: AssistantServiceDeps) {
     this.id = deps.agent.id;
-    this.title = deps.agent.title;
-    this.voice = deps.agent.voice;
-    this.liveVoice = deps.agent.liveVoice;
+    this.agent = deps.agent;
     this.prefix = statusPrefix(deps.agent.title);
+  }
+
+  get title(): string {
+    return this.agent.title;
+  }
+
+  /** The pocket-tts voice calls with this agent speak in; undefined for the host's default. */
+  get voice(): string | undefined {
+    return this.agent.voice;
+  }
+
+  /** The registry's GPT-Live voice for this agent; undefined for the host's default. */
+  get liveVoice(): string | undefined {
+    return this.agent.liveVoice;
+  }
+
+  /**
+   * Takes the agent's changed registry entry (same id). The live session keeps running; a new
+   * title, profile or model applies from its next start, its listing and calls change at once.
+   */
+  configure(agent: AssistantAgentConfig): void {
+    if (agent.id !== this.id) throw new Error(`assistant ${this.id} cannot take the entry of ${agent.id}`);
+    if (JSON.stringify(agent) === JSON.stringify(this.agent)) return;
+    this.agent = agent;
+    const prefix = statusPrefix(agent.title);
+    if (prefix !== this.prefix) {
+      this.prefix = prefix;
+      this.transcripts.clear();
+    }
+    this.changed();
+  }
+
+  /** Taken out of the registry: closes its live session, if any. Its transcript and store stay. */
+  async retire(): Promise<void> {
+    const session = this.current();
+    if (session === undefined) return;
+    this.deps.log(`assistant ${this.id}: retired; closing session ${session.id}`);
+    await this.deps.close(session.id);
   }
 
   /** This agent's live session: the assistant session the bridge reports under this registry id, unless it has ended (a dead omp takes no turns). */
@@ -258,9 +291,9 @@ export class AssistantService implements AssistantThread {
     return {
       id: this.id,
       title: this.title,
-      ...(this.deps.agent.scope === undefined ? {} : { scope: this.deps.agent.scope }),
-      ...(this.deps.agent.avatar === undefined ? {} : { avatar: this.deps.agent.avatar }),
-      ...(this.deps.agent.portrait === undefined ? {} : { portrait: this.deps.agent.portrait }),
+      ...(this.agent.scope === undefined ? {} : { scope: this.agent.scope }),
+      ...(this.agent.avatar === undefined ? {} : { avatar: this.agent.avatar }),
+      ...(this.agent.portrait === undefined ? {} : { portrait: this.agent.portrait }),
       status: assistantStatus(session),
       ...(lastReply === null ? {} : { lastReply }),
     };
@@ -458,7 +491,7 @@ export class AssistantService implements AssistantThread {
     const home = this.deps.agentHome;
     if (home === null) throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
     // A named omp profile holds its own sign-ins the check does not read; only the default is checked.
-    if (this.deps.agent.profile === undefined && (await this.deps.aiAccount?.()) === false) {
+    if (this.agent.profile === undefined && (await this.deps.aiAccount?.()) === false) {
       this.deps.log(`assistant ${this.id}: not starting: omp has no AI account`);
       throw new AckFailure({ code: "agent_launch_failed", message: noAccountMessage(this.title, this.deps.logPath ?? null) });
     }
@@ -491,8 +524,8 @@ export class AssistantService implements AssistantThread {
       await this.deps.launch({
         env: { RELAY_ASSISTANT: this.id, RELAY_ASSISTANT_TITLE: this.title },
         label: this.title,
-        ...(this.deps.agent.profile === undefined ? {} : { profile: this.deps.agent.profile }),
-        ...(this.deps.agent.model === undefined ? {} : { model: this.deps.agent.model }),
+        ...(this.agent.profile === undefined ? {} : { profile: this.agent.profile }),
+        ...(this.agent.model === undefined ? {} : { model: this.agent.model }),
         ...(resume === null ? {} : { resume }),
         ...(prime === null ? {} : { prompt: prime }),
       });
@@ -563,27 +596,38 @@ export interface AssistantThreadsDeps {
   readonly broadcast: (message: ServerMessage) => void;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
+  /** Builds the thread of an agent a registry change added; without it `reload` only reconfigures and drops. */
+  readonly create?: (agent: AssistantAgentConfig) => AssistantService;
+  /** Adds an agent to the registry (`AssistantRegistry.create`); without it `create` nacks. */
+  readonly register?: (input: unknown) => { readonly id: string; readonly title: string };
 }
 
 /**
  * Every registry agent's thread, in registry order; the first answers requests that name no agent.
  * With `deps`, it also keeps the phones' agent list live: when an agent's status moves or a reply
  * settles it sends a fresh `assistant.agents` frame, debounced like snapshots and skipped when the
- * list came out the same as the last one sent.
+ * list came out the same as the last one sent. `reload` follows registry changes without a restart.
  */
 export class AssistantThreads implements AssistantRelaying {
   private cancelFlush: (() => void) | null = null;
   /** The last list broadcast, serialized; null before the first and after a request (which makes the next change always go out). */
   private lastSent: string | null = null;
   private flushes = 0;
+  private current: readonly AssistantService[];
 
   constructor(
-    readonly threads: readonly AssistantService[],
+    threads: readonly AssistantService[],
     private readonly deps?: AssistantThreadsDeps,
-  ) {}
+  ) {
+    this.current = threads;
+  }
+
+  get threads(): readonly AssistantService[] {
+    return this.current;
+  }
 
   thread(id: string | undefined): AssistantService | undefined {
-    return id === undefined ? this.threads[0] : this.threads.find((thread) => thread.id === id);
+    return id === undefined ? this.current[0] : this.current.find((thread) => thread.id === id);
   }
 
   /** One listing per thread; a thread whose transcript cannot be read still appears, with its registry entry alone. */
@@ -594,8 +638,62 @@ export class AssistantThreads implements AssistantRelaying {
 
   observe(change: AgentProviderChange): void {
     let listed = false;
-    for (const thread of this.threads) listed = thread.observe(change) || listed;
+    for (const thread of this.current) listed = thread.observe(change) || listed;
     if (listed) this.scheduleBroadcast();
+  }
+
+  /**
+   * Takes the registry as it now reads: kept agents get their new entry, new ones a thread, and
+   * agents no longer listed are retired (their live session closed). Every phone gets the new list.
+   */
+  reload(agents: readonly AssistantAgentConfig[]): void {
+    const known = new Map(this.current.map((thread) => [thread.id, thread]));
+    const next: AssistantService[] = [];
+    for (const agent of agents) {
+      const thread = known.get(agent.id);
+      if (thread !== undefined) {
+        thread.configure(agent);
+        next.push(thread);
+      } else if (this.deps?.create !== undefined) {
+        next.push(this.deps.create(agent));
+      }
+    }
+    for (const thread of this.current) {
+      if (next.includes(thread)) continue;
+      thread.retire().catch((error: unknown) => {
+        this.deps?.log(`assistant ${thread.id}: could not close the retired thread: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    }
+    this.current = next;
+    this.deps?.log(`assistant threads: ${next.map((thread) => `${thread.title} (${thread.id})`).join(", ")}`);
+    this.lastSent = null;
+    this.scheduleBroadcast();
+  }
+
+  /**
+   * Adds an assistant (`assistant.create`): the registry write reloads the threads, so the new one
+   * is listed when this resolves. With `start`, its thread starts with "Hi <title>", which kicks off
+   * the setup interview its prime holds. Rejects with `AckFailure` (`invalid_command`) for a taken
+   * or invalid name.
+   */
+  create(input: unknown, start: boolean): Promise<{ readonly id: string; readonly title: string }> {
+    const register = this.deps?.register;
+    if (register === undefined) return Promise.reject(new AckFailure({ code: "invalid_command", message: "this host cannot add assistants" }));
+    let added: { readonly id: string; readonly title: string };
+    try {
+      added = register(input);
+    } catch (error) {
+      if (error instanceof RegistryError) return Promise.reject(new AckFailure({ code: "invalid_command", message: error.message }));
+      return Promise.reject(new AckFailure({ code: "internal", message: error instanceof Error ? error.message : String(error) }));
+    }
+    if (start) {
+      this.thread(added.id)
+        ?.turn(`Hi ${added.title}`)
+        .catch((error: unknown) => {
+          this.deps?.log(`assistant ${added.id}: first turn failed: ${error instanceof Error ? error.message : String(error)}`);
+        });
+    }
+    return Promise.resolve(added);
   }
 
   private list(): Promise<AssistantAgent[]> {

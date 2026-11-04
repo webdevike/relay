@@ -24,9 +24,10 @@ export const PLAIN_DATA_KEYS = ["key", "status", "pr", "src", "caption", "url", 
 export type PlainDataKey = (typeof PLAIN_DATA_KEYS)[number];
 
 export type TextField = "title" | "body";
-export type ModelKey = "sonnet" | "haiku";
+export type ModelKey = "opus" | "sonnet" | "haiku";
 
 export const MODELS: Record<ModelKey, { id: string; label: string }> = {
+	opus: { id: "anthropic/claude-opus-5-5", label: "Opus 5.5" },
 	sonnet: { id: "anthropic/claude-sonnet-5-5", label: "Sonnet 5.5" },
 	haiku: { id: "anthropic/claude-haiku-5-5", label: "Haiku 5.5" },
 };
@@ -59,6 +60,8 @@ export interface Presence {
 	connecting?: { source: string } | null;
 	/** Agents: work handed to them that runs off the board (files, screenshots, research), while it runs. */
 	task?: string | null;
+	/** Agents: what it is doing right now off the board, as a short status line ("building the mockup…"). */
+	doing?: string | null;
 	/** This client tidies (pushes overlapping cards apart); the lowest such human id tidies changes no client owns. */
 	tidy?: boolean;
 }

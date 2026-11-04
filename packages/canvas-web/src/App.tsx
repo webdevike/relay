@@ -2,6 +2,8 @@ import {
   IconBoxMultiple,
   IconCornerDownRight,
   IconEye,
+  IconLock,
+  IconLockOpen,
   IconLayoutDistributeHorizontal,
   IconMessageCircle,
   IconMoon,
@@ -53,6 +55,10 @@ import {
 } from "./model";
 import { pageTheme, useScheme } from "./page-theme";
 import { ActivityPill } from "./pill";
+import { canEdit, flowInteraction } from "./lock";
+import { ArrivalTracker } from "./arrival";
+import { arrivals } from "./page-arrival";
+import { pageLock, useLocked } from "./page-lock";
 import {
   awareness,
   doc,
@@ -154,6 +160,9 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
   /** Absolute positions as last drawn, to write drags back as file coordinates. */
   const absRef = useRef(new Map<string, { x: number; y: number }>());
   const tidy = useTidy();
+  const locked = useLocked();
+  const editable = canEdit({ locked, ended: session?.open === false });
+  const interaction = flowInteraction(locked, TOUCH);
   const tidyOn = useTidySetting();
   // Scripted QA (zoom and screenshot checks) drives the viewport through this.
   useEffect(() => {
@@ -170,9 +179,16 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
     },
     [rf],
   );
+  const arrivalTracker = useRef(new ArrivalTracker()).current;
   /** Doc to React Flow; drawn sizes from the previous pass feed placement and frame growth. */
   const readDoc = useCallback(() => {
     const specs = snapNodes(yNodes);
+    for (const id of arrivalTracker.observe(specs.map((s) => s.id))) {
+      const type = yNodes.get(id)?.get("type");
+      // A frame holds other cards: it never hides them behind a skeleton.
+      if (type === "frame") continue;
+      arrivals.start(id, type !== "image" && type !== "ui" && type !== "proto");
+    }
     const edgeSnaps = snapEdges(yEdges);
     const layout = boardLayout();
     setNodes((prev) => {
@@ -185,7 +201,17 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
       return toFlowNodes(input, prev);
     });
     setEdges(toFlowEdges(edgeSnaps, new Set(specs.map((s) => s.id))));
-  }, []);
+  }, [arrivalTracker]);
+
+  // Cards that show up after the board has synced (an agent or someone else adding them) arrive
+  // as skeletons; the ones it opened with, and anything a resync brings, just appear.
+  useEffect(() => {
+    const arm = () => arrivalTracker.baseline(yNodes.keys());
+    const onSync = (synced: boolean) => (synced ? arm() : arrivalTracker.disarm());
+    if (provider.synced) arm();
+    provider.on("sync", onSync);
+    return () => provider.off("sync", onSync);
+  }, [arrivalTracker]);
 
   useEffect(() => {
     readDoc();
@@ -305,7 +331,7 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
   /** Deletes now; a frame that still holds other cards first asks (keeping them is the default). */
   const requestDelete = useCallback(() => {
     const ids = selectedRef.current.filter((id) => yNodes.has(id));
-    if (ids.length === 0 || ended) return;
+    if (ids.length === 0 || !editable) return;
     const frames = framesWithOutsideChildren(yNodes, ids);
     if (frames.length > 0) {
       setAsk({ ids, frames });
@@ -315,7 +341,7 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
       deleteNodes(yNodes, yEdges, ids);
     }, LOCAL_ORIGIN);
     undo.stopCapturing();
-  }, [ended]);
+  }, [editable]);
 
   const confirmDelete = (keepChildren: boolean) => {
     if (!ask) return;
@@ -402,13 +428,13 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
   );
 
   const group = useCallback(() => {
-    if (selectedIds.length < 2) return;
+    if (selectedIds.length < 2 || !editable) return;
     const id = `grp-${Date.now().toString(36)}`;
     doc.transact(() => {
       groupNodes(yNodes, flowBoxes(), selectedIds, id);
     }, LOCAL_ORIGIN);
     undo.stopCapturing();
-  }, [selectedIds, flowBoxes]);
+  }, [selectedIds, flowBoxes, editable]);
 
   /** The frames to dissolve: the selected ones, else the frames that hold the selected cards. */
   const ungroupTargets = (): string[] => {
@@ -424,13 +450,13 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
   const canUngroup = ungroupTargets().length > 0;
   const ungroup = useCallback(() => {
     const targets = ungroupTargets();
-    if (targets.length === 0) return;
+    if (targets.length === 0 || !editable) return;
     doc.transact(() => {
       ungroupFrames(yNodes, targets);
     }, LOCAL_ORIGIN);
     undo.stopCapturing();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds]);
+  }, [selectedIds, editable]);
 
   /** Own pointer: screen spot for popups, flow spot for everyone else (one awareness update per frame). */
   const rafPending = useRef(0);
@@ -497,6 +523,11 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
         return;
       }
       if (ask) return;
+      if (key === "l" && !mod && !e.shiftKey && !e.altKey) {
+        e.preventDefault();
+        pageLock.toggle();
+        return;
+      }
       if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault();
         openChat();
@@ -506,8 +537,8 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
         else group();
       } else if (mod && key === "a") {
         e.preventDefault();
-        setSelection([...yNodes.keys()]);
-      } else if (mod && key === "z" && !ended) {
+        if (!locked) setSelection([...yNodes.keys()]);
+      } else if (mod && key === "z" && editable) {
         e.preventDefault();
         if (e.shiftKey) undo.redo();
         else undo.undo();
@@ -519,7 +550,15 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openChat, group, ungroup, setSelection, requestDelete, ask, ended]);
+  }, [openChat, group, ungroup, setSelection, requestDelete, ask, editable, locked]);
+
+  // Locking drops whatever this viewer had selected or open: nothing is left half-edited.
+  useEffect(() => {
+    if (!locked) return;
+    setSelection([]);
+    setMenu(null);
+    setAsk(null);
+  }, [locked, setSelection]);
 
   useEffect(() => {
     if (!menu) return;
@@ -623,7 +662,7 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
 
   return (
     <div
-      className={`cv-board${TOUCH ? " is-touch" : ""}${opening ? " is-opening" : ""}`}
+      className={`cv-board${TOUCH ? " is-touch" : ""}${opening ? " is-opening" : ""}${locked ? " is-locked" : ""}`}
       ref={wrapRef}
       onPointerMove={onPointerMove}
       onPointerDown={onPointerDown}
@@ -677,23 +716,25 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
         onMoveEnd={snapViewport}
         onNodeDragStop={onDragStop}
         connectionMode={ConnectionMode.Loose}
-        nodesConnectable={!TOUCH}
+        nodesConnectable={interaction.nodesConnectable}
+        nodesDraggable={interaction.nodesDraggable}
+        elementsSelectable={interaction.elementsSelectable}
         minZoom={0.1}
         maxZoom={4}
         zoomOnPinch
         zoomOnDoubleClick={false}
         proOptions={{ hideAttribution: true }}
         deleteKeyCode={null}
-        selectionOnDrag={!TOUCH}
+        selectionOnDrag={interaction.selectionOnDrag}
         selectionMode={SelectionMode.Partial}
-        panOnDrag={TOUCH ? true : [1, 2]}
+        panOnDrag={interaction.panOnDrag}
         panOnScroll={!TOUCH}
         panActivationKeyCode="Space"
         multiSelectionKeyCode={["Shift", "Meta", "Control"]}
         onNodeClick={onNodeClick}
         onNodeContextMenu={(e, node) => {
           e.preventDefault();
-          if (ended) return;
+          if (!editable) return;
           const r = wrapRef.current?.getBoundingClientRect();
           if (!selectedRef.current.includes(node.id)) setSelection([node.id]);
           setMenu({ x: e.clientX - (r?.left ?? 0), y: e.clientY - (r?.top ?? 0) });
@@ -747,11 +788,12 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
           className={`cv-toggle${tidyOn ? " on" : ""}`}
           aria-pressed={tidyOn}
           title="Push overlapping cards apart and route links around cards, for everyone on this board"
+          disabled={locked}
           onClick={() => ySettings.set("tidy", !tidyOn)}
         >
           <IconLayoutDistributeHorizontal size={16} /> Tidy
         </button>
-        {selectedIds.length > 1 ? (
+        {selectedIds.length > 1 && editable ? (
           <button
             type="button"
             className="cv-toggle"
@@ -761,7 +803,7 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
             <IconBoxMultiple size={16} /> Group
           </button>
         ) : null}
-        {canUngroup ? (
+        {canUngroup && editable ? (
           <button
             type="button"
             className="cv-toggle"
@@ -771,7 +813,7 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
             <IconBoxMultiple size={16} /> Ungroup
           </button>
         ) : null}
-        {!TOUCH && selectedIds.length > 0 && !ended ? (
+        {!TOUCH && selectedIds.length > 0 && editable ? (
           <button
             type="button"
             className="cv-toggle"
@@ -781,6 +823,17 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
             <IconTrash size={16} /> Delete
           </button>
         ) : null}
+        <button
+          type="button"
+          className={`cv-toggle${locked ? " on" : " cv-icon-toggle"}`}
+          aria-pressed={locked}
+          aria-label={locked ? "Unlock board" : "Lock board"}
+          title={locked ? "Unlock board (L)" : "Lock board (L)"}
+          onClick={pageLock.toggle}
+        >
+          {locked ? <IconLock size={16} stroke={1.75} /> : <IconLockOpen size={16} stroke={1.75} />}
+          {locked ? "Locked" : null}
+        </button>
         <button
           type="button"
           className="cv-toggle cv-icon-toggle"

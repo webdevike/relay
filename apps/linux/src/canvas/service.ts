@@ -5,11 +5,12 @@
 // context), and the chat gets the Join card, each canvas turn and the wrap-up as `relay-canvas`
 // rows through the session's relay-bridge. Clients list rooms (`canvas.rooms`) and get a token for
 // one (`canvas.open` -> `canvas.access`) to load the web client.
-// Handoffs: what the canvas self cannot do with the board DSL it hands to the chat ("main") or to
-// a worker (a participant joined with `--session`) as a message into that omp session, through
-// the bridge's `reply` (a turn when idle, a steer mid-turn). Isaac's `@<Worker> ...` notes go the
-// same way without a canvas self turn. The session lands the work with an act carrying the
-// handoff id, and the canvas self confirms it in the room.
+// Handoffs: the canvas self is a full agent with tools and does its own work on the board; what is
+// outside its lane (pushes, deploys, messages, purchases: things that need Isaac's yes) it hands to
+// the chat ("main"), or to a worker (a participant joined with `--session`), as a message into that
+// omp session through the bridge's `reply` (a turn when idle, a steer mid-turn). Isaac's
+// `@<Worker> ...` notes go the same way without a canvas self turn. The session lands the work with
+// an act carrying the handoff id, and the canvas self confirms it in the room.
 
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -19,10 +20,11 @@ import { exportBoard, type Board } from "@relay/canvas-live/board";
 import { DOC_KEYS, type ChatMsg, type ModelKey, type SessionInfo, type User } from "@relay/canvas-live/shared";
 import type { AssistantAgentConfig } from "../assistant/registry";
 import { human } from "../host-config";
+import { readThreadMemory } from "../live/brief";
 import type * as Y from "yjs";
 import { str } from "./actor";
 import { CanvasAgent, systemPrompt, type AgentIdentity } from "./agent";
-import type { BrainFactory, CanvasBrain } from "./brain";
+import type { CanvasMind, HostTool, MindFactory, MindUsage } from "./brain";
 import { chatFileOf, subagentName } from "./caller";
 import { chatContext } from "./context";
 import { ActRefused, CanvasParticipant, MAX_BATCH_ACTIONS, MAX_PARTICIPANTS, parseScript, type ActResult, type ParticipantOptions } from "./participant";
@@ -39,7 +41,7 @@ const EVA: CanvasAgentInfo = { name: "Eva", color: "#8b5cf6" };
 const PARTICIPANT_COLORS = ["#0ca678", "#f59f00", "#7048e8", "#e8590c", "#1098ad", "#d6336c", "#37b24d", "#4263eb"];
 /** Wrap up this long after the last human left. */
 export const END_AFTER_MS = 2 * 60_000;
-/** Close a room nobody joined after this long (its warm brain costs a ping every few minutes). */
+/** Close a room nobody joined after this long (its agent process waits for them). */
 export const UNJOINED_END_MS = 30 * 60_000;
 /** Ended rooms listed in `canvas.rooms` for their cards. */
 const MAX_ENDED = 20;
@@ -80,7 +82,11 @@ export interface CanvasServiceDeps {
   readonly registry: readonly AssistantAgentConfig[];
   /** Name of a plain chat's canvas agent; absent: "Eva". */
   readonly defaultAgentName?: string;
-  readonly brains: BrainFactory;
+  readonly minds: MindFactory;
+  /** The model a new room starts on (the room's model toggle switches it); default opus. */
+  readonly model?: ModelKey;
+  /** The agent home: the canvas self works there, writes under its work/, and reads its assistants' thread memory. */
+  readonly agentHome?: string | null;
   readonly log: (line: string) => void;
   readonly now?: () => number;
   /** Watch board files for outside writes (off in some tests). */
@@ -173,6 +179,8 @@ export interface RoomView {
   readonly participants: readonly ParticipantInfo[];
   /** Handoffs still open, oldest first. */
   readonly handoffs: readonly Handoff[];
+  /** What the canvas self's agent has spent in this room so far. */
+  readonly usage: MindUsage;
   /** The board in file shape (as `<slug>.json` holds it once saved). */
   readonly board: Board;
   /** The latest cursor-chat lines, oldest first. */
@@ -182,7 +190,6 @@ export interface RoomView {
 /** One room the host holds: its doc and peers, its file, its agent, and where its chat rows go. */
 export class CanvasRoom {
   readonly agents: CanvasAgent[] = [];
-  readonly brains = new Map<ModelKey, CanvasBrain>();
   /** Agents that joined with `canvas join`, by lowercased name. */
   readonly participants = new Map<string, CanvasParticipant>();
   /** Everyone who ever joined as a participant, for the wrap-up row. */
@@ -317,6 +324,9 @@ export class CanvasService {
   /** Starts (or rejoins) a canvas session for the calling chat. Throws `CanvasError`. */
   async start(request: StartRequest): Promise<StartResult> {
     const { chatSession, sessionFile, chatFile } = this.resolveCaller(request.caller);
+    const agentHome = this.deps.agentHome ?? homedir();
+    // An assistant thread's own memory file comes along (a plain chat has none).
+    const memory = chatSession.kind === "assistant" && chatSession.assistant !== undefined ? ((await readThreadMemory(agentHome, chatSession.assistant)) ?? "") : "";
     const slug = this.pickSlug(request.slug, request.title);
     const existing = this.rooms.get(slug);
     if (existing?.live === true) {
@@ -355,24 +365,29 @@ export class CanvasService {
     sync.doc.transact(() => {
       sync.doc.getMap(DOC_KEYS.meta).set("session", session);
       const settings = sync.doc.getMap(DOC_KEYS.settings);
-      if (settings.get("model") === undefined) settings.set("model", "sonnet");
+      if (settings.get("model") === undefined) settings.set("model", this.deps.model ?? "opus");
     }, "host");
 
     const context = chatContext(chatFile, agent.name, canvasHuman());
-    const identity: AgentIdentity = { user: this.user(agent), human: canvasHuman(), chatTitle: chatSession.title, purpose, chat: context.turns, chatTurns: context.turnCount };
-    const brain = (model: ModelKey): CanvasBrain => {
-      let b = room.brains.get(model);
-      if (b === undefined) {
-        b = this.deps.brains(systemPrompt(identity), model);
-        room.brains.set(model, b);
-      }
-      return b;
+    const identity: AgentIdentity = {
+      user: this.user(agent),
+      human: canvasHuman(),
+      chatTitle: chatSession.title,
+      purpose,
+      chat: context.turns,
+      chatTurns: context.turnCount,
+      memory: memory.trim(),
+      slug,
+      workDir: join(agentHome, "work"),
+      cli: CLI,
     };
+    const model = (sync.doc.getMap(DOC_KEYS.settings).get("model") as ModelKey | undefined) ?? "opus";
+    const mind = (tools: readonly HostTool[]): CanvasMind => this.deps.minds({ roomId, slug, systemPrompt: systemPrompt(identity), model, tools });
     const canvasAgent = new CanvasAgent(
       sync.doc,
       sync.awareness,
       identity,
-      brain,
+      mind,
       {
         turn: (human, reply) => {
           this.post(room, { kind: "turn", human: { name: human.name, text: human.text }, text: reply }, `Canvas "${room.board}" · ${human.name}: ${human.text}\n${agent.name}: ${reply}`);
@@ -399,7 +414,7 @@ export class CanvasService {
         workers: () => {
           const main = [...room.handoffs.values()].filter((h) => h.state === "open" && h.to === "main");
           return [
-            `- main: ${agent.name} in the chat "${chatSession.title}", every tool (files, code, screenshots, builds, research)${main.length > 0 ? `; working on: ${main.map((h) => h.request).join(" | ")}` : ""}`,
+            `- main: ${agent.name} in the chat "${chatSession.title}", where ${canvasHuman()} approves what is outside the canvas's lane (pushes, deploys, messages, purchases)${main.length > 0 ? `; working on: ${main.map((h) => h.request).join(" | ")}` : ""}`,
             ...[...room.participants.values()]
               .filter((p) => p.sessionId !== null)
               .map((p) => `- ${p.user.name}: ${p.purpose === "" ? "no purpose given" : p.purpose}; ${p.task === null ? "idle" : `working on: ${p.task}`}`),
@@ -418,7 +433,7 @@ export class CanvasService {
       this.changed();
     };
     this.rooms.set(slug, room);
-    // The opener is generated now so it plays the moment Isaac joins.
+    // The opener runs now: its cards are on the board and its lines play the moment Isaac joins.
     canvasAgent.prepare();
     room.unjoinedTimer = setTimeout(() => {
       if (!room.everJoined && room.live) void canvasAgent.wrapUp();
@@ -426,7 +441,7 @@ export class CanvasService {
 
     const startLine = [
       `Live canvas started on "${room.board}" (board ${slug}${created ? ", new" : ""}). ${canvasHuman()} has a Join card in this chat; ${agent.name} in the room is this session, with this chat as context.`,
-      `Each canvas turn and the wrap-up summary will appear here as canvas rows; they are notes, not turns to answer. What the canvas needs real tools for (files, screenshots, builds, research) arrives here as a "[Canvas request from ${canvasHuman()}]" message: do it and land it on the board with the command that message gives. Subagents can work the board alongside with their own cursors: relay-linux canvas join ${slug} --as <Name> (add --session <their id> to take requests too).`,
+      `Each canvas turn and the wrap-up summary will appear here as canvas rows; they are notes, not turns to answer. ${agent.name} on the canvas is a full agent with your tools and does its own work on the board; only what needs ${canvasHuman()}'s yes (pushes, deploys, messages, purchases) comes back here as a "[Canvas request from ${canvasHuman()}]" message: confirm it with ${canvasHuman()} in this chat, do it, and land it with the command that message gives. Subagents can work the board alongside with their own cursors: relay-linux canvas join ${slug} --as <Name> (add --session <their id> to take requests too).`,
       ...(purpose === "" ? [] : [`Purpose: ${purpose}`]),
     ].join(" ");
     try {
@@ -559,6 +574,7 @@ export class CanvasService {
       humans: [...room.humans],
       participants: this.participantInfos(room),
       handoffs: [...room.handoffs.values()].filter((h) => h.state === "open"),
+      usage: room.agents[0]?.usage ?? { requests: 0, tokens: 0, costUsd: 0 },
       board: exportBoard(room.sync.doc),
       chat: room.sync.doc
         .getArray<ChatMsg>(DOC_KEYS.chat)
@@ -604,7 +620,7 @@ export class CanvasService {
     const as = worker === undefined ? "" : ` --as "${worker.user.name}"`;
     const text = [
       `[Canvas request from ${from}] ${handoff.request}`,
-      `(Live canvas "${room.board}", board ${room.slug}, handoff ${handoff.id}.) Do it with your tools, then put the result on the board ${worker === undefined ? `as ${room.agent.name} (your cursor in the room)` : `as ${worker.user.name}`} and close the handoff, in one batch:`,
+      `(Live canvas "${room.board}", board ${room.slug}, handoff ${handoff.id}.) ${worker === undefined ? `The canvas hands you what needs ${from}'s yes (it acts outside this machine or in ${from}'s name): ask ${from} here first, in one line, and do it only once the answer is yes. ` : ""}Do it with your tools, then put the result on the board ${worker === undefined ? `as ${room.agent.name} (your cursor in the room)` : `as ${worker.user.name}`} and close the handoff, in one batch:`,
       `${CLI} canvas act ${room.slug}${as} --handoff ${handoff.id} - <<'EOF'`,
       "@add_image <new-id> <x> <y> <w> </absolute/path.png>",
       "<title>",
@@ -740,7 +756,7 @@ export class CanvasService {
     );
   }
 
-  /** The agent wrapped up: summary to the chat, room ended, brains gone, file written. */
+  /** The agent wrapped up (its mind is gone): summary to the chat, room ended, file written. */
   private finish(room: CanvasRoom, summary: string): void {
     if (!room.live) return;
     clearTimeout(room.unjoinedTimer);
@@ -752,8 +768,6 @@ export class CanvasService {
     const joined = [...room.participantNames];
     this.post(room, { kind: "end", text: summary }, `Canvas "${room.board}" wrap-up: ${summary}${joined.length === 0 ? "" : ` Agents who worked the board: ${joined.join(", ")}.`}`);
     for (const participant of [...room.participants.values()]) participant.leave(true);
-    for (const brain of room.brains.values()) brain.dispose();
-    room.brains.clear();
     room.file.flush();
     this.deps.log(`canvas ${room.slug}: wrapped up`);
     if (room.sync.peerCount === 0) this.unload(room);
@@ -766,8 +780,6 @@ export class CanvasService {
     clearTimeout(room.unjoinedTimer);
     for (const agent of room.agents) agent.dispose();
     for (const participant of [...room.participants.values()]) participant.leave(true);
-    for (const brain of room.brains.values()) brain.dispose();
-    room.brains.clear();
     try {
       room.file.close();
     } catch (error) {

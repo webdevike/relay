@@ -282,3 +282,21 @@
 .hljs-strong {
   font-weight: var(--eva-fw-semibold);
 }
+/* A relay:// link: a small button that opens that place in Relay (AppLink.tsx). */
+.eva-md a.eva-md-applink {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  padding: 0 var(--mantine-spacing-xs);
+  border: 1px solid var(--mantine-primary-color-light-hover);
+  border-radius: var(--mantine-radius-xl);
+  background: var(--mantine-primary-color-light);
+  color: var(--mantine-primary-color-light-color);
+  font-size: 0.92em;
+  line-height: 1.6;
+  text-decoration: none;
+  vertical-align: baseline;
+}
+.eva-md a.eva-md-applink:hover {
+  background: var(--mantine-primary-color-light-hover);
+}

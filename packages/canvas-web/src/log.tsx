@@ -28,7 +28,7 @@ export function SideLog({
   touch: boolean;
 }) {
   const messages = useYSnapshot(() => yChat.toArray());
-  const model = useYSnapshot(() => (ySettings.get("model") as ModelKey | undefined) ?? "sonnet");
+  const model = useYSnapshot(() => (ySettings.get("model") as ModelKey | undefined) ?? "opus");
   const metrics = useYSnapshot(
     () =>
       Object.fromEntries(yMetrics.entries()) as Record<

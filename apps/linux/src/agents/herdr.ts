@@ -206,6 +206,11 @@ export async function launchInHerdr(home: string, log: (line: string) => void, o
     await ensureServer(bin, log);
     const label = options.label ?? basename(home);
     const env = ["--env", "RELAY_HERDR_OWNED=1"];
+    // A host on its own bridge socket or port (a second, throwaway host) points the omps it starts at itself, not at the default host.
+    for (const key of ["RELAY_AGENTS_SOCKET", "RELAY_HOST_URL"]) {
+      const value = process.env[key];
+      if (value !== undefined && value !== "") env.push("--env", `${key}=${value}`);
+    }
     for (const [key, value] of Object.entries(options.env ?? {})) env.push("--env", `${key}=${value}`);
     if (options.prompt !== undefined) env.push("--env", `RELAY_INITIAL_PROMPT=${options.prompt}`);
     if (options.thinkingLevel !== undefined) env.push("--env", `RELAY_THINKING_LEVEL=${options.thinkingLevel}`);

@@ -1,0 +1,154 @@
+/* Sidebar customization: the badge dot, the right-click menu, Favorites and the Customize dialog.
+   Flat rows on hairlines, quiet hover, no shadows. */
+
+.eva-sb-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eva-nav-active-fg);
+}
+
+.eva-sb-menu-anchor {
+  position: fixed;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+/* The menu is short and holds submenus, which a scrolling dropdown would clip. */
+.eva-menu-dropdown.eva-sb-menu {
+  max-height: none;
+  overflow: visible;
+}
+.eva-sb-menu-gap {
+  display: inline-block;
+  width: 16px;
+}
+.eva-menu-item.eva-sb-menu-danger {
+  color: var(--eva-c-danger-background);
+}
+
+/* Favorites: the same compact rows as Dashboards. */
+.eva-sb-fav[data-dragging='true'] {
+  position: relative;
+  z-index: 2;
+  opacity: 0.8;
+  background: var(--eva-hover);
+}
+.eva-sb-fav[data-over='before'] {
+  box-shadow: none;
+  border-top: 1px solid var(--eva-c-ring);
+}
+.eva-sb-fav[data-over='into'] {
+  background: var(--eva-hover);
+  outline: 1px solid var(--eva-c-ring);
+  outline-offset: -1px;
+}
+.eva-list-row.eva-sb-fav-nested[data-density='compact'] {
+  padding-left: calc(var(--mantine-spacing-sm) * 2.4);
+}
+.eva-sb-fav .eva-list-trailing {
+  display: flex;
+  align-items: center;
+}
+.eva-sb-fav-rename {
+  width: 100%;
+  min-width: 0;
+  height: var(--eva-control-xs);
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.8);
+  border: 1px solid var(--eva-c-ring);
+  border-radius: var(--eva-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+/* The Customize dialog. */
+.eva-sb-cz {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+.eva-sb-cz-top,
+.eva-sb-cz-ghead,
+.eva-sb-cz-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-sb-cz-top {
+  justify-content: space-between;
+}
+.eva-sb-cz-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-sb-cz-select {
+  flex: none;
+  width: 168px;
+}
+.eva-sb-cz-group {
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  overflow: hidden;
+}
+.eva-sb-cz-ghead {
+  justify-content: space-between;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-bottom: 1px solid var(--eva-c-border);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-sb-cz-gtitle {
+  flex: 1;
+}
+.eva-sb-cz-row {
+  position: relative;
+  min-height: var(--eva-control-md);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  background: transparent;
+  transition: background-color var(--eva-dur-fast) ease;
+}
+.eva-sb-cz-row + .eva-sb-cz-row {
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-sb-cz-row:hover {
+  background: var(--eva-hover);
+}
+.eva-sb-cz-row[data-dragging='true'] {
+  z-index: 2;
+  background: var(--eva-hover);
+  opacity: 0.85;
+}
+.eva-sb-cz-row[data-over='true'] {
+  background: var(--eva-hover);
+  box-shadow: none;
+  border-top-color: var(--eva-c-ring);
+}
+.eva-sb-cz-row[data-hidden='true'] .eva-sb-cz-icon,
+.eva-sb-cz-row[data-hidden='true'] .eva-sb-cz-label {
+  opacity: 0.45;
+}
+.eva-sb-cz-grip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--eva-text-dim);
+  cursor: grab;
+  touch-action: none;
+}
+.eva-sb-cz-grip:active {
+  cursor: grabbing;
+}
+.eva-sb-cz-icon {
+  flex: none;
+  color: var(--eva-text-dim);
+}

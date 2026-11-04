@@ -8,7 +8,7 @@ import { basename } from "node:path";
 import type { Server, ServerWebSocket } from "bun";
 import { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { SessionFiles } from "./agents/session-files";
-import { handleAssistantSay } from "./assistant/http";
+import { handleAssistantAdmin, handleAssistantSay, isAssistantAdminPath, type AssistantAdmin } from "./assistant/http";
 import { handleCatchUpBounce } from "./catchup/http";
 import { handleBoardRequest, isLoopback } from "./boards/http";
 import { authorizeCanvasSocket, handleCanvasRequest } from "./canvas/http";
@@ -80,6 +80,8 @@ export interface ServerDeps {
   readonly inbox: InboxRelaying | null;
   /** The host's assistant threads; null disables `assistant.*` frames and `POST /assistant/say`. */
   readonly assistant: AssistantRelaying | null;
+  /** The registry writer behind `/assistant/registry`; absent answers it 404. */
+  readonly assistantAdmin?: Omit<AssistantAdmin, "assistant">;
   /** Voice calls with the assistant threads; null disables `call.*` frames. */
   readonly calls: CallRelaying | null;
   /** GPT-Live calls with the assistant threads; null answers `live.start` with `fallback`. */
@@ -228,6 +230,8 @@ export class RelayServer {
           return handleCanvasRequest(this.deps.canvas, this.deps.canvasPage, request, path, remote, this.deps.query);
         if (path === "/query") return handleQueryRequest(this.deps.query, request, remote);
         if (path === "/assistant/say") return handleAssistantSay(this.deps.assistant, request, remote);
+        if (isAssistantAdminPath(path))
+          return handleAssistantAdmin({ registry: null, ...this.deps.assistantAdmin, assistant: this.deps.assistant }, request, remote, path);
         if (path === "/catchup/bounce") return handleCatchUpBounce(this.deps.catchup, request, remote);
         if (path === "/reactions/agent") return handleAgentReaction(this.deps.reactions, this.deps.assistant, request, remote);
         return new Response("not found", { status: 404 });

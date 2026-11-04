@@ -20,7 +20,7 @@ import { createWriteQueue } from './write-queue'
 import { installAppMenu } from './menu'
 import { installWriteGuard } from './eva/write-guard'
 import { startEvaWatch } from './eva/watch'
-import { installTestHooks } from './test-hooks'
+import { installTestHooks, registerTestHook } from './test-hooks'
 import { WINDOW_MIN, createMainWindow } from './window'
 import { WINDOW_STATE_FILE, restorableWindow, trackWindowState } from './window-state'
 import { registerExperimentsIpc } from './experiments/experiments-ipc'
@@ -45,6 +45,8 @@ import { registerContext } from './context-popover'
 import { createPackagedUpdater, type PackagedUpdater } from './update/packaged'
 import { assistExecutable, startAssist } from './assist'
 import { registerSetup } from './setup'
+import { registerConnections } from './connections'
+import { listenForDeepLinks } from './deep-links'
 
 /** Marks that the packaged app registered itself as a login item once. */
 const LOGIN_ITEM_FILE = 'login-item.json'
@@ -82,6 +84,10 @@ function bootstrap(): void {
   app.setPath('userData', env.configDir)
   installWriteGuard(env)
   registerWidgetSchemes()
+  // relay:// links from outside the app; only the packaged live app claims the scheme.
+  const deepLinks = listenForDeepLinks(
+    app.isPackaged && env.instance === 'stable' && !env.hiddenWindow && !env.e2e,
+  )
 
   // macOS reports a window as occluded while the screen is locked, on another Space or under
   // a full-screen app. Chromium then backgrounds every WebContentsView in it and never
@@ -165,6 +171,7 @@ function bootstrap(): void {
 
       const queue = createWriteQueue()
       registerAppIpc(ctx)
+      deepLinks.attach(ctx)
       registerSetup(ctx)
       registerLayoutIpc(ctx, queue)
       registerDraftsIpc(ctx)
@@ -177,7 +184,7 @@ function bootstrap(): void {
       const run = toolRunner(ctx)
       // One gh PR cache for the context popover and the Artifacts status reader.
       const prs = createPrSource(ctx, run)
-      const linear = linearReader(ctx.env.evaRoot)
+      const linear = linearReader(ctx.env.evaRoot, ctx.env.configDir)
       registerContext(ctx, queue, chat, experiments, run, prs)
       // Linear and PR status polling is Isaac's eCard workflow; a starter home never starts it.
       if (ctx.env.profile === 'eva') {
@@ -207,6 +214,7 @@ function bootstrap(): void {
         checkNow: async () => (await packagedUpdater?.checkNow()) ?? 'unavailable',
         changelog: async () => (await packagedUpdater?.changelog()) ?? [],
       })
+      registerTestHook('update', update)
       registerAboutIpc(ctx, chat.hostInfo)
       if (app.isPackaged) {
         packagedUpdater = createPackagedUpdater({
@@ -228,7 +236,8 @@ function bootstrap(): void {
           config.writeJson(LOGIN_ITEM_FILE, true)
         }
       }
-      registerAgentControl(ctx, update, chat.artifacts, chat.canvas, chat.studio)
+      const connections = registerConnections(ctx, chat.hostInfo)
+      registerAgentControl(ctx, update, chat.artifacts, chat.canvas, chat.studio, connections)
       installTestHooks(ctx)
     } catch (e) {
       // A half-started app (no window, no IPC) is worse than a clear failure.

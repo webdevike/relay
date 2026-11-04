@@ -7,16 +7,12 @@ import { invoke, on } from '../ipc'
 
 const TOAST_ID = 'relay-update'
 
-/**
- * Main's pending update (main/update) mirrored here. `dismissed`: Isaac clicked Later, so the
- * footer chip offers the restart instead of the toast.
- */
-export const updateStore = createStore<{ update: UpdateState; dismissed: boolean }>(() => ({
+/** Main's pending update (main/update) mirrored here; the sidebar card and footer chip read it. */
+export const updateStore = createStore<{ update: UpdateState }>(() => ({
   update: { pending: false, build: null, summary: null },
-  dismissed: false,
 }))
 
-export function useUpdate<T>(selector: (s: { update: UpdateState; dismissed: boolean }) => T): T {
+export function useUpdate<T>(selector: (s: { update: UpdateState }) => T): T {
   return useStore(updateStore, selector)
 }
 
@@ -52,10 +48,7 @@ function showToast(update: UpdateState): void {
             size="compact-xs"
             variant="default"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              notifications.hide(TOAST_ID)
-              updateStore.setState({ dismissed: true })
-            }}
+            onClick={() => notifications.hide(TOAST_ID)}
           >
             Later
           </Button>
@@ -71,11 +64,11 @@ function apply(update: UpdateState): void {
   const changed = prev.build !== update.build || prev.summary !== update.summary
   if (!update.pending) {
     notifications.hide(TOAST_ID)
-    updateStore.setState({ update, dismissed: false })
+    updateStore.setState({ update })
     return
   }
   if (!changed) return
-  updateStore.setState({ update, dismissed: false })
+  updateStore.setState({ update })
   showToast(update)
 }
 

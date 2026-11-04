@@ -1198,6 +1198,20 @@ export const Command = z.discriminatedUnion("kind", [
     username: z.string().max(MAX_SIGNIN_FIELD),
     password: z.string().min(1).max(MAX_SIGNIN_FIELD),
   }),
+  /**
+   * Add an assistant to the host's registry: `title` names it, `id` defaults to the title in
+   * lowercase-dash form, `scope` is what it is for in the user's words. The host scaffolds its
+   * prime (a setup interview) and memory; every client gets the new `assistant.agents` list. With
+   * `start`, the host starts its thread with "Hi <title>", which begins the interview. A taken or
+   * invalid id or title nacks `invalid_command`.
+   */
+  z.object({
+    kind: z.literal("assistant.create"),
+    id: AssistantAgentId.max(32).optional(),
+    title: z.string().trim().min(1).max(40),
+    scope: z.string().trim().max(200).optional(),
+    start: z.boolean().optional(),
+  }),
 ]);
 export type Command = z.infer<typeof Command>;
 

@@ -205,9 +205,9 @@ export function registerLinearInbox(
   const gql = async (query: string, variables: Record<string, unknown> = {}): Promise<unknown> => {
     if (!opts.reads)
       throw fail('linear-off', 'Linear is off in this instance (EVAOS_REVIEWS_GH=1 turns it on)')
-    const token = await apiKey(ctx.env.evaRoot)
+    const token = await apiKey(ctx.env.evaRoot, ctx.env.configDir)
     if (!token)
-      throw fail('no-linear-key', 'No Linear API key (LINEAR_API_KEY or secrets/linear.env)')
+      throw fail('no-linear-key', 'No Linear API key (connect Linear in Settings > Connections)')
     const res = await fetch('https://api.linear.app/graphql', {
       method: 'POST',
       headers: { 'content-type': 'application/json', authorization: token },
@@ -230,7 +230,7 @@ export function registerLinearInbox(
       {
         match: isLinearUpload,
         headers: async (): Promise<Record<string, string>> => {
-          const token = await apiKey(ctx.env.evaRoot)
+          const token = await apiKey(ctx.env.evaRoot, ctx.env.configDir)
           return token ? { authorization: token } : {}
         },
       },

@@ -3,9 +3,13 @@
 // desktop involved. Two modes, run with XDG_CONFIG_HOME, XDG_RUNTIME_DIR and RELAY_AGENTS_SOCKET
 // pointing into a temp dir so nothing touches the live host:
 //
-//   bun test/canvas-e2e.ts host --canvases <dir> [--port 7917]
+//   bun test/canvas-e2e.ts host --canvases <dir> [--port 7917] [--chat <transcript.jsonl> --rows <rows.jsonl>]
 //       a Relay host with only the agent bridge and live canvas (no input, no Bonjour), real
-//       warm omp brains; leaves serve.json where `relay-linux canvas start` looks for it.
+//       omp canvas agents working in --agent-home (default ~/Eva); leaves serve.json where
+//       `relay-linux canvas start` looks for it. With --chat, the room's chat is that transcript
+//       file instead of a bridged omp session (session id "s-smoke"): its canvas rows and the
+//       handoffs it would get are appended to --rows, so a script can start a room with
+//       `POST /canvas/sessions {slug, caller: {sessionFile: <transcript>}}` and check them.
 //   bun test/canvas-e2e.ts client --slug <slug> --note "<what Isaac says>" [--port 7917] [--wrap]
 //       pairs itself as a throwaway device, `canvas.get` + `canvas.open`, joins the room over
 //       y-websocket as Isaac, waits for the opener, says the note at the first node, waits for
@@ -15,7 +19,7 @@
 //       (Playwright) to join as Isaac and screenshot what the desktop shows.
 
 import { createHmac, randomBytes } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
@@ -28,9 +32,10 @@ import { encode, parseServerMessage, type ServerMessage } from "@relay/protocol"
 import { DOC_KEYS, type ChatMsg, type Presence, type ServerMetrics } from "@relay/canvas-live/shared";
 import { defaultSocketPath, OmpBridgeProvider } from "../src/agents/bridge";
 import { loadRegistry } from "../src/assistant/registry";
-import { brainConfigOverlay, ompBrains, resolveOmp } from "../src/canvas/brain";
+import { canvasAgentConfig } from "../src/canvas/agent-config";
+import { mindConfigOverlay, ompMinds, resolveOmp } from "../src/canvas/brain";
 import { CANVAS_PAGE } from "../src/canvas/page";
-import { CanvasService } from "../src/canvas/service";
+import { CanvasService, type CanvasChats } from "../src/canvas/service";
 import { FileDeviceStore } from "../src/device-store";
 import { RelayServer } from "../src/server";
 import { TerminalPairingUI } from "../src/pairing";
@@ -45,6 +50,9 @@ const { values, positionals } = parseArgs({
     note: { type: "string", default: "Tighten the root's body to one short line." },
     wrap: { type: "boolean", default: false },
     timeout: { type: "string", default: "90" },
+    chat: { type: "string" },
+    rows: { type: "string" },
+    "agent-home": { type: "string" },
   },
 });
 const port = Number(values.port);
@@ -95,12 +103,38 @@ function host(): void {
   if (canvasDir === "") throw new Error("missing --canvases <dir>");
   const omp = resolveOmp();
   if (omp === null) throw new Error("omp not found");
-  const agents = new OmpBridgeProvider(defaultSocketPath(), log, null);
+  const bridge = new OmpBridgeProvider(defaultSocketPath(), log, null);
+  const chatFile = values.chat;
+  const rows = values.rows ?? "";
+  const record = (row: object): void => {
+    if (rows !== "") appendFileSync(rows, `${JSON.stringify({ at: new Date().toISOString(), ...row })}\n`);
+  };
+  const smoke = { id: "s-smoke", provider: "omp" as const, title: "Canvas agent smoke", projectPath: "/tmp", status: "idle" as const, lastActivity: "", lastActivityAt: 1, canRespond: true };
+  const chats: CanvasChats =
+    chatFile === undefined
+      ? bridge
+      : {
+          sessions: [smoke],
+          sessionForFile: (file) => (file === chatFile ? smoke : null),
+          sessionFile: (id) => (id === smoke.id ? chatFile : null),
+          canvas: (sessionId, content, details) => {
+            record({ kind: "canvas-row", sessionId, row: details.kind, content });
+            return Promise.resolve(true);
+          },
+          reply: (sessionId, text) => {
+            record({ kind: "handoff-to-chat", sessionId, text });
+            return Promise.resolve();
+          },
+        };
+  const agentHome = values["agent-home"] ?? join(homedir(), "Eva");
+  const config = canvasAgentConfig();
   const canvas = new CanvasService({
     canvasDir,
-    chats: agents,
+    chats,
     registry: loadRegistry(join(homedir(), "Eva")),
-    brains: ompBrains({ omp, profile: "personal", configs: [brainConfigOverlay(configDir)], log }),
+    minds: ompMinds({ omp, profile: "personal", configs: [mindConfigOverlay(configDir)], stateDir: join(configDir, "canvas", "rooms"), agentHome, canvasDir, config, log }),
+    model: config.model,
+    agentHome,
     log,
   });
   const refuse = (): Promise<void> => Promise.reject(new Error("no input on the e2e host"));
@@ -111,7 +145,7 @@ function host(): void {
       text: { insert: refuse, press: refuse },
       access: { granted: false },
       images: { paste: refuse },
-      agents,
+      agents: bridge,
       devices: new FileDeviceStore(),
       push: null,
       notifier: null,

@@ -1,0 +1,42 @@
+.eva-tour {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+.eva-tour-ring {
+  position: fixed;
+  border-radius: var(--eva-radius);
+  box-shadow:
+    0 0 0 2px var(--mantine-primary-color-filled),
+    0 0 0 9999px rgba(0, 0, 0, 0.45);
+  transition:
+    left 160ms ease,
+    top 160ms ease,
+    width 160ms ease,
+    height 160ms ease;
+}
+.eva-tour-caption {
+  position: fixed;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-background, var(--mantine-color-body));
+  color: var(--eva-c-foreground, var(--mantine-color-text));
+  box-shadow: var(--mantine-shadow-md);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.eva-tour-title {
+  margin-bottom: calc(var(--mantine-spacing-xs) / 2);
+  font-weight: 600;
+}
+.eva-tour-step {
+  margin-top: calc(var(--mantine-spacing-xs) / 2);
+  font-size: 12px;
+  color: var(--eva-c-muted-foreground, var(--mantine-color-dimmed));
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-tour-ring {
+    transition: none;
+  }
+}

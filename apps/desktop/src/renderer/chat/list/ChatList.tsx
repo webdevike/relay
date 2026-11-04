@@ -31,6 +31,7 @@ import { activePlace, useTabs } from '../../tabs/tabs-store'
 import { ChatRow } from './ChatRow'
 import { DeleteChatModal } from './DeleteChatModal'
 import { MoveToItem, RowMenu } from './RowMenu'
+import { FavoriteMenuItem } from '../../sidebar/SidebarMenu'
 import { CategoryInput } from './CategoryInput'
 import { DeleteCategoryModal } from './DeleteCategoryModal'
 import { ACTIVATION_DISTANCE, folderKeyboardCoordinates, resolveDrop, type DragData } from './dnd'
@@ -275,16 +276,25 @@ export function ChatList({
         onSettle={onSettle}
         onDelete={setDeleting}
         menuExtraItems={
-          menuRow && cats ? (
-            <MoveToItem
-              row={menuRow}
-              groups={cats.names()}
-              onMove={(r, g) => void listStore.getState().moveChat(r.id, g)}
-              onNewCategory={(r) => {
-                closeMenu()
-                setCreating({ moveId: r.id })
-              }}
-            />
+          menuRow ? (
+            <>
+              <FavoriteMenuItem
+                place={placeOf('chat', { chat: menuRow.file })}
+                title={menuRow.title}
+                icon="IconMessage"
+              />
+              {cats ? (
+                <MoveToItem
+                  row={menuRow}
+                  groups={cats.names()}
+                  onMove={(r, g) => void listStore.getState().moveChat(r.id, g)}
+                  onNewCategory={(r) => {
+                    closeMenu()
+                    setCreating({ moveId: r.id })
+                  }}
+                />
+              ) : null}
+            </>
           ) : null
         }
       />

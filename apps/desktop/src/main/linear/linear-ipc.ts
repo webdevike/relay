@@ -13,12 +13,35 @@ const QUERY = `query($id: String!) { issue(id: $id) {
   state { name type } assignee { name } project { name }
 } }`
 
-/** `LINEAR_API_KEY`, else `secrets/linear.env` in the Eva root (as EvaOS's linear source). */
-export async function apiKey(evaRoot: string): Promise<string | null> {
-  if (process.env.LINEAR_API_KEY) return process.env.LINEAR_API_KEY
-  const text = await readFile(path.join(evaRoot, 'secrets/linear.env'), 'utf8').catch(() => '')
-  const m = /^\s*(?:export\s+)?LINEAR_API_KEY\s*=\s*["']?([^"'\s]+)/m.exec(text)
-  return m?.[1] ?? null
+/** Where the Linear key comes from, in the order it is looked up. */
+export type LinearKeySource = 'env' | 'eva' | 'relay'
+
+/** The key Settings > Connections saves: `<configDir>/connections/linear.env` (0600). */
+export const RELAY_LINEAR_FILE = path.join('connections', 'linear.env')
+
+const KEY_LINE = /^\s*(?:export\s+)?LINEAR_API_KEY\s*=\s*["']?([^"'\s]+)/m
+
+/**
+ * `LINEAR_API_KEY`, else `secrets/linear.env` in the Eva root (as EvaOS's linear source), else
+ * the key Isaac saved in Settings > Connections, with where it came from.
+ */
+export async function linearKey(
+  evaRoot: string,
+  configDir: string,
+): Promise<{ key: string; source: LinearKeySource } | null> {
+  if (process.env.LINEAR_API_KEY) return { key: process.env.LINEAR_API_KEY, source: 'env' }
+  for (const [source, file] of [
+    ['eva', path.join(evaRoot, 'secrets/linear.env')],
+    ['relay', path.join(configDir, RELAY_LINEAR_FILE)],
+  ] as const) {
+    const m = KEY_LINE.exec(await readFile(file, 'utf8').catch(() => ''))
+    if (m?.[1]) return { key: m[1], source }
+  }
+  return null
+}
+
+export async function apiKey(evaRoot: string, configDir: string): Promise<string | null> {
+  return (await linearKey(evaRoot, configDir))?.key ?? null
 }
 
 interface Raw {
@@ -68,16 +91,19 @@ async function fetchIssue(key: string, token: string): Promise<LinearIssue | nul
 export type LinearRead = (key: string) => Promise<LinearIssue | null>
 
 /** Reads issues for the ticket badge card and the Artifacts status reader, through one cache. */
-export function linearReader(evaRoot: string): LinearRead {
+export function linearReader(evaRoot: string, configDir: string): LinearRead {
   const cache = new Map<string, { at: number; issue: Promise<LinearIssue | null> }>()
   return async (key) => {
     const hit = cache.get(key)
     if (hit && Date.now() - hit.at < TTL_MS) return hit.issue
-    const token = await apiKey(evaRoot)
+    const token = await apiKey(evaRoot, configDir)
     if (!token) {
-      throw Object.assign(new Error('No Linear API key (LINEAR_API_KEY or secrets/linear.env)'), {
-        code: 'no-linear-key',
-      })
+      throw Object.assign(
+        new Error('No Linear API key (connect Linear in Settings > Connections)'),
+        {
+          code: 'no-linear-key',
+        },
+      )
     }
     const issue = fetchIssue(key, token)
     cache.set(key, { at: Date.now(), issue })

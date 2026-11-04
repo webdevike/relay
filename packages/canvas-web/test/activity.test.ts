@@ -28,6 +28,13 @@ describe("describeActivity", () => {
     expect(describeOf([nova({ status: "typing" })], 3)?.text).toBe("Nova is adding 3 cards");
   });
 
+  it("shows what the agent is doing off the board while a turn runs", () => {
+    expect(describeOf([nova({ status: "thinking", doing: "building the mockup…" })])).toMatchObject({
+      text: "Nova is building the mockup…",
+      working: true,
+    });
+  });
+
   it("names a handoff the agent is waiting on, without the working dot", () => {
     expect(describeOf([nova({ task: "screenshots" })])).toMatchObject({
       text: "Waiting on Nova: screenshots (handoff)",

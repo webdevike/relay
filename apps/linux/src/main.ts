@@ -16,6 +16,7 @@ import pkg from "../package.json";
 import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
+import { AssistantRegistry, type FieldChange } from "./assistant/admin";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { SessionFiles } from "./agents/session-files";
 import {
@@ -51,7 +52,9 @@ import {
 } from "./catchup/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService } from "./reactions/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
-import { brainConfigOverlay, ompBrains, resolveOmp } from "./canvas/brain";
+import { canvasAgentConfig, type CanvasAgentConfig } from "./canvas/agent-config";
+import { mindConfigOverlay, ompMinds, resolveOmp } from "./canvas/brain";
+import { MODELS } from "@relay/canvas-live/shared";
 import { detectCaller, systemCallerDeps } from "./canvas/caller";
 import { CANVAS_PAGE } from "./canvas/page";
 import { CanvasService } from "./canvas/service";
@@ -64,7 +67,7 @@ import { UinputDevice } from "./input/uinput";
 import { BonjourAdvertiser } from "./mdns";
 import { PinFilePairingUI, TerminalPairingUI } from "./pairing";
 import { PAIRING_TIMEOUT_MS, systemClock } from "./session";
-import { featureOn, loadHostConfig, relayConfigDir, resolveHuman, setHuman, toolPath, type HostConfig } from "./host-config";
+import { featureOn, human, loadHostConfig, relayConfigDir, resolveHuman, setHuman, toolPath, type HostConfig } from "./host-config";
 import { ExpoPushSender } from "./push/expo";
 import { InboxService } from "./inbox/service";
 import { AttentionNotifier } from "./push/notifier";
@@ -109,7 +112,11 @@ const USAGE = `relay-linux <command>
                                    Sharing (VNC) on 127.0.0.1, port --vnc-port (default ${String(DEFAULT_VNC_PORT)}).
                                    Live canvas rooms run on the EvaOS boards in --canvases
                                    (default on macOS: ~/Library/Application Support/EvaOS/canvases;
-                                   elsewhere off) with omp from PATH or $RELAY_CANVAS_OMP.
+                                   elsewhere off) with omp from PATH or $RELAY_CANVAS_OMP; each
+                                   room's canvas self is a full omp agent working in the agent
+                                   home ($RELAY_CANVAS_MODEL opus, $RELAY_CANVAS_EFFORT low|medium,
+                                   budget $RELAY_CANVAS_MAX_TURNS / _MAX_TOKENS / _MAX_TURN_MIN,
+                                   idle stop $RELAY_CANVAS_IDLE_STOP_MIN).
                                    Studio keeps jobs in $XDG_CONFIG_HOME/relay/studio; local
                                    video runs <agent-home>/work/local-video/draft.py
                                    ($RELAY_STUDIO_LTX_DIR), Codex images and Higgsfield use
@@ -135,6 +142,17 @@ const USAGE = `relay-linux <command>
                                    hand assistant thread <id> (from <agent-home>/${REGISTRY_FILE})
                                    of the running host a message from a background job; it
                                    relays it to Isaac. \`say -\` or no text reads stdin
+  assistant list                   the running host's registry entries (JSON)
+  assistant create --title <Name> [--scope "what it is for"] [--id <id>] [--start]
+                                   add an assistant: registry entry, a first-run prime.md (it
+                                   gets to know you by chatting, then writes its own
+                                   instructions) and its thread memory. It shows on every phone
+                                   and desktop at once; --start opens its thread
+  assistant set --agent <id> [--title T] [--scope S] [--model M] [--voice V] [--live-voice V]
+                [--unset <field>]...
+                                   change an assistant's registry entry (--agent defaults to
+                                   $RELAY_ASSISTANT); prints what changed
+  assistant retire --agent <id>    take an assistant out of the registry (prime and memory stay)
   canvas start [<slug>] [--title "New board"] [--prompt "what this session is for"]
                                    from an omp session: start a live canvas on board <slug> (an
                                    EvaOS board; a new one when it does not exist or no slug is
@@ -156,7 +174,7 @@ const USAGE = `relay-linux <command>
                                    --handoff lands that handoff (the canvas self confirms it);
                                    --leave takes <Name> out of the room after the batch
   canvas show <slug>               the live room's board, who is in it (working or idle), open
-                                   handoffs, and the latest chat (JSON)
+                                   handoffs, what its canvas self has spent, and the latest chat (JSON)
   canvas leave <slug> --as <Name>  take <Name>'s cursor out of the room
   canvas list                      list the running host's canvas rooms
   catchup bounce <id> <reason> [--agent <id>]
@@ -334,40 +352,60 @@ function serve(
     isViewing: (deviceId, sessionId): boolean => server.isViewing(deviceId, sessionId),
     log,
   });
-  const assistant = assistantThreads(
-    agentHome,
-    (agent) =>
-      new AssistantService({
-        agent,
-        agents,
-        launch: (options) => agents.launchWith(options),
-        sessionFile: (sessionId) => agents.sessionFile(sessionId),
-        holder: (file) => agents.sessionForFile(file),
-        close: (sessionId) => agents.close(sessionId),
-        reconnected: () => agents.reconnected(),
-        agentHome,
-        store: new FileAssistantStore(defaultAssistantPath(agent.id)),
-        tokens: pushTokens,
-        sender: new ExpoPushSender(),
-        broadcast: (message): void => {
-          server.broadcastAssistant(agent.id, message);
-        },
-        isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId, agent.id),
-        clock: systemClock,
-        log,
-        spawn: spawnFill,
-        aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
-        logPath: hostLogPath(),
-      }),
-    {
-      // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
+  // Registry writes (`assistant create|set|retire`, `assistant.create` from a device) and hand edits
+  // reach the threads at once; the host CLI is what an assistant runs to change itself.
+  const registryAdmin =
+    agentHome === null
+      ? null
+      : new AssistantRegistry({
+          agentHome,
+          userName: human,
+          cli: Bun.main.endsWith(".ts") ? `bun "${Bun.main}"` : `"${process.execPath}"`,
+          log,
+        });
+  const thread = (agent: AssistantAgentConfig): AssistantService =>
+    new AssistantService({
+      agent,
+      agents,
+      launch: (options) => agents.launchWith(options),
+      sessionFile: (sessionId) => agents.sessionFile(sessionId),
+      holder: (file) => agents.sessionForFile(file),
+      close: (sessionId) => agents.close(sessionId),
+      reconnected: () => agents.reconnected(),
+      agentHome,
+      store: new FileAssistantStore(defaultAssistantPath(agent.id)),
+      tokens: pushTokens,
+      sender: new ExpoPushSender(),
       broadcast: (message): void => {
-        server.broadcastExcept(message, null);
+        server.broadcastAssistant(agent.id, message);
       },
+      isViewing: (deviceId): boolean => server.isViewingAssistant(deviceId, agent.id),
       clock: systemClock,
       log,
+      spawn: spawnFill,
+      aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
+      logPath: hostLogPath(),
+    });
+  const assistant = assistantThreads(agentHome, thread, {
+    // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
+    broadcast: (message): void => {
+      server.broadcastExcept(message, null);
     },
-  );
+    clock: systemClock,
+    log,
+    create: thread,
+    ...(registryAdmin === null ? {} : { register: (input: unknown) => registryAdmin.create(input) }),
+  });
+  const stopRegistryWatch =
+    registryAdmin === null || assistant === null
+      ? null
+      : (() => {
+          registryAdmin.onChange = (entries) => {
+            registry = entries;
+            assistant.reload(entries);
+          };
+          return registryAdmin.watch();
+        })();
   // Local voice calls run on Eva's speech stack (eva-realtime venv + pocket-tts); a host without it has none.
   const voiceRoot =
     agentHome === null
@@ -511,7 +549,7 @@ function serve(
             clipboard.expect(mimeType, bytes);
           },
   });
-  const canvas = liveCanvas(canvasDir, agentHome, agents, registry, config);
+  const canvas = liveCanvas(canvasDir, agentHome, agents, () => registry, config);
   // Jobs and state go out long after `server` below is initialised.
   const studio = studioService(agentHome, config, (message) => {
     server.broadcastExcept(message, null);
@@ -570,6 +608,7 @@ function serve(
       notifier,
       inbox,
       assistant,
+      assistantAdmin: { registry: registryAdmin },
       calls,
       live,
       usage,
@@ -643,6 +682,7 @@ function serve(
     reviews?.stop();
     server.stop();
     voice?.stop();
+    stopRegistryWatch?.();
     catchup?.stop();
     device?.close();
     process.exit(0);
@@ -652,14 +692,15 @@ function serve(
 }
 
 /**
- * Live canvas rooms on the boards in `canvasDir`, their agents' brains a warm omp each; null (and
- * logged) without a canvases dir or an omp binary.
+ * Live canvas rooms on the boards in `canvasDir`, each with its canvas self as a full omp agent
+ * (canvas/agent-config.ts); null (and logged) without a canvases dir, an omp binary, or with a bad
+ * $RELAY_CANVAS_* setting.
  */
 function liveCanvas(
   canvasDir: string | null,
   agentHome: string | null,
   agents: OmpBridgeProvider,
-  registry: readonly AssistantAgentConfig[],
+  registry: () => readonly AssistantAgentConfig[],
   config: HostConfig | null,
 ): CanvasService | null {
   if (canvasDir === null) {
@@ -671,16 +712,31 @@ function liveCanvas(
     log("live canvas disabled: omp not found (set $RELAY_CANVAS_OMP)");
     return null;
   }
+  let agentConfig: CanvasAgentConfig;
+  try {
+    agentConfig = canvasAgentConfig();
+  } catch (error) {
+    log(`live canvas disabled: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
   const configDir = relayConfigDir();
+  const home = agentHome ?? homedir();
   // The sign-ins live in omp's `personal` profile on the owner's host; a starter host has only omp's default.
   const profile = existsSync(join(homedir(), ".omp", "profiles", "personal")) ? "personal" : null;
-  log(`live canvas on boards in ${canvasDir} (brains: ${omp})`);
+  log(
+    `live canvas on boards in ${canvasDir}: canvas self ${MODELS[agentConfig.model].id} (${agentConfig.effort}) via ${omp}, working in ${home}; per room ${String(agentConfig.maxRequests)} requests, ${String(Math.round(agentConfig.maxTokens / 1000))}k tokens`,
+  );
   return new CanvasService({
     canvasDir,
     chats: agents,
-    registry,
-    ...(config === null || registry[0] === undefined ? {} : { defaultAgentName: registry[0].title }),
-    brains: ompBrains({ omp, profile, configs: [brainConfigOverlay(configDir)], log }),
+    // Read on use, so an assistant added while the host runs joins rooms with its own face.
+    get registry() {
+      return registry();
+    },
+    ...(config === null || registry().length === 0 ? {} : { defaultAgentName: registry()[0]?.title ?? "" }),
+    minds: ompMinds({ omp, profile, configs: [mindConfigOverlay(configDir)], stateDir: join(configDir, "canvas", "rooms"), agentHome: home, canvasDir, config: agentConfig, log }),
+    model: agentConfig.model,
+    agentHome: home,
     log,
   });
 }
@@ -754,8 +810,9 @@ function studioService(
 }
 
 /**
- * One thread per agent in `<agentHome>/.omp/assistant/agents.json`, read once at start; null (and
- * logged) when there is no agent home or the registry is missing or invalid.
+ * One thread per agent in `<agentHome>/.omp/assistant/agents.json`, read at start and reloaded on
+ * every change (`AssistantRegistry.watch`); null (and logged) when there is no agent home or the
+ * registry is missing or invalid at start.
  */
 function assistantThreads(
   agentHome: string | null,
@@ -777,8 +834,13 @@ function assistantThreads(
   return new AssistantThreads(registry.map(create), deps);
 }
 
-/** The running host's loopback base URL, from the port `serve` left in serve.json. */
+/**
+ * The running host's loopback base URL: `$RELAY_HOST_URL` (a host on another port hands it to the
+ * sessions it starts), else the port `serve` left in serve.json.
+ */
 function hostUrl(): string {
+  const override = process.env["RELAY_HOST_URL"]?.trim();
+  if (override !== undefined && override !== "") return override.replace(/\/+$/, "");
   let info: z.infer<typeof ServeInfo>;
   try {
     info = ServeInfo.parse(JSON.parse(readFileSync(serveInfoPath(), "utf8")));
@@ -863,6 +925,84 @@ async function assistantSay(agent: string | undefined, positionals: string[]): P
     process.exit(1);
   }
   console.log(`told ${agent}`);
+}
+
+interface AssistantCliOptions {
+  readonly agent: string | undefined;
+  readonly id: string | undefined;
+  readonly title: string | undefined;
+  readonly scope: string | undefined;
+  readonly model: string | undefined;
+  readonly voice: string | undefined;
+  readonly liveVoice: string | undefined;
+  readonly unset: readonly string[];
+  readonly start: boolean;
+}
+
+/** A change as the assistant reports it: `scope: "Personal" -> "Driving"`. */
+function describeChange(change: FieldChange): string {
+  const show = (value: unknown): string =>
+    value === null ? "(none)" : typeof value === "object" && "seed" in value ? `face ${String(value.seed)}` : JSON.stringify(value);
+  return `${change.field}: ${show(change.from)} -> ${show(change.to)}`;
+}
+
+/** `assistant list|create|set|retire`: the running host's registry. */
+async function assistantAdminCommand(verb: string, options: AssistantCliOptions): Promise<void> {
+  const base = `${hostUrl()}/assistant`;
+  const agent = options.agent ?? process.env["RELAY_ASSISTANT"];
+  const need = (): string => {
+    if (agent === undefined || agent === "") throw new Error(`assistant ${verb}: missing --agent <id> (or $RELAY_ASSISTANT)`);
+    return agent;
+  };
+  const call = async (path: string, init: RequestInit = {}): Promise<Response> => {
+    const response = await fetch(`${base}${path}`, init);
+    if (!response.ok) {
+      console.error(await response.text());
+      process.exit(1);
+    }
+    return response;
+  };
+  const json = (body: unknown): RequestInit => ({ headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  switch (verb) {
+    case "list":
+      console.log(JSON.stringify(await (await call("/registry")).json(), null, 2));
+      return;
+    case "create": {
+      if (options.title === undefined) throw new Error("assistant create: missing --title <Name>");
+      const body = {
+        title: options.title,
+        ...(options.id === undefined ? {} : { id: options.id }),
+        ...(options.scope === undefined ? {} : { scope: options.scope }),
+        start: options.start,
+      };
+      const entry = (await (await call("/registry", { method: "POST", ...json(body) })).json()) as { id: string; title: string };
+      console.log(`created ${entry.title} (${entry.id})${options.start ? "; its thread has started" : ""}`);
+      return;
+    }
+    case "set": {
+      const id = need();
+      const fields: Record<string, unknown> = {
+        ...(options.title === undefined ? {} : { title: options.title }),
+        ...(options.scope === undefined ? {} : { scope: options.scope }),
+        ...(options.model === undefined ? {} : { model: options.model }),
+        ...(options.voice === undefined ? {} : { voice: options.voice }),
+        ...(options.liveVoice === undefined ? {} : { liveVoice: options.liveVoice }),
+        ...Object.fromEntries(options.unset.map((field) => [field, null])),
+      };
+      if (Object.keys(fields).length === 0) throw new Error("assistant set: nothing to change");
+      const { changes } = (await (await call(`/registry/${encodeURIComponent(id)}`, { method: "PATCH", ...json(fields) })).json()) as { changes: FieldChange[] };
+      console.log(changes.length === 0 ? "nothing changed" : `changed ${changes.map(describeChange).join("; ")}`);
+      return;
+    }
+    case "retire": {
+      const id = need();
+      const entry = (await (await call(`/registry/${encodeURIComponent(id)}`, { method: "DELETE" })).json()) as { title: string };
+      console.log(`retired ${entry.title} (${id}); its prime.md and thread memory stay`);
+      return;
+    }
+    default:
+      throw new Error(`assistant: unknown subcommand ${verb}; try say, list, create, set or retire`);
+  }
 }
 
 /** `catchup bounce <id> <reason>`: the running host gets Catch Up card `id` handed back by assistant `agent`. */
@@ -1264,6 +1404,13 @@ async function main(argv: string[]): Promise<void> {
       session: { type: "string" },
       handoff: { type: "string" },
       leave: { type: "boolean", default: false },
+      id: { type: "string" },
+      scope: { type: "string" },
+      model: { type: "string" },
+      voice: { type: "string" },
+      "live-voice": { type: "string" },
+      unset: { type: "string", multiple: true, default: [] },
+      start: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -1334,11 +1481,22 @@ async function main(argv: string[]): Promise<void> {
       return;
     case "assistant": {
       const verb = positionals[1];
-      if (verb !== "say")
-        throw new Error(
-          `assistant: unknown subcommand ${verb ?? "(none)"}; try \`assistant say --agent <id> <text>\``,
-        );
-      await assistantSay(values.agent, positionals.slice(2));
+      if (verb === "say") {
+        await assistantSay(values.agent, positionals.slice(2));
+        return;
+      }
+      if (verb === undefined) throw new Error("assistant: try say, list, create, set or retire");
+      await assistantAdminCommand(verb, {
+        agent: values.agent,
+        id: values.id,
+        title: values.title,
+        scope: values.scope,
+        model: values.model,
+        voice: values.voice,
+        liveVoice: values["live-voice"],
+        unset: values.unset,
+        start: values.start,
+      });
       return;
     }
     case "canvas":

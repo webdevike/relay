@@ -24,6 +24,17 @@
   font-size: var(--eva-fz-body);
   color: var(--eva-c-muted-foreground);
 }
+/* The heading beside its "New assistant" button. */
+.eva-as-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+}
+/* Why Relay could not add an assistant (a taken name, Relay down). */
+.eva-as-error {
+  color: var(--eva-c-danger);
+}
 /* Portraits are black line art: they sit on light paper in both schemes, like on the phone. */
 .eva-as-avatar {
   flex: none;

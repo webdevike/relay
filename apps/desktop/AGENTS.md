@@ -15,6 +15,7 @@ Isaac is asleep. Sessions run headless, one per phase. Never wait for input.
 - Read-only: `/Users/ike/Eva/apps/evaos`, `/Users/ike/Eva/work/relay`, anything outside this repo except the exact Eva data writes current EvaOS performs.
 - No global config changes, no remote, no push.
 - Isaac works on this Mac while you run. Never steal focus: every app launch (e2e, proof, smoke, diagnostics, packaged checks) sets `EVAOS_E2E=1` so the app runs as a background accessory app with `showInactive`. Never use `open`, `pnpm dev`, or `pnpm dev:live` to launch a visible app, never call `win.focus()`/`app.focus()` in test paths, and never drive real OS mouse or keyboard events (no `EVAOS_OS_EVENTS=1`, no cliclick/osascript/computer use).
+- Test scope while working on a change: run unit tests for the packages you touched and only the e2e specs that cover your change (`pnpm e2e:run --only-changed=origin/main`, or the spec files you added/edited), always with `--retries 0 --max-failures 1` and a timeout so a hang fails fast. The full e2e suite runs once before a release, not on every change. A spec that hangs twice gets reported, not looped.
 
 ## Isaac's decisions
 

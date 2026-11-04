@@ -7,6 +7,7 @@ import {
   IconLink,
   IconMessage,
   IconPalette,
+  IconPlugConnected,
   IconPlus,
   IconTool,
 } from '@tabler/icons-react'
@@ -30,6 +31,7 @@ const SECTION_ICON = {
   Theme: IconPalette,
   Chat: IconMessage,
   Links: IconLink,
+  Connections: IconPlugConnected,
   Setup: IconTool,
   About: IconInfoCircle,
   Changelog: IconHistory,

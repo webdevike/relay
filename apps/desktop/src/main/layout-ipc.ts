@@ -8,6 +8,8 @@ import type { WriteQueue } from './write-queue'
 const FILE = 'layout.json'
 /** A dockview layout of a few dozen tabs is a few KB; anything this big is not one. */
 const DOCK_MAX_BYTES = 512 * 1024
+/** Hidden rows, order and favorites are a few KB; anything this big is not them. */
+const SIDEBAR_MAX_BYTES = 256 * 1024
 
 export function loadLayout(config: ConfigStore): {
   sidebarWidth: number
@@ -15,6 +17,7 @@ export function loadLayout(config: ConfigStore): {
   dock: Record<string, unknown> | null
   tiling: Record<string, unknown> | null
   legacyPanel: LegacyPanel | null
+  sidebar: Record<string, unknown> | null
   reset: boolean
 } {
   const r = readLayoutText(config.readText(FILE))
@@ -24,6 +27,7 @@ export function loadLayout(config: ConfigStore): {
     dock: r.dock,
     tiling: r.tiling,
     legacyPanel: r.legacyPanel,
+    sidebar: r.sidebar,
     reset: r.malformed,
   }
 }
@@ -44,7 +48,10 @@ export function saveLayout(config: ConfigStore, patch: LayoutPatch): void {
  * saved layout against its tabs on load (shell-core reconcileDock), so main keeps it verbatim.
  */
 function toPatch(input: InvokeInput<'layout.save'>): LayoutPatch {
-  const { dock } = input
+  const { dock, sidebar } = input
+  if (sidebar !== undefined && JSON.stringify(sidebar).length > SIDEBAR_MAX_BYTES) {
+    throw Object.assign(new Error('Sidebar settings too large'), { code: 'invalid-sidebar' })
+  }
   if (dock === undefined) return input
   const grid = dock['grid']
   const ok =

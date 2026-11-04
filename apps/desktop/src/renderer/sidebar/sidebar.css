@@ -108,18 +108,6 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-scroll > .eva-scroll {
   height: 100%;
 }
-.eva-sb-section {
-  font-size: var(--eva-fz-caption);
-  font-weight: var(--eva-fw-regular);
-  color: var(--eva-text-dim);
-}
-.eva-sb-section-main {
-  padding: var(--eva-space-native-xs) var(--eva-space-xs) var(--eva-space-xs);
-}
-/* The Dashboards group: more space above it than between its rows. */
-.eva-sb-dashboards {
-  margin-top: var(--mantine-spacing-sm);
-}
 .eva-sb-row {
   display: flex;
   align-items: center;
@@ -181,6 +169,18 @@ html[data-eva-motion='off'] .eva-sb-track {
   flex-direction: column;
   gap: var(--eva-space-xs);
   padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-native-xs);
+}
+/* Update waiting for a restart: a small quiet pill above Settings; the details open on hover. */
+.eva-update-badge {
+  align-self: flex-start;
+  margin-left: var(--mantine-spacing-sm);
+  cursor: pointer;
+}
+.eva-update-changes {
+  margin: 0;
+  padding-left: var(--mantine-spacing-md);
+  max-height: 180px;
+  overflow-y: auto;
 }
 /* Pinned below a sub-page's scrolling list (the chats Settled fold); opens upward, scrolls itself. */
 .eva-sb-subfooter {

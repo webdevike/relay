@@ -197,7 +197,8 @@ export function Cursors({
       {[...states].map(([cid, p]) => {
         if (cid === awareness.clientID || !p.user) return null;
         const agent = p.user.kind === "agent";
-        const status = agent && p.status ? STATUS_LABEL[p.status] : undefined;
+        // What it is doing off the board ("building the mockup…") reads better than a bare "thinking".
+        const status = agent ? (p.doing ?? (p.status ? STATUS_LABEL[p.status] : undefined)) : undefined;
         const bubbleText = p.draft != null ? p.draft : p.bubble?.text;
         return (
           <div

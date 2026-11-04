@@ -49,6 +49,16 @@ describe("openWidgetUrl", () => {
     expect(openURL).not.toHaveBeenCalled();
   });
 
+  it("follows a deep link's section and Reviews item, and swallows pages the phone lacks", () => {
+    openChatLink("relay://open/settings/connections?connect=github");
+    expect(navigate).toHaveBeenLastCalledWith("/settings");
+    const item = "https://github.com/o/r/pull/12";
+    openChatLink(`relay://open/reviews?item=${encodeURIComponent(item)}`);
+    expect(push).toHaveBeenLastCalledWith(`/reviews?item=${encodeURIComponent(item)}`);
+    openChatLink("relay://open/test-bench?experiment=x&arm=a");
+    expect(openURL).not.toHaveBeenCalled();
+  });
+
   it("opens a web url externally", () => {
     openWidgetUrl("https://example.com");
     expect(openURL).toHaveBeenCalledWith("https://example.com");

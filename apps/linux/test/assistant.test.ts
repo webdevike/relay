@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AgentImage, AgentMessage, AgentSession, AssistantMessage, AssistantPortrait, ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../src/agents/herdr";
-import { liveVoiceFor, loadRegistry } from "../src/assistant/registry";
+import { liveVoiceFor, loadRegistry, RegistryError } from "../src/assistant/registry";
 import { handleAssistantSay } from "../src/assistant/http";
 import { assistantStatus, AssistantService, AssistantThreads, lastReplyOf, MAX_LAST_REPLY, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
 import { MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from "../src/assistant/replies";
@@ -1147,5 +1147,78 @@ describe("assistant.agents list", () => {
     h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
     await flush();
     expect(await threads.agents()).toEqual([{ id: "astra", title: "Astra", status: "idle" }]);
+  });
+});
+
+describe("registry changes while the host runs", () => {
+  const frames = (broadcasts: ServerMessage[]) => broadcasts.filter((message) => message.t === "assistant.agents");
+
+  function threesome() {
+    const a = harness({ agent: { ...ASTRA, scope: "eCard Systems work" } });
+    const n = harness({ agent: NOVA, beside: a });
+    const broadcasts: ServerMessage[] = [];
+    const added: ReturnType<typeof harness>[] = [];
+    const registered: unknown[] = [];
+    const threads = new AssistantThreads([a.service, n.service], {
+      broadcast: (message) => broadcasts.push(message),
+      clock: a.clock,
+      log: () => undefined,
+      create: (agent) => {
+        const h = harness({ agent, beside: a });
+        added.push(h);
+        return h.service;
+      },
+      register: (input) => {
+        registered.push(input);
+        if (typeof input === "object" && input !== null && "title" in input && input.title === "Nova") throw new RegistryError("an assistant called Nova already exists");
+        threads.reload([{ id: "astra", title: "Astra" }, { id: "nova", title: "Nova" }, { id: "vega", title: "Vega" }]);
+        return { id: "vega", title: "Vega" };
+      },
+    });
+    return { a, n, threads, broadcasts, added, registered };
+  }
+
+  it("reload keeps a changed agent's thread, adds new ones, retires dropped ones and sends the new list", async () => {
+    const { a, n, threads, broadcasts, added } = threesome();
+    n.register("idle");
+    threads.reload([{ id: "astra", title: "Astra", scope: "ECS" }, { id: "vega", title: "Vega", liveVoice: "cedar" }]);
+    expect(threads.threads.map((thread) => thread.id)).toEqual(["astra", "vega"]);
+    expect(threads.thread("astra")).toBe(a.service);
+    expect(added.map((h) => h.service.id)).toEqual(["vega"]);
+    expect(threads.thread("vega")?.liveVoice).toBe("cedar");
+    await flush();
+    expect(n.closed).toEqual(["nova-1"]);
+    a.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(frames(broadcasts).at(-1)).toEqual({
+      t: "assistant.agents",
+      agents: [
+        { id: "astra", title: "Astra", scope: "ECS", status: "not_started" },
+        { id: "vega", title: "Vega", status: "not_started" },
+      ],
+    });
+  });
+
+  it("a renamed agent starts under its new title and files job lines under its new prefix", async () => {
+    const { a, threads } = threesome();
+    threads.reload([{ id: "astra", title: "Stella" }, { id: "nova", title: "Nova" }]);
+    expect(a.service.title).toBe("Stella");
+    void a.service.turn("hi");
+    await flush();
+    expect(a.launches).toEqual([{ env: { RELAY_ASSISTANT: "astra", RELAY_ASSISTANT_TITLE: "Stella" }, label: "Stella" }]);
+    a.register("idle");
+    a.agents.transcript = [{ id: "j", role: "user", text: `${statusPrefix("Stella")}Heartbeat: 0 new.`, at: 1 }];
+    expect((await a.service.snapshot()).messages).toMatchObject([{ id: "j", role: "status" }]);
+  });
+
+  it("create registers the agent and, with start, opens its thread with a greeting", async () => {
+    const { threads, added, registered } = threesome();
+    expect(await threads.create({ title: "Vega", scope: "Driving" }, true)).toEqual({ id: "vega", title: "Vega" });
+    expect(registered).toEqual([{ title: "Vega", scope: "Driving" }]);
+    await flush();
+    const vega = added.find((h) => h.service.id === "vega");
+    expect(vega?.launches).toEqual([{ env: { RELAY_ASSISTANT: "vega", RELAY_ASSISTANT_TITLE: "Vega" }, label: "Vega" }]);
+    await expect(threads.create({ title: "Nova" }, false)).rejects.toMatchObject({ error: { code: "invalid_command", message: "an assistant called Nova already exists" } });
+    await expect(new AssistantThreads([]).create({ title: "X" }, false)).rejects.toBeInstanceOf(AckFailure);
   });
 });

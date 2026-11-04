@@ -38,6 +38,15 @@ import {
   swatchColor,
   tone,
 } from "./model";
+import { typedLength } from "./arrival";
+import { useLocked } from "./page-lock";
+import {
+  ArrivalContext,
+  arrivals,
+  prefersReducedMotion,
+  useArrival,
+  useArrivalPhase,
+} from "./page-arrival";
 import { useScheme } from "./page-theme";
 import { awareness, doc, env, presenceStates, subscribePresence, yEdges, yNodes } from "./room";
 import type { OpenUIQueryClient } from "../../protocol/src/openui/index";
@@ -142,6 +151,21 @@ function Field({
   fallback?: string;
 }) {
   const [editing, setEditing] = useState(false);
+  const locked = useLocked();
+  const arrival = useArrival();
+  // A card that just arrived types its text in once revealed (reduced motion: the fade alone).
+  const typing = arrival?.phase === "reveal" && !prefersReducedMotion();
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!typing) return;
+    let raf = 0;
+    const step = () => {
+      tick((n) => n + 1);
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [typing]);
   if (editing) {
     return (
       <textarea
@@ -163,12 +187,22 @@ function Field({
       />
     );
   }
+  const typed = typing
+    ? typedLength(value.length, Date.now() - (arrival?.revealAt ?? 0))
+    : value.length;
   const shown =
-    value === "" && fallback && caret?.typing?.field !== field
-      ? fallback
-      : withCaret(value, caret, field);
+    typed < value.length ? (
+      <>
+        {value.slice(0, typed)}
+        <span style={{ visibility: "hidden" }}>{value.slice(typed)}</span>
+      </>
+    ) : value === "" && fallback && caret?.typing?.field !== field ? (
+      fallback
+    ) : (
+      withCaret(value, caret, field)
+    );
   return (
-    <div className={className} onDoubleClick={() => setEditing(true)}>
+    <div className={className} onDoubleClick={() => (locked ? undefined : setEditing(true))}>
       {icon}
       {icon ? <span>{shown}</span> : shown}
     </div>
@@ -206,6 +240,9 @@ function Picture({ spec, inner }: { spec: NodeSnap; inner: number }) {
   const src = spec.src;
   const current = state.src === src ? state : { src: src ?? "", ratio: null, failed: false };
   const fallback = inner * 0.75;
+  useEffect(() => {
+    if (!src) arrivals.markReady(spec.id);
+  }, [src, spec.id]);
   if (!src || current.failed) {
     return (
       <div className="cv-picture cv-picture-note" style={{ height: fallback }}>
@@ -228,8 +265,12 @@ function Picture({ spec, inner }: { spec: NodeSnap; inner: number }) {
           ratio: img.naturalWidth ? img.naturalHeight / img.naturalWidth : null,
           failed: false,
         });
+        arrivals.markReady(spec.id);
       }}
-      onError={() => setState({ src, ratio: null, failed: true })}
+      onError={() => {
+        setState({ src, ratio: null, failed: true });
+        arrivals.markReady(spec.id);
+      }}
     />
   );
 }
@@ -331,11 +372,13 @@ function Wireframe({ url }: { url: string }) {
 
 /** Add branch: the suggestion becomes a note in place (edges kept). Dismiss: it goes, with its edges. */
 function SuggestionButtons({ id }: { id: string }) {
+  const locked = useLocked();
   return (
     <div className="cv-suggest-actions">
       <button
         type="button"
         className="cv-pill-btn nodrag nopan"
+        disabled={locked}
         data-variant="accent"
         onPointerDown={stop}
         onClick={(e) => {
@@ -355,6 +398,7 @@ function SuggestionButtons({ id }: { id: string }) {
       <button
         type="button"
         className="cv-pill-btn nodrag nopan"
+        disabled={locked}
         onPointerDown={stop}
         onClick={(e) => {
           e.stopPropagation();
@@ -401,9 +445,29 @@ function ProtoPage({ spec }: { spec: NodeSnap }) {
         src={src}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
-        onLoad={() => endLoad.current?.()}
+        onLoad={() => {
+          endLoad.current?.();
+          arrivals.markReady(spec.id);
+        }}
         style={mobile ? { width: MOBILE_VIEWPORT_WIDTH } : undefined}
       />
+    </div>
+  );
+}
+
+/** What an arriving card shows until its content is ready: the card's own border, a title bar and body lines (or a picture block). */
+function Skeleton({ kind }: { kind: string }) {
+  return (
+    <div className="cv-skel" data-kind={kind} aria-hidden>
+      <span className="cv-skel-bar" />
+      {kind === "image" || kind === "ui" || kind === "proto" ? (
+        <span className="cv-skel-block" />
+      ) : (
+        <>
+          <span className="cv-skel-line" />
+          <span className="cv-skel-line short" />
+        </>
+      )}
     </div>
   );
 }
@@ -629,7 +693,7 @@ function UiBody({ spec, caret }: { spec: NodeSnap; caret: NodePresence | undefin
         onDoubleClick={stop}
         onKeyDown={(e) => e.stopPropagation()}
       >
-        <LiveWidget source={spec.body} query={query} />
+        <LiveWidget source={spec.body} query={query} onReady={() => arrivals.markReady(id)} />
       </div>
     </>
   );
@@ -655,6 +719,7 @@ const RESIZE_CORNER: CSSProperties = {
 
 /** One node, drawn by its kind. */
 export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeProps<CardNode>) {
+  const locked = useLocked();
   const { spec, hasChildren } = data;
   const others = useNodePresence(id);
   const caret = others.find((o) => o.typing);
@@ -667,9 +732,13 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
         : undefined;
   // The agent typing into a card, a live widget's query or a prototype frame still loading.
   const loading = useCardLoading(id) || caret !== undefined;
+  const phase = useArrivalPhase(id);
+  const revealAt = arrivals.revealAt(id);
+  const arrival = useMemo(() => (phase ? { phase, revealAt } : null), [phase, revealAt]);
   return (
     <div
       className="cv-card"
+      data-arrival={phase ?? undefined}
       data-kind={kind}
       data-tone={t}
       data-selected={selected ? "true" : undefined}
@@ -689,8 +758,10 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
           data-testid={`canvas-spinner-${id}`}
         />
       ) : null}
-      <Body spec={spec} hasChildren={hasChildren} caret={caret} />
-      {kind === "ui" || kind === "proto" ? (
+      <ArrivalContext.Provider value={arrival}>
+        <Body spec={spec} hasChildren={hasChildren} caret={caret} />
+      </ArrivalContext.Provider>
+      {(kind === "ui" || kind === "proto") && !locked ? (
         <NodeResizeControl
           position="bottom-right"
           minWidth={240}
@@ -711,6 +782,7 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
       {SIDES.map(([side, position]) => (
         <Handle key={side} id={side} type="source" position={position} className="cv-handle" />
       ))}
+      {phase ? <Skeleton kind={kind} /> : null}
     </div>
   );
 });

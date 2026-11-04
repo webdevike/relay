@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAppLink, parseAssistantAvatar, parseWidget, type WidgetSpec } from "../src";
+import { buildAppLink, parseAppLink, parseAssistantAvatar, parseWidget, type WidgetSpec } from "../src";
 
 const parse = (spec: object): WidgetSpec | null => parseWidget(JSON.stringify(spec));
 
@@ -18,6 +18,23 @@ describe("relay:// app links", () => {
       "https://example.com",
     ])
       expect(parseAppLink(bad)).toBeNull();
+  });
+
+  it("reads page parts and params, and builds the same link back", () => {
+    for (const url of [
+      "relay://open/settings/connections?connect=github",
+      "relay://open/settings/theme?setting=theme.mode",
+      `relay://open/reviews?item=${encodeURIComponent("https://github.com/o/r/pull/12")}`,
+      "relay://open/workspace/relay-agent-access",
+      "relay://assistant/nova",
+    ]) {
+      const link = parseAppLink(url);
+      expect(link, url).not.toBeNull();
+      expect(buildAppLink(link!)).toBe(url);
+    }
+    expect(parseAppLink("relay://open/settings/connections")).toEqual({ kind: "open", page: "settings", sub: "connections" });
+    for (const bad of ["relay://open/settings/a/b", "relay://open/settings?nope=1", "relay://open/settings?item="])
+      expect(parseAppLink(bad), bad).toBeNull();
   });
 
   it("takes a relay:// url on a card, link and button; a card drops a bad one", () => {

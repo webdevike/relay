@@ -14,6 +14,8 @@ import { WidgetFrame, WidgetFramePending } from '../widgets/WidgetFrame'
 import { OpenUIQuery } from '../widgets/actions'
 import { liveQuery } from '../../boards/live-query'
 import { InLink, MarkdownMedia } from './MarkdownMedia'
+import { AppLink } from './AppLink'
+import { remarkAppLinks } from './remark-app-links'
 
 type Element = NonNullable<ExtraProps['node']>
 type ElementContent = Element['children'][number]
@@ -119,6 +121,9 @@ function Pre({ node }: ExtraProps) {
 /** `[@Mara](mention:orange)`: a quiet pill in the person's color, never a link (Rooms). */
 export const MENTION_SCHEME = 'mention:'
 
+/** `[Settings › Connections](relay://open/settings/connections)`: opens a place in Relay (AppLink). */
+const APP_SCHEME = 'relay://'
+
 const components: Components = {
   pre: Pre,
   a: ({ href, children }) =>
@@ -126,6 +131,8 @@ const components: Components = {
       <span className="eva-md-mention" data-color={href.slice(MENTION_SCHEME.length)}>
         {children}
       </span>
+    ) : href?.startsWith(APP_SCHEME) ? (
+      <AppLink href={href}>{children}</AppLink>
     ) : (
       <a
         href={href}
@@ -148,11 +155,14 @@ const components: Components = {
     typeof src === 'string' && src !== '' ? <MarkdownMedia src={src} alt={alt ?? ''} /> : null,
 }
 
-const PLUGINS = [remarkGfm]
+const PLUGINS = [remarkGfm, remarkAppLinks]
 
-/** react-markdown's safe-URL filter, except that `mention:` links (rendered as a pill) survive it. */
+/**
+ * react-markdown's safe-URL filter, except that `mention:` links (rendered as a pill) and relay://
+ * app links (rendered as an in-app button) survive it.
+ */
 const keepMentions = (url: string): string =>
-  url.startsWith(MENTION_SCHEME) ? url : defaultUrlTransform(url)
+  url.startsWith(MENTION_SCHEME) || url.startsWith(APP_SCHEME) ? url : defaultUrlTransform(url)
 
 /** An assistant reply: GitHub-flavored markdown, never raw HTML. */
 function MarkdownImpl({ text }: { text: string }) {

@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const invoke = vi.fn(async (...a: unknown[]) =>
@@ -41,7 +41,9 @@ import { SidebarColumn } from './SidebarColumn'
 import { MainNav } from './MainNav'
 import { SubPage } from './SubPages'
 import { backToRoot, openSub, navLevelStore } from './nav-level'
+import { resetListForTests } from '../chat/list/list-store'
 import { resetSidebarForTests, sidebarStore } from './sidebar-store'
+import { resetSidebarPrefsForTests, sidebarPrefsStore } from './sidebar-prefs'
 import { boardsStore } from '../boards/boards-store'
 
 const tab = (page: string, extra = {}): Tab => ({
@@ -60,6 +62,8 @@ beforeEach(() => {
   invoke.mockClear()
   openPlace.mockClear()
   resetSidebarForTests()
+  resetSidebarPrefsForTests()
+  resetListForTests()
   backToRoot()
   seed('dashboard')
 })
@@ -234,5 +238,97 @@ describe('Setting row', () => {
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Theme' }), {
       newTab: false,
     })
+  })
+})
+
+describe('customization', () => {
+  const prefs = () => sidebarPrefsStore.getState()
+
+  it("a row set to Don't show is gone, and a badged one waits for its badge", () => {
+    prefs().setVisibility('habits', 'never')
+    prefs().setVisibility('jobs', 'badged')
+    const { unmount } = wrap(<MainNav />)
+    expect(screen.queryByTestId('nav-habits')).toBeNull()
+    expect(screen.queryByTestId('nav-jobs')).toBeNull()
+    expect(screen.getByTestId('nav-meetings')).toBeInTheDocument()
+    act(() => sidebarStore.setState({ scheduledJobs: 3 }))
+    expect(screen.getByTestId('count-jobs')).toHaveTextContent('3')
+    unmount()
+  })
+
+  it('the badge style turns the count into a dot or nothing', () => {
+    sidebarStore.setState({ scheduledJobs: 3, loaded: true })
+    prefs().setBadgeStyle('dot')
+    wrap(<MainNav />)
+    expect(screen.getByTestId('count-jobs')).toHaveClass('eva-sb-dot')
+    expect(screen.getByTestId('count-jobs')).toBeEmptyDOMElement()
+    act(() => prefs().setBadgeStyle('none'))
+    expect(screen.queryByTestId('count-jobs')).toBeNull()
+  })
+
+  it('rows follow the saved order, new rows after it', () => {
+    prefs().setOrder('main', ['meetings', 'jobs'])
+    wrap(<MainNav />)
+    const rows = screen
+      .getAllByTestId(/^nav-/)
+      .map((el) => el.getAttribute('data-testid'))
+      .slice(0, 3)
+    expect(rows).toEqual(['nav-meetings', 'nav-jobs', 'nav-assistants'])
+  })
+
+  it('a section can be collapsed from its header and hidden whole', () => {
+    wrap(<MainNav />)
+    fireEvent.click(screen.getByTestId('sidebar-section-main-head'))
+    expect(prefs().collapsed).toEqual({ main: true })
+    expect(screen.queryByTestId('nav-habits')).toBeNull()
+    act(() => prefs().setVisibility('section:dashboards', 'never'))
+    expect(screen.queryByTestId('sidebar-dashboards')).toBeNull()
+  })
+
+  it('right click opens the menu; Visibility hides the row, Customize opens the dialog', async () => {
+    wrap(<MainNav />)
+    fireEvent.contextMenu(screen.getByTestId('nav-canvas'))
+    const menu = await screen.findByTestId('sidebar-menu')
+    expect(within(menu).getByTestId('sidebar-menu-visibility')).toBeInTheDocument()
+    expect(within(menu).getByTestId('sidebar-menu-customize')).toBeInTheDocument()
+    expect(within(menu).getByText('Copy link')).toBeInTheDocument()
+    expect(within(menu).getByText('Open in new tab')).toBeInTheDocument()
+    fireEvent.mouseEnter(within(menu).getByTestId('sidebar-menu-visibility'))
+    for (const label of ['Always show', 'Show when badged', "Don't show"]) {
+      expect(await screen.findByText(label)).toBeInTheDocument()
+    }
+    fireEvent.click(screen.getByTestId('sidebar-menu-vis-never'))
+    expect(prefs().visibility).toEqual({ canvas: 'never' })
+    await waitFor(() => expect(screen.queryByTestId('nav-canvas')).toBeNull())
+
+    fireEvent.contextMenu(screen.getByTestId('nav-chat'))
+    fireEvent.click(await screen.findByTestId('sidebar-menu-customize'))
+    expect(await screen.findByText('Default badge style')).toBeInTheDocument()
+    expect(screen.getByTestId('cz-group-main')).toBeInTheDocument()
+    expect(screen.getByTestId('cz-group-dashboards')).toBeInTheDocument()
+    // The hidden row stays listed, muted, so it can be brought back.
+    expect(screen.getByTestId('cz-row-canvas')).toHaveAttribute('data-hidden', 'true')
+  })
+
+  it('Add to favorites puts the page under Favorites; a folder groups it', async () => {
+    wrap(<MainNav />)
+    fireEvent.contextMenu(screen.getByTestId('nav-canvas'))
+    fireEvent.click(await screen.findByTestId('sidebar-menu-favorite'))
+    expect(await screen.findByTestId('sidebar-favorites')).toBeInTheDocument()
+    expect(screen.getByTestId('fav-item')).toHaveAttribute('data-title', 'Canvas')
+    fireEvent.click(screen.getByTestId('favorites-new-folder'))
+    expect(await screen.findByTestId('fav-rename')).toHaveFocus()
+    fireEvent.change(screen.getByTestId('fav-rename'), { target: { value: 'Make' } })
+    fireEvent.keyDown(screen.getByTestId('fav-rename'), { key: 'Enter' })
+    await waitFor(() =>
+      expect(screen.getByTestId('fav-folder')).toHaveAttribute('data-title', 'Make'),
+    )
+    fireEvent.contextMenu(screen.getByTestId('fav-item'))
+    fireEvent.mouseEnter(await screen.findByTestId('sidebar-menu-move'))
+    fireEvent.click(within(await screen.findByTestId('sidebar-menu-move-list')).getByText('Make'))
+    const folder = prefs().favorites[0]
+    expect(folder?.kind === 'folder' && folder.items.map((i) => i.page)).toEqual(['canvas'])
+    fireEvent.click(screen.getByTestId('fav-item'))
+    expect(openPlace).toHaveBeenLastCalledWith(placeOf('canvas'), { newTab: false })
   })
 })

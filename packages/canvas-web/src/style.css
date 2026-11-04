@@ -188,6 +188,86 @@ kbd {
   outline: 1.5px solid var(--c-accent);
   outline-offset: -0.5px;
 }
+
+/* A card that just arrived: a skeleton at its final size, then its content fades in over it. */
+.cv-card[data-arrival] > :not(.cv-skel) {
+  transition: opacity 0.3s ease;
+}
+.cv-card[data-arrival="skeleton"] > :not(.cv-skel) {
+  opacity: 0;
+}
+.cv-skel {
+  position: absolute;
+  inset: -1px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: inherit;
+  border: 1px solid var(--c-border);
+  background: var(--c-panel);
+  pointer-events: none;
+  overflow: hidden;
+  transition: opacity 0.3s ease;
+}
+.cv-card[data-arrival="reveal"] > .cv-skel {
+  opacity: 0;
+}
+.cv-skel-bar,
+.cv-skel-line,
+.cv-skel-block {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--c-fg) 9%, transparent);
+}
+.cv-skel-bar {
+  width: 45%;
+  height: 12px;
+}
+.cv-skel-line {
+  height: 9px;
+}
+.cv-skel-line.short {
+  width: 70%;
+}
+.cv-skel-block {
+  flex: 1;
+  min-height: 48px;
+}
+.cv-skel-bar::after,
+.cv-skel-line::after,
+.cv-skel-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    100deg,
+    transparent 20%,
+    color-mix(in srgb, var(--c-fg) 10%, transparent) 50%,
+    transparent 80%
+  );
+  transform: translateX(-100%);
+  animation: cv-skel-sweep 1.4s ease-in-out infinite;
+}
+@keyframes cv-skel-sweep {
+  to {
+    transform: translateX(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-skel-bar::after,
+  .cv-skel-line::after,
+  .cv-skel-block::after {
+    animation: none;
+    display: none;
+  }
+  .cv-card[data-arrival] > :not(.cv-skel),
+  .cv-skel {
+    transition-duration: 0.12s;
+  }
+}
 .cv-card[data-tone="accent"] {
   --cv-tint: var(--c-accent);
 }
@@ -1256,6 +1336,20 @@ mark {
   min-height: 44px;
   padding: 10px 16px;
   font-size: 14px;
+}
+/* Locked: this viewer only pans and zooms; the board and cards stay put. */
+.cv-board.is-locked .react-flow__pane,
+.cv-board.is-locked .react-flow__node {
+  cursor: grab;
+}
+.cv-board.is-locked .react-flow__pane:active,
+.cv-board.is-locked .react-flow__node:active {
+  cursor: grabbing;
+}
+.cv-board.is-locked .cv-ui-body,
+.cv-board.is-locked .cv-proto-body,
+.cv-board.is-locked .cv-link {
+  cursor: auto;
 }
 .cv-connecting {
   position: absolute;
