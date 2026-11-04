@@ -46,6 +46,8 @@ import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
 import { createPackagedUpdater, type PackagedUpdater } from './update/packaged'
 import { assistExecutable, startAssist } from './assist'
+import { meetingsExecutable, startMeetingsCapture } from './meetings-capture'
+import { openAppLink, showNotice } from './notice'
 import { registerSetup } from './setup'
 import { registerConnections } from './connections'
 import { listenForDeepLinks } from './deep-links'
@@ -256,6 +258,20 @@ function bootstrap(): void {
         // Relay Assist runs as Relay's child so its privacy grants are Relay's (assist.ts).
         const assist = startAssist(assistExecutable(process.resourcesPath), (m) => console.warn(m))
         if (assist) ctx.onBeforeQuit(() => assist.stop())
+        // Relay Meetings records calls and streams them to the Relay Host (meetings-capture.ts).
+        if (ctx.env.profile === 'eva') {
+          const meetings = startMeetingsCapture({
+            executable: meetingsExecutable(process.resourcesPath),
+            spoolDir: join(ctx.env.configDir, 'meetings', 'spool'),
+            frames: chat.frames,
+            origin: () => chat.canvas.canvasOrigin(),
+            notify: (notice, onAnswer) => showNotice(ctx, notice, onAnswer),
+            openMeeting: (id) =>
+              openAppLink(ctx, `relay://open/meetings?meeting=${encodeURIComponent(id)}`),
+            log: (m) => console.warn(m),
+          })
+          if (meetings) ctx.onBeforeQuit(() => meetings.close())
+        }
         // The packaged app opens at login (and starts Assist); registered once, so turning it
         // off in System Settings > General > Login Items stays off.
         if (!config.readJson(LOGIN_ITEM_FILE, false)) {
