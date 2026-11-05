@@ -9,7 +9,8 @@
 import * as Y from "yjs";
 import type { CanvasLayout } from "./layout";
 import { DOC_KEYS, NODE_KINDS, PLAIN_DATA_KEYS, type NodeKind, type TextField } from "./shared";
-import { snapThreads, THREAD_ID, threadMap, threadsOf, type ThreadAnchor, type ThreadMap, type ThreadMsg } from "./threads";
+import { FIRST_PAGE, FIRST_PAGE_TITLE, isSinglePage, MAX_PAGES, PAGE_ID, pageKey, pageMaps, pagesOf, setPages, type PageInfo, type PageMaps } from "./pages";
+import { snapThreads, THREAD_ID, threadMap, type ThreadAnchor, type ThreadMap, type ThreadMsg } from "./threads";
 
 /** The board schema version this build reads and writes (native `board::VERSION`). */
 export const CANVAS_VERSION = 1;
@@ -75,15 +76,31 @@ export interface BoardThread {
   messages: ThreadMsg[];
 }
 
+/**
+ * One page of a board with pages. page-1's entry is only its id and title: its content is the
+ * board's top-level nodes, edges, threads and viewport. Every other page carries its own.
+ */
+export interface BoardPage {
+  id: string;
+  title: string;
+  nodes?: BoardNode[];
+  edges?: BoardEdge[];
+  viewport?: BoardViewport;
+  threads?: BoardThread[];
+}
+
 export interface Board {
   version: number;
   title: string;
   layout?: CanvasLayout;
+  /** page-1's nodes (the whole board when it has no other pages). */
   nodes: BoardNode[];
   edges: BoardEdge[];
   viewport?: BoardViewport;
   /** Absent in files written before comment pins (and by writers that drop them): the room's threads are then left as they are. */
   threads?: BoardThread[];
+  /** Every page in order, when the board has more than page-1 (or renamed it). Absent: the room's pages are left as they are. */
+  pages?: BoardPage[];
 }
 
 export class BoardError extends Error {}
@@ -136,11 +153,11 @@ function parseData(v: unknown, where: string): BoardNodeData | undefined {
   return out;
 }
 
-function parseThreads(v: unknown): BoardThread[] | undefined {
+function parseThreads(v: unknown, prefix: string): BoardThread[] | undefined {
   if (v === undefined) return undefined;
-  if (!Array.isArray(v) || v.length > 2_000) throw new BoardError("threads: expected a list");
+  if (!Array.isArray(v) || v.length > 2_000) throw new BoardError(`${prefix}threads: expected a list`);
   return v.map((t, i): BoardThread => {
-    const where = `threads[${i}]`;
+    const where = `${prefix}threads[${i}]`;
     if (!isObj(t)) throw new BoardError(`${where}: expected an object`);
     const id = str(t["id"], `${where}.id`, 60);
     if (!THREAD_ID.test(id)) throw new BoardError(`${where}.id: expected letters, digits, ".", "_" or "-"`);
@@ -171,26 +188,14 @@ function parseThreads(v: unknown): BoardThread[] | undefined {
   });
 }
 
-/** Native `board::parse`: JSON, unknown fields dropped, a newer `version` refused. Throws `BoardError`. */
-export function parseBoard(text: string): Board {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (e) {
-    throw new BoardError(e instanceof Error ? e.message : String(e));
-  }
-  if (!isObj(raw)) throw new BoardError("board: expected an object");
-  const version = raw["version"] ?? CANVAS_VERSION;
-  if (typeof version !== "number" || !Number.isInteger(version) || version < 0) throw new BoardError("version: expected an integer");
-  if (version > CANVAS_VERSION) throw new BoardError(`version ${version} is newer than this Relay reads (${CANVAS_VERSION})`);
-  const layout = raw["layout"];
-  if (layout !== undefined && (typeof layout !== "string" || !LAYOUTS.includes(layout))) throw new BoardError("layout: expected grid, tree or flow");
+/** A page's content: nodes, edges, viewport and threads (`prefix` names where, for errors). */
+function parseContent(raw: Record<string, unknown>, prefix: string): Pick<Board, "nodes" | "edges" | "viewport" | "threads"> {
   const nodesRaw = raw["nodes"] ?? [];
   const edgesRaw = raw["edges"] ?? [];
-  if (!Array.isArray(nodesRaw) || nodesRaw.length > 10_000) throw new BoardError("nodes: expected a list");
-  if (!Array.isArray(edgesRaw) || edgesRaw.length > 50_000) throw new BoardError("edges: expected a list");
+  if (!Array.isArray(nodesRaw) || nodesRaw.length > 10_000) throw new BoardError(`${prefix}nodes: expected a list`);
+  if (!Array.isArray(edgesRaw) || edgesRaw.length > 50_000) throw new BoardError(`${prefix}edges: expected a list`);
   const nodes = nodesRaw.map((n, i): BoardNode => {
-    const where = `nodes[${i}]`;
+    const where = `${prefix}nodes[${i}]`;
     if (!isObj(n)) throw new BoardError(`${where}: expected an object`);
     const type = n["type"];
     if (typeof type !== "string" || !(NODE_KINDS as readonly string[]).includes(type)) throw new BoardError(`${where}.type: unknown kind`);
@@ -206,7 +211,7 @@ export function parseBoard(text: string): Board {
     });
   });
   const edges = edgesRaw.map((e, i): BoardEdge => {
-    const where = `edges[${i}]`;
+    const where = `${prefix}edges[${i}]`;
     if (!isObj(e)) throw new BoardError(`${where}: expected an object`);
     return defined<BoardEdge>({
       id: str(e["id"], `${where}.id`, 500),
@@ -221,21 +226,61 @@ export function parseBoard(text: string): Board {
   let viewport: BoardViewport | undefined;
   const vp = raw["viewport"];
   if (vp !== undefined) {
-    if (!isObj(vp)) throw new BoardError("viewport: expected an object");
-    const x = coord(vp["x"], "viewport.x");
-    const y = coord(vp["y"], "viewport.y");
-    const zoom = coord(vp["zoom"], "viewport.zoom");
-    if (x === undefined || y === undefined || zoom === undefined) throw new BoardError("viewport: expected x, y and zoom");
+    if (!isObj(vp)) throw new BoardError(`${prefix}viewport: expected an object`);
+    const x = coord(vp["x"], `${prefix}viewport.x`);
+    const y = coord(vp["y"], `${prefix}viewport.y`);
+    const zoom = coord(vp["zoom"], `${prefix}viewport.zoom`);
+    if (x === undefined || y === undefined || zoom === undefined) throw new BoardError(`${prefix}viewport: expected x, y and zoom`);
     viewport = { x, y, zoom };
   }
+  return defined<Pick<Board, "nodes" | "edges" | "viewport" | "threads">>({ nodes, edges, viewport, threads: parseThreads(raw["threads"], prefix) });
+}
+
+/**
+ * `pages`: every page in order. page-1's entry is its id and title (its content is the top level);
+ * a list without page-1 while the top level has content gets page-1 back in front, so nothing on
+ * it is lost.
+ */
+function parsePages(v: unknown, top: Pick<Board, "nodes" | "edges" | "threads">): BoardPage[] | undefined {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length > MAX_PAGES) throw new BoardError("pages: expected a list");
+  const seen = new Set<string>();
+  const pages = v.map((p, i): BoardPage => {
+    const where = `pages[${i}]`;
+    if (!isObj(p)) throw new BoardError(`${where}: expected an object`);
+    const id = str(p["id"], `${where}.id`, 40);
+    if (!PAGE_ID.test(id)) throw new BoardError(`${where}.id: expected lowercase letters, digits and "-"`);
+    if (seen.has(id)) throw new BoardError(`${where}.id: ${id} is used twice`);
+    seen.add(id);
+    const title = str(p["title"] ?? "", `${where}.title`, 500);
+    return id === FIRST_PAGE ? { id, title } : { id, title, ...parseContent(p, `${where}.`) };
+  });
+  if (pages.length === 0) return undefined;
+  if (!seen.has(FIRST_PAGE) && (top.nodes.length > 0 || top.edges.length > 0 || (top.threads?.length ?? 0) > 0)) pages.unshift({ id: FIRST_PAGE, title: FIRST_PAGE_TITLE });
+  return pages;
+}
+
+/** Native `board::parse`: JSON, unknown fields dropped, a newer `version` refused. Throws `BoardError`. */
+export function parseBoard(text: string): Board {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    throw new BoardError(e instanceof Error ? e.message : String(e));
+  }
+  if (!isObj(raw)) throw new BoardError("board: expected an object");
+  const version = raw["version"] ?? CANVAS_VERSION;
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 0) throw new BoardError("version: expected an integer");
+  if (version > CANVAS_VERSION) throw new BoardError(`version ${version} is newer than this Relay reads (${CANVAS_VERSION})`);
+  const layout = raw["layout"];
+  if (layout !== undefined && (typeof layout !== "string" || !LAYOUTS.includes(layout))) throw new BoardError("layout: expected grid, tree or flow");
+  const top = parseContent(raw, "");
   return defined<Board>({
     version,
     title: optStr(raw["title"], "title") ?? "",
     layout: layout as CanvasLayout | undefined,
-    nodes,
-    edges,
-    viewport,
-    threads: parseThreads(raw["threads"]),
+    ...top,
+    pages: parsePages(raw["pages"], top),
   });
 }
 
@@ -375,29 +420,48 @@ function write(value: Json, indent: string): string {
   return `[\n${value.map((v) => `${inner}${write(v, inner)}`).join(",\n")}\n${indent}]`;
 }
 
+const viewportObj = (vp: BoardViewport | undefined): Obj | undefined =>
+  vp &&
+  new Obj([
+    ["x", f32(vp.x)],
+    ["y", f32(vp.y)],
+    ["zoom", f32(vp.zoom)],
+  ]);
+
+const threadsJson = (threads: BoardThread[] | undefined): Json | undefined => (threads !== undefined && threads.length > 0 ? threads.map(threadObj) : undefined);
+
+const pageObj = (p: BoardPage): Obj =>
+  p.id === FIRST_PAGE
+    ? new Obj([
+        ["id", p.id],
+        ["title", p.title],
+      ])
+    : new Obj([
+        ["id", p.id],
+        ["title", p.title],
+        ["nodes", (p.nodes ?? []).map(nodeObj)],
+        ["edges", (p.edges ?? []).map(edgeObj)],
+        ["viewport", viewportObj(p.viewport)],
+        ["threads", threadsJson(p.threads)],
+      ]);
+
 /**
  * Native `board::to_text`: the same board always gives the same text, byte for byte what native
- * EvaOS writes, so an unchanged board never rewrites its file in either app. `threads` (Relay's
- * comment pins) comes last and only when the board has some, so a board without them is unchanged.
+ * EvaOS writes, so an unchanged board never rewrites its file in either app. Relay's own fields
+ * come last and only when there is something in them, so a board without them is unchanged:
+ * `threads` (page-1's comment pins), then `pages` (every page in order; page-1's entry is just its
+ * id and title, its content being the top level).
  */
 export function boardText(board: Board): string {
-  const vp = board.viewport;
   const root = new Obj([
     ["version", new Raw(String(board.version))],
     ["title", board.title],
     ["layout", board.layout],
     ["nodes", board.nodes.map(nodeObj)],
     ["edges", board.edges.map(edgeObj)],
-    [
-      "viewport",
-      vp &&
-        new Obj([
-          ["x", f32(vp.x)],
-          ["y", f32(vp.y)],
-          ["zoom", f32(vp.zoom)],
-        ]),
-    ],
-    ["threads", board.threads !== undefined && board.threads.length > 0 ? board.threads.map(threadObj) : undefined],
+    ["viewport", viewportObj(board.viewport)],
+    ["threads", threadsJson(board.threads)],
+    ["pages", board.pages !== undefined && !isSinglePage(board.pages) ? board.pages.map(pageObj) : undefined],
   ]);
   return `${write(root, "")}\n`;
 }
@@ -447,30 +511,58 @@ function boardThreadMap(t: BoardThread): ThreadMap {
   return threadMap(anchor, t.resolved === true, t.messages);
 }
 
+/** A page's content in file shape. */
+type PageContent = Pick<Board, "nodes" | "edges" | "viewport" | "threads">;
+
+const EMPTY: PageContent = { nodes: [], edges: [] };
+
 function setMeta(meta: Y.Map<unknown>, board: Board): void {
   if (meta.get("version") !== board.version) meta.set("version", board.version);
   if (meta.get("title") !== board.title) meta.set("title", board.title);
-  for (const k of ["layout", "viewport"] as const) {
-    const v = board[k];
-    if (v === undefined) {
-      if (meta.has(k)) meta.delete(k);
-    } else if (!sameJson(meta.get(k), v)) meta.set(k, v);
-  }
+  if (board.layout === undefined) {
+    if (meta.has("layout")) meta.delete("layout");
+  } else if (meta.get("layout") !== board.layout) meta.set("layout", board.layout);
 }
 
-/** Replaces the doc's board (nodes, edges, threads, meta title/layout/viewport) with `board`, in one transaction. */
+function setViewport(meta: Y.Map<unknown>, page: string, vp: BoardViewport | undefined): void {
+  const k = pageKey("viewport", page);
+  if (vp === undefined) {
+    if (meta.has(k)) meta.delete(k);
+  } else if (!sameJson(meta.get(k), vp)) meta.set(k, vp);
+}
+
+function seedPage(doc: Y.Doc, page: string, content: PageContent): void {
+  const maps = pageMaps(doc, page);
+  maps.nodes.clear();
+  maps.edges.clear();
+  maps.threads.clear();
+  for (const n of content.nodes) maps.nodes.set(n.id, nodeMap(n));
+  for (const e of content.edges) maps.edges.set(e.id, edgeMap(e));
+  for (const t of content.threads ?? []) maps.threads.set(t.id, boardThreadMap(t));
+  setViewport(metaOf(doc), page, content.viewport);
+}
+
+/** The pages a board says it has (page-1 alone when it says nothing). */
+const pageInfos = (board: Board): PageInfo[] => (board.pages ?? [{ id: FIRST_PAGE, title: FIRST_PAGE_TITLE }]).map((p) => ({ id: p.id, title: p.title }));
+
+/** Page `id`'s content in `board`: the top level for page-1, else its entry (empty when it has none). */
+function contentOf(board: Board, id: string): PageContent {
+  if (id === FIRST_PAGE) return board;
+  const p = board.pages?.find((q) => q.id === id);
+  return p === undefined ? EMPTY : { nodes: p.nodes ?? [], edges: p.edges ?? [], ...(p.viewport ? { viewport: p.viewport } : {}), ...(p.threads ? { threads: p.threads } : {}) };
+}
+
+/** Replaces the doc's board (every page's nodes, edges, threads and viewport, meta title/layout/pages) with `board`, in one transaction. */
 export function seedDoc(doc: Y.Doc, board: Board, origin: unknown = "seed"): void {
-  const nodes = nodesOf(doc);
-  const edges = edgesOf(doc);
-  const threads = threadsOf(doc);
   doc.transact(() => {
-    nodes.clear();
-    edges.clear();
-    threads.clear();
+    const before = pagesOf(doc);
+    const pages = pageInfos(board);
+    for (const p of before) if (!pages.some((q) => q.id === p.id)) seedPage(doc, p.id, EMPTY);
     setMeta(metaOf(doc), board);
-    for (const n of board.nodes) nodes.set(n.id, nodeMap(n));
-    for (const e of board.edges) edges.set(e.id, edgeMap(e));
-    for (const t of board.threads ?? []) threads.set(t.id, boardThreadMap(t));
+    setPages(doc, pages);
+    // page-1's maps are seeded even when the board has no page-1: they are the doc's originals.
+    seedPage(doc, FIRST_PAGE, board);
+    for (const p of pages) if (p.id !== FIRST_PAGE) seedPage(doc, p.id, contentOf(board, p.id));
   }, origin);
 }
 
@@ -507,17 +599,17 @@ export function exportNode(id: string, m: NodeMap): BoardNode {
     w: num("w"),
     h: num("h"),
     parent: typeof parent === "string" ? parent : undefined,
-    data: Object.keys(data).length > 0 ? (data) : undefined,
+    data: Object.keys(data).length > 0 ? data : undefined,
   });
 }
 
-/** The doc's board in file shape; `boardText(exportBoard(doc))` is what the room writes. */
-export function exportBoard(doc: Y.Doc): Board {
-  const meta = metaOf(doc);
+/** A page of the doc in file shape. */
+export function exportPage(doc: Y.Doc, page: string): PageContent {
+  const maps = pageMaps(doc, page);
   const nodes: BoardNode[] = [];
-  for (const [id, m] of nodesOf(doc)) nodes.push(exportNode(id, m));
+  for (const [id, m] of maps.nodes) nodes.push(exportNode(id, m));
   const edges: BoardEdge[] = [];
-  for (const [id, m] of edgesOf(doc)) {
+  for (const [id, m] of maps.edges) {
     const s = (k: string): string | undefined => {
       const v = m.get(k);
       return typeof v === "string" ? v : undefined;
@@ -535,21 +627,51 @@ export function exportBoard(doc: Y.Doc): Board {
     );
   }
   // Oldest thread first, so every room writes the same text for the same threads.
-  const threads = snapThreads(threadsOf(doc))
+  const threads = snapThreads(maps.threads)
     .sort((a, b) => (a.messages[0]?.ts ?? 0) - (b.messages[0]?.ts ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map((t) => defined<BoardThread>({ id: t.id, node: t.anchor.node, x: t.anchor.x, y: t.anchor.y, resolved: t.resolved ? true : undefined, messages: t.messages }));
-  const version = meta.get("version");
-  const layout = meta.get("layout");
-  const viewport = meta.get("viewport");
-  return defined<Board>({
-    version: typeof version === "number" ? version : CANVAS_VERSION,
-    title: typeof meta.get("title") === "string" ? (meta.get("title") as string) : "",
-    layout: typeof layout === "string" && LAYOUTS.includes(layout) ? (layout as CanvasLayout) : undefined,
+  const viewport = metaOf(doc).get(pageKey("viewport", page));
+  return defined<PageContent>({
     nodes,
     edges,
     viewport: isObj(viewport) ? (viewport as unknown as BoardViewport) : undefined,
     threads: threads.length > 0 ? threads : undefined,
   });
+}
+
+/** The doc's board in file shape; `boardText(exportBoard(doc))` is what the room writes. */
+export function exportBoard(doc: Y.Doc): Board {
+  const meta = metaOf(doc);
+  const version = meta.get("version");
+  const layout = meta.get("layout");
+  const infos = pagesOf(doc);
+  const pages = isSinglePage(infos)
+    ? undefined
+    : infos.map((p): BoardPage => (p.id === FIRST_PAGE ? { id: p.id, title: p.title } : { id: p.id, title: p.title, ...exportPage(doc, p.id) }));
+  return defined<Board>({
+    version: typeof version === "number" ? version : CANVAS_VERSION,
+    title: typeof meta.get("title") === "string" ? (meta.get("title") as string) : "",
+    layout: typeof layout === "string" && LAYOUTS.includes(layout) ? (layout as CanvasLayout) : undefined,
+    ...exportPage(doc, FIRST_PAGE),
+    pages,
+  });
+}
+
+/**
+ * Copies page `from` (nodes, edges, viewport; not its comment threads) to a new page `id` right
+ * after it. False when `from` is unknown or `id` is bad or taken.
+ */
+export function duplicatePage(doc: Y.Doc, from: string, id: string, title: string): boolean {
+  const pages = pagesOf(doc);
+  const i = pages.findIndex((p) => p.id === from);
+  if (i < 0 || !PAGE_ID.test(id) || pages.some((p) => p.id === id) || pages.length >= MAX_PAGES) return false;
+  const { nodes, edges, viewport } = exportPage(doc, from);
+  pages.splice(i + 1, 0, { id, title: title.trim() === "" ? `${pages[i]?.title ?? "Page"} copy` : title.trim() });
+  doc.transact(() => {
+    seedPage(doc, id, viewport ? { nodes, edges, viewport } : { nodes, edges });
+    setPages(doc, pages);
+  });
+  return true;
 }
 
 /** The single splice turning `a` into `b`: common prefix `p` and suffix `s` kept. */
@@ -597,113 +719,138 @@ export function spliceText(text: Y.Text, from: string, to: string): void {
   else apply();
 }
 
+/** One page of `mergeBoardIntoDoc`: `board`'s content into `maps`, relative to `was` (see there). */
+function mergePage(maps: PageMaps, meta: Y.Map<unknown>, page: string, board: PageContent, was: PageContent, stale: boolean): void {
+  const { nodes, edges } = maps;
+  const baseNodes = new Map(was.nodes.map((n) => [n.id, n]));
+  const baseEdges = new Map(was.edges.map((e) => [e.id, e]));
+  if (!sameJson(board.viewport, was.viewport)) setViewport(meta, page, board.viewport);
+
+  const incomingIds = new Set(board.nodes.map((n) => n.id));
+  for (const id of baseNodes.keys()) if (!incomingIds.has(id) && nodes.has(id)) nodes.delete(id);
+  for (const n of board.nodes) {
+    const was = baseNodes.get(n.id);
+    const m = nodes.get(n.id);
+    if (m === undefined) {
+      // New from the writer, or deleted in the room since `base` and still in a stale file: only re-add the former.
+      if (was === undefined || !stale) nodes.set(n.id, nodeMap(n));
+      continue;
+    }
+    if (n.type !== was?.type && m.get("type") !== n.type) m.set("type", n.type);
+    for (const k of GEOMETRY) {
+      if (was !== undefined && n[k] === was[k]) continue;
+      if (n[k] === undefined) m.delete(k);
+      else if (m.get(k) !== n[k]) m.set(k, n[k]);
+    }
+    if (was === undefined || n.parent !== was.parent) {
+      if (n.parent === undefined) m.delete("parent");
+      else m.set("parent", n.parent);
+    }
+    for (const k of ["title", "body"] as const) {
+      const to = n.data?.[k] ?? "";
+      const from = was === undefined ? textOf(m, k) : (was.data?.[k] ?? "");
+      if (to === from) continue;
+      const t = m.get(k);
+      if (t instanceof Y.Text) spliceText(t, from, to);
+      else m.set(k, new Y.Text(to));
+    }
+    for (const k of PLAIN_DATA_KEYS) {
+      const v = n.data?.[k];
+      if (was !== undefined && sameJson(v, was.data?.[k])) continue;
+      if (v === undefined) m.delete(k);
+      else if (!sameJson(m.get(k), v)) m.set(k, v);
+    }
+    const keys = dataKeys(n.data);
+    if (was === undefined || !sameJson(keys, dataKeys(was.data))) {
+      if (!sameJson(m.get("fields"), keys)) m.set("fields", keys);
+    }
+  }
+
+  const incomingEdges = new Set(board.edges.map((e) => e.id));
+  for (const id of baseEdges.keys()) if (!incomingEdges.has(id) && edges.has(id)) edges.delete(id);
+  for (const e of board.edges) {
+    const was = baseEdges.get(e.id);
+    const m = edges.get(e.id);
+    if (m === undefined) {
+      if (was === undefined || !stale) edges.set(e.id, edgeMap(e));
+      continue;
+    }
+    for (const k of EDGE_KEYS) {
+      if (was !== undefined && e[k] === was[k]) continue;
+      const v = e[k];
+      if (v === undefined) m.delete(k);
+      else if (m.get(k) !== v) m.set(k, v);
+    }
+  }
+
+  // A writer that has no `threads` (EvaOS, older Relays, agents writing nodes only) leaves the room's pins alone.
+  if (board.threads === undefined) return;
+  const threads = maps.threads;
+  const baseThreads = new Map((was.threads ?? []).map((t) => [t.id, t]));
+  const incomingThreads = new Set(board.threads.map((t) => t.id));
+  for (const id of baseThreads.keys()) if (!incomingThreads.has(id) && threads.has(id)) threads.delete(id);
+  for (const t of board.threads) {
+    const was = baseThreads.get(t.id);
+    const m = threads.get(t.id);
+    if (m === undefined) {
+      if (was === undefined || !stale) threads.set(t.id, boardThreadMap(t));
+      continue;
+    }
+    if (was === undefined || t.node !== was.node || t.x !== was.x || t.y !== was.y) {
+      if (t.node === undefined) m.delete("node");
+      else if (m.get("node") !== t.node) m.set("node", t.node);
+      if (m.get("x") !== t.x) m.set("x", t.x);
+      if (m.get("y") !== t.y) m.set("y", t.y);
+    }
+    const resolved = t.resolved === true;
+    if ((was === undefined || resolved !== (was.resolved === true)) && m.get("resolved") !== resolved) m.set("resolved", resolved);
+    // Messages are only ever added: the writer's new ones join the room's.
+    const list = m.get("messages");
+    if (!(list instanceof Y.Array)) continue;
+    const have = new Set((list as Y.Array<ThreadMsg>).toArray().map((msg) => msg.id));
+    const added = t.messages.filter((msg) => !have.has(msg.id));
+    if (added.length > 0) (list as Y.Array<ThreadMsg>).push(added);
+  }
+}
+
 /**
  * Merges a board written by someone else into the doc by id: nodes and edges added, removed and
  * updated, title/body through `spliceText`. With `base` (the board as this room last wrote or
  * read it) only what the writer changed relative to `base` is applied, so a stale writer never
  * undoes edits made in the room since; without it, the doc is brought to `board`. Threads merge
  * the same way by id (their messages are only ever added), and not at all when `board` has none.
+ * Pages likewise: each page merges into its own maps, a page the writer dropped (relative to
+ * `base`) goes, and a board without `pages` leaves the room's pages as they are.
  */
 export function mergeBoardIntoDoc(doc: Y.Doc, board: Board, origin: unknown, base?: Board): void {
-  const nodes = nodesOf(doc);
-  const edges = edgesOf(doc);
   const baseBoard = base ?? exportBoard(doc);
-  const baseNodes = new Map(baseBoard.nodes.map((n) => [n.id, n]));
-  const baseEdges = new Map(baseBoard.edges.map((e) => [e.id, e]));
+  const stale = base !== undefined;
   doc.transact(() => {
     const meta = metaOf(doc);
     if (board.title !== baseBoard.title) meta.set("title", board.title);
     if (board.version !== baseBoard.version) meta.set("version", board.version);
-    for (const k of ["layout", "viewport"] as const) {
-      if (sameJson(board[k], baseBoard[k])) continue;
-      if (board[k] === undefined) meta.delete(k);
-      else meta.set(k, board[k]);
+    if (board.layout !== baseBoard.layout) {
+      if (board.layout === undefined) meta.delete("layout");
+      else meta.set("layout", board.layout);
     }
+    mergePage(pageMaps(doc, FIRST_PAGE), meta, FIRST_PAGE, board, baseBoard, stale);
 
-    const incomingIds = new Set(board.nodes.map((n) => n.id));
-    for (const id of baseNodes.keys()) if (!incomingIds.has(id) && nodes.has(id)) nodes.delete(id);
-    for (const n of board.nodes) {
-      const was = baseNodes.get(n.id);
-      const m = nodes.get(n.id);
-      if (m === undefined) {
-        // New from the writer, or deleted in the room since `base` and still in a stale file: only re-add the former.
-        if (was === undefined || base === undefined) nodes.set(n.id, nodeMap(n));
-        continue;
-      }
-      if (n.type !== was?.type && m.get("type") !== n.type) m.set("type", n.type);
-      for (const k of GEOMETRY) {
-        if (was !== undefined && n[k] === was[k]) continue;
-        if (n[k] === undefined) m.delete(k);
-        else if (m.get(k) !== n[k]) m.set(k, n[k]);
-      }
-      if (was === undefined || n.parent !== was.parent) {
-        if (n.parent === undefined) m.delete("parent");
-        else m.set("parent", n.parent);
-      }
-      for (const k of ["title", "body"] as const) {
-        const to = n.data?.[k] ?? "";
-        const from = was === undefined ? textOf(m, k) : (was.data?.[k] ?? "");
-        if (to === from) continue;
-        const t = m.get(k);
-        if (t instanceof Y.Text) spliceText(t, from, to);
-        else m.set(k, new Y.Text(to));
-      }
-      for (const k of PLAIN_DATA_KEYS) {
-        const v = n.data?.[k];
-        if (was !== undefined && sameJson(v, was.data?.[k])) continue;
-        if (v === undefined) m.delete(k);
-        else if (!sameJson(m.get(k), v)) m.set(k, v);
-      }
-      const keys = dataKeys(n.data);
-      if (was === undefined || !sameJson(keys, dataKeys(was.data))) {
-        if (!sameJson(m.get("fields"), keys)) m.set("fields", keys);
-      }
+    if (board.pages === undefined) return;
+    const pages = pageInfos(board);
+    const basePages = pageInfos(baseBoard);
+    for (const p of basePages) {
+      if (p.id === FIRST_PAGE || pages.some((q) => q.id === p.id)) continue;
+      const maps = pageMaps(doc, p.id);
+      maps.nodes.clear();
+      maps.edges.clear();
+      maps.threads.clear();
+      setViewport(meta, p.id, undefined);
     }
-
-    const incomingEdges = new Set(board.edges.map((e) => e.id));
-    for (const id of baseEdges.keys()) if (!incomingEdges.has(id) && edges.has(id)) edges.delete(id);
-    for (const e of board.edges) {
-      const was = baseEdges.get(e.id);
-      const m = edges.get(e.id);
-      if (m === undefined) {
-        if (was === undefined || base === undefined) edges.set(e.id, edgeMap(e));
-        continue;
-      }
-      for (const k of EDGE_KEYS) {
-        if (was !== undefined && e[k] === was[k]) continue;
-        const v = e[k];
-        if (v === undefined) m.delete(k);
-        else if (m.get(k) !== v) m.set(k, v);
-      }
-    }
-
-    // A writer that has no `threads` (EvaOS, older Relays, agents writing nodes only) leaves the room's pins alone.
-    if (board.threads === undefined) return;
-    const threads = threadsOf(doc);
-    const baseThreads = new Map((baseBoard.threads ?? []).map((t) => [t.id, t]));
-    const incomingThreads = new Set(board.threads.map((t) => t.id));
-    for (const id of baseThreads.keys()) if (!incomingThreads.has(id) && threads.has(id)) threads.delete(id);
-    for (const t of board.threads) {
-      const was = baseThreads.get(t.id);
-      const m = threads.get(t.id);
-      if (m === undefined) {
-        if (was === undefined || base === undefined) threads.set(t.id, boardThreadMap(t));
-        continue;
-      }
-      if (was === undefined || t.node !== was.node || t.x !== was.x || t.y !== was.y) {
-        if (t.node === undefined) m.delete("node");
-        else if (m.get("node") !== t.node) m.set("node", t.node);
-        if (m.get("x") !== t.x) m.set("x", t.x);
-        if (m.get("y") !== t.y) m.set("y", t.y);
-      }
-      const resolved = t.resolved === true;
-      if ((was === undefined || resolved !== (was.resolved === true)) && m.get("resolved") !== resolved) m.set("resolved", resolved);
-      // Messages are only ever added: the writer's new ones join the room's.
-      const list = m.get("messages");
-      if (!(list instanceof Y.Array)) continue;
-      const have = new Set((list as Y.Array<ThreadMsg>).toArray().map((msg) => msg.id));
-      const added = t.messages.filter((msg) => !have.has(msg.id));
-      if (added.length > 0) (list as Y.Array<ThreadMsg>).push(added);
+    if (!sameJson(pages, basePages)) setPages(doc, pages);
+    for (const p of pages) {
+      if (p.id === FIRST_PAGE) continue;
+      const known = basePages.some((q) => q.id === p.id);
+      mergePage(pageMaps(doc, p.id), meta, p.id, contentOf(board, p.id), known ? contentOf(baseBoard, p.id) : EMPTY, stale);
     }
   }, origin);
 }

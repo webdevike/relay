@@ -45,6 +45,8 @@ export type AgentStatus = "idle" | "thinking" | "moving" | "typing" | "drawing";
 
 export interface Presence {
 	user: User;
+	/** The page this participant is on (pages.ts); absent: page-1. Cursor, selection and caret are on this page. */
+	page?: string;
 	/** Pointer in flow coordinates, so it lines up at any zoom. Touch clients send their last tap. */
 	cursor?: { x: number; y: number } | null;
 	selected?: string[];

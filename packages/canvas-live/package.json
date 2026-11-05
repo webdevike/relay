@@ -8,7 +8,8 @@
     "./shared": "./src/shared.ts",
     "./board": "./src/board.ts",
     "./threads": "./src/threads.ts",
-    "./layout": "./src/layout.ts"
+    "./layout": "./src/layout.ts",
+    "./pages": "./src/pages.ts"
   },
   "scripts": {
     "lint": "eslint src test",
