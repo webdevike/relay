@@ -1,0 +1,59 @@
+{
+  "board": "skills-library-page",
+  "lostAt": "2026-11-05T17:31:12Z..17:34:10Z",
+  "source": "canvas self transcript ~/.config/relay/canvas/rooms/skills-library-page-mw3t45cs1/session",
+  "nodes": [
+    {
+      "id": "ed-1",
+      "type": "proto",
+      "x": 680.0,
+      "y": -1414.0,
+      "w": 960.0,
+      "h": 600.0,
+      "data": {
+        "title": "Editor 1. Panel tabs: Skill, Settings, Files",
+        "body": "const skills = [\"canvas\",\"council\",\"work\",\"worktrees\",\"ui-check\",\"eva-dock\"];\nconst [sel, setSel] = useState(\"canvas\");\nconst [tab, setTab] = useState(\"skill\");\nreturn (\n  <Group align=\"stretch\" gap={0} h={600} wrap=\"nowrap\">\n    <Stack w={280} p=\"sm\" gap={4} style={{borderRight:\"1px solid var(--mantine-color-default-border)\"}}>\n      <TextInput size=\"xs\" placeholder=\"Search skills\" />\n      {skills.map((s) => (\n        <Button key={s} size=\"xs\" justify=\"start\" variant={s===sel?\"light\":\"subtle\"} onClick={() => setSel(s)}>{s}</Button>\n      ))}\n    </Stack>\n    <Stack flex={1} p=\"md\" gap=\"sm\">\n      <Group justify=\"space-between\">\n        <Title order={4}>{sel}</Title>\n        <Badge variant=\"light\" color=\"grape\">Nova is editing</Badge>\n      </Group>\n      <Tabs value={tab} onChange={setTab}>\n        <Tabs.List>\n          <Tabs.Tab value=\"skill\">Skill</Tabs.Tab>\n          <Tabs.Tab value=\"settings\">Settings</Tabs.Tab>\n          <Tabs.Tab value=\"files\">Files</Tabs.Tab>\n        </Tabs.List>\n      </Tabs>\n      {tab===\"skill\" && (\n        <Stack gap=\"xs\" p=\"md\">\n          <Title order={3}>Live canvas</Title>\n          <Text>Build boards with Isaac and run <b>live sessions</b> on them.</Text>\n          <Title order={5}>When to use</Title>\n          <List size=\"sm\"><List.Item>Isaac asks to sketch or review on a board</List.Item><List.Item>A design needs <span style={{background:\"rgba(190,75,219,.3)\",borderRight:\"2px solid #be4bdb\"}}>several options side by side</span></List.Item></List>\n          <Code block>relay-linux canvas start my-board</Code>\n        </Stack>\n      )}\n      {tab===\"settings\" && (\n        <Stack gap=\"sm\" p=\"md\">\n          <Switch label=\"Nova\" defaultChecked /><Switch label=\"Astra\" /><Switch label=\"Polaris\" defaultChecked />\n          <Text size=\"sm\" c=\"dimmed\">Source: .omp/skills/canvas \u00b7 last used 2 h ago</Text>\n        </Stack>\n      )}\n      {tab===\"files\" && (\n        <Stack gap={4} p=\"md\"><Text size=\"sm\">SKILL.md</Text><Text size=\"sm\">references/actions.md</Text><Text size=\"sm\">scripts/join.ts</Text></Stack>\n      )}\n    </Stack>\n  </Group>\n);",
+        "system": "relay"
+      }
+    },
+    {
+      "id": "ed-2",
+      "type": "proto",
+      "x": 680.0,
+      "y": -754.0,
+      "w": 960.0,
+      "h": 600.0,
+      "data": {
+        "title": "Editor 2. Document page, settings in the header",
+        "body": "const [view, setView] = useState(\"doc\");\nreturn (\n  <Stack h={600} gap={0}>\n    <Group justify=\"space-between\" p=\"sm\" style={{borderBottom:\"1px solid var(--mantine-color-default-border)\"}}>\n      <Group gap=\"xs\"><Button size=\"xs\" variant=\"subtle\">\u2039 Skills</Button><Text fw={600}>canvas</Text></Group>\n      <SegmentedControl size=\"xs\" value={view} onChange={setView} data={[{label:\"Document\",value:\"doc\"},{label:\"Settings\",value:\"set\"},{label:\"History\",value:\"his\"}]} />\n      <Badge variant=\"light\" color=\"grape\">Nova is editing</Badge>\n    </Group>\n    {view===\"doc\" && (\n      <Stack maw={640} mx=\"auto\" p=\"xl\" gap=\"sm\">\n        <Title order={1}>Live canvas</Title>\n        <Text c=\"dimmed\">Build boards with Isaac and run live sessions.</Text>\n        <Title order={4}>Action lines</Title>\n        <List><List.Item>@say speaks in the room</List.Item><List.Item>@add_proto draws a <span style={{borderRight:\"2px solid #be4bdb\"}}>clickable mockup</span></List.Item></List>\n        <Code block>@point agenda</Code>\n      </Stack>\n    )}\n    {view===\"set\" && (\n      <Stack maw={640} mx=\"auto\" p=\"xl\"><Title order={4}>Who can use it</Title><Switch label=\"Nova\" defaultChecked /><Switch label=\"Astra\" /><Switch label=\"Polaris\" defaultChecked /></Stack>\n    )}\n    {view===\"his\" && (\n      <Stack maw={640} mx=\"auto\" p=\"xl\" gap=\"xs\"><Text size=\"sm\">Nova \u00b7 2 h ago \u00b7 added @pin</Text><Text size=\"sm\">Isaac \u00b7 yesterday \u00b7 rewrote intro</Text></Stack>\n    )}\n  </Stack>\n);",
+        "system": "relay"
+      }
+    },
+    {
+      "id": "ed-3",
+      "type": "proto",
+      "x": 680.0,
+      "y": -94.0,
+      "w": 960.0,
+      "h": 600.0,
+      "data": {
+        "title": "Editor 3. Pure editor, settings in a drawer",
+        "body": "const [open, setOpen] = useState(false);\nreturn (\n  <Box h={600} p=\"xl\" pos=\"relative\">\n    <Group justify=\"space-between\" mb=\"lg\">\n      <Badge variant=\"light\" color=\"grape\">Nova is editing</Badge>\n      <Button size=\"xs\" variant=\"default\" onClick={() => setOpen(!open)}>{open ? \"Close settings\" : \"Settings\"}</Button>\n    </Group>\n    <Stack maw={620} mx=\"auto\" gap=\"sm\">\n      <Title order={1}>Live canvas</Title>\n      <Text>Type / for blocks. Everything here is the skill itself.</Text>\n      <Title order={4}>Rules</Title>\n      <List><List.Item>Never answer in a note card</List.Item><List.Item>Keep batches <span style={{borderRight:\"2px solid #be4bdb\"}}>small</span></List.Item></List>\n    </Stack>\n    {open && (\n      <Paper withBorder shadow=\"md\" p=\"md\" pos=\"absolute\" top={60} right={20} w={280}>\n        <Stack gap=\"sm\"><Text fw={600}>Settings</Text><Switch label=\"Nova\" defaultChecked /><Switch label=\"Astra\" /><Text size=\"xs\" c=\"dimmed\">3 files \u00b7 .omp/skills/canvas</Text></Stack>\n      </Paper>\n    )}\n  </Box>\n);",
+        "system": "relay"
+      }
+    },
+    {
+      "id": "a5-live",
+      "type": "proto",
+      "x": 1700.0,
+      "y": -1414.0,
+      "w": 1040.0,
+      "h": 640.0,
+      "data": {
+        "title": "A v5 live. Dense table + rendered editor",
+        "body": "const rows = [\n  {name:\"canvas\", src:\"Eva\", used:\"2 h ago\", desc:\"Live boards with Isaac\"},\n  {name:\"council\", src:\"Eva\", used:\"1 d ago\", desc:\"Multi-provider review loop\"},\n  {name:\"work\", src:\"Eva\", used:\"3 h ago\", desc:\"Drive work items\"},\n  {name:\"worktrees\", src:\"Eva\", used:\"5 d ago\", desc:\"Clone, branch, cleanup\"},\n  {name:\"ui-check\", src:\"Eva\", used:\"1 d ago\", desc:\"Measure rendered UI\"},\n  {name:\"wrangler\", src:\"Cloudflare\", used:\"2 w ago\", desc:\"Workers config and deploy\"},\n];\nconst [q, setQ] = useState(\"\");\nconst [sel, setSel] = useState(\"canvas\");\nconst [tab, setTab] = useState(\"skill\");\nconst shown = rows.filter((r) => r.name.includes(q));\nconst r = rows.find((x) => x.name === sel);\nreturn (\n  <Group align=\"stretch\" gap={0} h={640} wrap=\"nowrap\">\n    <Stack w={440} p=\"sm\" gap=\"xs\" style={{borderRight:\"1px solid var(--mantine-color-default-border)\"}}>\n      <TextInput size=\"xs\" placeholder=\"Search skills\" value={q} onChange={(e) => setQ(e.currentTarget.value)} />\n      <Table highlightOnHover verticalSpacing={6} fz=\"xs\">\n        <Table.Thead><Table.Tr><Table.Th>Name</Table.Th><Table.Th>Source</Table.Th><Table.Th>Last used</Table.Th></Table.Tr></Table.Thead>\n        <Table.Tbody>\n          {shown.map((x) => (\n            <Table.Tr key={x.name} onClick={() => setSel(x.name)} style={{cursor:\"pointer\", background: x.name===sel ? \"var(--mantine-primary-color-light)\" : undefined}}>\n              <Table.Td><Text size=\"xs\" fw={600}>{x.name}</Text><Text size=\"xs\" c=\"dimmed\" truncate>{x.desc}</Text></Table.Td>\n              <Table.Td>{x.src}</Table.Td><Table.Td>{x.used}</Table.Td>\n            </Table.Tr>\n          ))}\n        </Table.Tbody>\n      </Table>\n    </Stack>\n    <Stack flex={1} p=\"md\" gap=\"sm\">\n      <Group justify=\"space-between\">\n        <Title order={4}>{r.name}</Title>\n        <Badge variant=\"light\" color=\"grape\">Nova is editing</Badge>\n      </Group>\n      <SegmentedControl size=\"xs\" w={260} value={tab} onChange={setTab} data={[{label:\"Skill\",value:\"skill\"},{label:\"Settings\",value:\"set\"}]} />\n      {tab===\"skill\" ? (\n        <Stack gap=\"xs\" p=\"sm\" contentEditable suppressContentEditableWarning style={{outline:\"none\"}}>\n          <Title order={2}>{r.name}</Title>\n          <Text>{r.desc}. <b>Click to type</b>, this text is editable.</Text>\n          <Title order={5}>When to use</Title>\n          <List size=\"sm\"><List.Item>Isaac names it or the task matches</List.Item><List.Item><span style={{background:\"rgba(190,75,219,.3)\",borderRight:\"2px solid #be4bdb\"}}>Read this file first</span></List.Item></List>\n          <Code block>skill://{r.name}</Code>\n        </Stack>\n      ) : (\n        <Stack gap=\"sm\" p=\"sm\">\n          <Text size=\"sm\" fw={600}>Assistants</Text>\n          <Switch label=\"Nova\" defaultChecked /><Switch label=\"Astra\" /><Switch label=\"Polaris\" defaultChecked />\n          <Text size=\"xs\" c=\"dimmed\">Source {r.src} \u00b7 last used {r.used}</Text>\n        </Stack>\n      )}\n    </Stack>\n  </Group>\n);",
+        "system": "relay"
+      }
+    }
+  ]
+}
