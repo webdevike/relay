@@ -10,6 +10,7 @@ import { CryptoDigestAlgorithm, digest } from "expo-crypto";
 import {
   encode,
   parseServerMessage,
+  BOOKMARKS_FEATURE,
   reactionExcerpt,
   WS_PATH,
   type ArtifactAction,
@@ -35,6 +36,7 @@ import { useActivityStore } from "@/state/activity";
 import { useCatchUpStore } from "@/state/catchup";
 import { useAssistantStore } from "@/state/assistant";
 import { useReactionsStore } from "@/state/reactions";
+import { isTurnKey, useBookmarksStore } from "@/state/bookmarks";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useCanvasStore } from "@/state/canvas";
 import { useStudioStore } from "@/state/studio";
@@ -57,6 +59,7 @@ import { createActivityFrameRouter } from "./activity";
 import { createCatchUpFrameRouter } from "./catchup";
 import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
+import { createBookmarkFrameRouter } from "./bookmarks";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import { createStudioFrameRouter, PendingStudio } from "./studio";
 import { createReviewsFrameRouter, PendingReviews } from "./reviews";
@@ -146,6 +149,9 @@ const routeActivityFrame = createActivityFrameRouter(useActivityStore.getState()
 const routeCatchUpFrame = createCatchUpFrameRouter(useCatchUpStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
 const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState());
+const routeBookmarkFrame = createBookmarkFrameRouter(useBookmarksStore.getState(), (thread, key) => {
+  socket.send(encode({ t: "bookmark.set", thread, message: key, on: true }));
+});
 const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(), pendingActs);
 const routeCanvasFrame = createCanvasFrameRouter(useCanvasStore.getState(), () => hostAuthority);
 const routeStudioFrame = createStudioFrameRouter(useStudioStore.getState(), pendingStudio);
@@ -191,6 +197,8 @@ socket.onClose = () => {
       .update(call.id, { state: "ended", error: "Lost the connection to your Mac" });
   // The next welcome says again whether this host answers queries; nothing in flight will be.
   useBoardsStore.getState().setQueries(false);
+  // ... and whether it keeps bookmarks; what it last said stays shown, but nothing can be sent.
+  useBookmarksStore.getState().setHostUp(false);
   pendingQueries.cancelAll();
   void dispatch({ type: "socketClosed" });
 };
@@ -233,8 +241,11 @@ socket.onMessage = (data) => {
     if (watchedAssistant !== null)
       socket.send(encode({ t: "assistant.get", agent: watchedAssistant }));
     // Reactions may have changed on another device while this one was away.
-    for (const thread of reactionThreads.keys())
+    for (const thread of reactionThreads.keys()) {
       socket.send(encode({ t: "reactions.get", thread }));
+      if (message.features?.includes(BOOKMARKS_FEATURE) === true)
+        socket.send(encode({ t: "bookmarks.get", thread }));
+    }
     for (const thread of artifactThreads.keys())
       socket.send(encode({ t: "artifacts.get", thread }));
     // Live canvas rooms come and go while away, and a restarted host counts revs from zero again and
@@ -265,6 +276,7 @@ socket.onMessage = (data) => {
   routeActivityFrame(message);
   routeCatchUpFrame(message);
   routeReactionFrame(message);
+  routeBookmarkFrame(message);
   routeArtifactFrame(message);
   routeCanvasFrame(message);
   routeStudioFrame(message);
@@ -447,6 +459,7 @@ async function retarget(id: string | null): Promise<void> {
   useActivityStore.getState().set([]);
   useCatchUpStore.getState().set(null);
   useReactionsStore.getState().clear();
+  useBookmarksStore.getState().clearHost();
   useArtifactsStore.getState().clear();
   useCanvasStore.getState().clear();
   useStudioStore.getState().clear();
@@ -660,6 +673,26 @@ export function stopAssistant(agent: string): void {
 export function getReactions(thread: string): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "reactions.get", thread }));
+  if (useBookmarksStore.getState().hostUp) socket.send(encode({ t: "bookmarks.get", thread }));
+}
+
+/**
+ * Marks or unmarks turn `key` of `thread`: on the host when it keeps bookmarks (shown at once, then
+ * the host's `bookmarks.snapshot` confirms it), else on this phone. False, and nothing changed, for
+ * a thread whose bookmarks live on the host while it cannot be reached, or a turn it cannot name.
+ */
+export function toggleTurnBookmark(thread: string, key: string): boolean {
+  const store = useBookmarksStore.getState();
+  const onHost = store.host[thread];
+  if (onHost === undefined) {
+    store.toggleLocal(thread, key);
+    return true;
+  }
+  if (!store.hostUp || !isTurnKey(key) || useConnectionStore.getState().status !== "connected") return false;
+  const on = !onHost.includes(key);
+  store.setHostLocal(thread, key, on);
+  socket.send(encode({ t: "bookmark.set", thread, message: key, on }));
+  return true;
 }
 
 /**

@@ -67,6 +67,26 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
     listRef.current?.scrollToOffset({ offset: 0, animated: !reducedMotion });
   }, [reducedMotion]);
 
+  /**
+   * Brings row `index` (0 = the newest) to the top of the screen and leaves follow mode, so the
+   * list does not snap back to the newest message. Rows not measured yet make the list fail; it is
+   * then taken near the row by its average height and asked again.
+   */
+  const scrollToRow = useCallback((index: number) => {
+    following.current = false;
+    dragging.current = false;
+    scrollingToBottom.current = false;
+    setAwayFromBottom(true);
+    listRef.current?.scrollToIndex({ index, viewPosition: 1, animated: !reducedMotion });
+  }, [reducedMotion]);
+
+  const onScrollToIndexFailed = useCallback((info: { index: number; averageItemLength: number }) => {
+    listRef.current?.scrollToOffset({ offset: info.index * info.averageItemLength, animated: false });
+    setTimeout(() => {
+      listRef.current?.scrollToIndex({ index: info.index, viewPosition: 1, animated: false });
+    }, 80);
+  }, []);
+
   const observeScroll = (event: ScrollEvent): void => {
     const offset = Math.max(0, event.nativeEvent.contentOffset.y);
     offsetRef.current = offset;
@@ -79,8 +99,9 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
   };
 
   return {
-    listRef, offsetRef, awayFromBottom, scrollToBottom, followContent,
+    listRef, offsetRef, awayFromBottom, scrollToBottom, scrollToRow, followContent,
     scrollHandlers: {
+      onScrollToIndexFailed,
       onContentSizeChange: followContent,
       onScroll: observeScroll,
       onScrollBeginDrag: () => { scrollingToBottom.current = false; dragging.current = true; },

@@ -605,6 +605,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
                       {...(pending === undefined ? {} : { activityLabel: "Starting omp" })}
                       sent={sent}
                       echoes={echoes}
+                      thread={session === undefined || pending !== undefined ? null : sessionReactionThread(session)}
                     />
                   </SessionWidgetActions>
                   <SessionActivity

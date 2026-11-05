@@ -356,6 +356,24 @@ export function compressTicks(
   return out
 }
 
+/**
+ * Each bubble's reaction key mapped to the key of the turn it belongs to: a reply of a turn names
+ * that turn, so a bookmark made from any bubble marks its whole turn. Rows with no key (an open ask
+ * card, a message not yet stamped) are left out.
+ */
+export function turnKeysByBubble(
+  rows: readonly TurnRow[],
+  turns: readonly Turn[],
+): Map<string, string> {
+  const out = new Map<string, string>()
+  if (turns.length === 0) return out
+  for (const r of rows) {
+    const key = turnKeyOf(r)
+    if (key !== null) out.set(key, turns[turnOfItem(turns, r.index)]!.key)
+  }
+  return out
+}
+
 /** The tick (index into the ticks) under a touch `y` px down a rail `height` px tall holding `count` ticks. */
 export function tickAtY(y: number, height: number, count: number): number {
   if (count === 0 || height <= 0) return -1

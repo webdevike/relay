@@ -248,6 +248,7 @@ export class SessionMachine {
       case "catchup.snapshot":
       case "catchup.noted":
       case "reactions.snapshot":
+      case "bookmarks.snapshot":
       case "artifacts.snapshot":
       case "artifacts.acted":
       case "call.state":

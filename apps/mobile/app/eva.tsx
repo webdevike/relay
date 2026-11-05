@@ -84,6 +84,9 @@ import { useActivityStore } from "@/state/activity";
 import { runningSessionIds } from "@/lib/activity";
 import { WidgetCloseProvider } from "@/agents/WidgetActions";
 import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
+import { TurnRail } from "@/turns/TurnRail";
+import { assistantTurnRows } from "@/turns/rows";
+import { useTurnRail } from "@/turns/useTurnRail";
 
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
 const PENDING_ID = "pending-turn";
@@ -153,7 +156,7 @@ function Thread({ agent }: { agent: string }) {
   const [viewing, setViewing] = useState<{ uris: string[]; start: number } | null>(null);
   // Read once per mount: coming back to the thread restores its position and follow mode.
   const initialOffset = useRef(scrollMemory.get(agent) ?? 0);
-  const { listRef, awayFromBottom, scrollToBottom, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>({
+  const { listRef, awayFromBottom, scrollToBottom, scrollToRow, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>({
     initialOffset: initialOffset.current,
     onOffset: (offset) => {
       scrollMemory.set(agent, offset);
@@ -292,12 +295,20 @@ function Thread({ agent }: { agent: string }) {
   const pendingApproval = useAgentsStore((state) => (sessionId === null ? undefined : state.approvals[sessionId]));
 
   // Background messages (the host's job lines arrive as `status` rows) show as quiet rows; any other status row is machinery, never shown.
-  const messages = (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null);
-  const pendingRow: AssistantMessage[] = pending === null ? [] : [{ id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
-  // What the host's transcript (plus the echo of a turn in flight) says; local rows come after it and never count as its newest reply.
-  const settled = [...messages, ...pendingRow];
-  const rows: AssistantMessage[] = [...messages, ...localRows, ...pendingRow];
-  const newestFirst = [...rows].reverse();
+  // Memoized: the turn rail indexes these rows, and a keystroke in the composer must not rebuild them.
+  const { settled, rows, newestFirst } = useMemo(() => {
+    const messages = (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null);
+    const pendingRow: AssistantMessage[] = pending === null ? [] : [{ id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
+    return {
+      // What the host's transcript (plus the echo of a turn in flight) says; local rows come after it and never count as its newest reply.
+      settled: [...messages, ...pendingRow],
+      rows: [...messages, ...localRows, ...pendingRow],
+      newestFirst: [...messages, ...localRows, ...pendingRow].reverse(),
+    };
+  }, [snapshot, localRows, pending]);
+  // The turn rail (ticks on the left edge): turns of the host's rows, flagged by an ask nobody answered and by reactions.
+  const turnRows = useMemo(() => assistantTurnRows(rows, (message) => message.id === PENDING_ID || isLocalRow(message.id), pendingAsk !== undefined), [rows, pendingAsk]);
+  const rail = useTurnRail({ turnRows, rowCount: rows.length, thread: artifactsThread, scrollToRow });
   const enteringMessages = useMessageEntrances(rows, snapshot !== null);
   const busy = snapshot?.busy === true;
   // The dots stand in for a reply that has not started: while the host says the session is working
@@ -423,12 +434,14 @@ function Thread({ agent }: { agent: string }) {
                 contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
                 contentOffset={{ x: 0, y: initialOffset.current }}
                 {...scrollHandlers}
+                {...rail.viewable}
                 keyboardDismissMode="interactive"
                 keyboardShouldPersistTaps="handled"
               />
             </ReplyWidgetActions>
           )}
           <ScrollToBottom visible={awayFromBottom} onPress={scrollToBottom} bottom={composerHeight + spacing.sm} />
+          <TurnRail turns={rail.turns} bookmarks={rail.bookmarks} rows={rail.rows} following={!awayFromBottom} onJump={rail.jump} top={listTop} bottom={composerHeight} />
           <View pointerEvents="box-none" style={[styles.header, { top: insets.top + HEADER_TOP }]}>
             <Pressable
               accessibilityRole="button"

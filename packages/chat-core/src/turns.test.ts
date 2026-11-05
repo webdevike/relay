@@ -8,6 +8,7 @@ import {
   marked,
   stepTurn,
   tickAtY,
+  turnKeysByBubble,
   turnAt,
   turnOfItem,
   visibleTurns,
@@ -248,5 +249,28 @@ describe('turnOfItem, tickAtY and marked', () => {
   it('keeps flagged and bookmarked turns in order', () => {
     expect(marked(turns, new Set(['user@1'])).map((t) => t.key)).toEqual(['user@1', 'user@3'])
     expect(marked(turns, new Set())).toHaveLength(1)
+  })
+})
+
+describe('turnKeysByBubble', () => {
+  it("names each bubble's turn, so a reply bookmarks the turn it belongs to", () => {
+    const specs = [
+      user('u1', 'one', T0),
+      bot('a1', 'reply', T0 + 1),
+      bot('a1b', 'more', T0 + 2),
+      ask('t1'),
+      user('u2', 'two', T0 + 3),
+      bot('a2', 'reply', T0 + 4),
+    ]
+    const rows = specs.map((s, index) => ({ ...s, index, ref: {} }))
+    const keys = turnKeysByBubble(rows, build(rows, undefined))
+    expect([...keys]).toEqual([
+      [`user@${T0}`, `user@${T0}`],
+      [`assistant@${T0 + 1}`, `user@${T0}`],
+      [`assistant@${T0 + 2}`, `user@${T0}`],
+      [`user@${T0 + 3}`, `user@${T0 + 3}`],
+      [`assistant@${T0 + 4}`, `user@${T0 + 3}`],
+    ])
+    expect(turnKeysByBubble([], [])).toEqual(new Map())
   })
 })

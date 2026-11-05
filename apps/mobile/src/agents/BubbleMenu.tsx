@@ -22,6 +22,7 @@ import type { Rect } from "@/lib/bubbleMenu";
 import { copyText } from "@/lib/clipboard";
 import { notifyHaptic, selectHaptic, tapHaptic } from "@/lib/haptics";
 import { portraitOf } from "@/lib/portrait";
+import { bookmarkerOf } from "@/turns/bookmarker";
 import { bubbleReactions } from "@/lib/reactions";
 import { warn } from "@/connection/log";
 import { BubbleContextOverlay } from "@/ui/BubbleContextOverlay";
@@ -98,6 +99,8 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
   };
   const actions = (bubble: OpenBubble): MessageMenuAction[] => {
     const text = untagged(bubble.text).trim();
+    // Bookmark Turn: offered when the screen showing this thread knows the bubble's turn (`turns/bookmarker`).
+    const marked = bookmarkerOf(thread)?.(bubble.key) ?? null;
     return [
       {
         key: "reply",
@@ -129,6 +132,19 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
           setSelecting(text);
         },
       },
+      ...(marked === null
+        ? []
+        : [
+            {
+              key: "bookmark",
+              label: marked.on ? "Remove Bookmark" : "Bookmark Turn",
+              symbol: marked.on ? "bookmark.slash" : "bookmark",
+              onPress: () => {
+                setOpen(null);
+                marked.toggle();
+              },
+            } satisfies MessageMenuAction,
+          ]),
       {
         key: "share",
         label: "Share",
