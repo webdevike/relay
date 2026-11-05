@@ -240,6 +240,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     selectedId === undefined ? undefined : state.approvals[selectedId],
   );
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
+  const pendingAskId = pendingAsk?.id;
   const answerAsk = useCallback(
     (results: { id: string; selectedOptions: string[]; customInput?: string }[]) => {
       if (selectedId === undefined || pendingAsk === undefined) return;
@@ -276,11 +277,11 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   useFocusEffect(
     useCallback(() => {
       if (selectedId === undefined) return;
-      setDictationTarget({ kind: "agent", sessionId: selectedId });
+      setDictationTarget({ kind: "agent", sessionId: selectedId, ...(pendingAskId === undefined ? {} : { pendingAskId }) });
       return () => {
         resetDictationTarget();
       };
-    }, [selectedId]),
+    }, [selectedId, pendingAskId]),
   );
 
   const [launchError, setLaunchError] = useState<string | null>(null);
@@ -773,7 +774,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
             </View>
           ) : session !== undefined && pendingAsk !== undefined ? (
             <View style={styles.askOverlay}>
-              <AskCard ask={pendingAsk} onSubmit={answerAsk} onCancel={cancelAsk} />
+              <AskCard key={pendingAsk.id} ask={pendingAsk} onSubmit={answerAsk} onCancel={cancelAsk} />
             </View>
           ) : (
             gateLocked && (

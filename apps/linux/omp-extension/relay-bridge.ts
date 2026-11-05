@@ -385,6 +385,8 @@ const RECONNECT_MS = 3000;
 const SETTINGS_SETTLE_MS = 2000;
 /** Time for the fed Enter to clear the editor before a held draft is put back. */
 const SUBMIT_SETTLE_MS = 150;
+/** Time for the Escape that dismisses a cancelled ask's terminal dialog to be read before a reply goes in. */
+const ASK_DISMISS_SETTLE_MS = 80;
 /**
  * A handoff that never compacts (refused, failed, cancelled; omp only says so in the TUI) stops
  * showing as in progress after this, the bound EvaOS uses too.
@@ -1084,6 +1086,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
         return history;
       case "reply": {
         const existing = ctx.ui.getEditorText();
+        // A turn sent while an ask blocks the session would only queue behind the blocked `ask` tool
+        // call (the steer lands once the tool returns), so from the sender's side nothing went
+        // through, and omp drops an ask that has messages queued behind it. Sending is answering "no":
+        // the ask is cancelled first, which also dismisses the terminal dialog and every device's card.
+        if (pendingAsks.size > 0 && (frame.submit || (frame.images !== undefined && frame.images.length > 0))) {
+          abandonAsks();
+          await new Promise<void>((resolve) => setTimeout(resolve, ASK_DISMISS_SETTLE_MS).unref());
+        }
         if (frame.images !== undefined && frame.images.length > 0) {
           // Images only ever go out as a user turn (the host rejects them without `submit`). A
           // slash command with images is sent the same way: sendUserMessage skips command dispatch,

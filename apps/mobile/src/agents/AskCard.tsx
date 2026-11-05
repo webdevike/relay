@@ -1,18 +1,15 @@
-import { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { useEffect, useReducer, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import type { AgentAsk, AgentAskQuestion } from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Button } from "@/ui/Button";
 import { Card } from "@/ui/Card";
 import { OptionRow } from "@/ui/OptionRow";
 import { radii, spacing, useColors } from "@/theme";
+import { advancesOnPick, answersOf, firstUnanswered, initialDraft, isAnswered, reduceAsk, type AskAction, type AskAnswer, type AskDraft } from "@/agents/askState";
 
-/** One answer per question: chosen option labels, or free text the user typed instead. */
-export interface AskAnswer {
-  id: string;
-  selectedOptions: string[];
-  customInput?: string;
-}
+export type { AskAnswer };
+
 
 export interface AskCardProps {
   ask: AgentAsk;
@@ -21,11 +18,6 @@ export interface AskCardProps {
   onCancel: () => void;
 }
 
-/** Toggles `label` in a selection: multi-select adds/removes, single-select replaces. */
-function toggle(current: string[], label: string, multi: boolean): string[] {
-  if (current.includes(label)) return current.filter((entry) => entry !== label);
-  return multi ? [...current, label] : [label];
-}
 
 function Question({
   question,
@@ -81,54 +73,51 @@ function Question({
   );
 }
 
-/** Whether a question has an answer: a picked option or typed text. */
-function answered(selected: string[] | undefined, custom: string | undefined): boolean {
-  return (selected?.length ?? 0) > 0 || (custom?.trim().length ?? 0) > 0;
-}
-
 /**
  * A pending `ask` from omp, answered from the phone as a paginated stepper: one question at a
  * time. Picking a single-select option auto-advances; multi-select waits for Next. Every question
- * also takes a typed answer, and the whole ask can be cancelled. Back keeps earlier answers.
+ * also takes a typed answer, and the whole ask can be cancelled. Back keeps earlier answers; the
+ * state rules live in `askState.ts`. The caller keys the card by ask id so a new ask starts fresh.
  */
 export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
   const colors = useColors();
-  const [selections, setSelections] = useState<Record<string, string[]>>({});
-  const [customs, setCustoms] = useState<Record<string, string>>({});
-  const [step, setStep] = useState(0);
+  const { height: windowHeight } = useWindowDimensions();
+  const [draft, dispatch] = useReducer((state: AskDraft, action: AskAction) => reduceAsk(ask, state, action), initialDraft);
+  // A single-select pick shows for a beat, then the card moves on. The timer lives in an effect so
+  // leaving the card or picking again clears it; `advance` also ignores a page the card already left.
+  const [advanceFrom, setAdvanceFrom] = useState<number | null>(null);
+  useEffect(() => {
+    if (advanceFrom === null) return;
+    const from = advanceFrom;
+    const timer = setTimeout(() => {
+      dispatch({ type: "advance", from });
+      setAdvanceFrom(null);
+    }, 180);
+    return () => { clearTimeout(timer); };
+  }, [advanceFrom]);
   const total = ask.questions.length;
-  const question = ask.questions[Math.min(step, total - 1)];
+  const index = Math.min(draft.step, total - 1);
+  const question = ask.questions[index];
   if (question === undefined) return null;
   const multi = question.multi === true;
-  const current = selections[question.id] ?? [];
-  const isLast = step >= total - 1;
-  const canAdvance = answered(current, customs[question.id]);
-  const complete = ask.questions.every((q) => answered(selections[q.id], customs[q.id]));
+  const current = draft.selections[question.id] ?? [];
+  const isLast = index >= total - 1;
+  const canAdvance = isAnswered(draft, question.id);
+  const missing = firstUnanswered(ask, draft);
 
   const onToggle = (label: string): void => {
-    setSelections((prev) => ({ ...prev, [question.id]: multi ? toggle(prev[question.id] ?? [], label, true) : [label] }));
-    // A picked option supersedes any typed answer for that question.
-    setCustoms((prev) => ({ ...prev, [question.id]: "" }));
-    if (!multi && !isLast) setTimeout(() => setStep((s) => Math.min(s + 1, total - 1)), 180);
+    dispatch({ type: "pick", index, label });
+    if (advancesOnPick(ask, index)) setAdvanceFrom(index);
   };
 
-  const onCustom = (text: string): void => {
-    setCustoms((prev) => ({ ...prev, [question.id]: text }));
-    // Typing an answer clears the option selection so submit sends the free text.
-    if (text.length > 0) setSelections((prev) => ({ ...prev, [question.id]: [] }));
-  };
-
+  // Submit never sits dead: with a page still unanswered it takes the user there instead.
   const submit = (): void => {
-    onSubmit(
-      ask.questions.map((q) => {
-        const custom = customs[q.id]?.trim() ?? "";
-        return custom.length > 0 ? { id: q.id, selectedOptions: [], customInput: custom } : { id: q.id, selectedOptions: selections[q.id] ?? [] };
-      }),
-    );
+    if (missing >= 0) dispatch({ type: "goto", index: missing });
+    else onSubmit(answersOf(ask, draft));
   };
 
   return (
-    <Card maxHeight={400}>
+    <Card maxHeight={Math.min(400, Math.round(windowHeight * 0.55))}>
       <View style={styles.header}>
         {total > 1 ? (
           <View style={styles.progress}>
@@ -137,12 +126,12 @@ export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
                 key={q.id}
                 style={[
                   styles.dot,
-                  { backgroundColor: i === step ? colors.accent : answered(selections[q.id], customs[q.id]) ? colors.textFaint : colors.hairline },
+                  { backgroundColor: i === index ? colors.accent : isAnswered(draft, q.id) ? colors.textFaint : colors.hairline },
                 ]}
               />
             ))}
             <Text variant="caption" color="textFaint" style={{ marginLeft: spacing.sm }}>
-              {step + 1} / {total}
+              {index + 1} / {total}
             </Text>
           </View>
         ) : (
@@ -154,15 +143,21 @@ export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
           </Text>
         </Pressable>
       </View>
-      <ScrollView contentContainerStyle={{ gap: spacing.lg, padding: spacing.lg, paddingTop: spacing.sm }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Question question={question} selected={current} custom={customs[question.id] ?? ""} onToggle={onToggle} onCustom={onCustom} />
+      <ScrollView style={styles.body} contentContainerStyle={{ gap: spacing.lg, padding: spacing.lg, paddingTop: spacing.sm }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <Question
+          question={question}
+          selected={current}
+          custom={draft.customs[question.id] ?? ""}
+          onToggle={onToggle}
+          onCustom={(text) => { dispatch({ type: "custom", index, text }); }}
+        />
       </ScrollView>
       <View style={[styles.footer, { borderTopColor: colors.hairline }]}>
-        <Button label="Back" variant="ghost" disabled={step === 0} onPress={() => setStep((s) => Math.max(0, s - 1))} />
+        <Button label="Back" variant="ghost" disabled={index === 0} onPress={() => { dispatch({ type: "back" }); }} />
         {isLast ? (
-          <Button label="Submit" disabled={!complete} onPress={submit} />
+          <Button label={missing >= 0 ? `Answer page ${String(missing + 1)}` : "Submit"} onPress={submit} />
         ) : (
-          <Button label="Next" disabled={!canAdvance} onPress={() => setStep((s) => Math.min(s + 1, total - 1))} />
+          <Button label={multi && current.length > 0 ? `Next (${String(current.length)})` : "Next"} disabled={!canAdvance} onPress={() => { dispatch({ type: "advance", from: index }); }} />
         )}
       </View>
     </Card>
@@ -176,6 +171,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
+  },
+  /** Takes the room the header and footer leave in a height-capped card, scrolling past it, so Back / Next / Submit stay on screen. */
+  body: {
+    flexGrow: 0,
+    flexShrink: 1,
   },
   progress: {
     flexDirection: "row",

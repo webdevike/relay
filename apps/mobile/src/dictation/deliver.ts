@@ -12,7 +12,11 @@ import { tagged } from "./surface";
 
 export type DictationTarget =
   | { kind: "insert" }
-  | { kind: "agent"; sessionId: string }
+  /**
+   * `pendingAskId`: the ask the session is blocked on. A reply sent behind it would only queue until
+   * the ask closes (and omp drops an ask with messages queued), so the ask is cancelled first.
+   */
+  | { kind: "agent"; sessionId: string; pendingAskId?: string }
   /**
    * An assistant's thread: the words are Isaac's next `assistant.turn`. `onTurn` hears of the turn
    * the moment it is sent (before the command leaves), with the delivery, so the thread can show the
@@ -85,15 +89,14 @@ export function commandsFor(input: DeliverInput, to: DictationTarget): Command[]
   }
   if (to.kind === "agent") {
     const images = input.images.map(({ mimeType, data }) => ({ mimeType, data }));
-    return [
-      {
-        kind: "agent.reply",
-        sessionId: to.sessionId,
-        text: tagged(text),
-        submit: true,
-        ...(images.length > 0 ? { images } : {}),
-      },
-    ];
+    const reply: Command = {
+      kind: "agent.reply",
+      sessionId: to.sessionId,
+      text: tagged(text),
+      submit: true,
+      ...(images.length > 0 ? { images } : {}),
+    };
+    return to.pendingAskId === undefined ? [reply] : [{ kind: "agent.ask.cancel", sessionId: to.sessionId, askId: to.pendingAskId }, reply];
   }
   const commands: Command[] = [{ kind: "text.insert", text }];
   if (input.submit) commands.push({ kind: "key.press", key: "return" });
@@ -108,7 +111,11 @@ export async function deliverDictation(
   if (target.kind === "local" && !input.launch) return target.onText(deliveredText(input));
   const commands = commandsFor(input, target);
   const run = async (): Promise<void> => {
-    for (const cmd of commands) await send(cmd);
+    for (const cmd of commands) {
+      // The ask may have closed on another device already; that must not lose the reply behind it.
+      if (cmd.kind === "agent.ask.cancel") await send(cmd).catch(() => undefined);
+      else await send(cmd);
+    }
   };
   if (target.kind === "assistant") {
     const delivery = Promise.resolve().then(run);
