@@ -34,6 +34,7 @@ describe("relay:// app links", () => {
     for (const url of [
       "relay://open/settings/connections?connect=github",
       "relay://open/settings/theme?setting=theme.mode",
+      "relay://open/skills?skill=canvas",
       `relay://open/reviews?item=${encodeURIComponent("https://github.com/o/r/pull/12")}`,
       "relay://open/workspace/relay-agent-access",
       "relay://assistant/nova",

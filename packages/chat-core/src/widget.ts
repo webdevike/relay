@@ -52,6 +52,7 @@ export const APP_LINK_PARAMS = [
   'experiment',
   'arm',
   'job',
+  'skill',
 ] as const
 export type AppLinkParam = (typeof APP_LINK_PARAMS)[number]
 

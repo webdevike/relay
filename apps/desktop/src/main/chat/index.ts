@@ -14,6 +14,7 @@ import { registerReactionsIpc } from '../relay/reactions-ipc'
 import { registerArtifactsIpc } from '../relay/artifacts-ipc'
 import { registerActivityIpc } from '../relay/activity-ipc'
 import { registerCanvasLiveIpc } from '../relay/canvas-live-ipc'
+import { registerSkillsIpc } from '../relay/skills-ipc'
 import { registerStudioIpc } from '../relay/studio-ipc'
 import type {
   RelayArtifacts,
@@ -152,6 +153,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const offActivity = registerActivityIpc(ctx, relay)
   // Live canvas rooms on the host, and the way into one (the Canvas page's frame).
   const offCanvasLive = registerCanvasLiveIpc(ctx, relay)
+  // Skills on the host, for the Skills page: the list, access toggles, and the live editor's way in.
+  registerSkillsIpc(ctx, relay)
   // Image and video jobs on the host, for the Studio page.
   const offStudio = registerStudioIpc(ctx, relay)
 

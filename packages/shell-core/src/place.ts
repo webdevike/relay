@@ -4,6 +4,7 @@ export type FixedPage =
   | 'dashboard'
   | 'assistants'
   | 'chat'
+  | 'skills'
   | 'jobs'
   | 'test-bench'
   | 'habits'
@@ -49,6 +50,7 @@ const FIXED_PAGES: readonly string[] = [
   'dashboard',
   'assistants',
   'chat',
+  'skills',
   'jobs',
   'test-bench',
   'habits',

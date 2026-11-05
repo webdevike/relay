@@ -153,7 +153,7 @@ const WebUrl = z
 const HttpUrl = WebUrl.optional().catch(undefined);
 
 /** Query keys a `relay://open/...` link may carry: what to show inside the page. */
-export const APP_LINK_PARAMS = ["item", "setting", "connect", "canvas", "meeting", "experiment", "arm", "job"] as const;
+export const APP_LINK_PARAMS = ["item", "setting", "connect", "canvas", "meeting", "experiment", "arm", "job", "skill"] as const;
 export type AppLinkParam = (typeof APP_LINK_PARAMS)[number];
 
 /** An in-app destination a widget or a chat message can link to: `relay://assistant/<id>` opens

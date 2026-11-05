@@ -3,6 +3,7 @@ import { appEvents, appInvoke } from './app'
 import { shellInvoke } from './shell'
 import { evaEvents, evaInvoke } from './eva'
 import { jobsInvoke } from './jobs'
+import { skillsInvoke } from './skills'
 import { habitsInvoke } from './habits'
 import { meetingsEvents, meetingsInvoke } from './meetings'
 import { chatEvents, chatInvoke } from './chat'
@@ -63,6 +64,7 @@ export * from './update'
 export * from './context'
 export * from './setup'
 export * from './notifications'
+export * from './skills'
 
 export * from './result'
 export { AppInfoSchema, type AppInfo, AppAboutSchema, type AppAbout } from './app'
@@ -90,6 +92,7 @@ export const invokeContract = {
   ...shellInvoke,
   ...evaInvoke,
   ...jobsInvoke,
+  ...skillsInvoke,
   ...habitsInvoke,
   ...meetingsInvoke,
   ...chatInvoke,

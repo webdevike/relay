@@ -187,6 +187,7 @@ describe('link', () => {
         'relay://open/test-bench?experiment=eva-hillclimb&arm=a2',
         'Test Bench',
       ],
+      [{ page: 'skills', skill: 'canvas' }, 'relay://open/skills?skill=canvas', 'Skills'],
       [
         { page: 'reviews', item: 'https://github.com/o/r/pull/12' },
         'relay://open/reviews?item=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Fpull%2F12',
@@ -215,6 +216,7 @@ describe('link', () => {
     expect(AgentLinkParamsSchema.safeParse({ page: 'workspace:Has Space' }).success).toBe(false)
     expect(() => link({ page: 'jobs', section: 'Theme' })).toThrow(/settings page/)
     expect(() => link({ page: 'jobs', item: 'https://x.dev' })).toThrow(/item belongs to reviews/)
+    expect(() => link({ page: 'jobs', skill: 'canvas' })).toThrow(/skill belongs to skills/)
     expect(() => link({ page: 'test-bench', arm: 'a' })).toThrow(/arm needs experiment/)
   })
 })

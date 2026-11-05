@@ -24,6 +24,7 @@ vi.mock('./navigate', () => ({ openPlace: (...a: unknown[]) => openPlace(...a) }
 
 import { linkPrefsStore } from './link-prefs'
 import { openLink } from './open-link'
+import { takeSkillRequest } from '../skills/skill-request'
 import { openFromNav, openInApp } from './open-in-app'
 import { navTargetOf, openTargetOf } from './open-target'
 
@@ -90,6 +91,15 @@ describe('openLink', () => {
     expect(invoke).not.toHaveBeenCalled()
     expect(show).toHaveBeenCalledTimes(3)
     expect(show).toHaveBeenLastCalledWith(expect.objectContaining({ message: expect.any(String) }))
+  })
+  it('opens a skill in the Skills page and hands it the name', () => {
+    takeSkillRequest()
+    openLink('relay://open/skills?skill=canvas', { target: 'here' })
+    expect(openPlaceHere).toHaveBeenLastCalledWith(placeOf('skills'))
+    expect(takeSkillRequest()).toBe('canvas')
+    // The param only counts on the Skills page.
+    openLink('relay://open/jobs?skill=canvas', { target: 'here' })
+    expect(takeSkillRequest()).toBeNull()
   })
   it('reads the singular `relay://open/setting` as Settings', () => {
     show.mockClear()

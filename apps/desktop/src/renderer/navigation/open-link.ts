@@ -6,6 +6,7 @@ import { invoke } from '../ipc'
 import { openReviewItem } from '../reviews/reviews-store'
 import { openArmTab, revealTool } from '../tiling/tiling-store'
 import { requestExperiment } from '../test-bench/bench-request'
+import { requestSkill } from '../skills/skill-request'
 import { requestStudioOpen } from '../studio/studio-store'
 import { pointAtSetting } from '../settings/setting-targets'
 import { focusConnection } from '../settings/connections-store'
@@ -54,8 +55,8 @@ export function openLink(href: string, opts: OpenLinkOptions = {}): void {
 
 /**
  * Opens a `relay://` link: the place it names per `target`, then what it shows there (a Reviews
- * item, a Test Bench run and arm, a Studio job, a setting's control pointed out, a connection's
- * Connect step). False when it names nothing this app opens.
+ * item, a Test Bench run and arm, a Skills row, a Studio job, a setting's control pointed out, a
+ * connection's Connect step). False when it names nothing this app opens.
  */
 export function openAppLink(href: string, target?: OpenTarget): boolean {
   const link = parseAppLink(href)
@@ -63,6 +64,9 @@ export function openAppLink(href: string, target?: OpenTarget): boolean {
   if (link === null || place === null) return false
   if (link.kind === 'open' && link.params?.experiment !== undefined) {
     requestExperiment(link.params.experiment)
+  }
+  if (link.kind === 'open' && link.params?.skill !== undefined && link.page === 'skills') {
+    requestSkill(link.params.skill)
   }
   openInApp(place, target)
   if (link.kind === 'assistant') return true
