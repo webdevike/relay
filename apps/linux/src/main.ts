@@ -26,6 +26,7 @@ import { loadAutoname, MeetingPipeline, type Autoname } from "./meetings/pipelin
 import { MeetingsService } from "./meetings/service";
 import { defaultMeetingsDir, RecordingStore } from "./meetings/store";
 import { z } from "zod";
+import { describeEntry } from "@relay/canvas-live/history";
 import pkg from "../package.json";
 import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
@@ -207,6 +208,12 @@ const USAGE = `relay-linux <command>
                                    (skill://canvas sections 8-9); no lines or - reads stdin.
                                    --handoff lands that handoff (the canvas self confirms it);
                                    --leave takes <Name> out of the room after the batch
+  canvas show <slug> --history [--since 2h|30m|<date>]
+                                   the board's change log (who added, changed, moved or deleted what,
+                                   when), folded and then entry by entry; works without a live room
+  canvas restore <slug> <id> [--as <Name>]
+                                   put a card or link back that the history says was deleted (with
+                                   the links deleted with it); needs the live room. Agents: @restore <id>
   canvas show <slug>               the live room's pages (id, title, node count, who is on each), its
                                    board (page-1 at the top level, other pages under board.pages), who
                                    is in it (working or idle), open handoffs, what its canvas self has
@@ -1375,6 +1382,22 @@ const CanvasActReply = z.object({
   said: z.array(z.string()),
   skipped: z.array(z.string()),
 });
+const CanvasHistoryReply = z.object({
+  entries: z.array(
+    z.object({
+      ts: z.number(),
+      who: z.string(),
+      role: z.enum(["human", "agent", "worker"]),
+      op: z.enum(["add", "update", "move", "delete", "restore"]),
+      kind: z.enum(["node", "edge", "thread", "page"]),
+      id: z.string(),
+      label: z.string(),
+      page: z.string(),
+      count: z.number().optional(),
+    }),
+  ),
+  summary: z.array(z.string()),
+});
 
 /** `--session me`: the id the bridge knows the calling omp session by (a subagent's agent id, else the chat's session id). */
 function ownSessionRef(): string {
@@ -1400,6 +1423,8 @@ async function canvasCommand(
     session: string | undefined;
     handoff: string | undefined;
     leave: boolean;
+    history: boolean;
+    since: string | undefined;
   },
 ): Promise<void> {
   const { title, prompt } = options;
@@ -1526,6 +1551,17 @@ async function canvasCommand(
     }
     case "show": {
       if (slug === undefined) throw new Error("canvas show: missing <slug>");
+      if (options.history || options.since !== undefined) {
+        const query = options.since === undefined ? "" : `?since=${encodeURIComponent(options.since)}`;
+        const reply = CanvasHistoryReply.parse(
+          await hostJson(await fetch(`${base}/${encodeURIComponent(slug)}/history${query}`), "canvas show --history"),
+        );
+        if (reply.entries.length === 0) console.log(`no changes recorded on ${slug}${options.since === undefined ? "" : ` since ${options.since}`}`);
+        for (const line of reply.summary) console.log(line);
+        if (reply.entries.length > 0) console.log("", "entries (oldest first):");
+        for (const entry of reply.entries) console.log(describeEntry(entry));
+        return;
+      }
       console.log(
         JSON.stringify(
           await hostJson(await fetch(`${base}/${encodeURIComponent(slug)}`), "canvas show"),
@@ -1533,6 +1569,15 @@ async function canvasCommand(
           2,
         ),
       );
+      return;
+    }
+    case "restore": {
+      const id = positionals[2];
+      if (slug === undefined || id === undefined) throw new Error("canvas restore: usage: canvas restore <slug> <id> [--as <Name>]");
+      const result = z
+        .object({ restored: z.string() })
+        .parse(await hostJson(await post(`${base}/${encodeURIComponent(slug)}/restore`, { id, ...(options.as === undefined ? {} : { as: options.as }) }), "canvas restore"));
+      console.log(`restored ${result.restored} on ${slug}`);
       return;
     }
     case "list": {
@@ -1704,6 +1749,8 @@ async function main(argv: string[]): Promise<void> {
       session: { type: "string" },
       handoff: { type: "string" },
       leave: { type: "boolean", default: false },
+      history: { type: "boolean", default: false },
+      since: { type: "string" },
       id: { type: "string" },
       scope: { type: "string" },
       model: { type: "string" },
@@ -1813,6 +1860,8 @@ async function main(argv: string[]): Promise<void> {
         session: values.session,
         handoff: values.handoff,
         leave: values.leave,
+        history: values.history,
+        since: values.since,
       });
       return;
     case "react":

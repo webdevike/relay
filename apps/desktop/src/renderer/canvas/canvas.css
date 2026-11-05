@@ -8,6 +8,23 @@
   flex-direction: column;
 }
 
+/* The board and, while a live room takes it over, the room's frame behind it (live/handoff.ts). */
+.eva-cv-stack {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+/* Loading behind the board: laid out and running at full size, but unseen and untouchable until swapped in. */
+.eva-cv-page[data-covered='true'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .eva-cv-header {
   flex: none;
   height: var(--eva-control-md);
@@ -1009,6 +1026,70 @@
 .eva-cv-composer-field {
   flex: 1;
 }
+.eva-cv-mention {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.eva-cv-mention-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 10;
+  margin: 0;
+  padding: calc(var(--mantine-spacing-md) * 0.25);
+  list-style: none;
+  background: var(--eva-c-popover-background);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-card-radius);
+  box-shadow: var(--mantine-shadow-md);
+}
+.eva-cv-mention-item {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  width: 100%;
+  min-height: var(--eva-control-xs);
+  padding: 0 calc(var(--mantine-spacing-md) * 0.25);
+  border: 0;
+  border-radius: var(--eva-radius-sm);
+  background: none;
+  color: var(--eva-c-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.eva-cv-mention-item:hover,
+.eva-cv-mention-item[data-picked='true'] {
+  background: var(--eva-c-accent);
+}
+.eva-cv-mention-name {
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-cv-mention-hint {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+img.eva-cv-face {
+  object-fit: cover;
+}
+.eva-cv-thread-for {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-cv-thread-status {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
 .eva-cv-thread-actions {
   display: flex;
   justify-content: space-between;
@@ -1017,4 +1098,20 @@
   margin: 0;
   font-size: var(--eva-fz-label);
   color: var(--eva-c-danger);
+}
+
+/* The thread popover's header is its grip: drag it to move the comment's popover. */
+.eva-cv-thread-for {
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+.eva-cv-thread-assignee {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-cv-pin[data-dragging='true'] {
+  cursor: grabbing;
+  opacity: 0.85;
 }

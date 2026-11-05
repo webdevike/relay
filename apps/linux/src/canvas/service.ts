@@ -16,19 +16,23 @@ import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { CanvasSlug, type AgentSession, type CanvasAgent as CanvasAgentInfo, type CanvasEntry, type CanvasRoomInfo, type ServerMessage } from "@relay/protocol";
-import { exportBoard, type Board } from "@relay/canvas-live/board";
+import { exportBoard, putEdge, putNode, type Board, type BoardEdge, type BoardNode } from "@relay/canvas-live/board";
 import { FIRST_PAGE, pageMaps, pagesOf } from "@relay/canvas-live/pages";
+import { findMention, type Mentionable } from "@relay/canvas-live/mentions";
+import { setAssignee, snapThread } from "@relay/canvas-live/threads";
+import { lastDeleted, sinceYourLastTurn, summarizeHistory, type HistoryEntry } from "@relay/canvas-live/history";
 import { DOC_KEYS, type ChatMsg, type ModelKey, type Presence, type SessionInfo, type User } from "@relay/canvas-live/shared";
 import type { AssistantAgentConfig } from "../assistant/registry";
 import { human } from "../host-config";
 import { readThreadMemory } from "../live/brief";
-import { str } from "./actor";
+import { AGENT_ORIGIN, str } from "./actor";
 import { CanvasAgent, systemPrompt, type AgentIdentity } from "./agent";
 import type { CanvasMind, HostTool, MindFactory, MindUsage } from "./brain";
 import { chatFileOf, subagentName } from "./caller";
 import { chatContext } from "./context";
 import { ActRefused, CanvasParticipant, MAX_BATCH_ACTIONS, MAX_PARTICIPANTS, parseScript, type ActResult, type ParticipantOptions } from "./participant";
 import { BoardFile, boardPath } from "./persist";
+import { BoardHistory, HistoryRecorder, historyPath, type Who } from "./history";
 import { assistantAvatar, assistantLook, assistantNamed, EVA_LOOK, portraitSeed, sessionAssistant } from "./portrait";
 import { CanvasSync, type CanvasPeer } from "./room";
 import { CanvasTokens, type CanvasGrant } from "./tokens";
@@ -217,6 +221,9 @@ export class CanvasRoom {
   humans: readonly string[] = [];
   everJoined = false;
   unjoinedTimer: ReturnType<typeof setTimeout> | undefined;
+  /** The board's change log (`<slug>.history.jsonl`) and what fills it from the doc. */
+  history: BoardHistory | null = null;
+  recorder: HistoryRecorder | null = null;
 
   constructor(
     readonly id: string,
@@ -349,8 +356,15 @@ export class CanvasService {
     const slug = this.pickSlug(request.slug, request.title);
     const existing = this.rooms.get(slug);
     if (existing?.live === true) {
-      if (existing.chatSessionId !== chatSession.id) throw new CanvasError(409, `${existing.agent.name} already has a live canvas session on ${existing.board}.`);
-      if (request.thread !== undefined) existing.agents[0]?.answer(request.thread.page ?? FIRST_PAGE, request.thread.id);
+      if (existing.chatSessionId !== chatSession.id) {
+        // Another assistant is asked about a comment (an @mention on Relay Desktop's Canvas page): it joins the live room as a worker for that thread.
+        if (request.thread !== undefined && chatSession.kind === "assistant" && chatSession.assistant !== undefined) {
+          this.handThread(existing, chatSession.assistant, request.thread);
+          return this.result(existing, false);
+        }
+        throw new CanvasError(409, `${existing.agent.name} already has a live canvas session on ${existing.board}.`);
+      }
+      if (request.thread !== undefined) this.handThread(existing, this.selfKey(existing), request.thread);
       return this.result(existing, false);
     }
     if (existing !== undefined) this.unload(existing);
@@ -380,6 +394,9 @@ export class CanvasService {
       throw new CanvasError(422, `${slug}.json is not a board this Relay reads: ${error instanceof Error ? error.message : String(error)}`);
     }
     const room = new CanvasRoom(roomId, slug, sync, file, agent, chatSession.id, chat, now);
+    room.history = new BoardHistory(historyPath(this.deps.canvasDir, slug));
+    room.recorder = new HistoryRecorder(sync.doc, room.history, (origin) => this.whoOf(room, origin), () => this.now());
+    room.recorder.start();
     const purpose = request.prompt?.trim() ?? "";
     const session: SessionInfo = { roomId, agent: { ...this.user(agent) }, chatTitle: chatSession.title, open: true, startedAt: now, endedAt: null, summary: null };
     sync.doc.transact(() => {
@@ -419,18 +436,8 @@ export class CanvasService {
         handoff: (target, request, from) => {
           this.handOff(room, target, request, from?.name ?? canvasHuman(), from?.thread ?? null);
         },
-        direct: (msg) => {
-          // `@Name do X` to a worker goes straight to its session; the canvas self stays out of it.
-          const match = /^@([\w.-]+)[\s,:]+([\s\S]+)$/.exec(msg.text.trim());
-          const worker = match === null ? undefined : room.participants.get((match[1] ?? "").toLowerCase());
-          if (match === null || worker?.sessionId == null) return false;
-          const request = (match[2] ?? "").trim();
-          // Out of the chat observer that saw the note, so its own chat line is a separate change.
-          queueMicrotask(() => {
-            this.handOff(room, worker.user.name, request, msg.name, msg.thread ?? null);
-          });
-          return true;
-        },
+        direct: (msg) => this.route(room, msg),
+        changes: (since) => this.changesSince(room, since),
         workers: () => {
           const main = [...room.handoffs.values()].filter((h) => h.state === "open" && h.to === "main");
           return [
@@ -441,9 +448,10 @@ export class CanvasService {
           ];
         },
       },
-      { endAfterMs: this.deps.endAfterMs ?? END_AFTER_MS, ...this.deps.pacing },
+      { endAfterMs: this.deps.endAfterMs ?? END_AFTER_MS, ...this.deps.pacing, restore: (id, origin) => this.restoreIn(room, id, origin) },
     );
     room.agents.push(canvasAgent);
+    this.publishMentionables(room);
     sync.onHumans = (humans) => {
       room.humans = humans;
       if (humans.length > 0 && !room.everJoined) {
@@ -456,7 +464,7 @@ export class CanvasService {
     this.watchActivity();
     // The opener runs now: its cards are on the board and its lines play the moment Isaac joins.
     canvasAgent.prepare();
-    if (request.thread !== undefined) canvasAgent.answer(request.thread.page ?? FIRST_PAGE, request.thread.id);
+    if (request.thread !== undefined) this.handThread(room, this.selfKey(room), request.thread);
     room.unjoinedTimer = setTimeout(() => {
       if (!room.everJoined && room.live) void canvasAgent.wrapUp();
     }, this.deps.unjoinedEndMs ?? UNJOINED_END_MS);
@@ -527,14 +535,18 @@ export class CanvasService {
       session,
       room.sync.doc,
       room.sync.awareness,
-      { ...this.deps.pacing, ...this.deps.participants },
+      { ...this.deps.pacing, ...this.deps.participants, restore: (id, origin) => this.restoreIn(room, id, origin) },
       start,
       (gone) => {
-        if (room.participants.get(key) === gone) room.participants.delete(key);
+        if (room.participants.get(key) === gone) {
+          room.participants.delete(key);
+          this.publishMentionables(room);
+        }
         this.deps.log(`canvas ${room.slug}: ${gone.user.name} left`);
       },
     );
     room.participants.set(key, participant);
+    this.publishMentionables(room);
     room.participantNames.add(name);
     this.deps.log(`canvas ${room.slug}: ${name} joined as a ${session === null ? "participant" : `worker for session ${session}`}`);
     return this.joinResult(room, participant, true);
@@ -614,13 +626,191 @@ export class CanvasService {
     return out;
   }
 
+  /** The key a room's canvas self answers to in `@name` and thread assignees: its assistant's id, else its lowercased name. */
+  private selfKey(room: CanvasRoom): string {
+    return room.chat.assistant ?? room.agent.name.toLowerCase();
+  }
+
+  /** The participant standing for agent `id`: joined under that key, else under the name of the registry assistant `id`. */
+  private workerOf(room: CanvasRoom, id: string): CanvasParticipant | undefined {
+    return room.participants.get(id) ?? [...room.participants.values()].find((p) => assistantNamed(this.deps.registry, p.user.name)?.id === id);
+  }
+
+  /** Who an `@name` can mean in `room`: its canvas self, the registry's assistants and the agents joined to it (joined ones win a shared id). */
+  mentionables(room: CanvasRoom): Mentionable[] {
+    const self = this.selfKey(room);
+    const byId = new Map<string, Mentionable>();
+    for (const a of this.deps.registry) {
+      byId.set(a.id, { id: a.id, name: a.title, hint: a.scope, avatar: `/canvas/avatar/${a.id}`, joined: a.id === self });
+    }
+    byId.set(self, { ...byId.get(self), id: self, name: room.agent.name, color: room.agent.color, avatar: byId.get(self)?.avatar ?? room.agent.avatar, joined: true });
+    for (const [key, p] of room.participants) {
+      const id = assistantNamed(this.deps.registry, p.user.name)?.id ?? key;
+      const was = byId.get(id);
+      byId.set(id, { ...was, id, name: p.user.name, color: p.user.color, avatar: p.user.avatar ?? was?.avatar, hint: p.purpose === "" ? was?.hint : p.purpose, joined: true });
+    }
+    return [...byId.values()];
+  }
+
+  /** Puts who the room's `@` menu offers into the doc (`meta.mentionables`), so the room page lists the same names the host routes by. */
+  private publishMentionables(room: CanvasRoom): void {
+    const meta = room.sync.doc.getMap(DOC_KEYS.meta);
+    const next = this.mentionables(room);
+    if (JSON.stringify(meta.get("mentionables")) !== JSON.stringify(next)) room.sync.doc.transact(() => meta.set("mentionables", next), "host");
+  }
+
+  /** Who made a doc change, by the origin of its transaction, for the board's history. */
+  private whoOf(room: CanvasRoom, origin: unknown): Who {
+    if (origin === AGENT_ORIGIN) return { name: room.agent.name, role: "agent" };
+    if (typeof origin === "string" && origin.startsWith("participant:")) {
+      const p = [...room.participants.values()].find((c) => `participant:${c.id}` === origin);
+      return { name: p?.user.name ?? "an agent", role: p?.sessionId == null ? "agent" : "worker" };
+    }
+    if (origin === "host") return { name: "Relay", role: "agent" };
+    return { name: room.sync.nameOf(origin) ?? canvasHuman(), role: "human" };
+  }
+
+  private pageTitles(room: CanvasRoom): Map<string, string> {
+    return new Map(pagesOf(room.sync.doc).map((p) => [p.id, p.title]));
+  }
+
+  /** What changed on the board since `since` by anyone but the canvas self, as its turn should read it ("" when nothing). */
+  private changesSince(room: CanvasRoom, since: number): string {
+    room.recorder?.flush();
+    const entries = room.history?.read({ limit: 400 }) ?? [];
+    return sinceYourLastTurn(entries, since, room.agent.name, this.pageTitles(room));
+  }
+
+  /**
+   * Puts back the card or link `id` that the board's history says was deleted (with the links that
+   * went with a card), acting as the actor with `origin`. "" when done, else why not.
+   */
+  private restoreIn(room: CanvasRoom, id: string, origin: string, page?: string): string {
+    const { history, recorder } = room;
+    if (history === null || recorder === null) return "this room keeps no history";
+    recorder.flush();
+    const entries = history.read();
+    const found = lastDeleted(entries, id, page);
+    if (!found?.saved) return `no deleted card or link ${id} in this board's history`;
+    if (!pagesOf(room.sync.doc).some((p) => p.id === found.page)) return `page ${found.page} is gone`;
+    const maps = pageMaps(room.sync.doc, found.page);
+    if (found.kind === "edge" ? maps.edges.has(id) : maps.nodes.has(id)) return `${id} is on the board already`;
+    const back: { edge: boolean; id: string; saved: BoardNode | BoardEdge }[] = [{ edge: found.kind === "edge", id, saved: found.saved }];
+    if (found.kind === "node") {
+      // The links deleted with a card (the same hand, the same moment) come back with it once both ends are there.
+      for (const e of entries) {
+        const saved = e.saved as BoardEdge | undefined;
+        if (e.kind !== "edge" || e.op !== "delete" || saved === undefined || e.page !== found.page || e.who !== found.who || Math.abs(e.ts - found.ts) > 2_000) continue;
+        if (!maps.edges.has(e.id) && (saved.source === id || maps.nodes.has(saved.source)) && (saved.target === id || maps.nodes.has(saved.target))) back.push({ edge: true, id: e.id, saved });
+      }
+    }
+    for (const b of back) recorder.markRestore(found.page, b.id);
+    room.sync.doc.transact(() => {
+      for (const b of back) {
+        if (b.edge) putEdge(maps.edges, b.id, b.saved as BoardEdge);
+        else putNode(maps.nodes, b.saved as BoardNode);
+      }
+    }, origin);
+    return "";
+  }
+
+  /** `canvas restore <slug> <id>`: puts the deleted card or link back, as `as` (a joined agent) or the canvas self. Throws `CanvasError`. */
+  restore(ref: string, id: string, as?: string, page?: string): { restored: string } {
+    const room = this.liveRoom(ref);
+    let origin = AGENT_ORIGIN;
+    if (as !== undefined && as !== "") {
+      const p = room.participants.get(as.toLowerCase());
+      if (p === undefined) throw new CanvasError(404, `${as} is not in ${room.board}; join first.`);
+      origin = `participant:${p.id}`;
+    }
+    const why = this.restoreIn(room, id, origin, page);
+    if (why !== "") throw new CanvasError(why.startsWith("no deleted") ? 404 : 409, why);
+    return { restored: id };
+  }
+
+  /** The board's change log (`canvas show <slug> --history`): entries after `since` (newest `limit`), and them folded. */
+  historyOf(slug: string, options: { since?: number; limit?: number } = {}): { entries: HistoryEntry[]; summary: string[] } {
+    if (!CanvasSlug.safeParse(slug).success) throw new CanvasError(400, `${slug} is not a board slug.`);
+    const room = this.rooms.get(slug);
+    room?.recorder?.flush();
+    const entries = (room?.history ?? new BoardHistory(historyPath(this.deps.canvasDir, slug))).read(options);
+    return { entries, summary: summarizeHistory(entries, room === undefined ? new Map() : this.pageTitles(room)) };
+  }
+
+  /**
+   * Thread `thread` (saved in the board file before this room, or by someone in it) goes to agent
+   * `assistantId`: the thread keeps it as its assignee, and the agent answers the human message that
+   * ends it, the canvas self in the room, any other as a worker it joins as for this. Nothing when the
+   * thread is missing or already answered, and a thread whose request that worker still holds open is
+   * not handed over again.
+   */
+  private handThread(room: CanvasRoom, assistantId: string, thread: { readonly id: string; readonly page?: string | undefined }): void {
+    const page = thread.page ?? FIRST_PAGE;
+    const threads = pageMaps(room.sync.doc, page).threads;
+    const map = threads.get(thread.id);
+    const last = map === undefined ? undefined : snapThread(thread.id, map)?.messages.at(-1);
+    if (last?.kind !== "human") return;
+    room.sync.doc.transact(() => setAssignee(threads, thread.id, assistantId), "host");
+    if (assistantId === this.selfKey(room)) {
+      room.agents[0]?.answer(page, thread.id);
+      return;
+    }
+    if ([...room.handoffs.values()].some((h) => h.state === "open" && h.thread === thread.id)) return;
+    this.route(room, { id: last.id, kind: "human", name: last.name, color: last.color, text: last.text, nodeIds: [], at: null, ts: last.ts, thread: thread.id, page });
+  }
+
+  /**
+   * A human's note or comment in `room`: who it is for, by an `@name` anywhere in it, else the
+   * thread's assignee (a thread keeps its agent until someone else is mentioned). The thread then
+   * stores that agent. True when it went to an agent other than the canvas self (a worker, joined
+   * now when it is a registry assistant with a running thread); false leaves the note to the self.
+   */
+  route(room: CanvasRoom, msg: ChatMsg & { readonly page?: string | undefined }): boolean {
+    if (!room.live) return false;
+    const page = msg.page ?? FIRST_PAGE;
+    const threads = msg.thread === undefined ? undefined : pageMaps(room.sync.doc, page).threads;
+    const was = msg.thread === undefined ? undefined : threads?.get(msg.thread)?.get("assignee");
+    const mention = findMention(msg.text, this.mentionables(room));
+    const target = mention?.candidate.id ?? (typeof was === "string" ? was : null);
+    if (target === null) return false;
+    if (msg.thread !== undefined && threads !== undefined && target !== was) {
+      room.sync.doc.transact(() => setAssignee(threads, msg.thread ?? "", target), "host");
+    }
+    if (target === this.selfKey(room)) return false;
+    let worker = this.workerOf(room, target);
+    if (worker?.sessionId == null) {
+      const assistant = this.deps.registry.find((a) => a.id === target);
+      if (assistant === undefined) return false;
+      const session = this.assistantSession(assistant.id);
+      if (session === null) {
+        this.event(room, `${assistant.title} has no running thread to answer in, so ${room.agent.name} answers instead.`);
+        return false;
+      }
+      try {
+        this.join(room.slug, { name: assistant.title, session: session.id, purpose: `answers the comment threads handed to ${assistant.title}` });
+      } catch (error) {
+        this.event(room, `${assistant.title} could not join: ${error instanceof Error ? error.message : String(error)}`);
+        return false;
+      }
+      worker = this.workerOf(room, target);
+    }
+    if (worker?.sessionId == null) return false;
+    const request = (mention === null ? msg.text : `${msg.text.slice(0, mention.start)}${msg.text.slice(mention.end)}`).replace(/^[\s,:]+/, "").trim();
+    const name = worker.user.name;
+    // Out of the chat observer that saw the note, so its own chat line is a separate change.
+    queueMicrotask(() => {
+      this.handOff(room, name, request === "" ? msg.text : request, msg.name, msg.thread ?? null, msg.thread === undefined ? undefined : page);
+    });
+    return true;
+  }
+
   /**
    * Hands `request` to `target` ("main", the canvas self's own name, or a worker's name): a chat
    * line in the room, the target shown as working on it, and the request delivered into the target
    * session as a message telling it how to land the work. A participant with no session behind it,
    * or an unknown name, gets nothing: the request goes to main instead.
    */
-  private handOff(room: CanvasRoom, target: string, request: string, from: string, thread: string | null): void {
+  private handOff(room: CanvasRoom, target: string, request: string, from: string, thread: string | null, threadPage?: string): void {
     if (!room.live || request.trim() === "") return;
     const key = target.replace(/^@/, "").toLowerCase();
     const named = key === "main" || key === room.agent.name.toLowerCase() ? undefined : room.participants.get(key);
@@ -642,8 +832,8 @@ export class CanvasService {
     this.event(room, `Handed to ${handoff.toName}: ${handoff.request}`);
     this.showTask(room, handoff.to);
     const as = worker === undefined ? "" : ` --as "${worker.user.name}"`;
-    // On a board with pages, the batch goes to the page the request came from (where the canvas self is now).
-    const page = room.agents[0]?.page ?? FIRST_PAGE;
+    // On a board with pages, the batch goes to the page the request came from (a comment's page, else where the canvas self is now).
+    const page = threadPage ?? room.agents[0]?.page ?? FIRST_PAGE;
     const pages = pagesOf(room.sync.doc);
     const text = [
       `[Canvas request from ${from}] ${handoff.request}`,
@@ -811,6 +1001,7 @@ export class CanvasService {
     if (this.rooms.get(room.slug) !== room) return;
     this.rooms.delete(room.slug);
     clearTimeout(room.unjoinedTimer);
+    room.recorder?.stop();
     for (const agent of room.agents) agent.dispose();
     for (const participant of [...room.participants.values()]) participant.leave(true);
     try {

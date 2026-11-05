@@ -1,6 +1,8 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { createPathQueue } from '@evaos/eva-core'
+import { historyLine, type HistoryEntry } from '@relay/canvas-live/history'
+import { excerpt } from '@relay/canvas-live/threads'
 import { atomicWrite } from '@evaos/eva-core/fs/atomic-write'
 import {
   CANVAS_VERSION,
@@ -355,6 +357,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
             ...(op.node === undefined ? {} : { node: op.node }),
             x: op.x,
             y: op.y,
+            ...(op.assignee === undefined ? {} : { assignee: op.assignee }),
             messages: [message(op.text)],
           }
           list = [...list, pin]
@@ -364,7 +367,36 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
           if (op.text.trim() === '') throw refuse('A comment needs some text.')
           // A human writing in a resolved thread reopens it, as in a live room.
           const { resolved: _was, ...rest } = t
-          list = replace({ ...rest, messages: [...t.messages, message(op.text)] })
+          const assignee = op.assignee ?? t.assignee
+          list = replace({
+            ...rest,
+            ...(assignee === undefined ? {} : { assignee }),
+            messages: [...t.messages, message(op.text)],
+          })
+        } else if (op.op === 'move') {
+          const t = known(op.thread)
+          if (op.node !== undefined && !content.nodes.has(op.node)) {
+            throw refuse(`No card ${op.node} on this page.`)
+          }
+          const { node: _node, ...rest } = t
+          list = replace({
+            ...rest,
+            ...(op.node === undefined ? {} : { node: op.node }),
+            x: op.x,
+            y: op.y,
+          })
+          // The board's change log, for an agent that comes back to it (the host keeps the rest when a room is live).
+          const entry: HistoryEntry = {
+            ts: now,
+            who: HUMAN.name,
+            role: 'human',
+            op: 'move',
+            kind: 'thread',
+            id: t.id,
+            label: excerpt(t.messages[0]?.text ?? '', 50),
+            page,
+          }
+          await fs.promises.appendFile(path.join(dir, `${slug}.history.jsonl`), historyLine(entry))
         } else {
           const t = known(op.thread)
           const { resolved: _was, ...rest } = t
@@ -381,6 +413,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
           x: t.x,
           y: t.y,
           resolved: t.resolved === true,
+          ...(t.assignee === undefined ? {} : { assignee: t.assignee }),
           messages: t.messages,
         })),
         ...(opened === undefined ? {} : { opened }),

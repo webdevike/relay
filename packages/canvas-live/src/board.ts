@@ -80,6 +80,8 @@ export interface BoardThread {
   x: number;
   y: number;
   resolved?: boolean;
+  /** The agent the thread is for (see ThreadSnap.assignee); absent: the room's canvas self. */
+  assignee?: string;
   messages: ThreadMsg[];
 }
 
@@ -214,7 +216,7 @@ function parseThreads(v: unknown, prefix: string): BoardThread[] | undefined {
         ts: ts ?? 0,
       });
     });
-    return defined<BoardThread>({ id, node: optStr(t["node"], `${where}.node`, 500), x, y, resolved: resolved === true ? true : undefined, messages });
+    return defined<BoardThread>({ id, node: optStr(t["node"], `${where}.node`, 500), x, y, resolved: resolved === true ? true : undefined, assignee: optStr(t["assignee"], `${where}.assignee`, 100), messages });
   });
 }
 
@@ -441,6 +443,7 @@ const threadObj = (t: BoardThread): Obj =>
     ["x", f32(t.x)],
     ["y", f32(t.y)],
     ["resolved", t.resolved === true ? new Raw("true") : undefined],
+    ["assignee", t.assignee],
     [
       "messages",
       t.messages.map(
@@ -573,9 +576,37 @@ function edgeMap(e: BoardEdge): Y.Map<unknown> {
   return m;
 }
 
+/** Puts `n` back on a page's nodes (a card deleted by mistake): a fresh map from the board node, as seeding makes it. */
+export function putNode(nodes: Y.Map<NodeMap>, n: BoardNode): void {
+  nodes.set(n.id, nodeMap(n));
+}
+
+/** Puts `e` back on a page's edges under `id`. */
+export function putEdge(edges: Y.Map<Y.Map<unknown>>, id: string, e: BoardEdge): void {
+  edges.set(id, edgeMap(e));
+}
+
+/** One edge of the doc as a board edge. */
+export function exportEdge(id: string, m: Y.Map<unknown>): BoardEdge {
+  const s = (k: string): string | undefined => {
+    const v = m.get(k);
+    return typeof v === "string" ? v : undefined;
+  };
+  return defined<BoardEdge>({
+    id,
+    source: s("source") ?? "",
+    target: s("target") ?? "",
+    sourceHandle: s("sourceHandle"),
+    targetHandle: s("targetHandle"),
+    label: s("label"),
+    tone: s("tone"),
+    extra: plainObj(m.get("extra")),
+  });
+}
+
 function boardThreadMap(t: BoardThread): ThreadMap {
   const anchor: ThreadAnchor = t.node === undefined ? { x: t.x, y: t.y } : { node: t.node, x: t.x, y: t.y };
-  return threadMap(anchor, t.resolved === true, t.messages);
+  return threadMap(anchor, t.resolved === true, t.messages, t.assignee);
 }
 
 /** A page's content in file shape. */
@@ -701,7 +732,7 @@ export function exportPage(doc: Y.Doc, page: string): PageContent {
   // Oldest thread first, so every room writes the same text for the same threads.
   const threads = snapThreads(maps.threads)
     .sort((a, b) => (a.messages[0]?.ts ?? 0) - (b.messages[0]?.ts ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-    .map((t) => defined<BoardThread>({ id: t.id, node: t.anchor.node, x: t.anchor.x, y: t.anchor.y, resolved: t.resolved ? true : undefined, messages: t.messages }));
+    .map((t) => defined<BoardThread>({ id: t.id, node: t.anchor.node, x: t.anchor.x, y: t.anchor.y, resolved: t.resolved ? true : undefined, assignee: t.assignee, messages: t.messages }));
   const viewport = metaOf(doc).get(pageKey("viewport", page));
   return defined<PageContent>({
     nodes,
@@ -881,6 +912,10 @@ function mergePage(maps: PageMaps, meta: Y.Map<unknown>, page: string, board: Pa
     }
     const resolved = t.resolved === true;
     if ((was === undefined || resolved !== (was.resolved === true)) && m.get("resolved") !== resolved) m.set("resolved", resolved);
+    if (was === undefined || t.assignee !== was.assignee) {
+      if (t.assignee === undefined) m.delete("assignee");
+      else if (m.get("assignee") !== t.assignee) m.set("assignee", t.assignee);
+    }
     // Messages are only ever added: the writer's new ones join the room's.
     const list = m.get("messages");
     if (!(list instanceof Y.Array)) continue;

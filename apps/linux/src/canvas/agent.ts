@@ -42,6 +42,10 @@ const HEARTBEAT_MS = 1000;
 const LOOK_SETTLE_MS = 500;
 /** A card body longer than this is clipped in the per-turn board (canvas_read has it whole). */
 const BODY_CLIP = 280;
+/** After the first turn, cards within this many px of the selection (or of the note's card) are sent in full. */
+const NEAR_PX = 600;
+/** A note that says this gets the whole board again. */
+const FULL_BOARD = /\b(full|whole|entire)\s+board\b/i;
 
 /** Who and what the agent is in this room. */
 export interface AgentIdentity {
@@ -72,8 +76,10 @@ export interface AgentHooks {
   log(line: string): void;
   /** `@handoff <target> <request>` from the agent, during the turn of note `from` (null outside one). */
   handoff(target: string, request: string, from: ChatMsg | null): void;
-  /** A human note addressed to a worker (`@Name ...`); true when the room routed it there instead. */
-  direct(msg: ChatMsg): boolean;
+  /** A human note or comment that names an agent (`@Name ...`, or a thread assigned to one); true when the room routed it there instead. `page` is a comment's page. */
+  direct(msg: ChatMsg & { readonly page?: string | undefined }): boolean;
+  /** The board's history since `since` (epoch ms) as the agent's turn should read it: folded changes by others, then the last entries; "" when nothing relevant. */
+  changes(since: number): string;
   /** Lines naming who work can be handed to (main and each worker), for the turn's prompt. */
   workers(): string[];
 }
@@ -85,6 +91,8 @@ export interface AgentOptions {
   readonly frameMs?: number;
   /** Delay per typed chunk; 0 also drops the presence pauses (tests). */
   readonly typeMs?: number;
+  /** Puts back a card or link someone deleted (`@restore <id>`): "" when done, else why not. */
+  readonly restore?: (id: string, origin: string) => string;
 }
 
 /** A human's note and the page it is on: a comment's thread's page, else the page its sender is on. */
@@ -202,6 +210,7 @@ Action lines (exact format; text blocks end with @end):
 @parent <nodeId> <frameId|none>
 @add_edge <sourceId> <targetId> <optional short label>
 @delete <nodeId>
+@restore <id>                     (put back a card or link someone deleted: the "What changed on the board while you were away" section names what was deleted; a deletion by Isaac was on purpose, restore only when he asks)
 @handoff main <request, one line>   (only for what is outside your lane, below)
 @reply <threadId> <one line>          (answer in a comment thread other than this turn's)
 @pin <newThreadId> <nodeId> <one line>   (open a comment thread on a card; @pin <newThreadId> <x> <y> <line> for a spot)
@@ -257,6 +266,10 @@ export class CanvasAgent {
   /** Lines play live (a human joined and the held ones have been taken). */
   private opened = false;
   private closed = false;
+  /** When this agent last read the board for a turn: what changed after it is told as history. */
+  private lastLookAt = Date.now();
+  /** The whole board has been sent to this agent once (later turns send the cards near the selection in full). */
+  private sentBoard = false;
   private hadHumans = false;
   /** Each human's last selection the agent looked at, by awareness client. */
   private readonly looked = new Map<number, string>();
@@ -895,7 +908,30 @@ export class CanvasAgent {
     return lines.join("\n");
   }
 
-  /** Per-turn context: purpose, the pages, the page it is on (long bodies clipped), who is here and their selections, recent chat, the note. */
+  /** The cards in `seeds` and those whose centre is within `NEAR_PX` of one's centre: what a later turn gets in full. */
+  private nearby(seeds: ReadonlySet<string>): Set<string> {
+    const out = new Set<string>();
+    const centres: { x: number; y: number }[] = [];
+    for (const id of seeds) {
+      const b = this.actor.box(id);
+      if (b === null) continue;
+      out.add(id);
+      centres.push({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
+    }
+    for (const id of this.actor.nodes.keys()) {
+      const b = this.actor.box(id);
+      if (b === null || out.has(id) || id === "agenda" || id === "decisions") {
+        if (id === "agenda" || id === "decisions") out.add(id);
+        continue;
+      }
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      if (centres.some((c) => Math.hypot(c.x - cx, c.y - cy) <= NEAR_PX)) out.add(id);
+    }
+    return out;
+  }
+
+  /** Per-turn context: purpose, the pages, the page it is on (the whole board the first turn, then the cards near the selection), what changed, who is here, recent chat, the note. */
   private prompt(msg: Note | null): string {
     const lines: string[] = [];
     const title = str(this.doc.getMap(DOC_KEYS.meta), "title") || "Board";
@@ -914,12 +950,26 @@ export class CanvasAgent {
     }
     const selected = new Set<string>(msg?.page === here ? msg.nodeIds : []);
     for (const [, p] of this.humans()) if ((p.page ?? FIRST_PAGE) === here) for (const id of p.selected ?? []) selected.add(id);
-    lines.push("Coordinates in px, x grows right, y grows down. Each card: [id] type @x,y w×h, then title and body (clipped: canvas_read has it whole).");
+    // The whole board goes in on the first turn, and when the note asks for it; after that the cards at the
+    // selection or the note (and those near them) are in full and the rest is one line each, with the
+    // history above saying what changed: a long session does not resend every body each turn.
+    const full = !this.sentBoard || FULL_BOARD.test(msg?.text ?? "");
+    this.sentBoard = true;
+    const focus = full ? null : this.nearby(selected);
+    lines.push(
+      full
+        ? "Coordinates in px, x grows right, y grows down. Each card: [id] type @x,y w×h, then title and body (clipped: canvas_read has it whole)."
+        : `Coordinates in px. Cards at the selection or this note, and near them, are in full; the other ${String(Math.max(0, this.actor.nodes.size - (focus?.size ?? 0)))} are one line each ([id] type @x,y "title"): canvas_read <id> reads one whole, and "full board" in a note sends them all.`,
+    );
     for (const [id, m] of this.actor.nodes) {
       const b = this.actor.box(id);
       if (!b) continue;
       const type = str(m, "type");
       const parent = m.get("parent");
+      if (focus !== null && !focus.has(id)) {
+        lines.push(`[${id}] ${type} @${String(Math.round(b.x))},${String(Math.round(b.y))} "${excerpt(str(m, "title"), 50)}"${typeof parent === "string" ? ` in ${parent}` : ""}`);
+        continue;
+      }
       lines.push(`[${id}] ${type} @${String(Math.round(b.x))},${String(Math.round(b.y))} ${String(Math.round(b.w))}×${String(Math.round(b.h))}${typeof parent === "string" ? ` in frame ${parent}` : ""}`, `title: ${str(m, "title")}`);
       if (type === "image") lines.push(`image: ${str(m, "src")} (caption: ${str(m, "caption")})`);
       if (type === "proto") lines.push(`prototype in ${str(m, "system") || "relay"}${str(m, "viewport") === "mobile" ? ", mobile" : ""}`);
@@ -946,6 +996,10 @@ export class CanvasAgent {
     }
     const workers = this.hooks.workers();
     if (workers.length > 1) lines.push("", "# Workers in the room (a request in their lane can go to them with @handoff <Name> <request>)", ...workers.slice(1));
+    // What others did to the board since this agent last looked: so a deleted card is not a bug it reports.
+    const changes = this.hooks.changes(this.lastLookAt);
+    this.lastLookAt = Date.now();
+    if (changes !== "") lines.push("", "# What changed on the board while you were away", changes);
 
     const recent = this.chat
       .toArray()

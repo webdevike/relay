@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { type PageInfo, pagesOf } from "../../canvas-live/src/pages";
 import type { Presence, SessionInfo } from "../../canvas-live/src/shared";
+import type { Mentionable } from "../../canvas-live/src/mentions";
 import { roomAgent } from "./model";
 import {
   currentPage,
@@ -47,6 +48,11 @@ export function useThrottledPresence(): Map<number, Presence> {
 
 export function useSession(): SessionInfo | undefined {
   return useYSnapshot(() => yMeta.get("session") as SessionInfo | undefined);
+}
+
+/** The agents an `@` can name here: the registry's assistants and whoever joined, as the host lists them (`meta.mentionables`). */
+export function useMentionables(): Mentionable[] {
+  return useYSnapshot(() => (yMeta.get("mentionables") as Mentionable[] | undefined) ?? []);
 }
 
 /** The id of the page this viewer is on. */

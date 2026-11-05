@@ -120,6 +120,10 @@ export interface SessionInfo {
 }
 
 /** Messages an embedded client posts to its parent (iframe parent or React Native WebView). */
-export type EmbedEvent = { type: "canvas.ready"; slug: string } | { type: "canvas.ended"; slug: string; summary: string | null };
+export type EmbedEvent =
+	| { type: "canvas.ready"; slug: string }
+	| { type: "canvas.ended"; slug: string; summary: string | null }
+	/** The frame shows the carried page, view, selection and thread (carry.ts): Relay Desktop may swap it in now. */
+	| { type: "canvas.positioned"; slug: string };
 
 export const DOC_KEYS = { nodes: "nodes", edges: "edges", meta: "meta", chat: "chat", threads: "threads", settings: "settings", metrics: "metrics" } as const;

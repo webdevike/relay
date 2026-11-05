@@ -30,7 +30,9 @@ import {
 } from "@xyflow/react";
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
+import { type Carry, parseRestore, planRestore } from "../../canvas-live/src/carry";
 import type { CanvasLayout } from "../../canvas-live/src/layout";
+import { pagesOf } from "../../canvas-live/src/pages";
 import type { ClientMetrics } from "../../canvas-live/src/shared";
 import { anchorFor, newThreadId, openThread, type ThreadSnap } from "../../canvas-live/src/threads";
 import { RoomAgentContext } from "./avatar";
@@ -39,9 +41,10 @@ import { CanvasCard } from "./cards";
 import { CursorArrow, Cursors, follow, followToPage } from "./cursors";
 import { CanvasEdge } from "./edge";
 import { postEmbed } from "./embed";
-import { useAgent, useConnection, useCurrentPage, useSession, useThrottledPresence } from "./hooks";
+import { useAgent, useConnection, useCurrentPage, useMentionables, useSession, useThrottledPresence } from "./hooks";
 import { SideLog } from "./log";
 import { PagePanel } from "./pagepanel";
+import { MentionInput } from "./mention-input";
 import { Pins, ThreadPopover, centerOnThread, usePinSpots, useThreads } from "./pins";
 import {
   type CardNode,
@@ -156,6 +159,8 @@ function Board({
   onCentered,
   rfRef,
   pagesOpen,
+  restore,
+  onRestored,
   setPagesOpen,
 }: {
   pageId: string;
@@ -166,6 +171,9 @@ function Board({
   /** A thread to pan to once the page has opened (a comment row on another page was clicked). */
   centerThread: string | null;
   onCentered: () => void;
+  /** A view handed over by Relay Desktop's board (carry.ts), applied once this page is drawn. */
+  restore: Carry | null;
+  onRestored: () => void;
   /** The room's handle on this page's React Flow, for the side panel. */
   rfRef: RefObject<ReactFlowInstance<CardNode, LinkEdge> | null>;
   /** The page list in the top bar is open (kept by the room across page switches). */
@@ -191,6 +199,7 @@ function Board({
   const connection = useConnection();
   const session = useSession();
   const agent = useAgent();
+  const mentionables = useMentionables();
   // Only people on this page draw here (drafts and agent replies in its threads too).
   const presences = statesOnPage(useThrottledPresence(), pageId);
   const threads = useThreads(yThreads);
@@ -394,6 +403,25 @@ function Board({
       nds.map((n) => (!!n.selected === want.has(n.id) ? n : { ...n, selected: want.has(n.id) })),
     );
   }, []);
+
+  // The desktop handed over its view of this page (viewport, selection): put it there once the page is drawn, then say so a frame later.
+  useEffect(() => {
+    if (restore === null || restore.page !== pageId || opening) return;
+    let cancelled = false;
+    let frame = 0;
+    setSelection(restore.selection.filter((id) => yNodes.has(id)));
+    void Promise.resolve(restore.viewport === null ? undefined : rf.setViewport(restore.viewport, { duration: 0 })).then(() => {
+      if (cancelled) return;
+      // Two frames: the selection and the pins' spots are drawn before the desktop swaps this frame in.
+      frame = requestAnimationFrame(() => {
+        frame = requestAnimationFrame(onRestored);
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+    };
+  }, [restore, pageId, opening, rf, setSelection, onRestored]);
 
   /** Deletes now; a frame that still holds other cards first asks (keeping them is the default). */
   const requestDelete = useCallback(() => {
@@ -724,24 +752,22 @@ function Board({
           <IconCornerDownRight size={14} /> {attached.join(", ")}
         </div>
       ) : null}
-      <input
+      <MentionInput
         // Focus without letting the browser scroll the board to reveal the input.
-        ref={(el) => {
+        inputRef={(el) => {
           if (el && document.activeElement !== el) el.focus({ preventScroll: true });
         }}
         aria-label={`Comment for ${agent.name}`}
-        placeholder={`Comment for ${agent.name}, or @Name for a worker`}
+        placeholder={`Comment for ${agent.name}, or @ an agent`}
         enterKeyHint="send"
         value={chat.text}
-        onChange={(e) => {
-          setChat({ ...chat, text: e.target.value });
-          setPresence("draft", e.target.value);
+        candidates={mentionables}
+        onChange={(text) => {
+          setChat({ ...chat, text });
+          setPresence("draft", text);
         }}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Enter" && !e.nativeEvent.isComposing) send();
-          if (e.key === "Escape") closeChat();
-        }}
+        onEnter={send}
+        onEscape={closeChat}
         onBlur={() => {
           if (!chat.text) closeChat();
         }}
@@ -846,7 +872,7 @@ function Board({
         </div>
       ) : null}
       {composer}
-      <Pins threads={threads} spots={pinSpots} openId={openThreadId} presences={presences} onOpen={setOpenThread} />
+      <Pins threads={threads} spots={pinSpots} openId={openThreadId} presences={presences} onOpen={setOpenThread} movable={editable} />
       {openThreadSnap ? (
         <ThreadPopover
           key={openThreadSnap.id}
@@ -1093,6 +1119,33 @@ function Room() {
   const agent = useAgent();
   useEmbedEvents();
   const onCentered = useCallback(() => setCenterThread(null), []);
+  // Relay Desktop's Canvas page hands over the page, view, selection and open thread it was showing
+  // (carry.ts) while this frame loads behind its board: apply them, and say when the frame shows them.
+  const [restore, setRestore] = useState<Carry | null>(null);
+  useEffect(() => {
+    if (window.parent === window) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== window.parent) return;
+      const carry = parseRestore(e.data);
+      if (carry === null) return;
+      const plan = planRestore(carry, currentPage(), pagesOf(doc).map((p) => p.id));
+      if (!plan.applies) {
+        postEmbed(window, { type: "canvas.positioned", slug: env.slug });
+        return;
+      }
+      // A page that opens now (a fresh React Flow) starts where the desktop's camera was.
+      if (carry.viewport !== null) pageViewports.set(carry.page, carry.viewport);
+      setOpenThread(carry.thread === null ? null : { page: carry.page, id: carry.thread });
+      setRestore(carry);
+      if (plan.page !== null) setPage(plan.page);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+  const onRestored = useCallback(() => {
+    setRestore(null);
+    postEmbed(window, { type: "canvas.positioned", slug: env.slug });
+  }, []);
   // A thread stays open only on its own page.
   useEffect(() => setOpenThread((o) => (o?.page === pageId ? o : null)), [pageId]);
   const focusThread = (page: string, t: ThreadSnap) => {
@@ -1118,6 +1171,8 @@ function Room() {
           centerThread={centerThread}
           onCentered={onCentered}
           rfRef={rfRef}
+          restore={restore}
+          onRestored={onRestored}
           pagesOpen={pagesOpen}
           setPagesOpen={setPagesOpen}
         />

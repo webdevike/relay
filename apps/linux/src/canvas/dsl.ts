@@ -11,6 +11,7 @@
 //   @move_node <id> <x> <y>
 //   @add_edge <sourceId> <targetId> [label words]
 //   @delete <id>
+//   @restore <id>
 //   @add_image <newId> <x> <y> <w> <src>                   then title line, caption lines, @end
 //                                         (src: an absolute local path or an https image URL; may hold spaces)
 //   @add_frame <newId> <x> <y> <w> <h>                     then title line, @end
@@ -79,6 +80,7 @@ export type Action =
   | { kind: "parent"; id: string; frame: string | null }
   | { kind: "add_edge"; source: string; target: string; label: string }
   | { kind: "delete"; id: string }
+  | { kind: "restore"; id: string }
   | { kind: "handoff"; target: string; request: string }
   | { kind: "reply"; thread: string; text: string }
   | { kind: "pin"; id: string; node: string | null; x: number; y: number; text: string }
@@ -264,6 +266,9 @@ export class ActionParser {
         return;
       case "delete":
         if (a[0]) this.onAction({ kind: "delete", id: a[0] });
+        return;
+      case "restore":
+        if (a[0]) this.onAction({ kind: "restore", id: a[0] });
         return;
       case "add_image": {
         // A height before the src (`<x> <y> <w> <h> <src>`) is dropped: an image keeps its aspect ratio.

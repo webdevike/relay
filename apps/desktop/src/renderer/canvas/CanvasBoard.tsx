@@ -32,6 +32,7 @@ import type {
   CanvasViewport,
   InvokeInput,
 } from '@evaos/contract'
+import { useAssistants } from '../assistants/assistants-store'
 import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
 import { invoke, on } from '../ipc'
 import {
@@ -49,6 +50,7 @@ import {
 } from './board-model'
 import { onBoardOp } from './canvas-store'
 import { liveRoomOn, liveStore, useLiveRooms } from './live/live-store'
+import { carryOf, registerBoardCarry } from './live/handoff'
 import { CanvasEdge } from './CanvasEdge'
 import { BoardContext, type BoardActions } from './context'
 import { BoardControls, NodeActions, ToolBar, type Tool } from './chrome'
@@ -56,8 +58,8 @@ import { CanvasCard } from './cards/CanvasCard'
 import { PagePanel } from './PagePanel'
 import { Lightbox } from './Lightbox'
 import { boardImages } from './lightbox-model'
-import { Comments } from './Comments'
-import { anchorFor, nodeAt, type Anchor, type Box } from './comment-model'
+import { Comments, type AskState } from './Comments'
+import { anchorFor, mentionablesOf, nodeAt, routeOf, type Anchor, type Box } from './comment-model'
 import {
   absolutePositions,
   toBoard,
@@ -236,6 +238,23 @@ function Board({
     const synced = JSON.parse(syncedRef.current) as BoardFile
     return synced.viewport ?? vp
   }, [flow])
+
+  // A live room that takes this board over (it loads behind the board, live/handoff.ts) opens on
+  // what is shown here: this page, its view, the selection and the open thread.
+  const openThreadRef = useRef(openThread)
+  openThreadRef.current = openThread
+  useEffect(
+    () =>
+      registerBoardCarry(slug, () =>
+        carryOf({
+          page,
+          viewport: flow.getViewport(),
+          nodes: docRef.current.nodes,
+          thread: openThreadRef.current,
+        }),
+      ),
+    [slug, page, flow],
+  )
 
   const saveNow = useCallback(async () => {
     timerRef.current = undefined
@@ -483,15 +502,50 @@ function Board({
     [slug, page],
   )
 
+  /** Who an `@` can name: the registry's assistants. */
+  const agents = useAssistants((s) => s.data?.agents)
+  const mentionables = useMemo(() => mentionablesOf(agents ?? []), [agents])
+  /** Threads whose agent is being started, or refused. */
+  const [asks, setAsks] = useState<Record<string, AskState>>({})
+  const setAsk = (thread: string, state: AskState | null): void => {
+    if (goneRef.current || unmountedRef.current) return
+    setAsks((all) => {
+      const { [thread]: _was, ...rest } = all
+      return state === null ? rest : { ...rest, [thread]: state }
+    })
+  }
+
+  /** Starts a live session on the board with assistant `assistant` and hands it `thread` (the room takes over from here). */
+  const askAgent = async (thread: string, assistant: string): Promise<void> => {
+    setAsk(thread, { phase: 'asking' })
+    // The room starts from the file: what is pending on the board goes in first.
+    await flush()
+    const r = await invoke('canvas.live.ask', { slug, thread, page, assistant })
+    setAsk(thread, r.ok ? { phase: 'asking' } : { phase: 'refused', message: r.error.message })
+  }
+
   const commentProps = {
+    mentionables,
+    asks: liveOn ? {} : asks,
     onStart: async (text: string) => {
       if (!draft) return
-      const opened = await threadOp({ op: 'open', ...draft, text })
+      const { assignee } = routeOf(text, mentionables, null)
+      const opened = await threadOp({
+        op: 'open',
+        ...draft,
+        text,
+        ...(assignee === null ? {} : { assignee }),
+      })
       setDraft(null)
       setOpenThread(opened)
+      if (opened !== null && assignee !== null) void askAgent(opened, assignee)
     },
     onReply: async (thread: string, text: string) => {
-      await threadOp({ op: 'post', thread, text })
+      // A thread keeps its agent: a reply that names no one goes to the one it has.
+      const current = threads.find((t) => t.id === thread)?.assignee
+      const { assignee } = routeOf(text, mentionables, current)
+      await threadOp({ op: 'post', thread, text, ...(assignee === null ? {} : { assignee }) })
+      if (assignee !== null) void askAgent(thread, assignee)
     },
     onResolve: (thread: string, resolved: boolean) => {
       threadOp({ op: 'resolve', thread, resolved }).then(
@@ -501,11 +555,14 @@ function Board({
         (e: unknown) => setSave({ error: e instanceof Error ? e.message : String(e) }),
       )
     },
-    onAsk: async (thread: string): Promise<string | null> => {
-      // The room starts from the file: what is pending on the board goes in first.
-      await flush()
-      const r = await invoke('canvas.live.ask', { slug, thread, page })
-      return r.ok ? null : r.error.message
+    onMove: (thread: string, anchor: { node?: string; x: number; y: number }) => {
+      threadOp({ op: 'move', thread, ...anchor }).catch((e: unknown) =>
+        setSave({ error: e instanceof Error ? e.message : String(e) }),
+      )
+    },
+    onAsk: (thread: string) => {
+      const assignee = threads.find((t) => t.id === thread)?.assignee
+      if (assignee) void askAgent(thread, assignee)
     },
   }
 

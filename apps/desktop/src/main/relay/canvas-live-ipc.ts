@@ -48,12 +48,12 @@ export function registerCanvasLiveIpc(
     }
     return { url: canvasRoomUrl(origin, access.path) }
   })
-  handle(ctx, 'canvas.live.ask', async ({ slug, thread, page }) => {
+  handle(ctx, 'canvas.live.ask', async ({ slug, thread, page, assistant }) => {
     const body = {
       slug,
       thread: { id: thread, ...(page === undefined ? {} : { page }) },
       prompt: 'Isaac left a comment on this board from Relay Desktop; answer it in its thread.',
-      caller: { assistant: CANVAS_ASSISTANT },
+      caller: { assistant: assistant ?? CANVAS_ASSISTANT },
     }
     let reply: unknown
     try {

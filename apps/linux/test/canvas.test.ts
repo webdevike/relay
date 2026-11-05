@@ -946,6 +946,76 @@ describe("comment pins", () => {
     tab.leave();
   });
 
+  it("routes a comment by an @name anywhere in it, keeps the thread's agent for replies without a mention, and lists who can be named", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    service.join("ecs-roles", { name: "Mara", session: "Worker" });
+    expect(service.mentionables(room).some((c) => c.id === "mara" && c.joined === true)).toBe(true);
+    expect(room.sync.doc.getMap(DOC_KEYS.meta).get("mentionables")).toEqual(expect.arrayContaining([expect.objectContaining({ id: "mara", name: "Mara" })]));
+    const threads = threadsOf(tab.doc);
+    openThread(threads, "t-mid", { x: 2400, y: 80 }, isaac("c1", "could you, @mara, screenshot the settings tab?"));
+    await until(() => replies.length === 1, "the routed comment");
+    expect(replies[0]).toMatchObject({ sessionId: "s-chat:Build.Worker" });
+    expect(replies[0]?.text).toContain("could you, , screenshot the settings tab?");
+    expect(snapThreads(threads).find((t) => t.id === "t-mid")?.assignee).toBe("mara");
+    // A reply with no mention goes to the same agent, not to the canvas self.
+    postInThread(threads, "t-mid", isaac("c2", "and the other tab too"));
+    await until(() => replies.length === 2, "the reply without a mention");
+    expect(replies[1]).toMatchObject({ sessionId: "s-chat:Build.Worker" });
+    expect(replies[1]?.text).toContain("and the other tab too");
+    tab.leave();
+  });
+
+  it("sends the whole board on the first turn and only the cards near the note after, and says what it saved", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    const threads = threadsOf(tab.doc);
+    const first = [...pageMaps(tab.doc, "page-1").nodes.keys()][0] ?? "";
+    openThread(threads, "t-a", { node: first, x: 5, y: 5 }, isaac("c1", "what is this card?"));
+    await until(() => (brains[0]?.prompts.length ?? 0) >= 2 && brains[0]?.busy === false, "the second turn");
+    openThread(threads, "t-b", { node: first, x: 9, y: 9 }, isaac("c2", "and show the full board please"));
+    await until(() => (brains[0]?.prompts.length ?? 0) >= 3, "the third turn");
+    const [opener = "", second = "", third = ""] = brains[0]?.prompts ?? [];
+    expect(opener).toContain("Each card: [id] type @x,y w×h");
+    expect(second).toContain("one line each");
+    expect(second.length).toBeLessThan(opener.length);
+    expect(third).toContain("Each card: [id] type @x,y w×h");
+    console.info(`canvas prompt chars (~tokens = chars/4): opener ${String(opener.length)}, second turn ${String(second.length)}, full board asked ${String(third.length)}`);
+    tab.leave();
+  });
+
+  it("keeps a board history: who deleted what, folded for the agent's next turn, and puts a card back", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    const nodes = pageMaps(tab.doc, "page-1").nodes;
+    const ids = [...nodes.keys()].slice(0, 2);
+    expect(ids).toHaveLength(2);
+    tab.doc.transact(() => {
+      for (const id of ids) nodes.delete(id);
+    });
+    const { entries, summary } = service.historyOf("ecs-roles");
+    const deleted = entries.filter((e) => e.op === "delete" && e.kind === "node");
+    expect(deleted.map((e) => e.id).sort()).toEqual([...ids].sort());
+    expect(deleted.every((e) => e.who === "Isaac" && e.role === "human" && e.saved !== undefined)).toBe(true);
+    expect(summary.join("\n")).toContain("Isaac deleted 2 cards");
+    const first = ids[0] ?? "";
+    expect(service.restore("ecs-roles", first)).toEqual({ restored: first });
+    expect(nodes.has(first)).toBe(true);
+    expect(service.historyOf("ecs-roles").entries.some((e) => e.op === "restore" && e.id === first)).toBe(true);
+    expect(() => service.restore("ecs-roles", first)).toThrow(CanvasError);
+    expect(() => service.restore("ecs-roles", "never-existed")).toThrow(CanvasError);
+    tab.leave();
+  });
+
   it("dresses the canvas self as its assistant from the thread, work the assistant started, a helper, or the name it is given", async () => {
     const nova = session("s-nova", { kind: "assistant", assistant: "nova", title: "Nova" });
     const owned = session("s-owned", { owner: "nova", title: "Week plan" });

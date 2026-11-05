@@ -65,6 +65,18 @@ export class CanvasSync {
     return this.peers.size;
   }
 
+  /** The name of the human behind a doc change that came in on `origin` (a peer), when it is one of this room's. */
+  nameOf(origin: unknown): string | null {
+    const ids = this.peers.get(origin as CanvasPeer);
+    if (ids === undefined) return null;
+    const states = this.awareness.getStates() as Map<number, Partial<Presence>>;
+    for (const id of ids) {
+      const user = states.get(id)?.user;
+      if (user?.kind === "human") return user.name;
+    }
+    return null;
+  }
+
   /** Names of the humans present now, in join order. */
   humans(): string[] {
     const out: string[] = [];

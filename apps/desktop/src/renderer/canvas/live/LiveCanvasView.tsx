@@ -9,6 +9,10 @@ import { canvasThemeMessage } from './theme-message'
 import { useThemeConfig } from '../../theme/theme-config'
 import { backToChat, returnPointOf } from './return-point'
 import { isCommentKey } from './slash'
+import { POSITION_TIMEOUT_MS, readBoardCarry } from './handoff'
+import { restoreMessage } from '@relay/canvas-live/carry'
+
+const noop = (): void => {}
 
 /** "Isaac here", "Isaac and Sam here", "Isaac, Sam and Ana here"; empty with nobody in. */
 export function hereLabel(humans: readonly string[]): string {
@@ -26,10 +30,16 @@ export function hereLabel(humans: readonly string[]): string {
 export function LiveCanvasView({
   slug,
   roomId,
+  covered = false,
+  onPositioned = noop,
   onBoard,
 }: {
   slug: string
   roomId: string
+  /** The frame loads behind the board that is still on screen (handoff.ts): invisible until `onPositioned`. */
+  covered?: boolean
+  /** The frame shows the carried view (or cannot, in time): swap it in. */
+  onPositioned?: () => void
   onBoard: () => void
 }) {
   const room = useLiveRooms((s) => s.data?.rooms.find((r) => r.id === roomId) ?? null)
@@ -69,6 +79,14 @@ export function LiveCanvasView({
     }
   }, [open, slug, scheme])
 
+  const settled = useRef(false)
+  /** The room is as positioned as it will get: the page swaps it in (once). */
+  const settle = useCallback((): void => {
+    if (settled.current) return
+    settled.current = true
+    onPositioned()
+  }, [onPositioned])
+
   // The page follows the app's appearance and theme preset live, not only as it was when opened.
   const { config } = useThemeConfig()
   const postTheme = useCallback((): void => {
@@ -82,17 +100,37 @@ export function LiveCanvasView({
       if (e.source !== frame.current?.contentWindow) return
       const type = (e.data as { type?: unknown } | null)?.type
       if (type === 'canvas.ended') setEndedHere(true)
-      if (type === 'canvas.ready') postTheme()
+      if (type === 'canvas.ready') {
+        postTheme()
+        // Behind the board: hand the room the page, view, selection and thread the board shows.
+        if (covered && url !== null) {
+          const carry = readBoardCarry(slug)
+          if (carry === null) settle()
+          else frame.current?.contentWindow?.postMessage(restoreMessage(carry), new URL(url).origin)
+        }
+      }
+      if (type === 'canvas.positioned') settle()
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [postTheme])
+  }, [postTheme, covered, url, slug, settle])
+
+  // Swapping in must not wait on a frame that never answers, or a room that ended or could not open.
+  useEffect(() => {
+    if (!covered) return
+    if (ended || error !== null || !relayUp) {
+      settle()
+      return
+    }
+    const timer = window.setTimeout(settle, POSITION_TIMEOUT_MS)
+    return () => window.clearTimeout(timer)
+  }, [covered, ended, error, relayUp, settle])
 
   // `/` writes a comment on the board. The room page hears it only while its frame has focus, so a
   // press anywhere else in the app (header, sidebar, nothing focused) is passed in: the frame takes
   // focus (a page without the message handler then hears the next `/` itself) and is told to open it.
   useEffect(() => {
-    if (url === null) return
+    if (url === null || covered) return
     const origin = new URL(url).origin
     const onKey = (e: KeyboardEvent): void => {
       const win = frame.current
@@ -103,7 +141,7 @@ export function LiveCanvasView({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [url])
+  }, [url, covered])
 
   const origin = shown ? originPlace(shown) : null
   const canGoBack = !inPane && (returnPointOf(slug) !== null || origin !== null)
@@ -111,7 +149,14 @@ export function LiveCanvasView({
   const title = shown?.board || slug
 
   return (
-    <div className="eva-cv-page" data-testid="canvas-live" data-slug={slug}>
+    <div
+      className="eva-cv-page"
+      data-testid="canvas-live"
+      data-slug={slug}
+      data-covered={covered ? 'true' : undefined}
+      aria-hidden={covered ? true : undefined}
+      inert={covered}
+    >
       <header className="eva-cv-header">
         {canGoBack ? (
           <Button

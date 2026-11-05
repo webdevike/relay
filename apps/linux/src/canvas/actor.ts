@@ -46,6 +46,8 @@ export interface ActorOptions {
   readonly typeMs?: number;
   /** Nudge new notes and images off occupied spots; default `CANVAS_AVOID_OVERLAP=1`, else off. */
   readonly avoidOverlap?: boolean;
+  /** Puts back the card or link `id` someone deleted, as the actor with `origin`; "" when done, else why not. */
+  readonly restore?: (id: string, origin: string) => string;
 }
 
 /**
@@ -621,6 +623,11 @@ export class CanvasActor {
         });
         this.setP({ connecting: null });
         return null;
+      }
+      case "restore": {
+        // The room puts back what its history saved of a deleted card or link (and the links that went with it).
+        const why = this.options.restore?.(a.id, this.origin) ?? "restoring is not available here";
+        return why === "" ? null : why;
       }
       case "delete": {
         const b = this.box(a.id);

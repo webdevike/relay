@@ -1,11 +1,12 @@
 import { Button } from '@mantine/core'
 import { IconPlus } from '@tabler/icons-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { useReplacePlace } from '../pages/place-host'
 import { CanvasBoardView } from './CanvasBoard'
 import { canvasStore, newBoard, useCanvasList, useCanvasListSurface } from './canvas-store'
 import { LiveCanvasView } from './live/LiveCanvasView'
+import { layersFor } from './live/handoff'
 import { liveRoomOn, useLiveRooms } from './live/live-store'
 import './canvas.css'
 
@@ -38,10 +39,38 @@ export function CanvasPage({ place }: { place: Place }) {
   }, [slug])
 
   const shownRoom = liveId ?? roomId
-  if (slug !== null && shownRoom !== null) {
-    return <LiveCanvasView slug={slug} roomId={shownRoom} onBoard={() => setRoomId(null)} />
+  // A room that takes over a board on screen loads behind it and swaps in once positioned the same
+  // (handoff.ts): the viewport, page, selection and open thread are kept, with no reload flash.
+  const [positioned, setPositioned] = useState<string | null>(null)
+  const boardWasUp = useRef(false)
+  const layers = layersFor({
+    slug,
+    room: shownRoom,
+    boardWasUp: boardWasUp.current,
+    positioned,
+  })
+  useEffect(() => {
+    boardWasUp.current = layers.board
+  })
+  const onPositioned = useCallback(() => setPositioned(shownRoom), [shownRoom])
+  if (slug !== null) {
+    // One wrapper whether or not a room is up, so the board is not remounted when the frame appears beside it.
+    return (
+      <div className="eva-cv-stack">
+        {layers.board ? <CanvasBoardView key="board" slug={slug} /> : null}
+        {shownRoom !== null ? (
+          <LiveCanvasView
+            key="live"
+            slug={slug}
+            roomId={shownRoom}
+            covered={layers.covered}
+            onPositioned={onPositioned}
+            onBoard={() => setRoomId(null)}
+          />
+        ) : null}
+      </div>
+    )
   }
-  if (slug !== null) return <CanvasBoardView slug={slug} />
   if (entries === null) {
     return (
       <div className="eva-cv-empty" data-testid="canvas-empty">
