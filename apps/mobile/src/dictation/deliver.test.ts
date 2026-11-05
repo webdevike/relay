@@ -57,6 +57,32 @@ describe("deliverDictation", () => {
     ]);
   });
 
+  it("cancels the ask the session is blocked on before the reply, so the reply is not stuck behind it", async () => {
+    setDictationTarget({ kind: "agent", sessionId: "s1", pendingAskId: "k1" });
+    const { sent, send } = recorder();
+    await deliverDictation(
+      { text: "never mind", submit: true, skill: null, images: [], pasted: null, launch: false },
+      send,
+    );
+    expect(sent).toEqual([
+      { kind: "agent.ask.cancel", sessionId: "s1", askId: "k1" },
+      { kind: "agent.reply", sessionId: "s1", text: `${TAG}never mind`, submit: true },
+    ]);
+  });
+
+  it("still sends the reply when the ask had already closed elsewhere and the cancel is refused", async () => {
+    setDictationTarget({ kind: "agent", sessionId: "s1", pendingAskId: "k1" });
+    const sent: Command[] = [];
+    await deliverDictation(
+      { text: "hello", submit: true, skill: null, images: [], pasted: null, launch: false },
+      (cmd) => {
+        sent.push(cmd);
+        return cmd.kind === "agent.ask.cancel" ? Promise.reject(new Error("ask k1 already resolved")) : Promise.resolve();
+      },
+    );
+    expect(sent.map((c) => c.kind)).toEqual(["agent.ask.cancel", "agent.reply"]);
+  });
+
   it("prefixes the armed slash command verbatim", async () => {
     setDictationTarget({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
