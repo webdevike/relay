@@ -9,8 +9,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import type { AgentSkill } from "@relay/protocol";
 import { IconButton } from "@/ui/IconButton";
-import { PasteImageChip } from "@/ui/PasteImageChip";
 import { SuggestionList } from "@/ui/SuggestionList";
+import { usePasteImage } from "@/lib/pasteImage";
+import type { PendingImage } from "@/dictation/machine";
 import { completeSlash, slashMatches } from "@/lib/slash";
 import { spacing, type, useColors, useScheme } from "@/theme";
 
@@ -29,8 +30,8 @@ export interface TypedReplyProps {
   onSend: () => void;
   /** The session's commands, for the "/" menu; none until the host has answered `agent.options`. */
   skills?: readonly AgentSkill[] | undefined;
-  /** Attach the clipboard's image to the next send (iOS fields drop a pasted image). */
-  onPasteImage: () => void;
+  /** A pasted clipboard image (long-press the field, Paste) to attach to the next send. */
+  onPasteImage: (image: PendingImage) => void;
 }
 
 export function TypedReply({ draft, onDraft, canSend, onSend, onPasteImage, skills }: TypedReplyProps) {
@@ -42,6 +43,7 @@ export function TypedReply({ draft, onDraft, canSend, onSend, onPasteImage, skil
   useEffect(() => {
     field.current?.focus();
   }, []);
+  usePasteImage(focused, onPasteImage);
   const matches = useMemo(() => (skills === undefined ? [] : slashMatches(draft, skills)), [draft, skills]);
   const sendable = canSend && draft.trim() !== "";
   return (
@@ -62,7 +64,6 @@ export function TypedReply({ draft, onDraft, canSend, onSend, onPasteImage, skil
           />
         </View>
       )}
-      <PasteImageChip active={focused} onPaste={onPasteImage} style={styles.paste} />
       <TextInput
         ref={field}
         style={[styles.field, { backgroundColor: colors.bg, color: colors.text }]}
@@ -107,5 +108,4 @@ const styles = StyleSheet.create({
   },
   /** Pinned to the bottom-right corner, so it stays put as the draft grows. */
   send: { position: "absolute", right: INSET, bottom: INSET },
-  paste: { marginBottom: spacing.sm },
 });

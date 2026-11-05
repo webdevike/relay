@@ -7,6 +7,8 @@ import { spacing, useColors } from "@/theme";
 export interface ScreenProps {
   title?: string;
   headerRight?: ReactNode;
+  /** Replaces the title row altogether (Home's quiet machine line); the caller lays it out. */
+  header?: ReactNode;
   children: ReactNode;
   /** Body scrolls under a fixed header; for screens whose content can outgrow the viewport. */
   scroll?: boolean;
@@ -21,6 +23,7 @@ export interface ScreenProps {
 export function Screen({
   title,
   headerRight,
+  header,
   children,
   scroll = false,
   refreshControl,
@@ -36,7 +39,8 @@ export function Screen({
         };
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.bg }]} edges={["top", "bottom"]}>
-      {(title !== undefined || headerRight !== undefined) && (
+      {header}
+      {header === undefined && (title !== undefined || headerRight !== undefined) && (
         <View style={styles.header}>
           {title !== undefined && (
             <Text variant="largeTitle" style={styles.title}>

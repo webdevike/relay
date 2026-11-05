@@ -2,16 +2,18 @@
  * Home: iPhone-style widgets (`home/widgets`: usage, assistants, inbox, boards, and apps, the iOS
  * Settings-style list of everything the phone can do with the host; long-press to resize, remove
  * or edit, drag in jiggle mode), in pages one screen tall that swipe sideways once they outgrow
- * it. While the host's habit gate is locked its card leads. In jiggle mode the header holds Add
- * Widget and Done in place of the connection pill.
+ * it. While the host's habit gate is locked its card leads. There is no title: a quiet line of the
+ * machine's name and a status dot sits above the widgets, and only a host that is not connected gets
+ * a prominent state pill. In jiggle mode the header holds Add Widget and Done.
  */
 import { useState } from "react";
 import { useRouter } from "expo-router";
 import { StyleSheet, View } from "react-native";
 import { Screen } from "@/ui/Screen";
 import { Pill } from "@/ui/Pill";
+import { Text } from "@/ui/Text";
 import { Banner } from "@/ui/Banner";
-import { spacing } from "@/theme";
+import { spacing, useColors } from "@/theme";
 import { useConnectionStore, type ConnectionStatus } from "@/state/connection";
 import { useGateStore } from "@/state/gate";
 import { HabitGate } from "@/gate/HabitGate";
@@ -40,6 +42,7 @@ export default function Home() {
   const macName = useConnectionStore((state) => state.macName);
   const pairing = useConnectionStore((state) => state.pairing);
   const pill = pillFor[status];
+  const colors = useColors();
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
   // A held widget owns the finger; the page must not scroll under it.
   const holding = useWidgetUi((state) => state.holding);
@@ -49,8 +52,18 @@ export default function Home() {
   return (
     <View style={styles.root}>
       <Screen
-        title={macName ?? "Relay"}
-        headerRight={editing ? <WidgetEditBar /> : <Pill label={pill.label} tone={pill.tone} />}
+        header={
+          <View style={styles.status} accessibilityLabel={`${macName ?? "Relay"}, ${pill.label}`}>
+            <View style={styles.machine}>
+              <View style={[styles.dot, { backgroundColor: colors[status === "connected" ? "ok" : pill.tone] }]} />
+              <Text variant="caption" color="textMuted" numberOfLines={1} style={styles.name}>
+                {macName ?? "Relay"}
+              </Text>
+              {status !== "connected" && !editing && <Pill label={pill.label} tone={pill.tone} />}
+            </View>
+            {editing && <WidgetEditBar />}
+          </View>
+        }
         scroll
         scrollEnabled={!holding}
         onBodyHeight={setBodyHeight}
@@ -91,6 +104,10 @@ export default function Home() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  status: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md, paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.md, minHeight: 32 },
+  machine: { flexDirection: "row", alignItems: "center", gap: spacing.sm, flexShrink: 1 },
+  dot: { width: 6, height: 6, borderRadius: 3 },
+  name: { flexShrink: 1 },
   banner: { paddingBottom: spacing.lg },
   gate: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
 });

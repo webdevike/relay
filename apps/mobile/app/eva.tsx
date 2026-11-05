@@ -60,8 +60,8 @@ import { useConnectionStore } from "@/state/connection";
 import { requestAssistant, sendCommand, stopAssistant, subscribeAgent, unsubscribeAgent, watchArtifacts } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
-import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
-import { PasteImageChip } from "@/ui/PasteImageChip";
+import { photoOfImage } from "@/lib/clipboard";
+import { usePasteImage } from "@/lib/pasteImage";
 import { CallScreen } from "@/call/CallScreen";
 import { startVoiceCall } from "@/call/live";
 import { useCallStore } from "@/state/call";
@@ -188,15 +188,9 @@ function Thread({ agent }: { agent: string }) {
   const full = photos.length >= MAX_REPLY_IMAGES;
   const [composing, setComposing] = useState(false);
 
-  const attach = (source: "camera" | "library" | "clipboard"): void => {
+  const attach = (source: "camera" | "library"): void => {
     setFailure(null);
-    const single = (photo: Photo | null): Photo[] => (photo === null ? [] : [photo]);
-    const picked =
-      source === "library"
-        ? chooseLibraryPhotos(MAX_REPLY_IMAGES - photos.length)
-        : source === "camera"
-          ? choosePhoto("camera").then(single)
-          : readClipboardPhoto().then(single);
+    const picked = source === "library" ? chooseLibraryPhotos(MAX_REPLY_IMAGES - photos.length) : choosePhoto("camera").then((photo) => (photo === null ? [] : [photo]));
     picked.then(
       (added) => {
         setPhotos((current) => [...current, ...added].slice(0, MAX_REPLY_IMAGES));
@@ -206,6 +200,10 @@ function Thread({ agent }: { agent: string }) {
       },
     );
   };
+  // Long-press Paste in the field attaches a copied image (native `modules/paste-image`), shown in the tray like a picked photo.
+  usePasteImage(composing && connected && !listening && !full, (image) => {
+    setPhotos((current) => [...current, photoOfImage(image)].slice(0, MAX_REPLY_IMAGES));
+  });
 
   /**
    * Sends a turn: the composer's words and photos, or a tapped reply chip's label. Either shows the
@@ -336,27 +334,19 @@ function Thread({ agent }: { agent: string }) {
     );
   };
 
-  /** The attach menu, native too; the paste row is disabled when the clipboard holds no image. */
+  /** The attach menu, native too: the camera or the photo library. */
   const openAttach = (): void => {
     Keyboard.dismiss();
-    clipboardHasImage().then(
-      (has) => {
-        ActionSheetIOS.showActionSheetWithOptions(
-          {
-            title: full ? `Up to ${String(MAX_REPLY_IMAGES)} images` : "Attach",
-            options: ["Camera", "Photo library", has ? "Paste image" : "Paste image (none on the clipboard)", "Cancel"],
-            cancelButtonIndex: 3,
-            disabledButtonIndices: full ? [0, 1, 2] : has ? [] : [2],
-          },
-          (index) => {
-            if (index === 0) attach("camera");
-            if (index === 1) attach("library");
-            if (index === 2) attach("clipboard");
-          },
-        );
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: full ? `Up to ${String(MAX_REPLY_IMAGES)} images` : "Attach",
+        options: ["Camera", "Photo library", "Cancel"],
+        cancelButtonIndex: 2,
+        disabledButtonIndices: full ? [0, 1] : [],
       },
-      () => {
-        setFailure("Couldn't read the clipboard.");
+      (index) => {
+        if (index === 0) attach("camera");
+        if (index === 1) attach("library");
       },
     );
   };
@@ -522,7 +512,6 @@ function Thread({ agent }: { agent: string }) {
                   />
                 </View>
               )}
-              {!full && <PasteImageChip active={composing && connected && !listening} onPaste={() => { attach("clipboard"); }} style={styles.tray} />}
               <TextInput
                 ref={composer}
                 value={draft}
