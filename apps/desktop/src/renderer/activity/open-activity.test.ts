@@ -90,6 +90,31 @@ describe('openActivity', () => {
     expect(m.openInApp).not.toHaveBeenCalled()
   })
 
+  it('with a drill callback a session or helper transcript opens in place, not as a tab', async () => {
+    m.owned.mockResolvedValue({
+      ok: true,
+      value: { file: '/p/-x/t_abc.jsonl', title: 'Registered', closed: false },
+    })
+    const drill = vi.fn()
+    const started = item(
+      { to: 'chat', thread: 'session:abc', session: 'abc' },
+      { title: 'Layouts', model: 'opus', startedAt: 5 },
+    )
+    expect(await openActivity(started, 'here', drill)).toBe(true)
+    expect(drill).toHaveBeenCalledWith({
+      file: '/p/-x/t_abc.jsonl',
+      title: 'Layouts',
+      model: 'opus',
+      startedAt: 5,
+    })
+    await openActivity(item({ to: 'subagent', file: '/s/n/H.jsonl', name: 'H' }), 'here', drill)
+    expect(drill).toHaveBeenLastCalledWith(
+      expect.objectContaining({ file: '/s/n/H.jsonl', title: 'H' }),
+    )
+    expect(m.openSubagentTab).not.toHaveBeenCalled()
+    expect(m.openInApp).not.toHaveBeenCalled()
+  })
+
   it("opens a helper's transcript beside the chat in front", () => {
     openActivity(item({ to: 'subagent', file: '/s/n/H.jsonl', name: 'H' }, { kind: 'helper' }))
     expect(m.openSubagentTab).toHaveBeenCalledWith({

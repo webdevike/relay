@@ -34,8 +34,11 @@ import {
   toolsShown,
   useTiling,
 } from '../tiling/tiling-store'
-import { setChatTitle } from '../eva/names-store'
+import { agentTitle, setChatTitle } from '../eva/names-store'
 import { AgentCrumb, OwnedCrumb } from '../assistants/AgentCrumb'
+import { DrillCrumb } from './DrillCrumb'
+import { drillStore, useDrillTrail } from './drill-store'
+import { SubagentTranscript } from './SubagentTranscript'
 import { AgentNotch } from '../assistants/AgentNotch'
 import { useLocalRows } from './local-rows'
 import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
@@ -196,6 +199,14 @@ function ChatView({
   }, [shownId])
   const draftKey = draftKeyFor(pane, placeChat, browserScope(placeOf('chat'), tab))
 
+  // A chip's plain click swaps this pane to a session transcript; the trail is the way back, and
+  // it ends when the pane moves to another chat.
+  const trail = useDrillTrail(paneId)
+  const current = trail[trail.length - 1]
+  const paneFile = pane?.file ?? ''
+  useEffect(() => {
+    drillStore.popTo(paneId, 0)
+  }, [paneId, paneFile, placeChat])
   const hiddenDone = useChatStore((s) => s.hiddenDone)
   const hiddenNames = useMemo(() => {
     const names = new Set<string>()
@@ -278,8 +289,14 @@ function ChatView({
             ) : null}
             {/* An agent's thread names its way back: "< Assistants / Astra"; a chat it started,
                 "< Astra / ENG-6545 auto-work". */}
-            <h2 className="eva-heading eva-chat-title" title={pane.file || undefined}>
-              {agent !== null ? (
+            <h2 className="eva-heading eva-chat-title">
+              {current !== undefined ? (
+                <DrillCrumb
+                  paneId={paneId}
+                  root={agent !== null ? (agentTitle(agent) ?? agent) : pane.title}
+                  trail={trail}
+                />
+              ) : agent !== null ? (
                 <AgentCrumb id={agent} />
               ) : ownerAgent !== null ? (
                 <OwnedCrumb agent={ownerAgent} title={pane.title} />
@@ -336,7 +353,11 @@ function ChatView({
           {pane.error}
         </div>
       ) : null}
-      {pane && shownMessages && !(pane.file === '' && shownMessages.length === 0) ? (
+      {current !== undefined ? (
+        <div className="eva-chat-body" data-testid="drill-body">
+          <SubagentTranscript key={current.file} file={current.file} version={null} poll />
+        </div>
+      ) : pane && shownMessages && !(pane.file === '' && shownMessages.length === 0) ? (
         // The log and the pin rail side by side: the rail is fixed in the right gutter, outside the scroll.
         <div className="eva-chat-body" ref={bodyRef}>
           <PinsScope.Provider value={pins}>
@@ -377,24 +398,25 @@ function ChatView({
           hidden={hiddenNames}
           active={viewedSubagent}
           activity={spunOff}
-          onOpenActivity={(item) => {
-            void openActivity(item)
+          onOpenActivity={(item, split) => {
+            // A click swaps this pane to the transcript; Cmd+click splits it beside the pane.
+            void openActivity(item, 'here', split ? undefined : (e) => drillStore.push(paneId, e))
           }}
-          onOpen={(s) =>
-            openSubagentTab({
-              session: pane.file,
-              // A subagent's transcript lives in the session's folder, named like the session.
-              file: `${pane.file.replace(/\.jsonl$/, '')}/${s.file}`,
-              name: s.name,
-            })
-          }
+          onOpen={(s, split) => {
+            // A subagent's transcript lives in the session's folder, named like the session.
+            const file = `${pane.file.replace(/\.jsonl$/, '')}/${s.file}`
+            if (split) openSubagentTab({ session: pane.file, file, name: s.name })
+            else drillStore.push(paneId, { file, title: s.name })
+          }}
           onClearDone={() => chatStore.getState().clearDone(paneId)}
         />
       ) : null}
       <PendingDialog paneId={paneId} />
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
       <StatusStrip paneId={paneId} />
-      <Composer ref={composer} paneId={paneId} disabled={!pane} draftKey={draftKey} />
+      {current === undefined ? (
+        <Composer ref={composer} paneId={paneId} disabled={!pane} draftKey={draftKey} />
+      ) : null}
     </section>
   )
 }

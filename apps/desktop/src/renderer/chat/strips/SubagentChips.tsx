@@ -42,14 +42,15 @@ export interface SubagentChipsProps {
   hidden: ReadonlySet<string>
   /** The subagent whose transcript the side panel shows, if any. */
   active?: string | null
-  onOpen: (s: Subagent) => void
+  /** `split`: Cmd (or Ctrl) was held, so open it beside the pane instead of in place. */
+  onOpen: (s: Subagent, split: boolean) => void
   onClearDone: () => void
   /**
    * Everything else this chat's assistant has in progress (sessions, harnesses, canvas agents, and
    * helpers the transcripts do not list): a badge each, opened the way the Working tab's rows are.
    */
   activity?: readonly ActivityItem[]
-  onOpenActivity?: (item: ActivityItem) => void
+  onOpenActivity?: (item: ActivityItem, split: boolean) => void
 }
 
 /**
@@ -100,7 +101,7 @@ export function SubagentChips({
                 data-active={active === s.name ? 'true' : undefined}
                 aria-pressed={active === s.name}
                 aria-label={`Subagent ${s.name}, ${state}`}
-                onClick={() => onOpen(s)}
+                onClick={(e) => onOpen(s, e.metaKey || e.ctrlKey)}
               >
                 <SubagentStateIcon state={state} />
                 <KIND_ICON.helper size={12} stroke={1.5} aria-hidden="true" />
@@ -138,7 +139,7 @@ export function SubagentChips({
                 data-state={waiting ? 'waiting' : 'running'}
                 data-kind={item.kind}
                 aria-label={`${item.kind} ${item.title}, ${waiting ? 'waiting on you' : 'running'}`}
-                onClick={() => onOpenActivity?.(item)}
+                onClick={(e) => onOpenActivity?.(item, e.metaKey || e.ctrlKey)}
               >
                 {waiting ? (
                   <IconHandStop size={12} aria-hidden="true" />

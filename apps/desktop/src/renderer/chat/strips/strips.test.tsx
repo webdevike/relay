@@ -100,7 +100,7 @@ describe('SubagentChips activity badges', () => {
       expect(chip.querySelectorAll('svg').length).toBeGreaterThanOrEqual(1)
     }
     await user.click(screen.getByTestId('activity-chip-harness:w1:p3'))
-    expect(opened).toHaveBeenCalledWith(harness)
+    expect(opened).toHaveBeenCalledWith(harness, false)
   })
 
   it("an activity chip's hover says the session's title, model and how long it has run", async () => {
@@ -240,9 +240,27 @@ describe('SubagentChips', () => {
       />,
     )
     await user.click(screen.getByTestId('subagent-chip-b'))
-    expect(open).toHaveBeenCalledWith(b)
+    expect(open).toHaveBeenCalledWith(b, false)
     expect(screen.getByTestId('subagent-chip-a')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('subagent-chip-b')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('Cmd+click on a chip asks for a split', async () => {
+    const user = userEvent.setup()
+    const open = vi.fn()
+    const b = sub('b', false)
+    wrap(
+      <SubagentChips
+        subagents={[b]}
+        hidden={new Set()}
+        onOpen={open}
+        onClearDone={() => undefined}
+      />,
+    )
+    await user.keyboard('{Meta>}')
+    await user.click(screen.getByTestId('subagent-chip-b'))
+    await user.keyboard('{/Meta}')
+    expect(open).toHaveBeenCalledWith(b, true)
   })
 })
 

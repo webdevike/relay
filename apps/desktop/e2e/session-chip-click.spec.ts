@@ -91,7 +91,7 @@ const NOVA_THREAD: HostSession = {
 }
 const startedAt = Date.now() - 7 * 60_000
 
-test('an agent-session chip opens that session live transcript beside the chat', async ({
+test('a session chip opens in place under a crumb, Cmd+click splits it beside', async ({
   shell,
 }) => {
   const shot = async (name: string): Promise<void> => {
@@ -148,29 +148,25 @@ test('an agent-session chip opens that session live transcript beside the chat',
     await shot('2-hover-title-model-elapsed')
   }
 
+  // A plain click swaps this pane in place to the transcript, under a "Nova / <title>" crumb.
   await chip.click()
   const transcriptView = shell.locator(sel('subagent-transcript'))
-  if (STAGE === 'before') {
-    // What the click did on the build without the fix.
-    await shell.waitForTimeout(2500)
-    const opened = {
-      transcript: await transcriptView.count(),
-      tabs: await shell.locator('[data-testid^="pane-tab-subagent:"]').count(),
-    }
-    fs.mkdirSync(PROOF_DIR, { recursive: true })
-    fs.writeFileSync(path.join(PROOF_DIR, 'before-observations.json'), JSON.stringify(opened))
-    await shot('3-after-click-nothing-opened')
-    return
-  }
   await expect(transcriptView).toBeVisible()
   await expect(transcriptView).toContainText('Isolate layouts per chat')
   await expect(transcriptView).toContainText('Per-chat layouts: reading the dock store.')
-  await expect(shell.locator('[data-testid^="pane-tab-subagent:"]')).toHaveCount(1)
-  // Still on Nova's page: the transcript opened beside it, it did not replace it.
-  await expect(shell.locator(sel('chat-pane')).locator(sel('chat-log'))).toContainText('Hi Nova')
-  await shot('3-transcript-open-beside-nova')
+  await expect(shell.locator(sel('drill-crumb'))).toContainText('Nova')
+  await expect(shell.locator(sel('drill-title'))).toHaveText('Per-chat isolated pane layouts')
+  await expect(shell.getByText('Hi Nova')).toHaveCount(0)
+  await expect(shell.locator('[data-testid^="pane-tab-subagent:"]')).toHaveCount(0)
+  // No raw transcript path anywhere in a title tooltip.
+  await expect(shell.locator('[title*=".jsonl"]')).toHaveCount(0)
+  await shot('3-in-place-with-breadcrumb')
 
-  // Live: a line the session writes while its tab is open shows without another click.
+  // The crumb's title says the model and how long it has run on hover.
+  await shell.locator(sel('drill-title')).hover()
+  await expect(shell.getByText('claude-opus-5-5 \u00b7 running 7m')).toBeVisible()
+
+  // Live: a line the session writes while it is open shows without another click.
   fs.appendFileSync(
     sessionFile,
     JSON.stringify({
@@ -186,7 +182,21 @@ test('an agent-session chip opens that session live transcript beside the chat',
   await expect(transcriptView).toContainText('Wrote the per-chat layout map.', { timeout: 8000 })
   await shot('4-live-append')
 
-  // Clicking it again focuses the same tab; it does not open a second.
+  // Back (the arrow, or the root name) returns to Nova's thread.
+  await shell.locator(sel('drill-back')).click()
+  await expect(shell.locator(sel('drill-crumb'))).toHaveCount(0)
+  await expect(shell.getByText('Hi Nova')).toBeVisible()
+  await shot('5-back-on-thread')
   await chip.click()
+  await expect(transcriptView).toBeVisible()
+  await shell.locator(sel('drill-root')).click()
+  await expect(shell.getByText('Hi Nova')).toBeVisible()
+
+  // Cmd+click splits it beside the pane, in this workspace; the thread stays where it is.
+  await chip.click({ modifiers: ['Meta'] })
   await expect(shell.locator('[data-testid^="pane-tab-subagent:"]')).toHaveCount(1)
+  await expect(transcriptView).toContainText('Isolate layouts per chat')
+  await expect(shell.locator(sel('drill-crumb'))).toHaveCount(0)
+  await expect(shell.getByText('Hi Nova')).toBeVisible()
+  await shot('6-cmd-click-split')
 })

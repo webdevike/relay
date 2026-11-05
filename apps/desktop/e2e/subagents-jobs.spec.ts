@@ -73,7 +73,7 @@ test('subagent chips: running and done, transcript panel, Clear done, live updat
   expect(gap).toBeLessThanOrEqual(2)
 
   // A chip opens its transcript in a tool pane tab, read only.
-  await chip(shell, 'b').click()
+  await chip(shell, 'b').click({ modifiers: ['Meta'] })
   const tab = shell.locator('[data-testid^="pane-tab-subagent:"]')
   await expect(tab).toHaveCount(1)
   await expect(tab).toContainText('b')

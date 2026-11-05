@@ -513,7 +513,7 @@ for (const s of SCHEMES) {
     await pane.locator('[data-testid=jobs-strip] button').first().click()
     await expect(pane.locator('[data-testid=jobs-row]')).toHaveCount(1)
     await shot(app, shell, `live-${s}-jobs-strip-open`, `Jobs strip expanded while omp runs, ${s}`)
-    await pane.locator('[data-testid=subagent-chip-ReviewCsvWriter]').click()
+    await pane.locator('[data-testid=subagent-chip-ReviewCsvWriter]').click({ modifiers: ['Meta'] })
     await expect(shell.locator('[data-testid=subagent-transcript]')).toBeVisible()
     await shot(
       app,
