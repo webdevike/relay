@@ -54,7 +54,7 @@ export function activityBadges(items: readonly ActivityItem[], thread: string, l
 export function runningSessionIds(items: readonly ActivityItem[], thread: string): Set<string> {
   const ids = new Set<string>();
   for (const item of ownedActive(items, thread)) {
-    const sessionId = sessionOf(item);
+    const sessionId = sessionOf(item, undefined);
     if (sessionId !== undefined) ids.add(sessionId);
   }
   return ids;
