@@ -21,6 +21,22 @@ describe('MessageRow', () => {
     expect(screen.getByText('hello there')).toHaveClass('eva-bubble')
   })
 
+  it('shows a typed direct image link as a picture, not a link, and no empty bubble for a bare one', () => {
+    const url = 'https://pixie.haus/sprites/a/b.webp'
+    const { container } = wrap(<MessageRow m={makeMessage('u', 'user', url)} />)
+    expect(container.querySelector('.eva-bubble')).toBeNull()
+    expect(screen.getByTestId('md-image').querySelector('img')).toHaveAttribute(
+      'src',
+      expect.stringContaining('pixie.haus'),
+    )
+  })
+
+  it('keeps the words around a typed image link in the bubble', () => {
+    wrap(<MessageRow m={makeMessage('u', 'user', 'use https://x.io/p.jpg please')} />)
+    expect(screen.getByText('use please')).toHaveClass('eva-bubble')
+    expect(screen.getByTestId('md-image')).toBeInTheDocument()
+  })
+
   it('does not paint an empty bubble for an image-only prompt', () => {
     const { container } = wrap(
       <MessageRow m={makeMessage('u', 'user', '', { images: [{ label: 'Image 1', src: PNG }] })} />,

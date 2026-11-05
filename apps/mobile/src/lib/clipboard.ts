@@ -17,6 +17,11 @@ export async function readClipboardImage(): Promise<PendingImage | null> {
   return { mimeType: "image/jpeg", data, width: image.size.width, height: image.size.height };
 }
 
+/** Whether the clipboard holds an image, without reading it (and so without iOS's paste prompt). */
+export async function clipboardHasImage(): Promise<boolean> {
+  return Clipboard.hasImageAsync();
+}
+
 /** A pasted or clipboard image as a `Photo` (wire bytes plus a data-URI preview). */
 export function photoOfImage(image: PendingImage): Photo {
   return {

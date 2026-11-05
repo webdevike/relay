@@ -4,6 +4,8 @@ import { splitReplies } from '@evaos/chat-core/replies'
 import { ChatImage } from './ChatImage'
 import { ImageViewer } from './ImageViewer'
 import { Markdown } from './markdown/Markdown'
+import { MarkdownMedia } from './markdown/MarkdownMedia'
+import { userImageUrls } from '@evaos/chat-core/image-urls'
 import { WidgetScope } from './widgets/actions'
 import { ToolBlock, ToolGroup } from './ToolRows'
 import { BubbleActions } from './reactions/BubbleActions'
@@ -82,13 +84,24 @@ function MessageRowImpl({ m, live = false }: { m: ChatMessage; live?: boolean })
   if (background) {
     body = <BackgroundRow m={background} at={m.at} />
   } else if (m.role === 'user') {
-    const text = m.text.trim() !== ''
+    // A direct image link he typed shows as a picture, not a link.
+    const linked = userImageUrls(m.text)
+    const text = linked.rest.trim() !== ''
+    const pictures = linked.urls.map((src) => <MarkdownMedia key={src} src={src} alt="" />)
     // Tapbacks go on the text bubble, or on the images of an image-only prompt.
     body = (
       <div className="eva-turn-user">
         {text ? <Images images={m.images} /> : null}
+        {text ? pictures : null}
         <BubbleActions m={m} corner="start">
-          {text ? <div className="eva-bubble">{m.text}</div> : <Images images={m.images} />}
+          {text ? (
+            <div className="eva-bubble">{linked.rest}</div>
+          ) : (
+            <>
+              <Images images={m.images} />
+              {pictures}
+            </>
+          )}
         </BubbleActions>
       </div>
     )

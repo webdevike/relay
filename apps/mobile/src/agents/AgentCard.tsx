@@ -14,6 +14,8 @@ import { echoRows, type UserEcho } from "@/lib/userEcho";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
+import { MarkdownImages } from "./MarkdownImages";
+import { userImageUrls } from "@evaos/chat-core/image-urls";
 import { ChatBubble } from "./BubbleMenu";
 import { bubbleReactionKey } from "@/lib/reactions";
 import { ActivityRow } from "./ActivityRow";
@@ -133,7 +135,10 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending }: Message
   switch (message.role) {
     case "user": {
       // A slash command reads as one: the command in a chip, whatever followed it under.
-      const { command, rest } = userBubble(message.text);
+      const { command, rest: typed } = userBubble(message.text);
+      // A direct image link he typed shows as a picture, not a link.
+      const linked = userImageUrls(typed);
+      const rest = linked.rest;
       return (
         <View style={{ alignItems: "flex-end", paddingHorizontal: spacing.xl, gap: spacing.xs }}>
           <ChatBubble
@@ -159,6 +164,7 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending }: Message
               }}
             >
               {command !== undefined && <Pill label={command} tone="accent" />}
+              {linked.urls.length > 0 && <MarkdownImages images={linked.urls.map((src) => ({ src, alt: "" }))} />}
               {rest.length > 0 && <MessageText text={rest} large />}
               {images}
             </View>

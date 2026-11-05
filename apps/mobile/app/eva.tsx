@@ -39,7 +39,6 @@ import { ScrollToBottom } from "@/ui/ScrollToBottom";
 import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
 import { useMessageEntrances } from "@/ui/useMessageEntrances";
 import { ImageViewer } from "@/agents/ImageViewer";
-import { MarkdownImages } from "@/agents/MarkdownImages";
 import { MessageImageStack } from "@/agents/MessageImageStack";
 import { bubbleSegments, topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
@@ -61,6 +60,9 @@ import { requestAssistant, sendCommand, stopAssistant, subscribeAgent, unsubscri
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
 import { photoOfImage } from "@/lib/clipboard";
+import { userImageUrls } from "@evaos/chat-core/image-urls";
+import { MarkdownImages } from "@/agents/MarkdownImages";
+import { PasteImageChip } from "@/ui/PasteImageChip";
 import { usePasteImage } from "@/lib/pasteImage";
 import { CallScreen } from "@/call/CallScreen";
 import { startVoiceCall } from "@/call/live";
@@ -512,6 +514,15 @@ function Thread({ agent }: { agent: string }) {
                   />
                 </View>
               )}
+              {!full && (
+                <PasteImageChip
+                  active={composing && connected && !listening}
+                  onImage={(image) => {
+                    setPhotos((current) => [...current, photoOfImage(image)].slice(0, MAX_REPLY_IMAGES));
+                  }}
+                  style={styles.tray}
+                />
+              )}
               <TextInput
                 ref={composer}
                 value={draft}
@@ -685,22 +696,31 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
   const background = backgroundOf(message);
   if (background !== null) return <BackgroundRow message={background} at={message.at} fill={bubbleFill} />;
   switch (message.role) {
-    case "user":
+    case "user": {
+      // A direct image link Isaac typed shows as a picture above the bubble, like an attached photo.
+      const linked = userImageUrls(message.text);
+      const bubbleText = linked.rest;
+      const showText = bubbleText !== "" || (imageCount === 0 && linked.urls.length === 0);
       return (
         <View style={styles.userRow}>
           {images("flex-end")}
-          {(hasText || imageCount === 0) && (
+          {linked.urls.length > 0 && (
+            <View style={hasText ? styles.imagesAbove : undefined}>
+              <MarkdownImages images={linked.urls.map((src) => ({ src, alt: "" }))} />
+            </View>
+          )}
+          {showText && (
             <ChatBubble
               messageKey={reactionKey}
               side="right"
-              text={message.text}
+              text={bubbleText}
               style={styles.userBubbleFrame}
               radius={USER_RADIUS}
               ring={page}
               accessibilityLabel={message.text}
             >
               <View style={[styles.userBubble, { backgroundColor: colors.bubbleUser }]}>
-                <Text style={styles.userText}>{message.text}</Text>
+                <Text style={styles.userText}>{bubbleText}</Text>
               </View>
             </ChatBubble>
           )}
@@ -711,6 +731,7 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
           )}
         </View>
       );
+    }
     case "assistant": {
       // Markdown images Eva embeds stack above the bubble as tiles, as Dot's do; the prose keeps its bubble.
       const { images: tiles, hasBody } = topLevelImages(message.text);
