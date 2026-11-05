@@ -11,6 +11,8 @@
 //   threads:  Y.Map<id, Y.Map>  comment pins and their threads (threads.ts) { node?, x, y, resolved, messages: Y.Array<ThreadMsg> }
 //   settings: Y.Map             { model: ModelKey, tidy?: boolean (false: cards may overlap and links draw as curves through them) }
 //   metrics:  Y.Map             "s:<msgId>" → ServerMetrics, "c:<msgId>" → ClientMetrics
+//   pages:    page-1 is the maps above; every other page has nodes:<pageId>, edges:<pageId>, threads:<pageId>
+//             and meta "viewport:<pageId>"; meta.pages holds the order and titles (pages.ts)
 
 /**
  * `ui`: a live OpenUI widget; `title` is its card title and `body` its OpenUI Lang source (Query data, buttons and inputs run in every client).

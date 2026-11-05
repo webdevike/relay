@@ -125,7 +125,7 @@ describe("pages in the board file", () => {
   it("refuses bad and repeated page ids", () => {
     expect(() => parseBoard('{"pages":[{"id":"Bad Id","title":"x"}]}')).toThrow(BoardError);
     expect(() => parseBoard('{"pages":[{"id":"a","title":"x"},{"id":"a","title":"y"}]}')).toThrow(/used twice/);
-    expect(() => parseBoard('{"pages":[{"id":"a","title":"x","nodes":[{"id":"n","type":"blob"}]}]}')).toThrow(/pages\[0\]\.nodes\[0\]\.type/);
+    expect(() => parseBoard('{"pages":[{"id":"a","title":"x","nodes":[{"id":"n","type":"two words"}]}]}')).toThrow(/pages\[0\]\.nodes\[0\]\.type/);
   });
 });
 

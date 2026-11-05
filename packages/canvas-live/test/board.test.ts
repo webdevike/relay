@@ -59,11 +59,64 @@ describe("boardText", () => {
     expect([0, -0, 115, 0.31, -560, 1e30, 1.5e-7, 12.5, 0.1].map(f32Text)).toEqual(["0.0", "-0.0", "115.0", "0.31", "-560.0", "1e30", "1.5e-7", "12.5", "0.1"]);
   });
 
-  it("drops unknown fields and refuses newer versions", () => {
-    const b = parseBoard('{"version":1,"title":"t","extra":1,"nodes":[{"id":"a","type":"note","z":3,"data":{"title":"x","bogus":2}}]}');
-    expect(b.nodes[0]).toEqual({ id: "a", type: "note", data: { title: "x" } });
+  it("refuses newer versions and malformed kinds", () => {
     expect(() => parseBoard('{"version":2}')).toThrow(BoardError);
-    expect(() => parseBoard('{"nodes":[{"id":"a","type":"blob"}]}')).toThrow(BoardError);
+    expect(() => parseBoard('{"nodes":[{"id":"a","type":"two words"}]}')).toThrow(BoardError);
+    expect(() => parseBoard('{"nodes":[{"id":"a","type":3}]}')).toThrow(BoardError);
+  });
+
+  it("keeps node kinds and keys it does not know, through the file, a room and an unaware writer", () => {
+    const t = `{
+  "version": 1,
+  "title": "t",
+  "nodes": [
+    {
+      "id": "a",
+      "type": "html",
+      "x": 1.0,
+      "data": {
+        "title": "Live copy",
+        "html": "<b>hi</b>",
+        "opts": {
+          "dark": true,
+          "n": 1.5
+        }
+      },
+      "locked": true
+    },
+    {
+      "id": "b",
+      "type": "note"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e",
+      "source": "a",
+      "target": "b",
+      "curve": "step"
+    }
+  ],
+  "theme": [
+    "warm",
+    null,
+    2
+  ]
+}
+`;
+    const b = parseBoard(t);
+    expect(b.nodes[0]).toEqual({ id: "a", type: "html", x: 1, data: { title: "Live copy", extra: { html: "<b>hi</b>", opts: { dark: true, n: 1.5 } } }, extra: { locked: true } });
+    expect(boardText(b)).toBe(t);
+    const doc = new Y.Doc();
+    seedDoc(doc, b);
+    expect(boardText(exportBoard(doc))).toBe(t);
+    // A writer that knows none of it (native EvaOS, an older Relay) moves a card: the room keeps every unknown kind and key.
+    const unaware = structuredClone(b);
+    delete unaware.extra;
+    unaware.nodes = [{ id: "a", type: "html", x: 50, data: { title: "Live copy" } }, { id: "b", type: "note" }];
+    unaware.edges = [{ id: "e", source: "a", target: "b" }];
+    mergeBoardIntoDoc(doc, unaware, "file", b);
+    expect(boardText(exportBoard(doc))).toBe(t.replace('"x": 1.0', '"x": 50.0'));
   });
 });
 

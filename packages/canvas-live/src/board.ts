@@ -8,7 +8,7 @@
 
 import * as Y from "yjs";
 import type { CanvasLayout } from "./layout";
-import { DOC_KEYS, NODE_KINDS, PLAIN_DATA_KEYS, type NodeKind, type TextField } from "./shared";
+import { DOC_KEYS, PLAIN_DATA_KEYS, type NodeKind, type TextField } from "./shared";
 import { FIRST_PAGE, FIRST_PAGE_TITLE, isSinglePage, MAX_PAGES, PAGE_ID, pageKey, pageMaps, pagesOf, setPages, type PageInfo, type PageMaps } from "./pages";
 import { snapThreads, THREAD_ID, threadMap, type ThreadAnchor, type ThreadMap, type ThreadMsg } from "./threads";
 
@@ -37,17 +37,22 @@ export interface BoardNodeData {
   system?: string;
   /** A `proto` node's screen: `mobile`, else desktop. */
   viewport?: string;
+  /** Data keys this build does not know, kept as the file had them so no writer loses them. */
+  extra?: Record<string, unknown>;
 }
 
 export interface BoardNode {
   id: string;
-  type: NodeKind;
+  /** One of NODE_KINDS, or a kind a newer writer added: kept as it is (shown as a plain card). */
+  type: NodeKind | (string & {});
   x?: number;
   y?: number;
   w?: number;
   h?: number;
   parent?: string;
   data?: BoardNodeData;
+  /** Node keys this build does not know, kept as the file had them. */
+  extra?: Record<string, unknown>;
 }
 
 export interface BoardEdge {
@@ -58,6 +63,8 @@ export interface BoardEdge {
   targetHandle?: string;
   label?: string;
   tone?: string;
+  /** Edge keys this build does not know, kept as the file had them. */
+  extra?: Record<string, unknown>;
 }
 
 export interface BoardViewport {
@@ -101,12 +108,19 @@ export interface Board {
   threads?: BoardThread[];
   /** Every page in order, when the board has more than page-1 (or renamed it). Absent: the room's pages are left as they are. */
   pages?: BoardPage[];
+  /** Top-level keys this build does not know, kept as the file had them. */
+  extra?: Record<string, unknown>;
 }
 
 export class BoardError extends Error {}
 
 const LAYOUTS: readonly string[] = ["grid", "tree", "flow"];
 const DATA_KEYS = ["title", "body", ...PLAIN_DATA_KEYS] as const;
+const NODE_KEYS: readonly string[] = ["id", "type", "x", "y", "w", "h", "parent", "data"];
+const EDGE_FILE_KEYS: readonly string[] = ["id", "source", "target", "sourceHandle", "targetHandle", "label", "tone"];
+const BOARD_KEYS: readonly string[] = ["version", "title", "layout", "nodes", "edges", "viewport", "threads", "pages"];
+/** A node kind: one of NODE_KINDS, or one a newer writer added. */
+const KIND = /^[A-Za-z][\w-]{0,99}$/;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -130,6 +144,20 @@ function defined<T extends object>(fields: { [K in keyof T]: T[K] | undefined })
   return out as T;
 }
 
+/**
+ * The keys of `v` not in `known`, in file order; undefined when there are none. Kept on the
+ * board so a writer that does not know them (an older Relay, the desktop) never drops them.
+ */
+function extraOf(v: Record<string, unknown>, known: readonly string[]): Record<string, unknown> | undefined {
+  let out: Record<string, unknown> | undefined;
+  for (const [k, val] of Object.entries(v)) {
+    if (known.includes(k)) continue;
+    out ??= {};
+    out[k] = val;
+  }
+  return out;
+}
+
 function parseData(v: unknown, where: string): BoardNodeData | undefined {
   if (v === undefined) return undefined;
   if (!isObj(v)) throw new BoardError(`${where}: expected an object`);
@@ -150,6 +178,8 @@ function parseData(v: unknown, where: string): BoardNodeData | undefined {
       if (s !== undefined) out[key] = s;
     }
   }
+  const extra = extraOf(v, DATA_KEYS);
+  if (extra !== undefined) out["extra"] = extra;
   return out;
 }
 
@@ -198,16 +228,17 @@ function parseContent(raw: Record<string, unknown>, prefix: string): Pick<Board,
     const where = `${prefix}nodes[${i}]`;
     if (!isObj(n)) throw new BoardError(`${where}: expected an object`);
     const type = n["type"];
-    if (typeof type !== "string" || !(NODE_KINDS as readonly string[]).includes(type)) throw new BoardError(`${where}.type: unknown kind`);
+    if (typeof type !== "string" || !KIND.test(type)) throw new BoardError(`${where}.type: expected a kind (a word)`);
     return defined<BoardNode>({
       id: str(n["id"], `${where}.id`, 500),
-      type: type as NodeKind,
+      type,
       x: coord(n["x"], `${where}.x`),
       y: coord(n["y"], `${where}.y`),
       w: coord(n["w"], `${where}.w`),
       h: coord(n["h"], `${where}.h`),
       parent: optStr(n["parent"], `${where}.parent`, 500),
       data: parseData(n["data"], `${where}.data`),
+      extra: extraOf(n, NODE_KEYS),
     });
   });
   const edges = edgesRaw.map((e, i): BoardEdge => {
@@ -221,6 +252,7 @@ function parseContent(raw: Record<string, unknown>, prefix: string): Pick<Board,
       targetHandle: optStr(e["targetHandle"], `${where}.targetHandle`, 100),
       label: optStr(e["label"], `${where}.label`),
       tone: optStr(e["tone"], `${where}.tone`, 100),
+      extra: extraOf(e, EDGE_FILE_KEYS),
     });
   });
   let viewport: BoardViewport | undefined;
@@ -260,7 +292,11 @@ function parsePages(v: unknown, top: Pick<Board, "nodes" | "edges" | "threads">)
   return pages;
 }
 
-/** Native `board::parse`: JSON, unknown fields dropped, a newer `version` refused. Throws `BoardError`. */
+/**
+ * Native `board::parse` (a newer `version` refused), except that nothing is dropped: node kinds,
+ * keys and data keys this build does not know are kept (`extra`, a node's `type` as written) and
+ * written back by `boardText`. Throws `BoardError`.
+ */
 export function parseBoard(text: string): Board {
   let raw: unknown;
   try {
@@ -281,6 +317,7 @@ export function parseBoard(text: string): Board {
     layout: layout as CanvasLayout | undefined,
     ...top,
     pages: parsePages(raw["pages"], top),
+    extra: extraOf(raw, BOARD_KEYS),
   });
 }
 
@@ -356,9 +393,21 @@ function dataObj(d: BoardNodeData | undefined): Obj | undefined {
     ["sample", d.sample],
     ["system", d.system],
     ["viewport", d.viewport],
+    ...extraFields(d.extra),
   ]);
   return obj.fields.some(([, v]) => v !== undefined) ? obj : undefined;
 }
+
+/** Any JSON value from the file, as it was (numbers as JavaScript prints them, which read back the same). */
+function anyJson(v: unknown): Json {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.map(anyJson);
+  if (isObj(v)) return new Obj(Object.entries(v).map(([k, x]): [string, Json] => [k, anyJson(x)]));
+  return new Raw(JSON.stringify(v ?? null));
+}
+
+/** Keys this build does not know, written after the ones it does, in the order the file had them. */
+const extraFields = (extra: Record<string, unknown> | undefined): [string, Json][] => (extra === undefined ? [] : Object.entries(extra).map(([k, v]): [string, Json] => [k, anyJson(v)]));
 
 const nodeObj = (n: BoardNode): Obj =>
   new Obj([
@@ -370,6 +419,7 @@ const nodeObj = (n: BoardNode): Obj =>
     ["h", f32(n.h)],
     ["parent", n.parent],
     ["data", dataObj(n.data)],
+    ...extraFields(n.extra),
   ]);
 
 const edgeObj = (e: BoardEdge): Obj =>
@@ -381,6 +431,7 @@ const edgeObj = (e: BoardEdge): Obj =>
     ["targetHandle", e.targetHandle],
     ["label", e.label],
     ["tone", e.tone],
+    ...extraFields(e.extra),
   ]);
 
 const threadObj = (t: BoardThread): Obj =>
@@ -462,6 +513,7 @@ export function boardText(board: Board): string {
     ["viewport", viewportObj(board.viewport)],
     ["threads", threadsJson(board.threads)],
     ["pages", board.pages !== undefined && !isSinglePage(board.pages) ? board.pages.map(pageObj) : undefined],
+    ...extraFields(board.extra),
   ]);
   return `${write(root, "")}\n`;
 }
@@ -485,6 +537,18 @@ function dataKeys(d: BoardNodeData | undefined): string[] {
   return d ? DATA_KEYS.filter((k) => d[k] !== undefined) : [];
 }
 
+/** Sets a plain value on `m` (removed when undefined), only when it changed. */
+function setPlain(m: Y.Map<unknown>, k: string, v: unknown): void {
+  if (v === undefined) {
+    if (m.has(k)) m.delete(k);
+  } else if (!sameJson(m.get(k), v)) m.set(k, v);
+}
+
+/** A plain JSON object kept on a map (`extra`, `dataExtra`), or undefined. */
+function plainObj(v: unknown): Record<string, unknown> | undefined {
+  return isObj(v) && Object.keys(v).length > 0 ? v : undefined;
+}
+
 function nodeMap(n: BoardNode): NodeMap {
   const m = new Y.Map<unknown>();
   m.set("type", n.type);
@@ -497,12 +561,15 @@ function nodeMap(n: BoardNode): NodeMap {
     if (v !== undefined) m.set(k, v);
   }
   m.set("fields", dataKeys(n.data));
+  if (n.extra !== undefined) m.set("extra", n.extra);
+  if (n.data?.extra !== undefined) m.set("dataExtra", n.data.extra);
   return m;
 }
 
 function edgeMap(e: BoardEdge): Y.Map<unknown> {
   const m = new Y.Map<unknown>();
   for (const k of EDGE_KEYS) if (e[k] !== undefined) m.set(k, e[k]);
+  if (e.extra !== undefined) m.set("extra", e.extra);
   return m;
 }
 
@@ -522,6 +589,7 @@ function setMeta(meta: Y.Map<unknown>, board: Board): void {
   if (board.layout === undefined) {
     if (meta.has("layout")) meta.delete("layout");
   } else if (meta.get("layout") !== board.layout) meta.set("layout", board.layout);
+  setPlain(meta, "extra", board.extra);
 }
 
 function setViewport(meta: Y.Map<unknown>, page: string, vp: BoardViewport | undefined): void {
@@ -585,6 +653,8 @@ export function exportNode(id: string, m: NodeMap): BoardNode {
     const v = m.get(k);
     if (v !== undefined) data[k] = v;
   }
+  const dataExtra = plainObj(m.get("dataExtra"));
+  if (dataExtra !== undefined) data["extra"] = dataExtra;
   const type = m.get("type");
   const num = (k: string): number | undefined => {
     const v = m.get(k);
@@ -593,13 +663,14 @@ export function exportNode(id: string, m: NodeMap): BoardNode {
   const parent = m.get("parent");
   return defined<BoardNode>({
     id,
-    type: (NODE_KINDS as readonly unknown[]).includes(type) ? (type as NodeKind) : "note",
+    type: typeof type === "string" && KIND.test(type) ? type : "note",
     x: num("x"),
     y: num("y"),
     w: num("w"),
     h: num("h"),
     parent: typeof parent === "string" ? parent : undefined,
     data: Object.keys(data).length > 0 ? data : undefined,
+    extra: plainObj(m.get("extra")),
   });
 }
 
@@ -623,6 +694,7 @@ export function exportPage(doc: Y.Doc, page: string): PageContent {
         targetHandle: s("targetHandle"),
         label: s("label"),
         tone: s("tone"),
+        extra: plainObj(m.get("extra")),
       }),
     );
   }
@@ -654,6 +726,7 @@ export function exportBoard(doc: Y.Doc): Board {
     layout: typeof layout === "string" && LAYOUTS.includes(layout) ? (layout as CanvasLayout) : undefined,
     ...exportPage(doc, FIRST_PAGE),
     pages,
+    extra: plainObj(meta.get("extra")),
   });
 }
 
@@ -764,6 +837,9 @@ function mergePage(maps: PageMaps, meta: Y.Map<unknown>, page: string, board: Pa
     if (was === undefined || !sameJson(keys, dataKeys(was.data))) {
       if (!sameJson(m.get("fields"), keys)) m.set("fields", keys);
     }
+    // Keys a writer does not know are only ever added or changed: one that drops them (EvaOS, an older Relay) leaves the room's.
+    if (n.extra !== undefined && !sameJson(n.extra, was?.extra)) setPlain(m, "extra", n.extra);
+    if (n.data?.extra !== undefined && !sameJson(n.data.extra, was?.data?.extra)) setPlain(m, "dataExtra", n.data.extra);
   }
 
   const incomingEdges = new Set(board.edges.map((e) => e.id));
@@ -781,6 +857,7 @@ function mergePage(maps: PageMaps, meta: Y.Map<unknown>, page: string, board: Pa
       if (v === undefined) m.delete(k);
       else if (m.get(k) !== v) m.set(k, v);
     }
+    if (e.extra !== undefined && !sameJson(e.extra, was?.extra)) setPlain(m, "extra", e.extra);
   }
 
   // A writer that has no `threads` (EvaOS, older Relays, agents writing nodes only) leaves the room's pins alone.
@@ -833,6 +910,7 @@ export function mergeBoardIntoDoc(doc: Y.Doc, board: Board, origin: unknown, bas
       if (board.layout === undefined) meta.delete("layout");
       else meta.set("layout", board.layout);
     }
+    if (board.extra !== undefined && !sameJson(board.extra, baseBoard.extra)) setPlain(meta, "extra", board.extra);
     mergePage(pageMaps(doc, FIRST_PAGE), meta, FIRST_PAGE, board, baseBoard, stale);
 
     if (board.pages === undefined) return;
