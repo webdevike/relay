@@ -301,6 +301,9 @@ stored once in `artifacts/media/<sha>` and served at `GET /artifacts/media/<sha>
 Any omp session takes its chat onto an EvaOS board with `relay-linux canvas start <slug> [--prompt ...]`
 (`--title "New board"` makes one; `canvas list`, `canvas end [<slug>]`). The CLI finds its session file from the
 ancestor omp process (a subagent's rows go to its top-level chat) and posts loopback `POST /canvas/sessions`.
+`POST /canvas/sessions` also takes `thread: {id, page?}`: a comment already in the board file (Relay Desktop's Canvas
+page saves pins and threads there without a room, and its "Ask Nova" starts the session this way) that the canvas
+self answers in its thread once the room is up, as a turn after the opener's; an answered or missing thread starts none.
 The host (`src/canvas/`) opens a room per board: a Y.Doc seeded from `--canvases/<slug>.json` (default on macOS
 `~/Library/Application Support/EvaOS/canvases`), y-websocket sync and awareness at `/canvas/<slug>/ws`, a
 debounced export back to the same file in EvaOS' exact format, and a watcher that merges outside writes. The

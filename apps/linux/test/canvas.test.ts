@@ -903,6 +903,27 @@ describe("comment pins", () => {
     tab.leave();
   });
 
+  it("answers a comment Relay Desktop saved into the board file before the session started, once, in its thread", async () => {
+    const path = join(canvasDir, "ecs-roles.json");
+    const saved = { ...parseBoard(readFileSync(path, "utf8")), threads: [{ id: "t-offline", node: "root", x: 40, y: 12, messages: [isaac("c1", "rename the root")] }, { id: "t-quiet", x: 5, y: 5, messages: [isaac("c2", "just a note")] }] };
+    writeFileSync(path, boardText(saved));
+    const started = await service.start({ slug: "ecs-roles", caller: { assistant: "nova" }, thread: { id: "t-offline" } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const thread = (id: string) => snapThreads(threadsOf(room.sync.doc)).find((t) => t.id === id);
+    await until(() => thread("t-offline")?.messages.some((m) => m.kind === "agent") === true, "the reply in the thread the page handed over");
+    expect(thread("t-offline")?.messages[1]).toMatchObject({ kind: "agent", name: "Nova", avatar: "/canvas/avatar/nova", text: "Done, renamed it." });
+    expect(brains[0]?.prompts.at(-1)).toContain("# The comment (thread t-offline)");
+    expect(brains[0]?.prompts.at(-1)).toContain("Isaac says: rename the root");
+    // Only the thread it was handed; the other saved comment stays Isaac's until he asks.
+    expect(thread("t-quiet")?.messages).toHaveLength(1);
+    // Asking again for a thread that is already answered (or missing) starts no turn.
+    const turns = brains[0]?.prompts.length;
+    await service.start({ slug: "ecs-roles", caller: { assistant: "nova" }, thread: { id: "t-offline" } });
+    await service.start({ slug: "ecs-roles", caller: { assistant: "nova" }, thread: { id: "t-gone" } });
+    expect(brains[0]?.prompts.length).toBe(turns);
+  });
+
   it("routes an @Name comment to the worker, which answers in the same thread with its own portrait", async () => {
     const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
     const room = service.roomById(started.roomId);

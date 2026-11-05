@@ -495,10 +495,10 @@ export class CanvasAgent {
     }
   }
 
-  /** A human's note: steered into the running turn, else a turn of its own. */
-  private note(msg: Note): void {
+  /** A human's note: steered into the running turn (unless `steer` is off), else a turn of its own. */
+  private note(msg: Note, steer = true): void {
     const live = this.live;
-    if (live !== null && this.mind.exhausted === null && this.mind.steer(`${this.noteBlock(msg)}\n(${msg.name} sent this while you were working: fold it in.)`)) {
+    if (steer && live !== null && this.mind.exhausted === null && this.mind.steer(`${this.noteBlock(msg)}\n(${msg.name} sent this while you were working: fold it in.)`)) {
       live.notes.push(msg);
       if (msg.page === this.actor.page) {
         const at = this.anchor(msg);
@@ -510,7 +510,7 @@ export class CanvasAgent {
   }
 
   /** A human's message in comment thread `threadId` on `page`: a note pinned where the thread is, answered there. */
-  private comment(page: string, threadId: string, m: ThreadMsg): void {
+  private comment(page: string, threadId: string, m: ThreadMsg, steer = true): void {
     if (m.kind !== "human" || this.closed) return;
     const { nodes, threads } = pageMaps(this.doc, page);
     const node = threads.get(threadId)?.get("node");
@@ -526,7 +526,22 @@ export class CanvasAgent {
       thread: threadId,
       page,
     };
-    if (!this.hooks.direct(msg)) this.note(msg);
+    if (!this.hooks.direct(msg)) this.note(msg, steer);
+  }
+
+  /**
+   * Answers the comment on `page` that was left before this session started (Relay Desktop's Canvas
+   * page saves threads into the board file, then asks for a session): a human's message ends the
+   * thread, so it is a turn like any new comment. False when the thread is missing, empty or
+   * already answered.
+   */
+  answer(page: string, threadId: string): boolean {
+    const t = pageMaps(this.doc, page).threads.get(threadId);
+    const last = t === undefined ? undefined : snapThread(threadId, t)?.messages.at(-1);
+    if (last === undefined || last.kind !== "human" || this.closed) return false;
+    // A turn after the opener's, not steered into it: the opener speaks in the room, this answers in the thread.
+    this.comment(page, threadId, last, false);
+    return true;
   }
 
   /** Listens to the comment threads of every page the board has now (and no longer to deleted ones). */

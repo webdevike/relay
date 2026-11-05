@@ -105,6 +105,8 @@ export interface StartRequest {
   readonly slug?: string | undefined;
   readonly title?: string | undefined;
   readonly prompt?: string | undefined;
+  /** A comment thread already in the board file (saved by Relay Desktop's Canvas page) the canvas self answers once the room is up. */
+  readonly thread?: { readonly id: string; readonly page?: string | undefined } | undefined;
   readonly caller: { readonly sessionFile?: string | undefined; readonly chatFile?: string | undefined; readonly assistant?: string | undefined; readonly name?: string | undefined };
 }
 
@@ -348,6 +350,7 @@ export class CanvasService {
     const existing = this.rooms.get(slug);
     if (existing?.live === true) {
       if (existing.chatSessionId !== chatSession.id) throw new CanvasError(409, `${existing.agent.name} already has a live canvas session on ${existing.board}.`);
+      if (request.thread !== undefined) existing.agents[0]?.answer(request.thread.page ?? FIRST_PAGE, request.thread.id);
       return this.result(existing, false);
     }
     if (existing !== undefined) this.unload(existing);
@@ -453,6 +456,7 @@ export class CanvasService {
     this.watchActivity();
     // The opener runs now: its cards are on the board and its lines play the moment Isaac joins.
     canvasAgent.prepare();
+    if (request.thread !== undefined) canvasAgent.answer(request.thread.page ?? FIRST_PAGE, request.thread.id);
     room.unjoinedTimer = setTimeout(() => {
       if (!room.everJoined && room.live) void canvasAgent.wrapUp();
     }, this.deps.unjoinedEndMs ?? UNJOINED_END_MS);

@@ -1,6 +1,6 @@
 // The canvas routes, on plain `Request`/`Response` (the websocket upgrade itself stays in
 // server.ts). Loopback JSON for agents on this machine (<room> is a room id or a board slug):
-//   POST /canvas/sessions {slug?, title?, prompt?, caller}   start (or rejoin) a session
+//   POST /canvas/sessions {slug?, title?, prompt?, thread?: {id, page?}, caller}   start (or rejoin) a session; `thread`: a comment already in the board file the canvas self answers
 //   GET  /canvas/sessions                                    {rev, rooms, participants}
 //   GET  /canvas/sessions/<room>                             {board, chat, participants, ...}
 //   POST /canvas/sessions/<room>/end                         {summary}
@@ -63,6 +63,7 @@ const StartBody = z.object({
   slug: Text.optional(),
   title: Text.optional(),
   prompt: Text.optional(),
+  thread: z.object({ id: Text, page: Text.optional() }).optional(),
   caller: z
     .object({
       sessionFile: Text.refine(isAbsolute, "must be an absolute path").optional(),

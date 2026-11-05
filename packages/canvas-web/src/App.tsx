@@ -618,6 +618,20 @@ function Board({
     return () => window.removeEventListener("keydown", onKey);
   }, [openChat, group, ungroup, setSelection, requestDelete, ask, editable, locked]);
 
+  // Relay Desktop's frame passes '/' on when focus sits outside the page (its header, the sidebar):
+  // the key never reaches this window then, so the host page opens the comment on its behalf.
+  useEffect(() => {
+    if (TOUCH || window.parent === window) return;
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== window.parent || (e.data as { type?: unknown } | null)?.type !== "canvas.comment") return;
+      if (ask) return;
+      window.focus();
+      openChat();
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [openChat, ask]);
+
   // Locking drops whatever this viewer had selected or open: nothing is left half-edited.
   useEffect(() => {
     if (!locked) return;
@@ -1038,6 +1052,8 @@ function Board({
         <button
           type="button"
           className="cv-fab"
+          title={TOUCH ? undefined : "Comment (press /)"}
+          aria-keyshortcuts={TOUCH ? undefined : "/"}
           onClick={openChat}
           style={TOUCH ? { bottom: keyboard + 16 } : undefined}
         >
