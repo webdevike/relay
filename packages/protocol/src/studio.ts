@@ -240,12 +240,32 @@ export type StudioOp = z.infer<typeof StudioOp>;
 
 export const StudioRid = z.string().min(1).max(64);
 
+/**
+ * `items` of a `studio.state` list without the entries a newer host added for a backend this build does not know
+ * (`backendOf` reads its id), so an older phone keeps the rest of Studio instead of rejecting the whole frame. Entries
+ * that are not objects, or name no backend, are left for `item` to judge.
+ */
+function withoutUnknownBackends<T extends z.ZodTypeAny>(items: z.ZodArray<T>, backendOf: (entry: Record<string, unknown>) => unknown) {
+  return z.preprocess((value) => {
+    if (!Array.isArray(value)) return value;
+    return value.filter((entry: unknown) => {
+      if (typeof entry !== "object" || entry === null) return true;
+      const backend = backendOf(entry as Record<string, unknown>);
+      return typeof backend !== "string" || StudioBackendId.safeParse(backend).success;
+    });
+  }, items);
+}
+
+const specBackend = (job: Record<string, unknown>): unknown =>
+  typeof job.spec === "object" && job.spec !== null ? (job.spec as Record<string, unknown>).backend : undefined;
+
 export const StudioState = z.object({
-  /** Newest first. */
-  jobs: z.array(StudioJob).max(MAX_STUDIO_JOBS),
+  /** Newest first. Jobs on a backend this build does not know are dropped. */
+  jobs: withoutUnknownBackends(z.array(StudioJob).max(MAX_STUDIO_JOBS), specBackend),
   /** Newest first. */
   uploads: z.array(StudioAsset).max(MAX_STUDIO_UPLOADS),
-  backends: z.array(StudioBackend).max(10),
+  /** Backends this build does not know are dropped. */
+  backends: withoutUnknownBackends(z.array(StudioBackend).max(10), (backend) => backend.id),
 });
 export type StudioState = z.infer<typeof StudioState>;
 
