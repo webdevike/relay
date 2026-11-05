@@ -24,10 +24,10 @@ export interface CanvasAgentConfig {
 export const DEFAULT_CANVAS_AGENT: CanvasAgentConfig = {
   model: "opus",
   effort: "low",
-  // Effectively unlimited (Isaac, 2026-11-05: the canvas self runs on his subscription, so cost is
-  // not a concern). maxTurnMs and idleStopMs still guard a single stuck turn and an idle room.
-  maxRequests: 100_000,
-  maxTokens: 10_000_000_000,
+  // Generous token cap, no dollar thinking (Isaac, 2026-11-05: mind token usage, not cost; it runs
+  // on his subscription). maxTurnMs and idleStopMs still guard a single stuck turn and an idle room.
+  maxRequests: 1_000,
+  maxTokens: 40_000_000,
   maxTurnMs: 10 * 60_000,
   idleStopMs: 10 * 60_000,
 };
