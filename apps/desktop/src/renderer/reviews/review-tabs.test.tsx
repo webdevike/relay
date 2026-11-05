@@ -123,27 +123,28 @@ describe('queue rows open review places', () => {
     expect(reviewsStore.getState().selected).toBeNull()
   })
 
-  it('Cmd-click opens a side pane, Cmd+Shift-click and middle-click a new tab', async () => {
+  it('Cmd-click and middle-click open a background tab, Cmd+Shift-click a split', async () => {
     wrap(<ReviewsList />)
+    openPlaceBeside.mockClear()
     const pr = await screen.findByTestId('review-row-172')
     fireEvent.click(pr, { metaKey: true })
     expect(openPlaceBeside).toHaveBeenLastCalledWith(PR_PLACE)
-    expect(openPlace).not.toHaveBeenCalled()
     fireEvent.click(pr, { metaKey: true, shiftKey: true })
-    expect(openPlace).toHaveBeenLastCalledWith(PR_PLACE, { newTab: true })
+    expect(openPlaceBeside).toHaveBeenCalledTimes(2)
     fireEvent(pr, new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }))
-    expect(openPlace).toHaveBeenCalledTimes(2)
+    expect(openPlaceBeside).toHaveBeenCalledTimes(3)
     const ticket = await screen.findByTestId('review-ticket-ENG-6648')
     fireEvent.click(ticket, { metaKey: true, shiftKey: true })
-    expect(openPlace).toHaveBeenLastCalledWith(TICKET_PLACE, { newTab: true })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(TICKET_PLACE)
     const thread = await screen.findByTestId('review-slack-row')
     fireEvent(thread, new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }))
-    expect(openPlace).toHaveBeenLastCalledWith(THREAD_PLACE, { newTab: true })
-    // The page's own selection never moved.
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(THREAD_PLACE)
+    // None of these leave the workspace's own tab, and the page's selection never moved.
+    expect(openPlace).not.toHaveBeenCalled()
     expect(reviewsStore.getState().selected).toBeNull()
     // A right-button auxclick is not a middle-click.
     fireEvent(pr, new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 2 }))
-    expect(openPlace).toHaveBeenCalledTimes(4)
+    expect(openPlaceBeside).toHaveBeenCalledTimes(5)
   })
 
   it('the context menu offers a new tab, a split pane and the browser', async () => {

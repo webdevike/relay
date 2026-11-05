@@ -7,6 +7,7 @@ import { test as base, expect } from './fixtures'
 import { FakeRelayHost } from './helpers/fake-relay-host'
 import { FIXTURES_DIR, REPO_ROOT } from './helpers/paths'
 import { proofShot } from './helpers/proofShot'
+import { toolPane } from './helpers/web'
 
 // Studio: image and video jobs on the Relay host. A fake host on a real WebSocket runs Studio
 // (four backends, paid Higgsfield with models and a balance, jobs that finish when the test says
@@ -61,15 +62,16 @@ async function shot(app: ElectronApplication, shell: Page, name: string): Promis
 const creates = (): Array<Record<string, unknown>> =>
   host.studioOps.filter((op) => op.kind === 'create')
 
-/** Studio's app tab in the tool pane's strip (pages there are app tabs too). */
-const STUDIO_TAB = `${sel('pane-header-p2')} .eva-tab[aria-label="Studio"]`
+/** Studio's page tool tab (`view:page:studio`) in the tool pane's strip. */
+const STUDIO_TAB = sel('pane-tab-view:page:studio')
 
 /** Opens Studio from the tool pane's + menu, as a page tab beside the chat. */
 async function openStudioTab(shell: Page): Promise<void> {
-  await shell.locator(sel('pane-add-p2')).click()
-  await shell.locator(sel('pane-add-menu-p2')).getByText('Studio', { exact: true }).click()
+  const p = await toolPane(shell)
+  await shell.locator(sel(`pane-add-${p}`)).click()
+  await shell.locator(sel(`pane-add-tool-studio-${p}`)).click()
   await expect(shell.locator(STUDIO_TAB)).toHaveAttribute('data-active', 'true')
-  await expect(shell.locator(`${sel('pane-p2')} ${sel('page-studio')}`)).toBeVisible()
+  await expect(shell.locator(sel('page-studio'))).toBeVisible()
 }
 
 const ControlFileSchema = z.object({ url: z.string(), token: z.string() })
@@ -108,7 +110,7 @@ async function agent(
 
 test('compose, generate, gallery, viewer, remix and the paid confirm', async ({ app, shell }) => {
   await openStudioTab(shell)
-  const studio = shell.locator(`${sel('pane-p2')} ${sel('page-studio')}`)
+  const studio = shell.locator(sel('page-studio'))
   await expect(studio.locator(sel('studio-gallery-item'))).toHaveCount(2)
   expect(host.studioLists).toBeGreaterThan(0)
 
@@ -133,8 +135,9 @@ test('compose, generate, gallery, viewer, remix and the paid confirm', async ({ 
   await expect(row).toHaveCount(0)
 
   // Wide: the tool pane maximized puts the composer column beside the gallery.
-  await shell.locator(sel('pane-add-p2')).click()
-  await shell.locator(sel('pane-zoom-p2')).click()
+  const pane = await toolPane(shell)
+  await shell.locator(sel(`pane-add-${pane}`)).click()
+  await shell.locator(sel(`pane-add-zoom-${pane}`)).click()
   const side = studio.locator('.eva-studio-side')
   const main = studio.locator('.eva-studio-main')
   await expect
@@ -238,7 +241,7 @@ test('agents generate, list and open Studio through the control API', async ({
   expect(job).toMatchObject({ backend: 'codex-image', state: 'queued' })
   expect(creates().at(-1)).toMatchObject({ origin: 'agent', spec: { prompt: 'A red kite' } })
   await expect(shell.locator(STUDIO_TAB)).toBeVisible()
-  const studio = shell.locator(`${sel('pane-p2')} ${sel('page-studio')}`)
+  const studio = shell.locator(sel('page-studio'))
   await expect(studio.locator(sel('studio-queue-row'))).toContainText('A red kite')
   host.finishStudio(job.id)
   const viewer = shell.locator(sel('studio-viewer'))
@@ -251,7 +254,7 @@ test('agents generate, list and open Studio through the control API', async ({
   const opened = await agent(configDir, 'studio.open', {
     draft: { prompt: 'Drafted by Eva', mode: 'video', backend: 'higgsfield', model: 'hailuo-02' },
   })
-  expect(opened).toMatchObject({ ok: true, value: { tab: 'page:studio', draft: true } })
+  expect(opened).toMatchObject({ ok: true, value: { tab: 'view:page:studio', draft: true } })
   await expect(studio.locator(sel('studio-prompt'))).toHaveValue('Drafted by Eva')
   await expect(studio.locator(sel('studio-backend'))).toHaveValue('Higgsfield (paid)')
   await expect(studio.locator(sel('studio-model'))).toHaveValue('Hailuo 02')

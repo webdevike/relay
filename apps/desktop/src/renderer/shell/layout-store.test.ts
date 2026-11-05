@@ -24,7 +24,7 @@ import { resetTilingForTests, tilingStore, toggleToolPanes } from '../tiling/til
 import { mountTestDock } from '../tiling/test-dock'
 import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
 import { openPlace, setNavigator } from '../navigation/navigate'
-import { defaultDock, placeOf } from '@evaos/shell-core'
+import { defaultDock, placeOf, saveWorkspaces } from '@evaos/shell-core'
 
 const g = () => layoutStore.getState()
 
@@ -159,7 +159,7 @@ describe('loadLayout', () => {
     expect(tilingStore.getState().loaded).toBe(true)
   })
 
-  it('restores the saved panes without writing them back', async () => {
+  it('restores the saved workspaces without writing them back', async () => {
     unmount = mountTestDock(null, false)
     const saved = defaultDock(
       tabsStore.getState().tabs,
@@ -168,7 +168,13 @@ describe('loadLayout', () => {
       0.5,
       'files',
     )
-    loaded({ dock: saved })
+    const workspaces = saveWorkspaces({
+      front: 'page:dashboard',
+      pinned: [],
+      layouts: { 'page:dashboard': saved },
+      order: ['page:dashboard'],
+    })
+    loaded({ dock: saved, workspaces })
     await loadLayout()
     expect(tilingStore.getState().panes.map((p) => [p.id, p.active])).toEqual([
       ['p1', 'tab:0'],
@@ -186,7 +192,10 @@ describe('loadLayout', () => {
     const room = Math.max(window.innerWidth - 272 - 24, 420 + 480)
     expect(tools!.rect!.w / (chat!.rect!.w + tools!.rect!.w)).toBeCloseTo(420 / room, 1)
     expect(tools!.active).toBe('files')
-    expect(invoke).toHaveBeenCalledWith('layout.save', { dock: expect.any(Object) })
+    expect(invoke).toHaveBeenCalledWith(
+      'layout.save',
+      expect.objectContaining({ dock: expect.any(Object), workspaces: expect.any(Object) }),
+    )
   })
 })
 

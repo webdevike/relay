@@ -1,0 +1,11 @@
+/* A sidebar row's dot: an agent changed that workspace while Isaac was elsewhere. */
+.eva-ws-dot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline: 4px;
+  border-radius: 50%;
+  background: var(--eva-accent);
+  vertical-align: middle;
+}

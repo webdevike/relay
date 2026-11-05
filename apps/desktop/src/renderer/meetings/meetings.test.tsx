@@ -26,6 +26,11 @@ vi.mock('../navigation/navigate', () => ({
   openPlace: (...a: unknown[]) => openPlace(...a),
   setNavigator: () => {},
 }))
+const openPlaceBeside = vi.fn()
+vi.mock('../tiling/tiling-store', async (orig) => ({
+  ...(await orig<typeof import('../tiling/tiling-store')>()),
+  openPlaceBeside: (...a: unknown[]) => openPlaceBeside(...a),
+}))
 
 import { createTabs, placeOf } from '@evaos/shell-core'
 import { resetReloadForTests } from '../reload/reload'
@@ -172,7 +177,7 @@ describe('MeetingsList', () => {
     expect(screen.getByTestId('meeting-row-test-call')).toHaveAttribute('data-dim', 'true')
   })
 
-  it('opens a meeting, in a new tab with the meta key', async () => {
+  it('opens a meeting here, in a split with Cmd+Shift', async () => {
     wrap(<MeetingsList query="" />)
     const row = await screen.findByTestId('meeting-row-standup')
     fireEvent.click(row)
@@ -180,9 +185,8 @@ describe('MeetingsList', () => {
       newTab: false,
     })
     fireEvent.click(row, { metaKey: true, shiftKey: true })
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('meetings', { meeting: 'standup' }), {
-      newTab: true,
-    })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(placeOf('meetings', { meeting: 'standup' }))
+    expect(openPlace).toHaveBeenCalledTimes(1)
   })
 
   it('marks the active meeting row', async () => {

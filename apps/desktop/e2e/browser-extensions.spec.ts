@@ -2,23 +2,14 @@ import { test, expect } from './fixtures'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
 import { recordMetrics } from './helpers/metrics'
 import { APP_DIR } from './helpers/paths'
+import { openPage, webPanel } from './helpers/web'
 import * as path from 'node:path'
-import type { Page } from '@playwright/test'
 
 interface PC {
   readText(): Promise<string>
   evaluate(expr: string): Promise<unknown>
 }
-type G = {
-  __evaosTest: {
-    hooks: {
-      browser: {
-        host: { snapshot(): { activeId: string } }
-        pageControl(tabId: string): PC
-      }
-    }
-  }
-}
+type G = { __evaosTest: { hooks: { browser: { pageControl(tabId: string): PC } } } }
 
 const TEST_EXT = path.join(APP_DIR, 'e2e/fixtures/test-extension')
 test.use({ launchEnv: { EVAOS_TEST_EXTENSION_DIR: TEST_EXT } })
@@ -30,12 +21,6 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await server.close()
 })
-
-async function nav(shell: Page, input: string): Promise<void> {
-  const addr = shell.locator('[data-testid=address-input]')
-  await addr.fill(input)
-  await addr.press('Enter')
-}
 
 test('a checked-in MV3 extension runs its content script in persist:browser only', async ({
   app,
@@ -50,11 +35,7 @@ test('a checked-in MV3 extension runs its content script in persist:browser only
   expect(list.ok).toBe(true)
   expect(list.value.extensions.map((e) => e.name)).toContain('EvaOS Test Extension')
 
-  await nav(shell, server.url('/a.html'))
-  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
-  const tabId = await app.evaluate(
-    () => (globalThis as unknown as G).__evaosTest.hooks.browser.host.snapshot().activeId,
-  )
+  const tabId = await openPage(shell, server.url('/a.html'), 'Page A')
   const pc = (fn: 'readText' | 'evaluate', arg?: string) =>
     app.evaluate(
       async (_e, a) => {
@@ -72,14 +53,12 @@ test('a checked-in MV3 extension runs its content script in persist:browser only
 })
 
 test('extension action button shows in the toolbar and opens its popup', async ({ app, shell }) => {
-  // Actions act on the active tab, so they show once the scope has one.
-  await nav(shell, server.url('/a.html'))
-  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
-  const action = shell.locator('[data-testid=extension-actions] browser-action-list')
+  // Actions act on the active page, so they show in that page's toolbar.
+  const tabId = await openPage(shell, server.url('/a.html'), 'Page A')
+  const actions = webPanel(shell, tabId).locator('[data-testid=extension-actions]')
+  const action = actions.locator('browser-action-list')
   await expect(action).toBeAttached()
-  const button = shell
-    .locator('[data-testid=extension-actions] browser-action-list >> [part=action]')
-    .first()
+  const button = actions.locator('browser-action-list >> [part=action]').first()
   let result = 'ok'
   try {
     await expect(button).toBeVisible({ timeout: 8000 })

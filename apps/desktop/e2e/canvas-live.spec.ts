@@ -6,8 +6,8 @@ import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { FakeRelayHost } from './helpers/fake-relay-host'
 
 // A live canvas from a chat: the session file's `relay-canvas` start entry is a Join card; Join
-// opens the board's live room (the host's page in a frame) in a pane beside the chat, Option+click
-// in the same tab; Back to chat (same tab) returns
+// opens the board's live room (the host's page in a frame) as a page tab beside the chat. Opened
+// on its own (the Canvas workspace), the room has Back to chat, which returns
 // to the same transcript offset with the unsent draft still in the composer. A fake host on a real
 // WebSocket stands in for Relay and serves a tiny room page; no real session is touched.
 let fx: ChatFixture
@@ -116,9 +116,12 @@ async function scrollToCard(shell: Page): Promise<void> {
   }).toPass({ timeout: 20_000 })
 }
 
-test('Option+click Join opens the live room in the same tab and Back to chat restores scroll and draft', async ({
-  shell,
-}) => {
+/**
+ * The chat scrolled to the Join card with a draft, the room on its own, then Back to chat. With
+ * `offset`, the transcript must come back to the same offset too; without it, Back only has to
+ * bring the chat and its draft back (the card is scrolled to again for what follows).
+ */
+async function roomOnItsOwnAndBack(shell: Page, offset: boolean): Promise<void> {
   await shell.locator(sel('nav-chat')).click()
   await shell.waitForSelector(sel('chat-tree'))
   await shell.locator(sel('chat-row-p4-canvas')).click()
@@ -142,9 +145,15 @@ test('Option+click Join opens the live room in the same tab and Back to chat res
   expect(before).toBeGreaterThan(200)
   expect(before).toBeLessThan(atEnd - 200)
 
-  await card.getByRole('button', { name: 'Join' }).click({ modifiers: ['Alt'] })
+  // The board on its own: the Canvas workspace (a sidebar visit to the board while its room is
+  // live). The Join card has no click for this any more (plain = beside, Cmd = background,
+  // Cmd+Shift = split; Option means Arc for web links only).
+  type Shell = { __evaosShell: { openPlace(p: string, n?: boolean, extra?: object): void } }
+  await shell.evaluate(() =>
+    (window as unknown as Shell).__evaosShell.openPlace('canvas', false, { canvas: 'mind-map' }),
+  )
 
-  // The board's live room, in the same tab: the host's page in a frame, the chat hidden.
+  // The board's live room, in the Canvas workspace: the host's page in a frame, the chat hidden.
   const live = shell.locator(sel('canvas-live'))
   await expect(live).toHaveAttribute('data-slug', 'mind-map')
   await expect(shell.locator(sel('chat-pane'))).toBeHidden()
@@ -157,19 +166,23 @@ test('Option+click Join opens the live room in the same tab and Back to chat res
   expect(host.roomPages[0]).toMatch(
     /^\/canvas\/mind-map\/\?token=fake-mind-map&embed=desktop&theme=(light|dark)$/,
   )
-  type Tabs = { __evaosShell: { tabs(): { active: number; list: unknown[] } } }
-  expect(
-    await shell.evaluate(() => (window as unknown as Tabs).__evaosShell.tabs().list.length),
-  ).toBe(1)
+  // The board is a tab of the Canvas workspace (the chat's workspace, left with only its own tab,
+  // let it go; Back to chat opens it again).
+  type Tabs = { __evaosShell: { tabs(): { active: number; list: Array<{ page: string }> } } }
+  const t = await shell.evaluate(() => (window as unknown as Tabs).__evaosShell.tabs())
+  expect(t.list[t.active]!.page).toBe('canvas')
   await expect(shell.locator(sel('canvas-board'))).toHaveCount(0)
 
   await shell.locator(sel('canvas-live-back')).click()
-
-  // The chat exactly as it was: same offset, same draft.
+  // The chat as it was: same draft and, with a return point, the same offset.
   await expect(shell.locator(sel('chat-pane'))).toBeVisible()
   await expect(shell.locator(sel('composer-input'))).toHaveValue(draft)
-  await expect.poll(() => scrollTop(shell)).toBeGreaterThan(before - 2)
-  expect(Math.abs((await scrollTop(shell)) - before)).toBeLessThanOrEqual(2)
+  if (offset) {
+    await expect.poll(() => scrollTop(shell)).toBeGreaterThan(before - 2)
+    expect(Math.abs((await scrollTop(shell)) - before)).toBeLessThanOrEqual(2)
+  } else {
+    await scrollToCard(shell)
+  }
   await expect(card).toBeInViewport()
 
   // The room ends: the card says so and offers the board instead.
@@ -178,6 +191,19 @@ test('Option+click Join opens the live room in the same tab and Back to chat res
   await expect(card.getByRole('button', { name: 'Join' })).toHaveCount(0)
   await card.getByRole('button', { name: 'Open board' }).click()
   await expect(shell.locator(`${sel('canvas-board')}[data-slug="mind-map"]`)).toBeVisible()
+}
+
+test('the live room on its own (Canvas workspace) has Back to chat, which brings back the chat and its draft', async ({
+  shell,
+}) => {
+  await roomOnItsOwnAndBack(shell, false)
+})
+
+// A chat mounted anew (its workspace shown again) comes back at the offset Isaac left it.
+test('Back to chat from the live room on its own restores the transcript offset', async ({
+  shell,
+}) => {
+  await roomOnItsOwnAndBack(shell, true)
 })
 
 test('Join opens beside the chat; a room that ends says so, and Open board brings the board back', async ({

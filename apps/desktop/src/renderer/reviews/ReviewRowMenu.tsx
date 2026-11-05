@@ -44,13 +44,17 @@ export interface RowMenuState {
 }
 
 /**
- * A queue row was opened (ListRow onActivate): in place on a plain click, Enter or Space; a side
- * pane with Cmd; a new tab with Cmd+Shift or a middle click. The context menu offers both.
+ * A queue row was opened (ListRow onActivate), by the one click rule: in place on a plain click,
+ * Enter or Space; a background tab with Cmd (or a middle click); a split with Cmd+Shift. The
+ * context menu offers a new tab or a split.
  */
 export function activateReviewRow(item: ReviewItem, e: ClickMods): void {
   const target = navTargetOf(e)
   if (target === 'split') splitReviewRow(item)
-  else openReviewRow(item, target === 'tab')
+  else if (target === 'background') {
+    nameIt(item)
+    openInApp(reviewPlaceOf(reviewRefOf(item)), 'background')
+  } else openReviewRow(item, false)
 }
 
 /** The one menu of the queue: open the row's item in a new tab or a split pane. */

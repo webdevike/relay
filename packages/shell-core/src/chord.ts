@@ -85,6 +85,7 @@ export type ActionId =
   | 'focus-pane-down'
   | 'close-pane'
   | 'zoom-pane'
+  | 'copy-link'
 
 export const GLOBAL_CHORDS: ReadonlyArray<{ chord: string; action: ActionId }> = [
   { chord: 'cmd+n', action: 'new-todo' },
@@ -106,6 +107,8 @@ export const GLOBAL_CHORDS: ReadonlyArray<{ chord: string; action: ActionId }> =
   { chord: 'cmd+alt+arrowdown', action: 'focus-pane-down' },
   { chord: 'cmd+alt+w', action: 'close-pane' },
   { chord: 'cmd+alt+enter', action: 'zoom-pane' },
+  // Copies a relay:// link to the focused tab.
+  { chord: 'cmd+shift+c', action: 'copy-link' },
 ]
 
 const BY_CHORD = new Map(GLOBAL_CHORDS.map((c) => [c.chord, c.action]))

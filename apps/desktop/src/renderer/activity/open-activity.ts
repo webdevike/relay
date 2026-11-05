@@ -18,7 +18,7 @@ import { openSubagentTab, revealTool } from '../tiling/tiling-store'
  */
 export async function openActivity(
   item: ActivityItem,
-  target: OpenTarget = 'split',
+  target: OpenTarget = 'here',
 ): Promise<boolean> {
   const to = item.open
   switch (to.to) {

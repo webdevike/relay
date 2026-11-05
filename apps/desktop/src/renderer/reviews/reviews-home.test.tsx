@@ -192,18 +192,17 @@ describe('Reviews home (nothing selected)', () => {
     expect(reviewsStore.getState().selected).toBeNull()
   })
 
-  it('a click opens in place, Cmd-click a side pane, Cmd+Shift-click a new tab', async () => {
+  it('a click opens in place, Cmd-click a background tab, Cmd+Shift-click a split', async () => {
     wrap()
+    openPlaceBeside.mockClear()
     const row = await screen.findByTestId('review-row-172')
     fireEvent.click(row, { metaKey: true })
     expect(openPlaceBeside).toHaveBeenLastCalledWith(
       reviewPlaceOf({ kind: 'pr', repo: ROW.repo, number: ROW.number }),
     )
     fireEvent.click(row, { metaKey: true, shiftKey: true })
-    expect(openPlace).toHaveBeenLastCalledWith(
-      reviewPlaceOf({ kind: 'pr', repo: ROW.repo, number: ROW.number }),
-      { newTab: true },
-    )
+    expect(openPlaceBeside).toHaveBeenCalledTimes(2)
+    expect(openPlace).not.toHaveBeenCalled()
     fireEvent.click(row)
     expect(reviewsStore.getState().selected?.number).toBe(172)
   })

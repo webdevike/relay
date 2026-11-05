@@ -5,11 +5,9 @@ import { test as base, expect } from './fixtures'
 import { makeEvaFixture, type EvaFixture } from './helpers/eva-fixture'
 import { proofShot } from './helpers/proofShot'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
+import { openPage, pageTabs, viewVisible } from './helpers/web'
 
 type Shell = { __evaosShell: { openPlace(p: string, n?: boolean): void } }
-type G = {
-  __evaosTest: { hooks: { browser: { host: { activeView(): { getVisible(): boolean } } } } }
-}
 
 const test = base.extend<{ evaFx: EvaFixture }>({
   evaFx: async ({}, use) => {
@@ -28,12 +26,6 @@ const PHASE = { phase: 'phase-3' }
 const sel = (id: string): string => `[data-testid=${id}]`
 const argvs = (fx: EvaFixture): string[][] =>
   (fx.gateLog() as Array<{ argv: string[] }>).map((e) => e.argv)
-const viewVisible = (app: ElectronApplication): Promise<boolean> =>
-  app.evaluate(() =>
-    (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().getVisible(),
-  )
-const tabCount = (shell: Page): Promise<number> =>
-  shell.locator('[data-testid^=browser-tab-t]').count()
 
 let server: StaticServer
 test.beforeAll(async () => {
@@ -53,11 +45,11 @@ function lockGate(fx: EvaFixture): void {
   fs.writeFileSync(file, JSON.stringify(state))
 }
 
-async function showBrowser(app: ElectronApplication, shell: Page): Promise<void> {
-  const addr = shell.locator(sel('address-input'))
-  await addr.fill(server.url('/a.html'))
-  await addr.press('Enter')
-  await expect.poll(() => viewVisible(app)).toBe(true)
+/** A page of the workspace on screen, on screen. Answers its id. */
+async function showBrowser(app: ElectronApplication, shell: Page): Promise<string> {
+  const id = await openPage(shell, server.url('/a.html'), 'Page A')
+  await expect.poll(() => viewVisible(app, id)).toBe(true)
+  return id
 }
 
 async function waitLocked(shell: Page): Promise<void> {
@@ -69,23 +61,23 @@ test.beforeEach(async ({ shell }) => {
 })
 
 test('locking hides the browser and swallows chords and Escape', async ({ app, shell, evaFx }) => {
-  await showBrowser(app, shell)
-  const before = await tabCount(shell)
+  const id = await showBrowser(app, shell)
+  const before = await pageTabs(shell).count()
   lockGate(evaFx)
   await waitLocked(shell)
-  await expect.poll(() => viewVisible(app)).toBe(false)
+  await expect.poll(() => viewVisible(app, id)).toBe(false)
   await shell.keyboard.press('Meta+t')
   await shell.keyboard.press('Meta+n')
   await shell.keyboard.press('Escape')
   await expect(shell.locator(sel('new-todo-modal'))).toBeHidden()
-  expect(await tabCount(shell)).toBe(before)
+  expect(await pageTabs(shell).count()).toBe(before)
   await expect(shell.locator(sel('gate-overlay'))).toBeVisible()
   await expect(shell.locator(sel('gate-start'))).toBeFocused()
   await proofShot(app, shell, 'gate-locked', PHASE)
 })
 
 test('start, timer, done unlocks and brings the browser back', async ({ app, shell, evaFx }) => {
-  await showBrowser(app, shell)
+  const id = await showBrowser(app, shell)
   lockGate(evaFx)
   await waitLocked(shell)
   await shell.locator(sel('gate-pick-stretch')).click()
@@ -96,7 +88,7 @@ test('start, timer, done unlocks and brings the browser back', async ({ app, she
   await expect(shell.locator(sel('gate-done'))).toBeEnabled({ timeout: 8000 })
   await shell.locator(sel('gate-done')).click()
   await expect(shell.locator(sel('gate-overlay'))).toHaveCount(0, { timeout: 2000 })
-  await expect.poll(() => viewVisible(app)).toBe(true)
+  await expect.poll(() => viewVisible(app, id)).toBe(true)
   const a = argvs(evaFx)
   expect(a).toContainEqual(['start', 'stretch', '--json'])
   expect(a).toContainEqual(['done', 'stretch', '--json'])

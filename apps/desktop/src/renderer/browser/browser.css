@@ -1,55 +1,7 @@
 .eva-browser {
   --eva-address-h: var(--eva-control-lg);
-  --eva-tab-strip-h: var(--eva-control-md);
 }
 
-.eva-tab-strip {
-  display: flex;
-  align-items: center;
-  gap: var(--eva-space-native-xs);
-  padding: 0 var(--eva-space-native-sm);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.eva-tab {
-  flex: 0 0 auto;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: var(--eva-space-native-xs);
-  height: var(--eva-control-xs);
-  min-width: 0;
-  max-width: 220px;
-  padding: 0 var(--eva-space-native-xs);
-  border: 1px solid transparent;
-  border-radius: var(--eva-radius);
-  font-size: var(--eva-fz-label);
-  color: var(--eva-text-dim);
-  cursor: pointer;
-}
-.eva-tab:hover {
-  background: var(--eva-surface-2);
-}
-.eva-tab.is-active {
-  background: var(--eva-surface-2);
-  border-color: var(--eva-border);
-  color: var(--eva-text);
-}
-.eva-tab-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.eva-tab-icon,
-.eva-tab-pin {
-  flex: none;
-}
-.eva-tab-pin {
-  color: var(--eva-text-dim);
-}
-.eva-tab-new {
-  flex: none;
-}
 .eva-address-row {
   position: relative;
   box-sizing: border-box;
@@ -73,19 +25,6 @@
   left: 0;
   right: 0;
   bottom: 0;
-}
-/* Tab row: the scrolling tab strip, then the local eCard app chip when the tab is on the switch. */
-.eva-browser-tabs {
-  display: flex;
-  align-items: center;
-  flex: none;
-  min-width: 0;
-  padding-right: var(--mantine-spacing-xs);
-  background: var(--eva-surface);
-}
-.eva-browser-tabs > .eva-tab-strip {
-  flex: 1;
-  min-width: 0;
 }
 /* The local eCard app switch: a quiet chip naming the app the tab shows, and its menu rows. */
 .eva-app-switch {
@@ -184,55 +123,26 @@
   height: var(--eva-tile-md);
   color: var(--eva-text-dim);
 }
-/* The new-tab launcher: a row of bordered tiles, then a flat Recent list; quiet hover. */
-.eva-browser-slot:has(> .eva-tools) {
+/* A blank page: one dim line under the address field, then the pages opened last. */
+.eva-browser-slot:has(> .eva-page-blank) {
   align-items: flex-start;
 }
-.eva-tools {
+.eva-page-blank {
   display: flex;
   flex-direction: column;
-  gap: var(--mantine-spacing-xl);
+  gap: var(--mantine-spacing-lg);
   width: 100%;
   max-width: 520px;
   margin: 0 auto;
   padding: var(--mantine-spacing-xl) var(--mantine-spacing-md) 0;
+  text-align: center;
 }
-.eva-tools-grid {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--mantine-spacing-sm);
-}
-.eva-tools-tile {
+.eva-page-recent {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
-  width: 88px;
-  padding: var(--mantine-spacing-sm) 0;
-  border: 1px solid var(--eva-border);
-  border-radius: 8px;
-  color: var(--eva-text);
+  text-align: left;
 }
-.eva-tools-tile:hover,
-.eva-tools-tile:focus-visible,
-.eva-tools-recent-row:hover,
-.eva-tools-recent-row:focus-visible {
-  background: var(--eva-surface-2);
-}
-.eva-tools-label {
-  font-size: var(--mantine-font-size-xs);
-}
-.eva-tools-recent {
-  display: flex;
-  flex-direction: column;
-}
-.eva-tools-recent-title {
-  padding: 0 var(--mantine-spacing-xs) var(--mantine-spacing-xs);
-  font-size: var(--mantine-font-size-xs);
-  color: var(--eva-text-dim);
-}
-.eva-tools-recent-row {
+.eva-page-recent-row {
   display: flex;
   align-items: center;
   gap: var(--mantine-spacing-xs);
@@ -242,11 +152,15 @@
   border-radius: 6px;
   color: var(--eva-text);
 }
-.eva-tools-recent-row svg {
+.eva-page-recent-row:hover,
+.eva-page-recent-row:focus-visible {
+  background: var(--eva-surface-2);
+}
+.eva-page-recent-row svg {
   flex: none;
   color: var(--eva-text-dim);
 }
-.eva-tools-recent-name {
+.eva-page-recent-name {
   flex: none;
   max-width: 60%;
   overflow: hidden;
@@ -254,7 +168,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.eva-tools-recent-where {
+.eva-page-recent-where {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -264,12 +178,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A page tab's glyph: the page's favicon, and who opened it as a dim initial after the title. */
+.eva-web-favicon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+}
+.eva-web-owner {
+  flex: none;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--eva-text-dim);
+}
 .eva-overlay-body {
   margin: 0 0 var(--eva-space-md);
-}
-.eva-tab-close {
-  flex: none;
-  margin-left: auto;
 }
 .eva-suggestions {
   position: absolute;

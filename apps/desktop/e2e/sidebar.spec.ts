@@ -48,22 +48,25 @@ test('nav rows and counts come from the fixture root', { tag: '@smoke' }, async 
   await expect(shell.locator(sel('count-jobs'))).toHaveText('1')
 })
 
-test('plain click replaces, cmd-click opens a tab, pinned opens another', async ({ shell }) => {
+test('plain click replaces, cmd-click opens beside, pinned opens another', async ({ shell }) => {
   await shell.locator(sel('nav-habits')).click()
   await expect.poll(async () => (await tabs(shell)).list.map((t) => t.title)).toEqual(['Habits'])
   await expect(shell.locator(sel('nav-habits'))).toHaveAttribute('data-active', 'true')
   await expect(shell.locator(sel('nav-dashboard'))).not.toHaveAttribute('data-active', 'true')
 
-  await shell.locator(sel('nav-dashboard')).click({ modifiers: ['Meta', 'Shift'] })
-  await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)
+  // Cmd opens the page in the background as a page tab beside, not as another app tab.
+  await shell.locator(sel('nav-dashboard')).click({ modifiers: ['Meta'] })
+  await expect(shell.locator('[data-testid="pane-tab-view:page:dashboard"]')).toBeVisible()
+  expect((await tabs(shell)).list.map((t) => t.title)).toEqual(['Habits'])
 
   const first = (await tabs(shell)).list[0]!
   await shell.locator(`[data-testid=tab-${first.id}]`).click({ button: 'right' })
   await shell.locator(sel('tab-menu-pin')).click()
   await shell.locator(`[data-testid=tab-pinned-${first.id}]`).click()
   await expect.poll(async () => (await tabs(shell)).active).toBe(0)
+  // A pinned tab is never taken along: Jobs opens a tab of its own.
   await shell.locator(sel('nav-jobs')).click()
-  await expect.poll(async () => (await tabs(shell)).list.length).toBe(3)
+  await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)
   const list = (await tabs(shell)).list
   expect(list[0]!.page).toBe('habits')
   expect(list[0]!.pinned).toBe(true)

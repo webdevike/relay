@@ -114,6 +114,7 @@ export async function loadLayout(): Promise<void> {
       const sidebarWidth = clampSidebar(r.value.sidebarWidth)
       applySavedLayout({
         dock: r.value.dock,
+        workspaces: r.value.workspaces,
         tiling: r.value.tiling,
         legacy: r.value.legacyPanel,
         sidebarWidth,

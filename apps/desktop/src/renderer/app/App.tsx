@@ -6,6 +6,7 @@ import { loadLayout, registerLayoutActions } from '../shell/layout-store'
 import { startTiling } from '../tiling/tiling-store'
 import { startBrowserStore } from '../browser/browser-store'
 import { startBrowserScope } from '../browser/browser-scope'
+import { startWorkspaceOwners } from '../chat/workspace-owners'
 import { startTabs } from '../tabs/tabs-store'
 import { startSidebar } from '../sidebar/sidebar-store'
 import { startHabits } from '../habits/habit-store'
@@ -38,6 +39,7 @@ export function App() {
     const stopTiling = startTiling()
     const stopBrowserStore = startBrowserStore()
     const stopBrowserScope = startBrowserScope()
+    const stopOwners = startWorkspaceOwners()
     void initE2e()
     void loadLayout()
     const stopTabs = startTabs()
@@ -60,6 +62,7 @@ export function App() {
       stopLayout()
       stopTiling()
       stopBrowserScope()
+      stopOwners()
       stopBrowserStore()
       stopTabs()
       stopSidebar()

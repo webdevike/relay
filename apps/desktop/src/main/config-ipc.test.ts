@@ -31,6 +31,7 @@ describe('layout', () => {
       sidebarWidth: 272,
       tabs: null,
       dock: null,
+      workspaces: null,
       tiling: null,
       legacyPanel: null,
       sidebar: null,

@@ -34,6 +34,11 @@ vi.mock('../navigation/navigate', () => ({
   openPlace: (...a: unknown[]) => openPlace(...a),
   setNavigator: () => {},
 }))
+const openPlaceBeside = vi.fn()
+vi.mock('../tiling/tiling-store', async (orig) => ({
+  ...(await orig<typeof import('../tiling/tiling-store')>()),
+  openPlaceBeside: (...a: unknown[]) => openPlaceBeside(...a),
+}))
 
 import { createTabs, placeOf, type Tab } from '@evaos/shell-core'
 import { dismissTop } from '../hotkeys/dismiss'
@@ -82,17 +87,18 @@ describe('MainNav', () => {
     wrap(<MainNav />)
     fireEvent.click(screen.getByTestId('nav-habits'))
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('habits'), { newTab: false })
-    fireEvent.click(screen.getByTestId('nav-habits'), { metaKey: true, shiftKey: true })
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('habits'), { newTab: true })
-    // Cmd opens a side pane, not through openPlace; middle-click is a new tab.
+    // Cmd+Shift a split, Cmd and middle-click a background tab: beside, not through openPlace.
     const calls = openPlace.mock.calls.length
+    openPlaceBeside.mockClear()
+    fireEvent.click(screen.getByTestId('nav-habits'), { metaKey: true, shiftKey: true })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(placeOf('habits'))
     fireEvent.click(screen.getByTestId('nav-habits'), { metaKey: true })
-    expect(openPlace.mock.calls).toHaveLength(calls)
     fireEvent(
       screen.getByTestId('nav-habits'),
       new MouseEvent('auxclick', { bubbles: true, cancelable: true, button: 1 }),
     )
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('habits'), { newTab: true })
+    expect(openPlaceBeside).toHaveBeenCalledTimes(3)
+    expect(openPlace.mock.calls).toHaveLength(calls)
     fireEvent.click(screen.getByTestId('nav-chat'))
     expect(navLevelStore.getState().level).toBe('chats')
     backToRoot()
@@ -172,9 +178,9 @@ describe('sub-pages', () => {
       newTab: false,
     })
     fireEvent.click(screen.getByTestId('settings-item-chat'), { metaKey: true, shiftKey: true })
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('settings', { settingsSection: 'Chat' }), {
-      newTab: true,
-    })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(
+      placeOf('settings', { settingsSection: 'Chat' }),
+    )
   })
 
   it('shows chat and meeting search with their loading states', () => {

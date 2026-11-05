@@ -179,7 +179,7 @@ test('reload triggers: Cmd+R, window focus and the refresh button', async ({
   await expect(shell.locator(sel('dash-updated'))).toContainText('Updated')
 })
 
-test('workspace cards navigate, cmd+shift-click opens a new tab', async ({ app, shell }) => {
+test('workspace cards navigate, cmd-click opens beside', async ({ app, shell }) => {
   await size(app, shell, ...WIDE)
   const count = async (): Promise<number> => (await tabs(shell)).list.length
   const n = await count()
@@ -191,8 +191,14 @@ test('workspace cards navigate, cmd+shift-click opens a new tab', async ({ app, 
 
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('dashboard'))
   await expect(shell.locator(sel('ws-card-goodops'))).toBeVisible()
-  await shell.locator(sel('ws-card-goodops')).click({ modifiers: ['Meta', 'Shift'] })
-  await expect.poll(count).toBe(n + 1)
+  // Cmd opens the workspace page in the background as a page tab beside the dashboard.
+  await shell.locator(sel('ws-card-goodops')).click({ modifiers: ['Meta'] })
+  // In the background: a tab in the tool pane's strip, not in front.
+  const beside = shell.locator('[data-pane-kind=tool]').getByRole('tab', { name: 'GoodOps' })
+  await expect(beside).toHaveCount(1)
+  await expect(beside).toHaveAttribute('aria-selected', 'false')
+  expect(await count()).toBe(n)
+  await expect(shell.locator(sel('ws-card-goodops'))).toBeVisible()
 })
 
 test('motion off: exactly one banner is visible', async ({ shell }) => {

@@ -22,7 +22,7 @@ Legend: **R** read, **C** change, **L** relay:// deep link. "before" is main at 
 | Studio                                                       | R (studio.list) / C (studio.generate free, studio.open) / L page           | L `?job=<id>`                                                                                                                                |                                     |
 | Reviews                                                      | R / C (page.open item) / L page (desktop), `relay://reviews?item=` (phone) | L `relay://open/reviews?item=<url>` on both                                                                                                  |                                     |
 | Workspace `workspace:<slug>`                                 | R / C / -                                                                  | L `relay://open/workspace/<slug>`                                                                                                            |                                     |
-| Panes, tool tabs (Browser, Files, Terminal, Artifacts, arms) | R (layout.read) / C (pane._, tab._, files.open, browser.*) / -             | same (no link: panes are window layout)                                                                                                      |                                     |
+| Workspaces: panes, tabs (web pages, Files, Terminal, transcripts, arms, pages beside a chat) | R (layout.read) / C (pane._, tab._, files.open, browser.*) / -             | R/C per workspace: layout.read and pane.* act on the caller's workspace (an assistant's for the sessions it owns), on screen or not; state.read the one on screen / L every tab: `relay://open/web?url=`, `relay://open/files?path=&line=`, `relay://open/chat?chat=&message=`, `?canvas=&node=`, `?job=` | renderer tiling-store `inWorkspace`, navigation/tab-address.ts |
 | Settings > Theme: preset, light/dark                         | R raw / - / L section only                                                 | R/C `theme.preset`, `theme.mode` with toast + Undo / L `?setting=`                                                                           | settings.get/set/undo               |
 | Settings > Theme: colors, primary, radius, scale, font       | -                                                                          | R/C `theme.colors.<light/dark>.<slot>` (#rrggbb), `theme.primaryColor`, `theme.radius`, `theme.scale`, `theme.fontFamily`                    |                                     |
 | Settings > Theme editor save / save as / delete              | -                                                                          | - (Isaac's: agent edits are unsaved until he saves)                                                                                          | gap, by design                      |
@@ -40,11 +40,19 @@ Legend: **R** read, **C** change, **L** relay:// deep link. "before" is main at 
 ## Deep link grammar
 
 `relay://assistant/<id>` or `relay://open/<page>[/<sub>][?<param>=<value>&...]`, params from
-`item, setting, connect, canvas, meeting, experiment, arm, job`. `parseAppLink` / `buildAppLink`
-live in `@evaos/chat-core/widget` and `@relay/protocol` (same grammar, tested both ways).
-`link` builds one from `{page, section, setting, connection, item, ...}` and answers
-`{url, label, markdown}`. `relay://open/setting` (singular) is read as `settings`; a link that names
-no place shows a "no place for that link" toast instead of doing nothing.
+`item, setting, connect, canvas, meeting, experiment, arm, job, chat, message, url, path, line,
+node, ws`. `parseAppLink` / `buildAppLink` live in `@evaos/chat-core/widget` and `@relay/protocol`
+(same grammar, tested both ways). Every tab kind has an address (renderer
+`navigation/tab-address.ts`): a chat (`relay://open/chat?chat=<file>[&message=<id>]`), a web page
+(`relay://open/web?url=<url>[&ws=<workspace>]`), a file (`relay://open/files?path=<path>[&line=<n>]`),
+a board (`relay://open/canvas?canvas=<slug>[&node=<id>]`), a Studio job, a page. `ws` names the
+workspace the tab was in, for reading only: a pasted link opens in the workspace on screen.
+`link` builds one from `{page, section, setting, connection, item, chat, message, web, path, line,
+node, workspace, ...}` and answers `{url, label, markdown}`; `link.open` opens one with `target`
+`here` (default), `background`, `split` or `tab`, the same rule as a click (plain, Cmd, Cmd+Shift).
+Cmd+Shift+C in the app copies the focused tab's address. `relay://open/setting` (singular) is read
+as `settings`; a link that names no place shows a "no place for that link" toast instead of doing
+nothing.
 
 ## Which Mac
 

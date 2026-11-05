@@ -15,6 +15,7 @@ import { invoke } from '../ipc'
 import { ImportArcModal } from './ImportArcModal'
 import { ExtensionActions } from './ExtensionActions'
 import { Suggestions, type SuggestionItem } from './Suggestions'
+import { browserStore, useBrowserStore } from './browser-store'
 
 function Btn(props: {
   label: string
@@ -39,7 +40,22 @@ function Btn(props: {
   )
 }
 
-export function AddressRow({ tab }: { tab: TabState | undefined }) {
+/**
+ * Page `tabId`'s toolbar: back, forward, reload, the address field, its links and, for the
+ * page the host has active, the extensions' actions (they act on the active page). `children`
+ * end the row (the eCard app switch).
+ */
+export function AddressRow({
+  tabId,
+  tab,
+  visible,
+  children,
+}: {
+  tabId: string
+  tab: TabState | undefined
+  visible: boolean
+  children?: React.ReactNode
+}) {
   const [text, setText] = useState('')
   const input = useRef<HTMLInputElement>(null)
   const [items, setItems] = useState<SuggestionItem[]>([])
@@ -48,6 +64,8 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
   const seq = useRef(0)
   const [importOpen, setImportOpen] = useState(false)
   const [importing, setImporting] = useState(false)
+  const hostActive = useBrowserStore((s) => s.activeId === tabId)
+  const wantFocus = useBrowserStore((s) => s.wantAddress === tabId)
   const close = (): void => {
     seq.current++
     if (timer.current) clearTimeout(timer.current)
@@ -71,9 +89,7 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
   }
   const go = (value: string): void => {
     close()
-    // A scope with no tabs opens its first one from the address bar.
-    if (tabId) void invoke('browser.navigate', { tabId, input: value })
-    else if (value.trim()) void invoke('browser.createTab', { url: value })
+    if (value.trim()) void invoke('browser.navigate', { tabId, input: value })
     input.current?.blur()
   }
   const runImport = async (): Promise<void> => {
@@ -99,9 +115,17 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
   }
   const url = tab?.url ?? ''
   useEffect(() => setText(url), [url])
-  const tabId = tab?.id
+  // A new blank page: its address field takes the focus once its tab shows.
+  useEffect(() => {
+    if (!wantFocus || !visible) return
+    const frame = requestAnimationFrame(() => {
+      input.current?.focus()
+      browserStore.setState({ wantAddress: null })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [wantFocus, visible])
   const act = (ch: 'back' | 'forward' | 'reload' | 'stop' | 'copyLink' | 'openExternal') => () => {
-    if (tabId) void invoke(`browser.${ch}`, { tabId })
+    void invoke(`browser.${ch}`, { tabId })
   }
 
   return (
@@ -131,6 +155,7 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
         placeholder="Search, URL, or port such as 3000"
         aria-label="Address"
         data-testid="address-input"
+        data-tab-id={tabId}
         value={text}
         onChange={(e) => {
           setText(e.currentTarget.value)
@@ -175,8 +200,9 @@ export function AddressRow({ tab }: { tab: TabState | undefined }) {
           {importing ? <Loader size={14} /> : <IconCookie size={16} />}
         </ActionIcon>
       </Tooltip>
-      {/* Extension actions act on the active tab; a scope with no tabs has none to offer. */}
-      {tab ? <ExtensionActions /> : null}
+      {/* Extension actions act on the host's active page: the one last focused. */}
+      {hostActive && tab ? <ExtensionActions /> : null}
+      {children}
       <ImportArcModal
         opened={importOpen}
         onConfirm={() => void runImport()}

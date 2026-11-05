@@ -25,6 +25,8 @@ export interface SavedTab {
   fromExtension?: true
   /** The local eCard app this tab shows through the app switch (its own `ecard_app`). */
   switchApp?: string
+  /** Who opened the tab (TabState.openedBy). */
+  openedBy?: string
 }
 
 export interface SavedBrowserTabs {
@@ -48,6 +50,8 @@ export function parseSavedTabs(raw: unknown): SavedBrowserTabs {
     if (typeof scope !== 'string' || scope === '' || scope.length > 1024) continue
     const fromExtension = r.fromExtension === true
     const switchApp = SwitchAppIdSchema.safeParse(r.switchApp).data
+    const openedBy =
+      typeof r.openedBy === 'string' && r.openedBy.length <= 120 ? r.openedBy : undefined
     if (typeof url !== 'string' || !loadableUrl(url, { fromExtension })) continue
     seen.add(id)
     out.tabs.push({
@@ -58,6 +62,7 @@ export function parseSavedTabs(raw: unknown): SavedBrowserTabs {
       favicon: typeof r.favicon === 'string' ? r.favicon : null,
       ...(fromExtension ? { fromExtension: true as const } : {}),
       ...(switchApp ? { switchApp } : {}),
+      ...(openedBy ? { openedBy } : {}),
     })
   }
   out.tabs = out.tabs.slice(-MAX_SAVED_TABS)

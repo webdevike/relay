@@ -24,7 +24,7 @@ import {
 import { pageRegistry } from '../pages/registry'
 import { assistantsStore } from '../assistants/assistants-store'
 import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
-import { resetTilingForTests } from '../tiling/tiling-store'
+import { resetTilingForTests, tilingStore } from '../tiling/tiling-store'
 import { mountTestDock } from '../tiling/test-dock'
 
 function page(section: 'Theme' | 'Chat' | 'Links' | 'About' | 'Changelog') {
@@ -275,7 +275,7 @@ describe('SettingsPage', () => {
     expect(screen.queryByText(MISSING)).toBeNull()
   })
 
-  it('About credits every Micah assistant with its license, links opening in the browser panel', () => {
+  it('About credits every Micah assistant with its license, links opening as page tabs', async () => {
     const agent = (id: string, style: 'micah' | 'notionists') => ({
       id,
       title: id[0]!.toUpperCase() + id.slice(1),
@@ -302,9 +302,15 @@ describe('SettingsPage', () => {
       'Nova and Polaris avatars: Micah by Micah Lanier, CC BY 4.0, modified',
     )
     fireEvent.click(within(credits).getByText('dicebear.com/styles/micah'))
-    expect(invoke).toHaveBeenCalledWith('browser.createTab', {
-      url: 'https://www.dicebear.com/styles/micah/',
-    })
+    expect(invoke).toHaveBeenCalledWith(
+      'browser.createTab',
+      expect.objectContaining({ url: 'https://www.dicebear.com/styles/micah/' }),
+    )
+    await waitFor(() =>
+      expect(tilingStore.getState().panes.some((p) => p.views.some((v) => v.startsWith('web:')))).toBe(
+        true,
+      ),
+    )
     unmount()
     expect(within(credits).getByText('creativecommons.org/licenses/by/4.0')).toHaveAttribute(
       'href',

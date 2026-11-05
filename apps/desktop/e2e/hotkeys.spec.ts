@@ -1,21 +1,18 @@
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
+import { openPage, pageTabs, webPanel, type BrowserHooks } from './helpers/web'
 
 type Snap = {
   active: number
   list: Array<{ id: number; page: string; pinned: boolean; title: string }>
 }
 type W = {
-  __evaosShell: { tabs(): Snap; openPlace(p: string, n?: boolean): void }
-  __evaosHotkeys: Array<{ chord: string; action: string }>
-}
-type G = {
-  __evaosTest: {
-    hooks: {
-      browser: { host: { activeView(): { webContents: Electron.WebContents } } }
-    }
+  __evaosShell: {
+    tabs(): Snap
+    openPlace(p: string, n?: boolean, extra?: Record<string, string>): void
   }
+  __evaosHotkeys: Array<{ chord: string; action: string }>
 }
 
 test.use({ startOnChat: false, colorScheme: 'dark' })
@@ -40,8 +37,10 @@ const clearLog = (shell: Page): Promise<void> =>
 const state = (shell: Page) => shell.locator(sel('shell')).getAttribute('data-sidebar-state')
 const level = (shell: Page) => shell.locator(sel('sidebar')).getAttribute('data-sidebar-level')
 
+/** The keyboard on the shell itself, out of any pane (a page's address field included). */
 async function focusShell(shell: Page): Promise<void> {
   await shell.locator(sel('tabbar-drag')).click()
+  await shell.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
 }
 
 test('implemented app chords reach the router and are logged', async ({ shell }) => {
@@ -89,17 +88,46 @@ test('implemented chords have real effects', async ({ shell }) => {
   await shell.keyboard.press('Meta+Shift+b')
   await expect(shell.locator('[data-pane-kind=tool]')).toBeVisible()
 
+  // Cmd+T: a blank page in the focused pane, its address focused; Cmd+W there closes it.
   await shell.keyboard.press('Meta+t')
+  await expect(pageTabs(shell)).toHaveCount(1)
+  await expect(
+    shell.locator('[data-testid=web-panel]:visible [data-testid=address-input]'),
+  ).toBeFocused()
+  await shell.keyboard.press('Meta+w')
+  await expect(pageTabs(shell)).toHaveCount(0)
+  expect((await tabs(shell)).list.length).toBe(1)
+
+  // A new chat from the + menu, and Cmd+W from the tab bar closes its app tab.
+  await shell.locator(sel('tab-new')).click()
+  const lead = await shell.evaluate(
+    () => document.querySelector<HTMLElement>('[data-lead=true]')!.dataset['paneId']!,
+  )
+  await shell.locator(sel(`pane-add-new-chat-${lead}`)).click()
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)
+  await focusShell(shell)
   await shell.keyboard.press('Meta+w')
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(1)
 
-  await shell.evaluate(() => (window as unknown as W).__evaosShell.openPlace('habits'))
-  await expect.poll(async () => (await tabs(shell)).list[0]!.title).toBe('Habits')
+  // Back and forward walk the tab's history inside its workspace (Settings sections).
+  const front = async (): Promise<string> => {
+    const t = await tabs(shell)
+    return t.list[t.active]!.title
+  }
+  const settings = (section: string) =>
+    shell.evaluate(
+      (s) => (window as unknown as W).__evaosShell.openPlace('settings', false, { settingsSection: s }),
+      section,
+    )
+  await settings('Theme')
+  await expect.poll(front).toBe('Settings: Theme')
+  await settings('Chat')
+  await expect.poll(front).toBe('Settings: Chat')
+  await focusShell(shell)
   await shell.keyboard.press('Meta+[')
-  await expect.poll(async () => (await tabs(shell)).list[0]!.title).toBe('Dashboard')
+  await expect.poll(front).toBe('Settings: Theme')
   await shell.keyboard.press('Meta+]')
-  await expect.poll(async () => (await tabs(shell)).list[0]!.title).toBe('Habits')
+  await expect.poll(front).toBe('Settings: Chat')
 
   await clearLog(shell)
   await shell.keyboard.press('Meta+r')
@@ -161,33 +189,32 @@ test('Esc pops the sub-page, then does nothing and is not prevented', async ({ s
   expect(await level(shell)).toBe('root')
 })
 
-async function viewReady(app: ElectronApplication): Promise<boolean> {
-  return app.evaluate(() => {
-    try {
-      return Boolean(
-        (globalThis as unknown as G).__evaosTest.hooks.browser.host
-          .activeView()
-          .webContents.getURL(),
-      )
-    } catch {
-      return false
-    }
-  })
-}
-
-test('a chord from a guest browser view reaches the same router', async ({ app, shell }, info) => {
-  const addr = shell.locator(sel('address-input'))
-  await addr.fill(server.url('/a.html'))
-  await addr.press('Enter')
-  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
-  await expect.poll(() => viewReady(app)).toBe(true)
+test('a chord from a page reaches the same router', async ({ app, shell }, info) => {
+  const id = await openPage(shell, server.url('/a.html'), 'Page A')
+  await expect
+    .poll(() =>
+      app.evaluate(
+        (_e, tabId) =>
+          Boolean(
+            (globalThis as unknown as BrowserHooks).__evaosTest.hooks.browser.host
+              .tabById(tabId)
+              ?.getURL(),
+          ),
+        id,
+      ),
+    )
+    .toBe(true)
+  await expect(webPanel(shell, id)).toBeVisible()
   await clearLog(shell)
-  await app.evaluate(() => {
-    const wc = (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().webContents
+  await app.evaluate((_e, tabId) => {
+    const wc = (globalThis as unknown as BrowserHooks).__evaosTest.hooks.browser.host.tabById(
+      tabId,
+    )!
     wc.focus()
     wc.sendInputEvent({ type: 'keyDown', keyCode: 'B', modifiers: ['meta', 'shift'] })
     wc.sendInputEvent({ type: 'keyUp', keyCode: 'B', modifiers: ['meta', 'shift'] })
-  })
+  }, id)
+
   let path = 'sendInputEvent on the guest webContents (before-input-event)'
   try {
     await expect.poll(() => actions(shell), { timeout: 3000 }).toContain('toggle-panel')

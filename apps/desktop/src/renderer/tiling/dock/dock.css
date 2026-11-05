@@ -175,6 +175,11 @@
   > .dv-tabs-and-actions-container {
   border-bottom-color: var(--eva-c-border);
 }
+/* The focused pane (where Cmd+Shift+C and keyboard actions go): a 1px accent hairline under its
+   front tab. data-focused is only set while more than one pane shows. */
+.dockview-theme-relay .dv-groupview[data-focused] .dv-tab.dv-active-tab {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--eva-c-accent) 70%, transparent);
+}
 .dockview-theme-relay .dv-content-container > .dv-react-part,
 .dockview-theme-relay .dv-content-container > div {
   height: 100%;
@@ -350,4 +355,47 @@ body.eva-tab-dragging,
 body.eva-tab-dragging * {
   cursor: grabbing !important;
   user-select: none;
+}
+
+/* The pane + menu: compact rows, shortcut hints on the right. */
+.eva-add-menu-list {
+  display: flex;
+  flex-direction: column;
+  outline: none;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.eva-add-menu-filter {
+  margin-bottom: 4px;
+}
+.eva-add-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--eva-radius, 6px);
+  font-size: var(--mantine-font-size-sm);
+  cursor: default;
+  user-select: none;
+}
+.eva-add-menu-row[data-active] {
+  background: var(--eva-c-muted-background);
+}
+.eva-add-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-add-menu-divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--eva-c-border);
+}
+.eva-add-menu-empty {
+  padding: 6px 8px;
+  font-size: var(--mantine-font-size-sm);
+  color: var(--mantine-color-dimmed);
 }

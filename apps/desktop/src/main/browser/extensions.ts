@@ -3,6 +3,7 @@ import { session } from 'electron'
 import { ElectronChromeExtensions } from 'electron-chrome-extensions'
 import { installChromeWebStore, installExtension } from 'electron-chrome-web-store'
 import type { MainContext } from '../context'
+import { emit } from '../ipc/handle'
 import type { BrowserHost } from './browser-host'
 import { GUEST_PARTITION } from './guest-session'
 
@@ -42,12 +43,20 @@ export async function setupExtensions(ctx: MainContext, browser: BrowserHost): P
     license: 'GPL-3.0',
     session: guest,
     createTab: async (details) => {
+      const opener = browser.activeTabId()
       const tab = browser.createTab(details.url, details.active !== false, {
         fromExtension: true,
       })
       if (!tab) throw new Error('Tab limit reached')
       const wc = browser.tabById(tab.id)
       if (!wc) throw new Error('tab vanished')
+      // The shell shows it as a page tab, beside the page in front.
+      emit(ctx, 'browser.popup', {
+        tabId: tab.id,
+        ...(opener ? { openerId: opener } : {}),
+        scope: browser.currentScope(),
+        ...(details.active === false ? { background: true } : {}),
+      })
       return [wc, ctx.win]
     },
     selectTab: (wc) => {

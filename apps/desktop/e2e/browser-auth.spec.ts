@@ -1,40 +1,34 @@
 import { test, expect } from './fixtures'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
-import type { ElectronApplication, Page } from '@playwright/test'
+import {
+  guestEval,
+  navigate,
+  openPage,
+  pageTab,
+  pageTabs,
+  webPanel,
+  type BrowserHooks,
+} from './helpers/web'
+import type { ElectronApplication } from '@playwright/test'
 
 // Sign-in popups (T-01-37) and the passkey bar, on local pages only (no network).
 
-interface Wc {
-  id: number
-  executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>
-  sendInputEvent(e: Record<string, unknown>): void
-}
-type Hooks = {
-  __evaosTest: { hooks: { browser: { host: { activeView(): { webContents: Wc } } } } }
-}
-
-function guestEval(app: ElectronApplication, code: string): Promise<unknown> {
+/** A real click (trusted input, so it counts as a gesture) on `selector` in page `id`. */
+function guestClick(app: ElectronApplication, id: string, selector: string): Promise<void> {
   return app.evaluate(
-    (_e, c) =>
-      (globalThis as unknown as Hooks).__evaosTest.hooks.browser.host
-        .activeView()
-        .webContents.executeJavaScript(c),
-    code,
+    async (_e, a) => {
+      const wc = (globalThis as unknown as BrowserHooks).__evaosTest.hooks.browser.host.tabById(
+        a.id,
+      )!
+      const r = (await wc.executeJavaScript(
+        `(() => { const b = document.querySelector(${JSON.stringify(a.sel)}).getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 } })()`,
+      )) as { x: number; y: number }
+      const at = { x: Math.round(r.x), y: Math.round(r.y), button: 'left', clickCount: 1 }
+      wc.sendInputEvent({ type: 'mouseDown', ...at })
+      wc.sendInputEvent({ type: 'mouseUp', ...at })
+    },
+    { id, sel: selector },
   )
-}
-
-/** A real click (trusted input, so it counts as a gesture) on `selector` in the active tab. */
-function guestClick(app: ElectronApplication, selector: string): Promise<void> {
-  return app.evaluate(async (_e, sel) => {
-    const wc = (globalThis as unknown as Hooks).__evaosTest.hooks.browser.host.activeView()
-      .webContents
-    const r = (await wc.executeJavaScript(
-      `(() => { const b = document.querySelector(${JSON.stringify(sel)}).getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 } })()`,
-    )) as { x: number; y: number }
-    const at = { x: Math.round(r.x), y: Math.round(r.y), button: 'left', clickCount: 1 }
-    wc.sendInputEvent({ type: 'mouseDown', ...at })
-    wc.sendInputEvent({ type: 'mouseUp', ...at })
-  }, selector)
 }
 
 /** Script-opened windows (sign-in popups): every BrowserWindow, the shell being a BaseWindow. */
@@ -42,12 +36,6 @@ function popupUrls(app: ElectronApplication): Promise<string[]> {
   return app.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows().map((w) => w.webContents.getURL()),
   )
-}
-
-async function navigate(shell: Page, input: string): Promise<void> {
-  const addr = shell.locator('[data-testid=address-input]')
-  await addr.fill(input)
-  await addr.press('Enter')
 }
 
 let server: StaticServer
@@ -62,16 +50,15 @@ test('a sign-in button opens a real popup that talks to its opener and closes it
   app,
   shell,
 }) => {
-  await navigate(shell, server.url('/signin.html'))
-  await expect(shell.locator('[data-testid^=browser-tab-t1]').first()).toContainText('Sign in')
+  const id = await openPage(shell, server.url('/signin.html'), 'Sign in')
 
   // Without a click, a page cannot open a popup.
   expect(
-    await guestEval(app, `window.open('/provider.html', 'x', 'width=300,height=300') === null`),
+    await guestEval(app, id, `window.open('/provider.html', 'x', 'width=300,height=300') === null`),
   ).toBe(true)
   expect(await popupUrls(app)).toEqual([])
 
-  await guestClick(app, '#signin')
+  await guestClick(app, id, '#signin')
   await expect.poll(() => popupUrls(app)).toEqual([server.url('/provider.html')])
   const prefs = await app.evaluate(({ BrowserWindow, session }) => {
     const wc = BrowserWindow.getAllWindows()[0]!.webContents
@@ -95,12 +82,12 @@ test('a sign-in button opens a real popup that talks to its opener and closes it
 
   // The provider posts to window.opener, then window.close() closes the popup.
   await expect
-    .poll(() => guestEval(app, `document.getElementById('result').textContent`))
+    .poll(() => guestEval(app, id, `document.getElementById('result').textContent`))
     .toBe('signed in: abc123')
   await expect.poll(() => popupUrls(app)).toEqual([])
-  expect(await guestEval(app, 'window.__popup.closed')).toBe(true)
-  // The popup never became a tab.
-  await expect(shell.locator('[data-testid^=browser-tab-t]')).toHaveCount(1)
+  expect(await guestEval(app, id, 'window.__popup.closed')).toBe(true)
+  // The popup never became a page tab.
+  await expect(pageTabs(shell)).toHaveCount(1)
 })
 
 test('a passkey request shows the bar; Open in opens the page outside, Dismiss hides it', async ({
@@ -115,13 +102,14 @@ test('a passkey request shows the bar; Open in opens the page outside, Dismiss h
     }
   })
   const url = server.url('/a.html')
-  await navigate(shell, url)
-  await expect(shell.locator('[data-testid^=browser-tab-t1]').first()).toContainText('Page A')
-  const bar = shell.locator('[data-testid=passkey-bar]')
+  const id = await openPage(shell, url, 'Page A')
+  const panel = webPanel(shell, id)
+  const bar = panel.locator('[data-testid=passkey-bar]')
 
   // Passkey autofill (conditional mediation) runs silently on many sign-in pages: no bar.
   await guestEval(
     app,
+    id,
     `navigator.credentials.get({ mediation: 'conditional', signal: AbortSignal.timeout(500),
       publicKey: { challenge: new Uint8Array(32) } }).catch(() => {}); true`,
   )
@@ -130,29 +118,31 @@ test('a passkey request shows the bar; Open in opens the page outside, Dismiss h
 
   await guestEval(
     app,
+    id,
     `navigator.credentials.get({ signal: AbortSignal.timeout(30000),
       publicKey: { challenge: new Uint8Array(32) } }).catch(() => {}); true`,
   )
   await expect(bar).toBeVisible()
   await expect(bar).toContainText("Passkeys don't work here.")
-  await expect(shell.locator('[data-testid=passkey-open-external]')).toHaveText(/^Open in /)
-  await shell.locator('[data-testid=passkey-open-external]').click()
+  await expect(panel.locator('[data-testid=passkey-open-external]')).toHaveText(/^Open in /)
+  await panel.locator('[data-testid=passkey-open-external]').click()
   await expect
     .poll(() => app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened))
     .toEqual([url])
 
-  await shell.locator('[data-testid=passkey-dismiss]').click()
+  await panel.locator('[data-testid=passkey-dismiss]').click()
   await expect(bar).toHaveCount(0)
 
   // A new page starts without the bar.
   await guestEval(
     app,
+    id,
     `navigator.credentials.create({ signal: AbortSignal.timeout(30000), publicKey: {
       rp: { name: 'x' }, user: { id: new Uint8Array(8), name: 'x', displayName: 'x' },
       challenge: new Uint8Array(32), pubKeyCredParams: [{ type: 'public-key', alg: -7 }] } }).catch(() => {}); true`,
   )
   await expect(bar).toBeVisible()
-  await navigate(shell, server.url('/b.html'))
-  await expect(shell.locator('[data-testid^=browser-tab-t1]').first()).toContainText('Page B')
+  await navigate(shell, id, server.url('/b.html'))
+  await expect(pageTab(shell, id)).toContainText('Page B')
   await expect(bar).toHaveCount(0)
 })

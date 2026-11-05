@@ -49,7 +49,7 @@ describe('openActivity', () => {
     )
     expect(m.openInApp).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 'chat', chat: '/s/aw1.jsonl' }),
-      'split',
+      'here',
     )
     expect(
       await openActivity(
@@ -109,7 +109,7 @@ describe('openActivity', () => {
     openActivity(item({ to: 'canvas', slug: 'roadmap' }, { kind: 'canvas' }))
     expect(m.openInApp).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 'canvas', canvas: 'roadmap' }),
-      'split',
+      'here',
     )
   })
 })

@@ -13,6 +13,7 @@ import { EVA_FIXTURE_ROOT } from './helpers/paths'
 
 let fx: ChatFixture
 let host: FakeRelayHost
+let ownedFile: string
 const test = base.extend({
   launchEnv: async ({}, use) => {
     fx = makeChatFixture()
@@ -56,6 +57,31 @@ const test = base.extend({
         }),
       ].join('\n') + '\n',
     )
+    // A session Nova started (her sessions.json): it belongs to her workspace.
+    ownedFile = path.join(fx.sessionsDir, '2026-10-27T21-00-00-000Z_nova-work.jsonl')
+    fs.writeFileSync(
+      ownedFile,
+      [
+        line({
+          type: 'session',
+          version: 3,
+          id: 'nova-work',
+          timestamp: new Date().toISOString(),
+          cwd: evaRoot,
+        }),
+        line({
+          type: 'message',
+          id: 'u1',
+          parentId: null,
+          message: { role: 'user', content: 'Book the vet' },
+        }),
+      ].join('\n') + '\n',
+    )
+    fs.mkdirSync(path.join(evaRoot, 'work/eva/agents/nova'), { recursive: true })
+    fs.writeFileSync(
+      path.join(evaRoot, 'work/eva/agents/nova/sessions.json'),
+      JSON.stringify([{ sessionFile: ownedFile }]),
+    )
     host.upsert({
       id: 'nova-1',
       status: 'idle',
@@ -71,7 +97,9 @@ const test = base.extend({
 test.use({ startOnChat: false })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
-type ShellHooks = { __evaosShell: { openPlace(page: string, newTab?: boolean): void } }
+type ShellHooks = {
+  __evaosShell: { openPlace(page: string, newTab?: boolean, extra?: object): void }
+}
 
 /** The hanging notch never covers the log: the log starts at or below the notch's bottom edge. */
 async function expectLogBelowNotch(chat: Locator): Promise<void> {
@@ -86,9 +114,14 @@ test("Nova's thread tab, dragged onto its pane's edge, splits into a pane that i
 }) => {
   await shell.locator(sel('nav-assistants')).click()
   await shell.locator(sel('sidebar-agent-nova')).click()
-  // A second app tab, so the pane the thread leaves keeps one; then Nova's in front again.
-  await shell.evaluate(() => (window as unknown as ShellHooks).__evaosShell.openPlace('jobs', true))
+  // A second app tab of Nova's workspace (a session she owns opens beside her thread), so the
+  // pane the thread leaves keeps one; then Nova's thread in front again.
+  await shell.evaluate(
+    (f) => (window as unknown as ShellHooks).__evaosShell.openPlace('chat', false, { chat: f }),
+    ownedFile,
+  )
   await expect(shell.locator(`${sel('tabbar')} .eva-tab`)).toHaveCount(2)
+  await expect(shell.locator(sel('chat-log'))).toContainText('Book the vet')
   await shell.locator(`${sel('tabbar')} .eva-tab[aria-label=Nova]`).click()
   await expect(shell.locator(sel('chat-log'))).toContainText('Hi Nova', { timeout: 10_000 })
   await expectLogBelowNotch(shell.locator(`${sel('pane-body-p1')} ${sel('chat-pane')}`))

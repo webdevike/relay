@@ -15,6 +15,7 @@ import { resetTilingForTests, startTiling } from '../tiling/tiling-store'
 import {
   activePlace,
   navigateTo,
+  newChatTab,
   resetTabsForTests,
   startTabs,
   tabsStore,
@@ -116,11 +117,19 @@ describe('navigation', () => {
     await flush()
   })
 
-  it('replaces the active place and pushes history', () => {
+  it("opens another workspace's place in its own tab; the tab it left keeps its place", () => {
     navigateTo(placeOf('habits'))
-    expect(t().list).toHaveLength(1)
+    expect(t().list.map((x) => x.here.page)).toEqual(['dashboard', 'habits'])
     expect(activePlace(tabsStore.getState()).page).toBe('habits')
-    expect(t().list[0]!.back).toHaveLength(1)
+    expect(t().list[0]!.back).toHaveLength(0)
+  })
+
+  it('navigates within a workspace in place, with history', () => {
+    navigateTo(placeOf('settings', { settingsSection: 'Theme' }))
+    navigateTo(placeOf('settings', { settingsSection: 'Chat' }))
+    expect(t().list).toHaveLength(2)
+    expect(activePlace(tabsStore.getState()).settingsSection).toBe('Chat')
+    expect(t().list[1]!.back).toHaveLength(1)
   })
 
   it('newTab forks, and an already open place is switched to', () => {
@@ -140,10 +149,10 @@ describe('navigation', () => {
   })
 
   it('actions: new, close, pinned skip, last tab, history', () => {
-    // New and close tab are pane actions now (tiling-store), history stays here.
+    // Close tab is a pane action now (tiling-store; Cmd+T opens a web page), history stays here.
     resetTilingForTests()
     const stopTiling = startTiling()
-    runAction('new-tab')
+    newChatTab()
     expect(t().list).toHaveLength(2)
     expect(activePlace(tabsStore.getState()).page).toBe('chat')
     runAction('close-tab')
@@ -155,12 +164,21 @@ describe('navigation', () => {
     runAction('close-tab')
     expect(t().list).toHaveLength(1)
     togglePinOf(t().list[0]!.id)
-    navigateTo(placeOf('habits'))
+    navigateTo(placeOf('settings', { settingsSection: 'Theme' }))
+    navigateTo(placeOf('settings', { settingsSection: 'Chat' }))
     runAction('history-back')
-    expect(activePlace(tabsStore.getState()).page).toBe('dashboard')
+    expect(activePlace(tabsStore.getState()).settingsSection).toBe('Theme')
     runAction('history-forward')
-    expect(activePlace(tabsStore.getState()).page).toBe('habits')
+    expect(activePlace(tabsStore.getState()).settingsSection).toBe('Chat')
     stopTiling()
+  })
+
+  it("a step back into another workspace shows it there and leaves this tab's place", () => {
+    const tab = { ...t().list[0]!, here: placeOf('jobs'), back: [placeOf('habits')] }
+    tabsStore.setState({ tabs: { ...t(), list: [tab] } })
+    runAction('history-back')
+    expect(t().list.map((x) => x.here.page)).toEqual(['jobs', 'habits'])
+    expect(activePlace(tabsStore.getState()).page).toBe('habits')
   })
 
   it('openPlace reaches the store with newTab forwarded', () => {

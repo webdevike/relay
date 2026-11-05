@@ -30,11 +30,11 @@ describe('relay:// links in a reply', () => {
     expect(screen.getByText('relay://open/jobs').tagName).toBe('CODE')
     fireEvent.click(links[0]!)
     expect(openLink).toHaveBeenCalledWith('relay://open/settings/connections?connect=github', {
-      target: 'split',
-    })
-    fireEvent.click(links[1]!, { altKey: true })
-    expect(openLink).toHaveBeenLastCalledWith('relay://open/settings/theme?setting=theme.mode', {
       target: 'here',
+    })
+    fireEvent.click(links[1]!, { metaKey: true })
+    expect(openLink).toHaveBeenLastCalledWith('relay://open/settings/theme?setting=theme.mode', {
+      target: 'background',
     })
   })
 

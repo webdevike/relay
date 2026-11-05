@@ -1,6 +1,7 @@
 import { Avatar } from '@mantine/core'
 import { placeOf } from '@evaos/shell-core'
 import type { Assistant } from '@evaos/contract'
+import { WorkspaceDot } from '../agent/WorkspaceDot'
 import { openFromNav } from '../navigation/open-in-app'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { portrait } from '../ui/portrait'
@@ -43,6 +44,7 @@ export function AssistantsList() {
             </PortraitMotion>
           }
           title={a.title}
+          trailing={<WorkspaceDot ws={`page:agent:${a.id}`} testId={`sidebar-dot-${a.id}`} />}
           tooltip={rowTip(a.title, a.scope)}
           onActivate={(e) => openFromNav(placeOf(`agent:${a.id}`), e)}
           middleClick

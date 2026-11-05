@@ -78,6 +78,20 @@ describe('links ipc', () => {
     expect(launch).toHaveBeenCalledTimes(1)
   })
 
+  it('opens http(s) links in Arc and nothing else', async () => {
+    const launch = vi.fn().mockResolvedValue(true)
+    registerLinksIpc({ config: createConfigStore(dir), env: { e2e: false } } as never, createWriteQueue(), {
+      dirs: [apps],
+      launch,
+    })
+    expect(await call('links.openInArc', { url: 'https://example.com/a b' })).toEqual({
+      launched: true,
+    })
+    expect(launch).toHaveBeenCalledWith({ to: 'app', app: 'Arc', url: 'https://example.com/a%20b' })
+    expect(await call('links.openInArc', { url: 'file:///etc/passwd' })).toEqual({ launched: false })
+    expect(launch).toHaveBeenCalledTimes(1)
+  })
+
   it('reads a broken links.json as the defaults', () => {
     fs.writeFileSync(path.join(dir, LINKS_FILE), '{"rules": 3}')
     expect(loadLinkPrefs(createConfigStore(dir))).toEqual(DEFAULT_LINK_PREFS)

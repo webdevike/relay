@@ -14,6 +14,8 @@ export interface LayoutRead {
   dock: Record<string, unknown> | null
   /** The split tree kept before dockview, while no `dock` is saved: migrated once (migrateTiling). */
   tiling: Record<string, unknown> | null
+  /** Each workspace's own layout and the pinned tool tabs (workspace.ts readWorkspaces). */
+  workspaces: Record<string, unknown> | null
   /** The old panel's width and tool, while neither layout is saved. */
   legacyPanel: LegacyPanel | null
   /** The sidebar customization (shown/hidden items, order, favorites); the renderer validates it. */
@@ -26,6 +28,8 @@ export interface LayoutPatch {
   tabs?: unknown
   /** The dockview layout (its toJSON). */
   dock?: Record<string, unknown>
+  /** The workspaces record (workspace.ts saveWorkspaces), replaced whole. */
+  workspaces?: Record<string, unknown>
   /** The sidebar customization, replaced whole. */
   sidebar?: Record<string, unknown>
 }
@@ -41,6 +45,7 @@ export function readLayoutText(text: string | null): LayoutRead {
     sidebarWidth: SIDEBAR_DEFAULT,
     tabs: null,
     dock: null,
+    workspaces: null,
     tiling: null,
     legacyPanel: null,
     sidebar: null,
@@ -63,7 +68,7 @@ export function readLayoutText(text: string | null): LayoutRead {
     const tool = body['panel_tool']
     legacyPanel = {
       width: typeof pw === 'number' && Number.isFinite(pw) && pw > 0 ? pw : PANEL_DEFAULT,
-      tool: isToolKind(tool) ? tool : 'browser',
+      tool: isToolKind(tool) ? tool : 'files',
     }
   }
   return {
@@ -71,6 +76,7 @@ export function readLayoutText(text: string | null): LayoutRead {
       typeof sw === 'number' && Number.isFinite(sw) ? sidebarClamp(sw) : SIDEBAR_DEFAULT,
     tabs: body['tabs'] ?? null,
     dock,
+    workspaces: isObject(body['workspaces']) ? body['workspaces'] : null,
     tiling,
     legacyPanel,
     sidebar: isObject(body['sidebar']) ? body['sidebar'] : null,
@@ -90,6 +96,7 @@ export function mergeLayout(existing: unknown, patch: LayoutPatch): Record<strin
   }
   if ('tabs' in patch) out['tabs'] = patch.tabs
   if (patch.sidebar !== undefined) out['sidebar'] = patch.sidebar
+  if (patch.workspaces !== undefined) out['workspaces'] = patch.workspaces
   if (patch.dock !== undefined) {
     out['dock'] = patch.dock
     delete out['tiling']

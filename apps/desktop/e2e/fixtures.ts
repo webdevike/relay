@@ -22,8 +22,8 @@ interface Fixtures {
   launchEnv: Record<string, string>
   startOnChat: boolean
   /**
-   * The tool panes (Browser, Files, Artifacts right of the chat) show on a fresh config, as in
-   * the app. false hides them once the tree is loaded, as Isaac's toggle does.
+   * A tool pane (Files) shows right of the chat, as the panel toggle opens it. false: none (a new
+   * chat is a workspace of its own and starts with just the pinned tabs).
    */
   toolPanes: boolean
   configDir: string
@@ -106,19 +106,16 @@ export const test = base.extend<Fixtures>({
     await page.waitForFunction(() =>
       Boolean((window as unknown as { __evaosShell?: unknown }).__evaosShell),
     )
+    type Hooks = { __evaosShell: { openChat(): void; setPanel(open: boolean): void } }
+    await page.waitForSelector('[data-pane-kind=app]', { state: 'attached' })
     if (startOnChat) {
-      await page.waitForSelector('[data-testid=tab-strip], [role=tablist]')
-      await page.evaluate(() =>
-        (window as unknown as { __evaosShell: { openChat(): void } }).__evaosShell.openChat(),
-      )
+      // A new chat is a workspace of its own: it starts with just the pinned tabs.
+      await page.evaluate(() => (window as unknown as Hooks).__evaosShell.openChat())
       await page.waitForSelector('[data-testid=chat-pane]', { state: 'visible' })
     }
-    if (!toolPanes) {
-      type Hooks = { __evaosShell: { setPanel(open: boolean): void } }
-      await page.waitForSelector('[data-pane-kind=app]', { state: 'attached' })
-      await page.evaluate(() => (window as unknown as Hooks).__evaosShell.setPanel(false))
-      await page.waitForSelector('[data-pane-kind=tool]', { state: 'hidden' })
-    }
+    // Tool panes as the panel toggle shows them (Files right of the chat), or none.
+    await page.evaluate((open) => (window as unknown as Hooks).__evaosShell.setPanel(open), toolPanes)
+    await page.waitForSelector('[data-pane-kind=tool]', { state: toolPanes ? 'visible' : 'hidden' })
     await use(page)
     // A spec that quits the app itself (quit lifecycle) leaves nothing to ask.
     const mainErrors = await app

@@ -59,6 +59,22 @@ describe('parseSavedTabs', () => {
     ])
   })
 
+  it('keeps who opened a tab and drops a malformed label without dropping the tab', () => {
+    const raw = {
+      tabs: [
+        { ...tab('t1'), openedBy: 'Nova' },
+        { ...tab('t2'), openedBy: 'x'.repeat(121) },
+        { ...tab('t3'), openedBy: 5 },
+      ],
+      active: {},
+    }
+    expect(parseSavedTabs(raw).tabs).toEqual([
+      { ...tab('t1'), openedBy: 'Nova' },
+      tab('t2'),
+      tab('t3'),
+    ])
+  })
+
   it('keeps the newest MAX_SAVED_TABS', () => {
     const tabs = Array.from({ length: MAX_SAVED_TABS + 5 }, (_, i) => tab(`t${i + 1}`))
     const out = parseSavedTabs({ tabs, active: { 'chat:/a': 't1' } })

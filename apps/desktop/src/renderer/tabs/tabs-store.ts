@@ -6,11 +6,11 @@ import {
   closeOthers,
   closeTab,
   defaultTabs,
-  forkTab,
   forward,
   loadTabs,
   navigate,
   openNewChat,
+  routeTo,
   saveTabs,
   switchTo,
   togglePin,
@@ -22,6 +22,7 @@ import type { InvokeInput } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { registerAction } from '../hotkeys/router'
 import { setNavigator, type OpenPlaceOptions } from '../navigation/navigate'
+import { isFrontBare, workspaceOfTab } from './workspace-of'
 
 /**
  * The app tabs: each a chat or a page with its own history, shown as a pane tab (tiling/ keeps
@@ -49,8 +50,21 @@ export function updateTabs(fn: (t: Tabs) => Tabs): void {
   if (next !== cur) tabsStore.setState({ tabs: next })
 }
 
+/**
+ * Shows `place` without moving a tab that holds anything to another workspace (shell-core
+ * routeTo): its open tab comes forward, a session of the assistant in front opens beside its
+ * thread, another workspace's place shows in that workspace (taking the tab in front along when
+ * its workspace is nothing but that tab).
+ */
 export function navigateTo(place: Place, opts?: OpenPlaceOptions): void {
-  updateTabs((t) => (opts?.newTab ? navigate(forkTab(t), place) : navigate(t, place)))
+  updateTabs((t) =>
+    routeTo(t, place, {
+      wsOf: workspaceOfTab,
+      front: workspaceOfTab(activeTab(t)),
+      reuse: isFrontBare(),
+      ...(opts?.newTab ? { newTab: true } : {}),
+    }),
+  )
 }
 
 /** Points app tab `id` (the active one by default) at `place` without adding history. */
@@ -75,12 +89,25 @@ export function goForward(id?: number): void {
   stepIn(id, forward)
 }
 
+/**
+ * Steps tab `id` through its history. A step into another workspace leaves this tab as it is and
+ * shows that place in its own workspace, unless the tab is all its workspace holds and the other
+ * has no tab yet: then the tab steps there, history and all.
+ */
 function stepIn(id: number | undefined, step: (t: Tabs) => Tabs): void {
   updateTabs((t) => {
     const at = id === undefined ? t.active : t.list.findIndex((x) => x.id === id)
     if (at < 0) return t
     const moved = step({ ...t, active: at })
-    return moved.list === t.list ? t : moved
+    if (moved.list === t.list) return t
+    const before = t.list[at]!
+    const after = moved.list[at]!
+    const ws = workspaceOfTab(before)
+    const target = workspaceOfTab(after)
+    if (target === ws) return moved
+    const taken = t.list.some((x) => x.id !== before.id && workspaceOfTab(x) === target)
+    if (at === t.active && isFrontBare() && !taken) return moved
+    return routeTo({ ...t, active: at }, after.here, { wsOf: workspaceOfTab, front: ws })
   })
 }
 

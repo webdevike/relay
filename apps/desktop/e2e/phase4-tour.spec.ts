@@ -45,6 +45,11 @@ async function openRow(shell: Page, id: string): Promise<void> {
       if (await more.isVisible()) await more.click()
     }
   }
+  // A done chat whose tab closed (left for another workspace) sits in the Settled fold.
+  if (!(await row.isVisible())) {
+    const settled = shell.locator(sel('chat-settled-toggle'))
+    if (await settled.isVisible()) await settled.click()
+  }
   await row.click()
 }
 async function send(shell: Page, text: string): Promise<void> {
@@ -115,12 +120,7 @@ test('one session: question, image, live settings and a new chat', async ({ app,
   await expect(log.locator('[data-testid$="-tool0"]')).toHaveCount(0)
   type Hooks = {
     openPlace(p: string, n?: boolean, e?: { settingsSection: string }): void
-    tabs(): { active: number; list: Array<{ id: number }> }
   }
-  const chatTab = await shell.evaluate(() => {
-    const t = (window as unknown as { __evaosShell: Hooks }).__evaosShell.tabs()
-    return t.list[t.active]!.id
-  })
   await shell.evaluate(() =>
     (window as unknown as { __evaosShell: Hooks }).__evaosShell.openPlace('settings', true, {
       settingsSection: 'Chat',
@@ -129,7 +129,11 @@ test('one session: question, image, live settings and a new chat', async ({ app,
   await shell.waitForSelector(sel('settings-chat'))
   await shell.getByText('Show tool details', { exact: true }).click()
   await expect(shell.locator(sel('settings-show-tools'))).toBeChecked()
-  await shell.locator(sel(`tab-${chatTab}`)).click()
+  // Settings is its own workspace; leaving the chat closed its tab. Back on the chat.
+  const out = shell.locator(sel('sidebar-back'))
+  if (await out.isVisible()) await out.click()
+  if (!(await shell.locator(sel('chat-tree')).isVisible())) await shell.locator(sel('nav-chat')).click()
+  await openRow(shell, 'p4-jobs')
   await expect(log.locator('[data-testid$="-tool0"]').first()).toBeVisible()
   await expect(log.locator('[data-testid=tool-group]')).toHaveCount(0)
 

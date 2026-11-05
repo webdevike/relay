@@ -57,7 +57,10 @@ const { FakeView, FakeWebContents, views, gesture } = vi.hoisted(() => {
     getVisible(): boolean {
       return this.visible
     }
-    setBounds(): void {}
+    bounds: unknown = null
+    setBounds(b: unknown): void {
+      this.bounds = b
+    }
   }
   return { FakeView, FakeWebContents, views, gesture }
 })
@@ -251,7 +254,7 @@ describe('BrowserHost scopes', () => {
     expect(host.setScope('page:agent:nova').activeId).toBe(own.id)
   })
 
-  it("window.open from the active tab opens in its opener's scope", async () => {
+  it("window.open from the active tab opens in its opener's scope without taking the front", async () => {
     host.setScope('A')
     const a = host.createTab('https://a.test/', true)!
     const wc = viewOf(host, a.id)!.webContents
@@ -260,8 +263,11 @@ describe('BrowserHost scopes', () => {
     await nextTick()
     const snap = host.snapshot()
     expect(snap.tabs).toHaveLength(2)
-    expect(snap.activeId).toBe(snap.tabs[1]!.id)
+    expect(snap.activeId).toBe(a.id)
     expect(snap.tabs[1]!.url).toBe('https://b.test/')
+    expect(sent.filter(([ch]) => ch === 'browser.popup').map(([, p]) => p)).toEqual([
+      { tabId: snap.tabs[1]!.id, openerId: a.id, scope: 'A' },
+    ])
     expect(host.setScope('B').tabs).toEqual([])
   })
 
@@ -283,6 +289,35 @@ describe('BrowserHost scopes', () => {
     other.openHandler!({ url: 'https://d.test/', disposition: 'foreground-tab' })
     await nextTick()
     expect(host.snapshot().tabs).toHaveLength(2)
+  })
+
+  it('marks a Cmd-click popup background, and any slotted page may open one', async () => {
+    host.setScope('A')
+    const a = host.createTab('https://a.test/', true)!
+    const b = host.createTab('https://b.test/', true)!
+    host.setSlots([
+      { tabId: a.id, x: 0, y: 0, width: 300, height: 300 },
+      { tabId: b.id, x: 300, y: 0, width: 300, height: 300 },
+    ])
+    viewOf(host, a.id)!.webContents.openHandler!({
+      url: 'https://c.test/',
+      disposition: 'background-tab',
+    })
+    await nextTick()
+    const popup = sent.filter(([ch]) => ch === 'browser.popup').map(([, p]) => p)
+    expect(popup).toEqual([
+      { tabId: host.snapshot().tabs[2]!.id, openerId: a.id, scope: 'A', background: true },
+    ])
+  })
+
+  it('a click into a page makes it the active page', () => {
+    host.setScope('A')
+    const a = host.createTab('https://a.test/', true)!
+    const b = host.createTab('https://b.test/', true)!
+    expect(host.activeTabId()).toBe(b.id)
+    viewOf(host, a.id)!.webContents.fire('focus')
+    expect(host.activeTabId()).toBe(a.id)
+    expect(sent.at(-1)).toEqual(['browser.tabs', host.snapshot()])
   })
 })
 
@@ -472,8 +507,9 @@ describe('BrowserHost eCard apps per tab', () => {
     host.activateTab(a.id)
     viewOf(host, a.id)!.webContents.openHandler!({ url: SWITCH, disposition: 'foreground-tab' })
     await nextTick()
-    const opened = host.snapshot().activeId
+    const opened = host.snapshot().tabs.at(-1)!.id
     expect(opened).not.toBe(a.id)
+    expect(host.snapshot().activeId).toBe(a.id)
     expect(host.switchAppOf(opened)).toBe('rbac')
     host.setScope('B')
     expect(host.switchAppOf(host.createTab(SWITCH, true)!.id)).toBeUndefined()
@@ -643,6 +679,102 @@ describe('BrowserHost restart', () => {
       'rbac',
       'assets',
       'eng6528',
+    ])
+  })
+
+  it('who opened a tab survives a relaunch and passes to the tabs its page opens', async () => {
+    vi.useRealTimers()
+    const first = makeHost(memoryConfig(files))
+    first.setScope('chat:/a')
+    const a = first.createTab('https://a.test/', true, { openedBy: 'Nova' })!
+    expect(a.openedBy).toBe('Nova')
+    viewOf(first, a.id)!.webContents.openHandler!({
+      url: 'https://b.test/',
+      disposition: 'foreground-tab',
+    })
+    await nextTick()
+    const b = first.snapshot().tabs[1]!
+    expect(b.openedBy).toBe('Nova')
+    first.createTab('https://c.test/', true)
+    first.dispose()
+    const next = makeHost(memoryConfig(files))
+    expect(next.setScope('chat:/a').tabs.map((t) => t.openedBy)).toEqual([
+      'Nova',
+      'Nova',
+      undefined,
+    ])
+  })
+})
+
+describe('BrowserHost slots', () => {
+  const R1 = { x: 0, y: 0, width: 400, height: 300 }
+  const R2 = { x: 400, y: 0, width: 400, height: 300 }
+
+  it('shows several tabs at once, each at its rect, and hides the rest', () => {
+    host.setScope('A')
+    const a = host.createTab('https://a.test/', true)!
+    const b = host.createTab('https://b.test/', true)!
+    const c = host.createTab('https://c.test/', true)!
+    host.setSlots([
+      { tabId: a.id, ...R1 },
+      { tabId: b.id, ...R2 },
+    ])
+    expect(viewOf(host, a.id)).toMatchObject({ visible: true, bounds: R1 })
+    expect(viewOf(host, b.id)).toMatchObject({ visible: true, bounds: R2 })
+    expect(viewOf(host, c.id)!.visible).toBe(false)
+    expect(host.setOccluded(true)).toBe(false)
+    expect(viewOf(host, a.id)!.visible).toBe(false)
+    expect(viewOf(host, b.id)!.visible).toBe(false)
+    expect(host.setOccluded(false)).toBe(true)
+    expect(viewOf(host, b.id)!.visible).toBe(true)
+  })
+
+  it('a tab dropped from the slots leaves the screen; an empty list shows nothing', () => {
+    host.setScope('A')
+    const a = host.createTab('https://a.test/', true)!
+    const b = host.createTab('https://b.test/', true)!
+    host.setSlots([
+      { tabId: a.id, ...R1 },
+      { tabId: b.id, ...R2 },
+    ])
+    host.setSlots([{ tabId: b.id, ...R2 }])
+    expect(viewOf(host, a.id)!.visible).toBe(false)
+    expect(viewOf(host, b.id)!.visible).toBe(true)
+    host.setSlots([])
+    expect(viewOf(host, b.id)!.visible).toBe(false)
+  })
+
+  it('a slotted tab of another scope stays live past LIVE_SCOPES; a dormant one revives', () => {
+    host.setScope('A')
+    const a = host.createTab('https://a.test/', true)!
+    const a2 = host.createTab('https://a2.test/', true)!
+    host.setScope('B')
+    host.setSlots([{ tabId: a.id, ...R1 }])
+    for (let i = 0; i < LIVE_SCOPES; i++) host.setScope(`other${i}`)
+    expect(host.tabById(a.id)).toBeDefined()
+    expect(host.tabById(a2.id)).toBeUndefined()
+    expect(viewOf(host, a.id)!.visible).toBe(true)
+    host.setSlots([{ tabId: a2.id, ...R2 }])
+    const revived = viewOf(host, a2.id)!
+    expect(revived.webContents.loadURL).toHaveBeenCalledWith('https://a2.test/')
+    expect(revived).toMatchObject({ visible: true, bounds: R2 })
+    expect(host.tabStates([a2.id, 't999999'])).toMatchObject([{ id: a2.id }])
+  })
+
+  it('a slotted tab that is not active may open pages beside itself', async () => {
+    host.setScope('A')
+    const a = host.createTab('https://a.test/', true)!
+    const b = host.createTab('https://b.test/', true)!
+    host.setSlots([{ tabId: a.id, ...R1 }])
+    viewOf(host, a.id)!.webContents.openHandler!({
+      url: 'https://c.test/',
+      disposition: 'foreground-tab',
+    })
+    await nextTick()
+    expect(host.snapshot().activeId).toBe(b.id)
+    expect(sent).toContainEqual([
+      'browser.popup',
+      expect.objectContaining({ openerId: a.id, scope: 'A' }),
     ])
   })
 })

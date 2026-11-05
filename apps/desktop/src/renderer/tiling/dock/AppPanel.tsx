@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Tooltip } from '@mantine/core'
 import { IconAsterisk, IconPin, IconX } from '@tabler/icons-react'
 import type { IDockviewPanelHeaderProps, IDockviewPanelProps } from 'dockview-react'
-import { appTabOf, browserScope, switchTo, type Place } from '@evaos/shell-core'
+import { appTabOf, switchTo, type Place } from '@evaos/shell-core'
 import { useScopeBadges } from '../../agent/scope'
 import { AgentPortrait } from '../../assistants/AgentPortrait'
 import { agentFile, agentIdOf, useAssistants } from '../../assistants/assistants-store'
@@ -23,6 +23,7 @@ import {
   updateTabs,
   useTabs,
 } from '../../tabs/tabs-store'
+import { workspaceOfTab } from '../../tabs/workspace-of'
 import { closeAppTab, useTiling } from '../tiling-store'
 import { usePanelActive, usePanelVisible, usePaneOf } from './panel-hooks'
 
@@ -81,8 +82,8 @@ export function AppTab({ api }: IDockviewPanelHeaderProps) {
   const agent = agentIdOf(tab.here)
   const Glyph = PAGE_ICONS[tabIconName(tab.here)] ?? IconAsterisk
   const title = tabTitle(tab.here)
-  // What an agent did in this page's panel while Isaac was elsewhere (agent/scope.ts).
-  const badge = badges[browserScope(tab.here, tab.id)] ?? null
+  // What an agent did in this tab's workspace while Isaac was elsewhere (agent/scope.ts).
+  const badge = badges[workspaceOfTab(tab)] ?? null
   const label = badge ? `${title} · ${badge}` : title
   const glyph =
     agent !== null ? (

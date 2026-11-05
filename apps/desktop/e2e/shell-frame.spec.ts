@@ -22,8 +22,12 @@ async function size(app: ElectronApplication, shell: Page, w: number, h = 800): 
   await expect.poll(() => shell.evaluate(() => window.innerWidth)).toBe(w)
 }
 
+// The tool pane (Files, right of the chat). Its id depends on the workspace, so find it by kind.
+const TOOL = '[data-pane-kind=tool]'
+
+/** `id`: a test id, or a selector (starting with `[`). */
 const box = async (shell: Page, id: string) => {
-  const b = await shell.locator(`[data-testid=${id}]`).boundingBox()
+  const b = await shell.locator(id.startsWith('[') ? id : `[data-testid=${id}]`).boundingBox()
   if (!b) throw new Error(`no box for ${id}`)
   return b
 }
@@ -60,14 +64,14 @@ async function sash(shell: Page): Promise<{ box: Box; el: Locator }> {
   const deadline = Date.now() + 5_000
   for (;;) {
     const a = await box(shell, 'pane-p1')
-    const b = await box(shell, 'pane-p2')
+    const b = await box(shell, TOOL)
     for (const el of await shell.locator('.dv-sash').all()) {
       const r = await el.boundingBox()
       if (r && r.x >= a.x + a.width - 2 && r.x + r.width <= b.x + 2 && r.height > 0) {
         return { box: r, el }
       }
     }
-    if (Date.now() > deadline) throw new Error('no sash between p1 and p2')
+    if (Date.now() > deadline) throw new Error('no sash between the app pane and the tool pane')
     await shell.waitForTimeout(50)
   }
 }
@@ -91,14 +95,12 @@ test('widths at 1280 and the fold vectors', async ({ app, shell }) => {
   // The app pane and the default tool pane share the room right of the sidebar, 8px apart, with
   // 8px to the window edge; the tool pane's card starts level with the app pane's card.
   const main = await box(shell, 'pane-p1')
-  const tool = await box(shell, 'pane-p2')
+  const tool = await box(shell, TOOL)
   expect(main.x).toBe(272)
   expect(Math.round(tool.x - (main.x + main.width))).toBe(8)
   expect(Math.round(tool.x + tool.width)).toBe(1280 - 8)
   const card = await box(shell, 'pane-body-p1')
-  const toolCard = await shell
-    .locator('[data-testid=pane-p2] > .dv-tabs-and-actions-container')
-    .boundingBox()
+  const toolCard = await shell.locator(`${TOOL} > .dv-tabs-and-actions-container`).boundingBox()
   expect(toolCard?.y).toBe(card.y)
   expect(Math.abs(tool.width / (tool.width + main.width) - 0.34)).toBeLessThan(0.01)
   expect((await box(shell, 'footer')).height).toBe(32)
@@ -118,11 +120,11 @@ test('widths at 1280 and the fold vectors', async ({ app, shell }) => {
     await size(app, shell, w)
     await expect
       .poll(async () => {
-        const p = await box(shell, 'pane-p2')
+        const p = await box(shell, TOOL)
         return Math.round(p.x + p.width)
       })
       .toBe(w - 8)
-    const p = await box(shell, 'pane-p2')
+    const p = await box(shell, TOOL)
     const m = await box(shell, 'pane-p1')
     expect(m.x + m.width).toBeLessThanOrEqual(p.x)
     expect(m.width).toBeGreaterThanOrEqual(480)
@@ -147,7 +149,7 @@ test('Cmd+B and Cmd+Shift+B go through the router', async ({ app, shell }) => {
 
   await size(app, shell, 1280)
   await shell.keyboard.press('Meta+Shift+b')
-  await expect(shell.locator('[data-testid=pane-p2]')).toBeHidden()
+  await expect(shell.locator(TOOL)).toBeHidden()
   await expect
     .poll(() =>
       app.evaluate(
@@ -158,7 +160,7 @@ test('Cmd+B and Cmd+Shift+B go through the router', async ({ app, shell }) => {
     )
     .toBe(false)
   await shell.keyboard.press('Meta+Shift+b')
-  await expect(shell.locator('[data-testid=pane-p2]')).toBeVisible()
+  await expect(shell.locator(TOOL)).toBeVisible()
   const actions = await shell.evaluate(() =>
     ((window as unknown as Hk).__evaosHotkeys ?? []).map((e) => e.action),
   )
@@ -197,7 +199,7 @@ test('grips and dividers drag, reset, occlude and keep unknown keys', async ({
   // The sash between the app pane and the tool pane: the browser view hides while it moves.
   // The panes first settle beside the narrower sidebar.
   await expect.poll(async () => (await box(shell, 'pane-p1')).x).toBe(272)
-  const before = await box(shell, 'pane-p2')
+  const before = await box(shell, TOOL)
   const p = (await sash(shell)).box
   const px = p.x + p.width / 2
   const py = p.y + p.height / 2
@@ -216,7 +218,7 @@ test('grips and dividers drag, reset, occlude and keep unknown keys', async ({
     .toBe(false)
   await shell.mouse.up()
   const want = Math.round(before.width + 80)
-  await expect.poll(async () => Math.round((await box(shell, 'pane-p2')).width)).toBe(want)
+  await expect.poll(async () => Math.round((await box(shell, TOOL)).width)).toBe(want)
   // The saved tool pane is the width on screen.
   await expect.poll(() => Math.abs((savedSizes(configDir)[1] ?? 0) - want)).toBeLessThanOrEqual(1)
   expect(layoutFile(configDir)['zoom']).toBe(2)
@@ -236,7 +238,7 @@ test('widths survive a relaunch', async ({ app, shell, configDir }) => {
   await drag(shell, 'grip-sidebar', 28)
   await drag(shell, (await sash(shell)).box, -40)
   await expect.poll(() => layoutFile(configDir)['sidebar_width']).toBe(300)
-  const tool = Math.round((await box(shell, 'pane-p2')).width)
+  const tool = Math.round((await box(shell, TOOL)).width)
   // The divider drag is saved before the app quits.
   await expect.poll(() => savedToolShare(configDir)).not.toBeCloseTo(0.34, 2)
   await app.close()
@@ -252,7 +254,7 @@ test('widths survive a relaunch', async ({ app, shell, configDir }) => {
     await expect.poll(async () => (await box(page, 'sidebar')).width).toBe(300)
     // dockview lays the saved sizes out again at the new window size: within a pixel.
     await expect
-      .poll(async () => Math.abs((await box(page, 'pane-p2')).width - tool))
+      .poll(async () => Math.abs((await box(page, TOOL)).width - tool))
       .toBeLessThanOrEqual(1)
   } finally {
     await app2.close()

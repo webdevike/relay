@@ -1,36 +1,31 @@
-import { browserScope } from '@evaos/shell-core'
 import { invoke } from '../ipc'
-import { enterScope, renameScope } from '../tiling/tiling-store'
-import { activePlace, activeTabId, tabsStore } from '../tabs/tabs-store'
+import { renameScope, tilingStore } from '../tiling/tiling-store'
 import { browserStore } from './browser-store'
 
 let current = ''
 
 /**
- * Keeps the browser host's scope (and the tool tabs) on what the active app tab shows, once the
- * saved tabs are loaded. Returns the unsubscribe.
+ * Keeps the browser host's scope on the workspace on screen (its key is the scope), once the
+ * panes are built. Returns the unsubscribe.
  */
 export function startBrowserScope(): () => void {
   const sync = (): void => {
-    const s = tabsStore.getState()
-    if (!s.loaded) return
-    const scope = browserScope(activePlace(s), activeTabId(s))
-    if (scope === current) return
+    const { loaded, scope } = tilingStore.getState()
+    if (!loaded || !scope || scope === current) return
     current = scope
-    enterScope(scope)
     void invoke('browser.setScope', { scope }).then((r) => {
       if (r.ok) browserStore.getState().set(r.value)
     })
   }
   sync()
-  const off = tabsStore.subscribe(sync)
+  const off = tilingStore.subscribe(sync)
   return () => {
     off()
     current = ''
   }
 }
 
-/** A draft chat got its session file: its browser tabs carry over. */
+/** A draft chat got its session file: its workspace and browser tabs carry over. */
 export function renameBrowserScope(from: string, to: string): void {
   if (from === to) return
   if (current === from) current = to

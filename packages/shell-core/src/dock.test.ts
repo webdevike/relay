@@ -49,13 +49,17 @@ describe('panels', () => {
     expect(toolTabFromJson(sub)).toEqual(sub)
     expect(toolTabFromJson({ kind: 'page' })).toBeNull()
     expect(toolTabFromJson({ kind: 'subagent', file: 'x' })).toBeNull()
+    // The retired Browser panel still reads, so the load can turn it into page tabs.
+    expect(toolTabFromJson({ kind: 'browser' })).toEqual({ kind: 'browser' })
+    expect(toolTabId({ kind: 'browser' })).toBe('browser')
+    expect(toolTabFromJson({ kind: 'web', id: 't4' })).toEqual({ kind: 'web', id: 't4' })
   })
 })
 
 describe('defaultDock', () => {
-  it('puts the app tabs left and Browser and Files right at the tool share', () => {
+  it('puts the app tabs left and Files right at the tool share', () => {
     const d = defaultDock(TABS, BOX, title, 0.25, 'files')
-    expect(brief(dockShape(d))).toEqual({ row: ['p1[tab:0,tab:1]', 'p2[browser,files]'] })
+    expect(brief(dockShape(d))).toEqual({ row: ['p1[tab:0,tab:1]', 'p2[files]'] })
     const [app, tools] = dockGroups(d.grid.root)
     expect(app!.activeView).toBe('tab:1')
     expect(tools!.activeView).toBe('files')
@@ -78,7 +82,7 @@ describe('reconcileDock', () => {
     // Tab 0 closed, tab 5 opened elsewhere since: 5 joins the active tab's group.
     const now = createTabs([tab(1, 'chat', { chat: '/s/a.jsonl' }), tab(5, 'jobs')], 0)
     const fixed = reconcileDock(saved, now, title)!
-    expect(brief(dockShape(fixed))).toEqual({ row: ['p1[tab:1,tab:5]', 'p2[browser,files]'] })
+    expect(brief(dockShape(fixed))).toEqual({ row: ['p1[tab:1,tab:5]', 'p2[files]'] })
   })
 
   it('closes groups left empty and unwraps the split around the last one', () => {
@@ -87,7 +91,7 @@ describe('reconcileDock', () => {
     tools.views = ['nope', 'subagent:/x']
     const fixed = reconcileDock(saved, TABS, title)!
     expect(brief(dockShape(fixed))).toEqual({ row: ['p1[tab:0,tab:1]'] })
-    expect(fixed.panels['browser']).toBeUndefined()
+    expect(fixed.panels['files']).toBeUndefined()
   })
 
   it('keeps the maximized group, found again after the tree is fixed', () => {
@@ -108,7 +112,7 @@ describe('reconcileDock', () => {
       size: 1,
       data: [{ type: 'branch', size: 1, data: [tools] }, apps],
     })
-    expect(brief(dockShape(wrapped))).toEqual({ row: ['p2[browser,files]', 'p1[tab:0,tab:1]'] })
+    expect(brief(dockShape(wrapped))).toEqual({ row: ['p2[files]', 'p1[tab:0,tab:1]'] })
     expect(wrapped.grid.maximizedNode).toEqual({ location: [0] })
     // A path to no group keeps nothing maximized; neither does a layout that saved none.
     expect(zoomAt([5]).grid.maximizedNode).toBeUndefined()
