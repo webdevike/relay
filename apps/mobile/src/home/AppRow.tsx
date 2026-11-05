@@ -7,6 +7,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { Text } from "@/ui/Text";
 import { useColors, useScheme, withAlpha, spacing } from "@/theme";
+import { APPS_ROW_HEIGHT } from "@/home/widgets/layout";
 import type { HomeApp } from "@/home/apps";
 import type { WidgetA11y, WidgetBodyProps } from "@/home/widgets/WidgetParts";
 
@@ -39,8 +40,8 @@ export function AppGlyph({ color, symbol }: { color: keyof typeof ICON_COLORS; s
   );
 }
 
-/** Height below which a row's two lines and icon no longer fit. */
-export const APP_ROW_MIN = 46;
+/** A row never gets less than this, so its title and subtitle keep room above and below. */
+export const APP_ROW_MIN = APPS_ROW_HEIGHT;
 
 export function AppRow({
   app,
@@ -132,6 +133,7 @@ export function AppRow({
 const styles = StyleSheet.create({
   row: {
     flex: 1,
+    minHeight: APP_ROW_MIN,
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 14,

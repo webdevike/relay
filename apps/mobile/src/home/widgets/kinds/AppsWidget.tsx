@@ -8,9 +8,10 @@ import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { AppRow, APP_ROW_MIN } from "@/home/AppRow";
 import { useHomeApps } from "@/home/apps";
+import { APPS_INSET } from "@/home/widgets/layout";
 import { WidgetSurface, type WidgetBodyProps } from "../WidgetParts";
 
-const INSET = 6;
+const INSET = APPS_INSET;
 /** Rows a medium widget shows before its height is measured: what fits a phone-width medium. */
 const MEDIUM_ROWS = 3;
 

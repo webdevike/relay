@@ -42,6 +42,7 @@ import { useFocusEffect, useRouter, type Href } from "expo-router";
 import { Text } from "@/ui/Text";
 import { Button } from "@/ui/Button";
 import { impactHaptic, tapHaptic } from "@/lib/haptics";
+import { useHomeApps } from "@/home/apps";
 import { useSettingsStore } from "@/state/settings";
 import { spacing, useColors } from "@/theme";
 import { IconButton } from "@/ui/IconButton";
@@ -443,9 +444,10 @@ export function WidgetGrid({ viewportHeight }: WidgetGridProps) {
   const [preview, setPreview] = useState<HomeWidget[] | null>(null);
   const draft = useRef<HomeWidget[] | null>(null);
   const shown = preview ?? widgets;
+  const appRows = useHomeApps().length;
   const metrics: GridMetrics = useMemo(
-    () => ({ width: Math.max(0, frame.width - spacing.lg * 2), gap: WIDGET_GAP }),
-    [frame.width],
+    () => ({ width: Math.max(0, frame.width - spacing.lg * 2), gap: WIDGET_GAP, appRows }),
+    [frame.width, appRows],
   );
   const pageHeight = viewportHeight - frame.top - PAGE_TOP * 2 - DOTS_ROW - GRID_BOTTOM;
   const committed = useMemo(

@@ -180,6 +180,8 @@ export interface GridMetrics {
   width: number;
   /** Space between two widgets in a row, and between rows. */
   gap: number;
+  /** How many apps Home lists: a large Apps widget grows to give each its full row. */
+  appRows?: number;
 }
 
 /** Side of a small widget, which is also a medium's height. */
@@ -187,16 +189,31 @@ export function smallSide(metrics: GridMetrics): number {
   return Math.max(0, (metrics.width - metrics.gap) / 2);
 }
 
-/** A widget's width and height at `size` in a grid of `metrics`. */
-export function widgetBox(size: WidgetSize, metrics: GridMetrics): { width: number; height: number } {
+/** Height of one Apps row: icon square, title and subtitle with room above and below, as in iOS Settings. */
+export const APPS_ROW_HEIGHT = 52;
+/** Space above the first and below the last Apps row. */
+export const APPS_INSET = 6;
+
+/**
+ * A widget's width and height. Sizes follow the iOS grid, except a large Apps widget, which is as
+ * tall as its rows need (never less than a large): a fixed height shared evenly among a growing
+ * list squeezes every row until the text touches the dividers.
+ */
+export function widgetBox(
+  widget: Pick<HomeWidget, "kind" | "size">,
+  metrics: GridMetrics,
+): { width: number; height: number } {
   const side = smallSide(metrics);
-  switch (size) {
+  switch (widget.size) {
     case "small":
       return { width: side, height: side };
     case "medium":
       return { width: metrics.width, height: side };
-    case "large":
-      return { width: metrics.width, height: side * 2 + metrics.gap };
+    case "large": {
+      const height = side * 2 + metrics.gap;
+      const rows = widget.kind === "apps" ? (metrics.appRows ?? 0) : 0;
+      return { width: metrics.width, height: Math.max(height, rows * APPS_ROW_HEIGHT + APPS_INSET * 2) };
+    }
   }
 }
 
@@ -212,7 +229,7 @@ export function layoutSlots(
   for (const row of flowRows(widgets)) {
     let rowHeight = 0;
     row.forEach((widget, c) => {
-      const box = widgetBox(widget.size, metrics);
+      const box = widgetBox(widget, metrics);
       slots.push({ id: widget.id, x: c * (side + metrics.gap), y, ...box });
       rowHeight = Math.max(rowHeight, box.height);
     });
@@ -236,7 +253,7 @@ export function paginateWidgets(
   let page: HomeWidget[] = [];
   let used = 0;
   for (const row of flowRows(widgets)) {
-    const rowHeight = Math.max(...row.map((w) => widgetBox(w.size, metrics).height));
+    const rowHeight = Math.max(...row.map((w) => widgetBox(w, metrics).height));
     const needed = page.length === 0 ? rowHeight : used + metrics.gap + rowHeight;
     if (page.length > 0 && needed > pageHeight) {
       pages.push(page);

@@ -14,6 +14,8 @@ import {
   shiftWidget,
   slotAt,
   widgetBox,
+  APPS_INSET,
+  APPS_ROW_HEIGHT,
   withWidgetOnce,
   type HomeWidget,
 } from "./layout";
@@ -153,9 +155,18 @@ describe("flow and slots", () => {
 
   it("sizes each size like iOS", () => {
     const metrics = { width: 210, gap: 10 };
-    expect(widgetBox("small", metrics)).toEqual({ width: 100, height: 100 });
-    expect(widgetBox("medium", metrics)).toEqual({ width: 210, height: 100 });
-    expect(widgetBox("large", metrics)).toEqual({ width: 210, height: 210 });
+    expect(widgetBox({ kind: "usage", size: "small" }, metrics)).toEqual({ width: 100, height: 100 });
+    expect(widgetBox({ kind: "usage", size: "medium" }, metrics)).toEqual({ width: 210, height: 100 });
+    expect(widgetBox({ kind: "usage", size: "large" }, metrics)).toEqual({ width: 210, height: 210 });
+  });
+
+  it("grows a large Apps widget to give every row its height, never below a large", () => {
+    const apps = { kind: "apps", size: "large" } as const;
+    expect(widgetBox(apps, { width: 210, gap: 10 }).height).toBe(210);
+    expect(widgetBox(apps, { width: 210, gap: 10, appRows: 3 }).height).toBe(210);
+    expect(widgetBox(apps, { width: 210, gap: 10, appRows: 10 }).height).toBe(10 * APPS_ROW_HEIGHT + APPS_INSET * 2);
+    expect(widgetBox({ kind: "apps", size: "medium" }, { width: 210, gap: 10, appRows: 10 }).height).toBe(100);
+    expect(widgetBox({ kind: "usage", size: "large" }, { width: 210, gap: 10, appRows: 10 }).height).toBe(210);
   });
 
   it("stacks rows of different heights", () => {

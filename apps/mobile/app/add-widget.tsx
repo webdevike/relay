@@ -9,6 +9,7 @@ import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "re
 import { Text } from "@/ui/Text";
 import { notifyHaptic } from "@/lib/haptics";
 import { AppGlyph } from "@/home/AppRow";
+import { useHomeApps } from "@/home/apps";
 import {
   addWidget,
   WIDGET_GAP,
@@ -26,6 +27,7 @@ export default function AddWidget() {
   const screen = useWindowDimensions();
   // Content is inset by `spacing.xl` on each side.
   const width = screen.width - spacing.xl * 2;
+  const appRows = useHomeApps().length;
   // Home keeps jiggle mode while this sheet is up; closing it hands focus back normally.
   useEffect(
     () => () => {
@@ -68,7 +70,7 @@ export default function AddWidget() {
                   }}
                   style={({ pressed }) => [styles.preview, pressed && styles.pressed]}
                 >
-                  <View style={widgetBox(size, { width, gap: WIDGET_GAP })}>
+                  <View style={widgetBox({ kind, size }, { width, gap: WIDGET_GAP, appRows })}>
                     <Body size={size} open={null} a11y={null} />
                   </View>
                   <Text variant="caption" color="textMuted" style={styles.sizeLabel}>
