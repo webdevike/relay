@@ -13,6 +13,7 @@ import { Drop, MAX_DROP_BYTES, MAX_DROP_TEXT, MAX_DROPS, untagged, type DropFile
 import { z } from "zod";
 import type { DropBlob, DropBox, DropChange } from "../seams";
 import { sameToken } from "./serve";
+import { type AudioProbe, type Faststart, ffmpegFaststart, ffprobeDuration } from "./audio";
 import { DEFAULT_MAX_VIDEO_BYTES, ffmpegProbe, isVideoMime, VideoTooLarge, type VideoProbe } from "./video";
 
 /** Longest `Drop.title`; the phone shows one line. */
@@ -41,6 +42,10 @@ export interface FileDropStoreOptions {
   readonly maxVideoBytes?: number;
   /** Reads a stored video's duration, size and poster. */
   readonly probe?: VideoProbe;
+  /** Reads a stored audio file's duration. */
+  readonly probeAudio?: AudioProbe;
+  /** Moves an MP4-family drop's index to the front so the phone can stream it. */
+  readonly faststart?: Faststart;
 }
 
 export class FileDropStore implements DropBox {
@@ -48,6 +53,8 @@ export class FileDropStore implements DropBox {
   private records: DropRecord[];
   private readonly maxVideoBytes: number;
   private readonly probe: VideoProbe;
+  private readonly probeAudio: AudioProbe;
+  private readonly faststart: Faststart;
 
   constructor(
     private readonly dir: string = defaultDropsDir(),
@@ -55,9 +62,12 @@ export class FileDropStore implements DropBox {
   ) {
     this.records = this.load();
     this.maxVideoBytes = options.maxVideoBytes ?? DEFAULT_MAX_VIDEO_BYTES;
-    this.probe = options.probe ?? ffmpegProbe((line) => {
+    const log = (line: string): void => {
       console.error(line);
-    });
+    };
+    this.probe = options.probe ?? ffmpegProbe(log);
+    this.probeAudio = options.probeAudio ?? ffprobeDuration(log);
+    this.faststart = options.faststart ?? ffmpegFaststart(log);
   }
 
   list(): readonly Drop[] {
@@ -92,18 +102,36 @@ export class FileDropStore implements DropBox {
   /** A `video/*` blob: like `putBlob`, plus the probed duration, display size and poster. */
   async putVideo(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Promise<Drop> {
     const { id, token, file } = this.writeBlob(blob);
+    const stored = await this.settle(blob, file);
     const { poster: jpeg, ...shape } = await this.probe(join(this.dir, file));
     if (jpeg === undefined) {
-      const drop = this.blobDrop(origin, blob, id, token, shape);
+      const drop = this.blobDrop(origin, stored, id, token, shape);
       this.add({ drop, token, file });
       return drop;
     }
     const poster = `${id}.poster`;
     writeFileSync(join(this.dir, poster), jpeg, { mode: 0o600 });
     chmodSync(join(this.dir, poster), 0o600);
-    const drop = this.blobDrop(origin, blob, id, token, { ...shape, poster: `/drops/${id}/${token}/poster` });
+    const drop = this.blobDrop(origin, stored, id, token, { ...shape, poster: `/drops/${id}/${token}/poster` });
     this.add({ drop, token, file, poster });
     return drop;
+  }
+
+  /** An `audio/*` blob: like `putBlob`, plus the probed duration; an mp4/m4a gets its index moved to the front. */
+  async putAudio(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Promise<Drop> {
+    const { id, token, file } = this.writeBlob(blob);
+    const stored = await this.settle(blob, file);
+    const durationMs = await this.probeAudio(join(this.dir, file));
+    const drop = this.blobDrop(origin, stored, id, token, durationMs === undefined ? {} : { durationMs });
+    this.add({ drop, token, file });
+    return drop;
+  }
+
+  /** Runs faststart on the stored blob; the blob as it now is on disk (its size may differ). */
+  private async settle(blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }, file: string): Promise<{ readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }> {
+    const path = join(this.dir, file);
+    if (!(await this.faststart(path))) return blob;
+    return { ...blob, bytes: new Uint8Array(readFileSync(path)) };
   }
 
   remove(id: string): boolean {

@@ -38,6 +38,7 @@ import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
 import { CommandDedupStore } from "./dedup";
 import { serveBlob } from "./drops/serve";
+import { audioMimeOf, isAudioMime } from "./drops/audio";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
 import { PairingCoordinator } from "./pairing";
 import type { FilePresence } from "./files/presence";
@@ -604,12 +605,15 @@ export class RelayServer {
           return Response.json(drops.putText("host", text));
         }
         const name = basename(request.headers.get("x-drop-name") ?? "") || "file";
-        const mimeType = videoMimeOf(name, type.split(";")[0] ?? type);
+        const mimeType = audioMimeOf(name, videoMimeOf(name, type.split(";")[0] ?? type));
         const bytes = new Uint8Array(await request.arrayBuffer());
+        const blob = { name, mimeType, bytes };
         return Response.json(
           isVideoMime(mimeType)
-            ? await drops.putVideo("host", { name, mimeType, bytes })
-            : drops.putBlob("host", { name, mimeType, bytes }),
+            ? await drops.putVideo("host", blob)
+            : isAudioMime(mimeType)
+              ? await drops.putAudio("host", blob)
+              : drops.putBlob("host", blob),
         );
       } catch (error) {
         return new Response(error instanceof Error ? error.message : String(error), {

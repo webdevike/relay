@@ -136,6 +136,14 @@
   font-size: var(--eva-fz-label);
   line-height: var(--eva-lh-label);
 }
+.eva-md-audio {
+  display: block;
+  max-width: 100%;
+}
+.eva-md-audio audio {
+  display: block;
+  width: min(360px, 100%);
+}
 
 /* Tables fit their columns while the column is wide enough, then scroll sideways in place. */
 .eva-md-table {

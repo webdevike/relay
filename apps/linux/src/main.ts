@@ -49,6 +49,7 @@ import { readThreadMemory } from "./live/brief";
 import { openAiKey, OpenAiLive } from "./live/openai";
 import { LiveService } from "./live/service";
 import { FileDeviceStore } from "./device-store";
+import { isAudioMime, playsOnIphone } from "./drops/audio";
 import { FileDropStore } from "./drops/store";
 import {
   ffmpegProbe,
@@ -1114,7 +1115,8 @@ async function share(positionals: string[]): Promise<void> {
   // Blob drops also print their fetch path so an agent can reference it (e.g. a ```ui compare
   // widget), then the markdown that shows it inline: the phone plays a video embedded this way.
   const video = isVideoMime(drop.file.mimeType);
-  console.log(`shared ${video ? "video" : drop.kind} ${drop.id} ${drop.file.path}`);
+  const audio = isAudioMime(drop.file.mimeType);
+  console.log(`shared ${video ? "video" : audio ? "audio" : drop.kind} ${drop.id} ${drop.file.path}`);
   const { durationMs, width, height, poster } = drop.file;
   if (video) {
     const facts = [
@@ -1124,6 +1126,15 @@ async function share(positionals: string[]): Promise<void> {
       poster === undefined ? "no poster (ffmpeg missing on the host)" : `poster ${poster}`,
     ];
     console.log(`video ${facts.filter((fact) => fact !== null).join(" · ")}`);
+  }
+  if (audio) {
+    const facts = [
+      durationMs === undefined ? "duration unknown (ffprobe missing on the host)" : `${(durationMs / 1000).toFixed(1)}s`,
+      `${(drop.file.size / (1024 * 1024)).toFixed(1)} MB`,
+      drop.file.mimeType,
+    ];
+    console.log(`audio ${facts.join(" · ")}`);
+    if (!playsOnIphone(drop.file.name)) console.error("warning: iPhone cannot play this format; convert to m4a or mp3 first (ffmpeg -i in.ogg -c:a aac out.m4a)");
   }
   const caption = drop.file.name.replace(/\.[^.]+$/, "").replace(/[[\]]/g, "");
   console.log(`embed ![${caption}](${drop.file.path})`);

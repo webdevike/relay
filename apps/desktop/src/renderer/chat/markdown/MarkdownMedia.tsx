@@ -5,20 +5,23 @@ import { collectMessageImages } from './collect-images'
 import { mediaUrl } from '../widgets/media-url'
 
 /**
- * `![caption](src)` in a reply: an image, or an inline video when `src` is one. Agents embed both
- * the same way, so the client decides (the Relay drop contract):
- * - a Relay drop (`/drops/<id>/<token>`) is a video when its served Content-Type is `video/*`;
- *   main answers a HEAD on the relay-media: URL with the drop's type, and the poster frame is the
- *   drop's `/poster` path when the host made one;
- * - an http(s) URL is a video when its path ends .mp4, .webm, .mov or .m4v;
+ * `![caption](src)` in a reply: an image, an inline video or an audio player when `src` is one.
+ * Agents embed all of them the same way, so the client decides (the Relay drop contract):
+ * - a Relay drop (`/drops/<id>/<token>`) is a video (audio) when its served Content-Type is
+ *   `video/*` (`audio/*`); main answers a HEAD on the relay-media: URL with the drop's type, and
+ *   the poster frame is the drop's `/poster` path when the host made one;
+ * - an http(s) URL is a video when its path ends .mp4, .webm, .mov or .m4v, audio on .mp3, .m4a,
+ *   .aac, .wav, .flac, .ogg or .opus;
  * - everything else stays an image.
  */
-export type MediaKind = { kind: 'image' } | { kind: 'video'; poster: string | null }
+export type MediaKind = { kind: 'image' } | { kind: 'video'; poster: string | null } | { kind: 'audio' }
 
 const DROP = /^\/drops\/[^/]+\/[^/]+$/
 const VIDEO_PATH = /\.(mp4|webm|mov|m4v)$/i
+const AUDIO_PATH = /\.(mp3|m4a|aac|wav|flac|ogg|opus)$/i
 const IMAGE: MediaKind = { kind: 'image' }
 const URL_VIDEO: MediaKind = { kind: 'video', poster: null }
+const AUDIO: MediaKind = { kind: 'audio' }
 
 /** Whether an http(s) src is a video by its URL path. */
 export function urlIsVideo(src: string): boolean {
@@ -30,9 +33,20 @@ export function urlIsVideo(src: string): boolean {
   }
 }
 
+/** Whether an http(s) src is audio by its URL path. */
+function urlIsAudio(src: string): boolean {
+  if (!/^https?:\/\//i.test(src)) return false
+  try {
+    return AUDIO_PATH.test(new URL(src).pathname)
+  } catch {
+    return false
+  }
+}
+
 /** What a src is without asking main: known for URLs and files, null for a drop not probed yet. */
 function knownKind(src: string): MediaKind | null {
   if (DROP.test(src)) return probed.get(src) ?? null
+  if (urlIsAudio(src)) return AUDIO
   return urlIsVideo(src) ? URL_VIDEO : IMAGE
 }
 
@@ -55,8 +69,9 @@ export function probeDrop(src: string): Promise<MediaKind> {
   const running = probing.get(src)
   if (running) return running
   const job = (async (): Promise<MediaKind> => {
-    const type = (await head(src)).headers.get('content-type') ?? ''
-    if (!type.toLowerCase().startsWith('video/')) return IMAGE
+    const type = ((await head(src)).headers.get('content-type') ?? '').toLowerCase()
+    if (type.startsWith('audio/')) return AUDIO
+    if (!type.startsWith('video/')) return IMAGE
     const posterSrc = `${src}/poster`
     const poster = await head(posterSrc).then(
       () => mediaUrl(posterSrc),
@@ -129,6 +144,27 @@ function MarkdownVideo({
   )
 }
 
+/** A native audio player (play, scrub, duration) on the same relay-media URL a video or widget uses. */
+function MarkdownAudio({ src, caption }: { src: string; caption: string }) {
+  const [failed, setFailed] = useState(false)
+  return (
+    <span className="eva-md-audio" data-testid="md-audio">
+      {caption ? <span className="eva-md-video-caption">{caption}</span> : null}
+      {failed ? (
+        <span className="eva-md-video-error">Couldn&apos;t load audio</span>
+      ) : (
+        <audio
+          src={mediaUrl(src)}
+          controls
+          preload="metadata"
+          aria-label={caption || 'Audio'}
+          onError={() => setFailed(true)}
+        />
+      )}
+    </span>
+  )
+}
+
 /** True inside a markdown link: a linked image follows its link instead of opening the viewer. */
 export const InLink = createContext(false)
 
@@ -165,5 +201,6 @@ export function MarkdownMedia({ src, alt }: { src: string; alt: string }) {
   const kind = useMediaKind(src)
   if (kind === null) return <span className="eva-md-media-pending" data-testid="md-media-pending" />
   if (kind.kind === 'video') return <MarkdownVideo src={src} poster={kind.poster} caption={alt} />
+  if (kind.kind === 'audio') return <MarkdownAudio src={src} caption={alt} />
   return <MarkdownImage src={src} alt={alt} />
 }

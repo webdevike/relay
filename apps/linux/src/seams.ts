@@ -272,6 +272,11 @@ export interface DropBox {
     origin: DropOrigin,
     blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array },
   ): Promise<Drop>;
+  /** An `audio/*` blob (kind `file`) with its duration filled in where the host can read it; an mp4/m4a is made streamable. */
+  putAudio(
+    origin: DropOrigin,
+    blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array },
+  ): Promise<Drop>;
   /** False when no such drop. */
   remove(id: string): boolean;
   /** The blob for `id` iff `token` matches its `DropFile.path`; null otherwise (also for text drops). */

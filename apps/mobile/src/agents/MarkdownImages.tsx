@@ -3,7 +3,9 @@
  * app shows pictures: `TILE_WIDTH` wide, shaped by the picture (via `Image.getSize`) between
  * `MIN_HEIGHT` and `MAX_HEIGHT`, cropped to fill (cover), `GAP` apart. A tap opens `ImageViewer`
  * with every loadable image of the stack, starting at the tapped one. A src that is a video (a
- * `video/*` drop or an https `.mp4`, see `videoEmbed.ts`) plays inline as an `InlineVideo` instead.
+ * `video/*` drop or an https `.mp4`, see `videoEmbed.ts`) plays inline as an `InlineVideo` instead,
+ * and an audio one (`audio/*` drop or https `.mp3`/`.m4a`...) as the same `AudioPlayer` the ```ui
+ * `audio` widget uses.
  *
  * `src` is an http(s) URL, or a host drop path from `relay-linux share` (resolved by `useDropSrc`).
  * A path on the Mac can't be fetched, so it shows a muted caption naming the file, not a broken tile.
@@ -16,9 +18,10 @@ import { ImageFrame } from "@/ui/ImageFrame";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { useDropSrc } from "./dropSrc";
 import { ImageViewer, type ViewerImage } from "./ImageViewer";
+import { AudioPlayer } from "./AudioPlayer";
 import { InlineVideo } from "./InlineVideo";
 import { type ImageSrcKind, imageBasename, imageSrcKind, type MessageImage } from "./markdown";
-import { videoEmbedOf } from "./videoEmbed";
+import { audioEmbedOf, videoEmbedOf } from "./videoEmbed";
 
 const TILE_WIDTH = 188;
 const MIN_HEIGHT = 110;
@@ -32,13 +35,19 @@ export function MarkdownImages({ images }: { images: MessageImage[] }) {
   const resolved = useDropSrc(images.map((image) => image.src));
   const items = images.map((image, i) => {
     const kind = imageSrcKind(image.src);
-    return { ...image, kind, uri: kind === "local" ? null : (resolved[i] ?? null), video: videoEmbedOf(image.src, drops) };
+    return {
+      ...image,
+      kind,
+      uri: kind === "local" ? null : (resolved[i] ?? null),
+      video: videoEmbedOf(image.src, drops),
+      audio: audioEmbedOf(image.src, drops),
+    };
   });
 
   // The viewer pages through the picture tiles that loaded; `pages[i]` is tile i's page (-1: none).
   const loadable: ViewerImage[] = [];
   const pages = items.map((item) =>
-    item.uri === null || item.video !== null
+    item.uri === null || item.video !== null || item.audio !== null
       ? -1
       : loadable.push({ uri: item.uri, caption: item.alt === "" ? undefined : item.alt }) - 1,
   );
@@ -46,7 +55,11 @@ export function MarkdownImages({ images }: { images: MessageImage[] }) {
   return (
     <View style={{ gap: GAP, alignItems: "flex-start" }}>
       {items.map((item, i) =>
-        item.video !== null ? (
+        item.audio !== null ? (
+          <View key={`${String(i)}:${item.src}`} style={{ width: TILE_WIDTH + 100 }}>
+            <AudioPlayer spec={{ widget: "audio", src: item.audio.src, ...(item.alt !== "" && { title: item.alt }) }} />
+          </View>
+        ) : item.video !== null ? (
           <InlineVideo key={`${String(i)}:${item.src}`} video={item.video} alt={item.alt} />
         ) : (
           <Tile

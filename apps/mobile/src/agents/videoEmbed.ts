@@ -1,8 +1,9 @@
 /**
- * Which markdown images (`![caption](src)`) are videos. Agents embed a shared video exactly like a
- * picture, so the src decides: a host drop path (bare, or as a full https URL through Tailscale
- * Serve) whose drop (from the drops list the phone asks for on every connect) has a `video/*`
- * type, or an http(s) URL whose path ends in a video extension. Everything else stays a picture.
+ * Which markdown images (`![caption](src)`) are videos or audio. Agents embed a shared video or
+ * sound exactly like a picture, so the src decides: a host drop path (bare, or as a full https URL
+ * through Tailscale Serve) whose drop (from the drops list the phone asks for on every connect) has
+ * a `video/*` (or, for `audioEmbedOf`, `audio/*`) type, or an http(s) URL whose path ends in a
+ * video (audio) extension. Everything else stays a picture.
  */
 import type { Drop } from "@relay/protocol";
 import { imageSrcKind } from "./markdown";
@@ -55,4 +56,29 @@ function dropVideo(path: string, drops: readonly Drop[]): VideoEmbed | null {
     ...(width !== undefined && height !== undefined && { aspect: width / height }),
     ...(durationMs !== undefined && { durationMs }),
   };
+}
+
+export interface AudioEmbed {
+  src: string;
+  durationMs?: number;
+}
+
+const AUDIO_PATH = /\.(mp3|m4a|aac|wav|flac)$/i;
+
+export function audioEmbedOf(src: string, drops: readonly Drop[]): AudioEmbed | null {
+  let path = src;
+  if (imageSrcKind(src) === "remote") {
+    try {
+      const url = new URL(src);
+      if (imageSrcKind(url.pathname) !== "drop") return AUDIO_PATH.test(url.pathname) ? { src } : null;
+      path = url.pathname;
+    } catch {
+      return null;
+    }
+  } else if (imageSrcKind(src) !== "drop") {
+    return null;
+  }
+  const file = drops.find((drop) => drop.file?.path === path)?.file;
+  if (!file?.mimeType.startsWith("audio/")) return null;
+  return { src, ...(file.durationMs !== undefined && { durationMs: file.durationMs }) };
 }

@@ -1,6 +1,6 @@
 import type { Drop } from "@relay/protocol";
 import { describe, expect, it } from "vitest";
-import { videoEmbedOf } from "./videoEmbed";
+import { audioEmbedOf, videoEmbedOf } from "./videoEmbed";
 
 const TOKEN = "ab".repeat(32);
 const path = (id: string) => `/drops/${id}/${TOKEN}`;
@@ -20,6 +20,7 @@ const drops: Drop[] = [
   fileDrop("vid", "video/mp4", { width: 1280, height: 720, durationMs: 10_000, poster: `${path("vid")}/poster` }),
   fileDrop("bare", "video/webm"),
   fileDrop("shot", "image/png"),
+  fileDrop("song", "audio/mp4", { durationMs: 17_100 }),
   fileDrop("zip", "application/zip"),
 ];
 
@@ -65,5 +66,22 @@ describe("videoEmbedOf", () => {
 
   it("never treats a path on the Mac as a playable video", () => {
     expect(videoEmbedOf("/Users/ike/Desktop/demo.mp4", drops)).toBeNull();
+  });
+});
+
+describe("audioEmbedOf", () => {
+  it("plays an audio drop, bare or linked by its full https URL, with its length", () => {
+    expect(audioEmbedOf(path("song"), drops)).toEqual({ src: path("song"), durationMs: 17_100 });
+    const url = `https://isaacs-mac-mini.tail80fdb0.ts.net${path("song")}`;
+    expect(audioEmbedOf(url, drops)).toEqual({ src: url, durationMs: 17_100 });
+  });
+
+  it("plays https URLs by their audio extension and leaves everything else alone", () => {
+    expect(audioEmbedOf("https://cdn.x.test/a.MP3?sig=1", [])).toEqual({ src: "https://cdn.x.test/a.MP3?sig=1" });
+    expect(audioEmbedOf("https://cdn.x.test/a.png", [])).toBeNull();
+    expect(audioEmbedOf(path("vid"), drops)).toBeNull();
+    expect(audioEmbedOf(path("shot"), drops)).toBeNull();
+    expect(audioEmbedOf(path("gone"), drops)).toBeNull();
+    expect(audioEmbedOf("/Users/ike/a.mp3", drops)).toBeNull();
   });
 });

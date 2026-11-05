@@ -27,6 +27,9 @@ class RecordingDrops implements DropBox {
   putVideo(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Promise<Drop> {
     return Promise.resolve(this.putBlob(origin, blob));
   }
+  putAudio(origin: DropOrigin, blob: { readonly name: string; readonly mimeType: string; readonly bytes: Uint8Array }): Promise<Drop> {
+    return Promise.resolve(this.putBlob(origin, blob));
+  }
   remove(): boolean {
     return false;
   }
