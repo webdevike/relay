@@ -3,7 +3,8 @@
  * switches, double-click renames in place (Enter saves, Escape cancels), rows drag to reorder and
  * each has a menu (Rename, Duplicate, Delete). The last row adds a page.
  */
-import { ActionIcon, Button, Menu, Modal, Popover, TextInput } from '@mantine/core'
+import { ActionIcon, Button, TextInput } from '@mantine/core'
+import { EvaMenu, EvaModal, EvaPopover } from '../overlay'
 import {
   IconCheck,
   IconChevronDown,
@@ -41,6 +42,7 @@ export function PagePanel(props: PagePanelProps) {
   const [over, setOver] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<string | null>(null)
   const pick = useRef<number | undefined>(undefined)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
 
   const current = pages.find((p) => p.id === page)
   const doomed = pages.find((p) => p.id === confirm)
@@ -74,19 +76,19 @@ export function PagePanel(props: PagePanelProps) {
 
   return (
     <div className="eva-cv-pages" data-cv-pages onKeyDown={(e) => e.stopPropagation()}>
-      <Popover
+      <EvaPopover
         opened={open}
-        onChange={setOpen}
+        // The row menu is portaled apart from this list and the rename field owns Escape: neither closes it.
+        onChange={(o) => {
+          if (!o && (menuFor !== null || renaming !== null)) return
+          setOpen(o)
+        }}
         position="bottom-start"
-        offset={4}
-        withinPortal
         shadow="md"
-        transitionProps={{ duration: 0 }}
         trapFocus={false}
         returnFocus={false}
-        closeOnEscape={renaming === null}
       >
-        <Popover.Target>
+        <EvaPopover.Target>
           <Button
             variant="subtle"
             color="gray"
@@ -100,8 +102,8 @@ export function PagePanel(props: PagePanelProps) {
           >
             <span className="eva-cv-pages-current">{current?.title ?? 'Page 1'}</span>
           </Button>
-        </Popover.Target>
-        <Popover.Dropdown className="eva-cv-pages-pop" data-cv-pages data-testid="canvas-pages">
+        </EvaPopover.Target>
+        <EvaPopover.Dropdown className="eva-cv-pages-pop" data-testid="canvas-pages">
           <div role="listbox" aria-label="Pages" onKeyDown={(e) => e.stopPropagation()}>
             {pages.map((p, i) => {
               const here = p.id === page
@@ -173,8 +175,13 @@ export function PagePanel(props: PagePanelProps) {
                       {p.title}
                     </span>
                   )}
-                  <Menu position="bottom-end" withinPortal={false} offset={2} shadow="md">
-                    <Menu.Target>
+                  <EvaMenu
+                    position="bottom-end"
+                    offset={2}
+                    opened={menuFor === p.id}
+                    onChange={(o) => setMenuFor(o ? p.id : null)}
+                  >
+                    <EvaMenu.Target>
                       <ActionIcon
                         variant="subtle"
                         color="gray"
@@ -187,17 +194,17 @@ export function PagePanel(props: PagePanelProps) {
                       >
                         <IconDots size={14} stroke={1.5} />
                       </ActionIcon>
-                    </Menu.Target>
-                    <Menu.Dropdown data-cv-pages onClick={(e) => e.stopPropagation()}>
-                      <Menu.Item
+                    </EvaMenu.Target>
+                    <EvaMenu.Dropdown onClick={(e) => e.stopPropagation()}>
+                      <EvaMenu.Item
                         leftSection={<IconPencil size={14} stroke={1.5} />}
                         disabled={!editable}
                         data-testid="canvas-page-rename"
                         onClick={() => startRename(p)}
                       >
                         Rename
-                      </Menu.Item>
-                      <Menu.Item
+                      </EvaMenu.Item>
+                      <EvaMenu.Item
                         leftSection={<IconCopy size={14} stroke={1.5} />}
                         disabled={!editable}
                         data-testid="canvas-page-duplicate"
@@ -207,8 +214,8 @@ export function PagePanel(props: PagePanelProps) {
                         }}
                       >
                         Duplicate
-                      </Menu.Item>
-                      <Menu.Item
+                      </EvaMenu.Item>
+                      <EvaMenu.Item
                         color="red"
                         leftSection={<IconTrash size={14} stroke={1.5} />}
                         disabled={!editable || pages.length <= 1}
@@ -220,9 +227,9 @@ export function PagePanel(props: PagePanelProps) {
                         }}
                       >
                         Delete
-                      </Menu.Item>
-                    </Menu.Dropdown>
-                  </Menu>
+                      </EvaMenu.Item>
+                    </EvaMenu.Dropdown>
+                  </EvaMenu>
                 </div>
               )
             })}
@@ -242,15 +249,13 @@ export function PagePanel(props: PagePanelProps) {
             </span>
             <span className="eva-cv-page-title">Add page</span>
           </button>
-        </Popover.Dropdown>
-      </Popover>
-      <Modal
+        </EvaPopover.Dropdown>
+      </EvaPopover>
+      <EvaModal
         opened={doomed !== undefined}
         onClose={() => setConfirm(null)}
         title="Delete page"
-        size="sm"
-        centered
-        data-cv-pages
+        size={360}
       >
         <p className="eva-cv-page-confirm" data-testid="canvas-page-confirm">
           {`Delete "${doomed?.title ?? ''}" and everything on it?`}
@@ -272,7 +277,7 @@ export function PagePanel(props: PagePanelProps) {
             Delete
           </Button>
         </div>
-      </Modal>
+      </EvaModal>
     </div>
   )
 }
