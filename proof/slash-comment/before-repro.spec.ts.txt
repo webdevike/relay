@@ -1,0 +1,113 @@
+import type { Page } from '@playwright/test'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+import { test as base, expect } from './fixtures'
+import { startThrowawayHost, type ThrowawayHost } from './helpers/throwaway-host'
+
+// BASELINE repro (origin/main before the fix): press '/' on the desktop Canvas page with no live
+// room and in a live room, from different focus places, and record what happens.
+const PROOF = '/Users/ike/Eva/work/relay-slash/proof/slash-comment'
+let host: ThrowawayHost
+const test = base.extend({
+  launchEnv: async ({}, use) => {
+    host = await startThrowawayHost()
+    await use(host.env)
+    await host.stop()
+  },
+})
+test.use({ startOnChat: false, colorScheme: 'dark' })
+const sel = (id: string): string => `[data-testid=${id}]`
+const seen: Record<string, unknown> = {}
+const shot = async (shell: Page, name: string): Promise<void> => {
+  fs.mkdirSync(PROOF, { recursive: true })
+  await shell.screenshot({ path: path.join(PROOF, name) })
+}
+const parentUi = (shell: Page) =>
+  shell.evaluate(() => ({
+    textareas: document.querySelectorAll('textarea').length,
+    dialogs: document.querySelectorAll('[role=dialog]').length,
+    pins: document.querySelectorAll('[data-testid=canvas-pin]').length,
+    commentButtons: [...document.querySelectorAll('button')].filter((b) =>
+      /comment/i.test(`${b.getAttribute('aria-label') ?? ''} ${b.textContent ?? ''}`),
+    ).length,
+    active: document.activeElement?.tagName + '.' + (document.activeElement?.className ?? ''),
+  }))
+
+test('baseline: / on the desktop Canvas page, and in a live room', async ({ shell }) => {
+  await expect(shell.locator(sel('dash-hero'))).toBeVisible()
+  await shell.locator(sel('nav-canvas')).click()
+  await shell.locator(sel('canvas-row-mind-map')).click()
+  await expect(shell.locator(sel('canvas-board'))).toHaveAttribute('data-slug', 'mind-map')
+  await expect(shell.locator('.react-flow__node').first()).toBeVisible()
+  await expect(shell.locator(sel('canvas-status'))).toContainText('saved')
+
+  // (a) the desktop Canvas page, no live room.
+  seen['a0 before any key'] = await parentUi(shell)
+  const card = shell.locator('.react-flow__node').first()
+  await card.click()
+  await shell.keyboard.press('/')
+  await shell.waitForTimeout(400)
+  seen['a1 card selected, / pressed'] = await parentUi(shell)
+  await shot(shell, 'before-1-canvas-page-slash-card-selected.png')
+
+  const spot = await shell.evaluate(() => {
+    const pane = document.querySelector('.eva-cv-flow')!.getBoundingClientRect()
+    for (let y = pane.top + 80; y < pane.bottom - 80; y += 24)
+      for (let x = pane.left + 24; x < pane.right - 24; x += 24)
+        if (document.elementFromPoint(x, y)?.classList.contains('react-flow__pane')) return { x, y }
+    return null
+  })
+  await shell.mouse.click(spot!.x, spot!.y)
+  await shell.keyboard.press('/')
+  await shell.waitForTimeout(400)
+  seen['a2 click on the board, then / (nothing selected)'] = await parentUi(shell)
+  await shot(shell, 'before-2-canvas-page-slash-after-board-click.png')
+  seen['a3 board file threads after both'] = JSON.parse(
+    fs.readFileSync(path.join(host.canvasDir, 'mind-map.json'), 'utf8'),
+  ).threads ?? 'no threads key'
+
+  // (b) a live room on the throwaway host, viewed in the desktop app.
+  const res = await fetch(`http://127.0.0.1:${host.port}/canvas/sessions`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ slug: 'mind-map', caller: { assistant: 'nova' } }),
+  })
+  seen['b0 start room'] = res.status
+  await expect(shell.locator(sel('canvas-live'))).toHaveAttribute('data-slug', 'mind-map')
+  const room = shell.frameLocator(sel('canvas-live-frame'))
+  await expect(room.locator('.react-flow__node').first()).toBeVisible()
+  const composers = () => room.locator('.cv-cursor-chat').count()
+  seen['b1 room comment button'] = {
+    visible: await room.locator('.cv-fab').isVisible(),
+    title: await room.locator('.cv-fab').getAttribute('title'),
+  }
+
+  // Focus in the header, outside the frame.
+  await shell.locator(sel('canvas-title')).click()
+  await shell.keyboard.press('/')
+  await shell.waitForTimeout(500)
+  seen['b2 focus in the app header, / pressed'] = { composers: await composers() }
+  await shot(shell, 'before-3-room-slash-focus-in-header.png')
+
+  // Focus on the sidebar row that opened the board.
+  await shell.locator(sel('canvas-row-mind-map')).focus()
+  await shell.keyboard.press('/')
+  await shell.waitForTimeout(500)
+  seen['b3 focus on the sidebar row, / pressed'] = { composers: await composers() }
+
+  // Focus inside the frame: after clicking its board; with a card selected.
+  await room.locator('.react-flow__pane').click({ position: { x: 40, y: 400 } })
+  await shell.keyboard.press('/')
+  await shell.waitForTimeout(500)
+  seen['b4 click on the room board, / pressed (nothing selected)'] = { composers: await composers() }
+  await shot(shell, 'before-4-room-slash-after-board-click.png')
+  if ((await composers()) > 0) await room.getByLabel('Comment for Nova').press('Escape')
+  await room.locator('.react-flow__node').first().click()
+  await shell.keyboard.press('/')
+  await shell.waitForTimeout(500)
+  seen['b5 room card selected, / pressed'] = { composers: await composers() }
+  await shot(shell, 'before-5-room-slash-card-selected.png')
+
+  fs.writeFileSync(path.join(PROOF, 'before-observations.json'), `${JSON.stringify(seen, null, 2)}\n`)
+  console.log('OBSERVATIONS', JSON.stringify(seen, null, 2))
+})
