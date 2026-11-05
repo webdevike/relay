@@ -1,6 +1,6 @@
 /**
  * How a bubble's long-press menu bookmarks its turn without knowing the screen's turns: the screen
- * (through `useTurnRail`) registers a `Bookmarker` under its reaction thread, and the menu
+ * (through `useTurnBookmarks`) registers a `Bookmarker` under its reaction thread, and the menu
  * (`agents/BubbleMenu`) asks for it by the thread it shows.
  */
 import { toggleTurnBookmark } from "@/connection";

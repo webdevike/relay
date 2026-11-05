@@ -27,9 +27,8 @@ import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
 import { useMessageEntrances } from "@/ui/useMessageEntrances";
 import { GrowIn } from "@/ui/GrowIn";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
-import { TurnRail } from "@/turns/TurnRail";
 import { agentTurnRows } from "@/turns/rows";
-import { useTurnRail } from "@/turns/useTurnRail";
+import { useTurnBookmarks } from "@/turns/useTurnBookmarks";
 /**
  * Where each session's transcript was left, as the inverted list's offset (0 = the newest message
  * in view). A card mounts straight at that offset, so switching sessions never scrolls.
@@ -331,7 +330,7 @@ export interface AgentCardProps {
    * the newest user bubbles, even before the conversation has loaded; a refused one is marked.
    */
   echoes?: readonly UserEcho[] | undefined;
-  /** The session's reaction thread (`sessionReactionThread`): with it the card shows the turn rail on its left edge, whose bookmarks and flags live under it. */
+  /** The session's reaction thread (`sessionReactionThread`): with it the card's turns can be bookmarked from their bubble menus (`turns/useTurnBookmarks`). */
   thread?: string | null | undefined;
 }
 
@@ -421,16 +420,16 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
   const label = working ? liveLabel : heldLabel;
   // Read once per mount: returning to a session preserves both its position and follow mode.
   const initialOffset = useRef(sessionId === undefined ? 0 : (scrollMemory.get(sessionId) ?? 0));
-  const { listRef, awayFromBottom, scrollToBottom, scrollToRow, scrollHandlers } = useInvertedChatScroll<AgentMessage>({
+  const { listRef, awayFromBottom, scrollToBottom, scrollHandlers } = useInvertedChatScroll<AgentMessage>({
     initialOffset: initialOffset.current,
     onOffset: (offset) => { if (sessionId !== undefined) scrollMemory.set(sessionId, offset); },
   });
   // Rows, not messages: an empty reply that gains its first words becomes a row then, and enters then.
   const enteringMessages = useMessageEntrances(grouped?.listed, grouped !== undefined);
-  // The turn rail reads the rows the list shows, oldest first, minus this phone's own echoes.
+  // The turns of the rows the list shows, oldest first, minus this phone's own echoes (for bookmarks).
   const chronological = useMemo(() => (grouped === undefined ? [] : [...grouped.listed].reverse()), [grouped]);
   const turnRows = useMemo(() => agentTurnRows(chronological, (message) => echoIds.has(message.id) || message.id.startsWith("sent-")), [chronological, echoIds]);
-  const rail = useTurnRail({ turnRows, rowCount: chronological.length, thread, scrollToRow });
+  useTurnBookmarks({ turnRows, thread });
 
   if (rows === undefined || sessionId === undefined) {
     return <CardPlaceholder text={connected ? "Loading conversation…" : "Connect to your host to load this conversation."} />;
@@ -481,12 +480,10 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
         }
         contentOffset={{ x: 0, y: initialOffset.current }}
         {...scrollHandlers}
-        {...rail.viewable}
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
       />
       <ScrollToBottom visible={awayFromBottom} onPress={scrollToBottom} bottom={spacing.lg} />
-      {thread === null ? null : <TurnRail turns={rail.turns} bookmarks={rail.bookmarks} rows={rail.rows} following={!awayFromBottom} onJump={rail.jump} top={0} bottom={0} />}
       <ImageViewer
         images={viewingImages}
         onClose={() => {
