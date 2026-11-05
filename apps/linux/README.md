@@ -137,6 +137,15 @@ from the session's last `mode_change` at start and kept by omp's `goal_updated` 
 was met or dropped is gone. Extensions load once per omp process, so a session started before an
 extension change keeps reporting what the old code did until it is restarted.
 
+A thread's subagents are sessions of their own (`<thread session id>:<name>`, `parentId` set), so the phone
+can open their transcripts. The extension mirrors each one from the task tool's lifecycle events; when those
+never reach it (an omp that missed them), `src/agents/subagent-mirrors.ts` registers the same session from the
+helper's transcript file: for every helper in `ArtifactService.helpers()` whose thread's session is live and
+that no listed session already covers, it opens one more socket to the bridge and speaks the extension's
+protocol (`hello` with `parentId`, `canRespond: false`, `status` from the helper's state, the transcript as
+`conversation` and live `messages` appends, `end` clears it). A real mirror that arrives later replaces it. It
+is read-only: a reply or stop answers that the helper is read from its transcript.
+
 A `/goal` sent from the phone goes in the form the terminal runs without asking anything back
 (`src/agents/goal.ts`, as EvaOS maps it): `/goal <objective>` sets it, bare `/goal`, `status` and an
 objectiveless `set` read it (`/goal show`), `clear` drops it, and the "Drop goal?" confirm a drop

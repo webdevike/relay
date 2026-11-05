@@ -33,6 +33,7 @@ import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
 import { handleAssistantFile } from "./assistant/files";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
+import { openBridgeLink, SubagentFileMirrors } from "./agents/subagent-mirrors";
 import { SessionFiles } from "./agents/session-files";
 import {
   type AssistantAgentConfig,
@@ -761,6 +762,19 @@ function serve(
     };
   }
   activity.start();
+  // Helpers the omp extension never mirrored still get a session to open, read from their transcript.
+  // Held back until omps that outlived a host restart have reconnected, so their real mirrors win.
+  const subagentMirrors = new SubagentFileMirrors({
+    helpers: () => artifacts.helpers(),
+    sessions: () => agents.sessions,
+    sessionForFile: (file) => agents.sessionForFile(file),
+    open: openBridgeLink(defaultSocketPath(), log),
+    now: () => Date.now(),
+    log,
+  });
+  void agents.reconnected().then(() => {
+    subagentMirrors.start();
+  });
   const infoPath = serveInfoPath();
   mkdirSync(dirname(infoPath), { recursive: true, mode: 0o700 });
   writeFileSync(infoPath, JSON.stringify({ port: boundPort, pid: process.pid, ...(control === null ? {} : { controlToken: control.token }) }), { mode: 0o600 });
@@ -814,6 +828,7 @@ function serve(
     advertiser.stop();
     canvas?.stop();
     activity?.stop();
+    subagentMirrors.stop();
     studio?.stop();
     reviews?.stop();
     meetings?.stop();
