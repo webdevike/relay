@@ -178,6 +178,12 @@ describe("proto nodes", () => {
     expect(protoPageParams({ ...base, body: "<Button>Go</Button>" }, "dark").v).not.toBe(v.v);
     expect(protoPageParams({ ...base, system: "relay" }, "dark").v).not.toBe(v.v);
   });
+
+  it("name the board page they are on, except page-1 (whose URLs stay as they were)", () => {
+    const base = { id: "p", body: "<Button />", system: "ecard" };
+    expect(protoPageParams(base, "dark", "page-1")).not.toHaveProperty("page");
+    expect(protoPageParams(base, "dark", "p-2")).toMatchObject({ id: "p", page: "p-2" });
+  });
 });
 
 describe("edges", () => {

@@ -6,14 +6,17 @@
 // origin; concurrent actors only interleave transactions on the host's single doc, which Yjs merges.
 // Typing is chunked, so two actors typing into one field at once would interleave their letters:
 // a field takes one typist at a time (the others wait their turn), different fields type at once.
+// An actor is on one page of the board at a time (pages.ts; its presence names it): `@page` and
+// `@page_add` move it, and its node, edge and pin actions land on that page.
 
 import { existsSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import type { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { placeUnplaced, type LayoutNode } from "@relay/canvas-live/layout";
+import { addPage, FIRST_PAGE, MAX_PAGES, PAGE_ID, pageMaps, pagesOf, type PageMaps } from "@relay/canvas-live/pages";
 import { DOC_KEYS, type NodeKind, type Presence, type TextField, type User } from "@relay/canvas-live/shared";
-import { anchorFor, openThread, pinAt, postInThread, setResolved, THREAD_ID, threadsOf, type ThreadAnchor, type ThreadMap, type ThreadMsg } from "@relay/canvas-live/threads";
+import { anchorFor, openThread, pinAt, postInThread, setResolved, THREAD_ID, type ThreadAnchor, type ThreadMap, type ThreadMsg } from "@relay/canvas-live/threads";
 import { liveRefusal } from "../query/openui";
 import { protoSourceRefusal } from "../../../../packages/widget-runtime/src/proto";
 import { DESIGN_SYSTEMS, isDesignSystem } from "../../../../packages/widget-runtime/src/systems";
@@ -104,14 +107,14 @@ export class CanvasActor {
   presence: Presence;
   cursor: { x: number; y: number };
   private closed = false;
-  readonly nodes: Y.Map<Y.Map<unknown>>;
-  readonly edges: Y.Map<Y.Map<unknown>>;
-  readonly threads: Y.Map<ThreadMap>;
+  /** The page this actor is on (pages.ts): its cursor, selection, caret and edits are there. */
+  private current: string = FIRST_PAGE;
+  private maps: PageMaps;
   private said = 0;
-  /** Absolute positions of nodes the file gives none, recomputed when the board changes. */
-  private placed: Map<string, { x: number; y: number }> | null = null;
+  /** Absolute positions of nodes the file gives none, by page, recomputed when the board changes. */
+  private readonly placed = new Map<string, Map<string, { x: number; y: number }>>();
   private readonly onDocUpdate = (): void => {
-    this.placed = null;
+    this.placed.clear();
   };
 
   constructor(
@@ -123,13 +126,48 @@ export class CanvasActor {
     private readonly options: ActorOptions,
     start: { x: number; y: number } = { x: -300, y: 240 },
   ) {
-    this.nodes = doc.getMap(DOC_KEYS.nodes);
-    this.edges = doc.getMap(DOC_KEYS.edges);
-    this.threads = threadsOf(doc);
+    this.maps = pageMaps(doc, FIRST_PAGE);
     this.cursor = { ...start };
-    this.presence = { user, cursor: this.cursor, status: "idle", selected: [] };
+    this.presence = { user, cursor: this.cursor, status: "idle", selected: [], page: FIRST_PAGE };
     awareness.setLocalState(this.presence);
     doc.on("update", this.onDocUpdate);
+  }
+
+  /** The page this actor is on. */
+  get page(): string {
+    return this.current;
+  }
+
+  /** The nodes of the page this actor is on. */
+  get nodes(): Y.Map<Y.Map<unknown>> {
+    return this.maps.nodes;
+  }
+
+  get edges(): Y.Map<Y.Map<unknown>> {
+    return this.maps.edges;
+  }
+
+  get threads(): Y.Map<ThreadMap> {
+    return this.maps.threads;
+  }
+
+  /** True when the board has page `id`. */
+  hasPage(id: string): boolean {
+    return pagesOf(this.doc).some((p) => p.id === id);
+  }
+
+  /** Goes to page `id`: its presence says so, and its selection, caret and connector are dropped (they were on the old page). */
+  setPage(id: string): void {
+    if (id === this.current) return;
+    this.current = id;
+    this.maps = pageMaps(this.doc, id);
+    this.setP({ page: id, selected: [], typing: null, connecting: null });
+  }
+
+  /** The page thread `id` is on: this actor's page first (thread ids are per page), then the board's pages in order; null when none has it. */
+  threadPage(id: string): string | null {
+    if (this.threads.has(id)) return this.current;
+    return pagesOf(this.doc).find((p) => pageMaps(this.doc, p.id).threads.has(id))?.id ?? null;
   }
 
   /** Stops publishing presence and edits (the room or the participant is gone). */
@@ -200,15 +238,19 @@ export class CanvasActor {
     return spot;
   }
 
-  /** Where a node is: its own x/y, else where the layout puts it (as the clients draw it). */
-  box(id: string): Box | null {
-    const m = this.nodes.get(id);
+  /** Where a node of `page` (default: this actor's) is: its own x/y, else where the layout puts it (as the clients draw it). */
+  box(id: string, page: string = this.current): Box | null {
+    const m = (page === this.current ? this.maps : pageMaps(this.doc, page)).nodes.get(id);
     if (!m) return null;
     let x = num(m, "x");
     let y = num(m, "y");
     if (x === undefined || y === undefined) {
-      this.placed ??= this.layout();
-      const at = this.placed.get(id);
+      let placed = this.placed.get(page);
+      if (placed === undefined) {
+        placed = this.layout(page);
+        this.placed.set(page, placed);
+      }
+      const at = placed.get(id);
       if (!at) return null;
       x = at.x;
       y = at.y;
@@ -218,14 +260,14 @@ export class CanvasActor {
     return { x, y, w, h: num(m, "h") ?? fallbackH };
   }
 
-  /** Where thread `id`'s pin is on the board; null when there is no such thread or its node is gone. */
-  pin(id: string): { x: number; y: number } | null {
-    const t = this.threads.get(id);
+  /** Where thread `id`'s pin is on `page` (default: this actor's); null when there is no such thread or its node is gone. */
+  pin(id: string, page: string = this.current): { x: number; y: number } | null {
+    const t = (page === this.current ? this.maps : pageMaps(this.doc, page)).threads.get(id);
     if (t === undefined) return null;
     const node = t.get("node");
     const x = num(t, "x") ?? 0;
     const y = num(t, "y") ?? 0;
-    return typeof node === "string" ? pinAt({ node, x, y }, this.box(node)) : { x, y };
+    return typeof node === "string" ? pinAt({ node, x, y }, this.box(node, page)) : { x, y };
   }
 
   /** A thread message from this actor, saying `text`. */
@@ -235,9 +277,10 @@ export class CanvasActor {
     return { id: `${this.origin}-${Date.now().toString(36)}-${String(this.said)}`, kind: "agent", name, color, ...(avatar === undefined ? {} : { avatar }), text, ts: Date.now() };
   }
 
-  private layout(): Map<string, { x: number; y: number }> {
+  private layout(page: string): Map<string, { x: number; y: number }> {
+    const maps = pageMaps(this.doc, page);
     const nodes: LayoutNode[] = [];
-    for (const [id, m] of this.nodes) {
+    for (const [id, m] of maps.nodes) {
       const node: LayoutNode = { id, type: (m.get("type") ?? "note") as NodeKind, title: str(m, "title"), body: str(m, "body"), caption: str(m, "caption"), sample: str(m, "sample") };
       for (const k of ["x", "y", "w", "h"] as const) {
         const v = num(m, k);
@@ -247,7 +290,7 @@ export class CanvasActor {
       if (typeof parent === "string") node.parent = parent;
       nodes.push(node);
     }
-    const edges = [...this.edges.values()].map((e) => ({ source: str(e, "source"), target: str(e, "target") }));
+    const edges = [...maps.edges.values()].map((e) => ({ source: str(e, "source"), target: str(e, "target") }));
     const layout = this.doc.getMap(DOC_KEYS.meta).get("layout");
     return placeUnplaced(nodes, edges, layout === "grid" || layout === "tree" || layout === "flow" ? layout : undefined);
   }
@@ -324,6 +367,9 @@ export class CanvasActor {
    */
   async run(a: Action, markEdit: () => void = () => undefined): Promise<string | null> {
     if (this.closed) return "left the room";
+    // Its page was deleted under it: carry on on the board's first page, not in a page nobody sees.
+    const pages = pagesOf(this.doc);
+    if (!pages.some((p) => p.id === this.current)) this.setPage(pages[0]?.id ?? FIRST_PAGE);
     const transact = (fn: () => void): void => {
       this.doc.transact(fn, this.origin);
       markEdit();
@@ -352,7 +398,7 @@ export class CanvasActor {
       }
       case "set_text":
       case "append_text":
-        return oneTypist(this.doc, `${a.id}:${a.field}`, async () => {
+        return oneTypist(this.doc, `${this.current}/${a.id}:${a.field}`, async () => {
           const b = this.box(a.id);
           const yt = this.nodes.get(a.id)?.get(a.field);
           if (!b || !(yt instanceof Y.Text)) return missing(a.id);
@@ -591,14 +637,16 @@ export class CanvasActor {
         return null;
       }
       case "reply": {
-        if (!this.threads.has(a.thread)) return `no thread ${a.thread}`;
-        const at = this.pin(a.thread);
+        const page = this.threadPage(a.thread);
+        if (page === null) return `no thread ${a.thread}`;
+        // A thread on another page is answered without the cursor going there.
+        const at = page === this.current ? this.pin(a.thread) : null;
         if (at !== null) {
           this.setP({ status: "moving" });
           await this.glide(at.x + 18, at.y + 10);
         }
         transact(() => {
-          postInThread(this.threads, a.thread, this.threadMessage(a.text));
+          postInThread(pageMaps(this.doc, page).threads, a.thread, this.threadMessage(a.text));
         });
         return null;
       }
@@ -619,11 +667,26 @@ export class CanvasActor {
         });
         return null;
       }
-      case "resolve":
-        if (!this.threads.has(a.thread)) return `no thread ${a.thread}`;
+      case "resolve": {
+        const page = this.threadPage(a.thread);
+        if (page === null) return `no thread ${a.thread}`;
         transact(() => {
-          setResolved(this.threads, a.thread, a.resolved);
+          setResolved(pageMaps(this.doc, page).threads, a.thread, a.resolved);
         });
+        return null;
+      }
+      case "page_add": {
+        if (!PAGE_ID.test(a.id)) return `page id ${a.id}: use lowercase letters, digits and "-", at most 40 characters`;
+        if (pages.some((p) => p.id === a.id)) return `page ${a.id} is taken`;
+        if (pages.length >= MAX_PAGES) return `the board already has ${String(MAX_PAGES)} pages`;
+        if (!this.doc.transact(() => addPage(this.doc, a.id, a.title, this.current), this.origin)) return `page ${a.id} could not be added`;
+        markEdit();
+        this.setPage(a.id);
+        return null;
+      }
+      case "page":
+        if (!pages.some((p) => p.id === a.id)) return `no page ${a.id} (pages: ${pages.map((p) => p.id).join(", ")})`;
+        this.setPage(a.id);
         return null;
       case "handoff":
         // The canvas self's turn routes its handoffs before they get here (agent.ts).
@@ -635,8 +698,10 @@ export class CanvasActor {
   private async type(nodeId: string, fields: TextField[], stream: TextStream, markEdit: () => void): Promise<void> {
     let fi = 0;
     let consumed = 0;
+    // The page it started on, even if the actor moves to another page meanwhile.
+    const nodes = this.nodes;
     const textOf = (f: TextField | undefined): Y.Text | null => {
-      const t = f === undefined ? null : this.nodes.get(nodeId)?.get(f);
+      const t = f === undefined ? null : nodes.get(nodeId)?.get(f);
       return t instanceof Y.Text ? t : null;
     };
     const first = textOf(fields[0]);

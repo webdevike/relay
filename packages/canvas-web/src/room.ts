@@ -1,11 +1,12 @@
-// The live room: one Y.Doc synced with the host over y-websocket, awareness for presence, and
-// this tab's identity (from the host's `/me`, so nobody is asked for a name).
+// The live room: one Y.Doc synced with the host over y-websocket, awareness for presence, this
+// tab's identity (from the host's `/me`, so nobody is asked for a name) and the board page it is on.
 import { WebsocketProvider } from "y-websocket";
 import * as Y from "yjs";
+import { FIRST_PAGE, type PageInfo, type PageMaps, pageMaps, pagesOf } from "../../canvas-live/src/pages";
 import { type ChatMsg, DOC_KEYS, type Presence, type User } from "../../canvas-live/src/shared";
+import { fallbackPage } from "./boardpages";
 import { parseEnv, roomUrl, wsParams, wsServer } from "./env";
 import { HUMAN_COLORS, createUndo, freeColor, uniqueName } from "./model";
-import { threadsOf } from "../../canvas-live/src/threads";
 
 export const env = parseEnv(location.href);
 export const doc = new Y.Doc();
@@ -14,16 +15,81 @@ export const awareness = provider.awareness;
 // Nobody sees this tab until it knows who it is.
 awareness.setLocalState(null);
 
-export const yNodes = doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes);
-export const yEdges = doc.getMap<Y.Map<unknown>>(DOC_KEYS.edges);
 export const yMeta = doc.getMap<unknown>(DOC_KEYS.meta);
 export const yChat = doc.getArray<ChatMsg>(DOC_KEYS.chat);
-export const yThreads = threadsOf(doc);
 export const ySettings = doc.getMap<unknown>(DOC_KEYS.settings);
 export const yMetrics = doc.getMap<unknown>(DOC_KEYS.metrics);
 
-/** This viewer's undo stack: only their own moves, deletes and groups (see `createUndo`). */
-export const undo = createUndo(yNodes, yEdges);
+/** A page's nodes, edges and threads, and this viewer's undo stack on it (only their own moves, deletes and groups, see `createUndo`). */
+export interface PageView extends PageMaps {
+  id: string;
+  undo: Y.UndoManager;
+}
+
+const views = new Map<string, PageView>();
+
+/** Page `id`'s view, made once per page and kept, so its undo stack survives switching away and back. */
+export function pageView(id: string): PageView {
+  let view = views.get(id);
+  if (view === undefined) {
+    const maps = pageMaps(doc, id);
+    view = { id, ...maps, undo: createUndo(maps.nodes, maps.edges) };
+    views.set(id, view);
+  }
+  return view;
+}
+
+// ---------- the page this viewer is on ----------
+// The board remounts per page (App.tsx), so everything it shows and edits reads `page()`.
+
+let current = FIRST_PAGE;
+/** Pages as last seen, to find the nearest one when the current page is deleted. */
+let known: PageInfo[] = pagesOf(doc);
+/** The viewer (or Follow) picked a page: the first sync no longer moves them to the first one. */
+let chosen = false;
+const pageListeners = new Set<() => void>();
+
+/** The id of the page this viewer is on. */
+export function currentPage(): string {
+  return current;
+}
+
+/** The page this viewer is on: its maps and undo stack. */
+export function page(): PageView {
+  return pageView(current);
+}
+
+function go(id: string): void {
+  if (id === current) return;
+  current = id;
+  // Cursor, selection and cursor chat belong to the page left behind.
+  const s = awareness.getLocalState() as Presence | null;
+  if (s) awareness.setLocalState({ ...s, page: id, cursor: null, selected: [], draft: null } satisfies Presence);
+  for (const l of pageListeners) l();
+}
+
+/** Switches this viewer to page `id`. */
+export function setPage(id: string): void {
+  chosen = true;
+  go(id);
+}
+
+export function subscribePage(cb: () => void): () => void {
+  pageListeners.add(cb);
+  return () => pageListeners.delete(cb);
+}
+
+yMeta.observe((e) => {
+  if (!e.keysChanged.has("pages")) return;
+  const next = pagesOf(doc);
+  const to = fallbackPage(known, next, current);
+  known = next;
+  go(to);
+});
+// A board opens on its first page.
+provider.once("sync", () => {
+  if (!chosen) go(pagesOf(doc)[0]?.id ?? FIRST_PAGE);
+});
 
 // Handle for scripted QA (reconnect, concurrent-edit and zoom checks); the board adds `rf`.
 export const qa: {
@@ -85,6 +151,7 @@ export async function loadIdentity(): Promise<"ok" | "expired"> {
     self.color = freeColor(self.color, colors);
     awareness.setLocalState({
       user: { ...self },
+      page: current,
       cursor: null,
       selected: [],
       tidy: true,

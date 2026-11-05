@@ -20,25 +20,29 @@ import {
   SelectionMode,
   type OnNodeDrag,
   ReactFlow,
+  type ReactFlowInstance,
   ReactFlowProvider,
+  type Viewport,
   applyNodeChanges,
   useNodesInitialized,
   useReactFlow,
   useStoreApi,
 } from "@xyflow/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import type { CanvasLayout } from "../../canvas-live/src/layout";
 import type { ClientMetrics } from "../../canvas-live/src/shared";
-import { anchorFor, newThreadId, openThread } from "../../canvas-live/src/threads";
+import { anchorFor, newThreadId, openThread, type ThreadSnap } from "../../canvas-live/src/threads";
 import { RoomAgentContext } from "./avatar";
+import { presencePage, statesOnPage } from "./boardpages";
 import { CanvasCard } from "./cards";
-import { CursorArrow, Cursors, follow } from "./cursors";
+import { CursorArrow, Cursors, follow, followToPage } from "./cursors";
 import { CanvasEdge } from "./edge";
 import { postEmbed } from "./embed";
-import { useAgent, useConnection, useSession, useThrottledPresence } from "./hooks";
+import { useAgent, useConnection, useCurrentPage, useSession, useThrottledPresence } from "./hooks";
 import { SideLog } from "./log";
-import { Pins, ThreadPopover, usePinSpots, useThreads } from "./pins";
+import { PagePanel } from "./pagepanel";
+import { Pins, ThreadPopover, centerOnThread, usePinSpots, useThreads } from "./pins";
 import {
   type CardNode,
   type FlowBox,
@@ -64,20 +68,19 @@ import { arrivals } from "./page-arrival";
 import { pageLock, useLocked } from "./page-lock";
 import {
   awareness,
+  currentPage,
   doc,
   env,
+  pageView,
   presenceStates,
   provider,
   qa,
   self,
+  setPage,
   setPresence,
   subscribePresence,
-  undo,
-  yThreads,
-  yEdges,
   yMeta,
   yMetrics,
-  yNodes,
   ySettings,
 } from "./room";
 import { useTidy, useTidySetting } from "./useTidy";
@@ -139,17 +142,38 @@ function trackLatency(msgId: string) {
   setTimeout(off, 120_000);
 }
 
+/** Where each page's camera was when this viewer left it, so switching back finds it there. */
+const pageViewports = new Map<string, Viewport>();
+
+/** One page of the board; the room remounts it (and its React Flow) per page. */
 function Board({
+  pageId,
   logOpen,
   onOpenLog,
   openThreadId,
   setOpenThread,
+  centerThread,
+  onCentered,
+  rfRef,
+  pagesOpen,
+  setPagesOpen,
 }: {
+  pageId: string;
   logOpen: boolean;
   onOpenLog: () => void;
   openThreadId: string | null;
   setOpenThread: (id: string | null) => void;
+  /** A thread to pan to once the page has opened (a comment row on another page was clicked). */
+  centerThread: string | null;
+  onCentered: () => void;
+  /** The room's handle on this page's React Flow, for the side panel. */
+  rfRef: RefObject<ReactFlowInstance<CardNode, LinkEdge> | null>;
+  /** The page list in the top bar is open (kept by the room across page switches). */
+  pagesOpen: boolean;
+  setPagesOpen: (open: boolean) => void;
 }) {
+  // Constant for this board's life: it remounts when the viewer changes pages.
+  const { nodes: yNodes, edges: yEdges, threads: yThreads, undo } = pageView(pageId);
   const [nodes, setNodes] = useState<CardNode[]>([]);
   const [edges, setEdges] = useState<LinkEdge[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -167,8 +191,9 @@ function Board({
   const connection = useConnection();
   const session = useSession();
   const agent = useAgent();
-  const presences = useThrottledPresence();
-  const threads = useThreads();
+  // Only people on this page draw here (drafts and agent replies in its threads too).
+  const presences = statesOnPage(useThrottledPresence(), pageId);
+  const threads = useThreads(yThreads);
   const pinSpots = usePinSpots(threads);
   const openThreadSnap = threads.find((t) => t.id === openThreadId);
   const keyboard = useKeyboardInset();
@@ -180,10 +205,15 @@ function Board({
   const editable = canEdit({ locked, ended: session?.open === false });
   const interaction = flowInteraction(locked, TOUCH);
   const tidyOn = useTidySetting();
-  // Scripted QA (zoom and screenshot checks) drives the viewport through this.
+  // Scripted QA (zoom and screenshot checks) drives the viewport through this; the side panel too.
   useEffect(() => {
     qa.rf = rf;
-  }, [rf]);
+    rfRef.current = rf;
+    return () => {
+      pageViewports.set(pageId, rf.getViewport());
+      if (rfRef.current === rf) rfRef.current = null;
+    };
+  }, [rf, rfRef, pageId]);
 
   /** A pan or zoom that ends between device pixels redraws text and borders soft: settle on a whole device pixel. */
   const snapViewport = useCallback(
@@ -242,12 +272,18 @@ function Board({
   }, [readDoc]);
 
   // Open at a readable zoom: fit the board once, with no animation (or start at its top-left when
-  // fitting makes text tiny), then stay put: cards the agent adds later never move the camera.
+  // fitting makes text tiny), then stay put: cards the agent adds later never move the camera. A
+  // page this viewer already looked at opens where they left it.
   useEffect(() => {
     if (!initialized || didFit.current || !nodes.length) return;
     didFit.current = true;
     // Now that cards have real heights, frames and unplaced nodes settle around them.
     readDoc();
+    const saved = pageViewports.get(pageId);
+    if (saved !== undefined) {
+      void rf.setViewport(saved).then(() => setOpening(false));
+      return;
+    }
     void rf.fitView({ padding: 0.08, duration: 0 }).then(() => {
       if (rf.getZoom() < 0.6) {
         const b = rf.getNodesBounds(nodes.map((n) => n.id));
@@ -256,12 +292,27 @@ function Board({
       }
       setOpening(false);
     });
-  }, [initialized, nodes, rf, readDoc]);
-  // An empty board (or one that never measures) has nothing to fit: show it anyway.
+  }, [initialized, nodes, rf, readDoc, pageId]);
+  // An empty page has nothing to fit: show it now, its origin clear of the top bar, and keep the
+  // camera still when cards arrive. A board that never measures shows after a moment.
   useEffect(() => {
+    if (provider.synced && yNodes.size === 0) {
+      didFit.current = true;
+      void rf.setViewport(pageViewports.get(pageId) ?? { x: 96, y: 128, zoom: 1 });
+      setOpening(false);
+      return;
+    }
     const t = window.setTimeout(() => setOpening(false), 2000);
     return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  // A comment row on another page brought the viewer here: pan to its pin once the page is drawn.
+  useEffect(() => {
+    if (centerThread === null || opening) return;
+    const t = threads.find((x) => x.id === centerThread);
+    if (t !== undefined) centerOnThread(rf, t);
+    onCentered();
+  }, [centerThread, opening, threads, rf, onCentered]);
 
   const onNodesChange = useCallback(
     (changes: NodeChange<CardNode>[]) => {
@@ -800,6 +851,7 @@ function Board({
       ) : null}
       <RoomBar onOpen={onOpenLog} />
       <div className={`cv-topbar${logOpen ? " log-open" : ""}`}>
+        <PagePanel editable={editable} open={pagesOpen} setOpen={setPagesOpen} />
         {ended ? null : (
           <button
             type="button"
@@ -809,6 +861,13 @@ function Board({
             onClick={() => {
               follow.on = !follow.on;
               setFollowing(follow.on);
+              // Following starts on the agent's page.
+              if (follow.on)
+                for (const p of presenceStates().values())
+                  if (p.user?.kind === "agent" && p.user.name === agent.name && presencePage(p) !== pageId) {
+                    followToPage(presencePage(p));
+                    break;
+                  }
             }}
           >
             <IconEye size={16} /> Follow {agent.name}
@@ -1009,23 +1068,53 @@ function Room() {
   const [logOpen, setLogOpen] = useState(
     () => !TOUCH && env.embed !== "phone" && window.innerWidth > 760,
   );
-  const [openThreadId, setOpenThread] = useState<string | null>(null);
+  const pageId = useCurrentPage();
+  /** The thread open on the board; thread ids are only unique on their page. */
+  const [openThread, setOpenThread] = useState<{ page: string; id: string } | null>(null);
+  const [centerThread, setCenterThread] = useState<string | null>(null);
+  const [pagesOpen, setPagesOpen] = useState(false);
+  const rfRef = useRef<ReactFlowInstance<CardNode, LinkEdge> | null>(null);
   const agent = useAgent();
   useEmbedEvents();
+  const onCentered = useCallback(() => setCenterThread(null), []);
+  // A thread stays open only on its own page.
+  useEffect(() => setOpenThread((o) => (o?.page === pageId ? o : null)), [pageId]);
+  const focusThread = (page: string, t: ThreadSnap) => {
+    setOpenThread({ page, id: t.id });
+    if (page === currentPage()) {
+      if (rfRef.current) centerOnThread(rfRef.current, t);
+      return;
+    }
+    // The new page pans to the pin once it has opened.
+    setCenterThread(t.id);
+    setPage(page);
+  };
   return (
     <RoomAgentContext.Provider value={{ name: agent.name, avatar: agent.avatar }}>
-      <Board
-        logOpen={logOpen}
-        onOpenLog={() => setLogOpen(true)}
-        openThreadId={openThreadId}
-        setOpenThread={setOpenThread}
-      />
+      {/* A page is its own React Flow: switching pages starts a fresh one, nothing carried over. */}
+      <ReactFlowProvider key={pageId}>
+        <Board
+          pageId={pageId}
+          logOpen={logOpen}
+          onOpenLog={() => setLogOpen(true)}
+          openThreadId={openThread?.page === pageId ? openThread.id : null}
+          setOpenThread={(id) => setOpenThread(id === null ? null : { page: pageId, id })}
+          centerThread={centerThread}
+          onCentered={onCentered}
+          rfRef={rfRef}
+          pagesOpen={pagesOpen}
+          setPagesOpen={setPagesOpen}
+        />
+      </ReactFlowProvider>
       <SideLog
         open={logOpen}
         setOpen={setLogOpen}
         touch={TOUCH}
-        openThread={openThreadId}
-        setOpenThread={setOpenThread}
+        openThread={openThread}
+        onFocusThread={focusThread}
+        onShowNodes={(ids) =>
+          void rfRef.current?.fitView({ nodes: ids.map((id) => ({ id })), duration: 300, maxZoom: 1 })
+        }
       />
     </RoomAgentContext.Provider>
   );
@@ -1040,11 +1129,7 @@ export function App({ state }: { state: "ok" | "expired" }) {
       </div>
     );
   }
-  return (
-    <ReactFlowProvider>
-      <Room />
-    </ReactFlowProvider>
-  );
+  return <Room />;
 }
 
 // Keep the awareness entry honest when the tab goes away (y-websocket also does this on unload).

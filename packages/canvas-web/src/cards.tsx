@@ -48,7 +48,8 @@ import {
   useArrivalPhase,
 } from "./page-arrival";
 import { useScheme } from "./page-theme";
-import { awareness, doc, env, presenceStates, subscribePresence, yEdges, yNodes } from "./room";
+import { awareness, currentPage, doc, env, page, presenceStates, subscribePresence } from "./room";
+import { onPage } from "./boardpages";
 import type { OpenUIQueryClient } from "../../protocol/src/openui/index";
 import { beginLoad, useCardLoading } from "./activity";
 import { LiveWidget, roomQueryClient } from "./widget";
@@ -83,7 +84,8 @@ interface NodePresence {
 function nodePresenceKey(id: string): string {
   const out: NodePresence[] = [];
   for (const [cid, p] of presenceStates()) {
-    if (cid === awareness.clientID || !p.user) continue;
+    // Selections and carets are on the page their owner is on.
+    if (cid === awareness.clientID || !p.user || !onPage(p, currentPage())) continue;
     const sel = !!p.selected?.includes(id);
     const typing = p.typing?.nodeId === id ? p.typing : null;
     if (sel || typing) out.push({ cid, name: p.user.name, color: p.user.color, sel, typing });
@@ -176,7 +178,7 @@ function Field({
         rows={Math.max(1, value.split("\n").length)}
         onFocus={(e) => e.currentTarget.setSelectionRange(value.length, value.length)}
         onChange={(e) => {
-          const yt = yNodes.get(nodeId)?.get(field);
+          const yt = page().nodes.get(nodeId)?.get(field);
           if (yt instanceof Y.Text) applyDiff(yt, e.target.value);
         }}
         onBlur={() => setEditing(false)}
@@ -383,7 +385,7 @@ function SuggestionButtons({ id }: { id: string }) {
         onPointerDown={stop}
         onClick={(e) => {
           e.stopPropagation();
-          const m = yNodes.get(id);
+          const m = page().nodes.get(id);
           if (!m) return;
           doc.transact(() => {
             m.set("type", "note");
@@ -402,10 +404,11 @@ function SuggestionButtons({ id }: { id: string }) {
         onPointerDown={stop}
         onClick={(e) => {
           e.stopPropagation();
+          const { nodes, edges } = page();
           doc.transact(() => {
-            yNodes.delete(id);
-            for (const [eid, edge] of yEdges)
-              if (edge.get("source") === id || edge.get("target") === id) yEdges.delete(eid);
+            nodes.delete(id);
+            for (const [eid, edge] of edges)
+              if (edge.get("source") === id || edge.get("target") === id) edges.delete(eid);
           });
         }}
       >
@@ -423,7 +426,7 @@ function SuggestionButtons({ id }: { id: string }) {
  */
 function ProtoPage({ spec }: { spec: NodeSnap }) {
   const scheme = useScheme();
-  const src = roomUrl(env, "proto", protoPageParams(spec, scheme));
+  const src = roomUrl(env, "proto", protoPageParams(spec, scheme, currentPage()));
   // Busy until the frame has loaded this page (the load event ends it).
   const endLoad = useRef<(() => void) | null>(null);
   useEffect(() => {
@@ -770,7 +773,7 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
           style={RESIZE_CORNER}
           onResizeEnd={(_e, size) => {
             // The corner handle keeps the top-left where it is: only the size changes.
-            const m = yNodes.get(id);
+            const m = page().nodes.get(id);
             if (!m) return;
             doc.transact(() => {
               m.set("w", Math.round(size.width));

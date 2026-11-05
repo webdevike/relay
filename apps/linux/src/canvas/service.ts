@@ -17,11 +17,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { CanvasSlug, type AgentSession, type CanvasAgent as CanvasAgentInfo, type CanvasEntry, type CanvasRoomInfo, type ServerMessage } from "@relay/protocol";
 import { exportBoard, type Board } from "@relay/canvas-live/board";
-import { DOC_KEYS, type ChatMsg, type ModelKey, type SessionInfo, type User } from "@relay/canvas-live/shared";
+import { FIRST_PAGE, pageMaps, pagesOf } from "@relay/canvas-live/pages";
+import { DOC_KEYS, type ChatMsg, type ModelKey, type Presence, type SessionInfo, type User } from "@relay/canvas-live/shared";
 import type { AssistantAgentConfig } from "../assistant/registry";
 import { human } from "../host-config";
 import { readThreadMemory } from "../live/brief";
-import type * as Y from "yjs";
 import { str } from "./actor";
 import { CanvasAgent, systemPrompt, type AgentIdentity } from "./agent";
 import type { CanvasMind, HostTool, MindFactory, MindUsage } from "./brain";
@@ -184,10 +184,21 @@ export interface RoomView {
   readonly handoffs: readonly Handoff[];
   /** What the canvas self's agent has spent in this room so far. */
   readonly usage: MindUsage;
-  /** The board in file shape (as `<slug>.json` holds it once saved). */
+  /** Every page in order: its node count and who is on it now (humans, the canvas self, joined agents). */
+  readonly pages: readonly PageView[];
+  /** The board in file shape (as `<slug>.json` holds it once saved): page-1 at the top level, the others under `pages`. */
   readonly board: Board;
   /** The latest cursor-chat lines, oldest first. */
   readonly chat: readonly Pick<ChatMsg, "kind" | "name" | "text" | "nodeIds" | "ts">[];
+}
+
+/** One page of a room, as `GET /canvas/sessions/<room>` lists it. */
+export interface PageView {
+  readonly id: string;
+  readonly title: string;
+  readonly nodes: number;
+  /** Names of who is on this page now. */
+  readonly here: readonly string[];
 }
 
 /** One room the host holds: its doc and peers, its file, its agent, and where its chat rows go. */
@@ -226,12 +237,14 @@ export class CanvasRoom {
     return this.endedAt === undefined;
   }
 
-  /** The image srcs the board holds (the only files `/img` serves). */
+  /** The image srcs the board holds on any page (the only files `/img` serves). */
   imageSrcs(): Set<string> {
     const out = new Set<string>();
-    for (const node of this.sync.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes).values()) {
-      const src = node.get("src");
-      if (typeof src === "string" && src !== "") out.add(src);
+    for (const page of pagesOf(this.sync.doc)) {
+      for (const node of pageMaps(this.sync.doc, page.id).nodes.values()) {
+        const src = node.get("src");
+        if (typeof src === "string" && src !== "") out.add(src);
+      }
     }
     return out;
   }
@@ -580,6 +593,7 @@ export class CanvasService {
       participants: this.participantInfos(room),
       handoffs: [...room.handoffs.values()].filter((h) => h.state === "open"),
       usage: room.agents[0]?.usage ?? { requests: 0, tokens: 0, costUsd: 0 },
+      pages: this.pageViews(room),
       board: exportBoard(room.sync.doc),
       chat: room.sync.doc
         .getArray<ChatMsg>(DOC_KEYS.chat)
@@ -624,10 +638,14 @@ export class CanvasService {
     this.event(room, `Handed to ${handoff.toName}: ${handoff.request}`);
     this.showTask(room, handoff.to);
     const as = worker === undefined ? "" : ` --as "${worker.user.name}"`;
+    // On a board with pages, the batch goes to the page the request came from (where the canvas self is now).
+    const page = room.agents[0]?.page ?? FIRST_PAGE;
+    const pages = pagesOf(room.sync.doc);
     const text = [
       `[Canvas request from ${from}] ${handoff.request}`,
       `(Live canvas "${room.board}", board ${room.slug}, handoff ${handoff.id}.) ${worker === undefined ? `The canvas hands you what needs ${from}'s yes (it acts outside this machine or in ${from}'s name): ask ${from} here first, in one line, and do it only once the answer is yes. ` : ""}Do it with your tools, then put the result on the board ${worker === undefined ? `as ${room.agent.name} (your cursor in the room)` : `as ${worker.user.name}`} and close the handoff, in one batch:`,
       `${CLI} canvas act ${room.slug}${as} --handoff ${handoff.id} - <<'EOF'`,
+      ...(pages.length > 1 ? [`@page ${page}`] : []),
       "@add_image <new-id> <x> <y> <w> </absolute/path.png>",
       "<title>",
       "<caption>",
@@ -664,10 +682,12 @@ export class CanvasService {
   private land(room: CanvasRoom, handoff: Handoff, by: string, result: ActResult): void {
     handoff.state = "landed";
     this.showTask(room, handoff.to);
-    const nodes = room.sync.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes);
+    // A card id is per page: name the page of a card that is not on page-1.
+    const pages = pagesOf(room.sync.doc);
     const cards = result.added.map((id) => {
-      const node = nodes.get(id);
-      return `${id} ("${node === undefined ? "" : str(node, "title")}")`;
+      const page = pages.find((p) => pageMaps(room.sync.doc, p.id).nodes.has(id));
+      const node = page === undefined ? undefined : pageMaps(room.sync.doc, page.id).nodes.get(id);
+      return `${id} ("${node === undefined ? "" : str(node, "title")}")${page === undefined || page.id === FIRST_PAGE ? "" : ` on page ${page.id}`}`;
     });
     const text = [
       `${by} finished what ${handoff.from} asked for: "${handoff.request}".`,
@@ -877,6 +897,16 @@ export class CanvasService {
     const palette = [...PARTICIPANT_COLORS.slice(first), ...PARTICIPANT_COLORS.slice(0, first)];
     const picked = color ?? palette.find((candidate) => !worn.has(candidate)) ?? palette[0] ?? EVA_LOOK.color;
     return { name, color: picked, kind: "agent", avatar: `/canvas/portrait/${portraitSeed(name)}` };
+  }
+
+  private pageViews(room: CanvasRoom): PageView[] {
+    const here = new Map<string, string[]>();
+    for (const state of (room.sync.awareness.getStates() as Map<number, Partial<Presence>>).values()) {
+      if (state.user === undefined) continue;
+      const page = state.page ?? FIRST_PAGE;
+      here.set(page, [...(here.get(page) ?? []), state.user.name]);
+    }
+    return pagesOf(room.sync.doc).map((p) => ({ id: p.id, title: p.title, nodes: pageMaps(room.sync.doc, p.id).nodes.size, here: here.get(p.id) ?? [] }));
   }
 
   private participantInfos(room: CanvasRoom): ParticipantInfo[] {

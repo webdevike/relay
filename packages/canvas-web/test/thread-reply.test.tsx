@@ -10,16 +10,13 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 // jsdom has no element scrolling; the popover scrolls its list to the newest message.
 Element.prototype.scrollTo = () => undefined;
 
-// The real room module opens a websocket at import; the popover only needs the doc and who I am.
+// The real room module opens a websocket at import; the popover only needs the doc, the page and who I am.
 const room = vi.hoisted(() => ({ doc: null as unknown as Y.Doc, yThreads: null as unknown as Y.Map<Y.Map<unknown>> }));
 vi.mock("../src/room", () => ({
   get doc() {
     return room.doc;
   },
-  get yThreads() {
-    return room.yThreads;
-  },
-  yNodes: new Y.Doc().getMap("nodes"),
+  page: () => ({ id: "page-1", nodes: room.doc.getMap("nodes"), edges: room.doc.getMap("edges"), threads: room.yThreads }),
   self: { name: "Isaac", color: "#228be6", kind: "human" },
   yMeta: new Y.Doc().getMap("meta"),
   provider: {},

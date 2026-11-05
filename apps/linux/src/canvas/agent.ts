@@ -5,6 +5,8 @@
 // lines (dsl.ts) as its cursor, `canvas_read` reads cards in full. Its text is spoken: each line
 // streams into the bubble at its cursor and lands in the room chat; a note Isaac left as a comment
 // pin is answered inside that pin's thread instead (threads.ts), never in a note card or bubble.
+// A board may have pages (pages.ts): comments on every page reach it, and a comment's turn runs on
+// that comment's page (its cursor, its edits and the board its prompt shows).
 //
 // Presence keeps the room live: a note's turn starts with the cursor gliding to what the note
 // points at; while a turn runs the cursor stays up with a status line of what it is doing off the
@@ -20,9 +22,10 @@
 
 import type { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
-import { exportBoard } from "@relay/canvas-live/board";
+import { exportBoard, exportPage } from "@relay/canvas-live/board";
+import { FIRST_PAGE, pageMaps, pagesOf } from "@relay/canvas-live/pages";
 import { DOC_KEYS, MODELS, type ChatMsg, type ModelKey, type Presence, type ServerMetrics, type User } from "@relay/canvas-live/shared";
-import { excerpt, orderThreads, postInThread, snapThread, snapThreads, type ThreadMsg } from "@relay/canvas-live/threads";
+import { excerpt, orderThreads, postInThread, snapThread, snapThreads, type ThreadMap, type ThreadMsg, type ThreadSnap } from "@relay/canvas-live/threads";
 import { AGENT_ORIGIN, CanvasActor, sleep, str } from "./actor";
 import type { CanvasMind, HostTool, MindUsage } from "./brain";
 import { liveUiPrompt } from "./liveui-prompt";
@@ -84,15 +87,22 @@ export interface AgentOptions {
   readonly typeMs?: number;
 }
 
-type Turn = { kind: "message"; msg: ChatMsg } | { kind: "open" } | { kind: "close"; done: (summary: string) => void } | { kind: "landed"; text: string; thread: string | null };
+/** A human's note and the page it is on: a comment's thread's page, else the page its sender is on. */
+interface Note extends ChatMsg {
+  readonly page: string;
+}
+
+type Turn = { kind: "message"; msg: Note } | { kind: "open" } | { kind: "close"; done: (summary: string) => void } | { kind: "landed"; text: string; thread: string | null };
 
 /** The turn running now: the notes it answers (the first, plus any steered in), what it said, and the thread it speaks in. */
 interface Live {
   readonly id: string;
-  readonly notes: ChatMsg[];
+  readonly notes: Note[];
   readonly said: string[];
   /** The comment thread its words go to; null: the room (bubble and chat). */
   readonly thread: string | null;
+  /** The page the turn started on (its thread's page). */
+  readonly page: string;
   firstEdit: number | null;
 }
 
@@ -156,7 +166,7 @@ Either way the text is only for ${human}: one or two short plain sentences at a 
 ## The board tools
 - canvas_act {script}: action lines, run in order as you (your cursor glides, cards appear, text types in). It returns what ran and what was skipped with why; fix and resend skipped lines. Keep batches small (a few cards) so the board changes visibly as you go.
 - canvas_read {ids?}: the cards in full (the per-turn board clips long bodies), or the whole board in file shape without ids.
-Every note's turn message carries the board (ids, types, positions, sizes, titles, clipped bodies), the open comment threads, who is here and what they selected, the recent room chat, and the note: its thread, the card it is pinned to in full, and the thread so far.
+Every note's turn message carries the board's pages (Figma-style: each page has its own cards, edges and comments; you are on one at a time, and a comment's turn starts on its page), the page you are on (ids, types, positions, sizes, titles, clipped bodies), the open comment threads, who is here and what they selected, the recent room chat, and the note: its thread, the card it is pinned to in full, and the thread so far.
 
 Action lines (exact format; text blocks end with @end):
 @say <one short spoken line>
@@ -196,6 +206,8 @@ Action lines (exact format; text blocks end with @end):
 @reply <threadId> <one line>          (answer in a comment thread other than this turn's)
 @pin <newThreadId> <nodeId> <one line>   (open a comment thread on a card; @pin <newThreadId> <x> <y> <line> for a spot)
 @resolve <threadId>                   (@reopen <threadId> opens it again)
+@page <pageId>                        (go to another page; the cards, edges and pins after it land there)
+@page_add <newPageId> <title>         (add a page after this one and go to it; ids: lowercase letters, digits, "-")
 
 ## Running the session
 - Drive toward the goal from the chat: after each exchange, propose the next step or ask for the one decision you need, pointing at the card it concerns.
@@ -229,8 +241,8 @@ export class CanvasAgent {
   private clearBubbleTimer: Timer | undefined;
   private endTimer: Timer | undefined;
   private lookTimer: Timer | undefined;
-  private readonly nodes: Y.Map<Y.Map<unknown>>;
-  private readonly edges: Y.Map<Y.Map<unknown>>;
+  /** Each page's comment threads it listens to, by page id (pages added later join in). */
+  private readonly watched = new Map<string, { threads: Y.Map<ThreadMap>; on: (events: Y.YEvent<Y.AbstractType<unknown>>[], tr: Y.Transaction) => void }>();
   private readonly chat: Y.Array<ChatMsg>;
   /** The turn running now, if any. */
   private live: Live | null = null;
@@ -256,24 +268,12 @@ export class CanvasAgent {
     if (tr.local || this.closed) return;
     for (const d of event.changes.delta) {
       if (!Array.isArray(d.insert)) continue;
-      for (const m of d.insert as ChatMsg[]) if (m.kind === "human" && !this.hooks.direct(m)) this.note(m);
+      for (const m of d.insert as ChatMsg[]) if (m.kind === "human" && !this.hooks.direct(m)) this.note({ ...m, page: this.pageOfHuman(m.name) });
     }
   };
-  /** A human's new comment (a new pin, or a message in a thread) is a note for this agent, answered in that thread. */
-  private readonly onThreads = (events: Y.YEvent<Y.AbstractType<unknown>>[], tr: Y.Transaction): void => {
-    if (tr.local || this.closed) return;
-    const threads = this.actor.threads;
-    for (const event of events) {
-      if (event.target === threads) {
-        for (const [id, change] of event.changes.keys) {
-          const list = change.action === "add" ? threads.get(id)?.get("messages") : undefined;
-          if (list instanceof Y.Array) for (const m of list.toArray() as ThreadMsg[]) this.comment(id, m);
-        }
-      } else if (event.target instanceof Y.Array && typeof event.path[0] === "string") {
-        const id = event.path[0];
-        for (const d of event.changes.delta) if (Array.isArray(d.insert)) for (const m of d.insert as ThreadMsg[]) this.comment(id, m);
-      }
-    }
+  /** The board's page list changed: listen to the comments of pages added since, stop for pages deleted. */
+  private readonly onMeta = (event: Y.YMapEvent<unknown>): void => {
+    if (event.keysChanged.has("pages")) this.watchPages();
   };
   private readonly onPresence = (): void => {
     this.watchPresence();
@@ -288,17 +288,21 @@ export class CanvasAgent {
     private readonly options: AgentOptions,
   ) {
     this.actor = new CanvasActor(doc, awareness, identity.user, AGENT_ORIGIN, options);
-    this.nodes = this.actor.nodes;
-    this.edges = this.actor.edges;
     this.chat = doc.getArray(DOC_KEYS.chat);
     this.mind = mind(this.hostTools());
     this.chat.observe(this.onChat);
-    this.actor.threads.observeDeep(this.onThreads);
+    doc.getMap(DOC_KEYS.meta).observe(this.onMeta);
+    this.watchPages();
     awareness.on("change", this.onPresence);
   }
 
   get user(): User {
     return this.identity.user;
+  }
+
+  /** The board page its cursor is on. */
+  get page(): string {
+    return this.actor.page;
   }
 
   /** What the room's mind has spent so far. */
@@ -356,7 +360,9 @@ export class CanvasAgent {
     clearTimeout(this.clearBubbleTimer);
     clearTimeout(this.lookTimer);
     this.chat.unobserve(this.onChat);
-    this.actor.threads.unobserveDeep(this.onThreads);
+    this.doc.getMap(DOC_KEYS.meta).unobserve(this.onMeta);
+    for (const { threads, on } of this.watched.values()) threads.unobserveDeep(on);
+    this.watched.clear();
     this.actor.dispose();
     this.awareness.off("change", this.onPresence);
     this.mind.dispose();
@@ -368,14 +374,14 @@ export class CanvasAgent {
       {
         name: "canvas_act",
         description:
-          "Act on the live canvas board as yourself: action lines (@say, @point, @add_node, @add_proto, @add_image, @set_text, @reply/@pin/@resolve for comment threads, ... and @handoff main for what needs Isaac's yes), run in order with your cursor. Returns what ran and what was skipped with why.",
+          "Act on the live canvas board as yourself: action lines (@say, @point, @add_node, @add_proto, @add_image, @set_text, @reply/@pin/@resolve for comment threads, @page/@page_add for the board's pages, ... and @handoff main for what needs Isaac's yes), run in order with your cursor. Returns what ran and what was skipped with why.",
         parameters: { type: "object", properties: { script: { type: "string", description: "Action lines, one per line; text blocks end with @end." } }, required: ["script"], additionalProperties: false },
         run: (args) => this.actTool(typeof args["script"] === "string" ? args["script"] : ""),
       },
       {
         name: "canvas_read",
-        description: "Read cards of the live board in full (their whole text, JSX or OpenUI source), or with no ids the whole board in file shape (comment threads included) plus the recent room chat.",
-        parameters: { type: "object", properties: { ids: { type: "array", items: { type: "string" }, description: "Card ids; omit for the whole board." } }, additionalProperties: false },
+        description: "Read cards of the page you are on in full (their whole text, JSX or OpenUI source), or with no ids the whole board in file shape (every page, comment threads included) plus the recent room chat.",
+        parameters: { type: "object", properties: { ids: { type: "array", items: { type: "string" }, description: "Card ids on the page you are on; omit for the whole board." } }, additionalProperties: false },
         run: (args) => Promise.resolve({ text: this.readTool(Array.isArray(args["ids"]) ? (args["ids"] as unknown[]).map(String) : null) }),
       },
     ];
@@ -407,8 +413,8 @@ export class CanvasAgent {
   }
 
   private readTool(ids: string[] | null): string {
-    const board = exportBoard(this.doc);
     if (ids === null || ids.length === 0) {
+      const board = exportBoard(this.doc);
       const chat = this.chat
         .toArray()
         .slice(-30)
@@ -416,7 +422,7 @@ export class CanvasAgent {
       return `${JSON.stringify(board, null, 1)}\n\n# Recent room chat\n${chat.join("\n") || "(none)"}`;
     }
     const wanted = new Set(ids);
-    const nodes = board.nodes.filter((n) => wanted.has(n.id));
+    const nodes = exportPage(this.doc, this.actor.page).nodes.filter((n) => wanted.has(n.id));
     const missing = ids.filter((id) => !nodes.some((n) => n.id === id));
     return `${JSON.stringify(nodes, null, 1)}${missing.length > 0 ? `\nno such card: ${missing.join(", ")}` : ""}`;
   }
@@ -428,7 +434,7 @@ export class CanvasAgent {
       const result = await runSteps(this.actor, steps, {
         say: (text) => {
           if (text.trim() !== "") this.live?.said.push(text.trim());
-          this.speak(text, `self-${Date.now().toString(36)}-${String(this.chat.length)}`, this.live?.thread ?? null);
+          this.speak(text, `self-${Date.now().toString(36)}-${String(this.chat.length)}`, this.live?.thread ?? null, this.live?.page);
         },
         stopped: () => this.closed,
         paceMs: this.options.typeMs === 0 ? 0 : PACE_MS,
@@ -475,7 +481,8 @@ export class CanvasAgent {
       if (this.looked.get(cid) === key) continue;
       this.looked.set(cid, key);
       const first = p.selected?.[0];
-      if (first === undefined) continue;
+      // A selection on another page is not where its cursor is.
+      if (first === undefined || (p.page ?? FIRST_PAGE) !== this.actor.page) continue;
       clearTimeout(this.lookTimer);
       this.lookTimer = setTimeout(() => {
         const box = this.actor.box(first);
@@ -489,34 +496,84 @@ export class CanvasAgent {
   }
 
   /** A human's note: steered into the running turn, else a turn of its own. */
-  private note(msg: ChatMsg): void {
+  private note(msg: Note): void {
     const live = this.live;
     if (live !== null && this.mind.exhausted === null && this.mind.steer(`${this.noteBlock(msg)}\n(${msg.name} sent this while you were working: fold it in.)`)) {
       live.notes.push(msg);
-      const at = this.anchor(msg);
-      void this.actor.glide(at.x, at.y);
+      if (msg.page === this.actor.page) {
+        const at = this.anchor(msg);
+        void this.actor.glide(at.x, at.y);
+      }
       return;
     }
     this.enqueue({ kind: "message", msg });
   }
 
-  /** A human's message in comment thread `threadId`: a note pinned where the thread is, answered there. */
-  private comment(threadId: string, m: ThreadMsg): void {
+  /** A human's message in comment thread `threadId` on `page`: a note pinned where the thread is, answered there. */
+  private comment(page: string, threadId: string, m: ThreadMsg): void {
     if (m.kind !== "human" || this.closed) return;
-    const t = this.actor.threads.get(threadId);
-    const node = t?.get("node");
-    const msg: ChatMsg = {
+    const { nodes, threads } = pageMaps(this.doc, page);
+    const node = threads.get(threadId)?.get("node");
+    const msg: Note = {
       id: m.id,
       kind: "human",
       name: m.name,
       color: m.color,
       text: m.text,
-      nodeIds: typeof node === "string" && this.nodes.has(node) ? [node] : [],
-      at: this.actor.pin(threadId),
+      nodeIds: typeof node === "string" && nodes.has(node) ? [node] : [],
+      at: this.actor.pin(threadId, page),
       ts: m.ts,
       thread: threadId,
+      page,
     };
     if (!this.hooks.direct(msg)) this.note(msg);
+  }
+
+  /** Listens to the comment threads of every page the board has now (and no longer to deleted ones). */
+  private watchPages(): void {
+    const ids = new Set(pagesOf(this.doc).map((p) => p.id));
+    for (const [id, { threads, on }] of this.watched) {
+      if (ids.has(id)) continue;
+      threads.unobserveDeep(on);
+      this.watched.delete(id);
+    }
+    for (const id of ids) {
+      if (this.watched.has(id)) continue;
+      const threads = pageMaps(this.doc, id).threads;
+      // A human's new comment (a new pin, or a message in a thread) is a note for this agent, answered in that thread.
+      const on = (events: Y.YEvent<Y.AbstractType<unknown>>[], tr: Y.Transaction): void => {
+        if (tr.local || this.closed) return;
+        for (const event of events) {
+          if (event.target === threads) {
+            for (const [tid, change] of event.changes.keys) {
+              const list = change.action === "add" ? threads.get(tid)?.get("messages") : undefined;
+              if (list instanceof Y.Array) for (const m of list.toArray() as ThreadMsg[]) this.comment(id, tid, m);
+            }
+          } else if (event.target instanceof Y.Array && typeof event.path[0] === "string") {
+            const tid = event.path[0];
+            for (const d of event.changes.delta) if (Array.isArray(d.insert)) for (const m of d.insert as ThreadMsg[]) this.comment(id, tid, m);
+          }
+        }
+      };
+      threads.observeDeep(on);
+      this.watched.set(id, { threads, on });
+    }
+  }
+
+  /** The page the human named `name` is on (a room note is about that page); the agent's own when they are not here. */
+  private pageOfHuman(name: string): string {
+    const p = this.humans().find(([, h]) => h.user.name === name)?.[1];
+    return p === undefined ? this.actor.page : (p.page ?? FIRST_PAGE);
+  }
+
+  /** Goes to `page` once the board batches already running are done (they keep the page they started on). */
+  private goTo(page: string): Promise<void> {
+    if (page === this.actor.page || !this.actor.hasPage(page)) return Promise.resolve();
+    const run = this.acting.then(() => {
+      this.actor.setPage(page);
+    });
+    this.acting = run.catch(() => undefined);
+    return run;
   }
 
   /** Presence changes stop once the session closed (its wrap-up runs without a cursor show). */
@@ -532,13 +589,15 @@ export class CanvasAgent {
   }
 
   /**
-   * One line from the agent: in comment thread `thread` (when it still exists) as a reply there;
-   * else spoken in the room (the bubble and the room chat), or held until someone has joined.
+   * One line from the agent: in comment thread `thread` (when it still exists; on `page`, else
+   * wherever it is) as a reply there; else spoken in the room (the bubble and the room chat), or
+   * held until someone has joined.
    */
-  private speak(text: string, id: string, thread: string | null = null): void {
+  private speak(text: string, id: string, thread: string | null = null, page?: string): void {
     const line = text.trim();
     if (line === "") return;
-    if (thread !== null && postInThread(this.actor.threads, thread, this.actor.threadMessage(line))) {
+    const at = thread === null ? null : page !== undefined && pageMaps(this.doc, page).threads.has(thread) ? page : this.actor.threadPage(thread);
+    if (thread !== null && at !== null && postInThread(pageMaps(this.doc, at).threads, thread, this.actor.threadMessage(line))) {
       this.setP({ bubble: { text: line, replyTo: id, streaming: false, thread } });
       return;
     }
@@ -580,10 +639,16 @@ export class CanvasAgent {
     for (let t = this.queue.shift(); t !== undefined; t = this.queue.shift()) {
       if (this.closed && t.kind !== "close") continue;
       try {
-        if (t.kind === "message") await this.respond(t.msg.id, this.prompt(t.msg), t.msg, "turn", t.msg.thread ?? null);
-        else if (t.kind === "open") await this.open();
-        else if (t.kind === "landed") await this.respond(`landed-${Date.now().toString(36)}`, this.landedPrompt(t.text, t.thread), null, "landed", t.thread);
-        else t.done(await this.close());
+        if (t.kind === "message") {
+          // A note is answered on its page: the cursor, the edits and the board the prompt shows are there.
+          await this.goTo(t.msg.page);
+          await this.respond(t.msg.id, this.prompt(t.msg), t.msg, "turn", t.msg.thread ?? null);
+        } else if (t.kind === "open") await this.open();
+        else if (t.kind === "landed") {
+          const page = t.thread === null ? null : this.actor.threadPage(t.thread);
+          if (page !== null) await this.goTo(page);
+          await this.respond(`landed-${Date.now().toString(36)}`, this.landedPrompt(t.text, t.thread), null, "landed", t.thread);
+        } else t.done(await this.close());
       } catch (error) {
         this.hooks.log(`canvas agent ${this.identity.user.name}: ${error instanceof Error ? error.message : String(error)}`);
         this.setP({ status: "idle", doing: null, typing: null, connecting: null });
@@ -594,11 +659,11 @@ export class CanvasAgent {
   }
 
   private openerPrompt(): string {
-    const missing = ["agenda", "decisions"].filter((id) => !this.nodes.has(id));
+    const missing = ["agenda", "decisions"].filter((id) => !this.actor.nodes.has(id));
     // Working notes go left of everything on the board.
     let minX = 0;
     let minY = 0;
-    for (const id of this.nodes.keys()) {
+    for (const id of this.actor.nodes.keys()) {
       const b = this.actor.box(id);
       if (b === null) continue;
       minX = Math.min(minX, b.x);
@@ -635,7 +700,7 @@ export class CanvasAgent {
     clearTimeout(this.endTimer);
     clearTimeout(this.lookTimer);
     // Isaac's notes and comments, and the lines of agents that joined to work the board, are what happened here.
-    const comments = snapThreads(this.actor.threads).flatMap((t) => t.messages.filter((m) => m.kind === "human" && m.ts >= this.startedAt));
+    const comments = pagesOf(this.doc).flatMap((p) => snapThreads(pageMaps(this.doc, p.id).threads).flatMap((t) => t.messages.filter((m) => m.kind === "human" && m.ts >= this.startedAt)));
     const said = [...this.chat.toArray().filter((c) => c.kind === "human" || (c.kind === "agent" && c.name !== this.identity.user.name)), ...comments];
     let summary: string;
     if (said.length === 0) {
@@ -689,12 +754,12 @@ export class CanvasAgent {
     return typeof model === "string" && model in MODELS ? (model as ModelKey) : "opus";
   }
 
-  /** Where the cursor goes when a note arrives: its pin, else the card it points at, else where it was sent. */
-  private anchor(msg: ChatMsg | null): { x: number; y: number } {
-    const pin = msg?.thread === undefined ? null : this.actor.pin(msg.thread);
+  /** Where the cursor goes when a note arrives: its pin, else the card it points at, else where it was sent (on the note's page). */
+  private anchor(msg: Note | null): { x: number; y: number } {
+    const pin = msg?.thread === undefined ? null : this.actor.pin(msg.thread, msg.page);
     if (pin !== null) return { x: pin.x + 18, y: pin.y + 10 };
     const anchorId = msg?.nodeIds[0];
-    const box = anchorId === undefined ? null : this.actor.box(anchorId);
+    const box = anchorId === undefined ? null : this.actor.box(anchorId, msg?.page);
     return box ? { x: box.x + box.w - 30, y: box.y + 26 } : msg?.at ? { x: msg.at.x + 70, y: msg.at.y + 50 } : this.actor.cursor;
   }
 
@@ -702,7 +767,7 @@ export class CanvasAgent {
    * One turn of the mind: speech streams into the bubble (or, with `thread`, into that comment
    * thread), tools show as the status line, the cursor stays up.
    */
-  private async respond(id: string, message: string, msg: ChatMsg | null, label: string, thread: string | null): Promise<void> {
+  private async respond(id: string, message: string, msg: Note | null, label: string, thread: string | null): Promise<void> {
     const t0 = performance.now();
     const modelKey = this.modelKey();
     const { user } = this.identity;
@@ -716,7 +781,7 @@ export class CanvasAgent {
       return;
     }
     clearTimeout(this.clearBubbleTimer);
-    const live: Live = { id, notes: msg === null ? [] : [msg], said: [], thread, firstEdit: null };
+    const live: Live = { id, notes: msg === null ? [] : [msg], said: [], thread, page: this.actor.page, firstEdit: null };
     this.live = live;
     // React at once: think at the thing they pointed at, before the model answers.
     this.setP({ status: "thinking", replyTo: id, bubble: null, doing: null, typing: null, connecting: null, selected: [] });
@@ -788,18 +853,23 @@ export class CanvasAgent {
     ].join("\n");
   }
 
-  /** A note (a comment in its thread, or a room note) with the card it is on, in full. */
-  private noteBlock(msg: ChatMsg): string {
-    const t = msg.thread === undefined ? undefined : this.actor.threads.get(msg.thread);
+  /** A note (a comment in its thread, or a room note) with the card it is on, in full, from the note's page. */
+  private noteBlock(msg: Note): string {
+    const { nodes, threads } = pageMaps(this.doc, msg.page);
+    const t = msg.thread === undefined ? undefined : threads.get(msg.thread);
     const thread = msg.thread === undefined || t === undefined ? null : snapThread(msg.thread, t);
     const lines = [thread === null ? "# The note" : `# The comment (thread ${thread.id})`];
+    if (msg.page !== this.actor.page) {
+      const title = pagesOf(this.doc).find((p) => p.id === msg.page)?.title ?? msg.page;
+      lines.push(`It is on page ${msg.page} "${title}", not the page you are on: @page ${msg.page} before you edit its cards.`);
+    }
     if (thread !== null) {
-      const pin = this.actor.pin(thread.id);
+      const pin = this.actor.pin(thread.id, msg.page);
       const where = pin === null ? "" : ` @${String(Math.round(pin.x))},${String(Math.round(pin.y))}`;
       lines.push(thread.anchor.node !== undefined ? `Pinned on card [${thread.anchor.node}]${where}.` : `Pinned on the board${where}, on no card.`);
     } else lines.push(msg.nodeIds.length > 0 ? `Attached cards (selected when sent): ${msg.nodeIds.join(", ")}` : "No card attached.");
     for (const id of msg.nodeIds) {
-      const m = this.nodes.get(id);
+      const m = nodes.get(id);
       if (m !== undefined) lines.push(`[${id}] ${str(m, "type")}: ${str(m, "title")}${str(m, "body") === "" ? "" : `\n${str(m, "body")}`}`);
     }
     if (thread === null && msg.at) lines.push(`Sent at cursor @${String(Math.round(msg.at.x))},${String(Math.round(msg.at.y))}.`);
@@ -810,16 +880,27 @@ export class CanvasAgent {
     return lines.join("\n");
   }
 
-  /** Per-turn context: purpose, the board (long bodies clipped), who is here and their selections, recent chat, the note. */
-  private prompt(msg: ChatMsg | null): string {
+  /** Per-turn context: purpose, the pages, the page it is on (long bodies clipped), who is here and their selections, recent chat, the note. */
+  private prompt(msg: Note | null): string {
     const lines: string[] = [];
     const title = str(this.doc.getMap(DOC_KEYS.meta), "title") || "Board";
+    const here = this.actor.page;
+    const pages = pagesOf(this.doc);
     lines.push("# Board", `Title: ${title} (board ${this.identity.slug})`);
     if (this.identity.purpose !== "") lines.push(`Session goal: ${this.identity.purpose}`);
-    const selected = new Set<string>(msg?.nodeIds ?? []);
-    for (const [, p] of this.humans()) for (const id of p.selected ?? []) selected.add(id);
+    lines.push(`Pages: ${pages.map((p) => `${p.id} "${p.title}"${p.id === here ? " (you are here)" : ""}`).join(", ")}`);
+    if (pages.length > 1) {
+      lines.push("The cards and edges below are the page you are on; @page <id> goes to another page.");
+      for (const id of ["agenda", "decisions"]) {
+        if (this.actor.nodes.has(id)) continue;
+        const on = pages.find((p) => pageMaps(this.doc, p.id).nodes.has(id));
+        if (on !== undefined) lines.push(`Your "${id}" note is on page ${on.id}: @page ${on.id} to update it.`);
+      }
+    }
+    const selected = new Set<string>(msg?.page === here ? msg.nodeIds : []);
+    for (const [, p] of this.humans()) if ((p.page ?? FIRST_PAGE) === here) for (const id of p.selected ?? []) selected.add(id);
     lines.push("Coordinates in px, x grows right, y grows down. Each card: [id] type @x,y w×h, then title and body (clipped: canvas_read has it whole).");
-    for (const [id, m] of this.nodes) {
+    for (const [id, m] of this.actor.nodes) {
       const b = this.actor.box(id);
       if (!b) continue;
       const type = str(m, "type");
@@ -836,15 +917,16 @@ export class CanvasAgent {
       lines.push("");
     }
     lines.push("# Edges");
-    for (const [, e] of this.edges) {
+    for (const [, e] of this.actor.edges) {
       const label = e.get("label");
       lines.push(`${String(e.get("source"))} -> ${String(e.get("target"))}${typeof label === "string" && label !== "" ? ` "${label}"` : ""}`);
     }
 
     lines.push("", "# People here now");
     for (const [, p] of this.humans()) {
-      const sel = p.selected?.length ? `selected: ${p.selected.join(", ")}` : "nothing selected";
-      const at = p.cursor ? `, cursor @${String(Math.round(p.cursor.x))},${String(Math.round(p.cursor.y))}` : "";
+      const page = p.page ?? FIRST_PAGE;
+      const sel = page !== here ? `on page ${page}` : p.selected?.length ? `selected: ${p.selected.join(", ")}` : "nothing selected";
+      const at = p.cursor && page === here ? `, cursor @${String(Math.round(p.cursor.x))},${String(Math.round(p.cursor.y))}` : "";
       lines.push(`- ${p.user.name}: ${sel}${at}`);
     }
     const workers = this.hooks.workers();
@@ -858,12 +940,16 @@ export class CanvasAgent {
     if (recent.length === 0) lines.push("(none yet)");
     for (const c of recent) lines.push(`${c.name}${c.nodeIds.length > 0 ? ` [on ${c.nodeIds.join(", ")}]` : ""}: ${c.text}`);
 
-    const { open, resolved } = orderThreads(snapThreads(this.actor.threads));
-    const others = open.filter((t) => t.id !== msg?.thread).slice(0, 12);
+    // Every page's threads; a thread id is per page, so one elsewhere is named with its page.
+    const pageOf = new Map<ThreadSnap, string>();
+    for (const p of pages) for (const t of snapThreads(pageMaps(this.doc, p.id).threads)) pageOf.set(t, p.id);
+    const { open, resolved } = orderThreads([...pageOf.keys()]);
+    const others = open.filter((t) => !(t.id === msg?.thread && pageOf.get(t) === msg.page)).slice(0, 12);
     lines.push("", `# Open comment threads (newest first; ${String(resolved.length)} resolved not shown)`);
     if (others.length === 0) lines.push("(none)");
     for (const t of others) {
-      const on = t.anchor.node !== undefined ? `on [${t.anchor.node}]` : `at @${String(Math.round(t.anchor.x))},${String(Math.round(t.anchor.y))}`;
+      const page = pageOf.get(t) ?? here;
+      const on = `${t.anchor.node !== undefined ? `on [${t.anchor.node}]` : `at @${String(Math.round(t.anchor.x))},${String(Math.round(t.anchor.y))}`}${page === here ? "" : ` on page ${page}`}`;
       lines.push(`[${t.id}] ${on}: ${t.messages.slice(-3).map((m) => `${m.name}: ${excerpt(m.text, 160)}`).join(" / ")}`);
     }
 

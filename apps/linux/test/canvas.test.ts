@@ -10,6 +10,7 @@ import * as Y from "yjs";
 import type { AgentSession, CanvasEntry } from "@relay/protocol";
 import { QUERY_MAX_REFRESH_SEC, QUERY_MIN_REFRESH_SEC, QUERY_TOOL_NAMES } from "@relay/protocol";
 import { boardText, exportBoard, nodesOf, parseBoard } from "@relay/canvas-live/board";
+import { addPage, pageMaps, pagesOf } from "@relay/canvas-live/pages";
 import { DOC_KEYS, type ChatMsg, type Presence } from "@relay/canvas-live/shared";
 import { openThread, postInThread, snapThreads, threadsOf, type ThreadMsg } from "@relay/canvas-live/threads";
 import { OmpBridgeProvider } from "../src/agents/bridge";
@@ -154,6 +155,7 @@ function answer(message: string): string {
   if (message.includes("Isaac says: create me a dashboard")) return '@say On it.\n@add_ui dash-bad 7000 0 420\nInbox\nroot = Stat("Unread", "" + inbox.n)\ninbox = Query("inbox", {}, {n: 0}, 30)\n@end';
   if (message.includes("Isaac says: build a clickable mockup")) return '@say Building that mockup now.\n@work bash Rendering the mockup\n@add_proto mock 3000 0 960 600 relay\nMockup\n<Button>Go</Button>\n@end\n@say The mockup is on the right.';
   if (message.includes("Isaac says: make the button say Approve")) return "@set_text mock body\n<Button>Approve</Button>\n@end\n@say Done, it says Approve now.";
+  if (message.includes("Isaac says: retitle the flow card")) return "@set_text f1 title\nSign in, retitled\n@end\n@say Retitled it.";
   return "@say Done, renamed it.\n@set_text root title\nECS roles, renamed live\n@end";
 }
 
@@ -935,6 +937,105 @@ describe("comment pins", () => {
     // A plain chat that names its canvas self after an assistant wears that assistant's face.
     const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile, name: "Nova" } });
     expect(started.agent).toEqual({ name: "Nova", color: "#f76707", avatar: "/canvas/avatar/nova" });
+  });
+});
+
+describe("pages", () => {
+  const agentOf = (tab: { awareness: awarenessProtocol.Awareness }): Presence | undefined => [...(tab.awareness.getStates() as Map<number, Presence>).values()].find((p) => p.user.kind === "agent");
+
+  it("adds a page and goes to it: node actions after it land there, page-1 stays as it was", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    const pageOne = [...pageMaps(tab.doc, "page-1").nodes.keys()].sort();
+
+    const result = await service.selfAct("ecs-roles", "@page_add flows User flows\n@add_node f1 note 0 0 400\nSign in\nEmail, then password.\n@end\n@add_node f2 note 600 0 400\nHome\n@end\n@add_edge f1 f2 then\n@pin t-f f1 Is this the whole flow?\n@page_add flows Again\n@page_add Bad_Id Nope\n@page nowhere\n@add_edge f1 root");
+    expect(result).toMatchObject({ ran: 5, added: ["f1", "f2"] });
+    expect(result.skipped).toEqual(["page_add flows: page flows is taken", expect.stringMatching(/^page_add Bad_Id: page id Bad_Id: use lowercase letters/), "page nowhere: no page nowhere (pages: page-1, flows)", "add_edge f1 root: no node root"]);
+    await until(() => pageMaps(tab.doc, "flows").nodes.size === 2, "the page's cards in the tab");
+    expect(pagesOf(tab.doc)).toEqual([{ id: "page-1", title: "Page 1" }, { id: "flows", title: "User flows" }]);
+    const flows = pageMaps(tab.doc, "flows");
+    expect((flows.nodes.get("f1")?.get("title") as Y.Text).toJSON()).toBe("Sign in");
+    expect([...flows.edges.values()].map((e) => [e.get("source"), e.get("target"), e.get("label")])).toEqual([["f1", "f2", "then"]]);
+    expect(snapThreads(flows.threads).map((t) => t.id)).toEqual(["t-f"]);
+    expect([...pageMaps(tab.doc, "page-1").nodes.keys()].sort()).toEqual(pageOne);
+    expect(snapThreads(threadsOf(tab.doc))).toEqual([]);
+    // The canvas self is on the new page, and says so in its presence.
+    expect(agentOf(tab)?.page).toBe("flows");
+
+    // @page goes back; the next card lands on page-1, and a thread on another page is still answered.
+    await expect(service.selfAct("ecs-roles", "@page page-1\n@add_node p1 note 0 900 400\nBack home\n@end\n@reply t-f Yes, two steps.")).resolves.toMatchObject({ ran: 3, skipped: [] });
+    expect(pageMaps(room.sync.doc, "page-1").nodes.has("p1")).toBe(true);
+    expect(pageMaps(room.sync.doc, "flows").nodes.has("p1")).toBe(false);
+    expect(snapThreads(pageMaps(room.sync.doc, "flows").threads)[0]?.messages.map((m) => m.text)).toEqual(["Is this the whole flow?", "Yes, two steps."]);
+
+    // `canvas show` (the room view) lists the pages with their card counts and who is on each, and the board holds every page.
+    const view = service.view("ecs-roles");
+    expect(view.pages).toEqual([
+      { id: "page-1", title: "Page 1", nodes: pageOne.length + 1, here: expect.arrayContaining(["Isaac", started.agent.name]) as string[] },
+      { id: "flows", title: "User flows", nodes: 2, here: [] },
+    ]);
+    expect(view.board.nodes.some((n) => n.id === "p1")).toBe(true);
+    expect(view.board.pages?.find((p) => p.id === "flows")?.nodes?.map((n) => n.id).sort()).toEqual(["f1", "f2"]);
+    // And so does the board file.
+    await until(() => parseBoard(readFileSync(join(canvasDir, "ecs-roles.json"), "utf8")).pages?.length === 2, "pages on disk");
+
+    // Over the loopback API (what `canvas act` and `canvas show` call), and the proto page of a card on another page.
+    const api = (path: string, body?: string): Promise<Response> =>
+      handleCanvasRequest(service, () => "", new Request(`http://h${path}`, body === undefined ? {} : { method: "POST", headers: { "content-type": "application/json" }, body }), path.split("?")[0] ?? path, "127.0.0.1", null);
+    const acted = await api("/canvas/sessions/ecs-roles/self/act", JSON.stringify({ script: "@page_add mocks Mocks\n@add_proto m1 0 0 960 600 relay\nMock\n<Button>Go</Button>\n@end" }));
+    expect(await acted.json()).toMatchObject({ ran: 2, skipped: [], added: ["m1"] });
+    const shown = (await (await api("/canvas/sessions/ecs-roles")).json()) as { pages: { id: string; nodes: number }[]; board: { pages?: { id: string; nodes?: { id: string }[] }[] } };
+    expect(shown.pages.map((p) => [p.id, p.nodes])).toEqual([["page-1", pageOne.length + 1], ["mocks", 1], ["flows", 2]]);
+    expect(shown.board.pages?.find((p) => p.id === "mocks")?.nodes?.map((n) => n.id)).toEqual(["m1"]);
+    const access = service.open("ecs-roles", "phone-1");
+    if (access.t !== "canvas.access") throw new Error("expected access");
+    const proto = (query: string): Promise<Response> => api(`/canvas/ecs-roles/proto?token=${access.token}&${query}`);
+    expect((await proto("id=m1&page=mocks")).status).toBe(200);
+    expect((await proto("id=m1")).status).toBe(404);
+    expect((await proto("id=m1&page=nope")).status).toBe(404);
+    tab.leave();
+  });
+
+  it("answers a comment on another page on that page: the turn goes there, its edit and reply too", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    expect(agentOf(tab)?.page).toBe("page-1");
+    const rootTitle = (pageMaps(tab.doc, "page-1").nodes.get("root")?.get("title") as Y.Text).toJSON();
+
+    // Isaac adds a page in the browser (after the agent started), puts a card on it and comments there.
+    tab.doc.transact(() => {
+      addPage(tab.doc, "flows", "Flows");
+      const card = new Y.Map<unknown>();
+      for (const [k, v] of Object.entries({ type: "note", x: 0, y: 0, w: 400, fields: [] })) card.set(k, v);
+      card.set("title", new Y.Text("Sign in"));
+      card.set("body", new Y.Text(""));
+      pageMaps(tab.doc, "flows").nodes.set("f1", card);
+    });
+    tab.awareness.setLocalStateField("page", "flows");
+    const threads = pageMaps(tab.doc, "flows").threads;
+    openThread(threads, "t-flow", { node: "f1", x: 20, y: 10 }, { id: "c1", kind: "human", name: "Isaac", color: "#0ea5e9", text: "retitle the flow card", ts: Date.now() });
+
+    const replies = (): string[] => snapThreads(threads).find((t) => t.id === "t-flow")?.messages.filter((m) => m.kind === "agent").map((m) => m.text) ?? [];
+    await until(() => replies().length === 1, "the reply in the thread on the other page");
+    expect(replies()).toEqual(["Retitled it."]);
+    await until(() => (pageMaps(tab.doc, "flows").nodes.get("f1")?.get("title") as Y.Text).toJSON() === "Sign in, retitled", "the edit on the other page");
+    expect((pageMaps(tab.doc, "page-1").nodes.get("root")?.get("title") as Y.Text).toJSON()).toBe(rootTitle);
+    expect(agentOf(tab)?.page).toBe("flows");
+    // The turn's prompt lists the pages, marks where it is, shows that page's cards and the comment's card.
+    const prompt = brains[0]?.prompts.at(-1) ?? "";
+    expect(prompt).toContain('Pages: page-1 "Page 1", flows "Flows" (you are here)');
+    expect(prompt).toContain("# The comment (thread t-flow)");
+    expect(prompt).toMatch(/Pinned on card \[f1\] @-?\d+,-?\d+\./);
+    expect(prompt).toContain("[f1] note: Sign in");
+    expect(prompt).not.toContain("[root] topic");
+    expect(brains[0]?.system).toContain("@page_add <newPageId> <title>");
+    tab.leave();
   });
 });
 

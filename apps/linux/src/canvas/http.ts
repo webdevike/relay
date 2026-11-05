@@ -12,7 +12,7 @@
 //   GET  /canvas/<slug>/?token=      the client page
 //   GET  /canvas/<slug>/me?token=    {me, roomId, board, agent, live}
 //   GET  /canvas/<slug>/img?token=&src=   a local image the board holds (remote URLs load directly)
-//   GET  /canvas/<slug>/proto?token=&id=&scheme=   a `proto` node's page (its JSX in its design system, CSP: no network)
+//   GET  /canvas/<slug>/proto?token=&id=&page=&scheme=   a `proto` node's page (its JSX in its design system, CSP: no network); `page`: the board page it is on, absent for page-1
 //   POST /canvas/<slug>/end?token=   Wrap up -> {summary}
 //   POST /canvas/<slug>/query?token= {tool, args}: a live `ui` node's Query (the host query tools)
 //   WS   /canvas/<slug>/ws?token=    y-websocket (server.ts)
@@ -21,7 +21,7 @@
 
 import { type Stats, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join } from "node:path";
-import { DOC_KEYS } from "@relay/canvas-live/shared";
+import { FIRST_PAGE, pageMaps, pagesOf } from "@relay/canvas-live/pages";
 import { CanvasSlug } from "@relay/protocol";
 import * as Y from "yjs";
 import { z } from "zod";
@@ -128,7 +128,7 @@ export async function handleCanvasRequest(canvas: CanvasService | null, page: ()
       return json({ me: { name: grant.human, color: HUMAN_COLOR }, roomId: room.id, board: room.board, agent: room.agent, live: room.live });
     }
     if (route === "img" && request.method === "GET") return image(canvas, room, request, url.searchParams.get("src"));
-    if (route === "proto" && request.method === "GET") return protoPage(room, url.searchParams.get("id"), url.searchParams.get("scheme") === "dark");
+    if (route === "proto" && request.method === "GET") return protoPage(room, url.searchParams.get("id"), url.searchParams.get("page"), url.searchParams.get("scheme") === "dark");
     if (route === "end" && request.method === "POST") return json({ summary: await canvas.end(room.id) });
     if (route === "query" && request.method === "POST") {
       if (query === null) return json({ ok: false, error: "this host runs no queries" }, 404);
@@ -205,10 +205,12 @@ function image(canvas: CanvasService, room: CanvasRoom, request: Request, src: s
 /**
  * A `proto` node's page: its JSX drawn in its design system, light or dark. The source is the
  * room's current one (the client adds a version to the URL so its frame reloads on edits); the page
- * may not load or send anything (CSP header and meta), and the client frames it sandboxed.
+ * may not load or send anything (CSP header and meta), and the client frames it sandboxed. `page`
+ * names the board page the node is on (absent: page-1).
  */
-function protoPage(room: CanvasRoom, id: string | null, dark: boolean): Response {
-  const node = id === null ? undefined : room.sync.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes).get(id);
+function protoPage(room: CanvasRoom, id: string | null, page: string | null, dark: boolean): Response {
+  const on = page ?? FIRST_PAGE;
+  const node = id === null || !pagesOf(room.sync.doc).some((p) => p.id === on) ? undefined : pageMaps(room.sync.doc, on).nodes.get(id);
   if (!(node instanceof Y.Map) || node.get("type") !== "proto") return new Response("no such prototype", { status: 404 });
   const body = node.get("body");
   const system = node.get("system");

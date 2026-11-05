@@ -107,3 +107,18 @@ test("parses the comment-thread actions: @reply, @pin on a node or a spot, @reso
     ]);
   }
 });
+
+test("parses the page actions: @page_add with a spaced title, @page, and drops them without an id", () => {
+  const text = "@page_add flows User flows\n@add_node n1 note 0 0 400\nSign in\n@end\n@page page-1\n@page_add bare\n@page\n@page_add\n";
+  for (const size of [1, 4, text.length]) {
+    const chunks: string[] = [];
+    for (let i = 0; i < text.length; i += size) chunks.push(text.slice(i, i + size));
+    const { actions } = run(chunks);
+    expect(actions.map((a) => (a.kind === "add_node" ? { kind: a.kind, id: a.id, text: a.text.text } : a))).toEqual([
+      { kind: "page_add", id: "flows", title: "User flows" },
+      { kind: "add_node", id: "n1", text: "Sign in" },
+      { kind: "page", id: "page-1" },
+      { kind: "page_add", id: "bare", title: "" },
+    ]);
+  }
+});

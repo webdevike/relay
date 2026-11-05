@@ -32,6 +32,10 @@
 //   @pin <newThreadId> <nodeId> <text>    open a comment thread pinned to a node (it follows the node)
 //   @pin <newThreadId> <x> <y> <text>     ... or to a spot on the board
 //   @resolve <threadId>                   mark a thread resolved (@reopen <threadId> opens it again)
+//   @page_add <newPageId> <title words>   add a page after the current one and go to it (ids: lowercase
+//                                         letters, digits and "-"); the actions after it land there
+//   @page <pageId>                        go to a page; node, edge and pin actions after it land there
+//                                         (@reply and @resolve find their thread on any page)
 
 import type { TextField } from "@relay/canvas-live/shared";
 
@@ -78,7 +82,9 @@ export type Action =
   | { kind: "handoff"; target: string; request: string }
   | { kind: "reply"; thread: string; text: string }
   | { kind: "pin"; id: string; node: string | null; x: number; y: number; text: string }
-  | { kind: "resolve"; thread: string; resolved: boolean };
+  | { kind: "resolve"; thread: string; resolved: boolean }
+  | { kind: "page_add"; id: string; title: string }
+  | { kind: "page"; id: string };
 
 const NODE_TYPES: Record<string, "note" | "topic" | "suggestion"> = { note: "note", topic: "topic", suggestion: "suggestion" };
 
@@ -325,6 +331,12 @@ export class ActionParser {
       case "resolve":
       case "reopen":
         if (a[0]) this.onAction({ kind: "resolve", thread: a[0], resolved: cmd === "resolve" });
+        return;
+      case "page_add":
+        if (a[0]) this.onAction({ kind: "page_add", id: a[0], title: a.slice(1).join(" ") });
+        return;
+      case "page":
+        if (a[0]) this.onAction({ kind: "page", id: a[0] });
         return;
       case "say":
         this.onSay(a.join(" "));

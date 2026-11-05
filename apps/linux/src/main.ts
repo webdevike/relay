@@ -201,12 +201,15 @@ const USAGE = `relay-linux <command>
                                    run action lines as <Name> (joins first when needed), or without
                                    --as as the room's canvas self (the chat that started it): @say,
                                    @add_node, @add_image, @add_frame, @add_ui, @add_proto, @add_edge, @set_text,
-                                   @append_text, @move_node, @point, @select, @cursor, @delete
+                                   @append_text, @move_node, @point, @select, @cursor, @delete,
+                                   @page_add, @page
                                    (skill://canvas sections 8-9); no lines or - reads stdin.
                                    --handoff lands that handoff (the canvas self confirms it);
                                    --leave takes <Name> out of the room after the batch
-  canvas show <slug>               the live room's board, who is in it (working or idle), open
-                                   handoffs, what its canvas self has spent, and the latest chat (JSON)
+  canvas show <slug>               the live room's pages (id, title, node count, who is on each), its
+                                   board (page-1 at the top level, other pages under board.pages), who
+                                   is in it (working or idle), open handoffs, what its canvas self has
+                                   spent, and the latest chat (JSON)
   canvas leave <slug> --as <Name>  take <Name>'s cursor out of the room
   canvas list                      list the running host's canvas rooms
   catchup bounce <id> <reason> [--agent <id>]

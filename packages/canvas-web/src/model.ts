@@ -11,6 +11,7 @@ import {
   estimateHeight,
   placeUnplaced,
 } from "../../canvas-live/src/layout";
+import { FIRST_PAGE } from "../../canvas-live/src/pages";
 import {
   NODE_KINDS,
   type NodeKind,
@@ -549,17 +550,20 @@ export function toFlowEdges(edges: readonly EdgeSnap[], nodeIds: ReadonlySet<str
 }
 
 /**
- * The query of a `proto` card's page (the host's `proto` route): the node, the scheme, and a version
- * that changes with its JSX and design system, so the frame reloads when either does.
+ * The query of a `proto` card's page (the host's `proto` route): the node, the scheme, a version
+ * that changes with its JSX and design system, so the frame reloads when either does, and the
+ * board page it is on (left out for page-1, so those URLs stay as they were).
  */
 export function protoPageParams(
   spec: Pick<NodeSnap, "id" | "body" | "system">,
   scheme: "light" | "dark",
-): { id: string; scheme: "light" | "dark"; v: string } {
+  page: string = FIRST_PAGE,
+): { id: string; scheme: "light" | "dark"; v: string; page?: string } {
   const text = `${spec.system ?? ""}\n${spec.body}`;
   let hash = 5381;
   for (let i = 0; i < text.length; i++) hash = (Math.imul(hash, 33) + text.charCodeAt(i)) | 0;
-  return { id: spec.id, scheme, v: (hash >>> 0).toString(36) };
+  const out = { id: spec.id, scheme, v: (hash >>> 0).toString(36) };
+  return page === FIRST_PAGE ? out : { ...out, page };
 }
 
 export const TONES = ["accent", "warn", "danger", "success", "muted"] as const;

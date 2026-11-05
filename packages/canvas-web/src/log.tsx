@@ -1,24 +1,26 @@
-// The side panel: the board and who is here, then every comment thread (open first, newest
-// activity first; resolved ones collapsed below), each with its first words, the card it is on
-// and its last reply; a click pans to the pin and opens it. The room chat (session notices, lines
-// spoken outside a thread, per-turn latency) is the second tab. The model toggle and Wrap up stay.
+// The side panel: the board and who is here, then every comment thread on every page (open first,
+// newest activity first; resolved ones collapsed below), each with its first words, the card it is
+// on, its page (when the board has more than one) and its last reply; a click goes to its page,
+// pans to the pin and opens it. The room chat (session notices, lines spoken outside a thread,
+// per-turn latency) is the second tab. The model toggle and Wrap up stay.
 // Collapses to a "Comments" pill (always on phones until opened).
 import { IconChevronRight, IconCornerDownRight, IconMessageCircle, IconX } from "@tabler/icons-react";
-import { useReactFlow } from "@xyflow/react";
 import { useEffect, useRef, useState } from "react";
+import { type PageInfo, pageMaps } from "../../canvas-live/src/pages";
 import {
   type ClientMetrics,
   MODELS,
   type ModelKey,
   type ServerMetrics,
 } from "../../canvas-live/src/shared";
-import { type ThreadSnap, excerpt, lastActivity, orderThreads } from "../../canvas-live/src/threads";
+import { type ThreadSnap, excerpt, lastActivity, snapThreads } from "../../canvas-live/src/threads";
 import { Face } from "./avatar";
+import { type ThreadRowItem, statesOnPage, threadRows } from "./boardpages";
 import { ago, threadDraft } from "./comments";
 import { roomUrl } from "./env";
-import { useAgent, useSession, useThrottledPresence, useYSnapshot } from "./hooks";
-import { centerOnThread, threadPlace, useThreads } from "./pins";
-import { env, roomMe, self, yChat, yMeta, yMetrics, yNodes, ySettings } from "./room";
+import { useAgent, useCurrentPage, usePages, useSession, useThrottledPresence, useYSnapshot } from "./hooks";
+import { threadPlace } from "./pins";
+import { doc, env, pageView, roomMe, self, yChat, yMeta, yMetrics, ySettings } from "./room";
 
 function fmt(ms: number | null | undefined): string {
   if (ms == null) return "-";
@@ -26,15 +28,17 @@ function fmt(ms: number | null | undefined): string {
 }
 
 type Tab = "comments" | "chat";
-
 function ThreadRow({
   thread,
+  page,
   open,
   working,
   now,
   onOpen,
 }: {
   thread: ThreadSnap;
+  /** The page it is on, labeled when the board has more than one. */
+  page: { info: PageInfo; labeled: boolean };
   open: boolean;
   working: boolean;
   now: number;
@@ -49,6 +53,7 @@ function ThreadRow({
       className={`cv-trow${open ? " is-open" : ""}${thread.resolved ? " is-resolved" : ""}`}
       data-testid="canvas-thread-row"
       data-thread={thread.id}
+      data-page={page.info.id}
       aria-current={open ? "true" : undefined}
       onClick={onOpen}
     >
@@ -58,10 +63,11 @@ function ThreadRow({
           <b>{first.name}</b>
           <span className="cv-trow-place">
             <IconCornerDownRight size={12} stroke={1.75} aria-hidden="true" />
-            {threadPlace(thread.anchor)}
+            {threadPlace(thread.anchor, pageMaps(doc, page.info.id).nodes)}
           </span>
           <time>{ago(lastActivity(thread), now)}</time>
         </span>
+        {page.labeled ? <span className="cv-trow-page">{page.info.title}</span> : null}
         <span className="cv-trow-text">{excerpt(first.text, 110)}</span>
         {working ? (
           <span className="cv-trow-last is-working">Answering…</span>
@@ -83,16 +89,25 @@ export function SideLog({
   setOpen,
   touch,
   openThread,
-  setOpenThread,
+  onFocusThread,
+  onShowNodes,
 }: {
   open: boolean;
   setOpen: (open: boolean) => void;
   touch: boolean;
-  openThread: string | null;
-  setOpenThread: (id: string | null) => void;
+  /** The thread open on the board, and its page. */
+  openThread: { page: string; id: string } | null;
+  /** Goes to `page`, pans to thread `t`'s pin and opens it. */
+  onFocusThread: (page: string, t: ThreadSnap) => void;
+  /** Fits the viewer's page to these cards. */
+  onShowNodes: (ids: readonly string[]) => void;
 }) {
   const messages = useYSnapshot(() => yChat.toArray());
-  const threads = useThreads();
+  const pages = usePages();
+  const viewerPage = useCurrentPage();
+  const rows = useYSnapshot(() =>
+    threadRows(pages.map((p) => ({ page: p, threads: snapThreads(pageMaps(doc, p.id).threads) }))),
+  );
   const model = useYSnapshot(() => (ySettings.get("model") as ModelKey | undefined) ?? "opus");
   const metrics = useYSnapshot(
     () =>
@@ -106,12 +121,14 @@ export function SideLog({
   const agent = useAgent();
   const people = useThrottledPresence();
   const listRef = useRef<HTMLDivElement>(null);
-  const rf = useReactFlow();
+  const viewerNodes = pageView(viewerPage).nodes;
   const [tab, setTab] = useState<Tab>("comments");
   const [showResolved, setShowResolved] = useState(false);
   const [wrapping, setWrapping] = useState(false);
   const [wrapError, setWrapError] = useState(false);
-  const { open: openThreads, resolved } = orderThreads(threads);
+  const { open: openThreads, resolved } = rows;
+  const labeled = pages.length > 1;
+  const isOpen = (r: ThreadRowItem) => openThread !== null && r.page.id === openThread.page && r.thread.id === openThread.id;
   const now = Date.now();
 
   useEffect(() => {
@@ -119,7 +136,8 @@ export function SideLog({
   }, [messages.length, open, tab]);
   // A resolved thread opened from the board shows in its section.
   useEffect(() => {
-    if (openThread !== null && resolved.some((t) => t.id === openThread)) setShowResolved(true);
+    if (resolved.some(isOpen)) setShowResolved(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openThread, resolved]);
 
   const ended = session?.open === false;
@@ -133,9 +151,8 @@ export function SideLog({
       .catch(() => setWrapError(true))
       .finally(() => setWrapping(false));
   };
-  const focus = (t: ThreadSnap) => {
-    centerOnThread(rf, t);
-    setOpenThread(t.id);
+  const focus = (r: ThreadRowItem) => {
+    onFocusThread(r.page.id, r.thread);
     if (touch) setOpen(false);
   };
 
@@ -147,14 +164,16 @@ export function SideLog({
       </button>
     );
   }
-  const row = (t: ThreadSnap) => (
+  const row = (r: ThreadRowItem) => (
     <ThreadRow
-      key={t.id}
-      thread={t}
-      open={t.id === openThread}
-      working={threadDraft(people.values(), t) !== null}
+      key={r.key}
+      thread={r.thread}
+      page={{ info: r.page, labeled }}
+      open={isOpen(r)}
+      // Who answers a thread is on its page.
+      working={threadDraft(statesOnPage(people, r.page.id).values(), r.thread) !== null}
       now={now}
-      onOpen={() => focus(t)}
+      onOpen={() => focus(r)}
     />
   );
   return (
@@ -233,7 +252,7 @@ export function SideLog({
       </div>
       {tab === "comments" ? (
         <div className="cv-msgs cv-threads" data-testid="canvas-threads">
-          {threads.length === 0 ? (
+          {openThreads.length + resolved.length === 0 ? (
             <p className="cv-hint">
               {touch ? (
                 <>Tap a card, then Comment. {agent.name} answers in the comment and edits the board.</>
@@ -281,16 +300,10 @@ export function SideLog({
                   <button
                     type="button"
                     className="cv-chip"
-                    onClick={() =>
-                      void rf.fitView({
-                        nodes: m.nodeIds.map((id) => ({ id })),
-                        duration: 300,
-                        maxZoom: 1,
-                      })
-                    }
+                    onClick={() => onShowNodes(m.nodeIds)}
                   >
                     <IconCornerDownRight size={13} />{" "}
-                    {m.nodeIds.map((id) => String(yNodes.get(id)?.get("title") ?? id)).join(", ")}
+                    {m.nodeIds.map((id) => String(viewerNodes.get(id)?.get("title") ?? id)).join(", ")}
                   </button>
                 ) : null}
                 <div className="cv-text">{m.text}</div>

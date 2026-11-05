@@ -7,7 +7,8 @@ import { type NodeChange, type OnNodeDrag, useStoreApi } from "@xyflow/react";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type * as Y from "yjs";
 import type { CardNode, LinkEdge } from "./model";
-import { awareness, doc, presenceStates, subscribePresence, yNodes, ySettings } from "./room";
+import { statesOnPage } from "./boardpages";
+import { awareness, doc, page, presenceStates, subscribePresence, ySettings } from "./room";
 import { type Box, separate, tidyLeader } from "./tidy";
 
 /** Transaction origin of tidy's own moves, so they don't wake the leader again. */
@@ -43,9 +44,11 @@ export interface Tidy {
   subscribe(): () => void;
 }
 
+/** Tidy for the viewer's page (the board remounts per page, so this is made once per page). */
 export function useTidy(): Tidy {
   const store = useStoreApi<CardNode, LinkEdge>();
   const tidy = useMemo((): Tidy => {
+    const { id: pageId, nodes: yNodes } = page();
     const pending = new Set<string>();
     let timer = 0;
     let dragging = false;
@@ -117,12 +120,8 @@ export function useTidy(): Tidy {
 
     /** On the leader, tidies once the board settles, `ids` staying put where they can. */
     const schedule = (ids: Iterable<string>) => {
-      if (
-        !tidyOn() ||
-        awareness.getLocalState() === null ||
-        tidyLeader(presenceStates()) !== awareness.clientID
-      )
-        return;
+      // The page's leader: only a client drawing this page knows its cards' sizes.
+      if (!tidyOn() || tidyLeader(statesOnPage(presenceStates(), pageId)) !== awareness.clientID) return;
       for (const id of ids) pending.add(id);
       window.clearTimeout(timer);
       timer = window.setTimeout(flush, SETTLE_MS);
@@ -142,7 +141,7 @@ export function useTidy(): Tidy {
 
     let leading = false;
     const onPresence = () => {
-      const now = tidyLeader(presenceStates()) === awareness.clientID;
+      const now = tidyLeader(statesOnPage(presenceStates(), pageId)) === awareness.clientID;
       // Just became the leader: tidy what may have piled up while nobody was.
       if (now && !leading) schedule([]);
       leading = now;

@@ -6,9 +6,11 @@
 import { IconArrowUp, IconCircleCheck, IconCornerDownRight, IconRotate2, IconX } from "@tabler/icons-react";
 import { type ReactFlowInstance, useStore } from "@xyflow/react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type * as Y from "yjs";
 import type { Presence } from "../../canvas-live/src/shared";
 import {
   type ThreadAnchor,
+  type ThreadMap,
   type ThreadSnap,
   excerpt,
   pinAt,
@@ -19,20 +21,21 @@ import {
 import { Face } from "./avatar";
 import { ago, threadDraft } from "./comments";
 import { useYSnapshot } from "./hooks";
-import { doc, self, yNodes, yThreads } from "./room";
+import { doc, page, self } from "./room";
 
 /** Pin size in screen px; its tip is its bottom-left corner. */
 export const PIN = 30;
 const POPOVER_W = 320;
 
-export function useThreads(): ThreadSnap[] {
-  return useYSnapshot(() => snapThreads(yThreads));
+/** A page's threads, live. */
+export function useThreads(threads: Y.Map<ThreadMap>): ThreadSnap[] {
+  return useYSnapshot(() => snapThreads(threads));
 }
 
-/** What a thread is on, for its header and its row: the card's title, "the board", or a removed card. */
-export function threadPlace(anchor: ThreadAnchor): string {
+/** What a thread is on, for its header and its row: the card's title (from its page's `nodes`), "the board", or a removed card. */
+export function threadPlace(anchor: ThreadAnchor, nodes: Y.Map<Y.Map<unknown>>): string {
   if (anchor.node === undefined) return "On the board";
-  const title = yNodes.get(anchor.node)?.get("title");
+  const title = nodes.get(anchor.node)?.get("title");
   if (title === undefined) return "Card removed";
   const text = String(title).trim();
   return text === "" ? anchor.node : excerpt(text, 40);
@@ -150,6 +153,9 @@ export function ThreadPopover({
   const [height, setHeight] = useState(240);
   const draft = threadDraft(presences.values(), thread);
   const now = Date.now();
+  // The popover only opens on the viewer's page.
+  const { nodes, threads } = page();
+  const place = threadPlace(thread.anchor, nodes);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
@@ -163,7 +169,7 @@ export function ThreadPopover({
     const body = text.trim();
     if (body === "") return;
     doc.transact(() => {
-      postInThread(yThreads, thread.id, {
+      postInThread(threads, thread.id, {
         id: `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
         kind: "human",
         name: self.name,
@@ -190,7 +196,7 @@ export function ThreadPopover({
       className={`cv-thread${sheet ? " is-sheet" : ""}`}
       style={style}
       role="dialog"
-      aria-label={`Comment thread ${threadPlace(thread.anchor)}`}
+      aria-label={`Comment thread ${place}`}
       data-testid="canvas-thread"
       data-thread={thread.id}
       onPointerDown={(e) => e.stopPropagation()}
@@ -201,7 +207,7 @@ export function ThreadPopover({
       <header className="cv-thread-head">
         <span className="cv-thread-place">
           <IconCornerDownRight size={14} stroke={1.75} aria-hidden="true" />
-          {threadPlace(thread.anchor)}
+          {place}
         </span>
         {thread.resolved ? <span className="cv-thread-state">Resolved</span> : null}
         <button
@@ -211,7 +217,7 @@ export function ThreadPopover({
           title={thread.resolved ? "Reopen" : "Resolve"}
           data-testid="canvas-thread-resolve"
           onClick={() => {
-            setResolved(yThreads, thread.id, !thread.resolved);
+            setResolved(threads, thread.id, !thread.resolved);
             if (!thread.resolved) onClose();
           }}
         >

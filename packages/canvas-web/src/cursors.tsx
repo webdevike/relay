@@ -1,15 +1,18 @@
-// Everyone else's cursor: name tag, live cursor-chat draft or bubble, the agent's avatar and
-// status, its caret-following glide and the line it drags when connecting two nodes. The camera
-// never chases the agent unless the viewer turned Follow on (then follow mode pans the board so the
-// agent stays in view while it works). When the agent works off-screen, a small avatar chip at the
+// Everyone else's cursor on this viewer's page: name tag, live cursor-chat draft or bubble, the
+// agent's avatar and status, its caret-following glide and the line it drags when connecting two
+// nodes. The camera never chases the agent unless the viewer turned Follow on (then follow mode
+// takes the viewer to the agent's page when it changes pages, and pans the board so the agent
+// stays in view while it works). When the agent works off-screen, a small avatar chip at the
 // viewport edge points to where, and a click jumps there. An agent's cursor shows only while it is
 // doing something (a turn or batch running, a new line said, a move) and fades out AGENT_LINGER_MS
 // after; people's cursors always show.
 import { useReactFlow, useStoreApi } from "@xyflow/react";
 import { type CSSProperties, type RefObject, useEffect, useRef } from "react";
+import { pagesOf } from "../../canvas-live/src/pages";
 import { Face } from "./avatar";
-import { useThrottledPresence } from "./hooks";
-import { awareness, env, presenceStates } from "./room";
+import { onPage, presencePage } from "./boardpages";
+import { useCurrentPage, useThrottledPresence } from "./hooks";
+import { awareness, doc, env, presenceStates, setPage } from "./room";
 
 /** Follow the agent like following a presenter; off until the toolbar toggle (or `follow=1`) turns it on. */
 export const follow = { on: env.follow };
@@ -17,6 +20,13 @@ export const follow = { on: env.follow };
 const FOLLOW_SETTLE_MS = 2500;
 /** How long an agent's cursor stays after its last action or line before it fades out. */
 const AGENT_LINGER_MS = 3000;
+/** The page each agent was last seen on (kept across the board's remount on a page switch). */
+const agentPages = new Map<number, string>();
+
+/** Takes a following viewer to `page` when the board still has it. */
+export function followToPage(page: string): void {
+  if (pagesOf(doc).some((p) => p.id === page)) setPage(page);
+}
 
 export function CursorArrow({ color }: { color: string }) {
   return (
@@ -46,6 +56,7 @@ export function Cursors({
   bottomInset: number;
 }) {
   const states = useThrottledPresence();
+  const page = useCurrentPage();
   const store = useStoreApi();
   const rf = useReactFlow();
   const els = useRef(new Map<number, HTMLDivElement>());
@@ -72,9 +83,17 @@ export function Cursors({
       let lineColor = "";
       if (wrap) {
         for (const [cid, p] of presenceStates()) {
+          if (cid === awareness.clientID) continue;
+          if (p.user?.kind === "agent") {
+            const at = presencePage(p);
+            const was = agentPages.get(cid);
+            agentPages.set(cid, at);
+            // Following: the agent went to another page, so does the viewer (the board then remounts).
+            if (follow.on && was !== undefined && was !== at && at !== page) followToPage(at);
+          }
           const el = els.current.get(cid);
-          if (!el || cid === awareness.clientID) continue;
-          if (!p.cursor) {
+          if (!el) continue;
+          if (!p.cursor || !onPage(p, page)) {
             el.style.opacity = "0";
             smooth.current.delete(cid);
             continue;
@@ -187,7 +206,7 @@ export function Cursors({
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [store, wrapRef, rf]);
+  }, [store, wrapRef, rf, page]);
 
   return (
     <div className="cv-cursors">
@@ -195,7 +214,7 @@ export function Cursors({
         <path ref={lineRef} strokeWidth={2.5} strokeDasharray="6 5" fill="none" />
       </svg>
       {[...states].map(([cid, p]) => {
-        if (cid === awareness.clientID || !p.user) return null;
+        if (cid === awareness.clientID || !p.user || !onPage(p, page)) return null;
         const agent = p.user.kind === "agent";
         // What it is doing off the board ("building the mockup…") reads better than a bare "thinking".
         const status = agent ? (p.doing ?? (p.status ? STATUS_LABEL[p.status] : undefined)) : undefined;
@@ -230,7 +249,7 @@ export function Cursors({
         );
       })}
       {[...states].map(([cid, p]) => {
-        if (cid === awareness.clientID || p.user?.kind !== "agent") return null;
+        if (cid === awareness.clientID || p.user?.kind !== "agent" || !onPage(p, page)) return null;
         return (
           <button
             key={`chip-${cid}`}

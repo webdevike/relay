@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { type PageInfo, pagesOf } from "../../canvas-live/src/pages";
 import type { Presence, SessionInfo } from "../../canvas-live/src/shared";
 import { roomAgent } from "./model";
-import { presenceStates, provider, roomMe, subscribeDoc, subscribePresence, yMeta } from "./room";
+import {
+  currentPage,
+  doc,
+  presenceStates,
+  provider,
+  roomMe,
+  subscribeDoc,
+  subscribePage,
+  subscribePresence,
+  yMeta,
+} from "./room";
 
 let docVersion = 0;
 subscribeDoc(() => docVersion++);
@@ -36,6 +47,16 @@ export function useThrottledPresence(): Map<number, Presence> {
 
 export function useSession(): SessionInfo | undefined {
   return useYSnapshot(() => yMeta.get("session") as SessionInfo | undefined);
+}
+
+/** The id of the page this viewer is on. */
+export function useCurrentPage(): string {
+  return useSyncExternalStore(subscribePage, currentPage);
+}
+
+/** The board's pages in order. */
+export function usePages(): PageInfo[] {
+  return useYSnapshot(() => pagesOf(doc));
 }
 
 /** The room agent's name, color and avatar ("Follow Nova", its face wherever it shows), from the session, `/me` or presence. */
