@@ -31,7 +31,13 @@ export function asrModels(): string {
  * relay_asr.py: `Resources/asr` in Relay Host.app (build.sh copies it there; a compiled host's
  * `import.meta.dirname` is inside its virtual filesystem), `apps/linux/asr` in a checkout.
  */
-const BUNDLED_ASR_SCRIPT = join(dirname(process.execPath), "..", "Resources", "asr", "relay_asr.py");
+const BUNDLED_ASR_SCRIPT = join(
+  dirname(process.execPath),
+  "..",
+  "Resources",
+  "asr",
+  "relay_asr.py",
+);
 export const ASR_SCRIPT = existsSync(BUNDLED_ASR_SCRIPT)
   ? BUNDLED_ASR_SCRIPT
   : join(import.meta.dirname, "..", "..", "asr", "relay_asr.py");
@@ -45,8 +51,21 @@ const WorkerLine = z.object({
   end: z.number(),
   text: z.string(),
   final: z.boolean(),
+  /** App finals: [start, end, word] in samples. */
+  words: z.array(z.tuple([z.number(), z.number(), z.string()])).optional(),
 });
 export type WorkerLine = z.infer<typeof WorkerLine>;
+
+const WorkerTurns = z.object({
+  ev: z.literal("turns"),
+  meeting: z.string(),
+  /** The app final these turns are inside. */
+  id: z.string(),
+  turns: z.array(z.object({ start: z.number(), end: z.number(), speaker: z.number().int() })),
+  /** Voice labels a known voice print names. */
+  names: z.record(z.string(), z.string()),
+});
+export type WorkerTurns = z.infer<typeof WorkerTurns>;
 
 export interface Segment {
   readonly start: number;
@@ -61,10 +80,13 @@ export interface Turn {
 
 /** What the service needs from the worker (a fake in tests). */
 export interface Asr {
-  open(meeting: string, app: number, mic: number): void;
+  /** `human`: the mic's owner, never the name of a remote voice. */
+  open(meeting: string, app: number, mic: number, human: string): void;
   audio(meeting: string, track: "app" | "mic", at: number, pcm: Uint8Array): void;
   /** Flushes the session's open utterances as finals; resolves once they are out. */
   close(meeting: string): Promise<void>;
+  /** The meeting app named voice `label`: Relay's voice prints learn it (before `close`). */
+  learn(meeting: string, label: number, name: string): void;
   aec(app: string, mic: string, out: string): Promise<void>;
   transcribe(wav: string): Promise<Segment[]>;
   diarize(wav: string): Promise<Turn[]>;
@@ -73,12 +95,17 @@ export interface Asr {
 
 export interface AsrWorkerDeps {
   readonly onLine: (line: WorkerLine) => void;
+  readonly onTurns: (turns: WorkerTurns) => void;
   /** The worker came back after a crash: live sessions must be opened again. */
   readonly onRestart: () => void;
   readonly log: (line: string) => void;
   readonly python?: string;
   readonly script?: string;
   readonly models?: string;
+  /** Relay's voice prints (learned from calls the meeting app named). */
+  readonly voices?: string;
+  /** MeetingTranscriber's speakers.json, when it is there. */
+  readonly mtSpeakers?: string;
 }
 
 export class AsrWorker implements Asr {
@@ -108,6 +135,9 @@ export class AsrWorker implements Asr {
       env: {
         ...process.env,
         PYTHONUNBUFFERED: "1",
+        RELAY_ASR_MODELS: this.deps.models ?? asrModels(),
+        RELAY_VOICES: this.deps.voices ?? "",
+        RELAY_MT_SPEAKERS: this.deps.mtSpeakers ?? "",
         PATH: ["/opt/homebrew/bin", "/usr/local/bin", process.env["PATH"] ?? "/usr/bin:/bin"].join(
           ":",
         ),
@@ -168,6 +198,11 @@ export class AsrWorker implements Asr {
       if (r.success) this.deps.onLine(r.data);
       return;
     }
+    if (ev["ev"] === "turns") {
+      const r = WorkerTurns.safeParse(ev);
+      if (r.success) this.deps.onTurns(r.data);
+      return;
+    }
     if (ev["ev"] === "closed" && typeof ev["meeting"] === "string") {
       for (const w of this.closing.get(ev["meeting"]) ?? []) w();
       this.closing.delete(ev["meeting"]);
@@ -194,8 +229,12 @@ export class AsrWorker implements Asr {
     return promise;
   }
 
-  open(meeting: string, app: number, mic: number): void {
-    this.send({ op: "open", meeting, app, mic });
+  open(meeting: string, app: number, mic: number, human: string): void {
+    this.send({ op: "open", meeting, app, mic, human });
+  }
+
+  learn(meeting: string, label: number, name: string): void {
+    this.send({ op: "learn", meeting, label, name });
   }
 
   audio(meeting: string, track: "app" | "mic", at: number, pcm: Uint8Array): void {

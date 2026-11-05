@@ -1,9 +1,11 @@
 // The host's ingest socket (`/meetings/ingest?ticket=`), one connection per recording and ticket.
 //
 // Binary frames: u8 track (0 app, 1 mic), i64 LE index of the first sample, s16 LE samples.
-// Text frames out: `meeting.hello` (id, app, title, start, rate), `meeting.end` (sample counts).
-// Text frames in: `ack {track, upTo}` (the host holds every sample before upTo; sent right after the
-// hello and then every second), `meeting.done` (it has the whole recording: the spool can go) and
+// Text frames out: `meeting.hello` (id, app, title, start, rate), `meeting.speakers` (from, lines:
+// the window's speaker samples from `speakers.jsonl`, line `from` on), `meeting.end` (sample
+// counts). Text frames in: `ack {track, upTo}` (the host holds every sample before upTo; sent right
+// after the hello and then every second), `ack.speakers {upTo}` (the speaker lines it holds; a host
+// that never sends it gets none), `meeting.done` (it has the whole recording: the spool can go) and
 // `meeting.stop` (Isaac stopped the recording from Relay). Sending starts at the host's ack, so a
 // reconnect resends exactly what the host is missing.
 import Foundation
@@ -28,6 +30,48 @@ func nextSlice(sent: Int64, acked: Int64, written: Int64) -> (from: Int64, count
   return (sent, min(maxFrameSamples, limit - sent))
 }
 
+/// Lines of a JSONL file read from line `n` on, tracking the byte offset so a live file is not
+/// re-read from the top each time.
+final class LineReader {
+  let url: URL
+  private var handle: FileHandle?
+  private(set) var line = 0
+  private var offset: UInt64 = 0
+
+  init(url: URL) { self.url = url }
+
+  /// Moves to line `n` (scans from the top when going back).
+  func seek(_ n: Int) {
+    if n < line {
+      line = 0
+      offset = 0
+    }
+    _ = next(n - line)
+  }
+
+  /// Up to `max` whole lines from the current one on (a line still being written is left for later).
+  func next(_ max: Int) -> [String] {
+    guard max > 0 else { return [] }
+    if handle == nil { handle = try? FileHandle(forReadingFrom: url) }
+    guard let h = handle, (try? h.seek(toOffset: offset)) != nil, let data = try? h.readToEnd(), !data.isEmpty else { return [] }
+    var out: [String] = []
+    var start = data.startIndex
+    while out.count < max, let nl = data[start...].firstIndex(of: 0x0A) {
+      out.append(String(decoding: data[start..<nl], as: UTF8.self))
+      offset += UInt64(nl - start + 1)
+      start = nl + 1
+    }
+    line += out.count
+    return out
+  }
+
+  func close() { try? handle?.close() }
+}
+
+/// Speaker lines per `meeting.speakers` frame, and how many may be unacked.
+let maxSpeakerLinesPerFrame = 200
+let maxSpeakerLinesInFlight = 2_000
+
 final class Uplink {
   enum Event {
     case open
@@ -49,10 +93,15 @@ final class Uplink {
   private var endSent = false
   private var closed = false
   private var timer: DispatchSourceTimer?
+  private let speakers: LineReader?
+  private let speakerLines: () -> Int
+  private var speakersAcked: Int?
 
   /// `files[i]` is track i's spool file, `written(i)` how many samples it holds, `ended()` the
-  /// meta once the recording has ended (then everything is sent and `meeting.end` follows).
+  /// meta once the recording has ended (then everything is sent and `meeting.end` follows);
+  /// `speakers` the speaker samples file and `speakerLines()` how many lines it holds.
   init(url: URL, hello: [String: Any], files: [URL], written: @escaping (Int) -> Int64,
+       speakers: URL? = nil, speakerLines: @escaping () -> Int = { 0 },
        ended: @escaping () -> SpoolMeta?, onEvent: @escaping (Event) -> Void) {
     task = URLSession.shared.webSocketTask(with: url)
     self.files = files
@@ -61,6 +110,8 @@ final class Uplink {
     self.hello = hello
     self.onEvent = onEvent
     readers = files.map { try? FileHandle(forReadingFrom: $0) }
+    self.speakers = speakers.map { LineReader(url: $0) }
+    self.speakerLines = speakerLines
     acked = files.map { _ in nil }
     sent = files.map { _ in 0 }
   }
@@ -128,6 +179,11 @@ final class Uplink {
       } else if sent[track] < upTo {
         sent[track] = upTo
       }
+    case "ack.speakers":
+      guard let upTo = (obj["upTo"] as? NSNumber)?.intValue, upTo >= 0, let speakers else { return }
+      // Like the audio: the first ack says where to start, later ones only move the window.
+      if speakersAcked == nil || speakers.line < upTo { speakers.seek(upTo) }
+      speakersAcked = upTo
     case "meeting.done":
       finish(nil, notify: false)
       onEvent(.done)
@@ -159,7 +215,21 @@ final class Uplink {
         }
       }
     }
-    if !endSent, let meta = ended(), files.indices.allSatisfy({ sent[$0] >= written($0) }) {
+    if let speakers, let acked = speakersAcked {
+      let room = min(speakerLines(), acked + maxSpeakerLinesInFlight) - speakers.line
+      if room > 0 {
+        let from = speakers.line
+        let lines = speakers.next(min(room, maxSpeakerLinesPerFrame))
+        if !lines.isEmpty {
+          let frame = "{\"t\":\"meeting.speakers\",\"from\":\(from),\"lines\":[\(lines.joined(separator: ","))]}"
+          task.send(.string(frame)) { [weak self] e in
+            if let e { self?.queue.async { self?.finish(e.localizedDescription, notify: true) } }
+          }
+        }
+      }
+    }
+    let speakersDone = speakersAcked == nil || (speakers?.line ?? 0) >= speakerLines()
+    if !endSent, let meta = ended(), speakersDone, files.indices.allSatisfy({ sent[$0] >= written($0) }) {
       endSent = true
       var end: [String: Any] = ["t": "meeting.end", "samples": files.indices.map { written($0) }]
       if let at = meta.endedAt { end["endedAt"] = at }
@@ -176,6 +246,7 @@ final class Uplink {
     timer = nil
     task.cancel(with: .normalClosure, reason: nil)
     for r in readers { try? r?.close() }
+    speakers?.close()
     if notify { onEvent(.closed(error)) }
   }
 }

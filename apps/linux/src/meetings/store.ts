@@ -27,6 +27,7 @@ import {
 } from "@relay/protocol";
 import { z } from "zod";
 import { readJson, writeJson } from "../reviews/exec";
+import { PlatformSampleSchema, type PlatformSample } from "./speakers";
 
 export const RETENTION_DAYS = 30;
 export const TRACKS = ["app", "mic"] as const;
@@ -162,6 +163,42 @@ export class RecordingStore {
       }
     }
     return [...byId.values()].sort((a, b) => a.startMs - b.startMs);
+  }
+
+  /**
+   * Appends the Mac's window samples (`speakers.jsonl`), one row per line it sent: a sample that
+   * failed validation is kept as `null`, so the row count stays the Mac's line count (its acks).
+   */
+  appendSpeakers(id: string, rows: readonly (PlatformSample | null)[]): void {
+    if (rows.length === 0) return;
+    appendFileSync(
+      join(this.dir(id), "speakers.jsonl"),
+      rows.map((s) => `${JSON.stringify(s)}\n`).join(""),
+      { mode: 0o600 },
+    );
+  }
+
+  /** The window samples kept so far, in order, and how many rows the Mac has sent. */
+  speakers(id: string): { samples: PlatformSample[]; rows: number } {
+    let text: string;
+    try {
+      text = readFileSync(join(this.dir(id), "speakers.jsonl"), "utf8");
+    } catch {
+      return { samples: [], rows: 0 };
+    }
+    const samples: PlatformSample[] = [];
+    let rows = 0;
+    for (const row of text.split("\n")) {
+      if (row.trim() === "") continue;
+      rows += 1;
+      try {
+        const r = PlatformSampleSchema.safeParse(JSON.parse(row));
+        if (r.success) samples.push(r.data);
+      } catch {
+        // a torn last row after a crash
+      }
+    }
+    return { samples, rows };
   }
 
   /** `<track>.wav` next to the raw track (a 44-byte header plus the samples, padded to `samples`). */
