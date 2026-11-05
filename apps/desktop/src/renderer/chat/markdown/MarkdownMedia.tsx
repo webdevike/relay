@@ -14,7 +14,8 @@ import { mediaUrl } from '../widgets/media-url'
  *   .aac, .wav, .flac, .ogg or .opus;
  * - everything else stays an image.
  */
-export type MediaKind = { kind: 'image' } | { kind: 'video'; poster: string | null } | { kind: 'audio' }
+export type MediaKind =
+  { kind: 'image' } | { kind: 'video'; poster: string | null } | { kind: 'audio' }
 
 const DROP = /^\/drops\/[^/]+\/[^/]+$/
 const VIDEO_PATH = /\.(mp4|webm|mov|m4v)$/i

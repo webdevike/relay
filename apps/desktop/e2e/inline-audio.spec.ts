@@ -30,7 +30,13 @@ interface Host {
 const session = (id: string) =>
   [
     { type: 'title', v: 1, title: TITLE, source: 'auto', updatedAt: '2026-10-27T09:05:00.000Z' },
-    { type: 'session', version: 3, id, timestamp: '2026-10-27T09:00:00.000Z', cwd: '/fixture/eva-root' },
+    {
+      type: 'session',
+      version: 3,
+      id,
+      timestamp: '2026-10-27T09:00:00.000Z',
+      cwd: '/fixture/eva-root',
+    },
     {
       type: 'message',
       id: 'a001',
@@ -53,7 +59,7 @@ const session = (id: string) =>
         content: [
           {
             type: 'text',
-            text: "Here you go:\n\n![Tone m4a](/drops/aud1/tok1)\n\n![Tone mp3](/drops/aud2/tok2)",
+            text: 'Here you go:\n\n![Tone m4a](/drops/aud1/tok1)\n\n![Tone mp3](/drops/aud2/tok2)',
           },
         ],
         stopReason: 'stop',
@@ -105,7 +111,10 @@ const test = base.extend<{ host: Host }>({
   launchEnv: async ({ host: _host }, use) => {
     const sessionsDir = path.join(root, 'agent', 'sessions', '-fixture')
     fs.mkdirSync(sessionsDir, { recursive: true })
-    fs.writeFileSync(path.join(sessionsDir, '2026-10-27T09-00-00-000Z_chat-audio.jsonl'), session('chat-audio'))
+    fs.writeFileSync(
+      path.join(sessionsDir, '2026-10-27T09-00-00-000Z_chat-audio.jsonl'),
+      session('chat-audio'),
+    )
     await use({
       EVAOS_AGENT_DIR: path.join(root, 'agent'),
       EVAOS_SESSIONS_DIR: sessionsDir,
@@ -115,7 +124,10 @@ const test = base.extend<{ host: Host }>({
   },
   configDir: async ({ configDir, host }, use) => {
     fs.mkdirSync(path.join(configDir, 'relay'), { recursive: true })
-    fs.writeFileSync(path.join(configDir, 'relay', 'serve.json'), JSON.stringify({ port: host.port }))
+    fs.writeFileSync(
+      path.join(configDir, 'relay', 'serve.json'),
+      JSON.stringify({ port: host.port }),
+    )
     await use(configDir)
   },
 })
@@ -147,7 +159,9 @@ test('audio drops in a reply play inline with native controls', async ({ app, sh
   for (const [i, name] of ['m4a', 'mp3'].entries()) {
     const audio = players.nth(i)
     expect(await audio.evaluate((a: HTMLAudioElement) => a.controls)).toBe(true)
-    await expect.poll(() => audio.evaluate((a: HTMLAudioElement) => a.readyState)).toBeGreaterThan(0)
+    await expect
+      .poll(() => audio.evaluate((a: HTMLAudioElement) => a.readyState))
+      .toBeGreaterThan(0)
     expect(await audio.evaluate((a: HTMLAudioElement) => a.duration)).toBeCloseTo(6, 0)
     await audio.evaluate(async (a: HTMLAudioElement) => {
       a.currentTime = 1
@@ -156,7 +170,10 @@ test('audio drops in a reply play inline with native controls', async ({ app, sh
     await expect
       .poll(() => audio.evaluate((a: HTMLAudioElement) => a.currentTime), { timeout: 10_000 })
       .toBeGreaterThan(1.5)
-    const state = await audio.evaluate((a: HTMLAudioElement) => ({ paused: a.paused, error: a.error?.code ?? null }))
+    const state = await audio.evaluate((a: HTMLAudioElement) => ({
+      paused: a.paused,
+      error: a.error?.code ?? null,
+    }))
     expect(state).toEqual({ paused: false, error: null })
     await audio.scrollIntoViewIfNeeded()
     await shell.screenshot({ path: path.join(OUT, `desktop-${name}.png`) })
