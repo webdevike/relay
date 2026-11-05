@@ -272,7 +272,7 @@ test('ComfyUI presets: cards, their own settings, references and no-prompt prese
   configDir,
 }) => {
   await openStudioTab(shell)
-  const studio = shell.locator(`${sel('pane-p2')} ${sel('page-studio')}`)
+  const studio = shell.locator(sel('page-studio'))
   await studio.locator(sel('studio-backend')).click()
   await shell.getByRole('option', { name: /ComfyUI presets/ }).click()
   await expect(studio.locator(sel('studio-presets'))).toContainText('See the same subject')

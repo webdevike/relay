@@ -33,6 +33,7 @@ test('nav rows and counts come from the fixture root', { tag: '@smoke' }, async 
   expect(ids).toEqual([
     'nav-assistants',
     'nav-chat',
+    'nav-skills',
     'nav-canvas',
     'nav-rooms',
     'nav-studio',
