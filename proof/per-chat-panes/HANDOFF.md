@@ -1,6 +1,8 @@
 # Relay Desktop workspaces (per-assistant / per-chat pane layouts): handoff
 
-Branch `eva/workspaces` (commit made off `main` without touching the shared checkout's branch). Not deployed.
+Branch `eva/workspaces` on origin (cd9dec4f, made off `main` 2de1a2af with a private index, so the shared checkout stayed on `main`). Not deployed, not merged.
+
+Careful: the same changes are still uncommitted in the shared `work/relay` checkout on `main` (other agents commit there; one already swept e2e/workspaces.spec.ts into 3c900acc). Merging `eva/workspaces` into main is the first step.
 
 ## Done
 - Model (shell-core `workspace.ts`): one workspace on screen at a time. Key = browser scope: `page:agent:<id>` (an assistant's thread + every session it owns via the owner chain), `chat:<file>` / `draft:<n>` (plain chats), `page:<page>` (pages; all boards share `page:canvas`, review items `page:reviews`). Each has its own dockview layout; switching swaps, switching back restores (sizes, tabs, focus, zoom).
@@ -21,7 +23,7 @@ Branch `eva/workspaces` (commit made off `main` without touching the shared chec
 
 ## Not done / next
 - Run the release gate once more on the final tree: `pnpm e2e:run --only-changed=8f30e2e5` (fixtures.ts changed, so this is nearly the full suite) and `pnpm e2e:smoke`; fix leftovers; then merge to main and `bun .omp/tools/relay-desktop-deploy.ts`.
-- settings.test.tsx theme tests time out under full-suite load (pass alone): give them a longer timeout or find the slow import before the deploy gate.
+- Unit tests that time out at 5 s when the whole vitest suite runs on a busy Mini (settings.test.tsx theme tests, Composer, a few widget tests; update/packaged.test kick file) pass alone. The deploy gate runs `pnpm test`: run it on a quiet machine or raise those files' timeouts.
 
 ## Known gaps / behavior to check with Isaac
 - Pages as their own workspaces (Reviews, Test Bench, Settings...) is the simple default; Isaac hasn't decided.
