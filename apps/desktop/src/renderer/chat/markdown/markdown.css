@@ -142,7 +142,8 @@
 }
 .eva-md-audio audio {
   display: block;
-  width: min(360px, 100%);
+  width: 320px;
+  max-width: 100%;
 }
 
 /* Tables fit their columns while the column is wide enough, then scroll sideways in place. */
