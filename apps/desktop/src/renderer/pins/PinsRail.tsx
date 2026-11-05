@@ -9,7 +9,7 @@ import './pins.css'
 
 /** Width of the rail, and the air between it and the message column (pins.css keeps the same numbers). */
 export const RAIL_W = 232
-export const RAIL_GAP = 24
+export const RAIL_GAP = 48
 /** Room kept right of the rail for the log's scrollbar. */
 export const RAIL_EDGE = 16
 

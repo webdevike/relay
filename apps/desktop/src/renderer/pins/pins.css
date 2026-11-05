@@ -17,7 +17,7 @@
   position: absolute;
   top: var(--eva-space-md);
   bottom: var(--eva-space-md);
-  left: calc(50% + var(--eva-chat-column-w) / 2 + 24px);
+  left: calc(50% + var(--eva-chat-column-w) / 2 + 48px);
   width: 232px;
   display: flex;
   flex-direction: column;

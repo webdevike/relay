@@ -204,10 +204,8 @@ test('an assistant pins with a reply line, Isaac pins messages, selections and i
   await expect(rail.locator('[data-kind=message] [data-testid=pin-label]')).toContainText(
     'Staging is up.',
   )
-  await expect(rail.locator(`[data-kind=number] ${sel('pin-label')}`)).toHaveAttribute(
-    'data-static',
-    '',
-  )
+  // A pin with a source has a label button that goes to its message.
+  await expect(rail.locator(`[data-kind=number] button${sel('pin-label')}`)).toHaveCount(1)
   const acts = host.artifactActs.map(
     (f) => (f['action'] as { op: string; kind?: string }).kind ?? '',
   )
@@ -229,7 +227,7 @@ test('an assistant pins with a reply line, Isaac pins messages, selections and i
   const column = (await shell.locator('.eva-row-inner').first().boundingBox())!
   const before = (await rail.boundingBox())!
   expect(before.x).toBeGreaterThanOrEqual(column.x + column.width)
-  expect(before.x - (column.x + column.width)).toBeLessThanOrEqual(40)
+  expect(before.x - (column.x + column.width)).toBeLessThanOrEqual(60)
   await scrollTo(shell, 'end')
   const after = (await rail.boundingBox())!
   expect(after).toEqual(before)
