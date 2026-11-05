@@ -129,6 +129,7 @@ export class CanvasParticipant {
   private idleTimer: Timer | undefined;
   private said = 0;
   private taskText: string | null = null;
+  private doing: string | null = null;
   private readonly forward = ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }): void => {
     const update = awarenessProtocol.encodeAwarenessUpdate(this.own, [...added, ...updated, ...removed]);
     awarenessProtocol.applyAwarenessUpdate(this.roomAwareness, update, this);
@@ -166,9 +167,17 @@ export class CanvasParticipant {
     return this.taskText;
   }
 
-  /** Working: a batch running or waiting, or a handed-off request not landed yet. Else idle. */
+  /** Working: a batch running or waiting, a handed-off request not landed yet, or its session busy off the board. Else idle. */
   get working(): boolean {
-    return this.pending > 0 || this.taskText !== null;
+    return this.pending > 0 || this.taskText !== null || this.doing !== null;
+  }
+
+  /** Shows (or clears) what its session is doing off the board, from the bridge's session status. */
+  setDoing(text: string | null): void {
+    if (this.left || text === this.doing) return;
+    this.doing = text;
+    this.actor.setP({ doing: text });
+    this.touch();
   }
 
   /** Shows (or clears) the request it is working on; a worker with a task never idles out. */
@@ -257,7 +266,7 @@ export class CanvasParticipant {
     clearTimeout(this.idleTimer);
     if (this.left) return;
     this.idleTimer = setTimeout(() => {
-      if (this.pending === 0 && this.taskText === null) this.leave();
+      if (this.pending === 0 && this.taskText === null && this.doing === null) this.leave();
       else this.touch();
     }, this.options.idleLeaveMs ?? IDLE_LEAVE_MS);
   }

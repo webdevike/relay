@@ -54,7 +54,7 @@ import {
   ungroupFrames,
 } from "./model";
 import { pageTheme, useScheme } from "./page-theme";
-import { ActivityPill } from "./pill";
+import { RoomBar } from "./roombar";
 import { canEdit, flowInteraction } from "./lock";
 import { ArrivalTracker } from "./arrival";
 import { arrivals } from "./page-arrival";
@@ -767,7 +767,7 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
           {connection === "connecting" ? "Connecting" : "Reconnecting"}
         </div>
       ) : null}
-      <ActivityPill onOpen={onOpenLog} />
+      <RoomBar onOpen={onOpenLog} />
       <div className={`cv-topbar${logOpen ? " log-open" : ""}`}>
         {ended ? null : (
           <button

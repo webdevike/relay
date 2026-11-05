@@ -1793,35 +1793,44 @@ mark {
 .cv-board .react-flow__background {
   transition: opacity 0.35s ease;
 }
-.cv-activity {
+/* The room bar: who is here and what each agent is doing. A hairline border, no shadow. */
+.cv-roombar {
   position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
+  top: calc(56px + env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   z-index: 6;
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: min(420px, calc(100% - 24px));
+  gap: 0;
+  max-width: calc(100% - 24px);
+  padding: 0;
+  overflow: hidden;
+  font: inherit;
   font-size: 13px;
   color: var(--c-muted);
   background: var(--c-popover);
   border: 1px solid var(--c-border);
   border-radius: var(--round);
-  padding: 5px 12px 5px 6px;
   cursor: pointer;
   animation: cv-activity-in 0.25s ease;
 }
-.cv-activity:hover {
+.cv-roombar:hover {
   border-color: var(--c-border-strong);
 }
-.cv-activity-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.cv-who {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 12px 5px 8px;
 }
-.cv-activity-avatar,
-.cv-activity-swatch {
+.cv-who + .cv-who {
+  border-left: 1px solid var(--c-border);
+}
+.cv-who-avatar,
+.cv-who-swatch {
   flex: none;
   width: 20px;
   height: 20px;
@@ -1829,17 +1838,65 @@ mark {
   background: var(--c-surface);
   object-fit: cover;
 }
-.cv-activity-dot {
+.cv-who-avatar {
+  border: 1.5px solid var(--c-border);
+}
+.cv-who-swatch {
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  color: #fff;
+}
+.cv-who-name {
+  flex: none;
+  color: var(--c-fg);
+}
+.cv-who-state {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.cv-who-label {
+  overflow: hidden;
+  max-width: 240px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-who-dot {
   flex: none;
   width: 6px;
   height: 6px;
+  margin: 0 4px;
   border-radius: 50%;
   background: var(--c-muted);
-  opacity: 0.6;
+  opacity: 0.5;
 }
-.cv-activity[data-working="true"] .cv-activity-dot {
+.cv-who-widgets .cv-who-dot {
   background: var(--c-accent);
-  animation: cv-pulse 1.1s ease-in-out infinite;
+  opacity: 1;
+  animation: cv-breathe 1.1s ease-in-out infinite;
+}
+.cv-who[data-state="thinking"] .cv-who-state,
+.cv-who[data-state="editing"] .cv-who-state,
+.cv-who[data-state="tool"] .cv-who-state {
+  color: var(--c-fg);
+}
+.cv-who[data-state="thinking"] svg,
+.cv-who[data-state="editing"] svg,
+.cv-who[data-state="tool"] svg {
+  color: var(--c-accent);
+  animation: cv-breathe 1.1s ease-in-out infinite;
+}
+.cv-who[data-state="done"] svg {
+  color: var(--c-success);
+}
+@keyframes cv-breathe {
+  50% {
+    opacity: 0.4;
+  }
 }
 @keyframes cv-activity-in {
   from {
@@ -1847,8 +1904,14 @@ mark {
     transform: translateX(-50%) translateY(-4px);
   }
 }
+@media (min-width: 1500px) {
+  .cv-roombar {
+    top: calc(12px + env(safe-area-inset-top));
+    max-width: min(720px, calc(100% - 640px));
+  }
+}
 @media (max-width: 760px) {
-  .cv-activity {
+  .cv-roombar {
     top: calc(60px + env(safe-area-inset-top));
   }
 }

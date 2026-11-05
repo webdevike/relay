@@ -32,6 +32,9 @@ import { BoardFile, boardPath } from "./persist";
 import { assistantAvatar, assistantLook, EVA_LOOK, portraitSeed } from "./portrait";
 import { CanvasSync, type CanvasPeer } from "./room";
 import { CanvasTokens, type CanvasGrant } from "./tokens";
+import { sessionActivity } from "./session-activity";
+/** How often the bridge sessions behind a room's seats are mirrored into presence. */
+const ACTIVITY_MS = 1000;
 
 /** The human every room is for: tokens are bound to this name (the host's owner, see host-config.ts). */
 export const canvasHuman = human;
@@ -273,6 +276,7 @@ export class CanvasService {
   private revision = 0;
   /** Every change of the room list (`canvas.rooms` goes to every device). */
   onChange: (() => void) | null = null;
+  private activityTimer: Timer | undefined;
 
   constructor(private readonly deps: CanvasServiceDeps) {
     this.tokens = new CanvasTokens(deps.now);
@@ -431,6 +435,7 @@ export class CanvasService {
       this.changed();
     };
     this.rooms.set(slug, room);
+    this.watchActivity();
     // The opener runs now: its cards are on the board and its lines play the moment Isaac joins.
     canvasAgent.prepare();
     room.unjoinedTimer = setTimeout(() => {
@@ -711,6 +716,8 @@ export class CanvasService {
   /** Host shutdown: every file written, every brain gone. */
   stop(): void {
     for (const room of [...this.rooms.values()]) this.unload(room, true);
+    clearInterval(this.activityTimer);
+    this.activityTimer = undefined;
   }
 
   private result(room: CanvasRoom, created: boolean): StartResult {
@@ -789,6 +796,26 @@ export class CanvasService {
       this.ended = [...this.ended.filter((info) => info.id !== room.id), room.info()].slice(-MAX_ENDED);
     }
     if (!silent) this.changed();
+  }
+
+  /** Mirrors the bridge sessions behind the rooms' seats (the chat, each worker) into presence once a second while a room is live. */
+  private watchActivity(): void {
+    if (this.activityTimer !== undefined) return;
+    this.activityTimer = setInterval(() => {
+      const live = [...this.rooms.values()].filter((room) => room.live);
+      if (live.length === 0) {
+        clearInterval(this.activityTimer);
+        this.activityTimer = undefined;
+        return;
+      }
+      const { sessions } = this.deps.chats;
+      const activity = (id: string): string | null => sessionActivity(sessions.find((session) => session.id === id));
+      for (const room of live) {
+        room.agents[0]?.showChatActivity(activity(room.chatSessionId));
+        for (const participant of room.participants.values()) if (participant.sessionId !== null) participant.setDoing(activity(participant.sessionId));
+      }
+    }, ACTIVITY_MS);
+    this.activityTimer.unref();
   }
 
   /** The chat session, the caller's transcript and the chat's transcript. Throws `CanvasError`. */

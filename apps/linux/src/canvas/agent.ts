@@ -312,6 +312,15 @@ export class CanvasAgent {
     this.setP({ task: text });
   }
 
+  /**
+   * Shows what the chat session behind this agent is doing off the board ("running a command…"),
+   * or clears it. The agent's own turn writes its own status line, which wins while it runs.
+   */
+  showChatActivity(text: string | null): void {
+    if (this.closed || this.live !== null || this.actor.presence.status !== "idle") return;
+    if (this.actor.presence.doing !== (text ?? null)) this.setP({ doing: text });
+  }
+
   /** Stops listening (the room is gone); no summary. */
   dispose(): void {
     this.closed = true;

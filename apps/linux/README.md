@@ -320,6 +320,12 @@ deploys, publishing, messages, posting data, purchases, his desktop or browser);
 `$RELAY_CANVAS_EFFORT` (low, medium) pick the starting model, and the room's model toggle switches it live.
 `GET /canvas/sessions/<room>` reports what it has spent (`usage`).
 
+The page's room bar (top center, always on while the room is live) lists who is here and what each agent is doing:
+thinking, editing the board, a tool with its short label, waiting on a handoff, idle, and "done" for a few seconds
+after it stops. The host feeds it from more than the turn: once a second it mirrors the bridge session behind the
+chat and behind each worker (`join --session`) into `Presence.doing` ("running a command…", "waiting on an
+approval…"), so an agent working off the board never reads as idle (`src/canvas/session-activity.ts`).
+
 Chat rows travel through the bridge's `canvas` request: the extension posts a `relay-canvas` custom message
 (`details`: `CanvasEntry` start = Join card, turn = one exchange, end = wrap-up) that lands in the session file
 without starting a turn, and phones see it as `AgentMessage.canvas` / `AssistantMessage.canvas`. Devices list

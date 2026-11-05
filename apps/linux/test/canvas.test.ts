@@ -812,6 +812,37 @@ describe("handing work off", () => {
     await until(() => brains[0]?.prompts.some((p) => p.includes("# Handoff landed") && p.includes("Theo finished what Isaac asked for")) === true, "the landed turn");
     tab.leave();
   });
+
+  it("shows what a worker's session and the chat do off the board, and clears it when they go quiet", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    service.join("ecs-roles", { name: "Theo", session: "Worker" });
+    const sessions = chats.sessions as AgentSession[];
+    const set = (id: string, patch: Partial<AgentSession>): void => {
+      const at = sessions.findIndex((s) => s.id === id);
+      sessions[at] = { ...(sessions[at] as AgentSession), ...patch };
+    };
+    const doings = (): Record<string, string | null | undefined> => {
+      const out: Record<string, string | null | undefined> = {};
+      for (const p of room.sync.awareness.getStates().values()) {
+        const presence = p as Presence;
+        if (presence.user?.kind === "agent") out[presence.user.name] = presence.doing;
+      }
+      return out;
+    };
+    set("s-chat:Build.Worker", { status: "working", statusDetail: "bash" });
+    set("s-chat", { status: "needs_permission", statusDetail: "bash" });
+    await until(() => doings()["Theo"] === "running a command…" && doings()["Eva"] === "waiting on an approval…", "the sessions' activity in presence");
+    expect(service.view("ecs-roles").participants).toMatchObject([{ name: "Theo", status: "working" }]);
+    set("s-chat:Build.Worker", { status: "idle" });
+    set("s-chat", { status: "idle" });
+    await until(() => !doings()["Theo"] && !doings()["Eva"], "the sessions to read idle");
+    expect(service.view("ecs-roles").participants).toMatchObject([{ name: "Theo", status: "idle" }]);
+    tab.leave();
+  });
 });
 
 describe("canvas http", () => {
