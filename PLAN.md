@@ -312,12 +312,60 @@ Setup once: ship steps 1 to 3 in `ship/README.md`; keep MeetingTranscriber runni
 
 Write the results per call in a parity report next to this plan; fixes go on this branch before cutover.
 
+## Live speakers and device changes (2026-11-05)
+
+Teams sends every remote participant on one mixed track. Live lines now carry names:
+
+- **The meeting app's window** (capture helper, `Sources/Speakers.swift`): Accessibility, read-only, five
+  samples a second, stamped with their position on the app track and sent as `meeting.speakers` (acked and
+  resent like the audio; kept in `speakers.jsonl` on the host). Teams 26289: each remote tile is an
+  `AXMenuItem` "<Name>, ..., [muted, ]Context menu is available"; while the person talks its frame child
+  carries the class `vdi-frame-occlusion` (seen on the 14:28 call: the frame vanished while Ted was muted and
+  toggled only while unmuted). Captions, when on, are read as name plus words (their Teams tree is not yet
+  seen on a real call). Zoom and Meet use the same generic rules (a "speaking"/"muted" item in a label, a
+  captions region); not yet seen live.
+- **Voices** (worker, `apps/linux/asr/relay_speakers.py`): each call-track final is split by pyannote
+  segmentation 3.0 and its voices clustered online with TitaNet-small prints into stable labels (Speaker 2,
+  3, ...), named from Relay's `voices.json` (learned at call end from voices the window named for 20 s at 80%)
+  or MeetingTranscriber's `speakers.json` (its 256-dim prints are WeSpeaker ResNet34; compared in that space).
+- **Merge** (host, `src/meetings/speakers.ts`): per word, a caption run of 3+ words, else the one tile marked
+  around it (two marked: the voice's owner), else the name the window gave the voice so far, else a known
+  voice, else "Speaker N". A final splits where the name changes (`<id>.2`, ...); lines are named again when
+  voice labels, captions or a voice's name arrive. After the call the R_S labels take the window's names (and
+  a segment marked as one person is theirs outright); the notes list the window's roster as attendees when
+  the calendar has none.
+
+Measured (a 10-minute, four-person AMI meeting, ES2004a 2:00-12:00, as the call track; the window samples
+synthesized from its word truth with a 0.25 s indicator lag, 0.6 s hold and 5% of samples lost):
+
+| Live path | Speaker-attributed word accuracy (915 ASR words) | On single-speaker words (728) |
+|:--|--:|--:|
+| Voices only (labels mapped to people as diarization is scored) | 80.1% | |
+| Window talking marks | 90.3% | 98.9% |
+| Marks plus captions | 90.6% | 99.3% |
+
+Voices alone, tuned on AMI ES2004a and IS1009a (`SAME 0.40`, `NEW_BELOW 0.35`, `NEW_MIN_S 1.5`): 72% word
+accuracy across both (TitaNet-large 73%, ERes2Net 72%, WeSpeaker 62%). End to end through the real helper
+(`serve --replay` with the window samples) into a throwaway host: a named line reaches the clients 1.1 s p50,
+2.1 s p90 after the speaker pauses (the final 0.8 s, the voice turns 0.14 s more, the 0.25 s emit batch);
+the run's last 80 s waited up to 64 s on a machine-wide stall (Relay Desktop disconnected from the host then).
+
+No-mic (2026-11-05 calls 2130d45f, 59e80fc0): the mic track stopped growing the second the default input
+changed (coreaudiod's log: 10:35:30 to the Brio, 14:00:45 to AirPods, as Isaac said "let me get my different
+headphones"), because AVAudioEngine stops for good on a device change and nothing started it again. The
+helper now listens again on the new input (engine configuration change, default input change, or 2 s
+without growth), rebuilds the tap the same way, and fills a gap with silence from host times. The same
+calls showed the AirPods half-rate bug: with AirPods in call mode the tap format said 48 kHz while the
+aggregate ran at 24 kHz, so 341cf98b's call track is the call at double speed (866 s for a 1,733 s call);
+the tap now reads the device's real rate.
+
 ## Isaac's decisions (2026-11-04)
 
 - ASR: parakeet-mlx in a Python worker on the Mini.
 - Calls on the MacBook stream their audio to the Mini.
 - Ask: Astra's session with the meeting as context (work profile).
-- Group-call remote speakers keep raw `R_S1` labels for now.
+- Group-call remote speakers keep raw `R_S1` labels for now (superseded 2026-11-05: Isaac approved live names,
+  see Live speakers above).
 - Browser meetings: ask each time.
 - Audio: kept 30 days, then deleted.
 - Laptop speakers: software echo removal plus the word filter.

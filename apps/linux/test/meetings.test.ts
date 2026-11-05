@@ -11,11 +11,12 @@ import {
   labelSegments,
   MeetingPipeline,
   micUtterances,
+  namesFromCall,
   protocolStem,
   transcriptLines,
   type Autoname,
 } from "../src/meetings/pipeline";
-import { MeetingsService, qaOf, type AfterCall } from "../src/meetings/service";
+import { MeetingsService, qaOf, type AfterCall, type Conn } from "../src/meetings/service";
 import { RecordingStore, type RecordingMeta } from "../src/meetings/store";
 import type { IngestPeer } from "../src/seams";
 import { FakeClock } from "./studio-fakes";
@@ -73,7 +74,7 @@ describe("echo filter", () => {
 
 describe("live transcript", () => {
   it("replaces drafts, keeps finals and marks mic echo of the call", () => {
-    const t = new LiveTranscript([], { mic: "Isaac", app: () => "Remote" });
+    const t = new LiveTranscript([], { mic: "Isaac", remoteName: () => undefined });
     expect(t.apply(wl("mic", 0, "So the", false))[0]).toMatchObject({
       id: "mic-0",
       final: false,
@@ -92,6 +93,124 @@ describe("live transcript", () => {
     expect(changed.map((l) => l.id)).toEqual(["app-8500", "mic-9000"]);
     expect(t.all().find((l) => l.id === "mic-9000")?.echo).toBe(true);
     expect(t.renameApp("Todd Barczak").every((l) => l.speaker === "Todd Barczak")).toBe(true);
+  });
+});
+
+describe("call-track speakers", () => {
+  const S = 16_000;
+  /** Words of `text`, half a second each from `at` seconds. */
+  const words = (at: number, text: string): [number, number, string][] =>
+    text.split(" ").map((w, i) => [(at + i * 0.5) * S, (at + i * 0.5 + 0.45) * S, w]);
+  const final = (at: number, text: string): WorkerLine => {
+    const ws = words(at, text);
+    return {
+      ev: "line",
+      meeting: ID,
+      track: "app",
+      id: `app-${String(at * S)}`,
+      start: at * S,
+      end: (ws.at(-1)?.[1] ?? at * S) + 0.1 * S,
+      text,
+      final: true,
+      words: ws,
+    };
+  };
+  const turns = (at: number, end: number, speaker: number, names: Record<string, string> = {}) => ({
+    ev: "turns" as const,
+    meeting: ID,
+    id: `app-${String(at * S)}`,
+    turns: [{ start: at * S, end: end * S, speaker }],
+    names,
+  });
+  const roster = ["David Taylor", "Ted Plaisted"];
+
+  it("splits a line where the window's talker changes, then names voices from what it learned", () => {
+    const t = new LiveTranscript([], { mic: "Isaac", remoteName: () => undefined }, [
+      { at: 0, speaking: ["David Taylor"], roster },
+      { at: 5 * S, speaking: ["Ted Plaisted"], roster },
+      { at: 10.2 * S, speaking: [], roster },
+    ]);
+    const out = t.apply(
+      final(
+        0,
+        "we ship the build on friday after the team standup so what do you think about the release plan",
+      ),
+    );
+    expect(out.map((l) => [l.id, l.speaker, l.text])).toEqual([
+      ["app-0", "David Taylor", "we ship the build on friday after the team standup"],
+      ["app-0.2", "Ted Plaisted", "so what do you think about the release plan"],
+    ]);
+    // The voices behind it: 2 is David, 3 is Ted (each over the vote minimum of marked speech).
+    t.turns({
+      ...turns(0, 5, 2),
+      turns: [
+        { start: 0, end: 5 * S, speaker: 2 },
+        { start: 5 * S, end: 10 * S, speaker: 3 },
+      ],
+    });
+    // Nobody marked on the window (silence, a hidden tile): the voice carries the name.
+    t.apply(final(20, "I think we should wait for QA"));
+    t.turns(turns(20, 24, 3));
+    expect(t.all().find((l) => l.id === `app-${String(20 * S)}`)?.speaker).toBe("Ted Plaisted");
+    // A voice the window never named keeps a stable label.
+    t.apply(final(40, "hi everyone sorry I am late"));
+    t.turns(turns(40, 44, 4));
+    expect(t.all().find((l) => l.id === `app-${String(40 * S)}`)?.speaker).toBe("Speaker 4");
+  });
+
+  it("takes the voice's owner when two are marked, and the caption's name over the marks", () => {
+    const t = new LiveTranscript([], { mic: "Isaac", remoteName: () => undefined }, [
+      { at: 0, speaking: ["David Taylor"], roster },
+      { at: 4 * S, speaking: [], roster },
+    ]);
+    t.apply(final(0, "let me share my screen for a second"));
+    t.turns(turns(0, 4, 2));
+    // Both marked (cross-talk; Ted listed first): the voice's owner, not the first mark.
+    t.platform([{ at: 20 * S, speaking: ["Ted Plaisted", "David Taylor"], roster }]);
+    t.apply(final(20, "no I meant the other report"));
+    t.turns(turns(20, 23, 2));
+    expect(t.all().find((l) => l.id === `app-${String(20 * S)}`)?.speaker).toBe("David Taylor");
+    t.platform([
+      { at: 30 * S, speaking: ["David Taylor"], roster },
+      {
+        at: 33 * S,
+        speaking: [],
+        roster,
+        captions: [{ name: "Ted Plaisted", text: "The budget is final for Q3." }],
+      },
+    ]);
+    expect(t.apply(final(30, "the budget is final for Q3"))[0]?.speaker).toBe("Ted Plaisted");
+  });
+
+  it("names after-call voices from the window, and a marked segment outright", () => {
+    const samples = [
+      { at: 0, speaking: ["David Taylor"], roster },
+      { at: 5 * S, speaking: ["Ted Plaisted"], roster },
+      { at: 9 * S, speaking: [], roster },
+    ];
+    const remote = labelSegments(
+      [
+        { start: 0, end: 4, text: "Here is the plan." },
+        { start: 5, end: 8, text: "Sounds right." },
+        { start: 12, end: 14, text: "One more thing." },
+      ],
+      [
+        { start: 0, end: 4.5, speaker: 1 },
+        { start: 4.5, end: 15, speaker: 1 },
+      ],
+    );
+    const call = namesFromCall(
+      remote,
+      [
+        { start: 0, end: 4.5, speaker: 1 },
+        { start: 4.5, end: 15, speaker: 1 },
+      ],
+      samples,
+      [],
+    );
+    // One over-merged voice: the segments the window marked go to their people.
+    expect(call.remote.map((u) => u.label)).toEqual(["David Taylor", "Ted Plaisted", "R_S1"]);
+    expect(call.roster).toEqual(roster);
   });
 });
 
@@ -279,6 +398,7 @@ function idleAsr(): Asr & {
     audioCalls,
     closed,
     open: (meeting, app, mic) => opened.push([meeting, app, mic]),
+    learn: () => undefined,
     audio: (_m, track, at, pcm) => audioCalls.push([track, at, pcm.byteLength / 2]),
     close: (m) => {
       closed.push(m);
@@ -365,8 +485,29 @@ describe("meetings service", () => {
     expect(out).toEqual([
       { t: "ack", track: 0, upTo: 0 },
       { t: "ack", track: 1, upTo: 0 },
+      { t: "ack.speakers", upTo: 0 },
     ]);
     expect(asr.opened).toEqual([[ID, 0, 0]]);
+    // The window's speaker samples: kept in order, a resend skipped, a bad one still counted (the
+    // acks are the Mac's line numbers).
+    const sample = (at: number): Record<string, unknown> => ({
+      at,
+      speaking: [],
+      roster: ["Todd", "Bill"],
+    });
+    conn.text(
+      JSON.stringify({ t: "meeting.speakers", from: 0, lines: [sample(9_600_000), { at: -1 }] }),
+    );
+    conn.text(
+      JSON.stringify({ t: "meeting.speakers", from: 1, lines: [{ at: -1 }, sample(9_700_000)] }),
+    );
+    conn.text(JSON.stringify({ t: "meeting.speakers", from: 5, lines: [sample(9_800_000)] }));
+    expect(store.speakers(ID)).toMatchObject({
+      rows: 3,
+      samples: [{ at: 9_600_000 }, { at: 9_700_000 }],
+    });
+    (conn as Conn).sendAcks();
+    expect(out.at(-1)).toEqual({ t: "ack.speakers", upTo: 3 });
 
     conn.binary(frame(0, 0, 1600));
     conn.binary(frame(1, 0, 1600));

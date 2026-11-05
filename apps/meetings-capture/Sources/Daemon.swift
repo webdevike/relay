@@ -155,6 +155,7 @@ final class Daemon {
     if let t = rec.meta.title { hello["title"] = t }
     let uplink = Uplink(
       url: url, hello: hello, files: rec.files, written: { rec.written($0) },
+      speakers: rec.speakersURL, speakerLines: { rec.speakerLines },
       ended: { rec.meta.ended ? rec.meta : nil },
       onEvent: { [weak self] event in DispatchQueue.main.async { self?.uplinkEvent(id, event) } })
     uplinks[id] = uplink

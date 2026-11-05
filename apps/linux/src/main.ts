@@ -953,7 +953,10 @@ function meetingsService(o: {
   const asr = AsrWorker.available()
     ? new AsrWorker({
         onLine: (line) => service?.line(line),
+        onTurns: (turns) => service?.turns(turns),
         onRestart: () => service?.workerRestarted(),
+        voices: join(store.root, "voices.json"),
+        mtSpeakers: join(homedir(), "Library", "Application Support", "MeetingTranscriber", "speakers.json"),
         log,
       })
     : null;

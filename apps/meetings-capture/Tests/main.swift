@@ -1,4 +1,5 @@
 // Logic tests for the capture helper: `sh build.sh test`.
+import AVFoundation
 import Foundation
 
 var failures = 0
@@ -71,6 +72,78 @@ let again = try! Track(id: 0, name: "app", url: tmp.appendingPathComponent("app.
 check(again.samples == 16_000 * 61 + 1, "reopened track continues at the end")
 again.close()
 try? FileManager.default.removeItem(at: tmp)
+
+// Speaker samples from the Teams call window (labels as Teams 26289 writes them).
+func tileNode(_ title: String, talking: Bool? = nil) -> AXNode {
+  var kids = [AXNode(classes: ["fui-Primitive", "bkg_x"]), AXNode(classes: ["fui-Primitive"]), AXNode(classes: ["fui-Primitive"])]
+  if let talking { kids.append(AXNode(classes: talking ? ["fui-Flex", "vdi-frame-occlusion", "___1vvhwjq"] : ["fui-Flex", "___dv8x4j0"])) }
+  return AXNode(role: "AXMenuItem", title: title, children: kids)
+}
+let david = SpeakerParse.tile(tileNode("David Taylor, Has control of production tools, Context menu is available", talking: true))
+check(david == Tile(name: "David Taylor", muted: false, speaking: true), "talking tile \(String(describing: david))")
+let ted = SpeakerParse.tile(tileNode("Ted Plaisted, video is on, Has control of production tools, muted, Context menu is available"))
+check(ted == Tile(name: "Ted Plaisted", muted: true, speaking: false), "muted tile has no frame")
+check(SpeakerParse.tile(tileNode("Ted Plaisted, Has control of production tools, Context menu is available", talking: false))?.speaking == false, "quiet frame")
+check(SpeakerParse.tile(tileNode("Myself video, Isaac Weber, Has control of production tools, Unmuted, Has context menu")) == nil, "own tile skipped")
+check(SpeakerParse.tile(AXNode(role: "AXMenuItem", title: "Ted Plaisted left the meeting")) == nil, "left notice is no tile")
+check(SpeakerParse.tile(AXNode(role: "AXButton", title: "Chat")) == nil, "a button is no tile")
+check(SpeakerParse.tile(AXNode(role: "AXGroup", desc: "Priya Shah, Speaking"))?.speaking == true, "a speaking label elsewhere (Meet, Zoom)")
+let s = SpeakerParse.sample(tiles: [david!, ted!, david!], captions: [])
+check(s.speaking == ["David Taylor"] && s.unmuted == ["David Taylor"] && s.roster == ["David Taylor", "Ted Plaisted"], "sample \(s)")
+
+// Captions: a region named for captions, one item per line (speaker, words).
+let region = AXNode(role: "AXGroup", title: "Live captions", children: [
+  AXNode(role: "AXGroup", children: [AXNode(role: "AXStaticText", value: "Captions are turned on")]),
+  AXNode(role: "AXGroup", children: [AXNode(role: "AXStaticText", value: "David Taylor"), AXNode(role: "AXStaticText", value: "So the settings govern how it is configured.")]),
+  AXNode(role: "AXGroup", children: [AXNode(role: "AXGroup", children: [AXNode(role: "AXStaticText", value: "Ted Plaisted")]), AXNode(role: "AXStaticText", value: "Right.")]),
+])
+check(SpeakerParse.isCaptions(region), "captions region")
+check(SpeakerParse.captions(region) == [Caption(name: "David Taylor", text: "So the settings govern how it is configured."), Caption(name: "Ted Plaisted", text: "Right.")], "caption lines \(SpeakerParse.captions(region))")
+check(!SpeakerParse.isCaptions(AXNode(role: "AXButton", title: "Turn on live captions")), "the captions button is no region")
+
+// The tap follows the device's real rate (AirPods in call mode: 24 kHz under a 48 kHz tap format).
+let clock = TapClock(rate: 48_000)
+check(clock.adopt(23_990) == 24_000 && clock.rate == 24_000, "half rate adopted")
+check(clock.adopt(24_050) == nil, "small drift ignored")
+check(clock.observe(sampleTime: 0, hostTime: 1_000) == nil, "first stamp opens the window")
+let twoS = AVAudioTime.hostTime(forSeconds: 2)
+check(clock.observe(sampleTime: 96_000, hostTime: 1_000 + twoS) == 48_000, "measured 48 kHz over 2 s")
+
+let tmp2 = FileManager.default.temporaryDirectory.appendingPathComponent("relay-meetings-test2-\(UUID().uuidString)")
+try! FileManager.default.createDirectory(at: tmp2, withIntermediateDirectories: true)
+
+// Lines read from a growing JSONL, from any line on.
+let jl = tmp2.appendingPathComponent("speakers.jsonl")
+try! "{\"a\":1}\n{\"a\":2}\n{\"a\":3}\n{\"a\":".write(to: jl, atomically: true, encoding: .utf8)
+let lr = LineReader(url: jl)
+check(lr.next(10) == ["{\"a\":1}", "{\"a\":2}", "{\"a\":3}"] && lr.line == 3, "whole lines only")
+let fh = try! FileHandle(forWritingTo: jl)
+_ = try! fh.seekToEnd()
+fh.write("4}\n".data(using: .utf8)!)
+try! fh.close()
+check(lr.next(10) == ["{\"a\":4}"], "the finished line arrives")
+lr.seek(1)
+check(lr.next(1) == ["{\"a\":2}"] && lr.line == 2, "seek back")
+
+// A delivery gap is filled with silence so the track stays on the wall clock.
+let gt = try! Track(id: 1, name: "mic", url: tmp2.appendingPathComponent("mic.pcm"))
+let fmt16 = AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1)!
+let b = AVAudioPCMBuffer(pcmFormat: fmt16, frameCapacity: 1_600)!
+b.frameLength = 1_600
+for i in 0..<1_600 { b.floatChannelData![0][i] = 0.1 }
+let h0: UInt64 = 1_000_000
+gt.queue.sync { gt.push(b, hostTime: h0) }
+let first = gt.samples
+gt.queue.sync { gt.push(b, hostTime: h0 + AVAudioTime.hostTime(forSeconds: 0.1)) }
+check(gt.samples - first == 1_600, "back-to-back buffers: no fill (\(gt.samples - first))")
+let before = gt.samples
+gt.queue.sync { gt.push(b, hostTime: h0 + AVAudioTime.hostTime(forSeconds: 1.2)) }
+let added = gt.samples - before
+check(abs(added - (16_000 + 1_600)) <= 40, "1 s away filled: \(added)")
+let at = gt.sample(atHostTime: h0 + AVAudioTime.hostTime(forSeconds: 1.25))
+check(abs(at - (before + 16_000 + 800)) <= 40, "host time maps onto the track: \(at) vs \(before + 16_800)")
+gt.close()
+try? FileManager.default.removeItem(at: tmp2)
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

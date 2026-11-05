@@ -4,9 +4,11 @@
 //   transcribing  the mic through AEC3 against the call track, then both tracks re-transcribed
 //                 whole (the live lines are drafts of this)
 //   diarizing     the call track's voices told apart (sherpa-onnx; R_S1.. labels, mic = M_S1)
-//   naming        mt-autoname's rules (`<agent home>/.omp/tools/mt-autoname.ts`): the mic is the
+//   naming        the meeting app's own names first (namesFromCall: who its window marked as
+//                 talking during each voice's turns, and the names the live transcript gave), then
+//                 mt-autoname's rules (`<agent home>/.omp/tools/mt-autoname.ts`): the mic is the
 //                 human, a calendar 1:1 or a two-person Slack DM names the remote voice, group
-//                 calls keep raw labels. No voice library, so a wrong name is never learned.
+//                 calls keep raw labels.
 //   summarizing   headless Claude (Sonnet, no tools) writes Summary .. Open Questions
 //
 // Output: `<protocols dir>/<YYYYMMDD_HHMM>_<slug>_<id8>.md` plus the `.txt` transcript. In shadow
@@ -15,12 +17,13 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { meetingClock, type LiveLine } from "@relay/protocol";
+import { meetingClock, MEETING_SAMPLE_RATE as SR, type LiveLine } from "@relay/protocol";
 import { z } from "zod";
 import type { ToolRun } from "../reviews/exec";
 import type { Asr, Segment, Turn } from "./asr";
 import { ECHO_WINDOW_MS, ownSpeech, triples } from "./echo";
 import type { AfterCall } from "./service";
+import { SpeakerTimeline, type PlatformSample } from "./speakers";
 import type { RecordingMeta, RecordingStore } from "./store";
 
 /** The parts of mt-autoname.ts this uses (it keeps its side effects behind import.meta.main). */
@@ -85,6 +88,67 @@ export function labelSegments(segments: readonly Segment[], turns: readonly Turn
     }
     return { start: s.start, end: s.end, label: `R_S${String(speaker)}`, text: s.text };
   });
+}
+
+/** Below this share of a voice's talk, the window's or the live view's name is not given to it. */
+const NAME_SHARE = 0.5;
+/** A segment the window marked as one person for at least this share of it is theirs outright. */
+const SEGMENT_SHARE = 0.7;
+
+/**
+ * The call's own names for the after-call voices: each `R_S` label gets the name the window marked
+ * as talking for most of its turns (or, with no window, the name most of its live lines carried),
+ * and a segment the window marked as one person is that person whatever its label. Answers the
+ * relabelled segments (outright ones carry the name as their label), the label names, and everyone
+ * the window showed.
+ */
+export function namesFromCall(
+  remote: readonly Utterance[],
+  turns: readonly Turn[],
+  samples: readonly PlatformSample[],
+  live: readonly LiveLine[],
+): { remote: Utterance[]; names: Record<string, string>; roster: string[] } {
+  const timeline = new SpeakerTimeline();
+  for (const s of samples) timeline.addSample(s);
+  const votes = new Map<string, Map<string, number>>();
+  const vote = (label: string, name: string, seconds: number): void => {
+    const by = votes.get(label) ?? new Map<string, number>();
+    by.set(name, (by.get(name) ?? 0) + seconds);
+    votes.set(label, by);
+  };
+  for (const t of turns) {
+    const label = `R_S${String(t.speaker)}`;
+    const marked = timeline.marked(t.start * SR, t.end * SR);
+    for (const [name, n] of marked) vote(label, name, n / SR);
+    if (marked.size > 0) continue;
+    for (const l of live) {
+      if (l.track !== "app" || !l.final || /^(Speaker \d+|Remote)$/.test(l.speaker)) continue;
+      const overlap = Math.min(t.end, l.endMs / 1000) - Math.max(t.start, l.startMs / 1000);
+      if (overlap > 0) vote(label, l.speaker, overlap);
+    }
+  }
+  const names: Record<string, string> = {};
+  for (const [label, by] of votes) {
+    let total = 0;
+    let best = "";
+    let most = 0;
+    for (const [name, s] of by) {
+      total += s;
+      if (s > most) {
+        best = name;
+        most = s;
+      }
+    }
+    if (most >= 2 && most / total >= NAME_SHARE) names[label] = best;
+  }
+  const relabelled = remote.map((u) => {
+    const marked = timeline.marked(u.start * SR, u.end * SR);
+    const length = (u.end - u.start) * SR;
+    if (marked.size !== 1 || length <= 0) return u;
+    const [name, n] = [...marked][0] ?? ["", 0];
+    return n / length >= SEGMENT_SHARE ? { ...u, label: name } : u;
+  });
+  return { remote: relabelled, names, roster: [...timeline.roster].sort() };
 }
 
 /** Mic segments with the call's echo taken out (the same word-run rule as the live view). */
@@ -254,7 +318,7 @@ export class MeetingPipeline implements AfterCall {
 
   async run(
     meta: RecordingMeta,
-    _live: readonly LiveLine[],
+    live: readonly LiveLine[],
     qa: readonly { question: string; answer: string }[],
     report: { stage(stage: RecordingMeta["stage"], error?: string): void },
   ): Promise<{ stem: string } | null> {
@@ -278,7 +342,13 @@ export class MeetingPipeline implements AfterCall {
     }
     report.stage("diarizing");
     const turns = app.length === 0 ? [] : await asr.diarize(appWav);
-    const remote = labelSegments(app, turns);
+    const call = namesFromCall(
+      labelSegments(app, turns),
+      turns,
+      this.deps.store.speakers(meta.id).samples,
+      live,
+    );
+    const remote = call.remote;
     const own = micUtterances(mic, app);
     report.stage("naming");
     const context =
@@ -300,7 +370,8 @@ export class MeetingPipeline implements AfterCall {
             speakers.map((s) => [s.label, s.label.startsWith("M_") ? this.deps.human : s.label]),
           )
         : autoname.autoMapping(speakers, this.deps.human, false, context?.remoteName);
-    const names = { ...mapped, ...meta.names };
+    // The app's names over the calendar's; Isaac's own fixes over everything.
+    const names = { ...mapped, ...call.names, ...meta.names };
     report.stage("summarizing");
     const transcript = transcriptLines([...own, ...remote], names);
     const title = meta.title ?? `${meta.app} call`;
@@ -310,6 +381,8 @@ export class MeetingPipeline implements AfterCall {
     let md = `# Meeting Protocol - ${title}\n**Date:** ${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}\n**Time:** ${pad(d.getHours())}:${pad(d.getMinutes())}\n`;
     if (context !== null && autoname !== null) md = autoname.withAttendees(md, context);
     else if (context !== null) md += `${context.annotation}\n`;
+    else if (call.roster.length > 0)
+      md += `**Attendees:** ${[this.deps.human, ...call.roster].join(", ")} (from the call)\n`;
     md += `\n---\n\n${sections}\n`;
     if (qa.length > 0)
       md += `\n## Questions asked during the call\n\n${qa.map((q) => `**Q:** ${q.question}\n\n${q.answer.trim()}`).join("\n\n")}\n`;

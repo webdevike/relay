@@ -1,0 +1,50 @@
+
+voice only (no window), at each final: 80.1% of 915 words
+hyp \ truth              David   Marco   Priya     Ted
+Remote                      15      26       9       4
+Speaker 2                    6       6       0      13
+Speaker 3 (=Ted)             3       7      14     245
+Speaker 4                    0       0       1       1
+Speaker 5 (=David)          98       1       0       1
+Speaker 6 (=Marco)           1     275      30      21
+Speaker 7                    1       1       1       1
+Speaker 8 (=Priya)           1       4     115      14
+
+voice only (no window), end of call: 80.1% of 915 words
+hyp \ truth              David   Marco   Priya     Ted
+Remote                      15      26       9       4
+Speaker 2                    6       6       0      13
+Speaker 3 (=Ted)             3       7      14     245
+Speaker 4                    0       0       1       1
+Speaker 5 (=David)          98       1       0       1
+Speaker 6 (=Marco)           1     275      30      21
+Speaker 7                    1       1       1       1
+Speaker 8 (=Priya)           1       4     115      14
+
+window frames, at each final: 90.1% of 915 words
+hyp \ truth              David   Marco   Priya     Ted
+David Taylor               120       2       2       3
+Marco Ruiz                   0     306      31      18
+Priya Shah                   2       4     135      16
+Ted Plaisted                 3       8       2     263
+
+window frames, end of call: 90.3% of 915 words
+hyp \ truth              David   Marco   Priya     Ted
+David Taylor               120       2       2       3
+Marco Ruiz                   0     306      29      18
+Priya Shah                   2       4     137      16
+Ted Plaisted                 3       8       2     263
+
+window frames + captions, at each final: 90.4% of 915 words
+hyp \ truth              David   Marco   Priya     Ted
+David Taylor               120       2       3       2
+Marco Ruiz                   0     310      29      18
+Priya Shah                   2       5     131      14
+Ted Plaisted                 3       3       7     266
+
+window frames + captions, end of call: 90.6% of 915 words
+hyp \ truth              David   Marco   Priya     Ted
+David Taylor               119       1       0       1
+Marco Ruiz                   1     312      29      20
+Priya Shah                   2       6     134      15
+Ted Plaisted                 3       1       7     264

@@ -4,10 +4,16 @@ One process per host, models kept loaded while there is work and dropped after 1
 JSON lines on stdin are commands, JSON lines on stdout are events.
 
 Live (one session per recording):
-  {"op":"open","meeting":ID}
+  {"op":"open","meeting":ID,"human":NAME}   NAME: the mic's owner, never a remote voice's name
   {"op":"audio","meeting":ID,"track":"app"|"mic","at":SAMPLE,"pcm":"<base64 s16le 16 kHz mono>"}
+  {"op":"learn","meeting":ID,"label":N,"name":NAME}   the meeting app named voice N: remember it
   {"op":"close","meeting":ID}            flushes the open utterances as finals, then {"ev":"closed"}
   -> {"ev":"line","meeting":ID,"track":T,"id":"mic-3","start":SAMPLE,"end":SAMPLE,"text":"...","final":bool}
+     (app finals also carry "words": [[start, end, word], ...] in samples)
+  -> {"ev":"turns","meeting":ID,"id":LINE,"turns":[{start,end,speaker:N}],"names":{"N":NAME}}
+     after each app final: who spoke when inside it, as call-wide voice labels (2, 3, ...), and
+     the labels a known voice print names (relay_speakers.py; RELAY_ASR_MODELS, RELAY_VOICES and
+     RELAY_MT_SPEAKERS in the environment)
 
   The mic runs through WebRTC AEC3 (livekit's AudioProcessingModule) with the app track as the
   far end, so speaker bleed is cancelled before it is heard. Each track is cut into utterances by
@@ -82,6 +88,10 @@ class Model:
 
     def decode(self, audio: np.ndarray):
         """Sentences [(start s, end s, text)] of one utterance (float32 samples)."""
+        return self.decode_words(audio)[0]
+
+    def decode_words(self, audio: np.ndarray):
+        """Sentences [(start s, end s, text)] and words [(start s, end s, text)] of one utterance."""
         import mlx.core as mx
 
         if self.pk is None:
@@ -92,17 +102,25 @@ class Model:
             log(f"loaded {MODEL} in {time.perf_counter() - t0:.1f} s")
         self.last_used = time.monotonic()
         if len(audio) < SR // 10:
-            return []
+            return [], []
         from parakeet_mlx.audio import get_logmel
 
         mel = get_logmel(mx.array(audio), self.pk.preprocessor_config)
-        out = []
+        out, words = [], []
         for r in self.pk.generate(mel):
             for s in r.sentences:
                 text = s.text.strip()
                 if text:
                     out.append((float(s.start), float(s.end), text))
-        return out
+                for t in s.tokens:
+                    # A token starting with a space starts a word; the rest continue it.
+                    if t.text.startswith(" ") or not words:
+                        if t.text.strip():
+                            words.append([float(t.start), float(t.end), t.text.strip()])
+                    else:
+                        words[-1][1] = float(t.end)
+                        words[-1][2] += t.text
+        return out, [tuple(w) for w in words]
 
     def maybe_unload(self):
         if self.pk is not None and time.monotonic() - self.last_used > IDLE_UNLOAD_S:
@@ -259,6 +277,21 @@ sessions: dict[str, Session] = {}
 sessions_lock = threading.Lock()
 live_work: "queue.Queue" = queue.Queue()
 jobs: "queue.Queue" = queue.Queue()
+# Live speaker labels on the call track (relay_speakers.py); None when its models are missing.
+speakers = None
+
+
+def start_speakers():
+    global speakers
+    import relay_speakers as rsp
+
+    models = os.environ.get("RELAY_ASR_MODELS", os.path.join(os.path.dirname(os.path.abspath(__file__)), "models"))
+    need = [rsp.EMBED_MODEL, rsp.SEGMENT_MODEL]
+    missing = [m for m in need if not os.path.exists(os.path.join(models, m))]
+    if missing:
+        log(f"live speaker labels off: {', '.join(missing)} not in {models} (run setup.sh)")
+        return
+    speakers = rsp.LiveSpeakers(models, emit, os.environ.get("RELAY_VOICES") or None, os.environ.get("RELAY_MT_SPEAKERS") or None)
 
 
 def scan(session: Session, track: TrackState, flush: bool):
@@ -305,9 +338,13 @@ def scan(session: Session, track: TrackState, flush: bool):
 def run_live(item):
     kind, meeting, track_name, line_id, start, end, audio = item
     if kind == "closed":
-        emit({"ev": "closed", "meeting": meeting})
+        # After the speaker thread has labelled everything queued before it.
+        if speakers is not None:
+            speakers.close(meeting, lambda: emit({"ev": "closed", "meeting": meeting}))
+        else:
+            emit({"ev": "closed", "meeting": meeting})
         return
-    sents = model.decode(audio)
+    sents, words = model.decode_words(audio)
     text = " ".join(s[2] for s in sents).strip()
     with sessions_lock:
         s = sessions.get(meeting)
@@ -318,7 +355,13 @@ def run_live(item):
         emit({"ev": "line", "meeting": meeting, "track": track_name, "id": line_id, "start": start, "end": end, "text": "", "final": True})
         return
     if text:
-        emit({"ev": "line", "meeting": meeting, "track": track_name, "id": line_id, "start": start, "end": end, "text": text, "final": kind == "final"})
+        line = {"ev": "line", "meeting": meeting, "track": track_name, "id": line_id, "start": start, "end": end, "text": text, "final": kind == "final"}
+        if kind == "final" and track_name == "app":
+            # Word times (samples) so the host can split a line where the speaker changes.
+            line["words"] = [[start + int(w[0] * SR), start + int(w[1] * SR), w[2]] for w in words]
+        emit(line)
+        if kind == "final" and track_name == "app" and speakers is not None:
+            speakers.put(meeting, line_id, start, audio)
 
 
 class TranscribeJob:
@@ -513,6 +556,12 @@ def handle(msg):
         with sessions_lock:
             if msg["meeting"] not in sessions:
                 sessions[msg["meeting"]] = Session(msg["meeting"], int(msg.get("app", 0)), int(msg.get("mic", 0)))
+        if speakers is not None:
+            speakers.open(msg["meeting"], str(msg.get("human", "")))
+    elif op == "learn":
+        # The meeting app named this voice for most of its talk: Relay's voices file gets its print.
+        if speakers is not None:
+            speakers.learn(msg["meeting"], int(msg["label"]), str(msg["name"]))
     elif op == "audio":
         with sessions_lock:
             s = sessions.get(msg["meeting"])
@@ -547,6 +596,7 @@ def handle(msg):
 
 def main():
     threading.Thread(target=gpu_loop, daemon=True).start()
+    start_speakers()
     emit({"ev": "ready", "model": MODEL})
     for line in sys.stdin:
         line = line.strip()

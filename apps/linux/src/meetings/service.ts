@@ -45,8 +45,9 @@ import type {
   MeetingsRelaying,
 } from "../seams";
 import type { SessionClock } from "../session";
-import type { Asr, WorkerLine } from "./asr";
+import type { Asr, WorkerLine, WorkerTurns } from "./asr";
 import { LiveTranscript } from "./live";
+import { PlatformSampleSchema, type PlatformSample } from "./speakers";
 import {
   publicRecording,
   RETENTION_DAYS,
@@ -63,6 +64,9 @@ export const ACK_MS = 1_000;
 const LIVE_EMIT_MS = 250;
 /** A recording this long in is real enough to look up its calendar event (not a device test). */
 export const CONTEXT_AFTER_MS = 60_000;
+/** A voice the meeting app named for this long, at this share of its talk, is learned as that person. */
+const LEARN_MIN_S = 20;
+const LEARN_SHARE = 0.8;
 
 /** What happens after a call (pipeline.ts); `stage` moves the page along, `notes` is the file read for the page. */
 export interface AfterCall {
@@ -364,6 +368,7 @@ export class MeetingsService implements MeetingsRelaying {
     if (typeof hello["title"] === "string" && m.title === null) m.title = hello["title"];
     const dir = this.deps.store.dir(m.id);
     for (const t of TRACKS) conn.have[t] = samplesOf(dir, t);
+    conn.haveSpeakers = this.deps.store.speakers(m.id).rows;
     conn.sendAcks();
     if (m.stage === "recording" && this.deps.asr !== null) {
       this.liveOf(m).open = this.openWorker(m.id, conn.have.app, conn.have.mic);
@@ -373,7 +378,7 @@ export class MeetingsService implements MeetingsRelaying {
   }
 
   private openWorker(id: string, app: number, mic: number): boolean {
-    this.deps.asr?.open(id, app, mic);
+    this.deps.asr?.open(id, app, mic, this.deps.human);
     return this.deps.asr !== null;
   }
 
@@ -381,10 +386,14 @@ export class MeetingsService implements MeetingsRelaying {
     let l = this.live.get(m.id);
     if (l === undefined) {
       l = {
-        transcript: new LiveTranscript(this.deps.store.lines(m.id), {
-          mic: this.deps.human,
-          app: () => this.deps.store.load(m.id)?.context?.remoteName ?? "Remote",
-        }),
+        transcript: new LiveTranscript(
+          this.deps.store.lines(m.id),
+          {
+            mic: this.deps.human,
+            remoteName: () => this.deps.store.load(m.id)?.context?.remoteName,
+          },
+          this.deps.store.speakers(m.id).samples,
+        ),
         pending: new Map(),
         flush: null,
         open: false,
@@ -449,11 +458,45 @@ export class MeetingsService implements MeetingsRelaying {
   /** A worker line: into the live transcript, kept when final, out to every device shortly. */
   line(w: WorkerLine): void {
     const l = this.live.get(w.meeting);
-    if (l === undefined) return;
-    const changed = l.transcript.apply(w);
+    if (l !== undefined) this.publish(w.meeting, l, l.transcript.apply(w));
+  }
+
+  /** The worker's voice turns inside a call-track final: its speakers, maybe others renamed. */
+  turns(t: WorkerTurns): void {
+    const l = this.live.get(t.meeting);
+    if (l !== undefined) this.publish(t.meeting, l, l.transcript.turns(t));
+  }
+
+  /**
+   * `meeting.speakers {from, lines}`: the Mac's window samples from its line `from` on. Kept in
+   * order (a resend of what is here is skipped), acked, and named into the live transcript.
+   */
+  speakerLines(conn: Conn, msg: Record<string, unknown>): void {
+    const from = typeof msg["from"] === "number" ? msg["from"] : -1;
+    const lines = Array.isArray(msg["lines"]) ? (msg["lines"] as unknown[]) : [];
+    if (from < 0 || from > conn.haveSpeakers) return;
+    const fresh = lines.slice(conn.haveSpeakers - from);
+    if (fresh.length === 0) return;
+    const rows = fresh.map((x) => {
+      const r = PlatformSampleSchema.safeParse(x);
+      return r.success ? r.data : null;
+    });
+    this.deps.store.appendSpeakers(conn.grant.id, rows);
+    conn.haveSpeakers += rows.length;
+    const l = this.live.get(conn.grant.id);
+    if (l !== undefined)
+      this.publish(
+        conn.grant.id,
+        l,
+        l.transcript.platform(rows.filter((r): r is PlatformSample => r !== null)),
+      );
+  }
+
+  /** Changed lines: finals kept, all out to every device within LIVE_EMIT_MS. */
+  private publish(id: string, l: Live, changed: readonly LiveLine[]): void {
     if (changed.length === 0) return;
     this.deps.store.appendLines(
-      w.meeting,
+      id,
       changed.filter((c) => c.final),
     );
     for (const c of changed) l.pending.set(c.id, c);
@@ -464,7 +507,7 @@ export class MeetingsService implements MeetingsRelaying {
       for (let i = 0; i < upsert.length; i += 200)
         this.deps.broadcast({
           t: "meeting.live",
-          id: w.meeting,
+          id,
           rev: l.transcript.rev,
           upsert: upsert.slice(i, i + 200),
         });
@@ -477,7 +520,7 @@ export class MeetingsService implements MeetingsRelaying {
       const m = this.deps.store.load(id);
       if (m?.stage !== "recording" || !l.open) continue;
       const c = this.sockets.get(id);
-      this.deps.asr?.open(id, c?.have.app ?? 0, c?.have.mic ?? 0);
+      this.deps.asr?.open(id, c?.have.app ?? 0, c?.have.mic ?? 0, this.deps.human);
     }
   }
 
@@ -518,6 +561,9 @@ export class MeetingsService implements MeetingsRelaying {
     try {
       const live = this.live.get(id);
       if (live?.open === true) {
+        // Voices the meeting app named for most of their talk teach Relay's voice prints.
+        for (const s of live.transcript.timeline.settled(LEARN_MIN_S, LEARN_SHARE))
+          this.deps.asr?.learn(id, s.voice, s.name);
         await this.deps.asr?.close(id);
         live.open = false;
         this.deps.onLiveChange?.();
@@ -748,6 +794,8 @@ function idOfUrl(url: string): string | null {
 /** One ingest socket: frames to the store and the worker, acks back. */
 export class Conn implements IngestConnection {
   readonly have: Record<TrackName, number> = { app: 0, mic: 0 };
+  /** Window speaker lines held (`speakers.jsonl` rows). */
+  haveSpeakers = 0;
   private helloSeen = false;
   private readonly ackTimer: NodeJS.Timeout;
 
@@ -765,6 +813,7 @@ export class Conn implements IngestConnection {
     TRACKS.forEach((t, i) => {
       this.peer.sendText({ t: "ack", track: i, upTo: this.have[t] });
     });
+    this.peer.sendText({ t: "ack.speakers", upTo: this.haveSpeakers });
   }
 
   text(raw: string): void {
@@ -779,6 +828,8 @@ export class Conn implements IngestConnection {
       this.service.hello(this, msg);
     } else if (msg["t"] === "meeting.health") {
       this.service.health(this.grant.id, msg["state"], msg["detail"]);
+    } else if (msg["t"] === "meeting.speakers") {
+      if (this.helloSeen) this.service.speakerLines(this, msg);
     } else if (msg["t"] === "meeting.end") {
       this.service.ended(this, msg);
     }
