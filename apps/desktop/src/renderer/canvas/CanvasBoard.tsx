@@ -24,7 +24,13 @@ import {
 import { Button } from '@mantine/core'
 import { IconSparkles } from '@tabler/icons-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import type { CanvasBoard as BoardFile, CanvasNode, CanvasViewport } from '@evaos/contract'
+import type {
+  CanvasBoard as BoardFile,
+  CanvasNode,
+  CanvasPage,
+  CanvasViewport,
+  InvokeInput,
+} from '@evaos/contract'
 import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
 import { invoke, on } from '../ipc'
 import {
@@ -41,11 +47,12 @@ import {
   titleOf,
 } from './board-model'
 import { onBoardOp } from './canvas-store'
-import { liveRoomOn, liveStore } from './live/live-store'
+import { liveRoomOn, liveStore, useLiveRooms } from './live/live-store'
 import { CanvasEdge } from './CanvasEdge'
 import { BoardContext, type BoardActions } from './context'
 import { BoardControls, NodeActions, ToolBar, type Tool } from './chrome'
 import { CanvasCard } from './cards/CanvasCard'
+import { PagePanel } from './PagePanel'
 import { Lightbox } from './Lightbox'
 import { boardImages } from './lightbox-model'
 import {
@@ -62,6 +69,9 @@ import { place, type Point, type Size } from './layout'
 
 const NODE_TYPES = { card: CanvasCard }
 const EDGE_TYPES = { link: CanvasEdge }
+/** The board's first page: the one a board opens on, and the only one a plain board has. */
+const FIRST_PAGE = 'page-1'
+const FIRST_PAGE_TITLE = 'Page 1'
 
 /** How long edits settle before the board saves. */
 const SAVE_DELAY = 1000
@@ -127,7 +137,19 @@ function saveLabel(state: SaveState): string {
   return typeof state === 'object' ? `not saved: ${state.error}` : state
 }
 
-function Board({ slug }: { slug: string }) {
+function Board({
+  slug,
+  page,
+  pages,
+  onPage,
+  onPages,
+}: {
+  slug: string
+  page: string
+  pages: readonly CanvasPage[]
+  onPage: (page: string) => void
+  onPages: (pages: CanvasPage[]) => void
+}) {
   const flow = useReactFlow<CardNode, LinkEdge>()
   const initialized = useNodesInitialized()
   const [nodes, setNodes] = useState<CardNode[]>([])
@@ -161,6 +183,11 @@ function Board({ slug }: { slug: string }) {
   /** A viewport the board moved to on its own (a rescue fit on open); reaching it doesn't save. */
   const quietViewRef = useRef<CanvasViewport | null>(null)
   const autoRef = useRef<AutoPlaced | null>(null)
+  /** The pages' latest list, for callbacks that must not rebuild when it changes. */
+  const onPagesRef = useRef(onPages)
+  onPagesRef.current = onPages
+  /** Whether a live room holds the board: its pages can be read but not changed from here. */
+  const liveOn = useLiveRooms((s) => liveRoomOn(s.data, slug) !== null)
 
   const snapshot = useCallback((): Snapshot<BoardDoc> => {
     const doc = docRef.current
@@ -202,14 +229,14 @@ function Board({ slug }: { slug: string }) {
       return
     }
     setSave('saving')
-    const r = await invoke('canvas.save', { slug, board })
+    const r = await invoke('canvas.save', { slug, board, page })
     if (goneRef.current) return
     if (r.ok) {
       syncedRef.current = key
       // A newer edit keeps the board unsaved until its own save.
       if (timerRef.current === undefined) setSave('saved')
     } else setSave({ error: r.error.message })
-  }, [viewToSave, slug])
+  }, [viewToSave, slug, page])
 
   const scheduleSave = useCallback(() => {
     if (goneRef.current) return
@@ -276,10 +303,16 @@ function Board({ slug }: { slug: string }) {
   useEffect(() => {
     let live = true
     goneRef.current = false
-    void invoke('canvas.load', { slug }).then((r) => {
+    void invoke('canvas.load', { slug, page }).then((r) => {
       if (!live) return
       if (!r.ok) {
         setFailure(r.error.code === 'not-found' ? 'This board is gone.' : r.error.message)
+        return
+      }
+      onPagesRef.current(r.value.pages)
+      // A page the file no longer has: show the one it gives instead (a fresh load of that page).
+      if (r.value.page !== page) {
+        onPage(r.value.page)
         return
       }
       syncedRef.current = JSON.stringify(r.value.board)
@@ -296,29 +329,38 @@ function Board({ slug }: { slug: string }) {
     return () => {
       live = false
     }
-  }, [slug, apply, flow, saveIfChanged])
+  }, [slug, page, onPage, apply, flow, saveIfChanged])
 
   // Leaving the board saves what is pending.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // The effect reruns when `saveNow` changes, which is not leaving the board.
+    unmountedRef.current = false
+    return () => {
       unmountedRef.current = true
       if (timerRef.current !== undefined) {
         clearTimeout(timerRef.current)
         void saveNow()
       }
-    },
-    [saveNow],
-  )
+    }
+  }, [saveNow])
 
   const reload = useCallback(async () => {
     reloadPendingRef.current = false
-    const r = await invoke('canvas.load', { slug })
+    const r = await invoke('canvas.load', { slug, page })
     if (goneRef.current) return
     if (!r.ok) {
       if (r.error.code === 'not-found') {
         goneRef.current = true
         setFailure('This board is gone.')
       } else setSave({ error: `file not loaded: ${r.error.message}` })
+      return
+    }
+    onPagesRef.current(r.value.pages)
+    // The page was deleted outside: the board moves to the page the file shows instead.
+    if (r.value.page !== page) {
+      clearTimeout(timerRef.current)
+      timerRef.current = undefined
+      onPage(r.value.page)
       return
     }
     const key = JSON.stringify(r.value.board)
@@ -329,7 +371,41 @@ function Board({ slug }: { slug: string }) {
     apply(r.value.board)
     setSave('saved')
     saveIfChanged()
-  }, [apply, saveIfChanged, slug])
+  }, [apply, saveIfChanged, slug, page, onPage])
+
+  /** Saves what is pending, so a page switch or page operation starts from the file as it is. */
+  const flush = useCallback(async () => {
+    if (timerRef.current === undefined) return
+    clearTimeout(timerRef.current)
+    await saveNow()
+  }, [saveNow])
+
+  /** Switching pages saves this one first; the next page loads in a fresh board (undo starts over). */
+  const switchTo = useCallback(
+    async (id: string) => {
+      await flush()
+      onPage(id)
+    },
+    [flush, onPage],
+  )
+
+  const pageOp = useCallback(
+    async (op: Omit<InvokeInput<'canvas.pages'>, 'slug'>) => {
+      if (liveOn) return
+      await flush()
+      const r = await invoke('canvas.pages', { slug, ...op })
+      if (goneRef.current || unmountedRef.current) return
+      if (!r.ok) {
+        setSave({ error: r.error.message })
+        return
+      }
+      onPagesRef.current(r.value.pages)
+      const moved =
+        op.op === 'add' || op.op === 'duplicate' || (op.op === 'delete' && op.page === page)
+      if (moved && r.value.page !== page) onPage(r.value.page)
+    },
+    [flush, liveOn, onPage, page, slug],
+  )
 
   // An outside edit reloads the board, after any drag in progress.
   useEffect(
@@ -765,14 +841,29 @@ function Board({ slug }: { slug: string }) {
           tabIndex={-1}
           onKeyDown={onKeyDown}
           onPointerDownCapture={(e) => {
-            if (!(e.target as HTMLElement).closest('input, textarea'))
+            if (!(e.target as HTMLElement).closest('input, textarea, [data-cv-pages]'))
               wrapRef.current?.focus({ preventScroll: true })
           }}
           onMouseDownCapture={(e) => {
             // The board's own buttons leave keyboard focus on the board, so its keys keep working.
-            if ((e.target as HTMLElement).closest('button')) e.preventDefault()
+            if (
+              (e.target as HTMLElement).closest('button') &&
+              !(e.target as HTMLElement).closest('[data-cv-pages]')
+            )
+              e.preventDefault()
           }}
         >
+          <PagePanel
+            pages={pages}
+            page={page}
+            editable={!liveOn && loaded}
+            onSwitch={(id) => void switchTo(id)}
+            onAdd={() => void pageOp({ op: 'add', page })}
+            onRename={(id, t) => void pageOp({ op: 'rename', page: id, title: t })}
+            onMove={(id, to) => void pageOp({ op: 'move', page: id, to })}
+            onDuplicate={(id) => void pageOp({ op: 'duplicate', page: id })}
+            onDelete={(id) => void pageOp({ op: 'delete', page: id })}
+          />
           <ReactFlow<CardNode, LinkEdge>
             nodes={nodes}
             edges={edges}
@@ -861,11 +952,25 @@ function Board({ slug }: { slug: string }) {
   )
 }
 
-/** The open board, one per tab. */
-export function CanvasBoardView({ slug }: { slug: string }) {
+/** The pages' state outlives a board's remount: switching pages loads that page afresh. */
+function BoardSession({ slug }: { slug: string }) {
+  const [page, setPage] = useState(FIRST_PAGE)
+  const [pages, setPages] = useState<CanvasPage[]>([{ id: FIRST_PAGE, title: FIRST_PAGE_TITLE }])
   return (
     <ReactFlowProvider>
-      <Board key={slug} slug={slug} />
+      <Board
+        key={`${slug}:${page}`}
+        slug={slug}
+        page={page}
+        pages={pages}
+        onPage={setPage}
+        onPages={setPages}
+      />
     </ReactFlowProvider>
   )
+}
+
+/** The open board, one per tab. */
+export function CanvasBoardView({ slug }: { slug: string }) {
+  return <BoardSession key={slug} slug={slug} />
 }

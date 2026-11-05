@@ -26,24 +26,23 @@ describe('board text', () => {
     expect(() => parseBoard('{"version": 2}')).toThrow(
       expect.objectContaining({ code: 'invalid-data' }),
     )
-    expect(() => parseBoard('{"nodes": [{"id": "a", "type": "blob"}]}')).toThrow(
+    expect(() => parseBoard('{"nodes": [{"id": "a", "type": "two words"}]}')).toThrow(
       expect.objectContaining({ code: 'invalid-data' }),
     )
     expect(() => parseBoard('{')).toThrow(expect.objectContaining({ code: 'invalid-data' }))
     expect(parseBoard('{"title": "x"}')).toEqual({ version: 1, title: 'x', nodes: [], edges: [] })
   })
 
-  it('drops unknown fields, empty data and empty swatches like serde', () => {
+  it('drops empty data and empty swatches like serde', () => {
     const board = parseBoard(
       JSON.stringify({
         title: 't',
-        extra: true,
         nodes: [
-          { id: 'a', type: 'note', data: {}, z: 1 },
+          { id: 'a', type: 'note', data: {} },
           { id: 'b', type: 'palette', data: { colors: [] } },
-          { id: 'c', type: 'note', x: 1.5, data: { title: '', weird: 1 } },
+          { id: 'c', type: 'note', x: 1.5, data: { title: '' } },
         ],
-        edges: [{ id: 'e', source: 'a', target: 'c', curve: 'x' }],
+        edges: [{ id: 'e', source: 'a', target: 'c' }],
       }),
     )
     expect(boardText(board)).toBe(

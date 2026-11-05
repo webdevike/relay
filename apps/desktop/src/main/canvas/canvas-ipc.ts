@@ -30,9 +30,12 @@ export function registerCanvasIpc(ctx: MainContext): void {
   })
 
   handle(ctx, 'canvas.list', async () => ({ entries: await store.list() }))
-  handle(ctx, 'canvas.load', ({ slug }) => store.load(slug))
+  handle(ctx, 'canvas.load', ({ slug, page }) => store.load(slug, page))
   // `handle` hands over the parsed input, so the board's defaults (version, nodes...) are filled.
-  handle(ctx, 'canvas.save', ({ slug, board }) => store.save(slug, board as CanvasBoard))
+  handle(ctx, 'canvas.save', ({ slug, board, page }) =>
+    store.save(slug, board as CanvasBoard, page),
+  )
+  handle(ctx, 'canvas.pages', ({ slug, ...op }) => store.pages(slug, op))
   handle(ctx, 'canvas.create', () => store.create())
   handle(ctx, 'canvas.rename', ({ slug, title }) => store.rename(slug, title))
   handle(ctx, 'canvas.delete', ({ slug }) => store.remove(slug))

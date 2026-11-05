@@ -80,6 +80,11 @@ export const CanvasEdgeSchema = z.object({
 
 export const CanvasViewportSchema = z.object({ x: Coord, y: Coord, zoom: Coord })
 
+/** A page id (canvas-live `PAGE_ID`): what the board file accepts. */
+export const CanvasPageIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
+export const CanvasPageSchema = z.object({ id: CanvasPageIdSchema, title: z.string().max(500) })
+export type CanvasPage = z.output<typeof CanvasPageSchema>
+
 export const CanvasBoardSchema = z.object({
   version: z.number().int().min(0).max(CANVAS_VERSION).default(CANVAS_VERSION),
   title: Text.default(''),
@@ -113,12 +118,42 @@ export const canvasInvoke = {
     output: z.object({ entries: z.array(CanvasEntrySchema).max(10_000) }),
   },
   'canvas.load': {
-    input: z.object({ slug: CanvasSlugSchema }).strict(),
-    output: z.object({ board: CanvasBoardSchema, text: z.string() }),
+    input: z.object({ slug: CanvasSlugSchema, page: CanvasPageIdSchema.optional() }).strict(),
+    output: z.object({
+      board: CanvasBoardSchema,
+      text: z.string(),
+      pages: z.array(CanvasPageSchema).min(1).max(100),
+      page: CanvasPageIdSchema,
+    }),
   },
   'canvas.save': {
-    input: z.object({ slug: CanvasSlugSchema, board: CanvasBoardSchema }).strict(),
+    input: z
+      .object({
+        slug: CanvasSlugSchema,
+        board: CanvasBoardSchema,
+        page: CanvasPageIdSchema.optional(),
+      })
+      .strict(),
     output: z.object({ saved: z.boolean() }),
+  },
+  'canvas.pages': {
+    input: z
+      .object({
+        slug: CanvasSlugSchema,
+        op: z.enum(['add', 'rename', 'move', 'duplicate', 'delete']),
+        /** The page the op acts on (add: the page the new one goes after, default last). */
+        page: CanvasPageIdSchema.optional(),
+        title: z.string().max(500).optional(),
+        to: z.number().int().min(0).max(100).optional(),
+        /** The new page's id for add and duplicate (default: a fresh one). */
+        id: CanvasPageIdSchema.optional(),
+      })
+      .strict(),
+    output: z.object({
+      pages: z.array(CanvasPageSchema).min(1).max(100),
+      /** The page to show after the op: the new page, a neighbor of a deleted one, else the one acted on. */
+      page: CanvasPageIdSchema,
+    }),
   },
   'canvas.create': {
     input: z.object({}).strict(),

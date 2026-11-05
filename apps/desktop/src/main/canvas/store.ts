@@ -3,9 +3,20 @@ import * as path from 'node:path'
 import { createPathQueue } from '@evaos/eva-core'
 import { atomicWrite } from '@evaos/eva-core/fs/atomic-write'
 import { CANVAS_VERSION, type CanvasBoard, type CanvasEntry } from '@evaos/contract'
-import type { Board } from '@relay/canvas-live/board'
+import { duplicatePage, exportBoard, seedDoc, type Board } from '@relay/canvas-live/board'
+import {
+  FIRST_PAGE,
+  addPage,
+  cleanTitle,
+  deletePage,
+  movePage,
+  newPageId,
+  pagesOf,
+  renamePage,
+} from '@relay/canvas-live/pages'
+import * as Y from 'yjs'
 import type { ConfigStore } from '../config-store'
-import { boardText, coded, overFile, parseBoard } from './board-text'
+import { boardText, coded, overFile, pageView, parseBoard, type PageRef } from './board-text'
 
 const SLUG = /^[a-z0-9-]{1,80}$/
 const PINS = 'canvas.json'
@@ -38,13 +49,40 @@ export interface CanvasStoreOptions {
   nativePins?: string | null
 }
 
+/** What `load` hands over: the board as one page shows it, plus the page list. */
+export interface CanvasLoad {
+  board: CanvasBoard
+  pages: PageRef[]
+  /** The page `board` carries. */
+  page: string
+  text: string
+}
+
+/**
+ * One page operation. `page` is the page it acts on (add: the page the new one goes after,
+ * default last); `id` picks the new page's id for add and duplicate (default: a fresh one).
+ */
+export interface PageOp {
+  op: 'add' | 'rename' | 'move' | 'duplicate' | 'delete'
+  page?: string | undefined
+  title?: string | undefined
+  to?: number | undefined
+  id?: string | undefined
+}
+
 export interface CanvasStore {
   readonly dir: string
   /** Boards newest first, with the pinned flag. */
   list(): Promise<CanvasEntry[]>
-  load(slug: string): Promise<{ board: Board; text: string }>
-  /** Writes the Canvas page's board, keeping what the file has that the page does not show (threads, pages). */
-  save(slug: string, board: CanvasBoard): Promise<{ saved: boolean }>
+  /** `page` is the page to show; a missing or unknown one shows the first. */
+  load(slug: string, page?: string): Promise<CanvasLoad>
+  /**
+   * Writes the Canvas page's board to `page` (default page-1), keeping what the file has that the
+   * page does not show (threads, the other pages).
+   */
+  save(slug: string, board: CanvasBoard, page?: string): Promise<{ saved: boolean }>
+  /** Page operations; `page` of the result is the page to show next. */
+  pages(slug: string, op: PageOp): Promise<{ pages: PageRef[]; page: string }>
   create(): Promise<{ slug: string }>
   rename(slug: string, title: string): Promise<{ saved: true }>
   remove(slug: string): Promise<{ deleted: true }>
@@ -124,7 +162,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       } catch {
         continue
       }
-      let board: CanvasBoard | null = null
+      let board: Board | null = null
       try {
         board = parseBoard(text)
       } catch {
@@ -142,14 +180,18 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     return entries
   }
 
-  async function load(slug: string): Promise<{ board: Board; text: string }> {
+  async function load(slug: string, page?: string): Promise<CanvasLoad> {
     const text = await readText(slug)
     if (text === null) throw coded(`No board ${slug}.`, 'not-found')
-    return { board: parseBoard(text), text }
+    return { ...pageView(parseBoard(text), page), text }
   }
 
   /** Native `save`: writes only when the text differs from the file on disk. */
-  function save(slug: string, board: CanvasBoard): Promise<{ saved: boolean }> {
+  function save(
+    slug: string,
+    board: CanvasBoard,
+    page: string = FIRST_PAGE,
+  ): Promise<{ saved: boolean }> {
     return queue.run(slug, async () => {
       const disk = await readText(slug)
       let file: Board | null = null
@@ -158,13 +200,75 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       } catch {
         file = null
       }
-      const text = boardText(overFile(board, file))
+      const text = boardText(overFile(board, file, page))
       if (disk === text) {
         written.set(slug, text)
         return { saved: false }
       }
       await writeText(slug, text)
       return { saved: true }
+    })
+  }
+
+  /** Adds, renames, moves, duplicates or deletes a page, as one write of the whole board. */
+  function pages(slug: string, op: PageOp): Promise<{ pages: PageRef[]; page: string }> {
+    return queue.run(slug, async () => {
+      const disk = await readText(slug)
+      if (disk === null) throw coded(`No board ${slug}.`, 'not-found')
+      const doc = new Y.Doc()
+      seedDoc(doc, parseBoard(disk))
+      const before = pagesOf(doc)
+      const at = (id: string | undefined): number => before.findIndex((p) => p.id === id)
+      const refuse = (what: string): Error => coded(what, 'invalid-input')
+      const known = (id: string | undefined): string => {
+        if (id === undefined || at(id) < 0) throw refuse(`No page ${id ?? ''}.`)
+        return id
+      }
+      let shown: string
+      switch (op.op) {
+        case 'add': {
+          const id = op.id ?? newPageId()
+          if (!addPage(doc, id, cleanTitle(op.title ?? '', before.length + 1), op.page)) {
+            throw refuse('This board cannot take another page.')
+          }
+          shown = id
+          break
+        }
+        case 'duplicate': {
+          const id = op.id ?? newPageId()
+          if (!duplicatePage(doc, known(op.page), id, op.title ?? '')) {
+            throw refuse('This board cannot take another page.')
+          }
+          shown = id
+          break
+        }
+        case 'rename': {
+          const id = known(op.page)
+          if (!renamePage(doc, id, cleanTitle(op.title ?? '', at(id) + 1))) {
+            throw refuse(`No page ${id}.`)
+          }
+          shown = id
+          break
+        }
+        case 'move': {
+          const id = known(op.page)
+          if (op.to === undefined || !movePage(doc, id, op.to)) throw refuse(`No page ${id}.`)
+          shown = id
+          break
+        }
+        case 'delete': {
+          const id = known(op.page)
+          if (!deletePage(doc, id)) throw refuse('A board keeps at least one page.')
+          const left = before.filter((p) => p.id !== id)
+          shown = left[Math.min(at(id), left.length - 1)]!.id
+          break
+        }
+      }
+      const text = boardText(exportBoard(doc))
+      if (text !== disk) await writeText(slug, text)
+      else written.set(slug, text)
+      const result = pageView(parseBoard(text), shown)
+      return { pages: result.pages, page: result.page }
     })
   }
 
@@ -188,8 +292,10 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
   /** Native `retitle` for a board that is not open: rewrites the title only. */
   function rename(slug: string, title: string): Promise<{ saved: true }> {
     return queue.run(slug, async () => {
-      const { board } = await load(slug)
-      await writeText(slug, boardText({ ...board, title }))
+      const text = await readText(slug)
+      if (text === null) throw coded(`No board ${slug}.`, 'not-found')
+      // The whole file (every page, threads, keys Relay does not know), not the page view `load` gives.
+      await writeText(slug, boardText({ ...parseBoard(text), title }))
       return { saved: true as const }
     })
   }
@@ -228,6 +334,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     list,
     load,
     save,
+    pages,
     create,
     rename,
     remove,

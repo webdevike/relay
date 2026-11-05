@@ -150,6 +150,106 @@
   height: 1px;
   margin: calc(var(--mantine-spacing-md) * 0.25) 0;
 }
+
+/* Pages: the button top left of the board, and its list. */
+.eva-cv-pages {
+  position: absolute;
+  top: var(--mantine-spacing-xs);
+  left: var(--mantine-spacing-xs);
+  z-index: 6;
+}
+.eva-cv-pages-button {
+  max-width: 220px;
+  color: var(--eva-c-foreground);
+  font-weight: var(--eva-fw-semibold);
+  border: 1px solid transparent;
+}
+.eva-cv-pages-button:hover,
+.eva-cv-pages-button[aria-expanded='true'] {
+  border-color: var(--eva-c-border);
+}
+.eva-cv-pages-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-cv-pages-pop {
+  min-width: 220px;
+  max-width: 320px;
+  padding: calc(var(--mantine-spacing-md) * 0.25);
+  background: var(--eva-c-popover-background);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-card-radius);
+}
+.eva-cv-page-row,
+.eva-cv-page-add {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.25);
+  width: 100%;
+  min-height: var(--eva-control-xs);
+  padding: 0 calc(var(--mantine-spacing-md) * 0.25);
+  border: 1px solid transparent;
+  border-radius: var(--eva-radius-sm);
+  background: none;
+  color: var(--eva-c-foreground);
+  font: inherit;
+  font-size: var(--eva-fz-body);
+  text-align: left;
+  cursor: pointer;
+}
+.eva-cv-page-row:hover,
+.eva-cv-page-add:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--eva-c-foreground) 6%, transparent);
+}
+.eva-cv-page-row[data-over='true'] {
+  border-color: var(--eva-c-foreground);
+}
+.eva-cv-page-add {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-page-add:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.eva-cv-page-mark {
+  flex: none;
+  width: 14px;
+  display: inline-flex;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-page-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-cv-page-title[data-here='true'] {
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-cv-page-input {
+  flex: 1;
+  min-width: 0;
+}
+.eva-cv-page-menu {
+  flex: none;
+  visibility: hidden;
+}
+.eva-cv-page-row:hover .eva-cv-page-menu,
+.eva-cv-page-row:focus-within .eva-cv-page-menu,
+.eva-cv-page-menu[aria-expanded='true'] {
+  visibility: visible;
+}
+.eva-cv-page-confirm {
+  margin: 0 0 var(--mantine-spacing-md);
+  font-size: var(--eva-fz-body);
+}
+.eva-cv-page-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--eva-gap);
+}
 .eva-cv-minimap {
   border-radius: var(--eva-card-radius);
   border: 1px solid var(--eva-c-border);

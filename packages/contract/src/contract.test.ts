@@ -359,6 +359,7 @@ describe('contract', () => {
         'canvas.list',
         'canvas.load',
         'canvas.save',
+        'canvas.pages',
         'canvas.create',
         'canvas.rename',
         'canvas.delete',
