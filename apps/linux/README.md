@@ -146,6 +146,16 @@ and speaks the extension's protocol (`hello` with `parentId`, `canRespond: false
 state, the transcript as `conversation` and live `messages` appends, `end` clears it). A real mirror that arrives
 later replaces it. It is read-only: a reply or stop answers that the helper is read from its transcript.
 
+An assistant's own sessions (auto-work, delegated work: the omp has `RELAY_OWNER` set, which the extension reports as
+`owner`) belong to its thread: they list under it, their helpers are its activity chips, and `assistant:<id>`'s
+Artifacts read their transcripts (`threadFiles` adds every live session it owns, so a helper shows in either profile).
+A profiled omp (`OMP_PROFILE`, `--profile`) does not discover `~/.omp/agent/extensions`, so a session started under one
+without `--extension relay-bridge.ts` never reaches the host. `src/agents/owned-sessions.ts` reads those from the
+assistant's record (`<agent home>/work/eva/agents/<id>/sessions.json`: open entries whose transcript, in any profile's
+`sessions` folder, was written in the last 6 hours) and the same mirrors register each as a top-level read-only session
+(`hello` with `owner` and `sessionFile`, no `parentId`; `working` while the file is written, else `idle`), after which its
+helpers follow like any other thread's. A real extension that connects later replaces it.
+
 The bridge socket (`$RELAY_AGENTS_SOCKET`, default `$XDG_RUNTIME_DIR` or `/tmp` `/relay-agents.sock`) belongs to one
 host: it writes `<socket>.pid`, and a second host that finds that pid alive refuses to start. A test or proof
 host must set its own `RELAY_AGENTS_SOCKET`; binding the default path unlinks the live host's socket, and every
