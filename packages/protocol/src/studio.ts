@@ -246,9 +246,9 @@ export const StudioRid = z.string().min(1).max(64);
  * that are not objects, or name no backend, are left for `item` to judge.
  */
 function withoutUnknownBackends<T extends z.ZodTypeAny>(items: z.ZodArray<T>, backendOf: (entry: Record<string, unknown>) => unknown) {
-  return z.preprocess((value) => {
+  return z.preprocess((value: unknown) => {
     if (!Array.isArray(value)) return value;
-    return value.filter((entry: unknown) => {
+    return (value as unknown[]).filter((entry) => {
       if (typeof entry !== "object" || entry === null) return true;
       const backend = backendOf(entry as Record<string, unknown>);
       return typeof backend !== "string" || StudioBackendId.safeParse(backend).success;
@@ -256,8 +256,10 @@ function withoutUnknownBackends<T extends z.ZodTypeAny>(items: z.ZodArray<T>, ba
   }, items);
 }
 
-const specBackend = (job: Record<string, unknown>): unknown =>
-  typeof job.spec === "object" && job.spec !== null ? (job.spec as Record<string, unknown>).backend : undefined;
+const specBackend = (job: Record<string, unknown>): unknown => {
+  const spec = job["spec"];
+  return typeof spec === "object" && spec !== null ? (spec as Record<string, unknown>)["backend"] : undefined;
+};
 
 export const StudioState = z.object({
   /** Newest first. Jobs on a backend this build does not know are dropped. */
@@ -265,7 +267,7 @@ export const StudioState = z.object({
   /** Newest first. */
   uploads: z.array(StudioAsset).max(MAX_STUDIO_UPLOADS),
   /** Backends this build does not know are dropped. */
-  backends: withoutUnknownBackends(z.array(StudioBackend).max(10), (backend) => backend.id),
+  backends: withoutUnknownBackends(z.array(StudioBackend).max(10), (backend) => backend["id"]),
 });
 export type StudioState = z.infer<typeof StudioState>;
 

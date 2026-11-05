@@ -141,7 +141,7 @@
 .eva-studio-preset {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
   border: 1px solid var(--eva-c-border);
   border-radius: var(--eva-radius, 6px);
