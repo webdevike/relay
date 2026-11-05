@@ -1,4 +1,4 @@
-import { chmodSync, lstatSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as Y from "yjs";
@@ -75,7 +75,7 @@ describe("SkillRoom", () => {
     const { home, room: opened } = room(".claude/skills/gamma/SKILL.md");
     const real = join(home.home, ".agents/skills/gamma/SKILL.md");
     chmodSync(real, 0o640);
-    expect(opened.realFile).toBe(real.replace(/^\/var\//, "/private/var/"));
+    expect(opened.realFile).toBe(realpathSync(real));
     textWith(opened.sync.doc, "Body of gamma").insert(0, "Saved ");
     const savedAt = opened.save();
     expect(readFileSync(real, "utf8")).toBe(skillText("gamma", "Gamma skill").replace("Body of gamma", "Saved Body of gamma"));
