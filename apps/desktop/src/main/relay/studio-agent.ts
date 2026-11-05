@@ -83,6 +83,13 @@ export function studioRunners(
       const state = relay.studio() ?? (await relay.studioList())
       if (state === null) fail('relay-unavailable', "Relay isn't connected, so Studio can't run.")
       const { backend, mode } = pickBackend(state.backends, params)
+      const models = backend.models?.filter((m) => m.mode === mode) ?? []
+      if (models.length > 0 && !models.some((m) => m.id === params.model)) {
+        fail(
+          'invalid-params',
+          `Pick a model of ${backend.label}: ${models.map((m) => m.id).join(', ')}`,
+        )
+      }
       const aspect = params.aspect ?? (mode === 'video' ? '16:9' : '1:1')
       const offered = studioResolutions(backend, aspect, params.model)
       const resolution = params.resolution ?? offered[0]?.id
@@ -104,6 +111,7 @@ export function studioRunners(
         frames: params.frames,
         refs: params.refs,
         model: params.model,
+        params: params.params,
       })
       if (!spec.success) fail('invalid-params', spec.error.message)
       const answer = await relay.studioRequest({ kind: 'create', spec: spec.data, origin: 'agent' })

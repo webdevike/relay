@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { StudioAsset, StudioBackend, StudioJob } from "@relay/protocol";
-import { draftSpec, EMPTY_DRAFT, formProblem, studioForm, type StudioDraft } from "@/studio/draft";
+import { draftSpec, EMPTY_DRAFT, formProblem, stepParam, studioForm, type StudioDraft } from "@/studio/draft";
 import { useStudioStore } from "./studio";
 
 const res = (id: string, aspect: "9:16" | "16:9" | "1:1") => ({ id, label: id, aspect });
@@ -177,5 +177,73 @@ describe("formProblem and draftSpec", () => {
 
   it("an edit needs a reference", () => {
     expect(formProblem(studioForm(draft({ backend: "codex-edit", prompt: "x" }), backends))).toBe("Add a reference image to edit");
+  });
+});
+
+describe("ComfyUI presets", () => {
+  const size = { resolutions: [res("1024x1024", "9:16")], seconds: [], frames: [] };
+  const comfy: StudioBackend = {
+    ...codexImage,
+    id: "comfyui",
+    label: "ComfyUI",
+    refs: 2,
+    models: [
+      {
+        id: "angles",
+        name: "Angles",
+        mode: "image",
+        ...size,
+        refs: 1,
+        inputs: [
+          { kind: "choice", id: "angle", label: "Angle", options: [{ id: "low", label: "Low" }, { id: "high", label: "High" }], default: "low" },
+          { kind: "number", id: "strength", label: "Strength", min: 0, max: 1, step: 0.1, default: 0.5 },
+        ],
+      },
+      { id: "upscale", name: "Upscale", mode: "image", ...size, refs: 1, prompt: false },
+      { id: "pair", name: "Pair", mode: "image", ...size, refs: 2, minRefs: 2 },
+      { id: "plain", name: "Plain", mode: "image", ...size, refs: 0 },
+    ],
+  };
+  const all = [...backends, comfy];
+  const onComfy = (patch: Partial<StudioDraft>) => draft({ backend: "comfyui", ...patch });
+
+  it("drops params the model doesn't list when the model switches", () => {
+    useStudioStore.setState({ backends: all, draft: onComfy({ model: "angles", params: { angle: "high", strength: 0.8, stale: 1 } }) });
+    expect(studioForm(useStudioStore.getState().draft, all).draft.params).toEqual({ angle: "high", strength: 0.8 });
+    useStudioStore.getState().patchDraft({ model: "upscale" });
+    expect(useStudioStore.getState().draft.params).toEqual({});
+    useStudioStore.getState().patchDraft({ model: "angles" });
+    expect(useStudioStore.getState().draft.params).toEqual({});
+  });
+
+  it("sends params only when there are some", () => {
+    const some = studioForm(onComfy({ model: "angles", prompt: "x", refs: ["r"], params: { angle: "high" } }), all);
+    expect(draftSpec(some)?.params).toEqual({ angle: "high" });
+    expect(draftSpec(studioForm(onComfy({ model: "angles", prompt: "x", refs: ["r"] }), all))).not.toHaveProperty("params");
+  });
+
+  it("a preset without a prompt sends its name and doesn't ask for one", () => {
+    const form = studioForm(onComfy({ model: "upscale", prompt: "", refs: ["r"] }), all);
+    expect(form.takesPrompt).toBe(false);
+    expect(formProblem(form)).toBeUndefined();
+    expect(draftSpec(form)).toMatchObject({ prompt: "Upscale", model: "upscale", refs: ["r"] });
+  });
+
+  it("enforces the model's reference minimum and maximum", () => {
+    expect(formProblem(studioForm(onComfy({ model: "angles", prompt: "x" }), all))).toBe("Add a reference image to edit");
+    const pair = onComfy({ model: "pair", prompt: "x", refs: ["a"] });
+    expect(formProblem(studioForm(pair, all))).toBe("Add 2 reference images");
+    expect(formProblem(studioForm({ ...pair, refs: ["a", "b"] }, all))).toBeUndefined();
+    expect(studioForm(onComfy({ model: "angles", prompt: "x", refs: ["a", "b"] }), all).refLimit).toBe(1);
+    expect(draftSpec(studioForm(onComfy({ model: "angles", prompt: "x", refs: ["a", "b"] }), all))?.refs).toEqual(["a"]);
+    // A model that takes no references needs none.
+    expect(formProblem(studioForm(onComfy({ model: "plain", prompt: "x" }), all))).toBeUndefined();
+  });
+
+  it("steps a number input inside its range", () => {
+    const strength = { kind: "number", id: "strength", label: "Strength", min: 0, max: 1, step: 0.1, default: 0.5 } as const;
+    expect(stepParam(strength, 0.7, 1)).toBe(0.8);
+    expect(stepParam(strength, 1, 1)).toBe(1);
+    expect(stepParam(strength, 0, -1)).toBe(0);
   });
 });

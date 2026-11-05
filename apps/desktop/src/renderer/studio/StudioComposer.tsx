@@ -8,11 +8,13 @@ import {
   Select,
   Textarea,
   Tooltip,
+  UnstyledButton,
 } from '@mantine/core'
 import { IconDice5, IconSparkles } from '@tabler/icons-react'
 import {
   STUDIO_ASPECTS,
   studioFrameSlots,
+  studioRefs,
   studioResolutions,
   studioSeconds,
   type StudioAspect,
@@ -20,10 +22,11 @@ import {
   type StudioBackend,
   type StudioBackendId,
   type StudioFrameSlot,
+  type StudioInput,
   type StudioMode,
 } from '@evaos/contract'
 import { creditsLabel as credits } from './studio-assets'
-import type { StudioForm, StudioSlot } from './studio-form'
+import { formModel, type StudioForm, type StudioSlot } from './studio-form'
 import { StudioSlotTile } from './StudioSlotTile'
 
 const SLOT_LABEL: Record<StudioFrameSlot, string> = {
@@ -74,31 +77,35 @@ export function StudioComposer({
   const ofMode = backends.filter((b) => b.mode === form.mode)
   const byId = new Map(ofMode.map((b) => [b.id, b]))
   const models = backend?.models?.filter((m) => m.mode === form.mode) ?? []
+  const preset = formModel(form, backend)
+  const presetCards = backend?.id === 'comfyui' || backend?.id === 'comfyui-video'
   const resolutions = backend ? studioResolutions(backend, form.aspect, model) : []
   const lengths = backend && form.mode === 'video' ? studioSeconds(backend, model) : []
   const slots = backend && form.mode === 'video' ? studioFrameSlots(backend, model) : []
-  const refSlots = backend && backend.mode === 'image' ? backend.refs : 0
+  const refSlots = backend && backend.mode === 'image' ? studioRefs(backend, model).max : 0
   const set = (patch: Partial<StudioForm>): void => onChange((f) => ({ ...f, ...patch }))
   return (
     <div className="eva-studio-composer" data-testid="studio-composer">
-      <Textarea
-        aria-label="Prompt"
-        placeholder={
-          form.mode === 'video' ? 'Describe the video to make' : 'Describe the image to make'
-        }
-        autosize
-        minRows={3}
-        maxRows={12}
-        value={form.prompt}
-        data-testid="studio-prompt"
-        onChange={(e) => set({ prompt: e.currentTarget.value })}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && problem === null && !busy) {
-            e.preventDefault()
-            onGenerate()
+      {preset?.prompt === false ? null : (
+        <Textarea
+          aria-label="Prompt"
+          placeholder={
+            form.mode === 'video' ? 'Describe the video to make' : 'Describe the image to make'
           }
-        }}
-      />
+          autosize
+          minRows={3}
+          maxRows={12}
+          value={form.prompt}
+          data-testid="studio-prompt"
+          onChange={(e) => set({ prompt: e.currentTarget.value })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && problem === null && !busy) {
+              e.preventDefault()
+              onGenerate()
+            }
+          }}
+        />
+      )}
       <SegmentedControl<StudioMode>
         fullWidth
         value={form.mode}
@@ -138,7 +145,39 @@ export function StudioComposer({
         }}
         onChange={(id) => id && set({ backend: id })}
       />
-      {models.length > 0 ? (
+      {presetCards && models.length > 0 ? (
+        <div className="eva-studio-field">
+          <span className="eva-studio-label">Preset</span>
+          <div className="eva-studio-presets" data-testid="studio-presets">
+            {models.map((m) => (
+              <UnstyledButton
+                key={m.id}
+                className="eva-studio-preset"
+                data-active={m.id === form.model ? 'true' : undefined}
+                data-testid={`studio-preset-${m.id}`}
+                aria-pressed={m.id === form.model}
+                onClick={() => set({ model: m.id })}
+              >
+                <span className="eva-studio-preset-name">{m.name}</span>
+                {m.description ? (
+                  <span className="eva-studio-preset-note">{m.description}</span>
+                ) : null}
+              </UnstyledButton>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {preset?.inputs?.map((input) => (
+        <PresetInput
+          key={input.id}
+          input={input}
+          value={form.params[input.id] ?? input.default}
+          onChange={(value) =>
+            onChange((f) => ({ ...f, params: { ...f.params, [input.id]: value } }))
+          }
+        />
+      ))}
+      {!presetCards && models.length > 0 ? (
         <div className="eva-studio-field">
           <Select
             label="Model"
@@ -319,12 +358,69 @@ export function StudioComposer({
           <span className="eva-studio-error" data-testid="studio-error">
             {error}
           </span>
-        ) : problem && form.prompt.trim() !== '' ? (
+        ) : problem && (preset?.prompt === false || form.prompt.trim() !== '') ? (
           <span className="eva-studio-faint" data-testid="studio-problem">
             {problem}
           </span>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+/** One of a preset's own inputs: chips for a short choice, a menu for a long one, a number box. */
+function PresetInput({
+  input,
+  value,
+  onChange,
+}: {
+  input: StudioInput
+  value: string | number
+  onChange: (value: string | number) => void
+}) {
+  if (input.kind === 'number') {
+    return (
+      <div className="eva-studio-field">
+        <span className="eva-studio-label">{input.label}</span>
+        <NumberInput
+          aria-label={input.label}
+          data-testid={`studio-param-${input.id}`}
+          min={input.min}
+          max={input.max}
+          step={input.step}
+          clampBehavior="strict"
+          decimalScale={4}
+          value={value}
+          onChange={(v) => typeof v === 'number' && onChange(v)}
+        />
+      </div>
+    )
+  }
+  if (input.options.length > 6) {
+    return (
+      <Select
+        label={input.label}
+        data-testid={`studio-param-${input.id}`}
+        value={String(value)}
+        allowDeselect={false}
+        comboboxProps={{ withinPortal: true, zIndex: 300 }}
+        data={input.options.map((o) => ({ value: o.id, label: o.label }))}
+        onChange={(v) => v && onChange(v)}
+      />
+    )
+  }
+  return (
+    <div className="eva-studio-field">
+      <span className="eva-studio-label">{input.label}</span>
+      <Chip.Group multiple={false} value={String(value)} onChange={(v) => onChange(v)}>
+        <Group gap="xs" data-testid={`studio-param-${input.id}`}>
+          {input.options.map((o) => (
+            <Chip key={o.id} value={o.id} size="xs">
+              {o.label}
+            </Chip>
+          ))}
+        </Group>
+      </Chip.Group>
     </div>
   )
 }

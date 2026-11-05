@@ -9,7 +9,7 @@ import { spacing } from "@/theme";
 import { OptionRow } from "@/ui/OptionRow";
 import { Sheet } from "@/ui/Sheet";
 import { Text } from "@/ui/Text";
-import { draftSpec, studioForm, type StudioDraft } from "./draft";
+import { draftSpec, isPresetBackend, studioForm, type StudioDraft } from "./draft";
 import { fetchQuote, type Quote } from "./quote";
 
 export interface ModelSheetProps {
@@ -24,9 +24,10 @@ export function ModelSheet({ visible, draft, backends, onPick, onClose }: ModelS
   const form = studioForm(draft, backends);
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
   const ids = form.models.map((m) => m.id).join("\n");
+  const paid = form.backend?.paid === true;
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || !paid) return;
     let live = true;
     for (const model of form.models) {
       const spec = draftSpec(studioForm({ ...draft, model: model.id }, backends));
@@ -43,18 +44,21 @@ export function ModelSheet({ visible, draft, backends, onPick, onClose }: ModelS
 
   const balance = Object.values(quotes).find((quote) => quote.ok && quote.balance !== undefined);
   const credits = balance?.ok === true ? balance.balance : form.backend?.balance;
+  const preset = isPresetBackend(form.backend?.id);
 
   return (
     <Sheet visible={visible} onClose={onClose}>
       <View style={{ gap: spacing.sm, paddingTop: spacing.sm }}>
-        <Text variant="title">Model</Text>
-        <Text variant="caption" color="textMuted">
-          {draft.prompt.trim().length === 0
-            ? "Type a prompt to see what each model costs."
-            : credits === undefined
-              ? "Prices for these settings."
-              : `Prices for these settings. ${credits} credits left.`}
-        </Text>
+        <Text variant="title">{preset ? "Preset" : "Model"}</Text>
+        {paid && (
+          <Text variant="caption" color="textMuted">
+            {draft.prompt.trim().length === 0
+              ? "Type a prompt to see what each model costs."
+              : credits === undefined
+                ? "Prices for these settings."
+                : `Prices for these settings. ${credits} credits left.`}
+          </Text>
+        )}
         <View style={{ gap: spacing.sm, marginTop: spacing.xs }}>
           {form.models.map((model) => {
             const quote = quotes[model.id];
@@ -62,6 +66,7 @@ export function ModelSheet({ visible, draft, backends, onPick, onClose }: ModelS
               <OptionRow
                 key={model.id}
                 label={model.name}
+                description={model.description}
                 selected={model.id === form.model?.id}
                 badge={quote === undefined ? undefined : quote.ok ? `${quote.credits} credits` : "No price"}
                 onPress={() => {

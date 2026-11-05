@@ -15,7 +15,8 @@ import { Pill } from "@/ui/Pill";
 import { SegmentedTabs } from "@/ui/SegmentedTabs";
 import { Text } from "@/ui/Text";
 import { TextField } from "@/ui/TextField";
-import { STUDIO_ASPECTS, type StudioDraft, type StudioForm, type StudioTarget } from "./draft";
+import { isPresetBackend, STUDIO_ASPECTS, type StudioDraft, type StudioForm, type StudioTarget } from "./draft";
+import { PresetInputs } from "./PresetInputs";
 import type { Quote } from "./quote";
 
 const SLOT_COLUMNS = 3;
@@ -44,6 +45,7 @@ export function Composer({ form, assets, base, quote, uploading, onPatch, onAdd,
   const { width } = useWindowDimensions();
   const slotSize = Math.floor((width - spacing.xl * 2 - spacing.md * (SLOT_COLUMNS - 1)) / SLOT_COLUMNS);
   const { draft, backend } = form;
+  const isPreset = isPresetBackend(backend?.id);
   const thumb = (id: string | undefined) => {
     const asset = id === undefined ? undefined : assets.get(id);
     return asset === undefined || base === null ? null : `${base}${asset.thumb}`;
@@ -56,15 +58,17 @@ export function Composer({ form, assets, base, quote, uploading, onPatch, onAdd,
   return (
     <View style={{ gap: spacing.lg }}>
       <View style={{ paddingHorizontal: spacing.xl, gap: spacing.md }}>
-        <TextField
-          value={draft.prompt}
-          onChangeText={(prompt) => {
-            onPatch({ prompt });
-          }}
-          placeholder={draft.mode === "image" ? "Describe the image" : "Describe the video"}
-          accessibilityLabel="Prompt"
-          multiline
-        />
+        {form.takesPrompt && (
+          <TextField
+            value={draft.prompt}
+            onChangeText={(prompt) => {
+              onPatch({ prompt });
+            }}
+            placeholder={draft.mode === "image" ? "Describe the image" : "Describe the video"}
+            accessibilityLabel="Prompt"
+            multiline
+          />
+        )}
         <SegmentedTabs
           tabs={MODES}
           value={draft.mode}
@@ -95,8 +99,8 @@ export function Composer({ form, assets, base, quote, uploading, onPatch, onAdd,
       {form.model !== undefined && (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Model, ${form.model.name}`}
-          accessibilityHint="Choose a model"
+          accessibilityLabel={`${isPreset ? "Preset" : "Model"}, ${form.model.name}`}
+          accessibilityHint={isPreset ? "Choose a preset" : "Choose a model"}
           onPress={onOpenModels}
           style={({ pressed }) => ({
             minHeight: 52,
@@ -109,7 +113,7 @@ export function Composer({ form, assets, base, quote, uploading, onPatch, onAdd,
         >
           <View style={{ flex: 1, gap: 2 }}>
             <Text variant="caption" color="textMuted">
-              Model
+              {isPreset ? "Preset" : "Model"}
             </Text>
             <Text variant="title" numberOfLines={1}>
               {form.model.name}
@@ -120,6 +124,16 @@ export function Composer({ form, assets, base, quote, uploading, onPatch, onAdd,
           </Text>
           <SymbolView name="chevron.right" size={13} tintColor={colors.textFaint} />
         </Pressable>
+      )}
+
+      {form.inputs.length > 0 && (
+        <PresetInputs
+          inputs={form.inputs}
+          params={draft.params}
+          onChange={(params) => {
+            onPatch({ params });
+          }}
+        />
       )}
 
       <ChipRow
@@ -223,7 +237,7 @@ export function Composer({ form, assets, base, quote, uploading, onPatch, onAdd,
       {form.refLimit > 0 && (
         <View style={{ paddingHorizontal: spacing.xl, gap: spacing.sm }}>
           <Text variant="caption" color="textMuted">
-            {`References, up to ${form.refLimit}`}
+            {form.refMin === form.refLimit ? (form.refLimit === 1 ? "Reference" : `References, ${form.refLimit} needed`) : `References, up to ${form.refLimit}`}
           </Text>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.md }}>
             {draft.refs.slice(0, form.refLimit).map((id, index) => (

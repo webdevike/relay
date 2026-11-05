@@ -424,6 +424,20 @@ Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
   offline from the Hugging Face cache; available only when both exist. Sizes 576x1024, 1024x576, 1024x1024; 24 steps,
   guidance 2.5, optional seed. Shares the GPU queue with LTX (one at a time). About 3 min per 1024x576 image and 25 GB
   of RAM: stop the local Qwen server (`ai.eva.qwen-local`) first when memory is tight. Own process group, like LTX.
+- `comfyui` (free, images) and `comfyui-video` (free, videos): presets on a ComfyUI server, listed as the backend's
+  models like Higgsfield's (cards on desktop, a Preset sheet on the phone). A preset is a folder in
+  `<agent-home>/work/local-higgsfield/presets` (`$RELAY_STUDIO_COMFYUI_PRESETS`): `preset.json` (name, description,
+  sizes, `refs`/`minRefs`, `prompt: false` for no prompt box, `inputs` (choices and numbers sent as `spec.params`),
+  `promptTemplate`, `constants`, `estimateMs`, `family`) beside an API-format `workflow.json` whose values hold
+  `{{prompt}}`, `{{seed}}`, `{{width}}`/`{{height}}`, `{{image}}`..`{{image4}}` and each input id. Folders are read on
+  every refresh and run, and a preset is listed only when the server has every node class and every model file its
+  workflow names (`/object_info`), so a half-installed one never queues. A job uploads its references, posts the graph
+  to `/prompt`, shows the sampler's steps from the websocket, waits on `/history` and downloads the first output; a
+  cancel deletes it from the queue and interrupts it. Switching to a preset of another `family` first asks the server
+  to unload its models (`/free`), and ten idle minutes unload them too, so the Mac's unified memory goes back to LTX,
+  Kontext and Qwen. `comfyui` runs on `http://127.0.0.1:8188` (`$RELAY_STUDIO_COMFYUI_URL`) in the GPU queue with
+  LTX and Kontext; `comfyui-video` on `http://127.0.0.1:18188` (`$RELAY_STUDIO_COMFYUI_VIDEO_URL`, an ssh tunnel to
+  the GPU box's ComfyUI), one job at a time in its own queue.
 - `higgsfield` (paid, video, two at once): Higgsfield's MCP server with the token omp keeps for its Higgsfield tools
   (`~/.omp/profiles/personal/agent/agent.db`, opened read-only and never refreshed; an expired one makes the backend
   unavailable until an omp session renews it). A curated set of models with their own sizes, lengths and keyframe

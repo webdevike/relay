@@ -133,6 +133,42 @@
   color: var(--eva-c-muted-foreground);
   font-size: var(--eva-fz-caption);
 }
+.eva-studio-presets {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mantine-spacing-xs);
+}
+.eva-studio-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius, 6px);
+  background: var(--eva-c-background);
+  text-align: left;
+}
+.eva-studio-preset:hover {
+  background: var(--eva-c-muted-background);
+}
+.eva-studio-preset:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
+}
+.eva-studio-preset[data-active='true'] {
+  border-color: var(--eva-c-accent);
+  background: var(--eva-c-accent-background);
+}
+.eva-studio-preset-name {
+  font-size: var(--eva-fz-label);
+  font-weight: 500;
+  color: var(--eva-c-foreground);
+}
+.eva-studio-preset-note {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-caption);
+  line-height: 1.3;
+}
 .eva-studio-go {
   display: flex;
   flex-direction: column;

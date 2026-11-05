@@ -303,7 +303,7 @@ export class StudioService implements StudioRelaying {
   }
 
   private estimateMs(spec: StudioSpec): number {
-    return baseEstimateMs(spec) * this.store.calibration(spec.backend);
+    return baseEstimateMs(spec, this.backends.get(spec.backend)) * this.store.calibration(spec.backend);
   }
 
   /** Starts every queued job (oldest first) whose pool has room, then updates what the rest wait for. */
@@ -399,7 +399,7 @@ export class StudioService implements StudioRelaying {
         finishedAt: now,
         outputs: [asset],
       });
-      this.store.calibrate(spec.backend, (now - slot.startedAt) / baseEstimateMs(spec));
+      this.store.calibrate(spec.backend, (now - slot.startedAt) / baseEstimateMs(spec, this.backends.get(spec.backend)));
     } catch (error) {
       const current = this.store.job(job.id);
       if (this.stopped || current?.state !== "running") return;
