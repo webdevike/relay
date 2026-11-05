@@ -77,6 +77,8 @@ import { draftKey, useThreadDraft } from "@/state/drafts";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
 import { OWNED_ROW_HEIGHT, OwnedSessions, useOwnedSessionIds } from "@/agents/OwnedSessions";
 import { ActivityBadges } from "@/agents/ActivityBadges";
+import { useActivityStore } from "@/state/activity";
+import { runningSessionIds } from "@/lib/activity";
 import { WidgetCloseProvider } from "@/agents/WidgetActions";
 import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
 
@@ -156,6 +158,12 @@ function Thread({ agent }: { agent: string }) {
   });
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
   const artifactsThread = assistantReactionThread(agent);
+  // A running session is the activity badge's; the header chips list the rest, so none shows twice.
+  const activityItems = useActivityStore((state) => state.items);
+  const chipIds = useMemo(() => {
+    const running = runningSessionIds(activityItems, artifactsThread);
+    return ownedIds === "" ? [] : ownedIds.split(" ").filter((id) => !running.has(id));
+  }, [ownedIds, activityItems, artifactsThread]);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   // The Artifacts tab the sheet opens on: the Working group when a badge was tapped, else wherever it was left.
   const [artifactsTab, setArtifactsTab] = useState<string | null>(null);
@@ -306,7 +314,7 @@ function Thread({ agent }: { agent: string }) {
 
   const dark = useScheme() === "dark";
   const bg = dark ? BG_DARK : colors.bg;
-  const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP + (ownedIds === "" ? 0 : OWNED_ROW_HEIGHT);
+  const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP + (chipIds.length === 0 ? 0 : OWNED_ROW_HEIGHT);
 
   const onComposerLayout = (event: LayoutChangeEvent): void => {
     setComposerHeight(event.nativeEvent.layout.height);
@@ -436,7 +444,7 @@ function Thread({ agent }: { agent: string }) {
               <AvatarRing name={title} portrait={portrait} motion={{ signals, paused: onCall }} />
             </Pressable>
             {/* Sessions this assistant started (auto-work): reached from here, out of the Agent Inbox. */}
-            <OwnedSessions agent={agent} sessionIds={ownedIds === "" ? [] : ownedIds.split(" ")} />
+            <OwnedSessions agent={agent} sessionIds={chipIds} />
             <View style={styles.back}>
               <BackButton
                 onPress={() => {
@@ -482,6 +490,7 @@ function Thread({ agent }: { agent: string }) {
           )}
           <ActivityBadges
             thread={artifactsThread}
+            background={bg}
             onPress={() => {
               Keyboard.dismiss();
               setArtifactsTab("subagents");
