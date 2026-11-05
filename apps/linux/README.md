@@ -138,13 +138,18 @@ was met or dropped is gone. Extensions load once per omp process, so a session s
 extension change keeps reporting what the old code did until it is restarted.
 
 A thread's subagents are sessions of their own (`<thread session id>:<name>`, `parentId` set), so the phone
-can open their transcripts. The extension mirrors each one from the task tool's lifecycle events; when those
-never reach it (an omp that missed them), `src/agents/subagent-mirrors.ts` registers the same session from the
-helper's transcript file: for every helper in `ArtifactService.helpers()` whose thread's session is live and
-that no listed session already covers, it opens one more socket to the bridge and speaks the extension's
-protocol (`hello` with `parentId`, `canRespond: false`, `status` from the helper's state, the transcript as
-`conversation` and live `messages` appends, `end` clears it). A real mirror that arrives later replaces it. It
-is read-only: a reply or stop answers that the helper is read from its transcript.
+can open their transcripts. The extension mirrors each one from the task tool's lifecycle events; when no
+mirror reaches the host (its socket went to another process, see below), `src/agents/subagent-mirrors.ts`
+registers the same session from the helper's transcript file: for every helper in `ArtifactService.helpers()`
+whose thread's session is live and that no listed session already covers, it opens one more socket to the bridge
+and speaks the extension's protocol (`hello` with `parentId`, `canRespond: false`, `status` from the helper's
+state, the transcript as `conversation` and live `messages` appends, `end` clears it). A real mirror that arrives
+later replaces it. It is read-only: a reply or stop answers that the helper is read from its transcript.
+
+The bridge socket (`$RELAY_AGENTS_SOCKET`, default `$XDG_RUNTIME_DIR` or `/tmp` `/relay-agents.sock`) belongs to one
+host: it writes `<socket>.pid`, and a second host that finds that pid alive refuses to start. A test or proof
+host must set its own `RELAY_AGENTS_SOCKET`; binding the default path unlinks the live host's socket, and every
+omp or subagent mirror that connects afterwards reaches the wrong process until the real host restarts.
 
 A `/goal` sent from the phone goes in the form the terminal runs without asking anything back
 (`src/agents/goal.ts`, as EvaOS maps it): `/goal <objective>` sets it, bare `/goal`, `status` and an

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { accountLabel } from "@relay/protocol";
-import { OmpBridgeProvider } from "../src/agents/bridge";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { OmpBridgeProvider, otherHostServing } from "../src/agents/bridge";
 import { AgentsDeltaTracker } from "../src/agents/delta-tracker";
 
 /** Feeds extension frames straight into the provider, past the unix socket. */
@@ -116,6 +120,43 @@ describe("session activity", () => {
     expect(tracker.apply([{ ...base, goal }])).not.toHaveProperty("upsert");
     expect(tracker.apply([{ ...base, goal: { ...goal, tokensUsed: 5000 } }])).toHaveProperty("upsert");
     expect(tracker.apply([base])).toHaveProperty("upsert");
+  });
+});
+
+describe("another host on the bridge socket", () => {
+  const socketPath = (): string => join(mkdtempSync(join(tmpdir(), "bridge-pid-")), "agents.sock");
+
+  it("is a live relay host whose pid file sits beside the socket; a gone, own or unrelated pid is not", () => {
+    const socket = socketPath();
+    expect(otherHostServing(socket)).toBeNull();
+    writeFileSync(`${socket}.pid`, String(process.pid));
+    expect(otherHostServing(socket)).toBeNull();
+    // A process that looks like a host: its command line has `serve`.
+    const host = spawn("sleep", ["30"], { argv0: "relay-host serve" });
+    try {
+      writeFileSync(`${socket}.pid`, String(host.pid));
+      expect(otherHostServing(socket)).toBe(host.pid);
+    } finally {
+      host.kill();
+    }
+    writeFileSync(`${socket}.pid`, String(host.pid));
+    return new Promise<void>((resolve) => {
+      host.once("exit", () => {
+        expect(otherHostServing(socket)).toBeNull();
+        resolve();
+      });
+    });
+  });
+
+  it("ignores a live pid that is some other program", () => {
+    const socket = socketPath();
+    const other = spawn("sleep", ["30"]);
+    try {
+      writeFileSync(`${socket}.pid`, String(other.pid));
+      expect(otherHostServing(socket)).toBeNull();
+    } finally {
+      other.kill();
+    }
   });
 });
 

@@ -13,7 +13,8 @@
 // Sessions are validated with zod at this boundary: a misbehaving extension version can only
 // produce a logged parse error, never a malformed frame on the phone's WebSocket.
 
-import { existsSync, unlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
 import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, AgentGoal, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type CanvasEntry as CanvasEntryT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
 import { z } from "zod";
@@ -130,6 +131,27 @@ interface Connection {
   readonly gone: { readonly promise: Promise<void>; readonly resolve: () => void };
 }
 
+/**
+ * The pid of another live relay host that serves the bridge socket `path`, from the `<path>.pid`
+ * file it wrote; null when there is none, it is this process, it is gone, or its pid now belongs
+ * to some other program.
+ */
+export function otherHostServing(path: string): number | null {
+  let pid: number;
+  try {
+    pid = Number.parseInt(readFileSync(`${path}.pid`, "utf8"), 10);
+  } catch {
+    return null;
+  }
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return null;
+  try {
+    process.kill(pid, 0);
+    return /relay-host|\bserve\b/.test(execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" })) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
 export function defaultSocketPath(): string {
   const override = process.env["RELAY_AGENTS_SOCKET"];
   if (override !== undefined && override.length > 0) return override;
@@ -175,6 +197,11 @@ export class OmpBridgeProvider implements AgentProvider {
 
   start(): void {
     if (this.listening) return;
+    const other = otherHostServing(this.path);
+    if (other !== null) {
+      // Starting would unlink the live host's socket: every omp (and every subagent mirror) that connects afterwards would reach this process instead.
+      throw new Error(`agent bridge socket ${this.path} is already served by relay host pid ${String(other)}; a second host (a test or proof run) needs its own RELAY_AGENTS_SOCKET`);
+    }
     if (existsSync(this.path)) unlinkSync(this.path); // stale socket from a previous run
     const handler: SocketHandler<Connection> = {
       open: (socket) => {
@@ -196,6 +223,11 @@ export class OmpBridgeProvider implements AgentProvider {
       },
     };
     Bun.listen<Connection>({ unix: this.path, socket: handler });
+    const pidFile = `${this.path}.pid`;
+    writeFileSync(pidFile, String(process.pid));
+    process.once("exit", () => {
+      rmSync(pidFile, { force: true });
+    });
     this.listening = true;
     this.listeningSince = Date.now();
   }
