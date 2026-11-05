@@ -112,6 +112,46 @@ export type CanvasViewport = z.output<typeof CanvasViewportSchema>
 export type CanvasBoard = z.output<typeof CanvasBoardSchema>
 export type CanvasEntry = z.output<typeof CanvasEntrySchema>
 
+export const CanvasThreadMessageSchema = z.object({
+  id: z.string().min(1).max(200),
+  kind: z.enum(['human', 'agent']),
+  name: z.string().max(100),
+  color: z.string().max(40),
+  avatar: z.string().max(500).optional(),
+  text: z.string().max(4000),
+  ts: z.number(),
+})
+/** A comment pin and its thread, as a board file keeps it (canvas-live `BoardThread`). */
+export const CanvasThreadSchema = z.object({
+  id: z.string().min(1).max(60),
+  /** The card it is pinned to; x and y are then an offset from the card's top left, else a board point. */
+  node: z.string().max(500).optional(),
+  x: Coord,
+  y: Coord,
+  resolved: z.boolean(),
+  messages: z.array(CanvasThreadMessageSchema).max(1000),
+})
+export type CanvasThreadMessage = z.output<typeof CanvasThreadMessageSchema>
+export type CanvasThread = z.output<typeof CanvasThreadSchema>
+
+/** One change to a page's comment threads. */
+export const CanvasThreadOpSchema = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('open'),
+    node: z.string().max(500).optional(),
+    x: Coord,
+    y: Coord,
+    text: z.string().min(1).max(4000),
+  }),
+  z.object({
+    op: z.literal('post'),
+    thread: z.string().min(1).max(60),
+    text: z.string().min(1).max(4000),
+  }),
+  z.object({ op: z.literal('resolve'), thread: z.string().min(1).max(60), resolved: z.boolean() }),
+])
+export type CanvasThreadOp = z.output<typeof CanvasThreadOpSchema>
+
 export const canvasInvoke = {
   'canvas.list': {
     input: z.object({}).strict(),
@@ -153,6 +193,23 @@ export const canvasInvoke = {
       pages: z.array(CanvasPageSchema).min(1).max(100),
       /** The page to show after the op: the new page, a neighbor of a deleted one, else the one acted on. */
       page: CanvasPageIdSchema,
+    }),
+  },
+  /**
+   * A page's comment threads (the file's own `threads`, kept lossless), after the op when there is
+   * one. `opened` names the thread an `open` made.
+   */
+  'canvas.threads': {
+    input: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        op: CanvasThreadOpSchema.optional(),
+      })
+      .strict(),
+    output: z.object({
+      threads: z.array(CanvasThreadSchema).max(5000),
+      opened: z.string().optional(),
     }),
   },
   'canvas.create': {

@@ -2,8 +2,20 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { createPathQueue } from '@evaos/eva-core'
 import { atomicWrite } from '@evaos/eva-core/fs/atomic-write'
-import { CANVAS_VERSION, type CanvasBoard, type CanvasEntry } from '@evaos/contract'
-import { duplicatePage, exportBoard, seedDoc, type Board } from '@relay/canvas-live/board'
+import {
+  CANVAS_VERSION,
+  type CanvasBoard,
+  type CanvasEntry,
+  type CanvasThread,
+  type CanvasThreadOp,
+} from '@evaos/contract'
+import {
+  duplicatePage,
+  exportBoard,
+  seedDoc,
+  type Board,
+  type BoardThread,
+} from '@relay/canvas-live/board'
 import {
   FIRST_PAGE,
   addPage,
@@ -14,12 +26,15 @@ import {
   pagesOf,
   renamePage,
 } from '@relay/canvas-live/pages'
+import { MAX_THREAD_TEXT, THREAD_ID, newThreadId } from '@relay/canvas-live/threads'
 import * as Y from 'yjs'
 import type { ConfigStore } from '../config-store'
 import { boardText, coded, overFile, pageView, parseBoard, type PageRef } from './board-text'
 
 const SLUG = /^[a-z0-9-]{1,80}$/
 const PINS = 'canvas.json'
+/** Who a comment written on the Canvas page is from (the host's `HUMAN_COLOR` face). */
+const HUMAN = { name: 'Isaac', color: '#0ea5e9' } as const
 
 /** `<slug>.json` in the boards folder; temp files and other names are not boards. */
 export function slugOf(file: string): string | null {
@@ -83,6 +98,15 @@ export interface CanvasStore {
   save(slug: string, board: CanvasBoard, page?: string): Promise<{ saved: boolean }>
   /** Page operations; `page` of the result is the page to show next. */
   pages(slug: string, op: PageOp): Promise<{ pages: PageRef[]; page: string }>
+  /**
+   * A page's comment threads as the file has them, after `op` when given (open a pin, post in a
+   * thread, resolve or reopen one). Written into the file's own `threads`, nothing else touched.
+   */
+  threads(
+    slug: string,
+    page?: string,
+    op?: CanvasThreadOp,
+  ): Promise<{ threads: CanvasThread[]; opened?: string }>
   create(): Promise<{ slug: string }>
   rename(slug: string, title: string): Promise<{ saved: true }>
   remove(slug: string): Promise<{ deleted: true }>
@@ -272,6 +296,98 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     })
   }
 
+  /** The threads and nodes of `page` in `file`; throws `invalid-input` for a page it does not have. */
+  function pageContent(
+    file: Board,
+    page: string,
+  ): { nodes: ReadonlySet<string>; threads: BoardThread[] } {
+    if (page === FIRST_PAGE) {
+      return { nodes: new Set(file.nodes.map((n) => n.id)), threads: file.threads ?? [] }
+    }
+    const entry = file.pages?.find((p) => p.id === page)
+    if (!entry) throw coded(`No page ${page}.`, 'invalid-input')
+    return { nodes: new Set((entry.nodes ?? []).map((n) => n.id)), threads: entry.threads ?? [] }
+  }
+
+  /** `file` with `page`'s threads replaced. */
+  function withThreads(file: Board, page: string, threads: BoardThread[]): Board {
+    if (page === FIRST_PAGE) return { ...file, threads }
+    return { ...file, pages: file.pages!.map((p) => (p.id === page ? { ...p, threads } : p)) }
+  }
+
+  function threads(
+    slug: string,
+    page: string = FIRST_PAGE,
+    op?: CanvasThreadOp,
+  ): Promise<{ threads: CanvasThread[]; opened?: string }> {
+    return queue.run(slug, async () => {
+      const disk = await readText(slug)
+      if (disk === null) throw coded(`No board ${slug}.`, 'not-found')
+      const file = parseBoard(disk)
+      const content = pageContent(file, page)
+      let list = content.threads
+      let opened: string | undefined
+      if (op) {
+        const refuse = (what: string): Error => coded(what, 'invalid-input')
+        const now = Date.now()
+        const message = (text: string): BoardThread['messages'][number] => ({
+          id: `c-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+          kind: 'human',
+          ...HUMAN,
+          text: text.trim().slice(0, MAX_THREAD_TEXT),
+          ts: now,
+        })
+        const known = (id: string): BoardThread => {
+          const t = list.find((x) => x.id === id)
+          if (!t) throw refuse(`No thread ${id}.`)
+          return t
+        }
+        const replace = (t: BoardThread): BoardThread[] => list.map((x) => (x.id === t.id ? t : x))
+        if (op.op === 'open') {
+          if (op.text.trim() === '') throw refuse('A comment needs some text.')
+          if (op.node !== undefined && !content.nodes.has(op.node)) {
+            throw refuse(`No card ${op.node} on this page.`)
+          }
+          const id = newThreadId(now)
+          if (!THREAD_ID.test(id) || list.some((t) => t.id === id)) throw refuse('Try again.')
+          const pin: BoardThread = {
+            id,
+            ...(op.node === undefined ? {} : { node: op.node }),
+            x: op.x,
+            y: op.y,
+            messages: [message(op.text)],
+          }
+          list = [...list, pin]
+          opened = id
+        } else if (op.op === 'post') {
+          const t = known(op.thread)
+          if (op.text.trim() === '') throw refuse('A comment needs some text.')
+          // A human writing in a resolved thread reopens it, as in a live room.
+          const { resolved: _was, ...rest } = t
+          list = replace({ ...rest, messages: [...t.messages, message(op.text)] })
+        } else {
+          const t = known(op.thread)
+          const { resolved: _was, ...rest } = t
+          list = replace(op.resolved ? { ...rest, resolved: true } : rest)
+        }
+        const text = boardText(withThreads(file, page, list))
+        if (text !== disk) await writeText(slug, text)
+        else written.set(slug, text)
+      }
+      return {
+        threads: list.map((t) => ({
+          id: t.id,
+          ...(t.node === undefined ? {} : { node: t.node }),
+          x: t.x,
+          y: t.y,
+          resolved: t.resolved === true,
+          messages: t.messages,
+        })),
+        ...(opened === undefined ? {} : { opened }),
+      }
+    })
+  }
+
   /** Native `new_board`: the first free `untitled-<n>`, titled "Untitled board". */
   function create(): Promise<{ slug: string }> {
     return queue.run('\0create', async () => {
@@ -335,6 +451,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     load,
     save,
     pages,
+    threads,
     create,
     rename,
     remove,

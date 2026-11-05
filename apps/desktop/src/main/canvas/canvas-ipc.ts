@@ -36,6 +36,7 @@ export function registerCanvasIpc(ctx: MainContext): void {
     store.save(slug, board as CanvasBoard, page),
   )
   handle(ctx, 'canvas.pages', ({ slug, ...op }) => store.pages(slug, op))
+  handle(ctx, 'canvas.threads', ({ slug, page, op }) => store.threads(slug, page, op))
   handle(ctx, 'canvas.create', () => store.create())
   handle(ctx, 'canvas.rename', ({ slug, title }) => store.rename(slug, title))
   handle(ctx, 'canvas.delete', ({ slug }) => store.remove(slug))

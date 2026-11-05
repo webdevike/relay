@@ -9,6 +9,7 @@ import {
   IconHighlight,
   IconLock,
   IconLockOpen,
+  IconMessageCirclePlus,
   IconMessagePlus,
   IconMinus,
   IconNote,
@@ -25,6 +26,7 @@ export type Tool = 'select' | 'hand'
 function ChromeButton({
   icon: Glyph,
   label,
+  keys,
   testid,
   onClick,
   active,
@@ -33,6 +35,8 @@ function ChromeButton({
 }: {
   icon: Icon
   label: string
+  /** The key that does the same: shown in the tooltip ("Comment (press /)") and announced. */
+  keys?: string
   testid: string
   onClick: () => void
   active?: boolean
@@ -40,7 +44,11 @@ function ChromeButton({
   placement?: 'bottom' | 'right' | 'top'
 }) {
   return (
-    <Tooltip label={label} position={placement} openDelay={400}>
+    <Tooltip
+      label={keys === undefined ? label : `${label} (press ${keys})`}
+      position={placement}
+      openDelay={400}
+    >
       <ActionIcon
         variant="subtle"
         color="gray"
@@ -48,6 +56,7 @@ function ChromeButton({
         data-active={active ? 'true' : undefined}
         aria-pressed={active}
         aria-label={label}
+        aria-keyshortcuts={keys}
         data-testid={testid}
         disabled={disabled}
         onClick={onClick}
@@ -58,17 +67,21 @@ function ChromeButton({
   )
 }
 
-/** Select or Hand (every drag pans), a rule, then Add a note. */
+/** Select or Hand (every drag pans), a rule, then Add a note and Comment. */
 export function ToolBar({
   tool,
   onTool,
   onAddNote,
+  onComment,
   disabled,
+  canComment,
 }: {
   tool: Tool
   onTool: (tool: Tool) => void
   onAddNote: () => void
+  onComment: () => void
   disabled: boolean
+  canComment: boolean
 }) {
   return (
     <Panel position="top-center" className="eva-cv-chrome eva-cv-tools" data-testid="canvas-tools">
@@ -96,6 +109,14 @@ export function ToolBar({
           onTool('select')
           onAddNote()
         }}
+      />
+      <ChromeButton
+        icon={IconMessageCirclePlus}
+        label="Comment"
+        keys="/"
+        testid="canvas-tool-comment"
+        disabled={!canComment}
+        onClick={onComment}
       />
     </Panel>
   )

@@ -46,6 +46,39 @@ function refusal(status: number, statusText: string, body: string): string {
   return `Relay answered ${status} ${statusText}`.trim()
 }
 
+/**
+ * Asks the host to start (or rejoin) a canvas session: `POST /canvas/sessions` with `body` (the
+ * caller and what the session is for), answering the host's JSON. Throws with a code and the host's
+ * one-line reason.
+ */
+export async function startCanvasSession(
+  relay: Pick<RelayCanvas, 'canvasOrigin'>,
+  body: Record<string, unknown>,
+  post: typeof fetch = fetch,
+): Promise<unknown> {
+  const origin = relay.canvasOrigin()
+  if (origin === null)
+    fail('relay-unavailable', "Relay isn't running, so there is no host to hold the canvas.")
+  let res: Response
+  try {
+    res = await post(`${origin}/canvas/sessions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(START_TIMEOUT_MS),
+    })
+  } catch (e) {
+    fail('relay-unavailable', `Couldn't reach Relay: ${e instanceof Error ? e.message : String(e)}`)
+  }
+  const text = await res.text()
+  if (!res.ok) fail('host-refused', refusal(res.status, res.statusText, text))
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    fail('host-refused', 'Relay answered with something that is not JSON')
+  }
+}
+
 export function canvasLiveRunners(
   relay: Pick<RelayCanvas, 'canvasOrigin'>,
   post: typeof fetch = fetch,
@@ -53,31 +86,7 @@ export function canvasLiveRunners(
   return {
     'canvas.live': async (params: AgentParams<'canvas.live'>) => {
       const { scope, ...ask } = params
-      const caller = canvasCaller(scope)
-      const origin = relay.canvasOrigin()
-      if (origin === null)
-        fail('relay-unavailable', "Relay isn't running, so there is no host to hold the canvas.")
-      let res: Response
-      try {
-        res = await post(`${origin}/canvas/sessions`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...ask, caller }),
-          signal: AbortSignal.timeout(START_TIMEOUT_MS),
-        })
-      } catch (e) {
-        fail(
-          'relay-unavailable',
-          `Couldn't reach Relay: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      }
-      const body = await res.text()
-      if (!res.ok) fail('host-refused', refusal(res.status, res.statusText, body))
-      try {
-        return JSON.parse(body) as unknown
-      } catch {
-        fail('host-refused', 'Relay answered with something that is not JSON')
-      }
+      return startCanvasSession(relay, { ...ask, caller: canvasCaller(scope) }, post)
     },
   }
 }

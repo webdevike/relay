@@ -28,6 +28,7 @@ import type {
   CanvasBoard as BoardFile,
   CanvasNode,
   CanvasPage,
+  CanvasThread,
   CanvasViewport,
   InvokeInput,
 } from '@evaos/contract'
@@ -55,6 +56,8 @@ import { CanvasCard } from './cards/CanvasCard'
 import { PagePanel } from './PagePanel'
 import { Lightbox } from './Lightbox'
 import { boardImages } from './lightbox-model'
+import { Comments } from './Comments'
+import { anchorFor, nodeAt, type Anchor, type Box } from './comment-model'
 import {
   absolutePositions,
   toBoard,
@@ -133,6 +136,23 @@ function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`
 }
 
+/** Every card's box in board space, for pins (a pin sits on its card's top left plus an offset). */
+function boxesOf(nodes: readonly CardNode[]): Map<string, Box> {
+  const at = absolutePositions(nodes)
+  const out = new Map<string, Box>()
+  for (const n of nodes) {
+    const p = at.get(n.id)
+    if (!p) continue
+    out.set(n.id, {
+      x: p[0],
+      y: p[1],
+      w: n.measured?.width ?? n.width ?? 0,
+      h: n.measured?.height ?? n.height ?? 0,
+    })
+  }
+  return out
+}
+
 function saveLabel(state: SaveState): string {
   return typeof state === 'object' ? `not saved: ${state.error}` : state
 }
@@ -164,6 +184,12 @@ function Board({
   const [history, setHistory] = useState<History<BoardDoc>>(emptyHistory)
   /** The image shown full window, if any. */
   const [lightboxId, setLightboxId] = useState<string | null>(null)
+  /** The page's comment pins and threads, the open one, and the comment being written. */
+  const [threads, setThreads] = useState<CanvasThread[]>([])
+  const [openThread, setOpenThread] = useState<string | null>(null)
+  const [draft, setDraft] = useState<Anchor | null>(null)
+  /** Where the pointer last was over the board (client pixels); null once it leaves. */
+  const pointerRef = useRef<{ x: number; y: number } | null>(null)
 
   const wrapRef = useRef<HTMLDivElement>(null)
   const docRef = useRef<BoardDoc>({ title: '', layout: undefined, nodes: [], edges: [] })
@@ -407,15 +433,92 @@ function Board({
     [flush, liveOn, onPage, page, slug],
   )
 
+  /** The page's comment threads, as the board file has them. */
+  const loadThreads = useCallback(async () => {
+    const r = await invoke('canvas.threads', { slug, page })
+    if (goneRef.current || unmountedRef.current) return
+    if (r.ok) setThreads(r.value.threads)
+  }, [slug, page])
+
+  useEffect(() => {
+    void loadThreads()
+  }, [loadThreads])
+
+  /**
+   * A comment: on the selected card, else the card under the pointer, else the board spot there,
+   * else the middle of the view. The button passes `usePointer: false` (the pointer is on it).
+   */
+  const startComment = useCallback(
+    (usePointer: boolean) => {
+      if (!loaded) return
+      const boxes = boxesOf(docRef.current.nodes)
+      const p = usePointer ? pointerRef.current : null
+      const at = p ? flow.screenToFlowPosition(p) : null
+      const selected = docRef.current.nodes.find((n) => n.selected)
+      const selectedBox = selected ? boxes.get(selected.id) : undefined
+      const target =
+        selected && selectedBox
+          ? { id: selected.id, box: selectedBox }
+          : at
+            ? nodeAt(at, boxes)
+            : null
+      const r = wrapRef.current?.getBoundingClientRect()
+      const middle = r
+        ? flow.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
+        : { x: 0, y: 0 }
+      setOpenThread(null)
+      setDraft(anchorFor(target ? at : (at ?? middle), target))
+    },
+    [flow, loaded],
+  )
+
+  const threadOp = useCallback(
+    async (op: InvokeInput<'canvas.threads'>['op']) => {
+      const r = await invoke('canvas.threads', { slug, page, op })
+      if (!r.ok) throw new Error(r.error.message)
+      if (goneRef.current || unmountedRef.current) return null
+      setThreads(r.value.threads)
+      return r.value.opened ?? null
+    },
+    [slug, page],
+  )
+
+  const commentProps = {
+    onStart: async (text: string) => {
+      if (!draft) return
+      const opened = await threadOp({ op: 'open', ...draft, text })
+      setDraft(null)
+      setOpenThread(opened)
+    },
+    onReply: async (thread: string, text: string) => {
+      await threadOp({ op: 'post', thread, text })
+    },
+    onResolve: (thread: string, resolved: boolean) => {
+      threadOp({ op: 'resolve', thread, resolved }).then(
+        () => {
+          if (resolved) setOpenThread(null)
+        },
+        (e: unknown) => setSave({ error: e instanceof Error ? e.message : String(e) }),
+      )
+    },
+    onAsk: async (thread: string): Promise<string | null> => {
+      // The room starts from the file: what is pending on the board goes in first.
+      await flush()
+      const r = await invoke('canvas.live.ask', { slug, thread, page })
+      return r.ok ? null : r.error.message
+    },
+  }
+
   // An outside edit reloads the board, after any drag in progress.
   useEffect(
     () =>
       on('canvas.changed', (e) => {
         if (e.slug !== slug || !syncedRef.current) return
+        void loadThreads()
         if (draggingRef.current) reloadPendingRef.current = true
         else void reload()
       }),
-    [reload, slug],
+    [reload, slug, loadThreads],
   )
 
   // Renames and deletes from the sidebar.
@@ -789,6 +892,22 @@ function Board({
     }
   }
 
+  // `/` writes a comment from anywhere on the page: focus on the board, on nothing, or on another
+  // control (the sidebar row that opened the board), but never in a field or while the board is hidden.
+  useEffect(() => {
+    const onSlash = (e: globalThis.KeyboardEvent): void => {
+      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return
+      if (!wrapRef.current || wrapRef.current.getClientRects().length === 0) return
+      const t = e.target as HTMLElement | null
+      if (t?.closest('input, textarea, select, [contenteditable]:not([contenteditable=false])'))
+        return
+      e.preventDefault()
+      startComment(true)
+    }
+    window.addEventListener('keydown', onSlash)
+    return () => window.removeEventListener('keydown', onSlash)
+  }, [startComment])
+
   const selectedNodes = nodes.filter((n) => n.selected)
   const single = selectedNodes.length === 1 ? selectedNodes[0]! : null
   const specs = useMemo(() => nodes.map((n) => n.data.spec), [nodes])
@@ -840,6 +959,12 @@ function Board({
           data-tool={tool}
           tabIndex={-1}
           onKeyDown={onKeyDown}
+          onPointerMove={(e) => {
+            pointerRef.current = { x: e.clientX, y: e.clientY }
+          }}
+          onPointerLeave={() => {
+            pointerRef.current = null
+          }}
           onPointerDownCapture={(e) => {
             if (!(e.target as HTMLElement).closest('input, textarea, [data-cv-pages]'))
               wrapRef.current?.focus({ preventScroll: true })
@@ -908,7 +1033,18 @@ function Board({
               tool={tool}
               onTool={setTool}
               onAddNote={addNoteAtCenter}
+              onComment={() => startComment(false)}
               disabled={!loaded || locked}
+              canComment={loaded}
+            />
+            <Comments
+              threads={threads}
+              boxes={boxesOf(nodes)}
+              draft={draft}
+              openId={openThread}
+              onOpen={setOpenThread}
+              onCancelDraft={() => setDraft(null)}
+              {...commentProps}
             />
             <BoardControls
               locked={locked}

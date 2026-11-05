@@ -8,6 +8,7 @@ import { originPlace, useLiveRooms } from './live-store'
 import { canvasThemeMessage } from './theme-message'
 import { useThemeConfig } from '../../theme/theme-config'
 import { backToChat, returnPointOf } from './return-point'
+import { isCommentKey } from './slash'
 
 /** "Isaac here", "Isaac and Sam here", "Isaac, Sam and Ana here"; empty with nobody in. */
 export function hereLabel(humans: readonly string[]): string {
@@ -86,6 +87,23 @@ export function LiveCanvasView({
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
   }, [postTheme])
+
+  // `/` writes a comment on the board. The room page hears it only while its frame has focus, so a
+  // press anywhere else in the app (header, sidebar, nothing focused) is passed in: the frame takes
+  // focus (a page without the message handler then hears the next `/` itself) and is told to open it.
+  useEffect(() => {
+    if (url === null) return
+    const origin = new URL(url).origin
+    const onKey = (e: KeyboardEvent): void => {
+      const win = frame.current
+      if (!win || win.getClientRects().length === 0 || !isCommentKey(e)) return
+      e.preventDefault()
+      win.focus()
+      win.contentWindow?.postMessage({ type: 'canvas.comment' }, origin)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [url])
 
   const origin = shown ? originPlace(shown) : null
   const canGoBack = !inPane && (returnPointOf(slug) !== null || origin !== null)

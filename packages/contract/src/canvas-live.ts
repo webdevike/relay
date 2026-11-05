@@ -44,6 +44,25 @@ export const canvasLiveInvoke = {
     input: z.object({ slug: CanvasLiveSlugSchema }).strict(),
     output: z.object({ url: z.string().startsWith('http://127.0.0.1:') }),
   },
+  /**
+   * Starts a live session on the board `slug` (what `relay-linux canvas start <slug>` does) with the
+   * canvas self, and hands it the comment thread already saved in the board file, so the comment
+   * gets answered. Fails with `canvas-unavailable` (the host's one-line reason) when the host
+   * refuses or is not running.
+   */
+  'canvas.live.ask': {
+    input: z
+      .object({
+        slug: CanvasLiveSlugSchema,
+        thread: z.string().min(1).max(60),
+        page: z
+          .string()
+          .regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
+          .optional(),
+      })
+      .strict(),
+    output: z.object({ roomId: z.string().min(1), agent: z.string().min(1) }),
+  },
 } as const
 
 export const canvasLiveEvents = {

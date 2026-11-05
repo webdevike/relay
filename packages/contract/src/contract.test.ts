@@ -360,6 +360,7 @@ describe('contract', () => {
         'canvas.load',
         'canvas.save',
         'canvas.pages',
+        'canvas.threads',
         'canvas.create',
         'canvas.rename',
         'canvas.delete',

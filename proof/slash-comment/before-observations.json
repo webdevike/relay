@@ -1,0 +1,41 @@
+{
+  "a0 before any key": {
+    "textareas": 0,
+    "dialogs": 0,
+    "pins": 0,
+    "commentButtons": 0,
+    "active": "DIV.eva-list-row"
+  },
+  "a1 card selected, / pressed": {
+    "textareas": 0,
+    "dialogs": 0,
+    "pins": 0,
+    "commentButtons": 0,
+    "active": "DIV.react-flow__node react-flow__node-card nopan selected selectable draggable"
+  },
+  "a2 click on the board, then / (nothing selected)": {
+    "textareas": 0,
+    "dialogs": 0,
+    "pins": 0,
+    "commentButtons": 0,
+    "active": "DIV.eva-cv-flow"
+  },
+  "a3 board file threads after both": "no threads key",
+  "b0 start room": 200,
+  "b1 room comment button": {
+    "visible": true,
+    "title": null
+  },
+  "b2 focus in the app header, / pressed": {
+    "composers": 0
+  },
+  "b3 focus on the sidebar row, / pressed": {
+    "composers": 0
+  },
+  "b4 click on the room board, / pressed (nothing selected)": {
+    "composers": 1
+  },
+  "b5 room card selected, / pressed": {
+    "composers": 1
+  }
+}

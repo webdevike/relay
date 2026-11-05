@@ -380,4 +380,118 @@ describe('canvas store', () => {
     expect(after.edges.find((e) => e.id === 'to-live')?.extra).toEqual({ curve: 'step' })
     expect(after.extra).toEqual({ theme: 'warm' })
   })
+
+  describe('comment threads', () => {
+    it('opens a pin on a card, takes replies, resolves and reopens, writing only the file’s threads', async () => {
+      const { store, dir } = setup()
+      const file = path.join(dir, 'mind-map.json')
+      const original = fs.readFileSync(file, 'utf8')
+      expect((await store.threads('mind-map')).threads).toEqual([])
+      const card = parseBoard(original).nodes[0]!.id
+
+      const first = await store.threads('mind-map', undefined, {
+        op: 'open',
+        node: card,
+        x: 40,
+        y: 12,
+        text: '  Is this still the plan?  ',
+      })
+      const id = first.opened!
+      expect(first.threads).toMatchObject([
+        {
+          id,
+          node: card,
+          x: 40,
+          y: 12,
+          resolved: false,
+          messages: [{ kind: 'human', name: 'Isaac', text: 'Is this still the plan?' }],
+        },
+      ])
+      // Everything else in the file is as it was: only `threads` appears.
+      const written = parseBoard(fs.readFileSync(file, 'utf8'))
+      expect(boardText({ ...written, threads: undefined })).toBe(original)
+      expect(fs.readFileSync(file, 'utf8')).toBe(boardText(written))
+      expect(written.threads?.[0]).toMatchObject({ id, node: card, x: 40, y: 12 })
+
+      await store.threads('mind-map', undefined, { op: 'post', thread: id, text: 'Yes' })
+      const resolved = await store.threads('mind-map', undefined, {
+        op: 'resolve',
+        thread: id,
+        resolved: true,
+      })
+      expect(resolved.threads[0]).toMatchObject({ resolved: true })
+      expect(resolved.threads[0]!.messages.map((m) => m.text)).toEqual([
+        'Is this still the plan?',
+        'Yes',
+      ])
+      // A human writing in a resolved thread reopens it, as in a live room.
+      const reopened = await store.threads('mind-map', undefined, {
+        op: 'post',
+        thread: id,
+        text: 'One more thing',
+      })
+      expect(reopened.threads[0]!.resolved).toBe(false)
+      expect(fs.readFileSync(file, 'utf8')).not.toContain('"resolved"')
+
+      // The same board loads and saves as before: a Canvas page edit keeps the threads.
+      const { board } = await store.load('mind-map')
+      await store.save('mind-map', {
+        ...board,
+        nodes: board.nodes.map((n, i) => (i === 0 ? { ...n, x: 5 } : n)),
+      })
+      expect(parseBoard(fs.readFileSync(file, 'utf8')).threads).toHaveLength(1)
+      expect(store.isOwn('mind-map', fs.readFileSync(file, 'utf8'))).toBe(true)
+    })
+
+    it('pins on a board spot, keeps a live room’s threads in order, and refuses what it cannot place', async () => {
+      const { store, dir } = setup()
+      const file = path.join(dir, 'user-flow.json')
+      const base = parseBoard(fs.readFileSync(file, 'utf8'))
+      const room = {
+        id: 't-room',
+        node: base.nodes[0]!.id,
+        x: 1,
+        y: 2,
+        messages: [
+          { id: 'm1', kind: 'agent' as const, name: 'Nova', color: '#f76707', text: 'Hi', ts: 5 },
+        ],
+      }
+      fs.writeFileSync(file, boardText({ ...base, threads: [room] }))
+      const spot = await store.threads('user-flow', undefined, {
+        op: 'open',
+        x: 300,
+        y: 400,
+        text: 'here',
+      })
+      expect(spot.threads.map((t) => t.id)).toEqual(['t-room', spot.opened])
+      expect(spot.threads[1]!.node).toBeUndefined()
+      expect(parseBoard(fs.readFileSync(file, 'utf8')).threads?.[0]).toEqual(room)
+
+      await expect(
+        store.threads('user-flow', undefined, { op: 'open', node: 'gone', x: 1, y: 1, text: 'x' }),
+      ).rejects.toMatchObject({ code: 'invalid-input' })
+      await expect(
+        store.threads('user-flow', undefined, { op: 'post', thread: 'nope', text: 'x' }),
+      ).rejects.toMatchObject({ code: 'invalid-input' })
+      await expect(
+        store.threads('user-flow', undefined, { op: 'open', x: 1, y: 1, text: '   ' }),
+      ).rejects.toMatchObject({ code: 'invalid-input' })
+      await expect(store.threads('user-flow', 'nope')).rejects.toMatchObject({
+        code: 'invalid-input',
+      })
+      await expect(store.threads('missing')).rejects.toMatchObject({ code: 'not-found' })
+    })
+
+    it('keeps each page’s threads on that page', async () => {
+      const { store, dir } = setup()
+      const { page } = await store.pages('mind-map', { op: 'add', id: 'second', title: 'Second' })
+      expect(page).toBe('second')
+      await store.threads('mind-map', 'second', { op: 'open', x: 9, y: 9, text: 'on page two' })
+      const file = parseBoard(fs.readFileSync(path.join(dir, 'mind-map.json'), 'utf8'))
+      expect(file.threads).toBeUndefined()
+      expect(file.pages?.find((p) => p.id === 'second')?.threads).toHaveLength(1)
+      expect((await store.threads('mind-map')).threads).toEqual([])
+      expect((await store.threads('mind-map', 'second')).threads).toHaveLength(1)
+    })
+  })
 })
