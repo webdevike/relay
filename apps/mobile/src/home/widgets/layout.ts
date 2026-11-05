@@ -31,6 +31,8 @@ export interface HomeWidget {
   id: string;
   kind: WidgetKind;
   size: WidgetSize;
+  /** An Assistants stack's shown assistant (registry id, never a page index, so a reordered or reloaded list keeps it). */
+  agent?: string;
 }
 
 /** What Home shows before the user has arranged anything. */
@@ -64,10 +66,12 @@ export function normalizeWidgets(value: unknown): HomeWidget[] {
     const { id, kind, size } = entry as Record<string, unknown>;
     if (typeof id !== "string" || id === "" || seen.has(id) || !isKind(kind)) continue;
     seen.add(id);
+    const { agent } = entry as Record<string, unknown>;
     widgets.push({
       id,
       kind,
       size: supports(kind, size) ? size : (WIDGET_SIZES[kind][0] ?? "small"),
+      ...(typeof agent === "string" && agent !== "" ? { agent } : {}),
     });
   }
   return widgets;

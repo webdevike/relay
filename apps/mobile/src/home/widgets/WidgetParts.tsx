@@ -28,6 +28,8 @@ export interface WidgetA11y {
 }
 
 export interface WidgetBodyProps {
+  /** The placed widget's id (its persisted layout entry); undefined in the gallery's previews. */
+  id?: string;
   size: WidgetSize;
   /** Opens a route; null where the widget is only a picture (jiggle mode, the menu, the gallery). */
   open: ((href: Href) => void) | null;

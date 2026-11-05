@@ -352,7 +352,7 @@ function WidgetItem({
     >
       <GestureDetector gesture={gesture}>
         <View ref={box} collapsable={false} style={styles.fill}>
-          <Body size={widget.size} open={editing ? null : open} a11y={a11y} />
+          <Body id={widget.id} size={widget.size} open={editing ? null : open} a11y={a11y} />
         </View>
       </GestureDetector>
       {editing && (

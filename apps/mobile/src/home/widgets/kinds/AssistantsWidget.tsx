@@ -5,7 +5,7 @@
  * agents that spoke last, each with its last line and status; a row opens its thread. Elsewhere a
  * tap opens /assistants.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { selectHaptic } from "@/lib/haptics";
 import type { AssistantAgent } from "@relay/protocol";
@@ -20,6 +20,8 @@ import { portraitOf } from "@/lib/portrait";
 import { STATUS_LABEL, useAssistantStore } from "@/state/assistant";
 import { useListingWords } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
+import { useSettingsStore } from "@/state/settings";
+import { editWidgets } from "../ui";
 import { spacing, useColors } from "@/theme";
 import {
   useWidgetTint,
@@ -80,7 +82,7 @@ function AgentRow({ agent, open, first }: { agent: AssistantAgent; open: WidgetB
   );
 }
 
-export function AssistantsWidget({ size, open, a11y }: WidgetBodyProps) {
+export function AssistantsWidget({ id, size, open, a11y }: WidgetBodyProps) {
   const agents = useAssistantStore((state) => state.agents);
   const connected = useConnectionStore((state) => state.status === "connected");
   const empty = agents === null ? (connected ? "Loading assistants…" : "Not connected") : agents.length === 0 ? "No assistants yet" : "No replies yet";
@@ -121,7 +123,7 @@ export function AssistantsWidget({ size, open, a11y }: WidgetBodyProps) {
       </WidgetSurface>
     );
   }
-  return <AssistantStack agents={stack} open={open} a11y={a11y} />;
+  return <AssistantStack widgetId={id} agents={stack} open={open} a11y={a11y} />;
 }
 
 /** A stack page's status words after the name (a hook per page, so pages render alike). */
@@ -133,12 +135,23 @@ function StackWords({ agent }: { agent: AssistantAgent }) {
  * The small widget as an iOS Smart Stack turned sideways: one assistant per page, its portrait the
  * main image, `PageDots` under them. Its `NestedPager` hands a swipe past either end to Home's pages.
  */
-function AssistantStack({ agents, open, a11y }: { agents: readonly AssistantAgent[]; open: WidgetBodyProps["open"]; a11y: WidgetBodyProps["a11y"] }) {
+function AssistantStack({ widgetId, agents, open, a11y }: { widgetId: string | undefined; agents: readonly AssistantAgent[]; open: WidgetBodyProps["open"]; a11y: WidgetBodyProps["a11y"] }) {
   const tint = useWidgetTint("blue");
   const [frame, setFrame] = useState({ width: 0, height: 0 });
-  const [page, setPage] = useState(0);
-  const shown = Math.min(page, agents.length - 1);
+  // The page is the widget's persisted assistant id, found in whatever order the list has now (a
+  // list that reloads or reorders after a host restart must not move it); no pick shows the newest reply's.
+  const picked = useSettingsStore((state) => (widgetId === undefined ? undefined : state.homeWidgets.find((w) => w.id === widgetId)?.agent));
+  const [local, setLocal] = useState<string | undefined>(undefined);
+  const wanted = widgetId === undefined ? local : picked;
+  const found = agents.findIndex((agent) => agent.id === wanted);
+  const shown = found === -1 ? 0 : found;
   const current = agents[shown] ?? agents[0];
+  // A pick the host no longer lists (retired) is dropped, never remapped to another assistant's id.
+  useEffect(() => {
+    if (widgetId !== undefined && picked !== undefined && found === -1 && agents.length > 0) {
+      editWidgets((widgets) => widgets.map((w) => (w.id === widgetId ? { id: w.id, kind: w.kind, size: w.size } : w)));
+    }
+  }, [widgetId, picked, found, agents.length]);
   if (current === undefined) return null;
   return (
     <WidgetSurface
@@ -161,7 +174,10 @@ function AssistantStack({ agents, open, a11y }: { agents: readonly AssistantAgen
           page={shown}
           onPageChange={(next) => {
             selectHaptic();
-            setPage(next);
+            const agent = agents[next]?.id;
+            if (agent === undefined) return;
+            if (widgetId === undefined) setLocal(agent);
+            else editWidgets((widgets) => widgets.map((w) => (w.id === widgetId ? { ...w, agent } : w)));
           }}
           // Jiggle mode: the widget is for dragging, and a swipe on it turns Home.
           enabled={open !== null}

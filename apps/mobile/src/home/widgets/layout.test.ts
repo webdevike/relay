@@ -59,6 +59,18 @@ describe("normalizeWidgets", () => {
       { id: "f", kind: "apps", size: "large" },
     ]);
   });
+
+  it("keeps each Assistants widget's picked assistant by id, through resize and move", () => {
+    const stored = [
+      { id: "assistants-1", kind: "assistants", size: "small", agent: "astra" },
+      { id: "assistants-2", kind: "assistants", size: "small", agent: "nova" },
+      { id: "assistants-3", kind: "assistants", size: "small", agent: "" },
+    ];
+    const widgets = normalizeWidgets(stored);
+    expect(widgets.map((w) => w.agent)).toEqual(["astra", "nova", undefined]);
+    expect(resizeWidget(widgets, "assistants-1", "medium")[0]?.agent).toBe("astra");
+    expect(moveWidget(widgets, "assistants-2", 0)[0]?.agent).toBe("nova");
+  });
 });
 
 describe("withWidgetOnce", () => {
