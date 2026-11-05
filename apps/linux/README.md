@@ -326,6 +326,15 @@ after it stops. The host feeds it from more than the turn: once a second it mirr
 chat and behind each worker (`join --session`) into `Presence.doing` ("running a command…", "waiting on an
 approval…"), so an agent working off the board never reads as idle (`src/canvas/session-activity.ts`).
 
+Isaac comments Figma-style: `/` (or Comment) with a card selected drops a pin on it (it follows the card), else on
+the board point, and opens its thread. The thread lives in the doc's `threads` map and the board file's `threads`
+(`packages/canvas-live/src/threads.ts`); a human message in one is the canvas self's turn, with the pin's card, spot
+and the thread so far as context, and every line it writes in that turn goes into the thread (never a note or a
+cursor bubble). `@Name` comments go to that worker with the thread id, and handoffs from a comment confirm in its
+thread. Agents also `@reply`, `@pin` and `@resolve`. The side panel lists every thread (open first, resolved
+collapsed); the room chat is its second tab. The canvas self wears the face of the assistant its chat belongs to
+(its thread, work it started via `owner`, a helper's top session, or `--name <Assistant>`).
+
 Chat rows travel through the bridge's `canvas` request: the extension posts a `relay-canvas` custom message
 (`details`: `CanvasEntry` start = Join card, turn = one exchange, end = wrap-up) that lands in the session file
 without starting a turn, and phones see it as `AgentMessage.canvas` / `AssistantMessage.canvas`. Devices list

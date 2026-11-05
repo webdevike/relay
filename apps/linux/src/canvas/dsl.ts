@@ -28,6 +28,10 @@
 //   @cursor <x> <y>                       glide the cursor to a spot on the board
 //   @handoff <main|Name> <request>        the canvas self only: hand work outside its lane (needs Isaac's
 //                                         yes: pushes, deploys, messages, purchases) to the chat (main) or a worker
+//   @reply <threadId> <text>              answer in a comment thread (a pin's popover), not the room or a note
+//   @pin <newThreadId> <nodeId> <text>    open a comment thread pinned to a node (it follows the node)
+//   @pin <newThreadId> <x> <y> <text>     ... or to a spot on the board
+//   @resolve <threadId>                   mark a thread resolved (@reopen <threadId> opens it again)
 
 import type { TextField } from "@relay/canvas-live/shared";
 
@@ -71,7 +75,10 @@ export type Action =
   | { kind: "parent"; id: string; frame: string | null }
   | { kind: "add_edge"; source: string; target: string; label: string }
   | { kind: "delete"; id: string }
-  | { kind: "handoff"; target: string; request: string };
+  | { kind: "handoff"; target: string; request: string }
+  | { kind: "reply"; thread: string; text: string }
+  | { kind: "pin"; id: string; node: string | null; x: number; y: number; text: string }
+  | { kind: "resolve"; thread: string; resolved: boolean };
 
 const NODE_TYPES: Record<string, "note" | "topic" | "suggestion"> = { note: "note", topic: "topic", suggestion: "suggestion" };
 
@@ -302,6 +309,22 @@ export class ActionParser {
         return;
       case "handoff":
         if (a[0] && a.length > 1) this.onAction({ kind: "handoff", target: a[0], request: a.slice(1).join(" ") });
+        return;
+      case "reply":
+        if (a[0] && a.length > 1) this.onAction({ kind: "reply", thread: a[0], text: a.slice(1).join(" ") });
+        return;
+      case "pin": {
+        if (!a[0]) return;
+        // `<x> <y>` pins a board spot; anything else in the second slot is the node it pins.
+        const point = /^-?\d+(\.\d+)?$/.test(a[1] ?? "") && /^-?\d+(\.\d+)?$/.test(a[2] ?? "");
+        const text = a.slice(point ? 3 : 2).join(" ");
+        if (text === "" || (!point && !a[1])) return;
+        this.onAction({ kind: "pin", id: a[0], node: point ? null : (a[1] ?? null), x: point ? num(a[1]) : 0, y: point ? num(a[2]) : 0, text });
+        return;
+      }
+      case "resolve":
+      case "reopen":
+        if (a[0]) this.onAction({ kind: "resolve", thread: a[0], resolved: cmd === "resolve" });
         return;
       case "say":
         this.onSay(a.join(" "));

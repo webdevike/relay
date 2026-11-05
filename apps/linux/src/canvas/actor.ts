@@ -13,6 +13,7 @@ import type { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { placeUnplaced, type LayoutNode } from "@relay/canvas-live/layout";
 import { DOC_KEYS, type NodeKind, type Presence, type TextField, type User } from "@relay/canvas-live/shared";
+import { anchorFor, openThread, pinAt, postInThread, setResolved, THREAD_ID, threadsOf, type ThreadAnchor, type ThreadMap, type ThreadMsg } from "@relay/canvas-live/threads";
 import { liveRefusal } from "../query/openui";
 import { protoSourceRefusal } from "../../../../packages/widget-runtime/src/proto";
 import { DESIGN_SYSTEMS, isDesignSystem } from "../../../../packages/widget-runtime/src/systems";
@@ -105,6 +106,8 @@ export class CanvasActor {
   private closed = false;
   readonly nodes: Y.Map<Y.Map<unknown>>;
   readonly edges: Y.Map<Y.Map<unknown>>;
+  readonly threads: Y.Map<ThreadMap>;
+  private said = 0;
   /** Absolute positions of nodes the file gives none, recomputed when the board changes. */
   private placed: Map<string, { x: number; y: number }> | null = null;
   private readonly onDocUpdate = (): void => {
@@ -122,6 +125,7 @@ export class CanvasActor {
   ) {
     this.nodes = doc.getMap(DOC_KEYS.nodes);
     this.edges = doc.getMap(DOC_KEYS.edges);
+    this.threads = threadsOf(doc);
     this.cursor = { ...start };
     this.presence = { user, cursor: this.cursor, status: "idle", selected: [] };
     awareness.setLocalState(this.presence);
@@ -212,6 +216,23 @@ export class CanvasActor {
     const w = num(m, "w") ?? 240;
     const fallbackH = m.get("type") === "image" ? w * 0.75 + 40 : 160;
     return { x, y, w, h: num(m, "h") ?? fallbackH };
+  }
+
+  /** Where thread `id`'s pin is on the board; null when there is no such thread or its node is gone. */
+  pin(id: string): { x: number; y: number } | null {
+    const t = this.threads.get(id);
+    if (t === undefined) return null;
+    const node = t.get("node");
+    const x = num(t, "x") ?? 0;
+    const y = num(t, "y") ?? 0;
+    return typeof node === "string" ? pinAt({ node, x, y }, this.box(node)) : { x, y };
+  }
+
+  /** A thread message from this actor, saying `text`. */
+  threadMessage(text: string): ThreadMsg {
+    this.said += 1;
+    const { name, color, avatar } = this.user;
+    return { id: `${this.origin}-${Date.now().toString(36)}-${String(this.said)}`, kind: "agent", name, color, ...(avatar === undefined ? {} : { avatar }), text, ts: Date.now() };
   }
 
   private layout(): Map<string, { x: number; y: number }> {
@@ -569,6 +590,41 @@ export class CanvasActor {
         this.setP({ selected: [] });
         return null;
       }
+      case "reply": {
+        if (!this.threads.has(a.thread)) return `no thread ${a.thread}`;
+        const at = this.pin(a.thread);
+        if (at !== null) {
+          this.setP({ status: "moving" });
+          await this.glide(at.x + 18, at.y + 10);
+        }
+        transact(() => {
+          postInThread(this.threads, a.thread, this.threadMessage(a.text));
+        });
+        return null;
+      }
+      case "pin": {
+        if (!THREAD_ID.test(a.id)) return `thread id ${a.id}: use letters, digits, ".", "_" or "-"`;
+        if (this.threads.has(a.id)) return `thread ${a.id} is taken`;
+        let anchor: ThreadAnchor = { x: Math.round(a.x), y: Math.round(a.y) };
+        if (a.node !== null) {
+          const b = this.box(a.node);
+          if (!b) return missing(a.node);
+          anchor = anchorFor(null, { id: a.node, box: b });
+        }
+        this.setP({ status: "moving" });
+        const at = pinAt(anchor, a.node === null ? null : this.box(a.node)) ?? anchor;
+        await this.glide(at.x + 18, at.y + 10);
+        transact(() => {
+          openThread(this.threads, a.id, anchor, this.threadMessage(a.text));
+        });
+        return null;
+      }
+      case "resolve":
+        if (!this.threads.has(a.thread)) return `no thread ${a.thread}`;
+        transact(() => {
+          setResolved(this.threads, a.thread, a.resolved);
+        });
+        return null;
       case "handoff":
         // The canvas self's turn routes its handoffs before they get here (agent.ts).
         return "only the room's canvas self hands work off";

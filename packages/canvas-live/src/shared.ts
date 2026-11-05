@@ -7,7 +7,8 @@
 //                                 fields: string[] (data keys the file had, so export round-trips) }
 //   edges:    Y.Map<id, Y.Map>  { source, target, sourceHandle?, targetHandle?, label?, tone? }
 //   meta:     Y.Map             { title, layout?, viewport?, session: SessionInfo }
-//   chat:     Y.Array<ChatMsg>  cursor-chat log (humans' notes, agent replies, session events)
+//   chat:     Y.Array<ChatMsg>  room chat log (agents' room lines, session events)
+//   threads:  Y.Map<id, Y.Map>  comment pins and their threads (threads.ts) { node?, x, y, resolved, messages: Y.Array<ThreadMsg> }
 //   settings: Y.Map             { model: ModelKey, tidy?: boolean (false: cards may overlap and links draw as curves through them) }
 //   metrics:  Y.Map             "s:<msgId>" → ServerMetrics, "c:<msgId>" → ClientMetrics
 
@@ -49,8 +50,8 @@ export interface Presence {
 	selected?: string[];
 	/** Cursor chat being typed right now (live, like Figma). */
 	draft?: string | null;
-	/** Chat bubble shown at the cursor. */
-	bubble?: { text: string; replyTo?: string; streaming?: boolean } | null;
+	/** Chat bubble shown at the cursor; with `thread`, a reply being written in that comment thread (shown there, not at the cursor). */
+	bubble?: { text: string; replyTo?: string; streaming?: boolean; thread?: string } | null;
 	status?: AgentStatus;
 	/** Message id the agent is working on. */
 	replyTo?: string | null;
@@ -77,6 +78,8 @@ export interface ChatMsg {
 	at: { x: number; y: number } | null;
 	ts: number;
 	replyTo?: string;
+	/** A note posted in a comment thread (threads.ts): the agent answers there. Never stored in `chat`. */
+	thread?: string;
 	model?: ModelKey;
 }
 
@@ -115,4 +118,4 @@ export interface SessionInfo {
 /** Messages an embedded client posts to its parent (iframe parent or React Native WebView). */
 export type EmbedEvent = { type: "canvas.ready"; slug: string } | { type: "canvas.ended"; slug: string; summary: string | null };
 
-export const DOC_KEYS = { nodes: "nodes", edges: "edges", meta: "meta", chat: "chat", settings: "settings", metrics: "metrics" } as const;
+export const DOC_KEYS = { nodes: "nodes", edges: "edges", meta: "meta", chat: "chat", threads: "threads", settings: "settings", metrics: "metrics" } as const;

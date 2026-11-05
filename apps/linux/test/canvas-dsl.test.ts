@@ -32,8 +32,8 @@ test("parses identically regardless of chunking", () => {
     for (let i = 0; i < SAMPLE.length; i += size) chunks.push(SAMPLE.slice(i, i + size));
     const r = run(chunks);
     expect(r.said).toBe(whole.said);
-    expect(r.actions.map((a) => ("text" in a ? `${a.kind}:${a.text.text}:${a.text.closed}` : JSON.stringify(a)))).toEqual(
-      whole.actions.map((a) => ("text" in a ? `${a.kind}:${a.text.text}:${a.text.closed}` : JSON.stringify(a))),
+    expect(r.actions.map((a) => ("text" in a && typeof a.text !== "string" ? `${a.kind}:${a.text.text}:${a.text.closed}` : JSON.stringify(a)))).toEqual(
+      whole.actions.map((a) => ("text" in a && typeof a.text !== "string" ? `${a.kind}:${a.text.text}:${a.text.closed}` : JSON.stringify(a))),
     );
   }
   expect(whole.said).toBe("Good call, the key reads as a list. Tightening it.\nDone.");
@@ -88,5 +88,22 @@ test("parses @add_proto with an optional height, the design system and a mobile 
     ]);
     expect(approve?.kind === "add_proto" && [approve.w, approve.h, approve.system, approve.viewport]).toEqual([430, null, "relay", "mobile"]);
     expect(plain?.kind === "add_proto" && [plain.w, plain.system]).toEqual([960, "mantine"]);
+  }
+});
+
+test("parses the comment-thread actions: @reply, @pin on a node or a spot, @resolve and @reopen", () => {
+  const text = "@say Looking.\n@reply t-1 Renamed it, the key reads Roles now.\n@pin t-q root Is support staff or a role?\n@pin t-spot -120 40.5 Room for the filters here\n@resolve t-1\n@reopen t-1\n@reply t-2\n@pin t-bad root\n@pin\n";
+  for (const size of [1, 3, text.length]) {
+    const chunks: string[] = [];
+    for (let i = 0; i < text.length; i += size) chunks.push(text.slice(i, i + size));
+    const { actions, said } = run(chunks);
+    expect(said).toBe("Looking.");
+    expect(actions).toEqual([
+      { kind: "reply", thread: "t-1", text: "Renamed it, the key reads Roles now." },
+      { kind: "pin", id: "t-q", node: "root", x: 0, y: 0, text: "Is support staff or a role?" },
+      { kind: "pin", id: "t-spot", node: null, x: -120, y: 40.5, text: "Room for the filters here" },
+      { kind: "resolve", thread: "t-1", resolved: true },
+      { kind: "resolve", thread: "t-1", resolved: false },
+    ]);
   }
 });

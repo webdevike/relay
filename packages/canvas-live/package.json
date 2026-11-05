@@ -7,6 +7,7 @@
   "exports": {
     "./shared": "./src/shared.ts",
     "./board": "./src/board.ts",
+    "./threads": "./src/threads.ts",
     "./layout": "./src/layout.ts"
   },
   "scripts": {

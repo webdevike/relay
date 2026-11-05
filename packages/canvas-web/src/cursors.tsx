@@ -7,7 +7,7 @@
 // after; people's cursors always show.
 import { useReactFlow, useStoreApi } from "@xyflow/react";
 import { type CSSProperties, type RefObject, useEffect, useRef } from "react";
-import { avatarUrl } from "./env";
+import { Face } from "./avatar";
 import { useThrottledPresence } from "./hooks";
 import { awareness, env, presenceStates } from "./room";
 
@@ -199,7 +199,8 @@ export function Cursors({
         const agent = p.user.kind === "agent";
         // What it is doing off the board ("building the mockup…") reads better than a bare "thinking".
         const status = agent ? (p.doing ?? (p.status ? STATUS_LABEL[p.status] : undefined)) : undefined;
-        const bubbleText = p.draft != null ? p.draft : p.bubble?.text;
+        // A reply written in a comment thread shows in the thread, not at the cursor.
+        const bubbleText = p.draft != null ? p.draft : p.bubble?.thread ? undefined : p.bubble?.text;
         return (
           <div
             key={cid}
@@ -212,9 +213,7 @@ export function Cursors({
           >
             <CursorArrow color={p.user.color} />
             <div className="cv-cursor-label" style={{ background: p.user.color }}>
-              {agent && p.user.avatar ? (
-                <img className="cv-avatar" src={avatarUrl(env, p.user.avatar)} alt="" />
-              ) : null}
+              {agent ? <Face who={p.user} size={20} className="cv-avatar" /> : null}
               {agent ? <span className="cv-dot" /> : null}
               {p.user.name}
               {status ? <span className="cv-status-text">{status}</span> : null}
@@ -251,11 +250,7 @@ export function Cursors({
             }}
           >
             <span className="cv-edge-arrow" aria-hidden="true" />
-            {p.user.avatar ? (
-              <img className="cv-edge-avatar" src={avatarUrl(env, p.user.avatar)} alt="" />
-            ) : (
-              <span className="cv-edge-initial">{p.user.name.slice(0, 1)}</span>
-            )}
+            <Face who={p.user} size={32} className="cv-edge-avatar" />
           </button>
         );
       })}

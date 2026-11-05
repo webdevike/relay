@@ -29,13 +29,16 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as Y from "yjs";
 import type { CanvasLayout } from "../../canvas-live/src/layout";
-import type { ChatMsg, ClientMetrics } from "../../canvas-live/src/shared";
+import type { ClientMetrics } from "../../canvas-live/src/shared";
+import { anchorFor, newThreadId, openThread } from "../../canvas-live/src/threads";
+import { RoomAgentContext } from "./avatar";
 import { CanvasCard } from "./cards";
 import { CursorArrow, Cursors, follow } from "./cursors";
 import { CanvasEdge } from "./edge";
 import { postEmbed } from "./embed";
-import { useAgent, useConnection, useSession } from "./hooks";
+import { useAgent, useConnection, useSession, useThrottledPresence } from "./hooks";
 import { SideLog } from "./log";
+import { Pins, ThreadPopover, usePinSpots, useThreads } from "./pins";
 import {
   type CardNode,
   type FlowBox,
@@ -70,7 +73,7 @@ import {
   setPresence,
   subscribePresence,
   undo,
-  yChat,
+  yThreads,
   yEdges,
   yMeta,
   yMetrics,
@@ -136,7 +139,17 @@ function trackLatency(msgId: string) {
   setTimeout(off, 120_000);
 }
 
-function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void }) {
+function Board({
+  logOpen,
+  onOpenLog,
+  openThreadId,
+  setOpenThread,
+}: {
+  logOpen: boolean;
+  onOpenLog: () => void;
+  openThreadId: string | null;
+  setOpenThread: (id: string | null) => void;
+}) {
   const [nodes, setNodes] = useState<CardNode[]>([]);
   const [edges, setEdges] = useState<LinkEdge[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -150,11 +163,14 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
   const [following, setFollowing] = useState(follow.on);
   const pointer = useRef({ sx: 0, sy: 0, fx: 0, fy: 0 });
   const ownCursorRef = useRef<HTMLDivElement>(null);
-  const [chat, setChat] = useState<{ sx: number; sy: number; text: string } | null>(null);
-  const [ownBubble, setOwnBubble] = useState<{ sx: number; sy: number; text: string } | null>(null);
+  const [chat, setChat] = useState<{ sx: number; sy: number; fx: number; fy: number; text: string } | null>(null);
   const connection = useConnection();
   const session = useSession();
   const agent = useAgent();
+  const presences = useThrottledPresence();
+  const threads = useThreads();
+  const pinSpots = usePinSpots(threads);
+  const openThreadSnap = threads.find((t) => t.id === openThreadId);
   const keyboard = useKeyboardInset();
   const ended = session?.open === false;
   /** Absolute positions as last drawn, to write drags back as file coordinates. */
@@ -485,8 +501,7 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
     // Touch has no hover: its cursor is the last tap.
     if (e.pointerType === "touch") return;
     trackPointer(e.clientX, e.clientY, false);
-    if (chat && !TOUCH)
-      setChat((c) => (c ? { ...c, sx: pointer.current.sx, sy: pointer.current.sy } : c));
+    // The open composer stays where the comment's pin goes.
   };
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.pointerType === "touch") trackPointer(e.clientX, e.clientY, true);
@@ -506,7 +521,7 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
       const sy = sel ? sel.internals.positionAbsolute.y * zoom + ty + 40 : (r?.height ?? 600) / 2;
       trackPointer(sx + (r?.left ?? 0), sy + (r?.top ?? 0), true);
     } else setPresence("cursor", { x: pointer.current.fx, y: pointer.current.fy });
-    setChat({ sx: pointer.current.sx, sy: pointer.current.sy, text: "" });
+    setChat({ sx: pointer.current.sx, sy: pointer.current.sy, fx: pointer.current.fx, fy: pointer.current.fy, text: "" });
     setPresence("draft", "");
   }, [ended, rf, selectedIds, store, trackPointer]);
 
@@ -587,26 +602,37 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
       closeChat();
       return;
     }
-    const msg: ChatMsg = {
-      id: `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-      kind: "human",
-      name: self.name,
-      color: self.color,
-      text,
-      nodeIds: selectedIds,
-      at: { x: pointer.current.fx, y: pointer.current.fy },
-      ts: Date.now(),
-    };
-    trackLatency(msg.id);
-    yChat.push([msg]);
+    // A comment is a pin: on the selected card (at the spot, or its corner), else on the board where it was opened.
+    const first = selectedIds[0];
+    const internal = first === undefined ? undefined : rf.getInternalNode(first);
+    const node =
+      first !== undefined && internal !== undefined
+        ? {
+            id: first,
+            box: {
+              x: internal.internals.positionAbsolute.x,
+              y: internal.internals.positionAbsolute.y,
+              w: internal.measured.width ?? 0,
+              h: internal.measured.height ?? 0,
+            },
+          }
+        : null;
+    const id = newThreadId();
+    const msgId = `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    trackLatency(msgId);
+    doc.transact(() => {
+      openThread(yThreads, id, anchorFor({ x: chat.fx, y: chat.fy }, node), {
+        id: msgId,
+        kind: "human",
+        name: self.name,
+        color: self.color,
+        text,
+        ts: Date.now(),
+      });
+    });
     setPresence("draft", null);
-    setPresence("bubble", { text });
-    setOwnBubble({ sx: chat.sx, sy: chat.sy, text });
     setChat(null);
-    setTimeout(() => {
-      setPresence("bubble", null);
-      setOwnBubble(null);
-    }, 5000);
+    setOpenThread(id);
   };
 
   const attached = selectedIds.map((id) => String(yNodes.get(id)?.get("title") ?? "") || id);
@@ -638,8 +664,8 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
         ref={(el) => {
           if (el && document.activeElement !== el) el.focus({ preventScroll: true });
         }}
-        aria-label={`Message ${agent.name}`}
-        placeholder={`Say something to ${agent.name}`}
+        aria-label={`Comment for ${agent.name}`}
+        placeholder={`Comment for ${agent.name}, or @Name for a worker`}
         enterKeyHint="send"
         value={chat.text}
         onChange={(e) => {
@@ -732,6 +758,7 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
         panActivationKeyCode="Space"
         multiSelectionKeyCode={["Shift", "Meta", "Control"]}
         onNodeClick={onNodeClick}
+        onPaneClick={() => setOpenThread(null)}
         onNodeContextMenu={(e, node) => {
           e.preventDefault();
           if (!editable) return;
@@ -754,13 +781,17 @@ function Board({ logOpen, onOpenLog }: { logOpen: boolean; onOpenLog: () => void
         </div>
       ) : null}
       {composer}
-      {ownBubble ? (
-        <div
-          className="cv-own-bubble"
-          style={{ transform: popupAt(ownBubble.sx, ownBubble.sy), background: self.color }}
-        >
-          {ownBubble.text}
-        </div>
+      <Pins threads={threads} spots={pinSpots} openId={openThreadId} presences={presences} onOpen={setOpenThread} />
+      {openThreadSnap ? (
+        <ThreadPopover
+          key={openThreadSnap.id}
+          thread={openThreadSnap}
+          at={pinSpots.get(openThreadSnap.id) ?? null}
+          bounds={{ width: wrapRef.current?.clientWidth ?? 800, height: wrapRef.current?.clientHeight ?? 600 }}
+          sheet={TOUCH}
+          presences={presences}
+          onClose={() => setOpenThread(null)}
+        />
       ) : null}
       {connection !== "live" ? (
         <div className="cv-connecting">
@@ -978,12 +1009,25 @@ function Room() {
   const [logOpen, setLogOpen] = useState(
     () => !TOUCH && env.embed !== "phone" && window.innerWidth > 760,
   );
+  const [openThreadId, setOpenThread] = useState<string | null>(null);
+  const agent = useAgent();
   useEmbedEvents();
   return (
-    <>
-      <Board logOpen={logOpen} onOpenLog={() => setLogOpen(true)} />
-      <SideLog open={logOpen} setOpen={setLogOpen} touch={TOUCH} />
-    </>
+    <RoomAgentContext.Provider value={{ name: agent.name, avatar: agent.avatar }}>
+      <Board
+        logOpen={logOpen}
+        onOpenLog={() => setLogOpen(true)}
+        openThreadId={openThreadId}
+        setOpenThread={setOpenThread}
+      />
+      <SideLog
+        open={logOpen}
+        setOpen={setLogOpen}
+        touch={TOUCH}
+        openThread={openThreadId}
+        setOpenThread={setOpenThread}
+      />
+    </RoomAgentContext.Provider>
   );
 }
 

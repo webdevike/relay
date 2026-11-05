@@ -29,7 +29,7 @@ import { chatFileOf, subagentName } from "./caller";
 import { chatContext } from "./context";
 import { ActRefused, CanvasParticipant, MAX_BATCH_ACTIONS, MAX_PARTICIPANTS, parseScript, type ActResult, type ParticipantOptions } from "./participant";
 import { BoardFile, boardPath } from "./persist";
-import { assistantAvatar, assistantLook, EVA_LOOK, portraitSeed } from "./portrait";
+import { assistantAvatar, assistantLook, assistantNamed, EVA_LOOK, portraitSeed, sessionAssistant } from "./portrait";
 import { CanvasSync, type CanvasPeer } from "./room";
 import { CanvasTokens, type CanvasGrant } from "./tokens";
 import { sessionActivity } from "./session-activity";
@@ -156,6 +156,8 @@ export interface Handoff {
   readonly from: string;
   readonly at: number;
   state: "open" | "landed" | "failed";
+  /** The comment thread the request came from; the worker answers there and the landing is confirmed there. */
+  readonly thread: string | null;
 }
 
 export interface JoinResult {
@@ -399,7 +401,7 @@ export class CanvasService {
         },
         log: this.deps.log,
         handoff: (target, request, from) => {
-          this.handOff(room, target, request, from?.name ?? canvasHuman());
+          this.handOff(room, target, request, from?.name ?? canvasHuman(), from?.thread ?? null);
         },
         direct: (msg) => {
           // `@Name do X` to a worker goes straight to its session; the canvas self stays out of it.
@@ -409,7 +411,7 @@ export class CanvasService {
           const request = (match[2] ?? "").trim();
           // Out of the chat observer that saw the note, so its own chat line is a separate change.
           queueMicrotask(() => {
-            this.handOff(room, worker.user.name, request, msg.name);
+            this.handOff(room, worker.user.name, request, msg.name, msg.thread ?? null);
           });
           return true;
         },
@@ -600,7 +602,7 @@ export class CanvasService {
    * session as a message telling it how to land the work. A participant with no session behind it,
    * or an unknown name, gets nothing: the request goes to main instead.
    */
-  private handOff(room: CanvasRoom, target: string, request: string, from: string): void {
+  private handOff(room: CanvasRoom, target: string, request: string, from: string, thread: string | null): void {
     if (!room.live || request.trim() === "") return;
     const key = target.replace(/^@/, "").toLowerCase();
     const named = key === "main" || key === room.agent.name.toLowerCase() ? undefined : room.participants.get(key);
@@ -616,6 +618,7 @@ export class CanvasService {
       from,
       at: this.now(),
       state: "open",
+      thread,
     };
     room.handoffs.set(handoff.id, handoff);
     this.event(room, `Handed to ${handoff.toName}: ${handoff.request}`);
@@ -630,7 +633,8 @@ export class CanvasService {
       "<caption>",
       "@end",
       "EOF",
-      `Any action lines work (@add_node, @add_frame, @say ...; skill://canvas section 9). Free space: ${CLI} canvas show ${room.slug}. ${room.agent.name} confirms it to ${from} in the room when it lands.`,
+      `Any action lines work (@add_node, @add_frame, @say ...; skill://canvas section 9). Free space: ${CLI} canvas show ${room.slug}. ${room.agent.name} confirms it to ${from} ${thread === null ? "in the room" : "in the comment thread"} when it lands.`,
+      ...(thread === null ? [] : [`${from} asked in comment thread ${thread} on the board: answer there with "@reply ${thread} <one line>" in the batch, not @say.`]),
     ].join("\n");
     const sessionId = worker?.sessionId ?? room.chatSessionId;
     this.deps.chats.reply(sessionId, text, true).then(
@@ -672,7 +676,7 @@ export class CanvasService {
       ...(result.skipped.length === 0 ? [] : [`Did not run: ${result.skipped.join("; ")}`]),
     ].join(" ");
     this.deps.log(`canvas ${room.slug}: handoff ${handoff.id} landed by ${by} (${String(result.ran)} actions)`);
-    room.agents[0]?.landed(text);
+    room.agents[0]?.landed(text, handoff.thread);
   }
 
   /** Shows on `to` ("main" or a worker's key) the oldest request it still has open, or none. */
@@ -842,12 +846,19 @@ export class CanvasService {
     return this.deps.chats.sessions.find((session) => session.kind === "assistant" && session.assistant === id && session.status !== "ended") ?? null;
   }
 
-  /** The canvas self's look: the chat's assistant (name, accent, avatar), else Eva; `name` overrides. */
+  /**
+   * The canvas self's look: the assistant the chat belongs to (its own thread, work it started, or
+   * the top session of a helper), else the plain-chat agent; `name` overrides. Whatever the name,
+   * when it is a registry assistant's it wears that assistant's face and accent, the same drawing
+   * as Relay desktop's chat header.
+   */
   private agentFor(chat: AgentSession, name: string | undefined): CanvasAgentInfo {
-    let agent: CanvasAgentInfo = this.deps.defaultAgentName === undefined ? EVA_LOOK : { ...EVA_LOOK, name: this.deps.defaultAgentName };
-    if (chat.kind === "assistant" && chat.assistant !== undefined) agent = assistantLook(this.deps.registry, chat.assistant, chat.title);
-    const override = name?.trim();
-    return override === undefined || override === "" ? agent : { ...agent, name: override.slice(0, 100) };
+    const { top, assistant } = sessionAssistant(this.deps.chats.sessions, chat);
+    const override = name?.trim().slice(0, 100) ?? "";
+    const named = assistantNamed(this.deps.registry, override !== "" ? override : assistant === undefined ? (this.deps.defaultAgentName ?? "") : "");
+    const id = named?.id ?? assistant;
+    const agent: CanvasAgentInfo = id !== undefined ? assistantLook(this.deps.registry, id, top.title) : { ...EVA_LOOK, ...(this.deps.defaultAgentName === undefined ? {} : { name: this.deps.defaultAgentName }) };
+    return override === "" ? agent : { ...agent, name: override };
   }
 
   /**
@@ -856,7 +867,7 @@ export class CanvasService {
    * room wears, starting at its name's) and the Rooms portrait for its name.
    */
   private participantUser(room: CanvasRoom, name: string, color: string | undefined): User {
-    const assistant = this.deps.registry.find((entry) => entry.id === name.toLowerCase() || entry.title.toLowerCase() === name.toLowerCase());
+    const assistant = assistantNamed(this.deps.registry, name);
     if (assistant !== undefined) {
       const look = assistantLook(this.deps.registry, assistant.id, name);
       return { ...this.user({ ...look, name }), ...(color === undefined ? {} : { color }) };

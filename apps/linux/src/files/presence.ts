@@ -13,7 +13,7 @@ import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import type { AgentSession, DeviceFileFocus, FileEdit, FileEditAgent, FileFocus, ServerMessage } from "@relay/protocol";
 import { changedRanges } from "@relay/protocol/text-diff";
 import type { AssistantAgentConfig } from "../assistant/registry";
-import { assistantLook, EVA_LOOK, portraitSeed } from "../canvas/portrait";
+import { assistantLook, EVA_LOOK, portraitSeed, sessionAssistant } from "../canvas/portrait";
 import type { AgentProviderChange, FileClient, FilePresenceRelaying, FrameSink } from "../seams";
 import type { SessionClock } from "../session";
 
@@ -257,13 +257,7 @@ export class FilePresence implements FilePresenceRelaying {
     const sessions = this.deps.sessions();
     const session = sessions.find((s) => s.id === sessionId);
     if (session === undefined) return UNKNOWN_AGENT;
-    let top = session;
-    for (let depth = 0; depth < 8 && top.parentId !== undefined; depth++) {
-      const parent = sessions.find((s) => s.id === top.parentId);
-      if (parent === undefined) break;
-      top = parent;
-    }
-    const assistant = top.kind === "assistant" ? top.assistant : top.owner;
+    const { top, assistant } = sessionAssistant(sessions, session);
     const name = this.deps.defaultAgentName();
     const look = assistant !== undefined ? assistantLook(this.deps.registry(), assistant, top.title) : name === undefined ? EVA_LOOK : { ...EVA_LOOK, name };
     if (session.parentId === undefined) return { ...look, sessionId };

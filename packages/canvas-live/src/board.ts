@@ -9,6 +9,7 @@
 import * as Y from "yjs";
 import type { CanvasLayout } from "./layout";
 import { DOC_KEYS, NODE_KINDS, PLAIN_DATA_KEYS, type NodeKind, type TextField } from "./shared";
+import { snapThreads, THREAD_ID, threadMap, threadsOf, type ThreadAnchor, type ThreadMap, type ThreadMsg } from "./threads";
 
 /** The board schema version this build reads and writes (native `board::VERSION`). */
 export const CANVAS_VERSION = 1;
@@ -64,6 +65,16 @@ export interface BoardViewport {
   zoom: number;
 }
 
+/** A comment pin and its thread (threads.ts): `node` + offset, or a board point; messages oldest first. */
+export interface BoardThread {
+  id: string;
+  node?: string;
+  x: number;
+  y: number;
+  resolved?: boolean;
+  messages: ThreadMsg[];
+}
+
 export interface Board {
   version: number;
   title: string;
@@ -71,6 +82,8 @@ export interface Board {
   nodes: BoardNode[];
   edges: BoardEdge[];
   viewport?: BoardViewport;
+  /** Absent in files written before comment pins (and by writers that drop them): the room's threads are then left as they are. */
+  threads?: BoardThread[];
 }
 
 export class BoardError extends Error {}
@@ -121,6 +134,41 @@ function parseData(v: unknown, where: string): BoardNodeData | undefined {
     }
   }
   return out;
+}
+
+function parseThreads(v: unknown): BoardThread[] | undefined {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length > 2_000) throw new BoardError("threads: expected a list");
+  return v.map((t, i): BoardThread => {
+    const where = `threads[${i}]`;
+    if (!isObj(t)) throw new BoardError(`${where}: expected an object`);
+    const id = str(t["id"], `${where}.id`, 60);
+    if (!THREAD_ID.test(id)) throw new BoardError(`${where}.id: expected letters, digits, ".", "_" or "-"`);
+    const x = coord(t["x"], `${where}.x`);
+    const y = coord(t["y"], `${where}.y`);
+    if (x === undefined || y === undefined) throw new BoardError(`${where}: expected x and y`);
+    const resolved = t["resolved"];
+    if (resolved !== undefined && typeof resolved !== "boolean") throw new BoardError(`${where}.resolved: expected true or false`);
+    const raw = t["messages"] ?? [];
+    if (!Array.isArray(raw) || raw.length > 500) throw new BoardError(`${where}.messages: expected a list`);
+    const messages = raw.map((m, j): ThreadMsg => {
+      const at = `${where}.messages[${j}]`;
+      if (!isObj(m)) throw new BoardError(`${at}: expected an object`);
+      const kind = m["kind"];
+      if (kind !== "human" && kind !== "agent") throw new BoardError(`${at}.kind: expected human or agent`);
+      const ts = coord(m["ts"], `${at}.ts`);
+      return defined<ThreadMsg>({
+        id: str(m["id"], `${at}.id`, 200),
+        kind,
+        name: str(m["name"], `${at}.name`, 200),
+        color: str(m["color"], `${at}.color`, 100),
+        avatar: optStr(m["avatar"], `${at}.avatar`, 500),
+        text: str(m["text"], `${at}.text`, 10_000),
+        ts: ts ?? 0,
+      });
+    });
+    return defined<BoardThread>({ id, node: optStr(t["node"], `${where}.node`, 500), x, y, resolved: resolved === true ? true : undefined, messages });
+  });
 }
 
 /** Native `board::parse`: JSON, unknown fields dropped, a newer `version` refused. Throws `BoardError`. */
@@ -187,6 +235,7 @@ export function parseBoard(text: string): Board {
     nodes,
     edges,
     viewport,
+    threads: parseThreads(raw["threads"]),
   });
 }
 
@@ -289,6 +338,30 @@ const edgeObj = (e: BoardEdge): Obj =>
     ["tone", e.tone],
   ]);
 
+const threadObj = (t: BoardThread): Obj =>
+  new Obj([
+    ["id", t.id],
+    ["node", t.node],
+    ["x", f32(t.x)],
+    ["y", f32(t.y)],
+    ["resolved", t.resolved === true ? new Raw("true") : undefined],
+    [
+      "messages",
+      t.messages.map(
+        (m) =>
+          new Obj([
+            ["id", m.id],
+            ["kind", m.kind],
+            ["name", m.name],
+            ["color", m.color],
+            ["avatar", m.avatar],
+            ["text", m.text],
+            ["ts", new Raw(String(Math.round(m.ts)))],
+          ]),
+      ),
+    ],
+  ]);
+
 /** serde_json's pretty printer: two-space indent, `"key": value`, `[]` / `{}` when empty. */
 function write(value: Json, indent: string): string {
   if (typeof value === "string") return JSON.stringify(value);
@@ -304,7 +377,8 @@ function write(value: Json, indent: string): string {
 
 /**
  * Native `board::to_text`: the same board always gives the same text, byte for byte what native
- * EvaOS writes, so an unchanged board never rewrites its file in either app.
+ * EvaOS writes, so an unchanged board never rewrites its file in either app. `threads` (Relay's
+ * comment pins) comes last and only when the board has some, so a board without them is unchanged.
  */
 export function boardText(board: Board): string {
   const vp = board.viewport;
@@ -323,6 +397,7 @@ export function boardText(board: Board): string {
           ["zoom", f32(vp.zoom)],
         ]),
     ],
+    ["threads", board.threads !== undefined && board.threads.length > 0 ? board.threads.map(threadObj) : undefined],
   ]);
   return `${write(root, "")}\n`;
 }
@@ -367,6 +442,11 @@ function edgeMap(e: BoardEdge): Y.Map<unknown> {
   return m;
 }
 
+function boardThreadMap(t: BoardThread): ThreadMap {
+  const anchor: ThreadAnchor = t.node === undefined ? { x: t.x, y: t.y } : { node: t.node, x: t.x, y: t.y };
+  return threadMap(anchor, t.resolved === true, t.messages);
+}
+
 function setMeta(meta: Y.Map<unknown>, board: Board): void {
   if (meta.get("version") !== board.version) meta.set("version", board.version);
   if (meta.get("title") !== board.title) meta.set("title", board.title);
@@ -378,16 +458,19 @@ function setMeta(meta: Y.Map<unknown>, board: Board): void {
   }
 }
 
-/** Replaces the doc's board (nodes, edges, meta title/layout/viewport) with `board`, in one transaction. */
+/** Replaces the doc's board (nodes, edges, threads, meta title/layout/viewport) with `board`, in one transaction. */
 export function seedDoc(doc: Y.Doc, board: Board, origin: unknown = "seed"): void {
   const nodes = nodesOf(doc);
   const edges = edgesOf(doc);
+  const threads = threadsOf(doc);
   doc.transact(() => {
     nodes.clear();
     edges.clear();
+    threads.clear();
     setMeta(metaOf(doc), board);
     for (const n of board.nodes) nodes.set(n.id, nodeMap(n));
     for (const e of board.edges) edges.set(e.id, edgeMap(e));
+    for (const t of board.threads ?? []) threads.set(t.id, boardThreadMap(t));
   }, origin);
 }
 
@@ -451,6 +534,10 @@ export function exportBoard(doc: Y.Doc): Board {
       }),
     );
   }
+  // Oldest thread first, so every room writes the same text for the same threads.
+  const threads = snapThreads(threadsOf(doc))
+    .sort((a, b) => (a.messages[0]?.ts ?? 0) - (b.messages[0]?.ts ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .map((t) => defined<BoardThread>({ id: t.id, node: t.anchor.node, x: t.anchor.x, y: t.anchor.y, resolved: t.resolved ? true : undefined, messages: t.messages }));
   const version = meta.get("version");
   const layout = meta.get("layout");
   const viewport = meta.get("viewport");
@@ -461,6 +548,7 @@ export function exportBoard(doc: Y.Doc): Board {
     nodes,
     edges,
     viewport: isObj(viewport) ? (viewport as unknown as BoardViewport) : undefined,
+    threads: threads.length > 0 ? threads : undefined,
   });
 }
 
@@ -513,7 +601,8 @@ export function spliceText(text: Y.Text, from: string, to: string): void {
  * Merges a board written by someone else into the doc by id: nodes and edges added, removed and
  * updated, title/body through `spliceText`. With `base` (the board as this room last wrote or
  * read it) only what the writer changed relative to `base` is applied, so a stale writer never
- * undoes edits made in the room since; without it, the doc is brought to `board`.
+ * undoes edits made in the room since; without it, the doc is brought to `board`. Threads merge
+ * the same way by id (their messages are only ever added), and not at all when `board` has none.
  */
 export function mergeBoardIntoDoc(doc: Y.Doc, board: Board, origin: unknown, base?: Board): void {
   const nodes = nodesOf(doc);
@@ -586,6 +675,35 @@ export function mergeBoardIntoDoc(doc: Y.Doc, board: Board, origin: unknown, bas
         if (v === undefined) m.delete(k);
         else if (m.get(k) !== v) m.set(k, v);
       }
+    }
+
+    // A writer that has no `threads` (EvaOS, older Relays, agents writing nodes only) leaves the room's pins alone.
+    if (board.threads === undefined) return;
+    const threads = threadsOf(doc);
+    const baseThreads = new Map((baseBoard.threads ?? []).map((t) => [t.id, t]));
+    const incomingThreads = new Set(board.threads.map((t) => t.id));
+    for (const id of baseThreads.keys()) if (!incomingThreads.has(id) && threads.has(id)) threads.delete(id);
+    for (const t of board.threads) {
+      const was = baseThreads.get(t.id);
+      const m = threads.get(t.id);
+      if (m === undefined) {
+        if (was === undefined || base === undefined) threads.set(t.id, boardThreadMap(t));
+        continue;
+      }
+      if (was === undefined || t.node !== was.node || t.x !== was.x || t.y !== was.y) {
+        if (t.node === undefined) m.delete("node");
+        else if (m.get("node") !== t.node) m.set("node", t.node);
+        if (m.get("x") !== t.x) m.set("x", t.x);
+        if (m.get("y") !== t.y) m.set("y", t.y);
+      }
+      const resolved = t.resolved === true;
+      if ((was === undefined || resolved !== (was.resolved === true)) && m.get("resolved") !== resolved) m.set("resolved", resolved);
+      // Messages are only ever added: the writer's new ones join the room's.
+      const list = m.get("messages");
+      if (!(list instanceof Y.Array)) continue;
+      const have = new Set((list as Y.Array<ThreadMsg>).toArray().map((msg) => msg.id));
+      const added = t.messages.filter((msg) => !have.has(msg.id));
+      if (added.length > 0) (list as Y.Array<ThreadMsg>).push(added);
     }
   }, origin);
 }

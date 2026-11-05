@@ -11,10 +11,10 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 import { DoneTracker, type Person, type PersonState, describeRoom, useWidgetsLoading } from "./activity";
-import { avatarUrl } from "./env";
+import { Face } from "./avatar";
 import { useConnection, useThrottledPresence } from "./hooks";
 import { LOCAL_ORIGIN } from "./model";
-import { env, provider, yNodes } from "./room";
+import { provider, yNodes } from "./room";
 
 /** A burst of added cards is counted until this long passes without another. */
 const BURST_MS = 3000;
@@ -67,13 +67,12 @@ function Who({ person }: { person: Person }) {
       data-state={person.agent ? person.state : undefined}
       title={person.agent ? `${person.name}, ${person.label}` : person.name}
     >
-      {person.avatar ? (
-        <img className="cv-who-avatar" src={avatarUrl(env, person.avatar)} alt="" style={{ borderColor: person.color }} />
-      ) : (
-        <i className="cv-who-swatch" style={{ background: person.color }}>
-          {person.name.slice(0, 1)}
-        </i>
-      )}
+      <Face
+        who={{ name: person.name, color: person.color, kind: person.agent ? "agent" : "human", avatar: person.avatar }}
+        size={20}
+        ring={person.agent}
+        className="cv-who-avatar"
+      />
       <span className="cv-who-name">{person.name}</span>
       {person.agent ? (
         <span className="cv-who-state">

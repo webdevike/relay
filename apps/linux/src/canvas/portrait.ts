@@ -4,7 +4,7 @@
 // deterministic, served as SVG at `/canvas/portrait/<seed>`.
 
 import { createAvatar } from "@dicebear/core";
-import type { CanvasAgent } from "@relay/protocol";
+import type { AgentSession, CanvasAgent } from "@relay/protocol";
 import { assistantAvatarSvg, assistantPortrait } from "@relay/portrait-motion";
 import type { AssistantAgentConfig } from "../assistant/registry";
 import * as notionists from "@dicebear/notionists";
@@ -46,4 +46,25 @@ export function assistantLook(registry: readonly AssistantAgentConfig[], id: str
   const accent = config?.portrait?.colors?.accent;
   const agent: CanvasAgent = { name: config?.title ?? fallbackTitle, color: accent !== undefined && /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : EVA_LOOK.color };
   return config === undefined ? agent : { ...agent, avatar: `/canvas/avatar/${id}` };
+}
+
+/**
+ * The session `session` belongs to at the top (a helper's parent chain walked up) and the
+ * registry assistant whose face it wears there: an assistant's own thread, or work an assistant
+ * started (`owner`); undefined for a plain chat.
+ */
+export function sessionAssistant(sessions: readonly AgentSession[], session: AgentSession): { top: AgentSession; assistant: string | undefined } {
+  let top = session;
+  for (let depth = 0; depth < 8 && top.parentId !== undefined; depth++) {
+    const parent = sessions.find((s) => s.id === top.parentId);
+    if (parent === undefined) break;
+    top = parent;
+  }
+  return { top, assistant: top.kind === "assistant" ? top.assistant : top.owner };
+}
+
+/** The registry assistant named `name` (its id or title, any case), if any. */
+export function assistantNamed(registry: readonly AssistantAgentConfig[], name: string): AssistantAgentConfig | undefined {
+  const key = name.trim().toLowerCase();
+  return registry.find((entry) => entry.id === key || entry.title.toLowerCase() === key);
 }

@@ -82,7 +82,15 @@ export function parseScript(script: string): Step[] {
 }
 
 const describe = (a: Action): string =>
-  a.kind === "add_edge" ? `add_edge ${a.source} ${a.target}` : a.kind === "cursor" ? `cursor ${String(a.x)} ${String(a.y)}` : a.kind === "handoff" ? `handoff ${a.target}` : `${a.kind} ${a.id}`;
+  a.kind === "add_edge"
+    ? `add_edge ${a.source} ${a.target}`
+    : a.kind === "cursor"
+      ? `cursor ${String(a.x)} ${String(a.y)}`
+      : a.kind === "handoff"
+        ? `handoff ${a.target}`
+        : a.kind === "reply" || a.kind === "resolve"
+          ? `${a.kind} ${a.thread}`
+          : `${a.kind} ${a.id}`;
 
 /**
  * Runs a batch's steps in order through `actor`, pausing `paceMs` after each action: `say` puts a

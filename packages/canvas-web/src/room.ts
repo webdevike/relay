@@ -5,6 +5,7 @@ import * as Y from "yjs";
 import { type ChatMsg, DOC_KEYS, type Presence, type User } from "../../canvas-live/src/shared";
 import { parseEnv, roomUrl, wsParams, wsServer } from "./env";
 import { HUMAN_COLORS, createUndo, freeColor, uniqueName } from "./model";
+import { threadsOf } from "../../canvas-live/src/threads";
 
 export const env = parseEnv(location.href);
 export const doc = new Y.Doc();
@@ -17,6 +18,7 @@ export const yNodes = doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes);
 export const yEdges = doc.getMap<Y.Map<unknown>>(DOC_KEYS.edges);
 export const yMeta = doc.getMap<unknown>(DOC_KEYS.meta);
 export const yChat = doc.getArray<ChatMsg>(DOC_KEYS.chat);
+export const yThreads = threadsOf(doc);
 export const ySettings = doc.getMap<unknown>(DOC_KEYS.settings);
 export const yMetrics = doc.getMap<unknown>(DOC_KEYS.metrics);
 

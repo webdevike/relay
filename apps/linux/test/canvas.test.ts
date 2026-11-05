@@ -11,6 +11,7 @@ import type { AgentSession, CanvasEntry } from "@relay/protocol";
 import { QUERY_MAX_REFRESH_SEC, QUERY_MIN_REFRESH_SEC, QUERY_TOOL_NAMES } from "@relay/protocol";
 import { boardText, exportBoard, nodesOf, parseBoard } from "@relay/canvas-live/board";
 import { DOC_KEYS, type ChatMsg, type Presence } from "@relay/canvas-live/shared";
+import { openThread, postInThread, snapThreads, threadsOf, type ThreadMsg } from "@relay/canvas-live/threads";
 import { OmpBridgeProvider } from "../src/agents/bridge";
 import { parseSessionRows } from "../src/agents/transcript";
 import { toAssistantMessages } from "../src/assistant/service";
@@ -24,6 +25,7 @@ import { authorizeCanvasSocket, handleCanvasRequest } from "../src/canvas/http";
 import { BoardFile } from "../src/canvas/persist";
 import type { CanvasPeer } from "../src/canvas/room";
 import { CanvasError, CanvasService, type CanvasChats, type CanvasRoom } from "../src/canvas/service";
+import { sessionAssistant } from "../src/canvas/portrait";
 
 const FIXTURES = join(import.meta.dirname, "..", "..", "..", "packages", "canvas-live", "test", "fixtures");
 
@@ -842,6 +844,97 @@ describe("handing work off", () => {
     await until(() => !doings()["Theo"] && !doings()["Eva"], "the sessions to read idle");
     expect(service.view("ecs-roles").participants).toMatchObject([{ name: "Theo", status: "idle" }]);
     tab.leave();
+  });
+});
+
+describe("comment pins", () => {
+  const isaac = (id: string, text: string): ThreadMsg => ({ id, kind: "human", name: "Isaac", color: "#0ea5e9", text, ts: Date.now() });
+
+  it("answers a comment inside its thread with the assistant's face, never in the room chat, and keeps it in the board file", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: novaFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    const threads = threadsOf(tab.doc);
+    const chat = tab.doc.getArray<ChatMsg>(DOC_KEYS.chat);
+    const roomLines = chat.length;
+
+    openThread(threads, "t-1", { node: "root", x: 40, y: 12 }, isaac("c1", "rename the root"));
+    const thread = (id: string) => snapThreads(threads).find((t) => t.id === id);
+    await until(() => thread("t-1")?.messages.some((m) => m.kind === "agent") === true, "the reply in the thread");
+    expect(thread("t-1")?.messages[1]).toMatchObject({ kind: "agent", name: "Nova", color: "#f76707", avatar: "/canvas/avatar/nova", text: "Done, renamed it." });
+    // The edit still lands on the board; the answer is not a room line, a note or a bare cursor bubble.
+    const title = (): string => (tab.doc.getMap<Y.Map<unknown>>(DOC_KEYS.nodes).get("root")?.get("title") as Y.Text).toJSON();
+    await until(() => title() === "ECS roles, renamed live" && posted.some((p) => p.details.kind === "turn"), "the edit and the turn row");
+    expect(chat.toArray().slice(roomLines).filter((m) => m.kind === "agent")).toEqual([]);
+    const nova = (): Presence | undefined => [...(tab.awareness.getStates() as Map<number, Presence>).values()].find((p) => p.user.name === "Nova");
+    expect(nova()?.bubble).toMatchObject({ text: "Done, renamed it.", thread: "t-1" });
+    expect(nova()?.user.avatar).toBe("/canvas/avatar/nova");
+    // The agent got the anchor: the thread, the card it is pinned to in full, and where the pin is.
+    const prompt = brains[0]?.prompts.at(-1) ?? "";
+    expect(prompt).toContain("# The comment (thread t-1)");
+    expect(prompt).toMatch(/Pinned on card \[root\] @-?\d+,-?\d+\./);
+    expect(prompt).toContain("[root] topic: ECS roles");
+    expect(prompt).toContain("Isaac says: rename the root");
+    expect(posted.find((p) => p.details.kind === "turn")).toMatchObject({ details: { human: { text: "rename the root" }, text: "Done, renamed it." } });
+
+    // The canvas self (here, the chat acting as it) pins its own question and resolves the first thread.
+    await expect(service.selfAct("ecs-roles", "@pin t-ask root Is support staff?\n@resolve t-1\n@reply t-gone hello")).resolves.toMatchObject({ ran: 2, skipped: ["reply t-gone: no thread t-gone"] });
+    expect(thread("t-ask")?.messages).toMatchObject([{ kind: "agent", name: "Nova", avatar: "/canvas/avatar/nova", text: "Is support staff?" }]);
+    expect(thread("t-ask")?.anchor.node).toBe("root");
+    expect(thread("t-1")?.resolved).toBe(true);
+
+    // Isaac writing in the resolved thread reopens it and is a turn answered there again.
+    postInThread(threads, "t-1", isaac("c2", "one more: make it shorter"));
+    expect(thread("t-1")?.resolved).toBe(false);
+    await until(() => (thread("t-1")?.messages.filter((m) => m.kind === "agent").length ?? 0) === 2, "the second reply");
+    expect(brains[0]?.prompts.at(-1)).toContain("The thread so far:\nIsaac: rename the root\nNova: Done, renamed it.");
+    // The next turn knows the other open threads.
+    expect(brains[0]?.prompts.at(-1)).toContain("[t-ask] on [root]: Nova: Is support staff?");
+
+    // Pins and threads are in the board file and come back with the board.
+    await until(() => (parseBoard(readFileSync(join(canvasDir, "ecs-roles.json"), "utf8")).threads?.length ?? 0) === 2, "threads on disk");
+    const onDisk = parseBoard(readFileSync(join(canvasDir, "ecs-roles.json"), "utf8"));
+    expect(onDisk.threads?.find((t) => t.id === "t-1")).toMatchObject({ node: "root", x: 40, y: 12 });
+    expect(onDisk.threads?.find((t) => t.id === "t-1")?.messages.map((m) => m.text)).toEqual(["rename the root", "Done, renamed it.", "one more: make it shorter", "Done, renamed it."]);
+    tab.leave();
+  });
+
+  it("routes an @Name comment to the worker, which answers in the same thread with its own portrait", async () => {
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
+    const room = service.roomById(started.roomId);
+    if (room === undefined) throw new Error("no room");
+    const tab = joinRoom(service, room, "Isaac");
+    await openerDone(tab);
+    const mara = service.join("ecs-roles", { name: "Mara", session: "Worker" }).participant;
+    const threads = threadsOf(tab.doc);
+    openThread(threads, "t-shot", { x: 2400, y: 80 }, isaac("c1", "@Mara screenshot the settings tab"));
+    await until(() => replies.length === 1, "the routed comment");
+    expect(replies[0]).toMatchObject({ sessionId: "s-chat:Build.Worker" });
+    expect(replies[0]?.text).toContain('answer there with "@reply t-shot <one line>"');
+    expect(service.view("ecs-roles").handoffs).toMatchObject([{ to: "mara", thread: "t-shot" }]);
+    const id = /handoff (h\w+)\./.exec(replies[0]?.text ?? "")?.[1] ?? "";
+    await expect(service.act("ecs-roles", mara.id, "@reply t-shot Shot is on the board, right of the roles.", id)).resolves.toMatchObject({ ran: 1 });
+    expect(snapThreads(threads).find((t) => t.id === "t-shot")?.messages[1]).toMatchObject({ kind: "agent", name: "Mara", avatar: "/canvas/portrait/mara", text: "Shot is on the board, right of the roles." });
+    // The canvas self's confirmation goes into the thread it came from.
+    await until(() => (snapThreads(threads).find((t) => t.id === "t-shot")?.messages.length ?? 0) === 3, "the confirmation in the thread");
+    expect(brains[0]?.prompts.at(-1)).toContain("It was asked for in comment thread t-shot");
+    tab.leave();
+  });
+
+  it("dresses the canvas self as its assistant from the thread, work the assistant started, a helper, or the name it is given", async () => {
+    const nova = session("s-nova", { kind: "assistant", assistant: "nova", title: "Nova" });
+    const owned = session("s-owned", { owner: "nova", title: "Week plan" });
+    const helper = session("s-owned:Helper", { parentId: "s-owned", title: "Helper" });
+    const all = [nova, owned, helper, session("s-chat")];
+    expect(sessionAssistant(all, nova).assistant).toBe("nova");
+    expect(sessionAssistant(all, owned).assistant).toBe("nova");
+    expect(sessionAssistant(all, helper)).toMatchObject({ assistant: "nova", top: { id: "s-owned" } });
+    expect(sessionAssistant(all, session("s-chat")).assistant).toBeUndefined();
+    // A plain chat that names its canvas self after an assistant wears that assistant's face.
+    const started = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile, name: "Nova" } });
+    expect(started.agent).toEqual({ name: "Nova", color: "#f76707", avatar: "/canvas/avatar/nova" });
   });
 });
 

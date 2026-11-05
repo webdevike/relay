@@ -13,6 +13,17 @@ const result = await Bun.build({
   format: "esm",
   minify: true,
   define: { "process.env.NODE_ENV": JSON.stringify("production") },
+  plugins: [
+    {
+      // One Yjs in the page: canvas-live's helpers (threads.ts) import it from their own package,
+      // and a second copy breaks Yjs' type checks (the doc's maps would not be its Y.Map).
+      name: "one-yjs",
+      setup(build) {
+        const yjs = Bun.resolveSync("yjs", here);
+        build.onResolve({ filter: /^yjs$/ }, () => ({ path: yjs }));
+      },
+    },
+  ],
 });
 if (!result.success) {
   for (const log of result.logs) console.error(log);

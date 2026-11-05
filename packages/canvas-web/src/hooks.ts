@@ -38,8 +38,8 @@ export function useSession(): SessionInfo | undefined {
   return useYSnapshot(() => yMeta.get("session") as SessionInfo | undefined);
 }
 
-/** The agent's name and color for copy ("Follow Nova"), from the session, `/me` or presence. */
-export function useAgent(): { name: string; color: string } {
+/** The room agent's name, color and avatar ("Follow Nova", its face wherever it shows), from the session, `/me` or presence. */
+export function useAgent(): { name: string; color: string; avatar: string | undefined } {
   const session = useSession();
   const people = useThrottledPresence();
   const a = roomAgent(
@@ -47,7 +47,7 @@ export function useAgent(): { name: string; color: string } {
     roomMe?.agent ?? null,
     [...people.values()].flatMap((p) => (p.user ? [p.user] : [])),
   );
-  return { name: a?.name ?? "the agent", color: a?.color ?? "#8b5cf6" };
+  return { name: a?.name ?? "the agent", color: a?.color ?? "#8b5cf6", avatar: a?.avatar };
 }
 
 export type Connection = "connecting" | "live" | "reconnecting";
