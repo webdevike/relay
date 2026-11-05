@@ -1,23 +1,33 @@
 import type { Page } from '@playwright/test'
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { test as base, expect } from './fixtures'
-import { REPO_ROOT } from './helpers/paths'
+import { EVA_FIXTURE_ROOT, REPO_ROOT } from './helpers/paths'
 import { startThrowawayHost, type ThrowawayHost } from './helpers/throwaway-host'
 
 // '/' and the Comment button on both Canvas surfaces. The desktop Canvas page with no live room
-// saves pins and threads into the board file (Ask Nova starts a room on a throwaway real host and
-// hands the thread over); in a live room the host's page takes '/' wherever focus sits and shows
-// the Comment button with its shortcut hint. The host is the real room page, board file and canvas
-// service with a scripted mind (apps/linux test/canvas-throwaway-host.ts), never the live one.
+// saves pins and threads into the board file (a comment that names @Nova starts a room on a
+// throwaway real host and hands the thread over); in a live room the host's page takes '/' wherever
+// focus sits and shows the Comment button with its shortcut hint. The host is the real room page,
+// board file and canvas service with a scripted mind (apps/linux test/canvas-throwaway-host.ts),
+// never the live one. The registry (what `@` lists) holds Nova.
 const PROOF = path.join(REPO_ROOT, 'proof', 'slash-comment')
 let host: ThrowawayHost
 
 const test = base.extend({
   launchEnv: async ({}, use) => {
+    const evaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cc-eva-'))
+    fs.cpSync(EVA_FIXTURE_ROOT, evaRoot, { recursive: true })
+    fs.mkdirSync(path.join(evaRoot, '.omp/assistant'), { recursive: true })
+    fs.writeFileSync(
+      path.join(evaRoot, '.omp/assistant/agents.json'),
+      JSON.stringify({ agents: [{ id: 'nova', title: 'Nova', scope: 'Personal' }] }),
+    )
     host = await startThrowawayHost()
-    await use(host.env)
+    await use({ ...host.env, EVAOS_EVA_ROOT: evaRoot })
     await host.stop()
+    fs.rmSync(evaRoot, { recursive: true, force: true })
   },
 })
 test.use({ startOnChat: false, colorScheme: 'dark' })
@@ -30,6 +40,7 @@ const board = (): {
     x: number
     y: number
     resolved?: boolean
+    assignee?: string
     messages: Array<{ kind: string; name: string; text: string }>
   }>
   nodes: Array<{ id: string }>
@@ -141,27 +152,32 @@ test('the Canvas page with no live room: / drops a pin on the selected card, on 
   await expect(shell.locator(sel('canvas-pin'))).toHaveCount(1)
 })
 
-test('Ask Nova starts a live session on the board and hands her the comment, answered in its thread; / works with focus anywhere in the room', async ({
+test('a comment that names @Nova starts a live session on the board and hands her the comment, answered in its thread; / works with focus anywhere in the room', async ({
   shell,
 }) => {
   await openBoard(shell)
   await shell.locator('.react-flow__node').first().click()
   await shell.keyboard.press('/')
-  await shell.locator(sel('canvas-thread-new-input')).fill('Can you tighten this?')
+  const input = shell.locator(sel('canvas-thread-new-input'))
+  // `@` lists the registry's assistants; Enter picks one and the comment goes on after it.
+  await input.pressSequentially('@No')
+  await expect(shell.locator(sel('canvas-mention-option'))).toHaveText(['NovaPersonal'])
+  await shot(shell, 'after-3-mention-nova.png')
   await shell.keyboard.press('Enter')
-  await expect(shell.locator(sel('canvas-thread-ask'))).toHaveText('Ask Nova')
-  await shot(shell, 'after-3-ask-nova.png')
-  await shell.locator(sel('canvas-thread-ask')).click()
+  await expect(input).toHaveValue('@Nova ')
+  await input.pressSequentially('Can you tighten this?')
+  await shell.keyboard.press('Enter')
 
-  // The board gives way to the room, which holds the thread; Nova's answer lands in it.
+  // The thread is Nova's; the board gives way to the room, which holds it; her answer lands in it.
+  await expect.poll(() => board().threads?.[0]?.assignee).toBe('nova')
   await expect(shell.locator(sel('canvas-live'))).toHaveAttribute('data-slug', 'mind-map')
   const room = shell.frameLocator(sel('canvas-live-frame'))
   await expect(room.locator('.cv-fab')).toBeVisible()
   await expect(room.locator('.cv-fab')).toHaveAttribute('title', 'Comment (press /)')
   await expect
     .poll(() => board().threads![0]!.messages.map((m) => `${m.name}: ${m.text}`))
-    .toEqual(['Isaac: Can you tighten this?', 'Nova: Seen. On it.'])
-  await room.locator('.cv-pin').first().click()
+    .toEqual(['Isaac: @Nova Can you tighten this?', 'Nova: Seen. On it.'])
+  // The handoff carries the open thread into the room: it shows there without a click.
   await expect(room.locator(sel('canvas-thread'))).toContainText('Seen. On it.')
   await shot(shell, 'after-4-room-thread-answered.png')
 
