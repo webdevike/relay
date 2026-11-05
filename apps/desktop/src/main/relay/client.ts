@@ -42,6 +42,8 @@ import {
   artifactsGetFrame,
   ACTIVITY_GET_FRAME,
   reactionsGetFrame,
+  bookmarkFrame,
+  bookmarksGetFrame,
   subscribeFrame,
   studioReqFrame,
   STUDIO_LIST_FRAME,
@@ -67,6 +69,8 @@ export const NO_ANSWER = "Relay didn't answer in time."
 export const NO_QUERIES = "This Relay Host doesn't run live widget queries; update it."
 /** `welcome.features` entry of a host that answers live widget queries. */
 const QUERY_FEATURE = 'query'
+/** `welcome.features` entry of a host that keeps turn bookmarks. */
+const BOOKMARKS_FEATURE = 'bookmarks'
 
 export interface RelaySocket {
   send(text: string): void
@@ -102,6 +106,7 @@ export type RelaySessionEvent = Exclude<
       | 'nack'
       | 'boards'
       | 'reactions'
+      | 'bookmarks'
       | 'artifacts'
       | 'activity'
       | 'acted'
@@ -177,6 +182,12 @@ export interface RelayReactions {
   react(thread: string, message: string, emoji: string | null, excerpt: string): boolean
   /** Called with the thread after each of its snapshots. */
   onReactions(cb: (thread: string) => void): () => void
+  /** Connected to a host that keeps bookmarks (`welcome.features` has "bookmarks"). */
+  bookmarksUp(): boolean
+  /** `thread`'s bookmarked turns (reaction keys) as the host last sent them; null before its first snapshot. */
+  bookmarks(thread: string): string[] | null
+  /** Bookmarks (`on`) or unbookmarks a turn; false when nothing could be sent. */
+  bookmark(thread: string, message: string, on: boolean): boolean
 }
 
 /** A thread's artifacts and tab bar, as the host's latest `artifacts.snapshot` has them. */
@@ -366,6 +377,8 @@ export class RelayClient
   private readonly reactionThreads = new Set<string>()
   /** The last snapshot of each thread; kept while Relay is down so badges stay. */
   private readonly reactionMap = new Map<string, ThreadReactions>()
+  /** The last bookmarks snapshot of each watched thread (a host with the "bookmarks" feature). */
+  private readonly bookmarkMap = new Map<string, string[]>()
   private readonly artifactListeners = new Set<(thread: string) => void>()
   /** Threads a panel shows; asked for again on every connection. */
   private readonly artifactWatch = new Set<string>()
@@ -544,11 +557,13 @@ export class RelayClient
   watchReactions(thread: string): void {
     this.reactionThreads.add(thread)
     if (this.feed?.authenticated) this.send(reactionsGetFrame(thread))
+    if (this.bookmarksUp()) this.send(bookmarksGetFrame(thread))
   }
 
   unwatchReactions(thread: string): void {
     this.reactionThreads.delete(thread)
     this.reactionMap.delete(thread)
+    this.bookmarkMap.delete(thread)
   }
 
   react(thread: string, message: string, emoji: string | null, excerpt: string): boolean {
@@ -560,6 +575,20 @@ export class RelayClient
   onReactions(cb: (thread: string) => void): () => void {
     this.reactionListeners.add(cb)
     return () => this.reactionListeners.delete(cb)
+  }
+
+  bookmarksUp(): boolean {
+    return this.hostHas(BOOKMARKS_FEATURE)
+  }
+
+  bookmarks(thread: string): string[] | null {
+    return this.bookmarkMap.get(thread) ?? null
+  }
+
+  bookmark(thread: string, message: string, on: boolean): boolean {
+    if (!this.bookmarksUp()) return false
+    this.send(bookmarkFrame(thread, message, on))
+    return true
   }
 
   artifactsUp(): boolean {
@@ -813,6 +842,9 @@ export class RelayClient
       this.pingTimer = setInterval(() => this.send({ t: 'ping', ts: this.now() }), this.pingMs)
       for (const id of this.subscriptions) this.send(subscribeFrame(id))
       for (const thread of this.reactionThreads) this.send(reactionsGetFrame(thread))
+      for (const thread of this.reactionThreads) {
+        if (feed.features.includes(BOOKMARKS_FEATURE)) this.send(bookmarksGetFrame(thread))
+      }
       for (const thread of this.artifactWatch) this.send(artifactsGetFrame(thread))
       if (this.activityWatched) this.send(ACTIVITY_GET_FRAME)
       if (this.studioWatched) this.send(STUDIO_LIST_FRAME)
@@ -832,6 +864,11 @@ export class RelayClient
           // Only threads a chat shows are kept; a push for another is someone else's.
           if (!this.reactionThreads.has(event.thread)) break
           this.reactionMap.set(event.thread, event.reactions)
+          for (const cb of [...this.reactionListeners]) cb(event.thread)
+          break
+        case 'bookmarks':
+          if (!this.reactionThreads.has(event.thread)) break
+          this.bookmarkMap.set(event.thread, event.messages)
           for (const cb of [...this.reactionListeners]) cb(event.thread)
           break
         case 'artifacts':
@@ -1142,6 +1179,18 @@ export class StaticRelay
 
   onReactions(): () => void {
     return () => undefined
+  }
+
+  bookmarksUp(): boolean {
+    return false
+  }
+
+  bookmarks(): string[] | null {
+    return null
+  }
+
+  bookmark(): boolean {
+    return false
   }
 
   /** Never connected, so actions fail; snapshots only come from `setArtifacts` (tests, fixtures). */

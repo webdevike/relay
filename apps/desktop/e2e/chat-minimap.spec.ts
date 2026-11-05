@@ -24,11 +24,14 @@ const MIN = 60_000
 
 let fx: ChatFixture
 let host: FakeRelayHost
-const test = base.extend({
-  launchEnv: async ({}, use) => {
+const test = base.extend<{ hostBookmarks: boolean }>({
+  /** The host lists "bookmarks" in `welcome.features`: it keeps them. False: an older host. */
+  hostBookmarks: [true, { option: true }],
+  launchEnv: async ({ hostBookmarks }, use) => {
     fx = makeChatFixture()
     const relayDir = path.join(fx.root, 'relay')
     host = await FakeRelayHost.start(relayDir)
+    if (hostBookmarks) host.features = ['bookmarks']
     await use({ ...fx.launchEnv, EVAOS_RELAY_DIR: relayDir })
     await host.close()
     fx.cleanup()
@@ -247,14 +250,42 @@ test('hover card, click jump with flash, Alt+Up/Down, flags and filter, bookmark
   await shell.locator(sel('turn-minimap-filter')).click()
   await expect(ticks(shell)).toHaveCount(total)
 
-  // 8. The bookmark is kept per thread, desktop-local, and comes back after a reload.
-  const stored = await shell.evaluate(() => localStorage.getItem('relay.chat-bookmarks.v1'))
-  expect(JSON.parse(stored!)).toEqual({ [THREAD]: [expect.stringMatching(/^user@\d+$/)] })
+  // 8. The host keeps the bookmark (the phone sees the same set), nothing is left on this device,
+  // and it comes back after a reload.
+  await expect.poll(() => host.bookmarks(THREAD)).toEqual([expect.stringMatching(/^user@\d+$/)])
+  expect(await shell.evaluate(() => localStorage.getItem('relay.chat-bookmarks.v1'))).toBeNull()
+  // Bookmarked on the phone: its tick shows here at once.
+  host.setBookmarks(THREAD, [...host.bookmarks(THREAD), `user@${T0 + 20_000 * 4}`])
+  await expect(tickOf(shell, 'Filler question 4')).toHaveAttribute('data-bookmarked', 'true')
   await shell.reload()
   await shell.locator(sel('nav-chat')).click()
   await shell.waitForSelector(sel('chat-tree'))
   await shell.locator(sel('chat-row-p4-ecard')).click()
   await expect(tickOf(shell, 'Filler question 7')).toHaveAttribute('data-bookmarked', 'true')
+  await expect(tickOf(shell, 'Filler question 4')).toHaveAttribute('data-bookmarked', 'true')
+})
+
+test.describe('a host that keeps no bookmarks', () => {
+  test.use({ hostBookmarks: false })
+  test('they stay on this device, per thread, and come back after a reload', async ({
+    app,
+    shell,
+  }) => {
+    test.setTimeout(120_000)
+    await openChat(app, shell)
+    await scrollTo(shell, 'end')
+    await tickOf(shell, 'Filler question 7').hover()
+    await shell.locator(sel('turn-card-bookmark')).click()
+    await expect(tickOf(shell, 'Filler question 7')).toHaveAttribute('data-bookmarked', 'true')
+    const stored = await shell.evaluate(() => localStorage.getItem('relay.chat-bookmarks.v1'))
+    expect(JSON.parse(stored!)).toEqual({ [THREAD]: [expect.stringMatching(/^user@\d+$/)] })
+    expect(host.bookmarkFrames).toEqual([])
+    await shell.reload()
+    await shell.locator(sel('nav-chat')).click()
+    await shell.waitForSelector(sel('chat-tree'))
+    await shell.locator(sel('chat-row-p4-ecard')).click()
+    await expect(tickOf(shell, 'Filler question 7')).toHaveAttribute('data-bookmarked', 'true')
+  })
 })
 
 test('a short chat shows no navigator, a narrow window keeps it inside the log', async ({

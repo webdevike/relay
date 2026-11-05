@@ -202,6 +202,7 @@ function host(): void {
       usage: null,
       catchup: null,
       reactions: null,
+      bookmarks: null,
       artifacts: null,
       activity: null,
       canvas,

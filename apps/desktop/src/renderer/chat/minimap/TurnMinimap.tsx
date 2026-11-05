@@ -3,9 +3,16 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject }
 import { ActionIcon, Tooltip } from '@mantine/core'
 import { IconBookmark, IconBookmarkFilled, IconFilter } from '@tabler/icons-react'
 import type { VListHandle } from 'virtua'
-import { toggleBookmark, useBookmarks } from './bookmarks'
-import type { TurnFlag } from './flags'
-import { compressTicks, stepTurn, turnAt, visibleTurns, type Turn } from './turns'
+import { canBookmark, toggleBookmark, useBookmarks } from './bookmarks'
+import type { TurnFlag } from '@evaos/chat-core/turn-flags'
+import {
+  compressTicks,
+  marked,
+  stepTurn,
+  turnAt,
+  visibleTurns,
+  type Turn,
+} from '@evaos/chat-core/turns'
 
 /** Height of one tick's slot, px: the pitch ticks are laid out and compressed at. */
 export const TICK_PITCH = 10
@@ -65,10 +72,7 @@ export function TurnMinimap({
 }) {
   const bookmarks = useBookmarks(thread)
   const [only, setOnly] = useState(false)
-  const list = useMemo(
-    () => (only ? turns.filter((t) => t.flag !== null || bookmarks.has(t.key)) : turns),
-    [only, turns, bookmarks],
-  )
+  const list = useMemo(() => (only ? marked(turns, bookmarks) : turns), [only, turns, bookmarks])
   const root = useRef<HTMLElement>(null)
   const [height, setHeight] = useState(600)
   const [view, setView] = useState<View>({ active: 0, from: 0, to: 0 })
@@ -244,6 +248,7 @@ export function TurnMinimap({
           turn={turn}
           more={tick.last - tick.first}
           bookmarked={bookmarks.has(turn.key)}
+          canBookmark={canBookmark(thread, turn.key)}
           anchor={root.current?.querySelectorAll<HTMLElement>('.eva-tm-tick')[hover!] ?? null}
           onBookmark={() => toggleBookmark(thread, turn.key)}
         />
@@ -257,6 +262,7 @@ function TurnCard({
   turn,
   more,
   bookmarked,
+  canBookmark,
   anchor,
   onBookmark,
 }: {
@@ -264,6 +270,8 @@ function TurnCard({
   /** Further turns the tick stands for. */
   more: number
   bookmarked: boolean
+  /** The host cannot name this turn (a message not yet stamped), so it cannot be bookmarked yet. */
+  canBookmark: boolean
   anchor: HTMLElement | null
   onBookmark: () => void
 }) {
@@ -294,6 +302,7 @@ function TurnCard({
             data-testid="turn-card-bookmark"
             aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this turn'}
             aria-pressed={bookmarked}
+            disabled={!canBookmark}
             onClick={onBookmark}
           >
             {bookmarked ? (

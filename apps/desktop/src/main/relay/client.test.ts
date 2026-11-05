@@ -419,6 +419,56 @@ describe('RelayClient', () => {
     client.stop()
   })
 
+  it('asks a host that keeps bookmarks for them, keeps its snapshots and sends changes; an older host hears nothing', async () => {
+    const { client, relay } = connected()
+    const heard = vi.fn()
+    client.onReactions(heard)
+    client.watchReactions('session:a')
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    // An older host: no feature, so no frame and nothing sent.
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
+    expect(client.bookmarksUp()).toBe(false)
+    expect(relay.frames().filter((f) => f.t === 'bookmarks.get')).toEqual([])
+    expect(client.bookmark('session:a', 'user@1', true)).toBe(false)
+    expect(client.bookmarks('session:a')).toBeNull()
+    relay.handlers.at(-1)!.closed(CLOSED)
+    await vi.advanceTimersByTimeAsync(3000)
+
+    // One with the feature: asked on welcome and for each newly watched thread.
+    relay.say({
+      t: 'welcome',
+      state: { agents: { rev: 1, sessions: [] } },
+      features: ['bookmarks'],
+    })
+    expect(client.bookmarksUp()).toBe(true)
+    client.watchReactions('assistant:astra')
+    expect(relay.frames().filter((f) => f.t === 'bookmarks.get')).toEqual([
+      { t: 'bookmarks.get', thread: 'session:a' },
+      { t: 'bookmarks.get', thread: 'assistant:astra' },
+    ])
+    expect(client.bookmark('session:a', 'user@1', true)).toBe(true)
+    expect(relay.frames().at(-1)).toEqual({
+      t: 'bookmark.set',
+      thread: 'session:a',
+      message: 'user@1',
+      on: true,
+    })
+    relay.say({
+      t: 'bookmarks.snapshot',
+      thread: 'session:a',
+      messages: ['user@1', 'bad', 'assistant@2'],
+    })
+    // A thread no chat shows is not kept.
+    relay.say({ t: 'bookmarks.snapshot', thread: 'session:zz', messages: ['user@1'] })
+    expect(client.bookmarks('session:a')).toEqual(['user@1', 'assistant@2'])
+    expect(client.bookmarks('session:zz')).toBeNull()
+    expect(heard.mock.calls.at(-1)).toEqual(['session:a'])
+    client.unwatchReactions('session:a')
+    expect(client.bookmarks('session:a')).toBeNull()
+    client.stop()
+  })
+
   it('asks for watched threads on every connection, keeps their snapshots and sends reactions', async () => {
     const { client, relay, changes } = connected()
     const heard = vi.fn()
@@ -513,6 +563,9 @@ describe('StaticRelay', () => {
     expect(relay.reactionsUp()).toBe(false)
     expect(relay.react()).toBe(false)
     expect(relay.reactions()).toEqual({})
+    expect(relay.bookmarksUp()).toBe(false)
+    expect(relay.bookmark()).toBe(false)
+    expect(relay.bookmarks()).toBeNull()
   })
 })
 

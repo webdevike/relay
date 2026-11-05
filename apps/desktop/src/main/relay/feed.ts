@@ -316,6 +316,10 @@ const ReactionsSnapshotSchema = z.object({
   thread: ReactionThreadSchema,
   reactions: z.record(z.string(), z.unknown()).catch({}),
 })
+const BookmarksSnapshotSchema = z.object({
+  thread: ReactionThreadSchema,
+  messages: z.array(z.unknown()).catch([]),
+})
 
 /**
  * A thread's reactions as Relay sends them (by reaction key, then reactor); a bad key, reactor or
@@ -427,6 +431,8 @@ export type FeedEvent =
   | { kind: 'boards'; boards: Board[] }
   /** Thread `thread`'s reactions now, by reaction key (a `reactions.snapshot`). */
   | { kind: 'reactions'; thread: string; reactions: ThreadReactions }
+  /** Thread `thread`'s bookmarked turns now, by reaction key (a `bookmarks.snapshot`). */
+  | { kind: 'bookmarks'; thread: string; messages: string[] }
   /** Thread `thread`'s artifacts and tab bar now (an `artifacts.snapshot`, any thread). */
   | { kind: 'artifacts'; thread: string; items: ArtifactItem[]; tabs: ArtifactTabItem[] }
   /** Everything agents are running now (an `activity.snapshot`, answer or push). */
@@ -646,6 +652,16 @@ export class Feed {
         if (s.success) {
           const reactions = parseReactions(s.data.reactions)
           events.push({ kind: 'reactions', thread: s.data.thread, reactions })
+        }
+        break
+      }
+      case 'bookmarks.snapshot': {
+        const s = BookmarksSnapshotSchema.safeParse(f)
+        if (s.success) {
+          const messages = s.data.messages.filter(
+            (k): k is string => ReactionKeySchema.safeParse(k).success,
+          )
+          events.push({ kind: 'bookmarks', thread: s.data.thread, messages })
         }
         break
       }

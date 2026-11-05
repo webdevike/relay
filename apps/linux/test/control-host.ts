@@ -44,6 +44,7 @@ const server = new RelayServer(
     usage: null,
     catchup: null,
     reactions: null,
+    bookmarks: null,
     artifacts: null,
     activity: null,
     canvas: null,

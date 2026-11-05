@@ -558,6 +558,26 @@ export class FakeRelayHost {
     this.broadcast(this.snapshotOf(thread))
   }
 
+  /** Each thread's bookmarked turns, as a host with the "bookmarks" feature keeps them. */
+  private readonly bookmarksOf = new Map<string, string[]>()
+  /** Every `bookmarks.get` and `bookmark.set` the app sent, in order. */
+  readonly bookmarkFrames: Json[] = []
+
+  /** Sets a thread's bookmarked turns (as the phone would) and pushes the snapshot to every device. */
+  setBookmarks(thread: string, messages: string[]): void {
+    this.bookmarksOf.set(thread, messages)
+    this.broadcast(this.bookmarksSnapshot(thread))
+  }
+
+  /** The thread's bookmarks as the host last held them. */
+  bookmarks(thread: string): string[] {
+    return this.bookmarksOf.get(thread) ?? []
+  }
+
+  private bookmarksSnapshot(thread: string): Json {
+    return { t: 'bookmarks.snapshot', thread, messages: this.bookmarks(thread) }
+  }
+
   private snapshotOf(thread: string): Json {
     return { t: 'reactions.snapshot', thread, reactions: this.reactionsOf.get(thread) ?? {} }
   }
@@ -766,6 +786,21 @@ export class FakeRelayHost {
       case 'reactions.get':
         this.reactionFrames.push(f)
         return peer.send(this.snapshotOf(String(f.thread)))
+      case 'bookmarks.get':
+        this.bookmarkFrames.push(f)
+        return peer.send(this.bookmarksSnapshot(String(f.thread)))
+      case 'bookmark.set': {
+        this.bookmarkFrames.push(f)
+        const thread = String(f.thread)
+        const message = String(f.message)
+        const have = this.bookmarksOf.get(thread) ?? []
+        if (have.includes(message) === (f.on === true))
+          return peer.send(this.bookmarksSnapshot(thread))
+        return this.setBookmarks(
+          thread,
+          f.on === true ? [...have, message] : have.filter((k) => k !== message),
+        )
+      }
       case 'canvas.get':
         return peer.send({ t: 'canvas.rooms', rev: 1, rooms: this.canvasRooms })
       case 'activity.get':

@@ -275,6 +275,18 @@ bubble keeps one reaction per reactor (`isaac` or an agent id), so the snapshot 
 files from before reactors read as Isaac's. An assistant's reaction is only shown: no note, no feedback
 line, no turn, no push.
 
+## Bookmarks (`bookmarks.get`, `bookmark.set`)
+
+Turns Isaac marked in the chat's turn navigator (Relay desktop's ticks on the left edge, the phone's rail).
+A turn is named by the reaction key of the bubble it starts at (`user@<ms>`, or `assistant@<ms>` for an
+assistant that spoke first), and belongs to a thread named like reactions' (`assistant:<id>`,
+`session:<omp session id>`). `src/bookmarks/service.ts` keeps one set per thread (oldest first, 500 at most)
+in `$XDG_CONFIG_HOME/relay/bookmarks.json` (0600) and sends every device the thread's
+`bookmarks.snapshot { thread, messages }` on each change; `bookmarks.get { thread }` answers the asking
+device, and a `bookmark.set { thread, message, on }` that changes nothing re-sends the snapshot to its sender
+only. Never a turn, a note or a push. The host lists `"bookmarks"` in `welcome.features`; a client on an
+older host keeps its bookmarks on the device and sends them up (once) when the feature appears.
+
 ## Artifacts (`artifacts.get`, `artifacts.act`)
 
 What a thread holds, one row per thing however often it comes up: Linear tickets, GitHub PRs and issues,

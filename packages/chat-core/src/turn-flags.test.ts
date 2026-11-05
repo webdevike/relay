@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { announcesShipped, asksQuestion, plain, replyFlags } from './flags'
+import { announcesShipped, asksQuestion, plain, replyFlags } from './turn-flags'
 
 describe('asksQuestion', () => {
   it('is true for a reply ending in a question, through markdown and emoji', () => {

@@ -743,6 +743,19 @@ describe("reactions", () => {
     expect(reactionExcerpt("x".repeat(300))).toHaveLength(200);
   });
 
+  it("parses bookmarks.get, bookmark.set and the bookmarks snapshot", () => {
+    expect(client({ t: "bookmarks.get", thread: "assistant:nova" })).toBe(true);
+    expect(client({ t: "bookmarks.get", thread: "nova" })).toBe(false);
+    expect(client({ t: "bookmark.set", thread: "session:s1", message: "user@1", on: true })).toBe(true);
+    expect(client({ t: "bookmark.set", thread: "session:s1", message: "assistant@2", on: false })).toBe(true);
+    expect(client({ t: "bookmark.set", thread: "session:s1", message: "row-3", on: true })).toBe(false);
+    expect(client({ t: "bookmark.set", thread: "session:s1", message: "user@1" })).toBe(false);
+    const snapshot = { t: "bookmarks.snapshot", thread: "assistant:nova", messages: ["user@1", "assistant@2"] };
+    expect(parseServerMessage(JSON.stringify(snapshot)).ok).toBe(true);
+    expect(parseServerMessage(JSON.stringify({ ...snapshot, messages: ["row-1"] })).ok).toBe(false);
+    expect(parseServerMessage(JSON.stringify({ ...snapshot, messages: Array.from({ length: 501 }, (_, i) => `user@${i}`) })).ok).toBe(false);
+  });
+
   it("parses get, set, clear and the snapshot", () => {
     expect(client({ t: "reactions.get", thread: "assistant:astra" })).toBe(true);
     expect(client({ t: "reactions.get", thread: "session:2026-10-27_abc" })).toBe(true);

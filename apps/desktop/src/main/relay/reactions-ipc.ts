@@ -44,10 +44,19 @@ export function registerReactionsIpc(
     thread,
     up: relay.reactionsUp(),
     reactions: { ...relay.reactions(thread) },
+    bookmarks: relay.bookmarksUp() ? relay.bookmarks(thread) : null,
+    bookmarksUp: relay.bookmarksUp(),
   })
   handle(ctx, 'reactions.watch', ({ file, agent }) => {
     const thread = reactionThreadOf(file, agent, relay.sessions())
-    if (thread === null) return { thread: null, up: relay.reactionsUp(), reactions: {} }
+    if (thread === null)
+      return {
+        thread: null,
+        up: relay.reactionsUp(),
+        reactions: {},
+        bookmarks: null,
+        bookmarksUp: false,
+      }
     watched.set(thread, (watched.get(thread) ?? 0) + 1)
     relay.watchReactions(thread)
     return view(thread)
@@ -60,6 +69,9 @@ export function registerReactionsIpc(
   })
   handle(ctx, 'reactions.react', ({ thread, message, emoji, excerpt }) => ({
     sent: watched.has(thread) && relay.react(thread, message, emoji, excerpt),
+  }))
+  handle(ctx, 'reactions.bookmark', ({ thread, message, on }) => ({
+    sent: watched.has(thread) && relay.bookmark(thread, message, on),
   }))
   const offReactions = relay.onReactions((thread) => emit(ctx, 'reactions.changed', view(thread)))
   let up = relay.reactionsUp()

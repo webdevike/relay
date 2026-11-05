@@ -173,6 +173,20 @@ export function reactionFrame(
     : { t: 'reaction.set', thread, message, emoji, excerpt }
 }
 
+/** Asks for `thread`'s bookmarked turns; Relay answers with its `bookmarks.snapshot`. Only for a host with the "bookmarks" feature. */
+export function bookmarksGetFrame(thread: string): Record<string, unknown> {
+  return { t: 'bookmarks.get', thread }
+}
+
+/** Bookmarks (`on`) or unbookmarks the turn that starts at bubble `message` (its reaction key) of `thread`. */
+export function bookmarkFrame(
+  thread: string,
+  message: string,
+  on: boolean,
+): Record<string, unknown> {
+  return { t: 'bookmark.set', thread, message, on }
+}
+
 /** Asks for `thread`'s artifacts; Relay answers with its `artifacts.snapshot` (to every device). */
 export function artifactsGetFrame(thread: string): Record<string, unknown> {
   return { t: 'artifacts.get', thread }

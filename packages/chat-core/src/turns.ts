@@ -1,21 +1,43 @@
-import type { ChatMessage } from '@evaos/chat-core/message'
-import { ISAAC_REACTOR, reactionKeyOf, type ThreadReactions } from '@evaos/chat-core/reactions'
-import { splitReplies } from '@evaos/chat-core/replies'
-import type { LogItem } from '../ChatLog'
-import { plain, replyFlags, untag, type TurnFlag } from './flags'
+// The chat turn navigator's model, shared by Relay desktop and the phone: a log's rows become turns
+// (a tick each), each flagged when it wants Isaac, and ticks are compressed to the room they have.
+// Pure: no React, no scroll state. A client adapts its own rows to `TurnRow`.
+import { ISAAC_REACTOR, reactionKey, type ThreadReactions } from './reactions'
+import { splitReplies } from './replies'
+import { plain, replyFlags, untag, type TurnFlag } from './turn-flags'
 
 /** A silence between two assistant texts longer than this makes the later one a turn of its own (it spoke first). */
 export const PROACTIVE_GAP_MS = 30 * 60 * 1000
 /** A user message this soon after an assistant-started turn counts as engaging with it. */
 export const ENGAGE_MS = 20 * 60 * 1000
 
+/**
+ * One row of a client's log, as the navigator reads it. Rows other than Isaac's messages, the
+ * assistant's replies and an open ask card are left out by the adapter.
+ */
+export interface TurnRow {
+  /** Position in the client's log: where a jump to the turn goes. */
+  index: number
+  /** The row's id there (what a jump flashes). */
+  id: string
+  /** `ask`: an ask card Isaac has not answered yet (its text is unused). */
+  role: 'user' | 'assistant' | 'ask'
+  text: string
+  /** omp's timestamp (epoch ms), absent on a row not yet echoed or streaming. */
+  at?: number | undefined
+  streaming?: boolean | undefined
+  /** The message carries pictures (a title for a picture-only message). */
+  images?: boolean | undefined
+  /** The client's own row object: derived text and flags are cached by its identity. */
+  ref: object
+}
+
 /** One tick of the navigator: a user message and what the assistant answered, or an assistant that spoke first. */
 export interface Turn {
-  /** Stable across sessions: the starting bubble's reaction key, else its row id. Bookmarks use it. */
+  /** Stable across sessions and devices: the starting bubble's reaction key, else its row id. Bookmarks use it. */
   key: string
-  /** Row id of the message the turn starts at (what a jump flashes). */
+  /** Id of the row the turn starts at. */
   row: string
-  /** Index of the turn's first item in the log. */
+  /** Position of that row in the log. */
   item: number
   led: 'user' | 'assistant'
   /** The user message (an assistant-led turn: the assistant's first line), one line. */
@@ -31,39 +53,35 @@ interface Draft {
   row: string
   item: number
   led: 'user' | 'assistant'
-  user: ChatMessage | null
-  replies: ChatMessage[]
+  user: TurnRow | null
+  replies: TurnRow[]
   ask: boolean
 }
 
-const plainCache = new WeakMap<ChatMessage, string>()
-const flagCache = new WeakMap<ChatMessage, { ask: boolean; shipped: boolean }>()
+const plainCache = new WeakMap<object, string>()
+const flagCache = new WeakMap<object, { ask: boolean; shipped: boolean }>()
 
-function plainOf(m: ChatMessage): string {
-  let v = plainCache.get(m)
+function plainOf(r: TurnRow): string {
+  let v = plainCache.get(r.ref)
   if (v === undefined) {
-    v = plain(m.text)
-    plainCache.set(m, v)
+    v = plain(r.text)
+    plainCache.set(r.ref, v)
   }
   return v
 }
 
-function flagsOf(m: ChatMessage): { ask: boolean; shipped: boolean } {
-  let v = flagCache.get(m)
+function flagsOf(r: TurnRow): { ask: boolean; shipped: boolean } {
+  let v = flagCache.get(r.ref)
   if (v === undefined) {
-    v = replyFlags(m.text)
-    flagCache.set(m, v)
+    v = replyFlags(r.text)
+    flagCache.set(r.ref, v)
   }
   return v
 }
 
-/** The log's messages in order, tool groups opened. */
-function* messagesOf(items: readonly LogItem[]): Generator<[number, ChatMessage]> {
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i]!
-    if (it.kind === 'message') yield [i, it.m]
-    else if (it.kind === 'tools') for (const t of it.tools) yield [i, t]
-  }
+/** A row's reaction key: its role and timestamp, else null. */
+export function turnKeyOf(r: Pick<TurnRow, 'role' | 'at'>): string | null {
+  return r.role === 'ask' || r.at === undefined ? null : reactionKey(r.role, r.at)
 }
 
 /** First line and the rest of an assistant text, each plain. */
@@ -75,32 +93,32 @@ function splitFirstLine(text: string): [string, string] {
     : [plain(body.slice(0, nl), 200), plain(body.slice(nl), 280)]
 }
 
-function drafts(items: readonly LogItem[]): Draft[] {
+function drafts(rows: Iterable<TurnRow>): Draft[] {
   const out: Draft[] = []
   let cur: Draft | null = null
   let lastText: number | undefined
-  for (const [item, m] of messagesOf(items)) {
-    if (m.role === 'user') {
+  for (const r of rows) {
+    if (r.role === 'user') {
       cur = {
-        key: reactionKeyOf(m) ?? m.id,
-        row: m.id,
-        item,
+        key: turnKeyOf(r) ?? r.id,
+        row: r.id,
+        item: r.index,
         led: 'user',
-        user: m,
+        user: r,
         replies: [],
         ask: false,
       }
       out.push(cur)
       lastText = undefined
-    } else if (m.role === 'assistant') {
+    } else if (r.role === 'assistant') {
       const spoke =
         cur === null ||
-        (lastText !== undefined && m.at !== undefined && m.at - lastText > PROACTIVE_GAP_MS)
+        (lastText !== undefined && r.at !== undefined && r.at - lastText > PROACTIVE_GAP_MS)
       if (spoke) {
         cur = {
-          key: reactionKeyOf(m) ?? m.id,
-          row: m.id,
-          item,
+          key: turnKeyOf(r) ?? r.id,
+          row: r.id,
+          item: r.index,
           led: 'assistant',
           user: null,
           replies: [],
@@ -108,11 +126,10 @@ function drafts(items: readonly LogItem[]): Draft[] {
         }
         out.push(cur)
       }
-      cur!.replies.push(m)
-      if (m.at !== undefined) lastText = m.at
-    } else if (m.role === 'tool' && cur !== null) {
-      // An ask card nobody answered yet: the tool has no result.
-      if (m.text === 'ask' && m.tool?.result === null) cur.ask = true
+      cur!.replies.push(r)
+      if (r.at !== undefined) lastText = r.at
+    } else if (cur !== null) {
+      cur.ask = true
     }
   }
   return out
@@ -121,14 +138,14 @@ function drafts(items: readonly LogItem[]): Draft[] {
 /** Whether Isaac reacted to any assistant bubble of the turn. */
 function reacted(d: Draft, reactions: ThreadReactions | undefined): boolean {
   if (reactions === undefined) return false
-  return d.replies.some((m) => {
-    const key = reactionKeyOf(m)
+  return d.replies.some((r) => {
+    const key = turnKeyOf(r)
     return key !== null && reactions[key]?.[ISAAC_REACTOR] !== undefined
   })
 }
 
 /** Whether `next`, the user message that followed an assistant-led turn, answers it: soon after, a tapped reply, or a quote. */
-function engaged(d: Draft, next: ChatMessage): boolean {
+function engaged(d: Draft, next: TurnRow): boolean {
   const last = d.replies.at(-1)
   if (last?.at !== undefined && next.at !== undefined && next.at - last.at <= ENGAGE_MS) return true
   const said = next.text.trim().toLowerCase()
@@ -151,20 +168,20 @@ function engaged(d: Draft, next: ChatMessage): boolean {
  * assistant-led one by a reaction, a message soon after, a tapped reply or a quote of it.
  */
 export function buildTurns(
-  items: readonly LogItem[],
+  rows: Iterable<TurnRow>,
   reactions: ThreadReactions | undefined,
 ): Turn[] {
-  const ds = drafts(items)
+  const ds = drafts(rows)
   const turns: Turn[] = new Array<Turn>(ds.length)
   // The user message that follows each turn, found from the end.
-  let next: ChatMessage | null = null
+  let next: TurnRow | null = null
   for (let i = ds.length - 1; i >= 0; i--) {
     const d = ds[i]!
     const first = d.replies[0]
     let title: string
     let reply: string
     if (d.user !== null) {
-      title = plain(d.user.text, 200) || (d.user.images.length > 0 ? 'Image' : '')
+      title = plain(d.user.text, 200) || (d.user.images === true ? 'Image' : '')
       reply = first === undefined ? '' : plainOf(first)
     } else {
       ;[title, reply] = splitFirstLine(first!.text)
@@ -172,18 +189,33 @@ export function buildTurns(
     }
     let flag: TurnFlag | null = null
     const last = d.replies.at(-1)
-    const streaming = d.replies.some((m) => m.streaming)
+    const streaming = d.replies.some((r) => r.streaming === true)
     if (!streaming && !reacted(d, reactions)) {
       const answered = next !== null && (d.led === 'user' || engaged(d, next))
       if (!answered) {
         if (d.ask || (last !== undefined && flagsOf(last).ask)) flag = 'ask'
-        else if (d.replies.some((m) => flagsOf(m).shipped)) flag = 'shipped'
+        else if (d.replies.some((r) => flagsOf(r).shipped)) flag = 'shipped'
       }
     }
     turns[i] = { key: d.key, row: d.row, item: d.item, led: d.led, title, reply, flag }
     if (d.user !== null) next = d.user
   }
   return turns
+}
+
+/** The turn whose rows contain log position `item` (the last turn starting at or before it); 0 before the first. */
+export function turnOfItem(turns: readonly Turn[], item: number): number {
+  let lo = 0
+  let hi = turns.length - 1
+  let at = 0
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (turns[mid]!.item <= item) {
+      at = mid
+      lo = mid + 1
+    } else hi = mid - 1
+  }
+  return at
 }
 
 /** Index in `turns` of the last turn that starts at or above `top`; 0 when none does. Offsets grow with the turns. */
@@ -323,3 +355,16 @@ export function compressTicks(
   }
   return out
 }
+
+/** The tick (index into the ticks) under a touch `y` px down a rail `height` px tall holding `count` ticks. */
+export function tickAtY(y: number, height: number, count: number): number {
+  if (count === 0 || height <= 0) return -1
+  return Math.min(count - 1, Math.max(0, Math.floor((y / height) * count)))
+}
+
+/** Only the turns that want Isaac or are bookmarked. */
+export function marked(turns: readonly Turn[], bookmarks: ReadonlySet<string>): Turn[] {
+  return turns.filter((t) => t.flag !== null || bookmarks.has(t.key))
+}
+
+export type { TurnFlag }

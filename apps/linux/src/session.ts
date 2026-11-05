@@ -8,6 +8,7 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import {
   CONTROL_FEATURE,
+  BOOKMARKS_FEATURE,
   ESCALATOR_DEVICE_ID,
   FILES_PRESENCE_FEATURE,
   MEETINGS_FEATURE,
@@ -33,6 +34,7 @@ import type { BoardDelta, FileBoardStore } from "./boards/store";
 import { isLoopback } from "./boards/http";
 import { EMPTY_CATCHUP, type CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
+import type { BookmarkRelaying } from "./bookmarks/service";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
 import type { CommandDedupStore } from "./dedup";
@@ -100,6 +102,8 @@ export interface SessionDeps {
   readonly catchup: CatchUpDeck | null;
   /** null when the host keeps no reactions; `reactions.get` then answers empty and set/clear are dropped. */
   readonly reactions: ReactionRelaying | null;
+  /** null when the host keeps no bookmarks; `bookmarks.get` then answers empty, set is dropped and `welcome.features` leaves it out. */
+  readonly bookmarks: BookmarkRelaying | null;
   /** null when the host keeps no artifacts; `artifacts.get` then answers the default tabs with no items and every act is refused. */
   readonly artifacts: ArtifactRelaying | null;
   /** null when the host keeps no activity list; `activity.get` then answers an empty one. */
@@ -626,6 +630,16 @@ export class ClientSession {
           reactions: this.deps.reactions?.snapshot(message.thread) ?? {},
         });
         break;
+      case "bookmarks.get":
+        this.sink.send({ t: "bookmarks.snapshot", thread: message.thread, messages: [...(this.deps.bookmarks?.snapshot(message.thread) ?? [])] });
+        break;
+      case "bookmark.set": {
+        const bookmarks = this.deps.bookmarks;
+        // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
+        if (bookmarks === null || !bookmarks.set(message.thread, message.message, message.on))
+          this.sink.send({ t: "bookmarks.snapshot", thread: message.thread, messages: [...(bookmarks?.snapshot(message.thread) ?? [])] });
+        break;
+      }
       case "reaction.set":
       case "reaction.clear": {
         const reactions = this.deps.reactions;
@@ -1200,6 +1214,7 @@ export class ClientSession {
       ...(this.deps.files === null ? [] : [FILES_PRESENCE_FEATURE]),
       ...(this.deps.meetings === null ? [] : [MEETINGS_FEATURE]),
       ...(this.deps.control === null ? [] : [CONTROL_FEATURE]),
+      ...(this.deps.bookmarks === null ? [] : [BOOKMARKS_FEATURE]),
     ];
     this.sink.send({
       t: "welcome",

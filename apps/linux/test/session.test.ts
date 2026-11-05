@@ -30,6 +30,7 @@ import { PairingCoordinator } from "../src/pairing";
 import type { UsageService } from "../src/usage/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
+import type { BookmarkRelaying } from "../src/bookmarks/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
 import type { ActivityRelaying } from "../src/activity/service";
 import type { QueryRelaying } from "../src/query/service";
@@ -169,6 +170,7 @@ interface HarnessOptions {
   usage?: UsageService;
   catchup?: CatchUpDeck;
   reactions?: ReactionRelaying;
+  bookmarks?: BookmarkRelaying;
   artifacts?: ArtifactRelaying;
   activity?: ActivityRelaying;
   canvas?: CanvasRelaying;
@@ -229,6 +231,7 @@ function harness(options: HarnessOptions = {}): Harness {
     usage: options.usage ?? null,
     catchup: options.catchup ?? null,
     reactions: options.reactions ?? null,
+    bookmarks: options.bookmarks ?? null,
     artifacts: options.artifacts ?? null,
     activity: options.activity ?? null,
     canvas: options.canvas ?? null,
@@ -1164,6 +1167,32 @@ describe("reactions", () => {
       thread: "session:s1",
       reactions: {},
     });
+  });
+});
+
+describe("bookmarks", () => {
+  it("offers the feature, answers bookmarks.get, hands set to the service and re-sends the thread to this device on a no-op", () => {
+    const calls: string[] = [];
+    const bookmarks: BookmarkRelaying = {
+      snapshot: (id) => (id === "assistant:astra" ? ["user@5", "assistant@9"] : []),
+      set: (id, key, on) => (calls.push(`set ${id} ${key} ${String(on)}`), key !== "user@5"),
+    };
+    const h = harness({ bookmarks });
+    pair(h);
+    expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({ features: expect.arrayContaining(["bookmarks"]) });
+    h.session.receive({ t: "bookmarks.get", thread: "assistant:astra" });
+    expect(h.sink.last()).toEqual({ t: "bookmarks.snapshot", thread: "assistant:astra", messages: ["user@5", "assistant@9"] });
+    const sent = h.sink.sent.length;
+    h.session.receive({ t: "bookmark.set", thread: "assistant:astra", message: "user@7", on: true });
+    expect(h.sink.sent.length).toBe(sent); // a change goes out through the service's broadcast
+    h.session.receive({ t: "bookmark.set", thread: "assistant:astra", message: "user@5", on: true });
+    expect(h.sink.last()).toEqual({ t: "bookmarks.snapshot", thread: "assistant:astra", messages: ["user@5", "assistant@9"] });
+    expect(calls).toEqual(["set assistant:astra user@7 true", "set assistant:astra user@5 true"]);
+    const bare = harness();
+    pair(bare);
+    expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({ features: expect.arrayContaining(["bookmarks"]) });
+    bare.session.receive({ t: "bookmark.set", thread: "session:s1", message: "user@1", on: true });
+    expect(bare.sink.last()).toEqual({ t: "bookmarks.snapshot", thread: "session:s1", messages: [] });
   });
 });
 

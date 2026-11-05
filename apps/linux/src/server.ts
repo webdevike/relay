@@ -33,6 +33,7 @@ import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
 import type { CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
+import type { BookmarkRelaying } from "./bookmarks/service";
 import { handleAgentReaction } from "./reactions/http";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
@@ -113,6 +114,8 @@ export interface ServerDeps {
   readonly catchup: CatchUpDeck | null;
   /** Reactions on chat bubbles; null answers `reactions.get` empty and drops set/clear. */
   readonly reactions: ReactionRelaying | null;
+  /** Bookmarks on chat turns; null answers `bookmarks.get` empty, drops set, and leaves "bookmarks" out of `welcome.features`. */
+  readonly bookmarks: BookmarkRelaying | null;
   /** Per-thread artifacts; null answers `artifacts.get` with empty default tabs and refuses acts. */
   readonly artifacts: ArtifactRelaying | null;
   /** What agents are running (helpers, sessions, harnesses, canvas rooms); null answers `activity.get` empty. */
@@ -707,6 +710,7 @@ export class RelayServer {
         usage: this.deps.usage,
         catchup: this.deps.catchup,
         reactions: this.deps.reactions,
+        bookmarks: this.deps.bookmarks,
         artifacts: this.deps.artifacts,
         activity: this.deps.activity,
         canvas: this.deps.canvas,

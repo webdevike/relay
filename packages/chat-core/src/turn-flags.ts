@@ -1,4 +1,4 @@
-import { splitReplies } from '@evaos/chat-core/replies'
+import { splitReplies } from './replies'
 
 /** What a turn wants from Isaac: an answer to a question, or a look at something shipped. */
 export type TurnFlag = 'ask' | 'shipped'

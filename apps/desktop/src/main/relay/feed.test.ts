@@ -410,6 +410,25 @@ describe('Relay feed', () => {
     ])
   })
 
+  it("parses a thread's bookmarks, dropping keys that are not reaction keys", () => {
+    const feed = authenticated()
+    expect(
+      feed.receive({
+        t: 'bookmarks.snapshot',
+        thread: 'assistant:nova',
+        messages: ['user@1', 'row-2', 7, 'assistant@3'],
+      }).events,
+    ).toEqual([
+      { kind: 'bookmarks', thread: 'assistant:nova', messages: ['user@1', 'assistant@3'] },
+    ])
+    expect(feed.receive({ t: 'bookmarks.snapshot', thread: 'session:s1' }).events).toEqual([
+      { kind: 'bookmarks', thread: 'session:s1', messages: [] },
+    ])
+    expect(
+      feed.receive({ t: 'bookmarks.snapshot', thread: 'room:x', messages: [] }).events,
+    ).toEqual([])
+  })
+
   it("reads a hand-started session listed under its folder's name as not named yet", () => {
     const s = (title: string, kind = 'manual') =>
       parseSession(session('a', 'idle', { title, kind, projectPath: '/Users/i/Eva' }))?.title

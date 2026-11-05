@@ -1,24 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { makeMessage, type ChatMessage } from '@evaos/chat-core/message'
-import type { ThreadReactions } from '@evaos/chat-core/reactions'
-import type { LogItem } from '../ChatLog'
+import type { ThreadReactions } from './reactions'
 import {
   ENGAGE_MS,
   PROACTIVE_GAP_MS,
-  buildTurns,
+  buildTurns as build,
   compressTicks,
+  marked,
   stepTurn,
+  tickAtY,
   turnAt,
+  turnOfItem,
   visibleTurns,
   type Turn,
+  type TurnRow,
 } from './turns'
 
 const T0 = 1_800_000_000_000
-const msg = (m: ChatMessage): LogItem => ({ kind: 'message', m })
-const user = (id: string, text: string, at: number): LogItem =>
-  msg(makeMessage(id, 'user', text, { at }))
-const bot = (id: string, text: string, at: number, extra: Partial<ChatMessage> = {}): LogItem =>
-  msg(makeMessage(id, 'assistant', text, { at, ...extra }))
+type Spec = Omit<TurnRow, 'index' | 'ref'>
+const user = (id: string, text: string, at: number): Spec => ({ id, role: 'user', text, at })
+const bot = (id: string, text: string, at: number, extra: Partial<Spec> = {}): Spec => ({
+  id,
+  role: 'assistant',
+  text,
+  at,
+  ...extra,
+})
+const ask = (id: string): Spec => ({ id, role: 'ask', text: '' })
+/** Rows in order, each at its own position. */
+const buildTurns = (specs: Spec[], reactions: ThreadReactions | undefined): Turn[] =>
+  build(
+    specs.map((s, index) => ({ ...s, index, ref: {} })),
+    reactions,
+  )
 
 describe('buildTurns', () => {
   it('makes one turn per user message with its title and the start of the reply', () => {
@@ -44,17 +57,6 @@ describe('buildTurns', () => {
     expect(turns[1]).toMatchObject({ item: 2, title: 'Thanks', reply: 'Anytime.' })
   })
 
-  it('opens tool groups, keeps every row of a turn in it and falls back to the row id as key', () => {
-    const items: LogItem[] = [
-      msg(makeMessage('u1', 'user', 'go')),
-      { kind: 'tools', tools: [makeMessage('t1', 'tool', 'read')] },
-      bot('a1', 'done', T0),
-    ]
-    const turns = buildTurns(items, undefined)
-    expect(turns).toHaveLength(1)
-    expect(turns[0]!.key).toBe('u1')
-  })
-
   it('starts a turn at an assistant that spoke first, and after a long silence', () => {
     const turns = buildTurns(
       [
@@ -73,19 +75,6 @@ describe('buildTurns', () => {
     expect(turns[0]!.reply).toBe('The rail shipped overnight.')
   })
 
-  it('skips quiet row kinds and the typing row', () => {
-    const turns = buildTurns(
-      [
-        user('u1', 'hi', T0),
-        msg(makeMessage('n', 'notice', 'Error: x')),
-        { kind: 'typing', who: 'Nova' },
-        bot('a1', 'hello', T0 + 1),
-      ],
-      undefined,
-    )
-    expect(turns).toHaveLength(1)
-  })
-
   describe('flags', () => {
     it('flags a question not yet answered, and clears it once he answers', () => {
       const asked = [user('u1', 'ship?', T0), bot('a1', 'Tests pass. Push it?', T0 + 1)]
@@ -100,14 +89,10 @@ describe('buildTurns', () => {
         undefined,
       )
       expect(chips[0]!.flag).toBe('ask')
-      const open = makeMessage('t1', 'tool', 'ask', {
-        tool: { call: 'c', input: '', result: null, isError: false, status: 'running' },
-      })
-      expect(buildTurns([user('u1', 'x', T0), msg(open)], undefined)[0]!.flag).toBe('ask')
-      const done = makeMessage('t1', 'tool', 'ask', {
-        tool: { call: 'c', input: '', result: 'A', isError: false, status: 'done' },
-      })
-      expect(buildTurns([user('u1', 'x', T0), msg(done)], undefined)[0]!.flag).toBeNull()
+      expect(buildTurns([user('u1', 'x', T0), ask('t1')], undefined)[0]!.flag).toBe('ask')
+      expect(
+        buildTurns([user('u1', 'x', T0), ask('t1'), user('u2', 'ok', T0 + 1)], undefined)[0]!.flag,
+      ).toBeNull()
     })
 
     it('flags a shipped announcement, a question winning over it', () => {
@@ -156,7 +141,7 @@ describe('buildTurns', () => {
   })
 
   it('indexes thousands of turns quickly and keeps the item index', () => {
-    const items: LogItem[] = []
+    const items: Spec[] = []
     for (let i = 0; i < 5000; i++) {
       items.push(user(`u${i}`, `Question ${i}`, T0 + i * 10))
       items.push(bot(`a${i}`, i % 50 === 0 ? 'Done. OK?' : 'Done.', T0 + i * 10 + 5))
@@ -240,5 +225,28 @@ describe('compressTicks', () => {
   it('is empty without turns or slots', () => {
     expect(compressTicks([], new Set(), 5, 0, [0, 0])).toEqual([])
     expect(compressTicks(fixture(3), new Set(), 0, 0, [0, 0])).toEqual([])
+  })
+})
+
+describe('turnOfItem, tickAtY and marked', () => {
+  const turns = fixture(5, { 3: 'ask' })
+  it('names the turn a log position belongs to', () => {
+    expect(turnOfItem(turns, 0)).toBe(0)
+    expect(turnOfItem(turns, 1)).toBe(0)
+    expect(turnOfItem(turns, 2)).toBe(1)
+    expect(turnOfItem(turns, 9)).toBe(4)
+    expect(turnOfItem(turns, 99)).toBe(4)
+  })
+  it('maps a touch height to a tick and clamps at the ends', () => {
+    expect(tickAtY(0, 100, 10)).toBe(0)
+    expect(tickAtY(55, 100, 10)).toBe(5)
+    expect(tickAtY(-20, 100, 10)).toBe(0)
+    expect(tickAtY(500, 100, 10)).toBe(9)
+    expect(tickAtY(5, 100, 0)).toBe(-1)
+    expect(tickAtY(5, 0, 4)).toBe(-1)
+  })
+  it('keeps flagged and bookmarked turns in order', () => {
+    expect(marked(turns, new Set(['user@1'])).map((t) => t.key)).toEqual(['user@1', 'user@3'])
+    expect(marked(turns, new Set())).toHaveLength(1)
   })
 })

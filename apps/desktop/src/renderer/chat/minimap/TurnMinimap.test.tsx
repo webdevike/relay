@@ -2,9 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import type { VListHandle } from 'virtua'
-import { BOOKMARKS_KEY, reloadBookmarksForTests } from './bookmarks'
+
+const invoke = vi.hoisted(() => vi.fn())
+vi.mock('../../ipc', () => ({ invoke, on: () => () => {} }))
+
+import { BOOKMARKS_KEY, applyHostBookmarks, reloadBookmarksForTests } from './bookmarks'
 import { TurnMinimap } from './TurnMinimap'
-import type { Turn } from './turns'
+import type { Turn } from '@evaos/chat-core/turns'
 
 const turn = (i: number, over: Partial<Turn> = {}): Turn => ({
   key: `user@${i}`,
@@ -56,6 +60,8 @@ function setup(turns: Turn[], top = 0) {
 }
 
 beforeEach(() => {
+  invoke.mockReset()
+  invoke.mockResolvedValue({ ok: true, value: { sent: true } })
   localStorage.clear()
   reloadBookmarksForTests()
 })
@@ -105,6 +111,22 @@ describe('TurnMinimap', () => {
     ])
     fireEvent.click(screen.getByTestId('turn-minimap-filter'))
     expect(screen.getAllByTestId('turn-tick')).toHaveLength(4)
+  })
+
+  it('on a host that keeps bookmarks the card toggles through it, and a turn it cannot name has no toggle', () => {
+    applyHostBookmarks('assistant:nova', ['user@2'])
+    setup([turn(0), turn(1, { key: 'row-9' }), turn(2)])
+    expect(screen.getAllByTestId('turn-tick')[2]).toHaveAttribute('data-bookmarked', 'true')
+    fireEvent.mouseEnter(screen.getAllByTestId('turn-tick')[1]!)
+    expect(screen.getByTestId('turn-card-bookmark')).toBeDisabled()
+    fireEvent.mouseEnter(screen.getAllByTestId('turn-tick')[0]!)
+    fireEvent.click(screen.getByTestId('turn-card-bookmark'))
+    expect(invoke).toHaveBeenCalledWith('reactions.bookmark', {
+      thread: 'assistant:nova',
+      message: 'user@0',
+      on: true,
+    })
+    expect(localStorage.getItem(BOOKMARKS_KEY)).toBeNull()
   })
 
   it('says so when the filter leaves nothing', () => {

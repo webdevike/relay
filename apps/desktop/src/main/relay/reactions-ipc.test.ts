@@ -73,6 +73,16 @@ class FakeRelay implements RelaySource, RelayReactions {
     this.sent.push(args)
     return this.up
   }
+  /** The host keeps bookmarks (the "bookmarks" feature) and has these per thread. */
+  hasBookmarks = false
+  marks = new Map<string, string[]>()
+  bookmarkSent: unknown[][] = []
+  bookmarksUp = () => this.up && this.hasBookmarks
+  bookmarks = (thread: string) => this.marks.get(thread) ?? null
+  bookmark = (...args: unknown[]) => {
+    this.bookmarkSent.push(args)
+    return this.bookmarksUp()
+  }
   onReactions(cb: (thread: string) => void) {
     this.heard.add(cb)
     return () => this.heard.delete(cb)
@@ -108,7 +118,13 @@ describe('reactions IPC', () => {
     relay.snapshots.set('session:s1', { 'assistant@2': heart })
     expect(await call('reactions.watch', { file: FILE, agent: null })).toEqual({
       ok: true,
-      value: { thread: 'session:s1', up: true, reactions: { 'assistant@2': heart } },
+      value: {
+        thread: 'session:s1',
+        up: true,
+        reactions: { 'assistant@2': heart },
+        bookmarks: null,
+        bookmarksUp: false,
+      },
     })
     // A second view of the same thread keeps it watched until both let go.
     await call('reactions.watch', { file: FILE, agent: null })
@@ -147,7 +163,10 @@ describe('reactions IPC', () => {
     relay.setUp(false)
     relay.setUp(false)
     expect(sent).toEqual([
-      ['reactions.changed', { thread: 'session:s1', up: true, reactions: {} }],
+      [
+        'reactions.changed',
+        { thread: 'session:s1', up: true, reactions: {}, bookmarks: null, bookmarksUp: false },
+      ],
       ['reactions.status', { up: false }],
     ])
     await call('reactions.unwatch', { thread: 'session:s1' })
@@ -159,7 +178,60 @@ describe('reactions IPC', () => {
     registerReactionsIpc(ctx, new FakeRelay())
     expect(await call('reactions.watch', { file: '', agent: null })).toEqual({
       ok: true,
-      value: { thread: null, up: true, reactions: {} },
+      value: { thread: null, up: true, reactions: {}, bookmarks: null, bookmarksUp: false },
     })
+  })
+
+  it("carries the host's bookmarks in the views and sends changes only for a watched thread on a host that keeps them", async () => {
+    const relay = new FakeRelay()
+    relay.hasBookmarks = true
+    relay.marks.set('session:s1', ['user@1'])
+    registerReactionsIpc(ctx, relay)
+    expect(await call('reactions.watch', { file: FILE, agent: null })).toMatchObject({
+      value: { bookmarks: ['user@1'], bookmarksUp: true },
+    })
+    relay.marks.set('session:s1', ['user@1', 'assistant@4'])
+    relay.snapshot('session:s1', {})
+    expect(sent.at(-1)).toEqual([
+      'reactions.changed',
+      {
+        thread: 'session:s1',
+        up: true,
+        reactions: {},
+        bookmarks: ['user@1', 'assistant@4'],
+        bookmarksUp: true,
+      },
+    ])
+    expect(
+      await call('reactions.bookmark', { thread: 'session:s1', message: 'user@7', on: true }),
+    ).toEqual({
+      ok: true,
+      value: { sent: true },
+    })
+    expect(relay.bookmarkSent).toEqual([['session:s1', 'user@7', true]])
+    expect(
+      await call('reactions.bookmark', { thread: 'session:zz', message: 'user@7', on: true }),
+    ).toEqual({
+      ok: true,
+      value: { sent: false },
+    })
+    expect(
+      await call('reactions.bookmark', { thread: 'session:s1', message: 'row-1', on: true }),
+    ).toMatchObject({
+      ok: false,
+      error: { code: 'invalid-input' },
+    })
+    relay.hasBookmarks = false
+    expect(
+      await call('reactions.bookmark', { thread: 'session:s1', message: 'user@7', on: false }),
+    ).toEqual({
+      ok: true,
+      value: { sent: false },
+    })
+    relay.snapshot('session:s1', {})
+    expect(sent.at(-1)).toEqual([
+      'reactions.changed',
+      { thread: 'session:s1', up: true, reactions: {}, bookmarks: null, bookmarksUp: false },
+    ])
   })
 })

@@ -16,7 +16,8 @@ import { registerReveal } from '../pins/pins-scope'
 import { MessageRow, ToolRunRow } from './MessageRow'
 import { ReactionScope, useReactions } from './reactions/reactions-store'
 import { TurnMinimap } from './minimap/TurnMinimap'
-import { buildTurns, type Turn } from './minimap/turns'
+import { buildTurns, type Turn } from '@evaos/chat-core/turns'
+import { turnRows } from './minimap/rows'
 import { Pills } from './Pills'
 import { pinReducer, type PinState } from './pin'
 import { chatStore, useChatStore } from './chat-store'
@@ -236,7 +237,7 @@ export function ChatLog({
   // The turn navigator: its ticks, and the jump a click or Alt+Up/Down makes.
   const thread = useContext(ReactionScope)?.thread ?? null
   const reactions = useReactions((s) => (thread === null ? undefined : s.threads[thread]))
-  const turns = useMemo(() => buildTurns(items, reactions), [items, reactions])
+  const turns = useMemo(() => buildTurns(turnRows(items), reactions), [items, reactions])
   const scrollWatchers = useRef(new Set<() => void>())
   const watchScroll = useCallback((fn: () => void) => {
     scrollWatchers.current.add(fn)

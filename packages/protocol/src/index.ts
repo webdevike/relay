@@ -1109,6 +1109,24 @@ export function reactionExcerpt(text: string): string {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Bookmarks: turns Isaac marked in a chat (the turn navigator, Relay desktop and the phone). A turn
+// is named by the `ReactionKey` of the bubble it starts at (his message, or an assistant message
+// that spoke first), so every device agrees on it. The host keeps one set per thread
+// (`bookmark.set`), persists it, and pushes the thread's `bookmarks.snapshot` to every device. Only
+// sent to a host whose `welcome.features` has BOOKMARKS_FEATURE; older hosts ignore the frames and
+// clients keep bookmarks on the device.
+// ---------------------------------------------------------------------------------------------
+
+export const BOOKMARKS_FEATURE = "bookmarks";
+
+/** Most bookmarks kept per thread; the oldest go first. */
+export const MAX_BOOKMARKS = 500;
+
+/** One thread's bookmarked turns, oldest first. */
+export const ThreadBookmarks = z.array(ReactionKey).max(MAX_BOOKMARKS);
+export type ThreadBookmarks = z.infer<typeof ThreadBookmarks>;
+
+// ---------------------------------------------------------------------------------------------
 // Boards: live dashboards. A board is a titled grid of widget tiles the host stores as JSON and
 // streams to subscribed clients. One global `rev` covers every board; each successful write bumps
 // it by one and sends the full changed board (or its removal) as a `board.delta`.
@@ -1548,6 +1566,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   }),
   /** Ask for a thread's reactions; answered by `reactions.snapshot`. */
   z.object({ t: z.literal("reactions.get"), thread: ReactionThread }),
+  /** Ask for a thread's bookmarks; answered by `bookmarks.snapshot`. Only sent to a host whose `welcome.features` has BOOKMARKS_FEATURE. */
+  z.object({ t: z.literal("bookmarks.get"), thread: ReactionThread }),
+  /** Bookmark (`on`) or unbookmark the turn that starts at bubble `message` of `thread`. Every device gets the new `bookmarks.snapshot`; no change re-sends it to the sender only. */
+  z.object({ t: z.literal("bookmark.set"), thread: ReactionThread, message: ReactionKey, on: z.boolean() }),
   /**
    * React `emoji` to bubble `message` (its `reactionKey`) of `thread`, replacing any reaction it had.
    * `excerpt` is `reactionExcerpt` of its text. Every device gets the thread's new `reactions.snapshot`;
@@ -1796,6 +1818,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
     thread: ReactionThread,
     reactions: ThreadReactions,
   }),
+  /** A thread's bookmarked turns: the answer to `bookmarks.get`, and pushed to every device when they change. */
+  z.object({ t: z.literal("bookmarks.snapshot"), thread: ReactionThread, messages: ThreadBookmarks }),
   /** A thread's artifacts and tab bar: the answer to `artifacts.get`, and pushed to every device when they change. */
   z.object({
     t: z.literal("artifacts.snapshot"),

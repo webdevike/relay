@@ -4,6 +4,7 @@ import { createStore } from 'zustand/vanilla'
 import { withIsaacReaction, type ThreadReactions } from '@evaos/chat-core/reactions'
 import type { ReactionsView } from '@evaos/contract'
 import { invoke, on } from '../../ipc'
+import { applyHostBookmarks } from '../minimap/bookmarks'
 
 /**
  * Tapbacks on chat bubbles, as main last heard them from Relay, by thread, bubble and reactor
@@ -28,6 +29,8 @@ function applyView(v: ReactionsView): void {
     up: v.up,
     threads: thread === null ? s.threads : { ...s.threads, [thread]: v.reactions },
   }))
+  // Bookmarks ride the same views: the host's set when it keeps them, else they stay on this device.
+  if (thread !== null) applyHostBookmarks(thread, v.bookmarks ?? null)
 }
 
 /** Follows main's pushes: each watched thread's snapshots and Relay coming up or going down. */

@@ -69,6 +69,7 @@ import {
   defaultCatchUpStatePath,
 } from "./catchup/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService } from "./reactions/service";
+import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { ActivityService } from "./activity/service";
 import { listHerdrAgents } from "./agents/herdr";
@@ -531,6 +532,13 @@ function serve(
     clock: systemClock,
     log,
   });
+  const bookmarks = new BookmarkService({
+    path: defaultBookmarksPath(),
+    broadcast: (message): void => {
+      server.broadcastExcept(message, null);
+    },
+    log,
+  });
   const repos = new Map<string, string | null>();
   let activity: ActivityService | null = null;
   const artifacts = new ArtifactService({
@@ -749,6 +757,7 @@ function serve(
       usage,
       catchup,
       reactions,
+      bookmarks,
       artifacts,
       activity,
       canvas,

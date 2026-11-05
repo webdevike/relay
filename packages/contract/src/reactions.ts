@@ -15,6 +15,13 @@ export const ReactionsViewSchema = z.object({
   up: z.boolean(),
   /** As the host last sent them; empty before its first snapshot. */
   reactions: ThreadReactionsSchema,
+  /**
+   * The thread's bookmarked turns (reaction keys) as the host last sent them; null while the host
+   * has sent none (down, or one without the "bookmarks" feature: bookmarks then stay on this device).
+   */
+  bookmarks: z.array(ReactionKeySchema).nullable().optional(),
+  /** The host keeps bookmarks, so a change can be sent now. */
+  bookmarksUp: z.boolean().optional(),
 })
 export type ReactionsView = z.infer<typeof ReactionsViewSchema>
 
@@ -40,6 +47,17 @@ export const reactionsInvoke = {
         emoji: ReactionEmojiSchema.nullable(),
         excerpt: z.string().max(MAX_REACTION_EXCERPT),
       })
+      .strict(),
+    output: z.object({ sent: z.boolean() }),
+  },
+  /**
+   * Bookmarks (`on`) or unbookmarks the turn that starts at bubble `message` of `thread` on the
+   * host; `sent` is false when the host keeps none (no "bookmarks" feature) or is down. No ack: the
+   * next snapshot says.
+   */
+  'reactions.bookmark': {
+    input: z
+      .object({ thread: ReactionThreadSchema, message: ReactionKeySchema, on: z.boolean() })
       .strict(),
     output: z.object({ sent: z.boolean() }),
   },
