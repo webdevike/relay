@@ -95,7 +95,15 @@ function useViewedSubagent(tab: SubagentTab) {
 
 function SubagentContent({ tab }: { tab: SubagentTab }) {
   const subagent = useViewedSubagent(tab)
-  return <SubagentTranscript file={tab.file} version={subagent?.mtimeMs ?? null} />
+  // A helper of an open chat is told by that chat's extras; any other transcript (a session an
+  // assistant started, a helper of a chat that is not open) is looked at for growth.
+  return (
+    <SubagentTranscript
+      file={tab.file}
+      version={subagent?.mtimeMs ?? null}
+      poll={subagent === undefined}
+    />
+  )
 }
 
 function TabContent({ tab, visible }: { tab: ToolTab; visible: boolean }) {

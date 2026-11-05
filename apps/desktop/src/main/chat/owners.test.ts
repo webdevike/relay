@@ -35,6 +35,38 @@ describe('SessionOwners', () => {
     expect([...owners.current().keys()]).toEqual(['aaa', 'bbb'])
   })
 
+  it('finds a registered session transcript wherever it sits, by id or by path', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'owners-'))
+    const project = path.join(root, 'sessions/-Eva-work-relay')
+    fs.mkdirSync(project, { recursive: true })
+    const file = path.join(project, '2026-11-05T17-41-57-942Z_01a1accd-9a36.jsonl')
+    fs.writeFileSync(file, '')
+    write(root, 'nova', [
+      {
+        sessionFile: file,
+        title: 'Per-chat isolated pane layouts',
+        closedAt: '2026-11-05T18:00:00Z',
+      },
+    ])
+    const owners = new SessionOwners(root)
+    expect(owners.fileOf('01a1accd-9a36')).toEqual({
+      file,
+      title: 'Per-chat isolated pane layouts',
+      agent: 'nova',
+      closed: true,
+    })
+    expect(owners.fileOf('nope')).toBeNull()
+    expect(owners.owns(file)).toBe(true)
+    // A file next to it that nobody registered is not an owned transcript.
+    const other = path.join(project, '2026-11-05T17-41-57-942Z_other.jsonl')
+    fs.writeFileSync(other, '')
+    expect(owners.owns(other)).toBe(false)
+    // A symlink to a registered file is the same file.
+    const link = path.join(root, 'link.jsonl')
+    fs.symlinkSync(file, link)
+    expect(owners.owns(link)).toBe(true)
+  })
+
   it('no agents dir means no owners', () => {
     expect(new SessionOwners('/nonexistent').current().size).toBe(0)
   })

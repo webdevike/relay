@@ -7,7 +7,9 @@ const m = vi.hoisted(() => ({
   revealTool: vi.fn(),
   requestWatch: vi.fn(),
   rows: [{ id: 'aw1', file: '/s/aw1.jsonl' }] as Array<{ id: string; file: string }>,
+  owned: vi.fn(),
 }))
+vi.mock('../ipc', () => ({ invoke: m.owned }))
 vi.mock('../navigation/open-in-app', () => ({ openInApp: m.openInApp }))
 vi.mock('../tiling/tiling-store', () => ({
   openSubagentTab: m.openSubagentTab,
@@ -40,22 +42,51 @@ const item = (open: ActivityItem['open'], over: Partial<ActivityItem> = {}): Act
 describe('openActivity', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('opens a session in its chat, and an assistant thread on its page', () => {
-    expect(openActivity(item({ to: 'chat', thread: 'session:aw1', session: 'aw1' }))).toBe(true)
+  it('opens a session in its chat, and an assistant thread on its page', async () => {
+    m.owned.mockResolvedValue({ ok: true, value: null })
+    expect(await openActivity(item({ to: 'chat', thread: 'session:aw1', session: 'aw1' }))).toBe(
+      true,
+    )
     expect(m.openInApp).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 'chat', chat: '/s/aw1.jsonl' }),
       'split',
     )
     expect(
-      openActivity(item({ to: 'chat', thread: 'assistant:astra', session: 'unknown' }), 'tab'),
+      await openActivity(
+        item({ to: 'chat', thread: 'assistant:astra', session: 'unknown' }),
+        'tab',
+      ),
     ).toBe(true)
     expect(m.openInApp).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 'agent:astra' }),
       'tab',
     )
-    // A chat the list does not know goes nowhere.
+    // A chat nobody registered and the list does not know goes nowhere.
     m.openInApp.mockClear()
-    expect(openActivity(item({ to: 'chat', thread: 'session:gone', session: 'gone' }))).toBe(false)
+    expect(await openActivity(item({ to: 'chat', thread: 'session:gone', session: 'gone' }))).toBe(
+      false,
+    )
+    expect(m.openInApp).not.toHaveBeenCalled()
+  })
+
+  it("opens an assistant's session the list does not span as a live transcript beside the chat", async () => {
+    // Started in a project folder: its file is in that folder's own sessions dir, in no row.
+    m.owned.mockResolvedValue({
+      ok: true,
+      value: { file: '/p/-Eva-work-relay/t_abc.jsonl', title: 'Registered title', closed: false },
+    })
+    const chip = item(
+      { to: 'chat', thread: 'session:abc', session: 'abc' },
+      { title: 'Per-chat isolated pane layouts' },
+    )
+    expect(await openActivity(chip)).toBe(true)
+    expect(m.owned).toHaveBeenCalledWith('chat.ownedSession', { session: 'abc' })
+    expect(m.openSubagentTab).toHaveBeenCalledWith({
+      session: '/s/front.jsonl',
+      file: '/p/-Eva-work-relay/t_abc.jsonl',
+      name: 'Per-chat isolated pane layouts',
+    })
+    // Not the assistant page the click started on.
     expect(m.openInApp).not.toHaveBeenCalled()
   })
 

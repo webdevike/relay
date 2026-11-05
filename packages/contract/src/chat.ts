@@ -190,10 +190,28 @@ export const chatInvoke = {
       owner: PaneIdSchema.nullable().optional(),
     }),
   },
-  /** A subagent transcript inside a session's folder, read only (no pane, no process). */
+  /**
+   * A subagent transcript inside a session's folder, or the transcript of a session an assistant
+   * registered (`chat.ownedSession`), read only (no pane, no process).
+   */
   'chat.readSubagent': {
     input: z.object({ file: AbsPathSchema.endsWith('.jsonl') }).strict(),
     output: z.object({ title: z.string(), messages: z.array(ChatMessageSchema) }),
+  },
+  /** When a transcript read by `chat.readSubagent` last changed: a cheap poll for a live view. */
+  'chat.statSubagent': {
+    input: z.object({ file: AbsPathSchema.endsWith('.jsonl') }).strict(),
+    output: z.object({ mtimeMs: z.number(), size: z.number() }),
+  },
+  /**
+   * The transcript of an omp session an assistant started (its sessions.json), by omp session id,
+   * wherever its folder is; null when no assistant registered it.
+   */
+  'chat.ownedSession': {
+    input: z.object({ session: SessionIdSchema }).strict(),
+    output: z
+      .object({ file: AbsPathSchema.endsWith('.jsonl'), title: z.string(), closed: z.boolean() })
+      .nullable(),
   },
   'chat.send': {
     input: z

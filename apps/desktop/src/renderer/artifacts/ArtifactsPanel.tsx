@@ -395,7 +395,7 @@ function WorkingView({ thread, rows, now, actions }: ViewProps) {
   const { running, finished } = subagentTree(rows, now)
   const sections = activitySections(activity, thread, now)
   const open = (item: ActivityItem): void => {
-    openActivity(item)
+    void openActivity(item)
   }
   const helper = (row: TreeRow): WorkRow => ({ type: 'helper', row })
   const own = (item: ActivityItem): WorkRow => ({ type: 'activity', item })

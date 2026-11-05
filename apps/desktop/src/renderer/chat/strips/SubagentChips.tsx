@@ -11,6 +11,7 @@ import {
 import type { ActivityItem } from '@evaos/chat-core/activity'
 import { subagentFinished } from '@evaos/chat-core/jobs'
 import type { Subagent } from '@evaos/chat-core/message'
+import { elapsedLabel } from '../../context/format'
 import { KIND_ICON } from '../../artifacts/ActivityRows'
 
 export type SubagentState = 'running' | 'done' | 'failed'
@@ -111,11 +112,20 @@ export function SubagentChips({
         {activity.map((item) => {
           const Kind = KIND_ICON[item.kind]
           const waiting = item.status === 'waiting'
+          const age = elapsedLabel(item.startedAt, now)
           return (
             <Tooltip
               key={item.id}
-              label={item.intent}
-              disabled={item.intent === ''}
+              label={
+                <div data-testid={`activity-chip-tip-${item.id}`}>
+                  <div>{item.title}</div>
+                  <div className="eva-dim">
+                    {item.model === undefined ? '' : `${item.model} · `}
+                    {age === 'now' ? 'just started' : `running ${age}`}
+                  </div>
+                  {item.intent === '' ? null : <div>{item.intent}</div>}
+                </div>
+              }
               multiline
               maw={320}
               openDelay={400}

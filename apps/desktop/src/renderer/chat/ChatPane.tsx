@@ -362,7 +362,7 @@ function ChatView({
           active={viewedSubagent}
           activity={spunOff}
           onOpenActivity={(item) => {
-            openActivity(item)
+            void openActivity(item)
           }}
           onOpen={(s) =>
             openSubagentTab({

@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import { parseSession, type ParsedSession } from '@evaos/chat-core/session'
 import { listSessionFiles } from '@evaos/chat-core/sessions-dir'
 import type { MainContext } from '../context'
+import type { SessionOwners } from './owners'
 import { handle } from '../ipc/handle'
 import { blobAgentDirs, MediaError, readBlobImage } from './media'
 import type { RemoteSessions } from './remote-sessions'
@@ -77,6 +78,20 @@ export function resolveSubagentTranscript(sessionsDirs: readonly string[], file:
   return real
 }
 
+/** An assistant's own session transcript (already checked against its sessions.json): a regular `.jsonl` file. */
+function resolveOwnedTranscript(file: string): string {
+  let real: string
+  try {
+    real = fs.realpathSync(file)
+  } catch {
+    throw new CodedError('outside-sessions-dir', 'Session file not found')
+  }
+  if (!real.endsWith('.jsonl') || !fs.statSync(real).isFile()) {
+    throw new CodedError('outside-sessions-dir', 'Not a session transcript')
+  }
+  return real
+}
+
 export function registerTranscriptIpc(
   ctx: MainContext,
   sessionsDirs: readonly string[],
@@ -84,6 +99,8 @@ export function registerTranscriptIpc(
   ownerOf?: (file: string) => string | null,
   /** The remote host's mirror: a chat is fetched in full on open, a missing image on read. */
   remote?: RemoteSessions | null,
+  /** Sessions the assistants registered: their transcripts read like a subagent's, wherever they sit. */
+  owned?: SessionOwners | null,
 ): void {
   handle(ctx, 'chat.listSessions', () => ({ sessions: listSessionFiles(ctx.env.sessionsDir) }))
   handle(ctx, 'chat.open', async ({ paneId, file }) => {
@@ -103,11 +120,33 @@ export function registerTranscriptIpc(
     await remote.blob(token.slice('blob:sha256:'.length))
     return readBlobImage(agentDirs, token)
   })
-  handle(ctx, 'chat.readSubagent', async ({ file }) => {
+  /** A subagent's transcript, or one an assistant registered (it sits outside the list's dirs). */
+  const transcriptOf = async (file: string): Promise<string> => {
     // Remote host: the artifact names the host's path; fetch it (and tail it) into the mirror first.
     const mirrored = remote ? await remote.openSubagent(file) : null
-    const real = resolveSubagentTranscript(sessionsDirs, mirrored ?? file)
+    try {
+      return resolveSubagentTranscript(sessionsDirs, mirrored ?? file)
+    } catch (e) {
+      if (!owned?.owns(file)) throw e
+      return resolveOwnedTranscript(file)
+    }
+  }
+  handle(ctx, 'chat.readSubagent', async ({ file }) => {
+    const real = await transcriptOf(file)
     const { title, messages } = parseSession(fs.readFileSync(real, 'utf8'))
     return { title, messages }
+  })
+  handle(ctx, 'chat.statSubagent', async ({ file }) => {
+    const { mtimeMs, size } = fs.statSync(await transcriptOf(file))
+    return { mtimeMs, size }
+  })
+  handle(ctx, 'chat.ownedSession', ({ session }) => {
+    const entry = owned?.fileOf(session) ?? null
+    if (entry === null || !entry.file.startsWith('/') || !entry.file.endsWith('.jsonl')) return null
+    return {
+      file: entry.file,
+      title: entry.title ?? path.basename(entry.file, '.jsonl'),
+      closed: entry.closed,
+    }
   })
 }

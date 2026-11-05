@@ -441,6 +441,8 @@ describe('contract', () => {
         'setLaunch',
         'readImage',
         'readSubagent',
+        'statSubagent',
+        'ownedSession',
         'drop',
         'harnessStatus',
       ]) {

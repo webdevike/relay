@@ -33,6 +33,7 @@ import { ChatWatch } from './chat-watch'
 import { ExtrasService } from './extras'
 import { registerChatListIpc } from './chat-list-ipc'
 import { createSessionManager, registerLiveIpc } from './live-ipc'
+import { SessionOwners } from './owners'
 import { registerTranscriptIpc, resolveInsideSessionsDir } from './transcript-ipc'
 import type { Place } from '@evaos/chat-core/work'
 import type { Assistants } from '@evaos/contract'
@@ -98,6 +99,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     },
     (file) => manager.ownerOf(file),
     remote,
+    new SessionOwners(ctx.env.evaRoot),
   )
   registerLiveIpc(ctx, manager, mini)
   // Before the list loads its order: a fresh live config starts from the native app's history.

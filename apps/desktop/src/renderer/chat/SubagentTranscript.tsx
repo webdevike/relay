@@ -7,13 +7,47 @@ import { invoke } from '../ipc'
 /** The log's pane id: no chat pane has it, so its scroll pin stays local to the log. */
 const LOG_ID = 'subagent-view'
 
+/** How often a transcript with no chat to tell its changes is looked at for new lines. */
+const POLL_MS = 1500
+
 /**
- * A subagent's transcript, read only. Re-read whenever `version` changes (the subagent file's
- * mtime from the chat's extras), keeping the last read on screen meanwhile.
+ * A subagent's (or an assistant's session's) transcript, read only. Re-read whenever `version`
+ * changes (the subagent file's mtime from the chat's extras), keeping the last read on screen
+ * meanwhile. With `poll`, nothing tells this view the file grew (a session an assistant started has
+ * no chat of its own here), so it looks at the file's size and mtime and re-reads on a change.
  */
-export function SubagentTranscript({ file, version }: { file: string; version: number | null }) {
+export function SubagentTranscript({
+  file,
+  version,
+  poll = false,
+}: {
+  file: string
+  version: number | null
+  poll?: boolean
+}) {
   const [read, setRead] = useState<{ file: string; messages: ChatMessage[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [grown, setGrown] = useState(0)
+
+  useEffect(() => {
+    if (!poll) return
+    let live = true
+    let seen: string | null = null
+    const look = (): void => {
+      void invoke('chat.statSubagent', { file }).then((r) => {
+        if (!live || !r.ok) return
+        const now = `${r.value.mtimeMs}:${r.value.size}`
+        if (seen !== null && seen !== now) setGrown((n) => n + 1)
+        seen = now
+      })
+    }
+    look()
+    const timer = setInterval(look, POLL_MS)
+    return () => {
+      live = false
+      clearInterval(timer)
+    }
+  }, [file, poll])
 
   useEffect(() => {
     let live = true
@@ -31,7 +65,7 @@ export function SubagentTranscript({ file, version }: { file: string; version: n
     return () => {
       live = false
     }
-  }, [file, version])
+  }, [file, version, grown])
 
   const messages = read?.file === file ? read.messages : null
   return (

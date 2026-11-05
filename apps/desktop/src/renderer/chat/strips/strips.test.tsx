@@ -4,14 +4,23 @@ import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import type { BgJob, Subagent } from '@evaos/chat-core/message'
 import type { ActivityItem } from '@evaos/chat-core/activity'
-const { invoke } = vi.hoisted(() => ({
-  invoke: vi.fn((channel: string, _input?: unknown): Promise<unknown> =>
-    Promise.resolve({
-      ok: true,
-      value: channel === 'chat.readSubagent' ? { title: 't', messages: [] } : {},
-    }),
-  ),
-}))
+const { invoke, stat } = vi.hoisted(() => {
+  const stat = { size: 10 }
+  return {
+    stat,
+    invoke: vi.fn((channel: string, _input?: unknown): Promise<unknown> =>
+      Promise.resolve({
+        ok: true,
+        value:
+          channel === 'chat.readSubagent'
+            ? { title: 't', messages: [] }
+            : channel === 'chat.statSubagent'
+              ? { mtimeMs: 1, size: stat.size }
+              : {},
+      }),
+    ),
+  }
+})
 vi.mock('../../ipc', () => ({
   invoke,
   on: () => () => undefined,
@@ -92,6 +101,34 @@ describe('SubagentChips activity badges', () => {
     }
     await user.click(screen.getByTestId('activity-chip-harness:w1:p3'))
     expect(opened).toHaveBeenCalledWith(harness)
+  })
+
+  it("an activity chip's hover says the session's title, model and how long it has run", async () => {
+    const user = userEvent.setup()
+    const session: ActivityItem = {
+      ...work('session:abc', 'session', 'working', {
+        to: 'chat',
+        thread: 'session:abc',
+        session: 'abc',
+      }),
+      title: 'Per-chat isolated pane layouts',
+      model: 'claude-opus-5-5',
+      startedAt: Date.now() - 7 * 60_000,
+    }
+    wrap(
+      <SubagentChips
+        subagents={[]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+        activity={[session]}
+      />,
+    )
+    await user.hover(screen.getByTestId('activity-chip-session:abc'))
+    const tip = await screen.findByTestId('activity-chip-tip-session:abc')
+    expect(tip).toHaveTextContent('Per-chat isolated pane layouts')
+    expect(tip).toHaveTextContent('claude-opus-5-5 · running 7m')
+    expect(tip).toHaveTextContent('Running the tests')
   })
 
   it('shows the strip for activity alone, and nothing when there is neither', () => {
@@ -230,6 +267,19 @@ describe('SubagentTranscript', () => {
     await waitFor(() =>
       expect(invoke.mock.calls.filter((c) => c[0] === 'chat.readSubagent')).toHaveLength(2),
     )
+  })
+
+  it('with poll, re-reads when the file grows and not before', async () => {
+    const file = '/p/-proj/t_abc.jsonl'
+    stat.size = 10
+    invoke.mockClear()
+    wrap(<SubagentTranscript file={file} version={null} poll />)
+    await screen.findByText('No messages yet.')
+    const reads = (): number => invoke.mock.calls.filter((c) => c[0] === 'chat.readSubagent').length
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('chat.statSubagent', { file }))
+    expect(reads()).toBe(1)
+    stat.size = 20
+    await waitFor(() => expect(reads()).toBe(2), { timeout: 4000 })
   })
 
   it('shows a refused read as an error', async () => {
