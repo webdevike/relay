@@ -3,6 +3,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, View, type LayoutChangeEvent
 import { useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { useActivityStore } from "@/state/activity";
+import { useAgentsStore } from "@/state/agents";
 import { Chip } from "@/ui/Chip";
 import { SideFade } from "@/ui/SideFade";
 import { activityBadges } from "@/lib/activity";
@@ -15,15 +16,17 @@ const END_SLACK = 4;
  * One row of chips above the composer, a chip per thing this assistant has in progress (sessions,
  * helpers, harnesses, canvas rooms; each once): a spinner while it runs, a hand while it waits on
  * Isaac. It scrolls sideways when they do not fit, fading at the edge with more beyond it. A
- * session's chip opens that session; the others open the Artifacts sheet on its Working group.
+ * session's or helper's chip opens its transcript (a helper's is the subagent session the bridge
+ * mirrors under the thread's session); the others open the Artifacts sheet's Working group.
  * Nothing renders when idle. The thread's header lists only sessions that are not running, so none
  * shows twice. `background` is the page colour (`#RRGGBB`) the edge fades into.
  */
-export function ActivityBadges({ thread, background, onPress }: { thread: string; background: string; onPress: () => void }) {
+export function ActivityBadges({ thread, threadSession, background, onPress }: { thread: string; threadSession: string | null; background: string; onPress: () => void }) {
   const router = useRouter();
   const colors = useColors();
   const items = useActivityStore((state) => state.items);
-  const shown = useMemo(() => activityBadges(items, thread), [items, thread]);
+  const sessions = useAgentsStore((state) => state.sessions);
+  const shown = useMemo(() => activityBadges(items, thread, { threadSession, sessions }), [items, thread, threadSession, sessions]);
   const [viewport, setViewport] = useState(0);
   const [content, setContent] = useState(0);
   const [offset, setOffset] = useState(0);

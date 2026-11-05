@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityItem } from "@evaos/chat-core/activity";
+import type { AgentSession } from "@relay/protocol";
 import { activityBadges, runningSessionIds } from "./activity";
 
 const item = (id: string, over: Partial<ActivityItem> = {}): ActivityItem => ({
@@ -43,6 +44,14 @@ describe("activityBadges", () => {
     const items = [1, 2, 3, 4, 5].map((n) => item(`s${String(n)}`, { startedAt: n }));
     expect(activityBadges([...items, item("dup", { open: { to: "chat", thread: "session:s5", session: "s5" } })], "assistant:nova")).toHaveLength(5);
     expect(activityBadges(items, "assistant:nova").map((badge) => badge.id)).toEqual(["s5", "s4", "s3", "s2", "s1"]);
+  });
+
+  it("points a helper chip at the subagent session mirrored under the thread's session", () => {
+    const helper = item("helper:/s/T/Scout.jsonl", { kind: "helper", open: { to: "subagent", file: "/s/T/Scout.jsonl", name: "Scout" } });
+    const mirrored = { id: "T:Scout", parentId: "T" } as AgentSession;
+    expect(activityBadges([helper], "assistant:nova", { threadSession: "T", sessions: { "T:Scout": mirrored } })[0]?.sessionId).toBe("T:Scout");
+    expect(activityBadges([helper], "assistant:nova", { threadSession: "T", sessions: {} })[0]?.sessionId).toBeUndefined();
+    expect(activityBadges([helper], "assistant:nova", { threadSession: null, sessions: { "T:Scout": mirrored } })[0]?.sessionId).toBeUndefined();
   });
 
   it("carries the session id a session chip opens", () => {

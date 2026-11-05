@@ -490,6 +490,7 @@ function Thread({ agent }: { agent: string }) {
           )}
           <ActivityBadges
             thread={artifactsThread}
+            threadSession={sessionId}
             background={bg}
             onPress={() => {
               Keyboard.dismiss();
