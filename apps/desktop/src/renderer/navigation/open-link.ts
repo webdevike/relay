@@ -8,6 +8,7 @@ import { reviewPlaceOf, reviewRefOfId } from '../reviews/review-place'
 import { openArmTab, revealTool, splitAt, tilingStore } from '../tiling/tiling-store'
 import { openWebPage } from '../tiling/web-tabs'
 import { requestExperiment } from '../test-bench/bench-request'
+import { requestSkill } from '../skills/skill-request'
 import { requestStudioOpen } from '../studio/studio-store'
 import { pointAtSetting } from '../settings/setting-targets'
 import { focusConnection } from '../settings/connections-store'
@@ -99,8 +100,8 @@ function openFileAt(path: string, line: number | undefined, target: OpenTarget):
 /**
  * Opens a `relay://` address per `target`: the tab it names (a chat, a web page, a file, a board,
  * a Studio job, a Reviews item) or the place an older link names, then what it shows there (a
- * Test Bench run and arm, a setting pointed out, a connection's Connect step). False when it
- * names nothing this app opens.
+ * Test Bench run and arm, a Skills row, a setting pointed out, a connection's Connect step). False
+ * when it names nothing this app opens.
  */
 export function openAppLink(href: string, target: OpenTarget = 'here'): boolean {
   const address = parseAddress(href)
@@ -142,8 +143,9 @@ export function openAddress(a: TabAddress, target: OpenTarget = 'here'): boolean
 function openPageLink(link: Extract<AppLink, { kind: 'open' }>, target: OpenTarget): boolean {
   const place = appLinkPlace(link)
   if (place === null) return false
-  const { item, job, setting, connect, experiment, arm } = link.params ?? {}
+  const { item, job, setting, connect, experiment, arm, skill } = link.params ?? {}
   if (experiment !== undefined) requestExperiment(experiment)
+  if (skill !== undefined && link.page === 'skills') requestSkill(skill)
   openInApp(place, target)
   if (item !== undefined) openReviewItem(item)
   if (job !== undefined) requestStudioOpen({ job })

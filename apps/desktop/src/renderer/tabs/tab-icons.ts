@@ -19,6 +19,7 @@ import {
   IconGitPullRequest,
   IconTicket,
   IconBrandSlack,
+  IconSparkles,
   type Icon,
 } from '@tabler/icons-react'
 
@@ -44,4 +45,5 @@ export const PAGE_ICONS: Record<string, Icon> = {
   IconGitPullRequest,
   IconTicket,
   IconBrandSlack,
+  IconSparkles,
 }

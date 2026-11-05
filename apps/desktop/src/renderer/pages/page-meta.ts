@@ -35,6 +35,13 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'IconLayoutDashboard',
   },
   { slug: 'chat', page: 'chat', title: 'Chat', description: '', icon: 'IconMessage' },
+  {
+    slug: 'skills',
+    page: 'skills',
+    title: 'Skills',
+    description: 'The skills your assistants load: read and edit them in place.',
+    icon: 'IconSparkles',
+  },
   { slug: 'canvas', page: 'canvas', title: 'Canvas', description: '', icon: 'IconSchema' },
   {
     slug: 'rooms',

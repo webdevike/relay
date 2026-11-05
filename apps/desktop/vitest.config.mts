@@ -2,6 +2,8 @@ import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 const exclude = ['e2e/**/*.spec.ts', 'out/**', '**/node_modules/**']
+// One Yjs for the app and @relay/canvas-live, as in electron.vite.config.ts.
+const YJS = ['yjs', 'y-protocols', 'lib0']
 
 export default defineConfig({
   test: {
@@ -16,6 +18,7 @@ export default defineConfig({
         },
       },
       {
+        resolve: { dedupe: YJS },
         test: {
           name: 'main',
           environment: 'node',
@@ -33,6 +36,7 @@ export default defineConfig({
       },
       {
         plugins: [react()],
+        resolve: { dedupe: YJS },
         define: {
           __RELAY_BUILD__: JSON.stringify('test-build'),
           __RELAY_BUILT_AT__: JSON.stringify('2026-11-03T15:04:00.000Z'),

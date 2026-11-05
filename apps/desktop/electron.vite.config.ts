@@ -46,8 +46,15 @@ const devCsp = {
   },
 }
 
+/**
+ * Yjs and its protocol libraries, resolved once from this app: the Skills editor's own copy and
+ * @relay/canvas-live's imports (which would find the monorepo root's copy) must share one Y instance.
+ */
+export const YJS = ['yjs', 'y-protocols', 'lib0']
+
 export default defineConfig({
   main: {
+    resolve: { dedupe: YJS },
     build: {
       rollupOptions: { input: { index: 'src/main/index.ts' } },
     },
@@ -73,8 +80,8 @@ export default defineConfig({
       // styles the motion source imports from the root node_modules.
       fs: { allow: [resolve(__dirname, '../..')] },
     },
-    // One copy of DiceBear: the still portraits (ui/portrait.ts) and the motion rigs share it.
-    resolve: { dedupe: ['@dicebear/core', '@dicebear/micah', '@dicebear/notionists'] },
+    // One copy of DiceBear: the still portraits (ui/portrait.ts) and the motion rigs share it. One Yjs: see YJS.
+    resolve: { dedupe: ['@dicebear/core', '@dicebear/micah', '@dicebear/notionists', ...YJS] },
     build: { rollupOptions: { input: resolve(__dirname, 'src/renderer/index.html') } },
   },
 })

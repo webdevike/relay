@@ -13,6 +13,7 @@ import {
   IconMessageChatbot,
   IconSchema,
   IconSettings,
+  IconSparkles,
   IconUsers,
   IconUsersGroup,
   type Icon,
@@ -33,6 +34,7 @@ const ICONS: Record<string, Icon> = {
   IconMessageChatbot,
   IconSchema,
   IconSettings,
+  IconSparkles,
   IconUsers,
   IconUsersGroup,
 }

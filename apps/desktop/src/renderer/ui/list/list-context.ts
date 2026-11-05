@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 
 /** How tall and busy rows are: two-line flat rows (option B), or one dense line (option A). */
 export type ListDensity = 'comfortable' | 'compact'
@@ -9,7 +9,8 @@ export type ListDensity = 'comfortable' | 'compact'
  */
 export interface ListColumn {
   id: string
-  label: string
+  /** The header text, or a control in it (a sort toggle). */
+  label: ReactNode
   /** A grid track; the first column defaults to minmax(0, 2.4fr), the rest to minmax(0, 1fr). */
   width?: string
   align?: 'start' | 'center' | 'end'

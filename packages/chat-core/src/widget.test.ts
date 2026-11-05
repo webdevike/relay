@@ -171,6 +171,7 @@ describe('parseWidget', () => {
       `relay://open/reviews?item=${encodeURIComponent('https://github.com/o/r/pull/12')}`,
       'relay://open/test-bench?experiment=eva-hillclimb&arm=a2',
       'relay://open/canvas?canvas=artifacts',
+      'relay://open/skills?skill=canvas',
       'relay://assistant/nova',
     ]
     for (const url of links) {

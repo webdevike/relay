@@ -22,6 +22,7 @@ import { navIcon } from './icons'
 import './customize.css'
 import { NavRow } from './NavRow'
 import { UpdateBadge } from '../update/UpdateBadge'
+import { ensureSkillsLoaded, useSkillCount } from '../skills/skills-store'
 import { openSub } from './nav-level'
 import { SidebarMenu, type MenuAt, type MenuTarget } from './SidebarMenu'
 import {
@@ -61,6 +62,7 @@ export function MainNav() {
   const about = useAbout()
   const here = useTabs(activePlace)
   const jobs = useSidebarData((s) => s.scheduledJobs)
+  const skillCount = useSkillCount()
   const error = useSidebarData((s) => s.error)
   const boards = useBoards((s) => s.data?.boards ?? null)
   const profile = useProfile()
@@ -82,6 +84,10 @@ export function MainNav() {
     if (listStore.getState().list === null) void listStore.getState().load()
     return subscribeListChanges()
   }, [])
+  // The Skills row's badge counts the skills; the list loads the first time the nav mounts.
+  useEffect(() => {
+    ensureSkillsLoaded()
+  }, [])
   const unreadChats = useMemo(
     () =>
       (chatRows ?? []).filter((r) => r.owner === null && !r.archived && !isSnoozed(r) && bright(r))
@@ -93,8 +99,13 @@ export function MainNav() {
     [chatRows],
   )
 
-  const badgeOf = (id: string): number =>
-    id === 'jobs' ? (error ? 0 : jobs) : id === 'chat' ? unreadChats : 0
+  // The rows that carry a count, by nav id.
+  const counts: Record<string, number> = {
+    jobs: error ? 0 : jobs,
+    chat: unreadChats,
+    skills: skillCount,
+  }
+  const badgeOf = (id: string): number => counts[id] ?? 0
 
   const mainItems = useMemo(
     () =>
@@ -302,7 +313,7 @@ export function MainNav() {
         }
         count={prefs.badgeStyle === 'count' ? countLabel(count) : null}
         dot={prefs.badgeStyle === 'dot' && count > 0}
-        countTestid={n.id === 'jobs' ? 'count-jobs' : n.id === 'chat' ? 'count-chat' : undefined}
+        countTestid={n.id in counts ? `count-${n.id}` : undefined}
         chevron={
           n.id === 'assistants' ||
           n.id === 'chat' ||

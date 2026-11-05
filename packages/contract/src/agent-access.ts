@@ -13,6 +13,7 @@ export const AGENT_FIXED_PAGES = [
   'dashboard',
   'assistants',
   'chat',
+  'skills',
   'jobs',
   'test-bench',
   'habits',
@@ -89,6 +90,14 @@ export const AGENT_PAGES: readonly AgentPageInfo[] = [
     link: 'relay://open/chat',
     read: [...PANES, 'state.read'],
     change: ['chat.open', 'chat.new', 'chat.start (destructive)'],
+  },
+  {
+    key: 'skills',
+    title: 'Skills',
+    description: 'Every skill the assistants load: read, edit, who loads it.',
+    link: 'relay://open/skills?skill=<name>',
+    read: PANES,
+    change: ['page.open'],
   },
   {
     key: 'jobs',
@@ -504,6 +513,7 @@ export const AgentLinkParamsSchema = z
     node: z.string().min(1).max(200).optional(),
     /** The workspace key a web page or file belongs to. */
     workspace: z.string().min(1).max(1000).optional(),
+    skill: z.string().min(1).max(100).optional(),
     /** The link's text in chat; default: where it goes ("Settings › Connections"). */
     label: z.string().trim().min(1).max(120).optional(),
   })
@@ -565,6 +575,7 @@ export function appLinkFor(p: AgentLinkParams): { url: string; label: string; ma
   only('meeting', ['meetings'])
   only('experiment', ['test-bench'])
   only('arm', ['test-bench'])
+  only('skill', ['skills'])
   only('job', ['studio'])
   only('message', ['chat'])
   only('line', ['files'])
@@ -590,6 +601,7 @@ export function appLinkFor(p: AgentLinkParams): { url: string; label: string; ma
     if (p.meeting !== undefined) params.meeting = p.meeting
     if (p.experiment !== undefined) params.experiment = p.experiment
     if (p.arm !== undefined) params.arm = p.arm
+    if (p.skill !== undefined) params.skill = p.skill
     if (p.job !== undefined) params.job = p.job
     if (p.chat !== undefined) params.chat = p.chat
     if (p.message !== undefined) params.message = p.message

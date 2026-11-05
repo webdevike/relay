@@ -16,6 +16,7 @@ describe('pages', () => {
       'dashboard',
       'workspace:alpha',
       'chat',
+      'skills',
       'jobs',
       'test-bench',
       'habits',

@@ -47,6 +47,7 @@ vi.mock('./navigate', () => ({ openPlace: (...a: unknown[]) => openPlace(...a) }
 
 import { linkPrefsStore } from './link-prefs'
 import { openAppLink, openLink } from './open-link'
+import { takeSkillRequest } from '../skills/skill-request'
 import { openFromNav, openInApp } from './open-in-app'
 
 beforeEach(() => {
@@ -134,6 +135,16 @@ describe('openAppLink: relay:// addresses', () => {
     openAppLink('relay://open/reviews?item=linear%3AENG-1')
     expect(tiling.openPlaceBeside).toHaveBeenLastCalledWith(placeOf('review:linear:ENG-1'))
     expect(openReviewItem).not.toHaveBeenCalled()
+  })
+
+  it('opens a skill in the Skills page and hands it the name', () => {
+    takeSkillRequest()
+    openAppLink('relay://open/skills?skill=canvas')
+    expect(tiling.openPlaceBeside).toHaveBeenLastCalledWith(placeOf('skills'))
+    expect(takeSkillRequest()).toBe('canvas')
+    // The param only counts on the Skills page.
+    openAppLink('relay://open/jobs?skill=canvas')
+    expect(takeSkillRequest()).toBeNull()
   })
 
   it('a pasted link with a bad web url opens nothing', () => {

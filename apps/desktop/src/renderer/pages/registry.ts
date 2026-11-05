@@ -17,6 +17,7 @@ import { SettingsPage } from '../settings/SettingsPage'
 import { StudioPage } from '../studio/StudioPage'
 import { ReviewPage } from '../reviews/ReviewPage'
 import { ReviewsPage } from '../reviews/ReviewsPage'
+import { SkillsPage } from '../skills/SkillsPage'
 import { TestBenchPage } from '../test-bench/TestBenchPage'
 import { SetupPage } from '../setup/SetupPage'
 
@@ -27,6 +28,7 @@ const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   assistants: AssistantsHome,
   dashboard: DashboardPage,
   jobs: JobsPage,
+  skills: SkillsPage,
   'test-bench': TestBenchPage,
   habits: HabitsPage,
   meetings: MeetingsHome,

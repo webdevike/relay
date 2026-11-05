@@ -14,6 +14,7 @@ const TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
   assistants: 'Assistants',
   chat: 'Chat',
+  skills: 'Skills',
   'test-bench': 'Test Bench',
   jobs: 'Jobs',
   habits: 'Habits',
@@ -30,6 +31,7 @@ const ICONS: Record<string, string> = {
   dashboard: 'IconLayoutDashboard',
   assistants: 'IconMessageChatbot',
   chat: 'IconMessage',
+  skills: 'IconSparkles',
   'test-bench': 'IconListCheck',
   jobs: 'IconCalendarTime',
   // IconTimer does not exist in @tabler/icons-react 3.49 (research Pitfall 10).

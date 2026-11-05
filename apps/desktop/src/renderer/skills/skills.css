@@ -1,0 +1,281 @@
+/* The Skills page: Relay's list beside the selected skill's panel. Every rule is scoped under the
+   page root; the look comes from the shared list, Settings' card rows and stock Mantine. */
+.eva-skills {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+.eva-skills .eva-skills-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-lg) var(--mantine-spacing-lg) 0;
+}
+
+/* Header, as Test Bench and Jobs. */
+.eva-skills .eva-skills-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-skills .eva-skills-title {
+  margin: 0;
+  font-size: var(--eva-fz-display);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-skills .eva-skills-dim {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-skills .eva-skills-mono {
+  font-family: var(--eva-font-mono);
+  font-size: var(--eva-fz-label);
+}
+.eva-skills .eva-skills-label {
+  margin: 0;
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-semibold);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-skills .eva-skills-quiet {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-skills .eva-skills-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-skills .eva-skills-search {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The list. */
+.eva-skills .eva-skills-scroll {
+  flex: 1;
+  min-height: 0;
+}
+.eva-skills .eva-skills-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  font: inherit;
+  color: inherit;
+}
+.eva-skills .eva-skills-sort:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-skills .eva-skills-desc {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-skills .eva-skills-users {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+}
+.eva-skills .eva-skills-portrait {
+  width: var(--eva-tile-xs);
+  height: var(--eva-tile-xs);
+  flex: none;
+  border-radius: var(--eva-radius-round);
+  overflow: hidden;
+}
+.eva-skills .eva-skills-portrait-lg {
+  width: var(--eva-tile-md);
+  height: var(--eva-tile-md);
+  flex: none;
+  border-radius: var(--eva-radius-round);
+  overflow: hidden;
+}
+
+/* The panel beside the list, resized from its edge like the Files sidebar. */
+.eva-skills .eva-skills-side {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--eva-c-border);
+}
+.eva-skills .eva-skills-sash {
+  position: absolute;
+  top: 0;
+  left: -4px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.eva-skills .eva-skills-sash:hover {
+  background: linear-gradient(
+    to right,
+    transparent 2px,
+    var(--eva-c-ring) 2px 4px,
+    transparent 4px
+  );
+}
+.eva-skills .eva-skills-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* The panel's header, as a Reviews item's. */
+.eva-skills .eva-skills-panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+}
+.eva-skills .eva-skills-panel-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.3;
+  color: var(--eva-c-foreground);
+}
+.eva-skills .eva-skills-panel-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-skills .eva-skills-desc-full {
+  line-height: var(--eva-lh-body);
+}
+.eva-skills .eva-skills-tabs {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-skills .eva-skills-tabpanel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-skills .eva-skills-tabpanel-scroll {
+  overflow-y: auto;
+}
+
+/* Editor tab. */
+.eva-skills .eva-skills-doc {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+}
+.eva-skills .eva-skills-sheet {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.eva-skills .eva-skills-front {
+  flex: none;
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-skills .eva-skills-prose {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.eva-skills .eva-skills-bubble-wrap {
+  z-index: 20;
+}
+/* Markdown kept verbatim: plain monospace, set apart from the rendered blocks. */
+.eva-skills .eva-skills-prose pre[data-raw-markdown] {
+  background: none;
+  border: 1px dashed var(--eva-c-border);
+  color: var(--eva-c-muted-foreground);
+  white-space: pre-wrap;
+}
+.eva-skills .eva-skills-prose ul[data-type='taskList'] {
+  list-style: none;
+  padding-left: 0;
+}
+.eva-skills .eva-skills-prose ul[data-type='taskList'] li {
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-skills .eva-skills-prose ul[data-type='taskList'] li > div {
+  flex: 1;
+  min-width: 0;
+}
+/* Other people's carets and selections (agents editing through the host), in their own colors.
+   A caret takes no width, so text never shifts; its line is drawn in the border color set inline. */
+.eva-skills .eva-skills-prose .collaboration-carets__caret {
+  position: relative;
+  border: 0 solid;
+  word-break: normal;
+  pointer-events: none;
+}
+.eva-skills .eva-skills-prose .collaboration-carets__caret::before {
+  content: '';
+  position: absolute;
+  top: -0.1em;
+  bottom: -0.1em;
+  left: -1px;
+  border-left: 2px solid;
+  border-left-color: inherit;
+}
+.eva-skills .eva-skills-prose .collaboration-carets__label {
+  position: absolute;
+  top: -1.4em;
+  left: -2px;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-radius-sm) var(--eva-radius-sm) var(--eva-radius-sm) 0;
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-semibold);
+  font-style: normal;
+  line-height: var(--eva-lh-label);
+  color: var(--mantine-color-white);
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Settings tab: sections of Settings' cards and rows. */
+.eva-skills .eva-skills-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-md);
+}
+.eva-skills .eva-skills-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-skills .eva-skills-files {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.eva-skills .eva-skills-files li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-skills .eva-skills-files li > span:first-child {
+  overflow-wrap: anywhere;
+}

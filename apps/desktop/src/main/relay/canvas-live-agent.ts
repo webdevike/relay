@@ -32,7 +32,7 @@ export function canvasCaller(
 }
 
 /** The host's refusal as one line: its JSON `error` (or `message`), else the HTTP status. */
-function refusal(status: number, statusText: string, body: string): string {
+export function refusal(status: number, statusText: string, body: string): string {
   try {
     const parsed: unknown = JSON.parse(body)
     if (typeof parsed === 'object' && parsed !== null) {

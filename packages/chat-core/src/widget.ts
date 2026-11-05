@@ -64,6 +64,7 @@ export const APP_LINK_PARAMS = [
   'node',
   /** The workspace key a tool tab (web, files) belongs to. */
   'ws',
+  'skill',
 ] as const
 export type AppLinkParam = (typeof APP_LINK_PARAMS)[number]
 

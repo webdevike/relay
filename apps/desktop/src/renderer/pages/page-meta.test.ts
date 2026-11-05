@@ -10,6 +10,11 @@ describe('page-meta', () => {
       slug: 'test-bench',
       title: 'Test Bench',
     })
+    expect(pageMeta(placeOf('skills'))).toMatchObject({
+      kind: 'page',
+      slug: 'skills',
+      title: 'Skills',
+    })
     expect(pageMeta(placeOf('workspace:abc'))).toMatchObject({
       kind: 'workspace',
       slug: 'workspace',
