@@ -23,9 +23,16 @@ const m = vi.hoisted(() => ({
   },
 }))
 
-vi.mock('../../ipc', () => ({ invoke: vi.fn(async () => ({ ok: true, value: {} })), on: () => () => {} }))
+vi.mock('../../ipc', () => ({
+  invoke: vi.fn(async () => ({ ok: true, value: {} })),
+  on: () => () => {},
+}))
 vi.mock('../../shell/layout-store', () => ({ useLayout: () => 'open' }))
-vi.mock('../../tabs/tabs-store', () => ({ goBack: vi.fn(), goForward: vi.fn(), useTabs: () => undefined }))
+vi.mock('../../tabs/tabs-store', () => ({
+  goBack: vi.fn(),
+  goForward: vi.fn(),
+  useTabs: () => undefined,
+}))
 vi.mock('../web-tabs', () => ({ openWebPage: m.openWebPage }))
 vi.mock('../tiling-store', () => ({
   splitAt: m.splitAt,
@@ -79,13 +86,17 @@ describe('pane + menu', () => {
       </>,
     )
     for (const p of m.state.panes) {
-      expect(within(screen.getByTestId(`strip-${p.id}`)).getAllByLabelText('Add a tab or split')).toHaveLength(1)
+      expect(
+        within(screen.getByTestId(`strip-${p.id}`)).getAllByLabelText('Add a tab or split'),
+      ).toHaveLength(1)
     }
   })
 
   it('lists TOOLS in order, then split, maximize and (app panes) new chat', async () => {
     const menu = await open('p1', 'tab-new')
-    const rows = [...menu.querySelectorAll('[role=menuitem]')].map((e) => e.getAttribute('data-testid'))
+    const rows = [...menu.querySelectorAll('[role=menuitem]')].map((e) =>
+      e.getAttribute('data-testid'),
+    )
     expect(rows).toEqual([
       ...TOOLS.map((t) => `pane-add-tool-${t.id}-p1`),
       'pane-add-split-right-p1',

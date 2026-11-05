@@ -69,7 +69,11 @@ export function parseAddress(url: string): TabAddress | null {
   const p = link.params ?? {}
   if (link.sub === undefined) {
     if (link.page === 'chat' && p.chat !== undefined) {
-      return { kind: 'chat', file: p.chat, ...(p.message === undefined ? {} : { message: p.message }) }
+      return {
+        kind: 'chat',
+        file: p.chat,
+        ...(p.message === undefined ? {} : { message: p.message }),
+      }
     }
     if (link.page === 'web') {
       return p.url !== undefined && isWeb(p.url) ? { kind: 'web', url: p.url, ...ws(p.ws) } : null
@@ -107,7 +111,9 @@ export function addressOfPlace(place: Place): TabAddress | null {
   }
   const colon = place.page.indexOf(':')
   if (colon > 0) {
-    const link = parseAppLink(`relay://open/${place.page.slice(0, colon)}/${place.page.slice(colon + 1)}`)
+    const link = parseAppLink(
+      `relay://open/${place.page.slice(0, colon)}/${place.page.slice(colon + 1)}`,
+    )
     return link?.kind === 'open' ? { kind: 'page', link } : null
   }
   const sub = place.page === 'settings' ? `/${place.settingsSection.toLowerCase()}` : ''

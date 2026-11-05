@@ -151,7 +151,6 @@ function MenuBody({ pane, app, close }: { pane: string; app: boolean; close: () 
     }
     return [...tools, ...extra]
     // `act` closes over `close` only, stable for this open menu.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, boards, zoomed, app, pane])
 
   const q = query.trim().toLowerCase()
@@ -219,7 +218,9 @@ function MenuBody({ pane, app, close }: { pane: string; app: boolean; close: () 
       >
         {shown.map((r, i) => (
           <div key={r.id}>
-            {r.divided && q === '' ? <div className="eva-add-menu-divider" role="separator" /> : null}
+            {r.divided && q === '' ? (
+              <div className="eva-add-menu-divider" role="separator" />
+            ) : null}
             <div
               id={`add-${pane}-${r.id}`}
               role="menuitem"

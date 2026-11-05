@@ -5,14 +5,7 @@ vi.mock('../../ipc', () => ({
   on: vi.fn(() => () => {}),
 }))
 
-import {
-  activeTab,
-  appPanelId,
-  placeKey,
-  placeOf,
-  samePlace,
-  type Place,
-} from '@evaos/shell-core'
+import { activeTab, appPanelId, placeKey, placeOf, samePlace, type Place } from '@evaos/shell-core'
 import { navigateTo, resetTabsForTests, tabsStore } from '../../tabs/tabs-store'
 import { chatStore } from '../../chat/chat-store'
 import { resetFrontChatForTests, setTabChatPane } from '../../chat/front-chat'

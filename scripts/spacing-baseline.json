@@ -32,13 +32,10 @@
     "padding: var(--eva-space-xl) 0": 1
   },
   "apps/desktop/src/renderer/browser/browser.css": {
-    "gap: var(--eva-space-native-xs)": 2,
     "gap: var(--eva-space-sm)": 1,
     "gap: var(--eva-space-xs)": 1,
     "margin: 0 0 var(--eva-space-md)": 1,
     "margin: 0 var(--eva-space-sm)": 1,
-    "padding: 0 var(--eva-space-native-sm)": 1,
-    "padding: 0 var(--eva-space-native-xs)": 1,
     "padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-native-sm)": 1,
     "padding: 0 var(--eva-space-sm)": 1,
     "padding: var(--eva-space-lg)": 1

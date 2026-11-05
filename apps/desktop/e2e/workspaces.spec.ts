@@ -73,7 +73,11 @@ const open = (shell: Page, page: string): Promise<void> =>
   shell.evaluate((p) => (window as unknown as Hooks).__evaosShell.openPlace(p), page)
 
 const ControlFile = z.object({ url: z.string(), token: z.string() })
-const Reply = z.object({ ok: z.boolean(), value: z.unknown().optional(), message: z.string().optional() })
+const Reply = z.object({
+  ok: z.boolean(),
+  value: z.unknown().optional(),
+  message: z.string().optional(),
+})
 const Layout = z.object({
   workspace: z.string(),
   shown: z.boolean(),
@@ -198,7 +202,9 @@ test('a pinned tab shows in every workspace; a new chat starts with just the pin
   await open(shell, 'agent:astra')
   await expect.poll(() => toolTabs(shell)).toEqual([['files']])
   await open(shell, 'agent:nova')
-  await expect.poll(async () => (await toolTabs(shell)).flat().sort()).toEqual(['files', 'terminal'])
+  await expect
+    .poll(async () => (await toolTabs(shell)).flat().sort())
+    .toEqual(['files', 'terminal'])
 })
 
 test('layouts persist per workspace across a restart', async ({ app, shell, configDir }) => {
@@ -238,7 +244,13 @@ function windowLayout(): Record<string, unknown> {
     canvas: null,
     ...extra,
   })
-  const tab = (id: number, here: unknown, pinned = false) => ({ id, here, back: [], forward: [], pinned })
+  const tab = (id: number, here: unknown, pinned = false) => ({
+    id,
+    here,
+    back: [],
+    forward: [],
+    pinned,
+  })
   const app = (id: string) => ({ id, contentComponent: 'app', tabComponent: 'app', params: {} })
   return {
     sidebar_width: 272,
@@ -257,8 +269,16 @@ function windowLayout(): Record<string, unknown> {
           type: 'branch',
           size: 800,
           data: [
-            { type: 'leaf', size: 700, data: { id: 'p77', views: ['tab:0', 'tab:44'], activeView: 'tab:44' } },
-            { type: 'leaf', size: 500, data: { id: 'p89', views: ['files', 'tab:64'], activeView: 'tab:64' } },
+            {
+              type: 'leaf',
+              size: 700,
+              data: { id: 'p77', views: ['tab:0', 'tab:44'], activeView: 'tab:44' },
+            },
+            {
+              type: 'leaf',
+              size: 500,
+              data: { id: 'p89', views: ['files', 'tab:64'], activeView: 'tab:64' },
+            },
           ],
         },
         width: 1200,
@@ -268,7 +288,12 @@ function windowLayout(): Record<string, unknown> {
       panels: {
         'tab:0': app('tab:0'),
         'tab:44': app('tab:44'),
-        files: { id: 'files', contentComponent: 'tool', tabComponent: 'tool', params: { tab: { kind: 'files' } } },
+        files: {
+          id: 'files',
+          contentComponent: 'tool',
+          tabComponent: 'tool',
+          params: { tab: { kind: 'files' } },
+        },
         'tab:64': app('tab:64'),
       },
     },

@@ -64,7 +64,8 @@ test('thinking switch applies live to the open chat and persists in chat.json', 
   // so the read, done chat fast-settles; reopen it from the Settled fold.
   const out = shell.getByTestId('sidebar-back')
   if (await out.isVisible()) await out.click()
-  if (!(await shell.getByTestId('chat-tree').isVisible())) await shell.getByTestId('nav-chat').click()
+  if (!(await shell.getByTestId('chat-tree').isVisible()))
+    await shell.getByTestId('nav-chat').click()
   const row = shell.getByTestId('sidebar').getByRole('link', { name: /^Fixture chat(?:,|$)/ })
   if (!(await row.isVisible())) await shell.getByTestId('chat-settled-toggle').click()
   await row.click()

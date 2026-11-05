@@ -69,7 +69,9 @@ describe('copyFocusedLink', () => {
     expect(write).toHaveBeenCalledWith(
       'relay://open/web?url=https%3A%2F%2Fexample.com%2F&ws=page%3Aagent%3Anova',
     )
-    expect(show).toHaveBeenCalledWith(expect.objectContaining({ message: 'Copied link to Example' }))
+    expect(show).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'Copied link to Example' }),
+    )
   })
 
   it('copies the file open in Files, at its line', async () => {

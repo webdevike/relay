@@ -417,14 +417,6 @@ function panelOf(id: string): string {
   return fail('not-found', `No tab ${id}; layout.read lists them`)
 }
 
-/** A pane action's tab: an open tab's panel id, or a spec (opened, then moved). */
-async function tabFor(tab: string | PaneTabSpec): Promise<string | ToolTab> {
-  if (typeof tab === 'string') return panelOf(tab)
-  const what = await paneTabOf(tab)
-  if (!isPlace(what)) return what
-  return placePanel(what) ?? showTab(what).tab
-}
-
 const shownChatFile = (): string | null =>
   chatStore.getState().panes[frontChatPaneOf()]?.file || null
 

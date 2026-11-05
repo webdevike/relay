@@ -80,15 +80,21 @@ describe('links ipc', () => {
 
   it('opens http(s) links in Arc and nothing else', async () => {
     const launch = vi.fn().mockResolvedValue(true)
-    registerLinksIpc({ config: createConfigStore(dir), env: { e2e: false } } as never, createWriteQueue(), {
-      dirs: [apps],
-      launch,
-    })
+    registerLinksIpc(
+      { config: createConfigStore(dir), env: { e2e: false } } as never,
+      createWriteQueue(),
+      {
+        dirs: [apps],
+        launch,
+      },
+    )
     expect(await call('links.openInArc', { url: 'https://example.com/a b' })).toEqual({
       launched: true,
     })
     expect(launch).toHaveBeenCalledWith({ to: 'app', app: 'Arc', url: 'https://example.com/a%20b' })
-    expect(await call('links.openInArc', { url: 'file:///etc/passwd' })).toEqual({ launched: false })
+    expect(await call('links.openInArc', { url: 'file:///etc/passwd' })).toEqual({
+      launched: false,
+    })
     expect(launch).toHaveBeenCalledTimes(1)
   })
 

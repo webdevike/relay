@@ -1,6 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { makeEvaFixture, EXPECT_P3, type EvaFixture } from './helpers/eva-fixture'
 import { proofShot } from './helpers/proofShot'

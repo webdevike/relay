@@ -57,7 +57,11 @@ describe('workspaceOf', () => {
 
 describe('routeTo', () => {
   const tabs = createTabs(
-    [tab(0, placeOf('agent:astra'), true), tab(1, placeOf('agent:nova')), tab(2, chat('/s/plain.jsonl'))],
+    [
+      tab(0, placeOf('agent:astra'), true),
+      tab(1, placeOf('agent:nova')),
+      tab(2, chat('/s/plain.jsonl')),
+    ],
     1,
   )
   it('brings an open tab forward instead of moving the one in front', () => {
@@ -94,7 +98,9 @@ describe('routeTo', () => {
     expect(next.list[0]!.back).toEqual([chat('/s/a.jsonl')])
     // Never into a workspace that has a tab already, and never out of a pinned tab.
     const pinned = createTabs([tab(1, chat('/s/a.jsonl'), true)], 0)
-    expect(routeTo(pinned, chat('/s/b.jsonl'), { wsOf, front: 'chat:/s/a.jsonl', reuse: true }).list).toHaveLength(2)
+    expect(
+      routeTo(pinned, chat('/s/b.jsonl'), { wsOf, front: 'chat:/s/a.jsonl', reuse: true }).list,
+    ).toHaveLength(2)
   })
   it("navigates a page workspace's own tab, with history", () => {
     const withCanvas = createTabs([...tabs.list, tab(3, placeOf('canvas', { canvas: 'a' }))], 1)
@@ -112,7 +118,11 @@ describe('routeTo', () => {
 
 describe('composeWorkspace', () => {
   const tabs = createTabs(
-    [tab(0, placeOf('agent:astra'), true), tab(1, placeOf('agent:nova')), tab(2, chat('/s/plain.jsonl'))],
+    [
+      tab(0, placeOf('agent:astra'), true),
+      tab(1, placeOf('agent:nova')),
+      tab(2, chat('/s/plain.jsonl')),
+    ],
     1,
   )
   const files = { kind: 'files' } as const
@@ -187,7 +197,11 @@ describe('composeWorkspace', () => {
           size: 800,
           data: [
             { type: 'leaf' as const, size: 600, data: { id: 'p1', views: ['tab:1'] } },
-            { type: 'leaf' as const, size: 600, data: { id: 'p2', views: ['tab:2'], activeView: 'tab:2' } },
+            {
+              type: 'leaf' as const,
+              size: 600,
+              data: { id: 'p2', views: ['tab:2'], activeView: 'tab:2' },
+            },
           ],
         },
       },
@@ -212,7 +226,11 @@ describe('ownLayout', () => {
           type: 'branch',
           size: 800,
           data: [
-            { type: 'leaf', size: 600, data: { id: 'p1', views: ['tab:0', 'tab:1'], activeView: 'tab:0' } },
+            {
+              type: 'leaf',
+              size: 600,
+              data: { id: 'p1', views: ['tab:0', 'tab:1'], activeView: 'tab:0' },
+            },
             { type: 'leaf', size: 300, data: { id: 'p2', views: ['files'] } },
             { type: 'leaf', size: 300, data: { id: 'p3', views: ['terminal'] } },
           ],
@@ -250,8 +268,16 @@ describe('migrateWindowLayout', () => {
           type: 'branch',
           size: 1018,
           data: [
-            { type: 'leaf', size: 1518, data: { id: 'p77', views: ['tab:0', 'tab:44'], activeView: 'tab:44' } },
-            { type: 'leaf', size: 1886, data: { id: 'p89', views: ['browser', 'tab:64'], activeView: 'tab:64' } },
+            {
+              type: 'leaf',
+              size: 1518,
+              data: { id: 'p77', views: ['tab:0', 'tab:44'], activeView: 'tab:44' },
+            },
+            {
+              type: 'leaf',
+              size: 1886,
+              data: { id: 'p89', views: ['browser', 'tab:64'], activeView: 'tab:64' },
+            },
           ],
         },
         width: 3412,
@@ -288,7 +314,11 @@ describe('migrateWindowLayout', () => {
 describe('the saved record', () => {
   const layout = (n: number): DockJson => ({
     grid: {
-      root: { type: 'branch', size: 1, data: [{ type: 'leaf', size: 1, data: { id: `p${n}`, views: [] } }] },
+      root: {
+        type: 'branch',
+        size: 1,
+        data: [{ type: 'leaf', size: 1, data: { id: `p${n}`, views: [] } }],
+      },
       width: 1,
       height: 1,
       orientation: 'HORIZONTAL',

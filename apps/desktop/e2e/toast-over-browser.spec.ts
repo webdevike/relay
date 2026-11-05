@@ -63,9 +63,9 @@ test('a toast shows over a page, which keeps the rest of its page', async ({ app
   await expect
     .poll(async () => (await viewOf(app, id))!.bounds.y, { timeout: 8000 })
     .toBeGreaterThan(slot.y)
-  await expect.poll(under, { timeout: 8000, message: 'a toast sits under the page view' }).toEqual(
-    [],
-  )
+  await expect
+    .poll(under, { timeout: 8000, message: 'a toast sits under the page view' })
+    .toEqual([])
   const clipped = (await viewOf(app, id))!
   expect(clipped.visible).toBe(true)
   expect(clipped.bounds.height).toBeGreaterThan(slot.height / 2) // the page is cut, not hidden

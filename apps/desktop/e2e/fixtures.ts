@@ -114,7 +114,10 @@ export const test = base.extend<Fixtures>({
       await page.waitForSelector('[data-testid=chat-pane]', { state: 'visible' })
     }
     // Tool panes as the panel toggle shows them (Files right of the chat), or none.
-    await page.evaluate((open) => (window as unknown as Hooks).__evaosShell.setPanel(open), toolPanes)
+    await page.evaluate(
+      (open) => (window as unknown as Hooks).__evaosShell.setPanel(open),
+      toolPanes,
+    )
     await page.waitForSelector('[data-pane-kind=tool]', { state: toolPanes ? 'visible' : 'hidden' })
     await use(page)
     // A spec that quits the app itself (quit lifecycle) leaves nothing to ask.

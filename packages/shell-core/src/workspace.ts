@@ -91,7 +91,11 @@ export function workspaceTabs(
 function subset(tabs: Tabs, list: Tab[]): Tabs {
   const active = tabs.list[tabs.active]
   let ix = active ? list.findIndex((t) => t.id === active.id) : -1
-  if (ix < 0) ix = Math.max(0, list.findIndex((t) => !t.pinned))
+  if (ix < 0)
+    ix = Math.max(
+      0,
+      list.findIndex((t) => !t.pinned),
+    )
   return { ...tabs, list, active: ix }
 }
 
@@ -189,7 +193,8 @@ export function composeWorkspace(saved: unknown, o: ComposeOptions): DockJson | 
   if (!json) {
     const active = tabs.list[tabs.active]
     const panels: Record<string, DockPanelJson> = {}
-    for (const t of tabs.list) panels[appPanelId(t.id)] = appPanelJson(t.id, o.titles(appPanelId(t.id)))
+    for (const t of tabs.list)
+      panels[appPanelId(t.id)] = appPanelJson(t.id, o.titles(appPanelId(t.id)))
     json = {
       grid: {
         root: {
@@ -269,7 +274,8 @@ export function ownLayout(
       .filter((v) => !isGlobal(v))
       .filter((v, i, all) => v !== HOME_VIEW || all.indexOf(v) === i)
     const data: DockGroupJson = { ...node.data, views }
-    const front = data.activeView !== undefined && away(data.activeView) ? HOME_VIEW : data.activeView
+    const front =
+      data.activeView !== undefined && away(data.activeView) ? HOME_VIEW : data.activeView
     if (front !== undefined && views.includes(front)) data.activeView = front
     else if (views[0] === undefined) delete data.activeView
     else data.activeView = views[0]
@@ -342,16 +348,16 @@ function insertAfter(tabs: Tabs, at: number, place: Place): Tabs {
 export function routeTo(tabs: Tabs, place: Place, o: RouteOptions): Tabs {
   const probe: Tab = { id: tabs.nextId, here: place, back: [], forward: [], pinned: false }
   const target = o.wsOf(probe)
-  const open = tabs.list.find(
-    (t) => samePlace(t.here, place) && (t.pinned || o.wsOf(t) === target),
-  )
+  const open = tabs.list.find((t) => samePlace(t.here, place) && (t.pinned || o.wsOf(t) === target))
   if (open) return switchTo(tabs, open.id)
   const assistant = isAssistantWorkspace(target)
   if (target === o.front) {
     if (o.newTab || assistant) return insertAfter(tabs, tabs.active, place)
     return navigate(tabs, place)
   }
-  const own = tabs.list.map((t, i) => [t, i] as const).filter(([t]) => !t.pinned && o.wsOf(t) === target)
+  const own = tabs.list
+    .map((t, i) => [t, i] as const)
+    .filter(([t]) => !t.pinned && o.wsOf(t) === target)
   if (own.length > 0 && !assistant && !o.newTab) {
     return navigate(switchTo(tabs, own[0]![0].id), place)
   }

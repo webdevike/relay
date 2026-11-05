@@ -851,7 +851,10 @@ function openPageTab(place: Place): IDockviewPanel | undefined {
 }
 
 /** The pane right of the active app tab's, where things open beside it. */
-function besidePane(): { right: DockviewGroupPanel | undefined; origin: DockviewGroupPanel | null } {
+function besidePane(): {
+  right: DockviewGroupPanel | undefined
+  origin: DockviewGroupPanel | null
+} {
   // The chat's pane: the active app tab's on screen; a hidden workspace's first pane of app tabs.
   const origin =
     (syncedActive === null ? null : groupOf(appPanelId(syncedActive))) ??
@@ -1679,7 +1682,12 @@ function savedText(): string {
   }
   return JSON.stringify({
     dock: api?.toJSON() ?? null,
-    workspaces: saveWorkspaces({ front, pinned: tilingStore.getState().pinned, layouts: all, order }),
+    workspaces: saveWorkspaces({
+      front,
+      pinned: tilingStore.getState().pinned,
+      layouts: all,
+      order,
+    }),
   })
 }
 
@@ -1689,7 +1697,10 @@ function saveNow(): void {
   const text = savedText()
   if (text === lastSaved) return
   lastSaved = text
-  const body = JSON.parse(text) as { dock: Record<string, unknown>; workspaces: Record<string, unknown> }
+  const body = JSON.parse(text) as {
+    dock: Record<string, unknown>
+    workspaces: Record<string, unknown>
+  }
   void invoke('layout.save', body).then((r) => {
     if (!r.ok) {
       lastSaved = ''

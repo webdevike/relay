@@ -171,8 +171,16 @@ describe('workspaces', () => {
           type: 'branch',
           size: 800,
           data: [
-            { type: 'leaf', size: 700, data: { id: 'p77', views: ['tab:0', 'tab:44'], activeView: 'tab:44' } },
-            { type: 'leaf', size: 500, data: { id: 'p89', views: ['browser', 'tab:64'], activeView: 'tab:64' } },
+            {
+              type: 'leaf',
+              size: 700,
+              data: { id: 'p77', views: ['tab:0', 'tab:44'], activeView: 'tab:44' },
+            },
+            {
+              type: 'leaf',
+              size: 500,
+              data: { id: 'p89', views: ['browser', 'tab:64'], activeView: 'tab:64' },
+            },
           ],
         },
         width: 1200,
@@ -191,7 +199,11 @@ describe('workspaces', () => {
         'tab:64': { id: 'tab:64', contentComponent: 'app', tabComponent: 'app', params: {} },
       },
     }
-    mount({ dock }, [tab(0, ASTRA, true), tab(44, NOVA), tab(64, placeOf('canvas', { canvas: 'skills' }))], 1)
+    mount(
+      { dock },
+      [tab(0, ASTRA, true), tab(44, NOVA), tab(64, placeOf('canvas', { canvas: 'skills' }))],
+      1,
+    )
     expect(panes()).toEqual(['p77[tab:0,*tab:44]', 'p89[browser,*view:canvas:skills]'])
     expect(tabsStore.getState().tabs.list.map((t) => t.id)).toEqual([0, 44])
     // Astra starts with her thread and nothing else.
@@ -206,8 +218,16 @@ describe('workspaces', () => {
           type: 'branch',
           size: 800,
           data: [
-            { type: 'leaf', size: 700, data: { id: 'p1', views: ['tab:0', 'tab:1'], activeView: 'tab:1' } },
-            { type: 'leaf', size: 500, data: { id: 'p2', views: ['files', 'browser'], activeView: 'browser' } },
+            {
+              type: 'leaf',
+              size: 700,
+              data: { id: 'p1', views: ['tab:0', 'tab:1'], activeView: 'tab:1' },
+            },
+            {
+              type: 'leaf',
+              size: 500,
+              data: { id: 'p2', views: ['files', 'browser'], activeView: 'browser' },
+            },
           ],
         },
         width: 1200,
@@ -217,8 +237,18 @@ describe('workspaces', () => {
       panels: {
         'tab:0': { id: 'tab:0', contentComponent: 'app', tabComponent: 'app', params: {} },
         'tab:1': { id: 'tab:1', contentComponent: 'app', tabComponent: 'app', params: {} },
-        files: { id: 'files', contentComponent: 'tool', tabComponent: 'tool', params: { tab: { kind: 'files' } } },
-        browser: { id: 'browser', contentComponent: 'tool', tabComponent: 'tool', params: { tab: { kind: 'browser' } } },
+        files: {
+          id: 'files',
+          contentComponent: 'tool',
+          tabComponent: 'tool',
+          params: { tab: { kind: 'files' } },
+        },
+        browser: {
+          id: 'browser',
+          contentComponent: 'tool',
+          tabComponent: 'tool',
+          params: { tab: { kind: 'browser' } },
+        },
       },
     }
     const astra = JSON.parse(JSON.stringify(dock)) as typeof dock
@@ -248,7 +278,14 @@ describe('workspaces', () => {
     expect(tilingStore.getState().pinned).toEqual([{ kind: 'web', id: 't9' }])
     expect(invoke).not.toHaveBeenCalledWith('browser.pinTab', expect.anything())
     // Not on screen: its saved layout changes, its own pages in order.
-    replaceLegacyBrowser('page:agent:astra', [{ id: 't5', pinned: false }, { id: 't6', pinned: false }], 't6')
+    replaceLegacyBrowser(
+      'page:agent:astra',
+      [
+        { id: 't5', pinned: false },
+        { id: 't6', pinned: false },
+      ],
+      't6',
+    )
     // No page: the panel just goes.
     replaceLegacyBrowser('page:jobs', [], '')
     navigateTo(ASTRA)
@@ -330,7 +367,7 @@ describe('workspaces', () => {
     expect(panes()).toEqual(['p1[tab:0,*tab:1]', 'p3[*view:page:studio]'])
   })
 
-  it("changes a workspace that is not on screen without touching the one that is", () => {
+  it('changes a workspace that is not on screen without touching the one that is', () => {
     mount()
     const before = panes()
     const pane = inWorkspace('page:agent:astra', () => openTab({ kind: 'terminal' }))

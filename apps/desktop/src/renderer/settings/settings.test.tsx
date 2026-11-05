@@ -307,9 +307,9 @@ describe('SettingsPage', () => {
       expect.objectContaining({ url: 'https://www.dicebear.com/styles/micah/' }),
     )
     await waitFor(() =>
-      expect(tilingStore.getState().panes.some((p) => p.views.some((v) => v.startsWith('web:')))).toBe(
-        true,
-      ),
+      expect(
+        tilingStore.getState().panes.some((p) => p.views.some((v) => v.startsWith('web:'))),
+      ).toBe(true),
     )
     unmount()
     expect(within(credits).getByText('creativecommons.org/licenses/by/4.0')).toHaveAttribute(

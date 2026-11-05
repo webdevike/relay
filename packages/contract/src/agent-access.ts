@@ -541,7 +541,13 @@ export function appLinkFor(p: AgentLinkParams): { url: string; label: string; ma
         ? agentSettings[p.setting as AgentSettingKey].section
         : p.section
   const tool =
-    p.web !== undefined ? 'web' : p.path !== undefined ? 'files' : p.chat !== undefined ? 'chat' : null
+    p.web !== undefined
+      ? 'web'
+      : p.path !== undefined
+        ? 'files'
+        : p.chat !== undefined
+          ? 'chat'
+          : null
   if (tool !== null && p.page !== undefined && p.page !== tool) {
     fail('invalid-params', 'chat, web and path name their own page')
   }

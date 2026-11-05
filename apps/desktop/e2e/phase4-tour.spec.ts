@@ -132,7 +132,8 @@ test('one session: question, image, live settings and a new chat', async ({ app,
   // Settings is its own workspace; leaving the chat closed its tab. Back on the chat.
   const out = shell.locator(sel('sidebar-back'))
   if (await out.isVisible()) await out.click()
-  if (!(await shell.locator(sel('chat-tree')).isVisible())) await shell.locator(sel('nav-chat')).click()
+  if (!(await shell.locator(sel('chat-tree')).isVisible()))
+    await shell.locator(sel('nav-chat')).click()
   await openRow(shell, 'p4-jobs')
   await expect(log.locator('[data-testid$="-tool0"]').first()).toBeVisible()
   await expect(log.locator('[data-testid=tool-group]')).toHaveCount(0)

@@ -1,10 +1,5 @@
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
-import {
-  IconArrowLeft,
-  IconArrowRight,
-  IconArrowsMinimize,
-  IconX,
-} from '@tabler/icons-react'
+import { IconArrowLeft, IconArrowRight, IconArrowsMinimize, IconX } from '@tabler/icons-react'
 import type { IDockviewHeaderActionsProps } from 'dockview-react'
 import { appTabOf } from '@evaos/shell-core'
 import { useLayout } from '../../shell/layout-store'

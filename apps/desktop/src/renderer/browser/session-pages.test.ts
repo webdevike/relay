@@ -57,7 +57,10 @@ describe('endedSessions', () => {
 
   it('finds a row its assistant closed, and skips chats nobody owns', () => {
     const before = [row('a1'), row('b1', { status: 'working', owner: null })]
-    const after = [row('a1', { owner: { agent: 'nova', closed: true } }), row('b1', { owner: null })]
+    const after = [
+      row('a1', { owner: { agent: 'nova', closed: true } }),
+      row('b1', { owner: null }),
+    ]
     expect(endedSessions(before, after, [], [])).toEqual([
       { session: 'a1', title: 'Session a1', ws: 'page:agent:nova' },
     ])
@@ -65,7 +68,11 @@ describe('endedSessions', () => {
 
   it("finds a session item that went done, named by its row's title when listed", () => {
     const rows = [row('a1')]
-    const before = [item('i1', 'working', 'a1'), item('i2', 'waiting', 'x9'), item('i3', 'done', 'x8')]
+    const before = [
+      item('i1', 'working', 'a1'),
+      item('i2', 'waiting', 'x9'),
+      item('i3', 'done', 'x8'),
+    ]
     const after = [item('i1', 'done', 'a1'), item('i2', 'failed', 'x9'), item('i3', 'done', 'x8')]
     expect(endedSessions(rows, rows, before, after)).toEqual([
       { session: 'a1', title: 'Session a1', ws: 'page:agent:nova' },

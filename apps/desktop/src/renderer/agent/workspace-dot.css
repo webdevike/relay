@@ -4,7 +4,7 @@
   flex: none;
   width: 6px;
   height: 6px;
-  margin-inline: 4px;
+  margin-inline: var(--eva-gap);
   border-radius: 50%;
   background: var(--eva-accent);
   vertical-align: middle;

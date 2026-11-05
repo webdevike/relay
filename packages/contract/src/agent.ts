@@ -273,7 +273,7 @@ export const agentActions = {
   'tab.open': {
     title: 'Open a tool tab',
     description:
-      'Shows a tool tab: `browser` (a new web page as its own page tab, args.url loaded in it; a blank page without one), `files` (args.path shows a file or folder, at args.line), `terminal` (a shell in the chat folder, or the herdr session of the chat), `subagent` (args: session file, subagent .jsonl, name), `experiment-arm` (args: experiment, arm) or `page` (args.page: test-bench, canvas with args.canvas, studio, jobs, a workspace:<slug>...; not chats). Already open: it comes to the front (moved to `pane` when one is named). Else it opens in `pane`, the focused or last tool pane, or a new pane right of the chat; a `browser` page goes to `pane`, else the pane holding the workspace\'s pages, else a new pane right of the chat. Answers the pane and tab ids (a page also its `tabId`).',
+      "Shows a tool tab: `browser` (a new web page as its own page tab, args.url loaded in it; a blank page without one), `files` (args.path shows a file or folder, at args.line), `terminal` (a shell in the chat folder, or the herdr session of the chat), `subagent` (args: session file, subagent .jsonl, name), `experiment-arm` (args: experiment, arm) or `page` (args.page: test-bench, canvas with args.canvas, studio, jobs, a workspace:<slug>...; not chats). Already open: it comes to the front (moved to `pane` when one is named). Else it opens in `pane`, the focused or last tool pane, or a new pane right of the chat; a `browser` page goes to `pane`, else the pane holding the workspace's pages, else a new pane right of the chat. Answers the pane and tab ids (a page also its `tabId`).",
     params: z
       .object({
         kind: z.enum(['browser', 'files', 'terminal', 'subagent', 'experiment-arm', 'page']),
@@ -424,7 +424,7 @@ export const agentActions = {
   'browser.open': {
     title: 'Open a web page',
     description:
-      "Opens a URL (or a bare local port like `3000`) as a new page tab of the workspace (`web:<tabId>`): in the pane holding its pages, else a new pane right of the chat. With `scope` it lands in that workspace (in the background, with a quiet dot, when it is not on screen); a session an assistant owns marks the page as opened by it. Answers `pane`, `tab` and `tabId`.",
+      'Opens a URL (or a bare local port like `3000`) as a new page tab of the workspace (`web:<tabId>`): in the pane holding its pages, else a new pane right of the chat. With `scope` it lands in that workspace (in the background, with a quiet dot, when it is not on screen); a session an assistant owns marks the page as opened by it. Answers `pane`, `tab` and `tabId`.',
     params: z.object({ url: z.string().min(1).max(2048), scope }).strict(),
     side: 'renderer',
     focus: 'panel',

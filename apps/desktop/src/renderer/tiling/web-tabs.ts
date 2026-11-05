@@ -78,8 +78,7 @@ function placeWebTab(tabId: string, at: Placement): string {
   const home = pages.find((p) => p.id === focus) ?? pages[0]
   if (home) return addToolTab(tab, { pane: home.id }, front)
   const thread = appPanelId(activeTab(tabsStore.getState().tabs).id)
-  const chat =
-    panes.find((p) => p.views.includes(thread)) ?? panes.find((p) => p.app) ?? panes[0]
+  const chat = panes.find((p) => p.views.includes(thread)) ?? panes.find((p) => p.app) ?? panes[0]
   if (!chat) fail('not-found', 'The panes are not ready')
   return addToolTab(tab, { split: chat.id, side: 'right' }, front)
 }
@@ -89,10 +88,7 @@ function placeWebTab(tabId: string, at: Placement): string {
  * the one on screen; another one changes through inWorkspace, nothing on screen moves). Where it
  * goes: see openWebPage.
  */
-export function showWebTab(
-  tabId: string,
-  opts: Placement & { scope?: string } = {},
-): WebPagePlace {
+export function showWebTab(tabId: string, opts: Placement & { scope?: string } = {}): WebPagePlace {
   const front = tilingStore.getState().scope
   const ws = opts.scope ?? front
   const place = (): string => placeWebTab(tabId, opts)

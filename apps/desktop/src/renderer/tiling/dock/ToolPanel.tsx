@@ -154,11 +154,7 @@ export function ToolTabView({ api, params }: IDockviewPanelHeaderProps<{ tab?: T
           <EvaMenu.Item
             data-testid="pane-tab-menu-pin"
             leftSection={
-              pinned ? (
-                <IconPinnedOff size={16} stroke={1.5} />
-              ) : (
-                <IconPin size={16} stroke={1.5} />
-              )
+              pinned ? <IconPinnedOff size={16} stroke={1.5} /> : <IconPin size={16} stroke={1.5} />
             }
             onClick={() => setPinned(id, !pinned)}
           >

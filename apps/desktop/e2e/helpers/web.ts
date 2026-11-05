@@ -213,7 +213,9 @@ export async function frames(shell: Page): Promise<void> {
 }
 
 /** Every live page view, in creation order. */
-export function views(app: ElectronApplication): Promise<Array<{ visible: boolean; bounds: Rect }>> {
+export function views(
+  app: ElectronApplication,
+): Promise<Array<{ visible: boolean; bounds: Rect }>> {
   return app.evaluate(() =>
     (globalThis as unknown as BrowserHooks).__evaosTest.hooks.browser.host
       .views()

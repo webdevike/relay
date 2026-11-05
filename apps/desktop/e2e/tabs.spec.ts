@@ -132,16 +132,16 @@ test('navigation, history chords and place dedupe', async ({ shell }) => {
 
   // A place that already has a tab brings it forward instead of opening another.
   await open(shell, 'dashboard')
-  await expect.poll(async () => (await tabs(shell)).list[(await tabs(shell)).active]!.page).toBe(
-    'dashboard',
-  )
+  await expect
+    .poll(async () => (await tabs(shell)).list[(await tabs(shell)).active]!.page)
+    .toBe('dashboard')
   await open(shell, 'jobs', true)
   await expect.poll(() => titles(shell)).toContain('Jobs')
   const n = (await tabs(shell)).list.length
   await open(shell, 'dashboard')
-  await expect.poll(async () => (await tabs(shell)).list[(await tabs(shell)).active]!.page).toBe(
-    'dashboard',
-  )
+  await expect
+    .poll(async () => (await tabs(shell)).list[(await tabs(shell)).active]!.page)
+    .toBe('dashboard')
   expect((await tabs(shell)).list.filter((t) => t.page === 'dashboard')).toHaveLength(1)
   expect((await tabs(shell)).list.length).toBeLessThanOrEqual(n)
 })

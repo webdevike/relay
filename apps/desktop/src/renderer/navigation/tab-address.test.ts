@@ -19,7 +19,10 @@ describe('relay:// addresses', () => {
       'relay://open/files?path=%2FUsers%2Fike%2FEva%2Fx.ts&line=40&ws=chat%3A%2Fs%2Fa.jsonl',
     ],
     [{ kind: 'canvas', board: 'mind-map' }, 'relay://open/canvas?canvas=mind-map'],
-    [{ kind: 'canvas', board: 'mind-map', node: 'n1' }, 'relay://open/canvas?canvas=mind-map&node=n1'],
+    [
+      { kind: 'canvas', board: 'mind-map', node: 'n1' },
+      'relay://open/canvas?canvas=mind-map&node=n1',
+    ],
     [{ kind: 'studio', job: 'j1' }, 'relay://open/studio?job=j1'],
     [{ kind: 'review', item: 'pr:o/r#12' }, 'relay://open/reviews?item=pr%3Ao%2Fr%2312'],
     [
@@ -38,8 +41,9 @@ describe('relay:// addresses', () => {
       kind: 'page',
       link: { kind: 'open', page: 'settings' },
     })
-    expect(parseAddress('relay://open/reviews?item=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Fpull%2F1'))
-      .toEqual({ kind: 'review', item: 'https://github.com/o/r/pull/1' })
+    expect(
+      parseAddress('relay://open/reviews?item=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Fpull%2F1'),
+    ).toEqual({ kind: 'review', item: 'https://github.com/o/r/pull/1' })
     expect(parseAddress('relay://open/workspace/ecard')).toEqual({
       kind: 'page',
       link: { kind: 'open', page: 'workspace', sub: 'ecard' },

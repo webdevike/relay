@@ -116,7 +116,8 @@ test('implemented chords have real effects', async ({ shell }) => {
   }
   const settings = (section: string) =>
     shell.evaluate(
-      (s) => (window as unknown as W).__evaosShell.openPlace('settings', false, { settingsSection: s }),
+      (s) =>
+        (window as unknown as W).__evaosShell.openPlace('settings', false, { settingsSection: s }),
       section,
     )
   await settings('Theme')

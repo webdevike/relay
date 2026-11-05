@@ -366,14 +366,14 @@ body.eva-tab-dragging * {
   overflow-y: auto;
 }
 .eva-add-menu-filter {
-  margin-bottom: 4px;
+  margin-bottom: var(--eva-gap);
 }
 .eva-add-menu-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--eva-gap);
   height: 28px;
-  padding: 0 8px;
+  padding: 0 var(--eva-gap);
   border-radius: var(--eva-radius, 6px);
   font-size: var(--mantine-font-size-sm);
   cursor: default;
@@ -391,11 +391,11 @@ body.eva-tab-dragging * {
 }
 .eva-add-menu-divider {
   height: 1px;
-  margin: 4px 0;
+  margin: var(--eva-gap) 0;
   background: var(--eva-c-border);
 }
 .eva-add-menu-empty {
-  padding: 6px 8px;
+  padding: var(--eva-gap);
   font-size: var(--mantine-font-size-sm);
   color: var(--mantine-color-dimmed);
 }

@@ -98,7 +98,10 @@ beforeEach(() => {
   invoke.mockImplementation(async (channel: string, input: Record<string, unknown>) => {
     if (channel === 'browser.createTab') {
       next += 1
-      return { ok: true, value: page(`t${next}`, input['url'] ? { url: String(input['url']), blank: false } : {}) }
+      return {
+        ok: true,
+        value: page(`t${next}`, input['url'] ? { url: String(input['url']), blank: false } : {}),
+      }
     }
     return { ok: true, value: {} }
   })
@@ -210,8 +213,16 @@ describe('startWebTabs', () => {
           type: 'branch',
           size: 800,
           data: [
-            { type: 'leaf', size: 700, data: { id: 'p1', views: ['tab:0', 'tab:1'], activeView: 'tab:1' } },
-            { type: 'leaf', size: 500, data: { id: 'p2', views: ['browser', 'files'], activeView: 'browser' } },
+            {
+              type: 'leaf',
+              size: 700,
+              data: { id: 'p1', views: ['tab:0', 'tab:1'], activeView: 'tab:1' },
+            },
+            {
+              type: 'leaf',
+              size: 500,
+              data: { id: 'p2', views: ['browser', 'files'], activeView: 'browser' },
+            },
           ],
         },
         width: 1200,
@@ -221,8 +232,18 @@ describe('startWebTabs', () => {
       panels: {
         'tab:0': { id: 'tab:0', contentComponent: 'app', tabComponent: 'app', params: {} },
         'tab:1': { id: 'tab:1', contentComponent: 'app', tabComponent: 'app', params: {} },
-        browser: { id: 'browser', contentComponent: 'tool', tabComponent: 'tool', params: { tab: { kind: 'browser' } } },
-        files: { id: 'files', contentComponent: 'tool', tabComponent: 'tool', params: { tab: { kind: 'files' } } },
+        browser: {
+          id: 'browser',
+          contentComponent: 'tool',
+          tabComponent: 'tool',
+          params: { tab: { kind: 'browser' } },
+        },
+        files: {
+          id: 'files',
+          contentComponent: 'tool',
+          tabComponent: 'tool',
+          params: { tab: { kind: 'files' } },
+        },
       },
     }
     invoke.mockImplementation(async (channel: string) =>
