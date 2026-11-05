@@ -112,6 +112,7 @@ const FAMILY: Record<ArtifactKind, string> = {
   experiment: "Files",
   canvas: "Files",
   subagent: "Subagents",
+  pin: "Pins",
 };
 const FAMILY_ORDER = ["Linear", "GitHub", "Web", "Media", "Files", "Subagents"];
 
@@ -210,6 +211,7 @@ const KIND_LABEL: Record<ArtifactKind, string> = {
   canvas: "Canvas",
   branch: "Branch",
   subagent: "Subagent",
+  pin: "Pin",
 };
 
 /** An agent tab's rule as chips, in the desktop's order: kinds, states, then the narrower fields. */

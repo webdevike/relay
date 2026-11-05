@@ -78,6 +78,7 @@ const KIND_SYMBOL: Record<ArtifactKind, SFSymbol> = {
   canvas: "rectangle.3.group",
   branch: "arrow.triangle.branch",
   subagent: "list.bullet.indent",
+  pin: "pin",
 };
 
 const EMPTY_COPY: Record<string, string> = {

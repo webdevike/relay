@@ -31,6 +31,10 @@ import {
   defaultTabs,
   isDefaultTab,
   sameRule,
+  MAX_PINS,
+  pinId,
+  type PinKind,
+  type PinMarkup,
   type ArtifactAction,
   type ArtifactStatus,
   type Drop,
@@ -215,11 +219,22 @@ export class ArtifactService implements ArtifactRelaying {
         const item = state.items.get(action.id);
         if (item === undefined) return { changed: false, error: `No artifact ${action.id} in this thread; artifacts.list shows the ids.` };
         if (action.pinned === (item.pinned !== undefined)) return { changed: false };
-        const next: Artifact = { ...item };
-        if (action.pinned) next.pinned = { by, at: now };
-        else delete next.pinned;
-        state.items.set(item.id, next);
+        if (!action.pinned) return this.unpin(state, by, item, false);
+        state.items.set(item.id, { ...item, pinned: { by, at: now } });
         return { changed: true };
+      }
+      case "pin.add": {
+        const id = pinId(action.kind, action.value);
+        if (state.items.get(id)?.pinned !== undefined) return { changed: false, id };
+        const pins = [...state.items.values()].filter((item) => item.kind === "pin").length;
+        if (pins >= MAX_PINS) return { changed: false, error: `This thread already has ${MAX_PINS} pins; unpin one first.` };
+        state.items.set(id, this.pinItem(id, action, by, now));
+        return { changed: true, id };
+      }
+      case "pin.remove": {
+        const item = state.items.get(action.id);
+        if (item === undefined || item.pinned === undefined) return { changed: false, error: `No pin ${action.id} in this thread; pins.list shows the ids.` };
+        return this.unpin(state, by, item, action.force === true);
       }
       case "tidy": {
         let changed = false;
@@ -360,6 +375,7 @@ export class ArtifactService implements ArtifactRelaying {
 
   /** The item an `add` names, or why it cannot be added. */
   private addable(action: Extract<ArtifactAction, { op: "add" }>): Found | string {
+    if (action.kind === "pin") return "Pins are made with pin.add (pins.add), not artifacts.add.";
     if (action.url !== undefined) {
       const found = classifyUrl(action.url, true);
       if (found === null) return `Cannot add ${action.url}: only http(s) links.`;
@@ -483,6 +499,7 @@ export class ArtifactService implements ArtifactRelaying {
     let changed = false;
     for (const message of result.messages) {
       for (const found of message.found) changed = this.mention(state, found, message.key, message.role, message.at) || changed;
+      for (const pin of message.pins) changed = this.markupPin(state, pin, message.key, message.at) || changed;
     }
     for (const ended of result.ended) {
       const id = subagentItem(ended.name, { file, evaRoot: null, repo: null, exists: existsSync, fresh: false }).id;
@@ -492,6 +509,50 @@ export class ArtifactService implements ArtifactRelaying {
       changed = true;
     }
     return changed;
+  }
+
+  /** Pins a reply made with `[[pin: label | value]]` lines: pinned at the message's time by the thread's assistant, once. */
+  private markupPin(state: ThreadState, pin: PinMarkup, key: string, at: number): boolean {
+    const by = state.thread.startsWith("assistant:") ? state.thread.slice("assistant:".length) : "assistant";
+    const id = pinId(pin.kind, pin.value);
+    if (state.items.has(id)) return false;
+    const pins = [...state.items.values()].filter((item) => item.kind === "pin").length;
+    if (pins >= MAX_PINS) return false;
+    state.items.set(id, this.pinItem(id, { ...pin, source: key }, by, at));
+    return true;
+  }
+
+  private pinItem(id: string, note: { kind: PinKind; label: string; value: string; source?: string | undefined }, by: string, at: number): Artifact {
+    return {
+      id,
+      kind: "pin",
+      title: note.label,
+      pin: { kind: note.kind, label: note.label, value: note.value, ...(note.source === undefined ? {} : { source: note.source }) },
+      mentions: 0,
+      firstSeen: at,
+      lastSeen: at,
+      sources: note.source === undefined ? [] : [note.source],
+      addedBy: by,
+      from: by === ISAAC ? "user" : "assistant",
+      pinned: { by, at },
+    };
+  }
+
+  /** Unpins `item`; a `pin`-kind item goes with it. Anyone but Isaac unpins only their own unless `force`. */
+  private unpin(state: ThreadState, by: string, item: Artifact, force: boolean): { changed: boolean; error?: string } {
+    const owner = item.pinned?.by;
+    if (by !== ISAAC && !force && owner !== undefined && owner !== by) {
+      return { changed: false, error: `${item.id} was pinned by ${owner}: only they or Isaac unpin it (pass force only when Isaac asked you to).` };
+    }
+    if (item.kind === "pin") {
+      state.items.delete(item.id);
+      return { changed: true };
+    }
+    if (item.pinned === undefined) return { changed: false };
+    const next: Artifact = { ...item };
+    delete next.pinned;
+    state.items.set(item.id, next);
+    return { changed: true };
   }
 
   /** Counts one message's mention of `found`. */

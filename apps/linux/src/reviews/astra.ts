@@ -8,7 +8,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { untagged, type AgentMessage, type AstraItem, type AstraTurn } from "@relay/protocol";
+import { splitPins, untagged, type AgentMessage, type AstraItem, type AstraTurn } from "@relay/protocol";
 import { z } from "zod";
 import type { LaunchOptions } from "../agents/herdr";
 import { parseSessionRows } from "../agents/transcript";
@@ -98,7 +98,7 @@ export function toTurns(messages: readonly Row[]): AstraTurn[] {
       if (line !== "") turns.push({ id: m.id, role: "tool", text: line, streaming, ...at });
     } else if (m.text.trim() !== "" || streaming) {
       // Her prime ends replies with a `[[replies: a | b]]` chip token for the phone's thread; Reviews has no chips.
-      const { text } = splitReplies(m.text, streaming);
+      const { text } = splitReplies(splitPins(m.text, streaming).text, streaming);
       if (text.trim() !== "" || streaming)
         turns.push({ id: m.id, role: "assistant", text, streaming, ...at });
     }

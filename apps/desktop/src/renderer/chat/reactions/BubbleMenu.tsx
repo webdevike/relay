@@ -1,6 +1,12 @@
 import { createPortal } from 'react-dom'
 import { useEffect, useState, type Ref } from 'react'
-import { IconArrowBackUp, IconCopy, IconMarkdown, IconSelectAll } from '@tabler/icons-react'
+import {
+  IconArrowBackUp,
+  IconCopy,
+  IconMarkdown,
+  IconPin,
+  IconSelectAll,
+} from '@tabler/icons-react'
 import { EvaMenu } from '../../overlay'
 
 export interface BubbleMenuActions {
@@ -9,6 +15,9 @@ export interface BubbleMenuActions {
   /** Assistant replies only: the reply's markdown source. */
   copyMarkdown?: () => void
   selectText(): void
+  /** Pins: the whole message (it unpins when it already is pinned), and the text selected in it when there is some. */
+  pinMessage?: { pinned: boolean; run: () => void }
+  pinSelection?: () => void
 }
 
 /**
@@ -88,6 +97,24 @@ export function BubbleMenu({
         >
           Select text
         </EvaMenu.Item>
+        {actions.pinMessage ? (
+          <EvaMenu.Item
+            data-testid="bubble-menu-pin"
+            leftSection={<IconPin size={16} stroke={1.5} />}
+            onClick={actions.pinMessage.run}
+          >
+            {actions.pinMessage.pinned ? 'Unpin message' : 'Pin message'}
+          </EvaMenu.Item>
+        ) : null}
+        {actions.pinSelection ? (
+          <EvaMenu.Item
+            data-testid="bubble-menu-pin-selection"
+            leftSection={<IconPin size={16} stroke={1.5} />}
+            onClick={actions.pinSelection}
+          >
+            Pin selection
+          </EvaMenu.Item>
+        ) : null}
       </EvaMenu.Dropdown>
     </EvaMenu>,
     document.body,

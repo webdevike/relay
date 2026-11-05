@@ -30,6 +30,7 @@ export const ARTIFACT_KINDS = [
   "canvas",
   "branch",
   "subagent",
+  "pin",
 ] as const;
 export const ArtifactKind = z.enum(ARTIFACT_KINDS);
 export type ArtifactKind = z.infer<typeof ArtifactKind>;
@@ -92,6 +93,29 @@ export type ArtifactStatus = z.infer<typeof ArtifactStatus>;
 
 export const ArtifactPin = z.object({ by: ArtifactActor, at: ms });
 export type ArtifactPin = z.infer<typeof ArtifactPin>;
+
+/** What a pin holds (the rail picks its styling from it: code and numbers are monospace). */
+export const PIN_KINDS = ["link", "text", "code", "number", "file", "pr", "item", "message"] as const;
+export const PinKind = z.enum(PIN_KINDS);
+export type PinKind = z.infer<typeof PinKind>;
+
+export const MAX_PIN_LABEL = 120;
+export const MAX_PIN_VALUE = 4000;
+/** Pins per thread (`pin`-kind artifacts); past it a new pin is refused until one is removed. */
+export const MAX_PINS = 50;
+
+/**
+ * The note a `pin`-kind artifact carries: a snippet worth keeping at hand (a URL to copy, a code, a
+ * number, a path, a command, a whole message). `source` is the bubble key (`<role>@<omp ms>`) of the
+ * message it came from. Who pinned it and when is the artifact's `pinned`.
+ */
+export const ArtifactPinNote = z.object({
+  kind: PinKind,
+  label: z.string().min(1).max(MAX_PIN_LABEL),
+  value: z.string().min(1).max(MAX_PIN_VALUE),
+  source: z.string().max(40).optional(),
+});
+export type ArtifactPinNote = z.infer<typeof ArtifactPinNote>;
 
 /** Set by `artifacts.act {op:"tidy"}`: the item is hidden from the tabs (Show tidied brings it back); nothing is deleted. */
 export const ArtifactTidied = z.object({ by: ArtifactActor, at: ms });
@@ -157,6 +181,8 @@ export const Artifact = z.object({
   from: z.enum(["user", "assistant"]).optional(),
   pinned: ArtifactPin.optional(),
   tidied: ArtifactTidied.optional(),
+  /** Set on `pin`-kind items: what was pinned (see ArtifactPinNote). */
+  pin: ArtifactPinNote.optional(),
   status: ArtifactStatus.optional(),
 });
 export type Artifact = z.infer<typeof Artifact>;
@@ -260,6 +286,8 @@ export function artifactState(item: Artifact): string | null {
 }
 
 export function ruleMatches(rule: TabRule, item: Artifact): boolean {
+  // Pin snippets live in the pin rail; a tab lists them only when its rule asks for kind "pin".
+  if (item.kind === "pin" && rule.kind?.includes("pin") !== true) return false;
   if (rule.kind !== undefined && !rule.kind.includes(item.kind)) return false;
   if (rule.media !== undefined && (item.media !== undefined) !== rule.media) return false;
   if (rule.pinned !== undefined && (item.pinned !== undefined) !== rule.pinned) return false;
@@ -472,6 +500,19 @@ export const ArtifactAction = z.discriminatedUnion("op", [
     tab: z.string().max(48).optional(),
   }),
   z.object({ op: z.literal("pin"), id: z.string().min(1).max(2100), pinned: z.boolean() }),
+  /**
+   * Pin something no artifact holds: a snippet with a label. Pinned by `by`; pinning the same kind and
+   * value again is a no-op that answers the same `{id}`. Refused past MAX_PINS pins.
+   */
+  z.object({
+    op: z.literal("pin.add"),
+    kind: PinKind,
+    label: z.string().trim().min(1).max(MAX_PIN_LABEL),
+    value: z.string().min(1).max(MAX_PIN_VALUE),
+    source: z.string().max(40).optional(),
+  }),
+  /** Unpin and delete a `pin`-kind item. Others may remove only their own pins unless `force` (Isaac asked). */
+  z.object({ op: z.literal("pin.remove"), id: z.string().min(1).max(2100), force: z.boolean().optional() }),
   /** Answers `{id}` of the new tab; refused when it repeats a default, a hidden tab, or a visible one. */
   z.object({
     op: z.literal("tab.add"),

@@ -45,6 +45,9 @@ import {
   useReactionThread,
   type ReactionScopeValue,
 } from './reactions/reactions-store'
+import { PinsScope, usePinsFor } from '../pins/pins-scope'
+import { PinsButton, PinsRail, useRailFits } from '../pins/PinsRail'
+import { PinHoverLayer } from '../pins/PinHoverLayer'
 
 declare global {
   interface Window {
@@ -226,9 +229,16 @@ function ChatView({
     })
   }, [draft, evaRoot])
 
+  // Pins: the thread's pinned things beside the log (a rail when the gutter fits it, else a header
+  // button with a popover).
+  const sectionRef = useRef<HTMLElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const railOk = useRailFits(sectionRef)
+  const pins = usePinsFor(paneId, pane?.file ?? '', agent, true)
+
   // An error is a banner, not a lock: the next send retries (and restarts omp if it exited).
   return (
-    <section className="eva-chat" data-testid="chat-pane" data-chat-pane={paneId}>
+    <section className="eva-chat" data-testid="chat-pane" data-chat-pane={paneId} ref={sectionRef}>
       <div className="eva-chat-header" data-testid="chat-header">
         {lead ? (
           <Tooltip label={sidebarLabel} position="bottom">
@@ -286,6 +296,7 @@ function ChatView({
             {agent !== null ? <AgentCrumb id={agent} /> : 'New chat'}
           </h2>
         )}
+        {!railOk ? <PinsButton scope={pins} /> : null}
         {agent !== null ? <ArtifactsButton agent={agent} /> : <ContextButton />}
         {lead ? (
           <Tooltip label={panelOpen ? 'Hide tool panes' : 'Show tool panes'} position="bottom">
@@ -310,20 +321,27 @@ function ChatView({
         </div>
       ) : null}
       {pane && shownMessages && !(pane.file === '' && shownMessages.length === 0) ? (
-        <WidgetActions.Provider value={widgetActions}>
-          <ReactionScope.Provider value={reactionScope}>
-            <ChatLog
-              paneId={paneId}
-              messages={shownMessages}
-              // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
-              file={pane.boundTo ? '' : pane.file}
-              scrollFile={pane.file}
-              shown
-              typing={typing}
-              busy={pane.running}
-            />
-          </ReactionScope.Provider>
-        </WidgetActions.Provider>
+        // The log and the pin rail side by side: the rail is fixed in the right gutter, outside the scroll.
+        <div className="eva-chat-body" ref={bodyRef}>
+          <PinsScope.Provider value={pins}>
+            <WidgetActions.Provider value={widgetActions}>
+              <ReactionScope.Provider value={reactionScope}>
+                <ChatLog
+                  paneId={paneId}
+                  messages={shownMessages}
+                  // A draft keeps its log key when omp names the file, so binding never jumps the scroll.
+                  file={pane.boundTo ? '' : pane.file}
+                  scrollFile={pane.file}
+                  shown
+                  typing={typing}
+                  busy={pane.running}
+                />
+              </ReactionScope.Provider>
+            </WidgetActions.Provider>
+            {railOk ? <PinsRail scope={pins} /> : null}
+            <PinHoverLayer bodyRef={bodyRef} />
+          </PinsScope.Provider>
+        </div>
       ) : draft ? (
         <div className="eva-chat-empty">
           <div className="eva-chat-intro">

@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from 'react'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import { splitReplies } from '@evaos/chat-core/replies'
+import { splitPins } from '@evaos/chat-core/pins'
 import { ChatImage } from './ChatImage'
 import { ImageViewer } from './ImageViewer'
 import { Markdown } from './markdown/Markdown'
@@ -60,7 +61,11 @@ function Row({ id, role, children }: { id: string; role: string; children: React
  * copies or quotes; the newest reply (`live`) shows the answers as buttons under it.
  */
 function AssistantBody({ m, live }: { m: ChatMessage; live: boolean }) {
-  const split = useMemo(() => splitReplies(m.text, m.streaming), [m.text, m.streaming])
+  // `[[pin: label | value]]` lines are pins (the host makes them), never shown; then the replies token.
+  const split = useMemo(() => {
+    const pinned = splitPins(m.text, m.streaming)
+    return splitReplies(pinned.text, m.streaming)
+  }, [m.text, m.streaming])
   const shown = useMemo(
     () => (split.text === m.text ? m : { ...m, text: split.text }),
     [m, split.text],

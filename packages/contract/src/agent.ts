@@ -1,7 +1,14 @@
 import { z } from 'zod'
 import { SwitchAppIdSchema, TabIdSchema } from './browser'
 import { ContextScopeSchema, PinIdSchema, PinRefSchema } from './context'
-import { ArtifactKind, ArtifactTabIcon, TabRule } from '@evaos/chat-core/artifacts'
+import {
+  ArtifactKind,
+  ArtifactTabIcon,
+  MAX_PIN_LABEL,
+  MAX_PIN_VALUE,
+  PinKind,
+  TabRule,
+} from '@evaos/chat-core/artifacts'
 import { CanvasLiveSlugSchema } from '@evaos/chat-core/canvas-live'
 import {
   MAX_STUDIO_PROMPT,
@@ -606,6 +613,40 @@ export const agentActions = {
     title: 'Remove an artifacts tab',
     description: `${ARTIFACTS_SCOPE} Removes a tab you made. Defaults are never removed.`,
     params: z.object({ id: ArtifactTabId, scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'pins.list': {
+    title: "List the thread's pins",
+    description: `${ARTIFACTS_SCOPE} Everything pinned in the rail beside the chat, newest first: id, kind, label, value, who pinned it (\`isaac\` or an assistant) and the message it came from.`,
+    params: z.object({ scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'pins.add': {
+    title: 'Pin something for Isaac',
+    description: `${ARTIFACTS_SCOPE} Pins a snippet in the rail beside the chat, where Isaac copies or opens it in one click. Pin what he will need again: a URL he must open later, a code or number, a file path, a command; never routine links or things the reply already makes easy to find. \`kind\`: link, text, code, number, file, pr, item or message; \`label\` is the short name shown, \`value\` what Copy copies. Pinning the same kind and value again changes nothing. Answers the pin's id. Without this tool, a reply line \`[[pin: <label> | <value>]]\` pins the same way (a value in backticks is code).`,
+    params: z
+      .object({
+        kind: PinKind,
+        label: z.string().trim().min(1).max(MAX_PIN_LABEL),
+        value: z.string().min(1).max(MAX_PIN_VALUE),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'pins.remove': {
+    title: 'Unpin',
+    description: `${ARTIFACTS_SCOPE} Removes pin \`id\` (from pins.list or pins.add). You remove only pins you made; one of Isaac's or another assistant's is refused unless \`force\` is true, which only an explicit ask from Isaac to remove it justifies.`,
+    params: z.object({ id: ArtifactItemId, force: z.boolean().optional(), scope }).strict(),
     side: 'main',
     focus: 'none',
     destructive: false,

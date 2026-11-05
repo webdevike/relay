@@ -8,6 +8,7 @@ import {
   type ArtifactAction,
   type ArtifactTab,
 } from '@evaos/chat-core/artifacts'
+import { pinsOf } from '@evaos/chat-core/pins'
 import { sessionId } from '@evaos/chat-core/session-id'
 import type { AgentParams, AgentRunners } from '@evaos/contract'
 import type { ArtifactsSnapshot, RelayArtifacts, RelaySource } from './client'
@@ -27,6 +28,9 @@ type ArtifactsActionId =
   | 'artifacts.tab.add'
   | 'artifacts.tab.update'
   | 'artifacts.tab.remove'
+  | 'pins.list'
+  | 'pins.add'
+  | 'pins.remove'
 
 function fail(code: string, message: string): never {
   throw Object.assign(new Error(message), { code })
@@ -142,5 +146,26 @@ export function artifactsRunners(
       act(scope, { op: 'tab.update', tab: id, ...rest }),
     'artifacts.tab.remove': ({ id, scope }: AgentParams<'artifacts.tab.remove'>) =>
       act(scope, { op: 'tab.remove', tab: id }),
+    'pins.list': async ({ scope }: AgentParams<'pins.list'>) => {
+      const { thread } = where(scope)
+      const snap = await snapshot(thread)
+      const pins = pinsOf(snap.items)
+      return {
+        thread,
+        pins: pins.slice(0, LIST_LIMIT).map((p) => ({
+          id: p.id,
+          kind: p.kind,
+          label: p.label,
+          value: p.value,
+          pinnedBy: p.pinnedBy,
+          ...(p.source === undefined ? {} : { source: p.source }),
+        })),
+        ...(pins.length > LIST_LIMIT ? { more: pins.length - LIST_LIMIT } : {}),
+      }
+    },
+    'pins.add': ({ scope, ...rest }: AgentParams<'pins.add'>) =>
+      act(scope, { op: 'pin.add', ...rest }),
+    'pins.remove': ({ id, force, scope }: AgentParams<'pins.remove'>) =>
+      act(scope, { op: 'pin.remove', id, ...(force === true ? { force } : {}) }),
   }
 }

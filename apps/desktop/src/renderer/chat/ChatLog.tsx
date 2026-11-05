@@ -9,6 +9,8 @@ import {
 import { VList, type VListHandle } from 'virtua'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import { dropQuietTurns } from '@evaos/chat-core/quiet'
+import { reactionKeyOf } from '@evaos/chat-core/reactions'
+import { registerReveal } from '../pins/pins-scope'
 import { MessageRow, ToolRunRow } from './MessageRow'
 import { Pills } from './Pills'
 import { pinReducer, type PinState } from './pin'
@@ -195,6 +197,32 @@ export function ChatLog({
   useLayoutEffect(() => {
     if (liveId !== null && pin.current.pinned) toEnd()
   }, [liveId])
+
+  // A pin's label brings its source message (by bubble key) into view and flashes it briefly.
+  useEffect(
+    () =>
+      registerReveal(paneId, (key) => {
+        const at = items.findIndex((i) => i.kind === 'message' && reactionKeyOf(i.m) === key)
+        const item = items[at]
+        if (item?.kind !== 'message') return false
+        ref.current?.scrollToIndex(at, { align: 'center' })
+        const id = item.m.id
+        // The row mounts after the list scrolls to it.
+        let tries = 0
+        const flash = (): void => {
+          const row = document.querySelector<HTMLElement>(`[data-testid="msg-${CSS.escape(id)}"]`)
+          if (row === null) {
+            if (++tries < 20) requestAnimationFrame(flash)
+            return
+          }
+          row.dataset['flash'] = 'true'
+          window.setTimeout(() => delete row.dataset['flash'], 1500)
+        }
+        requestAnimationFrame(flash)
+        return true
+      }),
+    [paneId, items],
+  )
 
   return (
     <div className="eva-log" data-testid="chat-log" role="log" aria-live="off">

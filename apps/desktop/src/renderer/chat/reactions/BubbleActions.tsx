@@ -1,8 +1,20 @@
 import './reactions.css'
-import { useContext, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import {
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from 'react'
 import { ActionIcon, Tooltip } from '@mantine/core'
-import { IconMoodSmile } from '@tabler/icons-react'
+import { IconMoodSmile, IconPin, IconPinFilled } from '@tabler/icons-react'
 import type { ChatMessage } from '@evaos/chat-core/message'
+import { pinId, pinOfText } from '@evaos/chat-core/pins'
+import { untagged } from '@evaos/chat-core/session'
+import { selectionTarget, type PinTarget } from '../../pins/PinHoverLayer'
+import { usePinsScope } from '../../pins/pins-scope'
 import {
   ISAAC_REACTOR,
   agentReactions,
@@ -75,6 +87,24 @@ function Actions({
   const barRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const canBar = reactable && up
+  // Pins: this bubble's whole message, or the text selected in it, into the chat's pin rail.
+  const pins = usePinsScope()
+  const canPin = pins !== null && pins.up && key !== null
+  const menuSelection = useRef<PinTarget | null>(null)
+  const messagePin = useMemo(() => {
+    const note = pinOfText(untagged(m.text), { kind: 'message' })
+    return note === null ? null : { note, id: pinId('message', note.value) }
+  }, [m.text])
+  const pinnedNow = messagePin !== null && pins?.pins.some((p) => p.id === messagePin.id) === true
+  const togglePinMessage = (): void => {
+    if (pins === null || messagePin === null || key === null) return
+    if (pinnedNow) pins.unpin(messagePin.id)
+    else pins.pin({ ...messagePin.note, source: key })
+    close()
+  }
+  const pinSelected = (): void => {
+    if (pins !== null && menuSelection.current !== null) pins.pin(menuSelection.current.note)
+  }
   const barOpen = open !== null && canBar
 
   const close = (): void => {
@@ -106,6 +136,9 @@ function Actions({
 
   const onContextMenu = (e: MouseEvent<HTMLDivElement>): void => {
     e.preventDefault()
+    // Text selected in this bubble when the menu opened is what Pin selection pins.
+    const picked = canPin ? selectionTarget(window.getSelection()) : null
+    menuSelection.current = picked !== null && picked.note.source === key ? picked : null
     // The context-menu key has no pointer: the menu opens under the bubble.
     const r = e.currentTarget.getBoundingClientRect()
     const keyboard = e.clientX === 0 && e.clientY === 0
@@ -136,34 +169,58 @@ function Actions({
           data-open={open !== null ? 'true' : undefined}
           data-reacted={bubble !== undefined ? 'true' : undefined}
           data-testid={`bubble-${m.id}`}
+          data-pin-source={key ?? undefined}
           onContextMenu={onContextMenu}
         >
           <div ref={content} className="eva-bubble-content">
             {children}
           </div>
-          {current === null && reactable ? (
+          {(current === null && reactable) || canPin ? (
             <div ref={cornerRef} className="eva-react-corner" data-corner={corner}>
-              <Tooltip label={up ? 'React' : RELAY_DOWN} openDelay={300} disabled={barOpen}>
-                <ActionIcon
-                  ref={trigger}
-                  variant="default"
-                  radius="xl"
-                  size="sm"
-                  className="eva-react-btn"
-                  data-testid={`react-btn-${m.id}`}
-                  aria-label={up ? 'React' : RELAY_DOWN}
-                  aria-haspopup="dialog"
-                  aria-expanded={barOpen}
-                  // Not `disabled`: the tooltip still says why.
-                  data-disabled={up ? undefined : true}
-                  aria-disabled={!up}
-                  onClick={() => {
-                    if (up) toggleBar()
-                  }}
+              {current === null && reactable ? (
+                <Tooltip label={up ? 'React' : RELAY_DOWN} openDelay={300} disabled={barOpen}>
+                  <ActionIcon
+                    ref={trigger}
+                    variant="default"
+                    radius="xl"
+                    size="sm"
+                    className="eva-react-btn"
+                    data-testid={`react-btn-${m.id}`}
+                    aria-label={up ? 'React' : RELAY_DOWN}
+                    aria-haspopup="dialog"
+                    aria-expanded={barOpen}
+                    // Not `disabled`: the tooltip still says why.
+                    data-disabled={up ? undefined : true}
+                    aria-disabled={!up}
+                    onClick={() => {
+                      if (up) toggleBar()
+                    }}
+                  >
+                    <IconMoodSmile size={15} stroke={1.5} />
+                  </ActionIcon>
+                </Tooltip>
+              ) : null}
+              {canPin ? (
+                <Tooltip
+                  label={pinnedNow ? 'Unpin message' : 'Pin message'}
+                  openDelay={300}
+                  disabled={barOpen}
                 >
-                  <IconMoodSmile size={15} stroke={1.5} />
-                </ActionIcon>
-              </Tooltip>
+                  <ActionIcon
+                    variant="default"
+                    radius="xl"
+                    size="sm"
+                    className="eva-react-btn"
+                    data-pinned={pinnedNow ? 'true' : undefined}
+                    data-testid={`pin-btn-${m.id}`}
+                    aria-label={pinnedNow ? 'Unpin message' : 'Pin message'}
+                    aria-pressed={pinnedNow}
+                    onClick={togglePinMessage}
+                  >
+                    {pinnedNow ? <IconPinFilled size={14} /> : <IconPin size={15} stroke={1.5} />}
+                  </ActionIcon>
+                </Tooltip>
+              ) : null}
             </div>
           ) : null}
           {bubble !== undefined ? (
@@ -207,6 +264,14 @@ function Actions({
               selectText: () => {
                 if (content.current) window.getSelection()?.selectAllChildren(content.current)
               },
+              ...(canPin
+                ? {
+                    pinMessage: { pinned: pinnedNow, run: togglePinMessage },
+                    ...(menuSelection.current === null
+                      ? {}
+                      : { pinSelection: () => pinSelected() }),
+                  }
+                : {}),
             }}
           />
         </div>

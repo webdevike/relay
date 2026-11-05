@@ -35,6 +35,7 @@ export const KIND_LABEL: Readonly<Record<ArtifactKind, string>> = {
   canvas: 'canvas',
   branch: 'branch',
   subagent: 'subagent',
+  pin: 'pin',
 }
 
 /** The short key a row leads with: `ENG-6528`, `#238` (its repo goes in the meta line); null for kinds without one. */

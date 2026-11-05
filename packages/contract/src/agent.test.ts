@@ -184,6 +184,36 @@ describe('artifacts actions', () => {
   })
 })
 
+describe('pins actions', () => {
+  it('act on the caller thread in main and check their params', () => {
+    const ids = AGENT_ACTION_IDS.filter((id) => id.startsWith('pins.'))
+    expect(ids).toEqual(['pins.list', 'pins.add', 'pins.remove'])
+    for (const id of ids) {
+      const spec: AgentActionSpec = agentActions[id]
+      expect([spec.side, spec.focus, spec.scoped, spec.destructive]).toEqual([
+        'main',
+        'none',
+        true,
+        false,
+      ])
+      expect(spec.description).not.toMatch(/\u2014/)
+    }
+    expect(agentActions['pins.add'].description).toMatch(/\[\[pin:/)
+    expect(agentActions['pins.remove'].description).toMatch(/only pins you made/)
+    const add = agentActions['pins.add'].params
+    expect(add.safeParse({ kind: 'link', label: 'Spec', value: 'https://x.dev' }).success).toBe(
+      true,
+    )
+    expect(add.safeParse({ kind: 'nope', label: 'a', value: 'b' }).success).toBe(false)
+    expect(add.safeParse({ kind: 'text', label: '  ', value: 'b' }).success).toBe(false)
+    expect(add.safeParse({ kind: 'text', label: 'a', value: 'x'.repeat(4001) }).success).toBe(false)
+    expect(add.safeParse({ kind: 'text', label: 'a', value: 'b', id: 'x' }).success).toBe(false)
+    expect(agentActions['pins.remove'].params.safeParse({ id: 'pin:1', force: true }).success).toBe(
+      true,
+    )
+  })
+})
+
 describe('studio actions', () => {
   it('generate and list run in main without focus; open shows a tool tab in the caller scope', () => {
     const ids = AGENT_ACTION_IDS.filter((id) => id.startsWith('studio.'))

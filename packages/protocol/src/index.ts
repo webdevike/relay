@@ -1949,6 +1949,7 @@ export * from "./widget";
 export * from "./openui";
 export * from "./surface";
 export * from "./artifacts";
+export * from "./pins";
 export * from "./activity";
 export * from "./studio";
 export * from "./reviews";

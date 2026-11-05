@@ -355,4 +355,62 @@ describe('artifacts agent actions', () => {
       run['artifacts.tab.remove']({ id: 'links', scope: 'agent:astra' }),
     ).rejects.toThrow('Isaac hid a tab like this; it stays hidden.')
   })
+
+  it('lists, adds and removes pins in the calling thread as the caller, forwarding refusals', async () => {
+    const relay = new FakeRelay()
+    const note = item('pin:0123456789abcdef', {
+      kind: 'pin',
+      title: 'Staging',
+      pin: { kind: 'link', label: 'Staging', value: 'https://stg.dev', source: 'assistant@5' },
+      pinned: { by: 'astra', at: 9 },
+    })
+    const pr = item('gh-pr:o/r#1', {
+      pinned: { by: 'isaac', at: 3 },
+      url: 'https://github.com/o/r/pull/1',
+    })
+    relay.map.set('assistant:astra', { items: [pr, note, item('url:https://a.dev')], tabs: [] })
+    const run = artifactsRunners(relay)
+    expect(await run['pins.list']({ scope: 'agent:astra' })).toEqual({
+      thread: 'assistant:astra',
+      pins: [
+        {
+          id: note.id,
+          kind: 'link',
+          label: 'Staging',
+          value: 'https://stg.dev',
+          pinnedBy: 'astra',
+          source: 'assistant@5',
+        },
+        {
+          id: pr.id,
+          kind: 'pr',
+          label: pr.title,
+          value: 'https://github.com/o/r/pull/1',
+          pinnedBy: 'isaac',
+        },
+      ],
+    })
+    relay.answer = { ok: true, id: 'pin:abc' }
+    expect(
+      await run['pins.add']({
+        kind: 'code',
+        label: 'Deploy',
+        value: 'bun deploy',
+        scope: 'agent:astra',
+      }),
+    ).toEqual({ id: 'pin:abc' })
+    expect(relay.acts.at(-1)).toEqual({
+      thread: 'assistant:astra',
+      by: 'astra',
+      action: { op: 'pin.add', kind: 'code', label: 'Deploy', value: 'bun deploy' },
+    })
+    await run['pins.remove']({ id: note.id, scope: 'agent:astra' })
+    expect(relay.acts.at(-1)!.action).toEqual({ op: 'pin.remove', id: note.id })
+    await run['pins.remove']({ id: note.id, force: true, scope: 'agent:astra' })
+    expect(relay.acts.at(-1)!.action).toEqual({ op: 'pin.remove', id: note.id, force: true })
+    relay.answer = { ok: false, error: 'pin:x was pinned by isaac: only they or Isaac unpin it.' }
+    await expect(run['pins.remove']({ id: 'pin:x', scope: 'agent:astra' })).rejects.toThrow(
+      'only they or Isaac unpin it',
+    )
+  })
 })

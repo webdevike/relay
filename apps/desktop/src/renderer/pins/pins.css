@@ -1,0 +1,226 @@
+/* Pins: a quiet rail in the chat's right gutter, flat rows on hairline dividers, no cards. */
+
+/* The chat body holds the log and the rail side by side in the stacking, never in the scroll. */
+.eva-chat-body {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * Fixed beside the log (not inside its scroller): aligned with the message column, RAIL_GAP right of
+ * it. Only the rail scrolls when the pins outgrow the height. Keep the numbers in PinsRail.tsx.
+ */
+.eva-pins-rail {
+  position: absolute;
+  top: var(--eva-space-md);
+  bottom: var(--eva-space-md);
+  left: calc(50% + var(--eva-chat-column-w) / 2 + 24px);
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  pointer-events: none;
+}
+.eva-pins-rail > * {
+  pointer-events: auto;
+}
+.eva-pins-title {
+  flex: none;
+  padding: 0 0 calc(var(--mantine-spacing-xs) / 2.5);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-pins-pop {
+  display: flex;
+  flex-direction: column;
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+.eva-pins-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.eva-pin {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 5);
+  padding: calc(var(--mantine-spacing-xs) / 2) 0;
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-pin-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+  min-width: 0;
+}
+.eva-pin-label {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--eva-text-dim);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+button.eva-pin-label {
+  cursor: pointer;
+}
+button.eva-pin-label:hover {
+  color: var(--eva-text);
+}
+button.eva-pin-label:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
+}
+.eva-pin-by {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--eva-radius-round);
+  overflow: hidden;
+  background: var(--eva-c-muted-background);
+  color: var(--eva-text-dim);
+  opacity: 0.8;
+}
+.eva-pin-by svg {
+  width: 11px;
+  height: 11px;
+}
+.eva-pin-portrait {
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+}
+.eva-pin-body {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+  min-width: 0;
+}
+.eva-pin-value {
+  flex: 1;
+  min-width: 0;
+  color: var(--eva-text);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.eva-pin-value[data-mono='true'] {
+  font-family: var(--eva-font-mono);
+  font-size: 0.92em;
+}
+.eva-pin[data-kind='message'] .eva-pin-value {
+  color: var(--eva-text-dim);
+}
+/* Copy, Open and unpin show on hover or focus; a fresh copy keeps its check in view. */
+.eva-pin-value[data-same='true'] {
+  display: none;
+}
+.eva-pin-actions {
+  position: absolute;
+  top: calc(var(--mantine-spacing-xs) / 5);
+  right: 0;
+  display: flex;
+  background: var(--eva-c-background);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast);
+}
+.eva-pin:hover .eva-pin-actions,
+.eva-pin:focus-within .eva-pin-actions,
+.eva-pin[data-copied='true'] .eva-pin-actions {
+  opacity: 1;
+}
+.eva-pin[data-copied='true'] [data-testid='pin-copy'] {
+  color: var(--mantine-color-green-6);
+}
+
+.eva-chat-header .eva-pins-btn {
+  margin-left: 0;
+  width: auto;
+  padding: 0 calc(var(--mantine-spacing-xs) / 1.5);
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+}
+.eva-pins-count {
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A message a pin points at, for a moment after the rail's label scrolls to it. */
+@keyframes eva-row-flash {
+  from {
+    background: var(--eva-c-accent-background);
+  }
+  to {
+    background: transparent;
+  }
+}
+.eva-row[data-flash='true'] {
+  animation: eva-row-flash 1400ms ease-out;
+}
+
+/* The small pin that follows a selection or a hovered link, code span or number. */
+.eva-pin-float {
+  position: fixed;
+  z-index: 250;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+  height: 24px;
+  padding: 0 calc(var(--mantine-spacing-xs) / 1.5) 0 calc(var(--mantine-spacing-xs) / 2);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-background);
+  color: var(--eva-text-dim);
+  font: inherit;
+  font-size: var(--eva-fz-label);
+  cursor: pointer;
+}
+.eva-pin-float[data-tiny='true'] {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  justify-content: center;
+}
+.eva-pin-float:hover {
+  border-color: var(--eva-text-dim);
+  color: var(--eva-text);
+}
+
+/* The pin button on a bubble's corner sits beside the react button and stays once it pins. */
+.eva-react-corner {
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+}
+.eva-react-btn[data-pinned='true'] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eva-row[data-flash='true'] {
+    animation: none;
+  }
+}
+html[data-eva-motion='off'] .eva-row[data-flash='true'],
+html[data-eva-motion='off'] .eva-react-btn,
+html[data-eva-motion='off'] .eva-pin-actions {
+  animation: none;
+  transition: none;
+}

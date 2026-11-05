@@ -17,7 +17,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
+import { splitPins, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
@@ -141,7 +141,7 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
       const trimmed = message.text.trim();
       if (trimmed === SILENCE_MARKER || (message.streaming === true && trimmed.length > 0 && SILENCE_MARKER.startsWith(trimmed))) continue;
       const streaming = message.streaming === true;
-      const answered = splitReplies(message.text, streaming);
+      const answered = splitReplies(splitPins(message.text, streaming).text, streaming);
       const { text, signin } = splitSignin(answered.text, streaming);
       if (text.length === 0 && signin === undefined && !("images" in images)) continue;
       out.push({
@@ -561,7 +561,7 @@ export class AssistantService implements AssistantThread {
   private push(reply: string): void {
     if (isSilent(reply)) return;
     // A push is display: no client's surface tag, even one an agent echoed back.
-    const raw = splitReplies(untagged(reply), false).text;
+    const raw = splitReplies(splitPins(untagged(reply)).text, false).text;
     const { text: shown, signin } = splitSignin(raw, false);
     const text = signin === undefined ? withoutDetailsMarker(raw) : shown.trim().length > 0 ? withoutDetailsMarker(shown.trim()) : `Sign in to ${signin.host}`;
     const recipients: { deviceId: string; token: string }[] = [];

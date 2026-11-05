@@ -37,12 +37,15 @@ export const useArtifactsStore = create<ArtifactsStore>((set) => ({
     set((state) => {
       const current = state.threads[thread];
       if (current === undefined) return {};
-      const items = current.items.map((item) => {
-        if (item.id !== id) return item;
-        const next = { ...item };
-        delete next.pinned;
-        return pin === undefined ? next : { ...next, pinned: pin };
-      });
+      // A snippet exists only as a pin: unpinning it removes it (the host does the same).
+      const items = current.items
+        .filter((item) => !(item.id === id && item.kind === "pin" && pin === undefined))
+        .map((item) => {
+          if (item.id !== id) return item;
+          const next = { ...item };
+          delete next.pinned;
+          return pin === undefined ? next : { ...next, pinned: pin };
+        });
       return { threads: { ...state.threads, [thread]: { ...current, items } } };
     });
   },

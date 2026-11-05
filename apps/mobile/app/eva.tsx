@@ -74,6 +74,7 @@ import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
 import { useDictation } from "@/dictation/useDictation";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
+import { PINNED_ROW_HEIGHT, PinnedRow, usePinCount } from "@/pins/PinnedRow";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 import { draftKey, useThreadDraft } from "@/state/drafts";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
@@ -314,7 +315,8 @@ function Thread({ agent }: { agent: string }) {
 
   const dark = useScheme() === "dark";
   const bg = dark ? BG_DARK : colors.bg;
-  const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP + (chipIds.length === 0 ? 0 : OWNED_ROW_HEIGHT);
+  const pinned = usePinCount(artifactsThread);
+  const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP + (chipIds.length === 0 ? 0 : OWNED_ROW_HEIGHT) + (pinned > 0 ? PINNED_ROW_HEIGHT : 0);
 
   const onComposerLayout = (event: LayoutChangeEvent): void => {
     setComposerHeight(event.nativeEvent.layout.height);
@@ -472,6 +474,12 @@ function Thread({ agent }: { agent: string }) {
               />
             </View>
           </View>
+          {/* Pinned things (a URL to copy, a code, a number), under the header: tap copies, long press unpins. */}
+          {pinned > 0 ? (
+            <View pointerEvents="box-none" style={[styles.pinned, { top: insets.top + HEADER_HEIGHT + (chipIds.length === 0 ? 0 : OWNED_ROW_HEIGHT) }]}>
+              <PinnedRow thread={artifactsThread} />
+            </View>
+          ) : null}
         </View>
         {/* Pulled over the list by its own height, so the list runs under it. */}
         <View onLayout={onComposerLayout} style={[styles.composer, { marginTop: -composerHeight }]}>
@@ -824,6 +832,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   fill: { flex: 1 },
   header: { position: "absolute", left: 0, right: 0, alignItems: "center" },
+  pinned: { position: "absolute", left: 0, right: 0 },
   back: { position: "absolute", top: spacing.xs, left: spacing.lg },
   call: { position: "absolute", top: spacing.xs, right: spacing.lg },
   /** Left of the call button: its width (IconButton's 40) and a small gap further in. */

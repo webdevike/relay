@@ -17,7 +17,7 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, normalize } from "node:path";
-import { untagged, type ArtifactKind, type ArtifactMedia } from "@relay/protocol";
+import { MAX_MARKUP_PINS, splitPins, untagged, type ArtifactKind, type ArtifactMedia, type PinMarkup } from "@relay/protocol";
 
 export interface Found {
   readonly id: string;
@@ -40,6 +40,8 @@ export interface ScannedMessage {
   readonly role: "user" | "assistant";
   readonly at: number;
   readonly found: readonly Found[];
+  /** Pins the reply made with `[[pin: label | value]]` lines. */
+  readonly pins: readonly PinMarkup[];
 }
 
 /** A subagent's run ended: its job id as the task tool names it, and how. */
@@ -336,7 +338,7 @@ export function scanTranscript(raw: string, ctx: ScanContext): ScanResult & { re
       const text = textParts(message["content"]).join("\n");
       // Auto-named agents only show up in the spawn notice; synchronous ones finish right here.
       const spawned = [...text.matchAll(SPAWNED)].map((match) => subagentItem(match[1] ?? "", ctx));
-      if (spawned.length > 0) messages.push({ key: `assistant@${Math.trunc(stamp)}`, role: "assistant", at: stamp, found: spawned });
+      if (spawned.length > 0) messages.push({ key: `assistant@${Math.trunc(stamp)}`, role: "assistant", at: stamp, found: spawned, pins: [] });
       for (const match of text.matchAll(TASK_RESULT)) ended.push({ name: match[1] ?? "", failed: match[2] !== "completed", at: stamp });
       continue;
     }
@@ -363,7 +365,13 @@ export function scanTranscript(raw: string, ctx: ScanContext): ScanResult & { re
         });
       }
     }
-    for (const text of texts) found.push(...findInText(text, ctx));
+    const pins: PinMarkup[] = [];
+    for (const text of texts) {
+      // A `[[pin: label | value]]` line is a pin, not a mention: its link is not also a Links row.
+      const split = role === "assistant" ? splitPins(text) : { text, pins: [] };
+      pins.push(...split.pins);
+      found.push(...findInText(split.text, ctx));
+    }
     if (role === "assistant" && Array.isArray(message["content"])) {
       for (const part of message["content"] as unknown[]) {
         if (typeof part !== "object" || part === null) continue;
@@ -374,7 +382,7 @@ export function scanTranscript(raw: string, ctx: ScanContext): ScanResult & { re
     }
     const unique = new Map<string, Found>();
     for (const item of found) if (!unique.has(item.id)) unique.set(item.id, item);
-    if (unique.size > 0) messages.push({ key: `${role}@${Math.trunc(stamp)}`, role, at: stamp, found: [...unique.values()] });
+    if (unique.size > 0 || pins.length > 0) messages.push({ key: `${role}@${Math.trunc(stamp)}`, role, at: stamp, found: [...unique.values()], pins: pins.slice(0, MAX_MARKUP_PINS) });
   }
   return { messages, ended, cwd, fresh };
 }

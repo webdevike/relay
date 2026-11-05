@@ -702,6 +702,7 @@ export function actArtifacts(thread: string, action: ArtifactAction): Promise<Ac
   const store = useArtifactsStore.getState();
   if (action.op === "pin")
     store.pin(thread, action.id, action.pinned ? { by: "isaac", at: Date.now() } : undefined);
+  if (action.op === "pin.remove") store.pin(thread, action.id, undefined);
   if (action.op === "tab.update") {
     const { title, hidden, fresh } = action;
     store.patchTab(thread, action.tab, {

@@ -14,7 +14,8 @@ import type { AddressInfo } from 'node:net'
 import * as path from 'node:path'
 import type { Duplex } from 'node:stream'
 import { z } from 'zod'
-import { defaultTabs } from '@evaos/chat-core/artifacts'
+import { defaultTabs, type PinKind } from '@evaos/chat-core/artifacts'
+import { pinId, splitPins } from '@evaos/chat-core/pins'
 import { FIXTURES_DIR } from './paths'
 
 const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
@@ -190,6 +191,8 @@ export class FakeRelayHost {
   private activityItems: Json[] = []
   /** Each thread's artifact items, answered to `artifacts.get` with the default tab bar. */
   private readonly artifactItems = new Map<string, Json[]>()
+  /** Every `artifacts.act` frame the app sent, in order. */
+  readonly artifactActs: Json[] = []
   /** Every `canvas.open` slug the app sent, in order. */
   readonly canvasOpens: string[] = []
   /** Every room page the app loaded (path and query), in order. */
@@ -581,6 +584,92 @@ export class FakeRelayHost {
     for (const p of this.peers) if (p.device) p.send(frame)
   }
 
+  /**
+   * The pin actions of `artifacts.act` as the host applies them: `pin.add` (the same kind and value
+   * is one pin), `pin.remove` and `pin` on or off. Pushes the thread's snapshot. Tests call it for
+   * an agent's pin (`by` its id); the app's own frames come through the `artifacts.act` case.
+   */
+  actArtifacts(thread: string, by: string, action: Json): { ok: boolean; id?: string } {
+    let items = [...(this.artifactItems.get(thread) ?? [])]
+    let id: string | undefined
+    if (action.op === 'pin.add') {
+      const kind = z.string().parse(action.kind)
+      const value = z.string().parse(action.value)
+      const label = z.string().parse(action.label)
+      id = pinId(kind as PinKind, value)
+      if (!items.some((i) => i.id === id)) {
+        const source = typeof action.source === 'string' ? action.source : undefined
+        items.unshift({
+          id,
+          kind: 'pin',
+          title: label,
+          pin: { kind, label, value, ...(source === undefined ? {} : { source }) },
+          mentions: 0,
+          firstSeen: Date.now(),
+          lastSeen: Date.now(),
+          sources: source === undefined ? [] : [source],
+          addedBy: by,
+          pinned: { by, at: Date.now() },
+        })
+      }
+    } else if (action.op === 'pin.remove' || (action.op === 'pin' && action.pinned === false)) {
+      items = items.flatMap((i) =>
+        i.id !== action.id ? [i] : i.kind === 'pin' ? [] : [{ ...i, pinned: undefined }],
+      )
+    } else if (action.op === 'pin') {
+      items = items.map((i) => (i.id === action.id ? { ...i, pinned: { by, at: Date.now() } } : i))
+    }
+    this.setArtifacts(thread, items)
+    return { ok: true, ...(id === undefined ? {} : { id }) }
+  }
+
+  /**
+   * What the host's transcript reader does with a reply's `[[pin: label | value]]` lines: each
+   * assistant message's lines become pins by `by`, pinned at the message's time, once, with the
+   * message's bubble key as their source. (The real reader is apps/linux src/artifacts; its own
+   * tests cover it.) Returns how many pins were made.
+   */
+  pinsFromTranscript(thread: string, file: string, by: string): number {
+    let made = 0
+    for (const raw of fs.readFileSync(file, 'utf8').split('\n')) {
+      if (raw.trim() === '') continue
+      const entry = JsonSchema.safeParse(JSON.parse(raw))
+      const message = entry.success ? JsonSchema.safeParse(entry.data.message) : null
+      if (!message?.success || message.data.role !== 'assistant') continue
+      const at = z.number().safeParse(message.data.timestamp)
+      const parts = z
+        .array(z.object({ type: z.string(), text: z.string().optional() }))
+        .safeParse(message.data.content)
+      if (!at.success || !parts.success) continue
+      for (const part of parts.data) {
+        for (const pin of splitPins(part.text ?? '').pins) {
+          const id = pinId(pin.kind, pin.value)
+          const held = this.artifactItems.get(thread) ?? []
+          if (held.some((i) => i.id === id)) continue
+          const source = `assistant@${Math.trunc(at.data)}`
+          this.artifactItems.set(thread, [
+            {
+              id,
+              kind: 'pin',
+              title: pin.label,
+              pin: { ...pin, source },
+              mentions: 0,
+              firstSeen: at.data,
+              lastSeen: at.data,
+              sources: [source],
+              addedBy: by,
+              pinned: { by, at: at.data },
+            },
+            ...held,
+          ])
+          made++
+        }
+      }
+    }
+    this.setArtifacts(thread, this.artifactItems.get(thread) ?? [])
+    return made
+  }
+
   private toSubscribers(sessionId: string, frame: Json): void {
     for (const p of this.peers) if (p.subs.has(sessionId)) p.send(frame)
   }
@@ -688,6 +777,11 @@ export class FakeRelayHost {
           items: this.artifactItems.get(String(f.thread)) ?? [],
           tabs: defaultTabs(),
         })
+      case 'artifacts.act': {
+        this.artifactActs.push(f)
+        const done = this.actArtifacts(String(f.thread), String(f.by), JsonSchema.parse(f.action))
+        return peer.send({ t: 'artifacts.acted', rid: f.rid, ...done })
+      }
       case 'canvas.open': {
         const slug = String(f.slug)
         this.canvasOpens.push(slug)

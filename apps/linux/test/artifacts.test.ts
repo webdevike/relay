@@ -387,6 +387,78 @@ describe("ArtifactService acts", () => {
     expect(h.service.act("assistant:astra", "isaac", { op: "pin", id: "nope", pinned: true }).ok).toBe(false);
   });
 
+  it("pins a snippet, answers the same id for the same value, and keeps it through a restart", () => {
+    const h = harness();
+    const first = h.service.act("assistant:astra", "isaac", { op: "pin.add", kind: "code", label: "Deploy", value: "bun deploy", source: `assistant@${T0}` });
+    expect(first.ok).toBe(true);
+    const id = first.id!;
+    expect(id).toMatch(/^pin:[0-9a-f]{16}$/);
+    expect(item(h, id)).toMatchObject({ kind: "pin", title: "Deploy", pin: { kind: "code", label: "Deploy", value: "bun deploy", source: `assistant@${T0}` }, pinned: { by: "isaac", at: h.now }, from: "user", sources: [`assistant@${T0}`] });
+    const before = h.sent.length;
+    expect(h.service.act("assistant:astra", "astra", { op: "pin.add", kind: "code", label: "Again", value: "bun deploy" })).toEqual({ ok: true, id });
+    expect(h.sent).toHaveLength(before);
+    const again = harness({ root: h.root });
+    again.service.get("assistant:astra");
+    expect(again.snapshot().items.map((found) => found.id)).toEqual([id]);
+  });
+
+  it("lets Isaac unpin anything, and others only their own pins unless forced; a snippet goes with its pin", () => {
+    const h = harness();
+    const mine = h.service.act("assistant:astra", "astra", { op: "pin.add", kind: "link", label: "Spec", value: "https://x.dev" }).id!;
+    const his = h.service.act("assistant:astra", "isaac", { op: "pin.add", kind: "number", label: "Order", value: "8841" }).id!;
+    const refused = h.service.act("assistant:astra", "astra", { op: "pin.remove", id: his });
+    expect(refused.ok).toBe(false);
+    expect(refused.error).toMatch(/only they or Isaac/);
+    expect(item(h, his)).toBeDefined();
+    expect(h.service.act("assistant:astra", "astra", { op: "pin", id: his, pinned: false }).ok).toBe(false);
+    expect(h.service.act("assistant:astra", "astra", { op: "pin.remove", id: his, force: true }).ok).toBe(true);
+    expect(item(h, his)).toBeUndefined();
+    expect(h.service.act("assistant:astra", "astra", { op: "pin.remove", id: mine }).ok).toBe(true);
+    expect(item(h, mine)).toBeUndefined();
+    expect(h.service.act("assistant:astra", "isaac", { op: "pin.remove", id: mine }).ok).toBe(false);
+    const other = h.service.act("assistant:astra", "isaac", { op: "pin.add", kind: "text", label: "Note", value: "remember" }).id!;
+    expect(h.service.act("assistant:astra", "isaac", { op: "pin", id: other, pinned: false })).toEqual({ ok: true });
+    expect(item(h, other)).toBeUndefined();
+  });
+
+  it("unpins a pinned artifact without deleting it, and refuses past the pin limit", () => {
+    const h = seeded();
+    h.service.act("assistant:astra", "isaac", { op: "pin", id: "linear:ENG-6528", pinned: true });
+    expect(h.service.act("assistant:astra", "isaac", { op: "pin.remove", id: "linear:ENG-6528" }).ok).toBe(true);
+    expect(item(h, "linear:ENG-6528")).toBeDefined();
+    expect(item(h, "linear:ENG-6528")?.pinned).toBeUndefined();
+    for (let i = 0; i < 50; i++) expect(h.service.act("assistant:astra", "isaac", { op: "pin.add", kind: "number", label: `n${i}`, value: String(1000 + i) }).ok).toBe(true);
+    const full = h.service.act("assistant:astra", "isaac", { op: "pin.add", kind: "number", label: "n", value: "9999" });
+    expect(full.ok).toBe(false);
+    expect(full.error).toMatch(/50 pins/);
+  });
+
+  it("pins what a reply's [[pin: label | value]] lines ask for, at the message's time, once, and not as a link row", () => {
+    const h = harness();
+    const file = transcript(h);
+    appendFileSync(
+      file,
+      user(T0, "set it up") +
+        assistant(T0 + 10, [{ type: "text", text: "Ready.\n[[pin: Staging | https://stg.example.com/login]]\n[[pin: Code | `4242 7`]]" }]),
+    );
+    h.service.get("assistant:astra");
+    const pins = h.snapshot().items.filter((found) => found.kind === "pin");
+    expect(pins.map((pin) => [pin.pin?.kind, pin.pin?.label, pin.pin?.value, pin.pinned, pin.pin?.source])).toEqual([
+      ["link", "Staging", "https://stg.example.com/login", { by: "astra", at: T0 + 10 }, `assistant@${T0 + 10}`],
+      ["code", "Code", "4242 7", { by: "astra", at: T0 + 10 }, `assistant@${T0 + 10}`],
+    ]);
+    expect(h.snapshot().items.some((found) => found.kind === "url")).toBe(false);
+    // Isaac unpins one; reading on does not bring it back.
+    h.service.act("assistant:astra", "isaac", { op: "pin.remove", id: pins[0]!.id });
+    appendFileSync(file, user(T0 + 20, "thanks"));
+    h.service.get("assistant:astra");
+    expect(h.snapshot().items.filter((found) => found.kind === "pin")).toHaveLength(1);
+    // A user's own message never pins by markup.
+    appendFileSync(file, user(T0 + 30, "[[pin: Mine | 12345]]"));
+    h.service.get("assistant:astra");
+    expect(h.snapshot().items.filter((found) => found.kind === "pin")).toHaveLength(1);
+  });
+
   it("tidies and brings items back; pinned and running ones are left alone, a new mention untidies", () => {
     const h = seeded();
     expect(h.service.act("assistant:astra", "astra", { op: "pin", id: "linear:ENG-6528", pinned: true }).ok).toBe(true);
