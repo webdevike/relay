@@ -47,6 +47,9 @@ import { handleReviewsMedia } from "./reviews/http";
 import { handleQueryRequest } from "./query/http";
 import type { QueryRelaying } from "./query/service";
 import type { AttentionNotifier } from "./push/notifier";
+import { authorizeSkillSocket, handleSkillsRequest } from "./skills/http";
+import type { SkillRoom } from "./skills/room";
+import type { SkillsService } from "./skills/service";
 import type {
   AgentProvider,
   AgentProviderChange,
@@ -133,6 +136,8 @@ export interface ServerDeps {
   readonly meetings: MeetingsRelaying | null;
   /** Remote control of the connected Relay Desktops; null disables `/control/*` and leaves the feature out of `welcome`. */
   readonly control: ControlRelay | null;
+  /** The Skills page's catalog and live skill rooms; absent or null disables `/skills`. */
+  readonly skills?: SkillsService | null;
   /** The canvas web client's HTML, served at `/canvas/<slug>/`. */
   readonly canvasPage: () => string;
   readonly pairing: PairingUI;
@@ -147,14 +152,15 @@ export interface ConnectedDevice {
 
 /**
  * A relay socket carries a session; a `VNC_PATH` socket carries a bridge instead, a
- * `/canvas/<slug>/ws` socket a canvas room's peer and a `MEETINGS_INGEST_PATH` socket one
- * recording's upload (`session` null for all three).
+ * `/canvas/<slug>/ws` socket a canvas room's peer, a `/skills/<name>/ws` socket a skill room's
+ * peer and a `MEETINGS_INGEST_PATH` socket one recording's upload (`session` null for all four).
  */
 interface SocketData {
   session: ClientSession | null;
   connectedAt: number;
   vnc: { readonly deviceId: string; bridge: VncBridge | null } | null;
   canvas: { readonly room: CanvasRoom; peer: CanvasPeer | null } | null;
+  skill: { readonly room: SkillRoom; peer: CanvasPeer | null } | null;
   ingest: { readonly grant: IngestGrant; conn: IngestConnection | null } | null;
 }
 
@@ -184,6 +190,7 @@ export class RelayServer {
   private readonly sockets = new Set<Socket>();
   private readonly vncSockets = new Set<Socket>();
   private readonly canvasSockets = new Set<Socket>();
+  private readonly skillSockets = new Set<Socket>();
   private readonly ingestSockets = new Set<Socket>();
   private readonly vncTickets: VncTickets;
   private server: Server<SocketData> | null = null;
@@ -234,6 +241,7 @@ export class RelayServer {
                 connectedAt: Date.now(),
                 vnc: null,
                 canvas: null,
+                skill: null,
                 ingest: null,
               },
             })
@@ -250,6 +258,7 @@ export class RelayServer {
               connectedAt: Date.now(),
               vnc: { deviceId: grant.deviceId, bridge: null },
               canvas: null,
+              skill: null,
               ingest: null,
             },
             ...(grant.protocol === null
@@ -269,6 +278,7 @@ export class RelayServer {
               connectedAt: Date.now(),
               vnc: null,
               canvas: null,
+              skill: null,
               ingest: { grant, conn: null },
             },
           });
@@ -283,6 +293,27 @@ export class RelayServer {
               connectedAt: Date.now(),
               vnc: null,
               canvas: { room: canvasRoom, peer: null },
+              skill: null,
+              ingest: null,
+            },
+          });
+          return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
+        }
+        const skillRoom = authorizeSkillSocket(
+          this.deps.skills ?? null,
+          request,
+          path,
+          srv.requestIP(request)?.address ?? "",
+        );
+        if (skillRoom instanceof Response) return skillRoom;
+        if (skillRoom !== null) {
+          const upgraded = srv.upgrade(request, {
+            data: {
+              session: null,
+              connectedAt: Date.now(),
+              vnc: null,
+              canvas: null,
+              skill: { room: skillRoom, peer: null },
               ingest: null,
             },
           });
@@ -311,6 +342,8 @@ export class RelayServer {
           return handleReviewsMedia(this.deps.reviews, request, path);
         if (path === "/boards" || path.startsWith("/boards/"))
           return handleBoardRequest(this.deps.boards, request, path, remote);
+        if (path === "/skills" || path.startsWith("/skills/"))
+          return handleSkillsRequest(this.deps.skills ?? null, request, path, remote);
         if (path === "/canvas" || path.startsWith("/canvas/"))
           return handleCanvasRequest(
             this.deps.canvas,
@@ -345,6 +378,7 @@ export class RelayServer {
           if (ws.data.ingest !== null) this.openIngest(ws, ws.data.ingest);
           else if (ws.data.vnc !== null) this.openVnc(ws, ws.data.vnc);
           else if (ws.data.canvas !== null) this.openCanvas(ws, ws.data.canvas);
+          else if (ws.data.skill !== null) this.openSkill(ws, ws.data.skill);
           else this.accept(ws);
         },
         message: (ws, raw) => {
@@ -359,6 +393,13 @@ export class RelayServer {
             // y-websocket: binary frames only.
             if (canvas.peer !== null && typeof raw !== "string")
               canvas.room.sync.receive(canvas.peer, new Uint8Array(raw));
+            return;
+          }
+          const skill = ws.data.skill;
+          if (skill !== null) {
+            // y-websocket: binary frames only.
+            if (skill.peer !== null && typeof raw !== "string")
+              skill.room.sync.receive(skill.peer, new Uint8Array(raw));
             return;
           }
           const vnc = ws.data.vnc;
@@ -391,6 +432,12 @@ export class RelayServer {
             this.canvasSockets.delete(ws);
             return;
           }
+          const skill = ws.data.skill;
+          if (skill !== null) {
+            if (skill.peer !== null) this.deps.skills?.disconnect(skill.room, skill.peer);
+            this.skillSockets.delete(ws);
+            return;
+          }
           if (ws.data.vnc !== null) {
             ws.data.vnc.bridge?.peerClosed();
             this.vncSockets.delete(ws);
@@ -420,10 +467,12 @@ export class RelayServer {
     for (const ws of this.sockets) ws.close();
     for (const ws of this.vncSockets) ws.close();
     for (const ws of this.canvasSockets) ws.close();
+    for (const ws of this.skillSockets) ws.close();
     for (const ws of this.ingestSockets) ws.close();
     this.sockets.clear();
     this.vncSockets.clear();
     this.canvasSockets.clear();
+    this.skillSockets.clear();
     this.ingestSockets.clear();
     void this.server?.stop(true);
     this.server = null;
@@ -640,6 +689,24 @@ export class RelayServer {
     canvas.peer = peer;
     this.canvasSockets.add(ws);
     this.deps.canvas?.connect(canvas.room, peer);
+  }
+
+  /** A token holder opened a skill room's websocket: it becomes a peer of the skill's doc. */
+  private openSkill(
+    ws: Socket,
+    skill: { readonly room: SkillRoom; peer: CanvasPeer | null },
+  ): void {
+    const peer: CanvasPeer = {
+      send: (data) => {
+        ws.sendBinary(data);
+      },
+      close: (code, reason) => {
+        ws.close(code, reason);
+      },
+    };
+    skill.peer = peer;
+    this.skillSockets.add(ws);
+    this.deps.skills?.connect(skill.room, peer);
   }
 
   /** A Mac opened `MEETINGS_INGEST_PATH` with a ticket: its frames go to the recording it was issued for. */

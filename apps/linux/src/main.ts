@@ -62,6 +62,9 @@ import {
 } from "./drops/video";
 import { FileBoardStore } from "./boards/store";
 import { createUsageService, ompUsageRunner } from "./usage/service";
+import { ompRunner, SkillCatalog } from "./skills/catalog";
+import { SkillsService } from "./skills/service";
+import { SkillUsageIndex } from "./skills/usage";
 import {
   CatchUpService,
   defaultCatchUpFeedPath,
@@ -216,6 +219,18 @@ const USAGE = `relay-linux <command>
                                    from an assistant's session: hand Catch Up card <id> back
                                    (--agent defaults to $RELAY_ASSISTANT)
   canvas end [<slug>]              wrap up the live session on <slug> (default: this chat's)
+  skills list [--json]             the skills omp loads on this host: source, who uses them, last use
+  skills show <name> [--json]      one skill: its copies, files, use in the last 30 days
+  skills edit <name> --as <Name> [--color "#rrggbb"] (--find <text> --replace <text> | --file <md> | --stdin) [--save]
+                                   edit a skill through its live doc, as your own named caret in
+                                   Relay Desktop's Skills editor: --find (text as shown, unique, inside
+                                   one block) is selected, then replaced as typed; --file or --stdin
+                                   is the whole SKILL.md (or its body) and only changed blocks move.
+                                   --save writes SKILL.md afterwards (else Isaac saves)
+  skills save <name> [--force]     write the live doc to SKILL.md; --force overwrites a file that
+                                   changed on disk since it was opened
+  skills leave <name> --as <Name>  take <Name>'s caret out of the skill (it leaves by itself after
+                                   2 minutes without an edit)
   react <emoji> [--agent <id>] [--message latest|<key>]
   react --clear [--agent <id>] [--message latest|<key>]
                                    from an assistant's session: react to (or take back the
@@ -716,6 +731,16 @@ function serve(
     clock: systemClock,
     log,
   });
+  // The Skills page: every skill omp loads here, who loads it, and live editing in Relay Desktop.
+  const skills = new SkillsService({
+    catalog: new SkillCatalog({
+      home: homedir(),
+      evaRoot: agentHome,
+      run: ompRunner(resolveOmp() ?? "omp", homedir()),
+    }),
+    usage: new SkillUsageIndex({ home: homedir(), log }),
+    log,
+  });
   // Agents on this Mac drive Relay Desktop on whichever Mac Isaac is using; the token is in serve.json.
   const control = featureOn(config, "control", true) ? new ControlRelay(randomBytes(32).toString("hex"), systemClock, log) : null;
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
@@ -759,6 +784,7 @@ function serve(
       files,
       meetings,
       control,
+      skills,
       canvasPage: () => CANVAS_PAGE,
       pairing: new PinFilePairingUI(new TerminalPairingUI(), pairingPinPath(), PAIRING_TIMEOUT_MS),
       log,
@@ -766,6 +792,7 @@ function serve(
   );
   rmSync(pairingPinPath(), { force: true });
   const boundPort = server.start();
+  skills.start();
   if (canvas !== null) {
     // The server's own hook pushes `canvas.rooms` to the devices; a new live room also invites the phones.
     const invitations = new CanvasInvitations({ tokens: pushTokens, sender: new ExpoPushSender(), log });
@@ -848,6 +875,7 @@ function serve(
     studio?.stop();
     reviews?.stop();
     meetings?.stop();
+    skills.stop();
     server.stop();
     voice?.stop();
     stopRegistryWatch?.();
@@ -1579,6 +1607,145 @@ async function canvasCommand(
   }
 }
 
+const SkillSourceReply = z.object({ label: z.string(), dir: z.string(), file: z.string() });
+const SkillRowReply = z.object({
+  name: z.string(),
+  description: z.string(),
+  source: SkillSourceReply,
+  also: z.array(SkillSourceReply),
+  usedBy: z.array(z.string()),
+  disabled: z.boolean(),
+  lastUsedAt: z.number().nullable(),
+});
+const SkillDetailReply = SkillRowReply.extend({
+  files: z.array(z.object({ path: z.string(), size: z.number() })),
+  usage: z.object({ lastUsedBy: z.string().nullable(), loads30d: z.number() }),
+});
+const SkillEditReply = z.object({
+  dirty: z.boolean(),
+  saved: z.boolean(),
+  error: z.string().optional(),
+});
+
+/** `skills list|show|edit|save|leave`: talks to the running host's loopback `/skills`. */
+async function skillsCommand(
+  positionals: string[],
+  options: {
+    json: boolean;
+    as: string | undefined;
+    color: string | undefined;
+    find: string | undefined;
+    replace: string | undefined;
+    file: string | undefined;
+    stdin: boolean;
+    save: boolean;
+    force: boolean;
+  },
+): Promise<void> {
+  const [verb, name] = positionals;
+  const base = `${hostUrl()}/skills`;
+  const post = (url: string, body: unknown): Promise<Response> =>
+    fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const skill = (): string => {
+    if (name === undefined) throw new Error(`skills ${verb ?? ""}: missing <name>`);
+    return `${base}/${encodeURIComponent(name)}`;
+  };
+  const when = (at: number | null): string =>
+    at === null ? "not used in 30 days" : `last used ${new Date(at).toISOString()}`;
+  const agent = (): string => {
+    const as = options.as?.trim() ?? "";
+    if (as === "") throw new Error(`skills ${verb ?? ""}: missing --as <Name> (the name your caret shows)`);
+    return as;
+  };
+  switch (verb ?? "") {
+    case "list": {
+      const reply = await hostJson(await fetch(base), "skills list");
+      if (options.json) {
+        console.log(JSON.stringify(reply, null, 2));
+        return;
+      }
+      const { skills } = z.object({ skills: z.array(SkillRowReply) }).parse(reply);
+      if (skills.length === 0) console.log("no skills");
+      for (const row of skills) {
+        console.log(
+          `${row.name}  ${row.source.label}${row.also.length > 0 ? ` +${String(row.also.length)}` : ""}  ${row.disabled ? "disabled" : `used by ${row.usedBy.join(", ") || "nobody"}`}  ${when(row.lastUsedAt)}`,
+        );
+      }
+      return;
+    }
+    case "show": {
+      const reply = await hostJson(await fetch(skill()), "skills show");
+      if (options.json) {
+        console.log(JSON.stringify(reply, null, 2));
+        return;
+      }
+      const detail = SkillDetailReply.parse(reply);
+      console.log(`${detail.name}${detail.disabled ? " (disabled)" : ""}: ${detail.description}`);
+      console.log(`file: ${detail.source.file} (${detail.source.label})`);
+      for (const copy of detail.also) console.log(`also: ${copy.file} (${copy.label})`);
+      console.log(`used by: ${detail.usedBy.join(", ") || "nobody"}`);
+      console.log(
+        `${when(detail.lastUsedAt)}${detail.usage.lastUsedBy === null ? "" : ` by ${detail.usage.lastUsedBy}`}, ${String(detail.usage.loads30d)} loads in 30 days`,
+      );
+      console.log(`files: ${detail.files.map((file) => file.path).join(", ")}`);
+      return;
+    }
+    case "edit": {
+      const url = skill();
+      const as = agent();
+      const sources = [options.find !== undefined, options.file !== undefined, options.stdin].filter(Boolean).length;
+      if (sources !== 1 || (options.find !== undefined) !== (options.replace !== undefined))
+        throw new Error("skills edit: give --find <text> --replace <text>, or --file <markdown file>, or --stdin");
+      const markdown =
+        options.file !== undefined
+          ? await Bun.file(options.file).text()
+          : options.stdin
+            ? await Bun.stdin.text()
+            : undefined;
+      const result = SkillEditReply.parse(
+        await hostJson(
+          await post(`${url}/edit`, {
+            as,
+            ...(options.color === undefined ? {} : { color: options.color }),
+            ...(markdown === undefined ? { find: options.find, replace: options.replace } : { markdown }),
+            ...(options.save ? { save: true } : {}),
+          }),
+          "skills edit",
+        ),
+      );
+      console.log(
+        `${as} edited ${name ?? ""}: ${result.saved ? "saved to SKILL.md" : result.error === "changed-on-disk" ? "not saved, SKILL.md changed on disk (relay-linux skills save --force overwrites it)" : result.dirty ? "unsaved (relay-linux skills save writes it)" : "no change to SKILL.md"}.`,
+      );
+      return;
+    }
+    case "save": {
+      const response = await post(`${skill()}/save`, options.force ? { force: true } : {});
+      if (response.status === 409) {
+        console.error(
+          `skills save: ${name ?? ""}'s SKILL.md changed on disk since it was opened; --force overwrites it`,
+        );
+        process.exit(1);
+      }
+      const { savedAt } = z
+        .object({ savedAt: z.number() })
+        .parse(await hostJson(response, "skills save"));
+      console.log(`saved ${name ?? ""} at ${new Date(savedAt).toISOString()}`);
+      return;
+    }
+    case "leave": {
+      await hostJson(await post(`${skill()}/leave`, { as: agent() }), "skills leave");
+      console.log(`${agent()} left ${name ?? ""}.`);
+      return;
+    }
+    default:
+      throw new Error(`skills: expected list, show, edit, save or leave\n\n${USAGE}`);
+  }
+}
+
 /** `react <emoji> | --clear`: the running host puts assistant `agent`'s reaction on one of Isaac's bubbles in its thread. */
 async function react(
   agent: string | undefined,
@@ -1702,6 +1869,13 @@ async function main(argv: string[]): Promise<void> {
       "live-voice": { type: "string" },
       unset: { type: "string", multiple: true, default: [] },
       start: { type: "boolean", default: false },
+      json: { type: "boolean", default: false },
+      find: { type: "string" },
+      replace: { type: "string" },
+      file: { type: "string" },
+      stdin: { type: "boolean", default: false },
+      save: { type: "boolean", default: false },
+      force: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -1804,6 +1978,19 @@ async function main(argv: string[]): Promise<void> {
         session: values.session,
         handoff: values.handoff,
         leave: values.leave,
+      });
+      return;
+    case "skills":
+      await skillsCommand(positionals.slice(1), {
+        json: values.json,
+        as: values.as,
+        color: values.color,
+        find: values.find,
+        replace: values.replace,
+        file: values.file,
+        stdin: values.stdin,
+        save: values.save,
+        force: values.force,
       });
       return;
     case "react":
