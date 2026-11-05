@@ -50,10 +50,6 @@ test('thinking switch applies live to the open chat and persists in chat.json', 
   // Rust default: thinking is off.
   await expect(log.locator('[data-role=thinking]')).toHaveCount(0)
 
-  const chatTab = await shell.evaluate(() => {
-    const t = (window as unknown as W).__evaosShell!.tabs()
-    return t.list[t.active]!.id
-  })
   await openChatSettings(shell, true)
   const thinking = shell.locator('[data-testid=settings-show-thinking]')
   const tools = shell.locator('[data-testid=settings-show-tools]')
@@ -64,7 +60,15 @@ test('thinking switch applies live to the open chat and persists in chat.json', 
   await expect(thinking).toBeChecked()
   await expect.poll(() => readChat(configDir)?.['show_thinking']).toBe(true)
 
-  await shell.locator(`[data-testid=tab-${chatTab}]`).click()
+  // Settings is its own workspace. Leaving the chat (its only tab, no tool tabs) closed its tab,
+  // so the read, done chat fast-settles; reopen it from the Settled fold.
+  const out = shell.getByTestId('sidebar-back')
+  if (await out.isVisible()) await out.click()
+  if (!(await shell.getByTestId('chat-tree').isVisible())) await shell.getByTestId('nav-chat').click()
+  const row = shell.getByTestId('sidebar').getByRole('link', { name: /^Fixture chat(?:,|$)/ })
+  if (!(await row.isVisible())) await shell.getByTestId('chat-settled-toggle').click()
+  await row.click()
+  await expect(log).toContainText('Please sketch a tiny greeter.')
   await expect(shell.locator('[data-testid=chat-log] [data-role=thinking]').first()).toBeVisible()
   await app.close()
 

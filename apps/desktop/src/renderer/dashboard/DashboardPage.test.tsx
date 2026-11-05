@@ -6,6 +6,11 @@ const invoke = vi.fn()
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => {} }))
 const openPlace = vi.fn()
 vi.mock('../navigation/navigate', () => ({ openPlace: (...a: unknown[]) => openPlace(...a) }))
+const openPlaceBeside = vi.fn()
+vi.mock('../tiling/tiling-store', async (orig) => ({
+  ...(await orig<typeof import('../tiling/tiling-store')>()),
+  openPlaceBeside: (...a: unknown[]) => openPlaceBeside(...a),
+}))
 const runAction = vi.fn()
 vi.mock('../hotkeys/router', () => ({
   runAction: (...a: unknown[]) => runAction(...a),
@@ -146,7 +151,8 @@ describe('DashboardPage', () => {
     fireEvent.click(relay)
     expect(openPlace).toHaveBeenLastCalledWith(placeOf('workspace:relay'), { newTab: false })
     fireEvent.click(relay, { metaKey: true, shiftKey: true })
-    expect(openPlace).toHaveBeenLastCalledWith(placeOf('workspace:relay'), { newTab: true })
+    expect(openPlaceBeside).toHaveBeenLastCalledWith(placeOf('workspace:relay'))
+    expect(openPlace).toHaveBeenCalledTimes(1)
   })
 
   it('shows the Eva badge on a built-in card in the grid', async () => {

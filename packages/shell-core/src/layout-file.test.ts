@@ -6,7 +6,8 @@ const defaults = {
   tabs: null,
   dock: null,
   tiling: null,
-  legacyPanel: { width: 420, tool: 'browser' },
+  workspaces: null,
+  legacyPanel: { width: 420, tool: 'files' },
   sidebar: null,
   malformed: false,
 }

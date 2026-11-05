@@ -161,13 +161,13 @@ export function ChatLog({
     step()
   }
 
-  // A newly opened file starts at the end (or where a return asked); a pane shown again after
-  // another page goes back where it was.
+  // A chat comes back where Isaac left it, even mounted anew (its workspace shown again, or a
+  // return asked for an exact place); one never seen this session starts at the end.
   useLayoutEffect(() => {
     const prev = seen.current
     seen.current = { file, shown }
     if (prev.file !== file) {
-      const asked = takeChatScrollRequest(scrollFile)
+      const asked = takeChatScrollRequest(scrollFile) ?? chatScrollOf(scrollFile)
       if (asked) applyScroll(asked)
       else {
         dispatch({ type: 'jump' })

@@ -57,6 +57,10 @@ export interface CreateTabOptions extends NavigateOptions {
   scope?: string
   /** The tab's eCard app; the active tab's when omitted, so a new tab keeps the app it came from. */
   switchApp?: string
+  /** Who asked for the tab (TabState.openedBy). */
+  openedBy?: string
+  /** Opened by a guest page: never made its scope's active tab on creation. */
+  popup?: boolean
 }
 
 /** Upper bound on live tab views; each one is a full renderer process a guest page could spawn. */
@@ -89,7 +93,8 @@ export class BrowserHost {
   private lastActive = new Map<string, string>()
   /** Most recently used scopes first, at most LIVE_SCOPES. */
   private recent: string[] = []
-  private slot: SlotRect = { x: 0, y: 0, width: 0, height: 0 }
+  /** The tabs on screen, each at its rect, in stacking order (Map insertion order). */
+  private slots = new Map<string, SlotRect>()
   private occluded = false
   private holes: SlotRect[] = []
   private created: TabListener[] = []
@@ -133,6 +138,7 @@ export class BrowserHost {
           error: null,
           favicon: s.favicon,
           pinned,
+          ...(s.openedBy ? { openedBy: s.openedBy } : {}),
         },
       })
       this.nextId = Math.max(this.nextId, Number(s.id.slice(1)) + 1)
@@ -153,6 +159,7 @@ export class BrowserHost {
         favicon: t.state.favicon,
         ...(t.fromExtension ? { fromExtension: true as const } : {}),
         ...(t.switchApp ? { switchApp: t.switchApp } : {}),
+        ...(t.state.openedBy ? { openedBy: t.state.openedBy } : {}),
       })
     }
     const active = Object.fromEntries(this.lastActive)
@@ -248,6 +255,16 @@ export class BrowserHost {
     }
   }
 
+  /** The states of the known tabs among `ids`, whatever their scope. */
+  tabStates(ids: readonly string[]): TabState[] {
+    const out: TabState[] = []
+    for (const id of ids) {
+      const t = this.tabs.get(id)
+      if (t) out.push({ ...t.state })
+    }
+    return out
+  }
+
   /** Every live view, whatever its scope. */
   views(): WebContentsView[] {
     const out: WebContentsView[] = []
@@ -282,6 +299,7 @@ export class BrowserHost {
       error: null,
       favicon: null,
       pinned: false,
+      ...(opts.openedBy ? { openedBy: opts.openedBy } : {}),
     }
     const scope = opts.scope ?? this.scope
     // A new tab follows the eCard app of the tab its own scope shows.
@@ -291,7 +309,7 @@ export class BrowserHost {
     this.tabs.set(id, tab)
     this.spawnView(tab)
     if (scope === this.scope) {
-      if (!this.activeId || activate) this.select(id)
+      if ((!this.activeId && !opts.popup) || activate) this.select(id)
     } else if (activate) {
       this.lastActive.set(scope, id)
     }
@@ -359,6 +377,12 @@ export class BrowserHost {
       tab.view === view ? this.windowOpen(tab, wc, details) : { action: 'deny' },
     )
     wc.on('did-create-window', (win) => this.wirePopup(tab, win))
+    // A click into a page makes it the active tab (its extension actions, a key it forwards).
+    wc.on('focus', () => {
+      if (tab.view !== view || this.activeId === s.id || !this.visibleIds().includes(s.id)) return
+      this.select(s.id)
+      this.changed()
+    })
     wc.on('before-input-event', (event, input) => {
       if (matchesAppChord(input) === 'devtools') {
         event.preventDefault()
@@ -444,7 +468,10 @@ export class BrowserHost {
     opener: WebContents,
     details: HandlerDetails,
   ): WindowOpenHandlerResponse {
-    if (tab.state.id !== this.activeId || !tab.view) return { action: 'deny' }
+    if (!tab.view) return { action: 'deny' }
+    if (tab.state.id !== this.activeId && !this.slots.has(tab.state.id)) {
+      return { action: 'deny' }
+    }
     if (details.disposition === 'new-window') {
       if (!allowGuestPopup(details.url, gestureAge(opener))) return { action: 'deny' }
       consumeGesture(opener)
@@ -470,12 +497,24 @@ export class BrowserHost {
       try {
         const p = new URL(details.url).protocol
         if (p === 'http:' || p === 'https:') {
-          const fg = details.disposition === 'foreground-tab'
           const front = this.scope
           setImmediate(() => {
-            if (this.ctx.win.isDestroyed()) return
+            if (this.ctx.win.isDestroyed() || !this.tabs.has(tab.state.id)) return
             const scope = tab.scope === PINNED_SCOPE ? front : tab.scope
-            this.createTab(details.url, fg, { scope, switchApp: tab.switchApp })
+            const opened = this.createTab(details.url, false, {
+              scope,
+              switchApp: tab.switchApp,
+              popup: true,
+              ...(tab.state.openedBy ? { openedBy: tab.state.openedBy } : {}),
+            })
+            if (opened) {
+              emit(this.ctx, 'browser.popup', {
+                tabId: opened.id,
+                openerId: tab.state.id,
+                scope,
+                ...(details.disposition === 'background-tab' ? { background: true } : {}),
+              })
+            }
           })
         }
       } catch {
@@ -608,6 +647,7 @@ export class BrowserHost {
     const visible = this.visibleIds()
     const idx = visible.indexOf(id)
     this.tabs.delete(id)
+    this.slots.delete(id)
     for (const [scope, tabId] of this.lastActive) if (tabId === id) this.lastActive.delete(scope)
     this.discard(t)
     if (this.activeId === id) {
@@ -655,8 +695,8 @@ export class BrowserHost {
     this.scope = scope
     this.recent = [scope, ...this.recent.filter((s) => s !== scope)].slice(0, LIVE_SCOPES)
     const keep = new Set(this.recent)
-    for (const t of this.tabs.values()) {
-      if (t.scope !== PINNED_SCOPE && !keep.has(t.scope)) this.discard(t)
+    for (const [id, t] of this.tabs) {
+      if (t.scope !== PINNED_SCOPE && !keep.has(t.scope) && !this.slots.has(id)) this.discard(t)
     }
     this.select(this.restoredActive())
     this.changed()
@@ -697,9 +737,30 @@ export class BrowserHost {
     this.live(this.tab(id)).webContents.openDevTools({ mode: 'detach' })
   }
 
-  setSlot(rect: SlotRect): void {
-    this.slot = rect
-    this.applyBounds()
+  /**
+   * Exactly these tabs on screen, each at its rect, in list order (later on top); every other
+   * view leaves the screen. Dormant tabs revive; unknown ids are skipped.
+   */
+  setSlots(slots: ReadonlyArray<SlotRect & { tabId: string }>): void {
+    this.slots = new Map()
+    let revived = false
+    for (const { tabId, x, y, width, height } of slots) {
+      const t = this.tabs.get(tabId)
+      if (!t) continue
+      this.slots.delete(tabId)
+      this.slots.set(tabId, { x, y, width, height })
+      if (!t.view) {
+        this.live(t)
+        revived = true
+      }
+    }
+    // Re-adding a child view raises it, so the list order is the stacking order.
+    for (const id of this.slots.keys()) {
+      const view = this.tabs.get(id)?.view
+      if (view) this.ctx.win.contentView.addChildView(view)
+    }
+    if (revived) this.changed()
+    else this.applyBounds()
   }
 
   setOccluded(occluded: boolean): boolean {
@@ -709,39 +770,53 @@ export class BrowserHost {
   }
 
   /**
-   * Shell-drawn overlays (toasts) that sit over the view's rect. A native view paints over the page
-   * above it, so the view gives up the band on the cheapest side of every hole instead of hiding;
-   * one rectangle cannot have a hole.
+   * Shell-drawn overlays (toasts) that sit over a view's rect. A native view paints over the page
+   * above it, so each view gives up the band on the cheapest side of every hole instead of
+   * hiding; one rectangle cannot have a hole.
    */
   setHoles(holes: readonly SlotRect[]): void {
     this.holes = holes.map((h) => ({ ...h }))
     this.applyBounds()
   }
 
-  private visible(): boolean {
-    const t = this.tabs.get(this.activeId)
-    if (!t?.view) return false
-    const bounds = clipAround(this.slot, this.holes)
+  private shows(t: Tab, rect: SlotRect): boolean {
     return (
-      !this.occluded && !t.state.blank && !t.state.error && bounds.width > 0 && bounds.height > 0
+      !!t.view &&
+      !this.occluded &&
+      !t.state.blank &&
+      !t.state.error &&
+      rect.width > 0 &&
+      rect.height > 0
     )
   }
 
+  /** Whether any browser view is on screen. */
+  private visible(): boolean {
+    for (const [id, rect] of this.slots) {
+      const t = this.tabs.get(id)
+      if (t && this.shows(t, rect)) return true
+    }
+    return false
+  }
+
   private applyBounds(): void {
+    const slots = this.slots
+    let hidden = false
     for (const [id, t] of this.tabs) {
       if (!t.view) continue
-      if (id !== this.activeId) {
+      const rect = slots.get(id)
+      const was = t.view.getVisible()
+      if (!rect) {
         t.view.setVisible(false)
         continue
       }
-      t.view.setBounds(clipAround(this.slot, this.holes))
-      const show = this.visible()
-      const was = t.view.getVisible()
+      const bounds = clipAround(rect, this.holes)
+      t.view.setBounds(bounds)
+      const show = this.shows(t, bounds)
       t.view.setVisible(show)
-      if (was && !show && !this.ctx.shell.webContents.isDestroyed()) {
-        this.ctx.shell.webContents.focus()
-      }
+      if (was && !show) hidden = true
     }
+    if (hidden && !this.ctx.shell.webContents.isDestroyed()) this.ctx.shell.webContents.focus()
   }
 
   private changed(): void {

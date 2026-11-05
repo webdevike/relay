@@ -1,7 +1,7 @@
 /**
  * The window's panes as Relay models them on dockview (the renderer's tiling/dock wraps the
  * engine): every tab is a dockview panel, every pane a dockview group. An app tab (a chat or a
- * page, kept with its history by the tabs store) is the panel `tab:<id>`; a tool tab (Browser,
+ * page, kept with its history by the tabs store) is the panel `tab:<id>`; a tool tab (a web page,
  * Files, a subagent's transcript, an experiment arm) is the panel named by its tool tab id. Any
  * group takes any tab.
  *
@@ -10,7 +10,7 @@
  * the one-time migration from the split tree layout.json kept before dockview (`tiling`).
  */
 import { GAP, MAIN_MIN } from './fit'
-import { placeFromJson, placeKey, type Place } from './place'
+import { placeFromJson, placeKey, placeOf, placeToJson, type Place, type PlaceJson } from './place'
 import { createTabs, type Tab, type Tabs } from './tabs'
 
 /** The default tool pane's share of the panes' width. */
@@ -23,11 +23,13 @@ export type Side = 'left' | 'right' | 'up' | 'down'
 
 // Tool tabs ------------------------------------------------------------------------------------
 
-export type ToolKind = 'browser' | 'files' | 'terminal'
+export type ToolKind = 'files' | 'terminal'
 /** The tools a fresh layout opens; Terminal is added from a pane's + menu. */
-export const TOOL_KINDS: readonly ToolKind[] = ['browser', 'files']
-export const isToolKind = (v: unknown): v is ToolKind =>
-  v === 'browser' || v === 'files' || v === 'terminal'
+export const TOOL_KINDS: readonly ToolKind[] = ['files']
+export const isToolKind = (v: unknown): v is ToolKind => v === 'files' || v === 'terminal'
+
+/** The panel id of the retired Browser panel (one per layout, with its own tab strip). */
+export const LEGACY_BROWSER_PANEL = 'browser'
 
 export type ToolTab =
   | { kind: ToolKind }
@@ -46,8 +48,42 @@ export type ToolTab =
       arm: string
       label: string
     }
+  | {
+      /**
+       * A page shown beside a workspace's chat (Studio, a canvas board, a Reviews item): a tool
+       * tab of that workspace, never a workspace of its own. `key` names it for good (its place's
+       * key when it opened); `place` follows the page (a board it switched to).
+       */
+      kind: 'page'
+      key: string
+      place: PlaceJson
+    }
+  | {
+      /** One web page (a browser host tab, by its id): any number open, each its own tool tab. */
+      kind: 'web'
+      id: string
+    }
+  | {
+      /**
+       * The retired Browser panel, as layouts saved before page tabs hold it. Only read, so the
+       * load can replace it with one `web` tab per page it showed; nothing opens it.
+       */
+      kind: 'browser'
+    }
 export type SubagentTab = Extract<ToolTab, { kind: 'subagent' }>
 export type ExperimentArmTab = Extract<ToolTab, { kind: 'experiment-arm' }>
+export type PageTab = Extract<ToolTab, { kind: 'page' }>
+export type WebTab = Extract<ToolTab, { kind: 'web' }>
+
+/** A page as a tool tab, named by its place's key. */
+export function pageTab(place: Place): PageTab {
+  return { kind: 'page', key: placeKey(place), place: placeToJson(place) }
+}
+
+/** The place a page tab shows now. */
+export function pageTabPlace(tab: PageTab): Place {
+  return placeFromJson(tab.place) ?? placeOf('dashboard')
+}
 
 /** A tool tab's panel id: what it shows, so one thing is open once. */
 export function toolTabId(tab: ToolTab): string {
@@ -56,6 +92,10 @@ export function toolTabId(tab: ToolTab): string {
       return `subagent:${tab.file}`
     case 'experiment-arm':
       return `arm:${tab.experiment}/${tab.arm}`
+    case 'page':
+      return `view:${tab.key}`
+    case 'web':
+      return `web:${tab.id}`
     default:
       return tab.kind
   }
@@ -69,13 +109,18 @@ const str = (v: unknown): v is string => typeof v === 'string' && v.length > 0 &
 export function toolTabFromJson(v: unknown): ToolTab | null {
   if (!isObject(v)) return null
   const kind = v['kind']
-  if (isToolKind(kind)) return { kind }
+  if (isToolKind(kind) || kind === 'browser') return { kind }
   if (kind === 'subagent' && str(v['session']) && str(v['file']) && str(v['name'])) {
     return { kind, session: v['session'], file: v['file'], name: v['name'] }
   }
   if (kind === 'experiment-arm' && str(v['experiment']) && str(v['arm']) && str(v['label'])) {
     return { kind, experiment: v['experiment'], arm: v['arm'], label: v['label'] }
   }
+  if (kind === 'page' && str(v['key'])) {
+    const place = placeFromJson(v['place'])
+    if (place) return { kind, key: v['key'], place: placeToJson(place) }
+  }
+  if (kind === 'web' && str(v['id'])) return { kind, id: v['id'] }
   return null
 }
 
@@ -181,7 +226,7 @@ export function dockGroups(node: DockNode): DockGroupJson[] {
 }
 
 /** The path of child indices to group `id` (dockview's grid location), or null. */
-function locateGroup(node: DockNode, id: string): number[] | null {
+export function locateGroup(node: DockNode, id: string): number[] | null {
   if (node.type === 'leaf') return node.data.id === id ? [] : null
   for (const [i, child] of node.data.entries()) {
     const rest = locateGroup(child, id)
@@ -291,18 +336,22 @@ export function normalizeDock(
 
 /**
  * Today's shell for a fresh config: the app tabs on the left and one tool pane on the right with
- * Browser and Files, `tool` in front, taking `share` of the width.
+ * Files, `tool` in front, taking `share` of the width.
  */
 export function defaultDock(
   tabs: Tabs,
   box: Box,
   titles: (id: string) => string,
   share = TOOL_PANE_SHARE,
-  tool: ToolKind = 'browser',
+  tool: ToolKind = 'files',
 ): DockJson {
   const s = Number.isFinite(share) ? Math.min(Math.max(share, 0.05), 0.95) : TOOL_PANE_SHARE
   const app = appGroup('p1', tabs)
-  const tools: DockGroupJson = { id: 'p2', views: [...TOOL_KINDS], activeView: tool }
+  const tools: DockGroupJson = {
+    id: 'p2',
+    views: [...TOOL_KINDS],
+    activeView: TOOL_KINDS.includes(tool) ? tool : TOOL_KINDS[0]!,
+  }
   const panels: Record<string, DockPanelJson> = {}
   for (const t of tabs.list) panels[appPanelId(t.id)] = appPanelJson(t.id, titles(appPanelId(t.id)))
   for (const kind of TOOL_KINDS) panels[kind] = toolPanelJson({ kind }, titles(kind))

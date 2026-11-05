@@ -91,22 +91,38 @@ export function ChatRuntime() {
   return null
 }
 
+/** Each app tab's chat pane while mounted; a drop waits a tick so a remount keeps the pane. */
+const tabPanes = new Map<number, { id: string; drop?: number }>()
+
 /**
  * App tab `tab`'s chat (a chat, or an assistant's thread) while it is on screen, under its own
- * chat pane id: a fresh one each mount, forgotten when the tab goes behind another or closes.
- * Main runs one omp per session file, so a second pane on a chat this app runs reads it live and
- * sends through its owner once Isaac says so; one Relay runs (an assistant's) streams and replies
- * in every pane alike. `lead` puts the sidebar and panel toggles in its header.
+ * chat pane id, forgotten when the tab goes behind another or closes. A remount in the same tick
+ * (its workspace's panes rebuilt around it) keeps the pane and all it holds. Main runs one omp per
+ * session file, so a second pane on a chat this app runs reads it live and sends through its
+ * owner once Isaac says so; one Relay runs (an assistant's) streams and replies in every pane
+ * alike. `lead` puts the sidebar and panel toggles in its header.
  */
 export function TabChat({ tab, place, lead }: { tab: number; place: Place; lead: boolean }) {
   const [paneId, setPaneId] = useState<string | null>(null)
   useEffect(() => {
-    const id = newChatPaneId()
-    setPaneId(id)
-    setTabChatPane(tab, id)
+    let held = tabPanes.get(tab)
+    if (held?.drop !== undefined) {
+      window.clearTimeout(held.drop)
+      held.drop = undefined
+    }
+    if (!held) {
+      held = { id: newChatPaneId() }
+      tabPanes.set(tab, held)
+    }
+    const mine = held
+    setPaneId(mine.id)
+    setTabChatPane(tab, mine.id)
     return () => {
-      setTabChatPane(tab, null)
-      dropChatPane(id)
+      mine.drop = window.setTimeout(() => {
+        if (tabPanes.get(tab) === mine) tabPanes.delete(tab)
+        setTabChatPane(tab, null)
+        dropChatPane(mine.id)
+      }, 0)
     }
   }, [tab])
   return paneId === null ? null : <ChatView paneId={paneId} place={place} tab={tab} lead={lead} />

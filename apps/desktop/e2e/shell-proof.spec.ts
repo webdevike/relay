@@ -4,11 +4,11 @@ import { test, expect } from './fixtures'
 import { pickScheme } from './helpers/appearance'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
 import { proofShot } from './helpers/proofShot'
+import { openPage, viewVisible } from './helpers/web'
 
 type G = {
   __evaosTest: {
     win: { setContentSize(w: number, h: number): void }
-    hooks: { browser: { host: { activeView(): { getVisible(): boolean } } } }
   }
 }
 type Snap = {
@@ -48,7 +48,7 @@ async function size(app: ElectronApplication, shell: Page, w: number, h: number)
   await expect
     .poll(
       async () => {
-        const now = JSON.stringify([await box(shell, 'main-card'), await box(shell, 'pane-p2')])
+        const now = JSON.stringify([await box(shell, 'main-card'), await box(shell, 'tool-pane')])
         const same = now === last
         last = now
         return same
@@ -59,23 +59,19 @@ async function size(app: ElectronApplication, shell: Page, w: number, h: number)
 }
 
 async function box(shell: Page, id: string) {
-  const b = await shell.locator(sel(id)).boundingBox()
+  const b = await shell
+    .locator(id === 'tool-pane' ? '[data-pane-kind=tool]' : sel(id))
+    .first()
+    .boundingBox()
   if (!b) throw new Error(`no box for ${id}`)
   return b
 }
 
+/** The page opened before each test: a web page tab in the tool pane beside the chat. */
+let pageId = ''
 async function loadPage(shell: Page, app: ElectronApplication): Promise<void> {
-  const addr = shell.locator(sel('address-input'))
-  await addr.fill(server.url('/a.html'))
-  await addr.press('Enter')
-  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
-  await expect
-    .poll(() =>
-      app.evaluate(() =>
-        (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().getVisible(),
-      ),
-    )
-    .toBe(true)
+  pageId = await openPage(shell, server.url('/a.html'), 'Page A')
+  await expect.poll(() => viewVisible(app, pageId)).toBe(true)
 }
 
 const resolved = (shell: Page) => expect(shell.locator('html'))
@@ -98,7 +94,7 @@ test('shell-dark-1280x800', async ({ app, shell }) => {
   await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')
   expect((await box(shell, 'sidebar')).width).toBe(272)
   // The default tool pane takes about a third of the room right of the sidebar.
-  const tool = await box(shell, 'pane-p2')
+  const tool = await box(shell, 'tool-pane')
   const main = await box(shell, 'main-card')
   expect(Math.abs(tool.width / (tool.width + main.width) - 0.34)).toBeLessThan(0.01)
   await finish(app, shell, 'shell-dark-1280x800')
@@ -116,7 +112,7 @@ for (const mode of ['dark', 'light'] as const) {
     await resolved(shell).toHaveAttribute('data-resolved', mode)
     await size(app, shell, 760, 720)
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'folded')
-    const tool = await box(shell, 'pane-p2')
+    const tool = await box(shell, 'tool-pane')
     const main = await box(shell, 'main-card')
     // Both panes keep their smallest widths (chat 480, tool pane 240) inside the window.
     expect(tool.width).toBeGreaterThanOrEqual(240)
@@ -132,7 +128,7 @@ for (const mode of ['dark', 'light'] as const) {
     await size(app, shell, 1440, 900)
     await expect(shell.locator(sel('shell'))).toHaveAttribute('data-sidebar-state', 'open')
     expect((await box(shell, 'sidebar')).width).toBe(272)
-    const tool = await box(shell, 'pane-p2')
+    const tool = await box(shell, 'tool-pane')
     const main = await box(shell, 'main-card')
     expect(Math.abs(tool.width / (tool.width + main.width) - 0.34)).toBeLessThan(0.01)
     // Sub-pixel layout: the 8px gap between the cards may measure a pixel off.
@@ -142,31 +138,38 @@ for (const mode of ['dark', 'light'] as const) {
   })
 }
 
+/** The id of the tab in front. */
+const frontId = async (shell: Page): Promise<number> => {
+  const t = await tabs(shell)
+  return t.list[t.active]!.id
+}
+
 test('tabs-pinned-menu', async ({ app, shell }) => {
-  await shell.locator(sel('tab-new')).click()
-  await expect.poll(async () => (await tabs(shell)).list.length).toBe(2)
-  await shell.locator(sel('tab-new')).click()
-  await expect.poll(async () => (await tabs(shell)).list.length).toBe(3)
-  const list = (await tabs(shell)).list
-  // The loaded page belongs to the first chat's browser scope; the new chats have none.
-  await shell.locator(sel(`tab-${list[0]!.id}`)).click()
-  await expect(shell.locator(sel('pane-p2'))).toBeVisible()
-  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
-  await shell.locator(sel(`tab-${list[0]!.id}`)).click({ button: 'right' })
+  // The first chat's tab, pinned, is a shortcut in every workspace.
+  const first = await frontId(shell)
+  await shell.locator(sel(`tab-${first}`)).click({ button: 'right' })
   await shell.locator(sel('tab-menu-pin')).click()
-  await expect(shell.locator(sel(`tab-pinned-${list[0]!.id}`))).toBeVisible()
-  await expect(shell.locator(sel(`tab-close-${list[0]!.id}`))).toHaveCount(0)
-  expect((await tabs(shell)).list[0]!.pinned).toBe(true)
-  await shell.locator(sel(`tab-${list[1]!.id}`)).click({ button: 'right' })
+  await expect(shell.locator(sel(`tab-pinned-${first}`))).toBeVisible()
+  await expect(shell.locator(sel(`tab-close-${first}`))).toHaveCount(0)
+  expect((await tabs(shell)).list.find((t) => t.id === first)?.pinned).toBe(true)
+  // Two new chats, each its own workspace: the pin stays, the first chat's page does not. An
+  // empty new chat closes when left, so the tab count stays at the pin plus the chat in front.
+  const start = (await tabs(shell)).list.length
+  let prev = first
+  for (let i = 0; i < 2; i++) {
+    await shell.locator(sel('tab-new')).click()
+    await shell.locator(sel('pane-add-new-chat-p1')).click()
+    await expect.poll(() => frontId(shell)).not.toBe(prev)
+    prev = await frontId(shell)
+    await expect.poll(async () => (await tabs(shell)).list.length).toBe(start + 1)
+    await expect(shell.locator(sel(`tab-pinned-${first}`))).toBeVisible()
+  }
+  await expect.poll(() => viewVisible(app, pageId)).toBe(false)
+  const now = await frontId(shell)
+  expect(now).not.toBe(first)
+  await shell.locator(sel(`tab-${now}`)).click({ button: 'right' })
   await expect(shell.locator(sel('tab-menu'))).toBeVisible()
   await expect(shell.locator(sel('tab-menu-close-others'))).toBeVisible()
-  await expect
-    .poll(() =>
-      app.evaluate(() =>
-        (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().getVisible(),
-      ),
-    )
-    .toBe(false)
   await finish(app, shell, 'tabs-pinned-menu')
 })
 

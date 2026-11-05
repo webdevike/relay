@@ -10,6 +10,7 @@ import type { BrowserHost } from './browser-host'
 
 export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
   handle(ctx, 'browser.state', ({ scope }) => host.snapshot(scope))
+  handle(ctx, 'browser.tabs.get', ({ ids }) => ({ tabs: host.tabStates(ids) }))
   handle(ctx, 'browser.navigate', async ({ tabId, input }) => {
     await host.ready
     const url = normalize(input)
@@ -35,9 +36,12 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
   handle(ctx, 'browser.systemBrowser', () => ({
     name: app.getApplicationNameForProtocol('https://') || null,
   }))
-  handle(ctx, 'browser.createTab', async ({ url, scope }) => {
+  handle(ctx, 'browser.createTab', async ({ url, scope, openedBy, background }) => {
     await host.ready
-    const tab = host.createTab(url ? (normalize(url) ?? undefined) : undefined, true, { scope })
+    const tab = host.createTab(url ? (normalize(url) ?? undefined) : undefined, !background, {
+      scope,
+      ...(openedBy ? { openedBy } : {}),
+    })
     if (!tab) throw Object.assign(new Error('Tab limit reached'), { code: 'tab-limit' })
     return tab
   })
@@ -85,8 +89,10 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
     host.setSwitchApp(tabId, id)
     return { active: id }
   })
-  handle(ctx, 'browser.setSlot', (rect) => {
-    host.setSlot(rect)
+  handle(ctx, 'browser.setSlots', async ({ slots }) => {
+    // A dormant slotted tab revives: let content scripts be ready for it.
+    await host.ready
+    host.setSlots(slots)
     return { ok: true as const }
   })
   handle(ctx, 'browser.setOccluded', ({ occluded }) => ({ visible: host.setOccluded(occluded) }))

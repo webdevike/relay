@@ -223,4 +223,17 @@ export const linksInvoke = {
       launched: z.boolean(),
     }),
   },
+  /** Option+click on a web link: opens it in Arc (`open -a Arc <url>`), http(s) only. */
+  'links.openInArc': {
+    input: z
+      .object({
+        url: z
+          .string()
+          .url()
+          .max(8_000)
+          .refine((u) => /^https?:\/\//i.test(u), { message: 'an http(s) URL' }),
+      })
+      .strict(),
+    output: z.object({ launched: z.boolean() }),
+  },
 } as const

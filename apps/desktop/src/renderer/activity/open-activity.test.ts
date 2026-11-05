@@ -44,7 +44,7 @@ describe('openActivity', () => {
     expect(openActivity(item({ to: 'chat', thread: 'session:aw1', session: 'aw1' }))).toBe(true)
     expect(m.openInApp).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 'chat', chat: '/s/aw1.jsonl' }),
-      'split',
+      'here',
     )
     expect(
       openActivity(item({ to: 'chat', thread: 'assistant:astra', session: 'unknown' }), 'tab'),
@@ -78,7 +78,7 @@ describe('openActivity', () => {
     openActivity(item({ to: 'canvas', slug: 'roadmap' }, { kind: 'canvas' }))
     expect(m.openInApp).toHaveBeenLastCalledWith(
       expect.objectContaining({ page: 'canvas', canvas: 'roadmap' }),
-      'split',
+      'here',
     )
   })
 })

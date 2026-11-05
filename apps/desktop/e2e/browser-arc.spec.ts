@@ -6,7 +6,7 @@ import { FIXTURES_DIR } from './helpers/paths'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import type { Page } from '@playwright/test'
+import { openPage, viewOf, webPanel } from './helpers/web'
 
 const MARK = path.join(os.tmpdir(), `evaos-arc-mark-${process.pid}`)
 test.use({
@@ -22,12 +22,7 @@ test.use({
 type G = {
   __evaosTest: {
     errors: string[]
-    hooks: {
-      browser: {
-        host: { activeView(): { getVisible(): boolean }; snapshot(): { activeId: string } }
-        pageControl(id: string): { readText(): Promise<string> }
-      }
-    }
+    hooks: { browser: { pageControl(id: string): { readText(): Promise<string> } } }
   }
 }
 
@@ -41,12 +36,6 @@ test.afterAll(async () => {
   fs.rmSync(MARK, { force: true })
 })
 
-async function nav(shell: Page, input: string): Promise<void> {
-  const addr = shell.locator('[data-testid=address-input]')
-  await addr.fill(input)
-  await addr.press('Enter')
-}
-
 test('Import Arc logins: confirm modal, cookies only in persist:browser, never on launch', async ({
   app,
   shell,
@@ -54,25 +43,19 @@ test('Import Arc logins: confirm modal, cookies only in persist:browser, never o
   // Launch alone must not run the exporter.
   expect(fs.existsSync(MARK)).toBe(false)
 
-  await nav(shell, server.url('/account.html'))
-  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Account')
+  const id = await openPage(shell, server.url('/account.html'), 'Account')
   const text = () =>
-    app.evaluate(async () => {
-      const t = (globalThis as unknown as G).__evaosTest.hooks.browser
-      return t.pageControl(t.host.snapshot().activeId).readText()
-    })
+    app.evaluate(
+      async (_e, tabId) =>
+        (globalThis as unknown as G).__evaosTest.hooks.browser.pageControl(tabId).readText(),
+      id,
+    )
   await expect.poll(text).toContain('SIGNED OUT')
 
-  await shell.locator('[data-testid=btn-import-arc]').click()
+  await webPanel(shell, id).locator('[data-testid=btn-import-arc]').click()
   await expect(shell.locator('[data-testid=import-arc-modal]')).toBeVisible()
   await expect(shell.getByText('Import Arc logins', { exact: true }).last()).toBeVisible()
-  await expect
-    .poll(() =>
-      app.evaluate(() =>
-        (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().getVisible(),
-      ),
-    )
-    .toBe(false)
+  await expect.poll(async () => (await viewOf(app, id))?.visible).toBe(false)
   expect(fs.existsSync(MARK)).toBe(false)
   await proofShot(app, shell, 'harness-import-arc-modal')
 

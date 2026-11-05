@@ -13,7 +13,7 @@ import { openSubagentTab, revealTool } from '../tiling/tiling-store'
  * chat, a helper its transcript, a harness the Terminal tool attached to its pane view-only, a
  * canvas agent its room. Returns whether it went anywhere (a chat the list does not know does not).
  */
-export function openActivity(item: ActivityItem, target: OpenTarget = 'split'): boolean {
+export function openActivity(item: ActivityItem, target: OpenTarget = 'here'): boolean {
   const to = item.open
   switch (to.to) {
     case 'chat': {

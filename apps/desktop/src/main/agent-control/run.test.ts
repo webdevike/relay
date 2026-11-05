@@ -92,9 +92,12 @@ describe('runAgentRequest', () => {
       kind: 'files',
       scope: 'test-bench',
     })
-    // Pane layout acts on the whole window: the caller's scope stays out.
+    // Pane layout acts on the caller's workspace too.
     await runAgentRequest('pane.close', { params: { pane: 'p2' }, scope: 'agent:nova' }, d)
-    expect(d.run).toHaveBeenLastCalledWith('pane.close', expect.anything(), { pane: 'p2' })
+    expect(d.run).toHaveBeenLastCalledWith('pane.close', expect.anything(), {
+      pane: 'p2',
+      scope: 'agent:nova',
+    })
     // Page changes and the rest go where they always went.
     await runAgentRequest('page.open', { params: { page: 'jobs' }, scope: 'agent:nova' }, d)
     expect(d.run).toHaveBeenLastCalledWith('page.open', expect.anything(), { page: 'jobs' })

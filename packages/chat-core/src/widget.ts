@@ -52,6 +52,18 @@ export const APP_LINK_PARAMS = [
   'experiment',
   'arm',
   'job',
+  /** `open/chat`: the chat session file, and a message in it. */
+  'chat',
+  'message',
+  /** `open/web`: the page's http(s) URL. */
+  'url',
+  /** `open/files`: a path (absolute or Eva-root relative) and a line. */
+  'path',
+  'line',
+  /** `open/canvas`: a node on the board. */
+  'node',
+  /** The workspace key a tool tab (web, files) belongs to. */
+  'ws',
 ] as const
 export type AppLinkParam = (typeof APP_LINK_PARAMS)[number]
 

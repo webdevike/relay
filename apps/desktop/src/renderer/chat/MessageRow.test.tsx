@@ -96,7 +96,7 @@ describe('MessageRow', () => {
     expect(container.querySelector('a')?.getAttribute('href') ?? '').not.toContain('javascript')
   })
 
-  it('opens web links in a new panel browser tab', () => {
+  it('opens web links as a page tab of this workspace', async () => {
     invoke.mockResolvedValue({ ok: true, value: {} })
     resetTabsForTests()
     resetTilingForTests()
@@ -104,7 +104,11 @@ describe('MessageRow', () => {
     const unmount = mountTestDock()
     wrap(<MessageRow m={makeMessage('a', 'assistant', 'see [docs](https://x.example/a)')} />)
     fireEvent.click(screen.getByRole('link', { name: 'docs' }))
-    expect(invoke).toHaveBeenCalledWith('browser.createTab', { url: 'https://x.example/a' })
+    expect(invoke).toHaveBeenCalledWith(
+      'browser.createTab',
+      expect.objectContaining({ url: 'https://x.example/a' }),
+    )
+    await Promise.resolve()
     unmount()
   })
 

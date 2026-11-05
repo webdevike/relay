@@ -1,29 +1,16 @@
-import { useState } from 'react'
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
 import {
   IconArrowLeft,
   IconArrowRight,
-  IconArrowsMaximize,
   IconArrowsMinimize,
-  IconLayoutColumns,
-  IconLayoutRows,
-  IconPlus,
   IconX,
 } from '@tabler/icons-react'
 import type { IDockviewHeaderActionsProps } from 'dockview-react'
 import { appTabOf } from '@evaos/shell-core'
-import { EvaMenu } from '../../overlay'
 import { useLayout } from '../../shell/layout-store'
 import { goBack, goForward, useTabs } from '../../tabs/tabs-store'
-import {
-  closePaneById,
-  newChatTabIn,
-  splitAt,
-  useTiling,
-  zoomPane,
-  type PaneView,
-} from '../tiling-store'
-import { openToolIn, TOOLS } from '../tools'
+import { closePaneById, useTiling, zoomPane, type PaneView } from '../tiling-store'
+import { AddMenu } from './AddMenu'
 
 function tip(label: string, chord?: string) {
   return (
@@ -89,36 +76,23 @@ export function PrefixActions({ group }: IDockviewHeaderActionsProps) {
   )
 }
 
-/** Right after the tabs of a pane holding app tabs: a new chat tab there. */
+/** Right after the last tab of every pane: its one + menu. */
 export function LeftActions({ group }: IDockviewHeaderActionsProps) {
   const pane = usePane(group.id)
   const lead = useTiling((s) => s.lead === group.id)
-  if (!pane?.app) return null
+  if (!pane) return null
   return (
-    <Tooltip label={tip('New tab', '⌘T')} position="bottom" openDelay={400}>
-      <ActionIcon
-        variant="subtle"
-        size={28}
-        className="eva-tabbar-btn"
-        data-testid={lead ? 'tab-new' : `tab-new-${group.id}`}
-        aria-label="New tab"
-        onClick={() => newChatTabIn(group.id)}
-      >
-        <IconPlus size={16} stroke={1.5} />
-      </ActionIcon>
-    </Tooltip>
+    <AddMenu pane={group.id} app={pane.app} testid={lead ? 'tab-new' : `pane-add-${group.id}`} />
   )
 }
 
 /**
- * The end of a strip holding a tool tab: the + menu (add a tab, split, maximize), restore while
- * maximized, and close; a page added there (Studio) keeps them. A pane of app tabs alone shows
- * restore only, like the tab bar did.
+ * The end of a strip: restore while maximized, and close for a pane holding a tool tab. A pane of
+ * app tabs alone shows restore only, like the tab bar did.
  */
 export function RightActions({ group }: IDockviewHeaderActionsProps) {
   const pane = usePane(group.id)
   const zoomed = useTiling((s) => s.zoom === group.id)
-  const [menu, setMenu] = useState(false)
   if (!pane) return null
   const id = group.id
   const restore = zoomed ? (
@@ -140,63 +114,6 @@ export function RightActions({ group }: IDockviewHeaderActionsProps) {
   }
   return (
     <div className="eva-dock-actions">
-      <EvaMenu opened={menu} onChange={setMenu} position="bottom-end" width={200}>
-        <EvaMenu.Target>
-          <Tooltip
-            label={tip('Add a tab or split')}
-            position="bottom"
-            openDelay={400}
-            disabled={menu}
-          >
-            <ActionIcon
-              variant="subtle"
-              className="eva-header-btn"
-              aria-label="Add a tab or split"
-              data-testid={`pane-add-${id}`}
-            >
-              <IconPlus size={16} stroke={1.5} />
-            </ActionIcon>
-          </Tooltip>
-        </EvaMenu.Target>
-        <EvaMenu.Dropdown data-testid={`pane-add-menu-${id}`}>
-          {TOOLS.map(({ label, Icon, add }) => (
-            <EvaMenu.Item
-              key={label}
-              leftSection={<Icon size={16} stroke={1.5} />}
-              onClick={() => openToolIn(add, id)}
-            >
-              {label}
-            </EvaMenu.Item>
-          ))}
-          <EvaMenu.Divider />
-          <EvaMenu.Item
-            data-testid={`pane-split-${id}`}
-            leftSection={<IconLayoutColumns size={16} stroke={1.5} />}
-            rightSection={<Kbd size="xs">⌘\\</Kbd>}
-            onClick={() => splitAt(id, 'right')}
-          >
-            Split right
-          </EvaMenu.Item>
-          <EvaMenu.Item
-            data-testid={`pane-split-down-${id}`}
-            leftSection={<IconLayoutRows size={16} stroke={1.5} />}
-            rightSection={<Kbd size="xs">⇧⌘\\</Kbd>}
-            onClick={() => splitAt(id, 'down')}
-          >
-            Split down
-          </EvaMenu.Item>
-          {zoomed ? null : (
-            <EvaMenu.Item
-              data-testid={`pane-zoom-${id}`}
-              leftSection={<IconArrowsMaximize size={16} stroke={1.5} />}
-              rightSection={<Kbd size="xs">⌥⌘↩</Kbd>}
-              onClick={() => zoomPane(id, true)}
-            >
-              Maximize
-            </EvaMenu.Item>
-          )}
-        </EvaMenu.Dropdown>
-      </EvaMenu>
       {restore}
       <Tooltip label={tip('Close pane', '⌥⌘W')} position="bottom-end" openDelay={400}>
         <ActionIcon

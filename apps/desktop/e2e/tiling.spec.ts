@@ -4,20 +4,15 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { test as base, expect, launchApp } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
+import { openPage as openWebPage, pageIds, pageTab, pageTabs, webPanel } from './helpers/web'
 
-// The window's panes are dockview groups (tiling/dock): app tabs (chats and pages) and tool tabs
-// live in any pane. Browser and Files show what belongs to the app tab in front (its browser
-// scope): each chat owns its browser tabs, pinned tabs show everywhere.
+// The window shows one workspace at a time (an assistant, a chat, a page), each with its own
+// dockview layout: app tabs (chats and pages) and tool tabs (Files, Terminal, web pages, pages
+// beside) live in any of its panes. Pinned tabs show in every workspace.
 
-type Snap = {
-  tabs: Array<{ id: string; title: string; pinned: boolean }>
-  activeId: string
-  scope: string
-}
 type G = {
   __evaosTest: {
     win: { setContentSize(w: number, h: number): void }
-    hooks: { browser: { host: { snapshot(): Snap } } }
   }
 }
 type ShellHooks = {
@@ -68,16 +63,8 @@ test.afterAll(async () => {
 })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
-const host = (app: ElectronApplication): Promise<Snap> =>
-  app.evaluate(() => (globalThis as unknown as G).__evaosTest.hooks.browser.host.snapshot())
 const scope = (shell: Page): Promise<string> =>
   shell.evaluate(() => (window as unknown as ShellHooks).__evaosShell.browserScope())
-const stripIds = (shell: Page): Promise<string[]> =>
-  shell
-    .locator('[data-testid^=browser-tab-t]')
-    .evaluateAll((els) =>
-      els.map((e) => e.getAttribute('data-testid')!.slice('browser-tab-'.length)),
-    )
 
 /** The panes on screen, `kind` only (a pane hidden by a maximized one is not on screen). */
 const panes = (shell: Page, kind: 'app' | 'tool' | 'any' = 'tool'): Promise<PaneView[]> =>
@@ -130,9 +117,13 @@ function shape(node: DockNode, dir: 'row' | 'column'): unknown {
   const turn = dir === 'row' ? 'column' : 'row'
   return [dir, ...node.data.map((c) => shape(c, turn))]
 }
-const savedDock = (dir: string) =>
-  layoutFile(dir)['dock'] as
-    { grid: { root: DockNode; orientation: 'HORIZONTAL' | 'VERTICAL' } } | undefined
+type SavedDock = { grid: { root: DockNode; orientation: 'HORIZONTAL' | 'VERTICAL' } }
+/** The saved dock of the workspace in front. */
+const savedDock = (dir: string): SavedDock | undefined => {
+  const ws = layoutFile(dir)['workspaces'] as
+    { front?: string; layouts?: Record<string, SavedDock> } | undefined
+  return ws?.front ? ws.layouts?.[ws.front] : undefined
+}
 const savedShape = (dir: string): unknown => {
   const d = savedDock(dir)
   return d ? shape(d.grid.root, d.grid.orientation === 'HORIZONTAL' ? 'row' : 'column') : null
@@ -162,10 +153,19 @@ async function openPage(shell: Page, page: string): Promise<void> {
   await shell.evaluate((p) => (window as unknown as ShellHooks).__evaosShell.openPlace(p), page)
   await expect.poll(() => scope(shell)).toBe(`page:${page}`)
 }
-async function typeAddress(shell: Page, url: string): Promise<void> {
-  const addr = shell.locator(sel('address-input'))
-  await addr.fill(url)
-  await addr.press('Enter')
+/** Opens board `slug` (Canvas, one workspace for every board), in a new tab or this one. */
+async function openBoard(shell: Page, slug: string, newTab: boolean): Promise<void> {
+  await shell.evaluate(
+    ([s, n]) =>
+      (window as unknown as ShellHooks).__evaosShell.openPlace('canvas', n as boolean, {
+        canvas: s,
+      }),
+    [slug, newTab] as const,
+  )
+  await expect.poll(() => scope(shell)).toBe('page:canvas')
+  await expect(shell.locator(`${sel('tabbar')} .eva-tab[data-active=true]`).first()).toContainText(
+    slug,
+  )
 }
 async function size(app: ElectronApplication, shell: Page, w: number, h: number): Promise<void> {
   await app.evaluate(
@@ -229,22 +229,22 @@ async function dragTo(
   return zone!
 }
 
-const DEFAULT: PaneView[] = [{ id: 'p2', tabs: ['browser', 'files'], active: 'browser' }]
+// A fresh Dashboard: the app tabs on the left, one tool pane with Files on the right.
+const DEFAULT: PaneView[] = [{ id: 'p2', tabs: ['files'], active: 'files' }]
 
-test('tool tabs follow the app tab in front; the toggle hides and shows them', async ({
+test('each workspace keeps its own tool tabs; the toggle hides and shows them', async ({
   app,
   shell,
   configDir,
 }) => {
-  const tools = shell.locator(sel('pane-p2'))
+  const tools = shell.locator('[data-pane-kind=tool]')
   const toggle = shell.locator(`${sel('panel-toggle')}:visible`).first()
   const chatA = fx.file('p4-ecard')
   const chatB = fx.file('p4-relay')
 
-  // A fresh config: the app tabs on the left, one tool pane with Browser in front on the right.
+  // A fresh config: the app tabs on the left, one tool pane with Files on the right.
   await expect(shell.locator(sel('pane-p1'))).toHaveAttribute('data-pane-kind', 'app')
-  await expect(tools).toBeVisible()
-  await expect(tools).toHaveAttribute('data-pane-kind', 'tool')
+  await expect(shell.locator(sel('pane-p2'))).toHaveAttribute('data-pane-kind', 'tool')
   await expect.poll(() => panes(shell)).toEqual(DEFAULT)
   const appBox = await box(shell, sel('pane-p1'))
   const toolBox = await box(shell, sel('pane-p2'))
@@ -252,95 +252,73 @@ test('tool tabs follow the app tab in front; the toggle hides and shows them', a
   // The sash sits in the gap between them.
   const sash = await sashBetween(shell, 'p1', 'p2')
   expect(sash.width).toBeGreaterThan(0)
-  // The first save writes the dock and drops the old split tree and panel keys.
+  // The first save writes the workspace's dock and drops the old split tree and panel keys.
   await expect.poll(() => savedShape(configDir)).toEqual(['row', 'p1', 'p2'])
   expect(layoutFile(configDir)).not.toHaveProperty('tiling')
   expect(layoutFile(configDir)).not.toHaveProperty('panel_choices')
   expect(layoutFile(configDir)).not.toHaveProperty('panel_tool')
 
-  // Chat A, with Files in front and the tool panes hidden: a link opens a browser tab there,
-  // which shows the tool panes and brings the Browser tab forward.
+  // Chat A is a workspace of its own: none of Dashboard's tool tabs follow it. A link in it opens
+  // a web page beside the chat, which brings a tool pane up.
   await openChat(shell, chatA)
-  await shell.locator(sel('pane-tab-files')).click()
-  await expect(shell.locator(sel('pane-tab-files'))).toHaveAttribute('data-active', 'true')
-  await expect(shell.locator(`${sel('pane-body-p2')} ${sel('files-panel')}`)).toBeVisible()
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await expect(toggle).toHaveAttribute('aria-label', 'Show tool panes')
-  await expect(tools).toBeHidden()
+  await expect.poll(() => panes(shell)).toEqual([])
   await shell.locator(sel('chat-log')).getByText('the page A link').click()
+  await expect(pageTabs(shell)).toHaveCount(1)
+  const aTab = (await pageIds(shell))[0]!
+  await expect(pageTab(shell, aTab)).toContainText('Page A')
   await expect(tools).toBeVisible()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect(toggle).toHaveAttribute('aria-label', 'Hide tool panes')
-  await expect(shell.locator(sel('pane-tab-browser'))).toHaveAttribute('data-active', 'true')
-  await expect(shell.locator(`${sel('pane-body-p2')} ${sel('browser-panel')}`)).toBeVisible()
-  await expect(shell.locator('[data-testid^=browser-tab-t]')).toHaveCount(1)
-  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page A')
-  const aTab = (await host(app)).activeId
-  expect((await host(app)).scope).toBe(`chat:${chatA}`)
 
-  // Chat B has no tabs: the panes stay as they are, the browser shows B's (empty) strip.
+  // Chat B has none: no pages, no tool panes. A page opened in B belongs to B.
   await openChat(shell, chatB)
-  await expect.poll(() => panes(shell)).toEqual(DEFAULT)
-  await expect.poll(async () => (await host(app)).tabs).toEqual([])
-  await expect.poll(() => stripIds(shell)).toEqual([])
-  await expect(shell.locator(sel('page-blank'))).toBeVisible()
-  // A tab opened in B (Isaac types an address) belongs to B.
-  await typeAddress(shell, server.url('/b.html'))
-  await expect(shell.locator('[data-testid^=browser-tab-t]').first()).toContainText('Page B')
-  const bTab = (await host(app)).activeId
+  await expect.poll(() => pageIds(shell)).toEqual([])
+  await expect.poll(() => panes(shell)).toEqual([])
+  const bTab = await openWebPage(shell, server.url('/b.html'), 'Page B', 'p1')
   expect(bTab).not.toBe(aTab)
 
-  // Back to A: its tab is active again and B's is not there.
+  // Back to A: its page again, B's not there; switching back restores A's layout as it was.
   await openChat(shell, chatA)
-  await expect.poll(() => stripIds(shell)).toEqual([aTab])
-  expect((await host(app)).activeId).toBe(aTab)
-  await expect(shell.locator(sel(`browser-tab-${aTab}`))).toHaveClass(/is-active/)
+  await expect.poll(() => pageIds(shell)).toEqual([aTab])
+  await expect(webPanel(shell, aTab)).toBeVisible()
 
-  // Pin A's tab from the strip's menu: B shows it first and keeps its own active tab.
-  await shell.locator(sel(`browser-tab-${aTab}`)).click({ button: 'right' })
-  await shell.locator(sel('browser-tab-menu-pin')).click()
-  await expect(shell.locator(sel(`browser-tab-pin-${aTab}`))).toBeVisible()
+  // Pin A's page from its tab's menu: it shows in B too, beside B's own.
+  await pageTab(shell, aTab).click({ button: 'right' })
+  await shell.locator(sel('pane-tab-menu-pin')).click()
+  await expect(pageTab(shell, aTab)).toHaveAttribute('data-pinned', 'true')
   await openChat(shell, chatB)
-  await expect.poll(() => stripIds(shell)).toEqual([aTab, bTab])
-  expect((await host(app)).activeId).toBe(bTab)
-
-  // Hiding is global: it holds across chats and pages, and Cmd+Shift+B brings the panes back.
-  await toggle.click()
-  await expect(tools).toBeHidden()
-  await openChat(shell, chatA)
-  await expect(tools).toBeHidden()
+  await expect.poll(async () => (await pageIds(shell)).sort()).toEqual([aTab, bTab].sort())
   await openPage(shell, 'dashboard')
-  await expect(tools).toBeHidden()
+  await expect.poll(() => pageIds(shell)).toEqual([aTab])
+  await expect.poll(async () => (await panes(shell)).flatMap((p) => p.tabs)).toContain('files')
+
+  // Hiding belongs to the workspace's layout: Dashboard's panes stay hidden while Isaac visits
+  // chat A (which shows its own) and comes back; Cmd+Shift+B brings them back.
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(toggle).toHaveAttribute('aria-label', 'Show tool panes')
+  await expect(tools.filter({ visible: true })).toHaveCount(0)
+  await openChat(shell, chatA)
+  await expect(webPanel(shell, aTab)).toBeVisible()
+  await openPage(shell, 'dashboard')
+  await expect(tools.filter({ visible: true })).toHaveCount(0)
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   await shell.locator(sel('shell')).click({ position: { x: 600, y: 790 } })
   await shell.keyboard.press('Meta+Shift+b')
-  await expect(tools).toBeVisible()
-  await expect.poll(() => panes(shell)).toEqual(DEFAULT)
+  await expect(tools.first()).toBeVisible()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(async () => (await panes(shell)).flatMap((p) => p.tabs)).toContain('files')
 
-  // Dashboard is its own scope: only the pinned tab, and + opens a Dashboard tab.
-  await expect
-    .poll(async () => (await host(app)).tabs.map((t) => [t.id, t.pinned]))
-    .toEqual([[aTab, true]])
-  await shell.locator(sel('browser-tab-new')).click()
-  await expect.poll(async () => (await host(app)).tabs.length).toBe(2)
-  await typeAddress(shell, server.url('/b.html'))
-  await expect.poll(() => stripIds(shell)).toHaveLength(2)
-  const dashTab = (await host(app)).activeId
-  await openChat(shell, chatB)
-  await expect.poll(async () => (await host(app)).tabs.map((t) => t.id)).toEqual([aTab, bTab])
-  await openPage(shell, 'dashboard')
-  await expect.poll(() => stripIds(shell)).toEqual([aTab, dashTab])
-
-  // A draft chat opens a tab, then omp names its file: the tab stays with the chat.
+  // A new chat opens a page, then omp names its file: the page stays with the chat.
   const before = fs.readdirSync(fx.sessionsDir)
   await shell.evaluate(() => (window as unknown as ShellHooks).__evaosShell.openChat())
   await expect.poll(() => scope(shell)).toMatch(/^draft:\d+$/)
-  await expect(tools).toBeVisible()
-  await shell.locator(sel('browser-tab-new')).click()
-  await expect.poll(async () => (await host(app)).tabs.length).toBe(2)
-  await typeAddress(shell, server.url('/a.html'))
-  await expect.poll(async () => (await host(app)).tabs[1]?.title).toBe('Page A')
-  const draftTab = (await host(app)).activeId
+  const draftTab = await openWebPage(shell, server.url('/a.html'), 'Page A', 'p1')
+  // The page opened in front of the chat's own pane: bring the chat's tab forward to type.
+  await shell
+    .locator(`${sel('tabbar')} .eva-tab`)
+    .first()
+    .click()
   const input = shell.locator(sel('composer-input'))
   await expect(input).toBeVisible()
   await input.fill('hello from a draft')
@@ -353,35 +331,39 @@ test('tool tabs follow the app tab in front; the toggle hides and shows them', a
     fs.readdirSync(fx.sessionsDir).find((n) => !before.includes(n))!,
   )
   await expect.poll(() => scope(shell)).toBe(`chat:${created}`)
-  await expect.poll(async () => (await host(app)).scope).toBe(`chat:${created}`)
-  expect((await host(app)).activeId).toBe(draftTab)
+  await expect.poll(async () => (await pageIds(shell)).sort()).toEqual([aTab, draftTab].sort())
   await openChat(shell, chatA)
+  await expect.poll(() => pageIds(shell)).toEqual([aTab])
   await openChat(shell, created)
-  await expect.poll(() => stripIds(shell)).toEqual([aTab, draftTab])
-  expect((await host(app)).activeId).toBe(draftTab)
+  await expect.poll(async () => (await pageIds(shell)).sort()).toEqual([aTab, draftTab].sort())
+  const want = await panes(shell)
 
-  // A renderer reload re-syncs with the host's scopes: same scope, same tabs, same panes.
+  // A renderer reload comes back to the same workspace with the same panes and pages.
   await shell.reload()
   await shell.waitForSelector(sel('rail'))
   await shell.waitForFunction(() => Boolean((window as unknown as ShellHooks).__evaosShell))
   await expect.poll(() => scope(shell)).toBe(`chat:${created}`)
-  await expect.poll(() => panes(shell)).toEqual(DEFAULT)
-  await expect.poll(() => stripIds(shell)).toEqual([aTab, draftTab])
-  expect((await host(app)).scope).toBe(`chat:${created}`)
+  await expect.poll(() => panes(shell)).toEqual(want)
   await openChat(shell, chatB)
-  await expect.poll(() => stripIds(shell)).toEqual([aTab, bTab])
+  await expect.poll(async () => (await pageIds(shell)).sort()).toEqual([aTab, bTab].sort())
 
-  // With every tool pane closed, the toggle opens Browser and Files again.
-  await shell.locator(sel('pane-close-p2')).click()
-  await expect.poll(() => panes(shell)).toEqual([])
+  // With every tool pane closed, the toggle opens Files again.
+  for (;;) {
+    const open = await panes(shell)
+    if (open.length === 0) break
+    await shell.locator(sel(`pane-close-${open[0]!.id}`)).click()
+    await expect.poll(async () => (await panes(shell)).length).toBe(open.length - 1)
+  }
+  // The toggle sits in the chat's header: bring B's chat tab forward (its page is in front).
+  await shell
+    .locator(`${sel('tabbar')} .eva-tab`)
+    .first()
+    .click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
-  await expect.poll(() => savedShape(configDir)).toEqual(['row', 'p1'])
   await toggle.click()
-  await expect
-    .poll(() => panes(shell))
-    .toEqual([{ id: 'p3', tabs: ['browser', 'files'], active: 'browser' }])
+  await expect.poll(async () => (await panes(shell)).flatMap((p) => p.tabs)).toContain('files')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  await expect.poll(() => stripIds(shell)).toEqual([aTab, bTab])
+  void app
 })
 
 test('the + menu splits a pane right and down, the sash resizes, and maximize shows one', async ({
@@ -391,14 +373,18 @@ test('the + menu splits a pane right and down, the sash resizes, and maximize sh
 }) => {
   await size(app, shell, 1600, 900)
   await expect.poll(() => panes(shell)).toEqual(DEFAULT)
-  await paneMenu(shell, 'p2', 'pane-split-p2')
+  // A second tool in the pane, then split right: the tab in front moves to the new pane.
+  await paneMenu(shell, 'p2', 'pane-add-tool-terminal-p2')
+  await expect
+    .poll(() => panes(shell))
+    .toEqual([{ id: 'p2', tabs: ['files', 'terminal'], active: 'terminal' }])
+  await paneMenu(shell, 'p2', 'pane-add-split-right-p2')
   await expect
     .poll(() => panes(shell))
     .toEqual([
       { id: 'p2', tabs: ['files'], active: 'files' },
-      { id: 'p3', tabs: ['browser'], active: 'browser' },
+      { id: 'p3', tabs: ['terminal'], active: 'terminal' },
     ])
-  await expect(shell.locator(`${sel('pane-body-p3')} ${sel('browser-panel')}`)).toBeVisible()
   const p2 = await box(shell, sel('pane-p2'))
   const p3 = await box(shell, sel('pane-p3'))
   expect(p3.x).toBeGreaterThan(p2.x + p2.width)
@@ -419,16 +405,15 @@ test('the + menu splits a pane right and down, the sash resizes, and maximize sh
     .toBe(40)
   expect(Math.round((await box(shell, sel('pane-p2'))).width - p2.width)).toBe(40)
 
-  // The + menu moves Files over to p3 (p2, left empty, goes); split down puts it under Browser.
-  await shell.locator(sel('pane-add-p3')).click()
-  await shell.locator(sel('pane-add-menu-p3')).getByRole('menuitem', { name: 'Files' }).click()
+  // The + menu moves Files over to p3 (p2, left empty, goes); split down puts it under Terminal.
+  await paneMenu(shell, 'p3', 'pane-add-tool-files-p3')
   await expect
     .poll(() => panes(shell))
-    .toEqual([{ id: 'p3', tabs: ['browser', 'files'], active: 'files' }])
-  await paneMenu(shell, 'p3', 'pane-split-down-p3')
+    .toEqual([{ id: 'p3', tabs: ['terminal', 'files'], active: 'files' }])
+  await paneMenu(shell, 'p3', 'pane-add-split-down-p3')
   await expect.poll(async () => (await panes(shell)).length).toBe(2)
   const [upper, lower] = await panes(shell)
-  expect(upper).toEqual({ id: 'p3', tabs: ['browser'], active: 'browser' })
+  expect(upper).toEqual({ id: 'p3', tabs: ['terminal'], active: 'terminal' })
   expect(lower!.tabs).toEqual(['files'])
   const p3top = await box(shell, sel('pane-p3'))
   const under = await box(shell, sel(`pane-${lower!.id}`))
@@ -436,10 +421,10 @@ test('the + menu splits a pane right and down, the sash resizes, and maximize sh
   await expect.poll(() => savedShape(configDir)).toEqual(['row', 'p1', ['column', 'p3', lower!.id]])
 
   // Maximize fills the panes' area with one pane; its header button restores the others.
-  await paneMenu(shell, 'p3', 'pane-zoom-p3')
+  await paneMenu(shell, 'p3', 'pane-add-zoom-p3')
   await expect
     .poll(() => panes(shell, 'any'))
-    .toEqual([{ id: 'p3', tabs: ['browser'], active: 'browser' }])
+    .toEqual([{ id: 'p3', tabs: ['terminal'], active: 'terminal' }])
   await expect(shell.locator(sel('pane-p1'))).toBeHidden()
   const restore = shell.locator(`${sel('pane-header-p3')} ${sel('pane-zoom-p3')}`)
   await expect(restore).toHaveAttribute('aria-label', 'Restore panes')
@@ -449,7 +434,7 @@ test('the + menu splits a pane right and down, the sash resizes, and maximize sh
 
   // Splitting a pane with one tab opens a tool that is not open anywhere: none is left here.
   const count = (await panes(shell, 'any')).length
-  await paneMenu(shell, 'p3', 'pane-split-p3')
+  await paneMenu(shell, 'p3', 'pane-add-split-right-p3')
   await expect.poll(async () => (await panes(shell, 'any')).length).toBe(count)
 })
 
@@ -460,6 +445,10 @@ test('dragging a tool tab onto a pane edge makes a new pane, and the layout surv
 }) => {
   await size(app, shell, 1400, 900)
   await expect.poll(() => panes(shell)).toEqual(DEFAULT)
+  await paneMenu(shell, 'p2', 'pane-add-tool-terminal-p2')
+  await expect
+    .poll(() => panes(shell))
+    .toEqual([{ id: 'p2', tabs: ['files', 'terminal'], active: 'terminal' }])
 
   // Drag Files to the app pane's bottom edge: the overlay shows the half of the pane (header and
   // body) it would take.
@@ -478,7 +467,7 @@ test('dragging a tool tab onto a pane edge makes a new pane, and the layout surv
   await expect
     .poll(async () => (await panes(shell)).sort((a, b) => a.id.localeCompare(b.id)))
     .toEqual([
-      { id: 'p2', tabs: ['browser'], active: 'browser' },
+      { id: 'p2', tabs: ['terminal'], active: 'terminal' },
       { id: 'p3', tabs: ['files'], active: 'files' },
     ])
   const top = await box(shell, sel('pane-p1'))
@@ -488,13 +477,13 @@ test('dragging a tool tab onto a pane edge makes a new pane, and the layout surv
   expect(Math.abs(below.width - top.width)).toBeLessThanOrEqual(1)
   await expect.poll(() => savedShape(configDir)).toEqual(['row', ['column', 'p1', 'p3'], 'p2'])
 
-  // Drag Browser onto the middle of the new pane: it joins that pane's tabs, and its own pane goes.
+  // Drag Terminal onto the middle of the new pane: it joins that pane's tabs, and its own pane goes.
   const p3 = await box(shell, sel('pane-body-p3'))
-  await dragTo(shell, sel('pane-tab-browser'), p3.x + p3.width / 2, p3.y + p3.height / 2)
+  await dragTo(shell, sel('pane-tab-terminal'), p3.x + p3.width / 2, p3.y + p3.height / 2)
   await expect
     .poll(() => panes(shell))
-    .toEqual([{ id: 'p3', tabs: ['files', 'browser'], active: 'browser' }])
-  await expect.poll(() => savedViews(configDir, 'p3')).toEqual(['files', 'browser'])
+    .toEqual([{ id: 'p3', tabs: ['files', 'terminal'], active: 'terminal' }])
+  await expect.poll(() => savedViews(configDir, 'p3')).toEqual(['files', 'terminal'])
   const want = await panes(shell, 'any')
   await app.close()
 
@@ -514,22 +503,27 @@ test('dragging a tool tab onto a pane edge makes a new pane, and the layout surv
   }
 })
 
-test('dragging an app tab onto the pane edge splits the app tabs; each pane gets its own strip, and they come back after a restart', async ({
+test("dragging an app tab onto the pane edge splits its workspace's app tabs; each pane gets its own strip, and they come back after a restart", async ({
   app,
   shell,
   configDir,
 }) => {
   await size(app, shell, 1400, 900)
-  await shell.evaluate(() => (window as unknown as ShellHooks).__evaosShell.openPlace('jobs', true))
+  // Two boards: two app tabs of one workspace (Canvas).
+  await openBoard(shell, 'first-board', false)
+  await openBoard(shell, 'second-board', true)
   // One pane of app tabs: one strip at the top, the window's.
   await expect(shell.locator(sel('tabbar'))).toHaveCount(1)
   const tabs = await panes(shell, 'app')
   expect(tabs).toHaveLength(1)
-  const jobs = tabs[0]!.active!
+  expect(tabs[0]!.tabs).toHaveLength(2)
+  const second = tabs[0]!.active!
   const body = await box(shell, sel('pane-body-p1'))
+
+  // The second board's tab, dragged to the right edge, splits off a pane of its own.
   const zone = await dragTo(
     shell,
-    `${sel('tabbar')} [data-app-tab="${jobs.slice(4)}"]`,
+    `${sel('tabbar')} [data-app-tab="${second.slice(4)}"]`,
     body.x + body.width - 24,
     body.y + body.height / 2,
     (z) => Math.abs(z.width - body.width / 2) <= 4,
@@ -542,16 +536,16 @@ test('dragging an app tab onto the pane edge splits the app tabs; each pane gets
   const split = await panes(shell, 'app')
   const xs = await Promise.all(split.map(byX))
   const [left, right] = xs[0]! < xs[1]! ? split : [split[1]!, split[0]!]
-  expect(left!.tabs).not.toContain(jobs)
-  expect(right!.tabs).toEqual([jobs])
+  expect(left!.tabs).not.toContain(second)
+  expect(right!.tabs).toEqual([second])
   // Each pane of app tabs now has its own strip; the first keeps the window's controls.
   await expect(shell.locator(sel('tabbar'))).toHaveCount(1)
   await expect(
-    shell.locator(`${sel(`pane-header-${right!.id}`)} ${sel(`tab-${jobs.slice(4)}`)}`),
+    shell.locator(`${sel(`pane-header-${right!.id}`)} ${sel(`tab-${second.slice(4)}`)}`),
   ).toBeVisible()
-  await expect(shell.locator(`${sel(`pane-body-${right!.id}`)} ${sel('page-jobs')}`)).toBeVisible()
+  await expect(shell.locator(sel(`pane-body-${right!.id}`))).toContainText('second-board')
   const want = await panes(shell, 'any')
-  await expect.poll(() => savedViews(configDir, right!.id)).toEqual([jobs])
+  await expect.poll(() => savedViews(configDir, right!.id)).toEqual([second])
   await app.close()
 
   const app2 = await launchApp(configDir)
@@ -564,45 +558,81 @@ test('dragging an app tab onto the pane edge splits the app tabs; each pane gets
   }
 })
 
-test('Cmd-click in the sidebar opens the page in a side pane; the app tab in front stays', async ({
+// Dragging a shortcut is not a click on it: no drop target offers, and letting go changes nothing.
+test("another workspace's pinned tab cannot be dragged out of its strip", async ({
+  app,
+  shell,
+}) => {
+  await size(app, shell, 1400, 900)
+  await shell.locator(`${sel('tabbar')} ${sel('tab-0')}`).click({ button: 'right' })
+  await shell.locator(sel('tab-menu-pin')).click()
+  await openBoard(shell, 'first-board', false)
+  await openBoard(shell, 'second-board', true)
+  const tabs = await panes(shell, 'app')
+  expect(tabs).toEqual([
+    {
+      id: 'p1',
+      tabs: ['tab:0', expect.any(String), expect.any(String)],
+      active: expect.any(String),
+    },
+  ])
+  const body = await box(shell, sel('pane-body-p1'))
+
+  // Dragging Dashboard's pinned shortcut to the pane's right edge offers no drop there, and
+  // letting go leaves everything as it was: two workspaces never sit side by side.
+  const pinned = await box(shell, sel('tab-pinned-0'))
+  await shell.mouse.move(pinned.x + pinned.width / 2, pinned.y + pinned.height / 2)
+  await shell.mouse.down()
+  await shell.mouse.move(pinned.x + pinned.width / 2 + 6, pinned.y + pinned.height / 2 + 6, {
+    steps: 3,
+  })
+  await shell.mouse.move(body.x + body.width - 24, body.y + body.height / 2, { steps: 16 })
+  await shell.waitForTimeout(300)
+  await expect(shell.locator('.dv-drop-target-anchor, .dv-drop-target-selection')).toBeHidden()
+  await shell.mouse.up()
+  await shell.waitForTimeout(300)
+  await expect.poll(() => scope(shell)).toBe('page:canvas')
+  expect(await panes(shell, 'app')).toEqual(tabs)
+  // Still in the lead pane's strip (the window's tab bar).
+  await expect(shell.locator(`${sel('tabbar')} ${sel('tab-pinned-0')}`)).toBeVisible()
+})
+
+test('Cmd-click in the sidebar opens the page as a background tab; Cmd+Shift-click splits it beside', async ({
   shell,
 }) => {
   await expect.poll(() => panes(shell)).toEqual(DEFAULT)
   const before = await panes(shell, 'app')
   await shell.locator(sel('nav-jobs')).click({ modifiers: ['Meta'] })
-  // Jobs is a tab of the pane right of the app tabs, in front there; the dashboard stays in front
-  // of its own pane and keeps the scope.
+  // Jobs is a page tab of Dashboard's tool pane, not in front; the dashboard stays in front of
+  // its own pane and keeps the workspace.
   await expect
     .poll(async () => (await panes(shell, 'any')).find((p) => p.id === 'p2'))
-    .toMatchObject({ tabs: ['browser', 'files', expect.stringMatching(/^tab:\d+$/)] })
-  const p2 = (await panes(shell, 'any')).find((p) => p.id === 'p2')!
-  expect(p2.active).toBe(p2.tabs[2])
-  await expect(shell.locator(`${sel('pane-body-p2')} ${sel('page-jobs')}`)).toBeVisible()
+    .toEqual({ id: 'p2', tabs: ['files', 'view:page:jobs'], active: 'files' })
   expect((await panes(shell, 'app')).find((p) => p.id === 'p1')).toEqual(before[0])
   await expect.poll(() => scope(shell)).toBe('page:dashboard')
+  await shell.locator(sel('pane-tab-view:page:jobs')).click()
+  await expect(shell.locator(`${sel('pane-body-p2')} ${sel('page-jobs')}`)).toBeVisible()
 
-  // With the tool panes hidden, Cmd-click splits a new pane off right of the app tabs.
-  await shell
-    .locator(`${sel('panel-toggle')}:visible`)
-    .first()
-    .click()
-  await expect(shell.locator(sel('pane-p2'))).toBeHidden()
-  await shell.locator(sel('nav-habits')).click({ modifiers: ['Meta'] })
+  // Cmd+Shift-click splits a new pane off right of the focused pane, Habits in front there.
+  await shell.locator(`${sel('tabbar')} ${sel('tab-0')}`).click()
+  await shell.locator(sel('nav-habits')).click({ modifiers: ['Meta', 'Shift'] })
   await expect(shell.locator(sel('page-habits')).first()).toBeVisible()
   const shown = await panes(shell, 'any')
-  expect(shown.length).toBeGreaterThanOrEqual(2)
+  const habits = shown.find((p) => p.active === 'view:page:habits')!
+  expect(habits.tabs).toEqual(['view:page:habits'])
+  expect(habits.id).not.toBe('p2')
   const p1 = await box(shell, sel('pane-p1'))
-  const habits = shown.find(
-    (p) => p.id !== 'p1' && p.active !== null && p.active.startsWith('tab:'),
-  )!
   const side = await box(shell, sel(`pane-${habits.id}`))
   expect(side.x).toBeGreaterThan(p1.x + p1.width)
+  await expect.poll(() => scope(shell)).toBe('page:dashboard')
 })
 
 test('closing the last app tab leaves a Dashboard tab; closing the last tool tab closes its pane', async ({
   shell,
 }) => {
-  await shell.evaluate(() => (window as unknown as ShellHooks).__evaosShell.openPlace('jobs', true))
+  // Two boards: two app tabs of the Canvas workspace.
+  await openBoard(shell, 'first-board', false)
+  await openBoard(shell, 'second-board', true)
   await expect.poll(async () => (await panes(shell, 'app'))[0]!.tabs.length).toBe(2)
   for (;;) {
     const [p1] = await panes(shell, 'app')
@@ -620,7 +650,7 @@ test('closing the last app tab leaves a Dashboard tab; closing the last tool tab
       .poll(async () => (await panes(shell, 'app'))[0]!.tabs.length)
       .toBe(p1!.tabs.length - 1)
   }
-  // The pane holding the app tabs never closes: a fresh Dashboard tab is there.
+  // The pane holding the app tabs never closes: Dashboard is there.
   await expect
     .poll(() =>
       shell.evaluate(() =>
@@ -631,13 +661,14 @@ test('closing the last app tab leaves a Dashboard tab; closing the last tool tab
   await expect(shell.locator(sel('pane-p1'))).toBeVisible()
   await expect(shell.locator(`${sel('pane-body-p1')} ${sel('page-dashboard')}`)).toBeVisible()
 
-  // Tool tabs: closing Files and then Browser closes the pane.
+  // Tool tabs: closing Files and then Terminal closes the pane.
+  await paneMenu(shell, 'p2', 'pane-add-tool-terminal-p2')
   await shell.locator(sel('pane-tab-files')).click()
   await shell.locator(sel('pane-tab-close-files')).click()
   await expect
     .poll(() => panes(shell))
-    .toEqual([{ id: 'p2', tabs: ['browser'], active: 'browser' }])
-  await shell.locator(sel('pane-tab-close-browser')).click()
+    .toEqual([{ id: 'p2', tabs: ['terminal'], active: 'terminal' }])
+  await shell.locator(sel('pane-tab-close-terminal')).click()
   await expect.poll(() => panes(shell)).toEqual([])
   await expect(shell.locator(sel('pane-p1'))).toBeVisible()
 })

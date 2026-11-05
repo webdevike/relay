@@ -5,7 +5,14 @@ vi.mock('../../ipc', () => ({
   on: vi.fn(() => () => {}),
 }))
 
-import { activeTab, appPanelId, placeOf, samePlace, type Place } from '@evaos/shell-core'
+import {
+  activeTab,
+  appPanelId,
+  placeKey,
+  placeOf,
+  samePlace,
+  type Place,
+} from '@evaos/shell-core'
 import { navigateTo, resetTabsForTests, tabsStore } from '../../tabs/tabs-store'
 import { chatStore } from '../../chat/chat-store'
 import { resetFrontChatForTests, setTabChatPane } from '../../chat/front-chat'
@@ -49,47 +56,45 @@ beforeEach(() => {
   chatStore.getState().openPane('pane-chat', { file: FILE, title: 'Plan', messages: [], meta })
 })
 
-/** The pane showing the app tab on `place`. */
+/** The pane showing the app tab on `place`, or its page tab. */
 const paneShowing = (place: Place): string | undefined => {
   const tab = tabsStore.getState().tabs.list.find((t) => samePlace(t.here, place))
-  return tab
-    ? tilingStore.getState().panes.find((p) => p.views.includes(appPanelId(tab.id)))?.id
-    : undefined
+  const id = tab ? appPanelId(tab.id) : `view:${placeKey(place)}`
+  return tilingStore.getState().panes.find((p) => p.views.includes(id))?.id
 }
 
 const here = () => activeTab(tabsStore.getState().tabs)
 
 describe('join and back to chat', () => {
-  it('joins in the same tab and comes back by Back, to the same offset, panes untouched', () => {
+  it("joins in the board's own workspace and comes back to the same offset, the chat untouched", () => {
     rememberChatScroll(FILE, { offset: 420, pinned: false })
     openSubagentTab({ session: FILE, file: '/s/sub.jsonl', name: 'Scout' })
-    // The click is in the chat pane, so the chat pane has the focus.
     focusPaneById(paneShowing(CHAT)!)
     const panes = tilingStore.getState().panes
-    const tabs = tabsStore.getState().tabs.list.length
+    const chatTab = here().id
 
-    joinCanvas('mind-map', 'here')
+    joinCanvas('mind-map', 'tab')
     expect(here().here).toEqual(BOARD)
-    expect(here().back.at(-1)).toEqual(CHAT)
-    expect(tabsStore.getState().tabs.list).toHaveLength(tabs)
+    expect(tilingStore.getState().scope).toBe('page:canvas')
+    // The chat's tab keeps its place: the board is a workspace of its own.
+    expect(tabsStore.getState().tabs.list.find((t) => t.id === chatTab)!.here).toEqual(CHAT)
     expect(returnPointOf('mind-map')).toMatchObject({ place: CHAT, file: FILE })
 
     backToChat('mind-map', null)
     expect(here().here).toEqual(CHAT)
-    // Back, not a new visit: the board is Forward now.
-    expect(here().forward.at(-1)).toEqual(BOARD)
+    expect(here().id).toBe(chatTab)
     expect(takeChatScrollRequest(FILE)).toEqual({ offset: 420, pinned: false })
     expect(takeChatScrollRequest(FILE)).toBeNull()
-    expect(tilingStore.getState().panes).toBe(panes)
+    // The chat's workspace comes back as it was (its subagent pane included).
+    expect(tilingStore.getState().panes).toEqual(panes)
     expect(returnPointOf('mind-map')).toBeNull()
   })
 
-  it('joins in a pane right of the chat by default: the tab stays on the chat, no return point', () => {
+  it('joins in a pane right of the chat by default, as a page tab of its workspace', () => {
     const tabs = tabsStore.getState().tabs.list.length
     joinCanvas('mind-map')
     expect(here().here).toEqual(CHAT)
-    // The board is a tab of its own in that pane; the chat stays the app tab in front.
-    expect(tabsStore.getState().tabs.list).toHaveLength(tabs + 1)
+    expect(tabsStore.getState().tabs.list).toHaveLength(tabs)
     expect(returnPointOf('mind-map')).toBeNull()
     const pane = paneShowing(BOARD)
     expect(pane).toBeDefined()
@@ -100,21 +105,21 @@ describe('join and back to chat', () => {
     expect(paneShowing(ROADMAP)).toBe(pane)
   })
 
-  it('Cmd+click joins in a new tab with the way back', () => {
-    const tabs = tabsStore.getState().tabs.list.length
-    joinCanvas('mind-map', 'tab')
-    expect(tabsStore.getState().tabs.list).toHaveLength(tabs + 1)
-    expect(here().here).toEqual(BOARD)
-    expect(returnPointOf('mind-map')).toMatchObject({ place: CHAT, file: FILE })
+  it('Cmd+click joins as a background page tab beside the chat, the chat keeping focus', () => {
+    const focus = tilingStore.getState().focus
+    joinCanvas('mind-map', 'background')
+    expect(here().here).toEqual(CHAT)
+    expect(paneShowing(BOARD)).toBeDefined()
+    expect(tilingStore.getState().focus).toBe(focus)
+    expect(returnPointOf('mind-map')).toBeNull()
   })
+
   it('visits the chat when it is not the previous page', () => {
-    joinCanvas('mind-map', 'here')
+    joinCanvas('mind-map', 'tab')
     navigateTo(placeOf('dashboard'))
     navigateTo(BOARD)
     backToChat('mind-map', null)
     expect(here().here).toEqual(CHAT)
-    expect(here().back.at(-1)).toEqual(BOARD)
-    expect(here().forward).toEqual([])
   })
 
   it("goes to the room's own chat without a return point, and stays put without either", () => {

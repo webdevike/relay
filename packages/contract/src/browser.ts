@@ -19,6 +19,11 @@ export const TabStateSchema = z.object({
    * <default browser>" bar until the page navigates, gets a credential, or the bar is dismissed.
    */
   passkey: z.boolean().optional(),
+  /**
+   * Who opened the tab, as a short label (a session title, a helper's name). Null or absent:
+   * Isaac or the assistant itself. Tabs a page opens inherit their opener's.
+   */
+  openedBy: z.string().max(120).nullable().optional(),
 })
 export type TabState = z.output<typeof TabStateSchema>
 
@@ -35,6 +40,21 @@ export type TabsSnapshot = z.output<typeof TabsSnapshotSchema>
 
 const tabOnly = z.object({ tabId: TabIdSchema }).strict()
 const okOut = z.object({ ok: z.literal(true) })
+
+/** One browser view on screen: the tab and its rect in window content coordinates. */
+export const BrowserSlotSchema = z
+  .object({
+    tabId: TabIdSchema,
+    x: z.number().int().min(0),
+    y: z.number().int().min(0),
+    width: z.number().int().min(0),
+    height: z.number().int().min(0),
+  })
+  .strict()
+export type BrowserSlot = z.output<typeof BrowserSlotSchema>
+
+/** Upper bound on browser views on screen at once. */
+export const MAX_BROWSER_SLOTS = 16
 
 /** A registered app of the local eCard app switch (`GET /__apps` on https://localhost:3001). */
 export const SwitchAppIdSchema = z.string().regex(/^[\w-]{1,64}$/)
@@ -79,16 +99,23 @@ export const browserInvoke = {
     input: z.object({}).strict(),
     output: z.object({ name: z.string().nullable() }),
   },
-  'browser.setSlot': {
-    input: z
-      .object({
-        x: z.number().int().min(0),
-        y: z.number().int().min(0),
-        width: z.number().int().min(0),
-        height: z.number().int().min(0),
-      })
-      .strict(),
+  /**
+   * Exactly these tabs' views are on screen, each at its rect, in list order (later on top);
+   * every other view leaves the screen. Any tab of any scope may be listed; a dormant one revives
+   * and a listed tab is never sent dormant. An empty list shows no browser view.
+   * `browser.setOccluded(true)` hides them all until it is cleared.
+   */
+  'browser.setSlots': {
+    input: z.object({ slots: z.array(BrowserSlotSchema).max(MAX_BROWSER_SLOTS) }).strict(),
     output: okOut,
+  },
+  /**
+   * The states of arbitrary tabs by id, whatever their scope (for page tabs of other scopes).
+   * Unknown ids are left out.
+   */
+  'browser.tabs.get': {
+    input: z.object({ ids: z.array(TabIdSchema).max(64) }).strict(),
+    output: z.object({ tabs: z.array(TabStateSchema) }),
   },
   'browser.setOccluded': {
     input: z.object({ occluded: z.boolean() }).strict(),
@@ -118,10 +145,18 @@ export const browserInvoke = {
       .strict(),
     output: okOut,
   },
-  /** A new tab, active in `scope` (the scope in front when omitted) without switching scopes. */
+  /**
+   * A new tab in `scope` (the scope in front when omitted) without switching scopes: that scope's
+   * active tab, unless `background`. `openedBy` labels who asked for it (see TabState.openedBy).
+   */
   'browser.createTab': {
     input: z
-      .object({ url: z.string().max(2048).optional(), scope: BrowserScopeSchema.optional() })
+      .object({
+        url: z.string().max(2048).optional(),
+        scope: BrowserScopeSchema.optional(),
+        openedBy: z.string().max(120).optional(),
+        background: z.boolean().optional(),
+      })
       .strict(),
     output: TabStateSchema,
   },
@@ -194,4 +229,16 @@ export const browserEvents = {
   'browser.hotkey': z.object({ chord: HotkeyChordSchema }),
   /** A short, user-facing note from the browser host (for example the tab limit). */
   'browser.notice': z.object({ message: z.string().max(200) }),
+  /**
+   * A new tab for the shell to show as a page tab: a guest page opened it (target=_blank,
+   * window.open; `openerId`, beside whose page tab it goes) or an extension did (no opener). It is
+   * in `scope`, not made active there. `background`: a Cmd-click (Chromium's background-tab
+   * disposition), so it opens without coming to the front.
+   */
+  'browser.popup': z.object({
+    tabId: TabIdSchema,
+    openerId: TabIdSchema.optional(),
+    scope: z.string(),
+    background: z.boolean().optional(),
+  }),
 } as const

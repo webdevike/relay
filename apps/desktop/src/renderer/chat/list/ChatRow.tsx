@@ -23,6 +23,7 @@ import {
   type SyntheticEvent,
 } from 'react'
 import type { ChatRow as Row } from '@evaos/contract'
+import { WorkspaceDot } from '../../agent/WorkspaceDot'
 import { DISMISS_PRIORITY, useDismissable } from '../../hotkeys/dismiss'
 import { EvaMenu, EvaPopover } from '../../overlay'
 import { age, bright, lookStatus, modelName, needsYou, pill, runStart, workLabel } from './look'
@@ -458,6 +459,7 @@ function ChatRowImpl({
                 {row.snoozedUntilMs !== null ? (
                   <IconAlarm size={12} stroke={1.75} className="eva-cl-flag" aria-label="Snoozed" />
                 ) : null}
+                <WorkspaceDot ws={`chat:${row.file}`} testId={`chat-dot-${row.id}`} />
                 <span className="eva-cl-when">
                   {status === null && woke ? (
                     <span className="eva-cl-woke">

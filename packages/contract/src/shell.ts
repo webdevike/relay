@@ -71,6 +71,8 @@ export const shellInvoke = {
       tabs: z.unknown().nullable(),
       /** The saved dockview layout (its toJSON); shell-core reconcileDock reads it. */
       dock: z.unknown().nullable(),
+      /** Each workspace's own layout and the pinned tool tabs (shell-core readWorkspaces). */
+      workspaces: z.record(z.string(), z.unknown()).nullable(),
       /** The split tree kept before dockview, while no `dock` is saved: migrated once. */
       tiling: z.unknown().nullable(),
       /** The side panel before panes, while neither layout is saved: seeds the first layout. */
@@ -87,6 +89,8 @@ export const shellInvoke = {
         tabs: SavedTabsSchema.optional(),
         /** The dockview layout (its toJSON); saving it drops the split tree and old panel keys. */
         dock: z.record(z.string(), z.unknown()).optional(),
+        /** The workspaces record (shell-core saveWorkspaces), replaced whole. */
+        workspaces: z.record(z.string(), z.unknown()).optional(),
         /** The sidebar customization (visibility, order, favorites), replaced whole. */
         sidebar: z.record(z.string(), z.unknown()).optional(),
       })

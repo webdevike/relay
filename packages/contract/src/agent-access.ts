@@ -487,13 +487,37 @@ export const AgentLinkParamsSchema = z
     experiment: z.string().min(1).max(200).optional(),
     arm: z.string().min(1).max(200).optional(),
     job: z.string().min(1).max(100).optional(),
+    /** A chat: its session file, and optionally a message in it. */
+    chat: z.string().min(1).max(1000).optional(),
+    message: z.string().min(1).max(200).optional(),
+    /** A web page (http(s)) as a page tab. */
+    web: z
+      .string()
+      .url()
+      .max(2048)
+      .refine((u) => /^https?:\/\//i.test(u), { message: 'an http(s) URL' })
+      .optional(),
+    /** A file in the Files tab (absolute or Eva-root relative), at `line`. */
+    path: z.string().min(1).max(2000).optional(),
+    line: z.number().int().positive().optional(),
+    /** A node on a canvas board. */
+    node: z.string().min(1).max(200).optional(),
+    /** The workspace key a web page or file belongs to. */
+    workspace: z.string().min(1).max(1000).optional(),
     /** The link's text in chat; default: where it goes ("Settings › Connections"). */
     label: z.string().trim().min(1).max(120).optional(),
   })
   .strict()
-  .refine((v) => v.page !== undefined || v.setting !== undefined || v.connection !== undefined, {
-    message: 'give page, setting or connection',
-  })
+  .refine(
+    (v) =>
+      v.page !== undefined ||
+      v.setting !== undefined ||
+      v.connection !== undefined ||
+      v.chat !== undefined ||
+      v.web !== undefined ||
+      v.path !== undefined,
+    { message: 'give page, setting, connection, chat, web or path' },
+  )
 export type AgentLinkParams = z.output<typeof AgentLinkParamsSchema>
 
 const PAGE_TITLE: Record<string, string> = Object.fromEntries(
@@ -516,7 +540,12 @@ export function appLinkFor(p: AgentLinkParams): { url: string; label: string; ma
       : p.setting !== undefined
         ? agentSettings[p.setting as AgentSettingKey].section
         : p.section
-  const page = p.page ?? 'settings'
+  const tool =
+    p.web !== undefined ? 'web' : p.path !== undefined ? 'files' : p.chat !== undefined ? 'chat' : null
+  if (tool !== null && p.page !== undefined && p.page !== tool) {
+    fail('invalid-params', 'chat, web and path name their own page')
+  }
+  const page = tool ?? p.page ?? 'settings'
   if (section !== undefined && page !== 'settings') {
     fail('invalid-params', 'section, setting and connection belong to the settings page')
   }
@@ -531,6 +560,12 @@ export function appLinkFor(p: AgentLinkParams): { url: string; label: string; ma
   only('experiment', ['test-bench'])
   only('arm', ['test-bench'])
   only('job', ['studio'])
+  only('message', ['chat'])
+  only('line', ['files'])
+  only('node', ['canvas'])
+  only('workspace', ['web', 'files'])
+  if ([p.web, p.path, p.chat].filter((v) => v !== undefined).length > 1)
+    fail('invalid-params', 'give one of chat, web and path')
   if (p.arm !== undefined && p.experiment === undefined)
     fail('invalid-params', 'arm needs experiment')
 
@@ -550,6 +585,13 @@ export function appLinkFor(p: AgentLinkParams): { url: string; label: string; ma
     if (p.experiment !== undefined) params.experiment = p.experiment
     if (p.arm !== undefined) params.arm = p.arm
     if (p.job !== undefined) params.job = p.job
+    if (p.chat !== undefined) params.chat = p.chat
+    if (p.message !== undefined) params.message = p.message
+    if (p.web !== undefined) params.url = p.web
+    if (p.path !== undefined) params.path = p.path
+    if (p.line !== undefined) params.line = String(p.line)
+    if (p.node !== undefined) params.node = p.node
+    if (p.workspace !== undefined) params.ws = p.workspace
     link = {
       kind: 'open',
       page,
@@ -569,6 +611,13 @@ export function appLinkLabel(link: AppLink): string {
   if (link.page === 'workspace' || link.page === 'board') {
     return `${link.page === 'board' ? 'Board' : 'Workspace'} ${link.sub ?? ''}`.trim()
   }
+  const { url, path } = link.params ?? {}
+  if (link.page === 'web' && url !== undefined) {
+    // The contract has no DOM or Node globals: the authority part of the URL, without user info.
+    const host = /^[a-z][a-z0-9+.-]*:\/\/(?:[^@/?#]*@)?([^/?#]+)/i.exec(url)?.[1]
+    return host ?? url
+  }
+  if (link.page === 'files' && path !== undefined) return path.split('/').pop() || path
   const parts = [PAGE_TITLE[link.page] ?? link.page]
   const section = link.page === 'settings' ? settingsSectionOf(link.sub) : null
   if (section !== null) parts.push(section)

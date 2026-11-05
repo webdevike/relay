@@ -185,11 +185,13 @@ test('an agent tours and configures Relay through relay-mcp', async ({
       'connection-github',
     )
     const there = mcp.json(await mcp.call('describe'))
-    expect(there.page).toMatchObject({
-      key: 'settings',
-      section: 'Connections',
-      link: 'relay://open/settings/connections',
-    })
+    // The agent's link opens Settings as a page tab beside its chat, in the chat's workspace:
+    // the chat stays the page, the pane beside it fronts Settings.
+    expect(there.page).toMatchObject({ key: 'chat' })
+    expect(there.panes as Array<{ front: string | null }>).toContainEqual(
+      expect.objectContaining({ front: expect.stringMatching(/Settings|Connections/) }),
+    )
+    expect(String(there.text)).toMatch(/Panes: .*(Settings|Connections)/)
     await shot(mcp, out, '3-connections-deep-link')
 
     const conns = mcp.json(await mcp.call('connections_list'))
@@ -268,10 +270,22 @@ linkTest('chat relay:// buttons open their place on click', async ({ shell }) =>
   await shell.getByTestId('chat-row-p4-ecard').click()
   const links = shell.getByTestId('chat-log').getByTestId('app-link')
   await expect(links).toHaveCount(3)
+  // A plain click opens the place here: Settings and Nova are other workspaces, so the window
+  // switches to them; back on the chat, its buttons are there again.
+  const back = async (): Promise<void> => {
+    // Settings swaps the sidebar to its own level; step out of it first.
+    const out = shell.getByTestId('sidebar-back')
+    if (await out.isVisible()) await out.click()
+    await shell.getByTestId('nav-chat').click()
+    await shell.getByTestId('chat-row-p4-ecard').click()
+    await expect(links).toHaveCount(3)
+  }
   await links.nth(0).click()
   await expect(shell.getByTestId('settings-theme')).toBeVisible()
+  await back()
   await links.nth(1).click()
   await expect(shell.getByTestId('agent-start-nova')).toBeVisible()
+  await back()
   await links.nth(2).click()
   await expect(shell.getByTestId('settings-connections')).toBeVisible()
 })

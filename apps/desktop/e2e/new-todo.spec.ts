@@ -5,10 +5,7 @@ import { test as base, expect } from './fixtures'
 import { makeEvaFixture, EXPECT_P3, type EvaFixture } from './helpers/eva-fixture'
 import { proofShot } from './helpers/proofShot'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
-
-type G = {
-  __evaosTest: { hooks: { browser: { host: { activeView(): { getVisible(): boolean } } } } }
-}
+import { openPage, viewVisible } from './helpers/web'
 
 const test = base.extend<{ evaFx: EvaFixture }>({
   evaFx: async ({}, use) => {
@@ -30,11 +27,6 @@ const today = (): string => {
   const d = new Date()
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
-const viewVisible = (app: ElectronApplication): Promise<boolean> =>
-  app.evaluate(() =>
-    (globalThis as unknown as G).__evaosTest.hooks.browser.host.activeView().getVisible(),
-  )
-
 let server: StaticServer
 test.beforeAll(async () => {
   server = await startStaticServer()
@@ -100,16 +92,15 @@ test('the hero button preselects the last used workspace and ids keep counting',
 })
 
 test('the modal hides the native browser view and Escape restores it', async ({ app, shell }) => {
-  const addr = shell.locator(sel('address-input'))
-  await addr.fill(String(server.port))
-  await addr.press('Enter')
-  await expect.poll(() => viewVisible(app)).toBe(true)
+  // A web page tab in the tool pane beside the dashboard.
+  const id = await openPage(shell, server.url('/a.html'))
+  await expect.poll(() => viewVisible(app, id)).toBe(true)
   await shell.keyboard.press('Meta+n')
   await expect(shell.locator(sel('new-todo-text'))).toBeVisible()
-  await expect.poll(() => viewVisible(app)).toBe(false)
+  await expect.poll(() => viewVisible(app, id)).toBe(false)
   await shell.keyboard.press('Escape')
   await expect(shell.locator(sel('new-todo-text'))).toBeHidden()
-  await expect.poll(() => viewVisible(app)).toBe(true)
+  await expect.poll(() => viewVisible(app, id)).toBe(true)
 })
 
 test('a todos.md without ## Open keeps the modal open with the error', async ({

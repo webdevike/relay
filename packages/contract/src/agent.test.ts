@@ -52,7 +52,7 @@ describe('agent action registry', () => {
     }
   })
 
-  it('lays out panes without the caller scope, and checks tab specs', () => {
+  it("lays out the caller's workspace, and checks tab specs", () => {
     const layout = AGENT_ACTION_IDS.filter((id) => id.startsWith('pane.'))
     expect(layout.sort()).toEqual([
       'pane.close',
@@ -63,11 +63,11 @@ describe('agent action registry', () => {
       'pane.zoom',
     ])
     for (const id of layout) {
-      const spec: AgentActionSpec = agentActions[id]
-      expect(spec.unscoped).toBe(true)
+      expect(agentActions[id].focus).toBe('panel')
     }
-    const openSpec: AgentActionSpec = agentActions['tab.open']
-    expect(openSpec.unscoped).toBeUndefined()
+    expect(agentActions['pane.zoom'].params.safeParse({ scope: 'agent:nova' }).success).toBe(true)
+    const read: AgentActionSpec = agentActions['layout.read']
+    expect(read.scoped).toBe(true)
     const open = agentActions['tab.open'].params
     expect(open.safeParse({ kind: 'files', args: { path: 'a.ts', line: 3 } }).success).toBe(true)
     expect(open.safeParse({ kind: 'browser', pane: 'p2', scope: 'agent:nova' }).success).toBe(true)
@@ -80,7 +80,8 @@ describe('agent action registry', () => {
     expect(split.safeParse({ dir: 'down', tab: 'browser' }).success).toBe(true)
     expect(split.safeParse({ dir: 'down', tab: { kind: 'files' }, size: 0.3 }).success).toBe(true)
     expect(split.safeParse({ dir: 'down', size: 1 }).success).toBe(false)
-    expect(split.safeParse({ dir: 'down', scope: 'x' }).success).toBe(false)
+    expect(split.safeParse({ dir: 'down', scope: 'agent:nova' }).success).toBe(true)
+    expect(split.safeParse({ dir: 'down', what: 'x' }).success).toBe(false)
     const resize = agentActions['pane.resize'].params
     expect(resize.safeParse({ pane: 'p2', size: 0.4 }).success).toBe(true)
     expect(resize.safeParse({ pane: 'p2', px: 400 }).success).toBe(true)

@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { toolPane } from './helpers/web'
 
 // The Terminal tool: a real login shell in a pty, one xterm per tab, kept alive across tab switches
 // and ended with its tab.
@@ -8,11 +9,9 @@ const screen = (shell: Page) =>
   shell.locator('[data-testid=terminal-screen] .xterm-rows:visible').first()
 
 async function openTerminal(shell: Page): Promise<void> {
-  await shell.locator('[data-testid=pane-add-p2]').click()
-  await shell
-    .locator('[data-testid=pane-add-menu-p2]')
-    .getByRole('menuitem', { name: 'Terminal' })
-    .click()
+  const p = await toolPane(shell)
+  await shell.locator(`[data-testid=pane-add-${p}]`).click()
+  await shell.locator(`[data-testid=pane-add-tool-terminal-${p}]`).click()
   await expect(shell.locator('[data-testid=terminal-panel]')).toBeVisible()
   await expect(shell.locator('[data-testid=terminal-screen] .xterm').first()).toBeVisible()
 }

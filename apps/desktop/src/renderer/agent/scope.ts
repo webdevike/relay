@@ -1,29 +1,28 @@
-import { notifications } from '@mantine/notifications'
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { ChatRow } from '@evaos/contract'
-import { browserScope, pageFromKey, placeOf, type Place } from '@evaos/shell-core'
+import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { agentTitle } from '../eva/names-store'
 import { listStore } from '../chat/list/list-store'
 import { tilingStore } from '../tiling/tiling-store'
 import { tabTitle } from '../tabs/tab-meta'
-import { tabsStore } from '../tabs/tabs-store'
+import { workspaceOfPlace } from '../tabs/workspace-of'
 import { withFocusHold } from './focus-safety'
 
 /**
- * Where an agent's content action lands. Agents act in their own page (an assistant's page, the
- * chat they run in) even when Isaac is looking at another one: the change waits for that page
- * (tool tabs show the page in front) without switching pages, and its tab shows a badge until he
- * opens it.
+ * Where an agent's content action lands: the workspace it works in (its assistant's, when the
+ * session is one an assistant owns; else its chat's or page's), even when Isaac is looking at
+ * another one. The change goes into that workspace's panes without switching workspaces, and its
+ * sidebar row shows a quiet dot until he opens it.
  */
 export interface ScopeTarget {
-  /** The browser scope (`page:agent:nova`, `chat:<file>`), as browserScope names it. */
+  /** The workspace key (also its browser scope): `page:agent:nova`, `chat:<file>`, `page:jobs`. */
   scope: string
-  /** The page's title, for the toast when no tab shows it. */
+  /** The workspace's title. */
   title: string
   /** The chat file a chat scope shows (the Files panel's worktree); null for pages. */
   chatFile: string | null
-  /** Who acted, as the badge names it: the agent of an agent page, else Eva. */
+  /** Who acted, as the dot's tooltip names it: the agent of an agent page, else Eva. */
   actor: string
 }
 
@@ -31,10 +30,10 @@ function fail(code: string, message: string): never {
   throw Object.assign(new Error(message), { code })
 }
 
-function pageTarget(scope: string, place: Place): ScopeTarget {
+function pageTarget(place: Place): ScopeTarget {
   const agent = place.page.startsWith('agent:') ? place.page.slice('agent:'.length) : null
   return {
-    scope,
+    scope: workspaceOfPlace(place),
     title: tabTitle(place),
     chatFile: null,
     actor: agent === null ? 'Eva' : (agentTitle(agent) ?? agent),
@@ -43,17 +42,21 @@ function pageTarget(scope: string, place: Place): ScopeTarget {
 
 function chatTarget(file: string, title: string | null): ScopeTarget {
   const place = placeOf('chat', { chat: file })
+  const scope = workspaceOfPlace(place)
+  const agent = scope.startsWith('page:agent:') ? scope.slice('page:agent:'.length) : null
   return {
-    scope: browserScope(place, 0),
-    title: title ?? tabTitle(place),
+    scope,
+    title: agent === null ? (title ?? tabTitle(place)) : (agentTitle(agent) ?? agent),
     chatFile: file,
-    actor: 'Eva',
+    // A session working for an assistant names itself; a plain chat is Eva's.
+    actor: agent === null ? 'Eva' : (title ?? 'Eva'),
   }
 }
 
 /**
  * A scope as agents name it: a page key (`agent:nova`, `test-bench`, `workspace:<slug>`), a chat
- * session id or file (listed or not), or a browser scope (`page:…`, `chat:…`).
+ * session id or file (listed or not), or a workspace key (`page:…`, `chat:…`). A session an
+ * assistant owns resolves to that assistant's workspace.
  */
 export function resolveScope(input: string, rows: readonly ChatRow[]): ScopeTarget {
   const q = input.trim()
@@ -61,7 +64,8 @@ export function resolveScope(input: string, rows: readonly ChatRow[]): ScopeTarg
     const file = q.slice('chat:'.length)
     return chatTarget(file, rows.find((r) => r.file === file)?.title ?? null)
   }
-  // A page key, or the browser scope of one (`page:agent:nova`, `page:canvas:<id>`).
+  if (/^draft:\d+$/.test(q)) return { scope: q, title: 'New chat', chatFile: null, actor: 'Eva' }
+  // A page key, or the workspace key of one (`page:agent:nova`, `page:canvas:<id>`).
   const name = q.startsWith('page:') ? q.slice('page:'.length) : q
   const sub = /^(canvas|meetings):(.+)$/.exec(name)
   const key = sub ? null : pageFromKey(name)
@@ -69,7 +73,7 @@ export function resolveScope(input: string, rows: readonly ChatRow[]): ScopeTarg
   if (sub?.[1] === 'canvas') place = placeOf('canvas', { canvas: sub[2]! })
   else if (sub) place = placeOf('meetings', { meeting: sub[2]! })
   else if (key && key !== 'chat') place = placeOf(key)
-  if (place) return pageTarget(browserScope(place, 0), place)
+  if (place) return pageTarget(place)
   const row = rows.find((r) => r.id === q || r.file === q)
   if (row) return chatTarget(row.file, row.title)
   if (q.startsWith('/') && q.endsWith('.jsonl')) return chatTarget(q, null)
@@ -127,23 +131,12 @@ export function useScopeBadges(): Record<string, string> {
 }
 
 /**
- * Tells Isaac what an agent did in a page he is not looking at: a dot on the app tab showing it,
- * else a short toast. Neither takes focus.
+ * Tells Isaac what an agent did in a workspace he is not looking at: a quiet dot on its sidebar
+ * row (and its tab, where one shows), until he opens it. Nothing takes focus or pops up.
  */
 export function announce(t: ScopeTarget, what: string): void {
   const message = `${t.actor} ${what}`
   badgeStore.setState((s) => ({ badges: { ...s.badges, [t.scope]: message } }))
-  const shown = tabsStore
-    .getState()
-    .tabs.list.some((tab) => browserScope(tab.here, tab.id) === t.scope)
-  if (!shown) {
-    notifications.show({
-      message: `${message} in ${t.title}`,
-      color: 'gray',
-      autoClose: 4000,
-      withCloseButton: false,
-    })
-  }
 }
 
 /**

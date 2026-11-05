@@ -1,8 +1,7 @@
-// Join a live canvas from a chat. By default it opens in a pane beside the chat, which stays on
-// screen. Option+click joins in the same tab and Cmd+click in a new one; those remember where Isaac
-// was to come back to exactly there: the same tab's history (Back pops the canvas), the
-// transcript's scroll offset and the unsent draft (the composer stays mounted, and drafts.ts keeps
-// it by session file). The panes stay as they are: the tiling is the window's, not the page's.
+// Join a live canvas from a chat. By default it opens as a page tab beside the chat, in the chat's
+// workspace. Joining it on its own opens the Canvas workspace; that remembers where Isaac was to
+// come back to exactly there: the chat's workspace with its panes as they were, the transcript's
+// scroll offset and the unsent draft (drafts.ts keeps it by session file).
 import { activeTab, placeEquals, placeOf, type Place } from '@evaos/shell-core'
 import { openInApp } from '../../navigation/open-in-app'
 import type { OpenTarget } from '../../navigation/open-target'
@@ -28,12 +27,13 @@ export function returnPointOf(slug: string): ReturnPoint | null {
 }
 
 /**
- * Opens the board's live room per `target` (default: a split right of the chat). In the same tab
- * (or a new one) it remembers the chat in front for the way back; in a split the chat stays on
+ * Opens the board's live room per `target` (default `here`: a page tab beside the chat, in the
+ * chat's workspace; also `background` and `split`). On its own (`tab`) it opens the Canvas
+ * workspace and remembers the chat in front for the way back; beside the chat it stays on
  * screen, so there is nothing to return to.
  */
-export function joinCanvas(slug: string, target: OpenTarget = 'split'): void {
-  if (target === 'split') {
+export function joinCanvas(slug: string, target: OpenTarget = 'here'): void {
+  if (target !== 'tab') {
     points.delete(slug)
   } else {
     const place = activeTab(tabsStore.getState().tabs).here
@@ -48,7 +48,7 @@ export function joinCanvas(slug: string, target: OpenTarget = 'split'): void {
 }
 
 /** Opens a board (its live room while one is, else the board itself) per `target`. */
-export function openBoard(slug: string, target: OpenTarget = 'split'): void {
+export function openBoard(slug: string, target: OpenTarget = 'here'): void {
   openInApp(placeOf('canvas', { canvas: slug }), target)
 }
 

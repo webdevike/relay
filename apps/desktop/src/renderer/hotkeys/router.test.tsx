@@ -18,7 +18,7 @@ import { browserStore } from '../browser/browser-store'
 import { useBrowserHotkeys } from '../browser/useBrowserHotkeys'
 import { useDismissable } from './dismiss'
 import { setFocusedPane } from './pane-focus'
-import { activateTab, resetTilingForTests, tilingStore } from '../tiling/tiling-store'
+import { activateTab, openTab, resetTilingForTests, tilingStore } from '../tiling/tiling-store'
 import { mountTestDock } from '../tiling/test-dock'
 import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
 import {
@@ -181,7 +181,7 @@ describe('hotkey router', () => {
     })
   })
 
-  it("cmd+w closes the browser tab for guest keys and in the browser's pane, else falls through", () => {
+  it("cmd+w closes the page for guest keys and in a page tab's pane, else falls through", () => {
     browserStore.setState({ tabs: [{ id: 't1' }] as never, activeId: 't1' })
     const close = vi.fn()
     const off = registerAction('close-tab', close)
@@ -193,19 +193,22 @@ describe('hotkey router', () => {
     hotkeyCb!({ chord: 'cmd+w', fromGuest: false })
     expect(invoke).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledTimes(1)
-    // The default tool pane has the keyboard, with Files in front: not the browser's yet.
+    // The default tool pane has the keyboard, with Files in front: not a page tab.
     resetTabsForTests()
     tabsStore.setState({ loaded: true })
     const unmountDock = mountTestDock()
     const tools = tilingStore.getState().panes.find((p) => !p.app)!
+    openTab({ kind: 'web', id: 't1' }, tools.id)
     setFocusedPane(tools.id)
     activateTab('files')
     invoke.mockClear()
     hotkeyCb!({ chord: 'cmd+w', fromGuest: false })
     expect(invoke).not.toHaveBeenCalled()
-    activateTab('browser')
+    // The page tab in front: it closes, and its page with it.
+    activateTab('web:t1')
     hotkeyCb!({ chord: 'cmd+w', fromGuest: false })
     expect(invoke).toHaveBeenCalledWith('browser.closeTab', { tabId: 't1' })
+    expect(tilingStore.getState().panes.some((p) => p.views.includes('web:t1'))).toBe(false)
     unmount()
     unmountDock()
     off()

@@ -1,12 +1,33 @@
 import type { Page } from '@playwright/test'
 import { test, expect } from './fixtures'
+import { startStaticServer, type StaticServer } from './helpers/static-server'
+import {
+  expectViewOnSlot,
+  navigate,
+  newPage,
+  pageTab,
+  slotRect,
+  toolPane,
+  viewVisible,
+  webPanel,
+} from './helpers/web'
 
 test.use({ startOnChat: false, colorScheme: 'dark' })
 
+let server: StaticServer
+test.beforeAll(async () => {
+  server = await startStaticServer()
+})
+test.afterAll(async () => {
+  await server.close()
+})
+
 type Hooks = {
   __evaosShell: {
-    openPlace(p: string, n?: boolean): void
+    openPlace(p: string, n?: boolean, extra?: object): void
     openChat(): void
+    setPanel(open: boolean): void
+    tabs(): { active: number; list: Array<{ chat: string | null }> }
   }
 }
 const open = (shell: Page, slug: string): Promise<void> =>
@@ -64,38 +85,49 @@ test('chat pane survives tab switches', async ({ shell }) => {
     .click()
   const log = shell.locator('[data-testid=chat-log]')
   await expect(log).toContainText('Please sketch a tiny greeter.')
+  const file = await shell.evaluate(() => {
+    const t = (window as unknown as Hooks).__evaosShell.tabs()
+    return t.list[t.active]!.chat ?? ''
+  })
+  expect(file).toMatch(/\.jsonl$/)
 
-  // The tab moves on to Dashboard: its chat leaves the screen (it mounts again from the chat
-  // store when the tab comes back to it).
+  // Dashboard is a workspace of its own: switching there takes the chat off the screen.
   await open(shell, 'dashboard')
   await expect(shell.locator('[data-testid=chat-pane]')).toBeHidden()
 
-  await shell.locator('[data-testid=tabbar-drag]').click()
-  await shell.keyboard.press('Meta+[')
+  // Back to the chat's workspace: its chat mounts again from the chat store.
+  await shell.evaluate(
+    (f) => (window as unknown as Hooks).__evaosShell.openPlace('chat', false, { chat: f }),
+    file,
+  )
   await expect(shell.locator('[data-testid=chat-pane]')).toBeVisible()
   await expect(log).toContainText('Please sketch a tiny greeter.')
   const box = await log.boundingBox()
   expect(box?.height ?? 0).toBeGreaterThan(50)
 })
 
-test('browser slot is unaffected by page changes', async ({ shell }) => {
-  const rect = () =>
-    shell.locator('[data-testid=browser-slot]').evaluate((el) => {
-      const r = el.getBoundingClientRect()
-      return [r.x, r.y, r.width, r.height]
-    })
-  // The tool panes are global: the browser stays in its pane while the page in front changes.
-  const openPage = async (slug: string): Promise<void> => {
-    await open(shell, slug)
-    await expect(shell.locator(`[data-testid=page-${slug}]`)).toBeVisible()
-    await expect(
-      shell.locator('[data-testid=pane-body-p2] [data-testid=browser-panel]'),
-    ).toBeVisible()
+test('a web page beside a tab stays put while the tab changes place', async ({ app, shell }) => {
+  // Canvas is one workspace for every board: a web page in its tool pane stays where it is
+  // while the app tab moves from board to board.
+  const board = (slug: string): Promise<void> =>
+    shell.evaluate(
+      (s) => (window as unknown as Hooks).__evaosShell.openPlace('canvas', false, { canvas: s }),
+      slug,
+    )
+  await board('first-board')
+  await expect(shell.locator(ACTIVE_APP_TAB)).toContainText('first-board')
+  await shell.evaluate(() => (window as unknown as Hooks).__evaosShell.setPanel(true))
+  const pane = await toolPane(shell)
+  const page = await newPage(shell, pane)
+  await navigate(shell, page, server.url('/a.html'))
+  await expect(pageTab(shell, page)).toContainText('Page A')
+  await expectViewOnSlot(app, shell, page)
+  const a = await slotRect(shell, page)
+  for (const slug of ['second-board', 'third-board']) {
+    await board(slug)
+    await expect(shell.locator(ACTIVE_APP_TAB)).toContainText(slug)
+    await expect(webPanel(shell, page)).toBeVisible()
+    await expect.poll(() => slotRect(shell, page)).toEqual(a)
+    await expect.poll(() => viewVisible(app, page)).toBe(true)
   }
-  await openPage('dashboard')
-  const a = await rect()
-  await openPage('jobs')
-  await expect.poll(rect).toEqual(a)
-  await openPage('habits')
-  await expect.poll(rect).toEqual(a)
 })

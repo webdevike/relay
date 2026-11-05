@@ -112,4 +112,9 @@ export function registerLinksIpc(
       return { to: route.to, launched: false }
     return { to: route.to, launched: await launch(route) }
   })
+  handle(ctx, 'links.openInArc', async ({ url }) => {
+    const href = new URL(url)
+    if (href.protocol !== 'http:' && href.protocol !== 'https:') return { launched: false }
+    return { launched: await launch({ to: 'app', app: 'Arc', url: href.href }) }
+  })
 }

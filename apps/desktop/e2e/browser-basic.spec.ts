@@ -1,86 +1,34 @@
 import { test, expect } from './fixtures'
 import { startStaticServer, type StaticServer } from './helpers/static-server'
 import { recordMetrics } from './helpers/metrics'
-import type { ElectronApplication, Page } from '@playwright/test'
+import {
+  expectViewOnSlot,
+  frames,
+  guestEval,
+  navigate,
+  newPage,
+  pageTab,
+  pageTabs,
+  viewOf,
+  webPanel,
+  type BrowserHooks,
+} from './helpers/web'
+import type { ElectronApplication } from '@playwright/test'
 
-type Rect = { x: number; y: number; width: number; height: number }
-
-interface HostLike {
-  activeView(): {
-    getVisible(): boolean
-    getBounds(): Rect
-    webContents: {
-      session: unknown
-      getURL(): string
-      getLastWebPreferences(): { sandbox?: boolean; contextIsolation?: boolean; preload?: string }
-      executeJavaScript(code: string): Promise<unknown>
-    }
-  }
-}
-
-function activeInfo(app: ElectronApplication) {
-  return app.evaluate(({ session }) => {
-    const t = (globalThis as unknown as { __evaosTest: { hooks: { browser: { host: HostLike } } } })
-      .__evaosTest
-    const v = t.hooks.browser.host.activeView()
-    const prefs = v.webContents.getLastWebPreferences()
+/** Page `id`'s view: partition, sandboxing and preload, as Electron set them up. */
+function hardening(app: ElectronApplication, id: string) {
+  return app.evaluate(({ session }, tabId) => {
+    const wc = (globalThis as unknown as BrowserHooks).__evaosTest.hooks.browser.host.tabById(
+      tabId,
+    )!
+    const prefs = wc.getLastWebPreferences()
     return {
-      visible: v.getVisible(),
-      bounds: v.getBounds(),
-      samePartition: v.webContents.session === session.fromPartition('persist:browser'),
-      sandbox: prefs.sandbox,
-      contextIsolation: prefs.contextIsolation,
-      preload: prefs.preload ?? null,
+      samePartition: wc.session === session.fromPartition('persist:browser'),
+      sandbox: prefs?.sandbox,
+      contextIsolation: prefs?.contextIsolation,
+      preload: prefs?.preload ?? null,
     }
-  })
-}
-
-function guestEval(app: ElectronApplication, code: string): Promise<unknown> {
-  return app.evaluate((_e, c) => {
-    const t = (globalThis as unknown as { __evaosTest: { hooks: { browser: { host: HostLike } } } })
-      .__evaosTest
-    return t.hooks.browser.host.activeView().webContents.executeJavaScript(c)
-  }, code)
-}
-
-async function slotRect(shell: Page): Promise<Rect> {
-  const box = await shell.locator('[data-testid=browser-slot]').boundingBox()
-  if (!box) throw new Error('slot has no box')
-  return {
-    x: Math.round(box.x),
-    y: Math.round(box.y),
-    width: Math.round(box.width),
-    height: Math.round(box.height),
-  }
-}
-
-async function frames(shell: Page): Promise<void> {
-  await shell.evaluate(
-    () =>
-      new Promise<void>((r) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => r(), 50))),
-      ),
-  )
-}
-
-async function navigate(shell: Page, input: string): Promise<void> {
-  const addr = shell.locator('[data-testid=address-input]')
-  await addr.fill(input)
-  await addr.press('Enter')
-}
-
-async function expectBoundsEqualSlot(app: ElectronApplication, shell: Page): Promise<number> {
-  await expect
-    .poll(async () => JSON.stringify((await activeInfo(app)).bounds), { timeout: 5000 })
-    .toBe(JSON.stringify(await slotRect(shell)))
-  const b = (await activeInfo(app)).bounds
-  const s = await slotRect(shell)
-  return Math.max(
-    Math.abs(b.x - s.x),
-    Math.abs(b.y - s.y),
-    Math.abs(b.width - s.width),
-    Math.abs(b.height - s.height),
-  )
+  }, id)
 }
 
 let server: StaticServer
@@ -91,34 +39,40 @@ test.afterAll(async () => {
   await server.close()
 })
 
-test('browser panel: navigate, history, bounds, overlay, hardening, errors', async ({
+test('a web page: navigate, history, bounds, overlay, hardening, errors', async ({
   app,
   shell,
 }) => {
-  const title = shell.locator('[data-testid^=browser-tab-t1]').first()
-  // A scope starts with no tabs: the slot shows the Tools launcher and the address bar opens the first tab.
-  await expect(shell.locator('[data-testid=tools-grid]')).toBeVisible()
-  await expect(shell.locator('[data-testid=address-input]')).toHaveAttribute(
-    'placeholder',
-    'Search, URL, or port such as 3000',
+  // A workspace starts with no pages; the + menu opens a blank one with its address focused.
+  await expect(pageTabs(shell)).toHaveCount(0)
+  const id = await newPage(shell)
+  const panel = webPanel(shell, id)
+  const addr = panel.locator('[data-testid=address-input]')
+  await expect(panel.locator('[data-testid=page-blank]')).toBeVisible()
+  await expect(panel.locator('[data-testid=page-blank]')).toContainText(
+    'Type an address or search above.',
   )
+  await expect(addr).toBeFocused()
+  await expect(addr).toHaveAttribute('placeholder', 'Search, URL, or port such as 3000')
+  await expect(pageTab(shell, id)).toContainText('New page')
 
-  await navigate(shell, String(server.port))
+  const title = pageTab(shell, id)
+  await navigate(shell, id, String(server.port))
   await expect(title).toContainText('Page A')
-  await expect.poll(async () => (await activeInfo(app)).visible).toBe(true)
-  let maxDelta = await expectBoundsEqualSlot(app, shell)
+  await expect.poll(async () => (await viewOf(app, id))?.visible).toBe(true)
+  let maxDelta = await expectViewOnSlot(app, shell, id)
 
-  await navigate(shell, `127.0.0.1:${server.port}/b.html`)
+  await navigate(shell, id, `127.0.0.1:${server.port}/b.html`)
   await expect(title).toContainText('Page B')
-  await expect(shell.locator('[data-testid=nav-back]')).toBeEnabled()
-  await shell.locator('[data-testid=nav-back]').click()
+  await expect(panel.locator('[data-testid=nav-back]')).toBeEnabled()
+  await panel.locator('[data-testid=nav-back]').click()
   await expect(title).toContainText('Page A')
-  await expect(shell.locator('[data-testid=nav-forward]')).toBeEnabled()
-  await shell.locator('[data-testid=nav-reload]').click()
+  await expect(panel.locator('[data-testid=nav-forward]')).toBeEnabled()
+  await panel.locator('[data-testid=nav-reload]').click()
   await expect(title).toContainText('Page A')
 
   const url = `http://127.0.0.1:${server.port}/`
-  await shell.locator('[data-testid=btn-copy-link]').click()
+  await panel.locator('[data-testid=btn-copy-link]').click()
   await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(url)
 
   await app.evaluate(({ shell: sh }) => {
@@ -128,16 +82,16 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
       g.__opened.push(u)
     }
   })
-  await shell.locator('[data-testid=btn-open-external]').click()
+  await panel.locator('[data-testid=btn-open-external]').click()
   await expect
     .poll(() => app.evaluate(() => (globalThis as unknown as { __opened: string[] }).__opened[0]))
     .toBe(url)
 
-  // Window resize and a drag of the sash between the chat and the tool pane keep the view glued
-  // to the slot.
+  // Window resize and a drag of the sash between the chat and the page's pane keep the view
+  // glued to the slot.
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1100, 760))
   await frames(shell)
-  maxDelta = Math.max(maxDelta, await expectBoundsEqualSlot(app, shell))
+  maxDelta = Math.max(maxDelta, await expectViewOnSlot(app, shell, id))
   const div = await shell
     .locator('.dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash:visible')
     .first()
@@ -151,10 +105,10 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
   await shell.mouse.move(cx - 120, cy, { steps: 4 })
   await shell.mouse.up()
   await frames(shell)
-  maxDelta = Math.max(maxDelta, await expectBoundsEqualSlot(app, shell))
+  maxDelta = Math.max(maxDelta, await expectViewOnSlot(app, shell, id))
 
   // Overlay hides the view and restores it with identical bounds.
-  const before = (await activeInfo(app)).bounds
+  const before = (await viewOf(app, id))!.bounds
   await shell.evaluate(() =>
     (
       window as unknown as { __evaosShell: { openTestOverlay(): void } }
@@ -162,73 +116,68 @@ test('browser panel: navigate, history, bounds, overlay, hardening, errors', asy
   )
   await expect(shell.locator('[data-testid=overlay-test]')).toBeVisible()
   await expect(shell.getByText('Test overlay', { exact: true }).last()).toBeVisible()
-  await expect.poll(async () => (await activeInfo(app)).visible).toBe(false)
+  await expect.poll(async () => (await viewOf(app, id))?.visible).toBe(false)
   await shell
     .getByTestId('overlay-test')
     .getByRole('button', { name: 'Close', exact: true })
     .click()
-  await expect.poll(async () => (await activeInfo(app)).visible).toBe(true)
-  const after = (await activeInfo(app)).bounds
-  expect(after).toEqual(before)
+  await expect.poll(async () => (await viewOf(app, id))?.visible).toBe(true)
+  expect((await viewOf(app, id))!.bounds).toEqual(before)
 
   // Hardening.
-  const info = await activeInfo(app)
+  const info = await hardening(app, id)
   expect(info.samePartition).toBe(true)
   expect(info.sandbox).toBe(true)
   expect(info.contextIsolation).toBe(true)
   expect(info.preload).toBeFalsy()
-  expect(await guestEval(app, 'typeof window.eva')).toBe('undefined')
-  expect(await guestEval(app, 'window.open("about:blank") === null')).toBe(true)
+  expect(await guestEval(app, id, 'typeof window.eva')).toBe('undefined')
+  expect(await guestEval(app, id, 'window.open("about:blank") === null')).toBe(true)
   const perm = await guestEval(
     app,
+    id,
     'navigator.permissions.query({name:"geolocation"}).then(r=>r.state)',
   )
   expect(perm).not.toBe('granted')
   const geoErr = await guestEval(
     app,
+    id,
     'new Promise(r => navigator.geolocation.getCurrentPosition(() => r("ok"), () => r("error")))',
   )
   expect(geoErr).toBe('error')
 
   // Search URL (the request itself is cancelled by the e2e network rule).
-  const tabs = await shell.evaluate(() =>
-    (window as unknown as { eva: { invoke(c: string, i: unknown): Promise<unknown> } }).eva.invoke(
-      'browser.state',
-      {},
-    ),
-  )
-  const tabId = (tabs as { ok: true; value: { activeId: string } }).value.activeId
   const res = await shell.evaluate(
-    (id) =>
+    (tabId) =>
       (
         window as unknown as { eva: { invoke(c: string, i: unknown): Promise<unknown> } }
-      ).eva.invoke('browser.navigate', { tabId: id, input: 'hello world' }),
-    tabId,
+      ).eva.invoke('browser.navigate', { tabId, input: 'hello world' }),
+    id,
   )
   expect((res as { ok: true; value: { url: string } }).value.url).toBe(
     'https://www.google.com/search?q=hello+world',
   )
 
   // Error card.
-  await navigate(shell, '127.0.0.1:1')
-  await expect(shell.getByText('This page could not be loaded')).toBeVisible()
-  await expect(shell.getByRole('button', { name: 'Try again' })).toBeVisible()
-  await expect.poll(async () => (await activeInfo(app)).visible).toBe(false)
+  await navigate(shell, id, '127.0.0.1:1')
+  await expect(panel.getByText('This page could not be loaded')).toBeVisible()
+  await expect(panel.getByRole('button', { name: 'Try again' })).toBeVisible()
+  await expect.poll(async () => (await viewOf(app, id))?.visible).toBe(false)
 
   // Schemes outside http/https/about typed in the address bar never reach the guest view.
   const guestUrl = () =>
-    app.evaluate(() => {
-      const t = (
-        globalThis as unknown as { __evaosTest: { hooks: { browser: { host: HostLike } } } }
-      ).__evaosTest
-      return t.hooks.browser.host.activeView().webContents.getURL()
-    })
+    app.evaluate(
+      (_e, tabId) =>
+        (globalThis as unknown as BrowserHooks).__evaosTest.hooks.browser.host
+          .tabById(tabId)!
+          .getURL(),
+      id,
+    )
   for (const blocked of ['file:///etc/hosts', 'chrome://settings']) {
-    await navigate(shell, blocked)
-    await expect(shell.getByText('This address cannot be opened here')).toBeVisible()
-    await expect(shell.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+    await navigate(shell, id, blocked)
+    await expect(panel.getByText('This address cannot be opened here')).toBeVisible()
+    await expect(panel.getByRole('button', { name: 'Try again' })).toHaveCount(0)
     expect(await guestUrl()).not.toMatch(/^(file|chrome):/)
-    await expect.poll(async () => (await activeInfo(app)).visible).toBe(false)
+    await expect.poll(async () => (await viewOf(app, id))?.visible).toBe(false)
   }
 
   recordMetrics('browser', {

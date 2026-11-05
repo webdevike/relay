@@ -1,10 +1,13 @@
 /**
- * Where an in-app destination opens:
- * - `split`: a pane right of the current view (a tab of the right pane when one is open).
- * - `tab`: a new top-level tab (Cmd+Shift-click, middle-click).
- * - `here`: replaces what the focused tab or pane shows.
+ * Where a destination opens. Clicks map to the first four (see targetOf); `tab` is for explicit
+ * "Open in new tab" menus and the agent's link.open.
+ * - `here`: in this workspace, in front and focused (a chat of another workspace switches to it).
+ * - `background`: in this workspace as a tab that does not come to the front or take focus.
+ * - `split`: a new split beside the current pane.
+ * - `external`: outside Relay (web links only: Arc).
+ * - `tab`: a new top-level app tab.
  */
-export type OpenTarget = 'split' | 'tab' | 'here'
+export type OpenTarget = 'here' | 'background' | 'split' | 'external' | 'tab'
 
 export interface ClickMods {
   metaKey?: boolean
@@ -14,26 +17,20 @@ export interface ClickMods {
   button?: number
 }
 
-/** Cmd+Shift-click and middle-click ask for a new top-level tab. */
-const wantsTab = (e: ClickMods): boolean =>
-  e.button === 1 || ((e.metaKey === true || e.ctrlKey === true) && e.shiftKey === true)
-
 /**
- * A click inside a chat (links, cards, rows): a split by default and with Cmd, a new tab with
- * Cmd+Shift or a middle click, the same tab with Option.
+ * The one click rule for every in-app link, row and navigation item: plain = here, Cmd (or a
+ * middle click) = background, Cmd+Shift = split, Option = external.
  */
-export function openTargetOf(e: ClickMods): OpenTarget {
-  if (wantsTab(e)) return 'tab'
-  if (e.altKey === true) return 'here'
-  return 'split'
-}
-
-/**
- * A click on a navigation item (sidebar, lists, breadcrumbs): the current tab by default, a split
- * with Cmd, a new tab with Cmd+Shift or a middle click.
- */
-export function navTargetOf(e: ClickMods): OpenTarget {
-  if (wantsTab(e)) return 'tab'
-  if (e.metaKey === true || e.ctrlKey === true) return 'split'
+export function targetOf(e: ClickMods): OpenTarget {
+  const cmd = e.metaKey === true || e.ctrlKey === true
+  if (cmd && e.shiftKey === true) return 'split'
+  if (cmd || e.button === 1) return 'background'
+  if (e.altKey === true) return 'external'
   return 'here'
 }
+
+/** A click inside a chat (links, cards, rows). */
+export const openTargetOf = targetOf
+
+/** A click on a navigation item (sidebar, lists, breadcrumbs). Same rule as everywhere. */
+export const navTargetOf = targetOf

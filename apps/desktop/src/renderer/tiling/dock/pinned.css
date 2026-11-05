@@ -1,0 +1,7 @@
+/* A tool tab pinned to every workspace: its icon alone, like a pinned app tab. */
+.eva-pane-tab.eva-pane-tab-pinned {
+  min-width: 28px;
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
