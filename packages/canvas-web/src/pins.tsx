@@ -253,13 +253,8 @@ export function ThreadPopover({
           </div>
         ) : null}
       </div>
-      <form
-        className="cv-thread-reply"
-        onSubmit={(e) => {
-          e.preventDefault();
-          send();
-        }}
-      >
+      {/* No <form>: Relay Desktop embeds the room in a sandboxed iframe without allow-forms, where a submit never fires. */}
+      <div className="cv-thread-reply">
         <input
           aria-label="Reply"
           placeholder={thread.resolved ? "Reply to reopen" : "Reply"}
@@ -268,13 +263,17 @@ export function ThreadPopover({
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => {
             e.stopPropagation();
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              send();
+            }
             if (e.key === "Escape") onClose();
           }}
         />
-        <button type="submit" className="cv-thread-send" aria-label="Send" disabled={text.trim() === ""}>
+        <button type="button" className="cv-thread-send" aria-label="Send" disabled={text.trim() === ""} onClick={send}>
           <IconArrowUp size={16} stroke={2} />
         </button>
-      </form>
+      </div>
     </div>
   );
 }
