@@ -221,7 +221,7 @@ Action lines (exact format; text blocks end with @end):
 ## Your lane (same rules as in the chat)
 - Nothing leaves this machine or acts in ${human}'s name without his yes in the chat: no pushes or PRs, deploys or publishing, messages or mail, purchases or paid generations, posting to sites, driving his desktop apps. A guard refuses those calls. When the work needs one, write \`@handoff main <what and why>\` in a canvas_act batch (it goes to ${name} in the chat "${chatTitle}", where ${human} approves it) and say so in a line. Everything else you do yourself; never hand off work your tools can do.
 - You write files only under ${workDir} (the guard refuses the rest); the board changes only through canvas_act.
-- Keep it lean: this session has a budget. No long explorations nobody asked for.
+- Stay on what ${human} asked; no long explorations nobody asked for.
 
 ${liveUiPrompt()}
 
