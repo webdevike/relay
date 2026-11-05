@@ -46,6 +46,8 @@ import { classifyUrl, scanTranscript, subagentItem, type Found } from "./extract
 export const ARTIFACT_SCAN_DELAY_MS = 1500;
 /** How often running subagents are looked at on disk. */
 export const SUBAGENT_POLL_MS = 15_000;
+/** A helper whose transcript ends on a final reply and is quiet this long has finished, result file or not. */
+const IDLE_END_MS = 60_000;
 /** Bytes of a subagent transcript's tail read for its latest status line. */
 const TAIL_BYTES = 48 * 1024;
 /** Largest pasted image the host keeps (base64 is about 4/3 of it). */
@@ -613,6 +615,8 @@ export class ArtifactService implements ArtifactRelaying {
       if (line !== null && line !== sub.line) next = { ...next, line };
       if (existsSync(result) && !reopened(path, result, stat.mtimeMs, stat.size)) next = { ...next, state: "done", endedAt: statSync(result).mtimeMs };
       else if (now - stat.mtimeMs > SUBAGENT_STALE_MS) next = { ...next, state: "done", endedAt: stat.mtimeMs };
+      // No result file, but it stopped on a final reply (or yielded) and has been quiet a minute: it is finished, not running.
+      else if (now - stat.mtimeMs > IDLE_END_MS && transcriptEnded(path, stat.size)) next = { ...next, state: "done", endedAt: stat.mtimeMs };
       changed = this.followChildren(state, item, path, now) || changed;
     } else if (now - sub.startedAt > SUBAGENT_STALE_MS) {
       next = { ...next, state: "done", endedAt: now };
@@ -725,7 +729,7 @@ function transcriptEnded(path: string, size: number): boolean {
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = (lines[i] ?? "").trim();
     if (line === "") continue;
-    let record: { type?: unknown; customType?: unknown; message?: { role?: unknown; toolName?: unknown } };
+    let record: { type?: unknown; customType?: unknown; message?: { role?: unknown; toolName?: unknown; stopReason?: unknown } };
     try {
       record = JSON.parse(line) as typeof record;
     } catch {
@@ -736,6 +740,8 @@ function transcriptEnded(path: string, size: number): boolean {
       continue;
     }
     if (record.type !== "message" || typeof record.message !== "object") continue;
+    // A last reply that stopped on its own (no tool call to run) is a helper that went idle without a `yield`.
+    if (record.message.role === "assistant") return record.message.stopReason === "stop";
     return record.message.role === "toolResult" && record.message.toolName === "yield";
   }
   return false;

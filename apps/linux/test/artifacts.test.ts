@@ -321,6 +321,35 @@ describe("ArtifactService", () => {
     expect(item(h, id)?.subagent?.state).toBe("done");
     expect(h.service.helpers().map((found) => found.item.id)).toContain(id);
   });
+
+  it("a helper that goes idle on a final reply instead of yielding is finished, not running", () => {
+    const h = harness();
+    const file = transcript(h);
+    appendFileSync(file, assistant(T0, [{ type: "toolCall", name: "task", arguments: { tasks: [{ name: "Builder" }] } }]));
+    const sub = file.replace(/\.jsonl$/, "");
+    mkdirSync(sub, { recursive: true });
+    const transcriptPath = join(sub, "Builder.jsonl");
+    const result = join(sub, "Builder.md");
+    const id = `subagent:${transcriptPath}`;
+    const yielded = line({ type: "message", message: { role: "toolResult", toolName: "yield" } });
+    writeFileSync(transcriptPath, line({ type: "custom", customType: "tool_execution_start", data: { intent: "First task" } }) + yielded);
+    writeFileSync(result, "done");
+    h.now = Date.now();
+    h.service.get("assistant:astra");
+    expect(item(h, id)?.subagent?.state).toBe("done");
+    // Woken, it works again.
+    appendFileSync(transcriptPath, user(h.now, "one more thing") + line({ type: "message", message: { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall", name: "read" }] } }));
+    const later = new Date(h.now + 5000);
+    utimesSync(transcriptPath, later, later);
+    h.tick(SUBAGENT_POLL_MS);
+    expect(item(h, id)?.subagent?.state).toBe("running");
+    // It ends on a text-only reply with no yield and no new result file: finished at the next look.
+    appendFileSync(transcriptPath, line({ type: "message", message: { role: "toolResult", toolName: "read" } }) + line({ type: "message", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "All done." }] } }));
+    const end = new Date(h.now + 10_000);
+    utimesSync(transcriptPath, end, end);
+    h.tick(SUBAGENT_POLL_MS);
+    expect(item(h, id)?.subagent?.state).toBe("done");
+  });
 });
 
 describe("ArtifactService acts", () => {
