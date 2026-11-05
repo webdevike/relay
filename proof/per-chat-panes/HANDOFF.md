@@ -22,7 +22,7 @@ Careful: the same changes are still uncommitted in the shared `work/relay` check
 - e2e passing (hidden instances): workspaces, tiling, tiling-agent, pages, tabs, canvas-live, shell-frame, shell-proof, studio, terminal (@smoke), agent-access, drag-region, new-chat, browser-* (basic, tabs, arc, auth, cdp, extensions), toast-over-browser, web-blank (@smoke, replaces tools-launcher), gate, proof, hotkeys, phase4-tour, settings-chat, new-todo, dashboard, sidebar, chat-stream (chunk 1 flaky under load), questions, chat-control/composer/writers/subagents-jobs (after the chat pane remount fix; last full re-run pending).
 
 ## Not done / next
-- Run the release gate once more on the final tree: `pnpm e2e:run --only-changed=8f30e2e5` (fixtures.ts changed, so this is nearly the full suite) and `pnpm e2e:smoke`; fix leftovers; then merge to main and `bun .omp/tools/relay-desktop-deploy.ts`.
+- `pnpm e2e:smoke` passes (7/7) on the final tree. Still to run: the release gate's `pnpm e2e:run --only-changed=8f30e2e5` (fixtures.ts changed, so nearly the full suite) once more after the last fixes; then merge to main and `bun .omp/tools/relay-desktop-deploy.ts`.
 - Unit tests that time out at 5 s when the whole vitest suite runs on a busy Mini (settings.test.tsx theme tests, Composer, a few widget tests; update/packaged.test kick file) pass alone. The deploy gate runs `pnpm test`: run it on a quiet machine or raise those files' timeouts.
 
 ## Known gaps / behavior to check with Isaac
