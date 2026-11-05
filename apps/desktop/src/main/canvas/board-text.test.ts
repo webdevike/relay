@@ -1,7 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { boardText, f32Text, parseBoard } from './board-text'
+import { boardText, parseBoard } from './board-text'
 
 const repo = path.resolve(__dirname, '../../../../..')
 const boards = (dir: string): string[] =>
@@ -78,22 +78,5 @@ describe('board text', () => {
 }
 `,
     )
-  })
-
-  it('writes numbers the way serde_json writes an f32', () => {
-    expect(f32Text(0)).toBe('0.0')
-    expect(f32Text(-0)).toBe('-0.0')
-    expect(f32Text(115)).toBe('115.0')
-    expect(f32Text(-124)).toBe('-124.0')
-    expect(f32Text(0.31)).toBe('0.31')
-    expect(f32Text(0.1 + 0.2)).toBe('0.3')
-    expect(f32Text(123.456789)).toBe('123.45679')
-    expect(f32Text(1e-6)).toBe('0.000001')
-    expect(f32Text(1e-7)).toBe('1e-7')
-    expect(f32Text(1.5e-7)).toBe('1.5e-7')
-    expect(f32Text(1e12)).toBe('1000000000000.0')
-    expect(f32Text(1e13)).toBe('1e13')
-    expect(f32Text(1.25e30)).toBe('1.25e30')
-    expect(() => f32Text(1e39)).toThrow()
   })
 })

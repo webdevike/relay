@@ -3,8 +3,9 @@ import * as path from 'node:path'
 import { createPathQueue } from '@evaos/eva-core'
 import { atomicWrite } from '@evaos/eva-core/fs/atomic-write'
 import { CANVAS_VERSION, type CanvasBoard, type CanvasEntry } from '@evaos/contract'
+import type { Board } from '@relay/canvas-live/board'
 import type { ConfigStore } from '../config-store'
-import { boardText, coded, parseBoard } from './board-text'
+import { boardText, coded, overFile, parseBoard } from './board-text'
 
 const SLUG = /^[a-z0-9-]{1,80}$/
 const PINS = 'canvas.json'
@@ -41,7 +42,8 @@ export interface CanvasStore {
   readonly dir: string
   /** Boards newest first, with the pinned flag. */
   list(): Promise<CanvasEntry[]>
-  load(slug: string): Promise<{ board: CanvasBoard; text: string }>
+  load(slug: string): Promise<{ board: Board; text: string }>
+  /** Writes the Canvas page's board, keeping what the file has that the page does not show (threads, pages). */
   save(slug: string, board: CanvasBoard): Promise<{ saved: boolean }>
   create(): Promise<{ slug: string }>
   rename(slug: string, title: string): Promise<{ saved: true }>
@@ -140,7 +142,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     return entries
   }
 
-  async function load(slug: string): Promise<{ board: CanvasBoard; text: string }> {
+  async function load(slug: string): Promise<{ board: Board; text: string }> {
     const text = await readText(slug)
     if (text === null) throw coded(`No board ${slug}.`, 'not-found')
     return { board: parseBoard(text), text }
@@ -149,8 +151,15 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
   /** Native `save`: writes only when the text differs from the file on disk. */
   function save(slug: string, board: CanvasBoard): Promise<{ saved: boolean }> {
     return queue.run(slug, async () => {
-      const text = boardText(board)
-      if ((await readText(slug)) === text) {
+      const disk = await readText(slug)
+      let file: Board | null = null
+      try {
+        file = disk === null ? null : parseBoard(disk)
+      } catch {
+        file = null
+      }
+      const text = boardText(overFile(board, file))
+      if (disk === text) {
         written.set(slug, text)
         return { saved: false }
       }
@@ -165,7 +174,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       let n = 1
       while (fs.existsSync(file(`untitled-${n}`))) n++
       const slug = `untitled-${n}`
-      const board: CanvasBoard = {
+      const board: Board = {
         version: CANVAS_VERSION,
         title: 'Untitled board',
         nodes: [],

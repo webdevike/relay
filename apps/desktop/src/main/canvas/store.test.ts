@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { CanvasBoardSchema } from '@evaos/contract'
 import { createConfigStore } from '../config-store'
 import { boardText, parseBoard } from './board-text'
 import { createCanvasStore } from './store'
@@ -73,6 +74,39 @@ describe('canvas store', () => {
     expect(after).toContain('"x": 10.0,\n      "y": 20.25,')
     expect(await store.save('mind-map', moved)).toEqual({ saved: false })
     expect(fs.readdirSync(dir).filter((f) => f.includes('tmp'))).toEqual([])
+  })
+
+  it("keeps a live room's comment threads through a Canvas page edit and a rename", async () => {
+    const { store, dir } = setup()
+    const file = path.join(dir, 'user-flow.json')
+    const threads = [
+      {
+        id: 't1',
+        node: parseBoard(fs.readFileSync(file, 'utf8')).nodes[0]!.id,
+        x: 12,
+        y: 4,
+        messages: [
+          { id: 'm1', kind: 'human', name: 'Isaac', color: '#228be6', text: 'Tighter?', ts: 1 },
+          { id: 'm2', kind: 'agent', name: 'Eva', color: '#7950f2', text: 'Done.', ts: 2 },
+        ],
+      },
+      { id: 't2', x: 300, y: -40, resolved: true, messages: [] },
+    ]
+    const withThreads = { ...parseBoard(fs.readFileSync(file, 'utf8')), threads } as Parameters<
+      typeof boardText
+    >[0]
+    fs.writeFileSync(file, boardText(withThreads))
+    // The page gets the board over IPC, whose schema has no threads, and saves it back edited.
+    const { board } = await store.load('user-flow')
+    const page = CanvasBoardSchema.parse(board)
+    expect(page).not.toHaveProperty('threads')
+    const moved = { ...page, nodes: page.nodes.map((n, i) => (i === 0 ? { ...n, x: 999 } : n)) }
+    expect(await store.save('user-flow', moved)).toEqual({ saved: true })
+    const saved = parseBoard(fs.readFileSync(file, 'utf8'))
+    expect(saved.nodes[0]!.x).toBe(999)
+    expect(saved.threads).toEqual(threads)
+    await store.rename('user-flow', 'Renamed')
+    expect(parseBoard(fs.readFileSync(file, 'utf8')).threads).toEqual(threads)
   })
 
   it('creates the first free untitled-N', async () => {
