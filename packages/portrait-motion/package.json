@@ -10,8 +10,9 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "lint": "eslint src test",
+    "lint": "oxlint --type-aware src test",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:tsc6": "tsc6 --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {
@@ -20,7 +21,6 @@
     "@dicebear/notionists": "^9.4.2"
   },
   "devDependencies": {
-    "@relay/eslint-config": "workspace:*",
     "@types/node": "^20.0.0"
   }
 }

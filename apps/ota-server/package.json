@@ -7,13 +7,13 @@
     "serve": "bun run src/main.ts",
     "ota:publish": "bun src/publish.ts",
     "ota:install": "bun src/install-service.ts",
-    "lint": "eslint src test",
+    "lint": "oxlint --type-aware src test",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:tsc6": "tsc6 --noEmit -p tsconfig.json",
     "test": "vitest run",
     "build": "echo 'ota:install compiles the server to ~/.local/bin/relay-ota'"
   },
   "devDependencies": {
-    "@relay/eslint-config": "workspace:*",
     "@types/bun": "^1.2.0",
     "@types/node": "^20.0.0"
   }

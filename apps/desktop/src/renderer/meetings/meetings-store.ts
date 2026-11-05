@@ -208,7 +208,8 @@ async function afterWrite(stem: string): Promise<void> {
 async function act(
   stem: string,
   run: () =>
-    ReturnType<typeof invoke<'meetings.accept'>> | ReturnType<typeof invoke<'meetings.dismiss'>>,
+    | ReturnType<typeof invoke<'meetings.accept'>>
+    | ReturnType<typeof invoke<'meetings.dismiss'>>,
   toast: (value: never) => string,
 ): Promise<ProposalResult> {
   let r

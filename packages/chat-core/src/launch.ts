@@ -255,7 +255,9 @@ export function foldModels(models: readonly ModelInfo[]): ModelInfo[] {
 }
 
 export type ContextReading =
-  { kind: 'percent'; value: number } | { kind: 'tokens'; value: number } | { kind: 'unavailable' }
+  | { kind: 'percent'; value: number }
+  | { kind: 'tokens'; value: number }
+  | { kind: 'unavailable' }
 
 export function contextPercent(tokens: number | null, window: number | null): ContextReading {
   if (tokens === null) return { kind: 'unavailable' }

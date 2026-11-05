@@ -85,8 +85,7 @@ function copyResolved(src: string, dest: string, now: Date, root: string): void 
     const from = path.join(src, entry.name)
     const to = path.join(dest, name)
     if (entry.isDirectory()) copyResolved(from, to, now, root)
-    else if (entry.name === 'README.md')
-      continue // documents the tokens literally; not part of the root
+    else if (entry.name === 'README.md') continue // documents the tokens literally; not part of the root
     else fs.writeFileSync(to, resolveTokens(fs.readFileSync(from, 'utf8'), now, root))
   }
 }

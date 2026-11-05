@@ -13,7 +13,13 @@ export const FAST_SETTLE_MS = 4 * 3600_000
 export const FOLDER_SHOWN = 10
 
 export type LookStatus =
-  'working' | 'approval' | 'asked' | 'monitoring' | 'failed' | 'woke' | 'done'
+  | 'working'
+  | 'approval'
+  | 'asked'
+  | 'monitoring'
+  | 'failed'
+  | 'woke'
+  | 'done'
 
 /** Waiting on Isaac: an approval or a question. */
 export const needsYou = (r: ChatRow): boolean =>
@@ -259,7 +265,11 @@ export const DIGESTS: readonly (readonly [number, number])[] = [
 ]
 
 export type SnoozeLabel =
-  'In 1 hour' | 'Next digest' | 'Evening digest' | 'Tomorrow morning digest' | 'Monday'
+  | 'In 1 hour'
+  | 'Next digest'
+  | 'Evening digest'
+  | 'Tomorrow morning digest'
+  | 'Monday'
 
 export interface SnoozeOption {
   label: SnoozeLabel

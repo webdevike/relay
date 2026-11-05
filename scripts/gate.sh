@@ -17,7 +17,7 @@ desktop install --frozen-lockfile
 [ -d apps/desktop/node_modules/electron/dist ] || (cd apps/desktop/node_modules/electron && node install.js)
 step "typecheck"
 desktop -r --include-workspace-root typecheck
-step "lint (eslint, prettier, em-dash, spacing)"
+step "lint (oxlint, oxfmt, em-dash, spacing)"
 desktop lint
 step "vitest"
 desktop -r --include-workspace-root test

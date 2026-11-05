@@ -15,7 +15,9 @@ import { mediaUrl } from '../widgets/media-url'
  * - everything else stays an image.
  */
 export type MediaKind =
-  { kind: 'image' } | { kind: 'video'; poster: string | null } | { kind: 'audio' }
+  | { kind: 'image' }
+  | { kind: 'video'; poster: string | null }
+  | { kind: 'audio' }
 
 const DROP = /^\/drops\/[^/]+\/[^/]+$/
 const VIDEO_PATH = /\.(mp4|webm|mov|m4v)$/i

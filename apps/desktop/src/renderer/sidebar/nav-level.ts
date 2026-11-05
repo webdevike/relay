@@ -3,7 +3,13 @@ import { createStore } from 'zustand/vanilla'
 import type { Place } from '@evaos/shell-core'
 
 export type NavLevel =
-  'root' | 'assistants' | 'chats' | 'canvas' | 'settings' | 'meetings' | 'reviews'
+  | 'root'
+  | 'assistants'
+  | 'chats'
+  | 'canvas'
+  | 'settings'
+  | 'meetings'
+  | 'reviews'
 
 export const navLevelStore = createStore<{ level: NavLevel }>(() => ({ level: 'root' }))
 

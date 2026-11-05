@@ -92,7 +92,8 @@ export function FavRow({
   const t = drag.transform
   // dnd-kit types its listeners as bare Functions; the pointer sensor's is a pointer handler.
   const onPointerDown = drag.listeners?.['onPointerDown'] as
-    ((e: PointerEvent<HTMLDivElement>) => void) | undefined
+    | ((e: PointerEvent<HTMLDivElement>) => void)
+    | undefined
   const folder = node.kind === 'folder'
   const Glyph = node.kind === 'item' ? navIcon(node.icon) : node.open ? IconFolderOpen : IconFolder
   const Caret = folder && node.open ? IconChevronDown : IconChevronRight

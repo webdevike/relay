@@ -1,0 +1,11 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../tooling/oxlint-config/strict.json"],
+  "overrides": [
+    {
+      // The request log and the publish/install scripts report to the terminal on purpose.
+      "files": ["src/main.ts", "src/publish.ts", "src/install-service.ts"],
+      "rules": { "no-console": "off" }
+    }
+  ]
+}

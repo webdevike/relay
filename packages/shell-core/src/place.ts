@@ -21,7 +21,11 @@ export type FixedPage =
  * its own tab or pane; the app defines the id (`review:pr:owner/repo#12`).
  */
 export type PageKey =
-  FixedPage | `workspace:${string}` | `agent:${string}` | `board:${string}` | `review:${string}`
+  | FixedPage
+  | `workspace:${string}`
+  | `agent:${string}`
+  | `board:${string}`
+  | `review:${string}`
 
 export const SETTINGS_SECTIONS = [
   'Theme',

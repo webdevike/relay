@@ -50,7 +50,8 @@ const summary = (vs: Violation[]): string[] =>
   vs.flatMap((v) =>
     v.nodes.map((n) => {
       const d = n.any[0]?.data as
-        { fgColor?: string; bgColor?: string; contrastRatio?: number } | undefined
+        | { fgColor?: string; bgColor?: string; contrastRatio?: number }
+        | undefined
       const why = d?.contrastRatio ? ` (${d.fgColor} on ${d.bgColor}: ${d.contrastRatio})` : ''
       return `${v.id}: ${n.target.join(' ')}${why}`
     }),

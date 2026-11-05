@@ -224,7 +224,8 @@ export interface RelayActivity {
 
 /** The host's answer to `canvas.open`: the room page's host-relative path, or why there is none. */
 export type CanvasAccess =
-  { ok: true; path: string; expiresAt: number } | { ok: false; error: string }
+  | { ok: true; path: string; expiresAt: number }
+  | { ok: false; error: string }
 
 /** An access is reused while it has this long left (the host's tokens last 12 hours). */
 const ACCESS_MARGIN_MS = 60_000

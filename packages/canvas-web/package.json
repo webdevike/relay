@@ -6,7 +6,8 @@
   "description": "The live canvas web client (React Flow + Yjs), built to one self-contained canvas.html that the Relay host serves at /canvas/<slug>/ and Relay Desktop and the phone embed.",
   "scripts": {
     "build": "bun build.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "node node_modules/@typescript/native/bin/tsc --noEmit -p tsconfig.json",
+    "typecheck:tsc6": "node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
   "devDependencies": {
@@ -14,12 +15,13 @@
     "@types/bun": "^1.4.4",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "@xyflow/react": "12.12.0",
     "jsdom": "^26",
     "lib0": "0.2.119",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "typescript": "~6.0.3",
+    "typescript": "npm:@typescript/typescript6@~6.0.2",
     "vitest": "^3.2.0",
     "y-protocols": "1.0.7",
     "y-websocket": "3.1.0",

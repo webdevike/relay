@@ -297,10 +297,12 @@ export function ruleMatches(rule: TabRule, item: Artifact): boolean {
     const wanted = rule.state.map((s) => s.toLowerCase())
     const state = artifactState(item)?.toLowerCase()
     const type = item.status?.stateType
-    if (!(
-      (state !== undefined && wanted.includes(state)) ||
-      (type !== undefined && wanted.includes(type))
-    )) {
+    if (
+      !(
+        (state !== undefined && wanted.includes(state)) ||
+        (type !== undefined && wanted.includes(type))
+      )
+    ) {
       return false
     }
   }

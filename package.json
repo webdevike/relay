@@ -8,11 +8,13 @@
   "scripts": {
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "typecheck:tsc6": "turbo run typecheck:tsc6",
     "test": "turbo run test",
     "build": "turbo run build",
     "check": "turbo run lint typecheck test build",
     "affected": "turbo run lint typecheck test build --filter=...[HEAD^1]",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md,yaml}\"",
+    "format": "oxfmt \"**/*.{ts,tsx,json,md,yaml}\"",
+    "format:check": "oxfmt --check \"**/*.{ts,tsx,json,md,yaml}\"",
     "ota:publish": "pnpm --filter @relay/ota-server ota:publish",
     "ota:install": "pnpm --filter @relay/ota-server ota:install",
     "dev": "pnpm -C apps/desktop dev",
@@ -21,13 +23,13 @@
     "gate": "bash scripts/gate.sh"
   },
   "devDependencies": {
-    "@eslint/js": "^9.30.0",
-    "eslint": "^9.30.0",
-    "prettier": "^3.6.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "oxfmt": "^0.76.0",
+    "oxlint": "^1.91.0",
+    "oxlint-tsgolint": "^7.0.2006",
     "stylelint": "^17.16.0",
     "turbo": "^2.10.12",
-    "typescript": "~6.0.3",
-    "typescript-eslint": "^8.35.0",
+    "typescript": "npm:@typescript/typescript6@~6.0.2",
     "vitest": "^3.2.0"
   }
 }

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p .",
+    "typecheck:tsc6": "tsc6 --noEmit -p .",
     "test": "vitest run"
   },
   "devDependencies": {

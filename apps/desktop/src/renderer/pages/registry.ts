@@ -21,7 +21,14 @@ import { TestBenchPage } from '../test-bench/TestBenchPage'
 import { SetupPage } from '../setup/SetupPage'
 
 export type PageRegistryKind =
-  'page' | 'settings' | 'workspace' | 'meeting' | 'canvas' | 'agent' | 'board' | 'review'
+  | 'page'
+  | 'settings'
+  | 'workspace'
+  | 'meeting'
+  | 'canvas'
+  | 'agent'
+  | 'board'
+  | 'review'
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   assistants: AssistantsHome,

@@ -7,7 +7,9 @@ import { invoke } from '../ipc'
 import { EvaMenu } from '../overlay'
 
 type Loaded =
-  { state: 'loading' } | { state: 'ok'; apps: SwitchApp[] } | { state: 'error'; message: string }
+  | { state: 'loading' }
+  | { state: 'ok'; apps: SwitchApp[] }
+  | { state: 'error'; message: string }
 
 /**
  * The local eCard app switch (https://localhost:3001) as a toolbar menu: which worktree this tab

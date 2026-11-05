@@ -5,9 +5,49 @@ name: desktop
 # root install (pnpm 9, hoisted) and from packages/widget-runtime's own install.
 on:
   push:
-    paths: ["apps/desktop/**", "packages/browser-core/**", "packages/chat-core/**", "packages/contract/**", "packages/eva-core/**", "packages/shell-core/**", "packages/portrait-motion/**", "packages/slack-emoji/**", "packages/widget-runtime/**", "scripts/**", "fixtures/**", "eslint.config.mjs", "stylelint.config.mjs", "tsconfig.desktop.json", ".prettierrc", "pnpm-lock.yaml", ".github/workflows/desktop.yml"]
+    paths:
+      [
+        "apps/desktop/**",
+        "packages/browser-core/**",
+        "packages/chat-core/**",
+        "packages/contract/**",
+        "packages/eva-core/**",
+        "packages/shell-core/**",
+        "packages/portrait-motion/**",
+        "packages/slack-emoji/**",
+        "packages/widget-runtime/**",
+        "scripts/**",
+        "fixtures/**",
+        ".oxlintrc.json",
+        ".oxfmtrc.json",
+        "tooling/oxlint-config/**",
+        "stylelint.config.mjs",
+        "tsconfig.desktop.json",
+        "pnpm-lock.yaml",
+        ".github/workflows/desktop.yml",
+      ]
   pull_request:
-    paths: ["apps/desktop/**", "packages/browser-core/**", "packages/chat-core/**", "packages/contract/**", "packages/eva-core/**", "packages/shell-core/**", "packages/portrait-motion/**", "packages/slack-emoji/**", "packages/widget-runtime/**", "scripts/**", "fixtures/**", "eslint.config.mjs", "stylelint.config.mjs", "tsconfig.desktop.json", ".prettierrc", "pnpm-lock.yaml", ".github/workflows/desktop.yml"]
+    paths:
+      [
+        "apps/desktop/**",
+        "packages/browser-core/**",
+        "packages/chat-core/**",
+        "packages/contract/**",
+        "packages/eva-core/**",
+        "packages/shell-core/**",
+        "packages/portrait-motion/**",
+        "packages/slack-emoji/**",
+        "packages/widget-runtime/**",
+        "scripts/**",
+        "fixtures/**",
+        ".oxlintrc.json",
+        ".oxfmtrc.json",
+        "tooling/oxlint-config/**",
+        "stylelint.config.mjs",
+        "tsconfig.desktop.json",
+        "pnpm-lock.yaml",
+        ".github/workflows/desktop.yml",
+      ]
 
 jobs:
   check:
@@ -34,10 +74,11 @@ jobs:
           (cd apps/desktop && pnpm install --frozen-lockfile)
           # Electron 44 has no postinstall: fetch its binary.
           (cd apps/desktop/node_modules/electron && node install.js)
+      # TypeScript 7 (native tsc). `tsc6` (typecheck:tsc6) is the TypeScript 6 fallback.
       - name: Typecheck
         working-directory: apps/desktop
         run: pnpm -r --include-workspace-root typecheck
-      - name: Lint (eslint, prettier, em-dash, spacing)
+      - name: Lint (oxlint, oxfmt, em-dash, spacing)
         working-directory: apps/desktop
         run: pnpm lint
       - name: Unit tests

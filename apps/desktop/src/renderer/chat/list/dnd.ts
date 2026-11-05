@@ -2,7 +2,8 @@ import type { ClientRect, KeyboardCoordinateGetter } from '@dnd-kit/core'
 
 /** What a draggable chat carries (with the folder it sits in); folder headers are drop targets. */
 export type DragData =
-  { type: 'chat'; id: string; group?: string } | { type: 'group'; name: string }
+  | { type: 'chat'; id: string; group?: string }
+  | { type: 'group'; name: string }
 
 export type Drop = { kind: 'assign'; id: string; group: string }
 

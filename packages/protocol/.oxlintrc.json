@@ -1,0 +1,6 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../tooling/oxlint-config/strict.json"],
+  // Vendored upstream (thesysdev/openui lang-core), kept diffable against upstream; see LICENSE-openui.
+  "ignorePatterns": ["dist/**", "src/openui/lang/**"]
+}

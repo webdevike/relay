@@ -7,8 +7,9 @@
     "start": "expo start --dev-client",
     "ios": "expo run:ios",
     "prebuild": "expo prebuild --platform ios",
-    "lint": "eslint src app",
+    "lint": "oxlint --type-aware src app",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:tsc6": "tsc6 --noEmit -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "build": "expo export --platform ios --output-dir dist",
     "android": "expo run:android",
@@ -74,8 +75,8 @@
   },
   "devDependencies": {
     "@novnc/novnc": "1.7.0",
-    "@relay/eslint-config": "workspace:*",
     "@types/react": "~19.1.10",
-    "typescript": "~5.9.2"
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "typescript": "npm:@typescript/typescript6@~6.0.2"
   }
 }

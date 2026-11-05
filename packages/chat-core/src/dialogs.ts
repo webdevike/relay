@@ -19,7 +19,10 @@ export type Dialog =
   | { kind: 'ask'; id: string; questions: AskQuestion[] }
 
 export type DialogParse =
-  { dialog: Dialog } | { unreadable: { id: string } } | { cancelTarget: string } | null
+  | { dialog: Dialog }
+  | { unreadable: { id: string } }
+  | { cancelTarget: string }
+  | null
 
 export type DialogAnswer =
   | { kind: 'select'; value: string }

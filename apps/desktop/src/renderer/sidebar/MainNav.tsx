@@ -53,7 +53,9 @@ interface Item {
 
 /** One drawn row of the sidebar's single list. */
 type Entry =
-  { kind: 'nav'; item: Item } | { kind: 'dash'; item: Item } | { kind: 'fav'; fav: FavEntry }
+  | { kind: 'nav'; item: Item }
+  | { kind: 'dash'; item: Item }
+  | { kind: 'fav'; fav: FavEntry }
 
 const entryKey = (e: Entry): string => (e.kind === 'fav' ? e.fav.node.id : `${e.kind}:${e.item.id}`)
 

@@ -1,0 +1,11 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../tooling/oxlint-config/strict.json"],
+  "overrides": [
+    {
+      // The daemon's terminal is its UI: PIN prompts and status lines go to stdout on purpose.
+      "files": ["src/main.ts", "src/pairing.ts"],
+      "rules": { "no-console": "off" }
+    }
+  ]
+}

@@ -34,7 +34,8 @@ export function canvasNavPlace(): Place {
 
 /** Renames and deletes done here, so an open board takes the new title or lets go of its file. */
 export type BoardOp =
-  { kind: 'renamed'; slug: string; title: string } | { kind: 'deleted'; slug: string }
+  | { kind: 'renamed'; slug: string; title: string }
+  | { kind: 'deleted'; slug: string }
 
 const opListeners = new Set<(op: BoardOp) => void>()
 

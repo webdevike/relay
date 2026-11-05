@@ -13,8 +13,9 @@
   },
   "scripts": {
     "build": "bun build.ts",
-    "lint": "eslint src test build.ts",
+    "lint": "oxlint --type-aware src test build.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:tsc6": "tsc6 --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
   "devDependencies": {
@@ -25,12 +26,13 @@
     "@types/node": "^20.0.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "jsdom": "^26",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "recharts": "3.10.1",
     "sucrase": "3.35.1",
-    "typescript": "~6.0.3",
+    "typescript": "npm:@typescript/typescript6@~6.0.2",
     "vitest": "^3.2.0"
   }
 }

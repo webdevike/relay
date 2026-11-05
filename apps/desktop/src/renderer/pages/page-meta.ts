@@ -89,7 +89,15 @@ export const NAV_PAGES: readonly NavPage[] = [
 ]
 
 export type PageKind =
-  'page' | 'settings' | 'workspace' | 'meeting' | 'chat' | 'canvas' | 'agent' | 'board' | 'review'
+  | 'page'
+  | 'settings'
+  | 'workspace'
+  | 'meeting'
+  | 'chat'
+  | 'canvas'
+  | 'agent'
+  | 'board'
+  | 'review'
 
 export interface PageMeta {
   kind: PageKind

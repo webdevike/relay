@@ -11,12 +11,14 @@ apps/linux       Bun + TypeScript host daemon (Bun.serve WebSocket, avahi, /dev/
 apps/desktop     Relay desktop: Electron + React 19.3 + Mantine, with packages/{browser-core,chat-core,contract,eva-core,shell-core}. Its own pnpm workspace; see apps/desktop/README.md
 packages/protocol  Wire protocol: zod schemas + JSON fixtures. apps/mac/Sources/RelayProtocol mirrors it.
 packages/slack-emoji  Slack shortcodes (:clapper:, :+1::skin-tone-3:) as emoji; phone and desktop Reviews. `bun build.ts` regenerates src/data.ts.
-tooling/         Shared eslint config
+tooling/oxlint-config  Shared oxlint rule set (strict, type-aware) the Bun/TS packages extend
 ```
 
 ## Toolchain
 
 - pnpm 9 (`packageManager` in package.json; the global pnpm on this Mac is v6, so use `npx -y pnpm@9.15.0 …` or corepack), hoisted `node_modules` (`.npmrc`).
+- TypeScript 7 (native `tsc`, from the `@typescript/native` alias) type-checks every package. `typescript` itself is aliased to `@typescript/typescript6` because TS 7 ships no JS compiler API (`scripts/lint-em-dash.ts` imports it); `pnpm typecheck:tsc6` runs the TS 6 compiler as a fallback.
+- oxlint (`.oxlintrc.json`, per-package `.oxlintrc.json` extending `tooling/oxlint-config/strict.json`; type-aware rules run on tsgolint via `--type-aware`) lints, oxfmt (`.oxfmtrc.json`) formats, stylelint checks the renderer spacing. `pnpm format` / `pnpm format:check` run oxfmt.
 - Expo SDK 54 / RN 0.81, pinned because Expo 55+ needs Xcode 26 and this Mac runs Xcode 16.4. Bump both together.
 - Watchman installed (`brew install watchman`), otherwise Metro misses edits in the monorepo.
 - V1 ships trackpad + dictation. Coding-agent sessions are deferred: the protocol types, `AgentProvider` seam and `useAgentsStore` stay so a provider can be added without a schema change.

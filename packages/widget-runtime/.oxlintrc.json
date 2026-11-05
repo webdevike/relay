@@ -1,0 +1,5 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../tooling/oxlint-config/strict.json"],
+  "ignorePatterns": ["generated/**", "node_modules/**"]
+}

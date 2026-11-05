@@ -113,7 +113,8 @@ const panes = (shell: Page, kind: 'app' | 'tool' | 'any' = 'tool'): Promise<Pane
   )
 
 type DockNode =
-  { type: 'branch'; data: DockNode[] } | { type: 'leaf'; data: { id: string; views: string[] } }
+  | { type: 'branch'; data: DockNode[] }
+  | { type: 'leaf'; data: { id: string; views: string[] } }
 const layoutFile = (dir: string): Record<string, unknown> => {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, 'layout.json'), 'utf8')) as Record<
@@ -132,7 +133,8 @@ function shape(node: DockNode, dir: 'row' | 'column'): unknown {
 }
 const savedDock = (dir: string) =>
   layoutFile(dir)['dock'] as
-    { grid: { root: DockNode; orientation: 'HORIZONTAL' | 'VERTICAL' } } | undefined
+    | { grid: { root: DockNode; orientation: 'HORIZONTAL' | 'VERTICAL' } }
+    | undefined
 const savedShape = (dir: string): unknown => {
   const d = savedDock(dir)
   return d ? shape(d.grid.root, d.grid.orientation === 'HORIZONTAL' ? 'row' : 'column') : null

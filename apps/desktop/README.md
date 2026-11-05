@@ -19,9 +19,10 @@ cd apps/desktop && pnpm install && (cd node_modules/electron && node install.js)
 ```
 pnpm dev        # Relay Dev: fixtures and fake omp (safe), temp config dir
 pnpm dev:live   # Relay Dev with real ~/Eva and real omp; CDP 9340, agent control on
-pnpm typecheck
+pnpm typecheck # TypeScript 7 (native tsc); pnpm typecheck:tsc6 is the TypeScript 6 fallback
 pnpm exec vitest run --project main|preload|renderer|scripts
-pnpm lint       # eslint, prettier, em-dash and spacing lints, run from the repo root
+pnpm lint       # oxlint, oxfmt, em-dash and spacing lints, run from the repo root
+pnpm format     # oxfmt --write over the same files
 ```
 
 `pnpm dev`, `pnpm dev:live`, `pnpm e2e` and `pnpm gate` also work from the repo root. How to
