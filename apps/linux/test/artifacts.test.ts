@@ -113,7 +113,7 @@ interface Harness {
   snapshot(thread?: string): Extract<ServerMessage, { t: "artifacts.snapshot" }>;
 }
 
-function harness(options: { root?: string; drops?: Drop[] } = {}): Harness {
+function harness(options: { root?: string; drops?: Drop[]; ownerThreadOf?: (id: string) => string | null } = {}): Harness {
   const dir = mkdtempSync(join(tmpdir(), "artifacts-"));
   const root = options.root ?? join(dir, "artifacts");
   const sent: ServerMessage[] = [];
@@ -144,7 +144,8 @@ function harness(options: { root?: string; drops?: Drop[] } = {}): Harness {
       evaRoot: dir,
       broadcast: (message) => void sent.push(message),
       threadFiles: () => files,
-      threadOf: (id) => (id === "live" ? "assistant:astra" : null),
+      threadOf: (id) => (id === "live" ? "assistant:astra" : id === "owned" ? "session:owned" : null),
+      ...(options.ownerThreadOf === undefined ? {} : { ownerThreadOf: options.ownerThreadOf }),
       drop: (id) => options.drops?.find((drop) => drop.id === id),
       repoOf: () => null,
       clock: {
@@ -320,6 +321,23 @@ describe("ArtifactService", () => {
     h.tick(SUBAGENT_POLL_MS);
     expect(item(h, id)?.subagent?.state).toBe("done");
     expect(h.service.helpers().map((found) => found.item.id)).toContain(id);
+  });
+
+  it("a session an assistant owns refreshes the assistant's thread, and its helpers list under the assistant", () => {
+    const h = harness({ ownerThreadOf: (id) => (id === "owned" ? "assistant:astra" : null) });
+    const file = transcript(h);
+    appendFileSync(file, assistant(T0, [{ type: "toolCall", name: "task", arguments: { tasks: [{ name: "Scout" }] } }]));
+    const sub = file.replace(/\.jsonl$/, "");
+    mkdirSync(sub, { recursive: true });
+    const path = join(sub, "Scout.jsonl");
+    writeFileSync(path, line({ type: "custom", customType: "tool_execution_start", data: { intent: "Looking" } }));
+    h.now = Date.now();
+    // The session's own thread loads first (a phone opened it), then the owner's thread reads the same file.
+    h.service.get("session:owned");
+    h.service.observe({ kind: "conversation", sessionId: "owned", appended: [] });
+    h.tick(2000);
+    expect(h.snapshot("assistant:astra").items.map((found) => found.id)).toContain(`subagent:${path}`);
+    expect(h.service.helpers().filter((found) => found.item.path === path).map((found) => found.thread)).toEqual(["assistant:astra"]);
   });
 
   it("a helper that goes idle on a final reply instead of yielding is finished, not running", () => {

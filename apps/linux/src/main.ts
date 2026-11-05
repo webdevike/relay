@@ -34,6 +34,7 @@ import { handleAssistantFile } from "./assistant/files";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { openBridgeLink, SubagentFileMirrors } from "./agents/subagent-mirrors";
+import { ownedSessions } from "./agents/owned-sessions";
 import { SessionFiles } from "./agents/session-files";
 import {
   type AssistantAgentConfig,
@@ -548,16 +549,27 @@ function serve(
           : null;
       const live = assistant?.thread(agent)?.current();
       const liveFile = live === undefined ? null : agents.sessionFile(live.id);
+      // Sessions the assistant owns (auto-work, delegated work: `RELAY_OWNER`) belong to its thread too, so
+      // their helpers are its Artifacts rows and activity chips, in every profile they run under.
+      const ownedFiles = agents.sessions
+        .filter((session) => session.owner === agent && session.parentId === undefined)
+        .map((session) => agents.sessionFile(session.id))
+        .filter((file): file is string => file !== null);
       const files = [
         ...(record?.history ?? []),
         ...(record?.sessionFile === undefined ? [] : [record.sessionFile]),
         ...(liveFile === null ? [] : [liveFile]),
+        ...ownedFiles,
       ];
       return [...new Set(files)];
     },
     threadOf: (sessionId) => {
       const session = agents.sessions.find((candidate) => candidate.id === sessionId);
       return session === undefined ? null : sessionReactionThread(session);
+    },
+    ownerThreadOf: (sessionId) => {
+      const owner = agents.sessions.find((candidate) => candidate.id === sessionId)?.owner;
+      return owner === undefined ? null : `assistant:${owner}`;
     },
     drop: (id) => drops.list().find((drop) => drop.id === id),
     repoOf: (cwd) => {
@@ -769,6 +781,7 @@ function serve(
     sessions: () => agents.sessions,
     sessionForFile: (file) => agents.sessionForFile(file),
     open: openBridgeLink(defaultSocketPath(), log),
+    owned: () => (agentHome === null ? [] : ownedSessions(agentHome, Date.now())),
     now: () => Date.now(),
     log,
   });

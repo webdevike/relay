@@ -91,6 +91,8 @@ export interface ArtifactServiceDeps {
   readonly threadFiles: (thread: string) => readonly string[];
   /** The thread a live session belongs to; null for an unknown one. */
   readonly threadOf: (sessionId: string) => string | null;
+  /** The assistant thread that owns a live session (`RELAY_OWNER`), when it has one: its helpers are that thread's too. */
+  readonly ownerThreadOf?: (sessionId: string) => string | null;
   /** The drop behind a `drop:` item, for its file facts; undefined when it is gone. */
   readonly drop: (id: string) => Drop | undefined;
   /** `owner/name` of the GitHub repo checked out at `cwd`; null when it is none. */
@@ -159,16 +161,18 @@ export class ArtifactService implements ArtifactRelaying {
 
   observe(change: AgentProviderChange): void {
     if (change.kind !== "conversation") return;
-    const thread = this.deps.threadOf(change.sessionId);
-    if (thread === null || this.timers.has(thread)) return;
-    this.timers.set(
-      thread,
-      this.deps.clock.after(ARTIFACT_SCAN_DELAY_MS, () => {
-        this.timers.delete(thread);
-        const state = this.load(thread);
-        if (this.refresh(state)) this.publish(state);
-      }),
-    );
+    const threads = new Set([this.deps.threadOf(change.sessionId), this.deps.ownerThreadOf?.(change.sessionId) ?? null]);
+    for (const thread of threads) {
+      if (thread === null || this.timers.has(thread)) continue;
+      this.timers.set(
+        thread,
+        this.deps.clock.after(ARTIFACT_SCAN_DELAY_MS, () => {
+          this.timers.delete(thread);
+          const state = this.load(thread);
+          if (this.refresh(state)) this.publish(state);
+        }),
+      );
+    }
   }
 
   openMedia(sha: string, token: string): DropBlob | null {
@@ -643,12 +647,16 @@ export class ArtifactService implements ArtifactRelaying {
     return true;
   }
 
-  /** Helpers of every loaded thread that run or finished today: the activity list's helper rows. */
+  /**
+   * Helpers of every loaded thread that run or finished today: the activity list's helper rows. A helper
+   * of a session an assistant owns is in both threads; the assistant's wins, so it lists under her.
+   */
   helpers(): { thread: string; item: Artifact }[] {
     const now = this.deps.clock.now();
     const out: { thread: string; item: Artifact }[] = [];
     const seen = new Set<string>();
-    for (const state of this.threads.values()) {
+    const states = [...this.threads.values()].sort((a, b) => Number(b.thread.startsWith("assistant:")) - Number(a.thread.startsWith("assistant:")));
+    for (const state of states) {
       for (const item of state.items.values()) {
         const sub = item.subagent;
         if (sub === undefined || item.path === undefined || seen.has(item.path)) continue;

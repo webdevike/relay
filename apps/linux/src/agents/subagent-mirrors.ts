@@ -13,6 +13,7 @@ import { basename, dirname } from "node:path";
 import type { ActivityItem, AgentSession, Artifact } from "@relay/protocol";
 import { helperItems } from "../activity/sources";
 import { firstLine, parseSessionRows, type Image, type InboxMessage } from "./transcript";
+import type { OwnedSession } from "./owned-sessions";
 
 /** How often the helpers are looked at, and every mirrored transcript for new lines. */
 export const MIRROR_POLL_MS = 1000;
@@ -45,15 +46,20 @@ export interface MirrorDeps {
   readonly sessionForFile: (file: string) => AgentSession | null;
   /** Opens a socket to the bridge; `onFrame` gets each host request, `onClose` runs once it is gone for any reason. */
   readonly open: (onFrame: (frame: HostFrame) => void, onClose: () => void) => MirrorLink;
+  /** Open sessions the assistants started (`ownedSessions`), whether or not they reached the bridge. */
+  readonly owned: () => readonly OwnedSession[];
   readonly now: () => number;
   readonly log: (line: string) => void;
 }
 
-/** Where a helper's mirror is: its session id and what the thread's own session says about it. */
+/** Where a mirror is: its session id and what the thread's own session says about it. */
 interface Target {
   readonly id: string;
-  readonly parent: AgentSession;
+  /** The session a helper belongs to; null for an adopted top-level session. */
+  readonly parent: AgentSession | null;
   readonly item: ActivityItem;
+  /** Set for a session read from its assistant's record rather than a helper of a listed one. */
+  readonly adopted?: OwnedSession;
 }
 
 /** The thread's live session that owns the helper transcript `file`, found by walking up its folders. */
@@ -76,7 +82,7 @@ class Mirror {
   private partial = "";
   private lastActivity: string;
   private lastActivityAt: number;
-  private status: "working" | "ended";
+  private status: "working" | "idle" | "ended";
   private detail: string | undefined;
   /** Set when this side closes the socket, so `onGone` does not run for it. */
   private closing = false;
@@ -90,7 +96,7 @@ class Mirror {
   ) {
     this.lastActivity = target.item.intent !== "" ? target.item.intent : target.item.title;
     this.lastActivityAt = target.item.updatedAt;
-    this.status = target.item.status === "working" ? "working" : "ended";
+    this.status = this.statusOf(target);
     this.detail = this.detailOf(target.item);
     this.read();
     this.link = deps.open(
@@ -125,7 +131,7 @@ class Mirror {
   /** The state the activity list reports now, and any lines the helper wrote since the last look. */
   refresh(target: Target): void {
     this.target = target;
-    const next = target.item.status === "working" ? "working" : "ended";
+    const next = this.statusOf(target);
     const detail = this.detailOf(target.item);
     const changed = next !== this.status || detail !== this.detail;
     this.status = next;
@@ -141,8 +147,15 @@ class Mirror {
   }
 
   private detailOf(item: ActivityItem): string | undefined {
+    if (this.target.adopted !== undefined) return undefined;
     if (item.status === "working") return item.intent === "" ? undefined : item.intent;
     return item.status === "failed" ? "Failed" : "Done";
+  }
+
+  /** An adopted session is idle between turns; a helper is working or ended. */
+  private statusOf(target: Target): "working" | "idle" | "ended" {
+    if (target.adopted !== undefined) return target.adopted.working ? "working" : "idle";
+    return target.item.status === "working" ? "working" : "ended";
   }
 
   private nextId = (): string => {
@@ -198,13 +211,20 @@ class Mirror {
       lastActivityAt: this.lastActivityAt,
       canRespond: false,
       ...(this.detail === undefined ? {} : { statusDetail: this.detail }),
-      ...(parent.account === undefined ? {} : { account: parent.account }),
+      ...(parent?.account === undefined ? {} : { account: parent.account }),
     };
   }
 
   private hello(): object {
-    const { id, parent } = this.target;
-    return { t: "hello", sessionId: id, provider: "omp", projectPath: parent.projectPath, parentId: parent.id, ...this.base() };
+    const { id, parent, adopted } = this.target;
+    return {
+      t: "hello",
+      sessionId: id,
+      provider: "omp",
+      projectPath: adopted?.projectPath ?? parent?.projectPath ?? "",
+      ...(parent === null ? { owner: adopted?.owner, sessionFile: this.file } : { parentId: parent.id }),
+      ...this.base(),
+    };
   }
 
   private statusFrame(): object {
@@ -294,6 +314,23 @@ export class SubagentFileMirrors {
       const cleared = this.dismissed.get(file);
       if (cleared !== undefined && item.status !== "working" && item.updatedAt <= cleared) continue;
       wanted.set(file, { id, parent, item });
+    }
+    // Sessions an assistant started that never reached the bridge: registered from its record, so they list under it.
+    for (const session of this.deps.owned()) {
+      const cleared = this.dismissed.get(session.file);
+      if (cleared !== undefined && !session.working && session.updatedAt <= cleared) continue;
+      const item: ActivityItem = {
+        id: `session:${session.id}`,
+        kind: "session",
+        owner: `assistant:${session.owner}`,
+        title: session.title,
+        status: session.working ? "working" : "done",
+        intent: "",
+        startedAt: session.startedAt,
+        updatedAt: session.updatedAt,
+        open: { to: "chat", thread: `assistant:${session.owner}`, session: session.id },
+      };
+      wanted.set(session.file, { id: session.id, parent: null, adopted: session, item });
     }
     // Drop mirrors whose helper left the list, whose thread is gone, or that were closed from the host's side.
     for (const mirror of [...this.mirrors.values()]) {

@@ -73,6 +73,7 @@ describe("SubagentFileMirrors", () => {
           },
         };
       },
+      owned: () => [],
       now: () => NOW,
       log: (line) => logs.push(line),
       ...over,
@@ -186,5 +187,29 @@ describe("SubagentFileMirrors", () => {
     mirrors.refresh();
     expect(mirrors.ids).toHaveLength(20);
     expect(mirrors.ids).not.toContain("abc:H0");
+  });
+
+  it("registers a session an assistant started that never reached the bridge: owner, transcript file, no parent, idle when quiet", () => {
+    const root = mkdtempSync(join(tmpdir(), "owned-"));
+    const file = join(root, "2026T_astra-auto.jsonl");
+    writeFileSync(file, entry("user", "start ENG-1") + entry("assistant", "On it"));
+    const session = { id: "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee", owner: "astra", file, title: "ENG-1 auto-work", projectPath: "/Users/ike/Eva", startedAt: NOW - 600_000, updatedAt: NOW - 10 * 60_000, working: false };
+    const { mirrors, opened } = setup({ owned: () => [session] });
+    mirrors.refresh();
+    expect(mirrors.ids).toEqual([session.id]);
+    const hello = opened[0]?.frames[0];
+    expect(hello).toMatchObject({ t: "hello", sessionId: session.id, owner: "astra", sessionFile: file, title: "ENG-1 auto-work", status: "idle", canRespond: false, projectPath: "/Users/ike/Eva", lastActivity: "On it" });
+    expect(hello).not.toHaveProperty("parentId");
+  });
+
+  it("leaves an owned session alone once the bridge lists it", () => {
+    const id = "0192aaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    const root = mkdtempSync(join(tmpdir(), "owned-"));
+    const file = join(root, "2026T_x.jsonl");
+    writeFileSync(file, "");
+    const live: AgentSession = { id, provider: "omp", title: "ENG-1", projectPath: "/Users/ike/Eva", status: "working", lastActivity: "", lastActivityAt: 1, canRespond: true, owner: "astra" };
+    const { mirrors, opened } = setup({ owned: () => [{ id, owner: "astra", file, title: "ENG-1", projectPath: "/Users/ike/Eva", startedAt: NOW, updatedAt: NOW, working: true }], sessions: () => [live] });
+    mirrors.refresh();
+    expect(opened).toHaveLength(0);
   });
 });
