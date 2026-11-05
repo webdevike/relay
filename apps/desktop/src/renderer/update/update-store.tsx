@@ -3,7 +3,9 @@ import { notifications } from '@mantine/notifications'
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { UpdateState } from '@evaos/contract'
+import { placeOf } from '@evaos/shell-core'
 import { invoke, on } from '../ipc'
+import { openPlace } from '../navigation/navigate'
 
 const TOAST_ID = 'relay-update'
 
@@ -27,13 +29,13 @@ function showToast(update: UpdateState): void {
     id: TOAST_ID,
     autoClose: false,
     withCloseButton: false,
-    title: `Update ready: ${update.summary ?? ''}`,
+    title: 'Update ready',
     'data-testid': 'update-toast',
     message: (
       <>
-        {update.build ? (
-          <Text size="xs" c="dimmed">
-            Build {update.build}
+        {update.summary ? (
+          <Text size="sm" data-testid="update-toast-summary">
+            {update.summary}
           </Text>
         ) : null}
         <Group gap="xs" mt="xs">
@@ -42,7 +44,7 @@ function showToast(update: UpdateState): void {
             onMouseDown={(e) => e.preventDefault()}
             onClick={restartForUpdate}
           >
-            Restart now
+            Restart
           </Button>
           <Button
             size="compact-xs"
@@ -51,6 +53,18 @@ function showToast(update: UpdateState): void {
             onClick={() => notifications.hide(TOAST_ID)}
           >
             Later
+          </Button>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            data-testid="update-toast-notes"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              notifications.hide(TOAST_ID)
+              openPlace(placeOf('settings', { settingsSection: 'Changelog' }))
+            }}
+          >
+            {"What's new"}
           </Button>
         </Group>
       </>

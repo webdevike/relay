@@ -94,6 +94,30 @@ export const browserInvoke = {
     input: z.object({ occluded: z.boolean() }).strict(),
     output: z.object({ visible: z.boolean() }),
   },
+  /**
+   * Rects of shell-drawn overlays that float over the browser views (toasts), in window content
+   * coordinates. A view gives up the band next to each instead of painting over it; the page
+   * stays visible. An empty list clears them.
+   */
+  'browser.setHoles': {
+    input: z
+      .object({
+        holes: z
+          .array(
+            z
+              .object({
+                x: z.number().int(),
+                y: z.number().int(),
+                width: z.number().int().min(0),
+                height: z.number().int().min(0),
+              })
+              .strict(),
+          )
+          .max(16),
+      })
+      .strict(),
+    output: okOut,
+  },
   /** A new tab, active in `scope` (the scope in front when omitted) without switching scopes. */
   'browser.createTab': {
     input: z

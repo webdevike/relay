@@ -19,6 +19,7 @@ import { GUEST_PARTITION, consumeGesture, gestureAge } from './guest-session'
 import { HistoryStore } from './history-store'
 import { PageControl } from './page-control'
 import { SavedTabsStore, type SavedBrowserTabs } from './saved-tabs'
+import { clipAround } from './clip'
 
 export interface SlotRect {
   x: number
@@ -90,6 +91,7 @@ export class BrowserHost {
   private recent: string[] = []
   private slot: SlotRect = { x: 0, y: 0, width: 0, height: 0 }
   private occluded = false
+  private holes: SlotRect[] = []
   private created: TabListener[] = []
   private activated: TabListener[] = []
   private closed: TabListener[] = []
@@ -706,15 +708,22 @@ export class BrowserHost {
     return this.visible()
   }
 
+  /**
+   * Shell-drawn overlays (toasts) that sit over the view's rect. A native view paints over the page
+   * above it, so the view gives up the band on the cheapest side of every hole instead of hiding;
+   * one rectangle cannot have a hole.
+   */
+  setHoles(holes: readonly SlotRect[]): void {
+    this.holes = holes.map((h) => ({ ...h }))
+    this.applyBounds()
+  }
+
   private visible(): boolean {
     const t = this.tabs.get(this.activeId)
     if (!t?.view) return false
+    const bounds = clipAround(this.slot, this.holes)
     return (
-      !this.occluded &&
-      !t.state.blank &&
-      !t.state.error &&
-      this.slot.width > 0 &&
-      this.slot.height > 0
+      !this.occluded && !t.state.blank && !t.state.error && bounds.width > 0 && bounds.height > 0
     )
   }
 
@@ -725,7 +734,7 @@ export class BrowserHost {
         t.view.setVisible(false)
         continue
       }
-      t.view.setBounds(this.slot)
+      t.view.setBounds(clipAround(this.slot, this.holes))
       const show = this.visible()
       const was = t.view.getVisible()
       t.view.setVisible(show)

@@ -90,4 +90,8 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
     return { ok: true as const }
   })
   handle(ctx, 'browser.setOccluded', ({ occluded }) => ({ visible: host.setOccluded(occluded) }))
+  handle(ctx, 'browser.setHoles', ({ holes }) => {
+    host.setHoles(holes)
+    return { ok: true as const }
+  })
 }

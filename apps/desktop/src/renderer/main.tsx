@@ -9,12 +9,14 @@ import './styles/tokens.css'
 import './styles/motion.css'
 import { App } from './app/App'
 import { startLinks } from './navigation/link-prefs'
+import { startToastHoles } from './overlay/toast-holes'
 import { bootstrapTheme } from './theme/bootstrap'
 import { ThemeProvider } from './theme/theme-config'
 
 async function start(): Promise<void> {
   await bootstrapTheme()
   void startLinks()
+  startToastHoles()
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <ThemeProvider>

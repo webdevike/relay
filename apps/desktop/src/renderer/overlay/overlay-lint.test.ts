@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { TOAST_HOST_CLASS } from './toast-holes'
 
 const BANNED = ['Modal', 'Menu', 'Popover', 'Drawer']
 
@@ -39,5 +40,22 @@ describe('overlay import lint (D-13)', () => {
     }
     expect(Object.keys(files).length).toBeGreaterThan(10)
     expect(offenders).toEqual([])
+  })
+
+  it('toasts come from one <Notifications> host that main.tsx tells main about', () => {
+    // A native browser view paints over the page, so a toast stays visible only because
+    // startToastHoles reports its rect and main moves the view's edge away from it.
+    const files = import.meta.glob('../**/*.{ts,tsx}', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>
+    const hosts = Object.entries(files)
+      .filter(([rel, src]) => !/\.test\.(ts|tsx)$/.test(rel) && /<Notifications\s/.test(src))
+      .map(([rel]) => rel)
+    expect(hosts).toEqual(['../main.tsx'])
+    const main = files['../main.tsx']!
+    expect(main).toContain(`className="${TOAST_HOST_CLASS}"`)
+    expect(main).toMatch(/startToastHoles\(\)/)
   })
 })
