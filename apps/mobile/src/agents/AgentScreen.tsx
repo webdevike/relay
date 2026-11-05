@@ -43,6 +43,7 @@ import { AgentSettingsSheet } from "@/agents/AgentSettingsSheet";
 import { TypedReply } from "@/agents/TypedReply";
 import { SessionWidgetActions } from "@/agents/WidgetActions";
 import { AskCard } from "@/agents/AskCard";
+import { usePendingAsk } from "@/agents/usePendingAsk";
 import { SessionApprovalCard } from "@/agents/SessionApprovalCard";
 import { HabitGate } from "@/gate/HabitGate";
 import { useGateStore } from "@/state/gate";
@@ -231,9 +232,7 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   const skills = wheelEnabled ? commands : undefined;
   // The multiple-choice prompt the focused session is blocked on, if any; the host replays it on
   // subscribe, so it survives a reconnect or a scrub away and back.
-  const pendingAsk = useAgentsStore((state) =>
-    selectedId === undefined ? undefined : state.asks[selectedId],
-  );
+  const { ask: pendingAsk, answer: answerAsk, cancel: cancelAsk } = usePendingAsk(selectedId);
   // The tool call it is blocked on, if any (replayed on subscribe like the ask). Destructive calls
   // need Face ID on this phone; see `SessionApprovalCard`.
   const pendingApproval = useAgentsStore((state) =>
@@ -241,24 +240,6 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
   );
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
   const pendingAskId = pendingAsk?.id;
-  const answerAsk = useCallback(
-    (results: { id: string; selectedOptions: string[]; customInput?: string }[]) => {
-      if (selectedId === undefined || pendingAsk === undefined) return;
-      sendCommand({ kind: "agent.ask.answer", sessionId: selectedId, askId: pendingAsk.id, results }).catch((error: unknown) => {
-        warn("agent.ask.answer failed", error);
-      });
-      // Optimistic: drop the card now; the host also echoes `agent.ask.resolved`.
-      useAgentsStore.getState().clearAsk(selectedId, pendingAsk.id);
-    },
-    [selectedId, pendingAsk],
-  );
-  const cancelAsk = useCallback(() => {
-    if (selectedId === undefined || pendingAsk === undefined) return;
-    sendCommand({ kind: "agent.ask.cancel", sessionId: selectedId, askId: pendingAsk.id }).catch((error: unknown) => {
-      warn("agent.ask.cancel failed", error);
-    });
-    useAgentsStore.getState().clearAsk(selectedId, pendingAsk.id);
-  }, [selectedId, pendingAsk]);
 
   // Subscriptions live on the socket: re-subscribe whenever focus or the connection changes.
   useFocusEffect(

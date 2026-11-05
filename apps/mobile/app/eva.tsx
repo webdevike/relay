@@ -8,7 +8,9 @@
  * opens a sheet to pick library photos or paste a clipboard image; queued images show as
  * thumbnails above the field. Bubbles stack their images above the text, tap to open. The newest
  * settled reply may carry tap-to-answer reply chips (`lib/replyChips.ts`); a tap sends that label as
- * a turn, as the composer does, and leaves the draft alone.
+ * a turn, as the composer does, and leaves the draft alone. While the thread's omp session is
+ * blocked on an `ask` or a tool approval, its card sits above the composer (the session is
+ * subscribed while the thread shows, as the Agent Inbox does).
  *
  * Look (after OpenAI's Dots chat): no title; the agent's avatar ring and name chip occupy a
  * dedicated header above the scrolling conversation (tapping them opens a menu); the user's
@@ -42,6 +44,10 @@ import { MessageImageStack } from "@/agents/MessageImageStack";
 import { bubbleSegments, topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
 import { BackgroundRow } from "@/agents/BackgroundRow";
+import { AskCard } from "@/agents/AskCard";
+import { SessionApprovalCard } from "@/agents/SessionApprovalCard";
+import { usePendingAsk } from "@/agents/usePendingAsk";
+import { useAgentsStore } from "@/state/agents";
 import { ReplyWidgetActions } from "@/agents/WidgetActions";
 import { backgroundOf } from "@/lib/background";
 import { BubbleMenuProvider, ChatBubble } from "@/agents/BubbleMenu";
@@ -51,7 +57,7 @@ import { radii, spacing, useColors, useScheme } from "@/theme";
 import { agentPortrait, agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
 import { useMotionSignals } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
-import { requestAssistant, sendCommand, stopAssistant, watchArtifacts } from "@/connection";
+import { requestAssistant, sendCommand, stopAssistant, subscribeAgent, unsubscribeAgent, watchArtifacts } from "@/connection";
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
 import { clipboardHasImage, readClipboardPhoto } from "@/lib/clipboard";
@@ -261,6 +267,21 @@ function Thread({ agent }: { agent: string }) {
   // Image bytes are fetched against the omp session the thread runs in; empty while the agent is not running.
   const sessionId = snapshot === null || snapshot.sessionId === "" ? null : snapshot.sessionId;
 
+  // The session the thread runs in stays subscribed while the thread shows: that is how the host
+  // hands this phone an `ask` (or a tool approval) the assistant is blocked on, as a card above
+  // the composer, and replays it after a reconnect. A rolled-over session moves the subscription.
+  useFocusEffect(
+    useCallback(() => {
+      if (!connected || sessionId === null) return;
+      subscribeAgent(sessionId);
+      return () => {
+        unsubscribeAgent(sessionId);
+      };
+    }, [sessionId, connected]),
+  );
+  const { ask: pendingAsk, answer: answerAsk, cancel: cancelAsk } = usePendingAsk(sessionId ?? undefined);
+  const pendingApproval = useAgentsStore((state) => (sessionId === null ? undefined : state.approvals[sessionId]));
+
   // Background messages (the host's job lines arrive as `status` rows) show as quiet rows; any other status row is machinery, never shown.
   const messages = (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null);
   const pendingRow: AssistantMessage[] = pending === null ? [] : [{ id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
@@ -467,6 +488,18 @@ function Thread({ agent }: { agent: string }) {
               setArtifactsOpen(true);
             }}
           />
+          {/* What the assistant is blocked on, answered here; sending a message instead cancels the ask (the host's bridge does). */}
+          {sessionId !== null && pendingApproval !== undefined ? (
+            <View style={styles.blocked}>
+              <SessionApprovalCard sessionId={sessionId} approval={pendingApproval} />
+            </View>
+          ) : (
+            pendingAsk !== undefined && (
+              <View style={styles.blocked}>
+                <AskCard key={pendingAsk.id} ask={pendingAsk} onSubmit={answerAsk} onCancel={cancelAsk} />
+              </View>
+            )
+          )}
           <View style={styles.pillRow}>
             <View style={[styles.composerCard, { backgroundColor: dark ? BUBBLE_DARK : colors.surface, borderColor: colors.hairline }]}>
               {photos.length > 0 && (
@@ -795,6 +828,8 @@ const styles = StyleSheet.create({
   status: { textAlign: "center", paddingHorizontal: spacing.xxxl, fontWeight: "400" },
   composer: { paddingBottom: COMPOSER_BOTTOM },
   banner: { paddingBottom: spacing.sm },
+  /** The ask or approval card the assistant is blocked on, between the badges and the pill, as wide as the pill. */
+  blocked: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
   pillRow: { paddingHorizontal: spacing.lg },
   composerActions: { flexDirection: "row", gap: spacing.sm },
   composerCard: { borderRadius: 28, borderWidth: StyleSheet.hairlineWidth, padding: 10, gap: 4 },

@@ -515,13 +515,31 @@ export function sendInput(events: InputEvent[]): void {
   socket.send(encode({ t: "input", events }));
 }
 
-/** Ephemeral, like `sendInput`: the host drops subscriptions with the socket, so nothing is queued. */
+/**
+ * Screens holding each session subscribed. The host keeps one subscription per session per socket,
+ * so two screens showing one session (an assistant's thread and the Agent Inbox on that session)
+ * share it: the one that leaves last unsubscribes, whichever order their focus changes land in.
+ */
+const agentSubscribers = new Map<string, number>();
+
+/**
+ * Ephemeral, like `sendInput`: the host drops subscriptions with the socket, so nothing is queued;
+ * each subscribe replays the conversation and whatever the session is blocked on. Pair every call
+ * with `unsubscribeAgent`.
+ */
 export function subscribeAgent(sessionId: string): void {
+  agentSubscribers.set(sessionId, (agentSubscribers.get(sessionId) ?? 0) + 1);
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "agent.subscribe", sessionId }));
 }
 
 export function unsubscribeAgent(sessionId: string): void {
+  const holders = (agentSubscribers.get(sessionId) ?? 1) - 1;
+  if (holders > 0) {
+    agentSubscribers.set(sessionId, holders);
+    return;
+  }
+  agentSubscribers.delete(sessionId);
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "agent.unsubscribe", sessionId }));
 }
