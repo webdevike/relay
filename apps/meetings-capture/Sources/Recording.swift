@@ -200,8 +200,8 @@ final class Recording {
   private func startTap() {
     let procs = meetingApp.map { processes(of: $0, in: audioProcesses()) } ?? []
     do {
-      tap = try ProcessTap(track: app, processes: procs) { note in
-        DispatchQueue.main.async { [weak self] in self?.warnings.append(note) }
+      tap = try ProcessTap(track: app, processes: procs) { [weak self] note in
+        DispatchQueue.main.async { self?.warn(note) }
       }
       if procs.isEmpty {
         meta.globalTap = true
