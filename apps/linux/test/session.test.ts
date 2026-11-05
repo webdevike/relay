@@ -2248,6 +2248,8 @@ describe("studio", () => {
         "codex-image",
         "codex-edit",
         "kontext",
+        "comfyui",
+        "comfyui-video",
         "higgsfield",
       ]);
 

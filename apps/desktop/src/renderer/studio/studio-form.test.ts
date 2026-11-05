@@ -113,4 +113,28 @@ describe('studio form', () => {
       formWithAsset(formWithAsset(edit, BACKENDS, 'a2', 'ref'), BACKENDS, 'a3', 'ref').refs,
     ).toEqual(['a2', 'a3'])
   })
+
+  it('runs a preset: its references, its settings, and its name as the prompt when it takes none', () => {
+    const angles = settled({ backend: 'comfyui', model: 'angles', params: { angle: 'top' } })
+    const backend = formBackend(angles, BACKENDS)!
+    expect(problem({ ...angles, prompt: 'x' })).toBe('Add a reference image to edit.')
+    const ready = { ...angles, prompt: 'keep the logo', refs: ['a1', 'a2'] }
+    expect(problem(ready)).toBeNull()
+    expect(formSpec(ready, backend)).toMatchObject({
+      backend: 'comfyui',
+      model: 'angles',
+      refs: ['a1'],
+      params: { angle: 'top' },
+      resolution: '1mp',
+    })
+    const upscale = settleForm({ ...ready, model: 'upscale', prompt: '' }, BACKENDS)
+    expect(upscale.params).toEqual({})
+    expect(problem(upscale)).toBeNull()
+    expect(formSpec({ ...upscale, params: { scale: 4 } }, backend)).toMatchObject({
+      prompt: 'Upscale',
+      model: 'upscale',
+      params: { scale: 4 },
+    })
+    expect(formSpec(upscale, backend).params).toBeUndefined()
+  })
 })

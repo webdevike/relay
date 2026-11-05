@@ -2,10 +2,10 @@
 // models and balance), how long a job is expected to take, and the checks a spec must pass before
 // it queues. Pure: no I/O.
 
-import { MAX_STUDIO_REFS, type StudioAsset, type StudioBackend, type StudioBackendId, type StudioSpec } from "@relay/protocol";
+import { MAX_STUDIO_REFS, studioRefs, type StudioAsset, type StudioBackend, type StudioBackendId, type StudioSpec } from "@relay/protocol";
 
 /** Every backend in the order clients list them. */
-export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "kontext", "higgsfield"];
+export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "kontext", "comfyui", "comfyui-video", "higgsfield"];
 
 /** One size per aspect, close to what Codex really draws (about 1.6 MP), so the exact crop upscales little. */
 const CODEX_RESOLUTIONS: StudioBackend["resolutions"] = [
@@ -84,6 +84,34 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
     seed: true,
     serial: true,
   },
+  comfyui: {
+    id: "comfyui",
+    label: "ComfyUI presets (local)",
+    mode: "image",
+    paid: false,
+    available: false,
+    resolutions: [],
+    seconds: [],
+    frames: [],
+    refs: MAX_STUDIO_REFS,
+    seed: true,
+    serial: true,
+    models: [],
+  },
+  "comfyui-video": {
+    id: "comfyui-video",
+    label: "ComfyUI video presets (GPU box)",
+    mode: "video",
+    paid: false,
+    available: false,
+    resolutions: [],
+    seconds: [],
+    frames: [],
+    refs: MAX_STUDIO_REFS,
+    seed: true,
+    serial: true,
+    models: [],
+  },
   higgsfield: {
     id: "higgsfield",
     label: "Higgsfield (paid)",
@@ -101,14 +129,17 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
 };
 
 /**
- * How many jobs run at once, per pool: the GPU takes one LTX or Kontext job at a time (first in,
- * first out), both Codex backends share one ChatGPT account, Higgsfield bills each job.
+ * How many jobs run at once, per pool: the Mac's GPU takes one LTX, Kontext or ComfyUI job at a time
+ * (first in, first out), ComfyUI video runs on the GPU box one at a time, both Codex backends share
+ * one ChatGPT account, Higgsfield bills each job.
  */
 export const STUDIO_POOLS: Readonly<Record<StudioBackendId, { readonly pool: string; readonly max: number }>> = {
   ltx: { pool: "gpu", max: 1 },
   "codex-image": { pool: "codex", max: 3 },
   "codex-edit": { pool: "codex", max: 3 },
   kontext: { pool: "gpu", max: 1 },
+  comfyui: { pool: "gpu", max: 1 },
+  "comfyui-video": { pool: "gpu-box", max: 1 },
   higgsfield: { pool: "higgsfield", max: 2 },
 };
 
@@ -154,8 +185,11 @@ const LTX_OVERHEAD_MS = 45_000;
 /** Generation time per frame-pixel, fitted so 5 s at 480x848 takes about 210 s in all. */
 const LTX_MS_PER_UNIT = (210_000 - LTX_OVERHEAD_MS) / ltxWork("480x848", 5);
 
-/** How long `spec` should take before calibration (the service scales it by what jobs really took). */
-export function baseEstimateMs(spec: StudioSpec): number {
+/**
+ * How long `spec` should take before calibration (the service scales it by what jobs really took). A
+ * ComfyUI preset says its own (`backend`'s model), else two minutes.
+ */
+export function baseEstimateMs(spec: StudioSpec, backend?: StudioBackend): number {
   switch (spec.backend) {
     case "ltx":
       return LTX_OVERHEAD_MS + LTX_MS_PER_UNIT * ltxWork(spec.resolution, spec.seconds ?? 5);
@@ -165,6 +199,9 @@ export function baseEstimateMs(spec: StudioSpec): number {
       return 45_000;
     case "kontext":
       return KONTEXT_ESTIMATE_MS;
+    case "comfyui":
+    case "comfyui-video":
+      return backend?.models?.find((model) => model.id === spec.model)?.estimateMs ?? 120_000;
     case "higgsfield":
       return 120_000;
   }
@@ -194,9 +231,19 @@ export function validateSpec(spec: StudioSpec, backend: StudioBackend, asset: (i
   if (frames.mid !== undefined && (frames.start === undefined || frames.end === undefined))
     return "A mid frame needs a start and an end frame";
   const refs = spec.refs ?? [];
-  if (refs.length > backend.refs)
-    return backend.refs === 0 ? `${name} takes no reference images` : `${name} takes at most ${backend.refs} reference images`;
-  if (backend.refs > 0 && refs.length === 0) return "Add a reference image to edit";
+  const allowed = studioRefs(backend, spec.model);
+  if (refs.length > allowed.max)
+    return allowed.max === 0 ? `${name} takes no reference images` : `${name} takes at most ${String(allowed.max)} reference images`;
+  if (refs.length < allowed.min)
+    return allowed.min === 1 ? "Add a reference image to edit" : `${name} needs ${String(allowed.min)} reference images`;
+  const inputs = model?.inputs ?? [];
+  for (const [key, value] of Object.entries(spec.params ?? {})) {
+    const field = inputs.find((candidate) => candidate.id === key);
+    if (field === undefined) return `${name} has no setting ${key}`;
+    if (field.kind === "choice" && !field.options.some((option) => option.id === value)) return `${field.label} has no option ${String(value)}`;
+    if (field.kind === "number" && (typeof value !== "number" || value < field.min || value > field.max))
+      return `${field.label} must be between ${String(field.min)} and ${String(field.max)}`;
+  }
   for (const id of [...Object.values(frames), ...refs]) {
     if (id === undefined) continue;
     const found = asset(id);

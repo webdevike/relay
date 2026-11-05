@@ -6,7 +6,7 @@
  */
 import { create } from "zustand";
 import type { StudioAsset, StudioBackend, StudioJob, StudioState } from "@relay/protocol";
-import { draftWithAsset, draftWithout, EMPTY_DRAFT, remixDraft, type StudioDraft, type StudioTarget } from "@/studio/draft";
+import { draftWithAsset, draftWithout, EMPTY_DRAFT, remixDraft, studioForm, type StudioDraft, type StudioTarget } from "@/studio/draft";
 
 export interface StudioStore {
   /** False until the first `studio.state` from this host. */
@@ -62,7 +62,10 @@ export const useStudioStore = create<StudioStore>((set, get) => ({
     set({ loaded: false, jobs: [], uploads: [], backends: [], draft: { ...get().draft, frames: {}, refs: [] } });
   },
   patchDraft: (patch) => {
-    set({ draft: { ...get().draft, ...patch } });
+    const next = { ...get().draft, ...patch };
+    // A new mode, backend or model has its own inputs: values for ids it doesn't list go.
+    const reshaped = "mode" in patch || "backend" in patch || "model" in patch;
+    set({ draft: reshaped ? { ...next, params: studioForm(next, get().backends).draft.params } : next });
   },
   remix: (job) => {
     set({ draft: remixDraft(job) });

@@ -130,6 +130,27 @@ export function availableBackends(): Record<StudioBackendId, StudioBackend> {
     "codex-image": { ...BACKEND_BASE["codex-image"], available: true },
     "codex-edit": { ...BACKEND_BASE["codex-edit"], available: true },
     kontext: { ...BACKEND_BASE.kontext, available: true },
+    comfyui: {
+      ...BACKEND_BASE.comfyui,
+      available: true,
+      models: [
+        {
+          id: "angles",
+          name: "Angles",
+          mode: "image",
+          resolutions: [{ id: "1mp", label: "1 MP", aspect: "1:1" }],
+          seconds: [],
+          frames: [],
+          refs: 1,
+          estimateMs: 60_000,
+          inputs: [
+            { kind: "choice", id: "angle", label: "Angle", options: [{ id: "left", label: "Left" }, { id: "top", label: "Top" }], default: "left" },
+            { kind: "number", id: "strength", label: "Strength", min: 0, max: 1, step: 0.1, default: 0.8 },
+          ],
+        },
+      ],
+    },
+    "comfyui-video": { ...BACKEND_BASE["comfyui-video"], available: true },
     higgsfield: {
       ...BACKEND_BASE.higgsfield,
       available: true,
@@ -167,6 +188,8 @@ export function studioHarness(dir: string, gpuHeld?: () => boolean): StudioHarne
     "codex-image": new FakeRunner(backends["codex-image"]),
     "codex-edit": new FakeRunner(backends["codex-edit"]),
     kontext: new FakeRunner(backends.kontext),
+    comfyui: new FakeRunner(backends.comfyui),
+    "comfyui-video": new FakeRunner(backends["comfyui-video"]),
     higgsfield: new FakeRunner(backends.higgsfield),
   };
   const media = fakeMedia();

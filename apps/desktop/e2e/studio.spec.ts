@@ -215,6 +215,7 @@ test('agents generate, list and open Studio through the control API', async ({
     'codex-image',
     'codex-edit',
     'kontext',
+    'comfyui',
     'higgsfield',
   ])
   expect(value.jobs).toHaveLength(2)
@@ -260,4 +261,62 @@ test('agents generate, list and open Studio through the control API', async ({
   // The new job is in the list with its output.
   const after = await agent(configDir, 'studio.list', { limit: 1 })
   expect(after.value).toMatchObject({ jobs: [{ id: job.id, state: 'done' }] })
+})
+
+test('ComfyUI presets: cards, their own settings, references and no-prompt presets', async ({
+  app,
+  shell,
+  configDir,
+}) => {
+  await openStudioTab(shell)
+  const studio = shell.locator(`${sel('pane-p2')} ${sel('page-studio')}`)
+  await studio.locator(sel('studio-backend')).click()
+  await shell.getByRole('option', { name: /ComfyUI presets/ }).click()
+  await expect(studio.locator(sel('studio-presets'))).toContainText('See the same subject')
+  await expect(studio.locator(sel('studio-preset-angles'))).toHaveAttribute('aria-pressed', 'true')
+
+  // Angles: its camera choice, a required reference, then a create with the preset and its setting.
+  await studio.locator(sel('studio-prompt')).fill('Keep the logo sharp')
+  await studio.locator(sel('studio-param-angle')).getByText('Top down').click()
+  await expect(studio.locator(sel('studio-generate'))).toBeDisabled()
+  await expect(studio.locator(sel('studio-problem'))).toHaveText('Add a reference image to edit.')
+  await studio
+    .locator(sel('studio-slot-ref-0-file'))
+    .setInputFiles(path.join(FIXTURES_DIR, 'agent-widgets/media/gallery-3.jpg'))
+  await expect(studio.locator(`${sel('studio-slot-ref-0')} img`)).toBeVisible()
+  await expect(studio.locator(sel('studio-slot-ref-1'))).toHaveCount(0)
+  await shot(app, shell, 'comfyui-angles')
+  await studio.locator(sel('studio-generate')).click()
+  await expect.poll(() => creates().length).toBe(1)
+  expect(creates()[0]).toMatchObject({
+    origin: 'desktop',
+    spec: { backend: 'comfyui', model: 'angles', params: { angle: 'top' }, resolution: '1mp' },
+  })
+  expect((creates()[0]!.spec as { refs: string[] }).refs).toHaveLength(1)
+
+  // Upscale takes no prompt: the box goes and the preset's name is sent; Angles' setting is dropped.
+  await studio.locator(sel('studio-preset-upscale')).click()
+  await expect(studio.locator(sel('studio-prompt'))).toHaveCount(0)
+  await expect(studio.locator(sel('studio-param-angle'))).toHaveCount(0)
+  await studio.locator(sel('studio-generate')).click()
+  await expect.poll(() => creates().length).toBe(2)
+  expect(creates()[1]).toMatchObject({ spec: { model: 'upscale', prompt: 'Upscale (SeedVR2)' } })
+  expect(creates()[1]!.spec).not.toHaveProperty('params')
+
+  // An agent must name a preset; the error lists them.
+  const missing = await agent(configDir, 'studio.generate', { prompt: 'x', backend: 'comfyui' })
+  expect(missing).toMatchObject({ ok: false, code: 'invalid-params' })
+  expect(missing.message).toContain('angles, upscale')
+  const made = await agent(configDir, 'studio.generate', {
+    prompt: 'From the left',
+    backend: 'comfyui',
+    model: 'angles',
+    params: { angle: 'left45' },
+    refs: [(creates()[0]!.spec as { refs: string[] }).refs[0]],
+  })
+  expect(made.ok).toBe(true)
+  expect(creates().at(-1)).toMatchObject({
+    origin: 'agent',
+    spec: { model: 'angles', params: { angle: 'left45' } },
+  })
 })

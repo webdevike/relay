@@ -108,6 +108,7 @@ import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
 import { CodexRunner, ompCodexToken } from "./studio/codex";
 import { HiggsfieldRunner, ompHiggsfieldCredentials } from "./studio/higgsfield";
 import { KontextRunner } from "./studio/kontext";
+import { ComfyUIRunner, defaultComfyDeps } from "./studio/comfyui";
 import { LtxRunner } from "./studio/ltx";
 import { ffmpegMedia } from "./studio/media";
 import { StudioService, type StudioMessage } from "./studio/service";
@@ -1043,6 +1044,8 @@ function studioService(
           cover: media.cover,
         }),
         kontext: new KontextRunner(),
+        comfyui: new ComfyUIRunner(defaultComfyDeps("comfyui", agentHome ?? join(homedir(), "Eva"))),
+        "comfyui-video": new ComfyUIRunner(defaultComfyDeps("comfyui-video", agentHome ?? join(homedir(), "Eva"))),
         higgsfield: new HiggsfieldRunner({
           credentials: ompHiggsfieldCredentials(
             join(homedir(), ".omp", "profiles", "personal", "agent", "agent.db"),

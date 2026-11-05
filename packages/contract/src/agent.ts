@@ -672,7 +672,7 @@ export const agentActions = {
   'studio.generate': {
     title: 'Generate an image or video in Studio',
     description:
-      "Queues one free Studio job on the Relay host as the agent (origin `agent`) and answers `{job}` (id, state, prompt, backend, progress, eta, outputs). `mode` defaults to the backend's, else image. `backend` defaults to `ltx` (local video) for video, `codex-image` for image, `codex-edit` when `refs` are given. `aspect` defaults to 16:9 for video and 1:1 for image; `resolution` (an id studio.list shows per backend) to the first the backend offers for that aspect; `seconds` (video) to its first allowed length. `frames` ({start, mid, end}) and `refs` take asset ids from studio.list outputs. A paid backend (higgsfield) is refused: open it as a draft with studio.open so Isaac sees the cost and confirms it himself. `open: true` also shows the job in the Studio tool tab of the calling scope (never takes focus). Poll studio.list for progress.",
+      "Queues one free Studio job on the Relay host as the agent (origin `agent`) and answers `{job}` (id, state, prompt, backend, progress, eta, outputs). `mode` defaults to the backend's, else image. `backend` defaults to `ltx` (local video) for video, `codex-image` for image, `codex-edit` when `refs` are given. `aspect` defaults to 16:9 for video and 1:1 for image; `resolution` (an id studio.list shows per backend) to the first the backend offers for that aspect; `seconds` (video) to its first allowed length. `frames` ({start, mid, end}) and `refs` take asset ids from studio.list outputs. `comfyui` (images) and `comfyui-video` run presets: `model` is a preset id from that backend's `models` (Angles, Relight, Upscale...), `params` sets its `inputs` by id (a choice's option id or a number); a preset whose `prompt` is false ignores the prompt. A paid backend (higgsfield) is refused: open it as a draft with studio.open so Isaac sees the cost and confirms it himself. `open: true` also shows the job in the Studio tool tab of the calling scope (never takes focus). Poll studio.list for progress.",
     params: z
       .object({
         prompt: z.string().trim().min(1).max(MAX_STUDIO_PROMPT),
@@ -692,6 +692,9 @@ export const agentActions = {
           .optional(),
         refs: z.array(z.string().min(1).max(100)).max(MAX_STUDIO_REFS).optional(),
         model: z.string().min(1).max(100).optional(),
+        params: z
+          .record(z.string().min(1).max(40), z.union([z.string().max(200), z.number()]))
+          .optional(),
         open: z.boolean().optional(),
         scope,
       })

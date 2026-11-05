@@ -26,16 +26,23 @@ export const MAX_STUDIO_JOBS = 300;
 export const MAX_STUDIO_UPLOADS = 100;
 export const MAX_STUDIO_PROMPT = 4000;
 export const MAX_STUDIO_REFS = 4;
+export const MAX_STUDIO_PARAMS = 8;
 
 export const StudioMode = z.enum(["image", "video"]);
 export type StudioMode = z.infer<typeof StudioMode>;
 
-/** `ltx`: local LTX-2.5 video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `kontext`: local FLUX.1 Kontext image edit. `higgsfield`: paid. */
+/**
+ * `ltx`: local LTX-2.5 video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `kontext`: local FLUX.1
+ * Kontext image edit. `comfyui` / `comfyui-video`: presets (named ComfyUI workflows) on a ComfyUI server the host
+ * reaches, images and videos. `higgsfield`: paid.
+ */
 export const StudioBackendId = z.enum([
   "ltx",
   "codex-image",
   "codex-edit",
   "kontext",
+  "comfyui",
+  "comfyui-video",
   "higgsfield",
 ]);
 export type StudioBackendId = z.infer<typeof StudioBackendId>;
@@ -80,8 +87,13 @@ export const StudioSpec = z.object({
   frames: z.object({ start: id.optional(), mid: id.optional(), end: id.optional() }).optional(),
   /** Reference images for an edit. */
   refs: z.array(id).max(MAX_STUDIO_REFS).optional(),
-  /** Higgsfield model id. */
+  /** Higgsfield model id, or a ComfyUI preset id. */
   model: z.string().min(1).max(100).optional(),
+  /** A preset's own inputs (`StudioModel.inputs`): a choice's option id or a number, by input id. */
+  params: z
+    .record(z.string().min(1).max(40), z.union([z.string().max(200), z.number().finite()]))
+    .refine((params) => Object.keys(params).length <= MAX_STUDIO_PARAMS, `At most ${MAX_STUDIO_PARAMS} params`)
+    .optional(),
   /** Paid backends: the credits Isaac confirmed for this one job. */
   confirmCredits: z.number().nonnegative().optional(),
 });
@@ -123,7 +135,36 @@ export const StudioResolution = z.object({
 });
 export type StudioResolution = z.infer<typeof StudioResolution>;
 
-/** A model on a model-picking backend (Higgsfield). */
+/** One option of a preset's choice input ("Low angle"). */
+export const StudioChoice = z.object({
+  id: z.string().min(1).max(40),
+  label: z.string().min(1).max(80),
+});
+export type StudioChoice = z.infer<typeof StudioChoice>;
+
+/** A preset's own input beyond prompt and references: a choice (angle, light) or a number (strength). */
+export const StudioInput = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("choice"),
+    id: z.string().min(1).max(40),
+    label: z.string().min(1).max(60),
+    options: z.array(StudioChoice).min(1).max(40),
+    /** An option id. */
+    default: z.string().min(1).max(40),
+  }),
+  z.object({
+    kind: z.literal("number"),
+    id: z.string().min(1).max(40),
+    label: z.string().min(1).max(60),
+    min: z.number().finite(),
+    max: z.number().finite(),
+    step: z.number().positive(),
+    default: z.number().finite(),
+  }),
+]);
+export type StudioInput = z.infer<typeof StudioInput>;
+
+/** A model on a model-picking backend: a Higgsfield model, or a ComfyUI preset. */
 export const StudioModel = z.object({
   id: z.string().min(1).max(100),
   name: z.string().min(1).max(120),
@@ -132,6 +173,17 @@ export const StudioModel = z.object({
   /** Allowed lengths in seconds (video). */
   seconds: z.array(z.number().positive()).max(20),
   frames: z.array(StudioFrameSlot).max(3),
+  /** One line under the name on a preset card. */
+  description: z.string().max(300).optional(),
+  /** How many reference images it takes; the backend's `refs` when absent. */
+  refs: z.number().int().min(0).max(MAX_STUDIO_REFS).optional(),
+  /** How many it needs at least; 1 when it takes any and this is absent (an edit). */
+  minRefs: z.number().int().min(0).max(MAX_STUDIO_REFS).optional(),
+  /** False: it uses no prompt (an upscale); clients hide the box and send the model's name. */
+  prompt: z.boolean().optional(),
+  inputs: z.array(StudioInput).max(MAX_STUDIO_PARAMS).optional(),
+  /** A typical run on this host (presets). */
+  estimateMs: z.number().positive().optional(),
 });
 export type StudioModel = z.infer<typeof StudioModel>;
 
@@ -243,4 +295,11 @@ export function studioResolutions(
       ? backend.resolutions
       : (backend.models?.find((m) => m.id === model)?.resolutions ?? []);
   return list.filter((r) => r.aspect === aspect);
+}
+
+/** How many reference images the backend (or its model) takes at most and needs at least. */
+export function studioRefs(backend: StudioBackend, model?: string): { readonly max: number; readonly min: number } {
+  const found = model === undefined ? undefined : backend.models?.find((m) => m.id === model);
+  const max = found?.refs ?? backend.refs;
+  return { max, min: Math.min(max, found?.minRefs ?? (max > 0 ? 1 : 0)) };
 }

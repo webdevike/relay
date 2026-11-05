@@ -3,6 +3,7 @@
 // before Generate, and turned into the spec the host takes.
 import {
   studioFrameSlots,
+  studioRefs,
   studioResolutions,
   studioSeconds,
   type StudioAspect,
@@ -11,6 +12,7 @@ import {
   type StudioDraft,
   type StudioFrameSlot,
   type StudioMode,
+  type StudioModel,
   type StudioSpec,
 } from '@evaos/contract'
 
@@ -27,6 +29,8 @@ export interface StudioForm {
   frames: Partial<Record<StudioFrameSlot, string>>
   refs: string[]
   model: string | null
+  /** A preset's own inputs Isaac changed (an option id or a number); the rest take the preset's defaults. */
+  params: Record<string, string | number>
 }
 
 export const INITIAL_FORM: StudioForm = {
@@ -40,6 +44,15 @@ export const INITIAL_FORM: StudioForm = {
   frames: {},
   refs: [],
   model: null,
+  params: {},
+}
+
+/** The model (Higgsfield model or ComfyUI preset) the form names on its backend. */
+export function formModel(
+  form: StudioForm,
+  backend: StudioBackend | null,
+): StudioModel | undefined {
+  return backend?.models?.find((m) => m.id === form.model)
 }
 
 /** The form's backend, when the host has it. */
@@ -58,7 +71,8 @@ export function settleForm(form: StudioForm, backends: readonly StudioBackend[])
     ofMode.find((b) => b.available && !b.paid) ??
     ofMode.find((b) => b.available) ??
     ofMode[0]
-  if (!backend) return { ...form, backend: null, model: null, resolution: null, seconds: null }
+  if (!backend)
+    return { ...form, backend: null, model: null, resolution: null, seconds: null, params: {} }
   const models = backend.models?.filter((m) => m.mode === form.mode) ?? []
   const model =
     models.length === 0
@@ -70,14 +84,19 @@ export function settleForm(form: StudioForm, backends: readonly StudioBackend[])
   const lengths = form.mode === 'video' ? studioSeconds(backend, model ?? undefined) : []
   const seconds =
     form.seconds !== null && lengths.includes(form.seconds) ? form.seconds : (lengths[0] ?? null)
-  return { ...form, backend: backend.id, model, resolution, seconds }
+  const inputs = backend.models?.find((m) => m.id === model)?.inputs ?? []
+  const params = Object.fromEntries(
+    Object.entries(form.params).filter(([id]) => inputs.some((input) => input.id === id)),
+  )
+  return { ...form, backend: backend.id, model, resolution, seconds, params }
 }
 
 /** Why Generate cannot go yet, in one line; null when it can. */
 export function formProblem(form: StudioForm, backend: StudioBackend | null): string | null {
   if (!backend) return 'The Relay host has no backend for this mode.'
   if (!backend.available) return backend.reason ?? `${backend.label} can't run right now.`
-  if (form.prompt.trim() === '') return 'Write a prompt first.'
+  const preset = formModel(form, backend)
+  if (preset?.prompt !== false && form.prompt.trim() === '') return 'Write a prompt first.'
   if (form.resolution === null) return 'Pick a resolution.'
   if (form.mode === 'video' && form.seconds === null && backend.seconds.length > 0) {
     return 'Pick a length.'
@@ -90,8 +109,9 @@ export function formProblem(form: StudioForm, backend: StudioBackend | null): st
   if (has('mid') && !(has('start') && has('end'))) {
     return 'A mid frame needs a start and an end frame.'
   }
-  if (backend.mode === 'image' && backend.refs > 0 && form.refs.length === 0) {
-    return 'Add a reference image to edit.'
+  const refs = studioRefs(backend, form.model ?? undefined)
+  if (backend.mode === 'image' && form.refs.length < refs.min) {
+    return refs.min === 1 ? 'Add a reference image to edit.' : `Add ${refs.min} reference images.`
   }
   return null
 }
@@ -102,11 +122,16 @@ export function formSpec(form: StudioForm, backend: StudioBackend): StudioSpec {
   const frames = Object.fromEntries(
     slots.flatMap((slot) => (form.frames[slot] ? [[slot, form.frames[slot]]] : [])),
   )
-  const refs = backend.refs > 0 ? form.refs.slice(0, backend.refs) : []
+  const { max } = studioRefs(backend, form.model ?? undefined)
+  const refs = max > 0 ? form.refs.slice(0, max) : []
+  const preset = formModel(form, backend)
+  const params = Object.fromEntries(
+    Object.entries(form.params).filter(([id]) => preset?.inputs?.some((input) => input.id === id)),
+  )
   return {
     mode: form.mode,
     backend: backend.id,
-    prompt: form.prompt.trim(),
+    prompt: preset?.prompt === false ? preset.name : form.prompt.trim(),
     aspect: form.aspect,
     resolution: form.resolution ?? '',
     ...(form.mode === 'video' && form.seconds !== null ? { seconds: form.seconds } : {}),
@@ -114,6 +139,7 @@ export function formSpec(form: StudioForm, backend: StudioBackend): StudioSpec {
     ...(Object.keys(frames).length > 0 ? { frames } : {}),
     ...(refs.length > 0 ? { refs } : {}),
     ...(form.model !== null ? { model: form.model } : {}),
+    ...(Object.keys(params).length > 0 ? { params } : {}),
   }
 }
 
@@ -131,6 +157,8 @@ export function formFromDraft(form: StudioForm, draft: StudioDraft): StudioForm 
     frames: draft.frames ?? (draft.backend === undefined ? form.frames : {}),
     refs: draft.refs ?? (draft.backend === undefined ? form.refs : []),
     model: draft.model ?? (draft.backend === undefined ? form.model : null),
+    params:
+      draft.params ?? (draft.backend === undefined && draft.model === undefined ? form.params : {}),
   }
 }
 
@@ -155,7 +183,10 @@ export function formWithAsset(
       ? current
       : (backends.find((b) => edits(b) && b.available) ?? backends.find(edits))
     if (!backend) return form
-    const refs = form.refs.includes(asset) ? form.refs : [...form.refs, asset].slice(-backend.refs)
+    const { max } = studioRefs(backend, backend === current ? (form.model ?? undefined) : undefined)
+    const refs = form.refs.includes(asset)
+      ? form.refs
+      : [...form.refs, asset].slice(-Math.max(1, max))
     return settleForm({ ...form, mode: 'image', backend: backend.id, refs }, backends)
   }
   const keyframes = (b: StudioBackend | null): b is StudioBackend =>
