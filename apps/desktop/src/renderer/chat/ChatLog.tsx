@@ -1,5 +1,7 @@
 import {
   Profiler,
+  useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -12,6 +14,9 @@ import { dropQuietTurns } from '@evaos/chat-core/quiet'
 import { reactionKeyOf } from '@evaos/chat-core/reactions'
 import { registerReveal } from '../pins/pins-scope'
 import { MessageRow, ToolRunRow } from './MessageRow'
+import { ReactionScope, useReactions } from './reactions/reactions-store'
+import { TurnMinimap } from './minimap/TurnMinimap'
+import { buildTurns, type Turn } from './minimap/turns'
 import { Pills } from './Pills'
 import { pinReducer, type PinState } from './pin'
 import { chatStore, useChatStore } from './chat-store'
@@ -198,6 +203,23 @@ export function ChatLog({
     if (liveId !== null && pin.current.pinned) toEnd()
   }, [liveId])
 
+  /** Brings log row `at` (message `id`) into view at `align` and flashes it briefly. */
+  const revealRow = (at: number, id: string, align: 'start' | 'center'): void => {
+    ref.current?.scrollToIndex(at, { align })
+    // The row mounts after the list scrolls to it.
+    let tries = 0
+    const flash = (): void => {
+      const row = document.querySelector<HTMLElement>(`[data-testid="msg-${CSS.escape(id)}"]`)
+      if (row === null) {
+        if (++tries < 20) requestAnimationFrame(flash)
+        return
+      }
+      row.dataset['flash'] = 'true'
+      window.setTimeout(() => delete row.dataset['flash'], 1500)
+    }
+    requestAnimationFrame(flash)
+  }
+
   // A pin's label brings its source message (by bubble key) into view and flashes it briefly.
   useEffect(
     () =>
@@ -205,24 +227,26 @@ export function ChatLog({
         const at = items.findIndex((i) => i.kind === 'message' && reactionKeyOf(i.m) === key)
         const item = items[at]
         if (item?.kind !== 'message') return false
-        ref.current?.scrollToIndex(at, { align: 'center' })
-        const id = item.m.id
-        // The row mounts after the list scrolls to it.
-        let tries = 0
-        const flash = (): void => {
-          const row = document.querySelector<HTMLElement>(`[data-testid="msg-${CSS.escape(id)}"]`)
-          if (row === null) {
-            if (++tries < 20) requestAnimationFrame(flash)
-            return
-          }
-          row.dataset['flash'] = 'true'
-          window.setTimeout(() => delete row.dataset['flash'], 1500)
-        }
-        requestAnimationFrame(flash)
+        revealRow(at, item.m.id, 'center')
         return true
       }),
     [paneId, items],
   )
+
+  // The turn navigator: its ticks, and the jump a click or Alt+Up/Down makes.
+  const thread = useContext(ReactionScope)?.thread ?? null
+  const reactions = useReactions((s) => (thread === null ? undefined : s.threads[thread]))
+  const turns = useMemo(() => buildTurns(items, reactions), [items, reactions])
+  const scrollWatchers = useRef(new Set<() => void>())
+  const watchScroll = useCallback((fn: () => void) => {
+    scrollWatchers.current.add(fn)
+    return () => void scrollWatchers.current.delete(fn)
+  }, [])
+  const jumpToTurn = (turn: Turn): void => {
+    // A restore still putting the log back must not undo the jump.
+    restoring.current += 1
+    revealRow(turn.item, turn.row, 'start')
+  }
 
   return (
     <div className="eva-log" data-testid="chat-log" role="log" aria-live="off">
@@ -232,6 +256,7 @@ export function ChatLog({
           data={items}
           style={{ height: '100%' }}
           onScroll={() => {
+            for (const fn of scrollWatchers.current) fn()
             const h = ref.current
             // Hidden, the list has no size: what it reports is not where Isaac left it.
             if (!h || !seen.current.shown || h.viewportSize === 0) return
@@ -261,6 +286,15 @@ export function ChatLog({
           dispatch({ type: 'jump' })
           toEnd()
         }}
+      />
+      <TurnMinimap
+        turns={turns}
+        thread={thread ?? `file:${scrollFile}`}
+        paneId={paneId}
+        listRef={ref}
+        subscribe={watchScroll}
+        jump={jumpToTurn}
+        shown={shown}
       />
     </div>
   )

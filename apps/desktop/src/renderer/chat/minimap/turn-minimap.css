@@ -1,0 +1,182 @@
+/*
+ * Turn navigator: a fixed column of thin ticks on the log's left edge, vertically centred, over the
+ * scroll (never in it). The column takes no pointer events except on its own controls, so the log
+ * under it stays selectable. Quiet: muted ticks, a border on the card and no shadow.
+ */
+.eva-tm {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  z-index: 3;
+  width: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.eva-tm > * {
+  pointer-events: auto;
+}
+.eva-tm-col {
+  position: relative;
+}
+/* Above the ticks, out of flow, so the ticks themselves sit on the log's middle. */
+.eva-tm-filter {
+  position: absolute;
+  inset-inline-start: 4px;
+  bottom: 100%;
+  color: var(--eva-text-dim);
+}
+.eva-tm-filter[aria-pressed='true'] {
+  color: var(--eva-text);
+}
+.eva-tm-ticks {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.eva-tm-tick {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--eva-text-dim);
+}
+.eva-tm-bar {
+  position: absolute;
+  inset-inline-start: 9px;
+  top: 50%;
+  width: 10px;
+  height: 2px;
+  border-radius: 1px;
+  transform: translateY(-50%);
+  background: currentcolor;
+  opacity: 0.4;
+  transition:
+    width var(--eva-dur-fast) var(--eva-ease),
+    opacity var(--eva-dur-fast) var(--eva-ease);
+}
+.eva-tm-tick[data-state='visible'] .eva-tm-bar {
+  width: 14px;
+  opacity: 0.65;
+}
+.eva-tm-tick[data-state='active'] .eva-tm-bar {
+  width: 18px;
+  color: var(--eva-text);
+  opacity: 1;
+}
+.eva-tm-tick[data-bookmarked='true'] .eva-tm-bar {
+  height: 3px;
+  opacity: 0.85;
+}
+.eva-tm-tick:hover .eva-tm-bar,
+.eva-tm-tick:focus-visible .eva-tm-bar {
+  color: var(--eva-text);
+  opacity: 1;
+}
+.eva-tm-tick:focus-visible {
+  outline: 1px solid var(--eva-c-border);
+  outline-offset: -1px;
+  border-radius: var(--eva-radius-sm);
+}
+.eva-tm-dot {
+  flex: none;
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-accent);
+}
+.eva-tm-tick .eva-tm-dot {
+  position: absolute;
+  inset-inline-start: 1px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.eva-tm-empty {
+  width: 64px;
+  font-size: var(--eva-fz-caption);
+  line-height: var(--eva-lh-label);
+  color: var(--eva-text-dim);
+}
+
+/* The card is fixed beside the hovered tick (placed in JS, clamped to the log); its padding bridges the gap from the tick. */
+.eva-tm-card-wrap {
+  position: fixed;
+  z-index: 260;
+  padding-inline-start: calc(var(--mantine-spacing-xs) / 1.25);
+}
+.eva-tm-card {
+  box-sizing: border-box;
+  width: 288px;
+  max-width: calc(100vw - 80px);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+  padding: calc(var(--mantine-spacing-xs) / 1.25) calc(var(--mantine-spacing-xs) / 1.25)
+    calc(var(--mantine-spacing-xs) / 1.25) var(--mantine-spacing-md);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-lg);
+  background: var(--eva-c-popover-background);
+  color: var(--eva-text);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-tm-card-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 1.25);
+  min-width: 0;
+}
+.eva-tm-title {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-tm-bookmark {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-tm-bookmark[aria-pressed='true'] {
+  color: var(--eva-text);
+}
+.eva-tm-reply {
+  margin: 0;
+  padding-inline-end: calc(var(--mantine-spacing-xs) / 1.25);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  color: var(--eva-text-dim);
+  overflow-wrap: anywhere;
+}
+.eva-tm-card-foot {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 1.25);
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-text-dim);
+}
+.eva-tm-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eva-tm-bar {
+    transition: none;
+  }
+}
+html[data-eva-motion='off'] .eva-tm-bar {
+  transition: none;
+}
