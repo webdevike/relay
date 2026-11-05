@@ -45,10 +45,12 @@ export const canvasLiveInvoke = {
     output: z.object({ url: z.string().startsWith('http://127.0.0.1:') }),
   },
   /**
-   * Starts a live session on the board `slug` (what `relay-linux canvas start <slug>` does) with the
-   * canvas self, and hands it the comment thread already saved in the board file, so the comment
-   * gets answered. Fails with `canvas-unavailable` (the host's one-line reason) when the host
-   * refuses or is not running.
+   * Starts a live session on the board `slug` (what `relay-linux canvas start <slug>` does) and hands
+   * it the comment thread already saved in the board file, so the comment gets answered. The
+   * answerer is `assistant` (a registry id: the one an `@name` in the comment named), else Nova. With
+   * a live room of another assistant on the board, that assistant joins it as a worker for the
+   * thread. Fails with `canvas-unavailable` (the host's one-line reason) when the host refuses or is
+   * not running.
    */
   'canvas.live.ask': {
     input: z
@@ -58,6 +60,11 @@ export const canvasLiveInvoke = {
         page: z
           .string()
           .regex(/^[a-z0-9][a-z0-9-]{0,39}$/)
+          .optional(),
+        assistant: z
+          .string()
+          .regex(/^[a-z][a-z0-9-]*$/)
+          .max(60)
           .optional(),
       })
       .strict(),

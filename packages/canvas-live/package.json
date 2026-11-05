@@ -9,7 +9,11 @@
     "./board": "./src/board.ts",
     "./threads": "./src/threads.ts",
     "./layout": "./src/layout.ts",
-    "./pages": "./src/pages.ts"
+    "./pages": "./src/pages.ts",
+    "./mentions": "./src/mentions.ts",
+    "./carry": "./src/carry.ts",
+    "./history": "./src/history.ts",
+    "./pindrag": "./src/pindrag.ts"
   },
   "scripts": {
     "lint": "eslint src test",

@@ -382,6 +382,68 @@ describe('canvas store', () => {
   })
 
   describe('comment threads', () => {
+    it('keeps the agent a thread is for, and moves a pin onto a card or a board spot, logging the move', async () => {
+      const { store, dir } = setup()
+      const file = path.join(dir, 'mind-map.json')
+      const cards = parseBoard(fs.readFileSync(file, 'utf8')).nodes
+      const card = cards[0]!.id
+      const other = cards[1]!.id
+      const opened = await store.threads('mind-map', undefined, {
+        op: 'open',
+        node: card,
+        x: 10,
+        y: 10,
+        text: '@astra look at this',
+        assignee: 'astra',
+      })
+      const id = opened.opened!
+      expect(opened.threads[0]).toMatchObject({ assignee: 'astra' })
+      // A reply without a new assignee keeps it; one that names another hands the thread over.
+      const kept = await store.threads('mind-map', undefined, {
+        op: 'post',
+        thread: id,
+        text: 'more',
+      })
+      expect(kept.threads[0]).toMatchObject({ assignee: 'astra' })
+      const handed = await store.threads('mind-map', undefined, {
+        op: 'post',
+        thread: id,
+        text: '@nova instead',
+        assignee: 'nova',
+      })
+      expect(handed.threads[0]).toMatchObject({ assignee: 'nova' })
+      expect(parseBoard(fs.readFileSync(file, 'utf8')).threads?.[0]?.assignee).toBe('nova')
+
+      const onCard = await store.threads('mind-map', undefined, {
+        op: 'move',
+        thread: id,
+        node: other,
+        x: 7,
+        y: 9,
+      })
+      expect(onCard.threads[0]).toMatchObject({ node: other, x: 7, y: 9, assignee: 'nova' })
+      const onBoard = await store.threads('mind-map', undefined, {
+        op: 'move',
+        thread: id,
+        x: 500,
+        y: 600,
+      })
+      expect(onBoard.threads[0]!.node).toBeUndefined()
+      expect(onBoard.threads[0]).toMatchObject({ x: 500, y: 600 })
+      await expect(
+        store.threads('mind-map', undefined, { op: 'move', thread: id, node: 'gone', x: 1, y: 1 }),
+      ).rejects.toMatchObject({ code: 'invalid-input' })
+      const log = fs
+        .readFileSync(path.join(dir, 'mind-map.history.jsonl'), 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as { op: string; kind: string; id: string; who: string })
+      expect(log).toMatchObject([
+        { op: 'move', kind: 'thread', id, who: 'Isaac' },
+        { op: 'move', kind: 'thread', id, who: 'Isaac' },
+      ])
+    })
+
     it('opens a pin on a card, takes replies, resolves and reopens, writing only the file’s threads', async () => {
       const { store, dir } = setup()
       const file = path.join(dir, 'mind-map.json')

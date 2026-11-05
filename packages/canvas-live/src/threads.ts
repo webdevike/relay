@@ -35,6 +35,8 @@ export interface ThreadSnap {
   id: string;
   anchor: ThreadAnchor;
   resolved: boolean;
+  /** The agent the thread is for (a registry assistant's id, else a joined agent's lowercased name): replies go to it until someone else is mentioned. Absent: the room's canvas self. */
+  assignee?: string;
   messages: ThreadMsg[];
 }
 
@@ -62,12 +64,13 @@ function clean(msg: ThreadMsg): ThreadMsg {
 }
 
 /** A new thread's map (not yet in a doc). */
-export function threadMap(anchor: ThreadAnchor, resolved: boolean, messages: readonly ThreadMsg[]): ThreadMap {
+export function threadMap(anchor: ThreadAnchor, resolved: boolean, messages: readonly ThreadMsg[], assignee?: string): ThreadMap {
   const m = new Y.Map<unknown>();
   if (anchor.node !== undefined) m.set("node", anchor.node);
   m.set("x", anchor.x);
   m.set("y", anchor.y);
   m.set("resolved", resolved);
+  if (assignee !== undefined && assignee !== "") m.set("assignee", assignee);
   const list = new Y.Array<ThreadMsg>();
   list.push(messages.map(clean));
   m.set("messages", list);
@@ -75,9 +78,9 @@ export function threadMap(anchor: ThreadAnchor, resolved: boolean, messages: rea
 }
 
 /** Opens thread `id` at `anchor` with its first message. False when the id is taken or the text is empty. */
-export function openThread(threads: Y.Map<ThreadMap>, id: string, anchor: ThreadAnchor, first: ThreadMsg): boolean {
+export function openThread(threads: Y.Map<ThreadMap>, id: string, anchor: ThreadAnchor, first: ThreadMsg, assignee?: string): boolean {
   if (threads.has(id) || !THREAD_ID.test(id) || first.text.trim() === "") return false;
-  threads.set(id, threadMap(anchor, false, [first]));
+  threads.set(id, threadMap(anchor, false, [first], assignee));
   return true;
 }
 
@@ -92,6 +95,32 @@ export function postInThread(threads: Y.Map<ThreadMap>, id: string, msg: ThreadM
   };
   if (threads.doc) threads.doc.transact(apply);
   else apply();
+  return true;
+}
+
+/** Moves thread `id`'s pin to `anchor` (onto a card, or a board point), in one transaction. False when there is no such thread. */
+export function moveThread(threads: Y.Map<ThreadMap>, id: string, anchor: ThreadAnchor): boolean {
+  const t = threads.get(id);
+  if (t === undefined) return false;
+  const apply = (): void => {
+    if (anchor.node === undefined) {
+      if (t.has("node")) t.delete("node");
+    } else if (t.get("node") !== anchor.node) t.set("node", anchor.node);
+    if (t.get("x") !== anchor.x) t.set("x", anchor.x);
+    if (t.get("y") !== anchor.y) t.set("y", anchor.y);
+  };
+  if (threads.doc) threads.doc.transact(apply);
+  else apply();
+  return true;
+}
+
+/** Hands thread `id` to `assignee` (null: back to the canvas self). False when there is no such thread. */
+export function setAssignee(threads: Y.Map<ThreadMap>, id: string, assignee: string | null): boolean {
+  const t = threads.get(id);
+  if (t === undefined) return false;
+  if (assignee === null || assignee === "") {
+    if (t.has("assignee")) t.delete("assignee");
+  } else if (t.get("assignee") !== assignee) t.set("assignee", assignee);
   return true;
 }
 
@@ -114,6 +143,7 @@ export function snapThread(id: string, m: ThreadMap): ThreadSnap | null {
     id,
     anchor: typeof node === "string" && node !== "" ? { node, x, y } : { x, y },
     resolved: m.get("resolved") === true,
+    ...(typeof m.get("assignee") === "string" && m.get("assignee") !== "" ? { assignee: m.get("assignee") as string } : {}),
     messages: list.toArray(),
   };
 }

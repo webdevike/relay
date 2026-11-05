@@ -1,6 +1,8 @@
 // The canvas routes, on plain `Request`/`Response` (the websocket upgrade itself stays in
 // server.ts). Loopback JSON for agents on this machine (<room> is a room id or a board slug):
 //   POST /canvas/sessions {slug?, title?, prompt?, thread?: {id, page?}, caller}   start (or rejoin) a session; `thread`: a comment already in the board file the canvas self answers
+//   GET  /canvas/sessions/<slug>/history?since=&limit=       {entries, summary}: the board's change log (30m, 2h, 1d, epoch ms or a date)
+//   POST /canvas/sessions/<room>/restore {id, as?, page?}    put a deleted card or link back (with the links deleted with it)
 //   GET  /canvas/sessions                                    {rev, rooms, participants}
 //   GET  /canvas/sessions/<room>                             {board, chat, participants, ...}
 //   POST /canvas/sessions/<room>/end                         {summary}
@@ -21,6 +23,7 @@
 
 import { type Stats, readFileSync, statSync } from "node:fs";
 import { extname, isAbsolute, join } from "node:path";
+import { parseSince } from "@relay/canvas-live/history";
 import { FIRST_PAGE, pageMaps, pagesOf } from "@relay/canvas-live/pages";
 import { CanvasSlug } from "@relay/protocol";
 import * as Y from "yjs";
@@ -88,6 +91,7 @@ const JoinBody = z.object({
   session: z.string().min(1).max(200).optional(),
 });
 const ActBody = z.object({ script: z.string().min(1).max(20_000), handoff: z.string().min(1).max(60).optional() });
+const RestoreBody = z.object({ id: z.string().min(1).max(500), as: z.string().max(40).optional(), page: z.string().max(60).optional() });
 
 function parseWith<T>(schema: z.ZodType<T>, body: unknown): T {
   const parsed = schema.safeParse(body);
@@ -166,10 +170,22 @@ async function sessions(canvas: CanvasService, request: Request, rest: string[],
     if (request.method !== "GET") return fail(405, "method not allowed");
     return json(canvas.view(ref));
   }
+  if (rest.length === 2 && sub === "history" && request.method === "GET") {
+    const query = new URL(request.url).searchParams;
+    const sinceText = query.get("since");
+    const since = sinceText === null ? undefined : parseSince(sinceText, Date.now());
+    if (since === null) return fail(400, "since: use 30m, 2h, 1d, an epoch in ms or a date");
+    const limit = Number(query.get("limit") ?? "");
+    return json(canvas.historyOf(ref, { ...(since === undefined ? {} : { since }), ...(Number.isInteger(limit) && limit > 0 ? { limit } : {}) }));
+  }
   if (request.method !== "POST") return fail(405, "method not allowed");
   if (rest.length === 2 && sub === "end") {
     const room = canvas.roomById(ref) ?? canvas.list().find((info) => info.slug === ref && info.live);
     return json({ summary: await canvas.end(room?.id ?? ref) });
+  }
+  if (rest.length === 2 && sub === "restore") {
+    const restore = parseWith(RestoreBody, await body());
+    return json(canvas.restore(ref, restore.id, restore.as, restore.page));
   }
   if (rest.length === 3 && sub === "self" && participantId === "act") {
     const act = parseWith(ActBody, await body());

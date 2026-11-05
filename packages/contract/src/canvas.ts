@@ -129,6 +129,8 @@ export const CanvasThreadSchema = z.object({
   x: Coord,
   y: Coord,
   resolved: z.boolean(),
+  /** The agent the thread is for: a registry assistant's id, else a joined agent's lowercased name. Absent: the room's canvas self. */
+  assignee: z.string().min(1).max(100).optional(),
   messages: z.array(CanvasThreadMessageSchema).max(1000),
 })
 export type CanvasThreadMessage = z.output<typeof CanvasThreadMessageSchema>
@@ -142,13 +144,25 @@ export const CanvasThreadOpSchema = z.discriminatedUnion('op', [
     x: Coord,
     y: Coord,
     text: z.string().min(1).max(4000),
+    /** The agent the thread is for, from an @mention in the text. */
+    assignee: z.string().min(1).max(100).optional(),
   }),
   z.object({
     op: z.literal('post'),
     thread: z.string().min(1).max(60),
     text: z.string().min(1).max(4000),
+    /** The agent the thread is now for (the message's @mention, else the one it already had). */
+    assignee: z.string().min(1).max(100).optional(),
   }),
   z.object({ op: z.literal('resolve'), thread: z.string().min(1).max(60), resolved: z.boolean() }),
+  /** A pin dragged: onto the card `node` (x, y an offset from its top left), else to the board point x, y. */
+  z.object({
+    op: z.literal('move'),
+    thread: z.string().min(1).max(60),
+    node: z.string().max(500).optional(),
+    x: Coord,
+    y: Coord,
+  }),
 ])
 export type CanvasThreadOp = z.output<typeof CanvasThreadOpSchema>
 

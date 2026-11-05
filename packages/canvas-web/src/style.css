@@ -1468,6 +1468,68 @@ mark {
   font-size: 13px;
   padding: 4px 0;
 }
+/* The `@` menu over a comment field. */
+.cv-mention {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.cv-mention > input {
+  width: 100%;
+}
+.cv-mention-menu {
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  bottom: calc(100% + 8px);
+  z-index: 14;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--c-popover);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  box-shadow: var(--c-overlay-shadow);
+}
+.cv-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--c-fg);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.cv-mention-item.is-picked,
+.cv-mention-item:hover {
+  background: var(--c-hover, color-mix(in srgb, var(--c-fg) 8%, transparent));
+}
+.cv-mention-name {
+  font-weight: 600;
+}
+.cv-mention-hint {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--c-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-thread-for {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  color: var(--c-muted);
+  font-size: 12px;
+}
 .cv-thread-send {
   border: 0;
   width: 26px;
@@ -2560,4 +2622,18 @@ mark {
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--c-muted);
+}
+
+/* Pins and the thread popover's header are drag handles. */
+.cv-pin {
+  cursor: grab;
+  touch-action: none;
+}
+.cv-pin.is-dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+}
+.cv-thread-head {
+  cursor: grab;
+  user-select: none;
 }
