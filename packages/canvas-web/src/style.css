@@ -1473,14 +1473,16 @@ mark {
   width: 26px;
   height: 26px;
   border-radius: 6px;
-  background: var(--c-fg);
-  color: var(--c-bg);
+  /* Ready to send: the accent, in both schemes (the dark scheme's grey text color read as disabled). */
+  background: var(--c-accent);
+  color: #fff;
   display: grid;
   place-items: center;
   cursor: pointer;
 }
 .cv-thread-send:disabled {
-  opacity: 0.3;
+  background: transparent;
+  color: var(--c-muted);
   cursor: default;
 }
 
