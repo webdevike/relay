@@ -33,6 +33,7 @@ import { handleControlRequest } from "./control/http";
 import type { ControlRelay } from "./control/relay";
 import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
+import type { StatsService } from "./stats/service";
 import type { CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
 import type { BookmarkRelaying } from "./bookmarks/service";
@@ -115,6 +116,8 @@ export interface ServerDeps {
   readonly live: LiveRelaying | null;
   /** Plan usage of the host's omp accounts; null answers `usage.*` with an empty snapshot. */
   readonly usage: UsageService | null;
+  /** omp usage stats for Settings > Usage; null answers `stats.get` empty and leaves "stats" out of `welcome.features`. */
+  readonly stats: StatsService | null;
   /** The Catch Up deck; null answers `catchup.*` with an empty deck. */
   readonly catchup: CatchUpDeck | null;
   /** Reactions on chat bubbles; null answers `reactions.get` empty and drops set/clear. */
@@ -548,6 +551,13 @@ export class RelayServer {
     }
   }
 
+  /** Sends a stats snapshot to every socket that asked for stats (`stats.get`); phones never do. */
+  broadcastStats(message: ServerMessage): void {
+    for (const ws of this.sockets) {
+      if (ws.data.session?.wantsStats() === true) ws.data.session.broadcast(message);
+    }
+  }
+
   /** Whether the escalation engine (EvaOS) is connected and authenticated. */
   escalatorConnected(): boolean {
     for (const ws of this.sockets) {
@@ -779,6 +789,7 @@ export class RelayServer {
         calls: this.deps.calls,
         live: this.deps.live,
         usage: this.deps.usage,
+        stats: this.deps.stats,
         catchup: this.deps.catchup,
         reactions: this.deps.reactions,
         bookmarks: this.deps.bookmarks,

@@ -385,6 +385,19 @@ export class SkillUsageIndex {
     return this.running;
   }
 
+  /**
+   * Who ran each transcript, by absolute path, after a scan (joined when one runs; warm it reads only
+   * what grew). Settings > Usage attributes omp's per-session costs with it. Null for a path never scanned.
+   */
+  async runners(): Promise<(path: string) => Runner | null> {
+    await this.refresh();
+    const owners = readSessionOwners(this.deps.agentHome, this.deps.assistantsDir);
+    return (path) => {
+      const record = this.files.get(path);
+      return record === undefined ? null : this.runner(path, record, owners);
+    };
+  }
+
   private async roots(): Promise<{ dir: string; format: FileRecord["format"] }[]> {
     const { home } = this.deps;
     const agentDirs = [join(home, ".omp", "agent")];

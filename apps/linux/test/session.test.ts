@@ -28,6 +28,7 @@ import { FileBoardStore } from "../src/boards/store";
 import { CommandDedupStore } from "../src/dedup";
 import { PairingCoordinator } from "../src/pairing";
 import type { UsageService } from "../src/usage/service";
+import type { StatsService } from "../src/stats/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { BookmarkRelaying } from "../src/bookmarks/service";
@@ -168,6 +169,7 @@ interface HarnessOptions {
   calls?: CallRelaying;
   live?: LiveRelaying;
   usage?: UsageService;
+  stats?: StatsService;
   catchup?: CatchUpDeck;
   reactions?: ReactionRelaying;
   bookmarks?: BookmarkRelaying;
@@ -229,6 +231,7 @@ function harness(options: HarnessOptions = {}): Harness {
     calls: options.calls ?? null,
     live: options.live ?? null,
     usage: options.usage ?? null,
+    stats: options.stats ?? null,
     catchup: options.catchup ?? null,
     reactions: options.reactions ?? null,
     bookmarks: options.bookmarks ?? null,
@@ -1030,6 +1033,38 @@ describe("usage", () => {
     expect(bare.sink.last()).toEqual({
       t: "usage.snapshot",
       usage: { accounts: [], updatedAt: null, refreshing: false },
+    });
+  });
+});
+
+describe("stats", () => {
+  it("answers stats.get with the cached snapshot at once, refreshes it in the background, and marks the socket for later snapshots", () => {
+    const snapshot = { updatedAt: 5, refreshing: false, profiles: [{ name: "personal", error: null }], ranges: null };
+    const calls: string[] = [];
+    const stats: StatsService = {
+      get: () => snapshot,
+      refresh: () => (calls.push("refresh"), Promise.resolve(snapshot)),
+      refreshIfStale: () => void calls.push("refreshIfStale"),
+    };
+    const h = harness({ stats });
+    pair(h);
+    const features = (s: typeof h): string[] => {
+      const welcome = s.sink.sent.find((m) => m.t === "welcome");
+      return welcome?.t === "welcome" ? (welcome.features ?? []) : [];
+    };
+    expect(features(h)).toContain("stats");
+    expect(h.session.wantsStats()).toBe(false);
+    h.session.receive({ t: "stats.get" });
+    expect(h.sink.last()).toEqual({ t: "stats.snapshot", stats: snapshot });
+    expect(calls).toEqual(["refreshIfStale"]);
+    expect(h.session.wantsStats()).toBe(true);
+    const bare = harness();
+    pair(bare);
+    expect(features(bare)).not.toContain("stats");
+    bare.session.receive({ t: "stats.get" });
+    expect(bare.sink.last()).toEqual({
+      t: "stats.snapshot",
+      stats: { updatedAt: null, refreshing: false, profiles: [], ranges: null },
     });
   });
 });

@@ -42,6 +42,7 @@ const server = new RelayServer(
     calls: null,
     live: null,
     usage: null,
+    stats: null,
     catchup: null,
     reactions: null,
     bookmarks: null,

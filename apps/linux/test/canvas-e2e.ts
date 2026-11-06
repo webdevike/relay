@@ -200,6 +200,7 @@ function host(): void {
       calls: null,
       live: null,
       usage: null,
+      stats: null,
       catchup: null,
       reactions: null,
       bookmarks: null,

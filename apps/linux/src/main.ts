@@ -66,6 +66,8 @@ import {
 } from "./drops/video";
 import { FileBoardStore } from "./boards/store";
 import { createUsageService, ompUsageRunner } from "./usage/service";
+import { STATS_WARMUP_MS, createStatsService, ompStatsRunner, ompStatsSources, openStatsDb } from "./stats/service";
+import { agentRow } from "./stats/agents";
 import { ompRunner, SkillCatalog } from "./skills/catalog";
 import { SkillsService } from "./skills/service";
 import { SkillUsageIndex } from "./skills/usage";
@@ -771,6 +773,16 @@ function serve(
     clock: systemClock,
     log,
   });
+  // Skill loads from every transcript on this Mac and the skill-usage hook's log, who made them, kept
+  // warm across restarts. Settings > Usage attributes omp's per-session costs with the same records.
+  const skillUsage = new SkillUsageIndex({
+    home: homedir(),
+    agentHome,
+    assistantsDir: defaultAssistantsDir(),
+    cacheFile: join(relayConfigDir(), "skill-usage.json"),
+    logFile: join(homedir(), ".omp", "usage", "skills.jsonl"),
+    log,
+  });
   // The Skills page: every skill omp loads here, who loads it, and live editing in Relay Desktop.
   const skills = new SkillsService({
     catalog: new SkillCatalog({
@@ -780,17 +792,28 @@ function serve(
       list: ompRunner(resolveOmp() ?? "omp", agentHome ?? homedir()),
       log,
     }),
-    // Skill loads from every transcript on this Mac and the skill-usage hook's log, who made them, kept warm across restarts.
-    usage: new SkillUsageIndex({
-      home: homedir(),
-      agentHome,
-      assistantsDir: defaultAssistantsDir(),
-      cacheFile: join(relayConfigDir(), "skill-usage.json"),
-      logFile: join(homedir(), ".omp", "usage", "skills.jsonl"),
-      log,
-    }),
+    usage: skillUsage,
     log,
   });
+  // Settings > Usage on the desktop: omp stats of every profile, warmed after startup and refreshed
+  // in the background when a desktop asks for a stale snapshot. Pushed only to sockets that asked.
+  const ompForStats = resolveOmp();
+  const stats =
+    ompForStats === null
+      ? null
+      : createStatsService({
+          sources: () => ompStatsSources(),
+          sync: ompStatsRunner(ompForStats),
+          open: openStatsDb,
+          agentOf: async () => {
+            const runnerOf = await skillUsage.runners();
+            return (sessionFile) => agentRow(runnerOf(sessionFile));
+          },
+          emit: (snapshot) => {
+            server.broadcastStats({ t: "stats.snapshot", stats: snapshot });
+          },
+          log,
+        });
   // Agents on this Mac drive Relay Desktop on whichever Mac Isaac is using; the token is in serve.json.
   const control = featureOn(config, "control", true) ? new ControlRelay(randomBytes(32).toString("hex"), systemClock, log) : null;
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
@@ -822,6 +845,7 @@ function serve(
       calls,
       live,
       usage,
+      stats,
       catchup,
       reactions,
       bookmarks,
@@ -844,6 +868,8 @@ function serve(
   rmSync(pairingPinPath(), { force: true });
   const boundPort = server.start();
   skills.start();
+  // Off the startup path: the first sync of a large profile reads every transcript.
+  if (stats !== null) setTimeout(() => void stats.refresh(), STATS_WARMUP_MS).unref();
   if (canvas !== null) {
     // The server's own hook pushes `canvas.rooms` to the devices; a new live room also invites the phones.
     const invitations = new CanvasInvitations({ tokens: pushTokens, sender: new ExpoPushSender(), log });
