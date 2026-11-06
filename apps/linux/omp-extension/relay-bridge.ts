@@ -51,6 +51,7 @@ import {
 // Same constraint: the session's async jobs (`bg_N` bash, eval cells) read from its messages.
 import { BackgroundJobs, ENDED_JOB_LINGER_MS, type BackgroundJob } from "../src/agents/background-jobs";
 // And omp's goal mode: what the phone shows of it, and the `/goal` forms it can send.
+import { AskGate } from "../src/agents/ask-hold";
 import { goalFromEntries, goalOf, phoneGoalCommand, sameGoal, type Goal } from "../src/agents/goal";
 
 type Model = NonNullable<ExtensionContext["model"]>;
@@ -1089,12 +1090,15 @@ export default function relayBridge(pi: ExtensionAPI): void {
         const existing = ctx.ui.getEditorText();
         // A turn sent while an ask blocks the session would only queue behind the blocked `ask` tool
         // call (the steer lands once the tool returns), so from the sender's side nothing went
-        // through, and omp drops an ask that has messages queued behind it. Sending is answering "no":
-        // the ask is cancelled first, which also dismisses the terminal dialog and every device's card.
-        if (pendingAsks.size > 0 && (frame.submit || (frame.images !== undefined && frame.images.length > 0))) {
-          abandonAsks();
-          await new Promise<void>((resolve) => setTimeout(resolve, ASK_DISMISS_SETTLE_MS).unref());
-        }
+        // through, and omp drops an ask that has messages queued behind it. Isaac's own send is
+        // answering "no": the ask is cancelled first, which also dismisses the terminal dialog and
+        // every device's card. A background line (job report, heartbeat) is not his answer: it is
+        // held and replayed once no ask is open (see AskGate).
+        const sendsTurn = frame.submit || (frame.images !== undefined && frame.images.length > 0);
+        const proceed = await askGate.admit(frame.text, sendsTurn, () => {
+          perform(frame).catch(() => undefined);
+        });
+        if (!proceed) return undefined;
         if (frame.images !== undefined && frame.images.length > 0) {
           // Images only ever go out as a user turn (the host rejects them without `submit`). A
           // slash command with images is sent the same way: sendUserMessage skips command dispatch,
@@ -1266,6 +1270,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
       const answered = phone.then((result) => ({ who: "phone" as const, result }));
       return Promise.race([terminal, answered]).then(({ who, result }) => {
         pendingAsks.delete(askId);
+        askGate.closed();
         send({ t: "ask.resolved", id: askId, answered: result !== undefined });
         if (status === "waiting") setStatus("working");
         if (who === "phone") process.stdin.push("\x1b");
@@ -1279,6 +1284,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     for (const pending of pendingAsks.values()) pending.resolve(undefined);
     pendingAsks.clear();
   };
+  // What a turn sent while an ask is open does to it: Isaac's cancels it, a background line waits.
+  const askGate = new AskGate({ open: () => pendingAsks.size > 0, cancel: abandonAsks }, ASK_DISMISS_SETTLE_MS);
 
   // Wrap ctx.ui.select so omp's tool approval reaches both surfaces: the prompt goes to the host as
   // an approval.request while the ORIGINAL selector still opens in the TUI. Whichever answers first
@@ -1533,6 +1540,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
   pi.on("session_switch", (_event, context) => {
     if (ctx === null) return;
     abandonAsks(); // the old session's blocked asks do not carry over
+    askGate.clear();
     abandonApprovals();
     closeSubagents(); // and its subagents belong to it, not to the session switched to
     ctx = context;
@@ -1723,6 +1731,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     unwatchName?.();
     unwatchName = null;
     abandonAsks();
+    askGate.clear();
     abandonApprovals();
     closeSubagents();
     unsubscribeSubagents?.();
