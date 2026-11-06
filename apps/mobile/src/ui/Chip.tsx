@@ -27,10 +27,12 @@ export interface ChipProps {
   hitSlop?: Insets;
   /** Layout in its row, e.g. `{ flexShrink: 1, minWidth: 0 }` so the label ellipsizes to fit. */
   style?: StyleProp<ViewStyle>;
+  /** Light text on a dark capsule, for chrome over media (the Studio editor). */
+  overlay?: boolean;
 }
 
 /** A small tappable capsule in a row of chips: optional leading glyph, one-line label. */
-export function Chip({ label, leading, selected = false, onPress, onLongPress, accessibilityLabel, accessibilityHint, accessibilityActions, onAccessibilityAction, hitSlop, style }: ChipProps) {
+export function Chip({ label, leading, selected = false, onPress, onLongPress, accessibilityLabel, accessibilityHint, accessibilityActions, onAccessibilityAction, hitSlop, style, overlay = false }: ChipProps) {
   const colors = useColors();
   return (
     <Pressable
@@ -63,15 +65,15 @@ export function Chip({ label, leading, selected = false, onPress, onLongPress, a
           paddingHorizontal: spacing.md,
           borderRadius: CHIP_HEIGHT / 2,
           borderWidth: 1,
-          borderColor: selected ? colors.accent : colors.hairline,
-          backgroundColor: selected ? toneFill(colors, "accent", 0.12) : colors.surfaceRaised,
+          borderColor: selected ? colors.accent : overlay ? "#2C2E33" : colors.hairline,
+          backgroundColor: selected ? toneFill(colors, "accent", 0.12) : overlay ? "#1A1B1E" : colors.surfaceRaised,
           opacity: pressed ? 0.7 : 1,
         },
         style,
       ]}
     >
       {leading}
-      <Text variant="caption" color={selected ? "accent" : "text"} numberOfLines={1} style={{ flexShrink: 1 }}>
+      <Text variant="caption" color={selected ? "accent" : "text"} numberOfLines={1} style={[{ flexShrink: 1 }, overlay && !selected && { color: "#E9ECEF" }]}>
         {label}
       </Text>
     </Pressable>

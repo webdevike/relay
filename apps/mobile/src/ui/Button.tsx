@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable } from "react-native";
+import { ActivityIndicator, Pressable, View } from "react-native";
+import { SymbolView, type SFSymbol } from "expo-symbols";
 import { Text } from "./Text";
 import { radii, spacing, useColors, type ColorToken, type Colors, type ToneToken } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
@@ -18,6 +19,10 @@ export interface ButtonProps {
   /** VoiceOver label when it should say more than `label`. */
   accessibilityLabel?: string | undefined;
   testID?: string | undefined;
+  /** A glyph before the label. */
+  symbol?: SFSymbol | undefined;
+  /** Fully rounded ends instead of the medium radius. */
+  pill?: boolean | undefined;
 }
 
 function backgroundFor(variant: ButtonVariant, colors: Colors, tone: ToneToken | undefined): string {
@@ -49,6 +54,8 @@ export function Button({
   height = 36,
   accessibilityLabel,
   testID,
+  symbol,
+  pill = false,
 }: ButtonProps) {
   const colors = useColors();
   const textColor =
@@ -64,7 +71,7 @@ export function Button({
       }}
       style={({ pressed }) => ({
         height,
-        borderRadius: radii.md,
+        borderRadius: pill ? height / 2 : radii.md,
         paddingHorizontal: spacing.lg,
         alignItems: "center",
         justifyContent: "center",
@@ -75,9 +82,12 @@ export function Button({
       {loading ? (
         <ActivityIndicator color={variant === "primary" ? colors.bg : colors.text} />
       ) : (
-        <Text variant="label" color={textColor} numberOfLines={1}>
-          {label}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs + 2 }}>
+          {symbol !== undefined && <SymbolView name={symbol} size={15} tintColor={colors[textColor]} />}
+          <Text variant="label" color={textColor} numberOfLines={1}>
+            {label}
+          </Text>
+        </View>
       )}
     </Pressable>
   );

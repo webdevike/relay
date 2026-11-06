@@ -1,223 +1,304 @@
 /**
- * Studio: make images and video on the host. The composer on top, jobs in progress under it, then
- * the gallery of finished outputs; Generate sits in the bottom bar where the thumb reaches. Paid
- * backends go through the confirm sheet; free ones start at once.
+ * Studio: the library of images made on the host. The title is the project switcher (All images,
+ * Favorites, projects, Unsorted); a queue line shows while the GPU is busy; the grid is the view's
+ * originals newest first (every favorite in Favorites) with queued and running ones as progress
+ * tiles. Tap opens the editor; a long press selects, and the create bar gives way to Favorite,
+ * Move, Save and Delete (with Undo).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
-import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from "react-native";
-import { studioJobActive } from "@relay/protocol";
-import { requestStudio, studioRequest } from "@/connection";
+import { useEffect, useMemo, useState } from "react";
+import { FlatList, KeyboardAvoidingView, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { SymbolView } from "expo-symbols";
+import { studioDescendantCount, studioEtaLabel, type StudioItem, type StudioJob } from "@relay/protocol";
+import { requestStudio } from "@/connection";
 import { useStudioStore } from "@/state/studio";
-import { spacing } from "@/theme";
-import { BottomBar } from "@/ui/BottomBar";
+import { spacing, useColors, useScheme } from "@/theme";
+import { tapHaptic } from "@/lib/haptics";
 import { Button } from "@/ui/Button";
 import { EmptyState } from "@/ui/EmptyState";
-import { IconButton } from "@/ui/IconButton";
+import { MediaTile } from "@/ui/MediaTile";
+import { ProgressTile } from "@/ui/ProgressTile";
 import { Screen } from "@/ui/Screen";
-import { Separator } from "@/ui/Separator";
 import { Text } from "@/ui/Text";
-import { ThumbGrid } from "@/ui/ThumbGrid";
-import { Toast } from "@/ui/Toast";
-import { assetLength, assetsById, galleryItems, useHostBase } from "@/studio/assets";
-import { Composer, quoteLine } from "@/studio/Composer";
-import { draftSpec, formProblem, studioForm } from "@/studio/draft";
-import { GallerySheet } from "@/studio/GallerySheet";
-import { ModelSheet } from "@/studio/ModelSheet";
-import { PaidConfirmSheet } from "@/studio/PaidConfirmSheet";
-import { QueueRow } from "@/studio/QueueRow";
-import { useQuote } from "@/studio/quote";
-import { StudioViewer } from "@/studio/StudioViewer";
-import { useStudio } from "@/studio/useStudio";
+import { ToolbarButton } from "@/ui/ToolbarButton";
+import { favoriteAssets, moveAssets, trashAssets } from "@/studio/actions";
+import { assetLength, saveAssets, useHostBase } from "@/studio/assets";
+import { CreateBar } from "@/studio/CreateBar";
+import { favoriteValue, gridItems, imageCount, keepVisible, libraryOf, liveView, pendingJobs, queueSummary, switcherRows, toggleSelected, viewName } from "@/studio/library";
+import { newProject, pickProject } from "@/studio/pickers";
+import { QueueSheet } from "@/studio/QueueSheet";
+import { StudioEditor } from "@/studio/StudioEditor";
+import { SwitcherSheet } from "@/studio/SwitcherSheet";
+import { ToastHost } from "@/studio/ToastHost";
+
+const GAP = spacing.sm;
+const COLUMNS = 2;
+/** Opaque bar fill in dark mode, as the create bar uses. */
+const FILL_DARK = "#202020";
+
+type Cell = { kind: "pending"; job: StudioJob } | { kind: "item"; item: StudioItem };
 
 export default function Studio() {
-  const jobs = useStudioStore((state) => state.jobs);
-  const uploads = useStudioStore((state) => state.uploads);
-  const backends = useStudioStore((state) => state.backends);
+  const colors = useColors();
+  const dark = useScheme() === "dark";
+  const { width } = useWindowDimensions();
   const loaded = useStudioStore((state) => state.loaded);
-  const draft = useStudioStore((state) => state.draft);
-  const patchDraft = useStudioStore((state) => state.patchDraft);
+  const jobs = useStudioStore((state) => state.jobs);
+  const backends = useStudioStore((state) => state.backends);
+  const projects = useStudioStore((state) => state.projects);
+  const storedView = useStudioStore((state) => state.view);
+  const setView = useStudioStore((state) => state.setView);
   const base = useHostBase();
-  const scroll = useRef<ScrollView>(null);
-  const [models, setModels] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [switcher, setSwitcher] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const [opened, setOpened] = useState<string | null>(null);
 
   // The host pushes every change while connected; asking on open covers a list missed in between.
   useEffect(() => {
     requestStudio();
   }, []);
 
-  const form = useMemo(() => studioForm(draft, backends), [draft, backends]);
-  const assets = useMemo(() => assetsById(jobs, uploads), [jobs, uploads]);
-  const gallery = useMemo(() => galleryItems(jobs), [jobs]);
-  const queue = jobs.filter((job) => studioJobActive(job) || job.state === "failed");
-  const pickable = useMemo(() => [...uploads, ...gallery.map((item) => item.asset)].filter((asset) => asset.kind === "image").sort((a, b) => b.createdAt - a.createdAt), [uploads, gallery]);
-  const problem = formProblem(form);
-  const quote = useQuote(draftSpec(form), form.backend?.paid === true);
-  const studio = useStudio(form, () => {
-    scroll.current?.scrollTo({ y: 0, animated: true });
-  });
-  const running = queue.filter(studioJobActive).length;
-  const hint = problem ?? (form.backend?.paid === true ? quoteLine(quote, form.backend.balance) : running > 0 ? `${running} in progress` : "");
+  const view = liveView(storedView, projects);
+  const library = useMemo(() => libraryOf(jobs), [jobs]);
+  const grid = useMemo(() => gridItems(library, view), [library, view]);
+  const pending = pendingJobs(jobs, view);
+  const queue = queueSummary(jobs);
+  const selected = keepVisible(picked, grid);
+  const cells: Cell[] = [...pending.map((job) => ({ kind: "pending" as const, job })), ...grid.map((item) => ({ kind: "item" as const, item }))];
+  const tile = Math.floor((width - spacing.lg * 2 - GAP * (COLUMNS - 1)) / COLUMNS);
+  const busy = queue.running.length + queue.waiting.length + queue.failed.length > 0;
 
-  return (
-    <Screen
-      title="Studio"
-      headerRight={
-        <IconButton
-          symbol="arrow.clockwise"
-          size={44}
-          accessibilityLabel="Refresh backends"
-          onPress={() => {
-            void studioRequest({ kind: "refresh" });
-          }}
-        />
-      }
-    >
-      <KeyboardAvoidingView style={styles.fill} behavior="padding">
-        <ScrollView ref={scroll} style={styles.fill} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
-          {loaded || backends.length > 0 ? (
-            <Composer
-              form={form}
-              assets={assets}
-              base={base}
-              quote={quote}
-              uploading={studio.uploading}
-              onPatch={patchDraft}
-              onAdd={(target) => {
-                void studio.add(target);
-              }}
-              onOpenAsset={(asset) => {
-                studio.view({ asset, job: jobs.find((job) => job.outputs.some((output) => output.id === asset.id)) });
-              }}
-              onOpenModels={() => {
-                setModels(true);
+  const endSelect = () => {
+    setSelecting(false);
+    setPicked([]);
+  };
+  const press = (id: string) => {
+    if (selecting) setPicked(toggleSelected(selected, id));
+    else setOpened(id);
+  };
+  const longPress = (id: string) => {
+    setSelecting(true);
+    setPicked(selecting ? toggleSelected(selected, id) : [id]);
+  };
+  const selectedAssets = selected.flatMap((id) => {
+    const found = library.lineage.byId.get(id);
+    return found === undefined ? [] : [found.asset];
+  });
+  const favoriting = favoriteValue(selected, library.lineage);
+
+  const header = (
+    <View style={styles.header}>
+      <View style={styles.titleRow}>
+        {selecting ? (
+          <Text variant="title" style={{ flex: 1 }}>
+            {selected.length === 0 ? "Select images" : `${selected.length} selected`}
+          </Text>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${viewName(view, projects)}, switch project`}
+            onPress={() => {
+              tapHaptic();
+              setSwitcher(true);
+            }}
+            style={({ pressed }) => [styles.switcher, { opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Text variant="title" numberOfLines={1} style={{ flexShrink: 1 }}>
+              {viewName(view, projects)}
+            </Text>
+            <SymbolView name="chevron.down" size={12} weight="semibold" tintColor={colors.textMuted} />
+            <Text variant="label" color="textMuted" tabular numberOfLines={1}>
+              {imageCount(grid.length)}
+            </Text>
+          </Pressable>
+        )}
+        {selecting ? (
+          <>
+            <Button
+              label="Select all"
+              variant="ghost"
+              onPress={() => {
+                setPicked(grid.map((item) => item.asset.id));
               }}
             />
-          ) : (
-            <EmptyState symbol="wand.and.stars" title="Waiting for your Mac" body="Studio runs on the host. It shows up here once the phone is connected." />
-          )}
-
-          {queue.length > 0 && (
-            <View style={styles.section}>
-              <Text variant="label" color="textMuted" style={styles.heading}>
-                In progress
-              </Text>
-              {queue.map((job, index) => {
-                const start = job.spec.frames?.start ?? job.spec.refs?.[0];
-                const startAsset = start === undefined ? undefined : assets.get(start);
-                return (
-                  <View key={job.id}>
-                    {index > 0 && <Separator />}
-                    <QueueRow
-                      job={job}
-                      backendLabel={backends.find((b) => b.id === job.spec.backend)?.label ?? job.spec.backend}
-                      thumb={startAsset === undefined || base === null ? null : `${base}${startAsset.thumb}`}
-                      busy={studio.busyJob === job.id}
-                      onCancel={() => {
-                        void studio.cancel(job);
-                      }}
-                      onDismiss={() => {
-                        void studio.dismiss(job);
-                      }}
-                      onRemix={() => {
-                        studio.remix(job);
-                      }}
-                    />
-                  </View>
-                );
-              })}
-            </View>
-          )}
-
-          {loaded && (
-            <View style={[styles.section, styles.gallery]}>
-              <Text variant="label" color="textMuted">
-                Gallery
-              </Text>
-              {gallery.length === 0 ? (
-                <Text variant="body" color="textMuted">
-                  Nothing made yet. Describe something above and tap Generate.
-                </Text>
-              ) : (
-                <ThumbGrid
-                  items={gallery.map(({ asset, job }) => ({
-                    key: asset.id,
-                    uri: base === null ? null : `${base}${asset.thumb}`,
-                    length: assetLength(asset),
-                    accessibilityLabel: job.spec.prompt,
-                  }))}
-                  onPress={(key) => {
-                    const item = gallery.find((entry) => entry.asset.id === key);
-                    if (item !== undefined) studio.view(item);
-                  }}
-                />
-              )}
-            </View>
-          )}
-        </ScrollView>
-
-        {studio.message !== null && studio.viewing === null && (
-          <View style={styles.toast} pointerEvents="none">
-            <Toast message={studio.message} />
-          </View>
+            <Button label="Done" variant="ghost" onPress={endSelect} />
+          </>
+        ) : (
+          grid.length > 0 && (
+            <Button
+              label="Select"
+              variant="ghost"
+              onPress={() => {
+                setSelecting(true);
+              }}
+            />
+          )
         )}
+      </View>
+      {busy && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`GPU queue: ${queue.label}`}
+          onPress={() => {
+            tapHaptic();
+            setQueueOpen(true);
+          }}
+          style={({ pressed }) => [styles.queue, { opacity: pressed ? 0.6 : 1 }]}
+        >
+          <SymbolView name="cpu" size={14} tintColor={colors.textMuted} />
+          <Text variant="caption" color="textMuted" tabular>
+            {queue.label}
+          </Text>
+          <SymbolView name="chevron.right" size={10} weight="semibold" tintColor={colors.textFaint} />
+        </Pressable>
+      )}
+    </View>
+  );
 
-        <BottomBar>
-          {hint.length > 0 && (
-            <Text variant="caption" color="textMuted" numberOfLines={2} style={styles.hint}>
-              {hint}
-            </Text>
+  const renderCell = ({ item: cell }: { item: Cell }) => {
+    if (cell.kind === "pending") {
+      const { job } = cell;
+      const running = job.state === "running";
+      const eta = studioEtaLabel(job.etaMs);
+      return running ? (
+        <ProgressTile size={tile} title={`${Math.min(99, Math.round(job.progress * 100))}%`} details={[...(job.note === undefined ? [] : [job.note]), ...(eta === undefined ? [] : [eta])]} fraction={job.progress} />
+      ) : (
+        <ProgressTile size={tile} title="Queued" details={[job.note ?? "Waiting for the GPU"]} fraction={0} />
+      );
+    }
+    const { asset, job } = cell.item;
+    const versions = studioDescendantCount(asset.id, library.lineage);
+    const length = assetLength(asset);
+    return (
+      <MediaTile
+        uri={base === null ? null : `${base}${asset.thumb}`}
+        size={tile}
+        accessibilityLabel={job.spec.prompt}
+        selecting={selecting}
+        selected={selected.includes(asset.id)}
+        favorite={asset.favorite === true}
+        leading={length === undefined ? undefined : { icon: "play.fill", label: length }}
+        trailing={versions > 0 ? { icon: "arrow.triangle.branch", label: String(versions) } : undefined}
+        onPress={() => {
+          press(asset.id);
+        }}
+        onLongPress={() => {
+          longPress(asset.id);
+        }}
+      />
+    );
+  };
+
+  const waiting = !loaded && backends.length === 0;
+
+  return (
+    <Screen header={header}>
+      <KeyboardAvoidingView style={styles.fill} behavior="padding">
+        <View style={styles.fill}>
+          {waiting ? (
+            <EmptyState symbol="wand.and.stars" title="Waiting for your Mac" body="Studio runs on the host. It shows up here once the phone is connected." />
+          ) : (
+            <FlatList
+              data={cells}
+              keyExtractor={(cell) => (cell.kind === "pending" ? `job:${cell.job.id}` : cell.item.asset.id)}
+              numColumns={COLUMNS}
+              renderItem={renderCell}
+              columnWrapperStyle={{ gap: GAP }}
+              contentContainerStyle={styles.grid}
+              keyboardDismissMode="on-drag"
+              keyboardShouldPersistTaps="handled"
+              ListEmptyComponent={
+                <Text variant="body" color="textMuted" style={styles.empty}>
+                  {view.kind === "favorites" ? "No favorites yet. Tap the heart on an image to keep it here." : "Nothing here yet. Describe something below and tap Generate."}
+                </Text>
+              }
+            />
           )}
-          <Button
-            label="Generate"
-            height={50}
-            disabled={problem !== undefined}
-            loading={studio.generating && studio.confirm === null}
-            onPress={() => {
-              void studio.generate();
-            }}
-          />
-        </BottomBar>
+          <ToastHost bottom={spacing.md} />
+        </View>
+        <View style={styles.dock}>
+          {selecting ? (
+            <View style={[styles.bulk, { backgroundColor: dark ? FILL_DARK : colors.surface }]}>
+              <ToolbarButton
+                symbol={favoriting ? "heart" : "heart.fill"}
+                label={favoriting ? "Favorite" : "Unfavorite"}
+                disabled={selected.length === 0}
+                onPress={() => {
+                  void favoriteAssets(selected, favoriting);
+                }}
+              />
+              <ToolbarButton
+                symbol="folder"
+                label="Move"
+                disabled={selected.length === 0}
+                onPress={() => {
+                  const ids = selected;
+                  void pickProject("Move to", projects).then((choice) => {
+                    if (choice?.kind !== "project") return;
+                    endSelect();
+                    void moveAssets(ids, choice.id);
+                  });
+                }}
+              />
+              <ToolbarButton
+                symbol="square.and.arrow.down"
+                label="Save"
+                disabled={selected.length === 0}
+                onPress={() => {
+                  void saveAssets(selectedAssets);
+                }}
+              />
+              <ToolbarButton
+                symbol="trash"
+                label="Delete"
+                disabled={selected.length === 0}
+                onPress={() => {
+                  const ids = selected;
+                  endSelect();
+                  void trashAssets(ids);
+                }}
+              />
+            </View>
+          ) : (
+            !waiting && <CreateBar />
+          )}
+        </View>
       </KeyboardAvoidingView>
 
-      <ModelSheet
-        visible={models}
-        draft={draft}
-        backends={backends}
-        onPick={(entry) => {
-          patchDraft({ mode: entry.mode, backend: entry.backend, model: entry.model });
-          setModels(false);
+      <SwitcherSheet
+        visible={switcher}
+        rows={switcherRows(library, projects)}
+        current={view}
+        base={base}
+        onPick={(next) => {
+          setView(next);
+          endSelect();
+          setSwitcher(false);
+        }}
+        onNewProject={() => {
+          setSwitcher(false);
+          void newProject().then((project) => {
+            if (project !== undefined) setView({ kind: "project", id: project.id });
+          });
         }}
         onClose={() => {
-          setModels(false);
+          setSwitcher(false);
         }}
       />
-      <GallerySheet
-        visible={studio.picking !== null}
-        title={studio.picking === "ref" ? "Pick a reference" : "Pick a frame"}
-        images={pickable}
-        base={base}
-        onPick={studio.pick}
-        onClose={studio.closePicker}
-      />
-      <PaidConfirmSheet
-        spec={studio.confirm?.spec ?? null}
-        provider={(form.backend?.label ?? "Higgsfield").replace(/\s*\(.*\)$/, "")}
-        balance={form.backend?.balance}
-        sending={studio.generating}
-        error={studio.confirm?.error ?? null}
-        onConfirm={(credits) => {
-          void studio.confirmPaid(credits);
+      <QueueSheet
+        visible={queueOpen}
+        queue={queue}
+        backends={backends}
+        onClose={() => {
+          setQueueOpen(false);
         }}
-        onClose={studio.closeConfirm}
       />
-      <StudioViewer
-        asset={studio.viewing?.asset ?? null}
-        uri={studio.viewing === null || base === null ? null : `${base}${studio.viewing.asset.path}`}
-        canRemix={studio.viewing?.job !== undefined}
-        busy={studio.viewerBusy}
-        message={studio.message}
-        onAction={studio.viewerAction}
-        onClose={studio.closeViewer}
+      <StudioEditor
+        assetId={opened}
+        onClose={() => {
+          setOpened(null);
+        }}
       />
     </Screen>
   );
@@ -225,10 +306,12 @@ export default function Studio() {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  content: { paddingBottom: spacing.xxl },
-  section: { marginTop: spacing.xxl },
-  heading: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xs },
-  gallery: { paddingHorizontal: spacing.xl, gap: spacing.sm },
-  hint: { textAlign: "center" },
-  toast: { position: "absolute", left: 0, right: 0, bottom: 120 },
+  header: { paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.sm, gap: spacing.xs },
+  titleRow: { flexDirection: "row", alignItems: "center", minHeight: 44, gap: spacing.xs },
+  switcher: { flex: 1, flexDirection: "row", alignItems: "center", gap: spacing.sm, minHeight: 44 },
+  queue: { flexDirection: "row", alignItems: "center", gap: spacing.xs + 2, alignSelf: "flex-start", minHeight: 28 },
+  grid: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg, gap: GAP },
+  empty: { paddingTop: spacing.xxl, textAlign: "center", paddingHorizontal: spacing.xl },
+  dock: { paddingHorizontal: spacing.md, paddingTop: spacing.xs, paddingBottom: spacing.xs },
+  bulk: { flexDirection: "row", justifyContent: "space-around", borderRadius: 18, paddingVertical: spacing.md },
 });

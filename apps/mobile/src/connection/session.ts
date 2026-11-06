@@ -266,6 +266,8 @@ export class SessionMachine {
       case "studio.state":
       case "studio.job":
       case "studio.removed":
+      case "studio.library":
+      case "studio.segments":
       case "studio.res":
       case "reviews.res":
       case "reviews.queue":

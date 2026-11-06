@@ -6,7 +6,12 @@
 import { useEffect, useState } from "react";
 import type { StudioSpec } from "@relay/protocol";
 import { studioRequest } from "@/connection";
-import { quoteKey } from "./draft";
+
+/** The settings a quote priced: the spec minus the prompt and seed, which never change the price. */
+function quoteKey(spec: StudioSpec): string {
+  // JSON drops undefined fields, so these three never reach the key.
+  return JSON.stringify({ ...spec, prompt: undefined, seed: undefined, confirmCredits: undefined });
+}
 
 const CACHE_MS = 60_000;
 /** Settle time after a chip tap before asking, so a run of taps sends one quote. */
