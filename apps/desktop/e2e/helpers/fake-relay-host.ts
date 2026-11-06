@@ -633,6 +633,36 @@ export class FakeRelayHost {
     this.broadcast(this.snapshotOf(thread))
   }
 
+  /** Each assistant thread's open asks, as the host keeps them (`assistant.snapshot`'s `asks`); absent: a host that predates them. */
+  private readonly openAsksOf = new Map<string, Json[]>()
+  /** Every `assistant.get` the app sent, by agent. */
+  readonly assistantGets: string[] = []
+
+  /** Sets `agent`'s open asks and pushes the thread's snapshot to every device, as the host does when one opens or closes. */
+  setAsks(agent: string, asks: Json[]): void {
+    this.openAsksOf.set(agent, asks)
+    this.broadcast(this.assistantSnapshot(agent))
+  }
+
+  /** The open asks the host holds for `agent`. */
+  openAsks(agent: string): Json[] {
+    return this.openAsksOf.get(agent) ?? []
+  }
+
+  private assistantSnapshot(agent: string): Json {
+    return {
+      t: 'assistant.snapshot',
+      agent,
+      snapshot: {
+        rev: 1,
+        messages: [],
+        busy: false,
+        sessionId: '',
+        ...(this.openAsksOf.has(agent) ? { asks: this.openAsksOf.get(agent) } : {}),
+      },
+    }
+  }
+
   /** Each thread's bookmarked turns, as a host with the "bookmarks" feature keeps them. */
   private readonly bookmarksOf = new Map<string, string[]>()
   /** Every `bookmarks.get` and `bookmark.set` the app sent, in order. */
@@ -859,6 +889,9 @@ export class FakeRelayHost {
           rev: this.rev,
           sessions: [...this.sessions.keys()].map((s) => this.wire(s)),
         })
+      case 'assistant.get':
+        this.assistantGets.push(String(f.agent))
+        return peer.send(this.assistantSnapshot(String(f.agent)))
       case 'reactions.get':
         this.reactionFrames.push(f)
         return peer.send(this.snapshotOf(String(f.thread)))
@@ -966,6 +999,15 @@ export class FakeRelayHost {
 
   private command(peer: Peer, id: string, cmd: Json): void {
     const session = String(cmd.sessionId)
+    if (cmd.kind === 'assistant.ask.resolve') {
+      const agent = String(cmd.agent)
+      this.commands.push({ id, cmd, status: null })
+      peer.send({ t: 'ack', id })
+      return this.setAsks(
+        agent,
+        this.openAsks(agent).filter((a) => a.id !== cmd.id),
+      )
+    }
     this.commands.push({ id, cmd, status: this.sessions.get(session)?.status ?? null })
     const refused = this.nackNext
     if (refused) {

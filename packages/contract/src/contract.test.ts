@@ -732,3 +732,19 @@ describe('reactions channels', () => {
     ).toBe(true)
   })
 })
+
+describe('asks channels', () => {
+  it('resolves an ask by its 8-hex id, with a non-empty answer only', () => {
+    expect(Object.keys(invokeContract)).toEqual(
+      expect.arrayContaining(['asks.watch', 'asks.unwatch', 'asks.resolve']),
+    )
+    const resolve = invokeContract['asks.resolve'].input
+    const ok = { agent: 'nova', id: 'a1b2c3d4', how: 'answered' as const, answer: 'Not yet' }
+    expect(resolve.safeParse(ok).success).toBe(true)
+    expect(resolve.safeParse({ ...ok, id: 'nope' }).success).toBe(false)
+    expect(resolve.safeParse({ ...ok, answer: '  ' }).success).toBe(false)
+    expect(eventContract['asks.changed'].safeParse({ agent: 'nova', asks: null }).success).toBe(
+      true,
+    )
+  })
+})

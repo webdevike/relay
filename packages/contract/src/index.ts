@@ -16,6 +16,7 @@ import { statsEvents, statsInvoke } from './stats'
 import { assistantsEvents, assistantsInvoke } from './assistants'
 import { boardsEvents, boardsInvoke } from './boards'
 import { reactionsEvents, reactionsInvoke } from './reactions'
+import { asksEvents, asksInvoke } from './asks'
 import { artifactsEvents, artifactsInvoke } from './artifacts'
 import { activityEvents, activityInvoke } from './activity'
 import { studioEvents, studioInvoke } from './studio'
@@ -46,6 +47,7 @@ export * from './stats'
 export * from './assistants'
 export * from './boards'
 export * from './reactions'
+export * from './asks'
 export * from './artifacts'
 export * from './activity'
 export * from './studio'
@@ -107,6 +109,7 @@ export const invokeContract = {
   ...assistantsInvoke,
   ...boardsInvoke,
   ...reactionsInvoke,
+  ...asksInvoke,
   ...artifactsInvoke,
   ...activityInvoke,
   ...studioInvoke,
@@ -137,6 +140,7 @@ export const eventContract = {
   ...assistantsEvents,
   ...boardsEvents,
   ...reactionsEvents,
+  ...asksEvents,
   ...artifactsEvents,
   ...activityEvents,
   ...studioEvents,

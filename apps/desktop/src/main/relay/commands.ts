@@ -61,6 +61,14 @@ export type RelayCommand =
   | { kind: 'agent.start'; resume?: string; profile?: Profile; thinkingLevel?: string }
   /** Isaac's words to registry agent `agent`'s thread; the host starts the thread if needed. */
   | { kind: 'assistant.turn'; agent: string; text: string }
+  /** Closes open ask `id` of agent `agent`'s thread: answered (with the answer's words) or dismissed. */
+  | {
+      kind: 'assistant.ask.resolve'
+      agent: string
+      id: string
+      how: 'answered' | 'dismissed'
+      answer?: string
+    }
   /** Adds an assistant to the host's registry; with `start`, its thread opens with "Hi <title>". */
   | { kind: 'assistant.create'; id: string; title: string; scope?: string; start: boolean }
 

@@ -134,6 +134,10 @@ async function shot(app: ElectronApplication, shell: Page, name: string): Promis
   fs.rmSync(tmp, { force: true })
 }
 
+const pickFilter = async (shell: Page, mode: 'all' | 'flagged' | 'asks'): Promise<void> => {
+  await shell.locator(sel('turn-minimap-filter')).click()
+  await shell.locator(sel(`turn-minimap-show-${mode}`)).click()
+}
 const ticks = (shell: Page) => shell.locator(`${sel('turn-minimap')} ${sel('turn-tick')}`)
 const tickOf = (shell: Page, title: string) =>
   shell.locator(`${sel('turn-minimap')} ${sel('turn-tick')}[aria-label="${title}"]`)
@@ -237,7 +241,7 @@ test('hover card, click jump with flash, Alt+Up/Down, flags and filter, bookmark
   await card.getByTestId('turn-card-bookmark').click()
   await expect(tickOf(shell, 'Filler question 7')).toHaveAttribute('data-bookmarked', 'true')
   await expect(card.getByTestId('turn-card-bookmark')).toHaveAttribute('aria-pressed', 'true')
-  await shell.locator(sel('turn-minimap-filter')).click()
+  await pickFilter(shell, 'flagged')
   await expect(ticks(shell)).toHaveCount(3)
   await expect(ticks(shell).nth(0)).toHaveAttribute('aria-label', 'Filler question 7')
   await expect(ticks(shell).nth(1)).toHaveAttribute('aria-label', SPOKE_FIRST)
@@ -247,7 +251,7 @@ test('hover card, click jump with flash, Alt+Up/Down, flags and filter, bookmark
   await ticks(shell).nth(0).click()
   await shell.keyboard.press('Alt+ArrowDown')
   await expect(ticks(shell).nth(1)).toHaveAttribute('data-state', 'active')
-  await shell.locator(sel('turn-minimap-filter')).click()
+  await pickFilter(shell, 'all')
   await expect(ticks(shell)).toHaveCount(total)
 
   // 8. The host keeps the bookmark (the phone sees the same set), nothing is left on this device,

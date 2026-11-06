@@ -98,6 +98,29 @@
   top: 50%;
   transform: translateY(-50%);
 }
+/* An open ask the host still waits on Isaac for: a hollow accent ring, in the dot's place. */
+.eva-tm-wait {
+  flex: none;
+  display: inline-block;
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--eva-accent);
+  border-radius: var(--eva-radius-round);
+}
+.eva-tm-tick .eva-tm-wait {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.eva-tm-tick[data-waiting='true'] .eva-tm-dot {
+  display: none;
+}
+.eva-tm-tick[data-waiting='true'] .eva-tm-bar {
+  color: var(--eva-accent);
+  opacity: 0.85;
+}
 .eva-tm-empty {
   width: 64px;
   font-size: var(--eva-fz-caption);
@@ -165,6 +188,19 @@
   gap: calc(var(--mantine-spacing-xs) / 1.25);
   font-size: var(--eva-fz-caption);
   color: var(--eva-text-dim);
+}
+.eva-tm-asked {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--mantine-spacing-xs) / 1.25);
+  margin: 0;
+  padding-inline-end: calc(var(--mantine-spacing-xs) / 1.25);
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-text);
+  overflow-wrap: anywhere;
+}
+.eva-tm-asked .eva-tm-wait {
+  margin-top: calc(var(--mantine-spacing-xs) / 3);
 }
 .eva-tm-flag {
   display: inline-flex;

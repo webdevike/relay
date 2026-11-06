@@ -1,7 +1,9 @@
 import './turn-minimap.css'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { ActionIcon, Tooltip } from '@mantine/core'
-import { IconBookmark, IconBookmarkFilled, IconFilter } from '@tabler/icons-react'
+import { EvaMenu } from '../../overlay'
+import { IconBookmark, IconBookmarkFilled, IconCheck, IconFilter } from '@tabler/icons-react'
+import type { OpenAsk } from '@evaos/contract'
 import type { VListHandle } from 'virtua'
 import { canBookmark, toggleBookmark, useBookmarks } from './bookmarks'
 import type { TurnFlag } from '@evaos/chat-core/turn-flags'
@@ -31,6 +33,15 @@ const FLAG_LABEL: Record<TurnFlag, string> = {
   shipped: 'Said something shipped',
 }
 
+/** What the filter keeps: every turn, the flagged and bookmarked ones, or the ones holding an open ask. */
+type Show = 'all' | 'flagged' | 'asks'
+
+const SHOW_LABEL: Record<Show, string> = {
+  all: 'All turns',
+  flagged: 'Flagged and bookmarked',
+  asks: 'Open asks',
+}
+
 /** Slots the column fits in a log `height` px tall. */
 export function slotsFor(height: number): number {
   return Math.max(1, Math.floor((height * MAX_SHARE - FILTER_ROOM) / TICK_PITCH))
@@ -46,11 +57,14 @@ interface View {
  * ChatGPT-style turn navigator: a fixed column of thin ticks at the log's left edge, one per turn
  * (a run of turns per tick when they do not fit, like a scrollbar map). The tick of the turn on
  * screen is longer and brighter. A hover card shows the turn's message and the start of its reply
- * with a bookmark toggle; a click jumps there. A dot marks a turn that wants Isaac. The filter
- * button at the top keeps only flagged and bookmarked turns. Alt+Up and Alt+Down step between turns.
+ * with a bookmark toggle; a click jumps there. A dot marks a turn that wants Isaac; a ring marks a
+ * turn holding an open ask (a question the host still waits on him for, `waiting` by turn key). The
+ * filter button at the top keeps only flagged and bookmarked turns, or only the ones with an open
+ * ask. Alt+Up and Alt+Down step between turns.
  */
 export function TurnMinimap({
   turns,
+  waiting,
   thread,
   paneId,
   listRef,
@@ -59,6 +73,8 @@ export function TurnMinimap({
   shown,
 }: {
   turns: readonly Turn[]
+  /** The open asks each turn holds, by turn key. */
+  waiting: ReadonlyMap<string, readonly OpenAsk[]>
   /** Bookmarks live under this key. */
   thread: string
   paneId: string
@@ -71,8 +87,17 @@ export function TurnMinimap({
   shown: boolean
 }) {
   const bookmarks = useBookmarks(thread)
-  const [only, setOnly] = useState(false)
-  const list = useMemo(() => (only ? marked(turns, bookmarks) : turns), [only, turns, bookmarks])
+  const [show, setShow] = useState<Show>('all')
+  const [menu, setMenu] = useState(false)
+  const list = useMemo(
+    () =>
+      show === 'flagged'
+        ? marked(turns, bookmarks)
+        : show === 'asks'
+          ? turns.filter((t) => waiting.has(t.key))
+          : turns,
+    [show, turns, bookmarks, waiting],
+  )
   const root = useRef<HTMLElement>(null)
   const [height, setHeight] = useState(600)
   const [view, setView] = useState<View>({ active: 0, from: 0, to: 0 })
@@ -171,8 +196,17 @@ export function TurnMinimap({
   useEffect(() => () => window.clearTimeout(leave.current), [])
 
   const ticks = useMemo(
-    () => compressTicks(list, bookmarks, slotsFor(height), view.active, [view.from, view.to]),
-    [list, bookmarks, height, view],
+    () =>
+      compressTicks(list, bookmarks, slotsFor(height), view.active, [view.from, view.to]).map(
+        (t) => {
+          // A run holding a turn with an open ask is marked, and a hover on it tells that turn.
+          for (let i = t.first; i <= t.last; i++) {
+            if (waiting.has(list[i]!.key)) return { ...t, asked: i }
+          }
+          return { ...t, asked: null }
+        },
+      ),
+    [list, bookmarks, waiting, height, view],
   )
   if (turns.length < 2) return null
 
@@ -185,7 +219,8 @@ export function TurnMinimap({
     leave.current = window.setTimeout(() => setHover(null), LEAVE_MS)
   }
   const tick = hover === null ? undefined : ticks[hover]
-  const turn = tick === undefined ? undefined : list[tick.rep]
+  const turn = tick === undefined ? undefined : list[tick.asked ?? tick.rep]
+  const asked = turn === undefined ? undefined : waiting.get(turn.key)
 
   return (
     <nav
@@ -197,22 +232,41 @@ export function TurnMinimap({
       onMouseEnter={() => window.clearTimeout(leave.current)}
     >
       <div className="eva-tm-col">
-        <Tooltip label={only ? 'Show all turns' : 'Only flagged and bookmarked'} position="right">
-          <ActionIcon
-            variant="subtle"
-            size="var(--eva-kit-control-xs)"
-            className="eva-tm-filter"
-            data-testid="turn-minimap-filter"
-            aria-label={only ? 'Show all turns' : 'Only flagged and bookmarked'}
-            aria-pressed={only}
-            onClick={() => setOnly((v) => !v)}
-          >
-            <IconFilter size={12} stroke={1.5} />
-          </ActionIcon>
-        </Tooltip>
+        <EvaMenu opened={menu} onChange={setMenu} position="right-start" shadow="none">
+          <EvaMenu.Target>
+            <Tooltip label="Filter turns" position="right">
+              <ActionIcon
+                variant="subtle"
+                size="var(--eva-kit-control-xs)"
+                className="eva-tm-filter"
+                data-testid="turn-minimap-filter"
+                aria-label="Filter turns"
+                aria-pressed={show !== 'all'}
+              >
+                <IconFilter size={12} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+          </EvaMenu.Target>
+          <EvaMenu.Dropdown>
+            {(['all', 'flagged', 'asks'] as const).map((mode) => (
+              <EvaMenu.Item
+                key={mode}
+                data-testid={`turn-minimap-show-${mode}`}
+                disabled={mode === 'asks' && waiting.size === 0 && show !== 'asks'}
+                rightSection={show === mode ? <IconCheck size={12} stroke={1.5} /> : null}
+                onClick={() => {
+                  setShow(mode)
+                  setMenu(false)
+                }}
+              >
+                {SHOW_LABEL[mode]}
+              </EvaMenu.Item>
+            ))}
+          </EvaMenu.Dropdown>
+        </EvaMenu>
         <div className="eva-tm-ticks" data-testid="turn-minimap-ticks" onBlur={close}>
           {ticks.map((t, i) => {
-            const rep = list[t.rep]!
+            const rep = list[t.asked ?? t.rep]!
             return (
               <button
                 key={i}
@@ -223,7 +277,8 @@ export function TurnMinimap({
                 data-state={t.state}
                 data-flag={t.flag ?? undefined}
                 data-bookmarked={t.bookmarked || undefined}
-                aria-label={rep.title || 'Turn'}
+                data-waiting={t.asked !== null || undefined}
+                aria-label={`${rep.title || 'Turn'}${t.asked !== null ? ', waiting on you' : ''}`}
                 aria-current={t.state === 'active' ? 'location' : undefined}
                 onMouseEnter={() => open(i)}
                 onFocus={() => open(i)}
@@ -231,12 +286,13 @@ export function TurnMinimap({
               >
                 <span className="eva-tm-bar" />
                 {t.flag !== null ? <span className="eva-tm-dot" /> : null}
+                {t.asked !== null ? <span className="eva-tm-wait" /> : null}
               </button>
             )
           })}
           {ticks.length === 0 ? (
             <div className="eva-tm-empty" data-testid="turn-minimap-empty">
-              Nothing flagged
+              {show === 'asks' ? 'No open asks' : 'Nothing flagged'}
             </div>
           ) : null}
         </div>
@@ -246,6 +302,7 @@ export function TurnMinimap({
           // A new tick restarts the card where that tick is.
           key={tick.rep}
           turn={turn}
+          asked={asked}
           more={tick.last - tick.first}
           bookmarked={bookmarks.has(turn.key)}
           canBookmark={canBookmark(thread, turn.key)}
@@ -260,6 +317,7 @@ export function TurnMinimap({
 /** The card a hovered tick opens: the message, the start of its reply, a bookmark toggle. */
 function TurnCard({
   turn,
+  asked,
   more,
   bookmarked,
   canBookmark,
@@ -267,6 +325,8 @@ function TurnCard({
   onBookmark,
 }: {
   turn: Turn
+  /** The open asks the turn holds. */
+  asked: readonly OpenAsk[] | undefined
   /** Further turns the tick stands for. */
   more: number
   bookmarked: boolean
@@ -315,6 +375,12 @@ function TurnCard({
         {turn.reply !== '' ? (
           <p className="eva-tm-reply" data-testid="turn-card-reply">
             {turn.reply}
+          </p>
+        ) : null}
+        {asked !== undefined ? (
+          <p className="eva-tm-asked" data-testid="turn-card-asked">
+            <span className="eva-tm-wait" />
+            <span>{asked[0]!.question}</span>
           </p>
         ) : null}
         {turn.flag !== null || more > 0 ? (

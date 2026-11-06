@@ -9,6 +9,7 @@ vi.mock('../../ipc', () => ({ invoke, on: () => () => {} }))
 import { BOOKMARKS_KEY, applyHostBookmarks, reloadBookmarksForTests } from './bookmarks'
 import { TurnMinimap } from './TurnMinimap'
 import type { Turn } from '@evaos/chat-core/turns'
+import type { OpenAsk } from '@evaos/contract'
 
 const turn = (i: number, over: Partial<Turn> = {}): Turn => ({
   key: `user@${i}`,
@@ -31,16 +32,36 @@ function handle(top: number, rows = 20): VListHandle {
   } as unknown as VListHandle
 }
 
-function setup(turns: Turn[], top = 0) {
+const ask = (id: string, question: string): OpenAsk => ({
+  id,
+  source: 'replies',
+  label: question.slice(0, 20),
+  question,
+  replies: ['Yes', 'No'],
+  at: 1,
+})
+
+/** Picks `mode` in the filter menu. */
+function filter(mode: 'all' | 'flagged' | 'asks'): void {
+  fireEvent.click(screen.getByTestId('turn-minimap-filter'))
+  fireEvent.click(screen.getByTestId(`turn-minimap-show-${mode}`))
+}
+
+function setup(
+  turns: Turn[],
+  top = 0,
+  waiting: ReadonlyMap<string, readonly OpenAsk[]> = new Map(),
+) {
   const jump = vi.fn()
   const watchers = new Set<() => void>()
   const list = { current: handle(top) }
   const view = render(
-    <MantineProvider>
+    <MantineProvider env="test">
       <section data-chat-pane="p1" style={{ height: 600 }}>
         <div style={{ height: 600 }}>
           <TurnMinimap
             turns={turns}
+            waiting={waiting}
             thread="assistant:nova"
             paneId="p1"
             listRef={list}
@@ -104,12 +125,12 @@ describe('TurnMinimap', () => {
       'assistant:nova': ['user@3'],
     })
     expect(screen.getAllByTestId('turn-tick')[3]).toHaveAttribute('data-bookmarked', 'true')
-    fireEvent.click(screen.getByTestId('turn-minimap-filter'))
+    filter('flagged')
     expect(screen.getAllByTestId('turn-tick').map((t) => t.getAttribute('data-turn'))).toEqual([
       'user@1',
       'user@3',
     ])
-    fireEvent.click(screen.getByTestId('turn-minimap-filter'))
+    filter('all')
     expect(screen.getAllByTestId('turn-tick')).toHaveLength(4)
   })
 
@@ -131,9 +152,26 @@ describe('TurnMinimap', () => {
 
   it('says so when the filter leaves nothing', () => {
     setup([turn(0), turn(1)])
-    fireEvent.click(screen.getByTestId('turn-minimap-filter'))
+    filter('flagged')
     expect(screen.queryAllByTestId('turn-tick')).toHaveLength(0)
     expect(screen.getByTestId('turn-minimap-empty')).toBeInTheDocument()
+  })
+
+  it('marks a turn holding an open ask apart from the attention dot, tells the question on its card, and Open asks keeps only those turns', () => {
+    const waiting = new Map([['user@2', [ask('aaaaaaaa', 'Push it to prod?')]]])
+    setup([turn(0), turn(1, { flag: 'ask' }), turn(2, { flag: 'ask' }), turn(3)], 0, waiting)
+    const ticks = screen.getAllByTestId('turn-tick')
+    expect(ticks.map((t) => t.getAttribute('data-waiting'))).toEqual([null, null, 'true', null])
+    expect(ticks[2]!.querySelector('.eva-tm-wait')).not.toBeNull()
+    expect(ticks[1]!.querySelector('.eva-tm-wait')).toBeNull()
+    expect(ticks[1]!.querySelector('.eva-tm-dot')).not.toBeNull()
+    expect(ticks[2]).toHaveAccessibleName('Question 2, waiting on you')
+    fireEvent.mouseEnter(ticks[2]!)
+    expect(screen.getByTestId('turn-card-asked')).toHaveTextContent('Push it to prod?')
+    filter('asks')
+    expect(screen.getAllByTestId('turn-tick').map((t) => t.getAttribute('data-turn'))).toEqual([
+      'user@2',
+    ])
   })
 
   it('Alt+Down and Alt+Up step to the next and previous turn, chaining rapid presses, from focus in this chat only', () => {

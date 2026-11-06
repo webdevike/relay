@@ -11,6 +11,7 @@ import { startRelay } from '../relay'
 import { awaySignature } from '../relay/away'
 import { registerBoardsIpc } from '../relay/boards-ipc'
 import { registerReactionsIpc } from '../relay/reactions-ipc'
+import { registerAsksIpc } from '../relay/asks-ipc'
 import { registerArtifactsIpc } from '../relay/artifacts-ipc'
 import { registerActivityIpc } from '../relay/activity-ipc'
 import { registerCanvasLiveIpc } from '../relay/canvas-live-ipc'
@@ -148,6 +149,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const offBoards = registerBoardsIpc(ctx, relay)
   // Tapbacks on the bubbles of the chats shown, as Relay keeps them for every device.
   const offReactions = registerReactionsIpc(ctx, relay)
+  // The open questions of the assistant threads shown (the phone's badges), as the host keeps them.
+  const offAsks = registerAsksIpc(ctx, relay)
   // What each thread holds (tickets, PRs, media, subagents), for the Artifacts panel.
   const offArtifacts = registerArtifactsIpc(ctx, relay)
   // What agents are running (helpers, sessions, harnesses, canvas), for the Working tab and the chips.
@@ -201,6 +204,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offRelay()
     offBoards()
     offReactions()
+    offAsks()
     offArtifacts()
     offActivity()
     offNotifyActivity()

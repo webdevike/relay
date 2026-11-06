@@ -14,6 +14,7 @@ import { CanvasRow } from './CanvasRow'
 import { BackgroundRow } from './BackgroundRow'
 import { parseBackground } from '@evaos/chat-core/background'
 import { ReplyChips } from './ReplyChips'
+import type { OpenAsk } from '@evaos/contract'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
 function Images({ images }: { images: ChatMessage['images'] }) {
@@ -48,9 +49,25 @@ function Images({ images }: { images: ChatMessage['images'] }) {
 
 const imagesOf = (m: ChatMessage) => <Images images={m.images} />
 
-function Row({ id, role, children }: { id: string; role: string; children: React.ReactNode }) {
+function Row({
+  id,
+  role,
+  waiting = false,
+  children,
+}: {
+  id: string
+  role: string
+  /** The bubble carries an open ask: a thin accent edge until it is answered. */
+  waiting?: boolean
+  children: React.ReactNode
+}) {
   return (
-    <div className="eva-row" data-testid={`msg-${id}`} data-role={role}>
+    <div
+      className="eva-row"
+      data-testid={`msg-${id}`}
+      data-role={role}
+      data-waiting={waiting || undefined}
+    >
       <div className="eva-row-inner">{children}</div>
     </div>
   )
@@ -60,7 +77,17 @@ function Row({ id, role, children }: { id: string; role: string; children: React
  * A reply without its `[[replies: ...]]` line (cut while it streams in, too), so it never shows,
  * copies or quotes; the newest reply (`live`) shows the answers as buttons under it.
  */
-function AssistantBody({ m, live }: { m: ChatMessage; live: boolean }) {
+function AssistantBody({
+  m,
+  live,
+  waiting,
+  agent,
+}: {
+  m: ChatMessage
+  live: boolean
+  waiting: OpenAsk | undefined
+  agent: string | undefined
+}) {
   // `[[pin: label | value]]` lines are pins (the host makes them), never shown; then the replies token.
   const split = useMemo(() => {
     const pinned = splitPins(m.text, m.streaming)
@@ -77,13 +104,37 @@ function AssistantBody({ m, live }: { m: ChatMessage; live: boolean }) {
           <Markdown text={split.text} />
         </WidgetScope.Provider>
       </BubbleActions>
-      {live && !m.streaming && split.replies ? <ReplyChips replies={split.replies} /> : null}
+      {waiting !== undefined ? (
+        <div className="eva-waiting-tag" data-testid="waiting-tag">
+          Waiting on you
+        </div>
+      ) : null}
+      {(live || waiting !== undefined) && !m.streaming && split.replies ? (
+        <ReplyChips
+          replies={split.replies}
+          {...(waiting !== undefined && agent !== undefined ? { ask: waiting, agent } : {})}
+        />
+      ) : null}
     </>
   )
 }
 
-/** `live`: the newest row of an idle chat, the one tap-to-answer replies show under. */
-function MessageRowImpl({ m, live = false }: { m: ChatMessage; live?: boolean }) {
+/**
+ * `live`: the newest row of an idle chat, the one tap-to-answer replies show under. `waiting`: the
+ * open ask (of assistant `agent`'s thread) this row carries; it keeps its replies, an accent edge
+ * and a tag until the ask closes.
+ */
+function MessageRowImpl({
+  m,
+  live = false,
+  waiting,
+  agent,
+}: {
+  m: ChatMessage
+  live?: boolean
+  waiting?: OpenAsk | undefined
+  agent?: string | undefined
+}) {
   let body
   const background = m.role === 'user' ? parseBackground(m.text) : null
   if (background) {
@@ -111,7 +162,7 @@ function MessageRowImpl({ m, live = false }: { m: ChatMessage; live?: boolean })
       </div>
     )
   } else if (m.role === 'assistant') {
-    body = <AssistantBody m={m} live={live} />
+    body = <AssistantBody m={m} live={live} waiting={waiting} agent={agent} />
   } else if (m.role === 'thinking') {
     body = <div className="eva-thinking">{m.text}</div>
   } else if (m.role === 'tool') {
@@ -122,7 +173,7 @@ function MessageRowImpl({ m, live = false }: { m: ChatMessage; live?: boolean })
     body = <div className="eva-notice">{m.text}</div>
   }
   return (
-    <Row id={m.id} role={m.role}>
+    <Row id={m.id} role={m.role} waiting={waiting !== undefined}>
       {body}
     </Row>
   )
