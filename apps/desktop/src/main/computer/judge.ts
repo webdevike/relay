@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { JEV_MODEL, JEV_URL } from '../rooms/jev'
-import { DEFAULT_MODEL } from './brain'
+import { computerModels } from './brain'
 
 /**
  * The two quick questions a walkthrough asks over and over: which control is this step about, and
@@ -91,7 +91,7 @@ export class ModelJudge implements Judge {
   readonly name = 'model'
   constructor(
     private key: string,
-    private model = process.env.RELAY_COMPUTER_MODEL ?? DEFAULT_MODEL,
+    private use: { model: string; effort: string } = computerModels(null).step,
   ) {}
 
   private async json(
@@ -104,8 +104,8 @@ export class ModelJudge implements Judge {
       ...(signal ? { signal } : {}),
       headers: { Authorization: `Bearer ${this.key}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: this.model,
-        reasoning: { effort: 'low' },
+        model: this.use.model,
+        reasoning: { effort: this.use.effort },
         input: prompt,
         text: { format: { type: 'json_schema', name: 'answer', strict: true, schema } },
       }),

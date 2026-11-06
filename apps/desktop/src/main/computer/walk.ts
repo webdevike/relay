@@ -1,96 +1,26 @@
-import { z } from 'zod'
 import type { AgentResult, RunIO } from './agent'
-import type { Brain } from './brain'
+import type { RunPlan } from './brief'
 import type { Desktop, Snapshot, WindowInfo } from './desktop'
 import type { Judge } from './judge'
 import type { Presenter } from './presenter'
 import type { WalkControl } from './runs'
 
 /**
- * `@computer walk` (SPEC.md): plan the steps once, then for each one point at its control, caption
- * it and say it in the assistant's voice, and wait for Isaac to do it. The window is re-read every
- * POLL_MS; the step is done when the judge says its `done_when` holds. `next`/`skip` move on by hand.
+ * `@computer walk` (SPEC.md): the run's plan (brief.ts: the assistant's own, or written from the
+ * chat) is the step list. Open where it happens (its URL, file or app), then for each step point at
+ * its control, caption it and say it in the assistant's words, and wait for Isaac to do it. The
+ * window is re-read every POLL_MS; the step is done when the judge says its `done_when` holds.
+ * `next`/`skip` move on by hand.
  */
 
-export const PlanSchema = z.object({
-  app: z.string().min(1),
-  intro: z.string().default(''),
-  steps: z
-    .array(
-      z.object({
-        instruction: z.string().min(1),
-        target: z.string().default(''),
-        done_when: z.string().min(1),
-      }),
-    )
-    .min(1)
-    .max(10),
-  outro: z.string().default('Nice, that is all of it.'),
-})
-export type WalkPlan = z.infer<typeof PlanSchema>
-
-export const PLAN_TOOL = {
-  name: 'plan_walk',
-  description:
-    'The walkthrough: which app, a one-line intro, the steps in order, a one-line outro.',
-  parameters: {
-    type: 'object',
-    properties: {
-      app: {
-        type: 'string',
-        description: 'App name or bundle id to do it in (e.g. "Calculator", "Arc", "Linear").',
-      },
-      intro: { type: 'string', description: 'One short spoken line before step 1.' },
-      steps: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            instruction: {
-              type: 'string',
-              description:
-                'What Isaac does, one imperative line under 70 characters, spoken and shown as the caption.',
-            },
-            target: {
-              type: 'string',
-              description:
-                'The visible label of the control to point at (button title, field name, menu name).',
-            },
-            done_when: {
-              type: 'string',
-              description:
-                "What the app's window shows once the step is done, checkable from its controls and values.",
-            },
-          },
-          required: ['instruction', 'target', 'done_when'],
-        },
-      },
-      outro: { type: 'string', description: 'One short spoken line at the end.' },
-    },
-    required: ['app', 'intro', 'steps', 'outro'],
-  },
-} as const
-
-export function planInstructions(assistant: string, today: string): string {
-  return [
-    `You are ${assistant}, planning a walkthrough on Isaac's Mac. Today is ${today}. Isaac does every step himself; you point at the control, show one caption and say it.`,
-    'Plan 2 to 8 steps in the app where the task happens. Each instruction names exactly one action on one visible control. done_when must be visible in that window afterwards (a value, a selected tab, a field that now holds text), not a feeling.',
-    'When a ticket is given and it has QA steps or steps to reproduce, walk those in order. Otherwise walk the task as asked.',
-    'Plain words, no em dashes. Call plan_walk once.',
-  ].join('\n')
-}
-
 export interface WalkOptions {
-  task: string
+  plan: RunPlan
   assistant: { id: string; title: string }
   desktop: Desktop
-  planner: Brain
   judge: Judge
   presenter: Presenter
   io: RunIO
   control: (cb: (c: WalkControl) => void) => void
-  /** Ticket text when the task names one (read from Linear). */
-  ticket: string | null
   pollMs?: number
   stepTimeoutMs?: number
 }
@@ -98,6 +28,9 @@ export interface WalkOptions {
 const POLL_MS = 700
 const STEP_TIMEOUT_MS = 3 * 60_000
 const DONE_P = 0.85
+/** A look step: how long its line may play, then how long it stays up (`next` cuts it short). */
+const LOOK_SPEAK_MS = 12_000
+const LOOK_HOLD_MS = 1500
 
 const sleep = (ms: number): Promise<void> => {
   const { promise, resolve } = Promise.withResolvers<void>()
@@ -130,8 +63,32 @@ function targets(snap: Snapshot): Record<string, string> {
   return out
 }
 
+/** Where the plan happens, opened and in front: its URL, else its file, else its app. */
+async function openWhere(
+  desktop: Desktop,
+  plan: RunPlan,
+): Promise<{ pid: number; window: WindowInfo; app: string } | string> {
+  if (plan.url || plan.file) {
+    const { landed, windows } = plan.url
+      ? await desktop.openUrl(plan.url)
+      : await desktop.openFile(plan.file, plan.app || undefined)
+    // Already open in a tab or window: nothing changed, so take the app's window instead.
+    const win =
+      landed ??
+      (plan.app ? windows.find((w) => w.app.toLowerCase() === plan.app.toLowerCase()) : undefined)
+    if (win) return { pid: win.pid, window: win, app: win.app }
+    if (!plan.app) return `${plan.url || plan.file} opened, but no window showed it.`
+  }
+  if (!plan.app) return 'the plan did not say where to do it.'
+  const { pid, windows } = await desktop.openApp(plan.app)
+  const first = windows[0]
+  return first
+    ? { pid, window: first, app: first.app }
+    : `${plan.app} has no window I can show you.`
+}
+
 export async function runWalk(o: WalkOptions): Promise<AgentResult> {
-  const { desktop, presenter, io, judge } = o
+  const { desktop, presenter, io, judge, plan } = o
   const pollMs = o.pollMs ?? POLL_MS
   let control: WalkControl | null = null
   o.control((c) => {
@@ -148,31 +105,13 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
   }
 
   presenter.assistant(o.assistant.id)
-  await settle(presenter.caption('Planning the steps…').landed, 1500)
-  const windows = (await desktop.windows()).map((w) => `${w.app}: ${w.title}`).join('\n')
-  const turn = await o.planner.turn(
-    [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'input_text',
-            text: `Task: walk Isaac through ${o.task}\n\n${o.ticket ? `Ticket:\n${o.ticket}\n\n` : ''}Windows on screen:\n${windows}`,
-          },
-        ],
-      },
-    ],
-    io.signal,
-  )
-  const call = turn.calls.find((c) => c.name === 'plan_walk')
-  if (!call) return end('failed', `I couldn't plan it: ${turn.text || 'no plan came back'}`)
-  const plan = PlanSchema.parse(call.args)
-  io.progress(`Plan: ${plan.steps.length} steps in ${plan.app}`)
-
-  const { pid, windows: wins } = await desktop.openApp(plan.app)
-  if (wins.length === 0) return end('failed', `${plan.app} has no window I can show you.`)
+  if (plan.steps.length === 0) return end('failed', "I couldn't plan the steps for this one.")
+  const where = await openWhere(desktop, plan)
+  if (typeof where === 'string') return end('failed', `I couldn't start: ${where}`)
+  const { pid } = where
+  io.progress(`Walking ${plan.steps.length} steps in ${where.app}`)
   // Walk: Isaac does the steps, so the app comes forward.
-  await desktop.front(wins[0]!.windowId)
+  await desktop.front(where.window.windowId)
   if (plan.intro) await settle(presenter.caption(plan.intro, true).spoken, 8000)
 
   const results: string[] = []
@@ -180,12 +119,14 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
     if (io.signal.aborted)
       return end('stopped', `Stopped at step ${i + 1} of ${plan.steps.length}.`)
     const n = `${i + 1}/${plan.steps.length}`
+    // A step with nothing for Isaac to do (pointing at a change) is shown, said, and moved past.
+    const look = step.done_when.trim() === ''
     let win = await frontWindowOf(desktop, pid)
-    if (!win) return end('failed', `${plan.app} closed its window at step ${n}.`)
+    if (!win) return end('failed', `${where.app} closed its window at step ${n}.`)
     let snap = await desktop.read(win.windowId)
     // Both questions are about the same read: ask them together, a judge call each is seconds.
     const [already, picked] = await Promise.all([
-      judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0),
+      look ? 0 : judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0),
       judge
         .pick(
           `Isaac's next step: "${step.instruction}". Which control should he use${step.target ? ` (it reads like "${step.target}")` : ''}?`,
@@ -213,6 +154,19 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
         })
       : presenter.caption(step.instruction, true)
     let outcome: 'done' | 'next' | 'skip' | 'timeout' | 'stopped' = 'timeout'
+    if (look) {
+      control = null
+      await settle(shown.spoken, LOOK_SPEAK_MS)
+      for (let t = 0; t < LOOK_HOLD_MS && !io.signal.aborted; t += pollMs) {
+        const c: WalkControl | null = control
+        if (c) break
+        await sleep(pollMs)
+      }
+      if (io.signal.aborted) return end('stopped', `Stopped at step ${n}.`)
+      results.push('shown')
+      io.progress(`Step ${n} shown`)
+      continue
+    }
     for (let waits = 0; outcome === 'timeout'; waits++) {
       if (waits > 0) {
         const a = await io.ask(
@@ -266,10 +220,10 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
       `Step ${n} ${outcome === 'done' ? 'done' : outcome === 'skip' ? 'skipped' : 'moved on'}`,
     )
   }
-  const done = results.filter((r) => r === 'done' || r === 'already').length
+  const done = results.filter((r) => r === 'done' || r === 'already' || r === 'shown').length
   return end(
     'done',
-    `Walked you through ${plan.steps.length} steps in ${plan.app}; ${done} showed done in the app.`,
+    `Walked you through ${plan.steps.length} steps in ${where.app}; ${done} showed done in the app.`,
     plan.outro,
   )
 }

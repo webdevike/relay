@@ -42,6 +42,7 @@ import type { Place } from '@evaos/chat-core/work'
 import type { Assistants } from '@evaos/contract'
 import type { RelaySession } from '../relay/feed'
 import { registerComputer } from '../computer'
+import { assistantSession } from '../assistants/assistants'
 
 export interface ChatHandles {
   /** Subscribe to debounced batches of changed session paths; do not start a second watcher. */
@@ -76,6 +77,8 @@ export interface ChatHandles {
 }
 
 const STATUS_COALESCE_MS = 30
+/** An assistant turn may have to start the thread first (assistants-ipc START_TIMEOUT_MS). */
+const ASSISTANT_TURN_TIMEOUT_MS = 45_000
 
 export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   // Before the manager: a chat omp runs elsewhere is driven through Relay.
@@ -106,11 +109,30 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     new SessionOwners(ctx.env.evaRoot),
   )
   // `@computer` (SPEC.md) takes its messages before routing; it asks the assistants list (below)
-  // which thread a chat is, only when a run starts.
+  // which thread a chat is, only when a run starts. In an assistant's own thread the run talks to
+  // that assistant through Relay (its plan request and the report), as background lines.
   const computer = registerComputer(ctx, {
     fileOf: (paneId) => manager.paneFiles().find((p) => p.paneId === paneId)?.file ?? null,
+    // By session id: the pane may hold the file's realpath (/private/var/...) and the list not.
     chatAgentOf: (file) =>
-      file === null ? null : (assistants.list().agents.find((a) => a.file === file)?.id ?? null),
+      file === null
+        ? null
+        : (assistants
+            .list()
+            .agents.find((a) => a.file !== null && sessionId(a.file) === sessionId(file))?.id ??
+          null),
+    assistantTurn: async (agent, text, { ifIdle }) => {
+      const status = assistantSession(relay.sessions(), agent)?.status
+      if (ifIdle && (status === 'working' || status === 'waiting' || status === 'needs_permission'))
+        return false
+      try {
+        await relay.command({ kind: 'assistant.turn', agent, text }, ASSISTANT_TURN_TIMEOUT_MS)
+        return true
+      } catch (e) {
+        console.warn(`[computer] ${agent}: ${e instanceof Error ? e.message : String(e)}`)
+        return false
+      }
+    },
     remote: mini !== null,
   })
   registerLiveIpc(ctx, manager, mini, computer)

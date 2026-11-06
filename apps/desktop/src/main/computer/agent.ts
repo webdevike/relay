@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { z } from 'zod'
 import type { Brain, InputItem, ToolCall, ToolSpec } from './brain'
+import type { RunPlan } from './brief'
 import { describeStep, StepSchema, type Desktop, type Snapshot } from './desktop'
 import type { Presenter } from './presenter'
 import { gate } from './safety'
@@ -10,6 +11,8 @@ import { gate } from './safety'
 export interface RunIO {
   /** One numbered progress line. */
   progress(line: string): void
+  /** The plan the run starts from, shown collapsed on its row. */
+  plan(plan: RunPlan): void
   /** A picture under the progress lines. */
   image(file: string, caption: string): void
   /** Asks Isaac in the chat; answers the option he picked ('Cancel' on stop or timeout). */
@@ -32,6 +35,8 @@ export interface AgentOptions {
   /** Where screenshots go, and which ones the chat gets. */
   shots: { dir: string; want: Shots }
   limits?: { actions?: number; ms?: number; turns?: number }
+  /** The plan the run starts from (its brief is in the brain's instructions); live captions its intro. */
+  plan?: RunPlan | null
   now?: () => number
 }
 
@@ -65,8 +70,18 @@ export const TOOLS: readonly ToolSpec[] = [
   {
     name: 'open_url',
     description:
-      'Open a link in the background (no focus change): https pages in the default browser, linear://ecard-systems/issue/<KEY> shows that Linear issue in the Linear app, x-apple.systempreferences: panes. Answers the windows on screen; then read the one that shows it. Faster and surer than searching inside an app.',
+      'Open a link in the background (no focus change): https pages and local servers (http://127.0.0.1:5390) in the default browser, linear://ecard-systems/issue/<KEY> shows that Linear issue in the Linear app, x-apple.systempreferences: panes. Answers the windows on screen; then read the one that shows it. Faster and surer than searching inside an app.',
     parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
+  },
+  {
+    name: 'open_file',
+    description:
+      'Open a document by its full path (or ~/...) in the background (no focus change), in `app` when given ("TextEdit"), else its default app. Documents only: never programs or scripts. Answers the windows on screen; then read the one that shows it.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' }, app: { type: 'string' } },
+      required: ['path'],
+    },
   },
   {
     name: 'list_windows',
@@ -130,21 +145,25 @@ export function instructions(o: {
   assistant: string
   mode: 'headless' | 'live' | 'walk'
   today: string
+  /** The plan's brief and steps (brief.ts planContext): what the task refers to in its chat. */
+  context?: string
 }): string {
   return [
     `You are ${o.assistant}, running Relay's @computer agent on Isaac's Mac (his real, signed-in apps). Today is ${o.today}.`,
     o.mode === 'live'
       ? 'Mode live: Isaac is watching. Your cursor is drawn on screen for every step, so keep batches short and purposeful.'
       : "Mode headless: you work in the background through Accessibility. Never bring a window forward and never move Isaac's mouse; he keeps using the Mac while you work.",
-    'How to work: open_app (or list_windows) to find the window, read it, then act in batches against the refs of the latest read. Each act answers the fresh controls; re-read only when you need something it did not show. Prefer the accessibility tree; use a screenshot only when the tree cannot answer. When a link reaches the thing directly (a Linear issue key: linear://ecard-systems/issue/ENG-123; a web page), use open_url instead of searching in the app.',
+    'How to work: open_app (or list_windows) to find the window, read it, then act in batches against the refs of the latest read. Each act answers the fresh controls; re-read only when you need something it did not show. Prefer the accessibility tree; use a screenshot only when the tree cannot answer. When a link reaches the thing directly (a Linear issue key: linear://ecard-systems/issue/ENG-123; a web page or local server), use open_url instead of searching in the app; a document with a known path opens with open_file.',
     "Safety: anything that sends, posts, deletes, buys, pays, submits, publishes, shares, invites or accepts needs Isaac's OK: act asks him by itself and refuses if he says no; do not try another way around a refusal. Never type passwords or secrets; if a login is needed, stop and say so. In messaging apps never type a name and Return in one batch. Stay inside the task: no exploring.",
     'Read-only tasks: look and report; do not change anything.',
     'Finish with the finish tool: two or three plain sentences, the answer first. No em dashes.',
+    ...(o.context ? ['', o.context] : []),
   ].join('\n')
 }
 
 const OpenAppArgs = z.object({ app: z.string().min(1) })
 const OpenUrlArgs = z.object({ url: z.string().min(1) })
+const OpenFileArgs = z.object({ path: z.string().min(1), app: z.string().optional() })
 const ReadArgs = z.object({
   window_id: z.number().int(),
   query: z.string().optional(),
@@ -243,11 +262,16 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
         const list = windows.map((w) => `window_id=${w.windowId} ${w.app}: ${w.title}`).join('\n')
         return { text: `${list}\n\n${render(snap)}` }
       }
-      case 'open_url': {
-        const { url } = OpenUrlArgs.parse(call.args)
-        const { windows, landed } = await desktop.openUrl(url)
+      case 'open_url':
+      case 'open_file': {
+        const file = call.name === 'open_file' ? OpenFileArgs.parse(call.args) : null
+        const what = file ? file.path : OpenUrlArgs.parse(call.args).url
+        const { windows, landed } = file
+          ? await desktop.openFile(file.path, file.app)
+          : await desktop.openUrl(what)
+        if (landed) lastWindow = landed.windowId
         if (landed && o.mode === 'live') await desktop.front(landed.windowId)
-        io.progress(`Opened ${url}${o.mode === 'headless' ? ' in the background' : ''}`)
+        io.progress(`Opened ${what}${o.mode === 'headless' ? ' in the background' : ''}`)
         const list =
           windows
             .filter((w) => w.title || w.app)
@@ -256,7 +280,7 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
         return {
           text: landed
             ? `It landed in window_id=${landed.windowId} ${landed.app}: ${landed.title}\n\nAll windows:\n${list}`
-            : `No window changed yet (it may still be loading).\n\nAll windows:\n${list}`,
+            : `No window changed yet (it may still be loading, or it was open already).\n\nAll windows:\n${list}`,
         }
       }
       case 'read_window': {
@@ -385,7 +409,7 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
   }
 
   presenter?.assistant(o.assistant.id)
-  if (presenter) await settle(presenter.caption(`On it: ${o.task}`).landed)
+  if (presenter) await settle(presenter.caption(o.plan?.intro || `On it: ${o.task}`).landed)
   let items: InputItem[] = [
     { role: 'user', content: [{ type: 'input_text', text: `Task from Isaac: ${o.task}` }] },
   ]

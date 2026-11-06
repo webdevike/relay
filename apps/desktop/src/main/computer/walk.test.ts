@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest'
 import type { RunIO } from './agent'
-import type { Brain } from './brain'
+import type { RunPlan } from './brief'
 import type { Desktop, Snapshot, WindowInfo } from './desktop'
 import type { Judge } from './judge'
 import type { Presenter, Shown } from './presenter'
 import { runWalk } from './walk'
+
+const plan = (over: Partial<RunPlan> = {}): RunPlan => ({
+  brief: '',
+  app: 'Calculator',
+  url: '',
+  file: '',
+  intro: '',
+  outro: 'Done.',
+  steps: [{ instruction: 'Press 4', target: '4', done_when: 'display shows 4' }],
+  by: 'assistant',
+  said: '',
+  ...over,
+})
 
 const WIN: WindowInfo = {
   windowId: 1,
@@ -37,9 +50,11 @@ function world(display: { value: string }) {
     truncated: false,
     image: null,
   })
+  const opened: string[] = []
   const desktop = {
     windows: async () => [WIN],
-    openApp: async () => ({ pid: 9, windows: [WIN] }),
+    openApp: async (app: string) => (opened.push(`app:${app}`), { pid: 9, windows: [WIN] }),
+    openUrl: async (url: string) => (opened.push(`url:${url}`), { windows: [WIN], landed: WIN }),
     front: async () => {},
     read: async () => snap(),
   } as unknown as Desktop
@@ -54,29 +69,12 @@ function world(display: { value: string }) {
     onEsc() {},
     close() {},
   }
-  const planner: Brain = {
-    turn: async () => ({
-      text: '',
-      calls: [
-        {
-          callId: 'c',
-          name: 'plan_walk',
-          args: {
-            app: 'Calculator',
-            intro: '',
-            outro: 'Done.',
-            steps: [{ instruction: 'Press 4', target: '4', done_when: 'display shows 4' }],
-          },
-        },
-      ],
-    }),
-  }
   const judge: Judge = {
     name: 'jev',
     pick: async () => ({ choice: 'r1', p: 0.9 }),
     holds: async () => (display.value === '4' ? 0.95 : 0.05),
   }
-  return { desktop, presenter, planner, judge, pointed }
+  return { desktop, presenter, judge, pointed, opened }
 }
 
 function chat(answers: string[]) {
@@ -85,6 +83,7 @@ function chat(answers: string[]) {
   const io: RunIO = {
     signal: new AbortController().signal,
     stop() {},
+    plan() {},
     progress: (l) => void progress.push(l),
     image() {},
     ask: async (q) => (asked.push(q), answers.shift() ?? 'Cancel'),
@@ -105,12 +104,11 @@ describe('runWalk', () => {
       return a
     }
     const r = await runWalk({
-      task: 'press 4',
+      plan: plan(),
       assistant: { id: 'nova', title: 'Nova' },
       ...w,
       io: c.io,
       control: () => {},
-      ticket: null,
       pollMs: 5,
       stepTimeoutMs: 40,
     })
@@ -124,15 +122,52 @@ describe('runWalk', () => {
     const w = world({ value: '0' })
     const c = chat(['Stop'])
     const r = await runWalk({
-      task: 'press 4',
+      plan: plan(),
       assistant: { id: 'nova', title: 'Nova' },
       ...w,
       io: c.io,
       control: () => {},
-      ticket: null,
       pollMs: 5,
       stepTimeoutMs: 30,
     })
     expect(r.outcome).toBe('stopped')
+  })
+
+  it("opens the plan's URL and points at each change in order, moving on without waiting for Isaac", async () => {
+    const w = world({ value: '0' })
+    const c = chat([])
+    const r = await runWalk({
+      plan: plan({
+        app: 'Arc',
+        url: 'http://127.0.0.1:5390',
+        steps: [
+          { instruction: 'Here is the new header', target: 'Header', done_when: '' },
+          { instruction: 'And the bigger button', target: 'Generate', done_when: '' },
+        ],
+      }),
+      assistant: { id: 'nova', title: 'Nova' },
+      ...w,
+      io: c.io,
+      control: () => {},
+      pollMs: 5,
+      stepTimeoutMs: 30,
+    })
+    expect(w.opened).toEqual(['url:http://127.0.0.1:5390'])
+    expect(w.pointed).toEqual(['Here is the new header', 'And the bigger button'])
+    expect(c.asked).toEqual([])
+    expect(r.outcome).toBe('done')
+  })
+
+  it('fails without opening anything when the plan has no steps', async () => {
+    const w = world({ value: '0' })
+    const r = await runWalk({
+      plan: plan({ steps: [] }),
+      assistant: { id: 'nova', title: 'Nova' },
+      ...w,
+      io: chat([]).io,
+      control: () => {},
+    })
+    expect(r.outcome).toBe('failed')
+    expect(w.opened).toEqual([])
   })
 })

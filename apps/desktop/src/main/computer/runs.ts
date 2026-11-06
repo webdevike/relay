@@ -5,6 +5,7 @@ import { z } from 'zod'
 import type { WidgetSpec } from '@evaos/chat-core/widget'
 import { ChatMessageSchema, makeMessage, type ChatMessage } from '@evaos/chat-core/message'
 import type { AgentResult, RunIO } from './agent'
+import type { RunPlan } from './brief'
 import { HELP_TEXT, parseComputer, type ComputerMode } from './command'
 import type { RouteDecision } from './route'
 
@@ -15,6 +16,13 @@ export interface RunSpec {
   mode: ComputerMode
   task: string
   route: RouteDecision
+  /** The chat's session file, null for a draft. */
+  file: string | null
+  /**
+   * The chat is the answering assistant's own thread: it plans the run in its session, its
+   * questions are its plain bubbles, and its reply to the run's report is the summary.
+   */
+  ownThread: boolean
 }
 
 /** What a walkthrough hears from the chat while it runs. */
@@ -46,6 +54,11 @@ export interface RunsDeps {
   now?: () => number
   /** How long an ask waits for Isaac before it counts as Cancel. */
   askTimeoutMs?: number
+  /**
+   * Tells the assistant of an own-thread run how it went (brief.ts reportRequest); true when its
+   * session took it, so its reply is the summary. False or absent: the run posts the summary.
+   */
+  report?(spec: RunSpec, result: AgentResult, lines: string[], pictures: string[]): Promise<boolean>
   log?: (line: string) => void
 }
 
@@ -62,6 +75,7 @@ interface Run {
   abort: AbortController
   lines: string[]
   images: Array<{ file: string; caption: string }>
+  plan: RunPlan | null
   asks: number
   pending: Ask | null
   walk: ((c: WalkControl) => void) | null
@@ -84,6 +98,42 @@ const OUTCOME_WORD: Record<AgentResult['outcome'], string> = {
 /** A markdown image line for a local PNG (the chat serves absolute paths through relay-media). */
 const imageLine = (file: string, caption: string): string =>
   `![${caption.replace(/[[\]]/g, '')}](<${file}>)`
+
+/** A widget as the chat renders it: a `ui` fence inside the row's markdown. */
+const uiBlock = (w: WidgetSpec): string => `\`\`\`ui\n${JSON.stringify(w)}\n\`\`\``
+
+/** The run's plan, collapsed: "Plan: <its first sentence>", opening to the brief and steps. */
+function planWidget(plan: RunPlan, assistant: string): WidgetSpec {
+  const first = plan.brief.trim().split(/(?<=[.!?])\s/)[0] ?? ''
+  const lead =
+    first.length > 120 ? `${first.slice(0, 119)}…` : first || `${String(plan.steps.length)} steps`
+  const where = [plan.url, plan.file, plan.app].filter(Boolean).join(' · ')
+  return {
+    widget: 'collapse',
+    title: `Plan: ${lead}`,
+    open: false,
+    children: [
+      ...(plan.brief.trim() ? [{ widget: 'text' as const, text: plan.brief.trim() }] : []),
+      ...(where
+        ? [{ widget: 'text' as const, text: `Where: ${where}`, style: 'muted' as const }]
+        : []),
+      ...(plan.steps.length > 0
+        ? [
+            {
+              widget: 'list' as const,
+              style: 'number' as const,
+              items: plan.steps.map((s) => s.instruction),
+            },
+          ]
+        : []),
+      {
+        widget: 'text',
+        text: plan.by === 'assistant' ? `Planned by ${assistant}` : 'Planned from the chat',
+        style: 'muted',
+      },
+    ],
+  }
+}
 
 /**
  * `@computer` in the chat: catches the command in `chat.send`, keeps every pane's run rows, asks
@@ -178,8 +228,20 @@ export class ComputerRuns {
       reply('busy', `Already working on “${this.active.spec.task}”. Send \`@computer stop\` first.`)
       return true
     }
-    const route = this.deps.route(cmd.task, this.deps.chatAgentOf(file))
-    this.start({ id: key, paneId, mode: cmd.mode, task: route.task, route }, at)
+    const chatAgent = this.deps.chatAgentOf(file)
+    const route = this.deps.route(cmd.task, chatAgent)
+    this.start(
+      {
+        id: key,
+        paneId,
+        mode: cmd.mode,
+        task: route.task,
+        route,
+        file,
+        ownThread: chatAgent !== null && route.assistant.id === chatAgent,
+      },
+      at,
+    )
     return true
   }
 
@@ -248,35 +310,49 @@ export class ComputerRuns {
   }
 
   private progressRow(run: Run, status: string): ChatMessage {
-    const { assistant } = run.spec.route
-    const head = `**${assistant.title} · @computer** ${MODE_LABEL[run.spec.mode]}: ${run.spec.task}`
+    const { spec } = run
+    const who = spec.route.assistant.title
+    // In its own thread the assistant is the one doing it; elsewhere the row says it is @computer.
+    const head = spec.ownThread
+      ? `**${who}** · ${MODE_LABEL[spec.mode]}: ${spec.task}`
+      : `**${who} · @computer** ${MODE_LABEL[spec.mode]}: ${spec.task}`
+    const plan = run.plan ? ['', uiBlock(planWidget(run.plan, who))] : []
     const lines = run.lines.map((l, i) => `${i + 1}. ${l}`)
     const pics = run.images.map((p) => imageLine(p.file, p.caption))
     return makeMessage(
-      `computer:${run.spec.id}:progress`,
+      `computer:${spec.id}:progress`,
       'assistant',
-      [head, '', ...lines, ...(pics.length ? ['', ...pics] : []), '', `_${status}_`].join('\n'),
+      [head, ...plan, '', ...lines, ...(pics.length ? ['', ...pics] : []), '', `_${status}_`].join(
+        '\n',
+      ),
       { at: run.at },
     )
   }
 
-  /** A finished run as one line (who, how it ended, the answer) that opens to its steps and pictures. */
+  /**
+   * A finished run as one collapsed row that opens to its task, plan, steps and pictures. Titled
+   * with who, how it ended and the answer; in the assistant's own thread its reply is the answer,
+   * so the row is only "What I did".
+   */
   private finishedRow(run: Run, result: AgentResult): ChatMessage {
     const { spec } = run
     const word = OUTCOME_WORD[result.outcome]
     // The answer's first sentence is the line; the whole summary sits inside when it says more.
     const lead = result.summary.trim().split(/(?<=[.!?])\s/)[0] || word
-    const title = `${spec.route.assistant.title} · @computer${result.outcome === 'done' ? '' : ` · ${word}`}: ${lead}`
+    const title = spec.ownThread
+      ? `What I did${result.outcome === 'done' ? '' : ` · ${word}`} (${String(run.lines.length)} steps)`
+      : `${spec.route.assistant.title} · @computer${result.outcome === 'done' ? '' : ` · ${word}`}: ${lead}`
     const pics = [
       ...run.images,
       ...(result.image ? [{ file: result.image, caption: 'Final' }] : []),
     ]
     const children: WidgetSpec[] = [
       { widget: 'text', text: `${MODE_LABEL[spec.mode]}: ${spec.task}`, style: 'muted' },
+      ...(run.plan ? [planWidget(run.plan, spec.route.assistant.title)] : []),
       ...(run.lines.length > 0
         ? [{ widget: 'list' as const, style: 'number' as const, items: run.lines.slice(-50) }]
         : []),
-      ...(result.summary.trim() && result.summary.trim() !== lead
+      ...(result.summary.trim() && (spec.ownThread || result.summary.trim() !== lead)
         ? [{ widget: 'text' as const, text: result.summary.trim() }]
         : []),
       ...(pics.length > 0
@@ -288,11 +364,10 @@ export class ComputerRuns {
           ]
         : []),
     ]
-    const collapse: WidgetSpec = { widget: 'collapse', title, open: false, children }
     return makeMessage(
       `computer:${spec.id}:done`,
       'assistant',
-      `\`\`\`ui\n${JSON.stringify(collapse)}\n\`\`\``,
+      uiBlock({ widget: 'collapse', title, open: false, children }),
       { at: run.at },
     )
   }
@@ -304,6 +379,7 @@ export class ComputerRuns {
       abort: new AbortController(),
       lines: [],
       images: [],
+      plan: null,
       asks: 0,
       pending: null,
       walk: null,
@@ -314,7 +390,7 @@ export class ComputerRuns {
     const refresh = (status = 'Working…'): void => {
       if (!run.done) this.post(paneId, this.progressRow(run, status))
     }
-    refresh('Starting…')
+    refresh(spec.ownThread ? `${spec.route.assistant.title} is planning…` : 'Planning…')
     this.deps.log?.(
       `computer ${spec.id}: ${spec.mode} as ${spec.route.assistant.id} (${spec.route.reason}): ${spec.task}`,
     )
@@ -323,6 +399,10 @@ export class ComputerRuns {
       stop: () => {
         run.abort.abort()
         if (run.pending) this.answer(run, 'Cancel')
+      },
+      plan: (plan) => {
+        run.plan = plan
+        refresh()
       },
       progress: (line) => {
         run.lines.push(line)
@@ -336,7 +416,8 @@ export class ComputerRuns {
         if (run.abort.signal.aborted) return Promise.resolve('Cancel')
         const rowId = `computer:${spec.id}:ask:${String(++run.asks)}`
         const text = [
-          `**${spec.route.assistant.title}:** ${question}`,
+          // Its own thread: the assistant's plain bubble. Elsewhere it says who is asking.
+          spec.ownThread ? question : `**${spec.route.assistant.title}:** ${question}`,
           ...(image ? ['', imageLine(image, 'Now')] : []),
           ...(options.length > 0 ? ['', `[[replies: ${options.join(' | ')}]]`] : []),
         ].join('\n')
@@ -373,8 +454,12 @@ export class ComputerRuns {
       )
   }
 
-  /** The run's progress and ask rows become its one finished row, in the same place. */
-  private finish(run: Run, result: AgentResult): void {
+  /**
+   * The run's progress row becomes its one finished row, in the same place. Elsewhere its asks fold
+   * into it; in the assistant's own thread they stay (they are its bubbles), and the assistant hears
+   * how it went (`report`) and answers Isaac itself. When it cannot be told, the run says it.
+   */
+  private finish(run: Run, result: AgentResult, report = true): void {
     if (run.done) return
     run.done = true
     if (this.active === run) this.active = null
@@ -384,11 +469,28 @@ export class ComputerRuns {
     const next: ChatMessage[] = []
     for (const r of this.list(paneId)) {
       if (r.id === `${own}progress`) next.push(final)
-      else if (!r.id.startsWith(`${own}ask:`)) next.push(r)
+      else if (run.spec.ownThread || !r.id.startsWith(`${own}ask:`)) next.push(r)
     }
     if (!next.includes(final)) next.push(final)
     this.set(paneId, next)
     this.deps.log?.(`computer ${id}: ${result.outcome}: ${result.summary}`)
+    if (!run.spec.ownThread) return
+    const pictures = [...run.images.map((p) => p.file), ...(result.image ? [result.image] : [])]
+    const told =
+      report && this.deps.report
+        ? this.deps.report(run.spec, result, run.lines, pictures).catch(() => false)
+        : Promise.resolve(false)
+    void told.then((ok) => {
+      if (ok) return
+      const text = [
+        result.summary.trim() || OUTCOME_WORD[result.outcome],
+        ...pictures.map((p) => imageLine(p, 'Picture')),
+      ]
+      this.post(
+        paneId,
+        makeMessage(`${own}summary`, 'assistant', text.join('\n\n'), { at: run.at }),
+      )
+    })
   }
 
   /** Stops the active run (app quit): its row says so at once, so a saved thread never shows it working. */
@@ -397,7 +499,11 @@ export class ComputerRuns {
     if (!run) return
     run.abort.abort()
     if (run.pending) this.answer(run, 'Cancel')
-    this.finish(run, { outcome: 'stopped', summary: 'Stopped when Relay quit.', image: null })
+    this.finish(
+      run,
+      { outcome: 'stopped', summary: 'Stopped when Relay quit.', image: null },
+      false,
+    )
   }
 }
 

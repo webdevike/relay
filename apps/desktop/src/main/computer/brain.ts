@@ -4,7 +4,8 @@ import { z } from 'zod'
 
 /**
  * The `@computer` model: OpenAI's Responses API with function tools, the same API and default
- * model Relay Assist uses (`gpt-6.1-terra`, low effort). The conversation is kept server side
+ * model Relay Assist uses (`gpt-6.1-terra`). Planning thinks harder (medium effort) than the
+ * per-step loop (low), so each step stays fast. The conversation is kept server side
  * (`previous_response_id`), so each turn sends only the new items.
  */
 
@@ -39,6 +40,43 @@ export interface Brain {
 }
 
 export const DEFAULT_MODEL = 'gpt-6.1-terra'
+
+/** Which model and effort each part of a run uses. */
+export interface ComputerModels {
+  /** The per-step loop (headless, live) and the walk's judge fallback. */
+  step: { model: string; effort: string }
+  /** The plan written from the chat when the assistant's own session does not write it. */
+  plan: { model: string; effort: string }
+}
+
+const ModelsFileSchema = z
+  .object({
+    model: z.string().min(1).optional().catch(undefined),
+    effort: z.string().min(1).optional().catch(undefined),
+    planModel: z.string().min(1).optional().catch(undefined),
+    planEffort: z.string().min(1).optional().catch(undefined),
+  })
+  .catch({})
+
+/**
+ * The run's models: `RELAY_COMPUTER_MODEL` / `_EFFORT` / `_PLAN_MODEL` / `_PLAN_EFFORT`, else
+ * `<config>/computer.json` (`{"model", "effort", "planModel", "planEffort"}`), else terra at low
+ * effort for steps and medium for the plan (the plan model defaults to the step model).
+ */
+export function computerModels(
+  file: unknown,
+  env: NodeJS.ProcessEnv = process.env,
+): ComputerModels {
+  const f = ModelsFileSchema.parse(file ?? {})
+  const model = env.RELAY_COMPUTER_MODEL || f.model || DEFAULT_MODEL
+  return {
+    step: { model, effort: env.RELAY_COMPUTER_EFFORT || f.effort || 'low' },
+    plan: {
+      model: env.RELAY_COMPUTER_PLAN_MODEL || f.planModel || model,
+      effort: env.RELAY_COMPUTER_PLAN_EFFORT || f.planEffort || 'medium',
+    },
+  }
+}
 
 /** `OPENAI_API_KEY`, else `<Eva>/secrets/openai.env` (Assist's file); null when neither has it. */
 export function readOpenAIKey(
@@ -76,8 +114,7 @@ export class OpenAIBrain implements Brain {
     private key: string,
     private instructions: string,
     private tools: readonly ToolSpec[],
-    private model = process.env.RELAY_COMPUTER_MODEL ?? DEFAULT_MODEL,
-    private effort = process.env.RELAY_COMPUTER_EFFORT ?? 'low',
+    private use: { model: string; effort: string } = computerModels(null).step,
   ) {}
 
   async turn(items: InputItem[], signal?: AbortSignal): Promise<Turn> {
@@ -88,8 +125,8 @@ export class OpenAIBrain implements Brain {
         ...(signal ? { signal } : {}),
         headers: { Authorization: `Bearer ${this.key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: this.model,
-          reasoning: { effort: this.effort },
+          model: this.use.model,
+          reasoning: { effort: this.use.effort },
           instructions: this.instructions,
           input: items,
           tools: this.tools.map((t) => ({ type: 'function', strict: false, ...t })),

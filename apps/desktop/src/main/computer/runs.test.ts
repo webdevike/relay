@@ -107,7 +107,7 @@ interface Harness {
   done: Promise<AgentResult>
 }
 
-function harness(brain: () => Brain = scriptedBrain): Harness {
+function harness(brain: () => Brain = scriptedBrain, extra: Partial<RunsDeps> = {}): Harness {
   const calls: string[] = []
   let rows: ChatMessage[] = []
   const waiting: Array<{ pred: (r: ChatMessage) => boolean; resolve: (r: ChatMessage) => void }> =
@@ -149,6 +149,7 @@ function harness(brain: () => Brain = scriptedBrain): Harness {
       result.resolve(r)
       return r
     },
+    ...extra,
   }
   const done = row((r) => r.id.endsWith(':done')).then(() => result.promise)
   return { runs: new ComputerRuns(deps), rows: () => rows, calls, row, done }
@@ -316,5 +317,47 @@ describe('ComputerRuns + runAgent', () => {
       expect.arrayContaining(['@computer help', '@computer stop', 'Nothing is running.']),
     )
     expect(store.load(file)).toHaveLength(4)
+  })
+
+  describe("in the assistant's own thread", () => {
+    const own = (report: RunsDeps['report']) =>
+      harness(scriptedBrain, { chatAgentOf: () => 'nova', report })
+
+    it('asks as its plain bubble, keeps it, and hands the result to the assistant instead of posting a summary', async () => {
+      const told: Array<{ summary: string; lines: string[] }> = []
+      const h = own(async (_spec, result, lines) => {
+        told.push({ summary: result.summary, lines })
+        return true
+      })
+      h.runs.intercept('p1', '@computer reply to the lunch mail with yes')
+      const q = await h.row(asked)
+      expect(q.text).not.toContain('**Nova:**')
+      h.runs.intercept('p1', 'yes')
+      const result = await h.done
+      await Promise.resolve()
+      expect(told).toEqual([
+        {
+          summary: result.summary,
+          lines: expect.arrayContaining([expect.stringMatching(/^You approved/)]),
+        },
+      ])
+      // Its question and his answer stay in the thread; no run-made summary bubble.
+      expect(h.rows().some((r) => r.id === q.id)).toBe(true)
+      expect(h.rows().some((r) => r.id.endsWith(':reply'))).toBe(true)
+      expect(h.rows().some((r) => r.id.endsWith(':summary'))).toBe(false)
+      const done = h.rows().find((r) => r.id.endsWith(':done'))!
+      const widget = parseWidget(/```ui\n([\s\S]*)\n```/.exec(done.text)?.[1] ?? '')
+      expect(widget?.widget === 'collapse' && widget.title).toMatch(/^What I did/)
+    })
+
+    it('posts the summary itself when the assistant cannot be told', async () => {
+      const h = own(async () => false)
+      h.runs.intercept('p1', '@computer reply to the lunch mail with yes')
+      await h.row(asked)
+      h.runs.intercept('p1', 'no')
+      const result = await h.done
+      const summary = await h.row((r) => r.id.endsWith(':summary'))
+      expect(summary).toMatchObject({ role: 'assistant', text: result.summary })
+    })
   })
 })

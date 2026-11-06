@@ -13,6 +13,7 @@ import {
 } from '@evaos/contract'
 import { oneLine } from '@evaos/chat-core/session'
 import { isNothingToReport } from '@evaos/chat-core/quiet'
+import { stripComputerPlan } from '@evaos/chat-core/computer-plan'
 import { sessionId } from '@evaos/chat-core/session-id'
 import type { RelaySession } from '../relay/feed'
 import { ASK_TOOL } from '../relay/away'
@@ -183,7 +184,7 @@ export function lastReply(tail: string): Reply | null {
         .map((b) => b.text)
         .join(' ')
     else continue
-    const one = oneLine(text, PREVIEW_CHARS)
+    const one = oneLine(stripComputerPlan(text), PREVIEW_CHARS)
     if (one === '' || isNothingToReport(one)) continue
     const ms = typeof record.timestamp === 'string' ? Date.parse(record.timestamp) : NaN
     return { text: one, at: Number.isNaN(ms) ? null : ms }

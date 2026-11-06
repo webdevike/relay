@@ -5,6 +5,7 @@ import { IconX } from '@tabler/icons-react'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import { splitReplies } from '@evaos/chat-core/replies'
 import { splitPins } from '@evaos/chat-core/pins'
+import { stripComputerPlan } from '@evaos/chat-core/computer-plan'
 import { ChatImage } from './ChatImage'
 import { ImageViewer } from './ImageViewer'
 import { Markdown } from './markdown/Markdown'
@@ -92,9 +93,10 @@ function AssistantBody({
   waiting: OpenAsk | undefined
   agent: string | undefined
 }) {
-  // `[[pin: label | value]]` lines are pins (the host makes them), never shown; then the replies token.
+  // `[[pin: label | value]]` lines are pins (the host makes them), never shown; an `@computer`
+  // plan block is the run's, never shown either; then the replies token.
   const split = useMemo(() => {
-    const pinned = splitPins(m.text, m.streaming)
+    const pinned = splitPins(stripComputerPlan(m.text), m.streaming)
     return splitReplies(pinned.text, m.streaming)
   }, [m.text, m.streaming])
   const shown = useMemo(

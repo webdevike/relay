@@ -1,4 +1,7 @@
 import { execFile } from 'node:child_process'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import { z } from 'zod'
 import { failed, textOf, type Driver, type Reply } from './driver'
 
@@ -137,6 +140,8 @@ export class Desktop {
     private driver: Driver,
     private reopen: (app: string) => Promise<void> = (app) => openInBackground(app),
     private openLink: (url: string) => Promise<void> = (url) => openInBackground(url, 'url'),
+    private openDoc: (file: string, app: string | undefined) => Promise<void> = (file, app) =>
+      openInBackground(file, 'file', app),
   ) {}
 
   get backend(): string {
@@ -195,8 +200,32 @@ export class Desktop {
     const scheme = /^([a-z][\w+.-]*):/i.exec(url)?.[1]?.toLowerCase()
     if (!scheme || !Object.hasOwn(URL_SCHEMES, scheme))
       throw new Error(`only ${Object.keys(URL_SCHEMES).join(', ')} links open`)
+    return this.landing(() => this.openLink(url))
+  }
+
+  /**
+   * Opens a document in the background (`open -g`, in `app` when given, else its default app):
+   * a regular file only, never a program, script or installer. `~/` is the home folder.
+   */
+  async openFile(
+    file: string,
+    app?: string,
+  ): Promise<{ windows: WindowInfo[]; landed: WindowInfo | null }> {
+    const full = file.startsWith('~/') ? path.join(os.homedir(), file.slice(2)) : file
+    if (!path.isAbsolute(full)) throw new Error('give the full path of the file')
+    const st = fs.statSync(full, { throwIfNoEntry: false })
+    if (!st?.isFile()) throw new Error(`${full} is not a file`)
+    if ((st.mode & 0o111) !== 0 || RUNNABLE.test(full))
+      throw new Error('only documents open, never programs or scripts')
+    return this.landing(() => this.openDoc(full, app))
+  }
+
+  /** Runs `open`, then answers the windows once it had a moment to land, and the one that changed. */
+  private async landing(
+    open: () => Promise<void>,
+  ): Promise<{ windows: WindowInfo[]; landed: WindowInfo | null }> {
     const before = new Set((await this.windows()).map((w) => `${w.windowId}:${w.title}`))
-    await this.openLink(url)
+    await open()
     let windows: WindowInfo[] = []
     for (let i = 0; i < 10; i++) {
       await sleep(300)
@@ -348,13 +377,23 @@ export const URL_SCHEMES: Record<string, true> = {
   'x-apple.systempreferences': true,
 }
 
-/** `open -g`: the Dock's reopen event (or a link) without activating the app. */
-export function openInBackground(target: string, kind: 'app' | 'url' = 'app'): Promise<void> {
+/** Files `open_file` refuses even when not executable: they run or install something when opened. */
+const RUNNABLE =
+  /\.(app|command|sh|bash|zsh|fish|tool|terminal|scpt|scptd|applescript|workflow|action|pkg|mpkg|dmg|jar|py|rb|pl|js|mjs|cjs|ts|exe|bin|webloc|inetloc|fileloc)$/i
+
+/** `open -g`: the Dock's reopen event, a link or a document, without activating the app. */
+export function openInBackground(
+  target: string,
+  kind: 'app' | 'url' | 'file' = 'app',
+  app?: string,
+): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>()
   const args =
     kind === 'url'
       ? ['-g', target]
-      : ['-g', /^[\w-]+(\.[\w-]+){2,}$/.test(target) ? '-b' : '-a', target]
+      : kind === 'file'
+        ? ['-g', ...(app ? ['-a', app] : []), target]
+        : ['-g', /^[\w-]+(\.[\w-]+){2,}$/.test(target) ? '-b' : '-a', target]
   execFile('/usr/bin/open', args, () => resolve())
   return promise
 }
