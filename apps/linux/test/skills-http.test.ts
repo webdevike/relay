@@ -11,10 +11,12 @@ import { DOC_KEYS } from "../src/skills/doc";
 import { authorizeSkillSocket, handleSkillsRequest } from "../src/skills/http";
 import { SkillRoom } from "../src/skills/room";
 import { SkillsService } from "../src/skills/service";
-import { SkillUsageIndex } from "../src/skills/usage";
+import { SkillUsageIndex, type UsageDeps } from "../src/skills/usage";
 import { type SkillsHome, skillsHome, skillText } from "./skills-home";
 
 const homes: SkillsHome[] = [];
+
+const usageDeps = (home: SkillsHome): UsageDeps => ({ home: home.home, agentHome: home.evaRoot, assistantsDir: null, cacheFile: null, logFile: null });
 const services: SkillsService[] = [];
 
 async function setup(): Promise<{ home: SkillsHome; skills: SkillsService }> {
@@ -23,16 +25,17 @@ async function setup(): Promise<{ home: SkillsHome; skills: SkillsService }> {
   const now = Date.now();
   home.write(
     ".omp/profiles/personal/agent/sessions/-Eva/s.jsonl",
-    `${JSON.stringify({ type: "message", timestamp: new Date(now - 60_000).toISOString(), message: { content: [{ type: "toolCall", arguments: { path: "skill://alpha" } }] } })}\n`,
+    `${JSON.stringify({ type: "message", timestamp: new Date(now - 60_000).toISOString(), message: { role: "assistant", content: [{ type: "toolCall", id: "call_1", name: "read", arguments: { path: "skill://alpha" } }] } })}\n`,
   );
-  const usage = new SkillUsageIndex({ home: home.home });
+  const usage = new SkillUsageIndex(usageDeps(home));
   await usage.refresh();
   const skills = new SkillsService({
-    catalog: new SkillCatalog({ home: home.home, evaRoot: home.evaRoot, run: home.run }),
+    catalog: new SkillCatalog({ home: home.home, evaRoot: home.evaRoot, run: home.run, list: home.list }),
     usage,
     room: { pacing: { selectMs: 0, typeMs: 0 }, watch: false },
   });
   services.push(skills);
+  await skills.refresh();
   return { home, skills };
 }
 
@@ -63,27 +66,29 @@ describe("skills http", () => {
 
   it("lists skills with usage and answers one skill's detail", async () => {
     const { skills } = await setup();
-    const list = (await (await call(skills, "/skills")).json()) as { skills: { name: string; lastUsedAt: number | null; usedBy: string[] }[]; assistants: { id: string }[] };
-    expect(list.skills.map((row) => row.name)).toEqual(["alpha", "beta", "delta", "eps", "gamma"]);
-    expect(list.skills[0]?.lastUsedAt).toEqual(expect.any(Number));
-    expect(list.skills[1]?.lastUsedAt).toBeNull();
+    const list = (await (await call(skills, "/skills")).json()) as { skills: { name: string; lastUsedAt: number | null; uses: number | null }[]; assistants: { id: string }[] };
+    expect(list.skills.map((row) => row.name)).toEqual(["agents/alpha", "alpha", "beta", "delta", "gamma", "omega", "zeta"]);
+    expect(list.skills[1]).toMatchObject({ uses: 1, lastUsedAt: expect.any(Number) as unknown });
+    expect(list.skills[2]).toMatchObject({ uses: 0, lastUsedAt: null });
     expect(list.assistants.map((assistant) => assistant.id)).toEqual(["nova", "polaris", "astra", "dflt"]);
     const detail = (await (await call(skills, "/skills/alpha")).json()) as Record<string, unknown>;
     expect(detail).toMatchObject({
       name: "alpha",
       files: [{ path: "SKILL.md" }, { path: "refs/guide.md", size: 6 }],
-      usage: { lastUsedBy: "Nova, Polaris", loads30d: 1 },
+      stats: { uses: 1, uses7d: 1, uses30d: 1, byAgent: [{ agent: "other", kind: "other", owner: null, uses: 1 }] },
       profiles: { nova: "personal", polaris: "personal", astra: "work", dflt: null },
     });
     expect((await call(skills, "/skills/nope")).status).toBe(404);
     expect((await call(skills, "/skills/Bad%20Name")).status).toBe(404);
+    // omp's name for a colliding copy travels encoded.
+    expect(await (await call(skills, "/skills/agents%2Falpha")).json()).toMatchObject({ name: "agents/alpha", source: { key: "agents:project" } });
   });
 
   it("switches access through the runner and answers the row", async () => {
     const { home, skills } = await setup();
     const response = await call(skills, "/skills/alpha/access", { body: { enabled: { nova: true } } });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ name: "alpha", source: { key: "eva" } });
+    expect(await response.json()).toMatchObject({ name: "alpha", source: { key: "native:project" } });
     expect(home.calls).toEqual([["--profile", "personal", "config", "set", "disabledExtensions", "[]"]]);
     expect((await call(skills, "/skills/alpha/access", { body: { enabled: { nova: "yes" } } })).status).toBe(400);
   });
@@ -156,12 +161,13 @@ describe("skills http", () => {
     let now = Date.now();
     const { home } = await setup();
     const skills = new SkillsService({
-      catalog: new SkillCatalog({ home: home.home, evaRoot: home.evaRoot, run: home.run }),
-      usage: new SkillUsageIndex({ home: home.home }),
+      catalog: new SkillCatalog({ home: home.home, evaRoot: home.evaRoot, run: home.run, list: home.list }),
+      usage: new SkillUsageIndex(usageDeps(home)),
       now: () => now,
       room: { watch: false },
     });
     services.push(skills);
+    await skills.refresh();
     const first = skills.room("alpha");
     now += 5 * 60_000;
     skills.sweep();

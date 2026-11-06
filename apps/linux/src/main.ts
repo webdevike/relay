@@ -48,7 +48,7 @@ import { AssistantService, AssistantThreads, type AssistantThreadsDeps } from ".
 import { spawnFill } from "./assistant/signin";
 import { AskStore, defaultAsksPath } from "./assistant/ask-store";
 import { ago } from "./query/tools";
-import { defaultAssistantPath, FileAssistantStore } from "./assistant/store";
+import { defaultAssistantPath, defaultAssistantsDir, FileAssistantStore } from "./assistant/store";
 import { CallService } from "./call/service";
 import { EvaRealtimeVoice } from "./call/voice";
 import { readThreadMemory } from "./live/brief";
@@ -777,8 +777,18 @@ function serve(
       home: homedir(),
       evaRoot: agentHome,
       run: ompRunner(resolveOmp() ?? "omp", homedir()),
+      list: ompRunner(resolveOmp() ?? "omp", agentHome ?? homedir()),
+      log,
     }),
-    usage: new SkillUsageIndex({ home: homedir(), log }),
+    // Skill loads from every transcript on this Mac and the skill-usage hook's log, who made them, kept warm across restarts.
+    usage: new SkillUsageIndex({
+      home: homedir(),
+      agentHome,
+      assistantsDir: defaultAssistantsDir(),
+      cacheFile: join(relayConfigDir(), "skill-usage.json"),
+      logFile: join(homedir(), ".omp", "usage", "skills.jsonl"),
+      log,
+    }),
     log,
   });
   // Agents on this Mac drive Relay Desktop on whichever Mac Isaac is using; the token is in serve.json.
@@ -1799,10 +1809,16 @@ const SkillRowReply = z.object({
   usedBy: z.array(z.string()),
   disabled: z.boolean(),
   lastUsedAt: z.number().nullable(),
+  uses: z.number().nullable(),
 });
 const SkillDetailReply = SkillRowReply.extend({
   files: z.array(z.object({ path: z.string(), size: z.number() })),
-  usage: z.object({ lastUsedBy: z.string().nullable(), loads30d: z.number() }),
+  stats: z
+    .object({
+      uses30d: z.number(),
+      byAgent: z.array(z.object({ agent: z.string(), owner: z.string().nullable(), uses: z.number() })),
+    })
+    .nullable(),
 });
 const SkillEditReply = z.object({
   dirty: z.boolean(),
@@ -1838,7 +1854,7 @@ async function skillsCommand(
     return `${base}/${encodeURIComponent(name)}`;
   };
   const when = (at: number | null): string =>
-    at === null ? "not used in 30 days" : `last used ${new Date(at).toISOString()}`;
+    at === null ? "never used" : `last used ${new Date(at).toISOString()}`;
   const agent = (): string => {
     const as = options.as?.trim() ?? "";
     if (as === "") throw new Error(`skills ${verb ?? ""}: missing --as <Name> (the name your caret shows)`);
@@ -1855,7 +1871,7 @@ async function skillsCommand(
       if (skills.length === 0) console.log("no skills");
       for (const row of skills) {
         console.log(
-          `${row.name}  ${row.source.label}${row.also.length > 0 ? ` +${String(row.also.length)}` : ""}  ${row.disabled ? "disabled" : `used by ${row.usedBy.join(", ") || "nobody"}`}  ${when(row.lastUsedAt)}`,
+          `${row.name}  ${row.source.label}${row.also.length > 0 ? ` +${String(row.also.length)}` : ""}  ${row.disabled ? "disabled" : `used by ${row.usedBy.join(", ") || "nobody"}`}  ${row.uses === null ? "" : `${String(row.uses)} uses, `}${when(row.lastUsedAt)}`,
         );
       }
       return;
@@ -1871,9 +1887,8 @@ async function skillsCommand(
       console.log(`file: ${detail.source.file} (${detail.source.label})`);
       for (const copy of detail.also) console.log(`also: ${copy.file} (${copy.label})`);
       console.log(`used by: ${detail.usedBy.join(", ") || "nobody"}`);
-      console.log(
-        `${when(detail.lastUsedAt)}${detail.usage.lastUsedBy === null ? "" : ` by ${detail.usage.lastUsedBy}`}, ${String(detail.usage.loads30d)} loads in 30 days`,
-      );
+      console.log(`${when(detail.lastUsedAt)}${detail.stats === null ? "" : `, ${String(detail.stats.uses30d)} uses in 30 days`}`);
+      for (const row of detail.stats?.byAgent ?? []) console.log(`  ${row.agent}${row.owner === null ? "" : ` for ${row.owner}`}: ${String(row.uses)}`);
       console.log(`files: ${detail.files.map((file) => file.path).join(", ")}`);
       return;
     }

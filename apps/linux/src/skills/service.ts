@@ -32,8 +32,11 @@ export class SkillsService {
     this.now = deps.now ?? Date.now;
   }
 
-  /** Starts the usage scan and the idle-room sweep. */
+  /** Asks omp for the skills, starts the usage scan and the idle-room sweep. */
   start(): void {
+    this.deps.catalog.refresh().catch((error: unknown) => {
+      this.deps.log?.(`skills: omp skill discovery failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
     this.deps.usage.refreshIfDue();
     this.sweepTimer = setInterval(() => {
       this.sweep();
@@ -46,6 +49,11 @@ export class SkillsService {
     this.rooms.clear();
   }
 
+  /** Asks omp for the skills again when its last answer is stale; every route waits for this first. */
+  refresh(): Promise<void> {
+    return this.deps.catalog.refresh();
+  }
+
   list(): SkillList {
     return { skills: this.deps.catalog.entries().map((entry) => this.row(entry)), assistants: this.deps.catalog.assistants() };
   }
@@ -54,12 +62,10 @@ export class SkillsService {
     const entry = this.deps.catalog.entry(name);
     if (entry === null) return null;
     const assistants = this.deps.catalog.assistants();
-    const usage = this.deps.usage.usage(name);
-    const by = usage.lastUsedAt === null ? [] : assistants.filter((assistant) => assistant.profile === usage.lastProfile).map((assistant) => assistant.title);
     return {
       ...this.row(entry),
       files: this.deps.catalog.files(entry),
-      usage: { lastUsedAt: usage.lastUsedAt, lastUsedBy: by.length === 0 ? null : by.join(", "), loads30d: usage.loads },
+      stats: this.deps.usage.usage(name),
       profiles: Object.fromEntries(assistants.map((assistant) => [assistant.id, assistant.profile])),
     };
   }
@@ -151,6 +157,7 @@ export class SkillsService {
   }
 
   private row(entry: CatalogEntry): SkillRow {
-    return { ...entry.row, lastUsedAt: this.deps.usage.usage(entry.row.name).lastUsedAt };
+    const stats = this.deps.usage.usage(entry.row.name);
+    return { ...entry.row, lastUsedAt: stats?.lastUsedAt ?? null, uses: stats?.uses ?? null };
   }
 }

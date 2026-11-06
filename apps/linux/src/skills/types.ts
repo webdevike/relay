@@ -1,10 +1,9 @@
 // The Skills page's wire types (proof/skills-page/CONTRACT.md section 3), as the host serves them.
 
-/** Where a copy of a skill lives; omp loads the first by precedence eva, omp, plugin, claude, agents. */
-export type SourceKey = "eva" | "omp" | "agents" | "claude" | "plugin";
-
 export interface SkillSource {
-  key: SourceKey;
+  /** omp's source id: `native:project`, `native:user`, `agents:user`, `claude:project`, a plugin's, ... */
+  key: string;
+  /** `Project`, `User`, `Agents`, `Claude project`, ... */
   label: string;
   /** The skill's folder for display, `~` for home. */
   dir: string;
@@ -33,8 +32,33 @@ export interface SkillRow {
   usedBy: string[];
   /** SKILL.md frontmatter `enabled: false`. */
   disabled: boolean;
-  /** Newest `skill://<name>` read in the last 30 days of omp sessions. */
+  /** Newest load anywhere (skills/usage.ts); null when never. */
   lastUsedAt: number | null;
+  /** Loads ever; null while the first usage scan runs. */
+  uses: number | null;
+}
+
+/** Loads of one skill by one runner (skills/usage.ts `Runner`). */
+export interface SkillAgentUses {
+  /** An assistant id, omp agent (`scout`, `session` for the default), job name, `eren`, `elysia`, `claude-code` or `other`. */
+  agent: string;
+  kind: "assistant" | "session" | "subagent" | "job" | "background" | "claude" | "other";
+  /** The assistant it worked for; null when none or unknown. */
+  owner: string | null;
+  uses: number;
+  lastUsedAt: number;
+}
+
+export interface SkillStats {
+  uses: number;
+  uses7d: number;
+  uses30d: number;
+  lastUsedAt: number | null;
+  firstUsedAt: number | null;
+  /** Most uses first. */
+  byAgent: SkillAgentUses[];
+  /** Loads per local day for the last 30 days, oldest first, today last. */
+  daily: number[];
 }
 
 export interface SkillList {
@@ -44,13 +68,17 @@ export interface SkillList {
 
 export interface SkillDetail extends SkillRow {
   files: { path: string; size: number }[];
-  usage: { lastUsedAt: number | null; lastUsedBy: string | null; loads30d: number };
+  /** Null while the first usage scan runs. */
+  stats: SkillStats | null;
   /** The profile each assistant runs, so the UI can say toggles are shared. */
   profiles: Record<string, string | null>;
 }
 
-/** A skill name in routes and on disk: bare (`canvas`), or plugin-namespaced with `:`. */
-export const SKILL_NAME = /^[a-z0-9][a-z0-9._:-]{0,79}$/;
+/**
+ * A skill name in routes and on disk: bare (`canvas`), plugin-namespaced with `:`, or omp's
+ * `<source>/<name>` for a copy whose name another source already took (`agents/hallmark`).
+ */
+export const SKILL_NAME = /^[a-z0-9][a-z0-9._:-]{0,79}(?:\/[a-z0-9][a-z0-9._:-]{0,79})?$/;
 
 /** A refused skills request; `status` is the HTTP status the routes answer with. */
 export class SkillError extends Error {

@@ -88,6 +88,7 @@ export async function handleSkillsRequest(skills: SkillsService | null, request:
     }
   };
   try {
+    await skills.refresh();
     if (segment === undefined || segment === "") {
       if (method !== "GET") return fail(405, "method not allowed");
       return json(skills.list());

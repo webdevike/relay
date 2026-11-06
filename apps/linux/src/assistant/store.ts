@@ -25,10 +25,14 @@ export interface AssistantStore {
   save(record: AssistantRecord): void;
 }
 
+/** Where the store files live: `$XDG_CONFIG_HOME/relay/assistants`. */
+export function defaultAssistantsDir(): string {
+  return join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay", "assistants");
+}
+
 /** The store file of registry agent `id`. */
 export function defaultAssistantPath(id: string): string {
-  const base = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
-  return join(base, "relay", "assistants", `${id}.json`);
+  return join(defaultAssistantsDir(), `${id}.json`);
 }
 
 export class FileAssistantStore implements AssistantStore {
