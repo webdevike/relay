@@ -139,7 +139,10 @@
   overflow: hidden;
 }
 .eva-slash-row {
-  display: block;
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
   width: 100%;
   padding: 6px var(--mantine-spacing-sm);
   border: 1px solid transparent;
@@ -154,4 +157,35 @@
 }
 .eva-slash-footer {
   border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.eva-slash-icon {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  color: var(--mantine-color-dimmed);
+}
+.eva-slash-desc {
+  min-width: 0;
+}
+.eva-composer-line {
+  display: flex;
+  align-items: flex-start;
+}
+.eva-composer-line > .eva-composer-field {
+  flex: 1;
+  min-width: 0;
+}
+/* The Computer chip leads the first line of the box and lines up with the text beside it. */
+.eva-composer-computer {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin: var(--mantine-spacing-sm) 0 0 var(--mantine-spacing-sm);
+}
+.eva-slash-chevron {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  color: var(--mantine-color-dimmed);
 }

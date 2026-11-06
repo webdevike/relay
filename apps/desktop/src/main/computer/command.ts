@@ -11,7 +11,8 @@ const HEAD = /^\s*@computer(?![\w-])[\s,:]*/i
 /**
  * `@computer [live|walk] <task>` at the very start of a message, or `@computer stop|next|skip|help`.
  * Null for anything else: the message goes to the chat's agent as usual. The mode keyword must be the
- * first word (`@computer liven up the doc` is a headless task); `walk me through X` keeps only `X`.
+ * first word (`@computer liven up the doc` is a headless task; `background` says headless outright, which
+ * the composer's chip uses so a task that starts with "live" stays headless); `walk me through X` keeps only `X`.
  */
 export function parseComputer(text: string): ComputerCommand | null {
   const head = HEAD.exec(text)
@@ -20,13 +21,13 @@ export function parseComputer(text: string): ComputerCommand | null {
   if (rest === '' || /^help[.!?]?$/i.test(rest)) return { kind: 'help' }
   const control = /^(stop|next|skip)[.!]?$/i.exec(rest)
   if (control) return { kind: 'control', op: control[1]!.toLowerCase() as 'stop' | 'next' | 'skip' }
-  const mode = /^(live|walk)\b[\s,:]*/i.exec(rest)
+  const mode = /^(live|walk|background)\b[\s,:]*/i.exec(rest)
   if (!mode) return { kind: 'run', mode: 'headless', task: rest }
-  const kw = mode[1]!.toLowerCase() as 'live' | 'walk'
+  const kw = mode[1]!.toLowerCase() as 'live' | 'walk' | 'background'
   let task = rest.slice(mode[0].length).trim()
   if (kw === 'walk') task = task.replace(/^(?:me\s+)?through\b[\s,:]*/i, '').trim()
   if (task === '') return { kind: 'help' }
-  return { kind: 'run', mode: kw, task }
+  return { kind: 'run', mode: kw === 'background' ? 'headless' : kw, task }
 }
 
 export const HELP_TEXT = [

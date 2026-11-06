@@ -1,7 +1,13 @@
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react'
 import { slashMatches, type SlashCommand } from '@evaos/chat-core/launch'
 import { ActionIcon, Textarea, Tooltip } from '@mantine/core'
-import { IconArrowUp, IconPlayerStopFilled, IconPlus } from '@tabler/icons-react'
+import {
+  IconArrowUp,
+  IconChevronLeft,
+  IconDeviceDesktop,
+  IconPlayerStopFilled,
+  IconPlus,
+} from '@tabler/icons-react'
 import { invoke } from '../ipc'
 import { chatStore, useChatStore } from './chat-store'
 import { draftText, saveDraft, useDraftsLoaded } from './drafts'
@@ -10,7 +16,17 @@ import { WriterPrompt } from './WriterPrompt'
 import { ImageChips } from './composer/ImageChips'
 import { Toolbar } from './composer/Toolbar'
 import { useLaunchState } from './composer/useLaunchState'
-import { SlashMenu } from './composer/SlashMenu'
+import { SlashMenu, type MenuRow } from './composer/SlashMenu'
+import { ComputerChip } from './composer/ComputerChip'
+import {
+  atQueryAt,
+  atRows,
+  splitChip,
+  withChip,
+  type AtLevel,
+  type AtRow,
+  type ComputerMode,
+} from './composer/at-menu'
 import {
   ACCEPTED_IMAGE_TYPES,
   MAX_PROMPT_IMAGES,
@@ -46,8 +62,16 @@ export interface ComposerHandle {
 interface Box {
   key: string | null | undefined
   text: string
+  /** The Computer chip's mode, when the draft has the chip. */
+  computer: ComputerMode | null
   /** A new chat's draft key the text moved from when omp named its session file. */
   movedFrom?: string
+}
+
+/** The box a chat's saved draft opens as (a saved `@computer <mode> ` head becomes the chip). */
+const boxFor = (key: string | null | undefined): Box => {
+  const { mode, text } = splitChip(key ? draftText(key) : '')
+  return { key, text, computer: mode }
 }
 
 /**
@@ -73,28 +97,40 @@ export function Composer({
   const loaded = useDraftsLoaded()
   const key = loaded ? draftKey : undefined
   const boundTo = useChatStore((s) => s.panes[paneId]?.boundTo ?? null)
-  const [box, setBox] = useState<Box>(() => ({ key, text: key ? draftText(key) : '' }))
+  const [box, setBox] = useState<Box>(() => boxFor(key))
   if (box.key !== key) {
     // Another chat shows: its saved draft replaces the text. Text typed before drafts loaded
     // stays, and so does a new chat's text when omp gives it a session file.
     const keep =
-      (box.key === undefined && box.text !== '') ||
+      (box.key === undefined && (box.text !== '' || box.computer !== null)) ||
       (typeof box.key === 'string' && box.key.startsWith('draft:') && key === boundTo)
     setBox(
       keep
-        ? { key, text: box.text, ...(box.key ? { movedFrom: box.key } : {}) }
-        : { key, text: key ? draftText(key) : '' },
+        ? {
+            key,
+            text: box.text,
+            computer: box.computer,
+            ...(box.key ? { movedFrom: box.key } : {}),
+          }
+        : boxFor(key),
     )
   }
   useEffect(() => {
     if (box.movedFrom) saveDraft(box.movedFrom, '')
-    if (box.key) saveDraft(box.key, box.text)
+    if (box.key) saveDraft(box.key, withChip(box.computer, box.text))
   }, [box])
   const boxRef = useRef(box)
   boxRef.current = box
   const text = box.text
+  const computer = box.computer
   const setText = (next: string | ((cur: string) => string)): void =>
-    setBox((b) => ({ key: b.key, text: typeof next === 'function' ? next(b.text) : next }))
+    setBox((b) => ({
+      key: b.key,
+      computer: b.computer,
+      text: typeof next === 'function' ? next(b.text) : next,
+    }))
+  const setComputer = (mode: ComputerMode | null): void =>
+    setBox((b) => ({ key: b.key, text: b.text, computer: mode }))
   const [images, setImages] = useState<Attached[]>([])
   const [notice, setNotice] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
@@ -121,7 +157,9 @@ export function Composer({
   /** Esc closes the menu until the text changes again. */
   const [slashHidden, setSlashHidden] = useState(false)
   const ompChat = launch.state?.harness !== 'claude'
-  const wantsCommands = ompChat && commands === null && text.startsWith('/')
+  const [caret, setCaret] = useState(0)
+  const atQuery = !disabled && !text.startsWith('/') ? atQueryAt(text, caret) : null
+  const wantsCommands = ompChat && commands === null && (text.startsWith('/') || atQuery !== null)
   useEffect(() => {
     if (!wantsCommands) return
     let stale = false
@@ -137,6 +175,74 @@ export function Composer({
       ? slashMatches(commands, text)
       : { prefix: '', hits: [] }
   const slashSelected = Math.min(slashIx, Math.max(slash.hits.length - 1, 0))
+
+  // The `@` menu: Computer (opens its modes), then skills. Esc closes it until the text changes.
+  const [atLevel, setAtLevel] = useState<AtLevel>('top')
+  const [atIx, setAtIx] = useState(0)
+  const [atHidden, setAtHidden] = useState(false)
+  const atOpen = atQuery !== null
+  useEffect(() => {
+    if (!atOpen) setAtLevel('top')
+  }, [atOpen])
+  const at: AtRow[] = atQuery && !atHidden ? atRows(commands, atQuery.query, atLevel) : []
+  const atSelected = Math.min(atIx, Math.max(at.length - 1, 0))
+  const pendingCaret = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    if (pendingCaret.current === null) return
+    input.current?.setSelectionRange(pendingCaret.current, pendingCaret.current)
+    setCaret(pendingCaret.current)
+    pendingCaret.current = null
+  })
+  const enter = (to: AtLevel): void => {
+    if (!atQuery) return
+    // The typed word goes; what follows filters the new level.
+    const next = `${text.slice(0, atQuery.start)}@${text.slice(caret)}`
+    setText(next)
+    pendingCaret.current = atQuery.start + 1
+    setAtLevel(to)
+    setAtIx(to === 'top' ? 0 : 1)
+  }
+  /** Picks a row of the `@` menu: opens a sub-list, sets the chip, or starts the skill. */
+  const pickAt = (index = atSelected): void => {
+    const row = at[index]
+    if (!row || !atQuery) return
+    const item = row.item
+    if (item.kind === 'computer-menu') return enter('computer')
+    if (item.kind === 'back') return enter('top')
+    const before = text.slice(0, atQuery.start)
+    const after = text.slice(caret)
+    if (item.kind === 'computer') {
+      const joined =
+        before.endsWith(' ') && after.startsWith(' ') ? before + after.slice(1) : before + after
+      setBox((b) => ({ key: b.key, text: joined, computer: item.mode }))
+      pendingCaret.current = before.length
+    } else {
+      const rest = (before + after).trim()
+      setText(`/${item.command} ${rest}`.trimEnd() + ' ')
+      pendingCaret.current = `/${item.command} ${rest}`.trimEnd().length + 1
+    }
+    setAtIx(0)
+    input.current?.focus()
+  }
+  const atRowsView: MenuRow[] = at.map((r) => ({
+    key: r.key,
+    title: r.title,
+    description: r.description,
+    ...(r.section ? { section: r.section } : {}),
+    ...(r.children ? { chevron: true } : {}),
+    ...(r.item.kind === 'computer-menu' || r.item.kind === 'computer'
+      ? { icon: <IconDeviceDesktop size={16} /> }
+      : r.item.kind === 'back'
+        ? { icon: <IconChevronLeft size={16} /> }
+        : {}),
+  }))
+  const slashRowsView: MenuRow[] = slash.hits.map((c) => ({
+    key: c.name,
+    title: `${slash.prefix}${c.name}`,
+    description: c.description,
+    hint: c.hint,
+    ...(c.subcommands.length > 0 ? { chevron: true } : {}),
+  }))
 
   /**
    * Fills the draft with the highlighted command and a space for what follows. False when the
@@ -237,8 +343,11 @@ export function Composer({
   // An open `/` menu takes Escape ahead of the stop above.
   useDismissable(
     DISMISS_PRIORITY.subPageBack + 2,
-    () => setSlashHidden(true),
-    focused && slash.hits.length > 0,
+    () => {
+      setSlashHidden(true)
+      setAtHidden(true)
+    },
+    focused && (slash.hits.length > 0 || at.length > 0),
   )
 
   const attach = async (files: File[]): Promise<void> => {
@@ -280,13 +389,16 @@ export function Composer({
   /** Sends the draft, or with `reply` a widget's text, leaving the draft as it is. */
   const send = async (force = false, reply?: string): Promise<void> => {
     const draft = reply === undefined
-    const value = (draft ? text : reply).trim()
+    const typed = draft ? text.trim() : ''
+    const sentChip = draft ? computer : null
+    const value = draft ? withChip(sentChip, typed) : reply.trim()
+    if (draft && sentChip !== null && typed === '') return
     const sending = draft ? images : []
     if ((value === '' && sending.length === 0) || disabled) return
     const sentKey = box.key
     if (draft) {
       // Clears the saved draft too (the save effect sees the empty text).
-      setText('')
+      setBox((b) => ({ key: b.key, text: '', computer: null }))
       setImages([])
     }
     setNotice(null)
@@ -307,8 +419,13 @@ export function Composer({
       if (draft) {
         // Give the prompt back unless something new was typed meanwhile. Another chat showing
         // by now gets nothing: the prompt goes back to its own chat's saved draft.
-        if (boxRef.current.key === sentKey) setText((current) => (current === '' ? value : current))
-        else if (sentKey && draftText(sentKey) === '') saveDraft(sentKey, value)
+        if (boxRef.current.key === sentKey) {
+          setBox((b) =>
+            b.text === '' && b.computer === null
+              ? { key: b.key, text: typed, computer: sentChip }
+              : b,
+          )
+        } else if (sentKey && draftText(sentKey) === '') saveDraft(sentKey, value)
         setImages((current) => [...sending, ...current])
       }
       if (r.error.code === 'owned-elsewhere') {
@@ -320,10 +437,13 @@ export function Composer({
 
   useImperativeHandle(ref, () => ({ sendReply: (reply) => void send(false, reply) }))
 
-  const edit = (value: string): void => {
+  const edit = (value: string, caretAt: number): void => {
     setText(value)
+    setCaret(caretAt)
     setSlashIx(0)
+    setAtIx(atLevel === 'computer' ? 1 : 0)
     setSlashHidden(false)
+    setAtHidden(false)
     // Dismissed, not cleared: main keeps its error until the next prompt, and a resync in
     // between must not bring the banner back.
     if (hasError) chatStore.getState().dismissError(paneId)
@@ -369,68 +489,142 @@ export function Composer({
         {dragging ? <div className="eva-composer-drop">Drop images to attach</div> : null}
         {slash.hits.length > 0 ? (
           <SlashMenu
-            prefix={slash.prefix}
-            hits={slash.hits}
+            rows={slashRowsView}
             selected={slashSelected}
             onPick={(i) => completeSlash(false, i)}
           />
+        ) : at.length > 0 ? (
+          <SlashMenu
+            rows={atRowsView}
+            selected={atSelected}
+            onPick={(i) => pickAt(i)}
+            label="Mentions"
+            testid="at-menu"
+          />
         ) : null}
         <ImageChips chips={images} onRemove={remove} />
-        <Textarea
-          autosize
-          ref={input}
-          minRows={2}
-          maxRows={8}
-          className="eva-composer-field"
-          classNames={{ input: 'eva-composer-input' }}
-          variant="unstyled"
-          data-testid="composer-input"
-          aria-label="Message"
-          placeholder={
-            disabled || stopped
-              ? 'Session is not running. Resume it to send a message.'
-              : 'Ask anything, or start with / for a command'
-          }
-          disabled={disabled}
-          value={text}
-          onChange={(e) => edit(e.currentTarget.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          onKeyDown={(e) => {
-            if (slash.hits.length > 0) {
-              const n = slash.hits.length
-              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                e.preventDefault()
-                setSlashIx((slashSelected + (e.key === 'ArrowDown' ? 1 : -1) + n) % n)
-                return
-              }
-              if (e.key === 'Tab' && !e.shiftKey) {
-                e.preventDefault()
-                completeSlash(false)
-                return
-              }
-              if (e.key === 'Escape') {
-                e.preventDefault()
-                e.stopPropagation()
-                setSlashHidden(true)
-                return
-              }
+        <div className="eva-composer-line">
+          {computer ? (
+            <ComputerChip
+              mode={computer}
+              onMode={(m) => {
+                setComputer(m)
+                input.current?.focus()
+              }}
+              onRemove={() => {
+                setComputer(null)
+                input.current?.focus()
+              }}
+            />
+          ) : null}
+          <Textarea
+            autosize
+            ref={input}
+            minRows={2}
+            maxRows={8}
+            className="eva-composer-field"
+            classNames={{ input: 'eva-composer-input' }}
+            variant="unstyled"
+            data-testid="composer-input"
+            aria-label="Message"
+            placeholder={
+              disabled || stopped
+                ? 'Session is not running. Resume it to send a message.'
+                : computer
+                  ? 'What should Computer do?'
+                  : 'Ask anything, / for commands, @ for Computer and skills'
+            }
+            disabled={disabled}
+            value={text}
+            onChange={(e) => edit(e.currentTarget.value, e.currentTarget.selectionStart)}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            onKeyDown={(e) => {
+              const sel = e.currentTarget
               if (
-                e.key === 'Enter' &&
-                !e.shiftKey &&
-                !e.nativeEvent.isComposing &&
-                completeSlash(true)
+                e.key === 'Backspace' &&
+                computer &&
+                sel.selectionStart === 0 &&
+                sel.selectionEnd === 0
               ) {
                 e.preventDefault()
+                setComputer(null)
                 return
               }
-            }
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              void send()
-            }
-          }}
-        />
+              if (at.length > 0) {
+                const n = at.length
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setAtIx((atSelected + (e.key === 'ArrowDown' ? 1 : -1) + n) % n)
+                  return
+                }
+                if (e.key === 'ArrowRight' && at[atSelected]?.children) {
+                  e.preventDefault()
+                  pickAt()
+                  return
+                }
+                if (e.key === 'ArrowLeft' && atLevel !== 'top') {
+                  e.preventDefault()
+                  enter('top')
+                  return
+                }
+                // A bare `@computer` is already typed out in full: Enter sends it (the help text).
+                const typedOut = atLevel === 'top' && atQuery?.query.toLowerCase() === 'computer'
+                if (
+                  (e.key === 'Tab' && !e.shiftKey) ||
+                  (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing && !typedOut)
+                ) {
+                  e.preventDefault()
+                  pickAt()
+                  return
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setAtHidden(true)
+                  return
+                }
+              }
+              if (slash.hits.length > 0) {
+                const n = slash.hits.length
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                  e.preventDefault()
+                  setSlashIx((slashSelected + (e.key === 'ArrowDown' ? 1 : -1) + n) % n)
+                  return
+                }
+                if (
+                  (e.key === 'Tab' && !e.shiftKey) ||
+                  (e.key === 'ArrowRight' &&
+                    (slash.hits[slashSelected]?.subcommands.length ?? 0) > 0)
+                ) {
+                  e.preventDefault()
+                  completeSlash(false)
+                  return
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setSlashHidden(true)
+                  return
+                }
+                if (
+                  e.key === 'Enter' &&
+                  !e.shiftKey &&
+                  !e.nativeEvent.isComposing &&
+                  completeSlash(true)
+                ) {
+                  e.preventDefault()
+                  return
+                }
+              }
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                void send()
+              }
+            }}
+          />
+        </div>
         <Toolbar
           paneId={paneId}
           disabled={disabled}

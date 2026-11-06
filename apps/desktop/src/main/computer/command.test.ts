@@ -32,6 +32,14 @@ describe('parseComputer', () => {
     })
   })
 
+  it('`background` is headless outright, so a task that starts with "live" stays one', () => {
+    expect(parseComputer('@computer background live demo prep')).toEqual({
+      kind: 'run',
+      mode: 'headless',
+      task: 'live demo prep',
+    })
+  })
+
   it('keeps the subject of "walk me through"', () => {
     expect(parseComputer('@computer walk me through ENG-6810')).toEqual({
       kind: 'run',
