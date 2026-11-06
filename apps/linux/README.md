@@ -438,16 +438,41 @@ carries `fallback: true` and the phone starts the local `call.*` call instead. P
 Mac, against the running host's real thread and without a phone: `bun test/live-smoke.ts --agent nova --ask
 "What's on my calendar tomorrow?"` (needs a uv venv with aiortc + numpy, see the file's header).
 
-## Studio (`studio.list`, `studio.req`, `studio.state`, `studio.job`, `studio.removed`, `studio.res`)
+## Studio (`studio.list`, `studio.req`, `studio.state`, `studio.job`, `studio.removed`, `studio.library`, `studio.segments`, `studio.res`)
 
 An image and video playground for Relay mobile and Relay desktop: the host runs every job, the clients are a
-composer, a queue and a gallery (`packages/protocol/src/studio.ts` is the wire spec). A device asks `studio.list`
-and gets `studio.state { jobs, uploads, backends }`; after that every job change (created, every 2 s while it
-runs, finished) goes to every device as `studio.job { job }`, a deleted job or upload as `studio.removed { id }`,
-and a fresh `studio.state` when uploads or backends change. Everything else is `studio.req { rid, op }`, answered
-by `studio.res { rid, ok, error?, job?, asset?, credits?, balance? }`: `create { spec, origin }`, `quote { spec }`,
-`cancel { id }`, `delete { id }` (a finished job with its files, or an upload), `upload { image }` (base64, kept as
-a reference frame), `frame { asset, at: first|last }` (a video's frame as a new upload) and `refresh`.
+library, a composer and an editor (`packages/protocol/src/studio.ts` is the wire spec). A device asks `studio.list`
+and gets `studio.state { jobs, uploads, backends, projects, references }`; after that every job change (created,
+every 2 s while it runs, finished, favorited, moved, trashed) goes to every device as `studio.job { job }`, a deleted
+job or upload as `studio.removed { id }`, project and reference changes as `studio.library { projects, references }`,
+SAM 2.1's objects in an image as `studio.segments { asset, state, segments, error? }`, and a fresh `studio.state`
+when uploads or backends change. Everything else is `studio.req { rid, op }`, answered by `studio.res { rid, ok,
+error?, job?, jobs?, asset?, project?, reference?, segments?, credits?, balance? }`:
+
+- `create { spec, origin, count?, project?, parent? }`: `count` (1 to 4) separate jobs sharing a `batch`, seeds `s`
+  to `s + count - 1` (one paid job at a time); `project` (Unsorted when absent) and `parent { asset, how }` (lineage)
+  are kept on each job. Answered with `jobs` and `job` (the first).
+- `quote { spec }`, `cancel { id }`, `delete { id }` (a finished job with every copy of its files now, or an
+  upload), `upload { image }` (base64, kept as a reference frame), `frame { asset, at: first|last }` (a video's frame
+  as a new upload), `refresh`.
+- `favorite { assets, value }`, `move { assets, project }` (moves the outputs' jobs), `trash { assets }`,
+  `restore { assets }` (within the undo window).
+- `project.create { name, id? }` (`id` lets an Undo bring a deleted one back), `project.rename`, `project.delete`
+  (its jobs go to Unsorted).
+- `reference.create { asset, referenceKind: style|character, name }`: the host's own copy of the image, with its own
+  token and thumb, so it outlives the image; its `asset.id` works in `spec.refs`. `reference.delete { id }`.
+- `segment { asset }`: SAM 2.1's objects in an image, answered at once with what the host has (a kept result comes
+  back `done`); otherwise a run queues for the GPU (ahead of queued jobs, it takes seconds) and its steps arrive as
+  `studio.segments` (`queued`, `running`, `done` or `failed`). Each segment's mask (`<id>.mask.png`) and cut-out
+  (`<id>.cutout.png`, its `/thumb`) are served under their own token; the result is kept with the image until the
+  image goes. A segment's id is a valid `spec.mask` for an edit of that image: the edit runs on the whole image and
+  the host then keeps it inside the mask only (`compositeMasked`); a `sam` cutout takes the mask itself.
+
+Local GPU work runs one at a time on this Mac, whoever starts it: the machine-wide lock `~/.cache/eva-gpu.lock`
+(`$EVA_GPU_LOCK`, flock(2), shared with draft.py and moss.py) is held by those scripts for LTX and MOSS-Image runs,
+and by the host itself (`src/studio/gpu-lock.ts`, a tiny Perl helper holding the flock until the host releases it
+or dies) around Kontext, ComfyUI, SAM cutouts and segment runs. While another process holds it, the job reads
+"Waiting for the GPU (another job is using it)".
 
 Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
 
@@ -497,7 +522,24 @@ Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
   to unload its models (`/free`), and ten idle minutes unload them too, so the Mac's unified memory goes back to LTX,
   Kontext and Qwen. `comfyui` runs on `http://127.0.0.1:8188` (`$RELAY_STUDIO_COMFYUI_URL`) in the GPU queue with
   LTX and Kontext; `comfyui-video` on `http://127.0.0.1:18188` (`$RELAY_STUDIO_COMFYUI_VIDEO_URL`, an ssh tunnel to
-  the GPU box's ComfyUI), one job at a time in its own queue.
+  the GPU box's ComfyUI), one job at a time in its own queue. The server keeps its own copies: the local one's
+  `output/` and `input/` dirs are `<agent-home>/work/local-higgsfield/ComfyUI/{output,input}`
+  (`$RELAY_STUDIO_COMFYUI_OUTPUT`, `$RELAY_STUDIO_COMFYUI_INPUT`). A job deletes its uploads from `input/` when the
+  prompt is done and records every file the prompt saved in `output/` (`output/studio/` for the presets) as the
+  image's copies, deleted with it; a failed or cancelled job deletes them at once. The video server's dirs are only
+  known when `$RELAY_STUDIO_COMFYUI_VIDEO_OUTPUT` / `_INPUT` point at a mount of them.
+- `sam` (free, local, one image): SAM 2.1 (`facebook/sam2.1-hiera-large`, transformers format, read offline from the
+  Hugging Face cache) on the CPU through a python with torch, transformers and Pillow (`$RELAY_STUDIO_SAM_PYTHON`,
+  default `~/.local/share/hades-fit/bin/python`); unavailable with one line when either is missing. Its python lives
+  in `sam.ts` as a string, written to a scratch dir per run, in its own process group like LTX. Model `cutout`
+  (Remove background, size `source`): the picked segment (`spec.mask`) on a transparent background, or with no mask
+  the subject SAM finds. The `segment` op runs the same script: a 16x16 point grid in batches of 64, masks kept when
+  confident and stable, deduped by IoU, neither tiny nor nearly the whole picture, the largest
+  `MAX_STUDIO_SEGMENTS` first; each a grayscale mask PNG the image's size and an RGBA cut-out cut to its box. SAM
+  names nothing, so labels come from shape alone: "Background" (the largest touching three borders or more),
+  "Subject" (the large one nearest the middle), else "Object N". About 80 s for a 765x1000 image. In the GPU queue.
+- `crop` (free, local, no AI, four at once in its own queue): model `crop`, `params` `x`, `y`, `w`, `h` as fractions of
+  the image (each side at least 1%, inside the picture), cut by ffmpeg; JPEG stays JPEG, anything else becomes PNG.
 - `higgsfield` (paid, video, two at once): Higgsfield's MCP server with the token omp keeps for its Higgsfield tools
   (`~/.omp/profiles/personal/agent/agent.db`, opened read-only and never refreshed; an expired one makes the backend
   unavailable until an omp session renews it). A curated set of models with their own sizes, lengths and keyframe
@@ -507,14 +549,21 @@ Paid rule: a `create` on a paid backend needs `spec.confirmCredits`, the quote I
 re-quotes and refuses when the price rose ("The price changed to N credits; confirm again"), refuses `origin:
 "agent"` outright, records the charge in `job.credits` and reads the balance again after every paid job.
 
-Files live in `$XDG_CONFIG_HOME/relay/studio/` (dir 0700, files 0600): `index.json` (jobs and uploads newest first,
-each asset's files and token, the ETA calibration per backend), `<id>.<ext>` per asset and `<id>.thumb.jpg` (ffmpeg,
-at most 640 px; a video's first frame). They are served like drops at `GET|HEAD /studio/<id>/<token>` (byte ranges)
-and `/studio/<id>/<token>/thumb`, the token checked in constant time. Up to 300 jobs (the oldest finished ones go,
-with their files) and 100 uploads. A job's ETA is its backend's estimate (LTX: 45 s plus a per-frame-pixel cost on
-draft.py's generation grid, about 210 s for 5 s at 480x848; Codex 25 s, edits 45 s; Higgsfield 120 s) scaled by how
-long jobs really took (a moving average). After a restart running jobs read "Stopped when the host restarted" and
-queued ones run again.
+Files live in `$XDG_CONFIG_HOME/relay/studio/` (dir 0700, files 0600): `index.json` (version 2: jobs and uploads
+newest first, projects and references oldest first, segments by image, each file's token and the backend's own
+copies elsewhere on disk, the ETA calibration per backend; a version 1 index reads as every job Unsorted with no
+projects, references or segments), `<id>.<ext>` per asset and `<id>.thumb.jpg` (ffmpeg, at most 640 px; a video's
+first frame). They are served like drops at `GET|HEAD /studio/<id>/<token>` (byte ranges) and
+`/studio/<id>/<token>/thumb`, the token checked in constant time. Finished jobs are the library and are never
+evicted; past 5000 jobs the oldest failed or cancelled ones go. Up to 100 uploads. A trashed image is hidden and
+restorable for 10 minutes (`STUDIO_UNDO_MS`); then a timer (and, for what came due while the host was down, the
+start) deletes every copy: the store file and thumb, the backend's copies (ComfyUI's output), its segments' files
+and any work dir; a job left with no outputs goes too (`studio.removed`). LTX's `draft-*` temp dirs that a cancelled
+or failed run leaves beside draft.py are deleted after it; MOSS, Kontext, Codex, SAM and crop runs write only into
+the job's work dir, which is emptied after every run. A job's ETA is its backend's estimate (LTX: 45 s plus a
+per-frame-pixel cost on draft.py's generation grid, about 210 s for 5 s at 480x848; Codex 25 s, edits 45 s;
+Higgsfield 120 s) scaled by how long jobs really took (a moving average). After a restart running jobs read
+"Stopped when the host restarted", queued ones and segment runs run again, and trashed images keep their trash time.
 
 ## Assistant instruction files (`assistant.file.req`, `assistant.file.res`)
 

@@ -2,10 +2,10 @@
 // models and balance), how long a job is expected to take, and the checks a spec must pass before
 // it queues. Pure: no I/O.
 
-import { MAX_STUDIO_REFS, studioRefs, type StudioAsset, type StudioBackend, type StudioBackendId, type StudioSpec } from "@relay/protocol";
+import { MAX_STUDIO_REFS, studioRefs, type StudioAsset, type StudioBackend, type StudioBackendId, type StudioModel, type StudioSpec } from "@relay/protocol";
 
 /** Every backend in the order clients list them. */
-export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "moss", "kontext", "comfyui", "comfyui-video", "higgsfield"];
+export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "moss", "kontext", "comfyui", "comfyui-video", "sam", "crop", "higgsfield"];
 
 /** One size per aspect, close to what Codex really draws (about 1.6 MP), so the exact crop upscales little. */
 const CODEX_RESOLUTIONS: StudioBackend["resolutions"] = [
@@ -20,6 +20,27 @@ const KONTEXT_RESOLUTIONS: StudioBackend["resolutions"] = [
   { id: "1024x576", label: "1024x576", aspect: "16:9" },
   { id: "1024x1024", label: "1024 square", aspect: "1:1" },
 ];
+
+/** SAM cutouts and crops keep the source's pixels: one `source` size per aspect (the spec's aspect is the source's nearest). */
+const SOURCE_RESOLUTIONS: StudioBackend["resolutions"] = [
+  { id: "source", label: "Source size", aspect: "1:1" },
+  { id: "source", label: "Source size", aspect: "16:9" },
+  { id: "source", label: "Source size", aspect: "9:16" },
+];
+
+/** A crop edge in `params`: a fraction of the source's width or height. */
+const cropEdge = (id: string, label: string, value: number): NonNullable<StudioModel["inputs"]>[number] => ({
+  kind: "number",
+  id,
+  label,
+  min: 0,
+  max: 1,
+  step: 0.001,
+  default: value,
+});
+
+/** The smallest crop side, as a fraction of the source's. */
+export const MIN_CROP_SIDE = 0.01;
 
 /** Each backend with `available: false`; its runner's `describe` says whether it can run now. */
 export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
@@ -140,12 +161,68 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
     serial: false,
     models: [],
   },
+  sam: {
+    id: "sam",
+    label: "SAM 2.1",
+    mode: "image",
+    paid: false,
+    available: false,
+    resolutions: SOURCE_RESOLUTIONS,
+    seconds: [],
+    frames: [],
+    refs: 1,
+    seed: false,
+    serial: true,
+    models: [
+      {
+        id: "cutout",
+        name: "Remove background",
+        mode: "image",
+        description: "The subject, or the picked object, on a transparent background. SAM 2.1, local.",
+        resolutions: SOURCE_RESOLUTIONS,
+        seconds: [],
+        frames: [],
+        refs: 1,
+        minRefs: 1,
+        prompt: false,
+        inputs: [],
+      },
+    ],
+  },
+  crop: {
+    id: "crop",
+    label: "Crop",
+    mode: "image",
+    paid: false,
+    available: false,
+    resolutions: SOURCE_RESOLUTIONS,
+    seconds: [],
+    frames: [],
+    refs: 1,
+    seed: false,
+    serial: false,
+    models: [
+      {
+        id: "crop",
+        name: "Crop",
+        mode: "image",
+        description: "Cut the picture to a rectangle. Local, no AI.",
+        resolutions: SOURCE_RESOLUTIONS,
+        seconds: [],
+        frames: [],
+        refs: 1,
+        minRefs: 1,
+        prompt: false,
+        inputs: [cropEdge("x", "Left", 0), cropEdge("y", "Top", 0), cropEdge("w", "Width", 1), cropEdge("h", "Height", 1)],
+      },
+    ],
+  },
 };
 
 /**
- * How many jobs run at once, per pool: the Mac's GPU takes one LTX, MOSS, Kontext or ComfyUI job at a time
+ * How many jobs run at once, per pool: the Mac's GPU takes one LTX, MOSS, Kontext, ComfyUI or SAM job at a time
  * (first in, first out), ComfyUI video runs on the GPU box one at a time, both Codex backends share
- * one ChatGPT account, Higgsfield bills each job.
+ * one ChatGPT account, Higgsfield bills each job, crops are a quick ffmpeg each.
  */
 export const STUDIO_POOLS: Readonly<Record<StudioBackendId, { readonly pool: string; readonly max: number }>> = {
   ltx: { pool: "gpu", max: 1 },
@@ -155,6 +232,8 @@ export const STUDIO_POOLS: Readonly<Record<StudioBackendId, { readonly pool: str
   kontext: { pool: "gpu", max: 1 },
   comfyui: { pool: "gpu", max: 1 },
   "comfyui-video": { pool: "gpu-box", max: 1 },
+  sam: { pool: "gpu", max: 1 },
+  crop: { pool: "crop", max: 4 },
   higgsfield: { pool: "higgsfield", max: 2 },
 };
 
@@ -164,6 +243,10 @@ const KONTEXT_ESTIMATE_MS = 240_000;
 export const MOSS_TURBO_ESTIMATE_MS = 120_000;
 /** Turbo off: 50 steps with CFG (100 network passes) on top of the same load and enhancer. */
 const MOSS_FULL_ESTIMATE_MS = 420_000;
+/** A SAM 2.1 cutout: model load, the image encoder and the point grid, on the CPU. */
+const SAM_ESTIMATE_MS = 45_000;
+/** A cutout of a mask SAM already found: no model, just the alpha. */
+const SAM_MASK_ESTIMATE_MS = 4000;
 
 /** `WxH` as numbers; null for other ids (`720p`, `std`). */
 export function parseSize(resolution: string): readonly [number, number] | null {
@@ -223,6 +306,10 @@ export function baseEstimateMs(spec: StudioSpec, backend?: StudioBackend): numbe
     case "comfyui":
     case "comfyui-video":
       return backend?.models?.find((model) => model.id === spec.model)?.estimateMs ?? 120_000;
+    case "sam":
+      return spec.mask === undefined ? SAM_ESTIMATE_MS : SAM_MASK_ESTIMATE_MS;
+    case "crop":
+      return 2000;
     case "higgsfield":
       return 120_000;
   }
@@ -265,11 +352,34 @@ export function validateSpec(spec: StudioSpec, backend: StudioBackend, asset: (i
     if (field.kind === "number" && (typeof value !== "number" || value < field.min || value > field.max))
       return `${field.label} must be between ${String(field.min)} and ${String(field.max)}`;
   }
+  if (spec.backend === "crop") {
+    if (spec.mask !== undefined) return "Crop takes no mask";
+    const problem = cropProblem(spec.params ?? {});
+    if (problem !== null) return problem;
+  }
   for (const id of [...Object.values(frames), ...refs]) {
     if (id === undefined) continue;
     const found = asset(id);
     if (found === undefined) return "A frame or reference image is gone; pick it again";
     if (found.kind !== "image") return "Frames and reference images must be images";
   }
+  return null;
+}
+
+/** A crop rectangle from `params` (fractions of the source; absent edges are the whole picture). */
+export function cropBox(params: NonNullable<StudioSpec["params"]>): readonly [number, number, number, number] {
+  const edge = (key: string, fallback: number): number => {
+    const value = params[key];
+    return typeof value === "number" ? value : fallback;
+  };
+  return [edge("x", 0), edge("y", 0), edge("w", 1), edge("h", 1)];
+}
+
+/** Why a crop's rectangle is no good, in one line; null when it fits inside the picture. */
+function cropProblem(params: NonNullable<StudioSpec["params"]>): string | null {
+  const [x, y, w, h] = cropBox(params);
+  if (w < MIN_CROP_SIDE || h < MIN_CROP_SIDE) return "The crop is too small";
+  // A little slack: clients send rounded fractions.
+  if (x + w > 1 + 1e-6 || y + h > 1 + 1e-6) return "The crop goes past the edge of the picture";
   return null;
 }
