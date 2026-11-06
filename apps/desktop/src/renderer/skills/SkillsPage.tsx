@@ -220,6 +220,7 @@ export function SkillsPage(_: { place: Place }) {
             onSelect={selectSkill}
             now={now}
             usage={usage}
+            narrow={row !== null}
             empty={<SkillsEmpty filtered={(list ?? []).length > 0} />}
           />
         </ScrollArea>

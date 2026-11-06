@@ -18,6 +18,8 @@ interface SkillsTableProps {
   now: number
   /** The host counts uses (a host from before usage stats does not): show Uses and Last used. */
   usage: boolean
+  /** A skill's panel, which shows its description and folder, is open: no Description or Source. */
+  narrow: boolean
   /** Shown instead of rows when there are none (no skills, or none match). */
   empty: ReactNode
 }
@@ -61,9 +63,10 @@ function SortLabel({
 
 /**
  * The library on Relay's list (columns mode, as Jobs and Test Bench): name, description, source,
- * who loads it, how often and how lately it was used, and its age. Name, Uses, Last used and
- * Updated sort from their headers; Up and Down move between rows, and the focused row is the
- * selected one. A skill never used says so quietly.
+ * who loads it, how often and how lately it was used, and its age (no description or source while
+ * a skill's panel, which shows both, is open beside it). Name, Uses, Last used and Updated sort
+ * from their headers; Up and Down move between rows, and the focused row is the selected one. A
+ * skill never used says so quietly.
  */
 export function SkillsTable({
   rows,
@@ -75,6 +78,7 @@ export function SkillsTable({
   onSelect,
   now,
   usage,
+  narrow,
   empty,
 }: SkillsTableProps) {
   const byId = new Map(assistants.map((a) => [a.id, a]))
@@ -91,10 +95,19 @@ export function SkillsTable({
       label: <SortLabel label="Name" column="name" sort={sort} onSort={onSort} />,
       width: 'minmax(120px, 1fr)',
     },
-    { id: 'description', label: 'Description', width: 'minmax(0, 1.6fr)', align: 'start' },
     // Fixed widths: every row is its own grid, so an auto track would size to that row's pill or
     // portraits and push the Description column to a different left edge in each row.
-    { id: 'source', label: 'Source', width: '9rem', align: 'start' },
+    ...(narrow
+      ? []
+      : [
+          {
+            id: 'description',
+            label: 'Description',
+            width: 'minmax(0, 1.6fr)',
+            align: 'start' as const,
+          },
+          { id: 'source', label: 'Source', width: '9rem', align: 'start' as const },
+        ]),
     { id: 'used', label: 'Used by', width: '5rem', align: 'start' },
     ...(usage
       ? [
@@ -144,16 +157,20 @@ export function SkillsTable({
               if (e.target === e.currentTarget && r.name !== selected) onSelect(r.name)
             }}
             cells={[
-              <span key="d" className="eva-skills-desc" title={r.description}>
-                {r.description}
-              </span>,
-              <span
-                key="s"
-                className="eva-skills-source"
-                title={[r.source, ...r.also].map((s) => s.dir).join('\n')}
-              >
-                <ListPill tone="dim">{sourcePill(r)}</ListPill>
-              </span>,
+              ...(narrow
+                ? []
+                : [
+                    <span key="d" className="eva-skills-desc" title={r.description}>
+                      {r.description}
+                    </span>,
+                    <span
+                      key="s"
+                      className="eva-skills-source"
+                      title={[r.source, ...r.also].map((s) => s.dir).join('\n')}
+                    >
+                      <ListPill tone="dim">{sourcePill(r)}</ListPill>
+                    </span>,
+                  ]),
               users.length > 0 ? (
                 <span
                   key="u"
