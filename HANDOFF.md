@@ -1,74 +1,34 @@
-# HANDOFF: @computer v1 (branch eva/computer, worktree work/relay-computer)
+# HANDOFF: Relay Studio redesign, Direction B (branch eva/studio-redesign, worktree work/relay-studio-redesign)
 
-Read first: `SPEC.md` (design, grammar, routing, safety, open questions). Order: headless, then live,
-then walk; each verified before the next. Rules: never relaunch or drive Relay Desktop's own UI to
-test (composer parsing via the e2e harness, hidden window); host untouched (no host install needed
-so far); desktop ships by rebase + fast-forward push main + `bun /Users/ike/Eva/.omp/tools/relay-desktop-deploy.ts deploy`.
+(The previous file here was the @computer handoff: `git show 6a44c4f4:HANDOFF.md`.)
+
+Isaac approved Direction B (projects rail) on 2026-11-06. Spec = the clickable prototype `work/studio-proto` (src/,
+http://127.0.0.1:5390) where it differs from the board `studio-redesign`; design notes in `work/studio-redesign/`.
+Build brief shared by every slice: `local://studio-build.md` (copied below under "Brief" when final).
+
+## Rules
+No real generation jobs in dev or tests (stubbed backends, fake host, existing files). Never drive the live Relay app
+(headless e2e). Desktop deploys allowed (`bun /Users/ike/Eva/.omp/tools/relay-desktop-deploy.ts deploy`). Host: build +
+push, then STOP: the install needs Isaac's heads-up via Nova. Phone OTA only after the host is installed. One real smoke
+per engine only if Isaac says so.
 
 ## Done (committed)
-- d18eff10 SPEC.md + this file.
-- 31f7dc53 Assist `--present` mode (apps/assist/Sources/Presenter.swift; stdin JSON ops
-  assistant/point/click/caption/hide/quit, stdout events ready/landed/spoken/esc/error; 170 Swift
-  tests pass; smoke prints ready and exits 0; resident Assist untouched). The real overlay has NOT
-  been shown yet (Isaac was active). README has a `--present` section.
-- 52585767 desktop core, all in `apps/desktop/src/main/computer/`:
-  command.ts (parser), route.ts (Assist routing rules + chat thread), driver.ts (cua-driver MCP
-  client, `--direct` = Relay's grants, else daemon), desktop.ts (windows/read/act), safety.ts
-  (gate: ask/refuse), brain.ts (OpenAI Responses, gpt-6.1-terra, key from secrets/openai.env),
-  agent.ts (headless/live loop; risky steps auto-ask with screenshot), judge.ts (Jev / model),
-  walk.ts (plan, point+speak, poll done), presenter.ts (spawns Assist --present), runs.ts (rows,
-  approvals via `[[replies: Approve | Cancel]]`, stop/next/skip, one run per Mac, MacBook refuses),
-  index.ts (registerComputer, `computer.rows` invoke). Contract: packages/contract/src/computer.ts.
-  Wiring: main/chat/index.ts + live-ipc.ts (`chat.send` intercept before SessionManager.send);
-  renderer/chat/computer-rows.ts + ChatPane.tsx merge rows after the session's messages.
-- Unit tests: `npx vitest run --project main src/main/computer` (16 pass). `pnpm typecheck` passes.
+- 3ba8539a wire model: protocol + contract (projects, lineage parent+how, batch/count, favorites, trash + 10 min undo,
+  references, SAM segments + spec.mask, `sam` and `crop` backends, `studio.library` / `studio.segments` frames, lineage
+  helpers `studioItems/studioLineage/studioVersions/...`).
 
-## Headless real runs (throwaway harness /tmp/computer-smoke/run.ts + sampler.py; reports in /tmp/computer-smoke/<tag>/report.json)
-- Calculator 12x7 -> 84, front app stayed Relay throughout (Isaac active, mouse moves are his).
-- TextEdit new doc + type + screenshot: worked (/tmp/computer-smoke/textedit/02-TextEdit.png).
-  Leftover: an unsaved "Untitled" TextEdit window is open; close it without saving.
-- System Settings read-only macOS version: "27.0.1", clean idle run: idle grew 5.4 -> 17.5 s,
-  mouse unchanged, front unchanged (proof of no HID input/focus change).
-- Linear read-only ENG-6810: first try FAILED (background typing in Linear's search did nothing);
-  fixed by the `open_url` tool (9910b399, `open -g linear://ecard-systems/issue/<KEY>`, scheme
-  allowlist https/http/linear/x-apple.systempreferences): "ENG-6810 is In Review and assigned to
-  Isaac Weber.", 18 s, one step, front app unchanged (/tmp/computer-smoke/linear2/report.json).
-- e2e `apps/desktop/e2e/computer.spec.ts` passes (help row, run fails "no OpenAI key" with
-  OPENAI_API_KEY blanked, stop says nothing running, zero omp prompts; a non-leading `@computer`
-  message still reaches omp).
-- b68b9968 walk: "Keep waiting" keeps waiting on the same step (was: moved on); walk.test.ts.
-- Lint: desktop's `pnpm lint` fails only on the gitignored build copy
-  `apps/desktop/resources/RelayHost/Relay Host.app/.../omp-extension/*.ts` (not ours); eslint +
-  prettier on our files clean; em-dash and spacing lint clean.
+## In flight (subagents, same worktree, integrator commits)
+- HostCore: service/store ops, purge of every copy (store + thumb + ComfyUI output/input + temp) after the undo window,
+  machine-wide GPU lock for kontext/comfyui/sam, create count -> N jobs, index v2 migration, tests.
+- HostEngines: SAM 2.1 (transformers, `~/.local/share/hades-fit/bin/python`, weights in HF cache) segments + cutout,
+  crop runner, masked composite, presets `qwen-edit` (new), relight `direction`, upscale sizes.
+- DesktopLibrary: landing (rail, grid, filters, selection, bulk bar, create bar, queue, references, send to chat, add to
+  canvas), main plumbing, fake host, e2e/studio.spec.ts.
+- DesktopEditor: renderer/studio/editor/* + e2e/studio-editor.spec.ts.
+- Phone: apps/mobile Studio.
 
-- Shipped: rebased, pushed main f4f5ee42 (fast-forward), deployed (published f4f5ee4288, Mini
-  kicked, MBP unreachable picks it up on poll). The bundle's Helpers/Relay Assist.app answers
-  `--present` with ready. 87ecf525 (SPEC sync) is local only so far.
-- TextEdit leftover "Untitled" closed without saving (File > Close, Delete).
+## Open questions
+- Upscale 4x on SeedVR2 3B above 4096 px is unverified (no test generations).
+- Qwen Image Edit plain preset quality unverified until Isaac allows one real smoke.
 
-## Live and walk (idle-gated, throwaway harness /tmp/computer-smoke/present.ts + when-idle*.sh)
-- First attempts: cua-driver's bring_to_front "not verified" error ended walk runs and cost the
-  live run its open step: fixed (2a153b8d, `Desktop.front` best effort).
-- live: "In Calculator, clear it, then work out 23 x 4" -> "23 × 4 = 92.", 31 s, Nova's cursor,
-  caption, click marks; front app restored, no touch during the run.
-  proof/computer/live-calculator.mp4 (H.264 900x640, 36 s), live-frames.png.
-- walk: 3 steps (All Clear, 4, 2), harness pressed each in the background 4.5 s after the overlay
-  pointed (outline, step badge, caption, voice); all 3 judged done by Jev; mouse 1173,945 before
-  and after, front Relay before and after. proof/computer/walk-calculator.mp4 (52 s, no audio),
-  walk-frames.png.
-- aa5482b8: presenter drops Assist's "· staying" tag (seen in the proofs); walk asks Jev "already
-  done?" and "which control?" in parallel (step 1 started 30 s after the plan).
-
-- Deployed ec47af25 (live/walk fixes), then b5746963: Isaac's bug "run rows stick at the bottom":
-  rows carry the send time and `placeRows` (renderer/chat/computer-rows.ts) puts each run where it
-  was sent; a finished run folds to one collapsible line; rows saved per session file
-  (`<config>/computer/threads/`). Tests: computer-rows.test.ts, runs.test.ts (collapse, restart,
-  draft to file), e2e computer.spec.ts (later messages land below the run; fake omp
-  FAKE_OMP_REAL_TIME=1), at-menu.spec.ts updated (30ce0606, pushed).
-
-## State
-Done. Host: no host code in this work; origin/main 30ce0606 contains f5f3fa80, so one host install
-from 30ce0606 covers everything (Nova's bundle). Not done: walk proof with the voice track
-(needs another idle window: `/tmp/computer-smoke/when-idle-walk.sh`, throwaway).
-
-Checkpoint: 2026-11-06 14:05 EST
+Checkpoint: 2026-11-06 16:30 EST
