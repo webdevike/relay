@@ -14,7 +14,7 @@ interface SkillPanelProps {
   onClose: () => void
 }
 
-/** The detail panel beside the table: the skill's header, then its Editor, Usage and Settings tabs. */
+/** The detail panel beside the table: the skill's header, then its Editor, Usage and Settings tabs. The tabs stay put; whatever tab is open scrolls as one body below them. */
 export function SkillPanel({ row, detail, assistants, now, onClose }: SkillPanelProps) {
   return (
     <aside className="eva-skills-panel" aria-label={row.name} data-testid="skill-panel">
@@ -33,7 +33,6 @@ export function SkillPanel({ row, detail, assistants, now, onClose }: SkillPanel
           </ActionIcon>
         </h2>
         <div className="eva-skills-mono eva-skills-dim">{row.source.dir}</div>
-        <div className="eva-skills-desc-full">{row.description}</div>
         {row.uses === undefined || row.uses === null ? null : (
           <div className="eva-skills-dim" data-testid="skill-panel-uses">
             {row.lastUsedAt === null
@@ -51,10 +50,10 @@ export function SkillPanel({ row, detail, assistants, now, onClose }: SkillPanel
         <Tabs.Panel value="editor" className="eva-skills-tabpanel">
           <SkillEditor key={row.name} name={row.name} />
         </Tabs.Panel>
-        <Tabs.Panel value="usage" className="eva-skills-tabpanel eva-skills-tabpanel-scroll">
+        <Tabs.Panel value="usage" className="eva-skills-tabpanel">
           <SkillUsage row={row} detail={detail} assistants={assistants} now={now} />
         </Tabs.Panel>
-        <Tabs.Panel value="settings" className="eva-skills-tabpanel eva-skills-tabpanel-scroll">
+        <Tabs.Panel value="settings" className="eva-skills-tabpanel">
           <SkillSettings row={row} detail={detail} assistants={assistants} now={now} />
         </Tabs.Panel>
       </Tabs>

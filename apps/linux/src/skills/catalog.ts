@@ -13,7 +13,7 @@
 import { execFile } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, sep } from "node:path";
+import { basename, dirname, join, relative, sep } from "node:path";
 import { z } from "zod";
 import { loadRegistry } from "../assistant/registry";
 import { frontmatterData, splitFrontmatter } from "./doc";
@@ -112,6 +112,28 @@ function configList(path: string): string[] | undefined {
   return Array.isArray(list) ? list.filter((item): item is string => typeof item === "string") : undefined;
 }
 
+/** `name` to `source` from a skills lock (`~/.agents/.skill-lock.json`, `<checkout>/skills-lock.json`); empty when missing or unreadable. */
+function lockSources(path: string): Map<string, string> {
+  const out = new Map<string, string>();
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+    const skills = (parsed as { skills?: Record<string, { source?: unknown }> }).skills ?? {};
+    for (const [name, entry] of Object.entries(skills)) if (typeof entry.source === "string" && entry.source !== "") out.set(name, entry.source);
+  } catch {
+    // no lock
+  }
+  return out;
+}
+
+/** The real path of `path`, or null when it does not exist. */
+function real(path: string): string | null {
+  try {
+    return realpathSync(path);
+  } catch {
+    return null;
+  }
+}
+
 /** Files under `dir` (skipping dotfiles and node_modules), in walk order, and the newest mtime seen. */
 function walk(dir: string, cap: number): { files: { path: string; size: number }[]; newest: number; truncated: boolean } {
   const files: { path: string; size: number }[] = [];
@@ -206,6 +228,7 @@ export class SkillCatalog {
       for (const copy of discovery.bare) if (own.includes(`skill:${copy.name}`)) add(copy, profile);
     }
     const out: CatalogEntry[] = [];
+    const locks = [lockSources(join(this.deps.home, ".agents", ".skill-lock.json")), ...(this.deps.evaRoot === null ? [] : [lockSources(join(this.deps.evaRoot, "skills-lock.json"))])];
     for (const [name, group] of copies) {
       const [primary, ...rest] = group;
       if (primary === undefined) continue;
@@ -222,10 +245,47 @@ export class SkillCatalog {
             ? []
             : assistants.filter((assistant) => profiles.has(assistant.profile) && !(disabled.get(assistant.profile) ?? []).includes(`skill:${name}`)).map((assistant) => assistant.id),
           disabled: primary.disabled,
+          package: this.packageOf(primary, locks),
+          origin: this.originOf(primary, rest),
         },
       });
     }
     return out.sort((a, b) => a.row.name.localeCompare(b.row.name));
+  }
+
+  /** The skill folder's own name: omp's `agents/alpha` is the folder `alpha`. */
+  private folderOf(copy: SkillCopy): string {
+    return basename(dirname(copy.source.file));
+  }
+
+  /**
+   * Where a skill was installed from: a skills lock's source, else (a skill linked in from a repo
+   * or a plugin) the folder that holds its `skills/` directory, else null.
+   */
+  private packageOf(copy: SkillCopy, locks: readonly Map<string, string>[]): string | null {
+    const folder = this.folderOf(copy);
+    for (const lock of locks) {
+      const source = lock.get(folder);
+      if (source !== undefined) return source;
+    }
+    const skills = dirname(copy.realDir);
+    const holder = basename(dirname(skills));
+    // omp's own `~/.omp/agent/skills` and the dot folders (`.agents`, `.claude`, `.omp`) are where skills live, not what they came from.
+    if (basename(skills) !== "skills" || holder.startsWith(".") || holder === "agent") return null;
+    // Claude Code's plugin cache names a folder `<marketplace>___<plugin>___<version>`.
+    return /___(.+)___/.exec(holder)?.[1] ?? holder;
+  }
+
+  /** Omp's folders, Claude Code's (`~/.claude/skills`, `<checkout>/.claude/skills`), or both: a skill linked into one from the other lives in both. */
+  private originOf(primary: SkillCopy, rest: readonly SkillCopy[]): "omp" | "claude" | "both" {
+    const claudeKey = (key: string): boolean => key.startsWith("claude");
+    const folder = this.folderOf(primary);
+    const roots = (dirs: readonly string[]): string[] => [this.deps.home, ...(this.deps.evaRoot === null ? [] : [this.deps.evaRoot])].flatMap((base) => dirs.map((dir) => join(base, dir)));
+    const holds = (dirs: readonly string[]): boolean => roots(dirs).some((root) => real(join(root, folder)) === primary.realDir);
+    const keys = [primary, ...rest].map((copy) => copy.source.key);
+    const claude = keys.some(claudeKey) || holds([join(".claude", "skills")]);
+    const omp = keys.some((key) => !claudeKey(key)) || holds([join(".omp", "skills"), join(".omp", "agent", "skills"), join(".agents", "skills")]);
+    return claude && omp ? "both" : claude ? "claude" : "omp";
   }
 
   /** The entry for `name`, or null. */

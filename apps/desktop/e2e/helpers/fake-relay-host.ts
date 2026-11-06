@@ -287,6 +287,12 @@ export class FakeRelayHost {
   private readonly studioFiles = new Map<string, { body: Buffer; type: string }>()
   private studioN = 0
 
+  /** Routes beyond the host's own: a live skill document (skill-room.ts). Each returns whether it took the request. */
+  readonly extra: {
+    http?: (req: http.IncomingMessage, res: http.ServerResponse) => boolean
+    upgrade?: (req: http.IncomingMessage, socket: Duplex) => boolean
+  } = {}
+
   private constructor(
     readonly dir: string,
     private readonly server: http.Server,
@@ -547,6 +553,7 @@ export class FakeRelayHost {
    * miniature: it names its board and says it is ready.
    */
   private http(req: http.IncomingMessage, res: http.ServerResponse): void {
+    if (this.extra.http?.(req, res)) return
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const asset = req.method === 'GET' ? this.studioFiles.get(url.pathname) : undefined
     if (asset) {
@@ -763,6 +770,7 @@ export class FakeRelayHost {
   }
 
   private upgrade(req: http.IncomingMessage, socket: Duplex): void {
+    if (this.extra.upgrade?.(req, socket)) return
     const key = req.headers['sec-websocket-key']
     if (req.url !== '/relay' || typeof key !== 'string') {
       socket.destroy()

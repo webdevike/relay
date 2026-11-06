@@ -96,12 +96,14 @@ export function SkillUsage({ row, detail, assistants, now }: SkillUsageProps) {
           </div>
         ))}
       </div>
-      {stats.lastUsedAt !== null ? (
+      {stats.firstUsedAt !== null ? (
         <Text size="sm" c="dimmed">
-          Last used {lastUsedLabel(stats.lastUsedAt, now)}
-          {stats.firstUsedAt !== null
-            ? `, first ${new Date(stats.firstUsedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`
-            : ''}
+          First used{' '}
+          {new Date(stats.firstUsedAt).toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          })}
         </Text>
       ) : null}
 

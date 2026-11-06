@@ -10,16 +10,17 @@ import { ListEmpty } from '../ui/list'
 import { SkillPanel } from './SkillPanel'
 import { SkillsEmpty, SkillsTable, neighbor } from './SkillsTable'
 import { onSkillRequest, takeSkillRequest } from './skill-request'
+import { deriveFamilies, groupSkills, visibleSkills } from './skill-groups'
 import {
   ANY,
   DEFAULT_SORT,
+  ORIGIN_LABELS,
   filterSkills,
   nextSort,
-  sortSkills,
   sourceLabels,
   type SkillSort,
 } from './skills-model'
-import { loadSkills, selectSkill, useSkills } from './skills-store'
+import { loadSkills, selectSkill, setGroupOpen, useSkills } from './skills-store'
 import './skills.css'
 
 const PANEL_MIN = 340
@@ -71,9 +72,11 @@ export function SkillsPage(_: { place: Place }) {
   const available = useSkills((s) => s.available)
   const error = useSkills((s) => s.error)
   const selected = useSkills((s) => s.selected)
+  const expanded = useSkills((s) => s.expanded)
   const detail = useSkills((s) => (s.selected === null ? null : (s.details[s.selected] ?? null)))
   const [query, setQuery] = useState('')
   const [source, setSource] = useState(ANY)
+  const [origin, setOrigin] = useState(ANY)
   const [usedBy, setUsedBy] = useState(ANY)
   const [sort, setSort] = useState<SkillSort>(DEFAULT_SORT)
   const [width, setWidth] = useState(panelWidth)
@@ -111,11 +114,24 @@ export function SkillsPage(_: { place: Place }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const rows = useMemo(
-    () => sortSkills(filterSkills(list ?? [], { query, source, usedBy }), sort),
-    [list, query, source, usedBy, sort],
+  const families = useMemo(() => deriveFamilies(list ?? []), [list])
+  const entries = useMemo(
+    () => groupSkills(filterSkills(list ?? [], { query, source, origin, usedBy }), families, sort),
+    [list, families, query, source, origin, usedBy, sort],
   )
+  // A search opens every group it matched into, so the matches show; otherwise the groups stay as left.
+  const searching = query.trim() !== ''
+  const isOpen = (id: string): boolean => searching || expanded.includes(id)
+  const rows = visibleSkills(entries, isOpen)
   const row = list?.find((r) => r.name === selected) ?? null
+
+  // A skill picked from a link or by name shows: its group opens (once, not on every list reload).
+  const familiesNow = useRef(families)
+  familiesNow.current = families
+  useEffect(() => {
+    const id = selected === null ? undefined : familiesNow.current.get(selected)?.id
+    if (id !== undefined) setGroupOpen(id, true)
+  }, [selected])
   // A host from before usage stats sends no uses: no Uses or Last used column then.
   const usage = (list ?? []).some((r) => r.uses !== undefined)
   const never = (list ?? []).filter((r) => r.uses === 0).length
@@ -200,6 +216,15 @@ export function SkillsPage(_: { place: Place }) {
             onChange={setSource}
           />
           <FilterMenu
+            label="Origin"
+            value={origin}
+            options={[
+              { value: ANY, label: 'All' },
+              ...Object.entries(ORIGIN_LABELS).map(([value, label]) => ({ value, label })),
+            ]}
+            onChange={setOrigin}
+          />
+          <FilterMenu
             label="Used by"
             value={usedBy}
             options={[
@@ -211,7 +236,9 @@ export function SkillsPage(_: { place: Place }) {
         </div>
         <ScrollArea scrollKey="skills" className="eva-skills-scroll">
           <SkillsTable
-            rows={rows}
+            entries={entries}
+            isOpen={isOpen}
+            onToggle={setGroupOpen}
             loading={list === null}
             assistants={assistants}
             sort={sort}

@@ -17,6 +17,19 @@ export interface SkillsState {
   selected: string | null
   /** Details read so far, by name. */
   details: Record<string, SkillDetail>
+  /** Family ids whose group rows are open; kept across restarts. */
+  expanded: readonly string[]
+}
+
+const EXPANDED_KEY = 'relay.skills.expanded'
+
+function loadExpanded(): string[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(EXPANDED_KEY) ?? '[]')
+    return Array.isArray(raw) ? raw.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
 }
 
 const initial = (): SkillsState => ({
@@ -27,6 +40,7 @@ const initial = (): SkillsState => ({
   loading: true,
   selected: null,
   details: {},
+  expanded: loadExpanded(),
 })
 
 export const skillsStore = createStore<SkillsState>(initial)
@@ -92,6 +106,20 @@ export function ensureSkillsLoaded(): void {
   if (loadedOnce) return
   loadedOnce = true
   void loadSkills()
+}
+
+/** Opens or closes a group row (`open` flips it when absent). */
+export function setGroupOpen(id: string, open?: boolean): void {
+  const { expanded } = skillsStore.getState()
+  const now = expanded.includes(id)
+  if ((open ?? !now) === now) return
+  const next = now ? expanded.filter((e) => e !== id) : [...expanded, id]
+  skillsStore.setState({ expanded: next })
+  try {
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify(next))
+  } catch {
+    // Not kept this time; the group is still open or closed for now.
+  }
 }
 
 export function selectSkill(name: string | null): void {

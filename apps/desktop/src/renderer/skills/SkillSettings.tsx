@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Button, Group, Radio, Select, SimpleGrid, Switch, Text, TextInput } from '@mantine/core'
+import { Button, Group, Radio, Select, SimpleGrid, Switch, Text } from '@mantine/core'
 import type { SkillAssistant, SkillDetail, SkillRow } from '@evaos/contract'
 import { AgentPortrait } from '../assistants/AgentPortrait'
 import '../settings/settings.css'
@@ -158,22 +158,13 @@ export function SkillSettings({ row, detail, assistants }: SkillSettingsProps) {
         ) : null}
       </Section>
 
-      <Section title="Source">
-        <TextInput
-          size="xs"
-          readOnly
-          aria-label="SKILL.md path"
-          value={`${row.source.dir}/SKILL.md`}
-          description="Read-only. Edit in the Editor tab."
-          inputWrapperOrder={['input', 'description']}
-          styles={{ input: { fontFamily: 'var(--mantine-font-family-monospace)' } }}
-        />
-        {row.also.length > 0 ? (
+      {row.also.length > 0 ? (
+        <Section title="Other copies">
           <Text size="sm" c="dimmed">
             Also in {row.also.map((s) => `${s.label} (${s.dir})`).join(', ')}
           </Text>
-        ) : null}
-      </Section>
+        </Section>
+      ) : null}
 
       <Section title="Files in folder">
         {detail ? (

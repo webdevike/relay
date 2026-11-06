@@ -36,6 +36,10 @@ export interface SkillRow {
   lastUsedAt: number | null;
   /** Loads ever; null while the first usage scan runs. */
   uses: number | null;
+  /** Where it was installed from (a skills lock's source, or the repo or plugin folder a linked skill lives in); null when written in place. */
+  package: string | null;
+  /** Which tool loads it: omp's folders, Claude Code's, or both. */
+  origin: "omp" | "claude" | "both";
 }
 
 /** Loads of one skill by one runner (skills/usage.ts `Runner`). */

@@ -73,8 +73,8 @@ describe('SkillSettings', () => {
     expect(screen.getByTestId('skill-enabled-nova')).toBeChecked()
     expect(screen.getByTestId('skill-enabled-astra')).not.toBeChecked()
     expect(screen.getByText('Nova and Polaris share the personal profile.')).toBeInTheDocument()
-    expect(screen.getByLabelText('SKILL.md path')).toHaveValue('~/Eva/.omp/skills/canvas/SKILL.md')
-    expect(screen.getByText('Read-only. Edit in the Editor tab.')).toBeInTheDocument()
+    // The folder is the panel header's; the tab does not repeat it.
+    expect(screen.queryByLabelText('SKILL.md path')).toBeNull()
     expect(screen.getByText('scripts/validate.sh')).toBeInTheDocument()
     expect(screen.getByText('312 B')).toBeInTheDocument()
     // Nova and Polaris are one profile, so this reads as one assistant only.

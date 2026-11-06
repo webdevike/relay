@@ -14,15 +14,32 @@ export const ANY = 'all'
 export interface SkillFilter {
   query: string
   source: string
+  /** `all`, or `omp`, `claude`, `both`. */
+  origin: string
   /** An assistant id, or `all`. */
   usedBy: string
 }
 
-/** Rows matching the search (name or description, every word), the source and the assistant. */
+export type SkillOrigin = NonNullable<SkillRow['origin']>
+
+/** The Origin column's text. */
+export const ORIGIN_LABELS: Record<SkillOrigin, string> = {
+  omp: 'omp',
+  claude: 'Claude',
+  both: 'Both',
+}
+
+/** Which tool loads the skill; a host from before origins is read from the source (Claude's folders are `claude:*`). */
+export function originOf(row: Pick<SkillRow, 'origin' | 'source'>): SkillOrigin {
+  return row.origin ?? (row.source.key.startsWith('claude') ? 'claude' : 'omp')
+}
+
+/** Rows matching the search (name or description, every word), the source, the origin and the assistant. */
 export function filterSkills(rows: readonly SkillRow[], f: SkillFilter): SkillRow[] {
   const words = f.query.toLowerCase().split(/\s+/).filter(Boolean)
   return rows.filter((r) => {
     if (f.source !== ANY && r.source.label !== f.source) return false
+    if (f.origin !== ANY && originOf(r) !== f.origin) return false
     if (f.usedBy !== ANY && !r.usedBy.includes(f.usedBy)) return false
     if (words.length === 0) return true
     const hay = `${r.name}\n${r.description}`.toLowerCase()

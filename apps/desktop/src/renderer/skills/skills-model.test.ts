@@ -8,6 +8,7 @@ import {
   joinTitles,
   lastUsedLabel,
   nextSort,
+  originOf,
   scopeAccess,
   scopeOf,
   sharedProfiles,
@@ -41,7 +42,27 @@ const ROWS = [
   row('adhd', { description: 'Parallel divergent ideation', updatedAt: 10, usedBy: [] }),
   row('cloudflare', { source: src('.agents'), also: [src('.claude')], updatedAt: 20 }),
 ]
-const all = { query: '', source: ANY, usedBy: ANY }
+const all = { query: '', source: ANY, origin: ANY, usedBy: ANY }
+
+describe('origin', () => {
+  const claude = { ...src('Claude project'), key: 'claude:project' }
+  it("reads the host's origin, else the source: claude:* is Claude, anything else omp", () => {
+    expect(originOf(row('a', { origin: 'both', source: claude }))).toBe('both')
+    expect(originOf(row('a', { source: claude }))).toBe('claude')
+    expect(originOf(row('a'))).toBe('omp')
+  })
+
+  it('filters by origin', () => {
+    const rows = [
+      row('a', { origin: 'omp' }),
+      row('b', { origin: 'claude' }),
+      row('c', { origin: 'both' }),
+    ]
+    expect(filterSkills(rows, { ...all, origin: 'claude' }).map((r) => r.name)).toEqual(['b'])
+    expect(filterSkills(rows, { ...all, origin: 'both' }).map((r) => r.name)).toEqual(['c'])
+    expect(filterSkills(rows, all)).toHaveLength(3)
+  })
+})
 
 describe('filterSkills', () => {
   it('matches every word in the name or description, any case', () => {

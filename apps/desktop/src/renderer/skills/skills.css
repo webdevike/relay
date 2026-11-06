@@ -87,6 +87,42 @@
   white-space: nowrap;
   color: var(--eva-c-muted-foreground);
 }
+/* Name cell: group rows lead with a chevron; every other row keeps that slot empty so names line
+   up, and members step in one more. */
+.eva-skills .eva-skills-name {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  max-width: 100%;
+  min-width: 0;
+}
+.eva-skills .eva-skills-name:not([data-group])::before {
+  content: '';
+  flex: none;
+  width: 14px;
+}
+.eva-skills .eva-skills-name[data-member] {
+  padding-inline-start: var(--mantine-spacing-md);
+}
+.eva-skills .eva-skills-chev {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-skills .eva-skills-name > svg {
+  flex: none;
+}
+.eva-skills .eva-skills-group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-skills .eva-skills-origin {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
 .eva-skills .eva-skills-users {
   display: inline-flex;
   align-items: center;
@@ -163,40 +199,30 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.eva-skills .eva-skills-desc-full {
-  line-height: var(--eva-lh-body);
-}
 .eva-skills .eva-skills-tabs {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
+/* Every tab's body is the one scroll container under the pinned tabs; the editor inside grows to
+   its content and never scrolls on its own. */
 .eva-skills .eva-skills-tabpanel {
   flex: 1;
   min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.eva-skills .eva-skills-tabpanel-scroll {
   overflow-y: auto;
 }
 
 /* Editor tab. */
 .eva-skills .eva-skills-doc {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--mantine-spacing-xs);
   padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
 }
 .eva-skills .eva-skills-sheet {
-  flex: 1;
-  min-height: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 .eva-skills .eva-skills-front {
   flex: none;
@@ -204,9 +230,7 @@
   border-bottom: 1px solid var(--eva-c-border);
 }
 .eva-skills .eva-skills-prose {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+  overflow: visible;
 }
 .eva-skills .eva-skills-bubble-wrap {
   z-index: 20;

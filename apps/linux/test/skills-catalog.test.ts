@@ -45,6 +45,21 @@ describe("SkillCatalog", () => {
     expect(sourceLabel("plugin:unreal")).toBe("Plugin");
   });
 
+  it("says which tool loads a skill and what package it came from", async () => {
+    const { home, catalog } = await setup();
+    home.write(".agents/.skill-lock.json", JSON.stringify({ version: 3, skills: { gamma: { source: "acme/skills", sourceType: "github" } } }));
+    home.write("Eva/skills-lock.json", JSON.stringify({ version: 1, skills: { zeta: { source: "zed/zeta-skills" } } }));
+    await catalog.refresh(true);
+    const rows = Object.fromEntries(catalog.entries().map((entry) => [entry.row.name, entry.row]));
+    // omp's own folder; Claude's own folder; omp's folder linked into ~/.claude/skills; a Claude plugin.
+    expect(rows["alpha"]).toMatchObject({ origin: "omp", package: null });
+    expect(rows["zeta"]).toMatchObject({ origin: "claude", package: "zed/zeta-skills" });
+    expect(rows["gamma"]).toMatchObject({ origin: "both", package: "acme/skills" });
+    expect(rows["omega"]?.origin).toBe("omp");
+    // A skill in a plugin or repo's skills folder is that folder's; a lock overrides it.
+    expect(rows["delta"]).toMatchObject({ origin: "claude", package: "pkg-x" });
+  });
+
   it("works out who uses a skill from the profiles' disabledExtensions, keeping one every profile switched off", async () => {
     const { home, catalog } = await setup();
     expect(usedBy(catalog)["alpha"]).toEqual(["astra", "dflt"]);

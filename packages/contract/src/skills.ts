@@ -51,6 +51,13 @@ export const SkillRowSchema = z.object({
   lastUsedAt: z.number().nullable(),
   /** Loads ever; null while the host's first usage scan runs, absent from hosts before usage stats. */
   uses: z.number().int().nullable().optional(),
+  /**
+   * Where it was installed from: a skills lock's source (`cloudflare/skills`), or the repo or plugin
+   * folder a linked skill lives in; null for a skill written in place. Absent from older hosts.
+   */
+  package: z.string().max(200).nullable().optional(),
+  /** Which tool loads it: omp's folders, Claude Code's (`~/.claude/skills`), or both (a link). Absent from older hosts. */
+  origin: z.enum(['omp', 'claude', 'both']).optional(),
 })
 export type SkillRow = z.infer<typeof SkillRowSchema>
 
