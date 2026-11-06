@@ -1,6 +1,7 @@
 // The seam between the Studio service and the backends that make things: LTX on the GPU
 // (`ltx.ts`), MOSS-Image (`moss.ts`), Kontext (`kontext.ts`), ComfyUI presets (`comfyui.ts`), Codex
-// images (`codex.ts`), Higgsfield (`higgsfield.ts`). Tests swap in fakes.
+// images (`codex.ts`), Higgsfield (`higgsfield.ts`), SAM 2.1 cutouts (`sam.ts`), crops (`crop.ts`).
+// Tests swap in fakes.
 
 import type { StudioBackend, StudioFrameSlot, StudioSpec } from "@relay/protocol";
 
@@ -12,6 +13,8 @@ export interface StudioRunInput {
   readonly frames: Readonly<Partial<Record<StudioFrameSlot, string>>>;
   /** Absolute paths of the spec's reference images, in order. */
   readonly refs: readonly string[];
+  /** `spec.mask`'s mask PNG (grayscale, the size of `refs[0]`, white = the object), when the spec names one. */
+  readonly mask?: string;
   /** An empty scratch dir for this job inside the studio dir; the output goes here. Removed after. */
   readonly workDir: string;
   /** Aborted when Isaac cancels the job or the host stops. */
@@ -21,7 +24,8 @@ export interface StudioRunInput {
   /**
    * LTX and MOSS: another process holds the machine-wide GPU lock (`~/.cache/eva-gpu.lock`, taken by
    * draft.py and moss.py) and this job waits for it (true), or it just got the lock (false). The job shows
-   * "Waiting for the GPU (another job is using it)" and its ETA restarts once the GPU is free.
+   * "Waiting for the GPU (another job is using it)" and its ETA restarts once the GPU is free. The service
+   * calls it the same way while it takes that lock itself for Kontext, ComfyUI and SAM (`gpu-lock.ts`).
    */
   readonly blocked: (waiting: boolean) => void;
 }
@@ -30,6 +34,11 @@ export interface StudioRunOutput {
   /** The output file, inside `workDir`. */
   readonly path: string;
   readonly mimeType: string;
+  /**
+   * Absolute paths of the backend's own copies outside the studio dir that outlive the run (ComfyUI keeps every
+   * output in its `output/` dir). The host deletes them with the asset, so nothing of a deleted image stays on disk.
+   */
+  readonly copies?: readonly string[];
 }
 
 export interface StudioRunner {

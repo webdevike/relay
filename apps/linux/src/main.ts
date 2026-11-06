@@ -119,9 +119,12 @@ import { CodexRunner, ompCodexToken } from "./studio/codex";
 import { HiggsfieldRunner, ompHiggsfieldCredentials } from "./studio/higgsfield";
 import { KontextRunner } from "./studio/kontext";
 import { ComfyUIRunner, defaultComfyDeps } from "./studio/comfyui";
+import { CropRunner } from "./studio/crop";
+import { FlockGpuLock } from "./studio/gpu-lock";
 import { LtxRunner } from "./studio/ltx";
 import { defaultMossPaths, MossRunner } from "./studio/moss";
 import { ffmpegMedia } from "./studio/media";
+import { SamRunner } from "./studio/sam";
 import { StudioService, type StudioMessage } from "./studio/service";
 import { defaultStudioDir } from "./studio/store";
 import { bunRun, defaultReviewsDir, resolveClaude, resolveGh } from "./reviews/exec";
@@ -1116,9 +1119,11 @@ function meetingsService(o: {
 
 /**
  * Studio in `$XDG_CONFIG_HOME/relay/studio`: local LTX video from `<agent-home>/work/local-video`
- * (`$RELAY_STUDIO_LTX_DIR`), local MOSS-Image from `<agent-home>/work/local-higgsfield/moss-mlx`, Codex
- * images on omp's personal ChatGPT sign-in, Higgsfield on omp's personal Higgsfield sign-in. Null (and
- * logged) when its index can't be read.
+ * (`$RELAY_STUDIO_LTX_DIR`), local MOSS-Image from `<agent-home>/work/local-higgsfield/moss-mlx`, ComfyUI
+ * presets on the local server (its output and input dirs under `<agent-home>/work/local-higgsfield/ComfyUI`),
+ * local SAM 2.1 and crops, Codex images on omp's personal ChatGPT sign-in, Higgsfield on omp's personal
+ * Higgsfield sign-in. Local GPU work shares `~/.cache/eva-gpu.lock` (`$EVA_GPU_LOCK`) with every other GPU
+ * user on this Mac. Null (and logged) when its index can't be read.
  */
 function studioService(
   agentHome: string | null,
@@ -1144,6 +1149,7 @@ function studioService(
   const token = ompCodexToken(resolveOmp());
   const home = agentHome ?? join(homedir(), "Eva");
   const comfyui = new ComfyUIRunner(defaultComfyDeps("comfyui", home));
+  const sam = new SamRunner();
   try {
     const studio = new StudioService({
       dir: defaultStudioDir(),
@@ -1168,6 +1174,8 @@ function studioService(
         kontext: new KontextRunner(),
         comfyui,
         "comfyui-video": new ComfyUIRunner(defaultComfyDeps("comfyui-video", home)),
+        sam,
+        crop: new CropRunner(media),
         higgsfield: new HiggsfieldRunner({
           credentials: ompHiggsfieldCredentials(
             join(homedir(), ".omp", "profiles", "personal", "agent", "agent.db"),
@@ -1177,6 +1185,8 @@ function studioService(
           sleep: (ms, signal) => delay(ms, undefined, { signal }),
         }),
       },
+      segmenter: sam,
+      gpuLock: new FlockGpuLock(),
       media,
       emit,
       clock: systemClock,

@@ -15,11 +15,16 @@
 // steps from the websocket, waits for `/history` to report it, then downloads the first output
 // (`/view`). A cancel deletes it from the queue and interrupts it. After ten idle minutes the server
 // is asked to unload its models (`/free`), so the unified memory goes back to LTX, Kontext and Qwen.
+//
+// The server keeps its own copies: every upload in its `input/` dir and every saved output in its
+// `output/` dir (`output/studio/` for the presets). When the server runs on this Mac (its dirs are
+// configured), a job deletes its uploads once the prompt is done and reports the saved outputs as
+// `copies`, which the host deletes with the image; a failed or cancelled job deletes them at once.
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { basename, extname, join } from "node:path";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
 import { MAX_STUDIO_PARAMS, MAX_STUDIO_REFS, StudioAspect, StudioFrameSlot, StudioMode, type StudioBackend, type StudioModel } from "@relay/protocol";
@@ -236,6 +241,23 @@ export function pickOutput(outputs: NodeOutputs, node?: string): OutputFile | nu
   return null;
 }
 
+/** Every file the prompt saved into the server's output dir (`type: "output"`; previews go to its temp dir). */
+export function savedOutputs(outputs: NodeOutputs): OutputFile[] {
+  return Object.values(outputs).flatMap((output) =>
+    OUTPUT_KEYS.flatMap((key) => {
+      const files = z.array(OutputFile).safeParse(output[key]);
+      return files.success ? files.data.filter((file) => file.type === "output") : [];
+    }),
+  );
+}
+
+/** `dir/parts...` as an absolute path, or null when it would leave `dir` (a server-named `../` subfolder). */
+function inside(dir: string, ...parts: string[]): string | null {
+  const root = resolve(dir);
+  const path = resolve(root, ...parts);
+  return path.startsWith(root + sep) ? path : null;
+}
+
 const Queued = z.object({ prompt_id: z.string().min(1) });
 const Uploaded = z.object({ name: z.string().min(1), subfolder: z.string().optional() });
 const Freed = z.unknown();
@@ -275,10 +297,22 @@ export interface ComfyUIDeps {
   readonly fetch: Fetch;
   readonly socket: (url: string) => ComfySocket;
   readonly readFile: (path: string) => Promise<Uint8Array>;
+  /** The server's `output/` dir when it runs on this Mac: saved outputs are recorded as copies there. */
+  readonly outputDir?: string;
+  /** The server's `input/` dir when it runs on this Mac: uploads are deleted there after the prompt. */
+  readonly inputDir?: string;
 }
 
+/**
+ * The image server runs on this Mac from `<agentHome>/work/local-higgsfield/ComfyUI` (dirs
+ * `$RELAY_STUDIO_COMFYUI_OUTPUT`, `$RELAY_STUDIO_COMFYUI_INPUT`); the video server is on the GPU box, so its
+ * dirs are only known when `$RELAY_STUDIO_COMFYUI_VIDEO_OUTPUT` / `_INPUT` name a mount of them.
+ */
 export function defaultComfyDeps(backend: ComfyUIDeps["backend"], agentHome: string, env: NodeJS.ProcessEnv = process.env): ComfyUIDeps {
   const video = backend === "comfyui-video";
+  const comfy = join(agentHome, "work", "local-higgsfield", "ComfyUI");
+  const outputDir = video ? env["RELAY_STUDIO_COMFYUI_VIDEO_OUTPUT"] : (env["RELAY_STUDIO_COMFYUI_OUTPUT"] ?? join(comfy, "output"));
+  const inputDir = video ? env["RELAY_STUDIO_COMFYUI_VIDEO_INPUT"] : (env["RELAY_STUDIO_COMFYUI_INPUT"] ?? join(comfy, "input"));
   return {
     backend,
     url: (video ? env["RELAY_STUDIO_COMFYUI_VIDEO_URL"] : env["RELAY_STUDIO_COMFYUI_URL"]) ?? (video ? "http://127.0.0.1:18188" : "http://127.0.0.1:8188"),
@@ -287,6 +321,8 @@ export function defaultComfyDeps(backend: ComfyUIDeps["backend"], agentHome: str
     // Bun's WebSocket has the members ComfySocket names; its MessageEvent handler type just doesn't unify with the fake's.
     socket: (url) => new WebSocket(url) as unknown as ComfySocket,
     readFile: (path) => readFile(path),
+    ...(outputDir === undefined ? {} : { outputDir }),
+    ...(inputDir === undefined ? {} : { inputDir }),
   };
 }
 
@@ -382,30 +418,47 @@ export class ComfyUIRunner implements StudioRunner {
       await this.unload();
     }
     this.family = family;
-    input.note("Uploading references");
-    for (const [index, path] of input.refs.entries()) {
-      values[index === 0 ? "image" : `image${String(index + 1)}`] = await this.upload(path, `${basename(input.workDir)}-${String(index + 1)}`, signal);
-    }
-    const graph = fillPlaceholders(preset.workflow, values);
-    const clientId = randomUUID();
-    const socket = this.openSocket(clientId, input);
+    /** Server-side names of this job's uploads, deleted from the input dir when the prompt is done. */
+    const uploads: string[] = [];
+    /** The output dir's copies of what the prompt saved; deleted unless the run hands them to the host. */
+    let copies: string[] = [];
     try {
-      input.note("Loading models");
-      const { prompt_id: promptId } = await this.post("/prompt", Queued, { prompt: graph, client_id: clientId }, signal);
-      socket.promptId = promptId;
-      const outputs = await this.finished(promptId, signal);
-      const file = pickOutput(outputs, preset.manifest.output);
-      if (file === null) throw new Error(`${preset.manifest.name} finished without an output`);
-      input.note("Saving");
-      const query = new URLSearchParams({ filename: file.filename, subfolder: file.subfolder, type: file.type });
-      const response = await this.deps.fetch(`${this.deps.url}/view?${query.toString()}`, { signal });
-      if (!response.ok) throw new Error(`ComfyUI answered ${String(response.status)} for the output`);
-      const ext = extname(file.filename).toLowerCase();
-      const out = join(input.workDir, `out${ext}`);
-      await writeFile(out, new Uint8Array(await response.arrayBuffer()));
-      return { path: out, mimeType: MIME[ext] ?? "application/octet-stream" };
+      input.note("Uploading references");
+      for (const [index, path] of input.refs.entries()) {
+        const name = await this.upload(path, `${basename(input.workDir)}-${String(index + 1)}`, signal);
+        uploads.push(name);
+        values[index === 0 ? "image" : `image${String(index + 1)}`] = name;
+      }
+      const graph = fillPlaceholders(preset.workflow, values);
+      const clientId = randomUUID();
+      const socket = this.openSocket(clientId, input);
+      try {
+        input.note("Loading models");
+        const { prompt_id: promptId } = await this.post("/prompt", Queued, { prompt: graph, client_id: clientId }, signal);
+        socket.promptId = promptId;
+        const outputs = await this.finished(promptId, signal);
+        const outputDir = this.deps.outputDir;
+        if (outputDir !== undefined)
+          copies = savedOutputs(outputs).flatMap((saved) => inside(outputDir, saved.subfolder, saved.filename) ?? []);
+        const file = pickOutput(outputs, preset.manifest.output);
+        if (file === null) throw new Error(`${preset.manifest.name} finished without an output`);
+        input.note("Saving");
+        const query = new URLSearchParams({ filename: file.filename, subfolder: file.subfolder, type: file.type });
+        const response = await this.deps.fetch(`${this.deps.url}/view?${query.toString()}`, { signal });
+        if (!response.ok) throw new Error(`ComfyUI answered ${String(response.status)} for the output`);
+        const ext = extname(file.filename).toLowerCase();
+        const out = join(input.workDir, `out${ext}`);
+        await writeFile(out, new Uint8Array(await response.arrayBuffer()));
+        const kept = copies;
+        copies = [];
+        return { path: out, mimeType: MIME[ext] ?? "application/octet-stream", ...(kept.length > 0 ? { copies: kept } : {}) };
+      } finally {
+        socket.close();
+      }
     } finally {
-      socket.close();
+      const inputDir = this.deps.inputDir;
+      const uploaded = inputDir === undefined ? [] : uploads.flatMap((name) => inside(inputDir, name) ?? []);
+      for (const path of [...copies, ...uploaded]) rmSync(path, { force: true });
     }
   }
 

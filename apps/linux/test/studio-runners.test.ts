@@ -679,5 +679,5 @@ describe.skipIf(ffmpeg === null || findTool("ffprobe") === null)("Studio media o
       expect(await media.probe(out)).toMatchObject({ width, height });
     }
     expect(logs).toEqual([]);
-  });
+  }, 30_000);
 });

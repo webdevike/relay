@@ -1,13 +1,15 @@
 // Fakes for the Studio suites (studio*.test.ts, session.test.ts): a clock that only moves when told,
-// ffmpeg that writes placeholder bytes, and runners whose jobs finish when the test says so.
+// ffmpeg that writes placeholder bytes, runners whose jobs finish when the test says so, a GPU lock
+// another process can hold, and a SAM 2.1 that finds two objects.
 
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { StudioBackend, StudioBackendId, StudioSpec } from "@relay/protocol";
 import { BACKEND_BASE } from "../src/studio/backends";
+import type { GpuLock, GpuLockRequest } from "../src/studio/gpu-lock";
 import type { StudioMedia } from "../src/studio/media";
 import type { StudioRunInput, StudioRunner, StudioRunOutput } from "../src/studio/runner";
-import { StudioService, type StudioMessage } from "../src/studio/service";
+import { StudioService, type SegmentFile, type StudioMessage, type StudioSegmenter } from "../src/studio/service";
 import type { SessionClock } from "../src/session";
 
 export const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
@@ -44,15 +46,18 @@ export interface FakeMedia extends StudioMedia {
     readonly width: number;
     readonly height: number;
   }[];
+  readonly compositeCalls: { readonly source: string; readonly edited: string; readonly mask: string; readonly out: string }[];
 }
 
-/** Images probe 100x200, mp4s 480x848 and 5 s; thumbs, frames and crops are placeholder bytes. */
+/** Images probe 100x200, mp4s 480x848 and 5 s; thumbs, frames, crops and composites are placeholder bytes. */
 export function fakeMedia(): FakeMedia {
   const frameCalls: { src: string; at: string }[] = [];
   const coverCalls: { src: string; dest: string; width: number; height: number }[] = [];
+  const compositeCalls: { source: string; edited: string; mask: string; out: string }[] = [];
   return {
     frameCalls,
     coverCalls,
+    compositeCalls,
     probe: (path) =>
       Promise.resolve(
         path.endsWith(".mp4")
@@ -74,13 +79,22 @@ export function fakeMedia(): FakeMedia {
       writeFileSync(dest, PNG);
       return Promise.resolve();
     },
+    compositeMasked: (source, edited, mask, out) => {
+      compositeCalls.push({ source, edited, mask, out });
+      writeFileSync(out, PNG);
+      return Promise.resolve();
+    },
+    crop: (_src, dest) => {
+      writeFileSync(dest, PNG);
+      return Promise.resolve();
+    },
   };
 }
 
 export interface FakeRun {
   readonly input: StudioRunInput;
-  /** Writes an output into the job's work dir and resolves. */
-  succeed(): void;
+  /** Writes an output into the job's work dir and resolves, reporting `copies` as the backend's own copies. */
+  succeed(copies?: readonly string[]): void;
   fail(message: string): void;
 }
 
@@ -102,10 +116,10 @@ export class FakeRunner implements StudioRunner {
     const video = this.backend.mode === "video";
     this.runs.push({
       input,
-      succeed: () => {
+      succeed: (copies) => {
         const path = join(input.workDir, video ? "out.mp4" : "out.png");
         writeFileSync(path, video ? MP4 : PNG);
-        resolve({ path, mimeType: video ? "video/mp4" : "image/png" });
+        resolve({ path, mimeType: video ? "video/mp4" : "image/png", ...(copies === undefined ? {} : { copies }) });
       },
       fail: (message) => {
         reject(new Error(message));
@@ -168,6 +182,8 @@ export function availableBackends(): Record<StudioBackendId, StudioBackend> {
       ],
     },
     "comfyui-video": { ...BACKEND_BASE["comfyui-video"], available: true },
+    sam: { ...BACKEND_BASE.sam, available: true },
+    crop: { ...BACKEND_BASE.crop, available: true },
     higgsfield: {
       ...BACKEND_BASE.higgsfield,
       available: true,
@@ -186,17 +202,111 @@ export function availableBackends(): Record<StudioBackendId, StudioBackend> {
   };
 }
 
+/**
+ * The machine-wide GPU lock without the file: one holder at a time; `holdElsewhere()` plays another process
+ * (LTX's draft.py, say) holding it, so acquires wait and say so until `freeElsewhere()`.
+ */
+export class FakeGpuLock implements GpuLock {
+  /** Each holder line, in the order the lock was granted. */
+  readonly granted: string[] = [];
+  held = 0;
+  /** The most holders at once (1 when it serialises). */
+  maxHeld = 0;
+  private elsewhere = false;
+  private readonly waiters: (() => void)[] = [];
+
+  holdElsewhere(): void {
+    this.elsewhere = true;
+  }
+
+  freeElsewhere(): void {
+    this.elsewhere = false;
+    for (const wake of this.waiters.splice(0)) wake();
+  }
+
+  async acquire(request: GpuLockRequest): Promise<() => Promise<void>> {
+    let said = false;
+    while (this.elsewhere || this.held > 0) {
+      if (this.elsewhere && !said) {
+        said = true;
+        request.waiting(true);
+      }
+      const { promise, resolve } = Promise.withResolvers<undefined>();
+      this.waiters.push(() => {
+        resolve(undefined);
+      });
+      await promise;
+    }
+    if (said) request.waiting(false);
+    this.held++;
+    this.maxHeld = Math.max(this.maxHeld, this.held);
+    this.granted.push(request.holder);
+    return () => {
+      this.held--;
+      for (const wake of this.waiters.splice(0)) wake();
+      return Promise.resolve();
+    };
+  }
+}
+
+export interface FakeSegmentRun {
+  readonly image: string;
+  readonly outDir: string;
+  /** Writes two objects' masks and cut-outs into the run's dir and resolves. */
+  finish(): void;
+  fail(message: string): void;
+}
+
+/** SAM 2.1 whose runs wait for the test. */
+export class FakeSegmenter implements StudioSegmenter {
+  readonly runs: FakeSegmentRun[] = [];
+
+  segment(image: string, outDir: string): Promise<readonly SegmentFile[]> {
+    const { promise, resolve, reject } = Promise.withResolvers<readonly SegmentFile[]>();
+    this.runs.push({
+      image,
+      outDir,
+      finish: () => {
+        const files = [
+          { label: "Object 1", box: [0.1, 0.2, 0.5, 0.6] as const, area: 0.3 },
+          { label: "Background", box: [0, 0, 1, 1] as const, area: 0.7 },
+        ].map((found, index) => {
+          const mask = join(outDir, `segment-${String(index)}-mask.png`);
+          const cutout = join(outDir, `segment-${String(index)}-cutout.png`);
+          writeFileSync(mask, PNG);
+          writeFileSync(cutout, PNG);
+          return { ...found, mask, cutout };
+        });
+        resolve(files);
+      },
+      fail: (message) => {
+        reject(new Error(message));
+      },
+    });
+    return promise;
+  }
+}
+
 export interface StudioHarness {
   readonly dir: string;
   readonly clock: FakeClock;
   readonly sent: StudioMessage[];
   readonly runners: Record<StudioBackendId, FakeRunner>;
   readonly media: FakeMedia;
+  readonly lock: FakeGpuLock;
+  readonly segmenter: FakeSegmenter;
   readonly service: StudioService;
 }
 
-/** A started service on `dir` with fake runners (every backend available), seed 42. */
-export function studioHarness(dir: string, gpuHeld?: () => boolean): StudioHarness {
+/**
+ * A started service on `dir` with fake runners (every backend available; `real` swaps in real runners for
+ * some), a fake GPU lock and SAM 2.1, seed 42.
+ */
+export function studioHarness(
+  dir: string,
+  gpuHeld?: () => boolean,
+  real: Partial<Record<StudioBackendId, StudioRunner>> = {},
+): StudioHarness {
   const clock = new FakeClock();
   const sent: StudioMessage[] = [];
   const backends = availableBackends();
@@ -208,12 +318,18 @@ export function studioHarness(dir: string, gpuHeld?: () => boolean): StudioHarne
     kontext: new FakeRunner(backends.kontext),
     comfyui: new FakeRunner(backends.comfyui),
     "comfyui-video": new FakeRunner(backends["comfyui-video"]),
+    sam: new FakeRunner(backends.sam),
+    crop: new FakeRunner(backends.crop),
     higgsfield: new FakeRunner(backends.higgsfield),
   };
   const media = fakeMedia();
+  const lock = new FakeGpuLock();
+  const segmenter = new FakeSegmenter();
   const service = new StudioService({
     dir,
-    runners,
+    runners: { ...runners, ...real },
+    segmenter,
+    gpuLock: lock,
     media,
     emit: (message) => sent.push(message),
     clock,
@@ -222,7 +338,7 @@ export function studioHarness(dir: string, gpuHeld?: () => boolean): StudioHarne
     ...(gpuHeld === undefined ? {} : { gpuHeld }),
   });
   service.start();
-  return { dir, clock, sent, runners, media, service };
+  return { dir, clock, sent, runners, media, lock, segmenter, service };
 }
 
 /** Lets pending promise callbacks (runner settlements, ingest) run. */

@@ -803,7 +803,7 @@ export class ClientSession {
       case "studio.list":
         this.sink.send({
           t: "studio.state",
-          ...(this.deps.studio?.state() ?? { jobs: [], uploads: [], backends: [] }),
+          ...(this.deps.studio?.state() ?? { jobs: [], uploads: [], backends: [], projects: [], references: [] }),
         });
         // A preset or model file dropped in since shows up on Studio's next open, without a Refresh.
         void this.deps.studio?.rescan();

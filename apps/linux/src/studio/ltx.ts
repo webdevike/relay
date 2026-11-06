@@ -2,9 +2,14 @@
 // `ltx-2-mlx generate` and then ffmpeg (so ffmpeg must be on PATH: launchd gives the host a bare
 // one, hence Homebrew's dirs first). draft.py starts children, so it runs in its own process
 // group and a cancel signals the whole group: SIGTERM, then SIGKILL after a grace period.
+//
+// draft.py renders into a `draft-*` temp dir beside itself and only removes it when it exits
+// normally, so after a cancelled or failed run the runner deletes the `draft-*` dirs that appeared
+// while it ran (the raw clip would otherwise stay on disk). draft.py holds the GPU lock while that
+// dir exists, so no other run's dir can appear meanwhile.
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { StudioBackend } from "@relay/protocol";
 import { BACKEND_BASE } from "./backends";
@@ -134,18 +139,35 @@ export class LtxRunner implements StudioRunner {
 
   async run(input: StudioRunInput): Promise<StudioRunOutput> {
     const out = join(input.workDir, "out.mp4");
-    await runProcessGroup(ltxArgv(this.python, this.script, input, out), {
-      cwd: this.dir,
-      env: { ...process.env, PATH: `${PATH_PREFIX}:${process.env["PATH"] ?? "/usr/bin:/bin"}` },
-      signal: input.signal,
-      graceMs: this.graceMs,
-      // draft.py's machine-wide GPU lock: it says when it has to wait and when it got the GPU.
-      onLine: (line) => {
-        if (line.startsWith("[draft] waiting for GPU")) input.blocked(true);
-        else if (line.startsWith("[draft] GPU lock acquired")) input.blocked(false);
-      },
-    });
+    const before = new Set(this.draftDirs());
+    let finished = false;
+    try {
+      await runProcessGroup(ltxArgv(this.python, this.script, input, out), {
+        cwd: this.dir,
+        env: { ...process.env, PATH: `${PATH_PREFIX}:${process.env["PATH"] ?? "/usr/bin:/bin"}` },
+        signal: input.signal,
+        graceMs: this.graceMs,
+        // draft.py's machine-wide GPU lock: it says when it has to wait and when it got the GPU.
+        onLine: (line) => {
+          if (line.startsWith("[draft] waiting for GPU")) input.blocked(true);
+          else if (line.startsWith("[draft] GPU lock acquired")) input.blocked(false);
+        },
+      });
+      finished = true;
+    } finally {
+      if (!finished)
+        for (const name of this.draftDirs()) if (!before.has(name)) rmSync(join(this.dir, name), { recursive: true, force: true });
+    }
     if (!existsSync(out)) throw new Error("LTX finished without writing a video");
     return { path: out, mimeType: "video/mp4" };
+  }
+
+  /** draft.py's temp dirs beside it. */
+  private draftDirs(): string[] {
+    try {
+      return readdirSync(this.dir).filter((name) => name.startsWith("draft-"));
+    } catch {
+      return [];
+    }
   }
 }

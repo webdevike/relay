@@ -487,6 +487,29 @@ export const studioInvoke = {
       .strict(),
     output: z.object({ file: z.string() }),
   },
+  /**
+   * Copies output images from the host onto a Canvas board (the board folder's `studio/`) as image
+   * cards on its first page, through the board store; an open board reloads. Answers how many.
+   */
+  'studio.canvas': {
+    input: z
+      .object({
+        slug: z.string().regex(/^[a-z0-9-]{1,80}$/),
+        assets: z
+          .array(
+            z
+              .object({
+                path: z.string().regex(STUDIO_PATH_RE).max(400),
+                name: z.string().min(1).max(120),
+              })
+              .strict(),
+          )
+          .min(1)
+          .max(50),
+      })
+      .strict(),
+    output: z.object({ added: z.number().int().nonnegative() }),
+  },
 } as const
 
 export const studioEvents = {

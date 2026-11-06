@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -593,7 +593,7 @@ describe("studio spec checks", () => {
 describe("studio store", () => {
   const options = (): StudioStoreOptions => ({ now: () => 5, media: fakeMedia() });
 
-  it("evicts the oldest finished job (and its files) past MAX_STUDIO_JOBS, never an active one", async () => {
+  it("never evicts a finished job; past MAX_STUDIO_JOBS only the oldest failed or cancelled one goes", async () => {
     const dir = freshDir();
     const store = new StudioStore(dir, options());
     const base: StudioJob = {
@@ -605,17 +605,25 @@ describe("studio store", () => {
       progress: 1,
       outputs: [],
     };
-    store.putJob({ ...base, id: "waiting", state: "queued", progress: 0 });
     const output = await store.ingest({ bytes: PNG }, "image/png", "output");
     store.putJob({ ...base, id: "oldest-done", outputs: [output] });
-    for (let i = 0; i < MAX_STUDIO_JOBS - 2; i++)
-      store.putJob({ ...base, id: `done-${String(i)}` });
-    expect(store.jobs).toHaveLength(MAX_STUDIO_JOBS);
-    expect(store.putJob({ ...base, id: "newest" })).toEqual(["oldest-done"]);
-    expect(store.jobs).toHaveLength(MAX_STUDIO_JOBS);
-    expect(store.job("waiting")).toBeDefined();
-    expect(existsSync(join(dir, `${output.id}.png`))).toBe(false);
-    expect(new StudioStore(dir, options()).jobs).toHaveLength(MAX_STUDIO_JOBS);
+    store.putJob({ ...base, id: "old-failed", state: "failed", error: "no" });
+    store.putJob({ ...base, id: "waiting", state: "queued", progress: 0 });
+    // Fill the index on disk (a putJob per job would rewrite it thousands of times).
+    const path = join(dir, "index.json");
+    const index = JSON.parse(readFileSync(path, "utf8")) as { jobs: StudioJob[] };
+    const fillers = Array.from({ length: MAX_STUDIO_JOBS - 3 }, (_, i): StudioJob => ({ ...base, id: `done-${String(i)}` }));
+    index.jobs.splice(1, 0, ...fillers);
+    writeFileSync(path, JSON.stringify(index));
+    const full = new StudioStore(dir, options());
+    expect(full.jobs).toHaveLength(MAX_STUDIO_JOBS);
+    expect(full.putJob({ ...base, id: "newest" })).toEqual(["old-failed"]);
+    expect(full.jobs).toHaveLength(MAX_STUDIO_JOBS);
+    expect(full.putJob({ ...base, id: "newer" })).toEqual([]);
+    expect(full.jobs).toHaveLength(MAX_STUDIO_JOBS + 1);
+    expect(full.job("oldest-done")).toBeDefined();
+    expect(full.job("waiting")).toBeDefined();
+    expect(existsSync(join(dir, `${output.id}.png`))).toBe(true);
   });
 
   it("evicts the oldest upload past MAX_STUDIO_UPLOADS", async () => {

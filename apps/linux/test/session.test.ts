@@ -2361,6 +2361,8 @@ describe("studio", () => {
         "kontext",
         "comfyui",
         "comfyui-video",
+        "sam",
+        "crop",
         "higgsfield",
       ]);
 
@@ -2403,7 +2405,7 @@ describe("studio", () => {
     const h = harness();
     pair(h);
     h.session.receive({ t: "studio.list" });
-    expect(h.sink.last()).toEqual({ t: "studio.state", jobs: [], uploads: [], backends: [] });
+    expect(h.sink.last()).toEqual({ t: "studio.state", jobs: [], uploads: [], backends: [], projects: [], references: [] });
     h.session.receive({ t: "studio.req", rid: "r9", op: { kind: "refresh" } });
     expect(h.sink.last()).toEqual({
       t: "studio.res",
