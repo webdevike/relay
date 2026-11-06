@@ -174,7 +174,7 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-icons {
   display: flex;
   align-items: center;
-  gap: var(--eva-space-xs);
+  gap: var(--eva-gap);
 }
 .eva-sb-icons-gap {
   flex: 1;
