@@ -41,13 +41,19 @@ so far); desktop ships by rebase + fast-forward push main + `bun /Users/ike/Eva/
   `apps/desktop/resources/RelayHost/Relay Host.app/.../omp-extension/*.ts` (not ours); eslint +
   prettier on our files clean; em-dash and spacing lint clean.
 
+- Shipped: rebased, pushed main f4f5ee42 (fast-forward), deployed (published f4f5ee4288, Mini
+  kicked, MBP unreachable picks it up on poll). The bundle's Helpers/Relay Assist.app answers
+  `--present` with ready. 87ecf525 (SPEC sync) is local only so far.
+- TextEdit leftover "Untitled" closed without saving (File > Close, Delete).
+
 ## In progress / exact next step
-1. Live and walk proofs: `bun /tmp/computer-smoke/present.ts live` then `... walk` (throwaway;
-   idle-gated >= 120 s, aborts if someone touches the Mac, restores the front app; records only
-   Calculator + the overlay via apps/assist/build/proofrec into /tmp/computer-smoke/<tag>/raw.mov;
-   walk presses All Clear, 4, 2 in the background in place of Isaac). Then ffmpeg to H.264 mp4
-   under proof/computer/ and look at frames.
-2. rebase on origin/main, fast-forward push main, deploy desktop. Update SPEC/HANDOFF; final
-   report: per-mode status, proof paths, no host install, open questions from SPEC.md.
+1. Live and walk proofs: `/tmp/computer-smoke/when-idle.sh` (log when-idle.log) waits for 120 s
+   idle, then runs `bun /tmp/computer-smoke/present.ts live` and `... walk` (throwaway; aborts if
+   someone touches the Mac, restores the front app; records only Calculator + the overlay via
+   apps/assist/build/proofrec into /tmp/computer-smoke/<tag>/raw.mov; walk presses All Clear, 4,
+   2 in the background in place of Isaac). Then ffmpeg to H.264 mp4 under proof/computer/ and look
+   at frames; fix anything they show, redeploy if code changed.
+2. Push the remaining commits, final report: per-mode status, proof paths, no host install, open
+   questions from SPEC.md.
 
 Checkpoint: 2026-11-06 11:02 EST
