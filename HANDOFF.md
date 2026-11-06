@@ -46,14 +46,25 @@ so far); desktop ships by rebase + fast-forward push main + `bun /Users/ike/Eva/
   `--present` with ready. 87ecf525 (SPEC sync) is local only so far.
 - TextEdit leftover "Untitled" closed without saving (File > Close, Delete).
 
-## In progress / exact next step
-1. Live and walk proofs: `/tmp/computer-smoke/when-idle.sh` (log when-idle.log) waits for 120 s
-   idle, then runs `bun /tmp/computer-smoke/present.ts live` and `... walk` (throwaway; aborts if
-   someone touches the Mac, restores the front app; records only Calculator + the overlay via
-   apps/assist/build/proofrec into /tmp/computer-smoke/<tag>/raw.mov; walk presses All Clear, 4,
-   2 in the background in place of Isaac). Then ffmpeg to H.264 mp4 under proof/computer/ and look
-   at frames; fix anything they show, redeploy if code changed.
-2. Push the remaining commits, final report: per-mode status, proof paths, no host install, open
-   questions from SPEC.md.
+## Live and walk (idle-gated, throwaway harness /tmp/computer-smoke/present.ts + when-idle*.sh)
+- First attempts: cua-driver's bring_to_front "not verified" error ended walk runs and cost the
+  live run its open step: fixed (2a153b8d, `Desktop.front` best effort).
+- live: "In Calculator, clear it, then work out 23 x 4" -> "23 × 4 = 92.", 31 s, Nova's cursor,
+  caption, click marks; front app restored, no touch during the run.
+  proof/computer/live-calculator.mp4 (H.264 900x640, 36 s), live-frames.png.
+- walk: 3 steps (All Clear, 4, 2), harness pressed each in the background 4.5 s after the overlay
+  pointed (outline, step badge, caption, voice); all 3 judged done by Jev; mouse 1173,945 before
+  and after, front Relay before and after. proof/computer/walk-calculator.mp4 (52 s, no audio),
+  walk-frames.png.
+- aa5482b8: presenter drops Assist's "· staying" tag (seen in the proofs); walk asks Jev "already
+  done?" and "which control?" in parallel (step 1 started 30 s after the plan).
 
-Checkpoint: 2026-11-06 11:02 EST
+## In progress / exact next step
+1. `/tmp/computer-smoke/when-idle-walk.sh` (bg) reruns walk with the tag fix and PROOFREC_AUDIO=1
+   into /tmp/computer-smoke/walk2; if it lands, replace proof/computer/walk-calculator.mp4 (with
+   the voice, AAC) and walk-frames.png.
+2. Rebase, push main, redeploy desktop (aa5482b8 + later). No host changes in this branch: the
+   single host install Nova asked for is origin/main's tip after the push (it contains f5f3fa80).
+3. Final report: per-mode status, proof paths, host install commit, open questions from SPEC.md.
+
+Checkpoint: 2026-11-06 12:50 EST
