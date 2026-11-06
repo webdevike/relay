@@ -120,6 +120,7 @@ import { HiggsfieldRunner, ompHiggsfieldCredentials } from "./studio/higgsfield"
 import { KontextRunner } from "./studio/kontext";
 import { ComfyUIRunner, defaultComfyDeps } from "./studio/comfyui";
 import { LtxRunner } from "./studio/ltx";
+import { defaultMossPaths, MossRunner } from "./studio/moss";
 import { ffmpegMedia } from "./studio/media";
 import { StudioService, type StudioMessage } from "./studio/service";
 import { defaultStudioDir } from "./studio/store";
@@ -1115,8 +1116,9 @@ function meetingsService(o: {
 
 /**
  * Studio in `$XDG_CONFIG_HOME/relay/studio`: local LTX video from `<agent-home>/work/local-video`
- * (`$RELAY_STUDIO_LTX_DIR`), Codex images on omp's personal ChatGPT sign-in, Higgsfield on omp's
- * personal Higgsfield sign-in. Null (and logged) when its index can't be read.
+ * (`$RELAY_STUDIO_LTX_DIR`), local MOSS-Image from `<agent-home>/work/local-higgsfield/moss-mlx`, Codex
+ * images on omp's personal ChatGPT sign-in, Higgsfield on omp's personal Higgsfield sign-in. Null (and
+ * logged) when its index can't be read.
  */
 function studioService(
   agentHome: string | null,
@@ -1140,6 +1142,8 @@ function studioService(
   }
   const media = ffmpegMedia(log);
   const token = ompCodexToken(resolveOmp());
+  const home = agentHome ?? join(homedir(), "Eva");
+  const comfyui = new ComfyUIRunner(defaultComfyDeps("comfyui", home));
   try {
     const studio = new StudioService({
       dir: defaultStudioDir(),
@@ -1160,9 +1164,10 @@ function studioService(
           jpeg: media.jpeg,
           cover: media.cover,
         }),
+        moss: new MossRunner(defaultMossPaths(home), () => comfyui.release()),
         kontext: new KontextRunner(),
-        comfyui: new ComfyUIRunner(defaultComfyDeps("comfyui", agentHome ?? join(homedir(), "Eva"))),
-        "comfyui-video": new ComfyUIRunner(defaultComfyDeps("comfyui-video", agentHome ?? join(homedir(), "Eva"))),
+        comfyui,
+        "comfyui-video": new ComfyUIRunner(defaultComfyDeps("comfyui-video", home)),
         higgsfield: new HiggsfieldRunner({
           credentials: ompHiggsfieldCredentials(
             join(homedir(), ".omp", "profiles", "personal", "agent", "agent.db"),

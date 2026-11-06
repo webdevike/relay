@@ -2357,6 +2357,7 @@ describe("studio", () => {
         "ltx",
         "codex-image",
         "codex-edit",
+        "moss",
         "kontext",
         "comfyui",
         "comfyui-video",

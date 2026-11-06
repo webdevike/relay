@@ -29,11 +29,39 @@ const MEDIA = path.join(FIXTURES_DIR, 'agent-widgets/media')
 const resolutions = (sizes: Record<string, string>): Json[] =>
   Object.entries(sizes).map(([aspect, id]) => ({ id, label: id, aspect }))
 
-/** Studio's backends as the host lists them: local video, two Codex image ones, paid Higgsfield. */
+const MOSS_RESOLUTIONS: Json[] = [
+  { id: '768x1344', label: 'Portrait', aspect: '9:16' },
+  { id: '1344x768', label: 'Landscape', aspect: '16:9' },
+  { id: '1024x1024', label: 'Square', aspect: '1:1' },
+]
+const MOSS_INPUTS: Json[] = [
+  {
+    kind: 'choice',
+    id: 'turbo',
+    label: 'Turbo',
+    default: 'on',
+    options: [
+      { id: 'on', label: 'On (about 2 min)' },
+      { id: 'off', label: 'Off (50 steps, slower)' },
+    ],
+  },
+  {
+    kind: 'choice',
+    id: 'enhance',
+    label: 'Prompt enhancer',
+    default: 'on',
+    options: [
+      { id: 'on', label: 'On (local Qwen3 rewrites it)' },
+      { id: 'off', label: 'Off (prompt as typed)' },
+    ],
+  },
+]
+
+/** Studio's backends as the host lists them: local video, Codex image ones, MOSS, paid Higgsfield. */
 export const STUDIO_BACKENDS: Json[] = [
   {
     id: 'ltx',
-    label: 'Local video (LTX, free)',
+    label: 'LTX video',
     mode: 'video',
     paid: false,
     available: true,
@@ -46,7 +74,7 @@ export const STUDIO_BACKENDS: Json[] = [
   },
   {
     id: 'codex-image',
-    label: 'Image (Codex, free)',
+    label: 'Codex image',
     mode: 'image',
     paid: false,
     available: true,
@@ -59,7 +87,7 @@ export const STUDIO_BACKENDS: Json[] = [
   },
   {
     id: 'codex-edit',
-    label: 'Image edit (Codex, free)',
+    label: 'Codex edit',
     mode: 'image',
     paid: false,
     available: true,
@@ -71,8 +99,47 @@ export const STUDIO_BACKENDS: Json[] = [
     serial: false,
   },
   {
+    id: 'moss',
+    label: 'MOSS-Image',
+    mode: 'image',
+    paid: false,
+    available: true,
+    resolutions: [],
+    seconds: [],
+    frames: [],
+    refs: 0,
+    seed: true,
+    serial: true,
+    models: [
+      {
+        id: 'moss-image',
+        name: 'MOSS-Image',
+        mode: 'image',
+        description: 'Text and layouts in the image. Local, MLX.',
+        resolutions: MOSS_RESOLUTIONS,
+        seconds: [],
+        frames: [],
+        refs: 0,
+        inputs: MOSS_INPUTS,
+        estimateMs: 120000,
+      },
+      {
+        id: 'Jib_Mix_Moss_V2_H_int8',
+        name: 'Jib Mix Moss',
+        mode: 'image',
+        description: 'Photoreal MOSS-Image fine-tune. Local, MLX.',
+        resolutions: MOSS_RESOLUTIONS,
+        seconds: [],
+        frames: [],
+        refs: 0,
+        inputs: MOSS_INPUTS,
+        estimateMs: 120000,
+      },
+    ],
+  },
+  {
     id: 'kontext',
-    label: 'FLUX Kontext (local)',
+    label: 'FLUX Kontext',
     mode: 'image',
     paid: false,
     available: true,
@@ -85,7 +152,7 @@ export const STUDIO_BACKENDS: Json[] = [
   },
   {
     id: 'comfyui',
-    label: 'ComfyUI presets (local)',
+    label: 'ComfyUI',
     mode: 'image',
     paid: false,
     available: true,
@@ -143,7 +210,7 @@ export const STUDIO_BACKENDS: Json[] = [
   },
   {
     id: 'higgsfield',
-    label: 'Higgsfield (paid)',
+    label: 'Higgsfield',
     mode: 'video',
     paid: true,
     available: true,

@@ -463,13 +463,26 @@ Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
   gets one orientation sentence for the aspect ("Vertical 9:16 portrait image, taller than wide.", the job keeps the
   prompt as typed) and ffmpeg scales the reply to cover and center-crops it (lanczos) to exactly the size picked:
   one per aspect, 1088x1920, 1920x1088 or 1280x1280, close to what Codex draws so it never upscales much.
+- `moss` (free, local text to image): MOSS-Image on native Apple MLX, run directly (no ComfyUI): `moss.py` in
+  `<agent-home>/work/local-higgsfield/moss-mlx` (`$RELAY_STUDIO_MOSS_DIR`) on the moss-image-mlx venv
+  (`~/.local/share/moss-mlx/.venv/bin/python`, `$RELAY_STUDIO_MOSS_PYTHON`), one process per image in its own process
+  group like LTX; available when both exist and the 8bit tier (`VisualInference/MOSS-Image-SFT-MLX-8bit`) is in the
+  Hugging Face cache. Its models: MOSS-Image, plus every MOSS-Image fine-tune on the Mac, a ComfyUI-format checkpoint
+  in `local-higgsfield/models/diffusion_models` (recognised by its safetensors keys, e.g. Jib Mix Moss) or a directory
+  already converted into `~/.local/share/moss-mlx/transformers/<name>`; read on every refresh and Studio open, so a
+  dropped-in checkpoint shows up without a Refresh. Inputs Turbo (on: 15 network passes, about 2 min) and Prompt
+  enhancer (local Qwen3); sizes 768x1344, 1344x768, 1024x1024. A run checks the cached files first (about a second; a
+  missing one fails with one line naming it and `moss.py --setup`), enhances the prompt, takes the machine-wide GPU lock
+  `~/.cache/eva-gpu.lock` (like draft.py; Studio shows the wait), converts a fine-tune on first use (`convert.py`,
+  ComfyUI's venv for its int8 dequantizer, no server) and samples (`step i/n` becomes the job's note). ComfyUI is asked
+  to unload its models (`/free`) before each run. Shares the GPU queue with LTX, Kontext and ComfyUI.
 - `kontext` (free, local image edit, one reference required): FLUX.1 Kontext dev Q8 (`mflux-community/flux-1-dev-kontext-mflux-q8`)
   through `mflux-generate-kontext` from the mflux uv tool (`$RELAY_STUDIO_KONTEXT_BIN` overrides the binary), model read
   offline from the Hugging Face cache; available only when both exist. Sizes 576x1024, 1024x576, 1024x1024; 24 steps,
   guidance 2.5, optional seed. Shares the GPU queue with LTX (one at a time). About 3 min per 1024x576 image and 25 GB
   of RAM: stop the local Qwen server (`ai.eva.qwen-local`) first when memory is tight. Own process group, like LTX.
 - `comfyui` (free, images) and `comfyui-video` (free, videos): presets on a ComfyUI server, listed as the backend's
-  models like Higgsfield's (cards on desktop, a Preset sheet on the phone). A preset is a folder in
+  models (the ComfyUI tab's cards on desktop and the phone). A preset is a folder in
   `<agent-home>/work/local-higgsfield/presets` (`$RELAY_STUDIO_COMFYUI_PRESETS`): `preset.json` (name, description,
   sizes, `refs`/`minRefs`, `prompt: false` for no prompt box, `inputs` (choices and numbers sent as `spec.params`),
   `promptTemplate`, `constants`, `estimateMs`, `family`) beside an API-format `workflow.json` whose values hold
@@ -477,7 +490,7 @@ Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
   every refresh and run, and again (with the server's `/object_info`) whenever a device opens Studio (`studio.list`),
   so a preset folder or a model file dropped in since shows up without a Refresh. A preset is listed only when the
   server has every node class and every model file its workflow names (`/object_info`), so a half-installed one never
-  queues; a preset naming one checkpoint file (e.g. Jib Mix Moss) appears the moment that file lands. A job uploads
+  queues; a preset naming one checkpoint file appears the moment that file lands. A job uploads
   its references, posts the graph to `/prompt`, shows the sampler's steps from the websocket, waits on `/history` and
   downloads the first output; a
   cancel deletes it from the queue and interrupts it. Switching to a preset of another `family` first asks the server

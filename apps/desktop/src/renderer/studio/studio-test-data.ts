@@ -1,13 +1,41 @@
-import type { StudioBackend, StudioJob } from '@evaos/contract'
+import type { StudioBackend, StudioInput, StudioJob } from '@evaos/contract'
 
 const res = (aspect: '16:9' | '9:16' | '1:1', id: string) => ({ id, label: id, aspect })
 const IMAGE_RES = [res('16:9', '1536x1024'), res('9:16', '1024x1536'), res('1:1', '1024x1024')]
+
+const MOSS_RES = [
+  { id: '768x1344', label: 'Portrait', aspect: '9:16' as const },
+  { id: '1344x768', label: 'Landscape', aspect: '16:9' as const },
+  { id: '1024x1024', label: 'Square', aspect: '1:1' as const },
+]
+const MOSS_INPUTS: StudioInput[] = [
+  {
+    kind: 'choice',
+    id: 'turbo',
+    label: 'Turbo',
+    default: 'on',
+    options: [
+      { id: 'on', label: 'On (about 2 min)' },
+      { id: 'off', label: 'Off (50 steps, slower)' },
+    ],
+  },
+  {
+    kind: 'choice',
+    id: 'enhance',
+    label: 'Prompt enhancer',
+    default: 'on',
+    options: [
+      { id: 'on', label: 'On (local Qwen3 rewrites it)' },
+      { id: 'off', label: 'Off (prompt as typed)' },
+    ],
+  },
+]
 
 /** Studio's backends as the host lists them, for renderer tests. */
 export const BACKENDS: StudioBackend[] = [
   {
     id: 'ltx',
-    label: 'Local video (LTX, free)',
+    label: 'LTX video',
     mode: 'video',
     paid: false,
     available: true,
@@ -20,7 +48,7 @@ export const BACKENDS: StudioBackend[] = [
   },
   {
     id: 'codex-image',
-    label: 'Image (Codex, free)',
+    label: 'Codex image',
     mode: 'image',
     paid: false,
     available: true,
@@ -33,7 +61,7 @@ export const BACKENDS: StudioBackend[] = [
   },
   {
     id: 'codex-edit',
-    label: 'Image edit (Codex, free)',
+    label: 'Codex edit',
     mode: 'image',
     paid: false,
     available: true,
@@ -45,8 +73,47 @@ export const BACKENDS: StudioBackend[] = [
     serial: false,
   },
   {
+    id: 'moss',
+    label: 'MOSS-Image',
+    mode: 'image',
+    paid: false,
+    available: true,
+    resolutions: [],
+    seconds: [],
+    frames: [],
+    refs: 0,
+    seed: true,
+    serial: true,
+    models: [
+      {
+        id: 'moss-image',
+        name: 'MOSS-Image',
+        mode: 'image',
+        description: 'Text and layouts in the image. Local, MLX.',
+        resolutions: MOSS_RES,
+        seconds: [],
+        frames: [],
+        refs: 0,
+        inputs: MOSS_INPUTS,
+        estimateMs: 120000,
+      },
+      {
+        id: 'Jib_Mix_Moss_V2_H_int8',
+        name: 'Jib Mix Moss',
+        mode: 'image',
+        description: 'Photoreal MOSS-Image fine-tune. Local, MLX.',
+        resolutions: MOSS_RES,
+        seconds: [],
+        frames: [],
+        refs: 0,
+        inputs: MOSS_INPUTS,
+        estimateMs: 120000,
+      },
+    ],
+  },
+  {
     id: 'kontext',
-    label: 'FLUX Kontext (local)',
+    label: 'FLUX Kontext',
     mode: 'image',
     paid: false,
     available: true,
@@ -59,7 +126,7 @@ export const BACKENDS: StudioBackend[] = [
   },
   {
     id: 'comfyui',
-    label: 'ComfyUI presets (local)',
+    label: 'ComfyUI',
     mode: 'image',
     paid: false,
     available: true,
@@ -109,7 +176,7 @@ export const BACKENDS: StudioBackend[] = [
   },
   {
     id: 'higgsfield',
-    label: 'Higgsfield (paid)',
+    label: 'Higgsfield',
     mode: 'video',
     paid: true,
     available: true,
@@ -128,6 +195,14 @@ export const BACKENDS: StudioBackend[] = [
         resolutions: [res('16:9', '720p'), res('9:16', '720p')],
         seconds: [5, 10],
         frames: ['start', 'end'],
+      },
+      {
+        id: 'soul',
+        name: 'Soul',
+        mode: 'image',
+        resolutions: [res('16:9', '1080p'), res('1:1', '1080p')],
+        seconds: [],
+        frames: [],
       },
     ],
   },

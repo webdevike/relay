@@ -20,6 +20,7 @@ import {
 import { findTool } from "../src/drops/video";
 import { KONTEXT_MODEL, kontextArgv, KontextRunner } from "../src/studio/kontext";
 import { ltxArgv, LtxRunner, runProcessGroup } from "../src/studio/ltx";
+import { fineTuneName, type MossPaths, MossRunner } from "../src/studio/moss";
 import { ffmpegMedia } from "../src/studio/media";
 import type { StudioRunInput } from "../src/studio/runner";
 import { fakeMedia, imageSpec, JPEG, ltxSpec, MP4, paidSpec, PNG } from "./studio-fakes";
@@ -215,6 +216,111 @@ describe("Kontext runner", () => {
     expect(await new KontextRunner(paths).run(input)).toEqual({ path: join(input.workDir, "out.png"), mimeType: "image/png" });
     expect(input.notes).toEqual(["Loading FLUX Kontext", "Step 6 of 24"]);
     expect(readFileSync(join(dir, "offline"), "utf8").trim()).toBe("1");
+  });
+});
+
+describe("MOSS runner", () => {
+  /** A safetensors file whose header names `keys` (no tensor data: only the header is read). */
+  const safetensors = (path: string, keys: readonly string[]): void => {
+    const header = Buffer.from(JSON.stringify(Object.fromEntries(keys.map((key) => [key, { dtype: "I8", shape: [1], data_offsets: [0, 1] }]))));
+    const prefix = Buffer.alloc(8);
+    prefix.writeBigUInt64LE(BigInt(header.length));
+    writeFileSync(path, Buffer.concat([prefix, header, Buffer.from([0])]));
+  };
+
+  /** A MOSS install in a temp dir: a stand-in moss.py run by `sh`, the tier "cached", empty checkpoint dirs. */
+  const install = (script = "") => {
+    const dir = freshDir();
+    const paths: MossPaths = {
+      python: "/bin/sh",
+      script: join(dir, "moss.py"),
+      checkpoints: join(dir, "diffusion_models"),
+      transformers: join(dir, "transformers"),
+      snapshots: join(dir, "snapshots"),
+    };
+    mkdirSync(join(paths.snapshots, "abc"), { recursive: true });
+    mkdirSync(paths.checkpoints);
+    mkdirSync(paths.transformers);
+    writeFileSync(paths.script, `${script}\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = "--out" ]; then echo png > "$2"; fi\n  shift\ndone\n`);
+    return { dir, paths };
+  };
+  const mossSpec = (over: Partial<StudioSpec> = {}): StudioSpec =>
+    imageSpec({ backend: "moss", model: "moss-image", resolution: "768x1344", ...over });
+
+  it("names a fine-tune from its file name without quantization tags", () => {
+    expect(fineTuneName("Jib_Mix_Moss_V2_H_int8")).toBe("Jib Mix Moss V2");
+    expect(fineTuneName("my-moss_fp16")).toBe("my moss");
+  });
+
+  it("is unavailable without moss.py, its Python, or the tier in the Hugging Face cache", async () => {
+    const { paths } = install();
+    expect((await new MossRunner({ ...paths, script: join(paths.checkpoints, "nope.py") }).describe()).reason).toContain("nope.py");
+    expect((await new MossRunner({ ...paths, python: "/nope/python" }).describe()).reason).toContain("/nope/python");
+    const uncached = await new MossRunner({ ...paths, snapshots: join(paths.checkpoints, "none") }).describe();
+    expect(uncached).toMatchObject({ id: "moss", available: false, models: [] });
+    expect(uncached.reason).toContain("--setup");
+  });
+
+  it("lists MOSS-Image plus every MOSS fine-tune on disk: checkpoints by their keys, converted directories without one", async () => {
+    const { paths } = install();
+    safetensors(join(paths.checkpoints, "Jib_Mix_Moss_V2_H_int8.safetensors"), ["model.diffusion_model.final_linear_video.weight"]);
+    safetensors(join(paths.checkpoints, "flux.safetensors"), ["double_blocks.0.weight"]);
+    safetensors(join(paths.checkpoints, "moss_image_sft_int8_convrot.safetensors"), ["final_linear_video.weight"]);
+    writeFileSync(join(paths.checkpoints, "notes.txt"), "x");
+    mkdirSync(join(paths.transformers, "Other_Moss_bf16"));
+    writeFileSync(join(paths.transformers, "Other_Moss_bf16", "config.json"), "{}");
+    mkdirSync(join(paths.transformers, "half-written"));
+    const backend = await new MossRunner(paths).describe();
+    expect(backend).toMatchObject({ id: "moss", available: true, seed: true, serial: true, paid: false, mode: "image" });
+    expect(backend.models?.map((m) => [m.id, m.name, m.description])).toEqual([
+      ["moss-image", "MOSS-Image", "Text and layouts in the image. Local, MLX."],
+      ["Jib_Mix_Moss_V2_H_int8", "Jib Mix Moss V2", "MOSS-Image fine-tune. Local, MLX; the first run converts it."],
+      ["Other_Moss_bf16", "Other Moss", "MOSS-Image fine-tune. Local, MLX."],
+    ]);
+    expect(backend.models?.[0]?.inputs?.map((input) => input.id)).toEqual(["turbo", "enhance"]);
+  });
+
+  it("runs moss.py offline with the size, seed, Turbo and enhancer picks and the fine-tune's paths, and shows its progress", async () => {
+    const { dir, paths } = install(
+      [
+        `echo "$HF_HUB_OFFLINE $*" > "$(dirname "$0")/argv"`,
+        `echo "[moss] checking files" >&2`,
+        `echo "[moss] enhancing the prompt" >&2`,
+        `echo "[moss] waiting for GPU: another job holds /x (pid 1)" >&2`,
+        `echo "[moss] GPU lock acquired after 3s" >&2`,
+        `echo "[moss] converting Jib_Mix_Moss_V2_H_int8.safetensors to MLX (first use, about a minute)" >&2`,
+        `echo "[moss] loading the model" >&2`,
+        `echo "step 4/15" >&2`,
+      ].join("\n"),
+    );
+    safetensors(join(paths.checkpoints, "Jib_Mix_Moss_V2_H_int8.safetensors"), ["final_linear_video.weight"]);
+    const released: number[] = [];
+    const runner = new MossRunner(paths, () => {
+      released.push(1);
+      return Promise.resolve();
+    });
+    const input = runInput(mossSpec({ model: "Jib_Mix_Moss_V2_H_int8", params: { turbo: "off" } }), { seed: 9 });
+    expect(await runner.run(input)).toEqual({ path: join(input.workDir, "out.png"), mimeType: "image/png" });
+    expect(released).toEqual([1]);
+    expect(readFileSync(join(dir, "argv"), "utf8").trim()).toBe(
+      `1 --prompt a red kite --width 768 --height 1344 --seed 9 --out ${join(input.workDir, "out.png")} --enhance` +
+        ` --transformer ${join(paths.transformers, "Jib_Mix_Moss_V2_H_int8")} --source ${join(paths.checkpoints, "Jib_Mix_Moss_V2_H_int8.safetensors")}`,
+    );
+    expect(input.notes).toEqual([
+      "Checking the model files",
+      "Enhancing the prompt",
+      "Converting Jib Mix Moss V2 to MLX (first use)",
+      "Loading MOSS-Image",
+      "Step 4 of 15",
+    ]);
+    expect(input.waits).toEqual([true, false]);
+  });
+
+  it("fails with moss.py's one-line reason, and refuses a model that is not on disk", async () => {
+    const { paths } = install(`echo "[moss] checking files" >&2\necho "[moss] error: MOSS-Image (MLX) is not fully downloaded. Missing: x. Download it once with: y --setup" >&2\nexit 3`);
+    const runner = new MossRunner(paths);
+    await expect(runner.run(runInput(mossSpec(), { seed: 1 }))).rejects.toThrow(/^MOSS-Image \(MLX\) is not fully downloaded\. Missing: x\. Download it once with: y --setup$/);
+    await expect(runner.run(runInput(mossSpec({ model: "Gone_Moss" }), { seed: 1 }))).rejects.toThrow("no MOSS-Image model Gone_Moss");
   });
 });
 

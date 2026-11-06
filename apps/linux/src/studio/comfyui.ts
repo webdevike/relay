@@ -355,6 +355,21 @@ export class ComfyUIRunner implements StudioRunner {
     return this.post("/free", Freed, { unload_models: true, free_memory: true });
   }
 
+  /**
+   * Another local GPU backend (MOSS-Image) is about to run: the server unloads its models now instead of after
+   * ten idle minutes. Best effort; never rejects.
+   */
+  async release(): Promise<void> {
+    clearTimeout(this.idle);
+    this.family = null;
+    await this.json("/free", Freed, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ unload_models: true, free_memory: true }),
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    }).catch(() => undefined);
+  }
+
   private async runPreset(input: StudioRunInput): Promise<StudioRunOutput> {
     const { spec, signal } = input;
     const preset = this.presets().presets.find((candidate) => candidate.manifest.id === spec.model);

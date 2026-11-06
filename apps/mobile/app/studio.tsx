@@ -183,8 +183,8 @@ export default function Studio() {
         visible={models}
         draft={draft}
         backends={backends}
-        onPick={(model) => {
-          patchDraft({ model });
+        onPick={(entry) => {
+          patchDraft({ mode: entry.mode, backend: entry.backend, model: entry.model });
           setModels(false);
         }}
         onClose={() => {

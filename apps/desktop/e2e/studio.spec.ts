@@ -59,6 +59,14 @@ async function shot(app: ElectronApplication, shell: Page, name: string): Promis
   if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir)
 }
 
+/** A plain shell screenshot into STUDIO_PICKER_PROOF's folder, when that is set. */
+async function proof(shell: Page, name: string): Promise<void> {
+  const dir = process.env.STUDIO_PICKER_PROOF
+  if (!dir) return
+  fs.mkdirSync(dir, { recursive: true })
+  await shell.screenshot({ path: path.join(dir, `${name}.png`) })
+}
+
 const creates = (): Array<Record<string, unknown>> =>
   host.studioOps.filter((op) => op.kind === 'create')
 
@@ -117,7 +125,11 @@ test('compose, generate, gallery, viewer, remix and the paid confirm', async ({ 
   // A free image job: a running row with progress, then a gallery tile.
   const prompt = studio.locator(sel('studio-prompt'))
   await prompt.fill('A lighthouse at dusk, film grain')
-  await expect(studio.locator(sel('studio-backend'))).toHaveValue('Image (Codex, free)')
+  // The first free model of the picker is the default; Codex image comes from the dropdown.
+  await expect(studio.locator(sel('studio-model'))).toHaveValue('MOSS-Image')
+  await studio.locator(sel('studio-model')).click()
+  await shell.getByRole('option', { name: 'Codex image' }).click()
+  await expect(studio.locator(sel('studio-model'))).toHaveValue('Codex image')
   await studio.locator(sel('studio-generate')).click()
   const row = studio.locator(sel('studio-queue-row'))
   await expect(row).toHaveAttribute('data-state', 'running')
@@ -170,7 +182,7 @@ test('compose, generate, gallery, viewer, remix and the paid confirm', async ({ 
   await studio.locator(sel('studio-gallery-item')).first().click()
   await viewer.locator(sel('studio-use')).click()
   await shell.locator(sel('studio-use-start')).click()
-  await expect(studio.locator(sel('studio-backend'))).toHaveValue('Local video (LTX, free)')
+  await expect(studio.locator(sel('studio-model'))).toHaveValue('LTX video')
   await expect(studio.locator(`${sel('studio-slot-start')} img`)).toBeVisible()
   await studio
     .locator(sel('studio-slot-end-file'))
@@ -179,8 +191,8 @@ test('compose, generate, gallery, viewer, remix and the paid confirm', async ({ 
   expect(host.studioOps.some((op) => op.kind === 'upload')).toBe(true)
 
   // Paid: the model picker shows prices and the balance; Generate only opens the confirm dialog.
-  await studio.locator(sel('studio-backend')).click()
-  await shell.getByRole('option', { name: /Higgsfield/ }).click()
+  await studio.locator(sel('studio-model')).click()
+  await shell.getByRole('option', { name: /Kling 2\.5/ }).click()
   await expect(studio.locator(sel('studio-balance'))).toContainText('500 credits left')
   await studio.locator(sel('studio-model')).click()
   await expect(shell.getByRole('option', { name: /Kling 2\.5/ })).toContainText('40 credits')
@@ -217,6 +229,7 @@ test('agents generate, list and open Studio through the control API', async ({
     'ltx',
     'codex-image',
     'codex-edit',
+    'moss',
     'kontext',
     'comfyui',
     'higgsfield',
@@ -257,13 +270,65 @@ test('agents generate, list and open Studio through the control API', async ({
   })
   expect(opened).toMatchObject({ ok: true, value: { tab: 'view:page:studio', draft: true } })
   await expect(studio.locator(sel('studio-prompt'))).toHaveValue('Drafted by Eva')
-  await expect(studio.locator(sel('studio-backend'))).toHaveValue('Higgsfield (paid)')
   await expect(studio.locator(sel('studio-model'))).toHaveValue('Hailuo 02')
   expect(creates()).toHaveLength(sent)
 
   // The new job is in the list with its output.
   const after = await agent(configDir, 'studio.list', { limit: 1 })
   expect(after.value).toMatchObject({ jobs: [{ id: job.id, state: 'done' }] })
+})
+
+test('one model dropdown with every model, MOSS-Image with its inputs, and the ComfyUI tab', async ({
+  shell,
+}) => {
+  await openStudioTab(shell)
+  const studio = shell.locator(sel('page-studio'))
+  const model = studio.locator(sel('studio-model'))
+  await expect(model).toHaveValue('MOSS-Image')
+  await expect(studio.locator(sel('studio-presets'))).toHaveCount(0)
+  await model.click()
+  const list = shell.locator('.mantine-Select-dropdown')
+  await expect(list.locator('.mantine-Select-groupLabel')).toHaveText(['Local', 'ChatGPT', 'Paid'])
+  await expect(list.getByRole('option')).toHaveText([
+    /^MOSS-Image/,
+    /^Jib Mix Moss/,
+    /^FLUX Kontext/,
+    /^LTX video/,
+    /^Codex image/,
+    /^Codex edit/,
+    /^Kling 2\.5\s*Paid|^Kling 2\.5/,
+    /^Hailuo 02/,
+  ])
+  await proof(shell, 'desktop-models-dropdown-open')
+  await shell.getByRole('option', { name: 'Jib Mix Moss' }).click()
+  await expect(model).toHaveValue('Jib Mix Moss')
+  await model.click()
+  await shell.getByRole('option', { name: 'MOSS-Image' }).click()
+  await expect(studio.locator(sel('studio-param-turbo'))).toBeVisible()
+  await expect(studio.locator(sel('studio-param-enhance'))).toBeVisible()
+  await studio.locator(sel('studio-prompt')).fill('A poster that says OPEN LATE in tall letters')
+  await studio.locator(sel('studio-param-turbo')).getByText('Off (50 steps, slower)').click()
+  await proof(shell, 'desktop-moss-selected')
+  await studio.locator(sel('studio-generate')).click()
+  await expect.poll(() => creates().length).toBe(1)
+  expect(creates()[0]).toMatchObject({
+    origin: 'desktop',
+    spec: {
+      backend: 'moss',
+      model: 'moss-image',
+      params: { turbo: 'off' },
+      resolution: '1344x768',
+    },
+  })
+
+  // ComfyUI tab: its presets; back on Models the last choice returns.
+  await studio.locator(sel('studio-tab')).getByText('ComfyUI').click()
+  await expect(studio.locator(sel('studio-preset-angles'))).toHaveAttribute('aria-pressed', 'true')
+  await expect(model).toHaveCount(0)
+  await shell.waitForTimeout(400)
+  await proof(shell, 'desktop-comfyui')
+  await studio.locator(sel('studio-tab')).getByText('Models').click()
+  await expect(model).toHaveValue('MOSS-Image')
 })
 
 test('ComfyUI presets: cards, their own settings, references and no-prompt presets', async ({
@@ -273,8 +338,7 @@ test('ComfyUI presets: cards, their own settings, references and no-prompt prese
 }) => {
   await openStudioTab(shell)
   const studio = shell.locator(sel('page-studio'))
-  await studio.locator(sel('studio-backend')).click()
-  await shell.getByRole('option', { name: /ComfyUI presets/ }).click()
+  await studio.locator(sel('studio-tab')).getByText('ComfyUI').click()
   await expect(studio.locator(sel('studio-presets'))).toContainText('See the same subject')
   await expect(studio.locator(sel('studio-preset-angles'))).toHaveAttribute('aria-pressed', 'true')
 

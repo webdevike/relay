@@ -32,14 +32,16 @@ export const StudioMode = z.enum(["image", "video"]);
 export type StudioMode = z.infer<typeof StudioMode>;
 
 /**
- * `ltx`: local LTX-2.5 video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `kontext`: local FLUX.1
- * Kontext image edit. `comfyui` / `comfyui-video`: presets (named ComfyUI workflows) on a ComfyUI server the host
- * reaches, images and videos. `higgsfield`: paid.
+ * `ltx`: local LTX-2.5 video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `moss`: local
+ * MOSS-Image (MLX) text to image; its models are MOSS-Image and the fine-tunes on this host (Jib Mix Moss). `kontext`:
+ * local FLUX.1 Kontext image edit. `comfyui` / `comfyui-video`: presets (named ComfyUI workflows) on a ComfyUI server
+ * the host reaches, images and videos. `higgsfield`: paid. Older clients drop backends they do not know.
  */
 export const StudioBackendId = z.enum([
   "ltx",
   "codex-image",
   "codex-edit",
+  "moss",
   "kontext",
   "comfyui",
   "comfyui-video",

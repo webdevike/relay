@@ -1,8 +1,9 @@
 /**
- * Studio's form: prompt, mode, backend (and Higgsfield model), aspect, size, length, seed, and the
+ * Studio's form: prompt, the Models | ComfyUI switch and its picker, aspect, size, length, seed, and the
  * keyframe or reference slots. Shows the fitted draft (`studioForm`); every change goes back to the
  * store's draft as a patch. Generate lives in the screen's bottom bar, not here.
  */
+import { useRef } from "react";
 import { Pressable, View, useWindowDimensions } from "react-native";
 import { SymbolView } from "expo-symbols";
 import type { StudioAsset, StudioFrameSlot } from "@relay/protocol";
@@ -11,19 +12,18 @@ import { ChipRow } from "@/ui/ChipRow";
 import { Chip } from "@/ui/Chip";
 import { MediaSlot } from "@/ui/MediaSlot";
 import { OptionRow } from "@/ui/OptionRow";
-import { Pill } from "@/ui/Pill";
 import { SegmentedTabs } from "@/ui/SegmentedTabs";
 import { Text } from "@/ui/Text";
 import { TextField } from "@/ui/TextField";
-import { isPresetBackend, STUDIO_ASPECTS, type StudioDraft, type StudioForm, type StudioTarget } from "./draft";
+import { comfyReason, draftChoice, draftForTab, isPresetBackend, STUDIO_ASPECTS, type StudioChoice, type StudioDraft, type StudioForm, type StudioTab, type StudioTarget } from "./draft";
 import { PresetInputs } from "./PresetInputs";
 import type { Quote } from "./quote";
 
 const SLOT_COLUMNS = 3;
 const SLOT_NAMES: Record<StudioFrameSlot, string> = { start: "Start", mid: "Mid", end: "End" };
-const MODES = [
-  { key: "image", label: "Image" },
-  { key: "video", label: "Video" },
+const TABS = [
+  { key: "models", label: "Models" },
+  { key: "comfyui", label: "ComfyUI" },
 ] as const;
 
 export interface ComposerProps {
@@ -45,7 +45,10 @@ export function Composer({ form, assets, base, quote, uploading, onPatch, onAdd,
   const { width } = useWindowDimensions();
   const slotSize = Math.floor((width - spacing.xl * 2 - spacing.md * (SLOT_COLUMNS - 1)) / SLOT_COLUMNS);
   const { draft, backend } = form;
-  const isPreset = isPresetBackend(backend?.id);
+  const hasComfy = form.all.some((b) => isPresetBackend(b.id));
+  const unavailable = form.tab === "comfyui" && form.presets.length === 0 ? comfyReason(form.all) : undefined;
+  const modelLabel = form.entry?.label ?? form.model?.name ?? backend?.label ?? "";
+  const remembered = useRef<Partial<Record<StudioTab, StudioChoice>>>({});
   const thumb = (id: string | undefined) => {
     const asset = id === undefined ? undefined : assets.get(id);
     return asset === undefined || base === null ? null : `${base}${asset.thumb}`;
@@ -69,61 +72,72 @@ export function Composer({ form, assets, base, quote, uploading, onPatch, onAdd,
             multiline
           />
         )}
-        <SegmentedTabs
-          tabs={MODES}
-          value={draft.mode}
-          onChange={(mode) => {
-            onPatch({ mode });
-          }}
-        />
+        {hasComfy && (
+          <SegmentedTabs
+            tabs={TABS}
+            value={form.tab}
+            onChange={(tab) => {
+              if (tab === form.tab) return;
+              const here = draftChoice(draft);
+              if (here !== undefined) remembered.current[form.tab] = here;
+              const next = draftForTab(draft, form.all, tab, remembered.current[tab]);
+              if (next !== undefined) onPatch({ mode: next.mode, backend: next.backend, model: next.model });
+            }}
+          />
+        )}
       </View>
 
-      {form.backends.length > 0 && (
+      {form.tab === "comfyui" ? (
         <View style={{ paddingHorizontal: spacing.xl, gap: spacing.sm }}>
-          {form.backends.map((b) => (
+          {form.presets.map((preset) => (
             <OptionRow
-              key={b.id}
-              label={b.label}
-              description={b.available ? undefined : b.reason}
-              selected={b.id === backend?.id}
-              disabled={!b.available}
-              trailing={<Pill label={b.paid ? "Paid" : "Free"} />}
+              key={`${preset.backend}:${preset.model}`}
+              label={preset.label}
+              description={preset.description}
+              selected={preset.backend === backend?.id && preset.model === form.model?.id}
               onPress={() => {
-                onPatch({ backend: b.id });
+                onPatch({ mode: preset.mode, backend: preset.backend, model: preset.model });
               }}
             />
           ))}
-        </View>
-      )}
-
-      {form.model !== undefined && (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${isPreset ? "Preset" : "Model"}, ${form.model.name}`}
-          accessibilityHint={isPreset ? "Choose a preset" : "Choose a model"}
-          onPress={onOpenModels}
-          style={({ pressed }) => ({
-            minHeight: 52,
-            flexDirection: "row",
-            alignItems: "center",
-            gap: spacing.md,
-            paddingHorizontal: spacing.xl,
-            backgroundColor: pressed ? colors.surfaceRaised : "transparent",
-          })}
-        >
-          <View style={{ flex: 1, gap: 2 }}>
+          {unavailable !== undefined && (
             <Text variant="caption" color="textMuted">
-              {isPreset ? "Preset" : "Model"}
+              {unavailable}
             </Text>
-            <Text variant="title" numberOfLines={1}>
-              {form.model.name}
-            </Text>
-          </View>
-          <Text variant="caption" color="textMuted" tabular>
-            {quoteLine(quote, backend?.balance)}
-          </Text>
-          <SymbolView name="chevron.right" size={13} tintColor={colors.textFaint} />
-        </Pressable>
+          )}
+        </View>
+      ) : (
+        backend !== undefined && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Model, ${modelLabel}`}
+            accessibilityHint="Choose a model"
+            onPress={onOpenModels}
+            style={({ pressed }) => ({
+              minHeight: 52,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: spacing.md,
+              paddingHorizontal: spacing.xl,
+              backgroundColor: pressed ? colors.surfaceRaised : "transparent",
+            })}
+          >
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text variant="caption" color="textMuted">
+                Model
+              </Text>
+              <Text variant="title" numberOfLines={1}>
+                {modelLabel}
+              </Text>
+            </View>
+            {backend.paid && (
+              <Text variant="caption" color="textMuted" tabular>
+                {quoteLine(quote, backend.balance)}
+              </Text>
+            )}
+            <SymbolView name="chevron.right" size={13} tintColor={colors.textFaint} />
+          </Pressable>
+        )
       )}
 
       {form.inputs.length > 0 && (

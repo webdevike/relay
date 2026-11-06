@@ -20,13 +20,24 @@ import {
   type StudioAspect,
   type StudioAsset,
   type StudioBackend,
-  type StudioBackendId,
   type StudioFrameSlot,
   type StudioInput,
-  type StudioMode,
 } from '@evaos/contract'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { creditsLabel as credits } from './studio-assets'
-import { formModel, type StudioForm, type StudioSlot } from './studio-form'
+import {
+  STUDIO_GROUPS,
+  formEntryKey,
+  formModel,
+  selectEntry,
+  studioEntries,
+  studioPresets,
+  studioTab,
+  tabChoice,
+  type StudioForm,
+  type StudioSlot,
+  type StudioTab,
+} from './studio-form'
 import { StudioSlotTile } from './StudioSlotTile'
 
 const SLOT_LABEL: Record<StudioFrameSlot, string> = {
@@ -74,15 +85,31 @@ export function StudioComposer({
   onPick,
 }: StudioComposerProps) {
   const model = form.model ?? undefined
-  const ofMode = backends.filter((b) => b.mode === form.mode)
-  const byId = new Map(ofMode.map((b) => [b.id, b]))
-  const models = backend?.models?.filter((m) => m.mode === form.mode) ?? []
+  const entries = useMemo(() => studioEntries(backends), [backends])
+  const byKey = useMemo(() => new Map(entries.map((e) => [e.key, e])), [entries])
+  const { presets, reason: presetsReason } = useMemo(() => studioPresets(backends), [backends])
   const preset = formModel(form, backend)
-  const presetCards = backend?.id === 'comfyui' || backend?.id === 'comfyui-video'
+  const derived = studioTab(form)
+  // A tab with nothing to pick yet (no ComfyUI presets) still shows, until the form moves.
+  const [pending, setPending] = useState<StudioTab | null>(null)
+  useEffect(() => setPending(null), [derived])
+  const tab = pending ?? derived
+  const entryKey = formEntryKey(form, backends)
+  const entryValue = tab === 'models' ? entryKey : null
+  // The last choice made on each tab, to come back to when switching.
+  const last = useRef<Record<StudioTab, string | null>>({ models: null, comfyui: null })
+  useEffect(() => {
+    last.current[derived] = entryKey
+  }, [derived, entryKey])
+  const switchTab = (next: StudioTab): void => {
+    setPending(next)
+    const choice = tabChoice(next, backends, last.current[next])
+    if (choice) onChange((f) => selectEntry(f, backends, choice))
+  }
   const resolutions = backend ? studioResolutions(backend, form.aspect, model) : []
   const lengths = backend && form.mode === 'video' ? studioSeconds(backend, model) : []
   const slots = backend && form.mode === 'video' ? studioFrameSlots(backend, model) : []
-  const refSlots = backend && backend.mode === 'image' ? studioRefs(backend, model).max : 0
+  const refSlots = backend && form.mode === 'image' ? studioRefs(backend, model).max : 0
   const set = (patch: Partial<StudioForm>): void => onChange((f) => ({ ...f, ...patch }))
   return (
     <div className="eva-studio-composer" data-testid="studio-composer">
@@ -106,67 +133,103 @@ export function StudioComposer({
           }}
         />
       )}
-      <SegmentedControl<StudioMode>
+      <SegmentedControl<StudioTab>
         fullWidth
-        value={form.mode}
-        data-testid="studio-mode"
+        value={tab}
+        data-testid="studio-tab"
         data={[
-          { label: 'Image', value: 'image' },
-          { label: 'Video', value: 'video' },
+          { label: 'Models', value: 'models' },
+          { label: 'ComfyUI', value: 'comfyui' },
         ]}
-        onChange={(mode) => set({ mode })}
+        onChange={switchTab}
       />
-      <Select<StudioBackendId>
-        label="Backend"
-        data-testid="studio-backend"
-        value={form.backend}
-        allowDeselect={false}
-        checkIconPosition="right"
-        comboboxProps={{ withinPortal: true, zIndex: 300 }}
-        data={ofMode.map((b) => ({ value: b.id, label: b.label, disabled: !b.available }))}
-        rightSection={
-          backend ? <span className="eva-studio-pill">{backend.paid ? 'Paid' : 'Free'}</span> : null
-        }
-        rightSectionWidth={56}
-        rightSectionPointerEvents="none"
-        renderOption={({ option }) => {
-          const b = byId.get(option.value)
-          return (
-            <div className="eva-studio-option" data-disabled={option.disabled ? 'true' : undefined}>
-              <span className="eva-studio-option-main">
-                <span>{option.label}</span>
-                <span className="eva-studio-pill">{b?.paid ? 'Paid' : 'Free'}</span>
-              </span>
-              {b && !b.available && b.reason ? (
-                <span className="eva-studio-option-note">{b.reason}</span>
-              ) : null}
-            </div>
-          )
-        }}
-        onChange={(id) => id && set({ backend: id })}
-      />
-      {presetCards && models.length > 0 ? (
+      {tab === 'models' ? (
+        <div className="eva-studio-field">
+          <Select
+            label="Model"
+            data-testid="studio-model"
+            value={entryValue}
+            allowDeselect={false}
+            checkIconPosition="right"
+            comboboxProps={{ withinPortal: true, zIndex: 300 }}
+            maxDropdownHeight={420}
+            data={STUDIO_GROUPS.flatMap((group) => {
+              const items = entries
+                .filter((e) => e.group === group)
+                .map((e) => ({ value: e.key, label: e.label, disabled: !e.available }))
+              return items.length > 0 ? [{ group, items }] : []
+            })}
+            renderOption={({ option }) => {
+              const e = byKey.get(option.value)
+              const quote = e?.model != null ? quotes[e.model] : undefined
+              return (
+                <div
+                  className="eva-studio-option"
+                  data-disabled={option.disabled ? 'true' : undefined}
+                >
+                  <span className="eva-studio-option-main">
+                    <span>{option.label}</span>
+                    {e?.paid ? (
+                      quote !== undefined ? (
+                        <span className="eva-studio-option-note">{credits(quote)}</span>
+                      ) : (
+                        <span className="eva-studio-pill">Paid</span>
+                      )
+                    ) : null}
+                  </span>
+                  {e && !e.available && e.reason ? (
+                    <span className="eva-studio-option-note">{e.reason}</span>
+                  ) : null}
+                </div>
+              )
+            }}
+            onChange={(key) => {
+              const e = key ? byKey.get(key) : undefined
+              if (e) onChange((f) => selectEntry(f, backends, e))
+            }}
+          />
+          {backend?.paid ? (
+            <span className="eva-studio-faint" data-testid="studio-balance">
+              {[
+                form.model && quotes[form.model] !== undefined
+                  ? `${credits(quotes[form.model] ?? 0)} for this job`
+                  : null,
+                balance !== undefined ? `${credits(balance)} left` : null,
+              ]
+                .filter(Boolean)
+                .join(', ')}
+            </span>
+          ) : null}
+        </div>
+      ) : presets.length > 0 ? (
         <div className="eva-studio-field">
           <span className="eva-studio-label">Preset</span>
           <div className="eva-studio-presets" data-testid="studio-presets">
-            {models.map((m) => (
-              <UnstyledButton
-                key={m.id}
-                className="eva-studio-preset"
-                data-active={m.id === form.model ? 'true' : undefined}
-                data-testid={`studio-preset-${m.id}`}
-                aria-pressed={m.id === form.model}
-                onClick={() => set({ model: m.id })}
-              >
-                <span className="eva-studio-preset-name">{m.name}</span>
-                {m.description ? (
-                  <span className="eva-studio-preset-note">{m.description}</span>
-                ) : null}
-              </UnstyledButton>
-            ))}
+            {presets.map((p) => {
+              const active = p.backend === form.backend && p.model === form.model
+              return (
+                <UnstyledButton
+                  key={p.key}
+                  className="eva-studio-preset"
+                  data-active={active ? 'true' : undefined}
+                  data-testid={`studio-preset-${p.model}`}
+                  aria-pressed={active}
+                  onClick={() => onChange((f) => selectEntry(f, backends, p))}
+                >
+                  <span className="eva-studio-preset-name">{p.label}</span>
+                  {p.description ? (
+                    <span className="eva-studio-preset-note">{p.description}</span>
+                  ) : null}
+                </UnstyledButton>
+              )
+            })}
           </div>
         </div>
-      ) : null}
+      ) : (
+        <span className="eva-studio-faint" data-testid="studio-presets-empty">
+          {presetsReason}
+        </span>
+      )}
       {preset?.inputs?.map((input) => (
         <PresetInput
           key={input.id}
@@ -177,39 +240,6 @@ export function StudioComposer({
           }
         />
       ))}
-      {!presetCards && models.length > 0 ? (
-        <div className="eva-studio-field">
-          <Select
-            label="Model"
-            data-testid="studio-model"
-            value={form.model}
-            allowDeselect={false}
-            comboboxProps={{ withinPortal: true, zIndex: 300 }}
-            data={models.map((m) => ({ value: m.id, label: m.name }))}
-            renderOption={({ option }) => (
-              <div className="eva-studio-option-main">
-                <span>{option.label}</span>
-                {quotes[option.value] !== undefined ? (
-                  <span className="eva-studio-option-note">
-                    {credits(quotes[option.value] ?? 0)}
-                  </span>
-                ) : null}
-              </div>
-            )}
-            onChange={(v) => v && set({ model: v })}
-          />
-          <span className="eva-studio-faint" data-testid="studio-balance">
-            {[
-              form.model && quotes[form.model] !== undefined
-                ? `${credits(quotes[form.model] ?? 0)} for this job`
-                : null,
-              balance !== undefined ? `${credits(balance)} left` : null,
-            ]
-              .filter(Boolean)
-              .join(', ')}
-          </span>
-        </div>
-      ) : null}
       <div className="eva-studio-field">
         <span className="eva-studio-label">Aspect</span>
         <Chip.Group<false, StudioAspect>

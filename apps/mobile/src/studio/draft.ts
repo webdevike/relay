@@ -51,11 +51,122 @@ export const STUDIO_SLOTS: readonly StudioFrameSlot[] = ["start", "mid", "end"];
 /** Where an asset can go in the composer: a keyframe slot or the edit references. */
 export type StudioTarget = StudioFrameSlot | "ref";
 
+/** Which of the two pickers a draft is on: the model dropdown, or ComfyUI's presets. */
+export type StudioTab = "models" | "comfyui";
+
+export type StudioGroup = "Local" | "ChatGPT" | "Paid";
+export const STUDIO_GROUPS: readonly StudioGroup[] = ["Local", "ChatGPT", "Paid"];
+
+/** One choice in the model dropdown (or one ComfyUI preset): a model, or a backend that has none. */
+export interface StudioEntry {
+  backend: StudioBackendId;
+  /** Absent for a backend that picks no model. */
+  model?: string | undefined;
+  label: string;
+  mode: StudioMode;
+  available: boolean;
+  reason?: string | undefined;
+  paid: boolean;
+  group: StudioGroup;
+  /** A preset's one line. */
+  description?: string | undefined;
+}
+
+/** What a tab remembers: the mode, backend and model last chosen on it. */
+export interface StudioChoice {
+  mode: StudioMode;
+  backend: StudioBackendId;
+  model?: string | undefined;
+}
+
+function entriesOf(backend: StudioBackend): StudioEntry[] {
+  const group: StudioGroup = backend.paid ? "Paid" : backend.id === "codex-image" || backend.id === "codex-edit" ? "ChatGPT" : "Local";
+  const models = backend.models;
+  if (backend.available && models !== undefined && models.length > 0) {
+    return models.map((m) => ({ backend: backend.id, model: m.id, label: m.name, mode: m.mode, available: true, paid: backend.paid, group, description: m.description }));
+  }
+  return [{ backend: backend.id, label: backend.label, mode: backend.mode, available: backend.available, reason: backend.reason, paid: backend.paid, group }];
+}
+
+/**
+ * Every model the host offers outside ComfyUI, grouped Local, ChatGPT, Paid; images before videos
+ * inside a group, otherwise in the host's order. A backend that is down or lists no models is one
+ * entry of its own (disabled, with its reason).
+ */
+export function studioEntries(backends: readonly StudioBackend[]): StudioEntry[] {
+  const entries = backends.filter((b) => !isPresetBackend(b.id)).flatMap(entriesOf);
+  const out: StudioEntry[] = [];
+  for (const group of STUDIO_GROUPS) {
+    const inGroup = entries.filter((e) => e.group === group);
+    out.push(...inGroup.filter((e) => e.mode === "image"), ...inGroup.filter((e) => e.mode === "video"));
+  }
+  return out;
+}
+
+/** ComfyUI's presets, image presets first, then video presets (only the available backends have any). */
+export function studioPresets(backends: readonly StudioBackend[]): StudioEntry[] {
+  const presets = backends.filter((b) => isPresetBackend(b.id)).flatMap(entriesOf).filter((e) => e.model !== undefined);
+  return [...presets.filter((e) => e.mode === "image"), ...presets.filter((e) => e.mode === "video")];
+}
+
+/** Why ComfyUI offers nothing, in one line; undefined when it has presets or the host has no ComfyUI. */
+export function comfyReason(backends: readonly StudioBackend[]): string | undefined {
+  const comfy = backends.filter((b) => isPresetBackend(b.id));
+  if (comfy.length === 0 || studioPresets(backends).length > 0) return undefined;
+  return comfy.find((b) => b.reason !== undefined)?.reason ?? "ComfyUI has no presets on this host";
+}
+
+/** The entry a new composer starts on: the first available free one, else the first available, else the first. */
+export function defaultEntry(backends: readonly StudioBackend[]): StudioEntry | undefined {
+  const entries = studioEntries(backends);
+  return entries.find((e) => e.available && !e.paid) ?? entries.find((e) => e.available) ?? entries[0];
+}
+
+/** The tab a draft is on: ComfyUI when its backend is a ComfyUI one. */
+export function draftTab(draft: Pick<StudioDraft, "backend">): StudioTab {
+  return isPresetBackend(draft.backend) ? "comfyui" : "models";
+}
+
+/** The draft with an entry or preset chosen: mode, backend and model move together (the model is cleared for a model-less backend). */
+export function draftForEntry(draft: StudioDraft, entry: Pick<StudioEntry, "backend" | "model" | "mode">): StudioDraft {
+  return { ...draft, mode: entry.mode, backend: entry.backend, model: entry.model };
+}
+
+export function draftChoice(draft: StudioDraft): StudioChoice | undefined {
+  return draft.backend === undefined ? undefined : { mode: draft.mode, backend: draft.backend, model: draft.model };
+}
+
+/**
+ * The draft moved to `tab`: the choice that tab last held when it is still offered, else its first
+ * available entry (a ComfyUI backend with no presets is chosen as itself so its reason shows).
+ * Undefined when there is nothing to switch to.
+ */
+export function draftForTab(draft: StudioDraft, backends: readonly StudioBackend[], tab: StudioTab, remembered?: StudioChoice): StudioDraft | undefined {
+  if (draftTab(draft) === tab) return draft;
+  const same = (e: StudioEntry) => remembered?.backend === e.backend && remembered.model === e.model;
+  if (tab === "models") {
+    const entry = studioEntries(backends).find((e) => e.available && same(e)) ?? defaultEntry(backends);
+    return entry === undefined ? undefined : draftForEntry(draft, entry);
+  }
+  const presets = studioPresets(backends);
+  const preset = presets.find(same) ?? presets.find((e) => e.available);
+  if (preset !== undefined) return draftForEntry(draft, preset);
+  const comfy = backends.find((b) => isPresetBackend(b.id));
+  return comfy === undefined ? undefined : { ...draft, mode: comfy.mode, backend: comfy.id, model: undefined };
+}
+
 /** The draft fitted to the host's backends, with the choices the screen offers. */
 export interface StudioForm {
   draft: StudioDraft;
-  /** Backends of the draft's mode, in the host's order. */
-  backends: StudioBackend[];
+  /** Every backend the host offers, in its order. */
+  all: StudioBackend[];
+  /** The model dropdown's entries (grouped, ordered). */
+  entries: StudioEntry[];
+  /** ComfyUI's presets. */
+  presets: StudioEntry[];
+  tab: StudioTab;
+  /** The chosen entry or preset; undefined when the host lists none for that backend. */
+  entry: StudioEntry | undefined;
   backend: StudioBackend | undefined;
   /** The backend's models of the draft's mode; empty unless it picks models. */
   models: StudioModel[];
@@ -75,9 +186,27 @@ export interface StudioForm {
   takesPrompt: boolean;
 }
 
-export function studioForm(draft: StudioDraft, all: readonly StudioBackend[]): StudioForm {
-  const backends = all.filter((b) => b.mode === draft.mode);
-  const backend = backends.find((b) => b.id === draft.backend) ?? backends.find((b) => b.available) ?? backends[0];
+const serves = (b: StudioBackend, mode: StudioMode) => b.mode === mode || (b.models?.some((m) => m.mode === mode) ?? false);
+
+/**
+ * The draft's mode, backend and model made valid: a draft without a backend (or on one the host
+ * lacks) starts on the default entry; a backend that doesn't serve the mode gives way to one that does.
+ */
+function settle(draft: StudioDraft, all: readonly StudioBackend[]): StudioDraft {
+  const known = draft.backend === undefined ? undefined : all.find((b) => b.id === draft.backend);
+  if (known !== undefined && serves(known, draft.mode)) return draft;
+  const inMode = known === undefined ? [] : all.filter((b) => serves(b, draft.mode));
+  const fallback = inMode.find((b) => b.available) ?? inMode[0];
+  if (fallback !== undefined) return { ...draft, backend: fallback.id, model: undefined };
+  const entry = defaultEntry(all);
+  if (entry !== undefined) return draftForEntry(draft, entry);
+  const first = all[0];
+  return first === undefined ? draft : { ...draft, mode: first.mode, backend: first.id, model: undefined };
+}
+
+export function studioForm(input: StudioDraft, all: readonly StudioBackend[]): StudioForm {
+  const draft = settle(input, all);
+  const backend = all.find((b) => b.id === draft.backend);
   const models = backend?.models?.filter((m) => m.mode === draft.mode) ?? [];
   const model = models.find((m) => m.id === draft.model) ?? models[0];
   const resolutions = backend === undefined ? [] : studioResolutions(backend, draft.aspect, model?.id);
@@ -89,9 +218,16 @@ export function studioForm(draft: StudioDraft, all: readonly StudioBackend[]): S
   const refLimit = Math.min(refs.max, MAX_STUDIO_REFS);
   const inputs = model?.inputs ?? [];
   const params = Object.fromEntries(Object.entries(draft.params ?? {}).filter(([id]) => inputs.some((input) => input.id === id)));
+  const entries = studioEntries(all);
+  const presets = studioPresets(all);
+  const pool = isPresetBackend(backend?.id) ? presets : entries;
   return {
     draft: { ...draft, backend: backend?.id, model: model?.id, resolution: resolution?.id, seconds: length, params },
-    backends,
+    all: [...all],
+    entries,
+    presets,
+    tab: draftTab({ backend: backend?.id }),
+    entry: pool.find((e) => e.backend === backend?.id && e.model === model?.id) ?? pool.find((e) => e.backend === backend?.id && e.model === undefined),
     backend,
     models,
     model,

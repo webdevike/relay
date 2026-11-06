@@ -24,14 +24,15 @@ export const StudioModeSchema = z.enum(['image', 'video'])
 export type StudioMode = z.infer<typeof StudioModeSchema>
 
 /**
- * `ltx`: local LTX video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `kontext`: local FLUX
- * Kontext image edit. `comfyui` / `comfyui-video`: presets (named ComfyUI workflows) on a ComfyUI server the host
- * reaches. `higgsfield`: paid.
+ * `ltx`: local LTX video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `moss`: local MOSS-Image
+ * (MLX) text to image, one model per checkpoint (MOSS-Image, Jib Mix Moss). `kontext`: local FLUX Kontext image edit.
+ * `comfyui` / `comfyui-video`: presets (named ComfyUI workflows) on a ComfyUI server the host reaches. `higgsfield`: paid.
  */
 export const StudioBackendIdSchema = z.enum([
   'ltx',
   'codex-image',
   'codex-edit',
+  'moss',
   'kontext',
   'comfyui',
   'comfyui-video',

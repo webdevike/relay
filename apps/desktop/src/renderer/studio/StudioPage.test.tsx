@@ -80,13 +80,28 @@ describe('StudioPage', () => {
       kind: 'create',
       spec: {
         mode: 'image',
-        backend: 'codex-image',
+        backend: 'moss',
+        model: 'moss-image',
         prompt: 'A lighthouse',
         aspect: '16:9',
-        resolution: '1536x1024',
+        resolution: '1344x768',
       },
     })
     expect(await screen.findByTestId('studio-queue-row')).toHaveTextContent('A lighthouse')
+  })
+
+  it('shows MOSS-Image with its inputs, and the ComfyUI tab with its presets', async () => {
+    page()
+    await waitFor(() => expect(screen.getByTestId('studio-model')).toHaveValue('MOSS-Image'))
+    expect(screen.getByText('Turbo')).toBeInTheDocument()
+    expect(screen.getByText('Prompt enhancer')).toBeInTheDocument()
+    expect(screen.queryByTestId('studio-presets')).toBeNull()
+    fireEvent.click(screen.getByText('ComfyUI'))
+    expect(await screen.findByTestId('studio-presets')).toHaveTextContent('Angles')
+    expect(screen.getByTestId('studio-preset-angles')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByTestId('studio-model')).toBeNull()
+    fireEvent.click(screen.getByText('Models'))
+    await waitFor(() => expect(screen.getByTestId('studio-model')).toHaveValue('MOSS-Image'))
   })
 
   it('holds Generate while the keyframes do not fit the backend', async () => {
@@ -105,10 +120,7 @@ describe('StudioPage', () => {
   it('sends a paid job only from the confirm dialog, with the quoted credits, every time', async () => {
     requestStudioOpen({ draft: { mode: 'video', backend: 'higgsfield', prompt: 'Kite' } })
     page()
-    await waitFor(() =>
-      expect(screen.getByTestId('studio-backend')).toHaveValue('Higgsfield (paid)'),
-    )
-    expect(screen.getByTestId('studio-model')).toHaveValue('Kling 2.5')
+    await waitFor(() => expect(screen.getByTestId('studio-model')).toHaveValue('Kling 2.5'))
     // The model picker's prices and the balance, quoted without spending.
     await waitFor(() =>
       expect(screen.getByTestId('studio-balance')).toHaveTextContent(

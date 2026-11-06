@@ -26,6 +26,7 @@ import {
   formSpec,
   formWithAsset,
   settleForm,
+  settleStudio,
   type StudioForm,
   type StudioSlot,
 } from './studio-form'
@@ -64,7 +65,7 @@ function fail(title: string, message: string): void {
 }
 
 /**
- * Studio: make images and videos on the Relay host. A composer (prompt, mode, backend, settings,
+ * Studio: make images and videos on the Relay host. A composer (prompt, model or ComfyUI preset, settings,
  * keyframes and references) beside the queue and the gallery; a finished output opens full
  * screen with Remix, Use as frame, Download and Delete. Paid jobs only go out from the confirm
  * dialog, with the price Isaac saw.
@@ -76,7 +77,7 @@ export function StudioPage(_props: { place: Place }) {
   const request = useStudio((s) => s.request)
   const { backends, jobs } = view
   const [raw, setRaw] = useState<StudioForm>(INITIAL_FORM)
-  const form = useMemo(() => settleForm(raw, backends), [raw, backends])
+  const form = useMemo(() => settleStudio(raw, backends), [raw, backends])
   const backend = formBackend(form, backends)
   const problem = formProblem(form, backend)
   const assets = useMemo(() => assetIndex(view), [view])
@@ -93,7 +94,7 @@ export function StudioPage(_props: { place: Place }) {
 
   const change = (update: (f: StudioForm) => StudioForm): void => {
     setError(null)
-    setRaw((f) => update(settleForm(f, backends)))
+    setRaw((f) => update(settleStudio(f, backends)))
   }
 
   // An agent's studio.open: a job for the viewer, or a draft for the composer.
@@ -101,26 +102,24 @@ export function StudioPage(_props: { place: Place }) {
     if (!request || (!view.loaded && 'draft' in request)) return
     studioStore.setState({ request: null })
     if ('job' in request) setViewing({ job: request.job, index: 0 })
-    else setRaw((f) => formFromDraft(settleForm(f, backends), request.draft))
+    else setRaw((f) => formFromDraft(settleStudio(f, backends), request.draft))
   }, [request, view.loaded, backends])
 
   // Each model's price for the current settings, while a paid backend is picked.
-  const models = backend?.paid ? (backend.models?.filter((m) => m.mode === form.mode) ?? []) : []
+  const models = backend?.paid ? (backend.models ?? []) : []
   const priceKey = backend?.paid
-    ? JSON.stringify({ ...form, prompt: '', model: null, ids: models.map((m) => m.id) })
+    ? JSON.stringify({ ...form, prompt: '', mode: null, model: null, ids: models.map((m) => m.id) })
     : ''
   useEffect(() => {
     if (!backend?.paid || priceKey === '') return
     let live = true
     const timer = setTimeout(() => {
-      const asks = (backend.models ?? [])
-        .filter((m) => m.mode === form.mode)
-        .map(async (m) => {
-          const f = settleForm({ ...form, model: m.id, prompt: PRICE_PROMPT }, backends)
-          if (f.resolution === null) return null
-          const a = await studioRequest({ kind: 'quote', spec: formSpec(f, backend) })
-          return a.ok && a.credits !== undefined ? { id: m.id, a } : null
-        })
+      const asks = (backend.models ?? []).map(async (m) => {
+        const f = settleForm({ ...form, mode: m.mode, model: m.id, prompt: PRICE_PROMPT }, backends)
+        if (f.resolution === null) return null
+        const a = await studioRequest({ kind: 'quote', spec: formSpec(f, backend) })
+        return a.ok && a.credits !== undefined ? { id: m.id, a } : null
+      })
       void Promise.all(asks).then((answers) => {
         if (!live) return
         const next: Record<string, number> = {}

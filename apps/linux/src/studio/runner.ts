@@ -1,5 +1,6 @@
 // The seam between the Studio service and the backends that make things: LTX on the GPU
-// (`ltx.ts`), Codex images (`codex.ts`), Higgsfield (`higgsfield.ts`). Tests swap in fakes.
+// (`ltx.ts`), MOSS-Image (`moss.ts`), Kontext (`kontext.ts`), ComfyUI presets (`comfyui.ts`), Codex
+// images (`codex.ts`), Higgsfield (`higgsfield.ts`). Tests swap in fakes.
 
 import type { StudioBackend, StudioFrameSlot, StudioSpec } from "@relay/protocol";
 
@@ -18,8 +19,8 @@ export interface StudioRunInput {
   /** Shows a short status line on the job ("Uploading frames"). */
   readonly note: (text: string) => void;
   /**
-   * LTX: another process holds the machine-wide GPU lock (`~/.cache/eva-gpu.lock`, taken by
-   * draft.py) and this job waits for it (true), or it just got the lock (false). The job shows
+   * LTX and MOSS: another process holds the machine-wide GPU lock (`~/.cache/eva-gpu.lock`, taken by
+   * draft.py and moss.py) and this job waits for it (true), or it just got the lock (false). The job shows
    * "Waiting for the GPU (another job is using it)" and its ETA restarts once the GPU is free.
    */
   readonly blocked: (waiting: boolean) => void;

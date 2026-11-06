@@ -446,7 +446,7 @@ describe("studio paid jobs", () => {
     ).toBe(false);
     expect(await h.service.handle({ kind: "create", spec: ltxSpec(), origin: "phone" })).toEqual({
       ok: false,
-      error: "Local video (LTX, free) is unavailable: LTX is not set up on this host",
+      error: "LTX video is unavailable: LTX is not set up on this host",
     });
   });
 });
@@ -517,16 +517,16 @@ describe("studio spec checks", () => {
 
   it("refuses in one line what it doesn't", () => {
     expect(validateSpec(imageSpec({ backend: "ltx" }), ltx, lookup)).toBe(
-      "Local video (LTX, free) makes videos",
+      "LTX video makes videos",
     );
     expect(validateSpec(ltxSpec({ resolution: "1088x1920" }), ltx, lookup)).toBe(
-      "Local video (LTX, free) has no 1088x1920 at 9:16",
+      "LTX video has no 1088x1920 at 9:16",
     );
     expect(validateSpec(ltxSpec({ aspect: "16:9" }), ltx, lookup)).toBe(
-      "Local video (LTX, free) has no 480x848 at 16:9",
+      "LTX video has no 480x848 at 16:9",
     );
     expect(validateSpec(ltxSpec({ seconds: 7 }), ltx, lookup)).toBe(
-      "Local video (LTX, free) makes clips of 2, 3, 4, 5, 6, 8 s",
+      "LTX video makes clips of 2, 3, 4, 5, 6, 8 s",
     );
     expect(validateSpec(ltxSpec({ frames: { start: "img" } }), ltx, lookup)).toBe(
       "LTX needs both a start and an end frame, or neither",
@@ -541,7 +541,7 @@ describe("studio spec checks", () => {
       "Frames and reference images must be images",
     );
     expect(validateSpec(ltxSpec({ refs: ["img"] }), ltx, lookup)).toBe(
-      "Local video (LTX, free) takes no reference images",
+      "LTX video takes no reference images",
     );
     expect(validateSpec(imageSpec({ backend: "codex-edit" }), edit, lookup)).toBe(
       "Add a reference image to edit",

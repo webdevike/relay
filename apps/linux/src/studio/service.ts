@@ -42,13 +42,13 @@ export const STUDIO_TICK_MS = 2000;
 /** Progress never claims done before the output is in. */
 const MAX_PROGRESS = 0.97;
 export const GPU_NOTE = "Waiting for the GPU";
-/** A running LTX job whose draft.py waits for the machine-wide GPU lock (another LTX user holds it). */
+/** A running LTX or MOSS job whose process waits for the machine-wide GPU lock (another GPU user holds it). */
 export const GPU_BUSY_NOTE = "Waiting for the GPU (another job is using it)";
 /** A queued GPU job held back while a call is transcribed live on this Mac. */
 export const MEETING_NOTE = "Waiting for the meeting to end";
 const SLOT_NOTE = "Waiting for a free slot";
-/** Backends `rescan` re-reads: their presets and model files live on this Mac's disk. */
-const RESCANNED: readonly StudioBackendId[] = ["comfyui", "comfyui-video"];
+/** Backends `rescan` re-reads: their presets and model files (ComfyUI's, MOSS-Image fine-tunes) live on this Mac's disk. */
+const RESCANNED: readonly StudioBackendId[] = ["moss", "comfyui", "comfyui-video"];
 
 export type StudioMessage = Extract<
   ServerMessage,

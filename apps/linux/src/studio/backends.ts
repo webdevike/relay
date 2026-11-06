@@ -5,7 +5,7 @@
 import { MAX_STUDIO_REFS, studioRefs, type StudioAsset, type StudioBackend, type StudioBackendId, type StudioSpec } from "@relay/protocol";
 
 /** Every backend in the order clients list them. */
-export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "kontext", "comfyui", "comfyui-video", "higgsfield"];
+export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "moss", "kontext", "comfyui", "comfyui-video", "higgsfield"];
 
 /** One size per aspect, close to what Codex really draws (about 1.6 MP), so the exact crop upscales little. */
 const CODEX_RESOLUTIONS: StudioBackend["resolutions"] = [
@@ -25,7 +25,7 @@ const KONTEXT_RESOLUTIONS: StudioBackend["resolutions"] = [
 export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
   ltx: {
     id: "ltx",
-    label: "Local video (LTX, free)",
+    label: "LTX video",
     mode: "video",
     paid: false,
     available: false,
@@ -47,7 +47,7 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
   },
   "codex-image": {
     id: "codex-image",
-    label: "Image (Codex, free)",
+    label: "Codex image",
     mode: "image",
     paid: false,
     available: false,
@@ -60,7 +60,7 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
   },
   "codex-edit": {
     id: "codex-edit",
-    label: "Image edit (Codex, free)",
+    label: "Codex edit",
     mode: "image",
     paid: false,
     available: false,
@@ -71,9 +71,23 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
     seed: false,
     serial: false,
   },
+  moss: {
+    id: "moss",
+    label: "MOSS-Image",
+    mode: "image",
+    paid: false,
+    available: false,
+    resolutions: [],
+    seconds: [],
+    frames: [],
+    refs: 0,
+    seed: true,
+    serial: true,
+    models: [],
+  },
   kontext: {
     id: "kontext",
-    label: "FLUX Kontext (local)",
+    label: "FLUX Kontext",
     mode: "image",
     paid: false,
     available: false,
@@ -86,7 +100,7 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
   },
   comfyui: {
     id: "comfyui",
-    label: "ComfyUI presets (local)",
+    label: "ComfyUI",
     mode: "image",
     paid: false,
     available: false,
@@ -100,7 +114,7 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
   },
   "comfyui-video": {
     id: "comfyui-video",
-    label: "ComfyUI video presets (GPU box)",
+    label: "ComfyUI video",
     mode: "video",
     paid: false,
     available: false,
@@ -114,7 +128,7 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
   },
   higgsfield: {
     id: "higgsfield",
-    label: "Higgsfield (paid)",
+    label: "Higgsfield",
     mode: "video",
     paid: true,
     available: false,
@@ -129,7 +143,7 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
 };
 
 /**
- * How many jobs run at once, per pool: the Mac's GPU takes one LTX, Kontext or ComfyUI job at a time
+ * How many jobs run at once, per pool: the Mac's GPU takes one LTX, MOSS, Kontext or ComfyUI job at a time
  * (first in, first out), ComfyUI video runs on the GPU box one at a time, both Codex backends share
  * one ChatGPT account, Higgsfield bills each job.
  */
@@ -137,6 +151,7 @@ export const STUDIO_POOLS: Readonly<Record<StudioBackendId, { readonly pool: str
   ltx: { pool: "gpu", max: 1 },
   "codex-image": { pool: "codex", max: 3 },
   "codex-edit": { pool: "codex", max: 3 },
+  moss: { pool: "gpu", max: 1 },
   kontext: { pool: "gpu", max: 1 },
   comfyui: { pool: "gpu", max: 1 },
   "comfyui-video": { pool: "gpu-box", max: 1 },
@@ -145,6 +160,10 @@ export const STUDIO_POOLS: Readonly<Record<StudioBackendId, { readonly pool: str
 
 /** A Kontext job: model load plus 24 steps (about 3 min at 1024x576 on the Mac Mini). */
 const KONTEXT_ESTIMATE_MS = 240_000;
+/** A MOSS-Image job with Turbo (15 network passes) and the prompt enhancer: about 2 min at 768x1344. */
+export const MOSS_TURBO_ESTIMATE_MS = 120_000;
+/** Turbo off: 50 steps with CFG (100 network passes) on top of the same load and enhancer. */
+const MOSS_FULL_ESTIMATE_MS = 420_000;
 
 /** `WxH` as numbers; null for other ids (`720p`, `std`). */
 export function parseSize(resolution: string): readonly [number, number] | null {
@@ -197,6 +216,8 @@ export function baseEstimateMs(spec: StudioSpec, backend?: StudioBackend): numbe
       return 25_000;
     case "codex-edit":
       return 45_000;
+    case "moss":
+      return spec.params?.["turbo"] === "off" ? MOSS_FULL_ESTIMATE_MS : MOSS_TURBO_ESTIMATE_MS;
     case "kontext":
       return KONTEXT_ESTIMATE_MS;
     case "comfyui":
