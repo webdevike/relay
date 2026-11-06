@@ -9,7 +9,8 @@
  * pinned first with who pinned it, quiet status pills, a short "48x, last 10:50 PM"; swipe left for
  * Open and Pin. Media is a two-column grid. Subagents shows the thread's tasks by state (Needs
  * input, Ready for review, Working, then Resolved folded), the phone's twin of the desktop's
- * running popover.
+ * running popover. Above the tab bar, on every tab, a Running row of chips lists what runs now
+ * (`lib/activity.ts` `runningChips`): a session opens its screen, anything else the Subagents tab.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActionSheetIOS, ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
@@ -26,13 +27,15 @@ import { ImageViewer, type ViewerImage } from "@/agents/ImageViewer";
 import { openExternal } from "@/lib/links";
 import { tapHaptic } from "@/lib/haptics";
 import { agentPortrait, agentTitle, useAssistantStore } from "@/state/assistant";
-import { useAgentsStore } from "@/state/agents";
+import { ownedBy, useAgentsStore } from "@/state/agents";
 import { useActivityStore } from "@/state/activity";
+import { runningChips } from "@/lib/activity";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useArtifactsSeenStore } from "@/state/artifactsSeen";
 import { useConnectionStore } from "@/state/connection";
 import { ActionToast } from "@/ui/ActionToast";
 import { Button } from "@/ui/Button";
+import { Chip } from "@/ui/Chip";
 import { Collapse } from "@/ui/Collapse";
 import { IconButton } from "@/ui/IconButton";
 import { Portrait } from "@/ui/Portrait";
@@ -105,8 +108,6 @@ export interface ArtifactsSheetProps {
   /** The omp session the thread runs in, or null while it is not running. */
   session: string | null;
   open: boolean;
-  /** The tab to open on (a composer badge opens "subagents", the Working group); null keeps the last one shown. */
-  tab?: string | null;
   onClose: () => void;
 }
 
@@ -115,7 +116,7 @@ function Backdrop(props: BottomSheetBackdropProps) {
 }
 
 /** Render last inside a full-screen container so it lays over the whole screen. */
-export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = null, onClose }: ArtifactsSheetProps) {
+export function ArtifactsSheet({ thread, agent, session, open, onClose }: ArtifactsSheetProps) {
   const colors = useColors();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -145,11 +146,10 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
   useEffect(() => {
     if (open) {
       setNow(Date.now());
-      if (openTab !== null) setSelected(openTab);
       markSeen(thread, Date.now());
       ref.current?.snapToIndex(0);
     } else ref.current?.close();
-  }, [open, thread, openTab, markSeen]);
+  }, [open, thread, markSeen]);
   // Whatever lands while the sheet shows counts as seen.
   useEffect(() => {
     if (open) markSeen(thread, Date.now());
@@ -171,6 +171,8 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
     [items, now, session, sessions, ask, approval, agents, agent, activity, thread],
   );
   const needsYou = tasks.some((group) => group.id === "needs");
+  const owned = useMemo(() => ownedBy(sessions, agent), [sessions, agent]);
+  const runningNow = useMemo(() => runningChips(activity, thread, { threadSession: session, sessions }, owned), [activity, thread, session, sessions, owned]);
 
   // Working rows count up their elapsed time while the sheet shows them.
   useEffect(() => {
@@ -294,6 +296,16 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
     if (target.kind === "session") router.push({ pathname: "/agents/[sessionId]", params: { sessionId: target.sessionId } });
     if (target.kind === "assistant" && target.agent !== agent) router.push({ pathname: "/eva", params: { agent: target.agent } });
     if (target.kind === "canvas") router.push({ pathname: "/canvas", params: { slug: target.slug } });
+  };
+
+  /** A Running chip: a session (or a helper's mirrored transcript) opens its screen, the rest show the Subagents tab's Working group. */
+  const openRunning = (sessionId: string | undefined): void => {
+    if (sessionId === undefined) {
+      setSelected("subagents");
+      return;
+    }
+    ref.current?.close();
+    router.push({ pathname: "/agents/[sessionId]", params: { sessionId } });
   };
 
   const rows = tab === null ? NO_ITEMS : (rowsByTab[tab.id] ?? NO_ITEMS);
@@ -422,6 +434,26 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
             <IconButton symbol="xmark" size={34} accessibilityLabel="Close artifacts" onPress={() => { ref.current?.close(); }} />
           )}
         </View>
+        {!searching && runningNow.length > 0 && (
+          <View style={styles.running} accessibilityRole="toolbar" accessibilityLabel="Running now">
+            <Text variant="label" color="textMuted" style={styles.runningTitle}>
+              Running
+            </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.runningChips}>
+              {runningNow.map((chip) => (
+                <Chip
+                  key={chip.id}
+                  label={chip.label}
+                  accessibilityLabel={chip.waiting ? `${chip.label}, waiting on you` : `${chip.label}, running`}
+                  leading={chip.waiting ? <SymbolView name="hand.raised" size={12} tintColor={colors.warn} /> : <ActivityIndicator size="small" color={colors.accent} style={styles.chipSpinner} />}
+                  onPress={() => {
+                    openRunning(chip.sessionId);
+                  }}
+                />
+              ))}
+            </ScrollView>
+          </View>
+        )}
         {!searching && snapshot !== undefined && (
           <View style={[styles.bar, { borderBottomColor: colors.hairline }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.barContent}>
@@ -734,6 +766,10 @@ const styles = StyleSheet.create({
   tabActive: { fontWeight: "600" },
   tabDot: { width: 7, height: 7, borderRadius: 4 },
   spinner: { transform: [{ scale: 0.75 }] },
+  running: { paddingBottom: spacing.sm, gap: spacing.xs },
+  runningTitle: { paddingHorizontal: spacing.xl },
+  runningChips: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingHorizontal: spacing.xl },
+  chipSpinner: { transform: [{ scale: 0.6 }], width: 12, height: 12 },
   more: { paddingVertical: spacing.sm, paddingHorizontal: spacing.xs },
   groupTitle: { paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.xs },
   taskGroup: { paddingTop: spacing.lg },

@@ -77,10 +77,6 @@ import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 import { draftKey, useThreadDraft } from "@/state/drafts";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
-import { OWNED_ROW_HEIGHT, OwnedSessions, useOwnedSessionIds } from "@/agents/OwnedSessions";
-import { ActivityBadges } from "@/agents/ActivityBadges";
-import { useActivityStore } from "@/state/activity";
-import { runningSessionIds } from "@/lib/activity";
 import { WidgetCloseProvider } from "@/agents/WidgetActions";
 import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
 import { assistantTurnRows } from "@/turns/rows";
@@ -127,7 +123,6 @@ function Thread({ agent }: { agent: string }) {
   const portrait = useAssistantStore((state) => agentPortrait(state.agents, agent));
   const snapshot = useAssistantStore((state) => threadOf(state, agent).snapshot);
   const pending = useAssistantStore((state) => threadOf(state, agent).pending);
-  const ownedIds = useOwnedSessionIds(agent);
   const setPending = useAssistantStore((state) => state.setPending);
   const connected = useConnectionStore((state) => state.status === "connected");
   const [draft, setDraft] = useThreadDraft(draftKey("assistant", agent));
@@ -162,15 +157,8 @@ function Thread({ agent }: { agent: string }) {
   });
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
   const artifactsThread = assistantReactionThread(agent);
-  // A running session is the activity badge's; the header chips list the rest, so none shows twice.
-  const activityItems = useActivityStore((state) => state.items);
-  const chipIds = useMemo(() => {
-    const running = runningSessionIds(activityItems, artifactsThread);
-    return ownedIds === "" ? [] : ownedIds.split(" ").filter((id) => !running.has(id));
-  }, [ownedIds, activityItems, artifactsThread]);
+  // Running sessions and helpers live in the Artifacts sheet's Running row, not on this screen.
   const [artifactsOpen, setArtifactsOpen] = useState(false);
-  // The Artifacts tab the sheet opens on: the Working group when a badge was tapped, else wherever it was left.
-  const [artifactsTab, setArtifactsTab] = useState<string | null>(null);
   // Follow the thread's artifacts while it shows, so the header button's dot is live.
   useEffect(() => watchArtifacts(artifactsThread), [artifactsThread]);
   // Rows this screen adds to the thread (the avatar editor) go with it.
@@ -324,7 +312,7 @@ function Thread({ agent }: { agent: string }) {
 
   const dark = useScheme() === "dark";
   const bg = dark ? BG_DARK : colors.bg;
-  const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP + (chipIds.length === 0 ? 0 : OWNED_ROW_HEIGHT);
+  const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP;
 
   const onComposerLayout = (event: LayoutChangeEvent): void => {
     setComposerHeight(event.nativeEvent.layout.height);
@@ -445,8 +433,6 @@ function Thread({ agent }: { agent: string }) {
             >
               <AvatarRing name={title} portrait={portrait} motion={{ signals, paused: onCall }} />
             </Pressable>
-            {/* Sessions this assistant started (auto-work): reached from here, out of the Agent Inbox. */}
-            <OwnedSessions agent={agent} sessionIds={chipIds} />
             <View style={styles.back}>
               <BackButton
                 onPress={() => {
@@ -492,16 +478,6 @@ function Thread({ agent }: { agent: string }) {
               <Banner tone="danger" message={banner} />
             </View>
           )}
-          <ActivityBadges
-            thread={artifactsThread}
-            threadSession={sessionId}
-            background={bg}
-            onPress={() => {
-              Keyboard.dismiss();
-              setArtifactsTab("subagents");
-              setArtifactsOpen(true);
-            }}
-          />
           {/* What the assistant is blocked on, answered here; sending a message instead cancels the ask (the host's bridge does). */}
           {sessionId !== null && pendingApproval !== undefined ? (
             <View style={styles.blocked}>
@@ -587,10 +563,8 @@ function Thread({ agent }: { agent: string }) {
           agent={agent}
           session={sessionId}
           open={artifactsOpen}
-          tab={artifactsTab}
           onClose={() => {
             setArtifactsOpen(false);
-            setArtifactsTab(null);
           }}
         />
       </View>
