@@ -11,6 +11,7 @@ import { PLAN_TOOL, planContext, planInstructions, planRun, reportRequest } from
 import { Desktop } from './desktop'
 import { connectDriver, driverBinary } from './driver'
 import { JevJudge, ModelJudge } from './judge'
+import { ModelLocator } from './locate'
 import { assistBinary, startPresenter, type Presenter } from './presenter'
 import { loadAssistants, loadEcardRepos, routeTask } from './route'
 import { ComputerRuns, fileRowStore, type RunSpec } from './runs'
@@ -99,6 +100,7 @@ export function registerComputer(
         presenter.onEsc(() => io.stop())
       }
       const desktop = new Desktop(driver)
+      const locator = new ModelLocator(key, models.step)
       const { route } = spec
       const assistant = { id: route.assistant.id, title: route.assistant.title }
       presenter?.assistant(assistant.id)
@@ -155,6 +157,7 @@ export function registerComputer(
           assistant,
           desktop,
           judge: jevKey ? new JevJudge(jevKey) : new ModelJudge(key, models.step),
+          locator,
           presenter,
           io,
           control,
@@ -165,6 +168,7 @@ export function registerComputer(
         mode: spec.mode === 'live' ? 'live' : 'headless',
         assistant,
         desktop,
+        locator,
         brain: new OpenAIBrain(
           key,
           instructions({

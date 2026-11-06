@@ -25,6 +25,7 @@ const WIN: WindowInfo = {
   app: 'Calculator',
   title: 'Calculator',
   bounds: { x: 0, y: 0, w: 300, h: 400 },
+  z: 1,
 }
 
 function world(display: { value: string }) {

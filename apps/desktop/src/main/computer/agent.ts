@@ -3,7 +3,18 @@ import * as path from 'node:path'
 import { z } from 'zod'
 import type { Brain, InputItem, ToolCall, ToolSpec } from './brain'
 import type { RunPlan } from './brief'
-import { describeStep, StepSchema, type Desktop, type Snapshot } from './desktop'
+import {
+  clickTarget,
+  describeStep,
+  drawnOnly,
+  StepSchema,
+  toScreen,
+  type Control,
+  type Desktop,
+  type Snapshot,
+  type Step,
+} from './desktop'
+import type { Locator } from './locate'
 import type { Presenter } from './presenter'
 import { gate } from './safety'
 
@@ -31,6 +42,8 @@ export interface AgentOptions {
   desktop: Desktop
   brain: Brain
   presenter: Presenter | null
+  /** Finds a click's target in the window's picture when the window has no control for it. */
+  locator?: Locator | null
   io: RunIO
   /** Where screenshots go, and which ones the chat gets. */
   shots: { dir: string; want: Shots }
@@ -105,7 +118,7 @@ export const TOOLS: readonly ToolSpec[] = [
   {
     name: 'act',
     description:
-      'Run a batch of steps in one window, in order, stopping at the first failure; answers the fresh controls (new refs: old ones are dead). Batch every step you can predict. Steps: click/double_click/right_click {ref}; type {text, ref?} (into the field ref, else the focused field); set_value {ref, text}; key {key, modifiers?} (return, tab, escape, delete, up, down...); hotkey {keys: ["cmd","n"]}; menu {path: ["File","New"]}; scroll {direction, amount?, ref?}; wait {ms}. `reason` is one short line for Isaac ("Entering 12 x 7").',
+      'Run a batch of steps in one window, in order, stopping at the first failure; answers the fresh controls (new refs: old ones are dead). Batch every step you can predict. Steps: click/double_click/right_click {ref}, or {target} when the window has no control for it (custom-drawn apps: the text or a short description of what to click, found in a fresh picture of the window, and a picture after comes back); type {text, ref?} (into the field ref, else the focused field); set_value {ref, text}; key {key, modifiers?} (return, tab, escape, space, delete, up, down, left, right...); hotkey {keys: ["cmd","n"]}; menu {path: ["File","New"]}; scroll {direction, amount?, ref?}; wait {ms}. Keys go to the panel in front of the window when one is up (Quick Look, a sheet), and each says whether the window changed after it. `reason` is one short line for Isaac ("Entering 12 x 7").',
     parameters: {
       type: 'object',
       properties: {
@@ -154,6 +167,7 @@ export function instructions(o: {
       ? 'Mode live: Isaac is watching. Your cursor is drawn on screen for every step, so keep batches short and purposeful.'
       : "Mode headless: you work in the background through Accessibility. Never bring a window forward and never move Isaac's mouse; he keeps using the Mac while you work.",
     'How to work: open_app (or list_windows) to find the window, read it, then act in batches against the refs of the latest read. Each act answers the fresh controls; re-read only when you need something it did not show. Prefer the accessibility tree; use a screenshot only when the tree cannot answer. When a link reaches the thing directly (a Linear issue key: linear://ecard-systems/issue/ENG-123; a web page or local server), use open_url instead of searching in the app; a document with a known path opens with open_file.',
+    'Windows without controls: some apps draw their own UI (Bambu Studio, games, canvases) and their read has no refs; it comes with the window picture instead. Click there by `target`, what the control shows ("Slice plate"), and check the picture the act answers. A key whose act says NOTHING CHANGED did not land: say so instead of pressing it again and again.',
     "Safety: anything that sends, posts, deletes, buys, pays, submits, publishes, shares, invites or accepts needs Isaac's OK: act asks him by itself and refuses if he says no; do not try another way around a refusal. Never type passwords or secrets; if a login is needed, stop and say so. In messaging apps never type a name and Return in one batch. Stay inside the task: no exploring.",
     'Read-only tasks: look and report; do not change anything.',
     'Finish with the finish tool: two or three plain sentences, the answer first. No em dashes.',
@@ -200,6 +214,18 @@ interface Exec {
   finish?: string
 }
 
+const CLICKS: Partial<Record<Step['type'], true>> = {
+  click: true,
+  double_click: true,
+  right_click: true,
+}
+/** A click on a picture has a moment to show its effect before the picture after. */
+const VISION_SETTLE_MS = 600
+const DRAWN_NOTE =
+  '\n\nThis window shows no accessible controls (it draws its own). Its picture is attached: click what you see with {"type":"click","target":"<the text it shows, or a short description>"}; act finds it in a fresh picture and answers a picture after.'
+
+const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
+
 /** The headless and live loop: the model picks tools, the gate and Isaac decide what is risky. */
 export async function runAgent(o: AgentOptions): Promise<AgentResult> {
   const now = o.now ?? Date.now
@@ -212,15 +238,105 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
   const { desktop, io, presenter } = o
   fs.mkdirSync(o.shots.dir, { recursive: true })
 
-  const savePicture = (snap: Snapshot, caption: string, post: boolean): string | null => {
-    if (!snap.image) return null
+  const savePicture = (
+    pic: { app: string; image: Buffer | null },
+    caption: string,
+    post: boolean,
+  ): string | null => {
+    if (!pic.image) return null
     const file = path.join(
       o.shots.dir,
-      `${String(++shotN).padStart(2, '0')}-${snap.app.replace(/[^\w-]+/g, '_')}.png`,
+      `${String(++shotN).padStart(2, '0')}-${pic.app.replace(/[^\w-]+/g, '_')}.png`,
     )
-    fs.writeFileSync(file, snap.image)
+    fs.writeFileSync(file, pic.image)
     if (post) io.image(file, caption)
     return file
+  }
+
+  /** A read with no controls (a custom-drawn window): its picture, and how to click in it. */
+  const drawn = async (snap: Snapshot): Promise<{ note: string; image?: Buffer }> => {
+    if (!drawnOnly(snap)) return { note: '' }
+    const image =
+      snap.image ??
+      (await desktop.shot(snap.windowId).then(
+        (s) => s.image,
+        () => null,
+      ))
+    return image ? { note: DRAWN_NOTE, image } : { note: DRAWN_NOTE }
+  }
+
+  /**
+   * The vision fallback for one click: a fresh picture, the locator finds `target` in it, the gate
+   * judges what is there (asking Isaac unless this step was asked about already), the cursor glides
+   * there (live), the pixel is clicked, and a fresh picture says whether the window changed.
+   */
+  const byPicture = async (
+    windowId: number,
+    step: Step,
+    target: string,
+    reason: string,
+    asked: boolean,
+  ): Promise<{ note: string; after: Buffer | null } | { declined: string }> => {
+    const locator = o.locator
+    if (!locator) throw new Error('no vision here to find it in the picture')
+    const find = async () => {
+      const shot = await desktop.shot(windowId)
+      const found = await locator.locate(shot.image, shot, target, io.signal)
+      if (!found) throw new Error(`could not find “${target}” in the window's picture`)
+      return { shot, found }
+    }
+    let { shot, found } = await find()
+    const verb = step.type.replace('_', ' ')
+    const v = gate({ ...step, target: `${target} ${found.label}` }, undefined, shot.app, o.task)
+    if (v.kind === 'refuse') throw new Error(`refused: ${v.why}`)
+    if (v.kind === 'ask' && !asked) {
+      const what = `${verb} “${found.label || target}”`
+      const answer = await io.ask(
+        `${reason || 'Next step'} in ${shot.app}: ${what}. OK?`,
+        ['Approve', 'Cancel'],
+        savePicture(shot, 'Before', false),
+      )
+      if (answer !== 'Approve') return { declined: what }
+      io.progress(`You approved: ${what}`)
+      // Minutes may have passed: look again, and click only the same thing.
+      const approved = found.label.toLowerCase()
+      ;({ shot, found } = await find())
+      if (found.label.toLowerCase() !== approved)
+        throw new Error(`the picture changed (now “${found.label}”); nothing clicked`)
+    }
+    const cx = found.x + found.w / 2
+    const cy = found.y + found.h / 2
+    if (presenter) {
+      const at = toScreen(shot, cx, cy)
+      await settle(presenter.click(at.x, at.y, reason || `${verb} “${found.label}”`).landed)
+    }
+    let how: 'background' | 'in front'
+    try {
+      how = await desktop.clickAt(
+        shot,
+        cx,
+        cy,
+        step.type as 'click' | 'double_click' | 'right_click',
+        o.mode === 'live',
+      )
+    } catch (e) {
+      if (o.mode === 'live') throw e
+      throw new Error(
+        `${errText(e)}. Headless cannot click in this window; Isaac can run it with @computer live`,
+      )
+    }
+    await sleep(VISION_SETTLE_MS)
+    const after = await desktop.shot(windowId).catch(() => null)
+    const changed = !after
+      ? 'could not take a picture after it'
+      : shot.image.equals(after.image)
+        ? 'NOTHING CHANGED in the picture after it'
+        : 'the window changed'
+    if (after && o.shots.want === 'each') savePicture(after, `After ${verb} ${found.label}`, true)
+    return {
+      note: `found “${found.label}” in the picture, clicked it ${how} at (${Math.round(cx)}, ${Math.round(cy)}); ${changed}`,
+      after: after?.image ?? null,
+    }
   }
 
   /** A window that swapped on navigation (System Settings): read the same app's first window instead. */
@@ -254,13 +370,19 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
           return {
             text: `${app} is running but has no window on screen yet; call list_windows in a moment.`,
           }
-        const first = windows[0]!
+        // Front to back, but an untitled helper window can sit in front (Calculator's, 2026-11-06,
+        // which cua-driver can neither front nor resolve): the app's titled window is its window.
+        const first = windows.find((w) => w.title) ?? windows[0]!
         lastWindow = first.windowId
         if (o.mode === 'live') await desktop.front(first.windowId)
         io.progress(`Opened ${first.app}${o.mode === 'headless' ? ' in the background' : ''}`)
         const snap = await desktop.read(first.windowId)
         const list = windows.map((w) => `window_id=${w.windowId} ${w.app}: ${w.title}`).join('\n')
-        return { text: `${list}\n\n${render(snap)}` }
+        const d = await drawn(snap)
+        return {
+          text: `${list}\n\n${render(snap)}${d.note}`,
+          ...(d.image ? { image: d.image } : {}),
+        }
       }
       case 'open_url':
       case 'open_file': {
@@ -294,19 +416,24 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
           a.screenshot === true
             ? savePicture(snap, snap.title || snap.app, o.shots.want === 'each')
             : null
-        return pic && snap.image
-          ? { text: render(snap), image: snap.image }
-          : { text: render(snap) }
+        if (pic && snap.image) return { text: render(snap), image: snap.image }
+        // A query that matched nothing is not a drawn window.
+        const d = a.query ? { note: '' } : await drawn(snap)
+        return { text: `${render(snap)}${d.note}`, ...(d.image ? { image: d.image } : {}) }
       }
       case 'act': {
         const a = ActArgs.parse(call.args)
         let snap = desktop.last(a.window_id) ?? (await desktop.read(a.window_id))
         lastWindow = a.window_id
+        // A click's control: its ref, else the control labelled like its target; none means the
+        // picture finds it (vision), and the gate reads its target instead.
+        const controlOf = (s: Step): Control | undefined => {
+          if (!CLICKS[s.type]) return s.ref === undefined ? undefined : snap.controls.get(s.ref)
+          const t = clickTarget(s, snap)
+          return t.kind === 'ax' ? t.control : undefined
+        }
         const verdicts = a.steps
-          .map((s) => ({
-            step: s,
-            control: s.ref === undefined ? undefined : snap.controls.get(s.ref),
-          }))
+          .map((s) => ({ step: s, control: controlOf(s) }))
           .map((x) => ({ ...x, v: gate(x.step, x.control, snap.app, o.task) }))
         const refused = verdicts.filter((x) => x.v.kind === 'refuse')
         if (refused.length > 0) {
@@ -342,6 +469,8 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
           snap = desktop.last(a.window_id) ?? snap
         }
         const log: string[] = []
+        let ok = 0
+        let picture: Buffer | null = null
         for (const [i, step] of a.steps.entries()) {
           if (io.signal.aborted) break
           if (actions >= limits.actions) {
@@ -349,31 +478,62 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
             log.push(`${i + 1}. not run: action budget (${limits.actions}) used up`)
             break
           }
-          const control = step.ref === undefined ? undefined : snap.controls.get(step.ref)
+          const t = CLICKS[step.type] ? clickTarget(step, snap) : null
+          const control = controlOf(step)
           const said = describeStep(step, control)
+          if (t?.kind === 'vision') {
+            try {
+              const r = await byPicture(
+                a.window_id,
+                step,
+                t.target,
+                a.reason,
+                verdicts[i]?.v.kind === 'ask',
+              )
+              if ('declined' in r) {
+                io.progress(`You said no to: ${r.declined}`)
+                log.push(`${i + 1}. ${said}: Isaac declined (${r.declined}); nothing more ran`)
+                break
+              }
+              actions++
+              ok++
+              picture = r.after ?? picture
+              log.push(`${i + 1}. ${said}: ok (${r.note})`)
+              // The click needed a cua-driver capture, which stales the refs: read again for the
+              // steps after it that use one.
+              if (a.steps.slice(i + 1).some((s) => s.ref !== undefined))
+                snap = await desktop.read(a.window_id).catch(() => snap)
+            } catch (e) {
+              log.push(`${i + 1}. ${said}: FAILED ${errText(e)}`)
+              break
+            }
+            continue
+          }
           if (presenter) {
             const f = control?.frame
-            if (f && ['click', 'double_click', 'right_click'].includes(step.type))
+            if (f && CLICKS[step.type])
               await settle(presenter.click(f.x + f.w / 2, f.y + f.h / 2, a.reason || said).landed)
             else if (f) await settle(presenter.point(f, a.reason || said).landed)
             else await settle(presenter.caption(a.reason || said).landed)
           }
           try {
-            await desktop.act(a.window_id, step)
+            const note = await desktop.act(a.window_id, step, { inFront: o.mode === 'live' })
             actions++
-            log.push(`${i + 1}. ${said}: ok`)
+            ok++
+            log.push(`${i + 1}. ${said}: ok${note ? ` (${note})` : ''}`)
           } catch (e) {
-            log.push(`${i + 1}. ${said}: FAILED ${e instanceof Error ? e.message : String(e)}`)
+            log.push(`${i + 1}. ${said}: FAILED ${errText(e)}`)
             break
           }
         }
-        const ok = log.filter((l) => l.endsWith(': ok')).length
         io.progress(
           `${a.reason || 'Acted'}${ok < a.steps.length ? ` (${ok}/${a.steps.length} steps ran)` : ''}`,
         )
         const after = await readAfter(snap)
+        const d = picture ? { note: '', image: picture } : await drawn(after)
         return {
-          text: `Ran ${ok}/${a.steps.length} steps. A step marked ok was delivered; check the controls below for the effect.\n${log.join('\n')}\n\nAfter:\n${render(after)}`,
+          text: `Ran ${ok}/${a.steps.length} steps. A step marked ok was delivered; check the controls below (or the picture) for the effect.\n${log.join('\n')}\n\nAfter:\n${render(after)}${d.note}`,
+          ...(d.image ? { image: d.image } : {}),
         }
       }
       case 'ask_isaac': {

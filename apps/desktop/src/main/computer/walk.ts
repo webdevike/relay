@@ -1,7 +1,8 @@
 import type { AgentResult, RunIO } from './agent'
 import type { RunPlan } from './brief'
-import type { Desktop, Snapshot, WindowInfo } from './desktop'
+import { toScreen, type Desktop, type Frame, type Snapshot, type WindowInfo } from './desktop'
 import type { Judge } from './judge'
+import type { Locator } from './locate'
 import type { Presenter } from './presenter'
 import type { WalkControl } from './runs'
 
@@ -18,6 +19,8 @@ export interface WalkOptions {
   assistant: { id: string; title: string }
   desktop: Desktop
   judge: Judge
+  /** Finds the step's control in the window's picture when the window has none (custom-drawn). */
+  locator?: Locator | null
   presenter: Presenter
   io: RunIO
   control: (cb: (c: WalkControl) => void) => void
@@ -61,6 +64,22 @@ function targets(snap: Snapshot): Record<string, string> {
   }
   out.none = 'No control on screen fits this step.'
   return out
+}
+
+/** Where a step points in a window with no controls: its target, found in the picture. */
+async function pointInPicture(
+  desktop: Desktop,
+  locator: Locator,
+  windowId: number,
+  what: string,
+  signal: AbortSignal,
+): Promise<Frame | null> {
+  const shot = await desktop.shot(windowId)
+  const found = await locator.locate(shot.image, shot, what, signal)
+  if (!found) return null
+  const a = toScreen(shot, found.x, found.y)
+  const b = toScreen(shot, found.x + found.w, found.y + found.h)
+  return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y }
 }
 
 /** Where the plan happens, opened and in front: its URL, else its file, else its app. */
@@ -124,25 +143,37 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
     let win = await frontWindowOf(desktop, pid)
     if (!win) return end('failed', `${where.app} closed its window at step ${n}.`)
     let snap = await desktop.read(win.windowId)
+    const options = targets(snap)
+    // No control to pick from (a custom-drawn window): the picture shows where the step is.
+    const eyes = Object.keys(options).length === 1 ? (o.locator ?? null) : null
     // Both questions are about the same read: ask them together, a judge call each is seconds.
     const [already, picked] = await Promise.all([
       look ? 0 : judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0),
-      judge
-        .pick(
-          `Isaac's next step: "${step.instruction}". Which control should he use${step.target ? ` (it reads like "${step.target}")` : ''}?`,
-          snap.title,
-          targets(snap),
-          io.signal,
-        )
-        .catch(() => ({ choice: 'none', p: 0 })),
+      eyes
+        ? { choice: 'none', p: 0 }
+        : judge
+            .pick(
+              `Isaac's next step: "${step.instruction}". Which control should he use${step.target ? ` (it reads like "${step.target}")` : ''}?`,
+              snap.title,
+              options,
+              io.signal,
+            )
+            .catch(() => ({ choice: 'none', p: 0 })),
     ])
     if (already >= DONE_P) {
       io.progress(`Step ${n}: ${step.instruction} (already done)`)
       results.push('already')
       continue
     }
-    const frame =
-      picked.choice === 'none'
+    const frame = eyes
+      ? await pointInPicture(
+          desktop,
+          eyes,
+          win.windowId,
+          step.target || step.instruction,
+          io.signal,
+        ).catch(() => null)
+      : picked.choice === 'none'
         ? null
         : (snap.controls.get(Number(picked.choice.slice(1)))?.frame ?? null)
     io.progress(`Step ${n}: ${step.instruction}`)

@@ -31,6 +31,16 @@ describe('gate', () => {
     ).toBe('ok')
   })
 
+  it('judges a click found in the picture by its target, like a label, and asks before Print', () => {
+    const pixel = (target: string) =>
+      gate({ type: 'click', target }, undefined, 'Bambu Studio', 'slice it')
+    expect(pixel('Print plate').kind).toBe('ask')
+    expect(pixel('Send to printer').kind).toBe('ask')
+    expect(pixel('Slice plate').kind).toBe('ok')
+    // What the picture showed there counts too: a vague target over a Print button asks.
+    expect(pixel('the green button top right Print plate').kind).toBe('ask')
+  })
+
   it('asks before any typing or keys in messaging apps, and before send chords anywhere', () => {
     expect(
       gate({ type: 'type', ref: 1, text: 'hi' }, control('AXTextArea', 'Message'), 'Slack', 'x')

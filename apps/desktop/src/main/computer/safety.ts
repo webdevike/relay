@@ -9,9 +9,9 @@ export type Verdict =
 
 const OK: Verdict = { kind: 'ok' }
 
-/** Controls whose press commits something outside this Mac or loses data. */
+/** Controls whose press commits something outside this Mac (a printer too) or loses data. */
 const RISKY =
-  /\b(send|post|reply all|delete|remove|trash|erase|discard|buy|purchase|order|checkout|check out|pay|payment|subscribe|unsubscribe|submit|publish|share|invite|accept|approve|merge|deploy|transfer|sign out|log out|empty)\b/i
+  /\b(send|post|reply all|delete|remove|trash|erase|discard|buy|purchase|order|checkout|check out|pay|payment|subscribe|unsubscribe|submit|publish|share|invite|accept|approve|merge|deploy|transfer|print|sign out|log out|empty)\b/i
 
 /** Apps where keys land in a composer and Return sends (skill computer-use, 2026-10-27/30 incidents). */
 const MESSAGING =
@@ -31,12 +31,14 @@ function riskyChord(keys: readonly string[]): boolean {
 
 /**
  * One step, judged against the control it targets (from the latest read), the app and the task.
+ * A click found in the window's picture (no control) is judged by its `target`, the words it was
+ * asked for and what the picture shows there, exactly like a control's label.
  * - refuse: typing into a password field; a System Settings switch the task does not name with a
  *   change verb (2026-11-03, an inspect goal flipped a Relay privacy toggle).
  * - ask: risky control labels and menu items, risky chords, and any typing or keys in messaging apps.
  */
 export function gate(step: Step, control: Control | undefined, app: string, task: string): Verdict {
-  const label = control ? `${control.label} ${control.line}` : ''
+  const label = control ? `${control.label} ${control.line}` : (step.target ?? '')
   const role = control?.role ?? ''
   const messaging = isMessagingApp(app)
   switch (step.type) {
@@ -57,7 +59,10 @@ export function gate(step: Step, control: Control | undefined, app: string, task
       }
       const m = RISKY.exec(label)
       return m
-        ? { kind: 'ask', why: `${step.type.replace('_', ' ')} “${control?.label || m[0]}”` }
+        ? {
+            kind: 'ask',
+            why: `${step.type.replace('_', ' ')} “${control?.label || step.target || m[0]}”`,
+          }
         : OK
     }
     case 'type':
