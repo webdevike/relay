@@ -38,6 +38,8 @@ ota:publish` at the repo root). One real smoke per engine only if Isaac says so.
   composer-images, canvas, computer, at-menu: 20/20 headless. Proof: proof/studio-redesign/*.png.
 - Phone: `pnpm test` 808/808; typecheck/lint failures are pre-existing outside Studio. Proof: apps/mobile/proof/studio-redesign/.
 - Host app built: `apps/mac-host/build/Relay Host.app` 0.2.81 (build only, no GitHub release). Installed: 0.2.80.
+- Desktop DEPLOYED: published bd1c76e6d2 (main), Mini kicked, MBP unreachable (picks it up on its 5-min poll). The first
+  deploy attempt failed on 7 timing-flaky unit tests under load; all 2250 pass on a rerun, second deploy went through.
 
 ## Next
 1. Isaac's heads-up via Nova, then install the host (`./build.sh 0.2.81 --release` publishes host-v0.2.81 which every
