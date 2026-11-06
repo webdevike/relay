@@ -29,26 +29,25 @@ so far); desktop ships by rebase + fast-forward push main + `bun /Users/ike/Eva/
   Leftover: an unsaved "Untitled" TextEdit window is open; close it without saving.
 - System Settings read-only macOS version: "27.0.1", clean idle run: idle grew 5.4 -> 17.5 s,
   mouse unchanged, front unchanged (proof of no HID input/focus change).
-- Linear read-only ENG-6810: FAILED (background typing in Linear's search did nothing).
+- Linear read-only ENG-6810: first try FAILED (background typing in Linear's search did nothing);
+  fixed by the `open_url` tool (9910b399, `open -g linear://ecard-systems/issue/<KEY>`, scheme
+  allowlist https/http/linear/x-apple.systempreferences): "ENG-6810 is In Review and assigned to
+  Isaac Weber.", 18 s, one step, front app unchanged (/tmp/computer-smoke/linear2/report.json).
+- e2e `apps/desktop/e2e/computer.spec.ts` passes (help row, run fails "no OpenAI key" with
+  OPENAI_API_KEY blanked, stop says nothing running, zero omp prompts; a non-leading `@computer`
+  message still reaches omp).
+- b68b9968 walk: "Keep waiting" keeps waiting on the same step (was: moved on); walk.test.ts.
+- Lint: desktop's `pnpm lint` fails only on the gitignored build copy
+  `apps/desktop/resources/RelayHost/Relay Host.app/.../omp-extension/*.ts` (not ours); eslint +
+  prettier on our files clean; em-dash and spacing lint clean.
 
 ## In progress / exact next step
-1. Add an `open_url` tool to agent.ts TOOLS + exec (`open -g <url>` via openInBackground-style
-   execFile, background; e.g. `linear://ecard-systems/issue/ENG-6810`, https links), plus an
-   instructions hint: Linear issues open by `linear://ecard-systems/issue/<KEY>`. Re-run
-   `bun /tmp/computer-smoke/run.ts 'Read only, change nothing: in the Linear app, what is the status and assignee of ENG-6810?' linear`
-   (expected: In Review / Isaac Weber).
-2. e2e spec (apps/desktop/e2e/computer.spec.ts, pattern of e2e/new-chat.spec.ts): type `@computer`
-   (help) and `@computer open Calculator` in the hidden-window app; assert FAKE_OMP_LOG has no
-   'prompt' event and the chat log shows the help row / "no OpenAI key" failure row (fixture eva
-   root has no secrets). `pnpm build && pnpm e2e:run e2e/computer.spec.ts --retries 0 --max-failures 1`.
-3. Live: needs `RELAY_ASSIST_BIN=/Users/ike/Eva/work/relay-computer/apps/assist/build/RelayBuddy.app/Contents/MacOS/RelayBuddy`
-   in a smoke harness (copy run.ts, mode 'live', startPresenter). Only when Mac idle >= 120 s
-   (`ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1e9); exit}'`), stop if he touches it.
-4. Walk: record a 3-step Calculator walkthrough as H.264 mp4 (apps/assist/tools/proofrec.swift
-   records the display keeping given processes; ffmpeg to mp4), doing each step via cua-driver in
-   place of Isaac; idle-gated as above. Proof under proof/computer/.
-5. pnpm lint (em-dash lint too), pnpm test, typecheck; rebase on origin/main, fast-forward push main,
-   deploy desktop. Update SPEC/HANDOFF; final report: per-mode status, proof paths, no host install,
-   open questions from SPEC.md.
+1. Live and walk proofs: `bun /tmp/computer-smoke/present.ts live` then `... walk` (throwaway;
+   idle-gated >= 120 s, aborts if someone touches the Mac, restores the front app; records only
+   Calculator + the overlay via apps/assist/build/proofrec into /tmp/computer-smoke/<tag>/raw.mov;
+   walk presses All Clear, 4, 2 in the background in place of Isaac). Then ffmpeg to H.264 mp4
+   under proof/computer/ and look at frames.
+2. rebase on origin/main, fast-forward push main, deploy desktop. Update SPEC/HANDOFF; final
+   report: per-mode status, proof paths, no host install, open questions from SPEC.md.
 
 Checkpoint: 2026-11-06 11:02 EST
