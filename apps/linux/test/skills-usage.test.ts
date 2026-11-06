@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SkillUsageIndex, skillOfPath, TREND_DAYS, USAGE_REFRESH_MS, type UsageDeps } from "../src/skills/usage";
+import { agentRow } from "../src/stats/agents";
 
 const dirs: string[] = [];
 const DAY = 24 * 60 * 60_000;
@@ -96,6 +97,14 @@ describe("SkillUsageIndex", () => {
     expect(by("work")).toEqual(["background:eren:-=1", "session:helper-deep:nova=2", "session:session:astra=1", "subagent:helper-code:nova=1", "subagent:scout:nova=1"]);
     expect(index.usage("canvas")).toMatchObject({ uses: 6, uses7d: 6, uses30d: 6, lastUsedAt: now - DAY, firstUsedAt: now - 6 * DAY });
     expect(index.usage("never")).toMatchObject({ uses: 0, lastUsedAt: null, byAgent: [] });
+
+    // Settings > Usage folds the same runners into its by-agent rows.
+    const runnerOf = await index.runners();
+    const row = (path: string): string => agentRow(runnerOf(path)).label;
+    expect([nova, `${nova.slice(0, -".jsonl".length)}/Look.jsonl`, run, auto, chat].map(row)).toEqual(["Nova", "Helpers", "Nova", "Astra", "Other"]);
+    expect(row(f.abs(".omp/agent/sessions/-Eva/job.jsonl"))).toBe("Polaris");
+    expect(row(f.abs(".omp/agent/sessions/-Eva/chat/Eren.jsonl"))).toBe("Eren");
+    expect(row(f.abs(".omp/agent/sessions/-Eva/never.jsonl"))).toBe("Other");
   });
 
   it("counts a skill read once: files inside it, ranged re-reads, quoted paths and repeated tool calls are no new loads", async () => {

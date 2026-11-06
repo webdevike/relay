@@ -16,6 +16,7 @@ import {
   defaultTabs,
   parseClientMessage,
   QUERY_FEATURE,
+  STATS_FEATURE,
   toHex,
   type AgentApproval,
   type AgentAsk,
@@ -40,6 +41,7 @@ import type { ActivityRelaying } from "./activity/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
+import type { StatsService } from "./stats/service";
 import type { QueryRelaying } from "./query/service";
 import {
   AckFailure,
@@ -98,6 +100,8 @@ export interface SessionDeps {
   readonly live: LiveRelaying | null;
   /** null when the host cannot read omp usage; `usage.*` then answers an empty snapshot. */
   readonly usage: UsageService | null;
+  /** null when the host reads no omp stats; `stats.get` then answers an empty snapshot and `welcome.features` leaves it out. */
+  readonly stats: StatsService | null;
   /** null when the host has no Catch Up feed; `catchup.*` then answers an empty deck. */
   readonly catchup: CatchUpDeck | null;
   /** null when the host keeps no reactions; `reactions.get` then answers empty and set/clear are dropped. */
@@ -193,6 +197,8 @@ export class ClientSession {
   private boardsSubscribed = false;
   /** When this socket last sent `assistant.get`, by agent id; absent for agents it never asked for. */
   private readonly assistantAskedAt = new Map<string, number>();
+  /** Set by `stats.get`: this socket shows usage stats and gets every new snapshot. */
+  private statsWanted = false;
 
   constructor(
     private readonly sink: FrameSink,
@@ -239,6 +245,11 @@ export class ClientSession {
       askedAt !== undefined &&
       this.clock.now() - askedAt <= ASSISTANT_FOLLOW_MS
     );
+  }
+
+  /** Whether this socket asked for usage stats (`stats.get`), so it gets the pushed snapshots. */
+  wantsStats(): boolean {
+    return this.phase.kind === "authenticated" && this.statsWanted;
   }
 
   /** Forwards appended agent messages iff subscribed to `sessionId`; bumps that subscription's rev. */
@@ -594,6 +605,14 @@ export class ClientSession {
             usage: { accounts: [], updatedAt: null, refreshing: false },
           });
         else void this.deps.usage.refresh();
+        break;
+      case "stats.get":
+        this.statsWanted = true;
+        this.sink.send({
+          t: "stats.snapshot",
+          stats: this.deps.stats?.get() ?? { updatedAt: null, refreshing: false, profiles: [], ranges: null },
+        });
+        this.deps.stats?.refreshIfStale();
         break;
       case "catchup.list":
         this.sink.send({
@@ -1229,6 +1248,7 @@ export class ClientSession {
       ...(this.deps.meetings === null ? [] : [MEETINGS_FEATURE]),
       ...(this.deps.control === null ? [] : [CONTROL_FEATURE]),
       ...(this.deps.bookmarks === null ? [] : [BOOKMARKS_FEATURE]),
+      ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
     ];
     this.sink.send({
       t: "welcome",
