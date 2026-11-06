@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react'
-import { ActionIcon, Button, Popover, TextInput, Tooltip } from '@mantine/core'
+import { ActionIcon, Button, TextInput, Tooltip } from '@mantine/core'
 import { useEditorState, type ChainedCommands, type Editor } from '@tiptap/react'
 import {
   IconBold,
@@ -87,55 +87,44 @@ function BlockMenu({ editor, level }: { editor: Editor; level: number | null }) 
   )
 }
 
-/** The link button: a field for the URL (empty removes the link). Kept inside the bubble, so focus stays in it. */
-function LinkTool({ editor, active }: { editor: Editor; active: boolean }) {
-  const [opened, setOpened] = useState(false)
-  const [url, setUrl] = useState('')
-  const open = (): void => {
-    setUrl((editor.getAttributes('link')['href'] as string | undefined) ?? '')
-    setOpened(true)
-  }
+/**
+ * The link address, typed in the toolbar itself in place of the buttons (empty removes the link).
+ * It stays inside the bubble, so focus never leaves it and the bubble stays open.
+ */
+function LinkField({ editor, onDone }: { editor: Editor; onDone: () => void }) {
+  const [url, setUrl] = useState(
+    () => (editor.getAttributes('link')['href'] as string | undefined) ?? '',
+  )
   const apply = (): void => {
     const href = url.trim()
     const chain = editor.chain().focus().extendMarkRange('link')
     if (href === '') chain.unsetLink().run()
     else chain.setLink({ href }).run()
-    setOpened(false)
+    onDone()
   }
   return (
-    <Popover
-      opened={opened}
-      onChange={setOpened}
-      withinPortal={false}
-      position="bottom"
-      offset={8}
-      shadow="md"
-    >
-      <Popover.Target>
-        <span>
-          <Tool label="Link" shortcut="⌘K" active={active} onClick={open}>
-            <IconLink size={16} stroke={1.75} />
-          </Tool>
-        </span>
-      </Popover.Target>
-      <Popover.Dropdown p={6}>
-        <TextInput
-          size="xs"
-          w={240}
-          autoFocus
-          aria-label="Link address"
-          placeholder="https://"
-          value={url}
-          onChange={(e) => setUrl(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              apply()
-            } else if (e.key === 'Escape') setOpened(false)
-          }}
-        />
-      </Popover.Dropdown>
-    </Popover>
+    <TextInput
+      size="xs"
+      w={260}
+      variant="unstyled"
+      px={8}
+      autoFocus
+      aria-label="Link address"
+      placeholder="Paste a link, Enter to apply"
+      value={url}
+      onChange={(e) => setUrl(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          apply()
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          editor.commands.focus()
+          onDone()
+        }
+      }}
+    />
   )
 }
 
@@ -158,8 +147,20 @@ export function SkillToolbar({ editor, onComment }: { editor: Editor; onComment:
       ordered: e.isActive('orderedList'),
     }),
   })
+  const [linking, setLinking] = useState(false)
   const run = (fn: (c: ChainedCommands) => ChainedCommands) => () =>
     fn(editor.chain().focus()).run()
+  if (linking)
+    return (
+      <div
+        className="eva-skills-toolbar"
+        role="toolbar"
+        aria-label="Link"
+        data-testid="skill-bubble"
+      >
+        <LinkField editor={editor} onDone={() => setLinking(false)} />
+      </div>
+    )
   return (
     <div
       className="eva-skills-toolbar"
@@ -186,7 +187,9 @@ export function SkillToolbar({ editor, onComment }: { editor: Editor; onComment:
       <Tool label="Code" shortcut="⌘E" active={s.code} onClick={run((c) => c.toggleCode())}>
         <IconCode size={16} stroke={1.75} />
       </Tool>
-      <LinkTool editor={editor} active={s.link} />
+      <Tool label="Link" shortcut="⌘K" active={s.link} onClick={() => setLinking(true)}>
+        <IconLink size={16} stroke={1.75} />
+      </Tool>
       <span className="eva-skills-toolbar-sep" />
       <Tool label="Bulleted list" active={s.bullet} onClick={run((c) => c.toggleBulletList())}>
         <IconList size={16} stroke={1.75} />
