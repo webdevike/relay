@@ -41,6 +41,7 @@ import { handleAgentReaction } from "./reactions/http";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
 import { CommandDedupStore } from "./dedup";
+import { guardWrite, type WriteBody } from "./http-guard";
 import { serveBlob } from "./drops/serve";
 import { audioMimeOf, isAudioMime } from "./drops/audio";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
@@ -144,12 +145,40 @@ export interface ServerDeps {
   readonly meetings: MeetingsRelaying | null;
   /** Remote control of the connected Relay Desktops; null disables `/control/*` and leaves the feature out of `welcome`. */
   readonly control: ControlRelay | null;
+  /** The bearer token every state-changing loopback route requires (`controlToken` in serve.json, 0600). */
+  readonly hostToken: string;
   /** The Skills page's catalog and live skill rooms; absent or null disables `/skills`. */
   readonly skills?: SkillsService | null;
   /** The canvas web client's HTML, served at `/canvas/<slug>/`. */
   readonly canvasPage: () => string;
   readonly pairing: PairingUI;
   readonly log: (line: string) => void;
+}
+
+/**
+ * What a write (anything but GET/HEAD) to `path` must carry as its body, for the loopback routes
+ * that change host state; null for every other route (devices, tokened rooms and blobs). One
+ * `guardWrite` runs ahead of all of them.
+ */
+export function loopbackWriteBody(path: string): WriteBody | null {
+  if (path === "/drops") return "blob";
+  if (path === "/assistant/say") return "text";
+  if (
+    isAssistantAsksPath(path) ||
+    isAssistantAdminPath(path) ||
+    path === "/catchup/bounce" ||
+    path === "/reactions/agent" ||
+    path === "/boards" ||
+    path.startsWith("/boards/") ||
+    path === "/skills" ||
+    path.startsWith("/skills/") ||
+    path === "/canvas/sessions" ||
+    path.startsWith("/canvas/sessions/") ||
+    path === "/query" ||
+    path.startsWith("/control/")
+  )
+    return "json";
+  return null;
 }
 
 export interface ConnectedDevice {
@@ -328,6 +357,11 @@ export class RelayServer {
           return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
         }
         const remote = srv.requestIP(request)?.address ?? "";
+        const writeBody = request.method === "GET" || request.method === "HEAD" ? null : loopbackWriteBody(path);
+        if (writeBody !== null) {
+          const refused = guardWrite(request, remote, this.deps.hostToken, writeBody);
+          if (refused !== null) return refused;
+        }
         if (path === "/drops" || path.startsWith("/drops/"))
           return this.handleDropRequest(request, path, remote);
         if (

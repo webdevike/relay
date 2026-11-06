@@ -16,18 +16,38 @@ export function relayConfigDir(env: NodeJS.ProcessEnv, home: string): string {
   return path.join(base, 'relay')
 }
 
-const ServeSchema = z.object({ port: z.number().int().min(1).max(65535) })
+const ServeSchema = z.object({
+  port: z.number().int().min(1).max(65535),
+  controlToken: z.string().min(1).optional(),
+})
 
-/** The port the running host left in `serve.json`, or null when there is none. */
-export function servePort(configDir: string): number | null {
+function readServe(configDir: string): z.infer<typeof ServeSchema> | null {
   try {
     const r = ServeSchema.safeParse(
       JSON.parse(fs.readFileSync(path.join(configDir, 'serve.json'), 'utf8')),
     )
-    return r.success ? r.data.port : null
+    return r.success ? r.data : null
   } catch {
     return null
   }
+}
+
+/** The port the running host left in `serve.json`, or null when there is none. */
+export function servePort(configDir: string): number | null {
+  return readServe(configDir)?.port ?? null
+}
+
+/**
+ * The bearer token the running host left in `serve.json` (0600): every state-changing loopback
+ * route (`/query`, `/skills`, `/canvas/sessions`, ...) requires it. Null when there is no host.
+ */
+export function serveToken(configDir: string): string | null {
+  return readServe(configDir)?.controlToken ?? null
+}
+
+/** The `Authorization` header for a loopback write to the host, or nothing without a token. */
+export function bearer(token: string | null): Record<string, string> {
+  return token === null ? {} : { authorization: `Bearer ${token}` }
 }
 
 const DevicesSchema = z.record(z.string(), z.unknown())

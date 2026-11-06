@@ -4,6 +4,7 @@
 // an assistant thread, else its session file) and answers what the host answers.
 import type { AgentParams, AgentRunners } from '@evaos/contract'
 import type { RelayCanvas } from './client'
+import { bearer } from './device'
 
 /** How long the host may take to open a room (it seeds the board and starts the agent). */
 const START_TIMEOUT_MS = 30_000
@@ -52,7 +53,7 @@ export function refusal(status: number, statusText: string, body: string): strin
  * one-line reason.
  */
 export async function startCanvasSession(
-  relay: Pick<RelayCanvas, 'canvasOrigin'>,
+  relay: Pick<RelayCanvas, 'canvasOrigin' | 'hostToken'>,
   body: Record<string, unknown>,
   post: typeof fetch = fetch,
 ): Promise<unknown> {
@@ -63,7 +64,7 @@ export async function startCanvasSession(
   try {
     res = await post(`${origin}/canvas/sessions`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...bearer(relay.hostToken()) },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(START_TIMEOUT_MS),
     })
@@ -80,7 +81,7 @@ export async function startCanvasSession(
 }
 
 export function canvasLiveRunners(
-  relay: Pick<RelayCanvas, 'canvasOrigin'>,
+  relay: Pick<RelayCanvas, 'canvasOrigin' | 'hostToken'>,
   post: typeof fetch = fetch,
 ): Pick<AgentRunners<'main'>, 'canvas.live'> {
   return {

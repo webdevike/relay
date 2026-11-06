@@ -6,6 +6,7 @@ import { handle } from '../ipc/handle'
 import type { MainContext } from '../context'
 import { refusal } from './canvas-live-agent'
 import type { RelayCanvas } from './client'
+import { bearer } from './device'
 
 /** How long the host may take to answer (a save writes the file; a list reads every skill). */
 const TIMEOUT_MS = 15_000
@@ -46,6 +47,7 @@ interface Answer {
 async function ask(
   post: typeof fetch,
   origin: string,
+  token: string | null,
   method: 'GET' | 'POST',
   path: string,
   body?: unknown,
@@ -54,7 +56,7 @@ async function ask(
     const res = await post(`${origin}${path}`, {
       method,
       ...(method === 'POST'
-        ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) }
+        ? { headers: { 'content-type': 'application/json', ...bearer(token) }, body: JSON.stringify(body ?? {}) }
         : {}),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
@@ -79,7 +81,7 @@ function parse(text: string): unknown {
 
 export function registerSkillsIpc(
   ctx: MainContext,
-  relay: Pick<RelayCanvas, 'canvasOrigin'>,
+  relay: Pick<RelayCanvas, 'canvasOrigin' | 'hostToken'>,
   post: typeof fetch = fetch,
 ): void {
   const originOf = (): string => {
@@ -100,7 +102,7 @@ export function registerSkillsIpc(
     })
     if ('reason' in r) return none(r.reason)
     try {
-      const a = await ask(post, r.origin, 'GET', '/skills')
+      const a = await ask(post, r.origin, null, 'GET', '/skills')
       if (!a.ok) return none(reason(a))
       return { ...(parse(a.text) as Omit<SkillList, 'available'>), available: true }
     } catch (e) {
@@ -109,19 +111,19 @@ export function registerSkillsIpc(
   })
 
   handle(ctx, 'skills.detail', async ({ name }) => {
-    const a = await ask(post, originOf(), 'GET', path(name))
+    const a = await ask(post, originOf(), relay.hostToken(), 'GET', path(name))
     if (a.status === 404) fail('not-found', reason(a))
     return okJson(a) as SkillDetail
   })
 
   handle(ctx, 'skills.access', async ({ name, enabled }) => {
-    const a = await ask(post, originOf(), 'POST', path(name, '/access'), { enabled })
+    const a = await ask(post, originOf(), relay.hostToken(), 'POST', path(name, '/access'), { enabled })
     return okJson(a) as SkillRow
   })
 
   handle(ctx, 'skills.open', async ({ name }) => {
     const origin = originOf()
-    const a = await ask(post, origin, 'POST', path(name, '/open'), {
+    const a = await ask(post, origin, relay.hostToken(), 'POST', path(name, '/open'), {
       user: { name: HUMAN.name, color: HUMAN.color },
     })
     const token = (okJson(a) as { token?: unknown } | null)?.token
@@ -140,6 +142,7 @@ export function registerSkillsIpc(
     const a = await ask(
       post,
       originOf(),
+      relay.hostToken(),
       'POST',
       path(name, '/save'),
       force === undefined ? {} : { force },
@@ -152,7 +155,7 @@ export function registerSkillsIpc(
   })
 
   handle(ctx, 'skills.reload', async ({ name }) => {
-    const a = await ask(post, originOf(), 'POST', path(name, '/reload'), {})
+    const a = await ask(post, originOf(), relay.hostToken(), 'POST', path(name, '/reload'), {})
     okJson(a)
     return { reloaded: true as const }
   })

@@ -285,7 +285,11 @@ const USAGE = `relay-linux <command>
 Input goes through /dev/uinput: your user needs read/write on it (e.g. membership in the
 \`input\` group, then log out and back in).`;
 
-const ServeInfo = z.object({ port: z.number().int().min(1).max(65535), pid: z.number().int() });
+const ServeInfo = z.object({
+  port: z.number().int().min(1).max(65535),
+  pid: z.number().int(),
+  controlToken: z.string().optional(),
+});
 
 function serveInfoPath(): string {
   const base = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
@@ -832,7 +836,9 @@ function serve(
           log,
         });
   // Agents on this Mac drive Relay Desktop on whichever Mac Isaac is using; the token is in serve.json.
-  const control = featureOn(config, "control", true) ? new ControlRelay(randomBytes(32).toString("hex"), systemClock, log) : null;
+  // One token: it also gates every state-changing loopback route (server.ts `guardWrite`), so it exists even when remote control is off.
+  const hostToken = randomBytes(32).toString("hex");
+  const control = featureOn(config, "control", true) ? new ControlRelay(hostToken, systemClock, log) : null;
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: bundleVersion() ?? pkg.version, vncPort },
@@ -876,6 +882,7 @@ function serve(
       files,
       meetings,
       control,
+      hostToken,
       skills,
       canvasPage: () => CANVAS_PAGE,
       pairing: new PinFilePairingUI(new TerminalPairingUI(), pairingPinPath(), PAIRING_TIMEOUT_MS),
@@ -914,7 +921,7 @@ function serve(
   });
   const infoPath = serveInfoPath();
   mkdirSync(dirname(infoPath), { recursive: true, mode: 0o700 });
-  writeFileSync(infoPath, JSON.stringify({ port: boundPort, pid: process.pid, ...(control === null ? {} : { controlToken: control.token }) }), { mode: 0o600 });
+  writeFileSync(infoPath, JSON.stringify({ port: boundPort, pid: process.pid, controlToken: hostToken }), { mode: 0o600 });
   chmodSync(infoPath, 0o600);
   log(`listening on ws://0.0.0.0:${boundPort}/relay as "${name}"`);
   log(
@@ -1225,6 +1232,15 @@ function assistantThreads(
   return new AssistantThreads(registry.map(create), deps);
 }
 
+/** serve.json as `serve` left it, or null when no host is running. */
+function readServeInfo(): z.infer<typeof ServeInfo> | null {
+  try {
+    return ServeInfo.parse(JSON.parse(readFileSync(serveInfoPath(), "utf8")));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The running host's loopback base URL: `$RELAY_HOST_URL` (a host on another port hands it to the
  * sessions it starts), else the port `serve` left in serve.json.
@@ -1232,13 +1248,25 @@ function assistantThreads(
 function hostUrl(): string {
   const override = process.env["RELAY_HOST_URL"]?.trim();
   if (override !== undefined && override !== "") return override.replace(/\/+$/, "");
-  let info: z.infer<typeof ServeInfo>;
-  try {
-    info = ServeInfo.parse(JSON.parse(readFileSync(serveInfoPath(), "utf8")));
-  } catch {
-    throw new Error("relay-linux serve is not running");
-  }
+  const info = readServeInfo();
+  if (info === null) throw new Error("relay-linux serve is not running");
   return `http://127.0.0.1:${info.port}`;
+}
+
+/** The host's bearer token: `$RELAY_HOST_TOKEN` (handed down with `$RELAY_HOST_URL`), else serve.json's `controlToken`. */
+function resolveHostToken(): string {
+  const env = process.env["RELAY_HOST_TOKEN"]?.trim();
+  if (env !== undefined && env !== "") return env;
+  const token = readServeInfo()?.controlToken;
+  if (token === undefined) throw new Error("relay-linux serve is not running (no token in serve.json)");
+  return token;
+}
+
+/** `fetch` to the running host with its bearer token: every state-changing loopback route requires it. */
+function hostFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  headers.set("authorization", `Bearer ${resolveHostToken()}`);
+  return globalThis.fetch(url, { ...init, headers });
 }
 
 /** `share` body: one existing file goes as a blob, anything else (or stdin) as text. */
@@ -1258,7 +1286,7 @@ async function share(positionals: string[]): Promise<void> {
       console.error(new VideoTooLarge(name, file.size, maxVideo).message);
       process.exit(1);
     }
-    response = await fetch(url, {
+    response = await hostFetch(url, {
       method: "POST",
       headers: { "content-type": type, "x-drop-name": name },
       body: await file.bytes(),
@@ -1266,7 +1294,7 @@ async function share(positionals: string[]): Promise<void> {
   } else {
     const text =
       positionals.length === 0 || single === "-" ? await Bun.stdin.text() : positionals.join(" ");
-    response = await fetch(url, {
+    response = await hostFetch(url, {
       method: "POST",
       headers: { "content-type": "text/plain; charset=utf-8" },
       body: text,
@@ -1316,7 +1344,7 @@ async function assistantSay(agent: string | undefined, positionals: string[]): P
     positionals.length === 0 || positionals[0] === "-"
       ? await Bun.stdin.text()
       : positionals.join(" ");
-  const response = await fetch(`${hostUrl()}/assistant/say?agent=${encodeURIComponent(agent)}`, {
+  const response = await hostFetch(`${hostUrl()}/assistant/say?agent=${encodeURIComponent(agent)}`, {
     method: "POST",
     headers: { "content-type": "text/plain; charset=utf-8" },
     body: text,
@@ -1361,7 +1389,7 @@ async function assistantAdminCommand(verb: string, options: AssistantCliOptions)
     return agent;
   };
   const call = async (path: string, init: RequestInit = {}): Promise<Response> => {
-    const response = await fetch(`${base}${path}`, init);
+    const response = await hostFetch(`${base}${path}`, init);
     if (!response.ok) {
       console.error(await response.text());
       process.exit(1);
@@ -1436,7 +1464,7 @@ async function catchupBounce(agent: string | undefined, positionals: string[]): 
     throw new Error("catchup bounce: missing --agent <id> (or $RELAY_ASSISTANT)");
   if (id === undefined || reason.length === 0)
     throw new Error("catchup bounce: expected <id> <reason>");
-  const response = await fetch(`${hostUrl()}/catchup/bounce`, {
+  const response = await hostFetch(`${hostUrl()}/catchup/bounce`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ id, agent, reason: reason.join(" ") }),
@@ -1451,7 +1479,7 @@ async function catchupBounce(agent: string | undefined, positionals: string[]): 
 /** `asks list`: the running host's open asks of assistant `agent`, or of every thread when undefined. */
 async function asksList(agent: string | undefined, json: boolean): Promise<void> {
   const query = agent === undefined || agent === "" ? "" : `?agent=${encodeURIComponent(agent)}`;
-  const response = await fetch(`${hostUrl()}/assistant/asks${query}`);
+  const response = await hostFetch(`${hostUrl()}/assistant/asks${query}`);
   if (!response.ok) {
     console.error(await response.text());
     process.exit(1);
@@ -1477,7 +1505,7 @@ async function asksResolve(agent: string | undefined, ids: string[], answer: str
   if (ids.length === 0) throw new Error("asks resolve: expected <id>...");
   let failed = false;
   for (const id of ids) {
-    const response = await fetch(`${hostUrl()}/assistant/asks/resolve`, {
+    const response = await hostFetch(`${hostUrl()}/assistant/asks/resolve`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id, ...(agent === undefined || agent === "" ? {} : { agent }), ...(answer === undefined ? {} : { answer }) }),
@@ -1512,7 +1540,7 @@ async function asksAdd(options: {
     options.session === "me" || (options.session === undefined && detectCaller(systemCallerDeps) !== null)
       ? ownSessionRef("asks add --session me")
       : options.session;
-  const response = await fetch(`${hostUrl()}/assistant/asks`, {
+  const response = await hostFetch(`${hostUrl()}/assistant/asks`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -1535,7 +1563,7 @@ async function asksAdd(options: {
 /** `asks get <id>`: one ask of the running host, open or closed, with Isaac's answer. */
 async function asksGet(id: string | undefined, json: boolean): Promise<void> {
   if (id === undefined) throw new Error("asks get: expected <id>");
-  const response = await fetch(`${hostUrl()}/assistant/asks/${encodeURIComponent(id)}`);
+  const response = await hostFetch(`${hostUrl()}/assistant/asks/${encodeURIComponent(id)}`);
   if (!response.ok) {
     console.error(await response.text());
     process.exit(1);
@@ -1652,7 +1680,7 @@ async function canvasCommand(
   const [verb, slug] = positionals;
   const base = `${hostUrl()}/canvas/sessions`;
   const post = (url: string, body: unknown): Promise<Response> =>
-    fetch(url, {
+    hostFetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -1775,7 +1803,7 @@ async function canvasCommand(
       if (options.history || options.since !== undefined) {
         const query = options.since === undefined ? "" : `?since=${encodeURIComponent(options.since)}`;
         const reply = CanvasHistoryReply.parse(
-          await hostJson(await fetch(`${base}/${encodeURIComponent(slug)}/history${query}`), "canvas show --history"),
+          await hostJson(await hostFetch(`${base}/${encodeURIComponent(slug)}/history${query}`), "canvas show --history"),
         );
         if (reply.entries.length === 0) console.log(`no changes recorded on ${slug}${options.since === undefined ? "" : ` since ${options.since}`}`);
         for (const line of reply.summary) console.log(line);
@@ -1785,7 +1813,7 @@ async function canvasCommand(
       }
       console.log(
         JSON.stringify(
-          await hostJson(await fetch(`${base}/${encodeURIComponent(slug)}`), "canvas show"),
+          await hostJson(await hostFetch(`${base}/${encodeURIComponent(slug)}`), "canvas show"),
           null,
           2,
         ),
@@ -1802,7 +1830,7 @@ async function canvasCommand(
       return;
     }
     case "list": {
-      const reply = await hostJson(await fetch(base), "canvas list");
+      const reply = await hostJson(await hostFetch(base), "canvas list");
       const { rooms } = CanvasRoomsReply.parse(reply);
       const participants =
         z.object({ participants: z.record(z.array(ParticipantReply)).optional() }).parse(reply)
@@ -1817,7 +1845,7 @@ async function canvasCommand(
       return;
     }
     case "end": {
-      const { rooms } = CanvasRoomsReply.parse(await hostJson(await fetch(base), "canvas end"));
+      const { rooms } = CanvasRoomsReply.parse(await hostJson(await hostFetch(base), "canvas end"));
       const live = rooms.filter((room) => room.live);
       let room = slug === undefined ? undefined : live.find((candidate) => candidate.slug === slug);
       if (slug === undefined) {
@@ -1903,7 +1931,7 @@ async function skillsCommand(
   const [verb, name] = positionals;
   const base = `${hostUrl()}/skills`;
   const post = (url: string, body: unknown): Promise<Response> =>
-    fetch(url, {
+    hostFetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -1921,7 +1949,7 @@ async function skillsCommand(
   };
   switch (verb ?? "") {
     case "list": {
-      const reply = await hostJson(await fetch(base), "skills list");
+      const reply = await hostJson(await hostFetch(base), "skills list");
       if (options.json) {
         console.log(JSON.stringify(reply, null, 2));
         return;
@@ -1936,7 +1964,7 @@ async function skillsCommand(
       return;
     }
     case "show": {
-      const reply = await hostJson(await fetch(skill()), "skills show");
+      const reply = await hostJson(await hostFetch(skill()), "skills show");
       if (options.json) {
         console.log(JSON.stringify(reply, null, 2));
         return;
@@ -2048,7 +2076,7 @@ async function react(
     throw new Error("react: missing --agent <id> (or $RELAY_ASSISTANT)");
   const emoji = positionals[0];
   if (!clear && emoji === undefined) throw new Error("react: missing <emoji> (or --clear)");
-  const response = await fetch(`${hostUrl()}/reactions/agent`, {
+  const response = await hostFetch(`${hostUrl()}/reactions/agent`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -2088,27 +2116,27 @@ async function board(positionals: string[]): Promise<void> {
   let response: Response;
   switch (action ?? "") {
     case "list":
-      response = await fetch(base);
+      response = await hostFetch(base);
       break;
     case "get":
-      response = await fetch(target());
+      response = await hostFetch(target());
       break;
     case "put":
-      response = await fetch(target(), {
+      response = await hostFetch(target(), {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: await Bun.stdin.text(),
       });
       break;
     case "ops":
-      response = await fetch(`${target()}/ops`, {
+      response = await hostFetch(`${target()}/ops`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: await Bun.stdin.text(),
       });
       break;
     case "rm":
-      response = await fetch(target(), {
+      response = await hostFetch(target(), {
         method: "DELETE",
         headers: { "content-type": "application/json" },
       });

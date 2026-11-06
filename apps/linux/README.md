@@ -598,6 +598,19 @@ Both need a loopback peer, a loopback `Host`, no `Origin` and `Authorization: Be
 a malformed frame, and only the socket a request went to can answer its rid. `features.control: false` in host.json
 turns it off.
 
+## Loopback writes: one guard (`src/http-guard.ts`)
+
+A loopback peer proves nothing (any web page open on this Mac can POST to 127.0.0.1), so every state-changing
+loopback route runs `guardWrite` in `server.ts` before its handler: `POST /drops`, `/assistant/say`,
+`/assistant/asks[/resolve]`, `/assistant/registry` (and its PATCH/DELETE), `/catchup/bounce`, `/reactions/agent`,
+`/boards` writes, `/skills` writes, `/canvas/sessions` writes, `/query` and `/control/*`. A write needs a loopback peer
+and `Host`; an Origin/Referer, if any, equal to the host's own origin (403 otherwise); `Authorization: Bearer
+<controlToken>` from `serve.json` (401; the token exists whether or not `features.control` is on); and the body type the
+route takes (415): `application/json` on JSON routes, `text/plain` on `/assistant/say`, anything but a form post on
+`/drops`. Callers: the CLI (`hostFetch`; `$RELAY_HOST_TOKEN` beside `$RELAY_HOST_URL` for a second host, which `herdr`
+hands down), Relay Desktop (`serveToken`) and Eva's tools read the token from `serve.json`. Token-in-URL rooms and
+blobs (`/canvas/<slug>/...`, `/artifacts/media`, `GET /drops/<id>/<token>`) keep their own checks.
+
 ## Reviews (`reviews.req`, `reviews.queue`, `reviews.astra`)
 
 What waits on Isaac's reply, on the phone as in Relay Desktop's Reviews page (`packages/protocol/src/reviews.ts` is

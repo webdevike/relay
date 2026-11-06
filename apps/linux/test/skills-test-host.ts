@@ -74,7 +74,7 @@ async function scripted(skills: SkillsService, text: string): Promise<void> {
 /** A real omp run on the delivered text, its CLI calls (this checkout's) reaching this host. */
 function viaOmp(text: string): Promise<undefined> {
   const { promise, resolve: done, reject: fail } = Promise.withResolvers<undefined>();
-  const child = spawn("omp", ["-p", "--model", values.model, text], { env: { ...process.env, RELAY_HOST_URL: `http://127.0.0.1:${String(port)}` }, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn("omp", ["-p", "--model", values.model, text], { env: { ...process.env, RELAY_HOST_URL: `http://127.0.0.1:${String(port)}`, RELAY_HOST_TOKEN: "skills-test-host" }, stdio: ["ignore", "pipe", "pipe"] });
   child.stdout.on("data", (chunk: Buffer) => process.stdout.write(`omp: ${chunk.toString()}`));
   child.stderr.on("data", (chunk: Buffer) => process.stderr.write(`omp: ${chunk.toString()}`));
   child.on("error", fail);

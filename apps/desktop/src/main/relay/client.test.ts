@@ -31,7 +31,7 @@ const dirs: string[] = []
 function configDir(port: number | null): string {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-'))
   dirs.push(d)
-  if (port !== null) fs.writeFileSync(path.join(d, 'serve.json'), JSON.stringify({ port, pid: 1 }))
+  if (port !== null) fs.writeFileSync(path.join(d, 'serve.json'), JSON.stringify({ port, pid: 1, controlToken: 'host-token' }))
   return d
 }
 afterEach(() => {
@@ -226,7 +226,7 @@ describe('RelayClient', () => {
     expect(calls[0]?.[0]).toBe('http://127.0.0.1:7817/query')
     expect(calls[0]?.[1]).toMatchObject({
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: 'Bearer host-token' },
     })
     expect(JSON.parse(String(calls[0]?.[1].body))).toEqual({ tool: 'jobs', args: { name: 'x' } })
     status = 422

@@ -38,6 +38,7 @@ class FakeCanvas implements RelayCanvas {
   private changes = new Set<() => void>()
   canvasRooms = () => this.rooms
   canvasOrigin = () => this.origin
+  hostToken = () => 'host-token'
   openCanvas = () => Promise.resolve(this.access)
   onCanvasRoomsChange(cb: () => void) {
     this.changes.add(cb)
@@ -191,7 +192,10 @@ describe('canvas.live action', () => {
     const [url, init] = post.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('http://127.0.0.1:7817/canvas/sessions')
     expect(init.method).toBe('POST')
-    expect(init.headers).toEqual({ 'content-type': 'application/json' })
+    expect(init.headers).toEqual({
+      'content-type': 'application/json',
+      authorization: 'Bearer host-token',
+    })
     expect(JSON.parse(String(init.body))).toEqual({
       slug: 'mind-map',
       prompt: 'Sketch the flow',

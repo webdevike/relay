@@ -52,7 +52,7 @@ import {
   unsubscribeFrame,
   type RelayCommand,
 } from './commands'
-import { deviceSecret, remoteAuthority, servePort, type RelayRemote } from './device'
+import { bearer, deviceSecret, remoteAuthority, servePort, serveToken, type RelayRemote } from './device'
 
 /** Between attempts while Relay is down. */
 export const RETRY_MS = 3000
@@ -252,6 +252,8 @@ export interface RelayCanvas {
   onCanvasRoomsChange(cb: () => void): () => void
   /** The host's http origin (`http://127.0.0.1:<port>`), null when no host is running. */
   canvasOrigin(): string | null
+  /** The bearer token the local host's loopback write routes require; null when no host is running. */
+  hostToken(): string | null
   /** Asks the host into the live room on `slug`; resolves with its page or why not, never rejects. */
   openCanvas(slug: string): Promise<CanvasAccess>
 }
@@ -481,7 +483,10 @@ export class RelayClient
     try {
       res = await (this.o.fetch ?? fetch)(`${origin}/query`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...bearer(this.o.configDir === null ? null : serveToken(this.o.configDir)),
+        },
         body: JSON.stringify({ tool, args }),
         signal: AbortSignal.timeout(this.commandTimeoutMs),
       })
@@ -659,6 +664,10 @@ export class RelayClient
   onCanvasRoomsChange(cb: () => void): () => void {
     this.canvasListeners.add(cb)
     return () => this.canvasListeners.delete(cb)
+  }
+
+  hostToken(): string | null {
+    return this.o.remote || this.o.configDir === null ? null : serveToken(this.o.configDir)
   }
 
   canvasOrigin(): string | null {
@@ -1177,6 +1186,10 @@ export class StaticRelay
   }
 
   canvasOrigin(): string | null {
+    return null
+  }
+
+  hostToken(): string | null {
     return null
   }
 

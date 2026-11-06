@@ -43,7 +43,7 @@ describe('skills IPC', () => {
   const call = (channel: string, input: unknown): Promise<unknown> =>
     ipc.handlers.get(channel)!({ senderFrame: { url: 'app://shell' } }, input)
   const setup = (origin: string | null, post: unknown): void =>
-    registerSkillsIpc(ctx, { canvasOrigin: () => origin }, post as typeof fetch)
+    registerSkillsIpc(ctx, { canvasOrigin: () => origin, hostToken: () => 'host-token' }, post as typeof fetch)
   beforeEach(() => ipc.handlers.clear())
 
   it('lists what the host knows and marks it available', async () => {
@@ -163,7 +163,10 @@ describe('skills IPC', () => {
     const [url, init] = post.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe(`${ORIGIN}/skills/canvas/access`)
     expect(init.method).toBe('POST')
-    expect(init.headers).toEqual({ 'content-type': 'application/json' })
+    expect(init.headers).toEqual({
+      'content-type': 'application/json',
+      authorization: 'Bearer host-token',
+    })
     expect(JSON.parse(init.body as string)).toEqual({ enabled: { nova: false } })
   })
 
