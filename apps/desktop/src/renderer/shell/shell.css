@@ -4,6 +4,7 @@
 .eva-shell {
   --eva-traffic: 80px;
   --eva-gap: 8px;
+  --eva-footer-h: 32px;
   --eva-sidebar-w: 272px;
   --eva-main-left: 0px;
   display: flex;
@@ -23,9 +24,10 @@
 /* Native EvaOS footer: the shell background, no border; the cards end above it. */
 .eva-footer {
   flex: none;
-  height: 32px;
+  height: var(--eva-footer-h);
   box-sizing: border-box;
-  padding: 0 var(--eva-gap);
+  /* The sidebar column reaches down over the strip's left end, so content starts after it. */
+  padding: 0 var(--eva-gap) 0 max(var(--eva-gap), var(--eva-sidebar-w));
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -76,6 +78,10 @@
   flex: none;
   box-sizing: border-box;
   width: var(--eva-sidebar-w);
+  /* Runs down over the footer strip so the sidebar's icon row shares the footer's centre line. */
+  position: relative;
+  z-index: 1;
+  margin-bottom: calc(var(--eva-footer-h) * -1);
   overflow: hidden;
   background: var(--eva-chrome);
   -webkit-app-region: drag;

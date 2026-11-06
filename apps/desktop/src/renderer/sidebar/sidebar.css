@@ -168,7 +168,9 @@ html[data-eva-motion='off'] .eva-sb-track {
   display: flex;
   flex-direction: column;
   gap: var(--eva-space-xs);
-  padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-native-xs);
+  /* The icon row is centred in the window footer strip below the cards: (strip - button) / 2. */
+  padding: var(--eva-space-native-sm) var(--eva-space-native-sm)
+    calc((var(--eva-footer-h) - 28px) / 2);
 }
 /* One row of small ghost icon buttons: Settings and Usage left, the update control right. */
 .eva-sb-icons {
