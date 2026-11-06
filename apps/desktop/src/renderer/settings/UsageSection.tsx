@@ -286,22 +286,24 @@ function Split({ r }: { r: StatsRange }) {
   const share = ((main?.costUsd ?? 0) / spend) * 100
   return (
     <Block title="Main sessions and subagents" testid="stats-split">
-      <Progress.Root size="md" aria-label="Spend by main sessions and subagents">
+      <Progress.Root size="sm" aria-label="Spend by main sessions and subagents">
         <Progress.Section value={share} color={ACCENT} />
         <Progress.Section value={100 - share} color={MUTED} />
       </Progress.Root>
-      <SimpleGrid cols={2} spacing="lg">
-        <Figure
-          label="Main sessions"
-          value={money(main?.costUsd ?? 0)}
-          detail={`${percent(main?.costUsd ?? 0, spend)} of spend, ${count(main?.requests ?? 0)} requests`}
-        />
-        <Figure
-          label="Subagents"
-          value={money(sub?.costUsd ?? 0)}
-          detail={`${percent(sub?.costUsd ?? 0, spend)} of spend, ${count(sub?.requests ?? 0)} requests`}
-        />
-      </SimpleGrid>
+      <Group justify="space-between" wrap="nowrap">
+        <Text size="sm" className="eva-stats-num">
+          {`Main sessions ${money(main?.costUsd ?? 0)}`}
+          <Text span size="sm" c="dimmed">
+            {` ${percent(main?.costUsd ?? 0, spend)}, ${count(main?.requests ?? 0)} requests`}
+          </Text>
+        </Text>
+        <Text size="sm" className="eva-stats-num">
+          {`Subagents ${money(sub?.costUsd ?? 0)}`}
+          <Text span size="sm" c="dimmed">
+            {` ${percent(sub?.costUsd ?? 0, spend)}, ${count(sub?.requests ?? 0)} requests`}
+          </Text>
+        </Text>
+      </Group>
     </Block>
   )
 }
@@ -391,6 +393,7 @@ export function UsageSection() {
           rows={r.byAgent.map((a) => ({ key: a.agent, name: a.label, t: a }))}
         />
       )}
+      <Split r={r} />
       {r.byFolder.length > 0 && (
         <Shares
           title="Projects"
@@ -405,7 +408,6 @@ export function UsageSection() {
           }))}
         />
       )}
-      <Split r={r} />
       <Text size="xs" c="dimmed" data-testid="stats-source">
         {`From omp stats on the Relay Host, profiles ${snap.profiles.map((p) => p.name).join(', ')}.`}
         {failing.map((p) => ` ${p.name}: ${p.error ?? ''}. Its numbers may be old.`).join('')}

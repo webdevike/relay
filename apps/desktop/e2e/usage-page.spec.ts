@@ -59,7 +59,11 @@ function syntheticRange(scale: number, buckets: number, bucketMs: number): Json 
       { folder: '-Eva', ...totals(1500 * scale, 4, 120 * scale, 1500, 80) },
       { folder: '-Eva-work-relay-usage-page', ...totals(900 * scale, 10, 75 * scale, 1500, 80) },
     ],
-    byAgent: [],
+    byAgent: [
+      { agent: 'helpers', label: 'Helpers', ...totals(1200 * scale, 10, 85 * scale, 1500, 80) },
+      { agent: 'nova', label: 'Nova', ...totals(900 * scale, 4, 80 * scale, 1500, 80) },
+      { agent: 'astra', label: 'Astra', ...totals(300 * scale, 0, 30 * scale, 1500, 80) },
+    ],
     byAgentType: [
       { type: 'main', ...totals(1200 * scale, 4, 110 * scale, 1500, 80) },
       { type: 'subagent', ...totals(1200 * scale, 10, 85 * scale, 1500, 80) },
@@ -146,6 +150,10 @@ test('Usage waits for the host, then leads with spend and what to act on; ranges
     shell.locator(sel('stats-chart-spend')).locator('.recharts-bar-rectangle').first(),
   ).toBeVisible()
   await expect(shell.locator(sel('stats-projects'))).toBeVisible()
+  await expect(shell.locator(sel('stats-agents')).locator('tbody tr').first()).toContainText(
+    'Helpers',
+  )
+  await expect(shell.locator(sel('stats-insights')).locator('[data-insight=agent]')).toBeVisible()
   await expect(shell.locator(sel('stats-split'))).toBeVisible()
   // The page keeps to the shared settings column.
   const col = (await shell.locator('.eva-settings-col').boundingBox())!
