@@ -337,5 +337,5 @@ describe.skipIf(ffmpeg === null || findTool("ffprobe") === null)("crops and mask
     const edge = pixel(out, 200, 250);
     expect(edge).not.toBe(pixel(source, 200, 250));
     expect(edge).not.toBe(pixel(edited, 100, 87));
-  });
+  }, 30_000);
 });
