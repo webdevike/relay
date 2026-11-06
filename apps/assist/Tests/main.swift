@@ -209,6 +209,43 @@ if let donut {
     expectEqual(at(7, [true, true, true, true, false, false, true, false, true]), 8, "Solidify on with the dough active: the lesson ends")
 }
 
+// MARK: Presenter protocol (--present)
+
+func parsed(_ line: String) -> PresenterCommand? { if case .success(let c) = PresenterCommand.parse(line) { return c } else { return nil } }
+func parseError(_ line: String) -> String? { if case .failure(let e) = PresenterCommand.parse(line) { return e.message } else { return nil } }
+
+expectEqual(parsed(#"{"op":"assistant","id":"astra"}"#), .assistant(id: "astra"), "assistant op")
+expectEqual(parsed(#"{"op":"point","id":7,"rect":{"x":1480,"y":672,"w":48,"h":48},"caption":"Click Equals","speak":"Here","step":2,"of":3}"#),
+            .point(id: 7, rect: CGRect(x: 1480, y: 672, width: 48, height: 48), caption: "Click Equals", speak: "Here", step: 2, of: 3), "point with every field")
+expectEqual(parsed(#"{"op":"point","id":1,"rect":{"x":0.5,"y":-20,"w":10,"h":12.5},"caption":"Here"}"#),
+            .point(id: 1, rect: CGRect(x: 0.5, y: -20, width: 10, height: 12.5), caption: "Here", speak: nil, step: nil, of: nil), "point: decimals, negative origin, no speech or step")
+expectEqual(parsed(#"{"op":"click","id":8,"x":120,"y":340.5,"caption":"Pressing 7"}"#), .click(id: 8, x: 120, y: 340.5, caption: "Pressing 7"), "click op")
+expectEqual(parsed(#"{"op":"caption","id":9,"text":"Opening it","speak":true}"#), .caption(id: 9, text: "Opening it", speak: true), "caption op")
+expectEqual(parsed(#"{"op":"caption","id":9,"text":"Opening it"}"#), .caption(id: 9, text: "Opening it", speak: false), "caption speaks only when asked")
+expectEqual(parsed(#"{"op":"hide"}"#), .hide, "hide op")
+expectEqual(parsed(#"{"op":"quit"}"#), .quit, "quit op")
+
+expectEqual(parseError("not json"), "not a JSON object", "garbage is an error")
+expectEqual(parseError("[1,2]"), "not a JSON object", "a JSON array is an error")
+expectEqual(parseError(#"{"id":1}"#), "missing op", "no op is an error")
+expectEqual(parseError(#"{"op":"dance"}"#), "unknown op \"dance\"", "unknown op is an error")
+expectEqual(parseError(#"{"op":"assistant"}"#), "assistant: missing id", "assistant needs an id")
+expectEqual(parseError(#"{"op":"point","rect":{"x":1,"y":2,"w":3,"h":4}}"#), "point: missing id", "point needs an op id")
+expectEqual(parseError(#"{"op":"point","id":1}"#), "point: missing rect", "point needs a rect")
+expectEqual(parseError(#"{"op":"point","id":1,"rect":{"x":1,"y":2,"w":3}}"#), "point rect: missing h", "point rect needs all four fields")
+expectEqual(parseError(#"{"op":"point","id":1,"rect":{"x":1,"y":2,"w":-3,"h":4}}"#), "point rect: w and h must not be negative", "negative size is an error")
+expectEqual(parseError(#"{"op":"point","id":"7","rect":{"x":1,"y":2,"w":3,"h":4}}"#), "point: id must be a number", "id must be a number")
+expectEqual(parseError(#"{"op":"point","id":1.5,"rect":{"x":1,"y":2,"w":3,"h":4}}"#), "point: id must be an integer", "id must be a whole number")
+expectEqual(parseError(#"{"op":"click","id":8,"x":1}"#), "click: missing y", "click needs x and y")
+expectEqual(parseError(#"{"op":"click","id":8,"x":true,"y":2}"#), "click: x must be a number", "a boolean is not a coordinate")
+expectEqual(parseError(#"{"op":"caption","id":9}"#), "caption: missing text", "caption needs text")
+expectEqual(parseError(#"{"op":"caption","id":9,"text":"x","speak":"yes"}"#), "caption: speak must be true or false", "speak must be a boolean")
+expectEqual(PresenterEvent.ready.line, #"{"ev":"ready"}"#, "ready event line")
+expectEqual(PresenterEvent.landed(id: 7).line, #"{"ev":"landed","id":7}"#, "landed event line")
+expectEqual(PresenterEvent.spoken(id: 3).line, #"{"ev":"spoken","id":3}"#, "spoken event line")
+expectEqual(PresenterEvent.esc.line, #"{"ev":"esc"}"#, "esc event line")
+expectEqual(PresenterEvent.error("bad \"x\"").line, #"{"ev":"error","message":"bad \"x\""}"#, "error event line escapes the message")
+
 // MARK: PlanTrust (async: the store is a real JSON file in the scratch dir)
 
 func plan(_ question: String, bundle: String = "org.blenderfoundation.blender", chore: Bool) -> CachedPlan {

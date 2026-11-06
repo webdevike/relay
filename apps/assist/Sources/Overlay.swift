@@ -143,6 +143,9 @@ final class OverlayController {
         }
         return key
     }()
+    /// A click hides the caption and marks (the user doing the step). The driven presenter (`--present`)
+    /// turns this off: only Esc, `hide` or `quit` dismiss it.
+    var dismissOnClick = true
     /// Esc pressed while Buddy was showing (after it dismissed): the app also ends a running lesson.
     var onEscape: (() -> Void)?
     private var fadeWork: DispatchWorkItem?
@@ -180,7 +183,8 @@ final class OverlayController {
 
     /// `hold`: keep the caption up until dismissed (Esc or a click) instead of fading, for long explanations.
     /// `stepNumber`: a lesson step; its number is drawn on the target.
-    func perform(_ plan: Plan, context: ScreenContext, stay: Bool, hold: Bool = false, stepNumber: Int? = nil) {
+    /// `onLanded`: called once the cursor has landed on the first step (marks drawn), if nothing replaced it.
+    func perform(_ plan: Plan, context: ScreenContext, stay: Bool, hold: Bool = false, stepNumber: Int? = nil, onLanded: (() -> Void)? = nil) {
         if !isShowing { begin(at: CGPoint(x: NSEvent.mouseLocation.x + Self.restingOffset.x, y: NSEvent.mouseLocation.y + Self.restingOffset.y)) }
         buddy.setStaying(stay)
         let steps = plan.steps.prefix(3).map { resolve($0, context: context) }
@@ -192,7 +196,7 @@ final class OverlayController {
             return
         }
         Log.info("overlay marks: " + steps.map { "\($0.label.isEmpty ? "?" : $0.label)=\($0.source)" }.joined(separator: ", "))
-        run(steps, index: 0, firstCaption: firstCaption, stay: stay || hold, stepNumber: stepNumber, generation: generation)
+        run(steps, index: 0, firstCaption: firstCaption, stay: stay || hold, stepNumber: stepNumber, generation: generation, onLanded: onLanded)
     }
 
     func dismiss(fast: Bool) {
@@ -369,7 +373,7 @@ final class OverlayController {
         return inter / (a.width * a.height + b.width * b.height - inter)
     }
 
-    private func run(_ steps: [ResolvedStep], index: Int, firstCaption: String, stay: Bool, stepNumber: Int?, generation token: Int) {
+    private func run(_ steps: [ResolvedStep], index: Int, firstCaption: String, stay: Bool, stepNumber: Int?, generation token: Int, onLanded: (() -> Void)? = nil) {
         guard token == generation, index < steps.count else { return }
         let step = steps[index]
         moveToScreen(containing: step.tip)
@@ -387,6 +391,7 @@ final class OverlayController {
             guard let self, token == self.generation else { return }
             self.buddy.land()
             self.mark(step.shape, number: index == 0 ? stepNumber : nil)
+            if index == 0 { onLanded?() }
             if index + 1 < steps.count {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.4 + self.readingExtra(caption)) { [weak self] in
                     self?.run(steps, index: index + 1, firstCaption: firstCaption, stay: stay, stepNumber: stepNumber, generation: token)
@@ -524,7 +529,7 @@ final class OverlayController {
     private func installMonitors() {
         guard monitors.isEmpty else { return }
         // A click is the user doing the step: it hides the caption and marks, never her voice.
-        if let click = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] _ in
+        if dismissOnClick, let click = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown], handler: { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.isShowing else { return }
                 Log.info("overlay: click hid the caption (speaking=\(self.isSpeaking?() == true), speech keeps playing)")

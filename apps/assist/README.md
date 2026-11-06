@@ -110,6 +110,38 @@ $B --voice-test q.m4a                                   # transcribe a file (no 
 system surfaces (login window, Dock, Spotlight, Control Center) and falling back to the last real
 app that was frontmost. A newly started Buddy tells any older instance to quit.
 
+### `--present`: the overlay and voice, driven by another program
+
+`RelayBuddy --present` (the executable inside the app) shows the assistant's cursor, outline, caption,
+click mark and step badge, and speaks, only when told to. It has no hotkey, no prompt bubble, no
+menu-bar item, and it never posts or answers `com.relay.buddy.quit`, so a resident Assist keeps
+running. `RELAY_BUDDY_SPEAK=0` silences it, `RELAY_BUDDY_LOG` moves the log. Esc is the only thing that
+dismisses it besides `hide`/`quit`: clicks do not (the driver is clicking too), and Esc also silences speech.
+
+stdin, one JSON object per line; coordinates are global display points, top-left origin (CoreGraphics
+space, like cua-driver element frames):
+
+```json
+{"op":"assistant","id":"astra"}
+{"op":"point","id":7,"rect":{"x":1480,"y":672,"w":48,"h":48},"caption":"Click Equals","speak":"optional","step":2,"of":3}
+{"op":"click","id":8,"x":1504,"y":696,"caption":"Pressing 7"}
+{"op":"caption","id":9,"text":"Opening the menu","speak":true}
+{"op":"hide"}
+{"op":"quit"}
+```
+
+`point` glides to the control, outlines the rect, shows the caption and the step badge (when `step` is
+given) and speaks `speak`. `click` glides along the dotted trail and shows the click mark. `caption` only
+changes the caption where the cursor is. Everything stays until the next op. `quit` or stdin EOF dismisses,
+stops speaking and exits 0. `caption` on `point`/`click`, and `speak`, `step`, `of`, may be omitted; a missing
+`id`, `rect`, `x`, `y` or `text`, or an unknown `op`, is an `error` event.
+
+stdout, one JSON object per line: `{"ev":"ready"}` once avatars are loaded; `{"ev":"landed","id":N}` when
+a `point` or `click` arrived (at once for `caption`, and also when a newer op replaced it);
+`{"ev":"spoken","id":N}` when that op's speech ended, was cut off, or at once when speech is off;
+`{"ev":"esc"}` when Esc was pressed while the overlay showed; `{"ev":"error","message":"..."}` for a bad
+line (it keeps running). The parser is `PresenterCommand` in `Sources/Presenter.swift`.
+
 ## How it behaves
 
 - **Hotkey**: Carbon `RegisterEventHotKey` (no permission needed). A tap under 0.3 s opens the
@@ -245,6 +277,7 @@ each step in place of the user.
 - `Sources/Overlay.swift`, `Sources/OverlayExtras.swift`, `Sources/BuddyCharacter.swift`:
   overlay, the assistant's cursor, rings, click trail, step pill, Undo pill.
 - `Sources/Voice/`: voice input and output.
+- `Sources/Presenter.swift`: `--present` protocol (`PresenterCommand`, `PresenterEvent`) and its app.
 
 ## Next
 

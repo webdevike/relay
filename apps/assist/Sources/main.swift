@@ -10,6 +10,7 @@ import Cocoa
 //   RelayBuddy --undo                   press the Undo pill in a running instance
 //   RelayBuddy --forget "q"             delete the cached plans for "q" (every app and context), then exit
 //   RelayBuddy --voice-test|--voice-say|--voice-barge ...   voice self-tests (Sources/Voice/README.md)
+//   RelayBuddy --present                driven overlay and voice: JSON commands on stdin, events on stdout (Sources/Presenter.swift)
 // --target takes an app name or bundle id; without it Buddy looks at the frontmost app.
 
 let arguments = CommandLine.arguments
@@ -40,6 +41,16 @@ if arguments.contains("--undo") {
     DistributedNotificationCenter.default().postNotificationName(
         BuddyNotification.undo, object: nil, userInfo: nil, deliverImmediately: true)
     exit(0)
+}
+if arguments.contains("--present") {
+    MainActor.assumeIsolated {
+        let app = NSApplication.shared
+        let presenter = PresenterApp()
+        PresenterApp.shared = presenter
+        app.delegate = presenter
+        app.setActivationPolicy(.accessory)
+        app.run()
+    }
 }
 if VoiceTest.handles(arguments) {
     let done = DispatchSemaphore(value: 0)

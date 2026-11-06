@@ -67,7 +67,8 @@ enum Assistants {
 
     /// Loads each portrait PNG from the cache, drawing missing ones once with Relay's DiceBear
     /// generator (tools/render-avatar.ts, bundled into Resources) on the agent's paper disc.
-    @MainActor static func prepareAvatars() {
+    /// `completion` runs on the main actor once every avatar has been tried (loaded or failed).
+    @MainActor static func prepareAvatars(completion: (@MainActor () -> Void)? = nil) {
         let agents = all
         Task.detached(priority: .utility) {
             for agent in agents {
@@ -89,6 +90,7 @@ enum Assistants {
                                 Date().timeIntervalSince(started) * 1000, file.lastPathComponent))
                 await MainActor.run { avatars[agent.id] = image }
             }
+            if let completion { await MainActor.run { completion() } }
         }
     }
 
