@@ -135,14 +135,21 @@ export class ComputerRuns {
   intercept(paneId: string, text: string): boolean {
     const run = this.active
     const pending = run?.pending
+    const cmd = parseComputer(text)
     if (run && pending && run.spec.paneId === paneId) {
-      const pick = pending.options.find((o) => o.toLowerCase() === text.trim().toLowerCase())
+      const typed = text.trim()
+      const pick = pending.options.find((o) => o.toLowerCase() === typed.toLowerCase())
       if (pick) {
         this.answer(run, pick)
         return true
       }
+      // Any other plain message answers the question the run is waiting on, in words.
+      // `@computer ...` and `/...` stay commands; everything else goes to omp as usual.
+      if (!cmd && typed !== '' && !typed.startsWith('/')) {
+        this.reply(run, pending, typed)
+        return true
+      }
     }
-    const cmd = parseComputer(text)
     if (!cmd) return false
     const file = this.deps.fileOf(paneId)
     // The session's earlier runs (saved ones too), so a new one adds to them.
@@ -211,7 +218,7 @@ export class ComputerRuns {
     run.walk(op)
   }
 
-  private answer(run: Run, pick: string): void {
+  private answer(run: Run, pick: string, typed?: string): void {
     const ask = run.pending
     if (!ask) return
     run.pending = null
@@ -219,9 +226,25 @@ export class ComputerRuns {
     if (row)
       this.post(run.spec.paneId, {
         ...row,
-        text: row.text.replace(/\n*\[\[replies:[^\]]*\]\]\s*$/, `\n\n_You chose: ${pick}_`),
+        text: `${row.text.replace(/\n*\[\[replies:[^\]]*\]\]\s*$/, '')}\n\n_You ${typed === undefined ? 'chose' : 'answered'}: ${typed ?? pick}_`,
       })
     ask.resolve(pick)
+  }
+
+  /** Isaac's typed answer: shown under the run's question, then handed to the run like a tapped chip. */
+  private reply(run: Run, ask: Ask, text: string): void {
+    const paneId = run.spec.paneId
+    this.post(paneId, makeMessage(`${ask.rowId}:reply`, 'user', text, { at: run.at }))
+    // An approval asked with chips takes yes/no in words; anything else it gets verbatim.
+    const approval = ask.options.includes('Approve') && ask.options.includes('Cancel')
+    const pick = approval
+      ? /^(y|yes|yep|yeah|ok|okay|sure|go|go ahead|do it|approve|approved)[.!]*$/i.test(text)
+        ? 'Approve'
+        : /^(n|no|nope|stop|cancel|don'?t)[.!]*$/i.test(text)
+          ? 'Cancel'
+          : text
+      : text
+    this.answer(run, pick, text)
   }
 
   private progressRow(run: Run, status: string): ChatMessage {
@@ -315,8 +338,7 @@ export class ComputerRuns {
         const text = [
           `**${spec.route.assistant.title}:** ${question}`,
           ...(image ? ['', imageLine(image, 'Now')] : []),
-          '',
-          `[[replies: ${options.join(' | ')}]]`,
+          ...(options.length > 0 ? ['', `[[replies: ${options.join(' | ')}]]`] : []),
         ].join('\n')
         this.post(paneId, makeMessage(rowId, 'assistant', text, { at }))
         refresh('Waiting for you…')

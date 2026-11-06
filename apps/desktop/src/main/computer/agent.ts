@@ -104,7 +104,7 @@ export const TOOLS: readonly ToolSpec[] = [
   {
     name: 'ask_isaac',
     description:
-      'Ask Isaac a question in the chat and wait for his answer (2 to 4 short options). Use it when the task is ambiguous or before anything irreversible; act also asks him by itself before risky steps.',
+      'Ask Isaac a question in the chat and wait for his answer (free-form; `options` are optional tap chips, 2 to 4 short ones, and he may type anything instead). Waits up to 10 minutes. Use it for any question you need him to answer: ambiguous task, which one, missing detail, or before anything irreversible; act also asks him by itself before risky steps.',
     parameters: {
       type: 'object',
       properties: {
@@ -354,8 +354,10 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
       }
       case 'ask_isaac': {
         const a = AskArgs.parse(call.args)
-        const options = a.options && a.options.length >= 2 ? a.options.slice(0, 4) : ['Yes', 'No']
+        const options = a.options && a.options.length >= 2 ? a.options.slice(0, 4) : []
         const answer = await io.ask(a.question, options, null)
+        if (answer === 'Cancel')
+          return { text: 'Isaac did not answer (cancelled or timed out). Finish and say so.' }
         io.progress(`You answered: ${answer}`)
         return { text: `Isaac answered: ${answer}` }
       }

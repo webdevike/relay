@@ -107,7 +107,7 @@ interface Harness {
   done: Promise<AgentResult>
 }
 
-function harness(): Harness {
+function harness(brain: () => Brain = scriptedBrain): Harness {
   const calls: string[] = []
   let rows: ChatMessage[] = []
   const waiting: Array<{ pred: (r: ChatMessage) => boolean; resolve: (r: ChatMessage) => void }> =
@@ -141,7 +141,7 @@ function harness(): Harness {
         mode: 'headless',
         assistant: NOVA,
         desktop: new Desktop(fakeDriver(calls), async () => {}),
-        brain: scriptedBrain(),
+        brain: brain(),
         presenter: null,
         io,
         shots: { dir, want: 'none' },
@@ -187,6 +187,55 @@ describe('ComputerRuns + runAgent', () => {
     expect(h.calls.filter((c) => c === 'click')).toHaveLength(1)
     expect(h.rows().at(-1)?.id).toMatch(/:done$/)
     expect(h.rows().map((r) => r.role)).toEqual(['user', 'assistant'])
+  })
+
+  it('a plain message while the run waits answers it; with nothing waiting or a command it does not', async () => {
+    const h = harness()
+    expect(h.runs.intercept('p1', 'yes please')).toBe(false)
+    h.runs.intercept('p1', '@computer reply to the lunch mail with yes')
+    await h.row(asked)
+    // Another pane's chat is not the run's chat.
+    expect(h.runs.intercept('p2', 'yes please')).toBe(false)
+    // A slash command goes to omp.
+    expect(h.runs.intercept('p1', '/compact')).toBe(false)
+    expect(h.runs.intercept('p1', 'yes')).toBe(true)
+    await h.done
+    expect(h.calls.filter((c) => c === 'click')).toHaveLength(1)
+    // Folded into the finished row; nothing left over.
+    expect(h.rows().map((r) => r.role)).toEqual(['user', 'assistant'])
+  })
+
+  it('ask_isaac posts a free-form question; his typed answer reaches the brain and shows under it', async () => {
+    const asking = (): Brain => {
+      let n = 0
+      return {
+        async turn(items) {
+          n++
+          if (n === 1)
+            return {
+              text: '',
+              calls: [{ callId: 'q', name: 'ask_isaac', args: { question: 'Which prototype?' } }],
+            }
+          const out = items.find(
+            (i): i is Extract<InputItem, { type: 'function_call_output' }> => 'type' in i,
+          )
+          return {
+            text: '',
+            calls: [{ callId: 'f', name: 'finish', args: { summary: out?.output ?? '' } }],
+          }
+        },
+      }
+    }
+    const h = harness(asking)
+    h.runs.intercept('p1', '@computer walk me through the prototype')
+    const q = await h.row((r) => r.text.includes('Which prototype?'))
+    expect(q.text).not.toContain('[[replies')
+    expect(h.runs.intercept('p1', 'the blue one')).toBe(true)
+    const shown = h.rows().find((r) => r.id.endsWith(':reply'))
+    expect(shown).toMatchObject({ role: 'user', text: 'the blue one' })
+    expect(h.rows().find((r) => r.id === q.id)?.text).toContain('You answered: the blue one')
+    const result = await h.done
+    expect(result.summary).toBe('Isaac answered: the blue one')
   })
 
   it('stop cancels a pending ask; a second run waits for the first', async () => {

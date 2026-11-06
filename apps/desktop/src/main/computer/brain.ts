@@ -81,20 +81,23 @@ export class OpenAIBrain implements Brain {
   ) {}
 
   async turn(items: InputItem[], signal?: AbortSignal): Promise<Turn> {
-    const res = await fetch('https://api.openai.com/v1/responses', {
-      method: 'POST',
-      ...(signal ? { signal } : {}),
-      headers: { Authorization: `Bearer ${this.key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: this.model,
-        reasoning: { effort: this.effort },
-        instructions: this.instructions,
-        input: items,
-        tools: this.tools.map((t) => ({ type: 'function', strict: false, ...t })),
-        parallel_tool_calls: false,
-        ...(this.previous ? { previous_response_id: this.previous } : {}),
-      }),
-    })
+    const res = await fetch(
+      `${process.env.RELAY_COMPUTER_API_BASE ?? 'https://api.openai.com/v1'}/responses`,
+      {
+        method: 'POST',
+        ...(signal ? { signal } : {}),
+        headers: { Authorization: `Bearer ${this.key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: this.model,
+          reasoning: { effort: this.effort },
+          instructions: this.instructions,
+          input: items,
+          tools: this.tools.map((t) => ({ type: 'function', strict: false, ...t })),
+          parallel_tool_calls: false,
+          ...(this.previous ? { previous_response_id: this.previous } : {}),
+        }),
+      },
+    )
     if (!res.ok) throw new Error(`model ${res.status}: ${(await res.text()).slice(0, 300)}`)
     const out = OutputSchema.parse(await res.json())
     this.previous = out.id
