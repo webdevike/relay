@@ -232,7 +232,6 @@
     "padding: 0 var(--eva-space-native-xs) 0 var(--eva-space-xs)": 1,
     "padding: 0 var(--eva-space-xs)": 2,
     "padding: var(--eva-sidebar-top) 0 0": 1,
-    "padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-native-xs)": 1,
     "padding: var(--eva-space-native-xs) var(--eva-space-native-sm)": 1,
     "padding: var(--eva-space-sm) 12px": 1
   },

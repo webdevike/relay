@@ -26,13 +26,18 @@
   flex: none;
   height: var(--eva-footer-h);
   box-sizing: border-box;
-  /* The sidebar column reaches down over the strip's left end, so content starts after it. */
-  padding: 0 var(--eva-gap) 0 max(var(--eva-gap), var(--eva-sidebar-w));
+  padding: 0 var(--eva-gap);
   display: flex;
   align-items: center;
   justify-content: flex-end;
   background: var(--eva-chrome);
   -webkit-app-region: drag;
+}
+/* The sidebar column reaches down over the strip's left end, so content starts after it. */
+.eva-footer::before {
+  content: '';
+  flex: none;
+  width: max(0px, calc(var(--eva-sidebar-w) - var(--eva-gap)));
 }
 .eva-build-stamp {
   margin-right: auto;
@@ -81,7 +86,8 @@
   /* Runs down over the footer strip so the sidebar's icon row shares the footer's centre line. */
   position: relative;
   z-index: 1;
-  margin-bottom: calc(var(--eva-footer-h) * -1);
+  align-self: flex-start;
+  height: calc(100% + var(--eva-footer-h));
   overflow: hidden;
   background: var(--eva-chrome);
   -webkit-app-region: drag;
