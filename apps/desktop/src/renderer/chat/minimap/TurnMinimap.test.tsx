@@ -51,8 +51,11 @@ function setup(
   turns: Turn[],
   top = 0,
   waiting: ReadonlyMap<string, readonly OpenAsk[]> = new Map(),
+  loose: readonly OpenAsk[] = [],
 ) {
   const jump = vi.fn()
+  const onJumpAsk = vi.fn(() => true)
+  const onResolveAsk = vi.fn()
   const watchers = new Set<() => void>()
   const list = { current: handle(top) }
   const view = render(
@@ -62,6 +65,9 @@ function setup(
           <TurnMinimap
             turns={turns}
             waiting={waiting}
+            loose={loose}
+            onJumpAsk={onJumpAsk}
+            onResolveAsk={onResolveAsk}
             thread="assistant:nova"
             paneId="p1"
             listRef={list}
@@ -77,7 +83,7 @@ function setup(
       </section>
     </MantineProvider>,
   )
-  return { jump, list, watchers, ...view }
+  return { jump, onJumpAsk, onResolveAsk, list, watchers, ...view }
 }
 
 beforeEach(() => {
@@ -172,6 +178,47 @@ describe('TurnMinimap', () => {
     expect(screen.getAllByTestId('turn-tick').map((t) => t.getAttribute('data-turn'))).toEqual([
       'user@2',
     ])
+  })
+
+  it('a click on a ringed tick or its question jumps to the asking bubble, not the turn start; Dismiss closes the ask', () => {
+    const a = ask('aaaaaaaa', 'Push it to prod?')
+    const waiting = new Map([['user@2', [a]]])
+    const { jump, onJumpAsk, onResolveAsk } = setup(
+      [turn(0), turn(1), turn(2), turn(3)],
+      0,
+      waiting,
+    )
+    const ticks = screen.getAllByTestId('turn-tick')
+    fireEvent.click(ticks[2]!)
+    expect(onJumpAsk).toHaveBeenCalledWith(a)
+    expect(jump).not.toHaveBeenCalled()
+    fireEvent.click(ticks[1]!)
+    expect(jump).toHaveBeenCalledTimes(1)
+    fireEvent.mouseEnter(ticks[2]!)
+    fireEvent.click(screen.getByText('Push it to prod?'))
+    expect(onJumpAsk).toHaveBeenCalledTimes(2)
+    fireEvent.click(screen.getByTestId('turn-card-dismiss'))
+    expect(onResolveAsk).toHaveBeenCalledWith(a, 'dismissed')
+  })
+
+  it('asks with no bubble sit in one entry at the end of the rail, with answers and Dismiss, and survive the Open asks filter', () => {
+    const a = ask('bbbbbbbb', 'Merge it?')
+    const { onResolveAsk } = setup([turn(0), turn(1)], 0, new Map(), [a])
+    const end = screen.getByTestId('turn-tick-loose')
+    expect(screen.getAllByTestId('turn-tick')).toHaveLength(2)
+    fireEvent.mouseEnter(end)
+    fireEvent.click(screen.getByRole('button', { name: 'No' }))
+    expect(onResolveAsk).toHaveBeenCalledWith(a, 'answered', 'No')
+    fireEvent.click(screen.getByTestId('turn-card-dismiss'))
+    expect(onResolveAsk).toHaveBeenLastCalledWith(a, 'dismissed')
+    filter('asks')
+    expect(screen.queryAllByTestId('turn-tick')).toHaveLength(0)
+    expect(screen.getByTestId('turn-tick-loose')).toBeInTheDocument()
+  })
+
+  it('shows the rail for a single turn when an ask has no bubble', () => {
+    setup([turn(0)], 0, new Map(), [ask('cccccccc', 'Merge it?')])
+    expect(screen.getByTestId('turn-tick-loose')).toBeInTheDocument()
   })
 
   it('Alt+Down and Alt+Up step to the next and previous turn, chaining rapid presses, from focus in this chat only', () => {

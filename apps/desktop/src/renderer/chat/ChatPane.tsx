@@ -5,7 +5,6 @@ import { ContextButton } from '../context/ContextButton'
 import { ArtifactsButton } from '../artifacts/ArtifactsButton'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChatLog } from './ChatLog'
-import { AskBadges } from './asks/AskBadges'
 import { askAgentOf, useWatchedAsks } from './asks/asks-store'
 import { useProfile } from '../pages/profile'
 import { Composer, type ComposerHandle } from './Composer'
@@ -426,7 +425,6 @@ function ChatView({
       <PendingDialog paneId={paneId} />
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
       <StatusStrip paneId={paneId} />
-      {current === undefined && pane ? <AskBadges paneId={paneId} agent={askAgent} /> : null}
       {current === undefined ? (
         <Composer ref={composer} paneId={paneId} disabled={!pane} draftKey={draftKey} />
       ) : null}

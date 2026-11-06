@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { OpenAsk } from '@evaos/contract'
 import type { Turn, TurnRow } from '@evaos/chat-core/turns'
-import { askRow, openAsks, waitingRows, waitingTurns } from './open-asks'
+import { askRow, looseAsks, openAsks, waitingRows, waitingTurns } from './open-asks'
 
 const ask = (id: string, over: Partial<OpenAsk> = {}): OpenAsk => ({
   id,
@@ -63,12 +63,15 @@ describe('open asks', () => {
     expect(waitingRows(rows, [first, second]).get('a2')).toBe(first)
   })
 
-  it('puts each ask in the turn of its bubble, else the turn running when it was asked, else the newest', () => {
+  it('puts each ask in the turn of its bubble; asks with no bubble are loose, not on a turn', () => {
     const byBubble = ask('00000001', { messageId: 'a1' })
-    const byTime = ask('00000002', { source: 'session', at: 260 })
-    const early = ask('00000003', { source: 'ask', at: 1 })
-    const out = waitingTurns(turns, rows, [byBubble, byTime, early])
+    const second = ask('00000004', { messageId: 'a2' })
+    const session = ask('00000002', { source: 'session', at: 260 })
+    const card = ask('00000003', { source: 'ask', at: 1 })
+    const all = [byBubble, second, session, card]
+    const out = waitingTurns(turns, rows, all)
     expect(out.get('t1')).toEqual([byBubble])
-    expect(out.get('t2')).toEqual([byTime, early])
+    expect(out.get('t2')).toEqual([second])
+    expect(looseAsks(rows, all)).toEqual([session, card])
   })
 })

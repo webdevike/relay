@@ -199,6 +199,36 @@
   color: var(--eva-text);
   overflow-wrap: anywhere;
 }
+.eva-tm-ask {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+}
+.eva-tm-asked-q {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.eva-tm-asked-q:hover,
+.eva-tm-asked-q:focus-visible {
+  text-decoration: underline;
+}
+.eva-tm-ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+}
+.eva-tm-tick-loose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 16px;
+  color: var(--eva-accent);
+}
 .eva-tm-asked .eva-tm-wait {
   margin-top: calc(var(--mantine-spacing-xs) / 3);
 }

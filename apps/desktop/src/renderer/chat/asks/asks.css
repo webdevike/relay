@@ -1,7 +1,6 @@
 /*
  * Open asks. A bubble the host still waits on Isaac for keeps a thin accent edge and a quiet tag
- * until it is answered (the one approved coloured edge); the badge row above the composer is a
- * single quiet line.
+ * until it is answered (the one approved coloured edge).
  */
 .eva-row[data-waiting='true'] .eva-row-inner {
   position: relative;
@@ -16,74 +15,11 @@
   background: var(--eva-accent);
 }
 .eva-waiting-tag {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
   margin-top: calc(var(--mantine-spacing-xs) / 2.5);
   font-size: var(--eva-fz-caption);
   line-height: var(--eva-lh-label);
   color: var(--eva-accent);
-}
-
-.eva-ask-badges {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
-  box-sizing: border-box;
-  width: 100%;
-  max-width: var(--eva-chat-column-w);
-  margin-inline: auto;
-  padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-xs);
-  font-size: var(--eva-fz-caption);
-  line-height: var(--eva-lh-label);
-  color: var(--eva-text-dim);
-}
-.eva-ask-badge {
-  flex: 0 1 auto;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) / 1.25);
-  padding: calc(var(--mantine-spacing-xs) / 5) var(--mantine-spacing-xs);
-  border: 1px solid var(--eva-c-border);
-  border-radius: var(--eva-radius-round);
-  background: none;
-  color: var(--eva-text-dim);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-  transition: color var(--eva-dur-fast) var(--eva-ease);
-}
-.eva-ask-badge:hover,
-.eva-ask-badge:focus-visible {
-  color: var(--eva-text);
-}
-.eva-ask-badge-icon {
-  flex: none;
-  color: var(--eva-accent);
-}
-.eva-ask-badge-label {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.eva-ask-badge-count {
-  flex: none;
-  color: var(--eva-text);
-}
-.eva-ask-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xs);
-  max-width: 320px;
-  font-size: var(--eva-fz-label);
-  line-height: var(--eva-lh-label);
-}
-.eva-ask-card-from {
-  font-size: var(--eva-fz-caption);
-  color: var(--eva-text-dim);
-}
-.eva-ask-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--mantine-spacing-xs);
 }

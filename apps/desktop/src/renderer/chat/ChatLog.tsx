@@ -18,9 +18,9 @@ import { ReactionScope, useReactions } from './reactions/reactions-store'
 import { TurnMinimap } from './minimap/TurnMinimap'
 import { buildTurns, type Turn } from '@evaos/chat-core/turns'
 import { turnRows } from './minimap/rows'
-import { askAgentOf, useOpenAsks } from './asks/asks-store'
-import { askRow, waitingRows, waitingTurns } from './asks/open-asks'
-import { registerAskJump } from './asks/ask-jump'
+import { askAgentOf, resolveAsk, useOpenAsks } from './asks/asks-store'
+import { askRow, looseAsks, waitingRows, waitingTurns } from './asks/open-asks'
+import { jumpToAsk, registerAskJump } from './asks/ask-jump'
 import { Pills } from './Pills'
 import { pinReducer, type PinState } from './pin'
 import { chatStore, useChatStore } from './chat-store'
@@ -242,12 +242,13 @@ export function ChatLog({
   const reactions = useReactions((s) => (thread === null ? undefined : s.threads[thread]))
   const rows = useMemo(() => [...turnRows(items)], [items])
   const turns = useMemo(() => buildTurns(rows, reactions), [rows, reactions])
-  // Open asks (assistant threads): the bubbles that carry one, the turns they sit in, and the
-  // badge row's jump to a bubble.
+  // Open asks (assistant threads): the bubbles that carry one, the turns they sit in, the ones with
+  // no bubble, and the jump to a bubble.
   const agent = askAgentOf(thread)
   const asks = useOpenAsks(agent)
   const waiting = useMemo(() => waitingRows(rows, asks), [rows, asks])
   const waitingByTurn = useMemo(() => waitingTurns(turns, rows, asks), [turns, rows, asks])
+  const loose = useMemo(() => looseAsks(rows, asks), [rows, asks])
   useEffect(
     () =>
       registerAskJump(paneId, (ask) => {
@@ -319,6 +320,11 @@ export function ChatLog({
       <TurnMinimap
         turns={turns}
         waiting={waitingByTurn}
+        loose={loose}
+        onJumpAsk={(ask) => jumpToAsk(paneId, ask)}
+        onResolveAsk={(ask, how, answer) => {
+          if (agent !== null) void resolveAsk(agent, ask, how, answer)
+        }}
         thread={thread ?? `file:${scrollFile}`}
         paneId={paneId}
         listRef={ref}

@@ -36,10 +36,12 @@ export function waitingRows(
   return out
 }
 
-/**
- * Open asks by the turn that holds them (its key): the turn of the ask's bubble, else the turn
- * running when it was asked (the last row at or before its time), else the newest turn.
- */
+/** The asks with no bubble in the log (a session's question, an ask card): the rail's end entry holds them. */
+export function looseAsks(rows: readonly TurnRow[], asks: readonly OpenAsk[]): OpenAsk[] {
+  return asks.filter((a) => askRow(rows, a) === null)
+}
+
+/** Open asks by the turn that holds their bubble (its key); asks with no bubble are `looseAsks`. */
 export function waitingTurns(
   turns: readonly Turn[],
   rows: readonly TurnRow[],
@@ -48,12 +50,9 @@ export function waitingTurns(
   const out = new Map<string, OpenAsk[]>()
   if (turns.length === 0) return out
   for (const ask of asks) {
-    let item = askRow(rows, ask)?.index
-    if (item === undefined) {
-      const before = rows.findLast((r) => r.at !== undefined && r.at <= ask.at)
-      item = before?.index ?? turns.at(-1)!.item
-    }
-    const key = turns[turnOfItem(turns, item)]!.key
+    const row = askRow(rows, ask)
+    if (row === null) continue
+    const key = turns[turnOfItem(turns, row.index)]!.key
     const held = out.get(key)
     if (held === undefined) out.set(key, [ask])
     else held.push(ask)

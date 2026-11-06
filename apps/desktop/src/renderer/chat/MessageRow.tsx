@@ -1,4 +1,7 @@
+import './asks/asks.css'
 import { memo, useMemo, useState } from 'react'
+import { ActionIcon } from '@mantine/core'
+import { IconX } from '@tabler/icons-react'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import { splitReplies } from '@evaos/chat-core/replies'
 import { splitPins } from '@evaos/chat-core/pins'
@@ -14,6 +17,7 @@ import { CanvasRow } from './CanvasRow'
 import { BackgroundRow } from './BackgroundRow'
 import { parseBackground } from '@evaos/chat-core/background'
 import { ReplyChips } from './ReplyChips'
+import { resolveAsk } from './asks/asks-store'
 import type { OpenAsk } from '@evaos/contract'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
@@ -105,8 +109,21 @@ function AssistantBody({
         </WidgetScope.Provider>
       </BubbleActions>
       {waiting !== undefined ? (
-        <div className="eva-waiting-tag" data-testid="waiting-tag">
-          Waiting on you
+        <div className="eva-waiting-tag">
+          <span data-testid="waiting-tag">Waiting on you</span>
+          {agent !== undefined ? (
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              size="var(--eva-kit-control-xs)"
+              className="eva-waiting-dismiss"
+              data-testid="waiting-dismiss"
+              aria-label="Dismiss this question"
+              onClick={() => void resolveAsk(agent, waiting, 'dismissed')}
+            >
+              <IconX size={12} stroke={1.5} />
+            </ActionIcon>
+          ) : null}
         </div>
       ) : null}
       {(live || waiting !== undefined) && !m.streaming && split.replies ? (

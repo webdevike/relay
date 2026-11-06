@@ -1,10 +1,10 @@
 // Open asks on desktop: the questions an assistant thread's host still waits on Isaac for (the
-// phone's badges: `assistant.snapshot` asks). A turn holding one wears a ring on its navigator tick
-// (the card tells the question), the filter's Open asks keeps only those turns, a quiet line above
-// the composer counts them with the oldest one's label, a click jumps to the bubble (it flashes,
-// then keeps a thin accent edge and a "Waiting on you" tag), the arrows step to the next, and
-// answering (a reply chip, or the host resolving it) clears it live. Saves screenshots to
-// proof/desktop-asks/ (EVAOS_PROOF=1).
+// phone's badges: `assistant.snapshot` asks). They live in the turn rail only: a turn holding one
+// wears a ring on its tick (the card tells the question and can dismiss it), a click on the tick
+// jumps to the bubble (it flashes, then keeps a thin accent edge and a "Waiting on you" tag with a
+// dismiss x), the filter's Open asks keeps only those turns, asks with no bubble sit in one entry
+// at the end of the rail, and answering or dismissing (or the host resolving it) clears it live.
+// No badge line above the composer. Saves screenshots to proof/asks-rail/ (EVAOS_PROOF=1).
 //
 //   source scripts/env.sh
 //   pnpm -C apps/desktop exec electron-vite build
@@ -18,7 +18,7 @@ import { FakeRelayHost } from './helpers/fake-relay-host'
 import { EVA_FIXTURE_ROOT, REPO_ROOT } from './helpers/paths'
 import { proofShot } from './helpers/proofShot'
 
-const OUT = path.join(REPO_ROOT, 'proof', 'desktop-asks')
+const OUT = path.join(REPO_ROOT, 'proof', 'asks-rail')
 const T0 = 1792486874000
 const AGENT = 'nova'
 
@@ -127,7 +127,7 @@ async function openChat(app: ElectronApplication, shell: Page): Promise<void> {
 
 async function shot(app: ElectronApplication, shell: Page, name: string): Promise<void> {
   await shell.waitForTimeout(150)
-  const tmp = await proofShot(app, shell, name, { phase: 'desktop-asks' })
+  const tmp = await proofShot(app, shell, name, { phase: 'asks-rail' })
   fs.mkdirSync(OUT, { recursive: true })
   fs.copyFileSync(tmp, path.join(OUT, `${name}.png`))
   fs.rmSync(tmp, { force: true })
@@ -136,22 +136,26 @@ async function shot(app: ElectronApplication, shell: Page, name: string): Promis
 const ticks = (shell: Page) => shell.locator(`${sel('turn-minimap')} ${sel('turn-tick')}`)
 const waitingTicks = (shell: Page) =>
   shell.locator(`${sel('turn-minimap')} ${sel('turn-tick')}[data-waiting="true"]`)
-const badge = (shell: Page) => shell.locator(sel('ask-badge'))
+const loose = (shell: Page) => shell.locator(sel('turn-tick-loose'))
 const row = (shell: Page, id: string) => shell.locator(`[data-testid="msg-${id}"]`)
 
-test('open asks: tick marks, the Open asks filter, the badge line that jumps and cycles, answering clears', async ({
+test('open asks live in the rail: ring, filter, tick click jumps, dismiss from card and tag, session asks at the end', async ({
   app,
   shell,
 }) => {
   test.setTimeout(180_000)
   await openChat(app, shell)
   const total = await ticks(shell).count()
+  // The badge line above the composer is gone.
+  await expect(shell.locator(sel('ask-badges'))).toHaveCount(0)
+  await expect(shell.locator(sel('ask-badge'))).toHaveCount(0)
 
   // 1. Each turn holding an open ask wears a ring on its tick; the card tells the question.
   await expect(waitingTicks(shell)).toHaveCount(2)
   await expect(waitingTicks(shell).first().locator('.eva-tm-wait')).toBeVisible()
   await waitingTicks(shell).first().hover()
   await expect(shell.locator(sel('turn-card-asked'))).toContainText(FIRST_Q)
+  await expect(shell.locator(sel('turn-card-dismiss'))).toBeVisible()
   await shot(app, shell, 'tick-mark-and-card')
   await shell.mouse.move(900, 400)
   await expect(shell.locator(sel('turn-card'))).toHaveCount(0)
@@ -162,40 +166,32 @@ test('open asks: tick marks, the Open asks filter, the badge line that jumps and
   await shot(app, shell, 'filter-menu')
   await shell.locator(sel('turn-minimap-show-asks')).click()
   await expect(ticks(shell)).toHaveCount(2)
+  await shot(app, shell, 'filter-open-asks')
   await shell.locator(sel('turn-minimap-filter')).click()
   await shell.locator(sel('turn-minimap-show-all')).click()
   await expect(ticks(shell)).toHaveCount(total)
 
-  // 3. The line above the composer: the count and the oldest question's label.
-  await expect(badge(shell)).toContainText('2 waiting')
-  await expect(shell.locator(sel('ask-badge-label'))).toHaveText('Push to prod?')
-  await shot(app, shell, 'badge-line')
-
-  // 4. A click scrolls to the asking bubble, flashes it, then it keeps an edge and a tag.
+  // 3. A click on a ringed tick scrolls to the asking bubble, flashes it, then it keeps an edge,
+  // a tag and its chips.
   await expect(row(shell, 'ask1a')).toHaveCount(0)
-  await badge(shell).click()
+  await waitingTicks(shell).first().click()
   await expect(row(shell, 'ask1a')).toBeVisible()
   await expect(row(shell, 'ask1a')).toHaveAttribute('data-waiting', 'true')
   await expect(row(shell, 'ask1a').locator(sel('waiting-tag'))).toHaveText('Waiting on you')
   await expect(row(shell, 'ask1a').locator(sel('reply-chips'))).toBeVisible()
   await shot(app, shell, 'jumped-bubble-waiting')
-  // The flash is brief; the edge stays.
   await expect(row(shell, 'ask1a')).not.toHaveAttribute('data-flash', 'true', { timeout: 5000 })
   await expect(row(shell, 'ask1a')).toHaveAttribute('data-waiting', 'true')
-  // The newest reply is not the asking bubble of the oldest ask: the other one keeps its mark too.
   await expect(row(shell, 'ask2a')).toHaveCount(0)
 
-  // 5. The arrow steps to the next ask; its click jumps there.
-  await shell.locator(sel('ask-next')).click()
-  await expect(shell.locator(sel('ask-badge-label'))).toHaveText('Exporter next?')
-  await badge(shell).click()
+  // 4. Picking the question in the hover card jumps there too.
+  await waitingTicks(shell).last().hover()
+  await shell.locator(sel('turn-card-asked')).getByRole('button').click()
   await expect(row(shell, 'ask2a')).toBeVisible()
-  await expect(row(shell, 'ask2a')).toHaveAttribute('data-waiting', 'true')
 
-  // 6. Tapping a reply chip answers: the ask closes on the host and clears here at once.
+  // 5. Tapping a reply chip answers: the ask closes on the host and clears here at once.
   await row(shell, 'ask2a').locator(sel('reply-chips')).getByText('Not yet').click()
   await expect(row(shell, 'ask2a')).not.toHaveAttribute('data-waiting', 'true')
-  await expect(badge(shell)).toContainText('1 waiting')
   await expect(waitingTicks(shell)).toHaveCount(1)
   await expect.poll(() => host.openAsks(AGENT).map((a) => a.id)).toEqual(['a1b2c3d4'])
   expect(host.commands.find((c) => c.cmd.kind === 'assistant.ask.resolve')?.cmd).toMatchObject({
@@ -204,42 +200,59 @@ test('open asks: tick marks, the Open asks filter, the badge line that jumps and
     how: 'answered',
     answer: 'Not yet',
   })
-  await shot(app, shell, 'answered-one-left')
 
-  // 7. The host resolving the last one (the assistant, or the phone) clears the line and the mark.
-  host.setAsks(AGENT, [])
-  await expect(badge(shell)).toHaveCount(0)
+  // 6. Dismiss from the waiting bubble's tag: no answer, the host's resolve, the ring goes.
+  await waitingTicks(shell).first().click()
+  await expect(row(shell, 'ask1a')).toBeVisible()
+  await shot(app, shell, 'tag-dismiss')
+  await row(shell, 'ask1a').locator(sel('waiting-dismiss')).click()
+  await expect(row(shell, 'ask1a')).not.toHaveAttribute('data-waiting', 'true')
   await expect(waitingTicks(shell)).toHaveCount(0)
-  await expect(shell.locator('[data-waiting="true"]').locator('visible=true')).toHaveCount(0)
+  await expect.poll(() => host.openAsks(AGENT)).toEqual([])
+  expect(host.commands.at(-1)?.cmd).toMatchObject({
+    kind: 'assistant.ask.resolve',
+    id: 'a1b2c3d4',
+    how: 'dismissed',
+  })
 
-  // A new ask arrives live.
+  // 7. Dismiss from the tick's hover card.
   host.setAsks(AGENT, [OPEN[1]!])
-  await expect(badge(shell)).toContainText('1 waiting')
   await expect(waitingTicks(shell)).toHaveCount(1)
+  await waitingTicks(shell).first().hover()
+  await shell.locator(sel('turn-card-dismiss')).click()
+  await expect(waitingTicks(shell)).toHaveCount(0)
+  await expect.poll(() => host.openAsks(AGENT)).toEqual([])
+  expect(host.commands.at(-1)?.cmd).toMatchObject({
+    kind: 'assistant.ask.resolve',
+    id: 'e5f6a7b8',
+    how: 'dismissed',
+  })
 
-  // Another session's question has no bubble: the line opens a small card with its answers, and
-  // an answer there reaches the host only.
+  // 8. Another session's question has no bubble: an entry at the end of the rail, with answers.
   host.setAsks(AGENT, [
     {
       id: '0a0b0c0d',
       source: 'session',
       label: 'Golf: merge it?',
-      question: 'Golf: the PR is green. Merge it?',
+      question: 'The PR is green. Merge it?',
       replies: ['Merge', 'Hold'],
       at: SECOND_AT + 1000,
       from: 'Golf',
     },
   ])
-  await expect(shell.locator(sel('ask-badge-label'))).toHaveText('Golf: merge it?')
-  await badge(shell).click()
-  await expect(shell.locator(sel('ask-card'))).toContainText('Merge it?')
-  await shot(app, shell, 'session-ask-card')
-  await shell.locator(sel('ask-card')).getByRole('button', { name: 'Merge' }).click()
-  await expect(badge(shell)).toHaveCount(0)
+  await expect(loose(shell)).toBeVisible()
+  await expect(waitingTicks(shell)).toHaveCount(0)
+  await expect(shell.locator(sel('waiting-tag'))).toHaveCount(0)
+  await loose(shell).hover()
+  await expect(shell.locator(sel('turn-card'))).toContainText('Merge it?')
+  await shot(app, shell, 'session-ask-rail')
+  await shell.locator(sel('turn-card')).getByRole('button', { name: 'Merge', exact: true }).click()
+  await expect(loose(shell)).toHaveCount(0)
   expect(host.commands.at(-1)?.cmd).toMatchObject({
     kind: 'assistant.ask.resolve',
     id: '0a0b0c0d',
     how: 'answered',
     answer: 'Merge',
   })
+  await expect(shell.locator(sel('ask-badge'))).toHaveCount(0)
 })

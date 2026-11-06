@@ -1,8 +1,22 @@
 import './turn-minimap.css'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { ActionIcon, Tooltip } from '@mantine/core'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react'
+import { ActionIcon, Button, Tooltip } from '@mantine/core'
 import { EvaMenu } from '../../overlay'
-import { IconBookmark, IconBookmarkFilled, IconCheck, IconFilter } from '@tabler/icons-react'
+import {
+  IconBookmark,
+  IconBookmarkFilled,
+  IconCheck,
+  IconFilter,
+  IconMessageQuestion,
+} from '@tabler/icons-react'
 import type { OpenAsk } from '@evaos/contract'
 import type { VListHandle } from 'virtua'
 import { canBookmark, toggleBookmark, useBookmarks } from './bookmarks'
@@ -58,13 +72,18 @@ interface View {
  * (a run of turns per tick when they do not fit, like a scrollbar map). The tick of the turn on
  * screen is longer and brighter. A hover card shows the turn's message and the start of its reply
  * with a bookmark toggle; a click jumps there. A dot marks a turn that wants Isaac; a ring marks a
- * turn holding an open ask (a question the host still waits on him for, `waiting` by turn key). The
- * filter button at the top keeps only flagged and bookmarked turns, or only the ones with an open
- * ask. Alt+Up and Alt+Down step between turns.
+ * turn holding an open ask (a question the host still waits on him for, `waiting` by turn key): its
+ * card tells the question, and a click on the tick or the question jumps to the asking bubble.
+ * Asks with no bubble (`loose`) sit in one entry at the end of the rail, with their answers. Every
+ * card can dismiss an ask unanswered. The filter button at the top keeps only flagged and
+ * bookmarked turns, or only the ones with an open ask. Alt+Up and Alt+Down step between turns.
  */
 export function TurnMinimap({
   turns,
   waiting,
+  loose,
+  onJumpAsk,
+  onResolveAsk,
   thread,
   paneId,
   listRef,
@@ -75,6 +94,12 @@ export function TurnMinimap({
   turns: readonly Turn[]
   /** The open asks each turn holds, by turn key. */
   waiting: ReadonlyMap<string, readonly OpenAsk[]>
+  /** The open asks with no bubble in the log. */
+  loose: readonly OpenAsk[]
+  /** Brings an ask's bubble into view; false when it has none. */
+  onJumpAsk: (ask: OpenAsk) => boolean
+  /** Closes an ask: answered with `answer`, or dismissed. */
+  onResolveAsk: (ask: OpenAsk, how: 'answered' | 'dismissed', answer?: string) => void
   /** Bookmarks live under this key. */
   thread: string
   paneId: string
@@ -208,7 +233,7 @@ export function TurnMinimap({
       ),
     [list, bookmarks, waiting, height, view],
   )
-  if (turns.length < 2) return null
+  if (turns.length < 2 && loose.length === 0) return null
 
   const open = (i: number): void => {
     window.clearTimeout(leave.current)
@@ -221,6 +246,8 @@ export function TurnMinimap({
   const tick = hover === null ? undefined : ticks[hover]
   const turn = tick === undefined ? undefined : list[tick.asked ?? tick.rep]
   const asked = turn === undefined ? undefined : waiting.get(turn.key)
+  const looseShown = loose.length > 0 && show !== 'flagged'
+  const looseHover = looseShown && hover === ticks.length
 
   return (
     <nav
@@ -252,7 +279,9 @@ export function TurnMinimap({
               <EvaMenu.Item
                 key={mode}
                 data-testid={`turn-minimap-show-${mode}`}
-                disabled={mode === 'asks' && waiting.size === 0 && show !== 'asks'}
+                disabled={
+                  mode === 'asks' && waiting.size === 0 && loose.length === 0 && show !== 'asks'
+                }
                 rightSection={show === mode ? <IconCheck size={12} stroke={1.5} /> : null}
                 onClick={() => {
                   setShow(mode)
@@ -282,7 +311,10 @@ export function TurnMinimap({
                 aria-current={t.state === 'active' ? 'location' : undefined}
                 onMouseEnter={() => open(i)}
                 onFocus={() => open(i)}
-                onClick={() => go(rep)}
+                onClick={() => {
+                  const first = t.asked === null ? undefined : waiting.get(rep.key)?.[0]
+                  if (first === undefined || !onJumpAsk(first)) go(rep)
+                }}
               >
                 <span className="eva-tm-bar" />
                 {t.flag !== null ? <span className="eva-tm-dot" /> : null}
@@ -290,19 +322,47 @@ export function TurnMinimap({
               </button>
             )
           })}
-          {ticks.length === 0 ? (
+          {looseShown ? (
+            <button
+              type="button"
+              className="eva-tm-tick eva-tm-tick-loose"
+              data-testid="turn-tick-loose"
+              data-waiting="true"
+              aria-label={`${String(loose.length)} open ${loose.length === 1 ? 'ask' : 'asks'} outside this chat, waiting on you`}
+              onMouseEnter={() => open(ticks.length)}
+              onFocus={() => open(ticks.length)}
+            >
+              <IconMessageQuestion size={12} stroke={1.5} aria-hidden="true" />
+            </button>
+          ) : null}
+          {ticks.length === 0 && !looseShown ? (
             <div className="eva-tm-empty" data-testid="turn-minimap-empty">
               {show === 'asks' ? 'No open asks' : 'Nothing flagged'}
             </div>
           ) : null}
         </div>
       </div>
-      {turn !== undefined && tick !== undefined ? (
+      {looseHover ? (
+        <CardShell
+          key="loose"
+          anchor={root.current?.querySelector<HTMLElement>('.eva-tm-tick-loose') ?? null}
+          dep={loose.length}
+        >
+          <div className="eva-tm-card-head">
+            <span className="eva-tm-title">Open asks</span>
+          </div>
+          {loose.map((a) => (
+            <AskLine key={a.id} ask={a} chips onJump={onJumpAsk} onResolve={onResolveAsk} />
+          ))}
+        </CardShell>
+      ) : turn !== undefined && tick !== undefined ? (
         <TurnCard
           // A new tick restarts the card where that tick is.
           key={tick.rep}
           turn={turn}
           asked={asked}
+          onJumpAsk={onJumpAsk}
+          onResolveAsk={onResolveAsk}
           more={tick.last - tick.first}
           bookmarked={bookmarks.has(turn.key)}
           canBookmark={canBookmark(thread, turn.key)}
@@ -314,26 +374,16 @@ export function TurnMinimap({
   )
 }
 
-/** The card a hovered tick opens: the message, the start of its reply, a bookmark toggle. */
-function TurnCard({
-  turn,
-  asked,
-  more,
-  bookmarked,
-  canBookmark,
+/** The floating card shell beside a hovered tick: placed in JS, clamped to the log. */
+function CardShell({
   anchor,
-  onBookmark,
+  dep,
+  children,
 }: {
-  turn: Turn
-  /** The open asks the turn holds. */
-  asked: readonly OpenAsk[] | undefined
-  /** Further turns the tick stands for. */
-  more: number
-  bookmarked: boolean
-  /** The host cannot name this turn (a message not yet stamped), so it cannot be bookmarked yet. */
-  canBookmark: boolean
   anchor: HTMLElement | null
-  onBookmark: () => void
+  /** Placement is redone when this changes (the card's content size). */
+  dep: unknown
+  children: ReactNode
 }) {
   const card = useRef<HTMLDivElement>(null)
   // Beside the tick, kept inside the log (the nearest positioned ancestor of the column).
@@ -347,54 +397,131 @@ function TurnCard({
     if (bounds) top = Math.min(Math.max(top, bounds.top + 8), bounds.bottom - h - 8)
     el.style.top = `${top}px`
     el.style.left = `${a.right}px`
-  }, [anchor, turn])
+  }, [anchor, dep])
   return (
     <div ref={card} className="eva-tm-card-wrap" data-testid="turn-card">
-      <div className="eva-tm-card">
-        <div className="eva-tm-card-head">
-          <span className="eva-tm-title" data-testid="turn-card-title">
-            {turn.title || 'Turn'}
-          </span>
-          <ActionIcon
-            variant="subtle"
-            size="var(--eva-kit-control-xs)"
-            className="eva-tm-bookmark"
-            data-testid="turn-card-bookmark"
-            aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this turn'}
-            aria-pressed={bookmarked}
-            disabled={!canBookmark}
-            onClick={onBookmark}
-          >
-            {bookmarked ? (
-              <IconBookmarkFilled size={14} stroke={1.5} />
-            ) : (
-              <IconBookmark size={14} stroke={1.5} />
-            )}
-          </ActionIcon>
-        </div>
-        {turn.reply !== '' ? (
-          <p className="eva-tm-reply" data-testid="turn-card-reply">
-            {turn.reply}
-          </p>
-        ) : null}
-        {asked !== undefined ? (
-          <p className="eva-tm-asked" data-testid="turn-card-asked">
-            <span className="eva-tm-wait" />
-            <span>{asked[0]!.question}</span>
-          </p>
-        ) : null}
-        {turn.flag !== null || more > 0 ? (
-          <div className="eva-tm-card-foot">
-            {turn.flag !== null ? (
-              <span className="eva-tm-flag" data-testid="turn-card-flag">
-                <span className="eva-tm-dot" />
-                {FLAG_LABEL[turn.flag]}
-              </span>
-            ) : null}
-            {more > 0 ? <span>{`${more} more turns here`}</span> : null}
-          </div>
-        ) : null}
+      <div className="eva-tm-card">{children}</div>
+    </div>
+  )
+}
+
+/**
+ * One open ask in a card: its question (a click brings its bubble into view), the answers when
+ * it has no bubble to hold them (`chips`), and a quiet Dismiss.
+ */
+function AskLine({
+  ask,
+  chips = false,
+  onJump,
+  onResolve,
+}: {
+  ask: OpenAsk
+  chips?: boolean
+  onJump: (ask: OpenAsk) => boolean
+  onResolve: (ask: OpenAsk, how: 'answered' | 'dismissed', answer?: string) => void
+}) {
+  return (
+    <div className="eva-tm-ask" data-testid="turn-card-ask">
+      <p className="eva-tm-asked" data-testid="turn-card-asked">
+        <span className="eva-tm-wait" />
+        <button type="button" className="eva-tm-asked-q" onClick={() => onJump(ask)}>
+          {ask.from !== undefined ? `${ask.from}: ${ask.question}` : ask.question}
+        </button>
+      </p>
+      <div className="eva-tm-ask-actions">
+        {chips
+          ? ask.replies.map((reply) => (
+              <Button
+                key={reply}
+                size="compact-xs"
+                variant="default"
+                onClick={() => onResolve(ask, 'answered', reply)}
+              >
+                {reply}
+              </Button>
+            ))
+          : null}
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
+          data-testid="turn-card-dismiss"
+          onClick={() => onResolve(ask, 'dismissed')}
+        >
+          Dismiss
+        </Button>
       </div>
     </div>
+  )
+}
+
+/** The card a hovered tick opens: the message, the start of its reply, a bookmark toggle, its open asks. */
+function TurnCard({
+  turn,
+  asked,
+  onJumpAsk,
+  onResolveAsk,
+  more,
+  bookmarked,
+  canBookmark,
+  anchor,
+  onBookmark,
+}: {
+  turn: Turn
+  /** The open asks the turn holds. */
+  asked: readonly OpenAsk[] | undefined
+  onJumpAsk: (ask: OpenAsk) => boolean
+  onResolveAsk: (ask: OpenAsk, how: 'answered' | 'dismissed', answer?: string) => void
+  /** Further turns the tick stands for. */
+  more: number
+  bookmarked: boolean
+  /** The host cannot name this turn (a message not yet stamped), so it cannot be bookmarked yet. */
+  canBookmark: boolean
+  anchor: HTMLElement | null
+  onBookmark: () => void
+}) {
+  return (
+    <CardShell anchor={anchor} dep={turn}>
+      <div className="eva-tm-card-head">
+        <span className="eva-tm-title" data-testid="turn-card-title">
+          {turn.title || 'Turn'}
+        </span>
+        <ActionIcon
+          variant="subtle"
+          size="var(--eva-kit-control-xs)"
+          className="eva-tm-bookmark"
+          data-testid="turn-card-bookmark"
+          aria-label={bookmarked ? 'Remove bookmark' : 'Bookmark this turn'}
+          aria-pressed={bookmarked}
+          disabled={!canBookmark}
+          onClick={onBookmark}
+        >
+          {bookmarked ? (
+            <IconBookmarkFilled size={14} stroke={1.5} />
+          ) : (
+            <IconBookmark size={14} stroke={1.5} />
+          )}
+        </ActionIcon>
+      </div>
+      {turn.reply !== '' ? (
+        <p className="eva-tm-reply" data-testid="turn-card-reply">
+          {turn.reply}
+        </p>
+      ) : null}
+      {asked?.map((a) => (
+        <AskLine key={a.id} ask={a} onJump={onJumpAsk} onResolve={onResolveAsk} />
+      ))}
+      {turn.flag !== null || more > 0 ? (
+        <div className="eva-tm-card-foot">
+          {turn.flag !== null ? (
+            <span className="eva-tm-flag" data-testid="turn-card-flag">
+              <span className="eva-tm-dot" />
+              {FLAG_LABEL[turn.flag]}
+            </span>
+          ) : null}
+          {more > 0 ? <span>{`${more} more turns here`}</span> : null}
+        </div>
+      ) : null}
+    </CardShell>
   )
 }
