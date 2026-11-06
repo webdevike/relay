@@ -59,12 +59,16 @@ so far); desktop ships by rebase + fast-forward push main + `bun /Users/ike/Eva/
 - aa5482b8: presenter drops Assist's "· staying" tag (seen in the proofs); walk asks Jev "already
   done?" and "which control?" in parallel (step 1 started 30 s after the plan).
 
-## In progress / exact next step
-1. `/tmp/computer-smoke/when-idle-walk.sh` (bg) reruns walk with the tag fix and PROOFREC_AUDIO=1
-   into /tmp/computer-smoke/walk2; if it lands, replace proof/computer/walk-calculator.mp4 (with
-   the voice, AAC) and walk-frames.png.
-2. Rebase, push main, redeploy desktop (aa5482b8 + later). No host changes in this branch: the
-   single host install Nova asked for is origin/main's tip after the push (it contains f5f3fa80).
-3. Final report: per-mode status, proof paths, host install commit, open questions from SPEC.md.
+- Deployed ec47af25 (live/walk fixes), then b5746963: Isaac's bug "run rows stick at the bottom":
+  rows carry the send time and `placeRows` (renderer/chat/computer-rows.ts) puts each run where it
+  was sent; a finished run folds to one collapsible line; rows saved per session file
+  (`<config>/computer/threads/`). Tests: computer-rows.test.ts, runs.test.ts (collapse, restart,
+  draft to file), e2e computer.spec.ts (later messages land below the run; fake omp
+  FAKE_OMP_REAL_TIME=1), at-menu.spec.ts updated (30ce0606, pushed).
 
-Checkpoint: 2026-11-06 12:50 EST
+## State
+Done. Host: no host code in this work; origin/main 30ce0606 contains f5f3fa80, so one host install
+from 30ce0606 covers everything (Nova's bundle). Not done: walk proof with the voice track
+(needs another idle window: `/tmp/computer-smoke/when-idle-walk.sh`, throwaway).
+
+Checkpoint: 2026-11-06 14:05 EST
