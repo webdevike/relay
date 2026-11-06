@@ -7,17 +7,37 @@ describe('parseComputer', () => {
     expect(parseComputer('please @computer open Calculator')).toBeNull()
     expect(parseComputer('@computers are neat')).toBeNull()
     expect(parseComputer('@computer-use is a skill')).toBeNull()
-    expect(parseComputer('  @Computer open Calculator')).toEqual({ kind: 'run', mode: 'headless', task: 'open Calculator' })
+    expect(parseComputer('  @Computer open Calculator')).toEqual({
+      kind: 'run',
+      mode: 'headless',
+      task: 'open Calculator',
+    })
   })
 
   it('reads the mode keyword only as the first word', () => {
-    expect(parseComputer('@computer live open TextEdit')).toEqual({ kind: 'run', mode: 'live', task: 'open TextEdit' })
-    expect(parseComputer('@computer liven up the doc')).toEqual({ kind: 'run', mode: 'headless', task: 'liven up the doc' })
-    expect(parseComputer('@computer open walk.txt')).toEqual({ kind: 'run', mode: 'headless', task: 'open walk.txt' })
+    expect(parseComputer('@computer live open TextEdit')).toEqual({
+      kind: 'run',
+      mode: 'live',
+      task: 'open TextEdit',
+    })
+    expect(parseComputer('@computer liven up the doc')).toEqual({
+      kind: 'run',
+      mode: 'headless',
+      task: 'liven up the doc',
+    })
+    expect(parseComputer('@computer open walk.txt')).toEqual({
+      kind: 'run',
+      mode: 'headless',
+      task: 'open walk.txt',
+    })
   })
 
   it('keeps the subject of "walk me through"', () => {
-    expect(parseComputer('@computer walk me through ENG-6810')).toEqual({ kind: 'run', mode: 'walk', task: 'ENG-6810' })
+    expect(parseComputer('@computer walk me through ENG-6810')).toEqual({
+      kind: 'run',
+      mode: 'walk',
+      task: 'ENG-6810',
+    })
     expect(parseComputer('@computer walk through adding 2 and 2 in Calculator')).toEqual({
       kind: 'run',
       mode: 'walk',
@@ -30,7 +50,11 @@ describe('parseComputer', () => {
     expect(parseComputer('@computer walk')).toEqual({ kind: 'help' })
     expect(parseComputer('@computer stop')).toEqual({ kind: 'control', op: 'stop' })
     expect(parseComputer('@computer Next')).toEqual({ kind: 'control', op: 'next' })
-    expect(parseComputer('@computer stop the timer in Clock')).toEqual({ kind: 'run', mode: 'headless', task: 'stop the timer in Clock' })
+    expect(parseComputer('@computer stop the timer in Clock')).toEqual({
+      kind: 'run',
+      mode: 'headless',
+      task: 'stop the timer in Clock',
+    })
   })
 })
 
@@ -50,10 +74,14 @@ describe('routeTask', () => {
   it('eCard work goes to Astra: issue keys, PRs, ecard, repo names', () => {
     expect(routeTask('ENG-6810', agents, null, []).assistant.id).toBe('astra')
     expect(routeTask('open the PR list', agents, 'nova', []).assistant.id).toBe('astra')
-    expect(routeTask('check node-storefront-service builds', agents, null, ['node-storefront-service']).reason).toBe(
-      'repo:node-storefront-service',
-    )
-    expect(routeTask('check my-node-storefront-service-x', agents, null, ['node-storefront-service']).assistant.id).toBe('nova')
+    expect(
+      routeTask('check node-storefront-service builds', agents, null, ['node-storefront-service'])
+        .reason,
+    ).toBe('repo:node-storefront-service')
+    expect(
+      routeTask('check my-node-storefront-service-x', agents, null, ['node-storefront-service'])
+        .assistant.id,
+    ).toBe('nova')
   })
 
   it('otherwise the thread the chat is, else Nova', () => {

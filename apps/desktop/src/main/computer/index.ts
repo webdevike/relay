@@ -42,7 +42,9 @@ async function ticketFor(task: string, ctx: MainContext): Promise<string | null>
   }).catch(() => null)
   if (!res?.ok) return null
   const issue = IssueSchema.safeParse(await res.json()).data?.data?.issue
-  return issue ? `${issue.identifier} ${issue.title}\n\n${(issue.description ?? '').slice(0, 6000)}` : null
+  return issue
+    ? `${issue.identifier} ${issue.title}\n\n${(issue.description ?? '').slice(0, 6000)}`
+    : null
 }
 
 const today = (): string => new Date().toDateString()
@@ -62,7 +64,11 @@ export function registerComputer(
   const log = (line: string): void => console.info(`[computer] ${line}`)
   const resources = process.resourcesPath ?? null
 
-  const launch: ConstructorParameters<typeof ComputerRuns>[0]['launch'] = async (spec: RunSpec, io, control) => {
+  const launch: ConstructorParameters<typeof ComputerRuns>[0]['launch'] = async (
+    spec: RunSpec,
+    io,
+    control,
+  ) => {
     const key = readOpenAIKey(ctx.env.evaRoot)
     if (!key) throw new Error('no OpenAI key (OPENAI_API_KEY or secrets/openai.env)')
     const bin = driverBinary()
@@ -73,7 +79,10 @@ export function registerComputer(
     try {
       if (spec.mode !== 'headless') {
         const assist = assistBinary(resources)
-        if (!assist) throw new Error('Relay Assist is not in this build, so live and walk cannot show a cursor')
+        if (!assist)
+          throw new Error(
+            'Relay Assist is not in this build, so live and walk cannot show a cursor',
+          )
         presenter = await startPresenter(assist, log)
         presenter.onEsc(() => io.stop())
       }
@@ -98,10 +107,17 @@ export function registerComputer(
         mode: spec.mode === 'live' ? 'live' : 'headless',
         assistant,
         desktop,
-        brain: new OpenAIBrain(key, instructions({ assistant: assistant.title, mode: spec.mode, today: today() }), TOOLS),
+        brain: new OpenAIBrain(
+          key,
+          instructions({ assistant: assistant.title, mode: spec.mode, today: today() }),
+          TOOLS,
+        ),
         presenter,
         io,
-        shots: { dir: path.join(ctx.env.configDir, 'computer', spec.id), want: shotsWanted(spec.task) },
+        shots: {
+          dir: path.join(ctx.env.configDir, 'computer', spec.id),
+          want: shotsWanted(spec.task),
+        },
       })
     } finally {
       presenter?.close()
@@ -113,7 +129,8 @@ export function registerComputer(
     emit: (paneId, file, rows) => emit(ctx, 'computer.rows', { paneId, file, rows }),
     fileOf: deps.fileOf,
     chatAgentOf: deps.chatAgentOf,
-    route: (task, chatAgent) => routeTask(task, loadAssistants(ctx.env.evaRoot), chatAgent, loadEcardRepos()),
+    route: (task, chatAgent) =>
+      routeTask(task, loadAssistants(ctx.env.evaRoot), chatAgent, loadEcardRepos()),
     launch,
     remote: deps.remote,
     log,

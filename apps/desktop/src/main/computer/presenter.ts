@@ -29,11 +29,22 @@ export interface Presenter {
 }
 
 /** The Assist executable: `RELAY_ASSIST_BIN`, else the one inside this Relay.app; null when absent. */
-export function assistBinary(resourcesPath: string | null, env: NodeJS.ProcessEnv = process.env): string | null {
+export function assistBinary(
+  resourcesPath: string | null,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
   const candidates = [
     env.RELAY_ASSIST_BIN,
     resourcesPath
-      ? path.join(resourcesPath, '..', 'Helpers', 'Relay Assist.app', 'Contents', 'MacOS', 'RelayBuddy')
+      ? path.join(
+          resourcesPath,
+          '..',
+          'Helpers',
+          'Relay Assist.app',
+          'Contents',
+          'MacOS',
+          'RelayBuddy',
+        )
       : undefined,
   ]
   return candidates.find((c): c is string => !!c && fs.existsSync(c)) ?? null
@@ -99,7 +110,10 @@ export async function startPresenter(bin: string, log: (line: string) => void): 
     settleAll()
     ready.reject(e)
   })
-  const timer = setTimeout(() => ready.reject(new Error('Assist --present did not start')), READY_MS)
+  const timer = setTimeout(
+    () => ready.reject(new Error('Assist --present did not start')),
+    READY_MS,
+  )
   try {
     await ready.promise
   } catch (e) {

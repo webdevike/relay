@@ -13,30 +13,64 @@ const control = (role: string, label: string): Control => ({
 
 describe('gate', () => {
   it('asks before pressing controls that send, delete, buy or submit', () => {
-    expect(gate({ type: 'click', ref: 1 }, control('AXButton', 'Send'), 'Mail', 'reply to Bob').kind).toBe('ask')
-    expect(gate({ type: 'click', ref: 1 }, control('AXButton', 'Move to Trash'), 'Finder', 'tidy up').kind).toBe('ask')
-    expect(gate({ type: 'click', ref: 1 }, control('AXButton', 'Place order'), 'Arc', 'buy it').kind).toBe('ask')
-    expect(gate({ type: 'menu', path: ['File', 'Delete'] }, undefined, 'Notes', 'x').kind).toBe('ask')
-    expect(gate({ type: 'click', ref: 1 }, control('AXButton', 'Seven'), 'Calculator', '7 x 6').kind).toBe('ok')
+    expect(
+      gate({ type: 'click', ref: 1 }, control('AXButton', 'Send'), 'Mail', 'reply to Bob').kind,
+    ).toBe('ask')
+    expect(
+      gate({ type: 'click', ref: 1 }, control('AXButton', 'Move to Trash'), 'Finder', 'tidy up')
+        .kind,
+    ).toBe('ask')
+    expect(
+      gate({ type: 'click', ref: 1 }, control('AXButton', 'Place order'), 'Arc', 'buy it').kind,
+    ).toBe('ask')
+    expect(gate({ type: 'menu', path: ['File', 'Delete'] }, undefined, 'Notes', 'x').kind).toBe(
+      'ask',
+    )
+    expect(
+      gate({ type: 'click', ref: 1 }, control('AXButton', 'Seven'), 'Calculator', '7 x 6').kind,
+    ).toBe('ok')
   })
 
   it('asks before any typing or keys in messaging apps, and before send chords anywhere', () => {
-    expect(gate({ type: 'type', ref: 1, text: 'hi' }, control('AXTextArea', 'Message'), 'Slack', 'x').kind).toBe('ask')
+    expect(
+      gate({ type: 'type', ref: 1, text: 'hi' }, control('AXTextArea', 'Message'), 'Slack', 'x')
+        .kind,
+    ).toBe('ask')
     expect(gate({ type: 'key', key: 'return' }, undefined, 'Messages', 'x').kind).toBe('ask')
-    expect(gate({ type: 'hotkey', keys: ['cmd', 'return'] }, undefined, 'Notes', 'x').kind).toBe('ask')
+    expect(gate({ type: 'hotkey', keys: ['cmd', 'return'] }, undefined, 'Notes', 'x').kind).toBe(
+      'ask',
+    )
     expect(gate({ type: 'key', key: 'return' }, undefined, 'TextEdit', 'x').kind).toBe('ok')
-    expect(gate({ type: 'type', ref: 1, text: 'hi' }, control('AXTextArea', ''), 'TextEdit', 'x').kind).toBe('ok')
+    expect(
+      gate({ type: 'type', ref: 1, text: 'hi' }, control('AXTextArea', ''), 'TextEdit', 'x').kind,
+    ).toBe('ok')
   })
 
   it('never types into password fields', () => {
-    expect(gate({ type: 'type', ref: 1, text: 'x' }, control('AXSecureTextField', 'Password'), 'Arc', 'log in').kind).toBe('refuse')
+    expect(
+      gate(
+        { type: 'type', ref: 1, text: 'x' },
+        control('AXSecureTextField', 'Password'),
+        'Arc',
+        'log in',
+      ).kind,
+    ).toBe('refuse')
   })
 
   it('leaves System Settings switches alone unless the task says to change that one', () => {
     const wifi = control('AXCheckBox', 'Wi-Fi')
-    expect(gate({ type: 'click', ref: 1 }, wifi, 'System Settings', 'is Wi-Fi on?').kind).toBe('refuse')
-    expect(gate({ type: 'click', ref: 1 }, wifi, 'System Settings', 'turn off Bluetooth').kind).toBe('refuse')
-    expect(gate({ type: 'click', ref: 1 }, wifi, 'System Settings', 'turn off Wi-Fi').kind).toBe('ok')
-    expect(gate({ type: 'click', ref: 1 }, control('AXButton', 'Wi-Fi'), 'System Settings', 'open Wi-Fi').kind).toBe('ok')
+    expect(gate({ type: 'click', ref: 1 }, wifi, 'System Settings', 'is Wi-Fi on?').kind).toBe(
+      'refuse',
+    )
+    expect(
+      gate({ type: 'click', ref: 1 }, wifi, 'System Settings', 'turn off Bluetooth').kind,
+    ).toBe('refuse')
+    expect(gate({ type: 'click', ref: 1 }, wifi, 'System Settings', 'turn off Wi-Fi').kind).toBe(
+      'ok',
+    )
+    expect(
+      gate({ type: 'click', ref: 1 }, control('AXButton', 'Wi-Fi'), 'System Settings', 'open Wi-Fi')
+        .kind,
+    ).toBe('ok')
   })
 })

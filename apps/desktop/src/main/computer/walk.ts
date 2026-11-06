@@ -31,20 +31,36 @@ export type WalkPlan = z.infer<typeof PlanSchema>
 
 export const PLAN_TOOL = {
   name: 'plan_walk',
-  description: 'The walkthrough: which app, a one-line intro, the steps in order, a one-line outro.',
+  description:
+    'The walkthrough: which app, a one-line intro, the steps in order, a one-line outro.',
   parameters: {
     type: 'object',
     properties: {
-      app: { type: 'string', description: 'App name or bundle id to do it in (e.g. "Calculator", "Arc", "Linear").' },
+      app: {
+        type: 'string',
+        description: 'App name or bundle id to do it in (e.g. "Calculator", "Arc", "Linear").',
+      },
       intro: { type: 'string', description: 'One short spoken line before step 1.' },
       steps: {
         type: 'array',
         items: {
           type: 'object',
           properties: {
-            instruction: { type: 'string', description: 'What Isaac does, one imperative line under 70 characters, spoken and shown as the caption.' },
-            target: { type: 'string', description: 'The visible label of the control to point at (button title, field name, menu name).' },
-            done_when: { type: 'string', description: "What the app's window shows once the step is done, checkable from its controls and values." },
+            instruction: {
+              type: 'string',
+              description:
+                'What Isaac does, one imperative line under 70 characters, spoken and shown as the caption.',
+            },
+            target: {
+              type: 'string',
+              description:
+                'The visible label of the control to point at (button title, field name, menu name).',
+            },
+            done_when: {
+              type: 'string',
+              description:
+                "What the app's window shows once the step is done, checkable from its controls and values.",
+            },
           },
           required: ['instruction', 'target', 'done_when'],
         },
@@ -100,7 +116,13 @@ function targets(snap: Snapshot): Record<string, string> {
   const out: Record<string, string> = {}
   let n = 0
   for (const c of snap.controls.values()) {
-    if (!c.frame || c.frame.w < 2 || c.frame.h < 2 || /AXWindow|AXGroup|AXScrollArea|AXSplitGroup/.test(c.role)) continue
+    if (
+      !c.frame ||
+      c.frame.w < 2 ||
+      c.frame.h < 2 ||
+      /AXWindow|AXGroup|AXScrollArea|AXSplitGroup/.test(c.role)
+    )
+      continue
     if (n++ >= 250) break
     out[`r${String(c.ref)}`] = c.line.replace(/ \[actions=[^\]]*\]/, '').slice(0, 160)
   }
@@ -115,7 +137,11 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
   o.control((c) => {
     control = c
   })
-  const end = async (outcome: AgentResult['outcome'], summary: string, say?: string): Promise<AgentResult> => {
+  const end = async (
+    outcome: AgentResult['outcome'],
+    summary: string,
+    say?: string,
+  ): Promise<AgentResult> => {
     if (say) await settle(presenter.caption(say, true).spoken, 8000)
     presenter.hide()
     return { outcome, summary, image: null }
@@ -151,29 +177,48 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
 
   const results: string[] = []
   for (const [i, step] of plan.steps.entries()) {
-    if (io.signal.aborted) return end('stopped', `Stopped at step ${i + 1} of ${plan.steps.length}.`)
+    if (io.signal.aborted)
+      return end('stopped', `Stopped at step ${i + 1} of ${plan.steps.length}.`)
     const n = `${i + 1}/${plan.steps.length}`
     let win = await frontWindowOf(desktop, pid)
     if (!win) return end('failed', `${plan.app} closed its window at step ${n}.`)
     let snap = await desktop.read(win.windowId)
-    if ((await judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0)) >= DONE_P) {
+    if (
+      (await judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0)) >= DONE_P
+    ) {
       io.progress(`Step ${n}: ${step.instruction} (already done)`)
       results.push('already')
       continue
     }
     const options = targets(snap)
     const picked = await judge
-      .pick(`Isaac's next step: "${step.instruction}". Which control should he use${step.target ? ` (it reads like "${step.target}")` : ''}?`, snap.title, options, io.signal)
+      .pick(
+        `Isaac's next step: "${step.instruction}". Which control should he use${step.target ? ` (it reads like "${step.target}")` : ''}?`,
+        snap.title,
+        options,
+        io.signal,
+      )
       .catch(() => ({ choice: 'none', p: 0 }))
-    const frame = picked.choice === 'none' ? null : (snap.controls.get(Number(picked.choice.slice(1)))?.frame ?? null)
+    const frame =
+      picked.choice === 'none'
+        ? null
+        : (snap.controls.get(Number(picked.choice.slice(1)))?.frame ?? null)
     io.progress(`Step ${n}: ${step.instruction}`)
     const shown = frame
-      ? presenter.point(frame, step.instruction, { speak: step.instruction, step: i + 1, of: plan.steps.length })
+      ? presenter.point(frame, step.instruction, {
+          speak: step.instruction,
+          step: i + 1,
+          of: plan.steps.length,
+        })
       : presenter.caption(step.instruction, true)
     let outcome: 'done' | 'next' | 'skip' | 'timeout' | 'stopped' = 'timeout'
     for (let waits = 0; outcome === 'timeout'; waits++) {
       if (waits > 0) {
-        const a = await io.ask(`Still with me on step ${n} (“${step.instruction}”)?`, ['Keep waiting', 'Skip', 'Stop'], null)
+        const a = await io.ask(
+          `Still with me on step ${n} (“${step.instruction}”)?`,
+          ['Keep waiting', 'Skip', 'Stop'],
+          null,
+        )
         if (a === 'Stop' || a === 'Cancel') return end('stopped', `Stopped at step ${n}.`)
         if (a === 'Skip') {
           outcome = 'skip'
@@ -203,7 +248,10 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
         } catch {
           continue
         }
-        if ((await judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0)) >= DONE_P) {
+        if (
+          (await judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0)) >=
+          DONE_P
+        ) {
           outcome = 'done'
           break
         }
@@ -213,8 +261,14 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
     results.push(outcome === 'done' ? 'done' : outcome === 'skip' ? 'skipped' : 'moved on')
     // Her line may still be playing when he is quick; the next step takes over.
     await settle(shown.spoken, 300)
-    io.progress(`Step ${n} ${outcome === 'done' ? 'done' : outcome === 'skip' ? 'skipped' : 'moved on'}`)
+    io.progress(
+      `Step ${n} ${outcome === 'done' ? 'done' : outcome === 'skip' ? 'skipped' : 'moved on'}`,
+    )
   }
   const done = results.filter((r) => r === 'done' || r === 'already').length
-  return end('done', `Walked you through ${plan.steps.length} steps in ${plan.app}; ${done} showed done in the app.`, plan.outro)
+  return end(
+    'done',
+    `Walked you through ${plan.steps.length} steps in ${plan.app}; ${done} showed done in the app.`,
+    plan.outro,
+  )
 }

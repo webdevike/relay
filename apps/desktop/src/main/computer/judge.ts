@@ -10,7 +10,12 @@ import { DEFAULT_MODEL } from './brain'
 export interface Judge {
   readonly name: string
   /** The option key that best answers `question` (`none` when nothing fits) and its probability. */
-  pick(question: string, title: string, options: Record<string, string>, signal?: AbortSignal): Promise<{ choice: string; p: number }>
+  pick(
+    question: string,
+    title: string,
+    options: Record<string, string>,
+    signal?: AbortSignal,
+  ): Promise<{ choice: string; p: number }>
   /** Probability that `statement` holds for the window. */
   holds(statement: string, title: string, tree: string, signal?: AbortSignal): Promise<number>
 }
@@ -41,8 +46,17 @@ export class JevJudge implements Judge {
     return JevAnswers.parse(await res.json()).answers
   }
 
-  async pick(question: string, title: string, options: Record<string, string>, signal?: AbortSignal) {
-    const a = await this.ask({ question, window: { title } }, { target: { type: 'choice', instructions: question, criteria: options } }, signal)
+  async pick(
+    question: string,
+    title: string,
+    options: Record<string, string>,
+    signal?: AbortSignal,
+  ) {
+    const a = await this.ask(
+      { question, window: { title } },
+      { target: { type: 'choice', instructions: question, criteria: options } },
+      signal,
+    )
     const choice = a.target?.choice ?? 'none'
     return { choice, p: a.target?.probabilities?.[choice] ?? 0 }
   }
@@ -53,7 +67,8 @@ export class JevJudge implements Judge {
       {
         yes: {
           type: 'noul',
-          instructions: 'Read `window` only. Is `statement` true of the window right now? Judge from labels and values (a field shows its value, a switch says on or off).',
+          instructions:
+            'Read `window` only. Is `statement` true of the window right now? Judge from labels and values (a field shows its value, a switch says on or off).',
         },
       },
       signal,
@@ -63,15 +78,27 @@ export class JevJudge implements Judge {
 }
 
 const ModelOut = z.object({
-  output: z.array(z.object({ type: z.string(), content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional() })),
+  output: z.array(
+    z.object({
+      type: z.string(),
+      content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
+    }),
+  ),
 })
 
 /** Without Jev: the same questions as one structured model call each. */
 export class ModelJudge implements Judge {
   readonly name = 'model'
-  constructor(private key: string, private model = process.env.RELAY_COMPUTER_MODEL ?? DEFAULT_MODEL) {}
+  constructor(
+    private key: string,
+    private model = process.env.RELAY_COMPUTER_MODEL ?? DEFAULT_MODEL,
+  ) {}
 
-  private async json(prompt: string, schema: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+  private async json(
+    prompt: string,
+    schema: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     const res = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       ...(signal ? { signal } : {}),
@@ -89,7 +116,12 @@ export class ModelJudge implements Judge {
     return JSON.parse(text) as unknown
   }
 
-  async pick(question: string, title: string, options: Record<string, string>, signal?: AbortSignal) {
+  async pick(
+    question: string,
+    title: string,
+    options: Record<string, string>,
+    signal?: AbortSignal,
+  ) {
     const keys = Object.keys(options)
     const list = keys.map((k) => `${k}: ${options[k]}`).join('\n')
     const r = z
@@ -97,7 +129,12 @@ export class ModelJudge implements Judge {
       .parse(
         await this.json(
           `${question}\nWindow: ${title}\nOptions:\n${list}\nAnswer with the option key.`,
-          { type: 'object', properties: { choice: { type: 'string', enum: keys } }, required: ['choice'], additionalProperties: false },
+          {
+            type: 'object',
+            properties: { choice: { type: 'string', enum: keys } },
+            required: ['choice'],
+            additionalProperties: false,
+          },
           signal,
         ),
       )
@@ -110,7 +147,12 @@ export class ModelJudge implements Judge {
       .parse(
         await this.json(
           `Window "${title}", accessibility tree:\n${tree.slice(0, 12_000)}\n\nIs this true of the window right now: ${statement}`,
-          { type: 'object', properties: { holds: { type: 'boolean' } }, required: ['holds'], additionalProperties: false },
+          {
+            type: 'object',
+            properties: { holds: { type: 'boolean' } },
+            required: ['holds'],
+            additionalProperties: false,
+          },
           signal,
         ),
       )

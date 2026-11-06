@@ -39,7 +39,9 @@ const send = async (shell: Page, text: string): Promise<void> => {
   await box.press('Enter')
 }
 
-test('@computer never reaches the agent: help, a run that cannot start, then a normal message does', async ({ shell }) => {
+test('@computer never reaches the agent: help, a run that cannot start, then a normal message does', async ({
+  shell,
+}) => {
   await shell.locator('[data-testid=nav-chat]').click()
   await shell.locator('[data-testid=chat-new]').click()
   await expect(shell.locator('[data-testid=chat-header]')).toContainText('New chat')

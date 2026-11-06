@@ -20,7 +20,12 @@ export interface Turn {
 }
 
 export type InputItem =
-  | { role: 'user'; content: Array<{ type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }> }
+  | {
+      role: 'user'
+      content: Array<
+        { type: 'input_text'; text: string } | { type: 'input_image'; image_url: string }
+      >
+    }
   | { type: 'function_call_output'; call_id: string; output: string }
 
 export interface ToolSpec {
@@ -36,7 +41,10 @@ export interface Brain {
 export const DEFAULT_MODEL = 'gpt-6.1-terra'
 
 /** `OPENAI_API_KEY`, else `<Eva>/secrets/openai.env` (Assist's file); null when neither has it. */
-export function readOpenAIKey(evaRoot: string, env: NodeJS.ProcessEnv = process.env): string | null {
+export function readOpenAIKey(
+  evaRoot: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | null {
   if (env.OPENAI_API_KEY) return env.OPENAI_API_KEY
   try {
     const m = /^(?:export\s+)?OPENAI_API_KEY=["']?([^"'\n]+)/m.exec(

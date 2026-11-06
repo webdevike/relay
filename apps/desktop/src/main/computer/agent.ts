@@ -46,7 +46,12 @@ const TREE_CAP = 14_000
 
 /** Which pictures the task asks for: none, the final window, or every step. */
 export function shotsWanted(task: string): Shots {
-  if (/\bscreenshots?\s+(?:of\s+)?(?:each|every)\b|\beach step\b.*\bscreenshot|\bscreenshots\b/i.test(task)) return 'each'
+  if (
+    /\bscreenshots?\s+(?:of\s+)?(?:each|every)\b|\beach step\b.*\bscreenshot|\bscreenshots\b/i.test(
+      task,
+    )
+  )
+    return 'each'
   return /\b(screenshot|screen shot|show me|picture)\b/i.test(task) ? 'final' : 'none'
 }
 
@@ -102,7 +107,10 @@ export const TOOLS: readonly ToolSpec[] = [
       'Ask Isaac a question in the chat and wait for his answer (2 to 4 short options). Use it when the task is ambiguous or before anything irreversible; act also asks him by itself before risky steps.',
     parameters: {
       type: 'object',
-      properties: { question: { type: 'string' }, options: { type: 'array', items: { type: 'string' } } },
+      properties: {
+        question: { type: 'string' },
+        options: { type: 'array', items: { type: 'string' } },
+      },
       required: ['question'],
     },
   },
@@ -110,18 +118,26 @@ export const TOOLS: readonly ToolSpec[] = [
     name: 'finish',
     description:
       'End the run with a short summary for Isaac: what you did and what you found (the answer, the value read, where things are now). Say plainly if something did not work.',
-    parameters: { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'] },
+    parameters: {
+      type: 'object',
+      properties: { summary: { type: 'string' } },
+      required: ['summary'],
+    },
   },
 ]
 
-export function instructions(o: { assistant: string; mode: 'headless' | 'live' | 'walk'; today: string }): string {
+export function instructions(o: {
+  assistant: string
+  mode: 'headless' | 'live' | 'walk'
+  today: string
+}): string {
   return [
     `You are ${o.assistant}, running Relay's @computer agent on Isaac's Mac (his real, signed-in apps). Today is ${o.today}.`,
     o.mode === 'live'
       ? 'Mode live: Isaac is watching. Your cursor is drawn on screen for every step, so keep batches short and purposeful.'
       : "Mode headless: you work in the background through Accessibility. Never bring a window forward and never move Isaac's mouse; he keeps using the Mac while you work.",
     'How to work: open_app (or list_windows) to find the window, read it, then act in batches against the refs of the latest read. Each act answers the fresh controls; re-read only when you need something it did not show. Prefer the accessibility tree; use a screenshot only when the tree cannot answer. When a link reaches the thing directly (a Linear issue key: linear://ecard-systems/issue/ENG-123; a web page), use open_url instead of searching in the app.',
-    'Safety: anything that sends, posts, deletes, buys, pays, submits, publishes, shares, invites or accepts needs Isaac\'s OK: act asks him by itself and refuses if he says no; do not try another way around a refusal. Never type passwords or secrets; if a login is needed, stop and say so. In messaging apps never type a name and Return in one batch. Stay inside the task: no exploring.',
+    "Safety: anything that sends, posts, deletes, buys, pays, submits, publishes, shares, invites or accepts needs Isaac's OK: act asks him by itself and refuses if he says no; do not try another way around a refusal. Never type passwords or secrets; if a login is needed, stop and say so. In messaging apps never type a name and Return in one batch. Stay inside the task: no exploring.",
     'Read-only tasks: look and report; do not change anything.',
     'Finish with the finish tool: two or three plain sentences, the answer first. No em dashes.',
   ].join('\n')
@@ -152,7 +168,10 @@ const sleep = (ms: number): Promise<void> => {
 const settle = (p: Promise<void>, ms = 2500): Promise<void> => Promise.race([p, sleep(ms)])
 
 function render(snap: Snapshot): string {
-  const tree = snap.tree.length > TREE_CAP ? `${snap.tree.slice(0, TREE_CAP)}\n… (cut: pass query to narrow)` : snap.tree
+  const tree =
+    snap.tree.length > TREE_CAP
+      ? `${snap.tree.slice(0, TREE_CAP)}\n… (cut: pass query to narrow)`
+      : snap.tree
   return `window_id=${snap.windowId} app=${snap.app} title="${snap.title}" refs=${snap.controls.size}${snap.truncated ? ' (truncated)' : ''}\n${tree}`
 }
 
@@ -176,7 +195,10 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
 
   const savePicture = (snap: Snapshot, caption: string, post: boolean): string | null => {
     if (!snap.image) return null
-    const file = path.join(o.shots.dir, `${String(++shotN).padStart(2, '0')}-${snap.app.replace(/[^\w-]+/g, '_')}.png`)
+    const file = path.join(
+      o.shots.dir,
+      `${String(++shotN).padStart(2, '0')}-${snap.app.replace(/[^\w-]+/g, '_')}.png`,
+    )
     fs.writeFileSync(file, snap.image)
     if (post) io.image(file, caption)
     return file
@@ -198,12 +220,21 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
     switch (call.name) {
       case 'list_windows': {
         const wins = await desktop.windows()
-        return { text: wins.filter((w) => w.title || w.app).map((w) => `window_id=${w.windowId} ${w.app}: ${w.title}`).join('\n') || 'No windows on screen.' }
+        return {
+          text:
+            wins
+              .filter((w) => w.title || w.app)
+              .map((w) => `window_id=${w.windowId} ${w.app}: ${w.title}`)
+              .join('\n') || 'No windows on screen.',
+        }
       }
       case 'open_app': {
         const { app } = OpenAppArgs.parse(call.args)
         const { windows } = await desktop.openApp(app)
-        if (windows.length === 0) return { text: `${app} is running but has no window on screen yet; call list_windows in a moment.` }
+        if (windows.length === 0)
+          return {
+            text: `${app} is running but has no window on screen yet; call list_windows in a moment.`,
+          }
         const first = windows[0]!
         lastWindow = first.windowId
         if (o.mode === 'live') await desktop.front(first.windowId)
@@ -217,8 +248,16 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
         const { windows, landed } = await desktop.openUrl(url)
         if (landed && o.mode === 'live') await desktop.front(landed.windowId)
         io.progress(`Opened ${url}${o.mode === 'headless' ? ' in the background' : ''}`)
-        const list = windows.filter((w) => w.title || w.app).map((w) => `window_id=${w.windowId} ${w.app}: ${w.title}`).join('\n') || 'No windows on screen.'
-        return { text: landed ? `It landed in window_id=${landed.windowId} ${landed.app}: ${landed.title}\n\nAll windows:\n${list}` : `No window changed yet (it may still be loading).\n\nAll windows:\n${list}` }
+        const list =
+          windows
+            .filter((w) => w.title || w.app)
+            .map((w) => `window_id=${w.windowId} ${w.app}: ${w.title}`)
+            .join('\n') || 'No windows on screen.'
+        return {
+          text: landed
+            ? `It landed in window_id=${landed.windowId} ${landed.app}: ${landed.title}\n\nAll windows:\n${list}`
+            : `No window changed yet (it may still be loading).\n\nAll windows:\n${list}`,
+        }
       }
       case 'read_window': {
         const a = ReadArgs.parse(call.args)
@@ -227,28 +266,53 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
           screenshot: a.screenshot === true,
         })
         lastWindow = a.window_id
-        const pic = a.screenshot === true ? savePicture(snap, snap.title || snap.app, o.shots.want === 'each') : null
-        return pic && snap.image ? { text: render(snap), image: snap.image } : { text: render(snap) }
+        const pic =
+          a.screenshot === true
+            ? savePicture(snap, snap.title || snap.app, o.shots.want === 'each')
+            : null
+        return pic && snap.image
+          ? { text: render(snap), image: snap.image }
+          : { text: render(snap) }
       }
       case 'act': {
         const a = ActArgs.parse(call.args)
         let snap = desktop.last(a.window_id) ?? (await desktop.read(a.window_id))
         lastWindow = a.window_id
-        const verdicts = a.steps.map((s) => ({ step: s, control: s.ref === undefined ? undefined : snap.controls.get(s.ref) })).map((x) => ({ ...x, v: gate(x.step, x.control, snap.app, o.task) }))
+        const verdicts = a.steps
+          .map((s) => ({
+            step: s,
+            control: s.ref === undefined ? undefined : snap.controls.get(s.ref),
+          }))
+          .map((x) => ({ ...x, v: gate(x.step, x.control, snap.app, o.task) }))
         const refused = verdicts.filter((x) => x.v.kind === 'refuse')
         if (refused.length > 0) {
-          const why = refused.map((x) => `${describeStep(x.step, x.control)}: ${x.v.kind === 'refuse' ? x.v.why : ''}`).join('; ')
+          const why = refused
+            .map(
+              (x) => `${describeStep(x.step, x.control)}: ${x.v.kind === 'refuse' ? x.v.why : ''}`,
+            )
+            .join('; ')
           io.progress(`Refused: ${why}`)
-          return { text: `REFUSED, nothing ran: ${why}. Do not try another way; finish and tell Isaac.` }
+          return {
+            text: `REFUSED, nothing ran: ${why}. Do not try another way; finish and tell Isaac.`,
+          }
         }
         const risky = verdicts.filter((x) => x.v.kind === 'ask')
         if (risky.length > 0) {
-          const pic = await desktop.read(a.window_id, { screenshot: true }).then((s) => savePicture(s, 'Before', false)).catch(() => null)
+          const pic = await desktop
+            .read(a.window_id, { screenshot: true })
+            .then((s) => savePicture(s, 'Before', false))
+            .catch(() => null)
           const what = risky.map((x) => (x.v.kind === 'ask' ? x.v.why : '')).join(', ')
-          const answer = await io.ask(`${a.reason || 'Next step'} in ${snap.app}: ${what}. OK?`, ['Approve', 'Cancel'], pic)
+          const answer = await io.ask(
+            `${a.reason || 'Next step'} in ${snap.app}: ${what}. OK?`,
+            ['Approve', 'Cancel'],
+            pic,
+          )
           if (answer !== 'Approve') {
             io.progress(`You said no to: ${what}`)
-            return { text: `Isaac declined (${what}). Nothing ran. Do not retry it; finish and say so.` }
+            return {
+              text: `Isaac declined (${what}). Nothing ran. Do not retry it; finish and say so.`,
+            }
           }
           io.progress(`You approved: ${what}`)
           snap = desktop.last(a.window_id) ?? snap
@@ -265,7 +329,8 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
           const said = describeStep(step, control)
           if (presenter) {
             const f = control?.frame
-            if (f && ['click', 'double_click', 'right_click'].includes(step.type)) await settle(presenter.click(f.x + f.w / 2, f.y + f.h / 2, a.reason || said).landed)
+            if (f && ['click', 'double_click', 'right_click'].includes(step.type))
+              await settle(presenter.click(f.x + f.w / 2, f.y + f.h / 2, a.reason || said).landed)
             else if (f) await settle(presenter.point(f, a.reason || said).landed)
             else await settle(presenter.caption(a.reason || said).landed)
           }
@@ -279,9 +344,13 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
           }
         }
         const ok = log.filter((l) => l.endsWith(': ok')).length
-        io.progress(`${a.reason || 'Acted'}${ok < a.steps.length ? ` (${ok}/${a.steps.length} steps ran)` : ''}`)
+        io.progress(
+          `${a.reason || 'Acted'}${ok < a.steps.length ? ` (${ok}/${a.steps.length} steps ran)` : ''}`,
+        )
         const after = await readAfter(snap)
-        return { text: `Ran ${ok}/${a.steps.length} steps. A step marked ok was delivered; check the controls below for the effect.\n${log.join('\n')}\n\nAfter:\n${render(after)}` }
+        return {
+          text: `Ran ${ok}/${a.steps.length} steps. A step marked ok was delivered; check the controls below for the effect.\n${log.join('\n')}\n\nAfter:\n${render(after)}`,
+        }
       }
       case 'ask_isaac': {
         const a = AskArgs.parse(call.args)
@@ -300,7 +369,10 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
   const end = async (outcome: AgentResult['outcome'], summary: string): Promise<AgentResult> => {
     let image: string | null = null
     if (o.shots.want !== 'none' && lastWindow !== null) {
-      image = await desktop.read(lastWindow, { screenshot: true }).then((s) => savePicture(s, 'Final', false)).catch(() => null)
+      image = await desktop
+        .read(lastWindow, { screenshot: true })
+        .then((s) => savePicture(s, 'Final', false))
+        .catch(() => null)
     }
     if (presenter) {
       await settle(presenter.caption(summary.split(/(?<=[.!?])\s/)[0] ?? summary).landed)
@@ -312,10 +384,16 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
 
   presenter?.assistant(o.assistant.id)
   if (presenter) await settle(presenter.caption(`On it: ${o.task}`).landed)
-  let items: InputItem[] = [{ role: 'user', content: [{ type: 'input_text', text: `Task from Isaac: ${o.task}` }] }]
+  let items: InputItem[] = [
+    { role: 'user', content: [{ type: 'input_text', text: `Task from Isaac: ${o.task}` }] },
+  ]
   for (let turn = 0; turn < limits.turns; turn++) {
     if (io.signal.aborted) return end('stopped', 'Stopped. Nothing else will run.')
-    if (now() - started > limits.ms) return end('budget', `Out of time after ${Math.round(limits.ms / 60_000)} minutes; stopped where it was.`)
+    if (now() - started > limits.ms)
+      return end(
+        'budget',
+        `Out of time after ${Math.round(limits.ms / 60_000)} minutes; stopped where it was.`,
+      )
     let t
     try {
       t = await o.brain.turn(items, io.signal)
@@ -339,9 +417,16 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
       if (out.image) images.push(out.image)
     }
     if (images.length > 0) {
-      items.push({ role: 'user', content: images.map((b) => ({ type: 'input_image' as const, image_url: `data:image/png;base64,${b.toString('base64')}` })) })
+      items.push({
+        role: 'user',
+        content: images.map((b) => ({
+          type: 'input_image' as const,
+          image_url: `data:image/png;base64,${b.toString('base64')}`,
+        })),
+      })
     }
-    if (budgetHit) return end('budget', `Used the ${limits.actions}-action budget; stopped where it was.`)
+    if (budgetHit)
+      return end('budget', `Used the ${limits.actions}-action budget; stopped where it was.`)
   }
   return end('budget', 'Too many model turns; stopped where it was.')
 }

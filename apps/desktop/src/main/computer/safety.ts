@@ -4,7 +4,8 @@ import type { Control, Step } from './desktop'
  * The code half of `@computer`'s safety rules (SPEC.md "Safety"); the prompt is the other half.
  * `gate` sorts one step into: fine, needs Isaac's OK first, or never.
  */
-export type Verdict = { kind: 'ok' } | { kind: 'ask'; why: string } | { kind: 'refuse'; why: string }
+export type Verdict =
+  { kind: 'ok' } | { kind: 'ask'; why: string } | { kind: 'refuse'; why: string }
 
 const OK: Verdict = { kind: 'ok' }
 
@@ -42,14 +43,22 @@ export function gate(step: Step, control: Control | undefined, app: string, task
     case 'click':
     case 'double_click':
     case 'right_click': {
-      if (/^system (settings|preferences)$/i.test(app.trim()) && /AX(CheckBox|Switch|ToggleButton)/.test(role)) {
+      if (
+        /^system (settings|preferences)$/i.test(app.trim()) &&
+        /AX(CheckBox|Switch|ToggleButton)/.test(role)
+      ) {
         const name = (control?.label ?? '').toLowerCase()
         if (!(CHANGE_VERB.test(task) && name !== '' && task.toLowerCase().includes(name))) {
-          return { kind: 'refuse', why: `the task does not say to change “${control?.label ?? 'this switch'}”` }
+          return {
+            kind: 'refuse',
+            why: `the task does not say to change “${control?.label ?? 'this switch'}”`,
+          }
         }
       }
       const m = RISKY.exec(label)
-      return m ? { kind: 'ask', why: `${step.type.replace('_', ' ')} “${control?.label || m[0]}”` } : OK
+      return m
+        ? { kind: 'ask', why: `${step.type.replace('_', ' ')} “${control?.label || m[0]}”` }
+        : OK
     }
     case 'type':
     case 'set_value':
@@ -59,10 +68,14 @@ export function gate(step: Step, control: Control | undefined, app: string, task
       return messaging ? { kind: 'ask', why: `type into ${app}` } : OK
     case 'key':
       if (messaging) return { kind: 'ask', why: `press ${step.key ?? 'a key'} in ${app}` }
-      return riskyChord([...(step.modifiers ?? []), step.key ?? '']) ? { kind: 'ask', why: `press ${[...(step.modifiers ?? []), step.key].join('+')}` } : OK
+      return riskyChord([...(step.modifiers ?? []), step.key ?? ''])
+        ? { kind: 'ask', why: `press ${[...(step.modifiers ?? []), step.key].join('+')}` }
+        : OK
     case 'hotkey':
       if (messaging) return { kind: 'ask', why: `press ${(step.keys ?? []).join('+')} in ${app}` }
-      return riskyChord(step.keys ?? []) ? { kind: 'ask', why: `press ${(step.keys ?? []).join('+')}` } : OK
+      return riskyChord(step.keys ?? [])
+        ? { kind: 'ask', why: `press ${(step.keys ?? []).join('+')}` }
+        : OK
     case 'menu': {
       const item = (step.path ?? []).at(-1) ?? ''
       return RISKY.test(item) ? { kind: 'ask', why: `choose ${(step.path ?? []).join(' > ')}` } : OK

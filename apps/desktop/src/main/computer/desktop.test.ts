@@ -25,8 +25,18 @@ function fakeDriver(titles: () => string): Driver {
 describe('Desktop.openUrl', () => {
   it('opens only web and app links, never files or scripts', async () => {
     const opened: string[] = []
-    const d = new Desktop(fakeDriver(() => 'Inbox'), async () => {}, async (u) => void opened.push(u))
-    for (const bad of ['file:///etc/passwd', 'javascript:alert(1)', 'ssh://host', '/Applications/Calculator.app', 'constructor:x']) {
+    const d = new Desktop(
+      fakeDriver(() => 'Inbox'),
+      async () => {},
+      async (u) => void opened.push(u),
+    )
+    for (const bad of [
+      'file:///etc/passwd',
+      'javascript:alert(1)',
+      'ssh://host',
+      '/Applications/Calculator.app',
+      'constructor:x',
+    ]) {
       await expect(d.openUrl(bad)).rejects.toThrow(/links open/)
     }
     expect(opened).toEqual([])
@@ -34,9 +44,13 @@ describe('Desktop.openUrl', () => {
 
   it('answers the window the link retitled', async () => {
     let title = 'Inbox'
-    const d = new Desktop(fakeDriver(() => title), async () => {}, async () => {
-      title = 'ENG-6810 Card art'
-    })
+    const d = new Desktop(
+      fakeDriver(() => title),
+      async () => {},
+      async () => {
+        title = 'ENG-6810 Card art'
+      },
+    )
     const r = await d.openUrl('linear://ecard-systems/issue/ENG-6810')
     expect(r.landed?.title).toBe('ENG-6810 Card art')
   })

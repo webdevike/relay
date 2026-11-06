@@ -6,7 +6,13 @@ import type { Judge } from './judge'
 import type { Presenter, Shown } from './presenter'
 import { runWalk } from './walk'
 
-const WIN: WindowInfo = { windowId: 1, pid: 9, app: 'Calculator', title: 'Calculator', bounds: { x: 0, y: 0, w: 300, h: 400 } }
+const WIN: WindowInfo = {
+  windowId: 1,
+  pid: 9,
+  app: 'Calculator',
+  title: 'Calculator',
+  bounds: { x: 0, y: 0, w: 300, h: 400 },
+}
 
 function world(display: { value: string }) {
   const snap = (): Snapshot => ({
@@ -15,7 +21,19 @@ function world(display: { value: string }) {
     app: 'Calculator',
     title: 'Calculator',
     tree: `AXStaticText = "${display.value}"\n[1] AXButton (4)`,
-    controls: new Map([[1, { ref: 1, token: 't1', role: 'AXButton', label: '4', line: 'AXButton (4)', frame: { x: 10, y: 10, w: 40, h: 40 } }]]),
+    controls: new Map([
+      [
+        1,
+        {
+          ref: 1,
+          token: 't1',
+          role: 'AXButton',
+          label: '4',
+          line: 'AXButton (4)',
+          frame: { x: 10, y: 10, w: 40, h: 40 },
+        },
+      ],
+    ]),
     truncated: false,
     image: null,
   })
@@ -39,7 +57,18 @@ function world(display: { value: string }) {
   const planner: Brain = {
     turn: async () => ({
       text: '',
-      calls: [{ callId: 'c', name: 'plan_walk', args: { app: 'Calculator', intro: '', outro: 'Done.', steps: [{ instruction: 'Press 4', target: '4', done_when: 'display shows 4' }] } }],
+      calls: [
+        {
+          callId: 'c',
+          name: 'plan_walk',
+          args: {
+            app: 'Calculator',
+            intro: '',
+            outro: 'Done.',
+            steps: [{ instruction: 'Press 4', target: '4', done_when: 'display shows 4' }],
+          },
+        },
+      ],
     }),
   }
   const judge: Judge = {
@@ -75,7 +104,16 @@ describe('runWalk', () => {
       display.value = '4'
       return a
     }
-    const r = await runWalk({ task: 'press 4', assistant: { id: 'nova', title: 'Nova' }, ...w, io: c.io, control: () => {}, ticket: null, pollMs: 5, stepTimeoutMs: 40 })
+    const r = await runWalk({
+      task: 'press 4',
+      assistant: { id: 'nova', title: 'Nova' },
+      ...w,
+      io: c.io,
+      control: () => {},
+      ticket: null,
+      pollMs: 5,
+      stepTimeoutMs: 40,
+    })
     expect(c.asked).toHaveLength(1)
     expect(c.progress).toContain('Step 1/1 done')
     expect(r.summary).toContain('1 showed done')
@@ -85,7 +123,16 @@ describe('runWalk', () => {
   it('stops when Isaac picks Stop after a wait', async () => {
     const w = world({ value: '0' })
     const c = chat(['Stop'])
-    const r = await runWalk({ task: 'press 4', assistant: { id: 'nova', title: 'Nova' }, ...w, io: c.io, control: () => {}, ticket: null, pollMs: 5, stepTimeoutMs: 30 })
+    const r = await runWalk({
+      task: 'press 4',
+      assistant: { id: 'nova', title: 'Nova' },
+      ...w,
+      io: c.io,
+      control: () => {},
+      ticket: null,
+      pollMs: 5,
+      stepTimeoutMs: 30,
+    })
     expect(r.outcome).toBe('stopped')
   })
 })

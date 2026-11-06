@@ -13,21 +13,42 @@ const NOVA = { id: 'nova', title: 'Nova', profile: 'personal' }
 
 /** A Mail window with a Send button; records every tool call the agent makes. */
 function fakeDriver(calls: string[]): Driver {
-  const ok = (structuredContent: Record<string, unknown> = {}): Reply => ({ result: { content: [], structuredContent } })
+  const ok = (structuredContent: Record<string, unknown> = {}): Reply => ({
+    result: { content: [], structuredContent },
+  })
   return {
     backend: 'direct',
     close() {},
     async call(name) {
       calls.push(name)
       if (name === 'list_windows')
-        return ok({ windows: [{ app_name: 'Mail', title: 'Re: lunch', pid: 7, window_id: 70, is_on_screen: true, bounds: { x: 0, y: 0, width: 800, height: 600 } }] })
+        return ok({
+          windows: [
+            {
+              app_name: 'Mail',
+              title: 'Re: lunch',
+              pid: 7,
+              window_id: 70,
+              is_on_screen: true,
+              bounds: { x: 0, y: 0, width: 800, height: 600 },
+            },
+          ],
+        })
       if (name === 'launch_app') return ok({ pid: 7 })
       if (name === 'get_window_state')
         return ok({
           app_name: 'Mail',
           window_title: 'Re: lunch',
           tree_markdown: '- [0] AXWindow "Re: lunch"\n  - [1] AXButton (Send) [actions=[press]]',
-          elements: [{ element_index: 1, element_token: 's:1', role: 'AXButton', label: 'Send', frame: { x: 10, y: 10, w: 40, h: 20 } }],
+          elements: [
+            {
+              element_index: 1,
+              element_token: 's:1',
+              role: 'AXButton',
+              label: 'Send',
+              frame: { x: 10, y: 10, w: 40, h: 20 },
+            },
+          ],
         })
       return ok()
     },
@@ -40,10 +61,32 @@ function scriptedBrain(): Brain {
   return {
     async turn(items: InputItem[]): Promise<Turn> {
       n++
-      if (n === 1) return { text: '', calls: [{ callId: 'c1', name: 'open_app', args: { app: 'Mail' } }] }
-      if (n === 2) return { text: '', calls: [{ callId: 'c2', name: 'act', args: { window_id: 70, reason: 'Sending the reply', steps: [{ type: 'click', ref: 1 }] } }] }
-      const out = items.find((i): i is Extract<InputItem, { type: 'function_call_output' }> => 'type' in i)
-      return { text: '', calls: [{ callId: 'c3', name: 'finish', args: { summary: out?.output.split('\n')[0] ?? '' } }] }
+      if (n === 1)
+        return { text: '', calls: [{ callId: 'c1', name: 'open_app', args: { app: 'Mail' } }] }
+      if (n === 2)
+        return {
+          text: '',
+          calls: [
+            {
+              callId: 'c2',
+              name: 'act',
+              args: {
+                window_id: 70,
+                reason: 'Sending the reply',
+                steps: [{ type: 'click', ref: 1 }],
+              },
+            },
+          ],
+        }
+      const out = items.find(
+        (i): i is Extract<InputItem, { type: 'function_call_output' }> => 'type' in i,
+      )
+      return {
+        text: '',
+        calls: [
+          { callId: 'c3', name: 'finish', args: { summary: out?.output.split('\n')[0] ?? '' } },
+        ],
+      }
     },
   }
 }
@@ -66,7 +109,8 @@ interface Harness {
 function harness(): Harness {
   const calls: string[] = []
   let rows: ChatMessage[] = []
-  const waiting: Array<{ pred: (r: ChatMessage) => boolean; resolve: (r: ChatMessage) => void }> = []
+  const waiting: Array<{ pred: (r: ChatMessage) => boolean; resolve: (r: ChatMessage) => void }> =
+    []
   const row = (pred: (r: ChatMessage) => boolean): Promise<ChatMessage> => {
     const hit = rows.find(pred)
     if (hit) return Promise.resolve(hit)

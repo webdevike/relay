@@ -81,7 +81,11 @@ export function addressed(
     for (const re of patterns) {
       const m = re.exec(task)
       if (!m) continue
-      const stripped = (task.slice(0, m.index) + (m.index === 0 ? '' : ' ') + task.slice(m.index + m[0].length))
+      const stripped = (
+        task.slice(0, m.index) +
+        (m.index === 0 ? '' : ' ') +
+        task.slice(m.index + m[0].length)
+      )
         .trim()
         .replace(/\s+([?.!])/g, '$1')
       return { assistant, task: stripped === '' ? task : stripped }
@@ -114,7 +118,9 @@ export function routeTask(
 ): RouteDecision {
   const work = agents.find((a) => a.profile === 'work') ?? agents.find((a) => a.id === 'astra')
   const personal =
-    agents.find((a) => a.id === 'nova') ?? agents.find((a) => a.profile === 'personal') ?? agents[0]!
+    agents.find((a) => a.id === 'nova') ??
+    agents.find((a) => a.profile === 'personal') ??
+    agents[0]!
   const named = addressed(task, agents)
   if (named) return { ...named, reason: `addressed:${named.assistant.title}` }
   const ecard = ecardReason(task, repos)

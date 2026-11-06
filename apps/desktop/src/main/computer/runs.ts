@@ -24,7 +24,11 @@ export interface RunsDeps {
   chatAgentOf(file: string | null): string | null
   route(task: string, chatAgent: string | null): RouteDecision
   /** Runs the agent; resolves with how it ended. Walk runs hear next/skip through `control`. */
-  launch(spec: RunSpec, io: RunIO, control: (cb: (c: WalkControl) => void) => void): Promise<AgentResult>
+  launch(
+    spec: RunSpec,
+    io: RunIO,
+    control: (cb: (c: WalkControl) => void) => void,
+  ): Promise<AgentResult>
   /** A thin client (MacBook): `@computer` runs on the Mini only. */
   remote: boolean
   now?: () => number
@@ -52,10 +56,15 @@ interface Run {
 }
 
 const ASK_TIMEOUT_MS = 10 * 60_000
-const MODE_LABEL: Record<ComputerMode, string> = { headless: 'in the background', live: 'live', walk: 'walkthrough' }
+const MODE_LABEL: Record<ComputerMode, string> = {
+  headless: 'in the background',
+  live: 'live',
+  walk: 'walkthrough',
+}
 
 /** A markdown image line for a local PNG (the chat serves absolute paths through relay-media). */
-const imageLine = (file: string, caption: string): string => `![${caption.replace(/[[\]]/g, '')}](<${file}>)`
+const imageLine = (file: string, caption: string): string =>
+  `![${caption.replace(/[[\]]/g, '')}](<${file}>)`
 
 /**
  * `@computer` in the chat: catches the command in `chat.send`, keeps every pane's run rows, asks
@@ -93,7 +102,9 @@ export class ComputerRuns {
     if (!cmd) return false
     const file = this.deps.fileOf(paneId)
     this.files.set(paneId, file)
-    const user = makeMessage(`computer:${String(++this.seq)}:cmd`, 'user', text.trim(), { at: this.now() })
+    const user = makeMessage(`computer:${String(++this.seq)}:cmd`, 'user', text.trim(), {
+      at: this.now(),
+    })
     if (cmd.kind === 'help') {
       this.post(paneId, user)
       this.post(paneId, makeMessage(`computer:${String(this.seq)}:help`, 'assistant', HELP_TEXT))
@@ -106,18 +117,35 @@ export class ComputerRuns {
     }
     this.post(paneId, user)
     if (this.deps.remote) {
-      this.post(paneId, makeMessage(`computer:${String(this.seq)}:remote`, 'assistant', '@computer runs on the Mac Mini only. Send it from Relay on the Mini.'))
+      this.post(
+        paneId,
+        makeMessage(
+          `computer:${String(this.seq)}:remote`,
+          'assistant',
+          '@computer runs on the Mac Mini only. Send it from Relay on the Mini.',
+        ),
+      )
       return true
     }
     if (this.active && !this.active.done) {
       this.post(
         paneId,
-        makeMessage(`computer:${String(this.seq)}:busy`, 'assistant', `Already working on “${this.active.spec.task}”. Send \`@computer stop\` first.`),
+        makeMessage(
+          `computer:${String(this.seq)}:busy`,
+          'assistant',
+          `Already working on “${this.active.spec.task}”. Send \`@computer stop\` first.`,
+        ),
       )
       return true
     }
     const route = this.deps.route(cmd.task, this.deps.chatAgentOf(file))
-    const spec: RunSpec = { id: `${this.stamp()}-${String(this.seq)}`, paneId, mode: cmd.mode, task: route.task, route }
+    const spec: RunSpec = {
+      id: `${this.stamp()}-${String(this.seq)}`,
+      paneId,
+      mode: cmd.mode,
+      task: route.task,
+      route,
+    }
     this.start(spec, file)
     return true
   }
@@ -152,7 +180,10 @@ export class ComputerRuns {
       return
     }
     if (!run.walk) {
-      this.post(paneId, makeMessage(id, 'assistant', '`next` and `skip` work in a walkthrough only.'))
+      this.post(
+        paneId,
+        makeMessage(id, 'assistant', '`next` and `skip` work in a walkthrough only.'),
+      )
       return
     }
     run.walk(op)
@@ -163,7 +194,11 @@ export class ComputerRuns {
     if (!ask) return
     run.pending = null
     const row = this.rows.get(run.spec.paneId)?.find((r) => r.id === ask.rowId)
-    if (row) this.post(run.spec.paneId, { ...row, text: row.text.replace(/\n*\[\[replies:[^\]]*\]\]\s*$/, `\n\n_You chose: ${pick}_`) })
+    if (row)
+      this.post(run.spec.paneId, {
+        ...row,
+        text: row.text.replace(/\n*\[\[replies:[^\]]*\]\]\s*$/, `\n\n_You chose: ${pick}_`),
+      })
     ask.resolve(pick)
   }
 
@@ -172,16 +207,32 @@ export class ComputerRuns {
     const head = `**${assistant.title} · @computer** ${MODE_LABEL[run.spec.mode]}: ${run.spec.task}`
     const lines = run.lines.map((l, i) => `${i + 1}. ${l}`)
     const pics = run.images.map((p) => imageLine(p.file, p.caption))
-    return makeMessage(`computer:${run.spec.id}:progress`, 'assistant', [head, '', ...lines, ...(pics.length ? ['', ...pics] : []), '', `_${status}_`].join('\n'))
+    return makeMessage(
+      `computer:${run.spec.id}:progress`,
+      'assistant',
+      [head, '', ...lines, ...(pics.length ? ['', ...pics] : []), '', `_${status}_`].join('\n'),
+    )
   }
 
   private start(spec: RunSpec, file: string | null): void {
-    const run: Run = { spec, file, abort: new AbortController(), lines: [], images: [], asks: 0, pending: null, walk: null, done: false }
+    const run: Run = {
+      spec,
+      file,
+      abort: new AbortController(),
+      lines: [],
+      images: [],
+      asks: 0,
+      pending: null,
+      walk: null,
+      done: false,
+    }
     this.active = run
     const paneId = spec.paneId
     const refresh = (status = 'Working…'): void => this.post(paneId, this.progressRow(run, status))
     refresh('Starting…')
-    this.deps.log?.(`computer ${spec.id}: ${spec.mode} as ${spec.route.assistant.id} (${spec.route.reason}): ${spec.task}`)
+    this.deps.log?.(
+      `computer ${spec.id}: ${spec.mode} as ${spec.route.assistant.id} (${spec.route.reason}): ${spec.task}`,
+    )
     const io: RunIO = {
       signal: run.abort.signal,
       stop: () => {
@@ -199,7 +250,12 @@ export class ComputerRuns {
       ask: (question, options, image) => {
         if (run.abort.signal.aborted) return Promise.resolve('Cancel')
         const rowId = `computer:${spec.id}:ask:${String(++run.asks)}`
-        const text = [`**${spec.route.assistant.title}:** ${question}`, ...(image ? ['', imageLine(image, 'Now')] : []), '', `[[replies: ${options.join(' | ')}]]`].join('\n')
+        const text = [
+          `**${spec.route.assistant.title}:** ${question}`,
+          ...(image ? ['', imageLine(image, 'Now')] : []),
+          '',
+          `[[replies: ${options.join(' | ')}]]`,
+        ].join('\n')
         this.post(paneId, makeMessage(rowId, 'assistant', text))
         refresh('Waiting for you…')
         const { promise, resolve } = Promise.withResolvers<string>()
@@ -221,9 +277,17 @@ export class ComputerRuns {
     const finish = (result: AgentResult): void => {
       run.done = true
       if (this.active === run) this.active = null
-      const word = { done: 'Done', stopped: 'Stopped', failed: 'Failed', budget: 'Stopped (budget)' }[result.outcome]
+      const word = {
+        done: 'Done',
+        stopped: 'Stopped',
+        failed: 'Failed',
+        budget: 'Stopped (budget)',
+      }[result.outcome]
       this.post(paneId, this.progressRow(run, word))
-      const body = [`**${spec.route.assistant.title}:** ${result.summary}`, ...(result.image ? ['', imageLine(result.image, 'Final')] : [])].join('\n')
+      const body = [
+        `**${spec.route.assistant.title}:** ${result.summary}`,
+        ...(result.image ? ['', imageLine(result.image, 'Final')] : []),
+      ].join('\n')
       this.post(paneId, makeMessage(`computer:${spec.id}:done`, 'assistant', body))
       this.deps.log?.(`computer ${spec.id}: ${result.outcome}: ${result.summary}`)
     }
@@ -232,7 +296,11 @@ export class ComputerRuns {
         run.walk = cb
       })
       .then(finish, (e: unknown) =>
-        finish({ outcome: 'failed', summary: `Couldn't run it: ${e instanceof Error ? e.message : String(e)}`, image: null }),
+        finish({
+          outcome: 'failed',
+          summary: `Couldn't run it: ${e instanceof Error ? e.message : String(e)}`,
+          image: null,
+        }),
       )
   }
 
