@@ -16,6 +16,7 @@ import { registerActivityIpc } from '../relay/activity-ipc'
 import { registerCanvasLiveIpc } from '../relay/canvas-live-ipc'
 import { registerSkillsIpc } from '../relay/skills-ipc'
 import { registerStudioIpc } from '../relay/studio-ipc'
+import { registerStatsIpc } from '../relay/stats-ipc'
 import type {
   RelayArtifacts,
   RelayCanvas,
@@ -157,6 +158,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   registerSkillsIpc(ctx, relay)
   // Image and video jobs on the host, for the Studio page.
   const offStudio = registerStudioIpc(ctx, relay)
+  // What the host's omp sessions cost, for Settings > Usage.
+  const offStats = registerStatsIpc(ctx, relay)
 
   const watch = new ChatWatch({
     dirs: sessionsDirs,
@@ -204,6 +207,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offNotifyRooms()
     offCanvasLive()
     offStudio()
+    offStats()
     clearTimeout(statusTimer)
     assistants.close()
     await watch.close()

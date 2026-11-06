@@ -187,5 +187,6 @@
     "app": "Microsoft Teams",
     "title": "Weekly Engineering Team Sync",
     "startedAt": 1793800000000
-  }
+  },
+  { "t": "stats.get" }
 ]

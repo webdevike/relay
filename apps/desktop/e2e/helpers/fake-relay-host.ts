@@ -264,6 +264,10 @@ export class FakeRelayHost {
   readonly filesOpen: string[][] = []
   readonly carets: Array<Json | null> = []
   readonly saves: Json[] = []
+  /** The host's omp stats snapshot (protocol StatsSnapshot), answered to `stats.get`. */
+  private statsSnapshot: Json = { updatedAt: null, refreshing: true, profiles: [], ranges: null }
+  /** How many `stats.get` frames arrived. */
+  statsGets = 0
 
   /** An agent's write to an open file, as the host's file presence reports it (`files.edit`). */
   fileEdit(edit: Json): void {
@@ -321,6 +325,12 @@ export class FakeRelayHost {
   setActivity(items: Json[]): void {
     this.activityItems = items
     this.broadcast({ t: 'activity.snapshot', items })
+  }
+
+  /** Sets the stats snapshot and pushes it, as the host does when a refresh starts or ends. */
+  setStats(stats: Json): void {
+    this.statsSnapshot = stats
+    this.broadcast({ t: 'stats.snapshot', stats })
   }
 
   /** Sets what `thread` holds (its artifact items; the tab bar is the default one) and pushes it. */
@@ -863,6 +873,9 @@ export class FakeRelayHost {
         return peer.send({ t: 'canvas.rooms', rev: 1, rooms: this.canvasRooms })
       case 'activity.get':
         return peer.send({ t: 'activity.snapshot', items: this.activityItems })
+      case 'stats.get':
+        this.statsGets++
+        return peer.send({ t: 'stats.snapshot', stats: this.statsSnapshot })
       case 'artifacts.get':
         return peer.send({
           t: 'artifacts.snapshot',

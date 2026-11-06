@@ -26,7 +26,7 @@ export interface Mini {
 type Frame = Record<string, unknown>
 
 /** Sends `frame` and settles on the first frame `answer` returns a value for (or throws on). */
-function ask<T>(
+export function ask<T>(
   frames: RelayFrames,
   frame: Frame,
   answer: (f: Frame) => T | undefined,

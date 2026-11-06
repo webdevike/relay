@@ -12,6 +12,7 @@ import { experimentsEvents, experimentsInvoke } from './experiments'
 import { canvasEvents, canvasInvoke } from './canvas'
 import { canvasLiveEvents, canvasLiveInvoke } from './canvas-live'
 import { usageEvents, usageInvoke } from './usage'
+import { statsEvents, statsInvoke } from './stats'
 import { assistantsEvents, assistantsInvoke } from './assistants'
 import { boardsEvents, boardsInvoke } from './boards'
 import { reactionsEvents, reactionsInvoke } from './reactions'
@@ -41,6 +42,7 @@ export * from './experiments'
 export * from './canvas'
 export * from './canvas-live'
 export * from './usage'
+export * from './stats'
 export * from './assistants'
 export * from './boards'
 export * from './reactions'
@@ -101,6 +103,7 @@ export const invokeContract = {
   ...canvasInvoke,
   ...canvasLiveInvoke,
   ...usageInvoke,
+  ...statsInvoke,
   ...assistantsInvoke,
   ...boardsInvoke,
   ...reactionsInvoke,
@@ -130,6 +133,7 @@ export const eventContract = {
   ...canvasEvents,
   ...canvasLiveEvents,
   ...usageEvents,
+  ...statsEvents,
   ...assistantsEvents,
   ...boardsEvents,
   ...reactionsEvents,

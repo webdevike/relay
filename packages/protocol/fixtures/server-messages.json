@@ -364,5 +364,288 @@
     ]
   },
   { "t": "meeting.ingest.ticket", "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10", "ticket": "4f9d" },
-  { "t": "meetings.res", "rid": "m-2", "ok": true, "todoId": "T120", "tag": "ecardsystems" }
+  { "t": "meetings.res", "rid": "m-2", "ok": true, "todoId": "T120", "tag": "ecardsystems" },
+  {
+    "t": "stats.snapshot",
+    "stats": {
+      "updatedAt": 1793800000000,
+      "refreshing": false,
+      "profiles": [
+        { "name": "personal", "error": null },
+        { "name": "work", "error": "omp stats did not finish in 120 s" }
+      ],
+      "ranges": {
+        "24h": {
+          "totals": {
+            "requests": 120,
+            "failed": 2,
+            "costUsd": 8.41,
+            "unpriced": 0,
+            "inputTokens": 5200,
+            "outputTokens": 91000,
+            "cacheReadTokens": 4100000,
+            "cacheWriteTokens": 120000,
+            "cacheSavingsUsd": 18.2,
+            "avgTtftMs": 1850.5,
+            "tokensPerSecond": 61.2
+          },
+          "series": [
+            {
+              "at": 1793800000000,
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "tokens": 4316200
+            }
+          ],
+          "byModel": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "model": "claude-opus-5-5",
+              "provider": "anthropic"
+            }
+          ],
+          "byFolder": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "folder": "-Eva-work-relay"
+            }
+          ],
+          "byAgent": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "agent": "nova",
+              "label": "Nova"
+            }
+          ],
+          "byAgentType": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "type": "main"
+            }
+          ]
+        },
+        "7d": {
+          "totals": {
+            "requests": 120,
+            "failed": 2,
+            "costUsd": 8.41,
+            "unpriced": 0,
+            "inputTokens": 5200,
+            "outputTokens": 91000,
+            "cacheReadTokens": 4100000,
+            "cacheWriteTokens": 120000,
+            "cacheSavingsUsd": 18.2,
+            "avgTtftMs": 1850.5,
+            "tokensPerSecond": 61.2
+          },
+          "series": [
+            {
+              "at": 1793800000000,
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "tokens": 4316200
+            }
+          ],
+          "byModel": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "model": "claude-opus-5-5",
+              "provider": "anthropic"
+            }
+          ],
+          "byFolder": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "folder": "-Eva-work-relay"
+            }
+          ],
+          "byAgent": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "agent": "nova",
+              "label": "Nova"
+            }
+          ],
+          "byAgentType": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "type": "main"
+            }
+          ]
+        },
+        "30d": {
+          "totals": {
+            "requests": 120,
+            "failed": 2,
+            "costUsd": 8.41,
+            "unpriced": 0,
+            "inputTokens": 5200,
+            "outputTokens": 91000,
+            "cacheReadTokens": 4100000,
+            "cacheWriteTokens": 120000,
+            "cacheSavingsUsd": 18.2,
+            "avgTtftMs": 1850.5,
+            "tokensPerSecond": 61.2
+          },
+          "series": [
+            {
+              "at": 1793800000000,
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "tokens": 4316200
+            }
+          ],
+          "byModel": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "model": "claude-opus-5-5",
+              "provider": "anthropic"
+            }
+          ],
+          "byFolder": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "folder": "-Eva-work-relay"
+            }
+          ],
+          "byAgent": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "agent": "nova",
+              "label": "Nova"
+            }
+          ],
+          "byAgentType": [
+            {
+              "requests": 120,
+              "failed": 2,
+              "costUsd": 8.41,
+              "unpriced": 0,
+              "inputTokens": 5200,
+              "outputTokens": 91000,
+              "cacheReadTokens": 4100000,
+              "cacheWriteTokens": 120000,
+              "cacheSavingsUsd": 18.2,
+              "avgTtftMs": 1850.5,
+              "tokensPerSecond": 61.2,
+              "type": "main"
+            }
+          ]
+        }
+      }
+    }
+  }
 ]

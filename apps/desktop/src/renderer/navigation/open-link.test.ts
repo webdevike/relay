@@ -107,6 +107,11 @@ describe('openAppLink: relay:// addresses', () => {
     expect(tiling.openPlaceBeside).toHaveBeenCalledWith(
       placeOf('settings', { settingsSection: 'Connections' }),
     )
+    // The sidebar footer's usage icon links here: section id `usage`.
+    expect(openAppLink('relay://open/settings/usage')).toBe(true)
+    expect(tiling.openPlaceBeside).toHaveBeenLastCalledWith(
+      placeOf('settings', { settingsSection: 'Usage' }),
+    )
     expect(openAppLink('relay://assistant/nova')).toBe(true)
     expect(tiling.openPlaceBeside).toHaveBeenLastCalledWith(placeOf('agent:nova'))
     expect(openAppLink('relay://open/setting')).toBe(true)

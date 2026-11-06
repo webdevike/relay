@@ -8,6 +8,7 @@ import { LinksSection } from './LinksSection'
 import { NotificationsSection } from './NotificationsSection'
 import { SetupSection } from '../setup/SetupSection'
 import { ThemeSection } from './ThemeSection'
+import { UsageSection } from './UsageSection'
 import { startSettings } from './settings-store'
 import './settings.css'
 
@@ -22,6 +23,10 @@ const SECTIONS = {
   Connections: {
     Body: ConnectionsSection,
     desc: 'The services Relay reads from or signs in to. A key you save here stays in Relay: nobody, agents included, can read it back.',
+  },
+  Usage: {
+    Body: UsageSection,
+    desc: 'What omp on the Relay Host costs, who spends it, and what fails or runs slow.',
   },
   Setup: { Body: SetupSection, desc: 'Check your tools, AI sign-in, Relay Host and iPhone again.' },
   About: {

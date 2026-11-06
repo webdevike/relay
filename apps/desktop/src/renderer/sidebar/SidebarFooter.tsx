@@ -6,7 +6,7 @@ import { appLinkPlace } from '../navigation/open-link'
 import type { ClickMods } from '../navigation/open-target'
 import { UpdateButton } from '../update/UpdateButton'
 
-/** Settings > Usage (`relay://open/settings/usage`); plain Settings until that section exists. */
+/** Settings > Usage (`relay://open/settings/usage`). */
 const USAGE_PLACE: Place =
   appLinkPlace(parseAppLink('relay://open/settings/usage')!) ?? placeOf('settings')
 

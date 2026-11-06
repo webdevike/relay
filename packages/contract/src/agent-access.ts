@@ -34,6 +34,7 @@ export const AGENT_SETTINGS_SECTIONS = [
   'Links',
   'Notifications',
   'Connections',
+  'Usage',
   'Setup',
   'About',
   'Changelog',

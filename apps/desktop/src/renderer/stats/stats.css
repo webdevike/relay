@@ -1,0 +1,22 @@
+/* Settings > Usage. Numbers line up in columns; the tables are flat (no cards). */
+.eva-stats-num {
+  font-variant-numeric: tabular-nums;
+}
+.eva-stats-right {
+  text-align: right;
+  white-space: nowrap;
+}
+.eva-stats-table {
+  table-layout: auto;
+}
+.eva-stats-table th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-stats-table td:first-child {
+  max-width: 220px;
+}
+.eva-stats-icon {
+  flex: none;
+}

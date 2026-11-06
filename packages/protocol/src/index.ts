@@ -34,6 +34,7 @@ import { StudioJob, StudioOp, StudioResult, StudioRid, StudioState } from "./stu
 import { MeetingsClientFrames, MeetingsServerFrames } from "./meetings";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
+import { StatsSnapshot } from "./stats";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const BONJOUR_SERVICE_TYPE = "_relay._tcp" as const;
@@ -1591,6 +1592,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("usage.get") }),
   /** Refetch usage now; `usage.snapshot` follows (refreshing, then done). */
   z.object({ t: z.literal("usage.refresh") }),
+  /** Ask for what the host's omp sessions cost; answered at once by the cached `stats.snapshot` (refreshes in the background when stale). Only sent to a host whose `welcome.features` has STATS_FEATURE. */
+  z.object({ t: z.literal("stats.get") }),
   /** Ask for the Catch Up deck; answered by `catchup.snapshot`. */
   z.object({ t: z.literal("catchup.list") }),
   /** Mark a Catch Up item read or unread; every phone gets the new `catchup.snapshot`. Unknown ids are ignored. */
@@ -1867,6 +1870,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("gate.status"), gate: GateStatus.nullable() }),
   /** Usage of every omp account; the answer to `usage.get`/`usage.refresh`, and pushed when a refresh ends. */
   z.object({ t: z.literal("usage.snapshot"), usage: UsageSnapshot }),
+  /** omp usage stats (cost, requests, models, folders, agents); the answer to `stats.get`, and pushed when a refresh starts and ends. */
+  z.object({ t: z.literal("stats.snapshot"), stats: StatsSnapshot }),
   /** The Catch Up deck; the answer to `catchup.list`, and pushed when the feed or read state changes. */
   CatchUpSnapshot.extend({ t: z.literal("catchup.snapshot") }),
   /** Answer to `catchup.note`: `ok` false when the host has no notes file or the card left the feed. */
@@ -2038,3 +2043,4 @@ export * from "./studio";
 export * from "./reviews";
 export * from "./meetings";
 export * from "./query";
+export * from "./stats";
