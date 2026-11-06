@@ -47,6 +47,8 @@ export const GPU_BUSY_NOTE = "Waiting for the GPU (another job is using it)";
 /** A queued GPU job held back while a call is transcribed live on this Mac. */
 export const MEETING_NOTE = "Waiting for the meeting to end";
 const SLOT_NOTE = "Waiting for a free slot";
+/** Backends `rescan` re-reads: their presets and model files live on this Mac's disk. */
+const RESCANNED: readonly StudioBackendId[] = ["comfyui", "comfyui-video"];
 
 export type StudioMessage = Extract<
   ServerMessage,
@@ -265,21 +267,37 @@ export class StudioService implements StudioRelaying {
 
   /** Re-reads every backend (one refresh at a time; a call during one joins it), then pushes `studio.state`. */
   private refresh(): Promise<void> {
-    this.refreshing ??= Promise.all(
-      STUDIO_BACKENDS.map(async (id) => {
-        const backend = await this.deps.runners[id]
-          .describe()
-          .catch((error: unknown): StudioBackend => ({
-            ...BACKEND_BASE[id],
-            reason: oneLine(error, 400),
-          }));
-        this.backends.set(id, backend);
-      }),
-    ).then(() => {
+    this.refreshing ??= Promise.all(STUDIO_BACKENDS.map((id) => this.describe(id))).then(() => {
       this.refreshing = null;
       this.emitState();
     });
     return this.refreshing;
+  }
+
+  /**
+   * A device opened Studio (`studio.list`): re-reads the backends whose offer follows files on this
+   * Mac (ComfyUI presets and the model files they name), so a preset folder or a checkpoint dropped
+   * in since shows up without a Refresh; pushes `studio.state` only when one changed. Cheap and
+   * local, unlike a full refresh (Codex's token, Higgsfield's balance). Skipped during a refresh.
+   */
+  rescan(): Promise<void> {
+    if (this.refreshing !== null) return this.refreshing;
+    return Promise.all(
+      RESCANNED.map(async (id) => {
+        const before = JSON.stringify(this.backends.get(id));
+        await this.describe(id);
+        return JSON.stringify(this.backends.get(id)) !== before;
+      }),
+    ).then((changed) => {
+      if (changed.some(Boolean)) this.emitState();
+    });
+  }
+
+  private async describe(id: StudioBackendId): Promise<void> {
+    const backend = await this.deps.runners[id]
+      .describe()
+      .catch((error: unknown): StudioBackend => ({ ...BACKEND_BASE[id], reason: oneLine(error, 400) }));
+    this.backends.set(id, backend);
   }
 
   /** The backend as last read; waits for the first read. */

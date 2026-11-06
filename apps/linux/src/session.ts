@@ -805,6 +805,8 @@ export class ClientSession {
           t: "studio.state",
           ...(this.deps.studio?.state() ?? { jobs: [], uploads: [], backends: [] }),
         });
+        // A preset or model file dropped in since shows up on Studio's next open, without a Refresh.
+        void this.deps.studio?.rescan();
         break;
       case "studio.req": {
         // Changes reach every device (this one included) through the service's broadcast; this is the answer.

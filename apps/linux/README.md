@@ -474,9 +474,12 @@ Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
   sizes, `refs`/`minRefs`, `prompt: false` for no prompt box, `inputs` (choices and numbers sent as `spec.params`),
   `promptTemplate`, `constants`, `estimateMs`, `family`) beside an API-format `workflow.json` whose values hold
   `{{prompt}}`, `{{seed}}`, `{{width}}`/`{{height}}`, `{{image}}`..`{{image4}}` and each input id. Folders are read on
-  every refresh and run, and a preset is listed only when the server has every node class and every model file its
-  workflow names (`/object_info`), so a half-installed one never queues. A job uploads its references, posts the graph
-  to `/prompt`, shows the sampler's steps from the websocket, waits on `/history` and downloads the first output; a
+  every refresh and run, and again (with the server's `/object_info`) whenever a device opens Studio (`studio.list`),
+  so a preset folder or a model file dropped in since shows up without a Refresh. A preset is listed only when the
+  server has every node class and every model file its workflow names (`/object_info`), so a half-installed one never
+  queues; a preset naming one checkpoint file (e.g. Jib Mix Moss) appears the moment that file lands. A job uploads
+  its references, posts the graph to `/prompt`, shows the sampler's steps from the websocket, waits on `/history` and
+  downloads the first output; a
   cancel deletes it from the queue and interrupts it. Switching to a preset of another `family` first asks the server
   to unload its models (`/free`), and ten idle minutes unload them too, so the Mac's unified memory goes back to LTX,
   Kontext and Qwen. `comfyui` runs on `http://127.0.0.1:8188` (`$RELAY_STUDIO_COMFYUI_URL`) in the GPU queue with

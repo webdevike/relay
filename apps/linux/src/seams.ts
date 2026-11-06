@@ -319,6 +319,8 @@ export interface DropBox {
  */
 export interface StudioRelaying {
   state(): StudioState;
+  /** A device asked for Studio: re-reads the local preset backends and pushes `studio.state` if they changed. Never rejects. */
+  rescan(): Promise<void>;
   /** Never rejects: a refusal is `{ ok: false, error }`. A `create` carries its own origin. */
   handle(op: StudioOp): Promise<Omit<StudioResult, "rid">>;
   /** An output's or upload's file iff `token` is its token; null otherwise. */

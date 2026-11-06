@@ -451,6 +451,41 @@ describe("studio paid jobs", () => {
   });
 });
 
+describe("studio rescan", () => {
+  it("re-reads only the preset backends, pushes studio.state only when they changed, and then runs the new preset", async () => {
+    const h = harness();
+    await flush();
+    const comfy = h.runners.comfyui.backend;
+    const angles = comfy.models?.[0];
+    if (angles === undefined) throw new Error("the fake comfyui backend has no preset");
+    h.runners.ltx.backend = { ...BACKEND_BASE.ltx, reason: "not re-read by a rescan" };
+    const before = h.sent.length;
+    await h.service.rescan();
+    expect(h.sent.length).toBe(before);
+
+    h.runners.comfyui.backend = {
+      ...comfy,
+      models: [angles, { ...angles, id: "jib-mix-moss", name: "Jib Mix Moss (local)", refs: 0 }],
+    };
+    await h.service.rescan();
+    const state = h.sent.at(-1);
+    if (state?.t !== "studio.state")
+      throw new Error(`expected studio.state, got ${String(state?.t)}`);
+    expect(
+      state.backends.find((backend) => backend.id === "comfyui")?.models?.map((model) => model.id),
+    ).toEqual(["angles", "jib-mix-moss"]);
+    expect(state.backends.find((backend) => backend.id === "ltx")?.available).toBe(true);
+    const job = await create(h.service, {
+      ...imageSpec(),
+      backend: "comfyui",
+      model: "jib-mix-moss",
+      resolution: "1mp",
+      aspect: "1:1",
+    });
+    expect(job.state).toBe("running");
+  });
+});
+
 describe("studio spec checks", () => {
   const ltx = { ...BACKEND_BASE.ltx, available: true };
   const edit = { ...BACKEND_BASE["codex-edit"], available: true };
