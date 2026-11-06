@@ -196,8 +196,11 @@ export function registerLiveIpc(
   ctx: MainContext,
   manager: SessionManager,
   mini: Mini | null,
+  /** `@computer` (SPEC.md): answers true for a message it took, which then never reaches omp. */
+  computer: { intercept(paneId: string, text: string): boolean } | null = null,
 ): void {
   handle(ctx, 'chat.send', async ({ paneId, text, images, force }) => {
+    if (computer?.intercept(paneId, text)) return { accepted: true as const }
     await manager.send(paneId, text, {
       ...(images ? { images } : {}),
       ...(force ? { force } : {}),

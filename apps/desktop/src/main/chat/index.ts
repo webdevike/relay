@@ -41,6 +41,7 @@ import { registerTranscriptIpc, resolveInsideSessionsDir } from './transcript-ip
 import type { Place } from '@evaos/chat-core/work'
 import type { Assistants } from '@evaos/contract'
 import type { RelaySession } from '../relay/feed'
+import { registerComputer } from '../computer'
 
 export interface ChatHandles {
   /** Subscribe to debounced batches of changed session paths; do not start a second watcher. */
@@ -104,7 +105,15 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     remote,
     new SessionOwners(ctx.env.evaRoot),
   )
-  registerLiveIpc(ctx, manager, mini)
+  // `@computer` (SPEC.md) takes its messages before routing; it asks the assistants list (below)
+  // which thread a chat is, only when a run starts.
+  const computer = registerComputer(ctx, {
+    fileOf: (paneId) => manager.paneFiles().find((p) => p.paneId === paneId)?.file ?? null,
+    chatAgentOf: (file) =>
+      file === null ? null : (assistants.list().agents.find((a) => a.file === file)?.id ?? null),
+    remote: mini !== null,
+  })
+  registerLiveIpc(ctx, manager, mini, computer)
   // Before the list loads its order: a fresh live config starts from the native app's history.
   if (ctx.env.live) importNativeChatState(ctx.config, nativeConfigDir())
   const list = new ChatListService({
