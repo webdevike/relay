@@ -58,7 +58,7 @@ Awareness (y-protocols, y-websocket wire protocol, same as canvas): every partic
 ## 3. Host HTTP (apps/linux, loopback only, JSON; same rules as boards/http.ts: refuse non-loopback,
 ## refuse an Origin header on writes, writes need content-type application/json)
 
-Names are the skill's bare name (`canvas`), `^[a-z0-9][a-z0-9._-]{0,79}$` (also accept `:` for plugin-namespaced names if found).
+Names are the skill's name as omp lists it (`canvas`), `^[a-z0-9][a-z0-9._:-]{0,79}(/[a-z0-9][a-z0-9._:-]{0,79})?$`: `:` for plugin-namespaced names, `/` for omp's alias of a copy whose name another source took (`agents/hallmark`, URL-encoded in routes).
 
 - `GET /skills` -> `SkillList`
 - `GET /skills/<name>` -> `SkillDetail` | 404
@@ -73,22 +73,29 @@ Names are the skill's bare name (`canvas`), `^[a-z0-9][a-z0-9._-]{0,79}$` (also 
 - `POST /skills/<name>/leave` `{ as: string }` -> `{ ok: true }`
 
 ```ts
-type SourceKey = 'eva' | 'omp' | 'agents' | 'claude' | 'plugin'
-interface SkillSource { key: SourceKey; label: string; dir: string /* display path, ~ for home */; file: string /* absolute SKILL.md path */ }
+interface SkillSource { key: string /* omp's source id: native:project, native:user, agents:user, claude:project, claude-plugins:user, ... */; label: string /* Project, User, Agents, Claude project, ... */; dir: string /* display path, ~ for home */; file: string /* absolute SKILL.md path */ }
 interface Assistant { id: string; title: string; profile: string | null; color: string /* avatar.colors.accent */ }
 interface SkillRow {
   name: string; description: string
-  source: SkillSource            // primary copy (omp precedence: eva, omp, plugin, claude, agents)
-  also: SkillSource[]            // other copies of the same name (symlinked or differing); the UI shows ".agents +1"
+  source: SkillSource            // the copy omp lists (`omp [--profile p] skill list --json` in the Eva checkout; assistants' profiles first)
+  also: SkillSource[]            // other copies of the same name other profiles list
   updatedAt: number              // ms, newest mtime in the skill folder
-  usedBy: string[]               // assistant ids that load it (profile not disabling it, not `enabled: false`)
+  usedBy: string[]               // assistant ids whose profile lists it and does not disable it, not `enabled: false`
   disabled: boolean              // SKILL.md frontmatter `enabled: false`
-  lastUsedAt: number | null      // newest `skill://<name>` read in the last 30 days of omp sessions
+  lastUsedAt: number | null      // newest load ever (apps/linux/src/skills/usage.ts)
+  uses: number | null            // loads ever; null while the host's first usage scan runs (absent from older hosts)
 }
 interface SkillList { skills: SkillRow[]; assistants: Assistant[] }
+interface SkillAgentUses {
+  agent: string                  // assistant id, omp agent (scout, helper-deep, session = default agent), job name, eren, elysia, claude-code, other
+  kind: 'assistant' | 'session' | 'subagent' | 'job' | 'background' | 'claude' | 'other'
+  owner: string | null           // the assistant it worked for
+  uses: number; lastUsedAt: number
+}
 interface SkillDetail extends SkillRow {
   files: { path: string /* relative to the skill folder */; size: number }[]
-  usage: { lastUsedAt: number | null; lastUsedBy: string | null /* assistant title(s) of the profile */; loads30d: number }
+  stats: { uses: number; uses7d: number; uses30d: number; lastUsedAt: number | null; firstUsedAt: number | null
+           byAgent: SkillAgentUses[] /* most uses first */; daily: number[] /* 30 local days, today last */ } | null
   profiles: Record<string /*assistantId*/, string | null> // profile each assistant runs, so the UI can say toggles are shared
 }
 ```

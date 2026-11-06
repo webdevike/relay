@@ -116,6 +116,9 @@ export function SkillsPage(_: { place: Place }) {
     [list, query, source, usedBy, sort],
   )
   const row = list?.find((r) => r.name === selected) ?? null
+  // A host from before usage stats sends no uses: no Uses or Last used column then.
+  const usage = (list ?? []).some((r) => r.uses !== undefined)
+  const never = (list ?? []).filter((r) => r.uses === 0).length
 
   const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>): void => {
     e.preventDefault()
@@ -141,7 +144,7 @@ export function SkillsPage(_: { place: Place }) {
       </h1>
       {available && list ? (
         <span className="eva-skills-dim" data-testid="skills-count">
-          {list.length} available to your assistants
+          {list.length} skills{usage && never > 0 ? `, ${never} never used` : ''}
         </span>
       ) : null}
     </header>
@@ -216,6 +219,7 @@ export function SkillsPage(_: { place: Place }) {
             selected={selected}
             onSelect={selectSkill}
             now={now}
+            usage={usage}
             empty={<SkillsEmpty filtered={(list ?? []).length > 0} />}
           />
         </ScrollArea>

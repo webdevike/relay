@@ -5,12 +5,18 @@ import { z } from 'zod'
  * loopback routes (`/skills/...`). Shapes hand-ported from proof/skills-page/CONTRACT.md.
  */
 
-/** A skill's bare name (`canvas`), `:` allowed for plugin-namespaced ones. */
-export const SkillNameSchema = z.string().regex(/^[a-z0-9][a-z0-9._:-]{0,79}$/)
+/**
+ * A skill's name as omp lists it: bare (`canvas`), `:` for plugin-namespaced ones, or omp's
+ * `<source>/<name>` for a copy whose name another source took (`agents/hallmark`).
+ */
+export const SkillNameSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9._:-]{0,79}(?:\/[a-z0-9][a-z0-9._:-]{0,79})?$/)
 
 export const SkillSourceSchema = z.object({
-  key: z.enum(['eva', 'omp', 'agents', 'claude', 'plugin']),
-  /** `Eva`, `.agents`, `.claude`, `omp`, or the plugin's name. */
+  /** omp's source id: `native:project`, `native:user`, `agents:user`, `claude:project`, a plugin's... */
+  key: z.string().max(100),
+  /** `Project`, `User`, `Agents`, `Claude project`, ... */
   label: z.string().max(200),
   /** The folder for display, `~` for home. */
   dir: z.string().max(4096),
@@ -31,7 +37,7 @@ export type SkillAssistant = z.infer<typeof SkillAssistantSchema>
 export const SkillRowSchema = z.object({
   name: SkillNameSchema,
   description: z.string().max(4000),
-  /** The copy omp loads (precedence: eva, omp, plugin, claude, agents). */
+  /** The copy omp lists (the assistants' profiles first). */
   source: SkillSourceSchema,
   /** Other copies of the same name. */
   also: z.array(SkillSourceSchema).max(20),
@@ -41,18 +47,42 @@ export const SkillRowSchema = z.object({
   usedBy: z.array(z.string().max(100)).max(100),
   /** The SKILL.md frontmatter says `enabled: false`. */
   disabled: z.boolean(),
+  /** The newest load, ms; null when never. */
   lastUsedAt: z.number().nullable(),
+  /** Loads ever; null while the host's first usage scan runs, absent from hosts before usage stats. */
+  uses: z.number().int().nullable().optional(),
 })
 export type SkillRow = z.infer<typeof SkillRowSchema>
 
+/** Loads of one skill by one agent. */
+export const SkillAgentUsesSchema = z.object({
+  /** An assistant id, omp agent (`scout`; `session` for the default), job name, `eren`, `elysia`, `claude-code` or `other`. */
+  agent: z.string().max(100),
+  kind: z.enum(['assistant', 'session', 'subagent', 'job', 'background', 'claude', 'other']),
+  /** The assistant it worked for; null when none or unknown. */
+  owner: z.string().max(100).nullable(),
+  uses: z.number().int(),
+  lastUsedAt: z.number(),
+})
+export type SkillAgentUses = z.infer<typeof SkillAgentUsesSchema>
+
+export const SkillStatsSchema = z.object({
+  uses: z.number().int(),
+  uses7d: z.number().int(),
+  uses30d: z.number().int(),
+  lastUsedAt: z.number().nullable(),
+  firstUsedAt: z.number().nullable(),
+  /** Most uses first. */
+  byAgent: z.array(SkillAgentUsesSchema).max(500),
+  /** Loads per local day for the last 30 days, oldest first, today last. */
+  daily: z.array(z.number().int()).max(31),
+})
+export type SkillStats = z.infer<typeof SkillStatsSchema>
+
 export const SkillDetailSchema = SkillRowSchema.extend({
   files: z.array(z.object({ path: z.string().max(4096), size: z.number() })).max(2000),
-  usage: z.object({
-    lastUsedAt: z.number().nullable(),
-    /** The assistant title(s) of the profile that read it last. */
-    lastUsedBy: z.string().max(400).nullable(),
-    loads30d: z.number().int(),
-  }),
+  /** Null while the host's first usage scan runs; absent from hosts before usage stats. */
+  stats: SkillStatsSchema.nullable().optional(),
   /** The profile each assistant runs, so toggles that are shared can say so. */
   profiles: z.record(z.string(), z.string().nullable()),
 })

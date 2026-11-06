@@ -288,3 +288,79 @@
 .eva-skills .eva-skills-files li > span:first-child {
   overflow-wrap: anywhere;
 }
+
+/* Uses in the table and the Usage tab: counts right-aligned in tabular figures. */
+.eva-skills .eva-skills-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Usage tab: the three counts, the last 30 days and who loads it. */
+.eva-skills .eva-skills-figures {
+  display: flex;
+  gap: var(--mantine-spacing-xl);
+}
+.eva-skills .eva-skills-figure {
+  display: flex;
+  flex-direction: column;
+}
+.eva-skills .eva-skills-figure-n {
+  font-size: var(--eva-fz-display);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--eva-c-foreground);
+}
+.eva-skills .eva-skills-trend {
+  display: flex;
+  align-items: flex-end;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  height: calc(var(--eva-tile-md) * 1.5);
+}
+.eva-skills .eva-skills-trend-bar {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--eva-radius-sm) var(--eva-radius-sm) 0 0;
+  background: color-mix(in srgb, var(--eva-c-muted-foreground) 45%, transparent);
+}
+.eva-skills .eva-skills-trend-bar[data-empty] {
+  background: color-mix(in srgb, var(--eva-c-muted-foreground) 15%, transparent);
+}
+.eva-skills .eva-skills-trend-bar[data-today] {
+  background: var(--eva-c-primary-background);
+}
+.eva-skills .eva-skills-trend-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-skills .eva-skills-agents {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-skills .eva-skills-agents li {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-skills .eva-skills-portrait-gap {
+  width: var(--eva-tile-xs);
+  flex: none;
+}
+.eva-skills .eva-skills-agent {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-xs);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.eva-skills .eva-skills-agent-name {
+  font-size: var(--eva-fz-body);
+  color: var(--eva-c-foreground);
+}

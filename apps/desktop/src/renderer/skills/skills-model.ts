@@ -1,6 +1,6 @@
-import type { SkillAssistant, SkillRow, SkillSource } from '@evaos/contract'
+import type { SkillAgentUses, SkillAssistant, SkillRow, SkillSource } from '@evaos/contract'
 
-export type SkillSortKey = 'name' | 'updated'
+export type SkillSortKey = 'name' | 'uses' | 'lastUsed' | 'updated'
 export interface SkillSort {
   key: SkillSortKey
   dir: 'asc' | 'desc'
@@ -8,7 +8,7 @@ export interface SkillSort {
 /** Name, A to Z. */
 export const DEFAULT_SORT: SkillSort = { key: 'name', dir: 'asc' }
 
-/** The Source select: `all`, or one source's label (`Eva`, `.agents`, a plugin's name). */
+/** The Source select: `all`, or one source's label (`Project`, `Agents`, `Claude project`). */
 export const ANY = 'all'
 
 export interface SkillFilter {
@@ -30,11 +30,19 @@ export function filterSkills(rows: readonly SkillRow[], f: SkillFilter): SkillRo
   })
 }
 
+/** A row's value for a numeric column; a skill whose uses are not known yet sorts below 0. */
+function sortValue(r: SkillRow, key: Exclude<SkillSortKey, 'name'>): number {
+  if (key === 'uses') return r.uses ?? -1
+  if (key === 'lastUsed') return r.lastUsedAt ?? 0
+  return r.updatedAt
+}
+
 /** A sorted copy; ties fall back to the name so the order is stable. */
 export function sortSkills(rows: readonly SkillRow[], sort: SkillSort): SkillRow[] {
   const sign = sort.dir === 'asc' ? 1 : -1
+  const { key } = sort
   return [...rows].sort((a, b) => {
-    const by = sort.key === 'updated' ? a.updatedAt - b.updatedAt : a.name.localeCompare(b.name)
+    const by = key === 'name' ? a.name.localeCompare(b.name) : sortValue(a, key) - sortValue(b, key)
     return by === 0 ? a.name.localeCompare(b.name) : by * sign
   })
 }
@@ -50,14 +58,14 @@ export function sourceLabels(rows: readonly SkillRow[]): string[] {
   return [...new Set(rows.map((r) => r.source.label))]
 }
 
-/** `Eva`, or `.agents +1` when other copies exist. */
+/** `Project`, or `Agents +1` when other copies exist. */
 export function sourcePill(row: { source: SkillSource; also: readonly SkillSource[] }): string {
   return row.also.length > 0 ? `${row.source.label} +${row.also.length}` : row.source.label
 }
 
 const DAY = 86_400_000
 
-/** The Updated column by calendar day: `today`, `3d ago`, `2w ago`, `4mo ago`, `2y ago`. */
+/** The Updated and Last used columns, by calendar day: `today`, `3d ago`, `2w ago`, `4mo ago`, `2y ago`. */
 export function updatedLabel(at: number, now: number): string {
   const midnight = (t: number): number => new Date(t).setHours(0, 0, 0, 0)
   const days = Math.max(0, Math.round((midnight(now) - midnight(at)) / DAY))
@@ -76,6 +84,40 @@ export function lastUsedLabel(at: number, now: number): string {
   if (minutes < 60) return count(minutes, 'minute')
   if (minutes < 1440) return count(Math.floor(minutes / 60), 'hour')
   return count(Math.floor(minutes / 1440), 'day')
+}
+
+/**
+ * Who a by-agent row is, for people: the agent's name and what it ran as. An assistant is its
+ * title; a session or subagent says whose work it was; `other` is a session nothing in Relay started.
+ */
+export function agentLabel(
+  use: Pick<SkillAgentUses, 'agent' | 'kind' | 'owner'>,
+  assistants: readonly SkillAssistant[],
+): { name: string; detail: string } {
+  const title = (id: string): string => assistants.find((a) => a.id === id)?.title ?? id
+  const forOwner = use.owner === null ? '' : ` for ${title(use.owner)}`
+  switch (use.kind) {
+    case 'assistant':
+      return { name: title(use.agent), detail: 'Assistant thread' }
+    case 'session':
+      return {
+        name: use.agent === 'session' ? 'Session' : use.agent,
+        detail: `Session${forOwner}`,
+      }
+    case 'subagent':
+      return { name: use.agent, detail: `Subagent${forOwner}` }
+    case 'job':
+      return { name: use.agent, detail: `Job${forOwner}` }
+    case 'background':
+      return {
+        name: `${use.agent.charAt(0).toUpperCase()}${use.agent.slice(1)}`,
+        detail: `Background${forOwner}`,
+      }
+    case 'claude':
+      return { name: 'Claude Code', detail: 'Claude Code session' }
+    case 'other':
+      return { name: 'Other', detail: 'Sessions not started by an assistant or job' }
+  }
 }
 
 /** `4.2 KB`, `312 B`. */

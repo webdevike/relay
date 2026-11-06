@@ -6,7 +6,6 @@ import '../settings/settings.css'
 import {
   accessChange,
   joinTitles,
-  lastUsedLabel,
   scopeAccess,
   scopeOf,
   sharedProfiles,
@@ -67,8 +66,8 @@ function ScopeCard({
   )
 }
 
-/** The Settings tab, in Settings' card and row style: who loads the skill, where it lives, its use. */
-export function SkillSettings({ row, detail, assistants, now }: SkillSettingsProps) {
+/** The Settings tab, in Settings' card and row style: who loads the skill and where it lives. */
+export function SkillSettings({ row, detail, assistants }: SkillSettingsProps) {
   const profiles = detail?.profiles ?? {}
   const shared = sharedProfiles(assistants, profiles)
   const scope = scopeOf(row.usedBy, assistants, profiles)
@@ -81,8 +80,6 @@ export function SkillSettings({ row, detail, assistants, now }: SkillSettingsPro
       : assistants
           .filter((a) => accessChange(assistants, profiles, oneId, true)[a.id])
           .map((a) => a.title)
-  const usage = detail?.usage
-  const lastAt = usage ? usage.lastUsedAt : row.lastUsedAt
   const off = row.usedBy.length === 0
 
   return (
@@ -191,29 +188,6 @@ export function SkillSettings({ row, detail, assistants, now }: SkillSettingsPro
         ) : (
           <Text size="sm" c="dimmed">
             Reading the folder
-          </Text>
-        )}
-      </Section>
-
-      <Section title="Last used">
-        {lastAt !== null ? (
-          <div>
-            <Text size="sm">
-              {lastUsedLabel(lastAt, now)}
-              {usage?.lastUsedBy ? (
-                <span className="eva-skills-dim"> by {usage.lastUsedBy}</span>
-              ) : null}
-            </Text>
-            {usage ? (
-              <Text size="sm" c="dimmed">
-                Loaded {usage.loads30d} {usage.loads30d === 1 ? 'time' : 'times'} in the last 30
-                days
-              </Text>
-            ) : null}
-          </div>
-        ) : (
-          <Text size="sm" c="dimmed">
-            Not used in the last 30 days
           </Text>
         )}
       </Section>

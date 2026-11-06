@@ -40,7 +40,7 @@ const DETAIL: SkillDetail = {
     { path: 'SKILL.md', size: 4200 },
     { path: 'scripts/validate.sh', size: 312 },
   ],
-  usage: { lastUsedAt: NOW - 2 * 3_600_000, lastUsedBy: 'Nova', loads30d: 14 },
+  stats: null,
   profiles: { nova: 'personal', astra: 'work', polaris: 'personal' },
 }
 
@@ -68,7 +68,7 @@ beforeEach(() => {
 })
 
 describe('SkillSettings', () => {
-  it('shows who loads it, the shared profile, the files and the last use', () => {
+  it('shows who loads it, the shared profile and the files', () => {
     ui()
     expect(screen.getByTestId('skill-enabled-nova')).toBeChecked()
     expect(screen.getByTestId('skill-enabled-astra')).not.toBeChecked()
@@ -77,9 +77,6 @@ describe('SkillSettings', () => {
     expect(screen.getByText('Read-only. Edit in the Editor tab.')).toBeInTheDocument()
     expect(screen.getByText('scripts/validate.sh')).toBeInTheDocument()
     expect(screen.getByText('312 B')).toBeInTheDocument()
-    expect(screen.getByText('2 hours ago')).toBeInTheDocument()
-    expect(screen.getByText('by Nova', { exact: false })).toBeInTheDocument()
-    expect(screen.getByText('Loaded 14 times in the last 30 days')).toBeInTheDocument()
     // Nova and Polaris are one profile, so this reads as one assistant only.
     expect(screen.getByTestId('skill-scope-one')).toHaveAttribute('aria-checked', 'true')
   })
@@ -125,11 +122,7 @@ describe('SkillSettings', () => {
       enabled: { nova: false, astra: false, polaris: false },
     })
     unmount()
-    ui(
-      { ...ROW, usedBy: [], lastUsedAt: null },
-      { ...DETAIL, usedBy: [], usage: { lastUsedAt: null, lastUsedBy: null, loads30d: 0 } },
-    )
-    expect(screen.getByText('Not used in the last 30 days')).toBeInTheDocument()
+    ui({ ...ROW, usedBy: [], lastUsedAt: null }, { ...DETAIL, usedBy: [] })
     fireEvent.click(screen.getByRole('button', { name: 'Enable skill' }))
     expect(invoke).toHaveBeenLastCalledWith('skills.access', {
       name: 'canvas',

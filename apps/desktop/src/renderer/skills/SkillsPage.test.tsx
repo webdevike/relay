@@ -37,11 +37,28 @@ const row = (name: string, over: Partial<SkillRow> = {}): SkillRow => ({
 const LIST: SkillList = {
   available: true,
   skills: [
-    row('canvas', { description: 'Build and open boards on the EvaOS Canvas.' }),
-    row('adhd', { description: 'Parallel divergent ideation', usedBy: ['nova', 'polaris'] }),
+    row('canvas', {
+      description: 'Build and open boards on the EvaOS Canvas.',
+      uses: 12,
+      lastUsedAt: NOW - 3 * 3_600_000,
+    }),
+    row('adhd', {
+      description: 'Parallel divergent ideation',
+      usedBy: ['nova', 'polaris'],
+      uses: 0,
+    }),
     row('cloudflare', {
-      source: { key: 'agents', label: '.agents', dir: '~/.agents/skills/cloudflare', file: '/a' },
-      also: [{ key: 'claude', label: '.claude', dir: '~/.claude/skills/cloudflare', file: '/c' }],
+      source: {
+        key: 'agents:user',
+        label: 'Agents',
+        dir: '~/.agents/skills/cloudflare',
+        file: '/a',
+      },
+      also: [
+        { key: 'native:user', label: 'User', dir: '~/.omp/agent/skills/cloudflare', file: '/c' },
+      ],
+      uses: 3,
+      lastUsedAt: NOW - 5 * 86_400_000,
     }),
   ],
   assistants: [
@@ -52,7 +69,31 @@ const LIST: SkillList = {
 const detail = (r: SkillRow): SkillDetail => ({
   ...r,
   files: [{ path: 'SKILL.md', size: 4200 }],
-  usage: { lastUsedAt: null, lastUsedBy: null, loads30d: 0 },
+  stats:
+    r.uses === undefined
+      ? undefined
+      : {
+          uses: r.uses ?? 0,
+          uses7d: r.name === 'canvas' ? 5 : 0,
+          uses30d: r.name === 'canvas' ? 9 : 0,
+          lastUsedAt: r.lastUsedAt,
+          firstUsedAt: r.lastUsedAt === null ? null : NOW - 40 * 86_400_000,
+          byAgent:
+            r.name === 'canvas'
+              ? [
+                  {
+                    agent: 'helper-visual',
+                    kind: 'subagent',
+                    owner: 'nova',
+                    uses: 7,
+                    lastUsedAt: NOW,
+                  },
+                  { agent: 'nova', kind: 'assistant', owner: null, uses: 4, lastUsedAt: NOW },
+                  { agent: 'other', kind: 'other', owner: null, uses: 1, lastUsedAt: NOW },
+                ]
+              : [],
+          daily: Array.from({ length: 30 }, (_, i) => (i === 29 ? 2 : 0)),
+        },
   profiles: { nova: 'personal', polaris: 'personal' },
 })
 
@@ -89,11 +130,17 @@ describe('SkillsPage', () => {
     ui()
     expect(await screen.findByTestId('skill-row-canvas')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Skills' })).toBeInTheDocument()
-    expect(screen.getByTestId('skills-count')).toHaveTextContent('3 available to your assistants')
+    expect(screen.getByTestId('skills-count')).toHaveTextContent('3 skills, 1 never used')
     expect(names()).toEqual(['adhd', 'canvas', 'cloudflare'])
     const cf = screen.getByTestId('skill-row-cloudflare')
-    expect(within(cf).getByText('.agents +1')).toBeInTheDocument()
+    expect(within(cf).getByText('Agents +1')).toBeInTheDocument()
     expect(within(cf).getByText('2d ago')).toBeInTheDocument()
+    expect(within(cf).getByText('5d ago')).toBeInTheDocument()
+    expect(screen.getByTestId('skill-uses-canvas')).toHaveTextContent('12')
+    // Never used: a quiet 0 and Never.
+    const adhd = screen.getByTestId('skill-row-adhd')
+    expect(within(adhd).getByText('Never')).toBeInTheDocument()
+    expect(screen.getByTestId('skill-uses-adhd')).toHaveTextContent('0')
     expect(
       within(screen.getByTestId('skill-row-adhd')).getByRole('img', { name: 'Nova, Polaris' }),
     ).toBeInTheDocument()
@@ -109,6 +156,66 @@ describe('SkillsPage', () => {
     fireEvent.change(screen.getByLabelText('Search skills'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sort by name' }))
     expect(names()).toEqual(['cloudflare', 'canvas', 'adhd'])
+  })
+
+  it('sorts by uses and by last use, most first', async () => {
+    answer()
+    ui()
+    await screen.findByTestId('skill-row-canvas')
+    fireEvent.click(screen.getByRole('button', { name: 'Sort by uses' }))
+    expect(names()).toEqual(['canvas', 'cloudflare', 'adhd'])
+    fireEvent.click(screen.getByRole('button', { name: 'Sort by uses' }))
+    expect(names()).toEqual(['adhd', 'cloudflare', 'canvas'])
+    fireEvent.click(screen.getByRole('button', { name: 'Sort by last used' }))
+    expect(names()).toEqual(['canvas', 'cloudflare', 'adhd'])
+  })
+
+  it('leaves out Uses and Last used with a host that does not count uses', async () => {
+    answer({
+      ...LIST,
+      skills: LIST.skills.map(({ uses: _uses, ...rest }) => ({ ...rest, lastUsedAt: null })),
+    })
+    ui()
+    await screen.findByTestId('skill-row-canvas')
+    expect(screen.queryByRole('button', { name: 'Sort by uses' })).toBeNull()
+    expect(screen.getByTestId('skills-count')).toHaveTextContent('3 skills')
+    fireEvent.click(screen.getByTestId('skill-row-canvas'))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Usage' }))
+    expect(await screen.findByTestId('skill-usage-old-host')).toBeInTheDocument()
+  })
+
+  it("shows a skill's uses by agent and its last 30 days in the Usage tab", async () => {
+    answer()
+    ui()
+    fireEvent.click(await screen.findByTestId('skill-row-canvas'))
+    const panel = await screen.findByTestId('skill-panel')
+    expect(within(panel).getByTestId('skill-panel-uses')).toHaveTextContent(
+      '12 uses, last 3 hours ago',
+    )
+    fireEvent.click(within(panel).getByRole('tab', { name: 'Usage' }))
+    const usage = await screen.findByTestId('skill-usage')
+    expect(within(usage).getByText('All time').previousSibling).toHaveTextContent('12')
+    expect(within(usage).getByText('30 days').previousSibling).toHaveTextContent('9')
+    expect(within(usage).getByText('7 days').previousSibling).toHaveTextContent('5')
+    const agents = within(screen.getByTestId('skill-by-agent')).getAllByRole('listitem')
+    expect(agents.map((li) => li.textContent)).toEqual([
+      'helper-visualSubagent for Nova7',
+      'NovaAssistant thread4',
+      'OtherSessions not started by an assistant or job1',
+    ])
+    expect(screen.getByTestId('skill-trend')).toHaveAccessibleName('2 uses in the last 30 days')
+  })
+
+  it('says quietly when a skill was never used', async () => {
+    answer()
+    ui()
+    fireEvent.click(await screen.findByTestId('skill-row-adhd'))
+    const panel = await screen.findByTestId('skill-panel')
+    expect(within(panel).getByTestId('skill-panel-uses')).toHaveTextContent('Never used')
+    fireEvent.click(within(panel).getByRole('tab', { name: 'Usage' }))
+    expect(await screen.findByTestId('skill-usage-never')).toHaveTextContent(
+      'No agent has loaded adhd yet.',
+    )
   })
 
   it('selects a row into the panel and moves with the arrow keys', async () => {

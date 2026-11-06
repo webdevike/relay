@@ -16,6 +16,8 @@ interface SkillsTableProps {
   selected: string | null
   onSelect: (name: string) => void
   now: number
+  /** The host counts uses (a host from before usage stats does not): show Uses and Last used. */
+  usage: boolean
   /** Shown instead of rows when there are none (no skills, or none match). */
   empty: ReactNode
 }
@@ -59,8 +61,9 @@ function SortLabel({
 
 /**
  * The library on Relay's list (columns mode, as Jobs and Test Bench): name, description, source,
- * who loads it and its age. Name and Updated sort from their headers; Up and Down move between
- * rows, and the focused row is the selected one.
+ * who loads it, how often and how lately it was used, and its age. Name, Uses, Last used and
+ * Updated sort from their headers; Up and Down move between rows, and the focused row is the
+ * selected one. A skill never used says so quietly.
  */
 export function SkillsTable({
   rows,
@@ -71,6 +74,7 @@ export function SkillsTable({
   selected,
   onSelect,
   now,
+  usage,
   empty,
 }: SkillsTableProps) {
   const byId = new Map(assistants.map((a) => [a.id, a]))
@@ -92,6 +96,22 @@ export function SkillsTable({
     // portraits and push the Description column to a different left edge in each row.
     { id: 'source', label: 'Source', width: '9rem', align: 'start' },
     { id: 'used', label: 'Used by', width: '5rem', align: 'start' },
+    ...(usage
+      ? [
+          {
+            id: 'uses',
+            label: <SortLabel label="Uses" column="uses" sort={sort} onSort={onSort} />,
+            width: '4.5rem',
+            align: 'end' as const,
+          },
+          {
+            id: 'last',
+            label: <SortLabel label="Last used" column="lastUsed" sort={sort} onSort={onSort} />,
+            width: '5.5rem',
+            align: 'end' as const,
+          },
+        ]
+      : []),
     {
       id: 'updated',
       label: <SortLabel label="Updated" column="updated" sort={sort} onSort={onSort} />,
@@ -151,6 +171,26 @@ export function SkillsTable({
                   {r.disabled ? 'Off' : 'None'}
                 </span>
               ),
+              ...(usage
+                ? [
+                    <span
+                      key="n"
+                      className={r.uses === 0 ? 'eva-skills-num eva-skills-dim' : 'eva-skills-num'}
+                      data-testid={`skill-uses-${r.name}`}
+                    >
+                      {r.uses?.toLocaleString('en-US') ?? ''}
+                    </span>,
+                    r.lastUsedAt === null ? (
+                      <span key="l" className="eva-skills-dim">
+                        {r.uses === 0 ? 'Never' : ''}
+                      </span>
+                    ) : (
+                      <ListTime key="l" title={new Date(r.lastUsedAt).toLocaleString()}>
+                        {updatedLabel(r.lastUsedAt, now)}
+                      </ListTime>
+                    ),
+                  ]
+                : []),
               <ListTime key="t" title={new Date(r.updatedAt).toLocaleString()}>
                 {updatedLabel(r.updatedAt, now)}
               </ListTime>,
