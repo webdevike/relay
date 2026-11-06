@@ -142,6 +142,7 @@ interface HarnessOptions {
   history?: string[];
   agentHome?: null;
   launchFails?: boolean;
+  launch?: () => Promise<void>;
   fill?: { exit: number; stderr?: string };
   /** Settles the bridge's reconnect grace; default already over. */
   reconnected?: Promise<void>;
@@ -181,6 +182,7 @@ function harness(options: HarnessOptions = {}) {
     agents,
     launch: (launchOptions) => {
       launches.push(launchOptions);
+      if (options.launch !== undefined) return options.launch();
       return options.launchFails === true ? Promise.reject(new AckFailure({ code: "agent_launch_failed", message: "herdr is not installed" })) : Promise.resolve();
     },
     sessionFile: (sessionId) => files.get(sessionId) ?? null,
@@ -676,6 +678,24 @@ describe("AssistantService turns", () => {
     h.clock.advance(REGISTER_TIMEOUT_MS);
     await expect(turn).rejects.toMatchObject({ error: { code: "agent_launch_failed" } });
     expect(h.agents.replies).toEqual([]);
+  });
+
+  it.each(["resolve", "reject"] as const)("reports the registration timeout before a late launcher %s", async (outcome) => {
+    const launch = Promise.withResolvers<undefined>();
+    const h = harness({ launch: () => launch.promise });
+    let failure: unknown;
+    const turn = h.service.turn("hi").catch((error: unknown) => { failure = error; });
+    await flush();
+    h.clock.advance(REGISTER_TIMEOUT_MS);
+    await flush();
+    try {
+      expect(failure).toMatchObject({ error: { code: "agent_launch_failed" } });
+      expect(h.agents.replies).toEqual([]);
+    } finally {
+      if (outcome === "resolve") launch.resolve(undefined);
+      else launch.reject(new Error("launcher also timed out"));
+      await turn;
+    }
   });
 });
 

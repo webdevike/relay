@@ -119,9 +119,15 @@ jstr() {
   if [ -z "${1:-}" ]; then printf 'null'; else printf '"%s"' "$(json_esc "$1")"; fi
 }
 
-# Extract a value from JSON on stdin with plutil (always present on macOS). Prints raw value.
+# Extract a value from JSON on stdin (or a file) with plutil. Missing keys print nothing.
 # usage: printf '%s' "$json" | json_get Self.TailscaleIPs.0
-json_get() { plutil -extract "$1" raw -o - - 2>/dev/null || true; }
+json_get() {
+  local value
+  # plutil writes some errors to stdout, so emit its output only after a successful extraction.
+  if value="$(plutil -extract "$1" raw -o - "${2:--}" 2>/dev/null)"; then
+    printf '%s' "$value"
+  fi
+}
 
 # ---- macOS helpers ------------------------------------------------------------
 
