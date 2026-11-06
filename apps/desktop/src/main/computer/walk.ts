@@ -183,22 +183,23 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
     let win = await frontWindowOf(desktop, pid)
     if (!win) return end('failed', `${plan.app} closed its window at step ${n}.`)
     let snap = await desktop.read(win.windowId)
-    if (
-      (await judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0)) >= DONE_P
-    ) {
+    // Both questions are about the same read: ask them together, a judge call each is seconds.
+    const [already, picked] = await Promise.all([
+      judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0),
+      judge
+        .pick(
+          `Isaac's next step: "${step.instruction}". Which control should he use${step.target ? ` (it reads like "${step.target}")` : ''}?`,
+          snap.title,
+          targets(snap),
+          io.signal,
+        )
+        .catch(() => ({ choice: 'none', p: 0 })),
+    ])
+    if (already >= DONE_P) {
       io.progress(`Step ${n}: ${step.instruction} (already done)`)
       results.push('already')
       continue
     }
-    const options = targets(snap)
-    const picked = await judge
-      .pick(
-        `Isaac's next step: "${step.instruction}". Which control should he use${step.target ? ` (it reads like "${step.target}")` : ''}?`,
-        snap.title,
-        options,
-        io.signal,
-      )
-      .catch(() => ({ choice: 'none', p: 0 }))
     const frame =
       picked.choice === 'none'
         ? null

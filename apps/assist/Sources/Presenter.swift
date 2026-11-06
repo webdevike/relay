@@ -205,7 +205,8 @@ final class PresenterApp: NSObject, NSApplicationDelegate {
             refreshAvatar()
             let step1 = PlanStep(kind: .highlight(rect), label: caption, box: rect)
             awaitingLanded.insert(id)
-            overlay.perform(Plan(steps: [step1], say: caption), context: Self.context(), stay: true, stepNumber: step) { [weak self] in
+            // `hold`, not `stay`: up until the next op the same way, without Assist's "· staying" name tag.
+            overlay.perform(Plan(steps: [step1], say: caption), context: Self.context(), stay: false, hold: true, stepNumber: step) { [weak self] in
                 self?.emitLanded(id)
             }
             if let text, !text.isEmpty { speak(id: id, text) }
@@ -221,7 +222,7 @@ final class PresenterApp: NSObject, NSApplicationDelegate {
         case .caption(let id, let text, let speakIt):
             flushLanded()
             refreshAvatar()
-            overlay.perform(Plan(steps: [], say: text), context: Self.context(), stay: true)
+            overlay.perform(Plan(steps: [], say: text), context: Self.context(), stay: false, hold: true)
             emit(.landed(id: id))
             if speakIt { speak(id: id, text) }
         case .hide:
