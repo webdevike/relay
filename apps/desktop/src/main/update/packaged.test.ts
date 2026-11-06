@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import type { watch } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -80,13 +81,42 @@ describe('packaged updater helpers', () => {
     expect(keepsIdentity(stable, null)).toBe(false)
   })
 
-  it('a kick file triggers a check and is consumed', async () => {
+  // The real fs.watch (FSEvents) starts asynchronously and its latency is unbounded under load, so
+  // the tests inject the watcher and drive its event by hand instead of waiting on the OS.
+  function fakeWatch() {
+    let fire: (event: string, name: string | null) => void = () => undefined
+    let closed = false
+    const watchDir = ((_dir: string, listener: (event: string, name: string | null) => void) => {
+      fire = listener
+      return { on: () => undefined, close: () => (closed = true) }
+    }) as unknown as typeof watch
+    return { watchDir, fire: (name: string | null) => fire('rename', name), isClosed: () => closed }
+  }
+
+  it('a kick file appearing triggers a check and is consumed', () => {
     const d = tmp()
-    const { promise, resolve } = Promise.withResolvers<void>()
-    const stop = watchKick(d, resolve)
+    const w = fakeWatch()
+    let kicks = 0
+    const stop = watchKick(d, () => kicks++, w.watchDir)
+    expect(kicks).toBe(0)
     writeFileSync(path.join(d, KICK_FILE), '')
-    await promise
+    w.fire('other-file') // unrelated names are ignored
+    expect(kicks).toBe(0)
+    w.fire(KICK_FILE)
+    expect(kicks).toBe(1)
+    expect(existsSync(path.join(d, KICK_FILE))).toBe(false)
+    w.fire(KICK_FILE) // file already consumed: no second kick
+    expect(kicks).toBe(1)
     stop()
+    expect(w.isClosed()).toBe(true)
+  })
+
+  it('a kick file already present at start is taken at once', () => {
+    const d = tmp()
+    writeFileSync(path.join(d, KICK_FILE), '')
+    let kicks = 0
+    watchKick(d, () => kicks++, fakeWatch().watchDir)()
+    expect(kicks).toBe(1)
     expect(existsSync(path.join(d, KICK_FILE))).toBe(false)
   })
 })

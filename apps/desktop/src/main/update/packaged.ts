@@ -30,14 +30,18 @@ export const FIRST_CHECK_MS = 20_000
 export const KICK_FILE = 'update-now'
 
 /** Calls `onKick` whenever KICK_FILE appears in `dir` (also if it was already there), deleting it first. */
-export function watchKick(dir: string, onKick: () => void): () => void {
+export function watchKick(
+  dir: string,
+  onKick: () => void,
+  watchDir: typeof watch = watch,
+): () => void {
   const file = path.join(dir, KICK_FILE)
   const take = (): void => {
     if (!existsSync(file)) return
     rmSync(file, { force: true })
     onKick()
   }
-  const w = watch(dir, (_event, name) => {
+  const w = watchDir(dir, (_event, name) => {
     if (name === null || name === KICK_FILE) take()
   })
   w.on('error', () => undefined)

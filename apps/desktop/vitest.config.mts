@@ -43,6 +43,10 @@ export default defineConfig({
         },
         test: {
           name: 'renderer',
+          // jsdom + user-event tests are CPU-bound with no signal to await; vitest's 5s default
+          // fails them when a deploy gate or a second suite shares the machine.
+          testTimeout: 30_000,
+          hookTimeout: 30_000,
           // Style tests read tokens.css and motion.css through ?raw; do not blank CSS.
           css: { include: [/\.css(\?.*)?$/] },
           environment: 'jsdom',

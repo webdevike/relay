@@ -159,12 +159,12 @@ describe('fake job-run', () => {
     const { spawn } = await import('node:child_process')
     const child = spawn(process.execPath, [FAKE_JOB_RUN, 'nightly'], {
       cwd: dir,
-      env: env({ FAKE_JOB_RUN_WRITE: '1', FAKE_JOB_MS: '400' }),
+      env: env({ FAKE_JOB_RUN_WRITE: '1', FAKE_JOB_MS: '2000' }),
     })
     const done = new Promise<number | null>((r) => child.on('exit', r))
     const lock = path.join(dir, 'jobs/.runs/nightly.lock')
-    await sleep(200)
-    expect(fs.existsSync(lock)).toBe(true)
+    // Wait for the lock itself, not a guessed delay: a loaded machine can take seconds to start node.
+    while (!fs.existsSync(lock)) await sleep(10)
     expect(await done).toBe(0)
     expect(fs.existsSync(lock)).toBe(false)
     const runs = fs
