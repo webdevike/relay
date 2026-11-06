@@ -56,7 +56,10 @@ async function ask(
     const res = await post(`${origin}${path}`, {
       method,
       ...(method === 'POST'
-        ? { headers: { 'content-type': 'application/json', ...bearer(token) }, body: JSON.stringify(body ?? {}) }
+        ? {
+            headers: { 'content-type': 'application/json', ...bearer(token) },
+            body: JSON.stringify(body ?? {}),
+          }
         : {}),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
@@ -117,7 +120,9 @@ export function registerSkillsIpc(
   })
 
   handle(ctx, 'skills.access', async ({ name, enabled }) => {
-    const a = await ask(post, originOf(), relay.hostToken(), 'POST', path(name, '/access'), { enabled })
+    const a = await ask(post, originOf(), relay.hostToken(), 'POST', path(name, '/access'), {
+      enabled,
+    })
     return okJson(a) as SkillRow
   })
 

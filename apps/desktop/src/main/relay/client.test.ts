@@ -31,7 +31,11 @@ const dirs: string[] = []
 function configDir(port: number | null): string {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'relay-'))
   dirs.push(d)
-  if (port !== null) fs.writeFileSync(path.join(d, 'serve.json'), JSON.stringify({ port, pid: 1, controlToken: 'host-token' }))
+  if (port !== null)
+    fs.writeFileSync(
+      path.join(d, 'serve.json'),
+      JSON.stringify({ port, pid: 1, controlToken: 'host-token' }),
+    )
   return d
 }
 afterEach(() => {

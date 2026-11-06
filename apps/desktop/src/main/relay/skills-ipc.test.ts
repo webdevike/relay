@@ -43,7 +43,11 @@ describe('skills IPC', () => {
   const call = (channel: string, input: unknown): Promise<unknown> =>
     ipc.handlers.get(channel)!({ senderFrame: { url: 'app://shell' } }, input)
   const setup = (origin: string | null, post: unknown): void =>
-    registerSkillsIpc(ctx, { canvasOrigin: () => origin, hostToken: () => 'host-token' }, post as typeof fetch)
+    registerSkillsIpc(
+      ctx,
+      { canvasOrigin: () => origin, hostToken: () => 'host-token' },
+      post as typeof fetch,
+    )
   beforeEach(() => ipc.handlers.clear())
 
   it('lists what the host knows and marks it available', async () => {

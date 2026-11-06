@@ -144,7 +144,13 @@ describe('studio helpers', () => {
   })
 
   it('apply a job change in place or newest first, and a removal', () => {
-    const state: StudioState = { jobs: [job('b', 2), job('a', 1)], uploads: [], backends: [] }
+    const state: StudioState = {
+      jobs: [job('b', 2), job('a', 1)],
+      uploads: [],
+      backends: [],
+      projects: [],
+      references: [],
+    }
     const progressed = studioWithJob(state, job('a', 1, { state: 'running', progress: 0.5 }))
     expect(progressed.jobs.map((j) => [j.id, j.state])).toEqual([
       ['b', 'done'],

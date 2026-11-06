@@ -52,7 +52,14 @@ import {
   unsubscribeFrame,
   type RelayCommand,
 } from './commands'
-import { bearer, deviceSecret, remoteAuthority, servePort, serveToken, type RelayRemote } from './device'
+import {
+  bearer,
+  deviceSecret,
+  remoteAuthority,
+  servePort,
+  serveToken,
+  type RelayRemote,
+} from './device'
 
 /** Between attempts while Relay is down. */
 export const RETRY_MS = 3000
