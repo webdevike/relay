@@ -114,7 +114,10 @@ describe('splitReplies', () => {
 describe('splitReplies ask-label', () => {
   it('cuts an ask-label line before the token and returns its label', () => {
     expect(
-      splitReplies('Ready to push?\n[[ask-label: Push the fix]]\n[[replies: Yes | Not yet]]', false),
+      splitReplies(
+        'Ready to push?\n[[ask-label: Push the fix]]\n[[replies: Yes | Not yet]]',
+        false,
+      ),
     ).toEqual({ text: 'Ready to push?', replies: ['Yes', 'Not yet'], label: 'Push the fix' })
     expect(splitReplies('Ok?\n[[ask-label:  Ship   it ]]\n[[replies: Yes]]', false)).toEqual({
       text: 'Ok?',
