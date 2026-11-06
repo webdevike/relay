@@ -34,8 +34,8 @@ function plainLine(line: string): string {
     .trim();
 }
 
-/** The reply's readable lines, in order, outside code fences; with what the fences held. */
-function readable(markdown: string): { lines: string[]; fences: string[] } {
+/** The reply's readable lines as plain text, in order, outside code fences (a heading ends in ":"); with what the fences held. Open asks read their question from the lines. */
+export function readable(markdown: string): { lines: string[]; fences: string[] } {
   const lines: string[] = [];
   const fences: string[] = [];
   let fence: string | null = null;

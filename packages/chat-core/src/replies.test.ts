@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from './replies'
+import { MAX_ASK_LABEL, MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from './replies'
 
 describe('splitReplies', () => {
   it('cuts a trailing token and returns its answers', () => {
@@ -108,5 +108,48 @@ describe('splitReplies', () => {
       text: 'Go?',
       replies: ['Yes', 'No'],
     })
+  })
+})
+
+describe('splitReplies ask-label', () => {
+  it('cuts an ask-label line before the token and returns its label', () => {
+    expect(
+      splitReplies('Ready to push?\n[[ask-label: Push the fix]]\n[[replies: Yes | Not yet]]', false),
+    ).toEqual({ text: 'Ready to push?', replies: ['Yes', 'Not yet'], label: 'Push the fix' })
+    expect(splitReplies('Ok?\n[[ask-label:  Ship   it ]]\n[[replies: Yes]]', false)).toEqual({
+      text: 'Ok?',
+      label: 'Ship it',
+    })
+  })
+
+  it('clips a long label with an ellipsis and drops an empty one', () => {
+    const long = 'word '.repeat(20)
+    const { label } = splitReplies(`Ok?\n[[ask-label: ${long}]]\n[[replies: A | B]]`, false)
+    expect(label?.length).toBeLessThanOrEqual(MAX_ASK_LABEL)
+    expect(label?.endsWith('…')).toBe(true)
+    expect(splitReplies('Ok?\n[[ask-label: ]]\n[[replies: A | B]]', false)).toEqual({
+      text: 'Ok?',
+      replies: ['A', 'B'],
+    })
+  })
+
+  it('leaves an ask-label line alone without a token once settled', () => {
+    const text = 'Ok?\n[[ask-label: Push]]'
+    expect(splitReplies(text, false)).toEqual({ text })
+  })
+
+  it('cuts a partial or whole ask-label line while streaming', () => {
+    for (const tail of [
+      '[[a',
+      '[[ask-lab',
+      '[[ask-label:',
+      '[[ask-label: Push th',
+      '[[ask-label: Push the fix]]',
+      '[[ask-label: Push the fix]]\n',
+      '[[ask-label: Push the fix]]\n[[rep',
+      '[[ask-label: Push the fix]]\n[[replies: Yes |',
+    ]) {
+      expect(splitReplies(`Ready to push?\n${tail}`, true)).toEqual({ text: 'Ready to push?' })
+    }
   })
 })

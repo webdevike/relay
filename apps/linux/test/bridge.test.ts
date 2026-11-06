@@ -61,6 +61,33 @@ describe("session account", () => {
   });
 });
 
+describe("ask resolves", () => {
+  it("reports answered from the extension's flag, else whether a device answered it through this host", async () => {
+    const provider = new OmpBridgeProvider("/unused.sock", () => undefined, null);
+    const resolved: [string, boolean][] = [];
+    provider.onChange = (change) => {
+      if (change.kind === "ask.resolved") resolved.push([change.id, change.answered]);
+    };
+    const { send, written } = link(provider);
+    send(hello);
+    send({ t: "ask.request", id: "k1", questions: [{ id: "q1", question: "Ship it?", options: [{ label: "Yes" }] }] });
+    send({ t: "ask.resolved", id: "k1", answered: false });
+    // An older extension sends no flag: answered only when a device answered it here.
+    send({ t: "ask.resolved", id: "k2" });
+    const answering = provider.answerAsk("s1", "k3", [{ id: "q1", selectedOptions: ["Yes"] }]);
+    send({ t: "result", id: written().at(-1)?.["id"], ok: true });
+    await answering;
+    send({ t: "ask.resolved", id: "k3" });
+    send({ t: "ask.resolved", id: "k4", answered: true });
+    expect(resolved).toEqual([
+      ["k1", false],
+      ["k2", false],
+      ["k3", true],
+      ["k4", true],
+    ]);
+  });
+});
+
 describe("session activity", () => {
   const job = { id: "bg_1", type: "bash", label: "bun test --watch", state: "running", startedAt: 5 };
 

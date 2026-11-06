@@ -717,12 +717,56 @@ export const AssistantMessage = z.object({
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 
+/** The most open asks a snapshot carries; the oldest beyond it wait on the host until newer ones close. */
+export const MAX_OPEN_ASKS = 20;
+/** Characters of an open ask's badge label (`[[ask-label: ...]]`, or the question cut down). */
+export const MAX_ASK_LABEL = 40;
+/** Characters of an open ask's question as the compact sheet shows it. */
+export const MAX_ASK_QUESTION = 280;
+/** Characters of an answer Isaac types on an ask (the session asks' "Other answer"). */
+export const MAX_ASK_ANSWER = 500;
+
+/**
+ * A question waiting on Isaac in an assistant's thread: an assistant row that ended on
+ * `[[replies: a | b]]` (`source` "replies", `messageId` that row), an omp `ask` tool card
+ * (`source` "ask", `sessionId` + `askId` the bridge's ask, while it is pending its card shows above
+ * the composer instead), or a question another omp session put to him through the thread
+ * (`source` "session", `relay-linux asks add`: `from` names it, `sessionId` is where the answer goes,
+ * `default` is what it does unless he says otherwise). The host keeps them per thread until Isaac
+ * taps an answer, dismisses one, or the assistant resolves one (`relay-linux asks resolve <id>`); a
+ * typed message never closes one.
+ */
+export const OpenAsk = z.object({
+  /** Short stable id (8 hex), what `relay-linux asks resolve` takes. */
+  id: z.string().regex(/^[0-9a-f]{8}$/),
+  source: z.enum(["replies", "ask", "session"]),
+  /** The badge text: the reply's `[[ask-label: ...]]`, else the question sentence cut to `MAX_ASK_LABEL`; a session's ask leads with its `from`. */
+  label: z.string().min(1).max(MAX_ASK_LABEL),
+  question: z.string().min(1).max(MAX_ASK_QUESTION),
+  /** The answers a tap sends: as Isaac's turn for "replies" and "ask" (the reply's chips, or the card's first question's options), to the asking session for "session". Empty when none fit. */
+  replies: z.array(z.string().min(1).max(80)).max(8),
+  /** When it was asked (the row's or the card's time). */
+  at: ms,
+  /** The thread row that asked it ("replies"), for scrolling to it; absent once it has left the thread. */
+  messageId: nonEmpty.optional(),
+  /** The omp session of an "ask" card (with the bridge's `askId`, so a phone can tell the card it is showing), or the session a "session" ask answers to. */
+  sessionId: nonEmpty.optional(),
+  askId: nonEmpty.optional(),
+  /** "session": who asks (the asking session's title, e.g. "Golf"). */
+  from: z.string().min(1).max(80).optional(),
+  /** "session": the answer the asking session goes with unless Isaac says otherwise (one of `replies`). */
+  default: z.string().min(1).max(80).optional(),
+});
+export type OpenAsk = z.infer<typeof OpenAsk>;
+
 export const AssistantSnapshot = z.object({
   rev: z.number().int().nonnegative(),
   messages: z.array(AssistantMessage),
   busy: z.boolean(),
   /** The omp session the thread runs in (what `agent.image` takes); empty while the assistant is not running. */
   sessionId: z.string(),
+  /** The thread's open asks, oldest first (`MAX_OPEN_ASKS` newest). Absent from hosts that predate them; a phone then shows no badges and never sends `assistant.ask.resolve`. */
+  asks: z.array(OpenAsk).max(MAX_OPEN_ASKS).optional(),
 });
 export type AssistantSnapshot = z.infer<typeof AssistantSnapshot>;
 
@@ -1356,6 +1400,21 @@ export const Command = z.discriminatedUnion("kind", [
     url: nonEmpty,
     username: z.string().max(MAX_SIGNIN_FIELD),
     password: z.string().min(1).max(MAX_SIGNIN_FIELD),
+  }),
+  /**
+   * Close open ask `id` (`OpenAsk.id`) of assistant `agent`'s thread: `answered` when Isaac tapped
+   * one of its answers or typed one on its card (`answer`), `dismissed` when he waved it away. For a
+   * "replies" or "ask" ask the phone also sends the answer as his turn; a "session" ask's answer goes
+   * only here, and the host delivers it to the asking session. Every client gets the thread's next
+   * `assistant.snapshot` without it. An id no longer open acks ok; an unknown agent nacks
+   * `invalid_command`. Only sent to a host whose snapshots carry `asks`.
+   */
+  z.object({
+    kind: z.literal("assistant.ask.resolve"),
+    agent: AssistantAgentId,
+    id: z.string().regex(/^[0-9a-f]{8}$/),
+    how: z.enum(["answered", "dismissed"]),
+    answer: z.string().trim().min(1).max(MAX_ASK_ANSWER).optional(),
   }),
   /**
    * Add an assistant to the host's registry: `title` names it, `id` defaults to the title in

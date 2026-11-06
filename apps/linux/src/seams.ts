@@ -30,6 +30,7 @@ import type {
   MeetingsOp,
   MeetingsResult,
   MeetingsState,
+  OpenAsk,
   ReviewsOp,
   ReviewsResult,
   ServerMessage,
@@ -173,7 +174,33 @@ export interface AssistantThread {
   say(text: string): Promise<void>;
   /** Types Isaac's credentials into the login page `url` the agent asked him to sign in to (message `messageId`). Rejects with `AckFailure`. */
   signin(messageId: string, url: string, username: string, password: string): Promise<void>;
+  /** Closes open ask `id` (`OpenAsk.id`) of the thread, keeping Isaac's `answer`; false when it is not open (unknown or already closed). A session's ask answered with words gets them delivered to its session. */
+  resolveAsk(id: string, how: "answered" | "dismissed" | "resolved", answer?: string): boolean;
+  /** Puts another omp session's question to Isaac through the thread (`relay-linux asks add`); returns its id. Throws `AckFailure`. */
+  addAsk(input: AskInput): string;
+  /** Ask `id` of the thread in whatever state while the host keeps it; undefined when the thread has none. */
+  findAsk(id: string): AskStatus | undefined;
 }
+
+/** A question another omp session puts to Isaac (`AssistantThread.addAsk`). */
+export interface AskInput {
+  /** Who asks: the session's title, e.g. "Golf". */
+  readonly from: string;
+  /** The asking session (a live session id or a subagent's), where the answer goes; absent for none. */
+  readonly session?: string;
+  readonly question: string;
+  readonly options: readonly string[];
+  /** What the session goes with unless Isaac says otherwise; must be one of `options`. */
+  readonly default?: string;
+}
+
+/** An ask as `relay-linux asks get` reads it: open or closed, with Isaac's answer and whether it reached a session. */
+export type AskStatus = OpenAsk & {
+  readonly state: "open" | "answered" | "dismissed" | "resolved";
+  readonly answer?: string;
+  readonly delivered: boolean;
+  readonly closedAt?: number;
+};
 
 /** What the session and server need of the host's assistant threads: every registry agent's thread. */
 export interface AssistantRelaying {
@@ -391,8 +418,8 @@ export type AgentProviderChange =
     }
   /** The session is now blocked on an ask; the transport shows it to subscribed phones. */
   | { readonly kind: "ask"; readonly sessionId: string; readonly ask: AgentAsk }
-  /** A pending ask closed (answered in the TUI, cancelled, or answered from a phone); dismiss its card. */
-  | { readonly kind: "ask.resolved"; readonly sessionId: string; readonly id: string }
+  /** A pending ask closed (answered in the TUI, cancelled, or answered from a phone); dismiss its card. `answered` is false when it closed without an answer. */
+  | { readonly kind: "ask.resolved"; readonly sessionId: string; readonly id: string; readonly answered: boolean }
   /** The session is now blocked on a tool approval; the transport shows it to subscribed phones. */
   | { readonly kind: "approval"; readonly sessionId: string; readonly approval: AgentApproval }
   /** A pending approval closed (approved, denied, or settled in the TUI); dismiss it. */

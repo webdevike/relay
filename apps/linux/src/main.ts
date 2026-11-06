@@ -32,6 +32,7 @@ import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
 import { handleAssistantFile } from "./assistant/files";
+import type { FoundAsk, ListedAsk } from "./assistant/http";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { openBridgeLink, SubagentFileMirrors } from "./agents/subagent-mirrors";
@@ -45,6 +46,8 @@ import {
 } from "./assistant/registry";
 import { AssistantService, AssistantThreads, type AssistantThreadsDeps } from "./assistant/service";
 import { spawnFill } from "./assistant/signin";
+import { AskStore, defaultAsksPath } from "./assistant/ask-store";
+import { ago } from "./query/tools";
 import { defaultAssistantPath, FileAssistantStore } from "./assistant/store";
 import { CallService } from "./call/service";
 import { EvaRealtimeVoice } from "./call/voice";
@@ -227,6 +230,26 @@ const USAGE = `relay-linux <command>
   catchup bounce <id> <reason> [--agent <id>]
                                    from an assistant's session: hand Catch Up card <id> back
                                    (--agent defaults to $RELAY_ASSISTANT)
+  asks list [--agent <id>] [--json]
+                                   the running host's open asks: questions an assistant asked
+                                   Isaac (a reply ending on [[replies: ...]], or an omp ask) that
+                                   he has not answered yet, one line each (--agent defaults to
+                                   $RELAY_ASSISTANT, else every thread)
+  asks resolve <id>... [--agent <id>] [--answer '<text>']
+                                   from an assistant's session: close open asks that are settled
+                                   some other way (Isaac answered in his own words); --answer
+                                   records his answer and, for a session's ask, hands it to that
+                                   session as "[answer to ask <id>] <text>"
+  asks add --thread <id> --from '<session title>' --question '...' --options 'a|b|c'
+           [--default 'a'] [--session <session id>|me]
+                                   from any omp session: put a question to Isaac through assistant
+                                   thread <id> (default $RELAY_ASSISTANT) as a badge above its
+                                   composer; 1 to 8 options of up to 80 characters, --default one
+                                   of them. His answer comes back to --session (default: the
+                                   session running this) as "[answer to ask <id>] <answer>".
+                                   Prints only the ask id
+  asks get <id> [--json]           one ask, open or closed: its state, who asked, the question,
+                                   the default, Isaac's answer and whether it reached the session
   canvas end [<slug>]              wrap up the live session on <slug> (default: this chat's)
   skills list [--json]             the skills omp loads on this host: source, who uses them, last use
   skills show <name> [--json]      one skill: its copies, files, use in the last 30 days
@@ -444,6 +467,7 @@ function serve(
       reconnected: () => agents.reconnected(),
       agentHome,
       store: new FileAssistantStore(defaultAssistantPath(agent.id)),
+      asks: new AskStore(defaultAsksPath(agent.id)),
       tokens: pushTokens,
       sender: new ExpoPushSender(),
       broadcast: (message): void => {
@@ -1360,6 +1384,110 @@ async function catchupBounce(agent: string | undefined, positionals: string[]): 
   console.log(`bounced ${id}`);
 }
 
+/** `asks list`: the running host's open asks of assistant `agent`, or of every thread when undefined. */
+async function asksList(agent: string | undefined, json: boolean): Promise<void> {
+  const query = agent === undefined || agent === "" ? "" : `?agent=${encodeURIComponent(agent)}`;
+  const response = await fetch(`${hostUrl()}/assistant/asks${query}`);
+  if (!response.ok) {
+    console.error(await response.text());
+    process.exit(1);
+  }
+  const { asks } = (await response.json()) as { asks: ListedAsk[] };
+  if (json) {
+    console.log(JSON.stringify(asks, null, 2));
+    return;
+  }
+  if (asks.length === 0) {
+    console.log("no open asks");
+    return;
+  }
+  const now = Date.now();
+  for (const ask of asks) {
+    const replies = ask.replies.length === 0 ? "" : `  [${ask.replies.join(" | ")}]`;
+    console.log(`${ask.id}  ${ask.agent}  ${ago(ask.at, now)}  ${ask.label}: ${ask.question}${replies}`);
+  }
+}
+
+/** `asks resolve <id>...`: the running host closes each open ask, as answered with `answer` (delivered to a session's ask) or else as resolved by the assistant. */
+async function asksResolve(agent: string | undefined, ids: string[], answer: string | undefined): Promise<void> {
+  if (ids.length === 0) throw new Error("asks resolve: expected <id>...");
+  let failed = false;
+  for (const id of ids) {
+    const response = await fetch(`${hostUrl()}/assistant/asks/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, ...(agent === undefined || agent === "" ? {} : { agent }), ...(answer === undefined ? {} : { answer }) }),
+    });
+    if (!response.ok) {
+      console.error(await response.text());
+      failed = true;
+      continue;
+    }
+    const ask = (await response.json()) as FoundAsk;
+    console.log(`${ask.state} ${ask.id} (${ask.label})`);
+  }
+  if (failed) process.exit(1);
+}
+
+/** `asks add`: puts the calling session's question to Isaac through assistant thread `thread`; prints only the ask id. */
+async function asksAdd(options: {
+  thread: string | undefined;
+  from: string | undefined;
+  session: string | undefined;
+  question: string | undefined;
+  options: string | undefined;
+  default: string | undefined;
+}): Promise<void> {
+  if (options.thread === undefined || options.thread === "")
+    throw new Error("asks add: missing --thread <assistant id> (or $RELAY_ASSISTANT)");
+  if (options.from === undefined) throw new Error("asks add: missing --from '<session title>'");
+  if (options.question === undefined) throw new Error("asks add: missing --question '...'");
+  if (options.options === undefined) throw new Error("asks add: missing --options 'a|b|c'");
+  // Without --session the answer goes back to the omp session running this, when there is one.
+  const session =
+    options.session === "me" || (options.session === undefined && detectCaller(systemCallerDeps) !== null)
+      ? ownSessionRef("asks add --session me")
+      : options.session;
+  const response = await fetch(`${hostUrl()}/assistant/asks`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      thread: options.thread,
+      from: options.from,
+      question: options.question,
+      options: options.options.split("|"),
+      ...(session === undefined ? {} : { session }),
+      ...(options.default === undefined ? {} : { default: options.default }),
+    }),
+  });
+  if (!response.ok) {
+    console.error(`asks add: ${await response.text()}`);
+    process.exit(1);
+  }
+  const { id } = (await response.json()) as { id: string };
+  console.log(id);
+}
+
+/** `asks get <id>`: one ask of the running host, open or closed, with Isaac's answer. */
+async function asksGet(id: string | undefined, json: boolean): Promise<void> {
+  if (id === undefined) throw new Error("asks get: expected <id>");
+  const response = await fetch(`${hostUrl()}/assistant/asks/${encodeURIComponent(id)}`);
+  if (!response.ok) {
+    console.error(await response.text());
+    process.exit(1);
+  }
+  const ask = (await response.json()) as FoundAsk;
+  if (json) {
+    console.log(JSON.stringify(ask, null, 2));
+    return;
+  }
+  const replies = ask.replies.length === 0 ? "" : `  [${ask.replies.join(" | ")}]`;
+  console.log(`${ask.id}  ${ask.agent}  ${ask.state}  ${ask.from === undefined ? "" : `${ask.from}: `}${ask.question}${replies}`);
+  if (ask.default !== undefined) console.log(`default: ${ask.default}`);
+  const delivery = ask.source !== "session" || ask.answer === undefined ? "" : ask.delivered ? " (delivered)" : " (not delivered)";
+  console.log(`answer: ${ask.answer ?? "none"}${delivery}`);
+}
+
 /** The host's JSON answer, or exit 1 with its `{error}` (or body). */
 async function hostJson(response: Response, what: string): Promise<unknown> {
   const text = await response.text();
@@ -1430,16 +1558,14 @@ const CanvasHistoryReply = z.object({
   summary: z.array(z.string()),
 });
 
-/** `--session me`: the id the bridge knows the calling omp session by (a subagent's agent id, else the chat's session id). */
-function ownSessionRef(): string {
+/** `--session me`: the id the bridge knows the calling omp session by (a subagent's agent id, else the chat's session id); `what` names the command in errors. */
+function ownSessionRef(what: string): string {
   const caller = detectCaller(systemCallerDeps);
-  if (caller === null) throw new Error("canvas join --session me: run this from an omp session");
+  if (caller === null) throw new Error(`${what}: run this from an omp session`);
   if (caller.sessionFile !== caller.chatFile) return basename(caller.sessionFile, ".jsonl");
   const id = basename(caller.chatFile, ".jsonl").split("_").at(-1);
   if (id === undefined || id === "")
-    throw new Error(
-      "canvas join --session me: cannot tell this session's id from its transcript name",
-    );
+    throw new Error(`${what}: cannot tell this session's id from its transcript name`);
   return id;
 }
 
@@ -1532,7 +1658,7 @@ async function canvasCommand(
         verb !== "join" || options.session === undefined
           ? undefined
           : options.session === "me"
-            ? ownSessionRef()
+            ? ownSessionRef("canvas join --session me")
             : options.session;
       const joined = CanvasJoinReply.parse(
         await hostJson(
@@ -1935,6 +2061,12 @@ async function main(argv: string[]): Promise<void> {
       stdin: { type: "boolean", default: false },
       save: { type: "boolean", default: false },
       force: { type: "boolean", default: false },
+      thread: { type: "string" },
+      from: { type: "string" },
+      question: { type: "string" },
+      options: { type: "string" },
+      default: { type: "string" },
+      answer: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
     },
   });
@@ -1979,6 +2111,24 @@ async function main(argv: string[]): Promise<void> {
       if (positionals[1] !== "bounce")
         throw new Error("catchup: try `catchup bounce <id> <reason>`");
       await catchupBounce(values.agent ?? process.env["RELAY_ASSISTANT"], positionals.slice(2));
+      return;
+    }
+    case "asks": {
+      const verb = positionals[1];
+      const agent = values.agent ?? process.env["RELAY_ASSISTANT"];
+      if (verb === "list") await asksList(agent, values.json);
+      else if (verb === "resolve") await asksResolve(agent, positionals.slice(2), values.answer);
+      else if (verb === "get") await asksGet(positionals[2], values.json);
+      else if (verb === "add")
+        await asksAdd({
+          thread: values.thread ?? process.env["RELAY_ASSISTANT"],
+          from: values.from,
+          session: values.session,
+          question: values.question,
+          options: values.options,
+          default: values.default,
+        });
+      else throw new Error("asks: try `asks list`, `asks add`, `asks get <id>` or `asks resolve <id>...`");
       return;
     }
     case "devices": {

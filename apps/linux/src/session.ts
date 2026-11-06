@@ -1116,6 +1116,20 @@ export class ClientSession {
           cmd.username,
           cmd.password,
         );
+      case "assistant.ask.resolve": {
+        // An id no longer open acks ok too: another device or the assistant closed it first.
+        const thread = this.deps.assistant?.thread(cmd.agent);
+        if (thread === undefined) {
+          return Promise.reject(
+            new AckFailure({
+              code: "invalid_command",
+              message: `no assistant ${cmd.agent} on this host`,
+            }),
+          );
+        }
+        thread.resolveAsk(cmd.id, cmd.how, cmd.answer);
+        return Promise.resolve();
+      }
       case "assistant.create": {
         const assistant = this.deps.assistant;
         if (assistant?.create === undefined) {

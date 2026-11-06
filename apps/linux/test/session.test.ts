@@ -1385,6 +1385,17 @@ describe("assistant threads", () => {
       this.signins.push([messageId, url, username, password]);
       return Promise.resolve();
     }
+    readonly resolved: [string, string, string | undefined][] = [];
+    resolveAsk(id: string, how: "answered" | "dismissed" | "resolved", answer?: string): boolean {
+      this.resolved.push([id, how, answer]);
+      return id !== "00000000";
+    }
+    addAsk(): string {
+      return "0a1b2c3d";
+    }
+    findAsk(): undefined {
+      return undefined;
+    }
   }
 
   class FakeThreads implements AssistantRelaying {
@@ -1579,6 +1590,35 @@ describe("assistant threads", () => {
     expect(h.sink.sent.slice(-2)).toEqual([
       { t: "ack", id: "s1" },
       { t: "nack", id: "s2", error: { code: "invalid_command", message: "Incorrect password." } },
+    ]);
+  });
+
+  it("hands assistant.ask.resolve to the named agent, acks an id no longer open, and nacks an unknown agent as invalid_command", async () => {
+    const assistant = new FakeThreads();
+    const h = harness({ assistant });
+    pair(h);
+    h.session.receive({
+      t: "cmd",
+      id: "r1",
+      cmd: { kind: "assistant.ask.resolve", agent: "nova", id: "0a1b2c3d", how: "answered", answer: "Book it" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "r2",
+      cmd: { kind: "assistant.ask.resolve", agent: "astra", id: "00000000", how: "dismissed" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "r3",
+      cmd: { kind: "assistant.ask.resolve", agent: "ghost", id: "0a1b2c3d", how: "dismissed" },
+    });
+    await h.sink.sentCount(7);
+    expect(assistant.nova.resolved).toEqual([["0a1b2c3d", "answered", "Book it"]]);
+    expect(assistant.astra.resolved).toEqual([["00000000", "dismissed", undefined]]);
+    expect(h.sink.sent.slice(-3)).toEqual([
+      { t: "ack", id: "r1" },
+      { t: "ack", id: "r2" },
+      { t: "nack", id: "r3", error: { code: "invalid_command", message: "no assistant ghost on this host" } },
     ]);
   });
 
@@ -1953,6 +1993,9 @@ describe("calls", () => {
       turn: () => Promise.resolve(),
       say: () => Promise.resolve(),
       signin: () => Promise.resolve(),
+      resolveAsk: () => false,
+      addAsk: () => "0a1b2c3d",
+      findAsk: () => undefined,
     };
     const assistant: AssistantRelaying = {
       threads: [astra],
@@ -1977,6 +2020,9 @@ describe("calls", () => {
       turn: () => Promise.resolve(),
       say: () => Promise.resolve(),
       signin: () => Promise.resolve(),
+      resolveAsk: () => false,
+      addAsk: () => "0a1b2c3d",
+      findAsk: () => undefined,
     };
     const asked: unknown[] = [];
     const assistant: AssistantRelaying = {

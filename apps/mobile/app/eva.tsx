@@ -10,7 +10,9 @@
  * settled reply may carry tap-to-answer reply chips (`lib/replyChips.ts`); a tap sends that label as
  * a turn, as the composer does, and leaves the draft alone. While the thread's omp session is
  * blocked on an `ask` or a tool approval, its card sits above the composer (the session is
- * subscribed while the thread shows, as the Agent Inbox does).
+ * subscribed while the thread shows, as the Agent Inbox does). Questions the assistant asked that
+ * Isaac has not answered (`snapshot.asks`) show as quiet badges above the composer
+ * (`agents/OpenAskBadges`); what runs now lives in the Artifacts sheet's Running row.
  *
  * Look (after OpenAI's Dots chat): no title; the agent's avatar ring and name chip occupy a
  * dedicated header above the scrolling conversation (tapping them opens a menu); the user's
@@ -19,11 +21,11 @@
  * above a persistent row of attachment, hold-to-talk mic and send controls. The mic is the Agent Inbox's: hold to talk, release to send.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
+import { ActionSheetIOS, Alert, FlatList, Keyboard, KeyboardAvoidingView, LayoutAnimation, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
-import { assistantReactionThread, MAX_REPLY_IMAGES, type AssistantMessage } from "@relay/protocol";
+import { assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, type AssistantMessage, type OpenAsk } from "@relay/protocol";
 import { AttachmentTray } from "@/ui/AttachmentTray";
 import { AvatarRing, NAME_PILL_GAP, NAME_PILL_HEIGHT, RING_SIZE } from "@/ui/AvatarRing";
 import { Banner } from "@/ui/Banner";
@@ -57,6 +59,7 @@ import { agentPortrait, agentTitle, threadOf, useAssistantStore } from "@/state/
 import { useMotionSignals } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
 import { requestAssistant, sendCommand, stopAssistant, subscribeAgent, unsubscribeAgent, watchArtifacts } from "@/connection";
+import { warn } from "@/connection/log";
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
 import { photoOfImage } from "@/lib/clipboard";
@@ -77,6 +80,8 @@ import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 import { draftKey, useThreadDraft } from "@/state/drafts";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
+import { OpenAskBadges } from "@/agents/OpenAskBadges";
+import { askSheet, pruneHidden, visibleAsks } from "@/lib/openAsks";
 import { WidgetCloseProvider } from "@/agents/WidgetActions";
 import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
 import { assistantTurnRows } from "@/turns/rows";
@@ -157,7 +162,6 @@ function Thread({ agent }: { agent: string }) {
   });
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
   const artifactsThread = assistantReactionThread(agent);
-  // Running sessions and helpers live in the Artifacts sheet's Running row, not on this screen.
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   // Follow the thread's artifacts while it shows, so the header button's dot is live.
   useEffect(() => watchArtifacts(artifactsThread), [artifactsThread]);
@@ -278,6 +282,26 @@ function Thread({ agent }: { agent: string }) {
     }, [sessionId, connected]),
   );
   const { ask: pendingAsk, answer: answerAsk, cancel: cancelAsk } = usePendingAsk(sessionId ?? undefined);
+
+  // Open asks (`snapshot.asks`): questions the assistant is still waiting on. An older host sends
+  // none, so it gets no badges and never an `assistant.ask.resolve`. One closed here hides at once,
+  // until the host's next snapshot drops it (or comes back if the host refused).
+  const openAsks = snapshot?.asks;
+  const [hiddenAsks, setHiddenAsks] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    setHiddenAsks((current) => pruneHidden(current, openAsks));
+  }, [openAsks]);
+  const hideAsk = (id: string): void => {
+    setHiddenAsks((current) => new Set(current).add(id));
+  };
+  /** Closes `ask` on the host (hidden here at once); `answer` is the text Isaac picked or typed, which a session ask's asker gets. */
+  const resolveAsk = (ask: OpenAsk, how: "answered" | "dismissed", answer?: string): void => {
+    hideAsk(ask.id);
+    sendCommand({ kind: "assistant.ask.resolve", agent, id: ask.id, how, ...(answer === undefined ? {} : { answer }) }).catch((error: unknown) => {
+      warn("assistant.ask.resolve failed", error);
+      setHiddenAsks((current) => new Set([...current].filter((id) => id !== ask.id)));
+    });
+  };
   const pendingApproval = useAgentsStore((state) => (sessionId === null ? undefined : state.approvals[sessionId]));
 
   // Background messages (the host's job lines arrive as `status` rows) show as quiet rows; any other status row is machinery, never shown.
@@ -304,6 +328,27 @@ function Thread({ agent }: { agent: string }) {
   const typing = busy && !(newestSettled?.role === "assistant" && newestSettled.text.trim() !== "");
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending) : null;
+  // Badged asks, minus the one its card shows and the one whose chips already sit under the newest reply.
+  const shownAsks = useMemo(
+    () =>
+      visibleAsks(
+        openAsks,
+        pendingAsk === undefined || sessionId === null ? null : { sessionId, askId: pendingAsk.id },
+        replies === null ? null : (newestSettled?.id ?? null),
+        hiddenAsks,
+      ),
+    [openAsks, pendingAsk, sessionId, replies, newestSettled, hiddenAsks],
+  );
+  // The badge row has one height; when it comes or goes the composer grows or shrinks, and the
+  // list's padding follows on the next layout, both eased instead of jumping.
+  const asksRowShown = shownAsks.length > 0;
+  const asksRowWas = useRef(asksRowShown);
+  const easeComposerLayout = useRef(false);
+  if (asksRowWas.current !== asksRowShown) {
+    asksRowWas.current = asksRowShown;
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    easeComposerLayout.current = true;
+  }
 
   // Only the newest message Isaac typed carries a receipt: Sending while its echo is pending, Seen once
   // the host's snapshot lists it.
@@ -315,6 +360,10 @@ function Thread({ agent }: { agent: string }) {
   const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP;
 
   const onComposerLayout = (event: LayoutChangeEvent): void => {
+    if (easeComposerLayout.current) {
+      easeComposerLayout.current = false;
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    }
     setComposerHeight(event.nativeEvent.layout.height);
   };
 
@@ -347,6 +396,73 @@ function Thread({ agent }: { agent: string }) {
       (index) => {
         if (index === 0) attach("camera");
         if (index === 1) attach("library");
+      },
+    );
+  };
+
+  /**
+   * An open ask's badge tapped: its answers (a default first), Other answer for a session ask, Show
+   * in chat while its row is in the thread, Dismiss. Native, as the menus above. A "replies" or
+   * "ask" answer goes out as Isaac's turn too; a session ask's answer only to the host, which hands
+   * it to the asking session.
+   */
+  const openAskSheet = (ask: OpenAsk): void => {
+    Keyboard.dismiss();
+    const rowIndex = (): number => (ask.messageId === undefined ? -1 : newestFirst.findIndex((message) => message.id === ask.messageId));
+    const { message, choices } = askSheet(ask);
+    const answer = (reply: string): void => {
+      if (ask.source !== "session") sendTurn(reply, [], false);
+      resolveAsk(ask, "answered", reply);
+    };
+    const actions: { label: string; run: () => void }[] = choices.map((choice) => ({
+      label: choice.label,
+      run: () => {
+        answer(choice.reply);
+      },
+    }));
+    if (ask.source === "session") {
+      actions.push({
+        label: "Other answer…",
+        run: () => {
+          Alert.prompt(ask.label, ask.question, (typed) => {
+            const words = typed.trim().slice(0, MAX_ASK_ANSWER).trim();
+            if (words !== "") answer(words);
+          });
+        },
+      });
+    }
+    if (rowIndex() >= 0) {
+      actions.push({
+        label: "Show in chat",
+        run: () => {
+          // The list may have moved on since the sheet opened; a row not laid out yet goes through the list's onScrollToIndexFailed.
+          const row = rowIndex();
+          if (row >= 0) listRef.current?.scrollToIndex({ index: row, viewPosition: 0.5, animated: true });
+        },
+      });
+    }
+    actions.push({
+      label: "Dismiss",
+      run: () => {
+        resolveAsk(ask, "dismissed");
+      },
+    });
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: ask.label, message, options: [...actions.map((action) => action.label), "Cancel"], cancelButtonIndex: actions.length, destructiveButtonIndex: actions.length - 1 },
+      (index) => {
+        actions[index]?.run();
+      },
+    );
+  };
+
+  /** The `+N` badge: every open ask by label; picking one opens its sheet. */
+  const openAllAsks = (): void => {
+    Keyboard.dismiss();
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: "Open questions", options: [...shownAsks.map((ask) => ask.label), "Cancel"], cancelButtonIndex: shownAsks.length },
+      (index) => {
+        const ask = shownAsks[index];
+        if (ask !== undefined) openAskSheet(ask);
       },
     );
   };
@@ -404,6 +520,9 @@ function Thread({ agent }: { agent: string }) {
                         replies={item === newestSettled ? replies : null}
                         onReply={(reply) => {
                           sendTurn(reply, [], false);
+                          // The chips' row is an open ask too: answered, so its badge goes with it.
+                          const ask = openAsks?.find((entry) => entry.messageId === item.id);
+                          if (ask !== undefined) resolveAsk(ask, "answered", reply);
                         }}
                         onOpenImages={(uris, start) => {
                           setViewing({ uris, start });
@@ -478,6 +597,15 @@ function Thread({ agent }: { agent: string }) {
               <Banner tone="danger" message={banner} />
             </View>
           )}
+          <OpenAskBadges
+            asks={shownAsks}
+            background={bg}
+            onOpen={openAskSheet}
+            onDismiss={(ask) => {
+              resolveAsk(ask, "dismissed");
+            }}
+            onMore={openAllAsks}
+          />
           {/* What the assistant is blocked on, answered here; sending a message instead cancels the ask (the host's bridge does). */}
           {sessionId !== null && pendingApproval !== undefined ? (
             <View style={styles.blocked}>
@@ -486,7 +614,21 @@ function Thread({ agent }: { agent: string }) {
           ) : (
             pendingAsk !== undefined && (
               <View style={styles.blocked}>
-                <AskCard key={pendingAsk.id} ask={pendingAsk} onSubmit={answerAsk} onCancel={cancelAsk} />
+                <AskCard
+                  key={pendingAsk.id}
+                  ask={pendingAsk}
+                  onSubmit={(results) => {
+                    answerAsk(results);
+                    // The host closes its open ask; keep the badge from flashing back until it does.
+                    const ask = openAsks?.find((entry) => entry.askId === pendingAsk.id);
+                    if (ask !== undefined) hideAsk(ask.id);
+                  }}
+                  onCancel={() => {
+                    cancelAsk();
+                    const ask = openAsks?.find((entry) => entry.askId === pendingAsk.id);
+                    if (ask !== undefined) resolveAsk(ask, "dismissed");
+                  }}
+                />
               </View>
             )
           )}

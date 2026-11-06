@@ -18,8 +18,10 @@ import { AgentsDeltaTracker } from "./agents/delta-tracker";
 import type { SessionFiles } from "./agents/session-files";
 import {
   handleAssistantAdmin,
+  handleAssistantAsks,
   handleAssistantSay,
   isAssistantAdminPath,
+  isAssistantAsksPath,
   type AssistantAdmin,
 } from "./assistant/http";
 import { handleCatchUpBounce } from "./catchup/http";
@@ -359,6 +361,8 @@ export class RelayServer {
         if (path === "/query") return handleQueryRequest(this.deps.query, request, remote);
         if (path === "/assistant/say")
           return handleAssistantSay(this.deps.assistant, request, remote);
+        if (isAssistantAsksPath(path))
+          return handleAssistantAsks(this.deps.assistant, request, remote, path);
         if (isAssistantAdminPath(path))
           return handleAssistantAdmin(
             { registry: null, ...this.deps.assistantAdmin, assistant: this.deps.assistant },

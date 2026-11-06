@@ -22,6 +22,7 @@ import { findMention, type Mentionable } from "@relay/canvas-live/mentions";
 import { setAssignee, snapThread } from "@relay/canvas-live/threads";
 import { lastDeleted, sinceYourLastTurn, summarizeHistory, type HistoryEntry } from "@relay/canvas-live/history";
 import { DOC_KEYS, type ChatMsg, type ModelKey, type Presence, type SessionInfo, type User } from "@relay/canvas-live/shared";
+import { liveSessionId } from "../agents/session-ref";
 import type { AssistantAgentConfig } from "../assistant/registry";
 import { human } from "../host-config";
 import { readThreadMemory } from "../live/brief";
@@ -908,16 +909,11 @@ export class CanvasService {
     }, "host");
   }
 
-  /**
-   * The live bridge session `ref` names: its id, or a subagent's (bridge id `<parent>:<agent id>`;
-   * a nested agent id may come dotted, `Parent.Child`, or bare). Throws `CanvasError`.
-   */
+  /** The live bridge session `ref` names (`liveSessionId`). Throws `CanvasError`. */
   private workerSession(ref: string): string {
-    const live = this.deps.chats.sessions.filter((session) => session.status !== "ended");
-    const leaf = (id: string): string => id.split(":").at(-1)?.split(".").at(-1) ?? id;
-    const found = live.find((session) => session.id === ref) ?? live.find((session) => session.id.includes(":") && leaf(session.id) === leaf(ref));
-    if (found === undefined) throw new CanvasError(404, `No live omp session ${ref} on this host (give a session id, or a subagent's id).`);
-    return found.id;
+    const found = liveSessionId(this.deps.chats.sessions, ref);
+    if (found === null) throw new CanvasError(404, `No live omp session ${ref} on this host (give a session id, or a subagent's id).`);
+    return found;
   }
 
   /** A websocket joined `room`. */

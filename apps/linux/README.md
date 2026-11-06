@@ -275,6 +275,50 @@ bubble keeps one reaction per reactor (`isaac` or an agent id), so the snapshot 
 files from before reactors read as Isaac's. An assistant's reaction is only shown: no note, no feedback
 line, no turn, no push.
 
+## Open asks (`AssistantSnapshot.asks`, `assistant.ask.resolve`)
+
+Questions waiting on Isaac in an assistant's thread, which the phone shows as small badges above the
+composer. Three sources: an assistant row that ends on a `[[replies: a | b]]` token (an optional
+`[[ask-label: Short label]]` line right before the token names the badge and is cut from the text with it),
+an omp `ask` tool card (its first question; `header` as the label, the option labels as answers), and a
+question another omp session puts to him through the thread (`source: "session"`, below).
+`src/assistant/ask-store.ts` keeps them per thread in `$XDG_CONFIG_HOME/relay/assistants/<id>.asks.json`
+(0600) and every `assistant.snapshot` carries the open ones (`asks`, oldest first, the newest
+`MAX_OPEN_ASKS`). The question is the reply's last sentence ending in `?` as plain text (else its last
+sentence), and the label is the ask-label or that question cut to `MAX_ASK_LABEL`, without a lead-in
+before ": " when the rest stands alone ("Last one for today: want me to ..." reads "Want me to ...").
+
+- An ask closes as `answered` when a device sends `assistant.ask.resolve { agent, id, how: "answered",
+  answer? }` (Isaac tapped one of its answers, or typed one on a session ask's card), when a later turn of
+  his in the thread is exactly one of its answers (case aside; covers desktop chips and older phones; never
+  for a session ask), or when the bridge reports its ask card answered (the extension's
+  `ask.resolved { answered }`; a cancel leaves it open). `how: "dismissed"` waves it away. A message typed in
+  his own words never closes one: he often answers much later. An id no longer open acks ok.
+- The assistant closes one itself with `relay-linux asks resolve <id>... [--answer '<text>']`
+  (`POST /assistant/asks/resolve` `{ id, agent?, answer? }` on loopback, 404 for an id that is not open;
+  with an answer it closes as `answered`, else `resolved`) and lists them with `relay-linux asks list
+  [--agent <id>] [--json]` (`GET /assistant/asks[?agent=<id>]`; agent from `$RELAY_ASSISTANT`, else every
+  thread): one line each, `<id>  <agent>  <age>  <label>: <question>  [a | b]`. `relay-linux asks get <id>
+  [--json]` (`GET /assistant/asks/<id>`, every thread searched) reads one, open or closed while it is kept:
+  state, who asked, the question, the default, the answer and whether it was delivered.
+- A row is known by its time and question, not its row id, so an earlier context read back after the
+  nightly rollover is the same ask. Asking an open question again refreshes that ask; a closed one asked
+  again later is a new ask. Rows older than the file (`since`, set when it is first made) never become asks,
+  so an upgrade does not turn the thread's history into badges. Closed asks are pruned after 30 days.
+
+Session asks: any omp session can put a question to Isaac through an assistant's thread without stopping:
+`relay-linux asks add --thread nova --from 'Golf' --question 'Book the 7:10 tee time?' --options 'Book it|Skip'
+[--default 'Book it'] [--session <id>|me]` (`POST /assistant/asks` `{ thread, from, session?, question,
+options, default? }`, answers `{ id }`; the CLI prints just the id). 1 to 8 options of up to 80 characters,
+the default one of them, `--thread` from `$RELAY_ASSISTANT` when unset. `--session` (a live session id or a
+subagent's, resolved like `canvas join --session`) defaults to the session running the command. The badge
+reads `<from>: <question>`. The same question from the same session while it is open refreshes that ask.
+Its answers belong to the asking session, so Isaac's turns in the thread never close it; when it closes as
+`answered` with an answer (the phone's `assistant.ask.resolve { answer }`, or the assistant relaying a free
+answer with `asks resolve <id> --answer`), the host hands `[answer to ask <id>] <answer>` to that session
+as a turn (the bridge's `reply`). A failed delivery (the session is gone) is logged and the answer stays on
+the ask for `asks get`; a dismissal delivers nothing.
+
 ## Bookmarks (`bookmarks.get`, `bookmark.set`)
 
 Turns Isaac marked in the chat's turn navigator (Relay desktop's ticks on the left edge, the phone's rail).

@@ -299,6 +299,36 @@ When a message ends on a question to Isaac that he can answer in a few words fro
 - The same rule is in each assistant's prime (`~/Eva/.omp/assistant/agents/<id>/prime.md`); the eval behind its wording is `evals/reply-chips/`.
 - The Relay Host strips it for the phone (`AssistantMessage.replies`), pushes and calls; Relay desktop strips it in its chat renderer. Parser: `apps/linux/src/assistant/replies.ts`.
 
+### Open asks: `[[ask-label: ...]]` and `relay-linux asks`
+
+A question that ends on `[[replies: ...]]` (or an omp `ask` tool card) stays open on the Relay Host until Isaac answers it, and the phone shows it as a small badge above the composer. It closes when he taps one of its answers (or sends exactly one of them as his message), dismisses the badge, or you resolve it. A message he types in his own words never closes one, since he often answers much later.
+
+- Optional: name the badge with a line right before the replies token, at most 40 characters. Without it the badge shows the question cut short.
+
+  ```
+  Want me to push the fix to main?
+  [[ask-label: Push the fix]]
+  [[replies: Yes, push it | Not yet]]
+  ```
+
+  It is cut from the shown text together with the token, and only counts right before one.
+- When Isaac settled a question some other way (he answered it in his own words, or it no longer matters), close it: `relay-linux asks list` shows the open ones (`<id>  <agent>  <age>  <label>: <question>  [answers]`, `--json` for JSON; `--agent` defaults to `$RELAY_ASSISTANT`), and `relay-linux asks resolve <id>...` closes them. If it was another session's ask (it shows `from`), relay his answer with `relay-linux asks resolve <id> --answer '<his answer>'` so it reaches that session.
+- Ask a closed question again later and it opens again as a new ask; asking an open one again refreshes it instead of adding a second.
+
+### Asking Isaac from any session: `relay-linux asks add`
+
+A session that is not an assistant thread (a job, a subagent, a project chat) can still put a question to Isaac: it shows as a badge in an assistant's thread (say Nova's), and his answer comes back to the asking session as a message.
+
+```
+id=$(relay-linux asks add --thread nova --from 'Golf' --question 'Book the 7:10 tee time?' --options 'Book it|Skip' --default 'Book it')
+```
+
+- Ask only for taste, money or something hard to undo. Everything else, decide yourself.
+- Never block on it: give a `--default` (one of the options), say in your work that you went with it, and carry on.
+- His answer arrives in your session as `[answer to ask <id>] <answer>`, maybe much later. If it differs from what you went with, switch to it.
+- 1 to 8 options of up to 80 characters, split on `|`. `--from` is how the badge names you (`Golf: Book the 7:10 tee time?`). `--thread` defaults to `$RELAY_ASSISTANT`; `--session` (your session or a subagent's id, or `me`) defaults to the session running the command. The command prints only the ask id.
+- `relay-linux asks get <id>` (or `--json`) shows where it stands: `open|answered|dismissed|resolved`, his answer and whether it was delivered. A dismissed ask means: keep the default.
+
 ## Building a new widget (app side)
 
 Isaac's rule (2026-10-06): never build a widget's UI in isolation. Break it into reusable base elements in `apps/mobile/src/ui/` (image frame, pager, page controls, link button, overlay tag, caption, placeholder, ...) and have the widget only compose them. Reuse what exists first; add a missing piece as a primitive. The current list lives in `apps/mobile/AGENTS.md`.

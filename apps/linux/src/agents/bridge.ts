@@ -61,7 +61,8 @@ const Inbound = z.discriminatedUnion("t", [
   z.object({ t: z.literal("message.update"), id: z.string().min(1), text: z.string(), streaming: z.boolean() }),
   z.object({ t: z.literal("result"), id: z.string().min(1), ok: z.boolean(), error: z.string().optional(), value: z.unknown().optional() }),
   z.object({ t: z.literal("ask.request"), id: z.string().min(1), questions: z.array(AgentAskQuestion).min(1) }),
-  z.object({ t: z.literal("ask.resolved"), id: z.string().min(1) }),
+  /** `answered` is absent from extensions older than the open asks. */
+  z.object({ t: z.literal("ask.resolved"), id: z.string().min(1), answered: z.boolean().optional() }),
   /** omp is blocked on a tool approval; `command` is its approval prompt's detail lines, verbatim. */
   z.object({ t: z.literal("approval.request"), id: z.string().min(1), toolName: z.string().min(1), command: z.string(), reason: z.string().optional() }),
   z.object({ t: z.literal("approval.resolved"), id: z.string().min(1) }),
@@ -168,6 +169,8 @@ export class OmpBridgeProvider implements AgentProvider {
   private requestSeq = 0;
   /** The ask each session is currently blocked on, by omp session id; replayed to phones that subscribe late. */
   private readonly pendingAsks = new Map<string, AgentAsk>();
+  /** Asks a device answered through `answerAsk` (`<session>:<ask>`), so an older extension's resolve still reads as answered. */
+  private readonly answeredAsks = new Set<string>();
   /** The tool approval each session is currently blocked on, by omp session id; replayed like asks. */
   private readonly pendingApprovals = new Map<string, AgentApproval>();
   /** Sessions launched but not yet registered, by the `RELAY_LAUNCH_ID` their pane carries. */
@@ -316,7 +319,14 @@ export class OmpBridgeProvider implements AgentProvider {
   }
 
   async answerAsk(sessionId: string, askId: string, results: readonly AgentAskAnswer[]): Promise<void> {
-    await this.request(this.require(sessionId), "ask", { askId, results });
+    const key = `${sessionId}:${askId}`;
+    this.answeredAsks.add(key);
+    try {
+      await this.request(this.require(sessionId), "ask", { askId, results });
+    } catch (error) {
+      this.answeredAsks.delete(key);
+      throw error;
+    }
   }
 
   async cancelAsk(sessionId: string, askId: string): Promise<void> {
@@ -602,9 +612,13 @@ export class OmpBridgeProvider implements AgentProvider {
       }
       case "ask.resolved": {
         if (connection.session === null) return;
+        const sessionId = connection.session.id;
         // Only clear the pending ask if it is the one that resolved: a stale resolve never wipes a newer ask.
-        if (this.pendingAsks.get(connection.session.id)?.id === frame.id) this.pendingAsks.delete(connection.session.id);
-        this.onChange?.({ kind: "ask.resolved", sessionId: connection.session.id, id: frame.id });
+        if (this.pendingAsks.get(sessionId)?.id === frame.id) this.pendingAsks.delete(sessionId);
+        const key = `${sessionId}:${frame.id}`;
+        const answered = frame.answered ?? this.answeredAsks.has(key);
+        this.answeredAsks.delete(key);
+        this.onChange?.({ kind: "ask.resolved", sessionId, id: frame.id, answered });
         return;
       }
       case "approval.request": {

@@ -10,6 +10,8 @@
 //     the earlier contexts (the transcripts in the store's `history`, which the nightly rollover
 //     fills) followed by the live session, debounced, on every change of that session;
 //   - hides the machinery: the prime, empty replies and the silence marker; job lines go as `status` rows;
+//   - keeps the thread's open asks (`ask-store.ts`): replies rows and omp `ask` cards Isaac has not
+//     answered, which every snapshot carries;
 //   - pushes each settled reply to every registered phone not looking at the thread;
 //   - takes messages from the host's own jobs (`relay-linux assistant say --agent <id>`) as
 //     prefixed turns that the agent then relays to Isaac in its own words.
@@ -17,14 +19,16 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { splitPins, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
+import { MAX_ASK_QUESTION, OpenAsk, splitPins, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
+import { liveSessionId } from "../agents/session-ref";
 import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
 import { pushPreview } from "../push/preview";
 import type { PushTokenSource } from "../push/token-store";
-import { AckFailure, type AgentProvider, type AgentProviderChange, type AssistantRelaying, type AssistantThread } from "../seams";
+import { AckFailure, type AgentProvider, type AgentProviderChange, type AskInput, type AskStatus, type AssistantRelaying, type AssistantThread } from "../seams";
 import type { SessionClock } from "../session";
+import { type AskStore, MAX_ASK_FROM, MAX_ASK_REPLIES, MAX_ASK_REPLY } from "./ask-store";
 import { type AssistantAgentConfig, RegistryError } from "./registry";
 import { splitReplies } from "./replies";
 import { type FillSpawn, runFill, signinHost, splitSignin } from "./signin";
@@ -76,6 +80,8 @@ export interface AssistantServiceDeps {
   /** Where the agent runs and where its prime lives; null when the host has no `--agent-home`. */
   readonly agentHome: string | null;
   readonly store: AssistantStore;
+  /** The thread's open asks (`assistants/<id>.asks.json`). */
+  readonly asks: AskStore;
   readonly tokens: PushTokenSource & { unregister(deviceId: string): void };
   readonly sender: PushSender;
   /** Sends `message` to every socket following this thread. */
@@ -108,9 +114,11 @@ export function noAccountMessage(title: string, logPath: string | null): string 
  * while streaming, or a prime turn that only ran tools) and the silence marker, whole or still
  * streaming in. Isaac's turns show without the surface tag the sending client put on them. A turn
  * said on a call shows its words without the voice note, marked `voice`; a reply's details marker
- * becomes a paragraph break, and its answers token becomes the row's `replies`.
+ * becomes a paragraph break, and its answers token becomes the row's `replies`. `asking`, when
+ * given, collects the settled rows that end on answers, with their `[[ask-label]]` (the open asks'
+ * sources); the label never reaches the row.
  */
-export function toAssistantMessages(messages: readonly AgentMessage[], prime: string | null, prefix: string): AssistantMessage[] {
+export function toAssistantMessages(messages: readonly AgentMessage[], prime: string | null, prefix: string, asking?: Map<string, string | undefined>): AssistantMessage[] {
   const out: AssistantMessage[] = [];
   let firstUser = true;
   for (const message of messages) {
@@ -144,6 +152,7 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
       const answered = splitReplies(splitPins(message.text, streaming).text, streaming);
       const { text, signin } = splitSignin(answered.text, streaming);
       if (text.length === 0 && signin === undefined && !("images" in images)) continue;
+      if (asking !== undefined && !streaming && answered.replies !== undefined) asking.set(message.id, answered.label);
       out.push({
         id: message.id,
         role: "assistant",
@@ -215,8 +224,8 @@ export class AssistantService implements AssistantThread {
   /** Set once a stray omp on the remembered transcript set off a resume; cleared when the thread is live again. */
   private strayHandled = false;
   private primeCache: string | null | undefined;
-  /** Parsed, filtered earlier transcripts by file; stale once the file's mtime or size moves. */
-  private readonly transcripts = new Map<string, { mtimeMs: number; size: number; messages: AssistantMessage[] }>();
+  /** Parsed, filtered earlier transcripts by file, with their asking rows (`toAssistantMessages`); stale once the file's mtime or size moves. */
+  private readonly transcripts = new Map<string, { mtimeMs: number; size: number; messages: AssistantMessage[]; asking: Map<string, string | undefined> }>();
   /** Messages whose sign-in the host has filled. Kept in memory only; a host restart forgets it. */
   private readonly submitted = new Set<string>();
 
@@ -272,10 +281,77 @@ export class AssistantService implements AssistantThread {
   async snapshot(): Promise<AssistantSnapshot> {
     const session = this.current();
     const rev = this.rev;
-    const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id));
-    if (session === undefined) return { rev, messages: this.markSubmitted(earlier), busy: false, sessionId: "" };
-    const messages = (await this.deps.agents.conversation(session.id)) ?? [];
-    return { rev, messages: this.markSubmitted([...earlier, ...toAssistantMessages(messages, this.prime(), this.prefix)]), busy: session.status === "working", sessionId: session.id };
+    const asking = new Map<string, string | undefined>();
+    const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id), asking);
+    const live = session === undefined ? [] : toAssistantMessages((await this.deps.agents.conversation(session.id)) ?? [], this.prime(), this.prefix, asking);
+    const messages = this.markSubmitted([...earlier, ...live]);
+    this.deps.asks.observe(messages, asking);
+    return { rev, messages, busy: session?.status === "working", sessionId: session?.id ?? "", asks: this.deps.asks.open() };
+  }
+
+  /**
+   * Closes open ask `id` (Isaac answered or dismissed it, or the assistant resolved it), keeping
+   * `answer` when one came; false when it is not open. A session's ask answered with words hands
+   * them to the asking session as `[answer to ask <id>] <answer>`; a failed delivery is logged and
+   * the answer stays on the ask.
+   */
+  resolveAsk(id: string, how: "answered" | "dismissed" | "resolved", answer?: string): boolean {
+    if (!this.deps.asks.resolve(id, how, answer)) return false;
+    this.deps.log(`assistant ${this.id}: ask ${id} ${how}`);
+    this.changed();
+    const ask = this.deps.asks.get(id);
+    const sessionId = ask?.sessionId;
+    if (ask?.source !== "session" || how !== "answered" || answer === undefined || sessionId === undefined) return true;
+    this.deps.agents.reply(sessionId, `[answer to ask ${id}] ${answer}`, true).then(
+      () => {
+        this.deps.asks.markDelivered(id);
+        this.deps.log(`assistant ${this.id}: answer to ask ${id} delivered to session ${sessionId}`);
+      },
+      (error: unknown) => {
+        this.deps.log(`assistant ${this.id}: answer to ask ${id} not delivered to session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+      },
+    );
+    return true;
+  }
+
+  /**
+   * Puts another omp session's question to Isaac through this thread (`relay-linux asks add`) and
+   * returns its id. `session` names the asking session (an id or a subagent's, `liveSessionId`).
+   * Throws `AckFailure`: `invalid_command` for bad fields, `agent_not_found` for no such live session.
+   */
+  addAsk(input: AskInput): string {
+    const invalid = (message: string): AckFailure => new AckFailure({ code: "invalid_command", message });
+    const from = input.from.trim().replace(/\s+/g, " ");
+    if (from === "" || from.length > MAX_ASK_FROM) throw invalid(`from must be 1 to ${String(MAX_ASK_FROM)} characters`);
+    const question = input.question.trim().replace(/\s+/g, " ");
+    if (question === "" || question.length > MAX_ASK_QUESTION) throw invalid(`question must be 1 to ${String(MAX_ASK_QUESTION)} characters`);
+    const options = input.options.map((option) => option.trim().replace(/\s+/g, " ")).filter((option) => option !== "");
+    if (options.length === 0 || options.length > MAX_ASK_REPLIES) throw invalid(`give 1 to ${String(MAX_ASK_REPLIES)} options`);
+    const long = options.find((option) => option.length > MAX_ASK_REPLY);
+    if (long !== undefined) throw invalid(`option "${long}" is longer than ${String(MAX_ASK_REPLY)} characters`);
+    const wanted = input.default?.trim();
+    const fallback = wanted === undefined || wanted === "" ? undefined : options.find((option) => option.toLowerCase() === wanted.toLowerCase());
+    if (wanted !== undefined && wanted !== "" && fallback === undefined) throw invalid(`default "${wanted}" is not one of the options`);
+    const ref = input.session?.trim();
+    const sessionId = ref === undefined || ref === "" ? undefined : (liveSessionId(this.deps.agents.sessions, ref) ?? undefined);
+    if (ref !== undefined && ref !== "" && sessionId === undefined) throw new AckFailure({ code: "agent_not_found", message: `no live omp session ${ref} on this host` });
+    const ask = this.deps.asks.addSession({ from, question, options, ...(sessionId === undefined ? {} : { sessionId }), ...(fallback === undefined ? {} : { default: fallback }) });
+    this.deps.log(`assistant ${this.id}: ask ${ask.id} from ${from}${sessionId === undefined ? "" : ` (session ${sessionId})`}`);
+    this.changed();
+    return ask.id;
+  }
+
+  /** Ask `id` of this thread in whatever state, while it is kept; undefined when it has none. */
+  findAsk(id: string): AskStatus | undefined {
+    const ask = this.deps.asks.get(id);
+    if (ask === undefined) return undefined;
+    return {
+      ...OpenAsk.parse(ask),
+      state: ask.state,
+      delivered: ask.delivered === true,
+      ...(ask.answer === undefined ? {} : { answer: ask.answer }),
+      ...(ask.closedAt === undefined ? {} : { closedAt: ask.closedAt }),
+    };
   }
 
   /**
@@ -363,6 +439,12 @@ export class AssistantService implements AssistantThread {
       this.changed();
       return true;
     }
+    if (change.kind === "ask" || change.kind === "ask.resolved") {
+      if (change.sessionId !== this.current()?.id) return false;
+      const moved = change.kind === "ask" ? this.deps.asks.addCard(change.sessionId, change.ask) : this.deps.asks.cardResolved(change.sessionId, change.id, change.answered);
+      if (moved) this.changed();
+      return false;
+    }
     if (change.kind !== "conversation" && change.kind !== "message") return false;
     if (change.sessionId !== this.current()?.id) return false;
     this.changed();
@@ -411,39 +493,47 @@ export class AssistantService implements AssistantThread {
    * read once and again only when it changes. Text only: the host holds no bytes to serve the
    * images of a finished context.
    */
-  private earlier(live: string | null): AssistantMessage[] {
+  private earlier(live: string | null, asking?: Map<string, string | undefined>): AssistantMessage[] {
     const record = this.deps.store.load();
     if (record === null) return [];
     const files = record.history.filter((file) => file !== live);
     if (live === null && record.sessionFile !== undefined && !files.includes(record.sessionFile)) files.push(record.sessionFile);
     for (const cached of [...this.transcripts.keys()]) if (!files.includes(cached)) this.transcripts.delete(cached);
-    return files.flatMap((file) => this.transcript(file));
+    return files.flatMap((file) => {
+      const transcript = this.transcript(file);
+      if (transcript === null) return [];
+      for (const [id, label] of transcript.asking) asking?.set(id, label);
+      return transcript.messages;
+    });
   }
 
-  private transcript(file: string): AssistantMessage[] {
+  private transcript(file: string): { messages: AssistantMessage[]; asking: Map<string, string | undefined> } | null {
     let stat: { mtimeMs: number; size: number };
     try {
       stat = statSync(file);
     } catch {
-      return [];
+      return null;
     }
     const cached = this.transcripts.get(file);
-    if (cached?.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.messages;
+    if (cached?.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached;
     let raw: string;
     try {
       raw = readFileSync(file, "utf8");
     } catch {
-      return [];
+      return null;
     }
     const stamp = basename(file, ".jsonl");
     let seq = 0;
+    const asking = new Map<string, string | undefined>();
     const messages = toAssistantMessages(
       parseSessionRows(raw, null, () => `${stamp}-${++seq}`),
       this.prime(),
       this.prefix,
+      asking,
     );
-    this.transcripts.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, messages });
-    return messages;
+    const entry = { mtimeMs: stat.mtimeMs, size: stat.size, messages, asking };
+    this.transcripts.set(file, entry);
+    return entry;
   }
 
   private ensureSession(): Promise<AgentSession> {

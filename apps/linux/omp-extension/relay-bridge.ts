@@ -347,8 +347,9 @@ type Outbound =
   | { t: "result"; id: string; ok: boolean; error?: string; value?: unknown }
   // The ask tool is now blocking in the TUI: mirror its choices to the phone, and tell the phone
   // when that ask closed (answered in the terminal, cancelled, or answered from the phone itself).
+  // `answered` is false when it closed without an answer (cancelled, or abandoned when the session ended).
   | { t: "ask.request"; id: string; questions: AgentAskQuestion[] }
-  | { t: "ask.resolved"; id: string }
+  | { t: "ask.resolved"; id: string; answered: boolean }
   // A tool call is blocked on omp's approval prompt in the TUI: mirror it (the prompt's detail lines
   // verbatim) and tell the host when it settled (approved or denied in the terminal, or from a phone).
   | { t: "approval.request"; id: string; toolName: string; command: string; reason?: string }
@@ -1265,7 +1266,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
       const answered = phone.then((result) => ({ who: "phone" as const, result }));
       return Promise.race([terminal, answered]).then(({ who, result }) => {
         pendingAsks.delete(askId);
-        send({ t: "ask.resolved", id: askId });
+        send({ t: "ask.resolved", id: askId, answered: result !== undefined });
         if (status === "waiting") setStatus("working");
         if (who === "phone") process.stdin.push("\x1b");
         return result;
