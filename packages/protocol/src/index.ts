@@ -30,7 +30,7 @@ import {
   MAX_ARTIFACTS,
   MAX_ARTIFACT_TABS,
 } from "./artifacts";
-import { StudioJob, StudioOp, StudioResult, StudioRid, StudioState } from "./studio";
+import { StudioJob, StudioLibrary, StudioOp, StudioResult, StudioRid, StudioSegments, StudioState } from "./studio";
 import { MeetingsClientFrames, MeetingsServerFrames } from "./meetings";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
@@ -1969,6 +1969,10 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("studio.job"), job: StudioJob }),
   /** A Studio job or upload was deleted. */
   z.object({ t: z.literal("studio.removed"), id: nonEmpty }),
+  /** Studio's projects or references changed; pushed to every device. */
+  StudioLibrary.extend({ t: z.literal("studio.library") }),
+  /** SAM 2.1's objects for one image changed (queued, running, done, failed); pushed to every device. */
+  StudioSegments.extend({ t: z.literal("studio.segments") }),
   /** Answer to `studio.req`. */
   StudioResult.extend({ t: z.literal("studio.res") }),
   /** Answer to `reviews.req`. */

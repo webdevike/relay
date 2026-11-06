@@ -22,11 +22,21 @@ const ms = z.number().finite();
 const nonEmpty = z.string().min(1);
 const id = z.string().min(1).max(100);
 
-export const MAX_STUDIO_JOBS = 300;
+/** The library is kept: the host never evicts finished jobs (only failed and cancelled ones past this many). */
+export const MAX_STUDIO_JOBS = 5000;
 export const MAX_STUDIO_UPLOADS = 100;
 export const MAX_STUDIO_PROMPT = 4000;
 export const MAX_STUDIO_REFS = 4;
 export const MAX_STUDIO_PARAMS = 8;
+/** At most this many images per `create` (each its own job, seeds `s` to `s + count - 1`). */
+export const MAX_STUDIO_COUNT = 4;
+/** A trashed image can be restored for this long; then the host deletes every copy of it. */
+export const STUDIO_UNDO_MS = 10 * 60_000;
+/** The project of every job that names none (and of everything from before projects). */
+export const STUDIO_UNSORTED = "unsorted";
+export const MAX_STUDIO_PROJECTS = 200;
+export const MAX_STUDIO_REFERENCES = 200;
+export const MAX_STUDIO_SEGMENTS = 24;
 
 export const StudioMode = z.enum(["image", "video"]);
 export type StudioMode = z.infer<typeof StudioMode>;
@@ -35,7 +45,10 @@ export type StudioMode = z.infer<typeof StudioMode>;
  * `ltx`: local LTX-2.5 video. `codex-image` / `codex-edit`: images on the ChatGPT subscription. `moss`: local
  * MOSS-Image (MLX) text to image; its models are MOSS-Image and the fine-tunes on this host (Jib Mix Moss). `kontext`:
  * local FLUX.1 Kontext image edit. `comfyui` / `comfyui-video`: presets (named ComfyUI workflows) on a ComfyUI server
- * the host reaches, images and videos. `higgsfield`: paid. Older clients drop backends they do not know.
+ * the host reaches, images and videos (Qwen Image Edit, relight, angles, SeedVR2 upscale, FLUX.2 klein). `sam`: local
+ * SAM 2.1, model `cutout` (the subject, or `spec.mask`, on a transparent background). `crop`: local, no AI, model
+ * `crop` with params `x`, `y`, `w`, `h` (0 to 1 of the source). `higgsfield`: paid. Older clients drop backends they
+ * do not know.
  */
 export const StudioBackendId = z.enum([
   "ltx",
@@ -45,6 +58,8 @@ export const StudioBackendId = z.enum([
   "kontext",
   "comfyui",
   "comfyui-video",
+  "sam",
+  "crop",
   "higgsfield",
 ]);
 export type StudioBackendId = z.infer<typeof StudioBackendId>;
@@ -71,6 +86,10 @@ export const StudioAsset = z.object({
   thumb: nonEmpty,
   origin: z.enum(["output", "upload"]),
   createdAt: ms,
+  /** Isaac's favorite (outputs only). */
+  favorite: z.boolean().optional(),
+  /** Trashed at (outputs only): hidden, restorable for STUDIO_UNDO_MS, then deleted with every copy. */
+  deletedAt: ms.optional(),
 });
 export type StudioAsset = z.infer<typeof StudioAsset>;
 
@@ -98,6 +117,11 @@ export const StudioSpec = z.object({
     .optional(),
   /** Paid backends: the credits Isaac confirmed for this one job. */
   confirmCredits: z.number().nonnegative().optional(),
+  /**
+   * An edit scoped to one SAM 2.1 segment: a `StudioSegment.id` (a mask the host keeps). The host composites the
+   * engine's result back into the source image inside that mask only.
+   */
+  mask: id.optional(),
 });
 export type StudioSpec = z.infer<typeof StudioSpec>;
 
@@ -106,6 +130,26 @@ export type StudioJobState = z.infer<typeof StudioJobState>;
 
 export const StudioOrigin = z.enum(["phone", "desktop", "agent"]);
 export type StudioOrigin = z.infer<typeof StudioOrigin>;
+
+/** How a version was made from its parent, for lineage labels. */
+export const StudioHow = z.enum([
+  "vary",
+  "edit",
+  "upscale",
+  "video",
+  "relight",
+  "angle",
+  "character",
+  "combine",
+  "cutout",
+  "crop",
+  "regenerate",
+]);
+export type StudioHow = z.infer<typeof StudioHow>;
+
+/** Where a job came from: the output image (asset id) it was made from, and how. */
+export const StudioParent = z.object({ asset: id, how: StudioHow });
+export type StudioParent = z.infer<typeof StudioParent>;
 
 export const StudioJob = z.object({
   id,
@@ -127,6 +171,12 @@ export const StudioJob = z.object({
   /** Credits a paid job was charged (its confirmed quote). */
   credits: z.number().nonnegative().optional(),
   outputs: z.array(StudioAsset).max(8),
+  /** A `StudioProject.id`; STUDIO_UNSORTED when absent. */
+  project: id.optional(),
+  /** Lineage: the image this job was made from. Absent for an original. */
+  parent: StudioParent.optional(),
+  /** One `create` with `count` > 1 makes `count` jobs sharing a batch id. */
+  batch: z.object({ id, index: z.number().int().min(0), count: z.number().int().min(1).max(MAX_STUDIO_COUNT) }).optional(),
 });
 export type StudioJob = z.infer<typeof StudioJob>;
 
@@ -214,6 +264,55 @@ export const StudioBackend = z.object({
 });
 export type StudioBackend = z.infer<typeof StudioBackend>;
 
+export const StudioProject = z.object({
+  id,
+  name: z.string().trim().min(1).max(80),
+  createdAt: ms,
+});
+export type StudioProject = z.infer<typeof StudioProject>;
+
+export const StudioReferenceKind = z.enum(["style", "character"]);
+export type StudioReferenceKind = z.infer<typeof StudioReferenceKind>;
+
+/**
+ * A saved Style or Character: the host's own copy of an image (it outlives the image it was saved from), usable as a
+ * reference with `@`. Its `asset.id` goes in `spec.refs` like any other image.
+ */
+export const StudioReference = z.object({
+  id,
+  kind: StudioReferenceKind,
+  name: z.string().trim().min(1).max(80),
+  asset: StudioAsset,
+  createdAt: ms,
+});
+export type StudioReference = z.infer<typeof StudioReference>;
+
+/** One object SAM 2.1 found in an image. */
+export const StudioSegment = z.object({
+  /** The mask's id: send it as `spec.mask` to scope an edit (or a cutout) to this object. */
+  id,
+  /** "Object 1", or what the host could tell ("Background"). */
+  label: z.string().min(1).max(60),
+  /** Bounding box, fractions of the image: x, y, width, height. */
+  box: z.tuple([z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1), z.number().min(0).max(1)]),
+  /** Share of the image it covers, 0 to 1. */
+  area: z.number().min(0).max(1),
+  /** `/studio/<id>/<token>`: the mask, a grayscale PNG the size of the image (white = the object). */
+  mask: nonEmpty,
+  /** `/studio/<id>/<token>/thumb`: the object cut out, for the list. */
+  thumb: nonEmpty,
+});
+export type StudioSegment = z.infer<typeof StudioSegment>;
+
+/** SAM 2.1's objects for one image (`segment` op; pushed as `studio.segments`, kept by the host). */
+export const StudioSegments = z.object({
+  asset: id,
+  state: z.enum(["queued", "running", "done", "failed"]),
+  segments: z.array(StudioSegment).max(MAX_STUDIO_SEGMENTS),
+  error: z.string().max(2000).optional(),
+});
+export type StudioSegments = z.infer<typeof StudioSegments>;
+
 const StudioImage = z.object({
   mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]),
   data: z
@@ -222,14 +321,26 @@ const StudioImage = z.object({
     .max(6 * 1024 * 1024),
 });
 
+const assets = z.array(id).min(1).max(MAX_STUDIO_JOBS);
+
 export const StudioOp = z.discriminatedUnion("kind", [
-  /** Queue a job; answered with `job`. */
-  z.object({ kind: z.literal("create"), spec: StudioSpec, origin: StudioOrigin }),
+  /**
+   * Queue `count` jobs (default 1; seeds `seed` to `seed + count - 1`, or random), each in line on its own;
+   * answered with `jobs` (and `job`, the first). `project` defaults to Unsorted; `parent` records lineage.
+   */
+  z.object({
+    kind: z.literal("create"),
+    spec: StudioSpec,
+    origin: StudioOrigin,
+    count: z.number().int().min(1).max(MAX_STUDIO_COUNT).optional(),
+    project: id.optional(),
+    parent: StudioParent.optional(),
+  }),
   /** Price a paid job without running it; answered with `credits` and `balance`. Free. */
   z.object({ kind: z.literal("quote"), spec: StudioSpec }),
   /** Stop a queued or running job. */
   z.object({ kind: z.literal("cancel"), id }),
-  /** Remove a finished job and its files, or an upload. */
+  /** Remove a finished job and its files (every copy), or an upload, now. */
   z.object({ kind: z.literal("delete"), id }),
   /** Keep an image from the device as a reference frame; answered with `asset`. */
   z.object({ kind: z.literal("upload"), image: StudioImage, name: z.string().max(200).optional() }),
@@ -237,6 +348,32 @@ export const StudioOp = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("frame"), asset: id, at: z.enum(["first", "last"]) }),
   /** Re-read backends (models, balance, availability); a new `studio.state` follows. */
   z.object({ kind: z.literal("refresh") }),
+  /** Favorite (or unfavorite) output images. */
+  z.object({ kind: z.literal("favorite"), assets, value: z.boolean() }),
+  /** Move output images (their jobs) to a project (STUDIO_UNSORTED for none). */
+  z.object({ kind: z.literal("move"), assets, project: id }),
+  /** Trash output images: hidden now, restorable for STUDIO_UNDO_MS, then deleted with every copy. */
+  z.object({ kind: z.literal("trash"), assets }),
+  /** Undo a trash. */
+  z.object({ kind: z.literal("restore"), assets }),
+  /** New project; `id` lets an Undo bring a deleted one back as it was. Answered with `project`. */
+  z.object({ kind: z.literal("project.create"), name: z.string().trim().min(1).max(80), id: id.optional() }),
+  z.object({ kind: z.literal("project.rename"), id, name: z.string().trim().min(1).max(80) }),
+  /** Delete a project; its images move to Unsorted. */
+  z.object({ kind: z.literal("project.delete"), id }),
+  /** Save an output image as a Style or Character (the host copies it); answered with `reference`. */
+  z.object({
+    kind: z.literal("reference.create"),
+    asset: id,
+    referenceKind: StudioReferenceKind,
+    name: z.string().trim().min(1).max(80),
+  }),
+  z.object({ kind: z.literal("reference.delete"), id }),
+  /**
+   * Find the objects in an image with SAM 2.1 (in line for the GPU). Answered at once with the host's current
+   * `segments` (cached results come back done); progress and the result arrive as `studio.segments`.
+   */
+  z.object({ kind: z.literal("segment"), asset: id }),
 ]);
 export type StudioOp = z.infer<typeof StudioOp>;
 
@@ -269,9 +406,20 @@ export const StudioState = z.object({
   /** Newest first. */
   uploads: z.array(StudioAsset).max(MAX_STUDIO_UPLOADS),
   /** Backends this build does not know are dropped. */
-  backends: withoutUnknownBackends(z.array(StudioBackend).max(10), (backend) => backend["id"]),
+  backends: withoutUnknownBackends(z.array(StudioBackend).max(12), (backend) => backend["id"]),
+  /** Oldest first. Absent from hosts before projects. */
+  projects: z.array(StudioProject).max(MAX_STUDIO_PROJECTS).default([]),
+  /** Oldest first. */
+  references: z.array(StudioReference).max(MAX_STUDIO_REFERENCES).default([]),
 });
 export type StudioState = z.infer<typeof StudioState>;
+
+/** Projects and references changed; pushed to every device as `studio.library`. */
+export const StudioLibrary = z.object({
+  projects: z.array(StudioProject).max(MAX_STUDIO_PROJECTS),
+  references: z.array(StudioReference).max(MAX_STUDIO_REFERENCES),
+});
+export type StudioLibrary = z.infer<typeof StudioLibrary>;
 
 export const StudioResult = z.object({
   rid: StudioRid,
@@ -280,6 +428,11 @@ export const StudioResult = z.object({
   error: z.string().max(2000).optional(),
   job: StudioJob.optional(),
   asset: StudioAsset.optional(),
+  /** `create`: every job it queued. */
+  jobs: z.array(StudioJob).max(MAX_STUDIO_COUNT).optional(),
+  project: StudioProject.optional(),
+  reference: StudioReference.optional(),
+  segments: StudioSegments.optional(),
   credits: z.number().nonnegative().optional(),
   balance: z.number().optional(),
 });
@@ -326,4 +479,88 @@ export function studioRefs(backend: StudioBackend, model?: string): { readonly m
   const found = model === undefined ? undefined : backend.models?.find((m) => m.id === model);
   const max = found?.refs ?? backend.refs;
   return { max, min: Math.min(max, found?.minRefs ?? (max > 0 ? 1 : 0)) };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Library (projects, lineage): both clients derive their views from the jobs with these
+// ---------------------------------------------------------------------------------------------
+
+/** The project a job belongs to (STUDIO_UNSORTED when it names none). */
+export function studioProjectOf(job: StudioJob): string {
+  return job.project ?? STUDIO_UNSORTED;
+}
+
+/** One image (or video) in the library: an output of a finished job. */
+export interface StudioItem {
+  readonly asset: StudioAsset;
+  readonly job: StudioJob;
+}
+
+/** Every output that is not trashed, newest first (outputs of one job in their order). */
+export function studioItems(jobs: readonly StudioJob[]): StudioItem[] {
+  const out: StudioItem[] = [];
+  for (const job of jobs) for (const asset of job.outputs) if (asset.deletedAt === undefined) out.push({ asset, job });
+  return out.sort((a, b) => b.asset.createdAt - a.asset.createdAt || a.job.outputs.indexOf(a.asset) - b.job.outputs.indexOf(b.asset));
+}
+
+export interface StudioLineage {
+  readonly byId: ReadonlyMap<string, StudioItem>;
+  /** Live children of each asset, oldest first. */
+  readonly children: ReadonlyMap<string, readonly StudioItem[]>;
+}
+
+export function studioLineage(items: readonly StudioItem[]): StudioLineage {
+  const byId = new Map(items.map((i) => [i.asset.id, i]));
+  const children = new Map<string, StudioItem[]>();
+  for (const item of [...items].sort((a, b) => a.asset.createdAt - b.asset.createdAt)) {
+    const parent = item.job.parent?.asset;
+    if (parent === undefined || !byId.has(parent)) continue;
+    const list = children.get(parent);
+    if (list) list.push(item);
+    else children.set(parent, [item]);
+  }
+  return { byId, children };
+}
+
+/** An original: made from nothing, or its parent is gone (trashed or deleted). */
+export function studioIsOriginal(item: StudioItem, lineage: StudioLineage): boolean {
+  const parent = item.job.parent?.asset;
+  return parent === undefined || !lineage.byId.has(parent);
+}
+
+/** The original an image descends from (itself when it is one). */
+export function studioRootOf(id: string, lineage: StudioLineage): StudioItem | undefined {
+  let item = lineage.byId.get(id);
+  const seen = new Set<string>();
+  while (item && !seen.has(item.asset.id)) {
+    seen.add(item.asset.id);
+    const parent = item.job.parent?.asset;
+    const up = parent === undefined ? undefined : lineage.byId.get(parent);
+    if (!up) return item;
+    item = up;
+  }
+  return item;
+}
+
+/** An original's versions: itself, then every descendant depth first, each family oldest first. */
+export function studioVersions(rootId: string, lineage: StudioLineage): StudioItem[] {
+  const root = lineage.byId.get(rootId);
+  if (!root) return [];
+  const out: StudioItem[] = [root];
+  const seen = new Set([rootId]);
+  const walk = (id: string): void => {
+    for (const child of lineage.children.get(id) ?? []) {
+      if (seen.has(child.asset.id)) continue;
+      seen.add(child.asset.id);
+      out.push(child);
+      walk(child.asset.id);
+    }
+  };
+  walk(rootId);
+  return out;
+}
+
+/** How many versions descend from an image (the grid tile's iteration badge). */
+export function studioDescendantCount(id: string, lineage: StudioLineage): number {
+  return studioVersions(id, lineage).length - 1;
 }
