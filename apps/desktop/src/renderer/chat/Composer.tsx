@@ -11,7 +11,7 @@ import {
 import { invoke } from '../ipc'
 import { chatStore, useChatStore } from './chat-store'
 import { draftText, saveDraft, useDraftsLoaded } from './drafts'
-import { composerFillStore, takeComposerFill } from './composer-fill'
+import { composerFillStore, takeComposerFill, takeComposerImages } from './composer-fill'
 import { WriterPrompt } from './WriterPrompt'
 import { ImageChips } from './composer/ImageChips'
 import { Toolbar } from './composer/Toolbar'
@@ -276,6 +276,25 @@ export function Composer({
     take()
     return composerFillStore.subscribe(take)
   }, [paneId])
+
+  // Images another surface queued for the chat this pane shows (Studio's Send to chat).
+  const paneFile = useChatStore((s) => s.panes[paneId]?.file ?? null)
+  useEffect(() => {
+    if (paneFile === null) return
+    const take = (): void => {
+      const fill = takeComposerImages(paneFile)
+      if (fill === null) return
+      const room = Math.max(MAX_PROMPT_IMAGES - imagesRef.current.length, 0)
+      const kept = fill.slice(0, room)
+      for (const extra of fill.slice(kept.length)) URL.revokeObjectURL(extra.previewUrl)
+      setNotice(fill.length > kept.length ? NOTICE['too-many'] : null)
+      if (kept.length === 0) return
+      setImages((cur) => [...cur, ...kept.map((k) => ({ ...k, id: `img-${nextId.current++}` }))])
+      input.current?.focus()
+    }
+    take()
+    return composerFillStore.subscribe(take)
+  }, [paneFile])
 
   const abort = async (): Promise<void> => {
     await invoke('chat.abort', { paneId })

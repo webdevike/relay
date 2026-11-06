@@ -1,29 +1,54 @@
 import { MantineProvider } from '@mantine/core'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { StudioPageOp, StudioView } from '@evaos/contract'
+import type { StudioJob, StudioPageOp, StudioView } from '@evaos/contract'
 
 const invoke = vi.fn()
-const listeners = new Map<string, (payload: unknown) => void>()
 vi.mock('../ipc', () => ({
   invoke: (...a: unknown[]) => invoke(...a),
-  on: (channel: string, cb: (payload: unknown) => void) => {
-    listeners.set(channel, cb)
-    return () => listeners.delete(channel)
-  },
+  on: () => () => undefined,
 }))
 
 import { placeOf } from '@evaos/shell-core'
 import { StudioPage } from './StudioPage'
+import { resetLocalForTests } from './library/local'
 import { requestStudioOpen, studioStore } from './studio-store'
 import { BACKENDS, DONE_JOB } from './studio-test-data'
+
+const output = (id: string, createdAt: number) => ({
+  ...DONE_JOB.outputs[0]!,
+  id,
+  path: `/studio/${id}/tok`,
+  thumb: `/studio/${id}/tok/thumb`,
+  createdAt,
+})
+const job = (
+  id: string,
+  asset: string,
+  createdAt: number,
+  over: Partial<StudioJob> = {},
+): StudioJob => ({
+  ...DONE_JOB,
+  id,
+  createdAt,
+  spec: { ...DONE_JOB.spec, prompt: `Prompt ${id}` },
+  outputs: [output(asset, createdAt)],
+  ...over,
+})
+
+const ROOT = job('j1', 'a1', 1)
+const CHILD = job('j2', 'a2', 2, { parent: { asset: 'a1', how: 'edit' } })
+const OTHER = job('j3', 'a3', 3, { project: 'p1' })
 
 const VIEW: StudioView = {
   up: true,
   loaded: true,
-  jobs: [DONE_JOB],
+  jobs: [OTHER, CHILD, ROOT],
   uploads: [],
   backends: BACKENDS,
+  projects: [{ id: 'p1', name: 'Portraits', createdAt: 1 }],
+  references: [],
+  segments: {},
 }
 let ops: StudioPageOp[] = []
 
@@ -35,12 +60,15 @@ function page() {
   )
 }
 
-const created = (): StudioPageOp[] => ops.filter((op) => op.kind === 'create')
+const tiles = () => screen.queryAllByTestId('studio-tile').map((t) => t.dataset.id)
 
 beforeEach(() => {
   ops = []
+  resetLocalForTests()
+  // jsdom has no scrolling; the create bar scrolls the grid to the new tiles.
+  Element.prototype.scrollTo = () => undefined
   studioStore.setState({
-    view: { up: false, loaded: false, jobs: [], uploads: [], backends: [] },
+    view: { ...VIEW, up: false, loaded: false, jobs: [], backends: [], projects: [] },
     error: null,
     request: null,
   })
@@ -49,109 +77,97 @@ beforeEach(() => {
     if (channel === 'studio.state') return { ok: true, value: VIEW }
     if (channel !== 'studio.req') return { ok: false, error: { code: 'nope', message: 'nope' } }
     ops.push(input.op)
-    if (input.op.kind === 'quote')
-      return { ok: true, value: { ok: true, credits: 40, balance: 500 } }
     if (input.op.kind === 'create') {
-      const job = {
+      const queued = {
         ...DONE_JOB,
-        id: `j${ops.length + 1}`,
+        id: 'j9',
         spec: input.op.spec,
         state: 'queued',
         progress: 0,
         outputs: [],
+        createdAt: 9,
+        ...(input.op.project ? { project: input.op.project } : {}),
       }
-      return { ok: true, value: { ok: true, job } }
+      return { ok: true, value: { ok: true, job: queued, jobs: [queued] } }
     }
     return { ok: true, value: { ok: true } }
   })
 })
 
 describe('StudioPage', () => {
-  it('shows the gallery and sends a free job once the prompt is written', async () => {
+  it('shows originals newest first with an iteration badge, per view', async () => {
     page()
-    expect(await screen.findAllByTestId('studio-gallery-item')).toHaveLength(1)
-    const go = screen.getByTestId('studio-generate')
-    expect(go).toBeDisabled()
+    await waitFor(() => expect(tiles()).toEqual(['a3', 'a1']))
+    const root = screen.getAllByTestId('studio-tile')[1]!
+    expect(within(root).getByTestId('studio-tile-count').textContent).toContain('1')
+    expect(screen.getByTestId('studio-count').textContent).toBe('2 images')
+    fireEvent.click(screen.getByTestId('studio-rail-p1'))
+    expect(tiles()).toEqual(['a3'])
+    expect(screen.getByTestId('studio-view-title').textContent).toBe('Portraits')
+    fireEvent.click(screen.getByTestId('studio-rail-unsorted'))
+    expect(tiles()).toEqual(['a1'])
+  })
+
+  it('queues count images into the open project from the create bar', async () => {
+    page()
+    await waitFor(() => expect(tiles()).toHaveLength(2))
+    fireEvent.click(screen.getByTestId('studio-rail-p1'))
     fireEvent.change(screen.getByTestId('studio-prompt'), { target: { value: 'A lighthouse' } })
-    expect(go).toBeEnabled()
-    fireEvent.click(go)
-    await waitFor(() => expect(created()).toHaveLength(1))
-    expect(created()[0]).toEqual({
+    fireEvent.click(screen.getByRole('button', { name: '3' }))
+    fireEvent.click(screen.getByTestId('studio-generate'))
+    await waitFor(() => expect(ops.filter((o) => o.kind === 'create')).toHaveLength(1))
+    expect(ops[0]).toMatchObject({
       kind: 'create',
-      spec: {
-        mode: 'image',
-        backend: 'moss',
-        model: 'moss-image',
-        prompt: 'A lighthouse',
-        aspect: '16:9',
-        resolution: '1344x768',
-      },
+      count: 3,
+      project: 'p1',
+      spec: { backend: 'moss', model: 'moss-image', prompt: 'A lighthouse', aspect: '1:1' },
     })
-    expect(await screen.findByTestId('studio-queue-row')).toHaveTextContent('A lighthouse')
+    expect(await screen.findByTestId('studio-pending')).toBeTruthy()
   })
 
-  it('shows MOSS-Image with its inputs, and the ComfyUI tab with its presets', async () => {
+  it('selects with Cmd, trashes from the bulk bar and restores with Undo', async () => {
     page()
-    await waitFor(() => expect(screen.getByTestId('studio-model')).toHaveValue('MOSS-Image'))
-    expect(screen.getByText('Turbo')).toBeInTheDocument()
-    expect(screen.getByText('Prompt enhancer')).toBeInTheDocument()
-    expect(screen.queryByTestId('studio-presets')).toBeNull()
-    fireEvent.click(screen.getByText('ComfyUI'))
-    expect(await screen.findByTestId('studio-presets')).toHaveTextContent('Angles')
-    expect(screen.getByTestId('studio-preset-angles')).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.queryByTestId('studio-model')).toBeNull()
-    fireEvent.click(screen.getByText('Models'))
-    await waitFor(() => expect(screen.getByTestId('studio-model')).toHaveValue('MOSS-Image'))
+    await waitFor(() => expect(tiles()).toHaveLength(2))
+    const [first, second] = screen.getAllByTestId('studio-tile')
+    fireEvent.click(first!, { metaKey: true })
+    fireEvent.click(second!, { metaKey: true })
+    expect(screen.getByTestId('studio-bulk-count').textContent).toBe('2 selected')
+    fireEvent.click(within(screen.getByTestId('studio-bulk')).getByText('Delete'))
+    await waitFor(() => expect(ops).toContainEqual({ kind: 'trash', assets: ['a3', 'a1'] }))
+    expect(screen.queryByTestId('studio-bulk')).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(ops).toContainEqual({ kind: 'restore', assets: ['a3', 'a1'] }))
   })
 
-  it('holds Generate while the keyframes do not fit the backend', async () => {
-    requestStudioOpen({
-      draft: { mode: 'video', backend: 'ltx', prompt: 'Waves', frames: { start: 'a1' } },
-    })
+  it('selects all with Cmd+A and clears with the bar', async () => {
     page()
-    expect(await screen.findByTestId('studio-problem')).toHaveTextContent(
-      'Local video needs both a start and an end frame, or neither.',
-    )
-    expect(screen.getByTestId('studio-generate')).toBeDisabled()
-    expect(screen.getByTestId('studio-prompt')).toHaveValue('Waves')
-    expect(studioStore.getState().request).toBeNull()
-  })
-
-  it('sends a paid job only from the confirm dialog, with the quoted credits, every time', async () => {
-    requestStudioOpen({ draft: { mode: 'video', backend: 'higgsfield', prompt: 'Kite' } })
-    page()
-    await waitFor(() => expect(screen.getByTestId('studio-model')).toHaveValue('Kling 2.5'))
-    // The model picker's prices and the balance, quoted without spending.
+    await waitFor(() => expect(tiles()).toHaveLength(2))
+    fireEvent.keyDown(window, { key: 'a', metaKey: true })
+    expect(screen.getByTestId('studio-bulk-count').textContent).toBe('2 selected')
+    fireEvent.keyDown(window, { key: 'f' })
     await waitFor(() =>
-      expect(screen.getByTestId('studio-balance')).toHaveTextContent(
-        '40 credits for this job, 500 credits left',
-      ),
+      expect(ops).toContainEqual({ kind: 'favorite', assets: ['a3', 'a1'], value: true }),
     )
-    fireEvent.click(screen.getByTestId('studio-generate'))
-    expect(await screen.findByText('Spend 40 credits on Higgsfield?')).toBeInTheDocument()
-    expect(screen.getByTestId('studio-confirm-after')).toHaveTextContent('460 credits')
-    expect(created()).toEqual([])
-    // Cancel sends nothing, and a later Generate asks again.
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
-    await waitFor(() => expect(screen.queryByTestId('studio-confirm-cost')).toBeNull())
-    expect(created()).toEqual([])
-    fireEvent.click(screen.getByTestId('studio-generate'))
-    const spend = await screen.findByTestId('studio-confirm-spend')
-    await waitFor(() => expect(spend).toBeEnabled())
-    await act(async () => fireEvent.click(spend))
-    await waitFor(() => expect(created()).toHaveLength(1))
-    expect(created()[0]).toMatchObject({
-      kind: 'create',
-      spec: { backend: 'higgsfield', model: 'kling-2-5', prompt: 'Kite', confirmCredits: 40 },
-    })
+    fireEvent.click(screen.getByRole('button', { name: 'Clear selection' }))
+    expect(screen.queryByTestId('studio-bulk')).toBeNull()
   })
 
-  it('follows the host while mounted', async () => {
+  it("fills the create bar from an agent's draft", async () => {
     page()
-    await screen.findAllByTestId('studio-gallery-item')
-    act(() => listeners.get('studio.changed')?.({ kind: 'removed', id: 'j1' }))
-    expect(await screen.findByTestId('studio-empty')).toBeInTheDocument()
-    act(() => listeners.get('studio.changed')?.({ kind: 'status', up: false }))
-    expect(screen.getByTestId('studio-notice')).toHaveTextContent("Relay isn't connected.")
+    await waitFor(() => expect(tiles()).toHaveLength(2))
+    act(() =>
+      requestStudioOpen({ draft: { prompt: 'A kite', backend: 'codex-image', aspect: '16:9' } }),
+    )
+    await waitFor(() =>
+      expect((screen.getByTestId('studio-prompt') as HTMLTextAreaElement).value).toBe('A kite'),
+    )
+    expect(screen.getByTestId('studio-model').textContent).toContain('Codex image')
+    expect(screen.getByRole('button', { name: 'Aspect ratio' }).textContent).toContain('16:9')
+  })
+
+  it('says when Relay is down', async () => {
+    invoke.mockImplementation(async () => ({ ok: true, value: { ...VIEW, up: false } }))
+    page()
+    expect(await screen.findByTestId('studio-notice')).toBeTruthy()
   })
 })

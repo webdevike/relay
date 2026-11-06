@@ -13,8 +13,9 @@
 // `artifacts.act` is answered by one `artifacts.acted`. Live canvas rooms come as `canvas.rooms`
 // (asked for on welcome, pushed after every change); `canvas.open` is answered by `canvas.access`
 // or `canvas.unavailable`. Studio sends `studio.state` (the answer to `studio.list`, pushed when
-// uploads or backends change), `studio.job` for every change to a job, `studio.removed`, and one
-// `studio.res` per `studio.req`. Drops, calls and the inbox escalation are not used by this app;
+// uploads or backends change), `studio.job` for every change to a job, `studio.removed`,
+// `studio.library` (projects and references), `studio.segments` (SAM 2.1 objects of one image), and
+// one `studio.res` per `studio.req`. Drops, calls and the inbox escalation are not used by this app;
 // their frames are ignored.
 import { createHmac } from 'node:crypto'
 import * as path from 'node:path'
@@ -25,10 +26,15 @@ import {
   StudioAssetSchema,
   StudioBackendSchema,
   StudioJobSchema,
+  StudioProjectSchema,
+  StudioReferenceSchema,
+  StudioSegmentsSchema,
   type Board,
   type CanvasRoom,
   type StudioAnswer,
   type StudioJob,
+  type StudioLibrary,
+  type StudioSegments,
   type StudioState,
 } from '@evaos/contract'
 import {
@@ -356,15 +362,26 @@ const CanvasAccessSchema = z.object({
   expiresAt: z.number(),
 })
 const CanvasUnavailableSchema = z.object({ slug: z.string().min(1), reason: text })
-const StudioStateFrameSchema = z.object({ jobs: list, uploads: list, backends: list })
+const StudioStateFrameSchema = z.object({
+  jobs: list,
+  uploads: list,
+  backends: list,
+  projects: list,
+  references: list,
+})
 const StudioJobFrameSchema = z.object({ job: StudioJobSchema })
 const StudioRemovedSchema = z.object({ id: z.string().min(1) })
+const StudioLibraryFrameSchema = z.object({ projects: list, references: list })
 const StudioResSchema = z.object({
   rid: z.string().min(1),
   ok: z.boolean(),
   error: z.string().optional().catch(undefined),
   job: StudioJobSchema.optional().catch(undefined),
+  jobs: z.array(StudioJobSchema).optional().catch(undefined),
   asset: StudioAssetSchema.optional().catch(undefined),
+  project: StudioProjectSchema.optional().catch(undefined),
+  reference: StudioReferenceSchema.optional().catch(undefined),
+  segments: StudioSegmentsSchema.optional().catch(undefined),
   credits: z.number().nonnegative().optional().catch(undefined),
   balance: z.number().optional().catch(undefined),
 })
@@ -375,16 +392,30 @@ const QueryResSchema = z.object({
   error: z.string().optional().catch(undefined),
 })
 
-/** Studio's state as the host sends it; a job, upload or backend that does not parse is dropped. */
+/** Projects and references as the host sends them; an entry that does not parse is dropped. */
+export function parseStudioLibrary(value: {
+  projects: readonly unknown[]
+  references: readonly unknown[]
+}): StudioLibrary {
+  return {
+    projects: value.projects.flatMap((raw) => StudioProjectSchema.safeParse(raw).data ?? []),
+    references: value.references.flatMap((raw) => StudioReferenceSchema.safeParse(raw).data ?? []),
+  }
+}
+
+/** Studio's state as the host sends it; a job, upload, backend, project or reference that does not parse is dropped. */
 export function parseStudioState(value: {
   jobs: readonly unknown[]
   uploads: readonly unknown[]
   backends: readonly unknown[]
+  projects: readonly unknown[]
+  references: readonly unknown[]
 }): StudioState {
   return {
     jobs: value.jobs.flatMap((raw) => StudioJobSchema.safeParse(raw).data ?? []),
     uploads: value.uploads.flatMap((raw) => StudioAssetSchema.safeParse(raw).data ?? []),
     backends: value.backends.flatMap((raw) => StudioBackendSchema.safeParse(raw).data ?? []),
+    ...parseStudioLibrary(value),
   }
 }
 
@@ -445,10 +476,14 @@ export type FeedEvent =
   | { kind: 'canvasAccess'; slug: string; path: string; token: string; expiresAt: number }
   /** The answer to `canvas.open` when no room is live on `slug`. */
   | { kind: 'canvasUnavailable'; slug: string; reason: string }
-  /** Studio's jobs, uploads and backends now (a `studio.state`); bad entries dropped. */
+  /** Studio's jobs, uploads, backends, projects and references now (a `studio.state`); bad entries dropped. */
   | { kind: 'studioState'; state: StudioState }
   /** One Studio job changed (created, progressed, finished). */
   | { kind: 'studioJob'; job: StudioJob }
+  /** Studio's projects or references changed (a `studio.library`); bad entries dropped. */
+  | { kind: 'studioLibrary'; library: StudioLibrary }
+  /** SAM 2.1's objects for one image changed (a `studio.segments`). */
+  | { kind: 'studioSegments'; segments: StudioSegments }
   /** A Studio job or upload was deleted. */
   | { kind: 'studioRemoved'; id: string }
   /** The host's answer to `studio.req` request `rid`. */
@@ -728,6 +763,16 @@ export class Feed {
       case 'studio.removed': {
         const r = StudioRemovedSchema.safeParse(f)
         if (r.success) events.push({ kind: 'studioRemoved', id: r.data.id })
+        break
+      }
+      case 'studio.library': {
+        const l = StudioLibraryFrameSchema.safeParse(f)
+        if (l.success) events.push({ kind: 'studioLibrary', library: parseStudioLibrary(l.data) })
+        break
+      }
+      case 'studio.segments': {
+        const s = StudioSegmentsSchema.safeParse(f)
+        if (s.success) events.push({ kind: 'studioSegments', segments: s.data })
         break
       }
       case 'studio.res': {

@@ -3,8 +3,9 @@
 // (the app adds its own), the handshake checks the HMAC proof, and the agent frames follow
 // relay packages/protocol/src/index.ts. Tests list sessions, stream replies, raise asks and
 // approvals, hold live canvas rooms (with a tiny room page on the same port, as the host serves
-// its web client), run Studio (four backends, a paid one with models and a balance, jobs that
-// finish when a test says so, assets served at `/studio/<id>/<token>` from fixture files), and
+// its web client), run Studio (its backends and presets, a paid one with models and a balance,
+// projects, references, favorites, trash, SAM 2.1 segments, jobs that finish when a test says so,
+// assets served at `/studio/<id>/<token>` from fixture files), and
 // read every command the app sent. No WebSocket library: the few frame types Relay uses are
 // framed here (RFC 6455, text, ping, close).
 import { createHash, createHmac, randomBytes } from 'node:crypto'
@@ -28,6 +29,18 @@ const MEDIA = path.join(FIXTURES_DIR, 'agent-widgets/media')
 
 const resolutions = (sizes: Record<string, string>): Json[] =>
   Object.entries(sizes).map(([aspect, id]) => ({ id, label: id, aspect }))
+
+/** A ComfyUI-style preset at one megapixel that takes `refs` images. */
+const preset = (id: string, name: string, refs: number): Json => ({
+  id,
+  name,
+  mode: 'image',
+  resolutions: resolutions({ '16:9': '1mp', '9:16': '1mp', '1:1': '1mp' }),
+  seconds: [],
+  frames: [],
+  refs,
+  ...(refs > 0 ? { minRefs: refs } : {}),
+})
 
 const MOSS_RESOLUTIONS: Json[] = [
   { id: '768x1344', label: 'Portrait', aspect: '9:16' },
@@ -66,7 +79,7 @@ export const STUDIO_BACKENDS: Json[] = [
     paid: false,
     available: true,
     resolutions: resolutions({ '16:9': '768x432', '9:16': '432x768', '1:1': '512x512' }),
-    seconds: [3, 5, 8],
+    seconds: [4, 5, 8],
     frames: ['start', 'mid', 'end'],
     refs: 0,
     seed: true,
@@ -180,8 +193,9 @@ export const STUDIO_BACKENDS: Json[] = [
             default: 'left45',
             options: [
               { id: 'left45', label: '45 left' },
+              { id: 'right45', label: '45 right' },
               { id: 'top', label: 'Top down' },
-              { id: 'low', label: 'Low angle' },
+              { id: 'close', label: 'Close up' },
             ],
           },
           {
@@ -205,8 +219,75 @@ export const STUDIO_BACKENDS: Json[] = [
         frames: [],
         refs: 1,
         prompt: false,
+        inputs: [
+          {
+            kind: 'choice',
+            id: 'size',
+            label: 'Short side',
+            default: '2048',
+            options: ['1536', '2048', '3072', '4096', '6144'].map((id) => ({
+              id,
+              label: `${id} px`,
+            })),
+          },
+        ],
       },
+      preset('qwen-edit', 'Qwen Image Edit', 1),
+      {
+        ...preset('relight', 'Relight', 1),
+        inputs: [
+          {
+            kind: 'choice',
+            id: 'direction',
+            label: 'Light from',
+            default: 'front',
+            options: [
+              'top-left',
+              'top',
+              'top-right',
+              'left',
+              'front',
+              'right',
+              'bottom-left',
+              'bottom',
+              'bottom-right',
+            ].map((id) => ({ id, label: id })),
+          },
+        ],
+      },
+      preset('klein-create', 'FLUX.2 klein create', 0),
+      preset('klein-edit', 'FLUX.2 klein edit', 1),
+      preset('character', 'Character in a scene', 1),
+      preset('combine', 'Combine two', 2),
     ],
+  },
+  {
+    id: 'sam',
+    label: 'SAM 2.1',
+    mode: 'image',
+    paid: false,
+    available: true,
+    resolutions: [],
+    seconds: [],
+    frames: [],
+    refs: 1,
+    seed: false,
+    serial: true,
+    models: [preset('cutout', 'Remove background', 1)],
+  },
+  {
+    id: 'crop',
+    label: 'Crop',
+    mode: 'image',
+    paid: false,
+    available: true,
+    resolutions: [],
+    seconds: [],
+    frames: [],
+    refs: 1,
+    seed: false,
+    serial: false,
+    models: [preset('crop', 'Crop', 1)],
   },
   {
     id: 'higgsfield',
@@ -245,12 +326,21 @@ export const STUDIO_BACKENDS: Json[] = [
         seconds: [6],
         frames: ['start'],
       },
+      {
+        id: 'soul',
+        name: 'Higgsfield Soul',
+        mode: 'image',
+        resolutions: resolutions({ '16:9': '1536x864', '9:16': '864x1536', '1:1': '1024x1024' }),
+        seconds: [],
+        frames: [],
+        refs: 0,
+      },
     ],
   },
 ]
 
-/** Credits per 5 s of each Higgsfield model at its base resolution. */
-const STUDIO_PRICE: Record<string, number> = { 'kling-2-5': 40, 'hailuo-02': 25 }
+/** Credits per 5 s of each Higgsfield model at its base resolution (an image: per image). */
+const STUDIO_PRICE: Record<string, number> = { 'kling-2-5': 40, 'hailuo-02': 25, soul: 6 }
 
 export interface HostSession {
   id: string
@@ -340,12 +430,22 @@ export class FakeRelayHost {
   fileEdit(edit: Json): void {
     this.broadcast({ t: 'files.edit', ...edit })
   }
-  /** Studio's jobs and uploads (newest first) and its backends. */
-  readonly studio: { jobs: Json[]; uploads: Json[]; backends: Json[] } = {
+  /** Studio's jobs and uploads (newest first), backends, projects and references (oldest first). */
+  readonly studio: {
+    jobs: Json[]
+    uploads: Json[]
+    backends: Json[]
+    projects: Json[]
+    references: Json[]
+  } = {
     jobs: [],
     uploads: [],
     backends: structuredClone(STUDIO_BACKENDS),
+    projects: [],
+    references: [],
   }
+  /** SAM 2.1 results by image asset id, as the host keeps them. */
+  readonly studioSegments = new Map<string, Json>()
   /** Every `studio.req` op the app sent, in order. */
   readonly studioOps: Json[] = []
   /** How many `studio.list` frames arrived. */
@@ -429,7 +529,10 @@ export class FakeRelayHost {
     const assetPath = `/studio/${id}/token-${this.studioN}`
     this.studioFiles.set(assetPath, { body, type })
     this.studioFiles.set(`${assetPath}/thumb`, {
-      body: fs.readFileSync(path.join(MEDIA, kind === 'video' ? 'gallery-2.jpg' : 'gallery-1.jpg')),
+      body:
+        kind === 'video' || !type.startsWith('image/')
+          ? fs.readFileSync(path.join(MEDIA, 'gallery-2.jpg'))
+          : body,
       type: 'image/jpeg',
     })
     return {
@@ -463,9 +566,18 @@ export class FakeRelayHost {
         )
   }
 
-  /** A finished job with one output, as if it ran earlier (the gallery before the test). */
-  addStudioJob(spec: Json, origin = 'desktop'): Json {
+  /**
+   * A finished job with one output, as if it ran earlier (the library before the test); `extra`
+   * gives it lineage, a project or a favorite.
+   */
+  addStudioJob(
+    spec: Json,
+    origin = 'desktop',
+    extra: { parent?: Json; project?: string; favorite?: boolean } = {},
+  ): Json {
     this.studioN += 1
+    const output = this.studioOutput(spec.mode === 'video' ? 'video' : 'image')
+    if (extra.favorite) output.favorite = true
     const job = {
       id: `job-${this.studioN}`,
       spec,
@@ -475,11 +587,68 @@ export class FakeRelayHost {
       finishedAt: Date.now(),
       progress: 1,
       seed: 4242,
-      outputs: [this.studioOutput(spec.mode === 'video' ? 'video' : 'image')],
+      outputs: [{ ...output, createdAt: Date.now() - 60_000 + this.studioN }],
+      ...(extra.parent ? { parent: extra.parent } : {}),
+      ...(extra.project ? { project: extra.project } : {}),
     }
     this.studio.jobs.unshift(job)
     this.broadcast({ t: 'studio.job', job })
     return job
+  }
+
+  /** A project, as if made earlier; pushed as `studio.library`. */
+  addStudioProject(name: string): Json {
+    this.studioN += 1
+    const project = { id: `project-${this.studioN}`, name, createdAt: Date.now() }
+    this.studio.projects.push(project)
+    this.broadcastLibrary()
+    return project
+  }
+
+  private broadcastLibrary(): void {
+    this.broadcast({
+      t: 'studio.library',
+      projects: this.studio.projects,
+      references: this.studio.references,
+    })
+  }
+
+  /** Every live output asset by id, with its job. */
+  private studioOutputs(ids: unknown): Array<{ job: Json; asset: Json }> {
+    const want = new Set(z.array(z.string()).parse(ids))
+    const out: Array<{ job: Json; asset: Json }> = []
+    for (const job of this.studio.jobs) {
+      // The live objects (a zod parse would copy them), so a favorite or trash sticks.
+      for (const asset of job.outputs as Json[]) {
+        if (want.has(String(asset.id))) out.push({ job, asset })
+      }
+    }
+    return out
+  }
+
+  /** Three SAM 2.1 objects for an image, their masks and cut-outs served from fixture images. */
+  private studioSegmentsOf(asset: string): Json {
+    const labels = ['Subject', 'Background', 'Sky']
+    const boxes = [
+      [0.3, 0.2, 0.4, 0.7],
+      [0, 0.4, 1, 0.6],
+      [0, 0, 1, 0.35],
+    ]
+    const segments = labels.map((label, i) => {
+      const base = `/studio/seg-${asset}-${i + 1}/token-seg`
+      const body = fs.readFileSync(path.join(MEDIA, `gallery-${i + 1}.jpg`))
+      this.studioFiles.set(base, { body, type: 'image/jpeg' })
+      this.studioFiles.set(`${base}/thumb`, { body, type: 'image/jpeg' })
+      return {
+        id: `seg-${i + 1}`,
+        label,
+        box: boxes[i],
+        area: i === 0 ? 0.28 : i === 1 ? 0.6 : 0.35,
+        mask: base,
+        thumb: `${base}/thumb`,
+      }
+    })
+    return { asset, state: 'done', segments }
   }
 
   /** Finishes a running job (`id`, else the oldest still going) with one output. */
@@ -538,32 +707,41 @@ export class FakeRelayHost {
           }
           higgsfield.balance = Number(higgsfield.balance) - price
         }
-        this.studioN += 1
-        const job: Json = {
-          id: `job-${this.studioN}`,
-          spec,
-          state: 'queued',
-          origin: op.origin,
-          createdAt: Date.now(),
-          progress: 0,
-          etaMs: 30_000,
-          note: 'Waiting for its turn',
-          ...(backend.paid ? { credits: spec.confirmCredits } : {}),
-          outputs: [],
+        const count = typeof op.count === 'number' ? op.count : 1
+        const batch = `batch-${this.studioN + 1}`
+        const jobs: Json[] = []
+        for (let index = 0; index < count; index++) {
+          this.studioN += 1
+          jobs.push({
+            id: `job-${this.studioN}`,
+            spec: typeof spec.seed === 'number' ? { ...spec, seed: spec.seed + index } : spec,
+            state: 'queued',
+            origin: op.origin,
+            createdAt: Date.now() + index,
+            progress: 0,
+            etaMs: 30_000,
+            note: 'Waiting for the GPU',
+            ...(backend.paid ? { credits: spec.confirmCredits } : {}),
+            ...(typeof op.project === 'string' ? { project: op.project } : {}),
+            ...(op.parent ? { parent: op.parent } : {}),
+            ...(count > 1 ? { batch: { id: batch, index, count } } : {}),
+            outputs: [],
+          })
         }
-        this.studio.jobs.unshift(job)
-        answer({ ok: true, job })
-        this.broadcast({ t: 'studio.job', job })
+        this.studio.jobs.unshift(...[...jobs].reverse())
+        answer({ ok: true, job: jobs[0], jobs })
+        for (const job of jobs) this.broadcast({ t: 'studio.job', job })
+        const first = jobs[0]!
         setTimeout(() => {
-          if (job.state !== 'queued') return
-          Object.assign(job, {
+          if (first.state !== 'queued') return
+          Object.assign(first, {
             state: 'running',
             startedAt: Date.now(),
-            progress: 0.35,
+            progress: 0.4,
             etaMs: 20_000,
-            note: 'Rendering',
+            note: 'Step 2 of 4',
           })
-          this.broadcast({ t: 'studio.job', job })
+          this.broadcast({ t: 'studio.job', job: first })
         }, 150)
         return
       }
@@ -610,6 +788,96 @@ export class FakeRelayHost {
       case 'refresh':
         answer({ ok: true })
         return this.broadcast(this.studioState())
+      case 'favorite':
+      case 'trash':
+      case 'restore': {
+        const hits = this.studioOutputs(op.assets)
+        if (hits.length === 0) return answer({ ok: false, error: 'No such image.' })
+        for (const { asset } of hits) {
+          if (op.kind === 'favorite') asset.favorite = op.value === true
+          else if (op.kind === 'trash') asset.deletedAt = Date.now()
+          else delete asset.deletedAt
+        }
+        answer({ ok: true })
+        for (const job of new Set(hits.map((h) => h.job))) this.broadcast({ t: 'studio.job', job })
+        return
+      }
+      case 'move': {
+        const hits = this.studioOutputs(op.assets)
+        if (hits.length === 0) return answer({ ok: false, error: 'No such image.' })
+        for (const job of new Set(hits.map((h) => h.job))) {
+          if (op.project === 'unsorted') delete job.project
+          else job.project = op.project
+          this.broadcast({ t: 'studio.job', job })
+        }
+        return answer({ ok: true })
+      }
+      case 'project.create': {
+        this.studioN += 1
+        const project = {
+          id: typeof op.id === 'string' ? op.id : `project-${this.studioN}`,
+          name: String(op.name).trim(),
+          createdAt: Date.now(),
+        }
+        this.studio.projects.push(project)
+        answer({ ok: true, project })
+        return this.broadcastLibrary()
+      }
+      case 'project.rename': {
+        const project = this.studio.projects.find((p) => p.id === op.id)
+        if (!project) return answer({ ok: false, error: 'No such project.' })
+        project.name = String(op.name).trim()
+        answer({ ok: true, project })
+        return this.broadcastLibrary()
+      }
+      case 'project.delete': {
+        const before = this.studio.projects.length
+        this.studio.projects = this.studio.projects.filter((p) => p.id !== op.id)
+        if (before === this.studio.projects.length) {
+          return answer({ ok: false, error: 'No such project.' })
+        }
+        for (const job of this.studio.jobs) {
+          if (job.project !== op.id) continue
+          delete job.project
+          this.broadcast({ t: 'studio.job', job })
+        }
+        answer({ ok: true })
+        return this.broadcastLibrary()
+      }
+      case 'reference.create': {
+        const [hit] = this.studioOutputs([op.asset])
+        if (!hit) return answer({ ok: false, error: 'No such image.' })
+        const copy = this.studioAsset(
+          'image',
+          'upload',
+          this.studioFiles.get(String(hit.asset.path))!.body,
+          String(hit.asset.mimeType),
+        )
+        const reference = {
+          id: `ref-${this.studioN}`,
+          kind: op.referenceKind,
+          name: String(op.name).trim(),
+          asset: copy,
+          createdAt: Date.now(),
+        }
+        this.studio.references.push(reference)
+        answer({ ok: true, reference })
+        return this.broadcastLibrary()
+      }
+      case 'reference.delete': {
+        this.studio.references = this.studio.references.filter((r) => r.id !== op.id)
+        answer({ ok: true })
+        return this.broadcastLibrary()
+      }
+      case 'segment': {
+        const asset = String(op.asset)
+        const known = this.studioSegments.get(asset)
+        if (known) return answer({ ok: true, segments: known })
+        answer({ ok: true, segments: { asset, state: 'queued', segments: [] } })
+        const done = this.studioSegmentsOf(asset)
+        this.studioSegments.set(asset, done)
+        return this.broadcast({ t: 'studio.segments', ...done })
+      }
       default:
         return answer({ ok: false, error: `Unknown op ${String(op.kind)}` })
     }

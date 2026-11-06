@@ -2,9 +2,9 @@ import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import {
   studioWithJob,
+  studioWithLibrary,
   studioWithout,
   type StudioAnswer,
-  type StudioAsset,
   type StudioChange,
   type StudioDraft,
   type StudioPageOp,
@@ -12,7 +12,7 @@ import {
 } from '@evaos/contract'
 import { invoke, on } from '../ipc'
 
-/** What an agent asked Studio to show (studio.open): a job in the viewer, or a draft to fill in. */
+/** What an agent asked Studio to show (studio.open): a job's image in the editor, or a draft for the create bar. */
 export type StudioOpenRequest = { seq: number } & ({ job: string } | { draft: StudioDraft })
 
 export interface StudioStoreState {
@@ -23,7 +23,16 @@ export interface StudioStoreState {
   request: StudioOpenRequest | null
 }
 
-const EMPTY: StudioView = { up: false, loaded: false, jobs: [], uploads: [], backends: [] }
+const EMPTY: StudioView = {
+  up: false,
+  loaded: false,
+  jobs: [],
+  uploads: [],
+  backends: [],
+  projects: [],
+  references: [],
+  segments: {},
+}
 
 export const studioStore = createStore<StudioStoreState>(() => ({
   view: EMPTY,
@@ -45,6 +54,15 @@ export function applyStudioChange(change: StudioChange): void {
         return { view: { ...view, ...studioWithJob(view, change.job) } }
       case 'removed':
         return { view: { ...view, ...studioWithout(view, change.id) } }
+      case 'library':
+        return { view: { ...view, ...studioWithLibrary(view, change.library) } }
+      case 'segments':
+        return {
+          view: {
+            ...view,
+            segments: { ...view.segments, [change.segments.asset]: change.segments },
+          },
+        }
       case 'status':
         return { view: { ...view, up: change.up } }
     }
@@ -64,15 +82,6 @@ export async function loadStudio(): Promise<void> {
 export async function studioRequest(op: StudioPageOp): Promise<StudioAnswer> {
   const r = await invoke('studio.req', { op })
   return r.ok ? r.value : { ok: false, error: r.error.message }
-}
-
-/** An upload the host answered with, shown before its `studio.state` push arrives. */
-export function keepStudioUpload(asset: StudioAsset): void {
-  studioStore.setState(({ view }) =>
-    view.uploads.some((u) => u.id === asset.id)
-      ? {}
-      : { view: { ...view, uploads: [asset, ...view.uploads] } },
-  )
 }
 
 let seq = 0

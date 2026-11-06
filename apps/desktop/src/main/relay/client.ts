@@ -17,6 +17,7 @@ import type { ActivityItem } from '@evaos/chat-core/activity'
 import {
   BoardQueryAnswerSchema,
   studioWithJob,
+  studioWithLibrary,
   studioWithout,
   type Board,
   type BoardQueryAnswer,
@@ -24,6 +25,7 @@ import {
   type StudioAnswer,
   type StudioChange,
   type StudioOp,
+  type StudioSegments,
   type StudioState,
 } from '@evaos/contract'
 import {
@@ -115,6 +117,8 @@ export type RelaySessionEvent = Exclude<
       | 'canvasUnavailable'
       | 'studioState'
       | 'studioJob'
+      | 'studioLibrary'
+      | 'studioSegments'
       | 'studioRemoved'
       | 'studioRes'
       | 'queryRes'
@@ -261,6 +265,8 @@ export interface RelayStudio {
   studioUp(): boolean
   /** Studio as the host last sent it (kept while Relay is down); null before its first state. */
   studio(): StudioState | null
+  /** SAM 2.1 results heard so far (answers and `studio.segments`), by image asset id. */
+  studioSegments(): Readonly<Record<string, StudioSegments>>
   /**
    * Asks the host for Studio now (when connected) and after every reconnect; resolves with the
    * state once it answers, or with what is known when it cannot (down, no answer in time).
@@ -268,7 +274,7 @@ export interface RelayStudio {
   studioList(): Promise<StudioState | null>
   /** Sends one op; resolves with the host's answer, never rejects. */
   studioRequest(op: StudioOp): Promise<StudioAnswer>
-  /** Called after each change heard (a whole state, one job, a deletion). */
+  /** Called after each change heard (a whole state, one job, a deletion, the library, segments). */
   onStudio(cb: (change: StudioChange) => void): () => void
 }
 
@@ -407,6 +413,7 @@ export class RelayClient
   /** Asked for once, so every new connection asks again. */
   private studioWatched = false
   private studioSnap: StudioState | null = null
+  private studioSegs: Record<string, StudioSegments> = {}
   /** `studioList` calls waiting for the host's next `studio.state`. */
   private studioWaiters: Array<(state: StudioState | null) => void> = []
   private studioWaitTimer: NodeJS.Timeout | undefined
@@ -705,6 +712,10 @@ export class RelayClient
     return this.studioSnap
   }
 
+  studioSegments(): Readonly<Record<string, StudioSegments>> {
+    return this.studioSegs
+  }
+
   studioList(): Promise<StudioState | null> {
     this.studioWatched = true
     if (!this.feed?.authenticated) return Promise.resolve(this.studioSnap)
@@ -750,6 +761,10 @@ export class RelayClient
       this.studioSnap = studioWithJob(this.studioSnap, change.job)
     else if (change.kind === 'removed' && this.studioSnap)
       this.studioSnap = studioWithout(this.studioSnap, change.id)
+    else if (change.kind === 'library' && this.studioSnap)
+      this.studioSnap = studioWithLibrary(this.studioSnap, change.library)
+    else if (change.kind === 'segments')
+      this.studioSegs = { ...this.studioSegs, [change.segments.asset]: change.segments }
     for (const cb of [...this.studioListeners]) cb(change)
   }
 
@@ -919,6 +934,12 @@ export class RelayClient
         case 'studioJob':
           this.changeStudio({ kind: 'job', job: event.job })
           break
+        case 'studioLibrary':
+          this.changeStudio({ kind: 'library', library: event.library })
+          break
+        case 'studioSegments':
+          this.changeStudio({ kind: 'segments', segments: event.segments })
+          break
         case 'studioRemoved':
           this.changeStudio({ kind: 'removed', id: event.id })
           break
@@ -927,6 +948,9 @@ export class RelayClient
           if (!s) break
           this.studioReqs.delete(event.rid)
           clearTimeout(s.timer)
+          if (event.answer.segments) {
+            this.changeStudio({ kind: 'segments', segments: event.answer.segments })
+          }
           s.resolve(event.answer)
           break
         }
@@ -1091,6 +1115,10 @@ export class StaticRelay
 
   studio(): StudioState | null {
     return null
+  }
+
+  studioSegments(): Readonly<Record<string, StudioSegments>> {
+    return {}
   }
 
   studioList(): Promise<StudioState | null> {

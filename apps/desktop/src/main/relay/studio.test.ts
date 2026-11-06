@@ -28,8 +28,10 @@ import type {
   StudioChange,
   StudioJob,
   StudioOp,
+  StudioSegments,
   StudioState,
 } from '@evaos/contract'
+import { imageCards } from '../canvas/canvas-ipc'
 import type { MainContext } from '../context'
 import {
   NO_ANSWER,
@@ -102,7 +104,35 @@ const job = (id: string, extra: Partial<StudioJob> = {}): StudioJob => ({
   outputs: [ASSET],
   ...extra,
 })
-const STATE: StudioState = { jobs: [job('j1')], uploads: [], backends: BACKENDS }
+const PROJECT = { id: 'p1', name: 'Portraits', createdAt: 3 }
+const REFERENCE = {
+  id: 'r1',
+  kind: 'style' as const,
+  name: 'Ink',
+  asset: { ...ASSET, id: 'ra1', origin: 'upload' as const },
+  createdAt: 4,
+}
+const SEGMENTS = {
+  asset: 'a1',
+  state: 'done' as const,
+  segments: [
+    {
+      id: 's1',
+      label: 'Cup',
+      box: [0.1, 0.2, 0.3, 0.4] as [number, number, number, number],
+      area: 0.1,
+      mask: '/studio/s1/tok',
+      thumb: '/studio/s1/tok/thumb',
+    },
+  ],
+}
+const STATE: StudioState = {
+  jobs: [job('j1')],
+  uploads: [],
+  backends: BACKENDS,
+  projects: [PROJECT],
+  references: [REFERENCE],
+}
 
 describe('studio frames', () => {
   it('builds list and req frames', () => {
@@ -114,7 +144,7 @@ describe('studio frames', () => {
     })
   })
 
-  it('parses state (dropping what does not parse), jobs, removals and answers', () => {
+  it('parses state (dropping what does not parse), jobs, removals, library, segments and answers', () => {
     const feed = new Feed(null, false)
     expect(
       feed.receive({
@@ -122,10 +152,37 @@ describe('studio frames', () => {
         jobs: [job('j1'), { id: 'bad' }],
         uploads: [ASSET],
         backends: BACKENDS,
+        projects: [PROJECT, { id: 'bad' }],
+        references: [REFERENCE],
       }).events,
     ).toEqual([
-      { kind: 'studioState', state: { jobs: [job('j1')], uploads: [ASSET], backends: BACKENDS } },
+      {
+        kind: 'studioState',
+        state: {
+          jobs: [job('j1')],
+          uploads: [ASSET],
+          backends: BACKENDS,
+          projects: [PROJECT],
+          references: [REFERENCE],
+        },
+      },
     ])
+    // A host from before projects sends none.
+    expect(feed.receive({ t: 'studio.state', jobs: [], uploads: [], backends: [] }).events).toEqual(
+      [
+        {
+          kind: 'studioState',
+          state: { jobs: [], uploads: [], backends: [], projects: [], references: [] },
+        },
+      ],
+    )
+    expect(
+      feed.receive({ t: 'studio.library', projects: [PROJECT], references: [{ id: 'x' }] }).events,
+    ).toEqual([{ kind: 'studioLibrary', library: { projects: [PROJECT], references: [] } }])
+    expect(feed.receive({ t: 'studio.segments', ...SEGMENTS }).events).toEqual([
+      { kind: 'studioSegments', segments: SEGMENTS },
+    ])
+    expect(feed.receive({ t: 'studio.segments', asset: 'a1' }).events).toEqual([])
     expect(feed.receive({ t: 'studio.job', job: job('j2') }).events).toEqual([
       { kind: 'studioJob', job: job('j2') },
     ])
@@ -147,6 +204,26 @@ describe('studio frames', () => {
       answer: { ok: true, credits: 40, balance: 460 },
     })
     expect(answer?.kind === 'studioRes' && answer.answer.job).toBeUndefined()
+    const [made] = feed.receive({
+      t: 'studio.res',
+      rid: 'r2',
+      ok: true,
+      jobs: [job('j3'), job('j4')],
+      project: PROJECT,
+      reference: REFERENCE,
+      segments: SEGMENTS,
+    }).events
+    expect(made).toEqual({
+      kind: 'studioRes',
+      rid: 'r2',
+      answer: {
+        ok: true,
+        jobs: [job('j3'), job('j4')],
+        project: PROJECT,
+        reference: REFERENCE,
+        segments: SEGMENTS,
+      },
+    })
   })
 })
 
@@ -211,7 +288,25 @@ describe('RelayClient studio', () => {
     expect(client.studio()?.jobs[0]?.state).toBe('done')
     socket.say({ t: 'studio.removed', id: 'j1' })
     expect(client.studio()?.jobs.map((j) => j.id)).toEqual(['j2'])
-    expect(heard.map((c) => c.kind)).toEqual(['state', 'job', 'job', 'removed'])
+    socket.say({ t: 'studio.library', projects: [], references: [REFERENCE] })
+    expect(client.studio()?.projects).toEqual([])
+    expect(client.studio()?.references).toEqual([REFERENCE])
+    socket.say({ t: 'studio.segments', ...SEGMENTS })
+    expect(client.studioSegments()).toEqual({ a1: SEGMENTS })
+    expect(heard.map((c) => c.kind)).toEqual([
+      'state',
+      'job',
+      'job',
+      'removed',
+      'library',
+      'segments',
+    ])
+    // A `segment` answer is kept too.
+    const segmented = client.studioRequest({ kind: 'segment', asset: 'a2' })
+    const queued = { asset: 'a2', state: 'queued' as const, segments: [] }
+    socket.say({ t: 'studio.res', rid: socket.frames().at(-1)!.rid, ok: true, segments: queued })
+    expect(await segmented).toMatchObject({ ok: true, segments: queued })
+    expect(client.studioSegments().a2).toEqual(queued)
     socket.handlers.at(-1)!.closed('gone')
     expect(client.studioUp()).toBe(false)
     expect(client.studio()?.jobs).toHaveLength(1)
@@ -259,6 +354,7 @@ describe('RelayClient studio', () => {
     expect(relay.studio()).toBeNull()
     expect(await relay.studioList()).toBeNull()
     expect(await relay.studioRequest()).toEqual({ ok: false, error: NOT_CONNECTED })
+    expect(relay.studioSegments()).toEqual({})
   })
 })
 
@@ -278,6 +374,8 @@ class FakeStudio implements RelayStudio {
   }
   studioUp = () => this.up
   studio = () => this.state
+  segments: Record<string, StudioSegments> = {}
+  studioSegments = () => this.segments
   studioList = async () => {
     this.lists += 1
     return this.state
@@ -318,9 +416,10 @@ describe('studio IPC', () => {
   it('asks the host for state and sends ops as Isaac, a create as desktop', async () => {
     const relay = new FakeStudio()
     registerStudioIpc(ctx, relay)
+    relay.segments = { a1: SEGMENTS }
     expect(await call('studio.state', {})).toEqual({
       ok: true,
-      value: { ...STATE, up: true, loaded: true },
+      value: { ...STATE, up: true, loaded: true, segments: { a1: SEGMENTS } },
     })
     expect(relay.lists).toBe(1)
     relay.state = null
@@ -337,6 +436,17 @@ describe('studio IPC', () => {
     // The page cannot name an origin, nor send an agent's create.
     await call('studio.req', { op: { kind: 'create', spec, origin: 'agent' } })
     expect(relay.ops.at(-1)).toEqual({ kind: 'create', spec, origin: 'desktop' })
+    // Count, project and lineage go out as the page sent them.
+    const parent = { asset: 'a1', how: 'edit' as const }
+    await call('studio.req', { op: { kind: 'create', spec, count: 3, project: 'p1', parent } })
+    expect(relay.ops.at(-1)).toEqual({
+      kind: 'create',
+      spec,
+      count: 3,
+      project: 'p1',
+      parent,
+      origin: 'desktop',
+    })
   })
 
   it('passes every change on, and Relay coming up or going down', () => {
@@ -387,6 +497,52 @@ describe('studio IPC', () => {
       ok: false,
       error: { code: 'relay-unavailable' },
     })
+  })
+
+  it('shows Finder once when several downloads land together', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-dl-'))
+    dirs.push(dir)
+    const revealed: string[] = []
+    const fake = (async () => new Response('bytes')) as unknown as typeof fetch
+    registerStudioIpc(ctx, new FakeStudio(), {
+      fetch: fake,
+      downloadsDir: dir,
+      reveal: (f) => revealed.push(f),
+    })
+    await Promise.all(
+      ['a1', 'a2', 'a3'].map((id) =>
+        call('studio.download', { path: `/studio/${id}/tok`, name: `studio-${id}.png` }),
+      ),
+    )
+    expect(fs.readdirSync(dir).sort()).toEqual(['studio-a1.png', 'studio-a2.png', 'studio-a3.png'])
+    expect(revealed).toHaveLength(1)
+  })
+
+  it('refuses Add to canvas while the Canvas has not started', async () => {
+    registerStudioIpc(ctx, new FakeStudio())
+    expect(
+      await call('studio.canvas', {
+        slug: 'board',
+        assets: [{ path: '/studio/a1/tok', name: 'studio-a1.png' }],
+      }),
+    ).toMatchObject({ ok: false, error: { code: 'unavailable' } })
+  })
+
+  it('lays new image cards in one row below the board, at the image aspect', () => {
+    const cards = imageCards(
+      [
+        { id: 'n1', type: 'note', x: 40, y: 0, w: 200, h: 100 },
+        { id: 'n2', type: 'note', x: 300, y: 50, w: 200 },
+      ],
+      [
+        { src: 'studio/a.png', width: 1000, height: 500 },
+        { src: 'studio/b.png', width: 500, height: 1000 },
+      ],
+    )
+    expect(cards.map(({ id: _id, ...c }) => c)).toEqual([
+      { type: 'image', x: 40, y: 290, w: 320, h: 160, data: { src: 'studio/a.png' } },
+      { type: 'image', x: 400, y: 290, w: 320, h: 640, data: { src: 'studio/b.png' } },
+    ])
   })
 
   it('keeps a download name inside the folder', () => {
