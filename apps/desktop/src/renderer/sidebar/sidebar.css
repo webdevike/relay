@@ -170,11 +170,54 @@ html[data-eva-motion='off'] .eva-sb-track {
   gap: var(--eva-space-xs);
   padding: var(--eva-space-native-sm) var(--eva-space-native-sm) var(--eva-space-native-xs);
 }
-/* Update waiting for a restart: a small quiet pill above Settings; the details open on hover. */
-.eva-update-badge {
-  align-self: flex-start;
-  margin-left: var(--mantine-spacing-sm);
-  cursor: pointer;
+/* One row of small ghost icon buttons: Settings and Usage left, the update control right. */
+.eva-sb-icons {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-space-xs);
+}
+.eva-sb-icons-gap {
+  flex: 1;
+}
+.eva-sb-icon {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  border: 0;
+  border-radius: var(--eva-radius);
+  box-shadow: none;
+  background: transparent;
+  color: var(--eva-text-dim);
+  transition:
+    color var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
+}
+.eva-sb-icon:hover:not(:disabled) {
+  background: var(--eva-hover);
+  color: var(--eva-chrome-text);
+  transform: none;
+}
+.eva-sb-icon[data-active='true'] {
+  color: var(--eva-nav-active-fg);
+  background: var(--eva-nav-active-bg);
+}
+.eva-sb-icon[data-ready='true'] {
+  color: var(--eva-accent);
+}
+.eva-sb-icon:disabled {
+  background: transparent;
+  color: var(--eva-text-dim);
+}
+.eva-sb-icon-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eva-accent);
 }
 .eva-update-changes {
   margin: 0;

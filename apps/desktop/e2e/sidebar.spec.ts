@@ -44,6 +44,7 @@ test('nav rows and counts come from the fixture root', { tag: '@smoke' }, async 
     'nav-meetings',
     'nav-dashboard',
     'nav-setting',
+    'nav-usage',
   ])
   await expect(shell.locator(sel('nav-dashboard'))).toHaveAttribute('data-active', 'true')
   await expect(shell.locator(sel('count-jobs'))).toHaveText('1')

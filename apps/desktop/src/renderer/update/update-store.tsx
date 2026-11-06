@@ -2,25 +2,60 @@ import { Button, Group, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { UpdateState } from '@evaos/contract'
+import type { UpdateCheckStatus, UpdateState } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 import { invoke, on } from '../ipc'
 import { openPlace } from '../navigation/navigate'
 
 const TOAST_ID = 'relay-update'
 
-/** Main's pending update (main/update) mirrored here; the sidebar card and footer chip read it. */
-export const updateStore = createStore<{ update: UpdateState }>(() => ({
+interface UpdateSlice {
+  update: UpdateState
+  /** A check is running (the packaged updater downloads and stages inside it). */
+  checking: boolean
+  /** A restart into the update was asked for and has not happened (unsaved edits may hold it). */
+  installing: boolean
+  /** Why the last check found nothing to offer; null after a good one. */
+  error: string | null
+}
+
+/** Main's pending update (main/update) mirrored here, with the sidebar button's own state. */
+export const updateStore = createStore<UpdateSlice>(() => ({
   update: { pending: false, build: null, summary: null },
+  checking: false,
+  installing: false,
+  error: null,
 }))
 
-export function useUpdate<T>(selector: (s: { update: UpdateState }) => T): T {
+export function useUpdate<T>(selector: (s: UpdateSlice) => T): T {
   return useStore(updateStore, selector)
 }
 
+/** How long a restart that never happened (an unsaved-edits prompt said no) reads as installing. */
+const INSTALLING_MS = 20_000
+
 /** Restarts into the pending update; unsaved edits still ask first. */
 export function restartForUpdate(): void {
+  updateStore.setState({ installing: true })
+  setTimeout(() => updateStore.setState({ installing: false }), INSTALLING_MS)
   void invoke('update.restart', {})
+}
+
+const CHECK_ERROR: Partial<Record<UpdateCheckStatus, string>> = {
+  unavailable: 'This copy has no update source.',
+  failed: "Couldn't check. Try again.",
+}
+
+/** Looks for a newer build now; a found one arrives as `update.changed`. */
+export function checkForUpdate(): void {
+  if (updateStore.getState().checking) return
+  updateStore.setState({ checking: true, error: null })
+  void invoke('update.check', {}).then((r) => {
+    updateStore.setState({
+      checking: false,
+      error: r.ok ? (CHECK_ERROR[r.value.status] ?? null) : "Couldn't check. Try again.",
+    })
+  })
 }
 
 function showToast(update: UpdateState): void {
@@ -78,7 +113,7 @@ function apply(update: UpdateState): void {
   const changed = prev.build !== update.build || prev.summary !== update.summary
   if (!update.pending) {
     notifications.hide(TOAST_ID)
-    updateStore.setState({ update })
+    updateStore.setState({ update, installing: false })
     return
   }
   if (!changed) return

@@ -21,7 +21,7 @@ import { FavRow, favEntries, type FavEntry } from './FavoritesRows'
 import { navIcon } from './icons'
 import './customize.css'
 import { NavRow } from './NavRow'
-import { UpdateBadge } from '../update/UpdateBadge'
+import { SidebarFooter } from './SidebarFooter'
 import { ensureSkillsLoaded, useSkillCount } from '../skills/skills-store'
 import { openSub } from './nav-level'
 import { SidebarMenu, type MenuAt, type MenuTarget } from './SidebarMenu'
@@ -42,7 +42,6 @@ import { countLabel, useSidebarData } from './sidebar-store'
 // The built-in Dashboard sits first under Dashboards as Overview (native sidebar::dashboards).
 const MAIN = NAV_PAGES.filter((n) => n.slug !== 'setting' && n.slug !== 'dashboard')
 const OVERVIEW = NAV_PAGES.find((n) => n.slug === 'dashboard')!
-const SETTING = NAV_PAGES.find((n) => n.slug === 'setting')!
 
 /** A row of Main or Dashboards. `id` is what the user's visibility and order are keyed by. */
 interface Item {
@@ -379,14 +378,14 @@ export function MainNav() {
             Could not read counts. Press the refresh shortcut to try again.
           </div>
         ) : null}
-        <UpdateBadge />
-        <NavRow
-          slug={SETTING.slug}
-          title={SETTING.title}
-          icon={SETTING.icon}
-          active={here.page === 'settings'}
-          onClick={(e) => go('settings', e)}
-          onMenu={(x, y) => openAt(x, y, { kind: 'fixed', place: placeOf('settings') })}
+        <SidebarFooter
+          settingsActive={here.page === 'settings'}
+          onOpen={go}
+          onOpenPlace={(p, e) => {
+            openFromNav(p, e)
+            openSub('settings')
+          }}
+          onSettingsMenu={(x, y) => openAt(x, y, { kind: 'fixed', place: placeOf('settings') })}
         />
       </div>
       <SidebarMenu

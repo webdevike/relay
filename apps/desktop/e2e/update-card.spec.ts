@@ -3,8 +3,8 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import { test, expect } from './fixtures'
 import { pickScheme } from './helpers/appearance'
 
-// A pending update shows a small badge above Settings whose hover card carries the details and
-// Restart; it survives Later on the toast, and a hidden sidebar falls back to the footer chip.
+// A pending update turns the footer's refresh icon into a download icon: hover shows the details,
+// one click restarts; it survives Later on the toast, and a hidden sidebar falls back to the footer chip.
 // The update is faked through main's `update` test hook.
 type Hooks = { __evaosTest: { hooks: { update: { offer(u: object): void } } } }
 
@@ -30,24 +30,24 @@ const shot = async (shell: Page, name: string): Promise<void> => {
 test.use({ startOnChat: false, toolPanes: false })
 
 test(
-  'update badge sits above Settings, opens details on hover, survives Later; chip covers a hidden sidebar',
+  'update icon sits in the Settings row, opens details on hover, survives Later; chip covers a hidden sidebar',
   { tag: '@smoke' },
   async ({ app, shell }) => {
-    await expect(shell.locator('[data-testid=update-badge]')).toHaveCount(0)
+    const badge = shell.locator('[data-testid=update-button]')
+    await expect(badge).toHaveAttribute('aria-label', 'Check for updates')
     await offer(app)
-    const badge = shell.locator('[data-testid=update-badge]')
     await expect(shell.locator('[data-testid=update-toast]')).toBeVisible()
     await expect(badge).toBeVisible()
-    await expect(badge).toContainText('Update')
+    await expect(badge).toHaveAttribute('aria-label', 'Update and restart')
 
-    // Small, and directly above the Settings row.
+    // A small icon in the same row as Settings, to its right.
     const b = (await badge.boundingBox())!
     const s = (await shell.locator('[data-testid=nav-setting]').boundingBox())!
-    expect(b.height).toBeLessThan(28)
-    expect(b.y + b.height).toBeLessThanOrEqual(s.y)
-    expect(s.y - (b.y + b.height)).toBeLessThan(16)
+    expect(b.height).toBeLessThanOrEqual(28)
+    expect(Math.abs(b.y - s.y)).toBeLessThan(2)
+    expect(b.x).toBeGreaterThan(s.x + s.width)
 
-    // Hover opens the details: build and Restart (no history here, so the summary line).
+    // Hover opens the details: build and summary (no history here, so the summary line).
     await badge.hover()
     const pop = shell.locator('[data-testid=update-popover]')
     await expect(pop).toBeVisible()
@@ -55,7 +55,6 @@ test(
     await expect(pop.locator('[data-testid=update-popover-summary]')).toHaveText(
       'Faster chat list and a calmer sidebar',
     )
-    await expect(pop.locator('[data-testid=update-popover-restart]')).toBeVisible()
 
     // Dark and light, badge alone and with the popover open.
     for (const scheme of ['dark', 'light'] as const) {

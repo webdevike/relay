@@ -24,6 +24,7 @@ const invoke = vi.fn(async (...a: unknown[]) => {
       },
     }
   if (a[0] === 'app.about') return { ok: true, value: { build: 'aaaaaaa111' } }
+  if (a[0] === 'update.check') return { ok: true, value: { status: 'failed' } }
   return { ok: true, value: {} }
 })
 vi.mock('../ipc', () => ({
@@ -32,43 +33,55 @@ vi.mock('../ipc', () => ({
 }))
 
 import { chatStore, type PaneState } from '../chat/chat-store'
-import { UpdateBadge } from './UpdateBadge'
+import { UpdateButton } from './UpdateButton'
 import { updateStore } from './update-store'
 
 const wrap = () =>
   render(
     <MantineProvider>
-      <UpdateBadge />
+      <UpdateButton />
     </MantineProvider>,
   )
 
 beforeEach(() => {
   invoke.mockClear()
   chatStore.setState({ panes: {} })
-  updateStore.setState({ update: { pending: false, build: null, summary: null } })
+  updateStore.setState({
+    update: { pending: false, build: null, summary: null },
+    checking: false,
+    installing: false,
+    error: null,
+  })
 })
 
-describe('UpdateBadge', () => {
-  it('renders nothing without a pending update', () => {
+describe('UpdateButton', () => {
+  it('checks for updates when idle and shows a failed check on hover', async () => {
     wrap()
-    expect(screen.queryByTestId('update-badge')).toBeNull()
+    const btn = screen.getByTestId('update-button')
+    expect(btn.getAttribute('aria-label')).toBe('Check for updates')
+    fireEvent.click(btn)
+    expect(invoke).toHaveBeenCalledWith('update.check', {})
+    await act(async () => {})
+    fireEvent.mouseEnter(screen.getByTestId('update-button'))
+    expect((await screen.findByTestId('update-popover-error')).textContent).toBe(
+      "Couldn't check. Try again.",
+    )
   })
 
-  it('opens the details on hover, restarts, and clears once the update is gone', async () => {
+  it('restarts in one click when an update is ready, with details on hover', async () => {
     updateStore.setState({ update: { pending: true, build: 'bbbbbbb222', summary: 'Faster' } })
     chatStore.setState({
       panes: { p1: { running: true, title: 'Fix login' } as unknown as PaneState },
     })
     wrap()
-    expect(screen.queryByTestId('update-popover')).toBeNull()
-    fireEvent.mouseEnter(screen.getByTestId('update-badge'))
-    expect(await screen.findByTestId('update-popover')).toBeTruthy()
+    const btn = screen.getByTestId('update-button')
+    expect(btn.getAttribute('aria-label')).toBe('Update and restart')
+    fireEvent.mouseEnter(btn)
     expect((await screen.findByTestId('update-popover-changes')).textContent).toBe('Calmer sidebar')
     expect(screen.getByTestId('update-popover-build').textContent).toBe('Build bbbbbbb')
     expect(screen.getByTestId('update-popover-note').textContent).toContain('Fix login')
-    fireEvent.click(screen.getByTestId('update-popover-restart'))
+    fireEvent.click(btn)
     expect(invoke).toHaveBeenCalledWith('update.restart', {})
-    act(() => updateStore.setState({ update: { pending: false, build: null, summary: null } }))
-    expect(screen.queryByTestId('update-badge')).toBeNull()
+    expect(screen.getByTestId('update-button').getAttribute('aria-busy')).toBe('true')
   })
 })
