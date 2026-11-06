@@ -200,7 +200,7 @@ export function WorkspacePage({ place }: { place: Place }) {
   return wrap(
     <div className="eva-ws-col">
       <header className="eva-ws-header" data-testid="ws-header">
-        <h1 className="eva-ws-title">
+        <h1 className="eva-ws-title" data-page-title>
           {ws.displayName}
           {ws.builtIn ? <span className="eva-ws-badge">Eva</span> : null}
         </h1>

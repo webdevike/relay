@@ -72,7 +72,9 @@ export function AssistantsHome({ place }: { place: Place }) {
     <div className="eva-as-col" data-testid="assistants-home">
       <div className="eva-as-head">
         <div className="eva-as-head-row">
-          <h1 className="eva-as-title">{meta.title}</h1>
+          <h1 className="eva-as-title" data-page-title>
+            {meta.title}
+          </h1>
           <Button
             variant="default"
             size="xs"

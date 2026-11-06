@@ -1,6 +1,6 @@
 /* The setup wizard borrows the settings page's cards and rows; these are its own parts. */
 .eva-setup-col {
-  max-width: 720px;
+  max-width: var(--eva-page-w-narrow);
 }
 .eva-setup-icon {
   display: inline-flex;

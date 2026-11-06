@@ -49,7 +49,9 @@ export function SettingsPage({ place }: { place: Place }) {
   return (
     <div className="eva-settings" data-testid={`settings-${name.toLowerCase()}`}>
       <div className="eva-settings-col">
-        <h1 className="eva-settings-title">{name}</h1>
+        <h1 className="eva-settings-title" data-page-title>
+          {name}
+        </h1>
         <p className="eva-settings-desc">{desc}</p>
         <Body />
       </div>

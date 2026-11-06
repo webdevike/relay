@@ -195,7 +195,7 @@ function RecordPage({ place }: { place: Place }) {
   return (
     <div className="eva-mt-col" data-testid="page-meeting">
       <div className="eva-mt-head">
-        <h1 className="eva-mt-title" data-testid="meeting-title">
+        <h1 className="eva-mt-title" data-testid="meeting-title" data-page-title>
           {m.title}
         </h1>
         <p className="eva-mt-dim" data-testid="meeting-when">

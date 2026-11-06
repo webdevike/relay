@@ -60,7 +60,9 @@ export function MeetingsHome(_props: { place: Place }) {
   return (
     <div className="eva-mt-col" data-testid="page-meetings">
       <div className="eva-mt-head">
-        <h1 className="eva-mt-title">Meetings</h1>
+        <h1 className="eva-mt-title" data-page-title>
+          Meetings
+        </h1>
         {list ? (
           <p className="eva-mt-dim" data-testid="meetings-summary">
             {summaryLine(digest.recentCount, digest.waiting.length)}

@@ -457,7 +457,9 @@ export function TestBenchPage(_props: { place: Place }) {
     <div className="eva-bench-col" data-testid="page-test-bench">
       {selected ? null : (
         <div className="eva-bench-head">
-          <h1 className="eva-bench-title">Test Bench</h1>
+          <h1 className="eva-bench-title" data-page-title>
+            Test Bench
+          </h1>
           <span className="eva-bench-dim">Eva's experiments, newest first</span>
           <span className="eva-bench-spacer" />
           <Tooltip label="Refresh" openDelay={300}>

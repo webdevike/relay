@@ -61,7 +61,7 @@ export function Hero(p: HeroProps) {
       <div className="eva-dash-hero-overlay" />
       <div className="eva-dash-hero-content">
         <div className="eva-dash-eyebrow">WELCOME BACK</div>
-        <h1 id="dash-hero-title" className="eva-dash-title">
+        <h1 id="dash-hero-title" className="eva-dash-title" data-page-title>
           Dashboard
         </h1>
         <p className="eva-dash-summary" data-testid="dash-summary">

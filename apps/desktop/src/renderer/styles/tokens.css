@@ -17,6 +17,10 @@
   --eva-space-xl: 32px;
   --eva-space-2xl: 48px;
   --eva-space-3xl: 64px;
+  /* Page content columns: lists, tables and dashboards (wide) and forms and reading text (narrow).
+     Every centered page column takes one of these; none sets its own pixel width. */
+  --eva-page-w: 1120px;
+  --eva-page-w-narrow: 720px;
 
   /* Native scale.rs steps, separate from the port's legacy layout spacing. */
   --eva-space-native-xs: calc(var(--eva-font-size) * 10 / 14);

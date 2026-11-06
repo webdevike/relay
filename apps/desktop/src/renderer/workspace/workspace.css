@@ -1,5 +1,5 @@
 .eva-ws-col {
-  max-width: 960px;
+  max-width: var(--eva-page-w);
   margin: 0 auto;
   padding: 24px;
   display: flex;

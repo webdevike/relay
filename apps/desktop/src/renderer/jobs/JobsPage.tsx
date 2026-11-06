@@ -165,7 +165,9 @@ export function JobsPage(_props: { place: Place }) {
   return (
     <div className="eva-jobs-col" data-testid="page-jobs">
       <div className="eva-jobs-head">
-        <h1 className="eva-jobs-title">Jobs</h1>
+        <h1 className="eva-jobs-title" data-page-title>
+          Jobs
+        </h1>
         {list ? (
           <span className="eva-jobs-badge" data-testid="jobs-scheduled">
             {scheduled} scheduled

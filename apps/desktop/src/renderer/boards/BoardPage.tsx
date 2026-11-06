@@ -76,7 +76,9 @@ export function BoardPage({ place }: { place: Place }) {
     body = (
       <>
         <div className="eva-board-head">
-          <h1 className="eva-board-title">{board.title}</h1>
+          <h1 className="eva-board-title" data-page-title>
+            {board.title}
+          </h1>
           <div className="eva-board-meta">
             {board.workspace ? (
               <Badge size="sm" variant="light" color="gray" radius="sm" tt="none">

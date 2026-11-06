@@ -6,7 +6,7 @@
 
 /* Pages */
 .eva-mt-col {
-  max-width: 720px;
+  max-width: var(--eva-page-w-narrow);
   margin: 0 auto;
   padding: var(--eva-space-lg);
   display: flex;

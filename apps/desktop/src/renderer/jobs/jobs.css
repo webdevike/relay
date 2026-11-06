@@ -1,5 +1,5 @@
 .eva-jobs-col {
-  max-width: 1120px;
+  max-width: var(--eva-page-w);
   margin: 0 auto;
   padding: var(--eva-space-lg);
   display: flex;

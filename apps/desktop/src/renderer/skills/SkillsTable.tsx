@@ -88,12 +88,14 @@ export function SkillsTable({
       width: 'minmax(120px, 1fr)',
     },
     { id: 'description', label: 'Description', width: 'minmax(0, 1.6fr)', align: 'start' },
-    { id: 'source', label: 'Source', width: 'minmax(0, auto)', align: 'start' },
-    { id: 'used', label: 'Used by', width: 'minmax(0, auto)', align: 'start' },
+    // Fixed widths: every row is its own grid, so an auto track would size to that row's pill or
+    // portraits and push the Description column to a different left edge in each row.
+    { id: 'source', label: 'Source', width: '9rem', align: 'start' },
+    { id: 'used', label: 'Used by', width: '5rem', align: 'start' },
     {
       id: 'updated',
       label: <SortLabel label="Updated" column="updated" sort={sort} onSort={onSort} />,
-      width: 'minmax(0, auto)',
+      width: '5rem',
       align: 'end',
     },
   ]
@@ -125,7 +127,11 @@ export function SkillsTable({
               <span key="d" className="eva-skills-desc" title={r.description}>
                 {r.description}
               </span>,
-              <span key="s" title={[r.source, ...r.also].map((s) => s.dir).join('\n')}>
+              <span
+                key="s"
+                className="eva-skills-source"
+                title={[r.source, ...r.also].map((s) => s.dir).join('\n')}
+              >
                 <ListPill tone="dim">{sourcePill(r)}</ListPill>
               </span>,
               users.length > 0 ? (

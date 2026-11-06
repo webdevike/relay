@@ -92,7 +92,9 @@ export function RecordingPage({ place }: { place: Place }) {
   return (
     <div className="eva-mt-col eva-mt-live" data-testid="page-recording">
       <div className="eva-mt-head">
-        <h1 className="eva-mt-title">{recordingTitle(r)}</h1>
+        <h1 className="eva-mt-title" data-page-title>
+          {recordingTitle(r)}
+        </h1>
         <p className="eva-mt-dim" data-testid="recording-meta">
           {live ? <span className="eva-mt-dot" role="img" aria-label="Recording" /> : null}
           {r.app} · {r.device} · {WHEN.format(new Date(r.startedAt))} · {meetingClock(elapsed)}

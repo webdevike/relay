@@ -78,7 +78,9 @@ export function HabitsPage(_props: { place: Place }) {
   return (
     <div className="eva-habits-col" data-testid="page-habits">
       <div className="eva-habits-head">
-        <h1 className="eva-habits-title">Habits</h1>
+        <h1 className="eva-habits-title" data-page-title>
+          Habits
+        </h1>
         <span className="eva-habits-spacer" />
         <Tooltip label="Refresh" openDelay={300}>
           <ActionIcon

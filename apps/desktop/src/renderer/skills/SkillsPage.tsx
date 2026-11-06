@@ -136,7 +136,9 @@ export function SkillsPage(_: { place: Place }) {
 
   const head = (
     <header className="eva-skills-head">
-      <h1 className="eva-skills-title">Skills</h1>
+      <h1 className="eva-skills-title" data-page-title>
+        Skills
+      </h1>
       {available && list ? (
         <span className="eva-skills-dim" data-testid="skills-count">
           {list.length} available to your assistants

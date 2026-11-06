@@ -1,5 +1,5 @@
 .eva-bench-col {
-  max-width: 1120px;
+  max-width: var(--eva-page-w);
   margin: 0 auto;
   padding: var(--mantine-spacing-lg);
   display: flex;

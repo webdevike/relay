@@ -178,6 +178,11 @@ body.eva-resizing .eva-grip-sidebar {
   border-bottom: 1px solid var(--eva-c-border);
   -webkit-app-region: drag;
 }
+/* A page that titles itself (an h1 marked data-page-title) does not repeat the title here: the
+   header keeps its place so the toggles stay put, and the tab still names the page. */
+.eva-app-panel:has([data-page-title]) .eva-main-header-title {
+  visibility: hidden;
+}
 .eva-main-header-title {
   flex: 1;
   min-width: 0;

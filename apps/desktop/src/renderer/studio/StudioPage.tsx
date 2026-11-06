@@ -252,7 +252,9 @@ export function StudioPage(_props: { place: Place }) {
       <div className="eva-studio-layout">
         <section className="eva-studio-side" aria-label="Composer">
           <div className="eva-studio-head">
-            <h1 className="eva-studio-title">Studio</h1>
+            <h1 className="eva-studio-title" data-page-title>
+              Studio
+            </h1>
             <span className="eva-studio-spacer" />
             <Tooltip label="Refresh backends" openDelay={400}>
               <ActionIcon

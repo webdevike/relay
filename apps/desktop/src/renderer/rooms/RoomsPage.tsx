@@ -88,7 +88,9 @@ function NewRoomForm({ title, description }: { title: string; description: strin
     <div className="eva-rooms-new" data-testid="rooms-new">
       <div className="eva-rooms-new-head">
         <IconUsersGroup size={28} stroke={1.5} aria-hidden />
-        <h1 className="eva-rooms-new-title">{title}</h1>
+        <h1 className="eva-rooms-new-title" data-page-title>
+          {title}
+        </h1>
         <p className="eva-rooms-dim">{description}</p>
       </div>
       <Textarea
