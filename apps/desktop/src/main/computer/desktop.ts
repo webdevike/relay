@@ -265,11 +265,19 @@ export class Desktop {
     return this.latest.get(windowId) ?? null
   }
 
-  /** Brings the window forward (live and walk only: Isaac asked to watch). */
-  async front(windowId: number): Promise<void> {
+  /**
+   * Brings the window forward (live and walk only: Isaac asked to watch). Best effort: cua-driver
+   * fails it when it cannot verify the exact window is the front one even though the app activated
+   * and took focus (seen with Calculator under the overlay, 2026-11-06), and a run must not end over
+   * where a window sits. Answers whether the driver confirmed it.
+   */
+  async front(windowId: number): Promise<boolean> {
     const win = (await this.windows()).find((w) => w.windowId === windowId)
-    if (!win) return
-    await this.call('bring_to_front', { pid: win.pid, window_id: windowId })
+    if (!win) return false
+    return this.call('bring_to_front', { pid: win.pid, window_id: windowId }).then(
+      () => true,
+      () => false,
+    )
   }
 
   /** Runs one step against the window's latest read; throws with the reason on failure. */
