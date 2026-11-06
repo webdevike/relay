@@ -136,6 +136,7 @@ export class Desktop {
   constructor(
     private driver: Driver,
     private reopen: (app: string) => Promise<void> = (app) => openInBackground(app),
+    private openLink: (url: string) => Promise<void> = (url) => openInBackground(url, 'url'),
   ) {}
 
   get backend(): string {
@@ -183,6 +184,26 @@ export class Desktop {
       await sleep(200)
     }
     return { pid, windows: [] }
+  }
+
+  /**
+   * Opens a web or app link in the background (`open -g`): an https page in the default browser, a
+   * Linear issue in Linear. Answers the windows on screen once the link had a moment to land, and the
+   * window it landed in (new, or retitled), when one changed.
+   */
+  async openUrl(url: string): Promise<{ windows: WindowInfo[]; landed: WindowInfo | null }> {
+    const scheme = /^([a-z][\w+.-]*):/i.exec(url)?.[1]?.toLowerCase()
+    if (!scheme || !Object.hasOwn(URL_SCHEMES, scheme)) throw new Error(`only ${Object.keys(URL_SCHEMES).join(', ')} links open`)
+    const before = new Set((await this.windows()).map((w) => `${w.windowId}:${w.title}`))
+    await this.openLink(url)
+    let windows: WindowInfo[] = []
+    for (let i = 0; i < 10; i++) {
+      await sleep(300)
+      windows = await this.windows()
+      const landed = windows.find((w) => !before.has(`${w.windowId}:${w.title}`))
+      if (landed) return { windows, landed }
+    }
+    return { windows, landed: null }
   }
 
   async read(windowId: number, opts: { query?: string; screenshot?: boolean } = {}): Promise<Snapshot> {
@@ -307,10 +328,13 @@ export class Desktop {
   }
 }
 
-/** `open -g`: the Dock's reopen event without activating the app. */
-export function openInBackground(app: string): Promise<void> {
+/** Links the agent may open: web pages and the app links Isaac's tools use. */
+export const URL_SCHEMES: Record<string, true> = { https: true, http: true, linear: true, 'x-apple.systempreferences': true }
+
+/** `open -g`: the Dock's reopen event (or a link) without activating the app. */
+export function openInBackground(target: string, kind: 'app' | 'url' = 'app'): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>()
-  const byBundle = /^[\w-]+(\.[\w-]+){2,}$/.test(app)
-  execFile('/usr/bin/open', ['-g', byBundle ? '-b' : '-a', app], () => resolve())
+  const args = kind === 'url' ? ['-g', target] : ['-g', /^[\w-]+(\.[\w-]+){2,}$/.test(target) ? '-b' : '-a', target]
+  execFile('/usr/bin/open', args, () => resolve())
   return promise
 }

@@ -58,6 +58,12 @@ export const TOOLS: readonly ToolSpec[] = [
     parameters: { type: 'object', properties: { app: { type: 'string' } }, required: ['app'] },
   },
   {
+    name: 'open_url',
+    description:
+      'Open a link in the background (no focus change): https pages in the default browser, linear://ecard-systems/issue/<KEY> shows that Linear issue in the Linear app, x-apple.systempreferences: panes. Answers the windows on screen; then read the one that shows it. Faster and surer than searching inside an app.',
+    parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] },
+  },
+  {
     name: 'list_windows',
     description: 'On-screen windows of every app: window_id, app, title.',
     parameters: { type: 'object', properties: {} },
@@ -114,7 +120,7 @@ export function instructions(o: { assistant: string; mode: 'headless' | 'live' |
     o.mode === 'live'
       ? 'Mode live: Isaac is watching. Your cursor is drawn on screen for every step, so keep batches short and purposeful.'
       : "Mode headless: you work in the background through Accessibility. Never bring a window forward and never move Isaac's mouse; he keeps using the Mac while you work.",
-    'How to work: open_app (or list_windows) to find the window, read it, then act in batches against the refs of the latest read. Each act answers the fresh controls; re-read only when you need something it did not show. Prefer the accessibility tree; use a screenshot only when the tree cannot answer.',
+    'How to work: open_app (or list_windows) to find the window, read it, then act in batches against the refs of the latest read. Each act answers the fresh controls; re-read only when you need something it did not show. Prefer the accessibility tree; use a screenshot only when the tree cannot answer. When a link reaches the thing directly (a Linear issue key: linear://ecard-systems/issue/ENG-123; a web page), use open_url instead of searching in the app.',
     'Safety: anything that sends, posts, deletes, buys, pays, submits, publishes, shares, invites or accepts needs Isaac\'s OK: act asks him by itself and refuses if he says no; do not try another way around a refusal. Never type passwords or secrets; if a login is needed, stop and say so. In messaging apps never type a name and Return in one batch. Stay inside the task: no exploring.',
     'Read-only tasks: look and report; do not change anything.',
     'Finish with the finish tool: two or three plain sentences, the answer first. No em dashes.',
@@ -122,6 +128,7 @@ export function instructions(o: { assistant: string; mode: 'headless' | 'live' |
 }
 
 const OpenAppArgs = z.object({ app: z.string().min(1) })
+const OpenUrlArgs = z.object({ url: z.string().min(1) })
 const ReadArgs = z.object({
   window_id: z.number().int(),
   query: z.string().optional(),
@@ -204,6 +211,14 @@ export async function runAgent(o: AgentOptions): Promise<AgentResult> {
         const snap = await desktop.read(first.windowId)
         const list = windows.map((w) => `window_id=${w.windowId} ${w.app}: ${w.title}`).join('\n')
         return { text: `${list}\n\n${render(snap)}` }
+      }
+      case 'open_url': {
+        const { url } = OpenUrlArgs.parse(call.args)
+        const { windows, landed } = await desktop.openUrl(url)
+        if (landed && o.mode === 'live') await desktop.front(landed.windowId)
+        io.progress(`Opened ${url}${o.mode === 'headless' ? ' in the background' : ''}`)
+        const list = windows.filter((w) => w.title || w.app).map((w) => `window_id=${w.windowId} ${w.app}: ${w.title}`).join('\n') || 'No windows on screen.'
+        return { text: landed ? `It landed in window_id=${landed.windowId} ${landed.app}: ${landed.title}\n\nAll windows:\n${list}` : `No window changed yet (it may still be loading).\n\nAll windows:\n${list}` }
       }
       case 'read_window': {
         const a = ReadArgs.parse(call.args)
