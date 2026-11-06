@@ -4,6 +4,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as Y from 'yjs'
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness'
 import type { WebsocketProvider } from 'y-websocket'
+import {
+  addHunk,
+  docThreadsOf,
+  openDocThread,
+  rejectSuggestion,
+  relPos,
+  sliceRuns,
+  textAnchor,
+} from '@relay/canvas-live/doc-threads'
 
 const invoke = vi.fn()
 vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => () => {} }))
@@ -89,5 +98,47 @@ describe('SkillDocument', () => {
     await waitFor(() =>
       expect(document.querySelector('.collaboration-carets__label')).toHaveTextContent('Nova'),
     )
+  })
+
+  it("highlights a comment's text and draws an agent's suggestion as an inline diff", async () => {
+    const { doc, text } = hostDoc()
+    ui(doc)
+    await screen.findByRole('heading', { name: 'Canvas boards' })
+    act(() => {
+      openDocThread(docThreadsOf(doc), 't-1', textAnchor(text, 2, 5, 'board'), {
+        id: 'm1',
+        kind: 'human',
+        name: 'Isaac',
+        color: '#0ea5e9',
+        text: 'Call it a canvas?',
+        ts: 1,
+      })
+    })
+    await waitFor(() =>
+      expect(document.querySelector('[data-thread="t-1"]')).toHaveTextContent('board'),
+    )
+    // Nova answers with a change, as the host records it: the replaced run, then the typed one.
+    act(() => {
+      const removed = sliceRuns(text, 2, 7)
+      text.delete(2, 5)
+      text.insert(2, 'canvas', {})
+      addHunk(
+        doc,
+        's-t-1',
+        { thread: 't-1', by: { name: 'Nova', color: '#f76707' }, ts: 2 },
+        { kind: 'text', from: relPos(text, 2), to: relPos(text, 8, -1), removed },
+      )
+    })
+    await waitFor(() => expect(document.querySelector('.eva-doc-del')).toHaveTextContent('board'))
+    expect(document.querySelector('.eva-doc-ins')).toHaveTextContent('canvas')
+    act(() => {
+      rejectSuggestion(doc, 's-t-1')
+    })
+    await waitFor(() => expect(document.querySelector('.eva-doc-del')).toBeNull())
+    expect(document.querySelector('.eva-skills-prose p')).toHaveTextContent(
+      'A board is one JSON file.',
+    )
+    // The thread is on the restored text again.
+    expect(document.querySelector('[data-thread="t-1"]')).toHaveTextContent('board')
   })
 })

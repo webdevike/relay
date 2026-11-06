@@ -221,6 +221,7 @@
   padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
 }
 .eva-skills .eva-skills-sheet {
+  position: relative;
   display: flex;
   flex-direction: column;
 }
@@ -230,10 +231,109 @@
   border-bottom: 1px solid var(--eva-c-border);
 }
 .eva-skills .eva-skills-prose {
-  overflow: visible;
+  /* Sideways a caret's name tag near the right edge is clipped, so the panel never scrolls. */
+  overflow: clip visible;
 }
 .eva-skills .eva-skills-bubble-wrap {
   z-index: 20;
+}
+
+/* The selection toolbar: one floating row of quiet buttons in groups, on the popover surface. */
+.eva-skills-toolbar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.25);
+  padding: calc(var(--mantine-spacing-xs) * 0.5);
+  background: var(--eva-c-popover-background);
+  border-radius: var(--eva-card-radius);
+  box-shadow: var(--mantine-shadow-md);
+}
+.eva-skills-toolbar-sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 calc(var(--mantine-spacing-xs) * 0.25);
+  background: var(--eva-c-border);
+}
+.eva-skills-toolbar .eva-skills-tool-text {
+  font-weight: var(--eva-fw-medium, 500);
+}
+
+/* Comments: the text a thread is about, a quiet highlight that deepens while its thread is open. */
+.eva-skills .eva-skills-prose .eva-doc-comment {
+  background: color-mix(in srgb, var(--mantine-color-yellow-5) 22%, transparent);
+  border-radius: 2px;
+  cursor: pointer;
+}
+.eva-skills .eva-skills-prose .eva-doc-comment[data-active='true'] {
+  background: color-mix(in srgb, var(--mantine-color-yellow-5) 45%, transparent);
+}
+.eva-skills .eva-skills-prose .eva-doc-comment[data-suggested='true'] {
+  background: none;
+}
+
+/* A suggested change, inline: the text it replaces struck in red, then the typed text in green. */
+.eva-skills .eva-skills-prose .eva-doc-del {
+  background: color-mix(in srgb, var(--mantine-color-red-5) 14%, transparent);
+  color: var(--mantine-color-red-text);
+  text-decoration: line-through;
+  border-radius: 2px;
+}
+/* `[data-suggestion]` so it outranks a comment highlight drawn on the same text. */
+.eva-skills .eva-skills-prose .eva-doc-ins[data-suggestion] {
+  background: color-mix(in srgb, var(--mantine-color-green-5) 22%, transparent);
+  border-radius: 2px;
+}
+.eva-skills .eva-skills-prose .eva-doc-ins-block {
+  background: color-mix(in srgb, var(--mantine-color-green-5) 14%, transparent);
+  border-radius: var(--eva-radius-sm);
+}
+
+/* Cards over the sheet (a new comment, an open thread, a suggestion's Accept and Reject). */
+.eva-skills .eva-doc-float {
+  position: absolute;
+  z-index: 15;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  background: var(--eva-c-popover-background);
+  border-radius: var(--eva-card-radius);
+  box-shadow: var(--mantine-shadow-md);
+}
+.eva-skills .eva-doc-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-skills .eva-doc-thread-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-skills .eva-doc-thread-for {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-skills .eva-doc-thread .eva-cv-thread-status {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-skills .eva-doc-review {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-label);
+}
+.eva-skills .eva-doc-review-label {
+  flex: 1;
+  min-width: 0;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-skills .eva-doc-review-actions {
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.5);
 }
 /* Markdown kept verbatim: plain monospace, set apart from the rendered blocks. */
 .eva-skills .eva-skills-prose pre[data-raw-markdown] {
@@ -273,8 +373,11 @@
 }
 .eva-skills .eva-skills-prose .collaboration-carets__label {
   position: absolute;
-  top: -1.4em;
+  bottom: 100%;
   left: -2px;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
   padding: 0 calc(var(--mantine-spacing-xs) * 0.4);
   border-radius: var(--eva-radius-sm) var(--eva-radius-sm) var(--eva-radius-sm) 0;
   font-family: var(--eva-font-ui);
@@ -285,6 +388,14 @@
   color: var(--mantine-color-white);
   white-space: nowrap;
   user-select: none;
+}
+/* An assistant's portrait in its caret's tag. */
+.eva-skills .eva-skills-prose .collaboration-carets__avatar {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--mantine-color-white);
+  object-fit: cover;
 }
 
 /* Settings tab: sections of Settings' cards and rows. */

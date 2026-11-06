@@ -1,21 +1,26 @@
-import { useEffect, useState, type KeyboardEvent } from 'react'
-import { Group, Paper, Textarea, TextInput } from '@mantine/core'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { Textarea, TextInput } from '@mantine/core'
 import { RichTextEditor } from '@mantine/tiptap'
 import { notifications } from '@mantine/notifications'
 import '@mantine/tiptap/styles.css'
-import { useEditor, useEditorState, type Editor } from '@tiptap/react'
+import { useEditor } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { Placeholder } from '@tiptap/extensions'
-import { IconChevronDown } from '@tabler/icons-react'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import type { SkillUser } from '@evaos/contract'
+import type { TextAnchor } from '@relay/canvas-live/doc-threads'
+import { agentOf, assistantsStore } from '../assistants/assistants-store'
+import { avatarAgent } from '../comments/ThreadParts'
 import { invoke } from '../ipc'
-import { EvaMenu } from '../overlay'
+import { portrait } from '../ui/portrait'
+import { anchorOf, DocComments, redrawComments } from './doc-comments'
+import { DocThreads } from './DocThreads'
 import { skillSchemaExtensions } from './skill-schema'
 import { SkillDocBar } from './SkillDocBar'
+import { SkillToolbar } from './SkillToolbar'
 import { useYMap } from './use-ymap'
 
 /** An open skill: its live doc, the provider syncing it with the host, and who Isaac is in it. */
@@ -44,44 +49,31 @@ function failed(what: 'save' | 'reload', message: string): void {
   })
 }
 
-const HEADINGS = [
-  { label: 'Heading 1', short: 'H1', level: 1 },
-  { label: 'Heading 2', short: 'H2', level: 2 },
-  { label: 'Heading 3', short: 'H3', level: 3 },
-] as const
-
-/** The bubble's block menu: H1 to H3 or Paragraph, showing the current one. */
-function BlockMenu({ editor }: { editor: Editor }) {
-  const [opened, setOpened] = useState(false)
-  const level = useEditorState({
-    editor,
-    selector: ({ editor: e }) => HEADINGS.find((h) => e.isActive('heading', { level: h.level })),
-  })
-  return (
-    <EvaMenu opened={opened} onChange={setOpened} position="bottom-start" offset={6} width={160}>
-      <EvaMenu.Target>
-        <RichTextEditor.Control aria-label="Text style" w="auto" px={6}>
-          <Group gap={4} wrap="nowrap">
-            {level?.short ?? 'Text'}
-            <IconChevronDown size={12} />
-          </Group>
-        </RichTextEditor.Control>
-      </EvaMenu.Target>
-      <EvaMenu.Dropdown>
-        {HEADINGS.map((h) => (
-          <EvaMenu.Item
-            key={h.level}
-            onClick={() => editor.chain().focus().setHeading({ level: h.level }).run()}
-          >
-            {h.label}
-          </EvaMenu.Item>
-        ))}
-        <EvaMenu.Item onClick={() => editor.chain().focus().setParagraph().run()}>
-          Paragraph
-        </EvaMenu.Item>
-      </EvaMenu.Dropdown>
-    </EvaMenu>
-  )
+/**
+ * Someone else's caret: a line in their color and a name tag, with the assistant's portrait when
+ * the caret is a registry assistant's (agents editing through the host publish its avatar URL).
+ */
+function caretRender(user: Record<string, unknown>): HTMLElement {
+  const color = typeof user['color'] === 'string' ? user['color'] : '#868e96'
+  const name = typeof user['name'] === 'string' ? user['name'] : ''
+  const caret = document.createElement('span')
+  caret.className = 'collaboration-carets__caret'
+  caret.style.borderColor = color
+  const label = document.createElement('div')
+  label.className = 'collaboration-carets__label'
+  label.style.backgroundColor = color
+  const id = avatarAgent(typeof user['avatar'] === 'string' ? user['avatar'] : undefined)
+  const face = id === null ? null : (agentOf(assistantsStore.getState(), id)?.avatar ?? null)
+  if (face !== null) {
+    const img = document.createElement('img')
+    img.className = 'collaboration-carets__avatar'
+    img.src = portrait(face)
+    img.alt = ''
+    label.append(img)
+  }
+  label.append(document.createTextNode(name))
+  caret.append(label)
+  return caret
 }
 
 /** The frontmatter as a compact header: name and description, live on the doc's `front` map. */
@@ -121,19 +113,48 @@ export function SkillDocument({ name, session }: { name: string; session: Sessio
   const { doc, provider, user } = session
   const [busy, setBusy] = useState(false)
   const [conflict, setConflict] = useState(false)
+  // A comment being written (the text it is about), and the thread shown open.
+  const [draft, setDraft] = useState<TextAnchor | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
+  // What the comments plugin and the bubble read (they are set up once per editor).
+  const marks = useRef<{ draft: TextAnchor | null; open: string | null }>({
+    draft: null,
+    open: null,
+  })
   const editor = useEditor(
     {
       extensions: [
         ...skillSchemaExtensions(),
         Collaboration.configure({ document: doc, field: 'body' }),
-        CollaborationCaret.configure({ provider, user, selectionRender }),
+        CollaborationCaret.configure({ provider, user, render: caretRender, selectionRender }),
         Placeholder.configure({ placeholder: 'Write the skill' }),
+        DocComments.configure({
+          doc,
+          active: () => marks.current.open,
+          pending: () => marks.current.draft,
+          onClick: (thread) => {
+            setDraft(null)
+            setOpenId(thread)
+          },
+        }),
       ],
       editorProps: { attributes: { 'aria-label': 'SKILL.md', spellcheck: 'false' } },
     },
     [doc, provider],
   )
+  useEffect(() => {
+    marks.current = { draft, open: openId }
+    if (editor) redrawComments(editor)
+  }, [editor, draft, openId])
 
+  const comment = (): void => {
+    if (!editor) return
+    const { from, to } = editor.state.selection
+    const anchor = anchorOf(editor.state, from, to)
+    if (anchor === null) return
+    setOpenId(null)
+    setDraft(anchor)
+  }
   const save = async (force: boolean): Promise<void> => {
     setBusy(true)
     try {
@@ -176,30 +197,39 @@ export function SkillDocument({ name, session }: { name: string; session: Sessio
           <BubbleMenu
             editor={editor}
             className="eva-skills-bubble-wrap"
-            options={{ placement: 'top-start', offset: 8 }}
+            options={{ placement: 'top-start', offset: 8, shift: { padding: 8 } }}
+            shouldShow={({ view, state, from, to, element }) =>
+              marks.current.draft === null &&
+              editor.isEditable &&
+              !state.selection.empty &&
+              state.doc.textBetween(from, to).length > 0 &&
+              (view.hasFocus() || element.contains(document.activeElement))
+            }
           >
-            <Paper shadow="md" withBorder p={4} data-testid="skill-bubble">
-              <Group gap={4} wrap="nowrap">
-                <RichTextEditor.ControlsGroup>
-                  <BlockMenu editor={editor} />
-                </RichTextEditor.ControlsGroup>
-                <RichTextEditor.ControlsGroup>
-                  <RichTextEditor.Bold />
-                  <RichTextEditor.Italic />
-                  <RichTextEditor.Strikethrough />
-                  <RichTextEditor.Code />
-                  <RichTextEditor.Link popoverProps={{ withinPortal: false }} />
-                </RichTextEditor.ControlsGroup>
-                <RichTextEditor.ControlsGroup>
-                  <RichTextEditor.BulletList />
-                  <RichTextEditor.OrderedList />
-                  <RichTextEditor.Blockquote />
-                </RichTextEditor.ControlsGroup>
-              </Group>
-            </Paper>
+            <SkillToolbar editor={editor} onComment={comment} />
           </BubbleMenu>
         ) : null}
         <RichTextEditor.Content className="eva-skills-prose" />
+        {editor ? (
+          <DocThreads
+            editor={editor}
+            doc={doc}
+            user={user}
+            draft={draft}
+            openId={openId}
+            onDraftDone={(thread) => {
+              // The selection collapses to its end, so the formatting toolbar does not sit over the thread.
+              editor.commands.setTextSelection(editor.state.selection.to)
+              setDraft(null)
+              setOpenId(thread)
+            }}
+            onClose={() => {
+              setDraft(null)
+              setOpenId(null)
+              editor.commands.focus()
+            }}
+          />
+        ) : null}
       </RichTextEditor>
     </div>
   )

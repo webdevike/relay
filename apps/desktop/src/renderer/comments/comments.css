@@ -1,0 +1,128 @@
+/* A comment thread's parts (ThreadParts.tsx), on the Canvas page's pins and in the Skills editor. */
+.eva-cv-face {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: white;
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1;
+}
+.eva-cv-thread-status {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-cv-thread-actions {
+  display: flex;
+  justify-content: space-between;
+}
+.eva-cv-thread-error {
+  margin: 0;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-danger);
+}
+img.eva-cv-face {
+  object-fit: cover;
+}
+.eva-cv-thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-cv-thread-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.eva-cv-thread-message {
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-cv-thread-text {
+  min-width: 0;
+  flex: 1;
+}
+.eva-cv-thread-text p {
+  margin: 0;
+  font-size: var(--eva-fz-body);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.eva-cv-thread-who {
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+  align-items: baseline;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-thread-who b {
+  color: var(--eva-c-foreground);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-cv-composer {
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+  align-items: flex-end;
+}
+.eva-cv-composer-field {
+  flex: 1;
+}
+.eva-cv-mention {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.eva-cv-mention-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 10;
+  margin: 0;
+  padding: calc(var(--mantine-spacing-md) * 0.25);
+  list-style: none;
+  background: var(--eva-c-popover-background);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-card-radius);
+  box-shadow: var(--mantine-shadow-md);
+}
+.eva-cv-mention-item {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  width: 100%;
+  min-height: var(--eva-control-xs);
+  padding: 0 calc(var(--mantine-spacing-md) * 0.25);
+  border: 0;
+  border-radius: var(--eva-radius-sm);
+  background: none;
+  color: var(--eva-c-foreground);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.eva-cv-mention-item:hover,
+.eva-cv-mention-item[data-picked='true'] {
+  background: var(--eva-c-accent);
+}
+.eva-cv-mention-name {
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-cv-mention-hint {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
