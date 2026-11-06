@@ -6,11 +6,14 @@
 //   POST /skills/<name>/open {user?}            {token, path}: loads the live room
 //   POST /skills/<name>/save {force?}           {saved, savedAt} | 409 {error: "changed-on-disk"}
 //   POST /skills/<name>/reload {}               {reloaded}
-//   POST /skills/<name>/edit {as, color?, find?, replace?, markdown?, save?}   {ok, dirty, saved}
+//   POST /skills/<name>/edit {as, color?, thread?, find?+replace? | after?+insert? | markdown?, save?}
+//                                               {ok, dirty, saved, suggestion?}: with thread, a suggestion
+//   POST /skills/<name>/reply {as, color?, thread, text, resolve?}   {ok}: an agent's answer in a comment thread
 //   POST /skills/<name>/leave {as}              {ok}
 //   WS   /skills/<name>/ws?token=               y-websocket (server.ts), token from open
 // Writes must be application/json with no Origin header (boards/http.ts explains why).
 
+import { THREAD_ID } from "@relay/canvas-live/threads";
 import { z } from "zod";
 import { isLoopback } from "../boards/http";
 import type { SkillRoom } from "./room";
@@ -50,16 +53,25 @@ const AgentName = z.string().trim().min(1).max(40);
 const AccessBody = z.object({ enabled: z.record(z.string(), z.boolean()) });
 const OpenBody = z.object({ user: z.object({ name: z.string().max(80), color: Color }).optional() });
 const SaveBody = z.object({ force: z.boolean().optional() });
+const ThreadId = z.string().regex(THREAD_ID, "not a thread id");
 const EditBody = z
   .object({
     as: AgentName,
     color: Color.optional(),
     find: z.string().min(1).max(20_000).optional(),
     replace: z.string().max(20_000).optional(),
+    after: z.string().min(1).max(20_000).optional(),
+    insert: z.string().min(1).max(100_000).optional(),
     markdown: z.string().max(1_000_000).optional(),
+    thread: ThreadId.optional(),
     save: z.boolean().optional(),
   })
-  .refine((body) => (body.find !== undefined && body.replace !== undefined) !== (body.markdown !== undefined), "give find and replace, or markdown");
+  .refine(
+    (body) => [body.find !== undefined && body.replace !== undefined, body.after !== undefined && body.insert !== undefined, body.markdown !== undefined].filter(Boolean).length === 1,
+    "give find and replace, after and insert, or markdown",
+  )
+  .refine((body) => body.thread === undefined || body.markdown === undefined, "a whole-file rewrite cannot be a suggestion; give find and replace, or after and insert, with thread");
+const ReplyBody = z.object({ as: AgentName, color: Color.optional(), thread: ThreadId, text: z.string().trim().min(1).max(4000), resolve: z.boolean().optional() });
 const LeaveBody = z.object({ as: AgentName });
 
 function parseWith<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, body: unknown): T {
@@ -114,6 +126,8 @@ export async function handleSkillsRequest(skills: SkillsService | null, request:
         return json(skills.reload(name));
       case "edit":
         return json(await skills.edit(name, parseWith(EditBody, await body())));
+      case "reply":
+        return json(skills.reply(name, parseWith(ReplyBody, await body())));
       case "leave":
         skills.leave(name, parseWith(LeaveBody, await body()).as);
         return json({ ok: true });

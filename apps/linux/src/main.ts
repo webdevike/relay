@@ -255,12 +255,18 @@ const USAGE = `relay-linux <command>
   canvas end [<slug>]              wrap up the live session on <slug> (default: this chat's)
   skills list [--json]             the skills omp loads on this host: source, who uses them, last use
   skills show <name> [--json]      one skill: its copies, files, use in the last 30 days
-  skills edit <name> --as <Name> [--color "#rrggbb"] (--find <text> --replace <text> | --file <md> | --stdin) [--save]
+  skills edit <name> --as <Name> [--color "#rrggbb"] [--thread <id>] (--find <text> --replace <text> | --after <text> (--insert <md> | --stdin) | --file <md> | --stdin) [--save]
                                    edit a skill through its live doc, as your own named caret in
                                    Relay Desktop's Skills editor: --find (text as shown, unique, inside
-                                   one block) is selected, then replaced as typed; --file or --stdin
-                                   is the whole SKILL.md (or its body) and only changed blocks move.
-                                   --save writes SKILL.md afterwards (else Isaac saves)
+                                   one block) is selected, then replaced as typed; --after adds the
+                                   --insert markdown blocks after that text's block (as items of its
+                                   list when they are a list); --file or --stdin is the whole SKILL.md
+                                   (or its body) and only changed blocks move. --thread makes the edit
+                                   a suggestion in that comment thread, accepted or rejected in the
+                                   editor. --save writes SKILL.md afterwards (else Isaac saves)
+  skills reply <name> <thread> --as <Name> [--resolve] (<text> | -)
+                                   answer in a comment thread of the skill (- reads the text from stdin);
+                                   --resolve resolves the thread too
   skills save <name> [--force]     write the live doc to SKILL.md; --force overwrites a file that
                                    changed on disk since it was opened
   skills leave <name> --as <Name>  take <Name>'s caret out of the skill (it leaves by itself after
@@ -793,6 +799,13 @@ function serve(
       log,
     }),
     usage: skillUsage,
+    threadsDir: join(relayConfigDir(), "skill-threads"),
+    // A comment in a skill is Isaac's turn in that assistant's thread, as a Catch Up handoff is.
+    deliver: async (agent, text) => {
+      const thread = assistant?.thread(agent);
+      if (thread === undefined) throw new Error(`${agent} has no running thread on this host`);
+      await thread.turn(text);
+    },
     log,
   });
   // Settings > Usage on the desktop: omp stats of every profile, warmed after startup and refreshed
@@ -1849,10 +1862,11 @@ const SkillDetailReply = SkillRowReply.extend({
 const SkillEditReply = z.object({
   dirty: z.boolean(),
   saved: z.boolean(),
+  suggestion: z.string().optional(),
   error: z.string().optional(),
 });
 
-/** `skills list|show|edit|save|leave`: talks to the running host's loopback `/skills`. */
+/** `skills list|show|edit|reply|save|leave`: talks to the running host's loopback `/skills`. */
 async function skillsCommand(
   positionals: string[],
   options: {
@@ -1861,10 +1875,14 @@ async function skillsCommand(
     color: string | undefined;
     find: string | undefined;
     replace: string | undefined;
+    after: string | undefined;
+    insert: string | undefined;
+    thread: string | undefined;
     file: string | undefined;
     stdin: boolean;
     save: boolean;
     force: boolean;
+    resolve: boolean;
   },
 ): Promise<void> {
   const [verb, name] = positionals;
@@ -1921,29 +1939,62 @@ async function skillsCommand(
     case "edit": {
       const url = skill();
       const as = agent();
-      const sources = [options.find !== undefined, options.file !== undefined, options.stdin].filter(Boolean).length;
-      if (sources !== 1 || (options.find !== undefined) !== (options.replace !== undefined))
-        throw new Error("skills edit: give --find <text> --replace <text>, or --file <markdown file>, or --stdin");
+      const sources = [options.find !== undefined, options.after !== undefined, options.file !== undefined, options.stdin && options.after === undefined].filter(Boolean).length;
+      if (
+        sources !== 1 ||
+        (options.find !== undefined) !== (options.replace !== undefined) ||
+        (options.after !== undefined && (options.insert !== undefined) === options.stdin)
+      )
+        throw new Error(
+          "skills edit: give --find <text> --replace <text>, --after <text> with --insert <markdown> or --stdin, --file <markdown file>, or --stdin",
+        );
+      const stdin = options.stdin ? await Bun.stdin.text() : undefined;
       const markdown =
-        options.file !== undefined
-          ? await Bun.file(options.file).text()
-          : options.stdin
-            ? await Bun.stdin.text()
-            : undefined;
+        options.file !== undefined ? await Bun.file(options.file).text() : options.after === undefined ? stdin : undefined;
+      const change =
+        options.after !== undefined
+          ? { after: options.after, insert: options.insert ?? stdin }
+          : markdown === undefined
+            ? { find: options.find, replace: options.replace }
+            : { markdown };
       const result = SkillEditReply.parse(
         await hostJson(
           await post(`${url}/edit`, {
             as,
             ...(options.color === undefined ? {} : { color: options.color }),
-            ...(markdown === undefined ? { find: options.find, replace: options.replace } : { markdown }),
+            ...(options.thread === undefined ? {} : { thread: options.thread }),
+            ...change,
             ...(options.save ? { save: true } : {}),
           }),
           "skills edit",
         ),
       );
       console.log(
-        `${as} edited ${name ?? ""}: ${result.saved ? "saved to SKILL.md" : result.error === "changed-on-disk" ? "not saved, SKILL.md changed on disk (relay-linux skills save --force overwrites it)" : result.dirty ? "unsaved (relay-linux skills save writes it)" : "no change to SKILL.md"}.`,
+        result.suggestion !== undefined
+          ? `${as} suggested a change to ${name ?? ""} in thread ${options.thread ?? ""}: Isaac accepts or rejects it in the editor.`
+          : `${as} edited ${name ?? ""}: ${result.saved ? "saved to SKILL.md" : result.error === "changed-on-disk" ? "not saved, SKILL.md changed on disk (relay-linux skills save --force overwrites it)" : result.dirty ? "unsaved (relay-linux skills save writes it)" : "no change to SKILL.md"}.`,
       );
+      return;
+    }
+    case "reply": {
+      const url = skill();
+      const as = agent();
+      const [, , thread = options.thread, ...words] = positionals;
+      if (thread === undefined || thread === "") throw new Error("skills reply: missing <thread>");
+      const given = words.join(" ").trim();
+      const text = (given === "-" || (given === "" && options.stdin) ? await Bun.stdin.text() : given).trim();
+      if (text === "") throw new Error("skills reply: missing the text (or - to read it from stdin)");
+      await hostJson(
+        await post(`${url}/reply`, {
+          as,
+          thread,
+          text,
+          ...(options.color === undefined ? {} : { color: options.color }),
+          ...(options.resolve ? { resolve: true } : {}),
+        }),
+        "skills reply",
+      );
+      console.log(`${as} replied in ${name ?? ""} thread ${thread}${options.resolve ? " and resolved it" : ""}.`);
       return;
     }
     case "save": {
@@ -1966,7 +2017,7 @@ async function skillsCommand(
       return;
     }
     default:
-      throw new Error(`skills: expected list, show, edit, save or leave\n\n${USAGE}`);
+      throw new Error(`skills: expected list, show, edit, reply, save or leave\n\n${USAGE}`);
   }
 }
 
@@ -2098,6 +2149,9 @@ async function main(argv: string[]): Promise<void> {
       json: { type: "boolean", default: false },
       find: { type: "string" },
       replace: { type: "string" },
+      after: { type: "string" },
+      insert: { type: "string" },
+      resolve: { type: "boolean", default: false },
       file: { type: "string" },
       stdin: { type: "boolean", default: false },
       save: { type: "boolean", default: false },
@@ -2239,10 +2293,14 @@ async function main(argv: string[]): Promise<void> {
         color: values.color,
         find: values.find,
         replace: values.replace,
+        after: values.after,
+        insert: values.insert,
+        thread: values.thread,
         file: values.file,
         stdin: values.stdin,
         save: values.save,
         force: values.force,
+        resolve: values.resolve,
       });
       return;
     case "react":

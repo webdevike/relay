@@ -19,7 +19,7 @@ import { MarkdownManager } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { prosemirrorJSONToYXmlFragment, updateYFragment, yXmlFragmentToProseMirrorRootNode } from "@tiptap/y-tiptap";
 import { isMap, parseDocument } from "yaml";
-import type * as Y from "yjs";
+import * as Y from "yjs";
 
 /** Y.Doc keys (contract section 2). */
 export const DOC_KEYS = { body: "body", front: "front", state: "state" } as const;
@@ -346,4 +346,13 @@ export function applyMarkdown(doc: Y.Doc, source: string, origin: unknown = null
   const body = parseBody(source);
   replaceBody(doc, body, origin);
   return body;
+}
+
+/**
+ * `nodes` (top-level block JSON, as `parseBody` gives them) as Yjs elements in a scratch doc: what an
+ * agent inserts into the live doc, as clones (`el.clone()`) of these or of their children.
+ */
+export function scratchBlocks(nodes: readonly JSONContent[]): Y.XmlElement[] {
+  const fragment = prosemirrorJSONToYXmlFragment(skillSchema, { type: "doc", content: [...nodes] }, new Y.Doc().getXmlFragment(DOC_KEYS.body));
+  return fragment.toArray().filter((child): child is Y.XmlElement => child instanceof Y.XmlElement);
 }

@@ -1,25 +1,42 @@
 // The Skills page's host side: the catalog with usage, and the live rooms of skills being edited.
 // A room loads when a skill is opened or edited and unloads once nobody uses it (room.ts `idle`).
 // Opening hands out a token for the room's websocket, valid 12 hours (memory only: a host restart
-// invalidates them and Relay Desktop opens again).
+// invalidates them and Relay Desktop opens again). A comment Isaac writes in a skill goes to his
+// assistant (the one it @mentions, else the thread's, else Nova) as a turn in its thread, the way
+// Catch Up hands off; the assistant answers and suggests changes through `/skills/<name>/reply`
+// and `/edit` (comments.ts says how).
 
 import { randomBytes } from "node:crypto";
+import { join } from "node:path";
+import { findMention } from "@relay/canvas-live/mentions";
+import type { DocThreadSnap } from "@relay/canvas-live/doc-threads";
+import type { ThreadMsg } from "@relay/canvas-live/threads";
+import { CLI } from "../canvas/service";
 import type { CanvasPeer } from "../canvas/room";
 import { type CatalogEntry, type SkillCatalog, paletteColor } from "./catalog";
-import { type EditRequest, type EditResult, type RoomOptions, SkillRoom } from "./room";
+import { commentTurn } from "./comments";
+import { type AgentLook, type EditRequest, type EditResult, type ReplyRequest, type RoomOptions, SkillRoom } from "./room";
 import { SkillError, type SkillDetail, type SkillList, type SkillRow } from "./types";
 import type { SkillUsageIndex } from "./usage";
 
 export const SKILL_TOKEN_TTL_MS = 12 * 60 * 60_000;
 const SWEEP_MS = 60_000;
+/** The assistant a comment goes to when it names none and its thread has none yet. */
+const DEFAULT_ASSISTANT = "nova";
 
 export interface SkillsServiceDeps {
   readonly catalog: SkillCatalog;
   readonly usage: SkillUsageIndex;
   readonly now?: () => number;
   readonly log?: (line: string) => void;
-  /** Room options (pacing, file watching) on top of the service's clock, log and agent colors. */
-  readonly room?: Omit<RoomOptions, "now" | "log" | "colorFor">;
+  /** Room options (pacing, file watching) on top of the service's clock, log, agent looks and threads files. */
+  readonly room?: Omit<RoomOptions, "now" | "log" | "lookFor" | "threadsFile" | "onComment">;
+  /** Where each skill's comment threads persist (`<dir>/<encoded name>.json`); none: they last as long as its room. */
+  readonly threadsDir?: string | null;
+  /** Hands `text` to assistant `assistant` (a registry id) as a turn in its thread; rejects when it cannot. */
+  readonly deliver?: (assistant: string, text: string) => Promise<void>;
+  /** How the delivered turn tells the assistant to run relay-linux (default: the canvas's). */
+  readonly cli?: string;
 }
 
 export class SkillsService {
@@ -126,6 +143,11 @@ export class SkillsService {
     return this.room(name).edit(request);
   }
 
+  reply(name: string, request: ReplyRequest): { ok: true } {
+    this.room(name).reply(request);
+    return { ok: true };
+  }
+
   leave(name: string, as: string): void {
     this.rooms.get(name)?.leave(as);
   }
@@ -146,14 +168,54 @@ export class SkillsService {
     if (loaded !== undefined) return loaded;
     const entry = this.deps.catalog.entry(name);
     if (entry === null) throw new SkillError(404, `no skill ${name}`);
-    const room = new SkillRoom(name, entry.primary.source.file, {
+    const threadsDir = this.deps.threadsDir ?? null;
+    const room: SkillRoom = new SkillRoom(name, entry.primary.source.file, {
       ...this.deps.room,
       now: this.now,
       ...(this.deps.log === undefined ? {} : { log: this.deps.log }),
-      colorFor: (agent) => this.deps.catalog.assistants().find((assistant) => assistant.title.toLowerCase() === agent.toLowerCase())?.color ?? paletteColor(agent),
+      ...(threadsDir === null ? {} : { threadsFile: join(threadsDir, `${encodeURIComponent(name)}.json`) }),
+      lookFor: (agent) => this.lookFor(agent),
+      onComment: (thread, message) => {
+        this.route(room, thread, message);
+      },
     });
     this.rooms.set(name, room);
     return room;
+  }
+
+  /** A registry assistant (by title or id) as itself, with its face; anyone else by name in a palette color. */
+  private lookFor(name: string): AgentLook {
+    const key = name.toLowerCase();
+    const assistant = this.deps.catalog.assistants().find((a) => a.title.toLowerCase() === key || a.id === key);
+    return assistant === undefined ? { name, color: paletteColor(name) } : { name: assistant.title, color: assistant.color, avatar: `/canvas/avatar/${assistant.id}` };
+  }
+
+  /**
+   * Isaac's comment `message` in `thread`, to its assistant: the one it @mentions, else the thread's,
+   * else Nova (the registry's first without one). The thread is that assistant's from now on, and the
+   * comment is a turn in its thread; a delivery that fails says so in the thread, as Relay.
+   */
+  private route(room: SkillRoom, thread: DocThreadSnap, message: ThreadMsg): void {
+    const assistants = this.deps.catalog.assistants();
+    const mention = findMention(
+      message.text,
+      assistants.map((a) => ({ id: a.id, name: a.title })),
+    );
+    const fallback = assistants.length === 0 || assistants.some((a) => a.id === DEFAULT_ASSISTANT) ? DEFAULT_ASSISTANT : (assistants[0]?.id ?? DEFAULT_ASSISTANT);
+    const target = mention?.candidate.id ?? thread.assignee ?? fallback;
+    if (target !== thread.assignee) room.assign(thread.id, target);
+    const title = assistants.find((a) => a.id === target)?.title ?? `${target.charAt(0).toUpperCase()}${target.slice(1)}`;
+    const deliver = this.deps.deliver;
+    if (deliver === undefined) {
+      room.note(thread.id, `${title} cannot answer here: this host runs no assistants.`);
+      return;
+    }
+    const turn = commentTurn({ skill: room.name, file: room.file, thread: thread.id, quote: thread.quote, from: message.name, text: message.text, as: title, cli: this.deps.cli ?? CLI });
+    deliver(target, turn).catch((error: unknown) => {
+      const why = error instanceof Error ? error.message : String(error);
+      this.deps.log?.(`skills: the comment in ${room.name} thread ${thread.id} did not reach ${title}: ${why}`);
+      room.note(thread.id, `Could not reach ${title}: ${why}`);
+    });
   }
 
   private row(entry: CatalogEntry): SkillRow {

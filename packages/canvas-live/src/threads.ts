@@ -57,7 +57,7 @@ function messagesOf(t: ThreadMap | undefined): Y.Array<ThreadMsg> | null {
 }
 
 /** A message as stored: text trimmed and capped, no empty optional fields. */
-function clean(msg: ThreadMsg): ThreadMsg {
+export function cleanMessage(msg: ThreadMsg): ThreadMsg {
   const out: ThreadMsg = { id: msg.id, kind: msg.kind, name: msg.name, color: msg.color, text: msg.text.trim().slice(0, MAX_THREAD_TEXT), ts: msg.ts };
   if (msg.avatar !== undefined && msg.avatar !== "") out.avatar = msg.avatar;
   return out;
@@ -72,7 +72,7 @@ export function threadMap(anchor: ThreadAnchor, resolved: boolean, messages: rea
   m.set("resolved", resolved);
   if (assignee !== undefined && assignee !== "") m.set("assignee", assignee);
   const list = new Y.Array<ThreadMsg>();
-  list.push(messages.map(clean));
+  list.push(messages.map(cleanMessage));
   m.set("messages", list);
   return m;
 }
@@ -90,7 +90,7 @@ export function postInThread(threads: Y.Map<ThreadMap>, id: string, msg: ThreadM
   const list = messagesOf(t);
   if (t === undefined || list === null || msg.text.trim() === "") return false;
   const apply = (): void => {
-    list.push([clean(msg)]);
+    list.push([cleanMessage(msg)]);
     if (msg.kind === "human" && t.get("resolved") === true) t.set("resolved", false);
   };
   if (threads.doc) threads.doc.transact(apply);

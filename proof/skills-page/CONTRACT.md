@@ -47,11 +47,19 @@ marks `bold code italic link strike` (verify the exact list once with getSchema 
 - `front`: Y.Map `{ name: string, description: string }`: the frontmatter header, editable in the UI
   (renderer writes plain strings; last writer wins).
 - `state`: Y.Map, written ONLY by the host: `{ dirty: boolean, diskChanged: boolean, savedAt: number|null, error: string|null }`.
-  `dirty` = the doc serialized differs from SKILL.md as last loaded/saved. `diskChanged` = SKILL.md changed
+  `dirty` = the doc serialized (pending suggestions rejected) differs from SKILL.md as last loaded/saved. `diskChanged` = SKILL.md changed
   on disk while there were unsaved edits (banner: Reload from disk / Keep mine, save overwrites).
+- `threads`, `suggestions`: comment threads anchored to text and agents' pending changes
+  (`@relay/canvas-live/doc-threads`). Threads persist to `<relay config>/skill-threads/<encoded name>.json`
+  `{ threads: [{ id, quote, resolved, assignee?, messages }] }` and find their text again by `quote`;
+  suggestions never reach SKILL.md: save, `dirty` and that file see the doc with every pending
+  suggestion rejected, and a reload drops them. A human's new message in a thread (from an editor)
+  goes to the assistant it @mentions, else the thread's assignee, else Nova, as a turn in that
+  assistant's thread (like a Catch Up handoff) telling it to answer with `skills reply` and to
+  suggest changes with `skills edit --thread`; a failed delivery is a Relay line in the thread.
 
 Awareness (y-protocols, y-websocket wire protocol, same as canvas): every participant's state is
-`{ user: { name: string, color: string, kind: 'human'|'agent' }, cursor: { anchor: RelPosJSON, head: RelPosJSON } | null }`
+`{ user: { name: string, color: string, kind: 'human'|'agent', avatar?: '/canvas/avatar/<id>' }, cursor: { anchor: RelPosJSON, head: RelPosJSON } | null }`
 (the fields CollaborationCaret/y-tiptap's cursor plugin read). An agent's cursor is
 `Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(xmlText, offset))`.
 
@@ -68,8 +76,13 @@ Names are the skill's name as omp lists it (`canvas`), `^[a-z0-9][a-z0-9._:-]{0,
 - `WS /skills/<name>/ws?token=` y-websocket protocol, served by reusing `CanvasSync` (apps/linux/src/canvas/room.ts)
 - `POST /skills/<name>/save` `{ force?: boolean }` -> `{ saved: true, savedAt }` | 409 `{ error: 'changed-on-disk' }`
 - `POST /skills/<name>/reload` `{}` -> `{ reloaded: true }` (doc replaced from disk, flags cleared)
-- `POST /skills/<name>/edit` `{ as: string, color?: string, find?: string, replace?: string, markdown?: string, save?: boolean }`
-  -> `{ ok: true, dirty: boolean, saved: boolean }`. Agent edit through the live doc so its named cursor shows.
+- `POST /skills/<name>/edit` `{ as: string, color?: string, thread?: string, find?+replace? | after?+insert? | markdown?, save?: boolean }`
+  -> `{ ok: true, dirty: boolean, saved: boolean, suggestion?: string }`. Agent edit through the live doc so its named cursor
+  shows typing. `after` (text as shown, unique) + `insert` (markdown blocks) adds blocks after that text's block, as items of its
+  list when they are one list of that kind. With `thread` the edit is that thread's suggestion `s-<thread>` (Accept / Reject in
+  the editor) instead of a change; `markdown` with `thread` is 400, an unknown thread 404.
+- `POST /skills/<name>/reply` `{ as: string, color?: string, thread: string, text: string, resolve?: boolean }` -> `{ ok: true }`:
+  an agent's message in a comment thread, with its registry look (title, accent, avatar).
 - `POST /skills/<name>/leave` `{ as: string }` -> `{ ok: true }`
 
 ```ts
@@ -121,6 +134,7 @@ The renderer CSP (`apps/desktop/src/renderer/index.html`) gains `ws://127.0.0.1:
 
 - `skills list [--json]`
 - `skills show <name> [--json]`
-- `skills edit <name> --as <Name> [--color <hex>] (--find <text> --replace <text> | --file <markdown file> | --stdin) [--save]`
+- `skills edit <name> --as <Name> [--color <hex>] [--thread <id>] (--find <text> --replace <text> | --after <text> (--insert <md> | --stdin) | --file <markdown file> | --stdin) [--save]`
+- `skills reply <name> <thread> --as <Name> [--resolve] (<text> | -)`
 - `skills save <name> [--force]`
 - `skills leave <name> --as <Name>`

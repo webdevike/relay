@@ -55,7 +55,7 @@ const MAX_ENDED = 20;
  * The CLI an agent session runs to work a room (skill://canvas): the owner's checkout when it is
  * there, else this very binary (the packaged relay-host).
  */
-const CLI = existsSync(join(homedir(), "Eva", "work", "relay", "apps", "linux", "src", "main.ts"))
+export const CLI = existsSync(join(homedir(), "Eva", "work", "relay", "apps", "linux", "src", "main.ts"))
   ? "bun ~/Eva/work/relay/apps/linux/src/main.ts"
   : `"${process.execPath}"`;
 

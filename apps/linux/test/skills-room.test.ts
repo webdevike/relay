@@ -8,7 +8,7 @@ import { type SkillsHome, skillsHome, skillText } from "./skills-home";
 
 const homes: SkillsHome[] = [];
 const rooms: SkillRoom[] = [];
-const FAST: RoomOptions = { pacing: { selectMs: 0, typeMs: 0 }, watch: false, colorFor: (name) => (name === "Nova" ? "#f76707" : "#123456") };
+const FAST: RoomOptions = { pacing: { selectMs: 0, typeMs: 0 }, watch: false, lookFor: (name) => ({ name, color: name === "Nova" ? "#f76707" : "#123456" }) };
 
 function room(path = "Eva/.omp/skills/alpha/SKILL.md", options: RoomOptions = FAST): { home: SkillsHome; room: SkillRoom; file: string } {
   const home = skillsHome();
