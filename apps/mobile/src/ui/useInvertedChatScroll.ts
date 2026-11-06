@@ -67,10 +67,25 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
     listRef.current?.scrollToOffset({ offset: 0, animated: !reducedMotion });
   }, [reducedMotion]);
 
+  /** The row `scrollToRow` is heading for, so a row the list has not laid out yet still ends up centred. */
+  const centring = useRef<number | null>(null);
+
+  /** Scrolls row `index` to the middle of the list, smoothly, and stops following the newest row. */
+  const scrollToRow = useCallback((index: number) => {
+    if (index < 0) return;
+    centring.current = index;
+    following.current = false;
+    dragging.current = false;
+    scrollingToBottom.current = false;
+    if (index > 0) setAwayFromBottom(true);
+    listRef.current?.scrollToIndex({ index, viewPosition: 0.5, animated: !reducedMotion });
+  }, [reducedMotion]);
+
   const onScrollToIndexFailed = useCallback((info: { index: number; averageItemLength: number }) => {
     listRef.current?.scrollToOffset({ offset: info.index * info.averageItemLength, animated: false });
+    const centred = centring.current === info.index;
     setTimeout(() => {
-      listRef.current?.scrollToIndex({ index: info.index, viewPosition: 1, animated: false });
+      listRef.current?.scrollToIndex({ index: info.index, viewPosition: centred ? 0.5 : 1, animated: false });
     }, 80);
   }, []);
 
@@ -86,7 +101,7 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
   };
 
   return {
-    listRef, offsetRef, awayFromBottom, scrollToBottom, followContent,
+    listRef, offsetRef, awayFromBottom, scrollToBottom, scrollToRow, followContent,
     scrollHandlers: {
       onScrollToIndexFailed,
       onContentSizeChange: followContent,

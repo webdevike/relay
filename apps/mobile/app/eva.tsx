@@ -21,11 +21,11 @@
  * above a persistent row of attachment, hold-to-talk mic and send controls. The mic is the Agent Inbox's: hold to talk, release to send.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActionSheetIOS, Alert, FlatList, Keyboard, KeyboardAvoidingView, LayoutAnimation, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
+import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, LayoutAnimation, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
-import { assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, type AssistantMessage, type OpenAsk } from "@relay/protocol";
+import { assistantReactionThread, MAX_REPLY_IMAGES, type AssistantMessage, type OpenAsk } from "@relay/protocol";
 import { AttachmentTray } from "@/ui/AttachmentTray";
 import { AvatarRing, NAME_PILL_GAP, NAME_PILL_HEIGHT, RING_SIZE } from "@/ui/AvatarRing";
 import { Banner } from "@/ui/Banner";
@@ -81,7 +81,9 @@ import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 import { draftKey, useThreadDraft } from "@/state/drafts";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
 import { OpenAskBadges } from "@/agents/OpenAskBadges";
-import { askSheet, pruneHidden, visibleAsks } from "@/lib/openAsks";
+import { AskInlineCard } from "@/agents/AskInlineCard";
+import { WaitingMark } from "@/ui/WaitingMark";
+import { askCards, askRowId, askRowTarget, isAskRow, pruneHidden, visibleAsks, waitingMessageIds, withAskRows } from "@/lib/openAsks";
 import { WidgetCloseProvider } from "@/agents/WidgetActions";
 import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
 import { assistantTurnRows } from "@/turns/rows";
@@ -104,6 +106,8 @@ const BUBBLE_DARK = "#212121";
 /** Space between rows of different senders, and between rows of one sender's run. */
 const GAP_SENDER = 16;
 const GAP_RUN = 4;
+/** After a badge tap's scroll starts, how long before the row rings: the smooth scroll has mostly landed. */
+const RING_DELAY_MS = 420;
 /** Proportion of the width a bubble may take. */
 const USER_MAX_WIDTH = "80%";
 const USER_RADIUS = 24;
@@ -154,7 +158,7 @@ function Thread({ agent }: { agent: string }) {
   const [viewing, setViewing] = useState<{ uris: string[]; start: number } | null>(null);
   // Read once per mount: coming back to the thread restores its position and follow mode.
   const initialOffset = useRef(scrollMemory.get(agent) ?? 0);
-  const { listRef, awayFromBottom, scrollToBottom, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>({
+  const { listRef, awayFromBottom, scrollToBottom, scrollToRow, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>({
     initialOffset: initialOffset.current,
     onOffset: (offset) => {
       scrollMemory.set(agent, offset);
@@ -302,30 +306,24 @@ function Thread({ agent }: { agent: string }) {
       setHiddenAsks((current) => new Set([...current].filter((id) => id !== ask.id)));
     });
   };
+  /** The badge Isaac last tapped: its row (`id`) rings anew each time `n` grows, so the same badge tapped again rings again. */
+  const [rung, setRung] = useState({ id: "", n: 0 });
+  const ringTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(
+    () => () => {
+      clearTimeout(ringTimer.current);
+    },
+    [],
+  );
   const pendingApproval = useAgentsStore((state) => (sessionId === null ? undefined : state.approvals[sessionId]));
 
   // Background messages (the host's job lines arrive as `status` rows) show as quiet rows; any other status row is machinery, never shown.
   // Memoized: the bookmarks index these rows, and a keystroke in the composer must not rebuild them.
-  const { settled, rows, newestFirst } = useMemo(() => {
-    const messages = (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null);
-    const pendingRow: AssistantMessage[] = pending === null ? [] : [{ id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }];
-    return {
-      // What the host's transcript (plus the echo of a turn in flight) says; local rows come after it and never count as its newest reply.
-      settled: [...messages, ...pendingRow],
-      rows: [...messages, ...localRows, ...pendingRow],
-      newestFirst: [...messages, ...localRows, ...pendingRow].reverse(),
-    };
-  }, [snapshot, localRows, pending]);
-  // Turns of the host's rows, for bookmarks: flagged by an ask nobody answered and by reactions.
-  const turnRows = useMemo(() => assistantTurnRows(rows, (message) => message.id === PENDING_ID || isLocalRow(message.id), pendingAsk !== undefined), [rows, pendingAsk]);
-  useTurnBookmarks({ turnRows, thread: artifactsThread });
-  const enteringMessages = useMessageEntrances(rows, snapshot !== null);
-  const busy = snapshot?.busy === true;
-  // The dots stand in for a reply that has not started: while the host says the session is working
-  // and the newest row is not an assistant message already showing words. Once text streams, it is the indicator.
-  const newest = newestFirst[0];
+  const pendingRow = useMemo<AssistantMessage[]>(() => (pending === null ? [] : [{ id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }]), [pending]);
+  const messages = useMemo(() => (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null), [snapshot]);
+  // What the host's transcript (plus the echo of a turn in flight) says; local rows come after it and never count as its newest reply.
+  const settled = useMemo(() => [...messages, ...pendingRow], [messages, pendingRow]);
   const newestSettled = settled[settled.length - 1];
-  const typing = busy && !(newestSettled?.role === "assistant" && newestSettled.text.trim() !== "");
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending) : null;
   // Badged asks, minus the one its card shows and the one whose chips already sit under the newest reply.
@@ -339,6 +337,24 @@ function Thread({ agent }: { agent: string }) {
       ),
     [openAsks, pendingAsk, sessionId, replies, newestSettled, hiddenAsks],
   );
+  // An open ask with a bubble in the thread marks that bubble; one without (a session's, an `ask` card left open) is a card where it was asked.
+  const messageIds = useMemo(() => new Set(messages.map((message) => message.id)), [messages]);
+  const waitingIds = useMemo(() => waitingMessageIds(openAsks, hiddenAsks, messageIds), [openAsks, hiddenAsks, messageIds]);
+  const cards = useMemo(() => askCards(shownAsks, messageIds), [shownAsks, messageIds]);
+  const cardByRow = useMemo(() => new Map(cards.map((ask) => [askRowId(ask), ask])), [cards]);
+  const { rows, newestFirst } = useMemo(() => {
+    const all = [...withAskRows(messages, cards), ...localRows, ...pendingRow];
+    return { rows: all, newestFirst: [...all].reverse() };
+  }, [messages, cards, localRows, pendingRow]);
+  // Turns of the host's rows, for bookmarks: flagged by an ask nobody answered and by reactions.
+  const turnRows = useMemo(() => assistantTurnRows(rows, (message) => message.id === PENDING_ID || isLocalRow(message.id) || isAskRow(message.id), pendingAsk !== undefined), [rows, pendingAsk]);
+  useTurnBookmarks({ turnRows, thread: artifactsThread });
+  const enteringMessages = useMessageEntrances(rows, snapshot !== null);
+  const busy = snapshot?.busy === true;
+  // The dots stand in for a reply that has not started: while the host says the session is working
+  // and the newest row is not an assistant message already showing words. Once text streams, it is the indicator.
+  const newest = newestFirst[0];
+  const typing = busy && !(newestSettled?.role === "assistant" && newestSettled.text.trim() !== "");
   // The badge row has one height; when it comes or goes the composer grows or shrinks, and the
   // list's padding follows on the next layout, both eased instead of jumping.
   const asksRowShown = shownAsks.length > 0;
@@ -401,68 +417,37 @@ function Thread({ agent }: { agent: string }) {
   };
 
   /**
-   * An open ask's badge tapped: its answers (a default first), Other answer for a session ask, Show
-   * in chat while its row is in the thread, Dismiss. Native, as the menus above. A "replies" or
-   * "ask" answer goes out as Isaac's turn too; a session ask's answer only to the host, which hands
-   * it to the asking session.
+   * An open ask's badge tapped: the chat scrolls to the bubble that asked it (or its inline card),
+   * centred, and the row rings (`WaitingMark`). It is answered there, with the reply chips or the
+   * card's own; the badge only finds it.
    */
-  const openAskSheet = (ask: OpenAsk): void => {
+  const jumpToAsk = (ask: OpenAsk): void => {
     Keyboard.dismiss();
-    const rowIndex = (): number => (ask.messageId === undefined ? -1 : newestFirst.findIndex((message) => message.id === ask.messageId));
-    const { message, choices } = askSheet(ask);
-    const answer = (reply: string): void => {
-      if (ask.source !== "session") sendTurn(reply, [], false);
-      resolveAsk(ask, "answered", reply);
-    };
-    const actions: { label: string; run: () => void }[] = choices.map((choice) => ({
-      label: choice.label,
-      run: () => {
-        answer(choice.reply);
-      },
-    }));
-    if (ask.source === "session") {
-      actions.push({
-        label: "Other answer…",
-        run: () => {
-          Alert.prompt(ask.label, ask.question, (typed) => {
-            const words = typed.trim().slice(0, MAX_ASK_ANSWER).trim();
-            if (words !== "") answer(words);
-          });
-        },
-      });
-    }
-    if (rowIndex() >= 0) {
-      actions.push({
-        label: "Show in chat",
-        run: () => {
-          // The list may have moved on since the sheet opened; a row not laid out yet goes through the list's onScrollToIndexFailed.
-          const row = rowIndex();
-          if (row >= 0) listRef.current?.scrollToIndex({ index: row, viewPosition: 0.5, animated: true });
-        },
-      });
-    }
-    actions.push({
-      label: "Dismiss",
-      run: () => {
-        resolveAsk(ask, "dismissed");
-      },
-    });
-    ActionSheetIOS.showActionSheetWithOptions(
-      { title: ask.label, message, options: [...actions.map((action) => action.label), "Cancel"], cancelButtonIndex: actions.length, destructiveButtonIndex: actions.length - 1 },
-      (index) => {
-        actions[index]?.run();
-      },
-    );
+    const target = askRowTarget(ask, messageIds);
+    const index = newestFirst.findIndex((row) => row.id === target);
+    if (index < 0) return;
+    scrollToRow(index);
+    // Ring once the scroll has settled; the row is on screen by then even when the list had to lay it out first.
+    clearTimeout(ringTimer.current);
+    ringTimer.current = setTimeout(() => {
+      setRung((current) => ({ id: target, n: current.n + 1 }));
+    }, RING_DELAY_MS);
   };
 
-  /** The `+N` badge: every open ask by label; picking one opens its sheet. */
+  /** An answer tapped on an inline ask card: a thread ask goes out as Isaac's turn too; a session ask's answer only to the host, which hands it to the asking session. */
+  const answerCard = (ask: OpenAsk, reply: string): void => {
+    if (ask.source !== "session") sendTurn(reply, [], false);
+    resolveAsk(ask, "answered", reply);
+  };
+
+  /** The `+N` badge: every open ask by label; picking one jumps to it. */
   const openAllAsks = (): void => {
     Keyboard.dismiss();
     ActionSheetIOS.showActionSheetWithOptions(
       { title: "Open questions", options: [...shownAsks.map((ask) => ask.label), "Cancel"], cancelButtonIndex: shownAsks.length },
       (index) => {
         const ask = shownAsks[index];
-        if (ask !== undefined) openAskSheet(ask);
+        if (ask !== undefined) jumpToAsk(ask);
       },
     );
   };
@@ -505,33 +490,55 @@ function Thread({ agent }: { agent: string }) {
                 data={newestFirst}
                 inverted
                 keyExtractor={(message) => message.id}
-                extraData={`${latestUserId ?? ""}|${receipt ?? ""}`}
-                renderItem={({ item, index }) => (
-                  // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
-                  <MessageAppearance animate={enteringMessages.has(item.id)} user={senderOf(item) === "user"} gap={gapAbove(item, newestFirst[index + 1])}>
-                    <LocalRowFrame agent={agent} id={item.id}>
-                      <Row
-                        agent={agent}
-                        message={item}
-                        receipt={item.id === latestUserId ? receipt : null}
-                        streaming={busy && item === newestSettled && item.role === "assistant"}
-                        sessionId={sessionId}
-                        local={item.id === PENDING_ID ? pending?.images : undefined}
-                        replies={item === newestSettled ? replies : null}
-                        onReply={(reply) => {
-                          sendTurn(reply, [], false);
-                          // The chips' row is an open ask too: answered, so its badge goes with it.
-                          const ask = openAsks?.find((entry) => entry.messageId === item.id);
-                          if (ask !== undefined) resolveAsk(ask, "answered", reply);
-                        }}
-                        onOpenImages={(uris, start) => {
-                          setViewing({ uris, start });
-                        }}
-                        onSignIn={openSignIn}
-                      />
-                    </LocalRowFrame>
-                  </MessageAppearance>
-                )}
+                extraData={`${latestUserId ?? ""}|${receipt ?? ""}|${String(connected)}|${rung.id}:${String(rung.n)}|${[...waitingIds].join(",")}`}
+                renderItem={({ item, index }) => {
+                  const card = cardByRow.get(item.id);
+                  return (
+                    // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
+                    <MessageAppearance animate={enteringMessages.has(item.id)} user={senderOf(item) === "user"} gap={gapAbove(item, newestFirst[index + 1])}>
+                      {card !== undefined ? (
+                        <AskInlineCard
+                          ask={card}
+                          source={card.from ?? title}
+                          fill={dark ? BUBBLE_DARK : colors.surface}
+                          page={bg}
+                          pulse={rung.id === item.id ? rung.n : 0}
+                          onPick={
+                            connected
+                              ? (reply) => {
+                                  answerCard(card, reply);
+                                }
+                              : null
+                          }
+                        />
+                      ) : (
+                        <LocalRowFrame agent={agent} id={item.id}>
+                          <Row
+                            agent={agent}
+                            message={item}
+                            receipt={item.id === latestUserId ? receipt : null}
+                            streaming={busy && item === newestSettled && item.role === "assistant"}
+                            sessionId={sessionId}
+                            local={item.id === PENDING_ID ? pending?.images : undefined}
+                            replies={item === newestSettled ? replies : connected ? (openAsks?.find((entry) => entry.messageId === item.id && waitingIds.has(item.id))?.replies ?? null) : null}
+                            waiting={waitingIds.has(item.id)}
+                            pulse={rung.id === item.id ? rung.n : 0}
+                            onReply={(reply) => {
+                              sendTurn(reply, [], false);
+                              // The chips' row is an open ask too: answered, so its badge goes with it.
+                              const ask = openAsks?.find((entry) => entry.messageId === item.id);
+                              if (ask !== undefined) resolveAsk(ask, "answered", reply);
+                            }}
+                            onOpenImages={(uris, start) => {
+                              setViewing({ uris, start });
+                            }}
+                            onSignIn={openSignIn}
+                          />
+                        </LocalRowFrame>
+                      )}
+                    </MessageAppearance>
+                  );
+                }}
                 // Inverted: the header sits at the visual bottom, below the newest row.
                 ListHeaderComponent={typing ? <TypingRow title={title} gap={newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER} /> : null}
                 // Inverted: reserve room at the visual bottom for the floating composer.
@@ -600,7 +607,7 @@ function Thread({ agent }: { agent: string }) {
           <OpenAskBadges
             asks={shownAsks}
             background={bg}
-            onOpen={openAskSheet}
+            onOpen={jumpToAsk}
             onDismiss={(ask) => {
               resolveAsk(ask, "dismissed");
             }}
@@ -791,13 +798,17 @@ interface RowProps {
   onOpenImages: (uris: string[], start: number) => void;
   /** The sign-in card was tapped. */
   onSignIn: (messageId: string, signin: NonNullable<AssistantMessage["signin"]>) => void;
-  /** Tap-to-answer replies to show under the bubble: only the newest settled reply gets them. */
+  /** Tap-to-answer replies to show under the bubble: the newest settled reply, and any older bubble with an open ask. */
   replies: readonly string[] | null;
   /** A reply chip was tapped: send its words as Isaac's turn. */
   onReply: (reply: string) => void;
+  /** An open ask sits on this bubble: it keeps its accent edge and "Waiting on you" tag. */
+  waiting: boolean;
+  /** Rings the bubble when it grows (`WaitingMark`); 0 until a badge was tapped. */
+  pulse: number;
 }
 
-function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply }: RowProps) {
+function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply, waiting, pulse }: RowProps) {
   const signedIn = useAssistantStore((state) => threadOf(state, agent).signedIn[message.id] === true);
   const colors = useColors();
   const dark = useScheme() === "dark";
@@ -910,6 +921,7 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
                   <MessageText text={message.text} large skipImages streaming={streaming} />
                 </View>
               )}
+              {waiting && <WaitingMark radius={EVA_RADIUS} pulse={pulse} page={page} />}
             </ChatBubble>
           )}
           {replies !== null && (

@@ -721,9 +721,9 @@ export type AssistantMessage = z.infer<typeof AssistantMessage>;
 export const MAX_OPEN_ASKS = 20;
 /** Characters of an open ask's badge label (`[[ask-label: ...]]`, or the question cut down). */
 export const MAX_ASK_LABEL = 40;
-/** Characters of an open ask's question as the compact sheet shows it. */
+/** Characters of an open ask's question as its badge's inline card shows it. */
 export const MAX_ASK_QUESTION = 280;
-/** Characters of an answer Isaac types on an ask (the session asks' "Other answer"). */
+/** Characters of an answer a client sends with `assistant.ask.resolve` (an option's words, or free text from a client that offers it). */
 export const MAX_ASK_ANSWER = 500;
 
 /**

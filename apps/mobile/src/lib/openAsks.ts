@@ -1,9 +1,10 @@
 /**
  * Pure rules for an assistant thread's open-ask badges above the composer (`AssistantSnapshot.asks`:
  * questions the assistant asked that Isaac has not answered). Which show, in what order, how many
- * badges before a `+N`, and which ask a reply chip or ask card stands for. No React Native imports.
+ * badges before a `+N`, which ask a reply chip or ask card stands for, and which thread row a badge
+ * scrolls to (a bubble, or an inline card for an ask without one). No React Native imports.
  */
-import type { OpenAsk } from "@relay/protocol";
+import type { AssistantMessage, OpenAsk } from "@relay/protocol";
 
 /** Badges drawn before the rest collapse into one `+N` chip. */
 export const MAX_ASK_BADGES = 3;
@@ -45,15 +46,59 @@ export function pruneHidden(hidden: ReadonlySet<string>, asks: readonly OpenAsk[
   return kept.length === hidden.size ? hidden : new Set(kept);
 }
 
+/** Row ids of an ask drawn inline in the thread (no bubble of its own) start with this. */
+export const ASK_ROW_PREFIX = "ask-card:";
+
+/** The id of the inline thread row an ask without a bubble is drawn as. */
+export function askRowId(ask: OpenAsk): string {
+  return `${ASK_ROW_PREFIX}${ask.id}`;
+}
+
+/** Whether `id` is an inline ask row rather than one of the thread's messages. */
+export function isAskRow(id: string): boolean {
+  return id.startsWith(ASK_ROW_PREFIX);
+}
+
+/** The row a badge scrolls to: the ask's own bubble while it is in `messageIds`, else its inline card. */
+export function askRowTarget(ask: OpenAsk, messageIds: ReadonlySet<string>): string {
+  return ask.messageId !== undefined && messageIds.has(ask.messageId) ? ask.messageId : askRowId(ask);
+}
+
+/** Ids of the thread's bubbles that carry an open ask (and so keep their accent edge and tag). */
+export function waitingMessageIds(asks: readonly OpenAsk[] | undefined, hidden: ReadonlySet<string>, messageIds: ReadonlySet<string>): ReadonlySet<string> {
+  const ids = new Set<string>();
+  for (const ask of asks ?? []) {
+    if (!hidden.has(ask.id) && ask.messageId !== undefined && messageIds.has(ask.messageId)) ids.add(ask.messageId);
+  }
+  return ids;
+}
+
+/** The asks with no bubble in the thread (a session's, a card's, a reply that left it): drawn as inline cards. */
+export function askCards(asks: readonly OpenAsk[], messageIds: ReadonlySet<string>): OpenAsk[] {
+  return asks.filter((ask) => ask.messageId === undefined || !messageIds.has(ask.messageId));
+}
+
 /**
- * What an ask's compact sheet offers: its question (plus the default a session ask goes with) and
- * its answers, the default first and marked. `reply` is the exact text an answer sends.
+ * `messages` (oldest first) with a card row for each of `cards` at the time it was asked: before the
+ * first message that came after it. The card row's text is the question; its `role` is "card".
  */
-export function askSheet(ask: OpenAsk): { message: string; choices: { label: string; reply: string }[] } {
-  const fallback = ask.default !== undefined && ask.replies.includes(ask.default) ? ask.default : undefined;
-  const ordered = fallback === undefined ? ask.replies : [fallback, ...ask.replies.filter((reply) => reply !== fallback)];
-  return {
-    message: ask.default === undefined ? ask.question : `${ask.question}\n\nGoing with ${ask.default} unless you say otherwise.`,
-    choices: ordered.map((reply) => ({ label: reply === fallback ? `${reply} (default)` : reply, reply })),
-  };
+export function withAskRows(messages: readonly AssistantMessage[], cards: readonly OpenAsk[]): AssistantMessage[] {
+  if (cards.length === 0) return [...messages];
+  const rows = cards.map((ask): AssistantMessage => ({ id: askRowId(ask), role: "card", text: ask.question, at: ask.at })).sort((a, b) => a.at - b.at);
+  const out: AssistantMessage[] = [];
+  let next = 0;
+  for (const message of messages) {
+    for (let row = rows[next]; row !== undefined && row.at < message.at; row = rows[next]) {
+      out.push(row);
+      next += 1;
+    }
+    out.push(message);
+  }
+  out.push(...rows.slice(next));
+  return out;
+}
+
+/** What a session ask says it does when Isaac does not answer; null when it names no default among its answers. */
+export function defaultNote(ask: OpenAsk): string | null {
+  return ask.default !== undefined && ask.replies.includes(ask.default) ? `Going with ${ask.default} unless you say otherwise.` : null;
 }

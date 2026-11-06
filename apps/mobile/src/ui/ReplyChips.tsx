@@ -10,13 +10,15 @@ export interface ReplyChipsProps {
   /** Two to four short answers, each the exact words sent when tapped. */
   replies: readonly string[];
   onPick: (reply: string) => void;
+  /** The answer a session's ask goes with unless Isaac says otherwise: its chip is drawn selected. */
+  selected?: string | undefined;
 }
 
 /**
  * Tap-to-answer replies under a chat bubble: a wrapping row of `Chip`s, left-aligned, fading in. One
  * VoiceOver group, "Suggested replies", with a button per answer. Nothing is sent without a tap.
  */
-export function ReplyChips({ replies, onPick }: ReplyChipsProps) {
+export function ReplyChips({ replies, onPick, selected }: ReplyChipsProps) {
   return (
     <Animated.View
       entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
@@ -28,6 +30,7 @@ export function ReplyChips({ replies, onPick }: ReplyChipsProps) {
         <Chip
           key={reply}
           label={reply}
+          selected={reply === selected}
           hitSlop={HIT_SLOP}
           onPress={() => {
             onPick(reply);
