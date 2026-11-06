@@ -168,11 +168,11 @@ html[data-eva-motion='off'] .eva-sb-track {
   display: flex;
   flex-direction: column;
   gap: var(--eva-space-xs);
-  /* Insets are transparent borders (spacing lint covers padding). The bottom one centres the icon
-     row in the window footer strip below the cards: (strip - button) / 2. */
+  /* Insets are transparent borders (spacing lint covers padding). The bottom one lifts the icon
+     row off the window's rounded bottom edge: half the footer strip, so the row's centre sits just
+     below the main card's bottom edge. */
   border: solid transparent;
-  border-width: var(--eva-space-native-sm) var(--eva-space-native-sm)
-    calc((var(--eva-footer-h) - 28px) / 2);
+  border-width: var(--eva-space-native-sm) var(--eva-space-native-sm) calc(var(--eva-footer-h) / 2);
 }
 /* One row of small ghost icon buttons: Settings and Usage left, the update control right. */
 .eva-sb-icons {
@@ -206,9 +206,6 @@ html[data-eva-motion='off'] .eva-sb-track {
 .eva-sb-icon[data-active='true'] {
   color: var(--eva-nav-active-fg);
   background: var(--eva-nav-active-bg);
-}
-.eva-sb-icon[data-ready='true'] {
-  color: var(--eva-accent);
 }
 .eva-sb-icon:disabled {
   background: transparent;

@@ -47,6 +47,15 @@ test(
     expect(Math.abs(b.y - s.y)).toBeLessThan(2)
     expect(b.x).toBeGreaterThan(s.x + s.width)
 
+    // Only the dot is accent: the download icon is the same quiet grey as the gear.
+    const colours = await shell.evaluate(() => {
+      const c = (sel: string): string => getComputedStyle(document.querySelector(sel)!).color
+      const dot = getComputedStyle(document.querySelector('.eva-sb-icon-dot')!).backgroundColor
+      return { update: c('[data-testid=update-button]'), gear: c('[data-testid=nav-setting]'), dot }
+    })
+    expect(colours.update).toBe(colours.gear)
+    expect(colours.dot).not.toBe(colours.gear)
+
     // Hover opens the details: build and summary (no history here, so the summary line).
     await badge.hover()
     const pop = shell.locator('[data-testid=update-popover]')

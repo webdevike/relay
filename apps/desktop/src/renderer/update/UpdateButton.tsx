@@ -14,7 +14,7 @@ const SHOWN = 8
 
 /**
  * The sidebar footer's update icon. Quiet refresh checks for updates; once one waits it turns into
- * an accent download icon and one click restarts into it. A spinner covers checking and
+ * a download icon with an accent dot and one click restarts into it. A spinner covers checking and
  * installing. Hover shows what the update brings, or why a check found nothing.
  */
 export function UpdateButton() {
@@ -66,7 +66,6 @@ export function UpdateButton() {
             variant="subtle"
             color="gray"
             className="eva-sb-icon"
-            data-ready={ready ? 'true' : undefined}
             data-testid="update-button"
             aria-label={label}
             aria-busy={busy}

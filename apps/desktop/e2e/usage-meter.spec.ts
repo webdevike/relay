@@ -69,11 +69,15 @@ test('footer strip at 32px with each account at its most-used window', async ({ 
   expect(footer.y + footer.height).toBe(800)
   const main = (await shell.locator(sel('main-card')).boundingBox())!
   expect(main.y + main.height).toBeLessThanOrEqual(footer.y)
-  // The sidebar runs down over the strip's left end; its icon row shares the strip's centre line.
+  // The sidebar runs down over the strip's left end; its icon row is lifted 16px off the window edge,
+  // its centre just below the main card's bottom edge.
   const sidebar = (await shell.locator(sel('sidebar')).boundingBox())!
   expect(sidebar.y + sidebar.height).toBe(footer.y + footer.height)
   const icons = (await shell.locator(sel('sidebar-icons')).boundingBox())!
-  expect(icons.y + icons.height / 2).toBe(footer.y + footer.height / 2)
+  expect(icons.y + icons.height).toBe(footer.y + footer.height - 16)
+  const centre = icons.y + icons.height / 2
+  expect(centre - (main.y + main.height)).toBeGreaterThanOrEqual(0)
+  expect(centre - (main.y + main.height)).toBeLessThanOrEqual(8)
 
   const items = shell.locator('[data-testid^=usage-item-]')
   await expect(items).toHaveCount(4)
