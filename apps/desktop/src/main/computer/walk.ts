@@ -170,44 +170,50 @@ export async function runWalk(o: WalkOptions): Promise<AgentResult> {
     const shown = frame
       ? presenter.point(frame, step.instruction, { speak: step.instruction, step: i + 1, of: plan.steps.length })
       : presenter.caption(step.instruction, true)
-    control = null
-    const started = Date.now()
     let outcome: 'done' | 'next' | 'skip' | 'timeout' | 'stopped' = 'timeout'
-    let lastCheck = 0
-    while (Date.now() - started < (o.stepTimeoutMs ?? STEP_TIMEOUT_MS)) {
-      await sleep(pollMs)
-      if (io.signal.aborted) {
-        outcome = 'stopped'
-        break
+    for (let waits = 0; outcome === 'timeout'; waits++) {
+      if (waits > 0) {
+        const a = await io.ask(`Still with me on step ${n} (“${step.instruction}”)?`, ['Keep waiting', 'Skip', 'Stop'], null)
+        if (a === 'Stop' || a === 'Cancel') return end('stopped', `Stopped at step ${n}.`)
+        if (a === 'Skip') {
+          outcome = 'skip'
+          break
+        }
       }
-      const c: WalkControl | null = control
-      if (c) {
-        outcome = c
-        break
-      }
-      // The model judge is slower: check it less often than Jev.
-      if (judge.name !== 'jev' && Date.now() - lastCheck < 2500) continue
-      lastCheck = Date.now()
-      win = (await frontWindowOf(desktop, pid)) ?? win
-      try {
-        snap = await desktop.read(win.windowId)
-      } catch {
-        continue
-      }
-      if ((await judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0)) >= DONE_P) {
-        outcome = 'done'
-        break
+      control = null
+      const started = Date.now()
+      let lastCheck = 0
+      while (Date.now() - started < (o.stepTimeoutMs ?? STEP_TIMEOUT_MS)) {
+        await sleep(pollMs)
+        if (io.signal.aborted) {
+          outcome = 'stopped'
+          break
+        }
+        const c: WalkControl | null = control
+        if (c) {
+          outcome = c
+          break
+        }
+        // The model judge is slower: check it less often than Jev.
+        if (judge.name !== 'jev' && Date.now() - lastCheck < 2500) continue
+        lastCheck = Date.now()
+        win = (await frontWindowOf(desktop, pid)) ?? win
+        try {
+          snap = await desktop.read(win.windowId)
+        } catch {
+          continue
+        }
+        if ((await judge.holds(step.done_when, snap.title, snap.tree, io.signal).catch(() => 0)) >= DONE_P) {
+          outcome = 'done'
+          break
+        }
       }
     }
     if (outcome === 'stopped') return end('stopped', `Stopped at step ${n}.`)
-    if (outcome === 'timeout') {
-      const a = await io.ask(`Still with me on step ${n} (“${step.instruction}”)?`, ['Keep going', 'Skip', 'Stop'], null)
-      if (a === 'Stop' || a === 'Cancel') return end('stopped', `Stopped at step ${n}.`)
-      results.push(a === 'Skip' ? 'skipped' : 'waited')
-    } else results.push(outcome === 'done' ? 'done' : outcome === 'skip' ? 'skipped' : 'moved on')
+    results.push(outcome === 'done' ? 'done' : outcome === 'skip' ? 'skipped' : 'moved on')
     // Her line may still be playing when he is quick; the next step takes over.
     await settle(shown.spoken, 300)
-    io.progress(`Step ${n} ${outcome === 'done' ? 'done' : outcome === 'timeout' ? 'moved on after a wait' : outcome === 'skip' ? 'skipped' : 'moved on'}`)
+    io.progress(`Step ${n} ${outcome === 'done' ? 'done' : outcome === 'skip' ? 'skipped' : 'moved on'}`)
   }
   const done = results.filter((r) => r === 'done' || r === 'already').length
   return end('done', `Walked you through ${plan.steps.length} steps in ${plan.app}; ${done} showed done in the app.`, plan.outro)
