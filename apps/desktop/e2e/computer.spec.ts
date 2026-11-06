@@ -25,7 +25,13 @@ let fx: ChatFixture
 const test = base.extend({
   launchEnv: async ({}, use) => {
     fx = makeChatFixture()
-    await use({ ...fx.launchEnv, FAKE_OMP_DELAY_MS: '5', FAKE_OMP_LOG: LOG, OPENAI_API_KEY: '' })
+    await use({
+      ...fx.launchEnv,
+      FAKE_OMP_DELAY_MS: '5',
+      FAKE_OMP_LOG: LOG,
+      FAKE_OMP_REAL_TIME: '1',
+      OPENAI_API_KEY: '',
+    })
     fx.cleanup()
   },
 })
@@ -52,15 +58,33 @@ test('@computer never reaches the agent: help, a run that cannot start, then a n
 
   await send(shell, '@computer open Calculator and add 2 and 2')
   await expect(log).toContainText('@computer open Calculator and add 2 and 2')
-  await expect(log).toContainText('in the background: open Calculator and add 2 and 2')
-  await expect(log).toContainText("Couldn't run it: no OpenAI key")
+  // Finished: one line (who, how it ended, the answer) that opens to the task and its steps.
+  const run = log.locator('[data-testid=widget-collapse]').filter({ hasText: 'no OpenAI key' })
+  await expect(run).toContainText("Nova · @computer · Failed: Couldn't run it: no OpenAI key")
+  await expect(run.getByText('in the background: open Calculator and add 2 and 2')).toBeHidden()
+  await run.locator('.eva-wb-collapse-head').click()
+  await expect(run.getByText('in the background: open Calculator and add 2 and 2')).toBeVisible()
 
   await send(shell, '@computer stop')
   await expect(log).toContainText('Nothing is running.')
   expect(prompts()).toEqual([])
 
-  // Not a command (the keyword must lead): this one goes to omp as usual.
+  // Not a command (the keyword must lead): this one goes to omp as usual, and lands BELOW the run.
   await send(shell, 'what does @computer do')
   await expect.poll(() => prompts().length).toBe(1)
   expect(prompts()[0]).toContain('what does @computer do')
+  const reply = log.getByText('Foxes are primarily nocturnal hunters')
+  await expect(reply).toBeVisible()
+  const below = async (): Promise<boolean> =>
+    run.evaluate(
+      (a, b) => (a.compareDocumentPosition(b!) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      await reply.elementHandle(),
+    )
+  expect(await below()).toBe(true)
+  await expect(log.getByText('what does @computer do', { exact: true })).toBeVisible()
+
+  // A reload keeps the run: main holds the session's rows (saved by file, runs.test.ts covers a
+  // restart). The fake omp's session file has no reply or stamps, so order is checked above only.
+  await shell.reload()
+  await expect(run).toBeVisible()
 })

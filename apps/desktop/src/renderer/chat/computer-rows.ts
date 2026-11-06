@@ -26,3 +26,26 @@ export function useComputerRows(paneId: string, file: string | null): ChatMessag
   }, [paneId, file])
   return rows
 }
+
+/**
+ * The session's messages with the `@computer` rows in their places: each row goes before the first
+ * message stamped after it (`at`: when Isaac sent the command), so a run sits where he started it
+ * and later messages come below it. Rows keep their order; unstamped messages (tool calls, the
+ * streaming reply) never split a run from what came before them.
+ */
+export function placeRows(
+  messages: readonly ChatMessage[],
+  rows: readonly ChatMessage[],
+): ChatMessage[] {
+  if (rows.length === 0) return [...messages]
+  const out: ChatMessage[] = []
+  let next = 0
+  for (const m of messages) {
+    if (m.at !== undefined) {
+      while (next < rows.length && (rows[next]!.at ?? Infinity) < m.at) out.push(rows[next++]!)
+    }
+    out.push(m)
+  }
+  while (next < rows.length) out.push(rows[next++]!)
+  return out
+}

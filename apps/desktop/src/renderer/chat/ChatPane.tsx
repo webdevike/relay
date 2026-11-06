@@ -42,7 +42,7 @@ import { drillStore, useDrillTrail } from './drill-store'
 import { SubagentTranscript } from './SubagentTranscript'
 import { AgentNotch } from '../assistants/AgentNotch'
 import { useLocalRows } from './local-rows'
-import { useComputerRows } from './computer-rows'
+import { placeRows, useComputerRows } from './computer-rows'
 import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
 import { fillComposer } from './composer-fill'
 import {
@@ -155,15 +155,15 @@ function ChatView({
     () => ({ reply: (text) => composer.current?.sendReply(text), canReply }),
     [canReply],
   )
-  // Rows this app added to an assistant's thread (the avatar editor) and `@computer` runs, after
-  // the session's messages.
+  // Rows this app added to an assistant's thread (the avatar editor), after the session's
+  // messages, and `@computer` runs, each in the timeline where Isaac sent it.
   const localRows = useLocalRows(paneId)
   const computerRows = useComputerRows(paneId, pane?.file || null)
   const shownMessages = useMemo(
     () =>
       (localRows.length === 0 && computerRows.length === 0) || !pane
         ? pane?.messages
-        : [...pane.messages, ...localRows, ...computerRows],
+        : [...placeRows(pane.messages, computerRows), ...localRows],
     [pane, localRows, computerRows],
   )
   const [evaRoot, setEvaRoot] = useState<string | null>(null)

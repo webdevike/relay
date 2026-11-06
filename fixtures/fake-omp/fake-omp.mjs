@@ -49,6 +49,7 @@ const DELAY = CHUNK === 'burst' ? 0 : CHUNK === 'slow' ? 150 : Number(process.en
 const RECORDING = process.env.FAKE_OMP_RECORDING ?? 'turn'
 const LOG = process.env.FAKE_OMP_LOG
 const STDERR = process.env.FAKE_OMP_STDERR === '1'
+const REAL_TIME = process.env.FAKE_OMP_REAL_TIME === '1'
 
 const log = (event, detail) => {
   if (!LOG) return
@@ -141,6 +142,9 @@ const nextMsgId = () => `msg-${++msgCounter}`
 const rewrite = (frame, ctx) => {
   let s = JSON.stringify(frame)
   if (recordedPrompt && ctx.text !== recordedPrompt) s = s.split(JSON.stringify(recordedPrompt).slice(1, -1)).join(JSON.stringify(ctx.text).slice(1, -1))
+  // FAKE_OMP_REAL_TIME=1: messages stamped now, as real omp does (recordings carry 2023 stamps), for
+  // specs that place rows by time.
+  if (REAL_TIME) s = s.replace(/"timestamp":\d{12,}/g, `"timestamp":${Date.now()}`)
   const f = JSON.parse(s)
   if (f.type === 'message_start' && f.message?.role) {
     ctx.cur = nextMsgId()

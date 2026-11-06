@@ -2,9 +2,9 @@ import { z } from 'zod'
 import { ChatMessageSchema } from '@evaos/chat-core/message'
 
 /**
- * `@computer` runs (SPEC.md): main keeps each chat pane's run rows and the chat shows them after
- * the session's messages. A pane is matched by its id, or by its session file when it reopened
- * under a new id.
+ * `@computer` runs (SPEC.md): main keeps each chat session's run rows (saved by session file, a
+ * draft's by pane until it has one); every row carries `at`, when Isaac sent the command, and the
+ * chat places each run in its timeline there. A finished run is one collapsible row.
  */
 const PaneRowsSchema = z.object({
   paneId: z.string(),

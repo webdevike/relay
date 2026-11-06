@@ -7,7 +7,8 @@ import { runAgent, type AgentResult } from './agent'
 import type { Brain, InputItem, Turn } from './brain'
 import { Desktop } from './desktop'
 import type { Driver, Reply } from './driver'
-import { ComputerRuns, type RunsDeps } from './runs'
+import { parseWidget } from '@evaos/chat-core/widget'
+import { ComputerRuns, fileRowStore, type RunsDeps } from './runs'
 
 const NOVA = { id: 'nova', title: 'Nova', profile: 'personal' }
 
@@ -172,7 +173,9 @@ describe('ComputerRuns + runAgent', () => {
     const result = await h.done
     expect(h.calls).not.toContain('click')
     expect(result.summary).toMatch(/declined/i)
-    expect(h.rows().find((r) => r.id.includes(':ask:'))?.text).toContain('_You chose: Cancel_')
+    // Finished: the ask and the progress fold into the one run row, which keeps the answer.
+    expect(h.rows().some((r) => r.id.includes(':ask:') || r.id.endsWith(':progress'))).toBe(false)
+    expect(h.rows().find((r) => r.id.endsWith(':done'))?.text).toContain('You said no to')
   })
 
   it('runs the step once Isaac approves', async () => {
@@ -183,6 +186,7 @@ describe('ComputerRuns + runAgent', () => {
     await h.done
     expect(h.calls.filter((c) => c === 'click')).toHaveLength(1)
     expect(h.rows().at(-1)?.id).toMatch(/:done$/)
+    expect(h.rows().map((r) => r.role)).toEqual(['user', 'assistant'])
   })
 
   it('stop cancels a pending ask; a second run waits for the first', async () => {
@@ -211,5 +215,57 @@ describe('ComputerRuns + runAgent', () => {
     })
     expect(runs.intercept('p1', '@computer open Calculator')).toBe(true)
     expect(rows.at(-1)?.text).toMatch(/Mac Mini only/)
+  })
+
+  it('a finished run is one collapsible line: who, the answer, then its steps inside', async () => {
+    const h = harness()
+    h.runs.intercept('p1', '@computer reply to the lunch mail with yes')
+    await h.row(asked)
+    h.runs.intercept('p1', 'Approve')
+    await h.done
+    const done = h.rows().find((r) => r.id.endsWith(':done'))!
+    const json = /```ui\n([\s\S]*)\n```/.exec(done.text)?.[1]
+    const widget = parseWidget(json ?? '')
+    expect(widget?.widget).toBe('collapse')
+    if (widget?.widget !== 'collapse') return
+    expect(widget.open).toBe(false)
+    expect(widget.title).toMatch(/^Nova · @computer: /)
+    expect(JSON.stringify(widget.children)).toContain('You approved')
+    // Every row of the run carries the time Isaac sent it, which places it in the chat.
+    const at = h.rows()[0]!.at
+    expect(at).toBeTypeOf('number')
+    expect(h.rows().every((r) => r.at === at)).toBe(true)
+  })
+
+  it('a session keeps its runs across a restart, and a draft hands its runs to its new file', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'computer-rows-'))
+    dirs.push(dir)
+    const store = fileRowStore(dir)
+    let file: string | null = null
+    const make = (): ComputerRuns =>
+      new ComputerRuns({
+        emit: () => {},
+        fileOf: () => file,
+        chatAgentOf: () => null,
+        route: (task) => ({ assistant: NOVA, task, reason: 'default' }),
+        remote: false,
+        store,
+        launch: () => Promise.reject(new Error('unused')),
+      })
+    const first = make()
+    first.intercept('draft', '@computer help')
+    expect(store.load('/s/a.jsonl')).toEqual([])
+    // The draft's first normal message created its session file; the chat asks again with it.
+    file = '/s/a.jsonl'
+    expect(first.rowsFor('draft', file)).toHaveLength(2)
+    expect(store.load(file)).toHaveLength(2)
+    // Relay restarted: a new pane on the same session sees them, and a new run adds to them.
+    const second = make()
+    expect(second.rowsFor('p9', file).map((r) => r.text)).toContain('@computer help')
+    second.intercept('p9', '@computer stop')
+    expect(store.load(file).map((r) => r.text)).toEqual(
+      expect.arrayContaining(['@computer help', '@computer stop', 'Nothing is running.']),
+    )
+    expect(store.load(file)).toHaveLength(4)
   })
 })

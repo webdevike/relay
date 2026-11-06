@@ -11,7 +11,7 @@ import { connectDriver, driverBinary } from './driver'
 import { JevJudge, ModelJudge } from './judge'
 import { assistBinary, startPresenter, type Presenter } from './presenter'
 import { loadAssistants, loadEcardRepos, routeTask } from './route'
-import { ComputerRuns, type RunSpec } from './runs'
+import { ComputerRuns, fileRowStore, type RunSpec } from './runs'
 import { PLAN_TOOL, planInstructions, runWalk } from './walk'
 
 const IssueSchema = z.object({
@@ -133,6 +133,7 @@ export function registerComputer(
       routeTask(task, loadAssistants(ctx.env.evaRoot), chatAgent, loadEcardRepos()),
     launch,
     remote: deps.remote,
+    store: fileRowStore(path.join(ctx.env.configDir, 'computer', 'threads')),
     log,
   })
   handle(ctx, 'computer.rows', ({ paneId, file }) => ({ rows: runs.rowsFor(paneId, file) }))
