@@ -124,38 +124,34 @@ export class ModelJudge implements Judge {
   ) {
     const keys = Object.keys(options)
     const list = keys.map((k) => `${k}: ${options[k]}`).join('\n')
-    const r = z
-      .object({ choice: z.string() })
-      .parse(
-        await this.json(
-          `${question}\nWindow: ${title}\nOptions:\n${list}\nAnswer with the option key.`,
-          {
-            type: 'object',
-            properties: { choice: { type: 'string', enum: keys } },
-            required: ['choice'],
-            additionalProperties: false,
-          },
-          signal,
-        ),
-      )
+    const r = z.object({ choice: z.string() }).parse(
+      await this.json(
+        `${question}\nWindow: ${title}\nOptions:\n${list}\nAnswer with the option key.`,
+        {
+          type: 'object',
+          properties: { choice: { type: 'string', enum: keys } },
+          required: ['choice'],
+          additionalProperties: false,
+        },
+        signal,
+      ),
+    )
     return { choice: r.choice, p: 0.9 }
   }
 
   async holds(statement: string, title: string, tree: string, signal?: AbortSignal) {
-    const r = z
-      .object({ holds: z.boolean() })
-      .parse(
-        await this.json(
-          `Window "${title}", accessibility tree:\n${tree.slice(0, 12_000)}\n\nIs this true of the window right now: ${statement}`,
-          {
-            type: 'object',
-            properties: { holds: { type: 'boolean' } },
-            required: ['holds'],
-            additionalProperties: false,
-          },
-          signal,
-        ),
-      )
+    const r = z.object({ holds: z.boolean() }).parse(
+      await this.json(
+        `Window "${title}", accessibility tree:\n${tree.slice(0, 12_000)}\n\nIs this true of the window right now: ${statement}`,
+        {
+          type: 'object',
+          properties: { holds: { type: 'boolean' } },
+          required: ['holds'],
+          additionalProperties: false,
+        },
+        signal,
+      ),
+    )
     return r.holds ? 0.95 : 0.05
   }
 }
