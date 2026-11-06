@@ -38,6 +38,9 @@
   content: '';
   flex: none;
   width: max(0px, calc(var(--eva-sidebar-w) - var(--eva-gap)));
+  /* The footer comes after the sidebar in the tree, so its drag region would win over the
+     sidebar's no-drag one here and swallow every click and hover on the icon row. */
+  -webkit-app-region: no-drag;
 }
 .eva-build-stamp {
   margin-right: auto;
