@@ -80,13 +80,21 @@ test('@ opens Computer and its modes, the chip sends in its mode', async ({ shel
   await expect(chip).toHaveAttribute('data-mode', 'walk')
   await expect(box).toHaveValue('open Calculator and add 2 and 2 ')
 
+  // The run (no key here, so it fails at once) folds to one line; its mode and task are inside.
+  const lastRun = log.locator('[data-testid=widget-collapse]').last()
+  const ranAs = async (line: string): Promise<void> => {
+    await expect(lastRun).toContainText("@computer · Failed: Couldn't run it")
+    await lastRun.locator('.eva-wb-collapse-head').click()
+    await expect(lastRun.getByText(line, { exact: true })).toBeVisible()
+  }
   await box.press('Enter')
-  await expect(log).toContainText('walkthrough: open Calculator and add 2 and 2')
+  await ranAs('walkthrough: open Calculator and add 2 and 2')
   await expect(chip).toHaveCount(0)
   await expect(box).toHaveValue('')
 
   // Plain text still works.
   await box.fill('@computer live open TextEdit')
   await box.press('Enter')
-  await expect(log).toContainText('@computer live: open TextEdit')
+  await expect(log.locator('[data-testid=widget-collapse]')).toHaveCount(2)
+  await ranAs('live: open TextEdit')
 })
