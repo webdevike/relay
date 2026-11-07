@@ -1,5 +1,6 @@
 // What the create bar can make originals with, and how a create with @ references is routed.
 import {
+  studioRefs,
   studioResolutions,
   type StudioAspect,
   type StudioBackend,
@@ -44,6 +45,17 @@ export function engineLabel(
   return model?.name ?? backend?.label ?? spec.model ?? spec.backend
 }
 
+/**
+ * ComfyUI presets are named for what they do on the host ("Create", "Relight"), which says nothing
+ * in the model picker beside MOSS-Image. Every ComfyUI entry says where it runs, and the one preset
+ * whose name hides its model says that too.
+ */
+const COMFY_NAMES: Record<string, string> = { 'klein-create': 'FLUX.2 Klein' }
+
+export function comfyLabel(model: Pick<StudioModel, 'id' | 'name'>): string {
+  return `${COMFY_NAMES[model.id] ?? model.name} (ComfyUI)`
+}
+
 const off = (b: StudioBackend): string | undefined =>
   b.available ? undefined : (b.reason ?? `${b.label} can't run right now`)
 
@@ -67,17 +79,19 @@ export function createChoices(backends: readonly StudioBackend[]): CreateChoice[
     })
   }
   const comfy = backends.find((b) => b.id === 'comfyui')
-  const klein = comfy?.models?.find((m) => m.id === 'klein-create')
-  if (comfy && klein) {
+  // Every ComfyUI preset the host lists that makes an image from a prompt alone, driven by the list.
+  for (const m of comfy?.models?.filter(
+    (x) => x.mode === 'image' && x.prompt !== false && studioRefs(comfy, x.id).min === 0,
+  ) ?? []) {
     out.push({
-      key: choiceKey('comfyui', klein.id),
-      label: 'FLUX.2 klein create',
-      note: 'Local, fast',
+      key: choiceKey('comfyui', m.id),
+      label: comfyLabel(m),
+      note: m.id === 'klein-create' ? 'Local, fast' : 'Local, ComfyUI preset',
       group: 'Local',
       backend: 'comfyui',
-      model: klein.id,
+      model: m.id,
       paid: false,
-      off: off(comfy),
+      off: comfy ? off(comfy) : undefined,
     })
   }
   const codex = backends.find((b) => b.id === 'codex-image')

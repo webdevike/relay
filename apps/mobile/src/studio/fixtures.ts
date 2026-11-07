@@ -23,7 +23,7 @@ export function job(id: string, createdAt: number, patch: Partial<StudioJob> = {
 
 export const project = (id: string, name: string, createdAt: number): StudioProject => ({ id, name, createdAt });
 
-const model = (id: string, name: string, patch: Partial<StudioModel> = {}): StudioModel => ({ id, name, mode: "image", resolutions: [res("1024x1024", "1:1"), res("768x1344", "9:16"), res("1344x768", "16:9")], seconds: [], frames: [], ...patch });
+export const model = (id: string, name: string, patch: Partial<StudioModel> = {}): StudioModel => ({ id, name, mode: "image", resolutions: [res("1024x1024", "1:1"), res("768x1344", "9:16"), res("1344x768", "16:9")], seconds: [], frames: [], ...patch });
 
 const base: StudioBackend = { id: "moss", label: "MOSS-Image", mode: "image", paid: false, available: true, resolutions: [], seconds: [], frames: [], refs: 0, seed: true, serial: true };
 
@@ -33,7 +33,7 @@ export const comfy: StudioBackend = {
   id: "comfyui",
   label: "ComfyUI",
   refs: 4,
-  models: [model("klein-create", "FLUX.2 klein create", { refs: 0 }), model("qwen-edit", "Qwen Image Edit", { refs: 1, resolutions: [res("1mp", "1:1"), res("1mp-tall", "9:16"), res("1mp-wide", "16:9")] }), model("relight", "Relight")],
+  models: [model("klein-create", "FLUX.2 klein create", { refs: 0 }), model("qwen-edit", "Qwen Image Edit", { refs: 1, resolutions: [res("1mp", "1:1"), res("1mp-tall", "9:16"), res("1mp-wide", "16:9")] }), model("relight", "Relight"), model("klein-edit", "FLUX.2 klein edit", { refs: 1 }), model("combine", "Combine", { refs: 2, minRefs: 2 })],
 };
 export const kontext: StudioBackend = { ...base, id: "kontext", label: "FLUX Kontext", refs: 1, resolutions: [res("1024x1024", "1:1")] };
 export const codexImage: StudioBackend = { ...base, id: "codex-image", label: "Image (Codex, free)", seed: false, serial: false, resolutions: [res("1024x1024", "1:1"), res("1024x1536", "9:16"), res("1536x1024", "16:9")] };

@@ -15,6 +15,8 @@ export interface EditorCanvasProps {
   onFit: (fit: number) => void
   /** This version's queued or running child job. */
   pending: StudioJob | undefined
+  /** Stops the pending job. */
+  onCancel: (id: string) => void
   segment: StudioSegment | undefined
   crop: CropRect | null
   onCrop: (rect: CropRect) => void
@@ -29,6 +31,7 @@ export function EditorCanvas({
   zoom,
   onFit,
   pending,
+  onCancel,
   segment,
   crop,
   onCrop,
@@ -124,6 +127,15 @@ export function EditorCanvas({
                 ? `Generating ${Math.round(pending.progress * 100)}%`
                 : 'Waiting in the GPU queue'}
             </div>
+            <button
+              type="button"
+              className="ed-cancel"
+              data-testid="studio-ed-cancel"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => onCancel(pending.id)}
+            >
+              Cancel
+            </button>
           </>
         ) : null}
         {box && !pending && !hold && crop === null ? (

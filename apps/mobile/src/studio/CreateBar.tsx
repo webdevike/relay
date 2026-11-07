@@ -1,12 +1,14 @@
 /**
- * The create bar under the grid: one borderless prompt surface, "Create with" and the model, the
- * aspect, how many (1 to 4, one image for a paid model), where the images land, and Generate.
+ * The create bar under the grid: one borderless prompt surface, Image or Video, "Create with" and
+ * the model, the aspect, how many (1 to 4 images, one for a paid model or a video), where the
+ * output lands, and Generate. Images can carry references (an edit, as on desktop); a video shows
+ * its model's sizes and lengths and takes keyframes and references where the model lists them.
  * Free models start at once; a paid one opens the confirm sheet. Shows the store's draft; every
  * change goes back to it.
  */
 import { useMemo, useState } from "react";
 import { TextInput, View } from "react-native";
-import { STUDIO_UNSORTED, type StudioSpec } from "@relay/protocol";
+import { STUDIO_UNSORTED, type StudioMode, type StudioSpec } from "@relay/protocol";
 import { studioRequest } from "@/connection";
 import { useStudioStore } from "@/state/studio";
 import { spacing, useColors, useScheme, withAlpha } from "@/theme";
@@ -15,12 +17,23 @@ import { MenuButton } from "@/ui/MenuButton";
 import { SegmentedTabs } from "@/ui/SegmentedTabs";
 import { Text } from "@/ui/Text";
 import { toast } from "./actions";
-import { chosenEntry, createCount, createEntries, createOp, createProblem, createSpec, createTarget, STUDIO_ASPECTS } from "./create";
+import { chosenEntry, createCount, createEntries, createOp, createPlan, createTarget, refLimit, STUDIO_ASPECTS, videoSettings } from "./create";
+import { ImageSheet } from "./ImageSheet";
 import { imageCount, sameView } from "./library";
 import { ModelSheet } from "./ModelSheet";
 import { PaidConfirmSheet } from "./PaidConfirmSheet";
 import { chooseFrom, pickProject } from "./pickers";
 import { useQuote, type Quote } from "./quote";
+
+const MODES: readonly { key: StudioMode; label: string }[] = [
+  { key: "image", label: "Image" },
+  { key: "video", label: "Video" },
+];
+
+/** "1 image", "2 images" for the chip that opens the picker; `none` when empty. */
+function picked(n: number, none: string): string {
+  return n === 0 ? none : n === 1 ? "1 image" : `${n} images`;
+}
 
 const COUNTS = [
   { key: "1", label: "1" },
@@ -40,6 +53,8 @@ function quoteLine(quote: Quote | undefined, balance: number | undefined): strin
   return left === undefined ? `${quote.credits} credits` : `${quote.credits} credits, ${left} left`;
 }
 
+const planProblem = (plan: ReturnType<typeof createPlan>): string | undefined => (typeof plan === "string" ? plan : undefined);
+
 export function CreateBar() {
   const colors = useColors();
   const dark = useScheme() === "dark";
@@ -50,22 +65,30 @@ export function CreateBar() {
   const patch = useStudioStore((state) => state.patchCreate);
   const [models, setModels] = useState(false);
   const [sending, setSending] = useState(false);
+  const references = useStudioStore((state) => state.references);
   const [confirm, setConfirm] = useState<{ spec: StudioSpec; error: string | null } | null>(null);
+  /** Which picker is open: the references, or a video keyframe. */
+  const [picking, setPicking] = useState<"refs" | "start" | "end" | null>(null);
 
-  const entries = useMemo(() => createEntries(backends), [backends]);
+  const video = draft.mode === "video";
+  const entries = useMemo(() => createEntries(backends, draft.mode), [backends, draft.mode]);
   const chosen = chosenEntry(draft, entries);
   const count = createCount(draft, chosen);
   const target = createTarget(draft, view, projects);
-  const problem = createProblem(draft, chosen, backends);
+  const plan = createPlan(draft, chosen, backends, references);
+  const problem = typeof plan === "string" ? plan : undefined;
+  const spec = typeof plan === "string" ? undefined : plan.spec;
+  const settings = video ? videoSettings(draft, chosen, backends) : undefined;
+  const refMax = refLimit(draft, chosen, backends);
   const paid = chosen?.paid === true;
-  const quote = useQuote(createSpec(draft, chosen, backends), paid);
+  const quote = useQuote(spec, paid);
   const balance = backends.find((b) => b.id === chosen?.backend)?.balance;
   // An empty prompt needs no words (the placeholder asks); anything else in the way does, and a paid model shows its price.
-  const hint = problem !== undefined ? (draft.prompt.trim().length === 0 ? createProblem({ ...draft, prompt: "-" }, chosen, backends) : problem) : paid ? quoteLine(quote, balance) : undefined;
+  const hint = problem !== undefined ? (draft.prompt.trim().length === 0 ? planProblem(createPlan({ ...draft, prompt: "-" }, chosen, backends, references)) : problem) : paid ? quoteLine(quote, balance) : undefined;
 
-  const send = async (spec: StudioSpec): Promise<string | null> => {
+  const send = async (made: Exclude<ReturnType<typeof createPlan>, string>): Promise<string | null> => {
     setSending(true);
-    const result = await studioRequest(createOp(spec, count, target.id));
+    const result = await studioRequest(createOp(made.spec, count, target.id, made.parent));
     setSending(false);
     if (!result.ok) return result.error ?? "Your Mac did not start it.";
     const store = useStudioStore.getState();
@@ -79,38 +102,52 @@ export function CreateBar() {
           useStudioStore.getState().setView(landing);
         },
       });
-    } else toast(`Queued ${imageCount(count)}`);
+    } else toast(video ? "Queued a video" : `Queued ${imageCount(count)}`);
+    // What rode along was for that one job.
+    patch({ refs: [], start: undefined, end: undefined });
     return null;
   };
 
   const generate = async () => {
-    const spec = createSpec(draft, chosen, backends);
-    if (spec === undefined) return;
+    if (typeof plan === "string") return;
     // Paid jobs never start from here: the confirm sheet prices them and Isaac taps to spend.
     if (paid) {
-      setConfirm({ spec, error: null });
+      setConfirm({ spec: plan.spec, error: null });
       return;
     }
-    const error = await send(spec);
+    const error = await send(plan);
     if (error !== null) toast(error);
+  };
+
+  const pickFrame = (slot: "start" | "end") => (ids: string[]) => {
+    patch({ [slot]: ids[0] });
   };
 
   return (
     <View style={{ borderRadius: 18, backgroundColor: dark ? FILL_DARK : colors.surface, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, gap: spacing.xs, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 16, shadowOffset: { width: 0, height: 6 } }}>
+      <View style={{ width: 168, paddingTop: spacing.xs }} accessibilityLabel="Make an image or a video">
+        <SegmentedTabs
+          tabs={MODES}
+          value={draft.mode}
+          onChange={(mode) => {
+            patch({ mode });
+          }}
+        />
+      </View>
       <TextInput
         value={draft.prompt}
         onChangeText={(prompt) => {
           patch({ prompt });
         }}
-        placeholder="Describe what to make"
+        placeholder={video ? "Describe the video" : "Describe what to make"}
         placeholderTextColor={withAlpha(colors.text, 0.6)}
         multiline
         keyboardAppearance={dark ? "dark" : "light"}
         selectionColor={colors.accent}
-        accessibilityLabel="Describe what to make"
+        accessibilityLabel={video ? "Describe the video" : "Describe what to make"}
         style={{ color: colors.text, fontSize: 15, lineHeight: 20, minHeight: 40, maxHeight: 120, paddingTop: spacing.sm, paddingBottom: spacing.xs, paddingHorizontal: spacing.xs }}
       />
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
+      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
         <Text variant="caption" color="textMuted" style={{ paddingLeft: spacing.xs }}>
           Create with
         </Text>
@@ -131,9 +168,78 @@ export function CreateBar() {
             });
           }}
         />
+        {settings !== undefined && (
+          <>
+            <MenuButton
+              label={settings.resolution?.label ?? "No size"}
+              accessibilityLabel="Video size"
+              disabled={settings.resolutions.length < 2}
+              onPress={() => {
+                void chooseFrom(
+                  "Video size",
+                  settings.resolutions.map((r) => (r.label === r.id ? r.id : `${r.label}, ${r.id}`)),
+                ).then((index) => {
+                  const resolution = index === null ? undefined : settings.resolutions[index];
+                  if (resolution !== undefined) patch({ resolution: resolution.id });
+                });
+              }}
+            />
+            <MenuButton
+              label={settings.length === undefined ? "No length" : `${settings.length} s`}
+              accessibilityLabel="Video length"
+              disabled={settings.seconds.length < 2}
+              onPress={() => {
+                void chooseFrom(
+                  "Video length",
+                  settings.seconds.map((s) => `${s} seconds`),
+                ).then((index) => {
+                  const seconds = index === null ? undefined : settings.seconds[index];
+                  if (seconds !== undefined) patch({ seconds });
+                });
+              }}
+            />
+          </>
+        )}
       </View>
+      {(refMax > 0 || (settings?.frames.length ?? 0) > 0) && (
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+          {settings?.frames.includes("start") === true && (
+            <MenuButton
+              label={draft.start === undefined ? "Start frame" : "Start frame set"}
+              symbol="photo"
+              color={draft.start === undefined ? "textMuted" : "text"}
+              accessibilityLabel="Start frame"
+              onPress={() => {
+                setPicking("start");
+              }}
+            />
+          )}
+          {settings?.frames.includes("end") === true && (
+            <MenuButton
+              label={draft.end === undefined ? "End frame" : "End frame set"}
+              symbol="photo"
+              color={draft.end === undefined ? "textMuted" : "text"}
+              accessibilityLabel="End frame"
+              onPress={() => {
+                setPicking("end");
+              }}
+            />
+          )}
+          {refMax > 0 && (
+            <MenuButton
+              label={picked(draft.refs.length, video ? "Add reference" : "Edit an image")}
+              symbol="photo.on.rectangle"
+              color={draft.refs.length === 0 ? "textMuted" : "text"}
+              accessibilityLabel="Reference images"
+              onPress={() => {
+                setPicking("refs");
+              }}
+            />
+          )}
+        </View>
+      )}
       <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-        {!paid && (
+        {!paid && !video && (
           <View style={{ width: 128 }} accessibilityLabel="Image count">
             <SegmentedTabs
               tabs={COUNTS}
@@ -159,7 +265,7 @@ export function CreateBar() {
       </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md, paddingBottom: spacing.xs }}>
         <Button
-          label={paid ? "Generate" : `Generate ${count}`}
+          label={paid ? "Generate" : video ? "Generate video" : `Generate ${count}`}
           symbol="sparkles"
           pill
           height={38}
@@ -190,6 +296,19 @@ export function CreateBar() {
           setModels(false);
         }}
       />
+      <ImageSheet
+        visible={picking !== null}
+        title={picking === "start" ? "Start frame" : picking === "end" ? "End frame" : video ? "Reference images" : "Edit with images"}
+        selected={picking === "start" ? (draft.start === undefined ? [] : [draft.start]) : picking === "end" ? (draft.end === undefined ? [] : [draft.end]) : draft.refs}
+        max={picking === "refs" ? refMax : 1}
+        onChange={(ids) => {
+          if (picking === "start" || picking === "end") pickFrame(picking)(ids);
+          else patch({ refs: ids });
+        }}
+        onClose={() => {
+          setPicking(null);
+        }}
+      />
       <PaidConfirmSheet
         spec={confirm?.spec ?? null}
         provider={(backends.find((b) => b.id === chosen?.backend)?.label ?? "Higgsfield").replace(/\s*\(.*\)$/, "")}
@@ -197,9 +316,9 @@ export function CreateBar() {
         sending={sending}
         error={confirm?.error ?? null}
         onConfirm={(credits) => {
-          const spec = createSpec(draft, chosen, backends, credits);
-          if (spec === undefined || confirm === null) return;
-          void send(spec).then((error) => {
+          const confirmed = createPlan(draft, chosen, backends, references, credits);
+          if (typeof confirmed === "string" || confirm === null) return;
+          void send(confirmed).then((error) => {
             // Refused (the price rose, the balance ran out): a new spec object prices it again.
             setConfirm(error === null ? null : { spec: { ...confirm.spec }, error });
           });

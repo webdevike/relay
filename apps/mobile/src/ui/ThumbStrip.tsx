@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { ActivityIndicator, Image, Pressable, ScrollView, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { radii, spacing } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
@@ -14,6 +14,8 @@ export interface ThumbStripItem {
   uri: string | null;
   /** A play glyph on it. */
   video?: boolean;
+  /** Still being made: its own slot, selectable, with a spinner over the picture it grows from. */
+  busy?: boolean;
   accessibilityLabel: string;
 }
 
@@ -21,12 +23,10 @@ export interface ThumbStripProps {
   items: readonly ThumbStripItem[];
   selected: string | undefined;
   onSelect: (key: string) => void;
-  /** A spinner tile after the last one: something new is on its way. */
-  pending?: boolean;
 }
 
 /** A sideways row of small square thumbnails on dark chrome, the chosen one outlined white and kept in view. */
-export function ThumbStrip({ items, selected, onSelect, pending = false }: ThumbStripProps) {
+export function ThumbStrip({ items, selected, onSelect }: ThumbStripProps) {
   const scroller = useRef<ScrollView>(null);
   const index = items.findIndex((item) => item.key === selected);
   useEffect(() => {
@@ -48,7 +48,12 @@ export function ThumbStrip({ items, selected, onSelect, pending = false }: Thumb
             }}
             style={{ width: THUMB, height: THUMB, borderRadius: radii.md, borderWidth: BORDER, borderColor: on ? "#FFFFFF" : "transparent", overflow: "hidden", backgroundColor: FILL }}
           >
-            {item.uri !== null && <Image source={{ uri: item.uri }} resizeMode="cover" style={{ flex: 1, opacity: on ? 1 : 0.75 }} />}
+            {item.uri !== null && <Image source={{ uri: item.uri }} blurRadius={item.busy === true ? 8 : 0} resizeMode="cover" style={{ flex: 1, opacity: on ? 1 : 0.75 }} />}
+            {item.busy === true && (
+              <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.35)" }}>
+                <ActivityIndicator color="#FFFFFF" />
+              </View>
+            )}
             {item.video === true && (
               <View pointerEvents="none" style={{ position: "absolute", left: 4, bottom: 4 }}>
                 <SymbolView name="play.fill" size={11} tintColor="#FFFFFF" />
@@ -57,11 +62,6 @@ export function ThumbStrip({ items, selected, onSelect, pending = false }: Thumb
           </Pressable>
         );
       })}
-      {pending && (
-        <View accessibilityLabel="Generating" style={{ width: THUMB, height: THUMB, borderRadius: radii.md, backgroundColor: FILL, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator color="#FFFFFF" />
-        </View>
-      )}
     </ScrollView>
   );
 }

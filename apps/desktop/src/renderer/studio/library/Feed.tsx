@@ -37,6 +37,7 @@ import { EvaMenu } from '../../overlay'
 import { durationLabel } from '../studio-assets'
 import { studioStore } from '../studio-store'
 import {
+  cancelJob,
   createJobs,
   deleteProjectModal,
   favoriteAssets,
@@ -467,6 +468,16 @@ function PendingTile({ job }: { job: StudioJob }) {
           </>
         )}
       </div>
+      <button
+        type="button"
+        className="sl-cancel"
+        aria-label="Cancel"
+        title="Cancel"
+        data-testid="studio-pending-cancel"
+        onClick={() => void cancelJob(job.id)}
+      >
+        <IconX size={12} />
+      </button>
       <div className="sl-pending-bar">
         <div style={{ width: `${pct * 100}%` }} />
       </div>

@@ -514,6 +514,24 @@
   display: grid;
   place-items: center;
 }
+.sl-cancel {
+  position: absolute;
+  top: var(--mantine-spacing-xs);
+  right: var(--mantine-spacing-xs);
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  background: rgba(128, 128, 128, 0.2);
+}
+.sl-cancel:hover {
+  background: rgba(128, 128, 128, 0.35);
+}
 .sl-shimmer {
   position: absolute;
   inset: 0;

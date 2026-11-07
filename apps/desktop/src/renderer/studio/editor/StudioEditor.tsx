@@ -19,7 +19,7 @@ import {
   type StudioSegments,
 } from '@evaos/contract'
 import { DISMISS_PRIORITY, useDismissable } from '../../hotkeys/dismiss'
-import { createJobs, mediaSrc, toast, trashAssets, useLibrary } from '../library/actions'
+import { cancelJob, createJobs, mediaSrc, toast, trashAssets, useLibrary } from '../library/actions'
 import { QueueIndicator } from '../library/menus'
 import { applyStudioChange, studioRequest, useStudio } from '../studio-store'
 import { EditorBar } from './EditorBar'
@@ -81,6 +81,9 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
 
   const [sending, setSending] = useState(false)
   const busy = curJob !== undefined || sending
+  /** The pending job whose slot is on screen (shown under the generating overlay); null shows a version. */
+  const [viewing, setViewing] = useState<string | null>(null)
+  const viewingJob = pending.find((j) => j.id === viewing)
   const [hold, setHold] = useState(false)
   const [split, setSplit] = useState(false)
   const [zoom, setZoom] = useState(1)
@@ -106,7 +109,13 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
     if (loaded && !cur) onClose()
   }, [loaded, cur, onClose])
 
-  // A child job of a version that finishes lands in the strip and is selected; a failure says so.
+  // A pending slot whose job finished or went away goes back to showing a version.
+  useEffect(() => {
+    if (viewing !== null && !pending.some((j) => j.id === viewing)) setViewing(null)
+  }, [viewing, pending])
+
+  // A child job of a version that finishes lands in the strip. It is selected only when its slot is on
+  // screen, so previewing an earlier version while it generates is never interrupted; a failure says so.
   const watched = useRef(new Set<string>())
   useEffect(() => {
     for (const id of watched.current) {
@@ -114,12 +123,13 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
       if (job && studioJobActive(job)) continue
       watched.current.delete(id)
       const out = job?.outputs.find((o) => o.deletedAt === undefined)
-      if (job?.state === 'done' && out) setSel(out.id)
-      else if (job?.state === 'failed')
+      if (job?.state === 'done' && out) {
+        if (viewing === id) setSel(out.id)
+      } else if (job?.state === 'failed')
         toast(job.error ? `Edit failed: ${job.error}` : 'Edit failed')
     }
     for (const j of pending) watched.current.add(j.id)
-  }, [lib.jobs, pending])
+  }, [lib.jobs, pending, viewing])
 
   // SAM 2.1 segments for an image version, asked once per version while the panel is open.
   const segments = useStudio((s) => s.view.segments[sel] as StudioSegments | undefined)
@@ -142,12 +152,21 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
   const picked =
     segments?.state === 'done' ? segments.segments.find((s) => s.id === segment) : undefined
 
+  const selectVersion = useCallback((id: string) => {
+    setViewing(null)
+    setSel(id)
+  }, [])
+  const viewPending = (j: StudioJob): void => {
+    if (j.parent) setSel(j.parent.asset)
+    setViewing(j.id)
+  }
+
   const go = useCallback(
     (d: number) => {
       const v = versions[vi + d]
-      if (v) setSel(v.asset.id)
+      if (v) selectVersion(v.asset.id)
     },
-    [versions, vi],
+    [versions, vi, selectVersion],
   )
 
   const close = useCallback(() => {
@@ -197,6 +216,8 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
     void createJobs(recipe.op)
       .then((a) => {
         if (!a.ok) return
+        // Its progress is its own slot after the versions, shown at once; the versions stay one click away.
+        setViewing((a.jobs?.[0] ?? a.job)?.id ?? null)
         setPrompt('')
         setRefs([])
         setSegment(null)
@@ -217,7 +238,7 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
     )
   const remove = (): void => {
     const next = versions[vi + 1] ?? versions[vi - 1]
-    if (next) setSel(next.asset.id)
+    if (next) selectVersion(next.asset.id)
     else onClose()
     void trashAssets([cur.asset.id])
   }
@@ -231,7 +252,7 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
             key={v.asset.id}
             type="button"
             className={`ed-thumb${v.asset.id === sel ? ' on' : ''}`}
-            onClick={() => setSel(v.asset.id)}
+            onClick={() => selectVersion(v.asset.id)}
             aria-label={i === 0 ? 'Original' : `Version ${i + 1}`}
             aria-current={v.asset.id === sel}
             data-testid="studio-ed-version"
@@ -246,11 +267,25 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
             ) : null}
           </button>
         ))}
-        {pending.map((j) => (
-          <div key={j.id} className="ed-thumb" data-testid="studio-ed-pending" data-job={j.id}>
-            <span className="ed-spin" />
-          </div>
-        ))}
+        {pending.map((j) => {
+          const from = lib.lineage.byId.get(j.parent?.asset ?? '')
+          return (
+            <button
+              key={j.id}
+              type="button"
+              className={`ed-thumb pending${j.id === viewing ? ' on' : ''}`}
+              onClick={() => viewPending(j)}
+              aria-label="Generating"
+              aria-current={j.id === viewing}
+              data-testid="studio-ed-pending"
+              data-job={j.id}
+              data-on={j.id === viewing}
+            >
+              {from ? <img src={mediaSrc(from.asset.thumb)} alt="" /> : null}
+              <span className="ed-spin" />
+            </button>
+          )
+        })}
       </div>
 
       <div className="ed-center">
@@ -360,7 +395,8 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
           split={split}
           zoom={zoom}
           onFit={setFit}
-          pending={curJob}
+          pending={viewingJob}
+          onCancel={(id) => void cancelJob(id)}
           segment={picked}
           crop={crop}
           onCrop={setCrop}

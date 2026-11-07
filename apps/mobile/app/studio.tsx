@@ -20,7 +20,7 @@ import { ProgressTile } from "@/ui/ProgressTile";
 import { Screen } from "@/ui/Screen";
 import { Text } from "@/ui/Text";
 import { ToolbarButton } from "@/ui/ToolbarButton";
-import { favoriteAssets, moveAssets, trashAssets } from "@/studio/actions";
+import { cancelJob, favoriteAssets, moveAssets, trashAssets } from "@/studio/actions";
 import { assetLength, saveAssets, useHostBase } from "@/studio/assets";
 import { CreateBar } from "@/studio/CreateBar";
 import { favoriteValue, gridItems, imageCount, keepVisible, libraryOf, liveView, pendingJobs, queueSummary, switcherRows, toggleSelected, viewName } from "@/studio/library";
@@ -162,9 +162,9 @@ export default function Studio() {
       const running = job.state === "running";
       const eta = studioEtaLabel(job.etaMs);
       return running ? (
-        <ProgressTile size={tile} title={`${Math.min(99, Math.round(job.progress * 100))}%`} details={[...(job.note === undefined ? [] : [job.note]), ...(eta === undefined ? [] : [eta])]} fraction={job.progress} />
+        <ProgressTile size={tile} title={`${Math.min(99, Math.round(job.progress * 100))}%`} details={[...(job.note === undefined ? [] : [job.note]), ...(eta === undefined ? [] : [eta])]} fraction={job.progress} onCancel={() => void cancelJob(job.id)} />
       ) : (
-        <ProgressTile size={tile} title="Queued" details={[job.note ?? "Waiting for the GPU"]} fraction={0} />
+        <ProgressTile size={tile} title="Queued" details={[job.note ?? "Waiting for the GPU"]} fraction={0} onCancel={() => void cancelJob(job.id)} />
       );
     }
     const { asset, job } = cell.item;

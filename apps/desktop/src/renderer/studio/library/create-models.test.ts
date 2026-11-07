@@ -43,7 +43,7 @@ const BACKENDS: StudioBackend[] = [
     resolutions: [],
     refs: 4,
     models: [
-      model('klein-create', 'FLUX.2 klein create'),
+      { ...model('klein-create', 'Create'), refs: 0 },
       model('klein-edit', 'FLUX.2 klein edit'),
       model('character', 'Character'),
       model('combine', 'Combine'),
@@ -94,6 +94,17 @@ describe('createChoices', () => {
       'higgsfield:soul',
     ])
     expect(pick('higgsfield:soul').paid).toBe(true)
+  })
+
+  it('labels a ComfyUI entry with where it runs, not the preset name alone ("Create")', () => {
+    expect(pick('comfyui:klein-create').label).toBe('FLUX.2 Klein (ComfyUI)')
+    const more = createChoices([
+      backend('comfyui', {
+        refs: 4,
+        models: [{ ...model('poster', 'Poster'), refs: 0 }, model('relight', 'Relight')],
+      }),
+    ])
+    expect(more.map((c) => [c.key, c.label])).toEqual([['comfyui:poster', 'Poster (ComfyUI)']])
   })
 })
 

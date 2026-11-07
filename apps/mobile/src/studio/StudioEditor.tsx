@@ -7,7 +7,7 @@
  * edit started here is selected when it lands.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Image, Keyboard, KeyboardAvoidingView, Modal, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Image, Keyboard, KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -24,11 +24,12 @@ import { Pager } from "@/ui/Pager";
 import { Text } from "@/ui/Text";
 import { ThumbStrip } from "@/ui/ThumbStrip";
 import { ToolbarButton } from "@/ui/ToolbarButton";
-import { favoriteAssets, moveAssets, toast, trashAssets } from "./actions";
+import { cancelJob, favoriteAssets, moveAssets, toast, trashAssets } from "./actions";
 import { saveAssets, useHostBase } from "./assets";
 import { libraryOf } from "./library";
 import { chooseFrom, pickProject } from "./pickers";
-import { defaultEngine, EDIT_ENGINES, EDIT_SUGGESTIONS, editRecipe, engineProblem, type EditEngineId } from "./recipes";
+import { createEntries, EMPTY_CREATE, videoSettings } from "./create";
+import { defaultEngine, EDIT_ENGINES, EDIT_SUGGESTIONS, editRecipe, engineProblem, presetRecipe, toolPresets, videoRecipe, type EditEngineId, type EditRecipe } from "./recipes";
 import { ToastHost } from "./ToastHost";
 
 const BG = "#0C0C0D";
@@ -62,6 +63,29 @@ function generatingLabel(job: StudioJob): string {
   return job.state === "running" ? `Generating ${Math.min(99, Math.round(job.progress * 100))}%` : "Waiting in the GPU queue";
 }
 
+const pendingKey = (job: StudioJob): string => `job:${job.id}`;
+
+/** A pending version's slot: its source blurred under a dot matrix, with how far along it is. */
+function GeneratingView({ uri, rect, label, onCancel }: { uri: string; rect: { left: number; top: number; width: number; height: number }; label: string; onCancel: () => void }) {
+  return (
+    <View style={[styles.generating, rect]}>
+      <Image source={{ uri }} blurRadius={26} resizeMode="cover" style={StyleSheet.absoluteFill} />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.2)" }]} />
+      <DotMatrix width={rect.width} height={rect.height} />
+      <View style={styles.pill}>
+        <Text variant="label" tabular style={{ color: "#FFFFFF" }}>
+          {label}
+        </Text>
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Cancel generation" onPress={onCancel} style={styles.cancel}>
+        <Text variant="label" style={{ color: "#FFFFFF" }}>
+          Cancel
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function Editor({ initial, onClose }: { initial: string; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   const base = useHostBase();
@@ -78,36 +102,58 @@ function Editor({ initial, onClose }: { initial: string; onClose: () => void }) 
   const [focused, setFocused] = useState(false);
   /** The job this editor started, selected when it lands. */
   const [following, setFollowing] = useState<string | null>(null);
+  /** The pending job whose slot is on screen; null shows a version. */
+  const [viewing, setViewing] = useState<string | null>(null);
 
   const root = studioRootOf(current, library.lineage);
   const versions = useMemo(() => (root === undefined ? [] : studioVersions(root.asset.id, library.lineage)), [root, library]);
   const index = versions.findIndex((v) => v.asset.id === current);
   const item: StudioItem | undefined = versions[index];
   const family = new Set(versions.map((v) => v.asset.id));
-  const children = jobs.filter((job) => studioJobActive(job) && job.parent !== undefined && family.has(job.parent.asset));
-  const working = children.find((job) => job.parent?.asset === current);
+  const children = jobs.filter((job) => studioJobActive(job) && job.parent !== undefined && family.has(job.parent.asset)).sort((a, b) => a.createdAt - b.createdAt);
 
   // Gone from under the editor (trashed or deleted elsewhere): back to the grid.
   useEffect(() => {
     if (item === undefined) onClose();
   }, [item, onClose]);
 
+  // A pending slot whose job finished or went away: back to the versions.
+  useEffect(() => {
+    if (viewing !== null && !children.some((job) => job.id === viewing)) setViewing(null);
+  }, [viewing, children]);
+
+  // The edit this editor started lands in the strip; it is selected only if Isaac is watching its slot,
+  // so previewing an earlier version while it generates is never interrupted.
   useEffect(() => {
     if (following === null) return;
     const job = jobs.find((j) => j.id === following);
     if (job === undefined || studioJobActive(job)) return;
     setFollowing(null);
     const made = job.outputs.find((o) => o.deletedAt === undefined);
-    if (job.state === "done" && made !== undefined) setCurrent(made.id);
-    else if (job.state === "failed") toast(job.error ?? "The edit failed");
-  }, [jobs, following]);
+    if (job.state === "done" && made !== undefined) {
+      if (viewing === job.id) setCurrent(made.id);
+    } else if (job.state === "failed") toast(job.error ?? "The edit failed");
+  }, [jobs, following, viewing]);
+
+  const pendingJob = viewing === null ? undefined : children.find((job) => job.id === viewing);
+  const pendingIndex = pendingJob === undefined ? -1 : children.indexOf(pendingJob);
+  const page = pendingIndex >= 0 ? versions.length + pendingIndex : index;
+  const parentOf = (job: StudioJob): StudioItem | undefined => (job.parent === undefined ? undefined : versions.find((v) => v.asset.id === job.parent?.asset));
+  /** Picks a version, or a pending slot (`job:<id>`); either way the zoom resets. */
+  const selectKey = (key: string) => {
+    setZoomed(false);
+    if (key.startsWith("job:")) setViewing(key.slice(4));
+    else {
+      setViewing(null);
+      setCurrent(key);
+    }
+  };
 
   if (item === undefined) return null;
   const engineOf = EDIT_ENGINES.find((e) => e.id === engine) ?? EDIT_ENGINES[0];
   const isImage = item.asset.kind === "image";
 
-  const send = async () => {
-    const recipe = editRecipe(engine, item, prompt, backends);
+  const submit = async (recipe: EditRecipe) => {
     if (!recipe.ok) {
       toast(recipe.error);
       return;
@@ -119,9 +165,83 @@ function Editor({ initial, onClose }: { initial: string; onClose: () => void }) 
       toast(result.error ?? "Your Mac did not start the edit.");
       return;
     }
-    setFollowing(result.job?.id ?? result.jobs?.[0]?.id ?? null);
+    const started = result.job?.id ?? result.jobs?.[0]?.id ?? null;
+    setFollowing(started);
+    // Its progress is its own slot after the versions, shown at once; the versions stay one tap away.
+    if (started !== null) {
+      setViewing(started);
+      setZoomed(false);
+    }
     setPrompt("");
     Keyboard.dismiss();
+  };
+
+  const send = () => submit(editRecipe(engine, item, prompt, backends));
+
+  /** A ComfyUI preset the host lists for one picture (relight, angle, upscale, ...): its choices are asked one by one. */
+  const runTool = async () => {
+    const presets = toolPresets(backends);
+    if (presets.length === 0) {
+      toast(backends.find((b) => b.id === "comfyui")?.reason ?? "This host lists no ComfyUI tools");
+      return;
+    }
+    const picked = await chooseFrom(
+      "Tools",
+      presets.map((m) => (m.description === undefined ? m.name : `${m.name}, ${m.description}`)),
+    );
+    const model = picked === null ? undefined : presets[picked];
+    if (model === undefined) return;
+    const params: Record<string, string | number> = {};
+    for (const input of model.inputs ?? []) {
+      if (input.kind === "number") {
+        params[input.id] = input.default;
+        continue;
+      }
+      const option = await chooseFrom(
+        input.label,
+        input.options.map((o) => (o.id === input.default ? `${o.label} (default)` : o.label)),
+      );
+      if (option === null) return;
+      params[input.id] = input.options[option]?.id ?? input.default;
+    }
+    await submit(presetRecipe(model, item, prompt, params, backends));
+  };
+
+  /** A video from this version: any free video model the host lists, a length, and an end frame where the model takes one. */
+  const makeVideo = async () => {
+    const models = createEntries(backends, "video").filter((e) => !e.paid);
+    if (models.length === 0) {
+      toast("This host has no free video model");
+      return;
+    }
+    const picked = await chooseFrom(
+      "Make a video with",
+      models.map((e) => `${e.label}, ${e.available ? "local" : "not available"}`),
+    );
+    const entry = picked === null ? undefined : models[picked];
+    if (entry === undefined) return;
+    if (!entry.available) {
+      toast(entry.reason ?? `${entry.label} is unavailable`);
+      return;
+    }
+    const settings = videoSettings({ ...EMPTY_CREATE, mode: "video" }, entry, backends);
+    let seconds = settings?.length;
+    if (settings !== undefined && settings.seconds.length > 1) {
+      const length = await chooseFrom(
+        "Length",
+        settings.seconds.map((s) => `${s} seconds`),
+      );
+      if (length === null) return;
+      seconds = settings.seconds[length];
+    }
+    let end: string | undefined;
+    const others = versions.filter((v) => v.asset.id !== item.asset.id && v.asset.kind === "image");
+    if (settings?.frames.includes("end") === true && others.length > 0) {
+      const frame = await chooseFrom("End frame", ["No end frame", ...others.map((v) => (versions.indexOf(v) === 0 ? "Original" : `Version ${versions.indexOf(v) + 1}`))]);
+      if (frame === null) return;
+      end = others[frame - 1]?.asset.id;
+    }
+    await submit(videoRecipe(entry, item, prompt, backends, { seconds, end }));
   };
 
   const remove = () => {
@@ -131,14 +251,12 @@ function Editor({ initial, onClose }: { initial: string; onClose: () => void }) 
     void trashAssets([item.asset.id]);
   };
 
-  const rect = box.width > 0 ? fitRect(box, item.asset.width, item.asset.height) : undefined;
-
   return (
     <KeyboardAvoidingView behavior="padding" style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom + spacing.sm }}>
       <View style={styles.top}>
         <IconButton symbol="chevron.left" tone="overlay" size={40} accessibilityLabel="Back to grid" onPress={onClose} />
         <Text variant="label" numberOfLines={1} style={styles.title}>
-          {index === 0 ? "Original" : `Version ${index + 1} of ${versions.length}`}
+          {pendingJob !== undefined ? "New version" : index === 0 ? "Original" : `Version ${index + 1} of ${versions.length}`}
         </Text>
         <View style={{ width: 40 }} />
       </View>
@@ -153,65 +271,69 @@ function Editor({ initial, onClose }: { initial: string; onClose: () => void }) 
         {box.width > 0 && (
           <Pager
             width={box.width}
-            page={index}
-            scrollEnabled={!zoomed && versions.length > 1}
-            onPageChange={(page) => {
-              const to = versions[page];
-              if (to !== undefined) setCurrent(to.asset.id);
-              setZoomed(false);
+            page={page}
+            scrollEnabled={!zoomed && versions.length + children.length > 1}
+            onPageChange={(next) => {
+              const to = versions[next];
+              if (to !== undefined) selectKey(to.asset.id);
+              else {
+                const job = children[next - versions.length];
+                if (job !== undefined) selectKey(pendingKey(job));
+              }
             }}
           >
-            {versions.map((v, i) => {
-              const uri = base === null ? null : `${base}${v.asset.path}`;
-              return (
-                <View key={v.asset.id} style={{ width: box.width, height: box.height }}>
-                  {uri !== null &&
-                    (v.asset.kind === "video" ? (
-                      i === index ? (
-                        <EditorVideo uri={uri} />
+            {[
+              ...versions.map((v, i) => {
+                const uri = base === null ? null : `${base}${v.asset.path}`;
+                return (
+                  <View key={v.asset.id} style={{ width: box.width, height: box.height }}>
+                    {uri !== null &&
+                      (v.asset.kind === "video" ? (
+                        i === page ? (
+                          <EditorVideo uri={uri} />
+                        ) : (
+                          <Image source={{ uri: `${base}${v.asset.thumb}` }} resizeMode="contain" style={StyleSheet.absoluteFill} />
+                        )
                       ) : (
-                        <Image source={{ uri: `${base}${v.asset.thumb}` }} resizeMode="contain" style={StyleSheet.absoluteFill} />
-                      )
-                    ) : (
-                      <ZoomableImage
-                        // Pages away from the current one come back at fit.
-                        key={`${v.asset.id}-${i === index}`}
-                        uri={uri}
-                        width={box.width}
-                        height={box.height}
-                        onTap={Keyboard.dismiss}
-                        onZoomChange={setZoomed}
-                      />
-                    ))}
-                </View>
-              );
-            })}
+                        <ZoomableImage
+                          // Pages away from the current one come back at fit.
+                          key={`${v.asset.id}-${i === page}`}
+                          uri={uri}
+                          width={box.width}
+                          height={box.height}
+                          onTap={Keyboard.dismiss}
+                          onZoomChange={setZoomed}
+                        />
+                      ))}
+                  </View>
+                );
+              }),
+              ...children.map((job) => {
+                const from = parentOf(job);
+                return (
+                  <View key={`pending-${job.id}`} style={{ width: box.width, height: box.height }}>
+                    {from !== undefined && base !== null && <GeneratingView uri={`${base}${from.asset.thumb}`} rect={fitRect(box, from.asset.width, from.asset.height)} label={generatingLabel(job)} onCancel={() => void cancelJob(job.id)} />}
+                  </View>
+                );
+              }),
+            ]}
           </Pager>
-        )}
-        {working !== undefined && rect !== undefined && (
-          <View pointerEvents="none" style={[styles.generating, rect]}>
-            {base !== null && <Image source={{ uri: `${base}${item.asset.thumb}` }} blurRadius={26} resizeMode="cover" style={StyleSheet.absoluteFill} />}
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.2)" }]} />
-            <DotMatrix width={rect.width} height={rect.height} />
-            <View style={styles.pill}>
-              <Text variant="label" tabular style={{ color: "#FFFFFF" }}>
-                {generatingLabel(working)}
-              </Text>
-            </View>
-          </View>
         )}
         <ToastHost bottom={spacing.lg} />
       </View>
 
       <View style={styles.strip}>
         <ThumbStrip
-          items={versions.map((v, i) => ({ key: v.asset.id, uri: base === null ? null : `${base}${v.asset.thumb}`, video: v.asset.kind === "video", accessibilityLabel: i === 0 ? "Original" : `Version ${i + 1}` }))}
-          selected={current}
-          pending={children.length > 0}
-          onSelect={setCurrent}
+          items={[
+            ...versions.map((v, i) => ({ key: v.asset.id, uri: base === null ? null : `${base}${v.asset.thumb}`, video: v.asset.kind === "video", accessibilityLabel: i === 0 ? "Original" : `Version ${i + 1}` })),
+            ...children.map((job) => ({ key: pendingKey(job), uri: base === null ? null : `${base}${parentOf(job)?.asset.thumb ?? ""}`, busy: true, accessibilityLabel: `Generating, ${generatingLabel(job)}` })),
+          ]}
+          selected={pendingJob === undefined ? current : pendingKey(pendingJob)}
+          onSelect={selectKey}
         />
       </View>
 
+      {pendingJob === undefined && (
       <View style={styles.actions}>
         <ToolbarButton
           symbol={item.asset.favorite === true ? "heart.fill" : "heart"}
@@ -239,10 +361,33 @@ function Editor({ initial, onClose }: { initial: string; onClose: () => void }) 
             });
           }}
         />
+        {isImage && (
+          <ToolbarButton
+            symbol="wand.and.stars"
+            label="Tools"
+            tone="overlay"
+            disabled={sending}
+            onPress={() => {
+              void runTool();
+            }}
+          />
+        )}
+        {isImage && (
+          <ToolbarButton
+            symbol="video"
+            label="Video"
+            tone="overlay"
+            disabled={sending}
+            onPress={() => {
+              void makeVideo();
+            }}
+          />
+        )}
         <ToolbarButton symbol="trash" label="Delete" tone="overlay" onPress={remove} />
       </View>
+      )}
 
-      {isImage && (
+      {isImage && pendingJob === undefined && (
         <View style={styles.bottom}>
           {prompt.length === 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.suggestions}>
@@ -329,6 +474,7 @@ const styles = StyleSheet.create({
   canvas: { flex: 1, overflow: "hidden" },
   // Square like the image under it, so no corner of the sharp image shows past the blur.
   generating: { position: "absolute", overflow: "hidden", alignItems: "center", justifyContent: "center" },
+  cancel: { position: "absolute", bottom: spacing.lg, paddingHorizontal: spacing.xl, paddingVertical: spacing.sm, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.5)" },
   pill: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, borderRadius: 999, backgroundColor: "rgba(20,20,22,0.8)" },
   strip: { paddingTop: spacing.md },
   actions: { flexDirection: "row", justifyContent: "space-around", paddingHorizontal: spacing.sm, paddingTop: spacing.md },

@@ -209,7 +209,7 @@ describe('StudioEditor', () => {
     expect(screen.getByTestId('studio-ed-relight')).toBeDisabled()
   })
 
-  it('shows progress while the child runs, then selects the new version', async () => {
+  it('shows progress in its own slot, keeps earlier versions previewable, then selects the new version when watched', () => {
     editor()
     const running = job('j-run', null, {
       state: 'running',
@@ -218,8 +218,15 @@ describe('StudioEditor', () => {
       createdAt: 60,
     })
     act(() => applyStudioChange({ kind: 'job', job: running }))
-    expect(screen.getByTestId('studio-ed-overlay')).toHaveTextContent('Generating 42%')
+    // The source stays clean and previewable; the pending job is its own slot in the strip.
+    expect(screen.queryByTestId('studio-ed-overlay')).toBeNull()
+    expect(media().dataset.id).toBe('root')
     expect(screen.getAllByTestId('studio-ed-pending')).toHaveLength(1)
+    fireEvent.click(screen.getByTestId('studio-ed-pending'))
+    expect(screen.getByTestId('studio-ed-overlay')).toHaveTextContent('Generating 42%')
+    fireEvent.click(screen.getAllByTestId('studio-ed-version')[0]!)
+    expect(screen.queryByTestId('studio-ed-overlay')).toBeNull()
+    fireEvent.click(screen.getByTestId('studio-ed-pending'))
     act(() =>
       applyStudioChange({
         kind: 'job',
@@ -229,6 +236,39 @@ describe('StudioEditor', () => {
     expect(media().dataset.id).toBe('made')
     expect(screen.getAllByTestId('studio-ed-version')).toHaveLength(3)
     expect(screen.queryByTestId('studio-ed-overlay')).toBeNull()
+  })
+
+  it('cancels the pending job from its slot', async () => {
+    editor()
+    const running = job('j-run', null, {
+      state: 'running',
+      progress: 0.3,
+      parent: { asset: 'root', how: 'relight' },
+      createdAt: 60,
+    })
+    act(() => applyStudioChange({ kind: 'job', job: running }))
+    fireEvent.click(screen.getByTestId('studio-ed-pending'))
+    fireEvent.click(screen.getByTestId('studio-ed-cancel'))
+    await waitFor(() => expect(ops).toContainEqual({ kind: 'cancel', id: 'j-run' }))
+  })
+
+  it('does not pull Isaac off an earlier version when the pending one lands', () => {
+    editor()
+    const running = job('j-run', null, {
+      state: 'running',
+      progress: 0.5,
+      parent: { asset: 'root', how: 'relight' },
+      createdAt: 60,
+    })
+    act(() => applyStudioChange({ kind: 'job', job: running }))
+    act(() =>
+      applyStudioChange({
+        kind: 'job',
+        job: { ...running, state: 'done', progress: 1, outputs: [asset('made', 60)] },
+      }),
+    )
+    expect(media().dataset.id).toBe('root')
+    expect(screen.getAllByTestId('studio-ed-version')).toHaveLength(3)
   })
 
   it('relight sends the picked direction', async () => {

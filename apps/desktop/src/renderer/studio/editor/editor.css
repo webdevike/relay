@@ -109,6 +109,13 @@
   border-top-color: #fff;
   animation: edspin 0.8s linear infinite;
 }
+/* A pending slot is the picture it grows from, dimmed, with the spinner over it. */
+.ed-thumb.pending img {
+  filter: blur(4px) brightness(0.6);
+}
+.ed-thumb.pending .ed-spin {
+  position: absolute;
+}
 @keyframes edspin {
   to {
     transform: rotate(360deg);
@@ -197,6 +204,20 @@
   to {
     mask-position: -50% 0;
   }
+}
+.ed-cancel {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, 220%);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-md);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: rgba(20, 20, 22, 0.6);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
 }
 .ed-pill {
   position: absolute;
