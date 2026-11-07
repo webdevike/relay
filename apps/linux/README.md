@@ -469,10 +469,14 @@ error?, job?, jobs?, asset?, project?, reference?, segments?, credits?, balance?
   the host then keeps it inside the mask only (`compositeMasked`); a `sam` cutout takes the mask itself.
 
 Local GPU work runs one at a time on this Mac, whoever starts it: the machine-wide lock `~/.cache/eva-gpu.lock`
-(`$EVA_GPU_LOCK`, flock(2), shared with draft.py and moss.py) is held by those scripts for LTX and MOSS-Image runs,
-and by the host itself (`src/studio/gpu-lock.ts`, a tiny Perl helper holding the flock until the host releases it
-or dies) around Kontext, ComfyUI, SAM cutouts and segment runs. While another process holds it, the job reads
-"Waiting for the GPU (another job is using it)".
+(`$EVA_GPU_LOCK`, flock(2), shared with draft.py and moss.py) is held by moss.py for MOSS-Image runs, and by the host
+itself (`src/studio/gpu-lock.ts`, a tiny Perl helper holding the flock until the host releases it or dies) around LTX,
+Kontext, ComfyUI, SAM cutouts and segment runs. While another process holds it, the job reads
+"Waiting for the GPU (another job is using it)". For LTX the host holds the real lock and starts draft.py with
+`$EVA_GPU_LOCK` on a private file in the job's dir (it would otherwise wait on its own host). Under that lock, before
+draft.py starts, ComfyUI's models are unloaded (`POST /free {unload_models, free_memory}` on both ComfyUI servers) and
+the Qwen prompt enhancer is stopped (`launchctl bootout gui/<uid>/ai.eva.qwen-local`); after the run, pass or fail,
+its plist is bootstrapped again (`src/studio/ltx-memory.ts`; skipped when the plist is absent).
 
 Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
 

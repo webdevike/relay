@@ -6,8 +6,8 @@
 // `studio.removed` for a deleted job or upload, `studio.library` when projects or references change,
 // `studio.segments` for SAM 2.1's objects in an image, `studio.state` when uploads or backends change.
 //
-// The GPU is shared with work outside Relay through the machine-wide lock (`gpu-lock.ts`): LTX and
-// MOSS-Image take it in their own scripts, the service takes it around Kontext, ComfyUI and SAM runs.
+// The GPU is shared with work outside Relay through the machine-wide lock (`gpu-lock.ts`): MOSS-Image
+// takes it in its own script, the service takes it around LTX, Kontext, ComfyUI and SAM runs.
 //
 // Trash: a trashed output is hidden and restorable for STUDIO_UNDO_MS; then (on a timer, and on start
 // for what came due while the host was down) every copy of it is deleted: the store file and thumb,
@@ -63,10 +63,11 @@ const SLOT_NOTE = "Waiting for a free slot";
 /** Backends `rescan` re-reads: their presets and model files (ComfyUI's, MOSS-Image fine-tunes) live on this Mac's disk. */
 const RESCANNED: readonly StudioBackendId[] = ["moss", "comfyui", "comfyui-video"];
 /**
- * Local GPU backends whose runs the service holds the machine-wide GPU lock for. LTX (draft.py) and MOSS-Image
- * (moss.py) take it themselves, ComfyUI video runs on the GPU box, Codex and Higgsfield off the Mac, crops on the CPU.
+ * Local GPU backends whose runs the service holds the machine-wide GPU lock for: LTX (whose draft.py gets a private
+ * lock file so it does not block behind the host's), Kontext, ComfyUI and SAM. MOSS-Image (moss.py) takes the lock in
+ * its own script, ComfyUI video runs on the GPU box, Codex and Higgsfield off the Mac, crops on the CPU.
  */
-const HOST_LOCKED: readonly StudioBackendId[] = ["kontext", "comfyui", "sam"];
+const HOST_LOCKED: readonly StudioBackendId[] = ["ltx", "kontext", "comfyui", "sam"];
 /** Backends whose result is the masked object already (a cutout) or not an edit (a crop): no composite after. */
 const UNMASKED: readonly StudioBackendId[] = ["sam", "crop"];
 /** A SAM 2.1 segment run, model load included. */

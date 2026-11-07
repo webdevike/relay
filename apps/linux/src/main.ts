@@ -122,6 +122,7 @@ import { ComfyUIRunner, defaultComfyDeps } from "./studio/comfyui";
 import { CropRunner } from "./studio/crop";
 import { FlockGpuLock } from "./studio/gpu-lock";
 import { LtxRunner } from "./studio/ltx";
+import { defaultQwenPlist, LaunchdLtxMemory, systemLaunchctl } from "./studio/ltx-memory";
 import { defaultMossPaths, MossRunner } from "./studio/moss";
 import { ffmpegMedia } from "./studio/media";
 import { SamRunner } from "./studio/sam";
@@ -1156,13 +1157,24 @@ function studioService(
   const token = ompCodexToken(resolveOmp());
   const home = agentHome ?? join(homedir(), "Eva");
   const comfyui = new ComfyUIRunner(defaultComfyDeps("comfyui", home));
+  const comfyuiVideo = new ComfyUIRunner(defaultComfyDeps("comfyui-video", home));
   const sam = new SamRunner();
   try {
     const studio = new StudioService({
       dir: defaultStudioDir(),
       gpuHeld,
       runners: {
-        ltx: new LtxRunner(ltxDir),
+        ltx: new LtxRunner(
+          ltxDir,
+          undefined,
+          new LaunchdLtxMemory({
+            freeComfy: [() => comfyui.release(), () => comfyuiVideo.release()],
+            launchctl: systemLaunchctl,
+            uid: process.getuid?.() ?? 501,
+            qwenPlist: defaultQwenPlist(),
+            log,
+          }),
+        ),
         "codex-image": new CodexRunner({
           backend: "codex-image",
           token,
@@ -1180,7 +1192,7 @@ function studioService(
         moss: new MossRunner(defaultMossPaths(home), () => comfyui.release()),
         kontext: new KontextRunner(),
         comfyui,
-        "comfyui-video": new ComfyUIRunner(defaultComfyDeps("comfyui-video", home)),
+        "comfyui-video": comfyuiVideo,
         sam,
         crop: new CropRunner(media),
         higgsfield: new HiggsfieldRunner({

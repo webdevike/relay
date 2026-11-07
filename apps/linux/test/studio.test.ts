@@ -141,6 +141,7 @@ describe("studio queue", () => {
     held = false;
     h.service.resume();
     expect(jobOf(h, video.id).state).toBe("running");
+    await flush();
     expect(h.runners.ltx.runs).toHaveLength(1);
   });
 
@@ -307,6 +308,7 @@ describe("studio queue", () => {
     expect(jobOf(again, running.id)).toMatchObject({ state: "failed", error: RESTART_ERROR });
     expect(jobOf(again, running.id).etaMs).toBeUndefined();
     expect(jobOf(again, queued.id).state).toBe("running");
+    await flush();
     expect(again.runners.ltx.runs.map((run) => run.input.spec.prompt)).toEqual(["second"]);
   });
 

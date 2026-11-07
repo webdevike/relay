@@ -496,7 +496,7 @@ describe("studio segments", () => {
 });
 
 describe("studio GPU lock", () => {
-  it("holds it for Kontext, ComfyUI and SAM one at a time, waits with the busy note while another process has it, never takes it for LTX or MOSS", async () => {
+  it("holds it for LTX, Kontext, ComfyUI and SAM one at a time, waits with the busy note while another process has it, leaves it to MOSS's own script", async () => {
     const h = harness();
     const { asset } = await output(h);
     h.lock.holdElsewhere();
@@ -511,7 +511,7 @@ describe("studio GPU lock", () => {
     expect(jobOf(h, edit.id).note).toBeUndefined();
     expect(h.lock.granted).toEqual([expect.stringContaining("(relay studio kontext)")]);
 
-    // LTX and MOSS wait their turn in the GPU pool but take the lock in their own scripts.
+    // LTX waits its turn in the GPU pool and takes the lock itself; MOSS takes it in its own script.
     const { job: video } = await ok(h, { kind: "create", spec: ltxSpec(), origin: "desktop" });
     const { job: image } = await ok(h, {
       kind: "create",
@@ -522,13 +522,14 @@ describe("studio GPU lock", () => {
     h.runners.kontext.runs[0]?.succeed();
     await flush();
     expect(h.runners.ltx.runs).toHaveLength(1);
+    expect(h.lock.granted.at(-1)).toContain("(relay studio ltx)");
     h.runners.ltx.runs[0]?.succeed();
     await flush();
     expect(h.runners.moss.runs).toHaveLength(1);
     h.runners.moss.runs[0]?.succeed();
     await flush();
     expect(jobOf(h, image?.id ?? "").state).toBe("done");
-    expect(h.lock.granted).toHaveLength(1);
+    expect(h.lock.granted).toHaveLength(2);
 
     // With the GPU busy (LTX again), a segment run asked after a ComfyUI job still goes first: it takes seconds.
     await ok(h, { kind: "create", spec: ltxSpec(), origin: "desktop" });

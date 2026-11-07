@@ -5,14 +5,15 @@
 //
 // draft.py renders into a `draft-*` temp dir beside itself and only removes it when it exits
 // normally, so after a cancelled or failed run the runner deletes the `draft-*` dirs that appeared
-// while it ran (the raw clip would otherwise stay on disk). draft.py holds the GPU lock while that
-// dir exists, so no other run's dir can appear meanwhile.
+// while it ran (the raw clip would otherwise stay on disk). The service holds the machine-wide GPU lock for the
+// whole run, so no other run's dir can appear meanwhile.
 
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import type { StudioBackend } from "@relay/protocol";
 import { BACKEND_BASE } from "./backends";
+import type { LtxMemory } from "./ltx-memory";
 import type { StudioRunInput, StudioRunner, StudioRunOutput } from "./runner";
 
 /** How long a cancelled job's processes get to exit on SIGTERM before SIGKILL. */
@@ -123,6 +124,7 @@ export class LtxRunner implements StudioRunner {
   constructor(
     private readonly dir: string,
     private readonly graceMs = LTX_KILL_GRACE_MS,
+    private readonly memory?: LtxMemory,
   ) {
     this.python = join(dir, ".venv", "bin", "python");
     this.script = join(dir, "draft.py");
@@ -142,12 +144,16 @@ export class LtxRunner implements StudioRunner {
     const before = new Set(this.draftDirs());
     let finished = false;
     try {
+      // The service holds the machine-wide GPU lock here: nothing else is on the GPU, so the unload is safe.
+      await this.memory?.prepare();
       await runProcessGroup(ltxArgv(this.python, this.script, input, out), {
         cwd: this.dir,
-        env: { ...process.env, PATH: `${PATH_PREFIX}:${process.env["PATH"] ?? "/usr/bin:/bin"}` },
+        // draft.py takes `$EVA_GPU_LOCK` itself, and the service already holds the real one for this run (flock would
+        // block the child behind its own host forever): point it at a private file in the job's dir.
+        env: { ...process.env, EVA_GPU_LOCK: join(input.workDir, "draft-gpu.lock"), PATH: `${PATH_PREFIX}:${process.env["PATH"] ?? "/usr/bin:/bin"}` },
         signal: input.signal,
         graceMs: this.graceMs,
-        // draft.py's machine-wide GPU lock: it says when it has to wait and when it got the GPU.
+        // draft.py's own lock (a private file, see env) is free, so these lines only appear if that ever changes.
         onLine: (line) => {
           if (line.startsWith("[draft] waiting for GPU")) input.blocked(true);
           else if (line.startsWith("[draft] GPU lock acquired")) input.blocked(false);
@@ -155,6 +161,7 @@ export class LtxRunner implements StudioRunner {
       });
       finished = true;
     } finally {
+      await this.memory?.restore();
       if (!finished)
         for (const name of this.draftDirs()) if (!before.has(name)) rmSync(join(this.dir, name), { recursive: true, force: true });
     }
