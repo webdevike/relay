@@ -75,15 +75,24 @@ export function clockLine(at: number): string {
   return `The time is now ${when}.`;
 }
 
-/** The voice's prompt: who it speaks for, and that the assistant behind it does the thinking. */
+/** Short lines the voice may say while the assistant's answer is still pending, all first person. */
+export const WAIT_FILLERS = ["Checking on that.", "Give me a sec.", "One moment.", "Let me look.", "Still looking."] as const;
+
+/** A filler other than `last`, so two in a row never match; `n` picks among the rest. */
+export function pickFiller(last: string | null, n: number): string {
+  const pool = WAIT_FILLERS.filter((line) => line !== last);
+  return pool[Math.abs(Math.trunc(n)) % pool.length] ?? WAIT_FILLERS[0];
+}
+
+/** The voice's prompt: it IS the assistant, speaking in first person; the assistant's thinking happens behind it. */
 export function liveInstructions(title: string): string {
   const who = human();
   return [
-    `You are the voice of ${title}, ${who}'s personal assistant, on a live call he started from his iPhone. You speak for ${title}; never call yourself a voice model or mention a backend.`,
-    `${title} herself works behind you: she knows ${who}, his projects, his notes and memory, his calendar, email and files, and can look things up on the web and take actions. You only have a short background brief and cannot see or do anything. You are told the current time as the call goes on: answer what time, day or date it is yourself from the latest time you were told.`,
+    `You are ${title}, ${who}'s personal assistant, on a live call he started from his iPhone. Speak as ${title} in the first person ("I", "me", "my"). Never refer to ${title} in the third person, and never say "she", "he", "her", "the assistant" or "${title} is..." about yourself. Never call yourself a voice model or mention a backend, a delegate or a second system.`,
+    `You know ${who}, his projects, his notes and memory, his calendar, email and files, and you can look things up on the web and take actions, but only by checking first: you have just a short background brief and cannot see or do anything directly. You are told the current time as the call goes on: answer what time, day or date it is yourself from the latest time you were told.`,
     "Handle greetings, small talk, 'hold on', questions about what he meant, and quick general-knowledge facts you are sure of (a definition, a unit conversion, simple math) yourself.",
-    `Delegate everything else: anything about ${who}, his work, plans, messages, files or memory, the status of anything in the brief, anything current or on the web, and any action. When you delegate, say only a very short acknowledgement like "Checking." and then wait quietly; if ${who} asks, say ${title} is still on it. Never guess or make up an answer.`,
-    `When the result arrives, say it naturally and briefly in your own words, keeping names and numbers exact. Be warm, relaxed and brief: one or two short sentences a turn. If ${who} talks over you, stop and listen.`,
+    `Delegate everything else: anything about ${who}, his work, plans, messages, files or memory, the status of anything in the brief, anything current or on the web, and any action. While you wait, stay quiet unless the wait gets long; then say one short first-person line such as ${WAIT_FILLERS.map((line) => `"${line}"`).join(", ")}. Vary them and never say the same line twice in a row. Never say "she's still on it" or "${title} is working on it"; say "I'm still on it" if ${who} asks. Never guess or make up an answer.`,
+    `When the result arrives, say it directly in your own words, first person, keeping names and numbers exact. Start with the answer itself, never with a filler like "Okay" or "One moment". Be warm, relaxed and brief: one or two short sentences a turn. If ${who} talks over you, stop and listen.`,
   ].join("\n\n");
 }
 
@@ -141,6 +150,8 @@ export class LiveCall {
   private closing: (() => void) | null = null;
   private cancelTick: (() => void) | null = null;
   private lastClock = "";
+  private lastFiller: string | null = null;
+  private fillerCount = 0;
 
   constructor(private readonly deps: LiveCallDeps) {
     this.id = deps.callId;
@@ -208,7 +219,10 @@ export class LiveCall {
       if (this.ended || sideband === null) return;
       const now = this.deps.clock.now();
       if (this.awaiting && this.delegation !== null) {
-        sideband.send({ type: "session.thinking.append", event_id: `${this.id}-progress-${String(now)}`, delegation_id: this.delegation, content: `${this.deps.thread.title} is still working on it (${String(Math.round((now - this.turnAt) / 1000))} s so far). Background note; only mention it if Isaac asks.` });
+        const filler = pickFiller(this.lastFiller, this.fillerCount);
+        this.fillerCount += 1;
+        this.lastFiller = filler;
+        sideband.send({ type: "session.thinking.append", event_id: `${this.id}-progress-${String(now)}`, delegation_id: this.delegation, content: `I have been checking for ${String(Math.round((now - this.turnAt) / 1000))} s so far. Background note, in my own first person. If Isaac is waiting in silence you may say "${filler}"; otherwise say nothing about it. Never prefix the real answer with it.` });
       }
       this.tick();
     });

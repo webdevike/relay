@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentSession, ServerMessage } from "@relay/protocol";
 import { voiceNote } from "../src/assistant/voice";
 import { estimatedTokens, headline, liveBrief, memoryBrief, recentTurns } from "../src/live/brief";
-import { clockLine, CLOSE_WAIT_MS, LiveCall, TICK_MS, TRANSCRIPT_WAIT_MS, type LiveThread } from "../src/live/call";
+import { clockLine, CLOSE_WAIT_MS, liveInstructions, LiveCall, pickFiller, TICK_MS, TRANSCRIPT_WAIT_MS, WAIT_FILLERS, type LiveThread } from "../src/live/call";
 import { openAiKey, sessionBody, type LiveApi, type LiveEvent, type LiveSessionConfig, type SidebandEvents } from "../src/live/openai";
 import { LiveService } from "../src/live/service";
 import type { FrameSink } from "../src/seams";
@@ -124,7 +124,7 @@ describe("live call", () => {
     const h = await started();
     expect(h.api.offer).toBe("v=0 offer");
     expect(h.api.config?.voice).toBe("marin");
-    expect(h.api.config?.instructions).toContain("voice of Nova");
+    expect(h.api.config?.instructions).toContain("You are Nova");
     expect(h.api.config?.input.map((message) => message.role)).toEqual(["developer", "user", "assistant", "developer", "developer"]);
     expect(h.api.config?.input[0]?.text).toContain("- 2026-10-29 Dentist moved to Thursday.");
     expect(h.sent).toEqual([
@@ -223,9 +223,35 @@ describe("live call", () => {
     heard(h.api, [" Plan", " my", " week"]);
     h.api.emit({ type: "session.delegation.created", offset_ms: 600, delegation: { id: "item_1", type: "delegation", target: "client" } });
     await settle();
+    h.thread.status = "working";
+    h.call.observe({ kind: "sessions" });
     h.clock.advance(TICK_MS);
     const thinking = h.api.sent.filter((event) => event["type"] === "session.thinking.append");
-    expect(thinking).toContainEqual(expect.objectContaining({ delegation_id: "item_1", content: "Nova is still working on it (20 s so far). Background note; only mention it if Isaac asks." }));
+    expect(thinking).toContainEqual(expect.objectContaining({ delegation_id: "item_1", content: expect.stringContaining("I have been checking for 20 s so far.") }));
+    const content = (thinking[0] as { content: string }).content;
+    expect(content).not.toMatch(/Nova is|\bshe\b/i);
+    const first = WAIT_FILLERS.find((line) => content.includes(`"${line}"`));
+    expect(first).toBeDefined();
+    h.clock.advance(TICK_MS);
+    const second = (h.api.sent.filter((event) => event["type"] === "session.thinking.append").at(-1) as { content: string }).content;
+    expect(second).not.toContain(`"${first ?? ""}"`);
+  });
+
+  it("speaks as the assistant in first person and never narrates her in third", () => {
+    const text = liveInstructions("Nova");
+    expect(text).toContain("You are Nova");
+    expect(text).toContain("first person");
+    expect(text).not.toMatch(/herself|she knows|speak for Nova|Nova is still on it(?!")/);
+  });
+
+  it("never picks the same wait filler twice in a row", () => {
+    let last: string | null = null;
+    for (let n = 0; n < 40; n += 1) {
+      const next = pickFiller(last, n);
+      expect(next).not.toBe(last);
+      expect(WAIT_FILLERS).toContain(next);
+      last = next;
+    }
   });
 
   it("gives the voice the time when Isaac starts talking in a new minute, not while he is mid-sentence", async () => {
