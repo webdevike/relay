@@ -4,6 +4,7 @@
 import { useMemo } from 'react'
 import {
   STUDIO_UNSORTED,
+  studioFamily,
   studioItems,
   studioLineage,
   type StudioAnswer,
@@ -93,9 +94,33 @@ async function send(
   return a
 }
 
-/** Trash images (hidden now, restorable for ten minutes), with Undo. */
-export async function trashAssets(ids: string[]): Promise<void> {
+/**
+ * Deletes images with everything made from them (an original takes every version, a version its own
+ * edits), after one confirm that says how many images go. Hidden at once, restorable for ten minutes
+ * (Undo), then the host deletes every copy. `after` runs once Isaac confirms.
+ */
+export function trashAssets(ids: string[], after?: () => void): void {
   if (ids.length === 0) return
+  const lineage = studioLineage(studioItems(studioStore.getState().view.jobs))
+  const family = studioFamily(ids, lineage)
+  const extra = family.length - ids.length
+  openModal({
+    kind: 'confirm',
+    title: `Delete ${plural(family.length, 'image')}?`,
+    body:
+      extra > 0
+        ? `That is ${plural(ids.length, 'image')} and the ${plural(extra, 'edit')} made from ${ids.length === 1 ? 'it' : 'them'}. You can undo for ten minutes; then the files are deleted.`
+        : 'You can undo for ten minutes; then the files are deleted.',
+    cta: 'Delete',
+    danger: true,
+    onConfirm: () => {
+      after?.()
+      void trashNow(family)
+    },
+  })
+}
+
+async function trashNow(ids: string[]): Promise<void> {
   dropFromSelection(ids)
   const a = await send({ kind: 'trash', assets: ids }, "Couldn't delete")
   if (!a.ok) return

@@ -11,7 +11,7 @@ vi.mock('../ipc', () => ({
 
 import { placeOf } from '@evaos/shell-core'
 import { StudioPage } from './StudioPage'
-import { resetLocalForTests } from './library/local'
+import { localStore, resetLocalForTests } from './library/local'
 import { requestStudioOpen, studioStore } from './studio-store'
 import { BACKENDS, DONE_JOB } from './studio-test-data'
 
@@ -133,10 +133,17 @@ describe('StudioPage', () => {
     fireEvent.click(second!, { metaKey: true })
     expect(screen.getByTestId('studio-bulk-count').textContent).toBe('2 selected')
     fireEvent.click(within(screen.getByTestId('studio-bulk')).getByText('Delete'))
-    await waitFor(() => expect(ops).toContainEqual({ kind: 'trash', assets: ['a3', 'a1'] }))
+    // One confirm that says how many images go; nothing is sent before it.
+    const modal = localStore.getState().modal
+    expect(modal).toMatchObject({ kind: 'confirm', title: 'Delete 3 images?' })
+    expect(ops.filter((op) => op.kind === 'trash')).toEqual([])
+    act(() => {
+      if (modal?.kind === 'confirm') modal.onConfirm()
+    })
+    await waitFor(() => expect(ops).toContainEqual({ kind: 'trash', assets: ['a3', 'a1', 'a2'] }))
     expect(screen.queryByTestId('studio-bulk')).toBeNull()
     fireEvent.click(await screen.findByRole('button', { name: 'Undo' }))
-    await waitFor(() => expect(ops).toContainEqual({ kind: 'restore', assets: ['a3', 'a1'] }))
+    await waitFor(() => expect(ops).toContainEqual({ kind: 'restore', assets: ['a3', 'a1', 'a2'] }))
   })
 
   it('selects all with Cmd+A and clears with the bar', async () => {

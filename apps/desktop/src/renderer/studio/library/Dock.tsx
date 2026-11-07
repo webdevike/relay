@@ -57,7 +57,7 @@ function BulkBar({ order }: { order: readonly string[] }) {
       <button type="button" className="sl-quiet" onClick={() => void downloadAssets(selected)}>
         <IconDownload size={16} /> <span>Download</span>
       </button>
-      <button type="button" className="sl-quiet danger" onClick={() => void trashAssets(selected)}>
+      <button type="button" className="sl-quiet danger" onClick={() => trashAssets(selected)}>
         <IconTrash size={16} /> <span>Delete</span>
       </button>
       <button

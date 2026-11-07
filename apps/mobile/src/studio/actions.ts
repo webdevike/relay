@@ -6,10 +6,11 @@
  * an Undo survives closing the editor.
  */
 import { create } from "zustand";
-import { STUDIO_UNSORTED, type StudioOp, type StudioProject } from "@relay/protocol";
+import { STUDIO_UNSORTED, studioFamily, type StudioOp, type StudioProject } from "@relay/protocol";
 import { requestStudio, studioRequest } from "@/connection";
 import { useStudioStore } from "@/state/studio";
-import { imageCount, projectName } from "./library";
+import { confirmDelete } from "./confirm";
+import { imageCount, libraryOf, projectName } from "./library";
 
 /** How long a toast with Undo stays up. */
 export const UNDO_TOAST_MS = 6000;
@@ -79,6 +80,19 @@ export async function trashAssets(ids: readonly string[]): Promise<void> {
     },
   });
   await send({ kind: "trash", assets: kept }, "Your Mac did not delete them.");
+}
+
+/**
+ * Deletes images with everything made from them (an original takes all its versions, a version its
+ * own edits), after one confirm that says how many images go. False when Isaac backs out; otherwise
+ * it is the same trash, with its Undo toast, as `trashAssets`.
+ */
+export async function deleteImages(ids: readonly string[]): Promise<boolean> {
+  const family = studioFamily(ids, libraryOf(useStudioStore.getState().jobs).lineage);
+  if (family.length === 0) return false;
+  if (!(await confirmDelete(family.length, ids.length))) return false;
+  await trashAssets(family);
+  return true;
 }
 
 /** Move to a project (STUDIO_UNSORTED for none), with an Undo toast that moves each back where it was. */

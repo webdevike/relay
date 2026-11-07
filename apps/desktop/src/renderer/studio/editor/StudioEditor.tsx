@@ -12,6 +12,7 @@ import {
   IconSwitchHorizontal,
 } from '@tabler/icons-react'
 import {
+  studioFamily,
   studioJobActive,
   studioRootOf,
   studioVersions,
@@ -237,10 +238,18 @@ export function StudioEditor({ assetId, onClose }: { assetId: string; onClose: (
           }),
     )
   const remove = (): void => {
-    const next = versions[vi + 1] ?? versions[vi - 1]
-    if (next) selectVersion(next.asset.id)
-    else onClose()
-    void trashAssets([cur.asset.id])
+    // The version goes with the edits made from it; the original takes the whole image.
+    const gone = studioFamily([cur.asset.id], lib.lineage)
+    const next =
+      versions.slice(vi + 1).find((v) => !gone.includes(v.asset.id)) ??
+      versions
+        .slice(0, vi)
+        .reverse()
+        .find((v) => !gone.includes(v.asset.id))
+    trashAssets([cur.asset.id], () => {
+      if (next) selectVersion(next.asset.id)
+      else onClose()
+    })
   }
   const compare = before !== undefined && !isVideo && before.asset.kind === 'image'
 

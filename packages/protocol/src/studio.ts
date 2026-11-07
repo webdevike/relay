@@ -564,3 +564,19 @@ export function studioVersions(rootId: string, lineage: StudioLineage): StudioIt
 export function studioDescendantCount(id: string, lineage: StudioLineage): number {
   return studioVersions(id, lineage).length - 1;
 }
+
+/**
+ * What deleting images removes: each one and every version made from it (its edits, their edits, and
+ * so on), once each, in the order met. Deleting only the image would leave its versions as orphan originals.
+ */
+export function studioFamily(ids: readonly string[], lineage: StudioLineage): string[] {
+  const out = new Set<string>();
+  for (const id of ids) {
+    if (!lineage.byId.has(id)) {
+      out.add(id);
+      continue;
+    }
+    for (const item of studioVersions(id, lineage)) out.add(item.asset.id);
+  }
+  return [...out];
+}

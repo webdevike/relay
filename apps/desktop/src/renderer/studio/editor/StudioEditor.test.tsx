@@ -18,6 +18,7 @@ vi.mock('../../ipc', () => ({
 import { dismissTop } from '../../hotkeys/dismiss'
 import { applyStudioChange, studioStore } from '../studio-store'
 import { StudioEditor } from './StudioEditor'
+import { localStore } from '../library/local'
 
 const each = (id: string) =>
   (['1:1', '16:9', '9:16'] as const).map((aspect) => ({ id, label: id, aspect }))
@@ -296,12 +297,30 @@ describe('StudioEditor', () => {
     expect(within(strip).getAllByTestId('studio-ed-version')).toHaveLength(3)
   })
 
-  it('delete trashes the version and steps to a neighbour', async () => {
+  it('delete confirms, then trashes the version and steps to a neighbour', async () => {
     const onClose = editor('child')
     fireEvent.click(screen.getByTestId('studio-ed-delete'))
+    const modal = localStore.getState().modal
+    expect(modal).toMatchObject({ kind: 'confirm', title: 'Delete 1 image?' })
+    expect(ops.filter((op) => op.kind === 'trash')).toEqual([])
+    act(() => {
+      if (modal?.kind === 'confirm') modal.onConfirm()
+    })
     expect(media().dataset.id).toBe('root')
     await waitFor(() => expect(ops).toContainEqual({ kind: 'trash', assets: ['child'] }))
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('deleting the original takes every version made from it and leaves the editor', async () => {
+    const onClose = editor('root')
+    fireEvent.click(screen.getByTestId('studio-ed-delete'))
+    const modal = localStore.getState().modal
+    expect(modal).toMatchObject({ kind: 'confirm', title: 'Delete 2 images?' })
+    act(() => {
+      if (modal?.kind === 'confirm') modal.onConfirm()
+    })
+    await waitFor(() => expect(ops).toContainEqual({ kind: 'trash', assets: ['root', 'child'] }))
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('Escape goes back to the grid', () => {

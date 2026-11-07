@@ -90,7 +90,7 @@ export function StudioPage(_props: { place: Place }) {
         setSelected([...order.current])
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && s.selected.length > 0) {
         e.preventDefault()
-        void trashAssets(s.selected)
+        trashAssets(s.selected)
       } else if (
         (e.key === 'f' || e.key === 'F') &&
         s.selected.length > 0 &&

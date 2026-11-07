@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STUDIO_UNSORTED, studioItems, type StudioOp, type StudioResult } from "@relay/protocol";
 import { useStudioStore } from "@/state/studio";
-import { favoriteAssets, moveAssets, trashAssets, useStudioToast } from "./actions";
+import { deleteImages, favoriteAssets, moveAssets, trashAssets, useStudioToast } from "./actions";
 import { EMPTY_CREATE } from "./create";
 import { job, project } from "./fixtures";
 import { ALL_VIEW } from "./library";
@@ -9,6 +9,9 @@ import { ALL_VIEW } from "./library";
 const sent: StudioOp[] = [];
 let answer: StudioResult = { rid: "r", ok: true };
 const requestStudio = vi.fn();
+const confirmDelete = vi.fn<(total: number, selected: number) => Promise<boolean>>();
+
+vi.mock("./confirm", () => ({ confirmDelete: (total: number, selected: number) => confirmDelete(total, selected) }));
 
 vi.mock("@/connection", () => ({
   studioRequest: (op: StudioOp) => {
@@ -91,5 +94,48 @@ describe("moveAssets with Undo", () => {
   it("does nothing when they are already there", async () => {
     await moveAssets(["bo"], "p");
     expect(sent).toEqual([]);
+  });
+});
+
+describe("deleteImages", () => {
+  const family = () => {
+    // a <- a2 <- a3 (edits of edits), b alone.
+    useStudioStore.setState({
+      jobs: [
+        job("a3", 5, { parent: { asset: "a2o", how: "edit" } }),
+        job("a2", 4, { parent: { asset: "ao", how: "edit" } }),
+        job("b", 3),
+        job("a", 1),
+      ],
+    });
+  };
+
+  it("takes the original and every version made from it, after one confirm that counts them all", async () => {
+    family();
+    confirmDelete.mockResolvedValue(true);
+    expect(await deleteImages(["ao"])).toBe(true);
+    expect(confirmDelete).toHaveBeenCalledWith(3, 1);
+    expect(sent).toEqual([{ kind: "trash", assets: ["ao", "a2o", "a3o"] }]);
+    expect(live()).toEqual(["bo"]);
+  });
+
+  it("a version takes only its own edits; two selected originals are counted together", async () => {
+    family();
+    confirmDelete.mockResolvedValue(true);
+    await deleteImages(["a2o"]);
+    expect(sent).toEqual([{ kind: "trash", assets: ["a2o", "a3o"] }]);
+    sent.length = 0;
+    family();
+    await deleteImages(["ao", "bo"]);
+    expect(confirmDelete).toHaveBeenLastCalledWith(4, 2);
+    expect(sent).toEqual([{ kind: "trash", assets: ["ao", "a2o", "a3o", "bo"] }]);
+  });
+
+  it("sends nothing when Isaac cancels", async () => {
+    family();
+    confirmDelete.mockResolvedValue(false);
+    expect(await deleteImages(["ao"])).toBe(false);
+    expect(sent).toEqual([]);
+    expect(live()).toContain("ao");
   });
 });

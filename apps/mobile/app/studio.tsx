@@ -20,7 +20,7 @@ import { ProgressTile } from "@/ui/ProgressTile";
 import { Screen } from "@/ui/Screen";
 import { Text } from "@/ui/Text";
 import { ToolbarButton } from "@/ui/ToolbarButton";
-import { cancelJob, favoriteAssets, moveAssets, trashAssets } from "@/studio/actions";
+import { cancelJob, deleteImages, favoriteAssets, moveAssets } from "@/studio/actions";
 import { assetLength, saveAssets, useHostBase } from "@/studio/assets";
 import { CreateBar } from "@/studio/CreateBar";
 import { favoriteValue, gridItems, imageCount, keepVisible, libraryOf, liveView, pendingJobs, queueSummary, switcherRows, toggleSelected, viewName } from "@/studio/library";
@@ -254,9 +254,9 @@ export default function Studio() {
                 label="Delete"
                 disabled={selected.length === 0}
                 onPress={() => {
-                  const ids = selected;
-                  endSelect();
-                  void trashAssets(ids);
+                  void deleteImages(selected).then((deleted) => {
+                    if (deleted) endSelect();
+                  });
                 }}
               />
             </View>

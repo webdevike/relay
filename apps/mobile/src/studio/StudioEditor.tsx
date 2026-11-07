@@ -11,7 +11,7 @@ import { Image, Keyboard, KeyboardAvoidingView, Modal, Pressable, ScrollView, St
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useVideoPlayer, VideoView } from "expo-video";
-import { studioJobActive, studioRootOf, studioVersions, type StudioItem, type StudioJob } from "@relay/protocol";
+import { studioFamily, studioJobActive, studioRootOf, studioVersions, type StudioItem, type StudioJob } from "@relay/protocol";
 import { studioRequest } from "@/connection";
 import { useStudioStore } from "@/state/studio";
 import { spacing } from "@/theme";
@@ -28,6 +28,7 @@ import { cancelJob, favoriteAssets, moveAssets, toast, trashAssets } from "./act
 import { saveAssets, useHostBase } from "./assets";
 import { libraryOf } from "./library";
 import { chooseFrom, pickProject } from "./pickers";
+import { chooseDeleteScope, confirmDelete } from "./confirm";
 import { createEntries, EMPTY_CREATE, videoSettings } from "./create";
 import { defaultEngine, EDIT_ENGINES, EDIT_SUGGESTIONS, editRecipe, engineProblem, presetRecipe, toolPresets, videoRecipe, type EditEngineId, type EditRecipe } from "./recipes";
 import { ToastHost } from "./ToastHost";
@@ -244,11 +245,23 @@ function Editor({ initial, onClose }: { initial: string; onClose: () => void }) 
     await submit(videoRecipe(entry, item, prompt, backends, { seconds, end }));
   };
 
-  const remove = () => {
-    const next = versions[index + 1] ?? versions[index - 1];
+  /** Deletes this version with the edits made from it, or (from the original, or by choice) the whole image with every version. */
+  const remove = async () => {
+    const all = versions.map((v) => v.asset.id);
+    const mine = studioFamily([item.asset.id], library.lineage);
+    let ids = all;
+    if (mine.length < all.length) {
+      const scope = await chooseDeleteScope(mine.length, all.length);
+      if (scope === null) return;
+      if (scope === "version") ids = mine;
+    } else if (!(await confirmDelete(all.length, all.length))) return;
+    const next = versions.slice(index + 1).find((v) => !ids.includes(v.asset.id)) ?? versions.slice(0, index).reverse().find((v) => !ids.includes(v.asset.id));
     if (next === undefined) onClose();
-    else setCurrent(next.asset.id);
-    void trashAssets([item.asset.id]);
+    else {
+      setViewing(null);
+      setCurrent(next.asset.id);
+    }
+    void trashAssets(ids);
   };
 
   return (
@@ -383,7 +396,9 @@ function Editor({ initial, onClose }: { initial: string; onClose: () => void }) 
             }}
           />
         )}
-        <ToolbarButton symbol="trash" label="Delete" tone="overlay" onPress={remove} />
+        <ToolbarButton symbol="trash" label="Delete" tone="overlay" onPress={() => {
+            void remove();
+          }} />
       </View>
       )}
 
