@@ -63,6 +63,7 @@ import { warn } from "@/connection/log";
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
 import { photoOfImage } from "@/lib/clipboard";
+import { answerText, stripAnswerContext } from "@evaos/chat-core/answer-context";
 import { userImageUrls } from "@evaos/chat-core/image-urls";
 import { MarkdownImages } from "@/agents/MarkdownImages";
 import { PasteImageChip } from "@/ui/PasteImageChip";
@@ -434,9 +435,13 @@ function Thread({ agent }: { agent: string }) {
     }, RING_DELAY_MS);
   };
 
-  /** An answer tapped on an inline ask card: a thread ask goes out as Isaac's turn too; a session ask's answer only to the host, which hands it to the asking session. */
+  /**
+   * An answer tapped on an inline ask card: a thread ask goes out as Isaac's turn too (tagged with its
+   * question unless the card is the newest row); a session ask's answer only to the host, which hands
+   * it to the asking session.
+   */
   const answerCard = (ask: OpenAsk, reply: string): void => {
-    if (ask.source !== "session") sendTurn(reply, [], false);
+    if (ask.source !== "session") sendTurn(answerText(reply, ask.question, newestFirst[0]?.id !== askRowId(ask)), [], false);
     resolveAsk(ask, "answered", reply);
   };
 
@@ -524,9 +529,9 @@ function Thread({ agent }: { agent: string }) {
                             waiting={waitingIds.has(item.id)}
                             pulse={rung.id === item.id ? rung.n : 0}
                             onReply={(reply) => {
-                              sendTurn(reply, [], false);
-                              // The chips' row is an open ask too: answered, so its badge goes with it.
+                              // The chips' row is an open ask too: answered, so its badge goes with it. An older bubble's answer carries its question.
                               const ask = openAsks?.find((entry) => entry.messageId === item.id);
+                              sendTurn(ask === undefined ? reply : answerText(reply, ask.question, item !== newestSettled), [], false);
                               if (ask !== undefined) resolveAsk(ask, "answered", reply);
                             }}
                             onOpenImages={(uris, start) => {
@@ -837,7 +842,7 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
   switch (message.role) {
     case "user": {
       // A direct image link Isaac typed shows as a picture above the bubble, like an attached photo.
-      const linked = userImageUrls(message.text);
+      const linked = userImageUrls(stripAnswerContext(message.text));
       const bubbleText = linked.rest;
       const showText = bubbleText !== "" || (imageCount === 0 && linked.urls.length === 0);
       return (

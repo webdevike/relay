@@ -17,6 +17,7 @@ import { BubbleActions } from './reactions/BubbleActions'
 import { CanvasRow } from './CanvasRow'
 import { BackgroundRow } from './BackgroundRow'
 import { parseBackground } from '@evaos/chat-core/background'
+import { stripAnswerContext } from '@evaos/chat-core/answer-context'
 import { ReplyChips } from './ReplyChips'
 import { resolveAsk } from './asks/asks-store'
 import type { OpenAsk } from '@evaos/contract'
@@ -131,7 +132,9 @@ function AssistantBody({
       {(live || waiting !== undefined) && !m.streaming && split.replies ? (
         <ReplyChips
           replies={split.replies}
-          {...(waiting !== undefined && agent !== undefined ? { ask: waiting, agent } : {})}
+          {...(waiting !== undefined && agent !== undefined
+            ? { ask: waiting, agent, older: !live }
+            : {})}
         />
       ) : null}
     </>
@@ -160,7 +163,7 @@ function MessageRowImpl({
     body = <BackgroundRow m={background} at={m.at} />
   } else if (m.role === 'user') {
     // A direct image link he typed shows as a picture, not a link.
-    const linked = userImageUrls(m.text)
+    const linked = userImageUrls(stripAnswerContext(m.text))
     const text = linked.rest.trim() !== ''
     const pictures = linked.urls.map((src) => <MarkdownMedia key={src} src={src} alt="" />)
     // Tapbacks go on the text bubble, or on the images of an image-only prompt.
