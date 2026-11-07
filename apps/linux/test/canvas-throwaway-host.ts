@@ -73,6 +73,7 @@ const canvas = new CanvasService({
   pacing: { frameMs: 0, typeMs: 0 },
 });
 const refuse = (): Promise<void> => Promise.reject(new Error("no input on the throwaway host"));
+const hostToken = "a".repeat(64);
 const server = new RelayServer(
   { port: 0, hostName: "throwaway", version: "e2e", vncPort: 1 },
   {
@@ -105,14 +106,14 @@ const server = new RelayServer(
     files: null,
     meetings: null,
     control: null,
-    hostToken: "throwaway",
+    hostToken,
     canvasPage: () => CANVAS_PAGE,
     pairing: new TerminalPairingUI(),
     log,
   },
 );
 const port = server.start();
-writeFileSync(join(relayDir, "serve.json"), JSON.stringify({ port, pid: process.pid }));
+writeFileSync(join(relayDir, "serve.json"), JSON.stringify({ port, pid: process.pid, controlToken: hostToken }));
 log(`READY ${String(port)}`);
 process.on("SIGTERM", () => {
   canvas.stop();
