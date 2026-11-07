@@ -670,3 +670,33 @@ describe("studio store", () => {
     ).toMatchObject({ width: 1088, height: 1920 });
   });
 });
+
+describe("studio work dirs", () => {
+  it("creates the job's own dir right before the backend runs, even if work/ vanished while it waited for the GPU", async () => {
+    const h = harness();
+    h.lock.holdElsewhere();
+    const ref = await upload(h.service);
+    await create(h.service, imageSpec({ backend: "kontext", aspect: "1:1", resolution: "1024x1024", refs: [ref.id] }));
+    await flush();
+    expect(h.runners.kontext.runs).toHaveLength(0);
+    rmSync(join(h.dir, "work"), { recursive: true, force: true });
+    h.lock.freeElsewhere();
+    await flush();
+    const run = h.runners.kontext.runs[0];
+    if (run === undefined) throw new Error("the job never reached its backend");
+    expect(existsSync(run.input.workDir)).toBe(true);
+    run.succeed();
+    await flush();
+    expect(existsSync(join(h.dir, "work"))).toBe(true);
+  });
+
+  it("opening a second store on the dir keeps work/ and a running job's dir, and clears old leftovers", () => {
+    const dir = freshDir();
+    const store = new StudioStore(dir, { now: () => 0, media: fakeMedia() });
+    const live = store.workDir("live");
+    writeFileSync(join(live, "out.mp4"), "x");
+    new StudioStore(dir, { now: () => 0, media: fakeMedia() });
+    expect(existsSync(join(dir, "work"))).toBe(true);
+    expect(existsSync(live)).toBe(false);
+  });
+});

@@ -11,7 +11,7 @@
 // Index versions: 1 had no projects, references or segments (every job is then Unsorted); 2 adds them.
 
 import { randomBytes, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -112,7 +112,8 @@ export class StudioStore {
     private readonly options: StudioStoreOptions,
   ) {
     this.index = this.load();
-    rmSync(join(dir, "work"), { recursive: true, force: true });
+    // Leftovers of a crashed run go; the shared parent stays so a live job's dir is never pulled from under it.
+    for (const entry of readdirSafe(join(dir, "work"))) rmSync(join(dir, "work", entry), { recursive: true, force: true });
     this.persist();
   }
 
@@ -424,9 +425,14 @@ export class StudioStore {
     this.persist();
   }
 
-  /** An empty scratch dir inside the studio dir (so outputs move in with a rename). */
+  /** Where `workDir(name)` puts the scratch dir; creates nothing. */
+  workPath(name: string): string {
+    return join(this.dir, "work", name);
+  }
+
+  /** An empty scratch dir inside the studio dir (so outputs move in with a rename); creates `work/` too. */
   workDir(name: string): string {
-    const dir = join(this.dir, "work", name);
+    const dir = this.workPath(name);
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     return dir;
@@ -509,4 +515,12 @@ function removeFiles(dir: string, files: AssetFiles): void {
   rmSync(join(dir, files.file), { force: true });
   if (files.thumb !== undefined) rmSync(join(dir, files.thumb), { force: true });
   for (const copy of files.copies ?? []) rmSync(copy, { force: true });
+}
+
+function readdirSafe(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
 }

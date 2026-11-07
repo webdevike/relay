@@ -626,7 +626,7 @@ export class StudioService implements StudioRelaying {
         ),
         refs: (spec.refs ?? []).map((id) => this.assetPath(id)),
         ...(mask === undefined ? {} : { mask }),
-        workDir: this.store.workDir(job.id),
+        workDir: this.store.workPath(job.id),
         signal: slot.controller.signal,
         note: (text) => {
           const current = this.store.job(job.id);
@@ -653,6 +653,8 @@ export class StudioService implements StudioRelaying {
         : null;
       let output: StudioRunOutput;
       try {
+        // Created only now: the GPU wait above can last minutes, and the dir must exist when the backend writes.
+        this.store.workDir(job.id);
         output = await this.deps.runners[spec.backend].run(input);
       } finally {
         await release?.();
@@ -731,7 +733,7 @@ export class StudioService implements StudioRelaying {
     try {
       const found = this.store.asset(asset);
       if (found === undefined) throw new Error("The image is gone");
-      const workDir = this.store.workDir(key);
+      const workDir = this.store.workPath(key);
       const release = await this.deps.gpuLock.acquire({
         holder: gpuLockHolder("sam segments"),
         signal: slot.controller.signal,
@@ -739,6 +741,7 @@ export class StudioService implements StudioRelaying {
       });
       let files: readonly SegmentFile[];
       try {
+        this.store.workDir(key);
         files = await this.deps.segmenter.segment(found.path, workDir, slot.controller.signal);
       } finally {
         await release();
