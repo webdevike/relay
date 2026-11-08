@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ServerMessage } from "@relay/protocol";
-import { REACTION_NOTE_DELAY_MS, ReactionService, reactionNote, type ReactionFeedback } from "../src/reactions/service";
+import { REACTION_NOTE_DELAY_MS, REPLY_COOLDOWN_MS, REPLY_DEBOUNCE_MS, ReactionService, reactionNote, replyReactionsFromEnv, type ReactionFeedback } from "../src/reactions/service";
 import type { SessionClock } from "../src/session";
 
 class FakeClock implements SessionClock {
@@ -37,12 +37,14 @@ async function flush(): Promise<void> {
   for (let tick = 0; tick < 5; tick += 1) await Promise.resolve();
 }
 
-function setup(options: { sessions?: Record<string, string>; takes?: (sessionId: string) => boolean } = {}) {
+function setup(options: { sessions?: Record<string, string>; takes?: (sessionId: string) => boolean; replies?: Record<string, string> } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "relay-reactions-"));
   dirs.push(dir);
   const clock = new FakeClock();
   const sent: ServerMessage[] = [];
   const notes: [string, string][] = [];
+  const turns: [string, string][] = [];
+  const state = { busy: false, failTurn: false };
   const sessions: Record<string, string> = { ...options.sessions };
   const logged: string[] = [];
   const make = (): ReactionService =>
@@ -57,8 +59,21 @@ function setup(options: { sessions?: Record<string, string>; takes?: (sessionId:
       },
       clock,
       log: (line) => logged.push(line),
+      ...(options.replies === undefined
+        ? {}
+        : {
+            reply: {
+              emojis: options.replies,
+              busy: () => state.busy,
+              turn: (thread: string, text: string) => {
+                if (state.failTurn) return Promise.reject(new Error("launch failed"));
+                turns.push([thread, text]);
+                return Promise.resolve();
+              },
+            },
+          }),
     });
-  return { dir, clock, sent, notes, sessions, logged, make, service: make() };
+  return { dir, clock, sent, notes, turns, state, sessions, logged, make, service: make() };
 }
 
 describe("reactionNote", () => {
@@ -75,6 +90,125 @@ describe("reactionNote", () => {
       "(Reactions are quiet feedback from Isaac: take them into account, no need to answer them.)",
     ]);
     expect(reactionNote({ "user@1": { emoji: "👍", excerpt: "a" } }, { "user@1": { emoji: "👍", excerpt: "a", at: 2 } })).toBe("");
+  });
+});
+
+describe("replyReactionsFromEnv", () => {
+  it("defaults to ❓ only, takes a list, and ignores emojis with no instruction", () => {
+    expect(Object.keys(replyReactionsFromEnv(undefined))).toEqual(["❓"]);
+    expect(Object.keys(replyReactionsFromEnv("❓, 👎,🔥"))).toEqual(["❓", "👎"]);
+    expect(replyReactionsFromEnv("")).toEqual({});
+  });
+});
+
+describe("reply-worthy reactions", () => {
+  const replies = replyReactionsFromEnv(undefined);
+  const THREAD = "assistant:nova";
+  const QUIET_NOTE_TAIL = "(Reactions are quiet feedback";
+
+  it("starts a turn for ❓ on an assistant bubble, once, and not also as a quiet note", async () => {
+    const { service, clock, turns, notes } = setup({ sessions: { [THREAD]: "nova-1" }, replies });
+    service.set(THREAD, "assistant@5", "❓", "A long answer");
+    expect(turns).toEqual([]);
+    clock.advance(REPLY_DEBOUNCE_MS);
+    await flush();
+    expect(turns).toEqual([[THREAD, '[Isaac reacted ❓ to your message: "A long answer"] He is confused by it: re-explain it shorter and simpler.']]);
+    clock.advance(REACTION_NOTE_DELAY_MS);
+    await flush();
+    expect(notes).toEqual([]);
+  });
+
+  it("keeps 👍 quiet, and ❓ on his own bubble or in a session thread", async () => {
+    const { service, clock, turns, notes } = setup({ sessions: { [THREAD]: "nova-1", "session:s1": "s1" }, replies });
+    service.set(THREAD, "assistant@5", "👍", "ok");
+    service.set(THREAD, "user@6", "❓", "mine");
+    service.set("session:s1", "assistant@7", "❓", "x");
+    clock.advance(REACTION_NOTE_DELAY_MS);
+    await flush();
+    expect(turns).toEqual([]);
+    expect(notes).toHaveLength(2);
+  });
+
+  it("is not live for 👎 until it is in the set", () => {
+    const { service, clock, turns } = setup({ replies });
+    service.set(THREAD, "assistant@5", "👎", "meh");
+    clock.advance(REPLY_DEBOUNCE_MS);
+    expect(turns).toEqual([]);
+    const on = setup({ replies: replyReactionsFromEnv("❓,👎") });
+    on.service.set(THREAD, "assistant@5", "👎", "meh");
+    on.clock.advance(REPLY_DEBOUNCE_MS);
+    expect(on.turns).toHaveLength(1);
+  });
+
+  it("does not fire when the reaction is taken back inside the debounce, and fires once after a toggle", async () => {
+    const { service, clock, turns } = setup({ replies });
+    service.set(THREAD, "assistant@5", "❓", "a");
+    clock.advance(REPLY_DEBOUNCE_MS - 1);
+    service.clear(THREAD, "assistant@5");
+    clock.advance(REPLY_DEBOUNCE_MS);
+    await flush();
+    expect(turns).toEqual([]);
+    service.set(THREAD, "assistant@5", "❓", "a");
+    service.clear(THREAD, "assistant@5");
+    service.set(THREAD, "assistant@5", "❓", "a");
+    clock.advance(REPLY_DEBOUNCE_MS);
+    await flush();
+    expect(turns).toHaveLength(1);
+  });
+
+  it("does not fire again for the same emoji on the same bubble soon after, but does later or for another bubble", async () => {
+    const { service, clock, turns } = setup({ replies });
+    service.set(THREAD, "assistant@5", "❓", "a");
+    clock.advance(REPLY_DEBOUNCE_MS);
+    await flush();
+    service.clear(THREAD, "assistant@5");
+    service.set(THREAD, "assistant@5", "❓", "a");
+    clock.advance(REPLY_DEBOUNCE_MS);
+    await flush();
+    expect(turns).toHaveLength(1);
+    service.set(THREAD, "assistant@9", "❓", "b");
+    clock.advance(REPLY_DEBOUNCE_MS);
+    await flush();
+    expect(turns).toHaveLength(2);
+    service.clear(THREAD, "assistant@5");
+    clock.advance(REPLY_COOLDOWN_MS);
+    service.set(THREAD, "assistant@5", "❓", "a");
+    clock.advance(REPLY_DEBOUNCE_MS);
+    await flush();
+    expect(turns).toHaveLength(3);
+  });
+
+  it("waits out a turn in progress, then starts its own, without a quiet note in between", async () => {
+    const { service, clock, turns, notes, state } = setup({ sessions: { [THREAD]: "nova-1" }, replies });
+    state.busy = true;
+    service.set(THREAD, "assistant@5", "❓", "a");
+    clock.advance(REACTION_NOTE_DELAY_MS);
+    service.observe({ kind: "sessions" });
+    await flush();
+    expect(turns).toEqual([]);
+    expect(notes).toEqual([]);
+    state.busy = false;
+    service.observe({ kind: "sessions" });
+    await flush();
+    expect(turns).toHaveLength(1);
+    service.observe({ kind: "sessions" });
+    await flush();
+    expect(turns).toHaveLength(1);
+    expect(notes).toEqual([]);
+  });
+
+  it("falls back to a quiet note when the turn cannot start", async () => {
+    const { service, clock, turns, notes, state } = setup({ sessions: { [THREAD]: "nova-1" }, replies });
+    state.failTurn = true;
+    service.set(THREAD, "assistant@5", "❓", "a");
+    clock.advance(REPLY_DEBOUNCE_MS);
+    await flush();
+    clock.advance(REACTION_NOTE_DELAY_MS);
+    await flush();
+    expect(turns).toEqual([]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.[1]).toContain("[Isaac reacted ❓ to your message");
+    expect(notes[0]?.[1]).toContain(QUIET_NOTE_TAIL);
   });
 });
 

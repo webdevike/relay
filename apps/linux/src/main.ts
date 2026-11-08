@@ -77,7 +77,7 @@ import {
   defaultCatchUpNotesPath,
   defaultCatchUpStatePath,
 } from "./catchup/service";
-import { defaultReactionsPath, reactionFeedbackPath, ReactionService } from "./reactions/service";
+import { defaultReactionsPath, reactionFeedbackPath, ReactionService, replyReactionsFromEnv } from "./reactions/service";
 import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { ActivityService } from "./activity/service";
@@ -595,6 +595,15 @@ function serve(
     note: (sessionId, text) => agents.note(sessionId, text),
     clock: systemClock,
     log,
+    reply: {
+      emojis: replyReactionsFromEnv(),
+      busy: (thread) => assistant?.thread(thread.slice("assistant:".length))?.current()?.status === "working",
+      turn: async (thread, text) => {
+        const target = assistant?.thread(thread.slice("assistant:".length));
+        if (target === undefined) throw new Error(`no assistant thread ${thread}`);
+        await target.turn(text);
+      },
+    },
   });
   const bookmarks = new BookmarkService({
     path: defaultBookmarksPath(),

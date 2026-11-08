@@ -259,7 +259,7 @@ other) and a bubble (`<user|assistant>@<omp timestamp ms>`, the same on every cl
 device the thread's `reactions.snapshot { thread, reactions }` on each change; `reactions.get { thread }`
 answers the asking device.
 
-Reactions never start a turn. Three seconds after the last change in a thread, the session running it
+Most reactions never start a turn. Three seconds after the last change in a thread, the session running it
 (the assistant's live session, or the session itself) gets a quiet note through the bridge (`note { text }`,
 which the extension hands to `pi.sendMessage` with `deliverAs: "nextTurn"`: in context from the next turn
 on, never displayed): one line per changed bubble, e.g. `[Isaac reacted 👍 to your message: "<first 80
@@ -267,6 +267,11 @@ chars>"]`, or `[Isaac removed his 👍 reaction from ...]`. With no live session
 predates notes (it answers without `true`), the changes wait for the next session that takes them. A 👎 or
 ❓ on an assistant's reply in its own thread is also appended as `{ at, agent, reaction, signal, message:
 { at, excerpt } }` to `<agent home>/work/eva/agents/<id>/reactions.jsonl`.
+Exception: a reply-worthy reaction (`RELAY_REPLY_REACTIONS`, comma-separated, default `❓`; `👎` is supported but off) on an
+assistant's own reply starts a turn through the thread (`[Isaac reacted ❓ to your message: "..."] He is confused by it:
+re-explain it shorter and simpler.`) after a 1.5 s debounce (taking it back inside that cancels; the same emoji on the same
+bubble stays quiet for a minute after it fired). A session mid-turn finishes first. That reaction is not also sent as a quiet
+note, unless the turn cannot start.
 
 Assistants react to Isaac's bubbles in their own thread with `relay-linux react <emoji> [--agent <id>]
 [--message latest|<key>]` or `react --clear` (agent from `$RELAY_ASSISTANT`, `latest` = Isaac's newest

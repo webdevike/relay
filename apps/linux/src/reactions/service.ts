@@ -6,11 +6,17 @@
 // goes out to every device as the thread's `reactions.snapshot`. An assistant's reaction is only
 // shown: no note, no feedback, no push.
 //
-// Reactions never start a turn. A few seconds after the last change in a thread, the agent running
+// Most reactions never start a turn. A few seconds after the last change in a thread, the agent running
 // it gets a quiet note through the omp bridge (`pi.sendMessage` with `deliverAs: "nextTurn"`: in its
 // context from its next turn on, never shown, never a turn of its own), one line per bubble whose
 // reaction changed since the last note it took. While no session runs the thread, or its omp
 // predates notes, the changes wait and go out with the first session that takes them.
+//
+// Exception: a reply-worthy reaction (`REPLY_INSTRUCTIONS`, chosen by `RELAY_REPLY_REACTIONS`, default
+// ❓ only) on an assistant's reply in its own thread starts a turn right away, once the reaction has
+// stayed REPLY_DEBOUNCE_MS (a toggle off and on, or a change of emoji, never double-fires). If the
+// thread's session is mid-turn the turn waits for it to go idle. That reaction is then not also sent as a
+// quiet note.
 //
 // A 👎 or ❓ on an assistant's reply in its own thread is also feedback: one JSON line in
 // `<agentHome>/work/eva/agents/<id>/reactions.jsonl`, next to the Catch Up notes, for the agent to learn from.
@@ -27,6 +33,43 @@ import type { SessionClock } from "../session";
 export const REACTION_NOTE_DELAY_MS = 3000;
 /** Characters of a bubble's excerpt the agent's note quotes. */
 export const NOTE_QUOTE_CHARS = 80;
+
+function replyId(thread: string, key: string): string {
+  return `${thread}\n${key}`;
+}
+
+/** How long a reply-worthy reaction must stand before it starts a turn, so toggling it does not fire twice. */
+export const REPLY_DEBOUNCE_MS = 1500;
+/** How long after a reply-worthy reaction started a turn the same emoji on the same bubble stays quiet. */
+export const REPLY_COOLDOWN_MS = 60_000;
+
+/**
+ * What a turn started by a reaction tells the agent to do, by emoji. Only the emojis `RELAY_REPLY_REACTIONS`
+ * names are live (default `❓`); 👎 is here but off until it is listed.
+ */
+export const REPLY_INSTRUCTIONS: Readonly<Record<string, string>> = {
+  "❓": "He is confused by it: re-explain it shorter and simpler.",
+  "👎": "He did not like it: say what you would change, briefly.",
+};
+
+/** The reply-worthy reactions from `RELAY_REPLY_REACTIONS` (comma-separated emojis; unset = `❓`; empty = none). */
+export function replyReactionsFromEnv(value: string | undefined = process.env["RELAY_REPLY_REACTIONS"]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const emoji of (value ?? "❓").split(",").map((item) => item.trim())) {
+    const instruction = REPLY_INSTRUCTIONS[emoji];
+    if (instruction !== undefined) out[emoji] = instruction;
+  }
+  return out;
+}
+
+/** The turn text for a reply-worthy reaction. */
+export function reactionTurn(emoji: string, excerpt: string, instruction: string): string {
+  return `[Isaac reacted ${emoji} to your message: "${quoteOf(excerpt)}"] ${instruction}`;
+}
+
+function quoteOf(excerpt: string): string {
+  return excerpt.length > NOTE_QUOTE_CHARS ? `${excerpt.slice(0, NOTE_QUOTE_CHARS)}…` : excerpt;
+}
 
 const Told = z.object({ emoji: z.string(), excerpt: z.string() });
 type Told = z.infer<typeof Told>;
@@ -73,7 +116,7 @@ export function reactionNote(told: Readonly<Record<string, Told>>, now: Readonly
     const excerpt = after?.excerpt ?? before?.excerpt;
     if (before?.emoji === after?.emoji || excerpt === undefined) continue;
     const whose = reactionRole(key) === "assistant" ? "your message" : "his own message";
-    const quoted = excerpt.length > NOTE_QUOTE_CHARS ? `${excerpt.slice(0, NOTE_QUOTE_CHARS)}…` : excerpt;
+    const quoted = quoteOf(excerpt);
     lines.push(
       after === undefined
         ? `[Isaac removed his ${before?.emoji ?? ""} reaction from ${whose}: "${quoted}"]`
@@ -102,6 +145,15 @@ export interface ReactionServiceDeps {
   readonly note: (sessionId: string, text: string) => Promise<boolean>;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
+  /** Reply-worthy reactions start a turn; absent: every reaction stays a quiet note. */
+  readonly reply?: {
+    /** Reactions that start a turn, with what each tells the agent to do. */
+    readonly emojis: Readonly<Record<string, string>>;
+    /** Whether the thread's session is mid-turn right now. */
+    readonly busy: (thread: string) => boolean;
+    /** Delivers `text` as Isaac's next turn in `thread`, starting its agent when it is not running. */
+    readonly turn: (thread: string, text: string) => Promise<void>;
+  };
 }
 
 /** What a phone session, the server and the agent endpoint need of the reactions. */
@@ -123,6 +175,10 @@ export class ReactionService implements ReactionRelaying {
   private readonly sending = new Set<string>();
   /** The session that last turned a thread's note down; it is not asked again. */
   private readonly refused = new Map<string, string>();
+  /** Reply-worthy reactions not yet turned into a turn, by thread and bubble: debouncing, or waiting for an idle session. */
+  private readonly replies = new Map<string, { thread: string; key: string; emoji: string; excerpt: string; cancel: (() => void) | null }>();
+  /** When each thread and bubble last started a turn, and for which emoji. */
+  private readonly replied = new Map<string, { emoji: string; at: number }>();
 
   constructor(private readonly deps: ReactionServiceDeps) {
     this.state = this.load();
@@ -135,12 +191,14 @@ export class ReactionService implements ReactionRelaying {
   set(thread: string, key: string, emoji: string, excerpt: string, by: string = ISAAC_REACTOR): boolean {
     const reactions = this.snapshot(thread);
     if (reactions[key]?.[by]?.emoji === emoji) return false;
+    if (by === ISAAC_REACTOR) this.cancelReply(thread, key);
     this.state.threads = { ...this.state.threads, [thread]: { ...reactions, [key]: { ...reactions[key], [by]: { emoji, excerpt, at: this.deps.clock.now() } } } };
     this.changed(thread, by === ISAAC_REACTOR);
     this.deps.log(`reactions: ${by} ${emoji} on ${thread} ${key}`);
     if (by === ISAAC_REACTOR && FEEDBACK_REACTIONS.includes(emoji) && reactionRole(key) === "assistant" && thread.startsWith("assistant:")) {
       this.feedback(thread.slice("assistant:".length), key, emoji, excerpt);
     }
+    if (by === ISAAC_REACTOR && reactionRole(key) === "assistant" && thread.startsWith("assistant:")) this.scheduleReply(thread, key, emoji, excerpt);
     return true;
   }
 
@@ -154,6 +212,7 @@ export class ReactionService implements ReactionRelaying {
       Object.keys(rest).length === 0
         ? Object.fromEntries(Object.entries(this.state.threads).filter(([other]) => other !== thread))
         : { ...this.state.threads, [thread]: rest };
+    if (by === ISAAC_REACTOR) this.cancelReply(thread, key);
     this.changed(thread, by === ISAAC_REACTOR);
     this.deps.log(`reactions: ${by} cleared ${thread} ${key}`);
     return true;
@@ -161,6 +220,7 @@ export class ReactionService implements ReactionRelaying {
 
   observe(change: AgentProviderChange): void {
     if (change.kind !== "sessions") return;
+    for (const entry of [...this.replies.values()]) if (entry.cancel === null) this.fireReply(entry);
     for (const thread of this.unheard()) {
       if (this.timers.has(thread)) continue;
       const session = this.deps.session(thread);
@@ -173,7 +233,7 @@ export class ReactionService implements ReactionRelaying {
     const out: Record<string, Reaction> = {};
     for (const [key, bubble] of Object.entries(this.snapshot(thread))) {
       const reaction = bubble[ISAAC_REACTOR];
-      if (reaction !== undefined) out[key] = reaction;
+      if (reaction !== undefined && !this.replies.has(replyId(thread, key))) out[key] = reaction;
     }
     return out;
   }
@@ -197,13 +257,64 @@ export class ReactionService implements ReactionRelaying {
   /** Threads whose reactions changed since their agent's last note. */
   private unheard(): string[] {
     const threads = new Set([...Object.keys(this.state.threads), ...Object.keys(this.state.told)]);
-    return [...threads].filter((thread) => reactionNote(this.state.told[thread] ?? {}, this.isaacs(thread)) !== "");
+    return [...threads].filter((thread) => reactionNote(this.toldOf(thread), this.isaacs(thread)) !== "");
+  }
+
+  /** What `thread`'s agent last heard, less the bubbles whose reaction is about to be a turn instead. */
+  private toldOf(thread: string): Record<string, Told> {
+    return Object.fromEntries(Object.entries(this.state.told[thread] ?? {}).filter(([key]) => !this.replies.has(replyId(thread, key))));
+  }
+
+  private cancelReply(thread: string, key: string): void {
+    const id = replyId(thread, key);
+    this.replies.get(id)?.cancel?.();
+    this.replies.delete(id);
+  }
+
+  private scheduleReply(thread: string, key: string, emoji: string, excerpt: string): void {
+    const reply = this.deps.reply;
+    if (reply?.emojis[emoji] === undefined) return;
+    const before = this.replied.get(replyId(thread, key));
+    if (before?.emoji === emoji && this.deps.clock.now() - before.at < REPLY_COOLDOWN_MS) return;
+    const id = replyId(thread, key);
+    const entry = { thread, key, emoji, excerpt, cancel: null as (() => void) | null };
+    entry.cancel = this.deps.clock.after(REPLY_DEBOUNCE_MS, () => {
+      entry.cancel = null;
+      this.fireReply(entry);
+    });
+    this.replies.set(id, entry);
+  }
+
+  private fireReply(entry: { thread: string; key: string; emoji: string; excerpt: string }): void {
+    const reply = this.deps.reply;
+    const id = replyId(entry.thread, entry.key);
+    const instruction = reply?.emojis[entry.emoji];
+    if (reply === undefined || instruction === undefined || this.replies.get(id) !== entry) return;
+    // Mid-turn: stay queued; `observe` fires it once the session is idle.
+    if (reply.busy(entry.thread)) return;
+    this.replied.set(id, { emoji: entry.emoji, at: this.deps.clock.now() });
+    void reply
+      .turn(entry.thread, reactionTurn(entry.emoji, entry.excerpt, instruction))
+      .then(
+        () => {
+          this.replies.delete(id);
+          this.state.told = { ...this.state.told, [entry.thread]: { ...this.state.told[entry.thread], [entry.key]: { emoji: entry.emoji, excerpt: entry.excerpt } } };
+          this.save();
+          this.deps.log(`reactions: ${entry.emoji} on ${entry.thread} ${entry.key} started a turn`);
+        },
+        (error: unknown) => {
+          this.replies.delete(id);
+          this.replied.delete(id);
+          this.deps.log(`reactions: turn for ${entry.emoji} on ${entry.thread} failed: ${error instanceof Error ? error.message : String(error)}; it goes as a quiet note`);
+          if (!this.timers.has(entry.thread)) this.deliver(entry.thread);
+        },
+      );
   }
 
   private deliver(thread: string): void {
     if (this.sending.has(thread)) return;
     const now = this.isaacs(thread);
-    const text = reactionNote(this.state.told[thread] ?? {}, now);
+    const text = reactionNote(this.toldOf(thread), now);
     if (text === "") return;
     const session = this.deps.session(thread);
     if (session === null) {
