@@ -1172,6 +1172,49 @@ export const ThreadBookmarks = z.array(ReactionKey).max(MAX_BOOKMARKS);
 export type ThreadBookmarks = z.infer<typeof ThreadBookmarks>;
 
 // ---------------------------------------------------------------------------------------------
+// Render failures: a chat bubble's media (a markdown image/video/audio, an OpenUI Image, Gallery,
+// Compare, Video, Audio or Model) that failed to load or render on a device. Agents can't see the
+// client, so Relay desktop and the phone report each failure once per bubble and src
+// (`render.failed`); the host logs it to `render-failures.jsonl` and tells the owning agent in a
+// quiet background line so it reposts the media in a working form. Only sent to a host whose
+// `welcome.features` has RENDER_REPORT_FEATURE.
+// ---------------------------------------------------------------------------------------------
+
+export const RENDER_REPORT_FEATURE = "render.report";
+
+/** What failed: the media kind of the element that errored. */
+export const RenderKind = z.enum(["image", "video", "audio", "model", "gallery", "compare"]);
+export type RenderKind = z.infer<typeof RenderKind>;
+
+/** How the agent embedded it: markdown `![..](..)`, an ```openui block, or a legacy ```ui block. */
+export const RenderForm = z.enum(["markdown", "openui", "ui"]);
+export type RenderForm = z.infer<typeof RenderForm>;
+
+export const RenderSurface = z.enum(["desktop", "phone"]);
+export type RenderSurface = z.infer<typeof RenderSurface>;
+
+/** Longest src and error a report carries; longer ones are cut by the client. */
+export const MAX_RENDER_SRC = 2048;
+export const MAX_RENDER_ERROR = 300;
+
+/** One render failure as a client reports it (the `render.failed` frame minus `t`). */
+export const RenderFailure = z.object({
+  thread: ReactionThread,
+  message: ReactionKey,
+  kind: RenderKind,
+  form: RenderForm,
+  src: z.string().min(1).max(MAX_RENDER_SRC),
+  error: z.string().max(MAX_RENDER_ERROR),
+  surface: RenderSurface,
+});
+export type RenderFailure = z.infer<typeof RenderFailure>;
+
+/** A report's text fields cut to the frame's limits. */
+export function renderFailure(failure: RenderFailure): RenderFailure {
+  return { ...failure, src: failure.src.slice(0, MAX_RENDER_SRC), error: failure.error.slice(0, MAX_RENDER_ERROR) };
+}
+
+// ---------------------------------------------------------------------------------------------
 // Boards: live dashboards. A board is a titled grid of widget tiles the host stores as JSON and
 // streams to subscribed clients. One global `rev` covers every board; each successful write bumps
 // it by one and sends the full changed board (or its removal) as a `board.delta`.
@@ -1646,6 +1689,12 @@ export const ClientMessage = z.discriminatedUnion("t", [
   }),
   /** Take back the reaction on bubble `message` of `thread`; unknown ones re-send the snapshot unchanged. */
   z.object({ t: z.literal("reaction.clear"), thread: ReactionThread, message: ReactionKey }),
+  /**
+   * Bubble `message` of `thread` failed to show media `src` on this device (see RenderFailure).
+   * Fire and forget; clients send each message+src once. Only sent to a host whose
+   * `welcome.features` has RENDER_REPORT_FEATURE.
+   */
+  RenderFailure.extend({ t: z.literal("render.failed") }),
   /** Ask for a thread's artifacts; every device gets its `artifacts.snapshot` (Relay desktop refreshes stale states from it). */
   z.object({ t: z.literal("artifacts.get"), thread: ArtifactThread }),
   /** Ask for the activity list; every device gets its `activity.snapshot` (the host also pushes one after every change). */
