@@ -3,6 +3,7 @@ import { Badge, Stack, Text } from '@mantine/core'
 import type { ModelSpec } from '@evaos/chat-core/widget'
 import { mediaUrl } from '../media-url'
 import { WidgetTitle } from './parts'
+import { useRenderFailure } from '../render-report'
 
 const ASPECT = 4 / 3
 
@@ -16,6 +17,10 @@ export function ModelWidget({ spec }: { spec: ModelSpec }) {
   const host = useRef<HTMLDivElement>(null)
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const autoRotate = spec.autoRotate === true
+  // The latest reporter, so a bubble's context changing never reloads the model.
+  const reportFailure = useRenderFailure()
+  const report = useRef(reportFailure)
+  report.current = reportFailure
 
   useEffect(() => {
     const el = host.current
@@ -29,11 +34,16 @@ export function ModelWidget({ spec }: { spec: ModelSpec }) {
         dispose = mountModel(el, mediaUrl(spec.src), {
           autoRotate,
           onLoad: () => setState({ kind: 'ready' }),
-          onError: (message) => setState({ kind: 'error', message }),
+          onError: (message, detail) => {
+            setState({ kind: 'error', message })
+            report.current('model', spec.src, detail ? `${message}: ${detail}` : message)
+          },
         })
       })
-      .catch(() => {
-        if (live) setState({ kind: 'error', message: "Couldn't load model" })
+      .catch((err: unknown) => {
+        if (!live) return
+        setState({ kind: 'error', message: "Couldn't load model" })
+        report.current('model', spec.src, `3D viewer failed to load: ${String(err)}`)
       })
     return () => {
       live = false

@@ -473,6 +473,44 @@ describe('RelayClient', () => {
     client.stop()
   })
 
+  it('reports a render failure only to a host with "render.report", cut to its limits', async () => {
+    const { client, relay } = connected()
+    const failure = {
+      thread: 'session:a',
+      message: 'assistant@2',
+      kind: 'model',
+      form: 'markdown',
+      src: '/drops/d1/' + 't'.repeat(3000),
+      error: 'x'.repeat(400),
+    }
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
+    expect(client.reportRender(failure)).toBe(false)
+    expect(relay.frames().filter((f) => f.t === 'render.failed')).toEqual([])
+    relay.handlers.at(-1)!.closed(CLOSED)
+    await vi.advanceTimersByTimeAsync(3000)
+
+    relay.say({
+      t: 'welcome',
+      state: { agents: { rev: 1, sessions: [] } },
+      features: ['render.report'],
+    })
+    expect(client.reportRender(failure)).toBe(true)
+    const frame = relay.frames().at(-1)!
+    expect(frame).toMatchObject({
+      t: 'render.failed',
+      thread: 'session:a',
+      message: 'assistant@2',
+      kind: 'model',
+      form: 'markdown',
+      surface: 'desktop',
+    })
+    expect((frame.src as string).length).toBe(2048)
+    expect((frame.error as string).length).toBe(300)
+    client.stop()
+  })
+
   it('asks for watched threads on every connection, keeps their snapshots and sends reactions', async () => {
     const { client, relay, changes } = connected()
     const heard = vi.fn()

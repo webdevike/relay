@@ -4,6 +4,8 @@ import { MantineProvider } from '@mantine/core'
 import { mediaUrl } from '../widgets/media-url'
 import { Markdown } from './Markdown'
 import { clearMediaProbes, urlIsVideo } from './MarkdownMedia'
+import { RenderMessage, clearRenderReports } from '../widgets/render-report'
+import { invoke } from '../../ipc'
 import { collectMessageImages } from './collect-images'
 import { dismissTop } from '../../hotkeys/dismiss'
 
@@ -23,6 +25,9 @@ const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
 
 beforeEach(() => {
   clearMediaProbes()
+  clearRenderReports()
+  vi.mocked(invoke).mockReset()
+  vi.mocked(invoke).mockResolvedValue({ ok: true, value: { sent: true } })
   served = {}
   fetchMock.mockClear()
   vi.stubGlobal('fetch', fetchMock)
@@ -143,6 +148,82 @@ describe('markdown media: image or inline video', () => {
       'src',
       mediaUrl('https://cdn.example.com/a.png'),
     )
+  })
+})
+
+describe('markdown media: render failures reach the agent', () => {
+  const AT = { thread: 'assistant:astra', message: 'assistant@7' }
+  const inBubble = (text: string) => (
+    <MantineProvider>
+      <RenderMessage.Provider value={AT}>
+        <Markdown text={text} />
+      </RenderMessage.Provider>
+    </MantineProvider>
+  )
+  const reports = () => vi.mocked(invoke).mock.calls.filter(([c]) => c === 'render.failed')
+
+  it('draws a GLB drop as a file card, never an <img>, and reports it once as a model', async () => {
+    served = { '/drops/glb/tok': 'model/gltf-binary' }
+    const { rerender } = render(inBubble('![Robot](/drops/glb/tok)'))
+    const card = await screen.findByTestId('md-file')
+    expect(card).toHaveTextContent('Robot')
+    expect(card).toHaveTextContent("Can't show this inline")
+    expect(screen.queryByAltText('Robot')).toBeNull()
+    rerender(inBubble('![Robot](/drops/glb/tok)\n\nmore'))
+    await waitFor(() => expect(reports()).toHaveLength(1))
+    expect(reports()[0]![1]).toEqual({
+      ...AT,
+      kind: 'model',
+      form: 'markdown',
+      src: '/drops/glb/tok',
+      error: 'served model/gltf-binary: 3D models only render in an openui Model block',
+    })
+  })
+
+  it('reports a non-media drop as an image markdown cannot show', async () => {
+    served = { '/drops/pdf/tok': 'application/pdf' }
+    render(inBubble('![Doc](/drops/pdf/tok)'))
+    await screen.findByTestId('md-file')
+    await waitFor(() => expect(reports()).toHaveLength(1))
+    expect(reports()[0]![1]).toMatchObject({
+      kind: 'image',
+      error: "served application/pdf: markdown can't show it",
+    })
+  })
+
+  it('reports a failed probe with its HTTP status', async () => {
+    served = { '/drops/gone/tok': 404 }
+    render(inBubble('![Gone](/drops/gone/tok)'))
+    await screen.findByAltText('Gone')
+    await waitFor(() => expect(reports()).toHaveLength(1))
+    expect(reports()[0]![1]).toMatchObject({ kind: 'image', error: 'HTTP 404' })
+  })
+
+  it('reports a broken image once, however often it re-renders', async () => {
+    const { rerender } = render(inBubble('![Pic](https://x.com/a.png)'))
+    fireEvent.error(screen.getByAltText('Pic'))
+    expect(screen.getByTestId('md-image-error')).toHaveTextContent('Image failed to load')
+    rerender(inBubble('![Pic](https://x.com/a.png) again'))
+    expect(reports()).toEqual([
+      [
+        'render.failed',
+        {
+          ...AT,
+          kind: 'image',
+          form: 'markdown',
+          src: 'https://x.com/a.png',
+          error: 'image failed to load',
+        },
+      ],
+    ])
+  })
+
+  it('reports nothing outside a chat bubble', async () => {
+    served = { '/drops/glb2/tok': 'model/gltf-binary' }
+    show('![Robot](/drops/glb2/tok)\n\n![Pic](https://x.com/b.png)')
+    await screen.findByTestId('md-file')
+    fireEvent.error(screen.getByAltText('Pic'))
+    expect(reports()).toEqual([])
   })
 })
 

@@ -3,6 +3,7 @@ import { Stack, Text } from '@mantine/core'
 import type { VideoSpec } from '@evaos/chat-core/widget'
 import { mediaUrl } from '../media-url'
 import { WidgetTitle } from './parts'
+import { mediaErrorText, useRenderFailure } from '../render-report'
 
 /** Until the metadata says otherwise. */
 const DEFAULT_ASPECT = 16 / 9
@@ -11,6 +12,7 @@ const DEFAULT_ASPECT = 16 / 9
 export function VideoWidget({ spec }: { spec: VideoSpec }) {
   const [aspect, setAspect] = useState(DEFAULT_ASPECT)
   const [failed, setFailed] = useState(false)
+  const report = useRenderFailure()
   return (
     <Stack gap="sm" data-testid="widget-video">
       {spec.title !== undefined ? <WidgetTitle>{spec.title}</WidgetTitle> : null}
@@ -32,7 +34,10 @@ export function VideoWidget({ spec }: { spec: VideoSpec }) {
               const { videoWidth: w, videoHeight: h } = e.currentTarget
               if (w > 0 && h > 0) setAspect(w / h)
             }}
-            onError={() => setFailed(true)}
+            onError={(e) => {
+              setFailed(true)
+              report('video', spec.src, mediaErrorText('video', e.currentTarget))
+            }}
           />
         )}
       </div>

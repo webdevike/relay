@@ -45,6 +45,8 @@ import {
   ACTIVITY_GET_FRAME,
   reactionsGetFrame,
   bookmarkFrame,
+  renderFailedFrame,
+  type RenderFailureReport,
   bookmarksGetFrame,
   subscribeFrame,
   studioReqFrame,
@@ -80,6 +82,8 @@ export const NO_QUERIES = "This Relay Host doesn't run live widget queries; upda
 const QUERY_FEATURE = 'query'
 /** `welcome.features` entry of a host that keeps turn bookmarks. */
 const BOOKMARKS_FEATURE = 'bookmarks'
+/** `welcome.features` entry of a host that takes `render.failed` reports. */
+export const RENDER_REPORT_FEATURE = 'render.report'
 
 export interface RelaySocket {
   send(text: string): void
@@ -199,6 +203,12 @@ export interface RelayReactions {
   bookmarks(thread: string): string[] | null
   /** Bookmarks (`on`) or unbookmarks a turn; false when nothing could be sent. */
   bookmark(thread: string, message: string, on: boolean): boolean
+}
+
+/** Media render failures, told to the host so the owning agent can repost a working form. */
+export interface RelayRender {
+  /** Sends `failure` when the host takes "render.report"; false (dropped) otherwise. */
+  reportRender(failure: RenderFailureReport): boolean
 }
 
 /** A thread's artifacts and tab bar, as the host's latest `artifacts.snapshot` has them. */
@@ -374,7 +384,8 @@ export class RelayClient
     RelayFeatures,
     RelayStudio,
     RelayQueries,
-    RelayHostInfo
+    RelayHostInfo,
+    RelayRender
 {
   private readonly dial: Dial
   private readonly secret: (configDir: string) => Uint8Array
@@ -607,6 +618,12 @@ export class RelayClient
   bookmark(thread: string, message: string, on: boolean): boolean {
     if (!this.bookmarksUp()) return false
     this.send(bookmarkFrame(thread, message, on))
+    return true
+  }
+
+  reportRender(failure: RenderFailureReport): boolean {
+    if (!this.hostHas(RENDER_REPORT_FEATURE)) return false
+    this.send(renderFailedFrame(failure))
     return true
   }
 
@@ -1101,7 +1118,8 @@ export class StaticRelay
     RelayFeatures,
     RelayStudio,
     RelayQueries,
-    RelayHostInfo
+    RelayHostInfo,
+    RelayRender
 {
   private list: ReadonlyMap<string, RelaySession> | null = null
   private readonly listeners = new Set<() => void>()
@@ -1238,6 +1256,10 @@ export class StaticRelay
   }
 
   bookmark(): boolean {
+    return false
+  }
+
+  reportRender(): boolean {
     return false
   }
 

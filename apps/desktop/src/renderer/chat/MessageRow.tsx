@@ -1,5 +1,5 @@
 import './asks/asks.css'
-import { memo, useMemo, useState } from 'react'
+import { memo, useContext, useMemo, useState } from 'react'
 import { ActionIcon } from '@mantine/core'
 import { IconX } from '@tabler/icons-react'
 import type { ChatMessage } from '@evaos/chat-core/message'
@@ -12,6 +12,9 @@ import { Markdown } from './markdown/Markdown'
 import { MarkdownMedia } from './markdown/MarkdownMedia'
 import { userImageUrls } from '@evaos/chat-core/image-urls'
 import { WidgetScope } from './widgets/actions'
+import { RenderMessage, type RenderMessageValue } from './widgets/render-report'
+import { ReactionScope } from './reactions/reactions-store'
+import { reactionKeyOf } from '@evaos/chat-core/reactions'
 import { ToolBlock, ToolGroup } from './ToolRows'
 import { BubbleActions } from './reactions/BubbleActions'
 import { CanvasRow } from './CanvasRow'
@@ -104,11 +107,20 @@ function AssistantBody({
     () => (split.text === m.text ? m : { ...m, text: split.text }),
     [m, split.text],
   )
+  // Media failures in this bubble go to its agent; keyed like reactions so every device agrees.
+  const thread = useContext(ReactionScope)?.thread ?? null
+  const key = reactionKeyOf(m)
+  const renderAt = useMemo<RenderMessageValue | null>(
+    () => (thread === null || key === null ? null : { thread, message: key }),
+    [thread, key],
+  )
   return (
     <>
       <BubbleActions m={shown} corner="end">
         <WidgetScope.Provider value={m.id}>
-          <Markdown text={split.text} />
+          <RenderMessage.Provider value={renderAt}>
+            <Markdown text={split.text} />
+          </RenderMessage.Provider>
         </WidgetScope.Provider>
       </BubbleActions>
       {waiting !== undefined ? (

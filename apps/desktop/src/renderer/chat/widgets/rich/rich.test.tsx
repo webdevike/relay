@@ -27,6 +27,7 @@ import { RecipeWidget, ingredientGroups } from './RecipeWidget'
 import { StatWidget } from './StatWidget'
 import { TicketsWidget, stateTone } from './TicketsWidget'
 import { VideoWidget } from './VideoWidget'
+import { RenderFormScope, RenderMessage, clearRenderReports } from '../render-report'
 
 vi.mock('../../../navigation/open-link', () => ({ openLink: vi.fn() }))
 
@@ -48,6 +49,7 @@ beforeEach(() => {
     },
   })
   localStorage.clear()
+  clearRenderReports()
 })
 
 describe('ChartWidget', () => {
@@ -343,6 +345,39 @@ describe('ModelWidget', () => {
     })
     show(<ModelWidget spec={{ widget: 'model', src: '/drops/m/n' }} />)
     expect(await screen.findByText("Couldn't load model")).toBeInTheDocument()
+  })
+
+  it('tells the agent when it fails in an openui block of a chat bubble, with the loader reason', async () => {
+    scene.mountModel.mockImplementation((_host, _url, options) => {
+      options.onError("Couldn't load model", 'Unexpected token')
+      return () => {}
+    })
+    show(
+      <RenderMessage.Provider value={{ thread: 'session:s1', message: 'assistant@3' }}>
+        <RenderFormScope.Provider value="openui">
+          <ModelWidget spec={{ widget: 'model', src: '/drops/m/n' }} />
+        </RenderFormScope.Provider>
+      </RenderMessage.Provider>,
+    )
+    await screen.findByText("Couldn't load model")
+    expect(window.eva.invoke).toHaveBeenCalledWith('render.failed', {
+      thread: 'session:s1',
+      message: 'assistant@3',
+      kind: 'model',
+      form: 'openui',
+      src: '/drops/m/n',
+      error: "Couldn't load model: Unexpected token",
+    })
+  })
+
+  it('reports nothing outside a chat bubble', async () => {
+    scene.mountModel.mockImplementation((_host, _url, options) => {
+      options.onError("Couldn't load model", 'boom')
+      return () => {}
+    })
+    show(<ModelWidget spec={{ widget: 'model', src: '/drops/m/n' }} />)
+    await screen.findByText("Couldn't load model")
+    expect(window.eva.invoke).not.toHaveBeenCalledWith('render.failed', expect.anything())
   })
 })
 

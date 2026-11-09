@@ -74,7 +74,7 @@ export function FramedImage({
         aria-label={`Open ${alt}`}
         onClick={() => setViewing(true)}
       >
-        <MediaImage src={url_} alt={alt} onAspect={setNatural} />
+        <MediaImage src={url_} alt={alt} onAspect={setNatural} origin={{ kind: 'image', src }} />
       </button>
       <ImageCaption caption={caption} url={url} />
       <ImageViewer

@@ -41,7 +41,12 @@ export function GalleryWidget({ spec }: { spec: GallerySpec }) {
         aria-label={`Open ${alt}`}
         onClick={() => setViewing(true)}
       >
-        <MediaImage key={index} src={viewerImages[index]!.src} alt={alt} />
+        <MediaImage
+          key={index}
+          src={viewerImages[index]!.src}
+          alt={alt}
+          origin={{ kind: 'gallery', src: image.src }}
+        />
       </button>
       <ImageCaption title={image.title} caption={image.caption} url={image.url} />
       <ImageViewer

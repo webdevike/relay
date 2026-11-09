@@ -55,11 +55,17 @@ export function CompareWidget({ spec }: { spec: CompareSpec }) {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        <MediaImage src={mediaUrl(spec.after.src)} alt={afterLabel} onAspect={setAspect} />
+        <MediaImage
+          src={mediaUrl(spec.after.src)}
+          alt={afterLabel}
+          onAspect={setAspect}
+          origin={{ kind: 'compare', src: spec.after.src }}
+        />
         <MediaImage
           src={mediaUrl(spec.before.src)}
           alt={beforeLabel}
           className="eva-w-compare-before"
+          origin={{ kind: 'compare', src: spec.before.src }}
         />
         <div
           className="eva-w-compare-divider"

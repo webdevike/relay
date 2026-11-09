@@ -195,6 +195,35 @@ export function bookmarkFrame(
   return { t: 'bookmark.set', thread, message, on }
 }
 
+/** A render failure as the renderer reports it (`render.failed` IPC input). */
+export interface RenderFailureReport {
+  thread: string
+  message: string
+  kind: string
+  form: string
+  src: string
+  error: string
+}
+
+/**
+ * Tells the host media in bubble `message` of `thread` failed to show here, so the owning agent
+ * can repost it. Mirrors @relay/protocol's `render.failed`; src and error are cut to its limits
+ * (2048 / 300) because the host drops the socket on an oversized frame. Only for a host with the
+ * "render.report" feature.
+ */
+export function renderFailedFrame(f: RenderFailureReport): Record<string, unknown> {
+  return {
+    t: 'render.failed',
+    thread: f.thread,
+    message: f.message,
+    kind: f.kind,
+    form: f.form,
+    src: f.src.slice(0, 2048),
+    error: f.error.slice(0, 300),
+    surface: 'desktop',
+  }
+}
+
 /** Asks for `thread`'s artifacts; Relay answers with its `artifacts.snapshot` (to every device). */
 export function artifactsGetFrame(thread: string): Record<string, unknown> {
   return { t: 'artifacts.get', thread }

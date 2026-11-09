@@ -21,7 +21,8 @@ import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 export interface ModelOptions {
   autoRotate: boolean
   onLoad: () => void
-  onError: (message: string) => void
+  /** `message` is for the frame; `detail` is the loader's own reason, for the agent. */
+  onError: (message: string, detail?: string) => void
 }
 
 /** Tilt stops this far short of straight up or down (radians). */
@@ -107,8 +108,9 @@ export function mountModel(host: HTMLElement, url: string, options: ModelOptions
       controls.update()
       options.onLoad()
     })
-    .catch(() => {
-      if (!disposed) options.onError("Couldn't load model")
+    .catch((err: unknown) => {
+      if (!disposed)
+        options.onError("Couldn't load model", err instanceof Error ? err.message : String(err))
     })
 
   renderer.setAnimationLoop(() => {

@@ -21,6 +21,7 @@ import {
   type OpenUIRuntime,
 } from '@evaos/chat-core/openui'
 import { OpenUIActions, OpenUIQuery, WidgetScope } from './actions'
+import { RenderFormScope } from './render-report'
 import { CodeBlock } from '../markdown/CodeBlock'
 import { ButtonBlock, InputBlock } from './blocks/actions'
 import {
@@ -203,7 +204,9 @@ export function WidgetBlock({ json }: { json: string }) {
   return (
     <div className="eva-widget" data-testid="widget" data-widget={spec.widget}>
       <WidgetBoundary source={json} fallback={fallback}>
-        <WidgetRoot spec={spec} />
+        <RenderFormScope.Provider value="ui">
+          <WidgetRoot spec={spec} />
+        </RenderFormScope.Provider>
       </WidgetBoundary>
     </div>
   )
@@ -261,7 +264,9 @@ export function OpenUIBlock({ code, closed, at }: { code: string; closed: boolea
     >
       <WidgetBoundary source={code} fallback={fallback}>
         <OpenUIActions.Provider value={runtime}>
-          <WidgetRoot spec={spec} />
+          <RenderFormScope.Provider value="openui">
+            <WidgetRoot spec={spec} />
+          </RenderFormScope.Provider>
         </OpenUIActions.Provider>
       </WidgetBoundary>
       {stale ? (

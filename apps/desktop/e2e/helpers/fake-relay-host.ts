@@ -400,6 +400,8 @@ export class FakeRelayHost {
   private readonly reactionsOf = new Map<string, Record<string, Json>>()
   /** Every `reactions.get`, `reaction.set` and `reaction.clear` the app sent, in order. */
   readonly reactionFrames: Json[] = []
+  /** Every `render.failed` the app sent (media that failed to show in a bubble), in order. */
+  readonly renderFailures: Json[] = []
   /** The host's canvas rooms (CanvasRoomInfo), sent on `canvas.get` and pushed on change. */
   private canvasRooms: Json[] = []
   /** The host's activity list (ActivityItem), sent on `activity.get` and pushed on change. */
@@ -415,8 +417,11 @@ export class FakeRelayHost {
   private rev = 0
   /** `welcome.state.mac.version`: what the host says it runs. */
   macVersion = '0'
-  /** `welcome.features`: what this host says it answers beyond the base protocol. */
-  features: string[] = []
+  /**
+   * `welcome.features`: what this host says it answers beyond the base protocol. Takes render
+   * reports by default, as the current host does.
+   */
+  features: string[] = ['render.report']
   /** Every `files.open` path list, every `files.caret` focus and every `files.saved` the app sent, in order. */
   readonly filesOpen: string[][] = []
   readonly carets: Array<Json | null> = []
@@ -890,10 +895,11 @@ export class FakeRelayHost {
   private http(req: http.IncomingMessage, res: http.ServerResponse): void {
     if (this.extra.http?.(req, res)) return
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
-    const asset = req.method === 'GET' ? this.studioFiles.get(url.pathname) : undefined
+    const asset =
+      req.method === 'GET' || req.method === 'HEAD' ? this.studioFiles.get(url.pathname) : undefined
     if (asset) {
       res.writeHead(200, { 'content-type': asset.type, 'content-length': asset.body.length })
-      res.end(asset.body)
+      res.end(req.method === 'HEAD' ? undefined : asset.body)
       return
     }
     const slug = /^\/canvas\/([a-z0-9-]+)\/$/.exec(url.pathname)?.[1]
@@ -1230,6 +1236,10 @@ export class FakeRelayHost {
       case 'reactions.get':
         this.reactionFrames.push(f)
         return peer.send(this.snapshotOf(String(f.thread)))
+      case 'render.failed':
+        // Fire and forget: the real host logs it and tells the owning agent; no answer.
+        this.renderFailures.push(f)
+        return
       case 'bookmarks.get':
         this.bookmarkFrames.push(f)
         return peer.send(this.bookmarksSnapshot(String(f.thread)))

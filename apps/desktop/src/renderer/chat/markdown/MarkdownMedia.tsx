@@ -3,6 +3,7 @@ import type { ChatImage } from '@evaos/chat-core/message'
 import { ImageViewer } from '../ImageViewer'
 import { collectMessageImages } from './collect-images'
 import { mediaUrl } from '../widgets/media-url'
+import { mediaErrorText, useRenderFailure } from '../widgets/render-report'
 
 /**
  * `![caption](src)` in a reply: an image, an inline video or an audio player when `src` is one.
@@ -10,12 +11,17 @@ import { mediaUrl } from '../widgets/media-url'
  * - a Relay drop (`/drops/<id>/<token>`) is a video (audio) when its served Content-Type is
  *   `video/*` (`audio/*`); main answers a HEAD on the relay-media: URL with the drop's type, and
  *   the poster frame is the drop's `/poster` path when the host made one;
+ * - a drop served as anything else (a GLB, a PDF) is a file card: markdown can't show it inline,
+ *   so the agent is told to repost it (a GLB only renders in an openui Model block);
  * - an http(s) URL is a video when its path ends .mp4, .webm, .mov or .m4v, audio on .mp3, .m4a,
  *   .aac, .wav, .flac, .ogg or .opus;
  * - everything else stays an image.
  */
 export type MediaKind =
-  { kind: 'image' } | { kind: 'video'; poster: string | null } | { kind: 'audio' }
+  | { kind: 'image'; probeError?: string }
+  | { kind: 'video'; poster: string | null }
+  | { kind: 'audio' }
+  | { kind: 'file'; type: string }
 
 const DROP = /^\/drops\/[^/]+\/[^/]+$/
 const VIDEO_PATH = /\.(mp4|webm|mov|m4v)$/i
@@ -55,16 +61,24 @@ function knownKind(src: string): MediaKind | null {
 const probed = new Map<string, MediaKind>()
 const probing = new Map<string, Promise<MediaKind>>()
 
+/** A HEAD answered with an error status: the probe reports it rather than guess quietly. */
+class HeadStatus extends Error {
+  constructor(readonly status: number) {
+    super(`HTTP ${status}`)
+  }
+}
+
 async function head(src: string): Promise<Response> {
   const res = await fetch(mediaUrl(src), { method: 'HEAD' })
-  if (!res.ok) throw new Error(`${src}: ${res.status}`)
+  if (!res.ok) throw new HeadStatus(res.status)
   return res
 }
 
 /**
  * A drop's kind from its served Content-Type, and for a video whether its poster exists. Settled
  * answers are kept; a failure (Relay not running, drop gone) is not, so a later mount asks again,
- * and meanwhile the src draws as an image like before.
+ * and meanwhile the src draws as an image like before (an error status rides along as
+ * `probeError`, so the agent hears it).
  */
 export function probeDrop(src: string): Promise<MediaKind> {
   const running = probing.get(src)
@@ -72,7 +86,8 @@ export function probeDrop(src: string): Promise<MediaKind> {
   const job = (async (): Promise<MediaKind> => {
     const type = ((await head(src)).headers.get('content-type') ?? '').toLowerCase()
     if (type.startsWith('audio/')) return AUDIO
-    if (!type.startsWith('video/')) return IMAGE
+    if (type === '' || type.startsWith('image/')) return IMAGE
+    if (!type.startsWith('video/')) return { kind: 'file', type: type.split(';')[0]!.trim() }
     const posterSrc = `${src}/poster`
     const poster = await head(posterSrc).then(
       () => mediaUrl(posterSrc),
@@ -84,7 +99,8 @@ export function probeDrop(src: string): Promise<MediaKind> {
       probed.set(src, kind)
       return kind
     },
-    () => IMAGE,
+    (err: unknown): MediaKind =>
+      err instanceof HeadStatus ? { kind: 'image', probeError: err.message } : IMAGE,
   )
   probing.set(src, job)
   void job.finally(() => probing.delete(src))
@@ -124,6 +140,7 @@ function MarkdownVideo({
   caption: string
 }) {
   const [failed, setFailed] = useState(false)
+  const report = useRenderFailure()
   // Spans, not a figure: markdown puts the image inside a paragraph.
   return (
     <span className="eva-md-video" data-testid="md-video">
@@ -137,7 +154,10 @@ function MarkdownVideo({
           preload="metadata"
           playsInline
           aria-label={caption || 'Video'}
-          onError={() => setFailed(true)}
+          onError={(e) => {
+            setFailed(true)
+            report('video', src, mediaErrorText('video', e.currentTarget))
+          }}
         />
       )}
       {caption ? <span className="eva-md-video-caption">{caption}</span> : null}
@@ -148,6 +168,7 @@ function MarkdownVideo({
 /** A native audio player (play, scrub, duration) on the same relay-media URL a video or widget uses. */
 function MarkdownAudio({ src, caption }: { src: string; caption: string }) {
   const [failed, setFailed] = useState(false)
+  const report = useRenderFailure()
   return (
     <span className="eva-md-audio" data-testid="md-audio">
       {caption ? <span className="eva-md-video-caption">{caption}</span> : null}
@@ -159,7 +180,10 @@ function MarkdownAudio({ src, caption }: { src: string; caption: string }) {
           controls
           preload="metadata"
           aria-label={caption || 'Audio'}
-          onError={() => setFailed(true)}
+          onError={(e) => {
+            setFailed(true)
+            report('audio', src, mediaErrorText('audio', e.currentTarget))
+          }}
         />
       )}
     </span>
@@ -169,11 +193,28 @@ function MarkdownAudio({ src, caption }: { src: string; caption: string }) {
 /** True inside a markdown link: a linked image follows its link instead of opening the viewer. */
 export const InLink = createContext(false)
 
-/** An image in a reply: a click (or Enter) opens it full size in the image viewer, like a widget's. */
+/**
+ * An image in a reply: a click (or Enter) opens it full size in the image viewer, like a widget's.
+ * One that fails says so in a short line instead of a broken icon.
+ */
 function MarkdownImage({ src, alt }: { src: string; alt: string }) {
   const [viewing, setViewing] = useState<{ images: ChatImage[]; start: number } | null>(null)
+  const [failed, setFailed] = useState(false)
+  const report = useRenderFailure()
+  const linked = useContext(InLink)
+  useEffect(() => setFailed(false), [src])
   const url = mediaUrl(src)
-  if (useContext(InLink)) return <img src={url} alt={alt} draggable={false} />
+  const onError = (): void => {
+    setFailed(true)
+    report('image', src, 'image failed to load')
+  }
+  if (failed)
+    return (
+      <span className="eva-md-video-error" data-testid="md-image-error">
+        Image failed to load
+      </span>
+    )
+  if (linked) return <img src={url} alt={alt} draggable={false} onError={onError} />
   return (
     <>
       <button
@@ -183,7 +224,7 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         data-testid="md-image"
         onClick={(e) => setViewing(collectMessageImages(e.currentTarget))}
       >
-        <img src={url} alt={alt} draggable={false} />
+        <img src={url} alt={alt} draggable={false} onError={onError} />
       </button>
       {viewing ? (
         <ImageViewer
@@ -197,11 +238,36 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
   )
 }
 
+/** What the agent hears about a drop markdown can't draw, by its served type. */
+export function fileError(type: string): string {
+  return type.startsWith('model/')
+    ? `served ${type}: 3D models only render in an openui Model block`
+    : `served ${type}: markdown can't show it`
+}
+
+/** A drop markdown can't draw inline (a GLB, a PDF): its caption and a plain note, never a broken image. */
+function MarkdownFile({ caption, type }: { caption: string; type: string }) {
+  return (
+    <span className="eva-md-audio" data-testid="md-file" data-type={type}>
+      <span className="eva-md-video-caption">{caption || 'File'}</span>
+      <span className="eva-md-video-error">Can&apos;t show this inline ({type})</span>
+    </span>
+  )
+}
+
 /** Drops, http(s) URLs and local files all load through main's relay-media protocol, like widgets. */
 export function MarkdownMedia({ src, alt }: { src: string; alt: string }) {
   const kind = useMediaKind(src)
+  const report = useRenderFailure()
+  useEffect(() => {
+    if (kind?.kind === 'file')
+      report(kind.type.startsWith('model/') ? 'model' : 'image', src, fileError(kind.type))
+    else if (kind?.kind === 'image' && kind.probeError !== undefined)
+      report('image', src, kind.probeError)
+  }, [kind, src, report])
   if (kind === null) return <span className="eva-md-media-pending" data-testid="md-media-pending" />
   if (kind.kind === 'video') return <MarkdownVideo src={src} poster={kind.poster} caption={alt} />
   if (kind.kind === 'audio') return <MarkdownAudio src={src} caption={alt} />
+  if (kind.kind === 'file') return <MarkdownFile caption={alt} type={kind.type} />
   return <MarkdownImage src={src} alt={alt} />
 }

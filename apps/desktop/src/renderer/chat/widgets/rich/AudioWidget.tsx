@@ -4,6 +4,7 @@ import { IconPlayerPauseFilled, IconPlayerPlayFilled } from '@tabler/icons-react
 import type { AudioSpec } from '@evaos/chat-core/widget'
 import { mediaUrl } from '../media-url'
 import { WidgetTitle, clock } from './parts'
+import { mediaErrorText, useRenderFailure } from '../render-report'
 
 export const SPEEDS = [1, 1.25, 1.5, 1.75, 2] as const
 /** The speed pill's choice, shared by every clip. */
@@ -35,6 +36,7 @@ export function AudioWidget({ spec }: { spec: AudioSpec }) {
   const [duration, setDuration] = useState(0)
   const [speed, setSpeed] = useState(savedSpeed)
   const [failed, setFailed] = useState(false)
+  const report = useRenderFailure()
 
   useEffect(() => {
     const el = audio.current
@@ -77,7 +79,10 @@ export function AudioWidget({ spec }: { spec: AudioSpec }) {
           e.currentTarget.playbackRate = speed
         }}
         onDurationChange={(e) => setDuration(e.currentTarget.duration)}
-        onError={() => setFailed(true)}
+        onError={(e) => {
+          setFailed(true)
+          report('audio', spec.src, mediaErrorText('audio', e.currentTarget))
+        }}
       />
       {failed ? (
         <Text size="xs" c="dimmed">
