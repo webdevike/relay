@@ -15,10 +15,12 @@ export interface ImageFrameProps {
   radius?: number | undefined;
   /** Alt text read by VoiceOver. */
   alt?: string | undefined;
+  /** The image failed to load; gets the platform's reason (may be empty). */
+  onError?: ((error: string) => void) | undefined;
 }
 
 /** Base image element: a rounded, sized frame around an image, optionally tappable with a corner badge. */
-export function ImageFrame({ uri, width, height, onPress, badge, resizeMode, radius, alt }: ImageFrameProps) {
+export function ImageFrame({ uri, width, height, onPress, badge, resizeMode, radius, alt, onError }: ImageFrameProps) {
   const colors = useColors();
   const frame = (
     <View
@@ -36,6 +38,7 @@ export function ImageFrame({ uri, width, height, onPress, badge, resizeMode, rad
         style={{ width, height }}
         accessible={alt !== undefined}
         accessibilityLabel={alt}
+        onError={onError === undefined ? undefined : (event) => { onError(String(event.nativeEvent.error ?? "")); }}
       />
       {badge !== undefined ? <OverlayTag icon={badge} corner="bottom-right" /> : null}
     </View>

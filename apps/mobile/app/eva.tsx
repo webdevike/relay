@@ -66,6 +66,7 @@ import { photoOfImage } from "@/lib/clipboard";
 import { answerText, stripAnswerContext } from "@evaos/chat-core/answer-context";
 import { userImageUrls } from "@evaos/chat-core/image-urls";
 import { MarkdownImages } from "@/agents/MarkdownImages";
+import { RenderMessage } from "@/agents/RenderReportContext";
 import { PasteImageChip } from "@/ui/PasteImageChip";
 import { usePasteImage } from "@/lib/pasteImage";
 import { CallScreen } from "@/call/CallScreen";
@@ -885,56 +886,59 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
       // each widget sits in a card of its own between them. One reaction target for the whole reply.
       const segments = hasBody ? bubbleSegments(message.text) : [];
       const wide = segments.some((segment) => segment.kind === "widget");
+      // The whole row reports its media's failures, tiles above the bubble included (`RenderMessage`).
       return (
-        <View style={styles.evaRow}>
-          {signin !== undefined && (
-            <View style={showBubble || imageCount > 0 || tiles.length > 0 ? styles.signinAbove : undefined}>
-              <SignInCard
-                host={signin.host}
-                submitted={signin.submitted === true || signedIn}
-                fill={bubbleFill}
-                onPress={() => {
-                  onSignIn(message.id, signin);
-                }}
-              />
-            </View>
-          )}
-          {images("flex-start")}
-          {tiles.length > 0 && (
-            <View style={[styles.tiles, hasBody && styles.tilesAboveCaption]}>
-              <MarkdownImages images={tiles} />
-            </View>
-          )}
-          {showBubble && (
-            <ChatBubble messageKey={reactionKey} side="left" text={message.text} style={wide ? styles.evaWideFrame : styles.evaBubbleFrame} radius={EVA_RADIUS} ring={page}>
-              {wide ? (
-                <View style={styles.segments}>
-                  {segments.map((segment, i) =>
-                    segment.kind === "widget" ? (
-                      <View key={i} style={[styles.widgetCard, { backgroundColor: bubbleFill }]} testID="eva-widget-card">
-                        <MessageText text={segment.text} large streaming={streaming} />
-                      </View>
-                    ) : topLevelImages(segment.text).hasBody ? (
-                      <View key={i} style={[styles.evaBubble, styles.segmentBubble, { backgroundColor: bubbleFill }]}>
-                        <MessageText text={segment.text} large skipImages streaming={streaming} />
-                      </View>
-                    ) : null,
-                  )}
-                </View>
-              ) : (
-                <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
-                  <MessageText text={message.text} large skipImages streaming={streaming} />
-                </View>
-              )}
-              {waiting && <WaitingMark radius={EVA_RADIUS} pulse={pulse} page={page} />}
-            </ChatBubble>
-          )}
-          {replies !== null && (
-            <View style={styles.replies}>
-              <ReplyChips replies={replies} onPick={onReply} />
-            </View>
-          )}
-        </View>
+        <RenderMessage thread={assistantReactionThread(agent)} message={reactionKey}>
+          <View style={styles.evaRow}>
+            {signin !== undefined && (
+              <View style={showBubble || imageCount > 0 || tiles.length > 0 ? styles.signinAbove : undefined}>
+                <SignInCard
+                  host={signin.host}
+                  submitted={signin.submitted === true || signedIn}
+                  fill={bubbleFill}
+                  onPress={() => {
+                    onSignIn(message.id, signin);
+                  }}
+                />
+              </View>
+            )}
+            {images("flex-start")}
+            {tiles.length > 0 && (
+              <View style={[styles.tiles, hasBody && styles.tilesAboveCaption]}>
+                <MarkdownImages images={tiles} />
+              </View>
+            )}
+            {showBubble && (
+              <ChatBubble messageKey={reactionKey} side="left" text={message.text} style={wide ? styles.evaWideFrame : styles.evaBubbleFrame} radius={EVA_RADIUS} ring={page}>
+                {wide ? (
+                  <View style={styles.segments}>
+                    {segments.map((segment, i) =>
+                      segment.kind === "widget" ? (
+                        <View key={i} style={[styles.widgetCard, { backgroundColor: bubbleFill }]} testID="eva-widget-card">
+                          <MessageText text={segment.text} large streaming={streaming} />
+                        </View>
+                      ) : topLevelImages(segment.text).hasBody ? (
+                        <View key={i} style={[styles.evaBubble, styles.segmentBubble, { backgroundColor: bubbleFill }]}>
+                          <MessageText text={segment.text} large skipImages streaming={streaming} />
+                        </View>
+                      ) : null,
+                    )}
+                  </View>
+                ) : (
+                  <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
+                    <MessageText text={message.text} large skipImages streaming={streaming} />
+                  </View>
+                )}
+                {waiting && <WaitingMark radius={EVA_RADIUS} pulse={pulse} page={page} />}
+              </ChatBubble>
+            )}
+            {replies !== null && (
+              <View style={styles.replies}>
+                <ReplyChips replies={replies} onPick={onReply} />
+              </View>
+            )}
+          </View>
+        </RenderMessage>
       );
     }
     case "status":

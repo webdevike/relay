@@ -3,6 +3,10 @@
  * tap, elapsed/total time, and a speed pill that cycles 1x to 2x. The clip streams from the host
  * drop (or an https URL); nothing is fetched until the player mounts. Playback ignores the silent
  * switch, like a voice memo. The chosen speed is remembered for the next clip.
+ *
+ * expo-audio (1.1) reports only the AVPlayer's own `failed` state (`playbackState`); a clip that
+ * can't load (404, a format iOS can't decode) fails on the AVPlayerItem, which it never surfaces,
+ * so the player just stays at 0:00 and that case can't be reported to the host.
  */
 import { useEffect } from "react";
 import { Pressable, View } from "react-native";
@@ -14,6 +18,7 @@ import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { MediaTransport } from "@/ui/MediaTransport";
 import { Text } from "@/ui/Text";
 import { useDropSrc } from "./dropSrc";
+import { useRenderFailure } from "./RenderReportContext";
 import type { AudioSpec } from "./widget";
 
 /** Within this many seconds of the end counts as finished, so play restarts from zero. */
@@ -28,24 +33,29 @@ export function AudioPlayer({ spec }: { spec: AudioSpec }) {
       {uri === null ? (
         <MediaPlaceholder label="Connect to the host to load this audio." />
       ) : (
-        <Controls uri={uri} />
+        <Controls src={spec.src} uri={uri} />
       )}
     </View>
   );
 }
 
-function Controls({ uri }: { uri: string }) {
+function Controls({ src, uri }: { src: string; uri: string }) {
   const colors = useColors();
   const player = useAudioPlayer({ uri });
   const status = useAudioPlayerStatus(player);
   const rate = useSettingsStore((state) => state.audioRate);
   const set = useSettingsStore((state) => state.set);
   const duration = status.duration > 0 ? status.duration : 0;
+  const report = useRenderFailure();
+  const failed = status.playbackState === "failed";
 
   // "high" pitch correction keeps voices natural when sped up.
   useEffect(() => {
     player.setPlaybackRate(rate, "high");
   }, [player, rate]);
+  useEffect(() => {
+    if (failed) report("audio", src, "audio player failed");
+  }, [failed, src, report]);
 
   const toggle = async () => {
     if (status.playing) {

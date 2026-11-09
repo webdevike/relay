@@ -1,6 +1,6 @@
 import type { Drop } from "@relay/protocol";
 import { describe, expect, it } from "vitest";
-import { audioEmbedOf, videoEmbedOf } from "./videoEmbed";
+import { audioEmbedOf, modelEmbedOf, videoEmbedOf } from "./videoEmbed";
 
 const TOKEN = "ab".repeat(32);
 const path = (id: string) => `/drops/${id}/${TOKEN}`;
@@ -22,6 +22,8 @@ const drops: Drop[] = [
   fileDrop("shot", "image/png"),
   fileDrop("song", "audio/mp4", { durationMs: 17_100 }),
   fileDrop("zip", "application/zip"),
+  fileDrop("glb", "model/gltf-binary"),
+  fileDrop("octet", "application/octet-stream", { name: "robot.glb" }),
 ];
 
 describe("videoEmbedOf", () => {
@@ -83,5 +85,28 @@ describe("audioEmbedOf", () => {
     expect(audioEmbedOf(path("shot"), drops)).toBeNull();
     expect(audioEmbedOf(path("gone"), drops)).toBeNull();
     expect(audioEmbedOf("/Users/ike/a.mp3", drops)).toBeNull();
+  });
+});
+
+describe("modelEmbedOf", () => {
+  it("marks a model drop, bare or by its full https URL, with the type the host serves", () => {
+    expect(modelEmbedOf(path("glb"), drops)).toEqual({ src: path("glb"), mimeType: "model/gltf-binary" });
+    const url = `https://isaacs-mac-mini.tail80fdb0.ts.net${path("glb")}`;
+    expect(modelEmbedOf(url, drops)).toEqual({ src: url, mimeType: "model/gltf-binary" });
+  });
+
+  it("marks a .glb drop the host serves as octet-stream", () => {
+    expect(modelEmbedOf(path("octet"), drops)).toEqual({ src: path("octet"), mimeType: "application/octet-stream" });
+  });
+
+  it("marks https URLs by their model extension", () => {
+    expect(modelEmbedOf("https://cdn.x.test/robot.GLB?sig=1", [])).toEqual({ src: "https://cdn.x.test/robot.GLB?sig=1", mimeType: "model/gltf-binary" });
+    expect(modelEmbedOf("https://cdn.x.test/scene.gltf", [])).toEqual({ src: "https://cdn.x.test/scene.gltf", mimeType: "model/gltf+json" });
+  });
+
+  it("leaves pictures, video, audio, other files, unknown drops and Mac paths alone", () => {
+    for (const id of ["shot", "vid", "song", "zip", "gone"]) expect(modelEmbedOf(path(id), drops)).toBeNull();
+    expect(modelEmbedOf("https://cdn.x.test/a.png", [])).toBeNull();
+    expect(modelEmbedOf("/Users/ike/robot.glb", drops)).toBeNull();
   });
 });

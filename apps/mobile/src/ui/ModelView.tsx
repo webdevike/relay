@@ -15,6 +15,8 @@ export interface ModelViewProps {
   height: number;
   /** Turntable spin until the first touch. */
   autoRotate?: boolean | undefined;
+  /** The native view could not load the model; gets its message. */
+  onError?: ((message: string) => void) | undefined;
 }
 
 /**
@@ -25,7 +27,7 @@ export interface ModelViewProps {
  * not shown before loads on its own (`lib/liveModel.ts`): every other one shows a "View in 3D" card,
  * and tapping it moves the live view there.
  */
-export function ModelView({ uri, width, height, autoRotate }: ModelViewProps) {
+export function ModelView({ uri, width, height, autoRotate, onError }: ModelViewProps) {
   const colors = useColors();
   const { live, activate } = useLiveModel(uri);
   const [loaded, setLoaded] = useState<string | null>(null);
@@ -47,6 +49,7 @@ export function ModelView({ uri, width, height, autoRotate }: ModelViewProps) {
             }}
             onError={(e) => {
               setFailed({ uri, message: e.nativeEvent.message });
+              onError?.(e.nativeEvent.message);
             }}
             style={{ width, height }}
           />

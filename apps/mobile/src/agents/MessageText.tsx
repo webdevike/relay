@@ -16,6 +16,7 @@ import { HtmlWidget } from "./HtmlWidget";
 import { type Align, type Block, type Inline, type MessageImage, parseBlocks } from "./markdown";
 import { openUIView, syncOpenUIRuntime } from "./openui";
 import { OpenUIRuntimeContext } from "./OpenUIRuntime";
+import { RenderFormContext } from "./RenderReportContext";
 import { Widget } from "./Widget";
 
 const mono = Platform.select({ ios: "Menlo", default: "monospace" });
@@ -119,7 +120,11 @@ function BlockView({ block, body, streaming = false }: { block: Block; body: Bod
     case "table":
       return <TableView block={block} />;
     case "widget":
-      return <Widget spec={block.spec} />;
+      return (
+        <RenderFormContext.Provider value="ui">
+          <Widget spec={block.spec} />
+        </RenderFormContext.Provider>
+      );
     case "openui":
       return <OpenUIBlock code={block.code} partial={block.partial} />;
     case "html":
@@ -154,14 +159,16 @@ function OpenUIBlock({ code, partial }: { code: string; partial: boolean }) {
   // A Query that could not fetch, or whose last fetch failed: the widget keeps its data and says why.
   const stale = queries ? (snapshot.errors.find((error) => error.code === "query-error")?.message ?? null) : null;
   return (
-    <OpenUIRuntimeContext.Provider value={runtime}>
-      <Widget spec={view.spec} />
-      {stale !== null && (
-        <Text variant="caption" color="textMuted" style={{ marginTop: spacing.xs }}>
-          {stale}
-        </Text>
-      )}
-    </OpenUIRuntimeContext.Provider>
+    <RenderFormContext.Provider value="openui">
+      <OpenUIRuntimeContext.Provider value={runtime}>
+        <Widget spec={view.spec} />
+        {stale !== null && (
+          <Text variant="caption" color="textMuted" style={{ marginTop: spacing.xs }}>
+            {stale}
+          </Text>
+        )}
+      </OpenUIRuntimeContext.Provider>
+    </RenderFormContext.Provider>
   );
 }
 

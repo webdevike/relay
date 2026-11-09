@@ -14,6 +14,8 @@ import { Pager, usePager } from "@/ui/Pager";
 import { Text } from "@/ui/Text";
 import { useDropSrc } from "./dropSrc";
 import { ImageViewer, type ViewerImage } from "./ImageViewer";
+import { failureText } from "./renderReport";
+import { useRenderFailure } from "./RenderReportContext";
 import type { GallerySpec } from "./widget";
 
 /** Frame shape for every page, so pages line up and the carousel never jumps height. */
@@ -25,6 +27,7 @@ export function Gallery({ spec }: { spec: GallerySpec }) {
   const count = spec.images.length;
   const { page, setPage, go } = usePager(count);
   const height = width / ASPECT;
+  const report = useRenderFailure();
 
   // Drop paths resolve only while connected to the host; null renders a placeholder until it reconnects.
   const uris = useDropSrc(spec.images.map((image) => image.src));
@@ -71,6 +74,9 @@ export function Gallery({ spec }: { spec: GallerySpec }) {
                 width={width}
                 height={height}
                 badge="arrow.up.left.and.arrow.down.right"
+                onError={(error) => {
+                  report("gallery", image.src, failureText("gallery image failed to load", error));
+                }}
                 onPress={() => {
                   openAt(i);
                 }}

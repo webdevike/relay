@@ -3,7 +3,8 @@
  * sound exactly like a picture, so the src decides: a host drop path (bare, or as a full https URL
  * through Tailscale Serve) whose drop (from the drops list the phone asks for on every connect) has
  * a `video/*` (or, for `audioEmbedOf`, `audio/*`) type, or an http(s) URL whose path ends in a
- * video (audio) extension. Everything else stays a picture.
+ * video (audio) extension. `modelEmbedOf` finds 3D models the same way, which markdown can't show.
+ * Everything else stays a picture.
  */
 import type { Drop } from "@relay/protocol";
 import { imageSrcKind } from "./markdown";
@@ -81,4 +82,38 @@ export function audioEmbedOf(src: string, drops: readonly Drop[]): AudioEmbed | 
   const file = drops.find((drop) => drop.file?.path === path)?.file;
   if (!file?.mimeType.startsWith("audio/")) return null;
   return { src, ...(file.durationMs !== undefined && { durationMs: file.durationMs }) };
+}
+
+export interface ModelEmbed {
+  src: string;
+  /** The type the host serves the drop as, or the one its extension stands for. */
+  mimeType: string;
+}
+
+const MODEL_PATH = /\.(glb|gltf)$/i;
+
+/**
+ * A 3D model embedded as a markdown image: a drop with a `model/*` type (or a `.glb`/`.gltf` name,
+ * since the host may serve it as octet-stream), or an http(s) URL ending in one. Markdown never
+ * draws it (only an openui Model block does, one live model at a time), so `MarkdownImages` shows
+ * a notice instead of an image tile that can only fail.
+ */
+export function modelEmbedOf(src: string, drops: readonly Drop[]): ModelEmbed | null {
+  let path = src;
+  if (imageSrcKind(src) === "remote") {
+    try {
+      const url = new URL(src);
+      if (imageSrcKind(url.pathname) !== "drop") {
+        if (!MODEL_PATH.test(url.pathname)) return null;
+        return { src, mimeType: url.pathname.toLowerCase().endsWith(".gltf") ? "model/gltf+json" : "model/gltf-binary" };
+      }
+      path = url.pathname;
+    } catch {
+      return null;
+    }
+  } else if (imageSrcKind(src) !== "drop") {
+    return null;
+  }
+  const file = drops.find((drop) => drop.file?.path === path)?.file;
+  return file !== undefined && (file.mimeType.startsWith("model/") || MODEL_PATH.test(file.name)) ? { src, mimeType: file.mimeType } : null;
 }

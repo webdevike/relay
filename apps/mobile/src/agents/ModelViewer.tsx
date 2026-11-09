@@ -11,6 +11,8 @@ import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { ModelView } from "@/ui/ModelView";
 import { Text } from "@/ui/Text";
 import { useDropSrc } from "./dropSrc";
+import { failureText } from "./renderReport";
+import { useRenderFailure } from "./RenderReportContext";
 import type { ModelSpec } from "./widget";
 
 const ASPECT = 4 / 3;
@@ -19,6 +21,7 @@ export function ModelViewer({ spec }: { spec: ModelSpec }) {
   const uri = useDropSrc(spec.src);
   const [width, setWidth] = useState(0);
   const height = width / ASPECT;
+  const report = useRenderFailure();
   return (
     <View style={{ gap: spacing.sm }}>
       {spec.title !== undefined && <Text variant="label">{spec.title}</Text>}
@@ -30,7 +33,17 @@ export function ModelViewer({ spec }: { spec: ModelSpec }) {
         {uri === null ? (
           <MediaPlaceholder label="Connect to the host to load this model." width={width} height={height} />
         ) : (
-          width > 0 && <ModelView uri={uri} width={width} height={height} autoRotate={spec.autoRotate} />
+          width > 0 && (
+            <ModelView
+              uri={uri}
+              width={width}
+              height={height}
+              autoRotate={spec.autoRotate}
+              onError={(message) => {
+                report("model", spec.src, failureText("model failed to load", message));
+              }}
+            />
+          )
         )}
       </View>
       <ImageCaption caption={spec.caption} />

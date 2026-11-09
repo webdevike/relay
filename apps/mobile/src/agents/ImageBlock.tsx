@@ -10,6 +10,8 @@ import { ImageFrame } from "@/ui/ImageFrame";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { useDropSrc } from "./dropSrc";
 import { ImageViewer } from "./ImageViewer";
+import { failureText } from "./renderReport";
+import { useRenderFailure } from "./RenderReportContext";
 import type { ImageSpec } from "./widget";
 
 /** Frame shape until the image reports its own, or when it never does. */
@@ -23,6 +25,7 @@ export function ImageBlock({ spec }: { spec: ImageSpec }) {
   const [open, setOpen] = useState(false);
   const [natural, setNatural] = useState<number | null>(null);
   const uri = useDropSrc(spec.src);
+  const report = useRenderFailure();
 
   useEffect(() => {
     if (spec.aspect !== undefined || uri === null) return;
@@ -32,12 +35,14 @@ export function ImageBlock({ spec }: { spec: ImageSpec }) {
       (w, h) => {
         if (live && w > 0 && h > 0) setNatural(Math.min(Math.max(w / h, MIN_ASPECT), MAX_ASPECT));
       },
-      () => undefined,
+      (error: unknown) => {
+        if (live) report("image", spec.src, failureText("image failed to load", error instanceof Error ? error.message : null));
+      },
     );
     return () => {
       live = false;
     };
-  }, [spec.aspect, uri]);
+  }, [spec.aspect, uri, spec.src, report]);
 
   const height = width / (spec.aspect ?? natural ?? FALLBACK_ASPECT);
 
@@ -61,6 +66,9 @@ export function ImageBlock({ spec }: { spec: ImageSpec }) {
               width={width}
               height={height}
               alt={spec.alt}
+              onError={(error) => {
+                report("image", spec.src, failureText("image failed to load", error));
+              }}
               badge="arrow.up.left.and.arrow.down.right"
               onPress={() => {
                 setOpen(true);

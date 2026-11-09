@@ -76,6 +76,7 @@ import { SessionMachine, type Effect } from "./session";
 import { CommandQueue } from "./commands";
 import { debug, warn } from "./log";
 import { withdrawNotification } from "@/inbox/withdraw";
+import { hostTakesRenderReports, renderFailedFrame, type RenderReport } from "@/agents/renderReport";
 
 /** `EXPO_PUBLIC_RELAY_ONLY_HOST` pins a test bundle to one host; unset (every real build) changes nothing. */
 const ONLY_HOST = parseOnlyHost(process.env.EXPO_PUBLIC_RELAY_ONLY_HOST);
@@ -99,6 +100,8 @@ let retryTimer: number | undefined;
  * overwrites it.
  */
 let hostAuthority: string | null = null;
+/** Whether the connected host's `welcome.features` has `render.report`; set on every welcome. */
+let hostTakesRenders = false;
 /**
  * The assistant whose thread is on screen, if any. The host treats a socket as following an
  * agent's thread (live snapshots, no push to this phone for that agent) for five minutes after
@@ -222,6 +225,7 @@ socket.onMessage = (data) => {
   }
   if (message.t === "welcome") {
     commandQueue.onReconnect((m) => socket.send(encode(m)));
+    hostTakesRenders = hostTakesRenderReports(message.features);
     imagesInFlight.clear();
     // The host owns the drop history; the phone never trusts its copy across a (re)connection.
     socket.send(encode({ t: "drop.list" }));
@@ -879,6 +883,17 @@ export function unregisterPush(): void {
 export function sendPushPrefs(muted: readonly string[]): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "push.prefs", muted: [...muted] }));
+}
+
+/**
+ * Tells the host media in an assistant's bubble failed to show here (`render.failed`), so it can
+ * tell the agent to repost it. Fire and forget. False, and nothing sent, while not connected or to
+ * a host without `render.report` (an older host drops the socket on frames it doesn't know).
+ */
+export function reportRenderFailure(failure: RenderReport): boolean {
+  if (useConnectionStore.getState().status !== "connected" || !hostTakesRenders) return false;
+  socket.send(encode(renderFailedFrame(failure)));
+  return true;
 }
 
 /**

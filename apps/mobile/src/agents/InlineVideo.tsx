@@ -11,13 +11,15 @@
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useEvent } from "expo";
-import { useVideoPlayer, VideoView } from "expo-video";
+import { type PlayerError, useVideoPlayer, VideoView, type VideoPlayerStatus } from "expo-video";
 import { mediaClock } from "@/lib/format";
 import { spacing } from "@/theme";
 import { IconButton } from "@/ui/IconButton";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { OverlayTag } from "@/ui/OverlayTag";
 import { useDropSrc } from "./dropSrc";
+import { failureText } from "./renderReport";
+import { useRenderFailure } from "./RenderReportContext";
 import type { VideoEmbed } from "./videoEmbed";
 
 const MAX_WIDTH = 320;
@@ -39,6 +41,7 @@ function InlineVideoFrame({ video, alt, uri, poster }: { video: VideoEmbed; alt:
   const screen = useWindowDimensions().width;
   const [phase, setPhase] = useState<"poster" | "starting" | "playing" | "error">("poster");
   const [trackAspect, setTrackAspect] = useState<number | null>(null);
+  const report = useRenderFailure();
 
   const aspect = video.aspect ?? trackAspect ?? FALLBACK_ASPECT;
   const widest = Math.min(MAX_WIDTH, Math.round(screen * WIDTH_FRACTION));
@@ -69,8 +72,9 @@ function InlineVideoFrame({ video, alt, uri, poster }: { video: VideoEmbed; alt:
           onFirstFrame={() => {
             setPhase("playing");
           }}
-          onError={() => {
+          onError={(message) => {
             setPhase("error");
+            report("video", video.src, failureText("video error", message ?? (video.mimeType === "video/webm" ? "WebM doesn't play on iPhone" : null)));
           }}
         />
       )}
@@ -105,7 +109,8 @@ interface PlaybackProps {
   height: number;
   onAspect: (aspect: number) => void;
   onFirstFrame: () => void;
-  onError: () => void;
+  /** The player failed; gets its reason when it gave one. */
+  onError: (message: string | undefined) => void;
 }
 
 /** Mounted by the tap: loads the stream, plays at once (unmuted), native controls inline and full screen. */
@@ -115,7 +120,8 @@ function Playback({ uri, width, height, onAspect, onFirstFrame, onError }: Playb
     // expo-video switches the audio session to playback on play, so it plays through the silent switch.
     p.play();
   });
-  const { status } = useEvent(player, "statusChange", { status: player.status });
+  const initial: { status: VideoPlayerStatus; error?: PlayerError } = { status: player.status };
+  const { status, error } = useEvent(player, "statusChange", initial);
   const { videoTrack } = useEvent(player, "videoTrackChange", { videoTrack: player.videoTrack });
 
   const size = videoTrack?.size;
@@ -123,8 +129,8 @@ function Playback({ uri, width, height, onAspect, onFirstFrame, onError }: Playb
     if (size !== undefined && size.width > 0 && size.height > 0) onAspect(size.width / size.height);
   }, [size, onAspect]);
   useEffect(() => {
-    if (status === "error") onError();
-  }, [status, onError]);
+    if (status === "error") onError(error?.message);
+  }, [status, error, onError]);
 
   return (
     <View style={{ width, height }}>

@@ -15,6 +15,7 @@ import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
 import { MessageText } from "./MessageText";
 import { MarkdownImages } from "./MarkdownImages";
+import { RenderMessage } from "./RenderReportContext";
 import { userImageUrls } from "@evaos/chat-core/image-urls";
 import { ChatBubble } from "./BubbleMenu";
 import { bubbleReactionKey } from "@/lib/reactions";
@@ -114,6 +115,8 @@ interface MessageRowProps {
   error?: string | undefined;
   /** The phone's own stand-in for words the transcript does not list yet: it takes no reaction. */
   pending: boolean;
+  /** The session's reaction thread, so media in its replies can report render failures; null while there is none. */
+  thread: string | null;
 }
 
 const USER_RADIUS = 24;
@@ -121,7 +124,7 @@ const USER_RADIUS = 24;
 const REPLY_LIFT_RADIUS = 18;
 const REPLY_LIFT_INSET = 10;
 
-function MessageRow({ sessionId, message, onOpenImage, error, pending }: MessageRowProps) {
+function MessageRow({ sessionId, message, onOpenImage, error, pending, thread }: MessageRowProps) {
   const colors = useColors();
   const reactionKey = bubbleReactionKey(message, pending);
   const images =
@@ -181,21 +184,23 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending }: Message
     }
     case "assistant":
       return (
-        <View style={{ paddingHorizontal: spacing.lg }}>
-          <ChatBubble
-            messageKey={reactionKey}
-            side="left"
-            text={message.text}
-            radius={0}
-            card={{ fill: colors.surface, radius: REPLY_LIFT_RADIUS, inset: REPLY_LIFT_INSET }}
-            ring={colors.surface}
-          >
-            <View style={{ gap: spacing.sm }}>
-              {message.text.length > 0 && <MessageText text={message.text} large streaming={message.streaming === true} />}
-              {images}
-            </View>
-          </ChatBubble>
-        </View>
+        <RenderMessage thread={thread} message={reactionKey}>
+          <View style={{ paddingHorizontal: spacing.lg }}>
+            <ChatBubble
+              messageKey={reactionKey}
+              side="left"
+              text={message.text}
+              radius={0}
+              card={{ fill: colors.surface, radius: REPLY_LIFT_RADIUS, inset: REPLY_LIFT_INSET }}
+              ring={colors.surface}
+            >
+              <View style={{ gap: spacing.sm }}>
+                {message.text.length > 0 && <MessageText text={message.text} large streaming={message.streaming === true} />}
+                {images}
+              </View>
+            </ChatBubble>
+          </View>
+        </RenderMessage>
       );
     case "tool":
       return (
@@ -463,6 +468,7 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
                   onOpenImage={setViewing}
                   error={refused[item.id]}
                   pending={echoIds.has(item.id) || (sent !== undefined && item.id === `sent-${String(sent.at)}`)}
+                  thread={thread}
                 />
               )}
             </MessageAppearance>

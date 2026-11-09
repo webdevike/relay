@@ -5,7 +5,9 @@
  * with every loadable image of the stack, starting at the tapped one. A src that is a video (a
  * `video/*` drop or an https `.mp4`, see `videoEmbed.ts`) plays inline as an `InlineVideo` instead,
  * and an audio one (`audio/*` drop or https `.mp3`/`.m4a`...) as the same `AudioPlayer` the ```ui
- * `audio` widget uses.
+ * `audio` widget uses. A 3D model (`model/*` drop, `.glb`/`.gltf`) only renders in an openui Model
+ * block (one live model at a time, `ui/ModelView`), so here it is a notice tile, reported to the
+ * host like any image that fails to load (`useRenderFailure`), so the agent reposts it as a Model.
  *
  * `src` is an http(s) URL, or a host drop path from `relay-linux share` (resolved by `useDropSrc`).
  * A path on the Mac can't be fetched, so it shows a muted caption naming the file, not a broken tile.
@@ -21,7 +23,9 @@ import { ImageViewer, type ViewerImage } from "./ImageViewer";
 import { AudioPlayer } from "./AudioPlayer";
 import { InlineVideo } from "./InlineVideo";
 import { type ImageSrcKind, imageBasename, imageSrcKind, type MessageImage } from "./markdown";
-import { audioEmbedOf, videoEmbedOf } from "./videoEmbed";
+import { failureText, modelMarkdownError } from "./renderReport";
+import { useRenderFailure } from "./RenderReportContext";
+import { audioEmbedOf, modelEmbedOf, type ModelEmbed, videoEmbedOf } from "./videoEmbed";
 
 const TILE_WIDTH = 188;
 const MIN_HEIGHT = 110;
@@ -41,13 +45,14 @@ export function MarkdownImages({ images }: { images: MessageImage[] }) {
       uri: kind === "local" ? null : (resolved[i] ?? null),
       video: videoEmbedOf(image.src, drops),
       audio: audioEmbedOf(image.src, drops),
+      model: modelEmbedOf(image.src, drops),
     };
   });
 
   // The viewer pages through the picture tiles that loaded; `pages[i]` is tile i's page (-1: none).
   const loadable: ViewerImage[] = [];
   const pages = items.map((item) =>
-    item.uri === null || item.video !== null || item.audio !== null
+    item.uri === null || item.video !== null || item.audio !== null || item.model !== null
       ? -1
       : loadable.push({ uri: item.uri, caption: item.alt === "" ? undefined : item.alt }) - 1,
   );
@@ -55,7 +60,9 @@ export function MarkdownImages({ images }: { images: MessageImage[] }) {
   return (
     <View style={{ gap: GAP, alignItems: "flex-start" }}>
       {items.map((item, i) =>
-        item.audio !== null ? (
+        item.model !== null ? (
+          <ModelNotice key={`${String(i)}:${item.src}`} model={item.model} />
+        ) : item.audio !== null ? (
           <View key={`${String(i)}:${item.src}`} style={{ width: TILE_WIDTH + 100 }}>
             <AudioPlayer spec={{ widget: "audio", src: item.audio.src, ...(item.alt !== "" && { title: item.alt }) }} />
           </View>
@@ -97,6 +104,7 @@ function Tile({ src, alt, kind, uri, onPress }: TileProps) {
   const colors = useColors();
   /** width / height once known; `false` when the picture failed to load. */
   const [aspect, setAspect] = useState<number | false | null>(null);
+  const report = useRenderFailure();
 
   useEffect(() => {
     setAspect(null);
@@ -105,16 +113,24 @@ function Tile({ src, alt, kind, uri, onPress }: TileProps) {
     Image.getSize(
       uri,
       (w, h) => {
-        if (live) setAspect(w > 0 && h > 0 ? w / h : false);
+        if (!live) return;
+        if (w > 0 && h > 0) {
+          setAspect(w / h);
+          return;
+        }
+        setAspect(false);
+        report("image", src, "image failed to load: no size");
       },
-      () => {
-        if (live) setAspect(false);
+      (error: unknown) => {
+        if (!live) return;
+        setAspect(false);
+        report("image", src, failureText("image failed to load", error instanceof Error ? error.message : null));
       },
     );
     return () => {
       live = false;
     };
-  }, [uri]);
+  }, [uri, src, report]);
 
   if (kind === "local") return <MediaPlaceholder label={`Image on the Mac: ${imageBasename(src)}`} />;
   if (uri === null) return <MediaPlaceholder label="Connect to the host to load this image." />;
@@ -131,7 +147,20 @@ function Tile({ src, alt, kind, uri, onPress }: TileProps) {
       resizeMode="cover"
       radius={RADIUS}
       alt={alt === "" ? undefined : alt}
+      onError={(error) => {
+        setAspect(false);
+        report("image", src, failureText("image failed to load", error));
+      }}
       onPress={onPress}
     />
   );
+}
+
+/** A 3D model a markdown image can't draw: says so in place and tells the host once. */
+function ModelNotice({ model }: { model: ModelEmbed }) {
+  const report = useRenderFailure();
+  useEffect(() => {
+    report("model", model.src, modelMarkdownError(model.mimeType));
+  }, [report, model.src, model.mimeType]);
+  return <MediaPlaceholder label="Can't show this 3D model here." />;
 }

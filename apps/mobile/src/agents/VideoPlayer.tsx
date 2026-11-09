@@ -5,16 +5,18 @@
  * opens the system full-screen player. Streams from the host drop (or an https URL) once mounted;
  * plays with the phone on silent, like audio.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useEvent } from "expo";
-import { useVideoPlayer, type VideoPlayer as Player } from "expo-video";
+import { type PlayerError, useVideoPlayer, type VideoPlayer as Player, type VideoPlayerStatus } from "expo-video";
 import { spacing } from "@/theme";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { MediaTransport } from "@/ui/MediaTransport";
 import { Text } from "@/ui/Text";
 import { VideoFrame } from "@/ui/VideoFrame";
 import { useDropSrc } from "./dropSrc";
+import { failureText } from "./renderReport";
+import { useRenderFailure } from "./RenderReportContext";
 import type { VideoSpec } from "./widget";
 
 /** Frame shape until the video track reports its real size. */
@@ -38,18 +40,20 @@ export function VideoPlayer({ spec }: { spec: VideoSpec }) {
         {uri === null ? (
           <MediaPlaceholder label="Connect to the host to load this video." width={width} height={width / FALLBACK_ASPECT} />
         ) : (
-          width > 0 && <Playback uri={uri} width={width} />
+          width > 0 && <Playback src={spec.src} uri={uri} width={width} />
         )}
       </View>
     </View>
   );
 }
 
-function Playback({ uri, width }: { uri: string; width: number }) {
+function Playback({ src, uri, width }: { src: string; uri: string; width: number }) {
   const player = useVideoPlayer({ uri }, (p) => {
     p.timeUpdateEventInterval = 0.25;
   });
-  const { status } = useEvent(player, "statusChange", { status: player.status });
+  const initial: { status: VideoPlayerStatus; error?: PlayerError } = { status: player.status };
+  const { status, error } = useEvent(player, "statusChange", initial);
+  const report = useRenderFailure();
   const { isPlaying } = useEvent(player, "playingChange", { isPlaying: player.playing });
   const { currentTime } = useEvent(player, "timeUpdate", {
     currentTime: player.currentTime,
@@ -58,6 +62,10 @@ function Playback({ uri, width }: { uri: string; width: number }) {
     bufferedPosition: player.bufferedPosition,
   });
   const { videoTrack } = useEvent(player, "videoTrackChange", { videoTrack: player.videoTrack });
+
+  useEffect(() => {
+    if (status === "error") report("video", src, failureText("video error", error?.message));
+  }, [status, error, src, report]);
 
   const size = videoTrack?.size;
   const aspect = size !== undefined && size.width > 0 && size.height > 0 ? size.width / size.height : FALLBACK_ASPECT;

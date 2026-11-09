@@ -4,7 +4,7 @@
  * of either side. The pan only claims clearly horizontal drags, so the transcript still scrolls.
  */
 import { useState } from "react";
-import { Image, View, type ImageLoadEventData, type NativeSyntheticEvent } from "react-native";
+import { Image, View, type ImageErrorEvent, type ImageLoadEventData, type NativeSyntheticEvent } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { SymbolView } from "expo-symbols";
@@ -13,6 +13,8 @@ import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { OverlayTag } from "@/ui/OverlayTag";
 import { Text } from "@/ui/Text";
 import { useDropSrc } from "./dropSrc";
+import { failureText } from "./renderReport";
+import { useRenderFailure } from "./RenderReportContext";
 import type { CompareSpec } from "./widget";
 
 const KNOB = 32;
@@ -27,6 +29,10 @@ export function CompareSlider({ spec }: { spec: CompareSpec }) {
   const before = useDropSrc(spec.before.src);
   const after = useDropSrc(spec.after.src);
   const height = width > 0 ? width / aspect : 0;
+  const report = useRenderFailure();
+  const failedOf = (src: string, side: string) => (e: ImageErrorEvent) => {
+    report("compare", src, failureText(`${side} image failed to load`, String(e.nativeEvent.error ?? "")));
+  };
 
   const moveTo = (x: number) => {
     "worklet";
@@ -59,9 +65,9 @@ export function CompareSlider({ spec }: { spec: CompareSpec }) {
           width > 0 && (
             <GestureDetector gesture={gesture}>
               <View style={{ width, height, borderRadius: radii.sm, overflow: "hidden", backgroundColor: colors.surface }}>
-                <Image source={{ uri: after }} onLoad={onAfterLoad} resizeMode="contain" style={{ position: "absolute", width, height }} />
+                <Image source={{ uri: after }} onLoad={onAfterLoad} onError={failedOf(spec.after.src, "after")} resizeMode="contain" style={{ position: "absolute", width, height }} />
                 <Animated.View style={[{ position: "absolute", left: 0, top: 0, bottom: 0, overflow: "hidden" }, clipStyle]}>
-                  <Image source={{ uri: before }} resizeMode="contain" style={{ width, height }} />
+                  <Image source={{ uri: before }} onError={failedOf(spec.before.src, "before")} resizeMode="contain" style={{ width, height }} />
                 </Animated.View>
                 <Animated.View pointerEvents="none" style={[{ position: "absolute", top: 0, bottom: 0, width: KNOB, alignItems: "center", justifyContent: "center" }, handleStyle]}>
                   <View style={{ position: "absolute", top: 0, bottom: 0, width: DIVIDER, backgroundColor: colors.text }} />
