@@ -197,8 +197,15 @@ test('grips and dividers drag, reset, occlude and keep unknown keys', async ({
   expect((await box(shell, 'sidebar')).width).toBe(272)
 
   // The sash between the app pane and the tool pane: the browser view hides while it moves.
-  // The panes first settle beside the narrower sidebar.
+  // The panes first settle beside the narrower sidebar: the app pane moves left at once, and the
+  // tool pane takes its share of the freed room a layout pass later, ending 8px from the edge.
   await expect.poll(async () => (await box(shell, 'pane-p1')).x).toBe(272)
+  await expect
+    .poll(async () => {
+      const t = await box(shell, TOOL)
+      return Math.round(t.x + t.width)
+    })
+    .toBe(1280 - 8)
   const before = await box(shell, TOOL)
   const p = (await sash(shell)).box
   const px = p.x + p.width / 2

@@ -734,8 +734,10 @@ export class FakeRelayHost {
           })
         }
         this.studio.jobs.unshift(...[...jobs].reverse())
-        answer({ ok: true, job: jobs[0], jobs })
+        // As the real host: each job is broadcast as it is saved, then the answer goes out, so an
+        // agent's studio.open after studio.generate finds the job already in the page's view.
         for (const job of jobs) this.broadcast({ t: 'studio.job', job })
+        answer({ ok: true, job: jobs[0], jobs })
         const first = jobs[0]!
         setTimeout(() => {
           if (first.state !== 'queued') return
