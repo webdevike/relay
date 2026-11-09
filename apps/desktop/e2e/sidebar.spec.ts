@@ -32,6 +32,7 @@ test('nav rows and counts come from the fixture root', { tag: '@smoke' }, async 
   // Fixture runs have no Relay, so Dashboards holds only the built-in Overview.
   expect(ids).toEqual([
     'nav-assistants',
+    'nav-agents',
     'nav-chat',
     'nav-skills',
     'nav-canvas',
