@@ -14,6 +14,7 @@ describe('pages', () => {
   it('pages round trip through their keys', () => {
     const pages: PageKey[] = [
       'dashboard',
+      'agents',
       'workspace:alpha',
       'chat',
       'skills',

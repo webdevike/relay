@@ -12,6 +12,8 @@ export interface Item {
   /** Whose move it is, lower case (`isaac`, `eva`, `noah`). */
   move: string | null
   next: string | null
+  /** The ledger's `linear:` ticket URL. */
+  linear: string | null
   workspace: string | null
   pr: { repo: string; number: number; url: string } | null
   worktree: string | null
@@ -55,6 +57,7 @@ export function parseItem(stem: string, text: string, root: string, mtimeMs: num
     stage: field('stage'),
     move: field('move')?.toLowerCase() ?? null,
     next: field('next'),
+    linear: field('linear'),
     workspace: field('workspace'),
     pr: pr === null ? null : { ...pr, url: `https://github.com/${pr.repo}/pull/${pr.number}` },
     worktree: worktree === null ? null : joinPath(root, worktree),
@@ -63,7 +66,10 @@ export function parseItem(stem: string, text: string, root: string, mtimeMs: num
   }
 }
 
-/** Every ledger (`<key>.md`; companions like `ENG-1.pr.md` are not ledgers), cached by mtime and size. */
+/**
+ * Every ledger (`<key>.md`; companions like `ENG-1.pr.md` and the generated `_index.md` are not
+ * ledgers), cached by mtime and size.
+ */
 export class ItemReader {
   private readonly seen = new Map<string, { mtimeMs: number; size: number; item: Item }>()
 
@@ -83,7 +89,7 @@ export class ItemReader {
     for (const name of names) {
       if (!name.endsWith('.md')) continue
       const stem = name.slice(0, -3)
-      if (stem === '' || stem.includes('.')) continue
+      if (stem === '' || stem.includes('.') || stem.startsWith('_')) continue
       const file = path.join(dir, name)
       let st: fs.Stats
       try {

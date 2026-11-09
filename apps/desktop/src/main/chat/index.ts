@@ -20,6 +20,7 @@ import { registerSkillsIpc } from '../relay/skills-ipc'
 import { registerStudioIpc } from '../relay/studio-ipc'
 import { registerStatsIpc } from '../relay/stats-ipc'
 import type {
+  RelayActivity,
   RelayArtifacts,
   RelayCanvas,
   RelayFeatures,
@@ -63,6 +64,8 @@ export interface ChatHandles {
   sessionFile(id: string): string | null
   /** Relay's artifacts of every thread (the panel, the status reader, agent actions). */
   artifacts: RelaySource & RelayArtifacts
+  /** The host's activity list (helpers, sessions, harnesses, canvas rooms): the Agents board's runs. */
+  activity: RelayActivity
   /** Relay's live canvas rooms and the host's origin (canvas.live). */
   canvas: RelayCanvas
   /** Studio on the host (the Studio page, studio.* agent actions). */
@@ -273,6 +276,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
       return null
     },
     artifacts: relay,
+    activity: relay,
     canvas: relay,
     studio: relay,
     mini,

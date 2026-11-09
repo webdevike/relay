@@ -28,6 +28,13 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'IconMessageChatbot',
   },
   {
+    slug: 'agents',
+    page: 'agents',
+    title: 'Agents',
+    description: 'Every task your agents work on, by status.',
+    icon: 'IconLayoutKanban',
+  },
+  {
     slug: 'dashboard',
     page: 'dashboard',
     title: 'Dashboard',

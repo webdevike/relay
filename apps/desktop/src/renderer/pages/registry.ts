@@ -3,6 +3,7 @@ import type { Place } from '@evaos/shell-core'
 import { createElement } from 'react'
 import { AgentPage } from '../assistants/AgentPage'
 import { AssistantsHome } from '../assistants/AssistantsHome'
+import { AgentsBoardPage } from '../agents-board/AgentsBoardPage'
 import { BoardPage } from '../boards/BoardPage'
 import { CanvasPage } from '../canvas/CanvasPage'
 import { DashboardPage } from '../dashboard/DashboardPage'
@@ -26,6 +27,7 @@ export type PageRegistryKind =
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   assistants: AssistantsHome,
+  agents: AgentsBoardPage,
   dashboard: DashboardPage,
   jobs: JobsPage,
   skills: SkillsPage,

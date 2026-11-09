@@ -12,6 +12,7 @@ import { buildAppLink, parseAppLink, type AppLink } from '@evaos/chat-core/widge
 export const AGENT_FIXED_PAGES = [
   'dashboard',
   'assistants',
+  'agents',
   'chat',
   'skills',
   'jobs',
@@ -73,6 +74,15 @@ export const AGENT_PAGES: readonly AgentPageInfo[] = [
     title: 'Assistants',
     description: 'Every assistant (Nova, Astra, ...) with its thread.',
     link: 'relay://open/assistants',
+    read: PANES,
+    change: ['page.open'],
+  },
+  {
+    key: 'agents',
+    title: 'Agents',
+    description:
+      'A board of every task the agents work on (tickets, work items, helpers, sessions), in Queued, Working, Needs Isaac, In review, Merged/QA and Done.',
+    link: 'relay://open/agents',
     read: PANES,
     change: ['page.open'],
   },

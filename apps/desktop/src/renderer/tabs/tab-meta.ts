@@ -13,6 +13,7 @@ import { reviewFallbackTitle, reviewIconOf } from '../reviews/review-place'
 const TITLES: Record<string, string> = {
   dashboard: 'Dashboard',
   assistants: 'Assistants',
+  agents: 'Agents',
   chat: 'Chat',
   skills: 'Skills',
   'test-bench': 'Test Bench',
@@ -30,6 +31,7 @@ const TITLES: Record<string, string> = {
 const ICONS: Record<string, string> = {
   dashboard: 'IconLayoutDashboard',
   assistants: 'IconMessageChatbot',
+  agents: 'IconLayoutKanban',
   chat: 'IconMessage',
   skills: 'IconSparkles',
   'test-bench': 'IconListCheck',

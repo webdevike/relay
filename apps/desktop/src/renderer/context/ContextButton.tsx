@@ -24,23 +24,17 @@ import {
   IconRoute,
 } from '@tabler/icons-react'
 import { placeOf } from '@evaos/shell-core'
-import {
-  pinId,
-  type ContextAction,
-  type ContextOpen,
-  type ContextRow,
-  type ContextSnapshot,
-} from '@evaos/contract'
+import { pinId, type ContextAction, type ContextRow, type ContextSnapshot } from '@evaos/contract'
 import { EvaPopover } from '../overlay'
 import { openLink } from '../navigation/open-link'
 import { openInApp } from '../navigation/open-in-app'
 import { openTargetOf, type OpenTarget } from '../navigation/open-target'
-import { openSubagentTab, revealTool } from '../tiling/tiling-store'
+import { revealTool } from '../tiling/tiling-store'
 import { showPath } from '../files/files-store'
 import { chatStore } from '../chat/chat-store'
 import { frontChatPaneOf } from '../chat/front-chat'
 import { fillComposer } from '../chat/composer-fill'
-import { requestExperiment } from '../test-bench/bench-request'
+import { openContext } from './open-context'
 import {
   pinContext,
   setContextOpen,
@@ -93,32 +87,6 @@ function useNow(active: boolean): number {
     return () => window.clearInterval(t)
   }, [active])
   return now
-}
-
-/** Opens what a row points at; an in-app page goes where `target` says (default beside the chat). */
-function openRow(open: ContextOpen, target: OpenTarget): void {
-  switch (open.kind) {
-    case 'url':
-      openLink(open.url, { target })
-      break
-    case 'files':
-      revealTool('files')
-      void showPath(open.path, chatStore.getState().panes[frontChatPaneOf()]?.file || null)
-      break
-    case 'chat':
-      openInApp(placeOf('chat', { chat: open.file }), target)
-      break
-    case 'subagent':
-      openSubagentTab({ session: open.session, file: open.file, name: open.name })
-      break
-    case 'experiment':
-      requestExperiment(open.id)
-      openInApp(placeOf('test-bench'), target)
-      break
-    case 'jobs':
-      openInApp(placeOf('jobs'), target)
-      break
-  }
 }
 
 function Right({ row, now }: { row: ContextRow; now: number }) {
@@ -286,7 +254,7 @@ function Popover({ snap, now }: { snap: ContextSnapshot; now: number }) {
   const open = (row: ContextRow, target: OpenTarget): void => {
     if (!row.open) return
     close()
-    openRow(row.open, target)
+    openContext(row.open, target)
   }
   const hereLabel = snap.kind === 'assistant' ? 'This thread' : 'This chat'
   const f = snap.footer

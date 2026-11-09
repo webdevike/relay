@@ -1,0 +1,328 @@
+/*
+ * The Agents board (Linear's board view): status columns with counts, compact bordered cards on
+ * a quiet column wash, no shadows, no accent stripes; a hover only shifts the border. Spacing is
+ * Mantine's scale (scripts/lint-spacing.ts).
+ */
+.eva-ab {
+  --eva-ab-col-min: 232px;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.eva-ab-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm) var(--mantine-spacing-lg);
+  padding: var(--mantine-spacing-lg) var(--mantine-spacing-lg) var(--mantine-spacing-md);
+}
+.eva-ab-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-ab-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-ab-summary {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-ab-search {
+  width: 220px;
+}
+.eva-ab-select {
+  width: 160px;
+}
+.eva-ab-stale {
+  margin-left: var(--mantine-spacing-xs);
+}
+.eva-ab-stale label {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+
+.eva-ab-loading {
+  padding: var(--mantine-spacing-lg);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+
+/* One scroll for the whole board, both ways; the column heads stay on top. */
+.eva-ab-board {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-lg);
+}
+.eva-ab-cols,
+.eva-ab-lane {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(var(--eva-ab-col-min), 1fr));
+  gap: var(--mantine-spacing-sm);
+  min-width: min-content;
+}
+.eva-ab-pill {
+  flex: none;
+}
+.eva-ab-cols {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--eva-c-background);
+  padding-bottom: var(--mantine-spacing-xs);
+}
+.eva-ab-colhead {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-foreground);
+}
+.eva-ab-count {
+  font-weight: var(--eva-fw-regular);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status colors, paired with each column's own icon shape and name. */
+.eva-ab-colicon {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
+}
+[data-column='working'] > .eva-ab-colicon {
+  color: var(--mantine-color-yellow-filled);
+}
+[data-column='needs'] > .eva-ab-colicon {
+  color: var(--mantine-color-orange-filled);
+}
+[data-column='review'] > .eva-ab-colicon {
+  color: var(--mantine-color-green-filled);
+}
+[data-column='qa'] > .eva-ab-colicon {
+  color: var(--mantine-color-violet-filled);
+}
+[data-column='done'] > .eva-ab-colicon {
+  color: var(--mantine-color-blue-filled);
+}
+
+.eva-ab-group + .eva-ab-group {
+  margin-top: var(--mantine-spacing-md);
+}
+.eva-ab-lanehead {
+  position: sticky;
+  left: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+.eva-ab-lanetitle {
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-foreground);
+}
+.eva-ab-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  min-height: 48px;
+  padding: var(--mantine-spacing-xs);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+}
+
+.eva-ab-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-background);
+  cursor: pointer;
+  transition: border-color var(--eva-dur-fast) ease;
+}
+.eva-ab-card:hover {
+  border-color: var(--eva-c-muted-foreground);
+}
+.eva-ab-card[data-active] {
+  border-color: var(--eva-c-accent);
+}
+.eva-ab-card:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 1px;
+}
+.eva-ab-card[data-stale] .eva-ab-cardtitle {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-cardtop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-ab-key {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.eva-ab-age {
+  flex: none;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.eva-ab-cardtitle {
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.35;
+  color: var(--eva-c-foreground);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.eva-ab-cardmeta {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+}
+.eva-ab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.eva-ab-chip[data-pr='open'] svg {
+  color: var(--mantine-color-green-filled);
+}
+.eva-ab-chip[data-pr='merged'] svg {
+  color: var(--mantine-color-violet-filled);
+}
+.eva-ab-chip[data-pr='closed'] svg {
+  color: var(--mantine-color-red-filled);
+}
+.eva-ab-run {
+  min-width: 0;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+.eva-ab-runname {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Side panel. */
+.eva-ab-ptitle {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-ab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-lg);
+}
+.eva-ab-pcolumn {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-foreground);
+}
+.eva-ab-reason {
+  margin: var(--mantine-spacing-xs) 0 0;
+  font-size: var(--eva-fz-body);
+  line-height: 1.5;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-psection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-ab-phead {
+  margin: 0;
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-links {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-ab-link {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-xs) calc(var(--mantine-spacing-xs) * 0.5);
+  border-bottom: 1px solid var(--eva-c-border);
+  transition: background-color var(--eva-dur-fast) ease;
+}
+.eva-ab-link:hover {
+  background: var(--eva-hover);
+}
+.eva-ab-linkicon {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-linktext {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.eva-ab-linklabel {
+  font-size: var(--eva-fz-body);
+  color: var(--eva-c-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-ab-linksub {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-ab-facts {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  margin: 0;
+  font-size: var(--eva-fz-body);
+}
+.eva-ab-factlabel {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-factvalue {
+  margin: 0;
+  color: var(--eva-c-foreground);
+  overflow-wrap: anywhere;
+}

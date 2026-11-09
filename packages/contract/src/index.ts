@@ -39,6 +39,7 @@ import {
 import { updateEvents, updateInvoke } from './update'
 import { setupEvents, setupInvoke } from './setup'
 import { contextEvents, contextInvoke } from './context'
+import { agentsBoardEvents, agentsBoardInvoke } from './agents-board'
 import { computerEvents, computerInvoke } from './computer'
 import { notificationsEvents, notificationsInvoke } from './notifications'
 export * from './experiments'
@@ -69,6 +70,7 @@ export * from './agent-access'
 export * from './build'
 export * from './update'
 export * from './context'
+export * from './agents-board'
 export * from './setup'
 export * from './notifications'
 export * from './skills'
@@ -128,6 +130,7 @@ export const invokeContract = {
   ...deepLinkInvoke,
   ...updateInvoke,
   ...contextInvoke,
+  ...agentsBoardInvoke,
   ...setupInvoke,
   ...notificationsInvoke,
   ...computerInvoke,
@@ -160,6 +163,7 @@ export const eventContract = {
   ...deepLinkEvents,
   ...updateEvents,
   ...contextEvents,
+  ...agentsBoardEvents,
   ...reviewsEvents,
   ...setupEvents,
   ...notificationsEvents,

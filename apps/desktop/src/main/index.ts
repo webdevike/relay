@@ -30,7 +30,7 @@ import {
   registerWidgetSchemes,
 } from './chat/widget-protocols'
 import { registerUsageIpc } from './usage/usage-ipc'
-import { linearReader, localLinearIssue, registerLinearIpc } from './linear/linear-ipc'
+import { apiKey, linearReader, localLinearIssue, registerLinearIpc } from './linear/linear-ipc'
 import { registerReviewsIpc } from './reviews/reviews-ipc'
 import { hostLinearIssue, hostPrFacts } from './reviews/remote-reviews'
 import { createHostReviews } from './relay/host-reviews'
@@ -44,6 +44,8 @@ import { registerAgentControl } from './agent-control'
 import { reportFatal } from './fatal'
 import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
+import { registerAgentsBoard } from './agents-board'
+import { createLinearStates, hostBatch, localBatch } from './agents-board/linear-states'
 import { createPackagedUpdater, type PackagedUpdater } from './update/packaged'
 import { assistExecutable, startAssist } from './assist'
 import { registerMeetingsIpc } from './eva/meetings-ipc'
@@ -199,6 +201,19 @@ function bootstrap(): void {
         host ? hostLinearIssue(host) : localLinearIssue(ctx.env.evaRoot, ctx.env.configDir),
       )
       registerContext(ctx, queue, chat, experiments, run, prs)
+      // The Agents board: one Linear request for every ticket on it (a thin client asks its host).
+      registerAgentsBoard(
+        ctx,
+        chat,
+        prs,
+        createLinearStates(
+          !prs.allowed
+            ? null
+            : host
+              ? hostBatch(linear)
+              : localBatch(() => apiKey(ctx.env.evaRoot, ctx.env.configDir)),
+        ),
+      )
       // Linear and PR status polling is Isaac's eCard workflow; a starter home never starts it.
       if (ctx.env.profile === 'eva') {
         const stopStatuses = startStatusReader({
