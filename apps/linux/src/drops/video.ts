@@ -152,6 +152,23 @@ export async function probeShape(ffprobe: string, path: string): Promise<Omit<Vi
   return durationMs === undefined ? size : { durationMs, ...size };
 }
 
+/**
+ * The first video stream's codec name (`h264`, `hevc`, `vp9`, ...) of the file at `path`, from the
+ * ffprobe on PATH or in Homebrew's dirs; undefined when it can't tell. Never rejects. `share` asks
+ * before uploading so it can warn about a video the phone won't play (iPhone plays H.264 drops only).
+ */
+export async function probeVideoCodec(path: string): Promise<string | undefined> {
+  const ffprobe = findTool("ffprobe");
+  if (ffprobe === null) return undefined;
+  try {
+    const out = await runTool([ffprobe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "csv=p=0", path]);
+    const codec = new TextDecoder().decode(out).trim().split("\n")[0]?.trim() ?? "";
+    return codec === "" ? undefined : codec;
+  } catch {
+    return undefined;
+  }
+}
+
 async function grabPoster(ffmpeg: string, path: string, atSeconds: number): Promise<Uint8Array | undefined> {
   const jpeg = await runTool([
     ffmpeg,

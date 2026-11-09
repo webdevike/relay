@@ -336,6 +336,27 @@ device, and a `bookmark.set { thread, message, on }` that changes nothing re-sen
 only. Never a turn, a note or a push. The host lists `"bookmarks"` in `welcome.features`; a client on an
 older host keeps its bookmarks on the device and sends them up (once) when the feature appears.
 
+## Render failures (`render.failed`)
+
+Media in an agent's reply that a client can't show (a broken image, a video the iPhone won't play, a GLB pasted as
+markdown) is invisible to the agent, so Relay desktop and the phone report it: on a host whose `welcome.features`
+has `"render.report"`, each bubble+src fails once per app run as `render.failed { thread, message, kind, form, src,
+error, surface }` (fire and forget). `src/render-failures/service.ts` appends every unique report (thread, bubble,
+src, surface) to `$XDG_CONFIG_HOME/relay/render-failures.jsonl` (0600) as `{ at, thread, agent, message, kind, form,
+src, error, surface, device: { id, name }, delivered }`, `delivered` being `sent`, `batched`, `capped`, `no-owner`,
+`duplicate-message` or `stale`; the tail of the file is read back on start. The bubble's owner (an assistant's
+`say`, else the live session as a `[From Relay's background jobs] ` turn) gets one line per bubble, after a 2 s
+debounce that batches every failing src: `Render failed on <surface>: <kind> (<form>) <src> (<error>)[; ...] in
+your message <key>. Repost it in a working form: ...`. A bubble is told at most once, one older than 2 hours is only
+logged (a re-rendered old chat), and a thread gets at most 3 lines per 30 minutes, the third telling the agent to
+stop retrying, so a repost loop can't happen.
+
+`share` prints the embed that works for each type (`src/drops/embed.ts`): markdown `![caption](/drops/<id>/<token>)`
+for images, video and audio, an openui `Model(...)` block for `.glb`/`.gltf` (stored as `model/gltf-binary` /
+`model/gltf+json`), a link for anything else, with a warning for webm or non-H.264 video, ogg/opus audio and
+non-GLB 3D. The drop box keeps up to 1000 drops and 2 GB of blobs (`$RELAY_MAX_DROPS`, `$RELAY_MAX_DROPS_MB`) so old
+embeds keep loading; devices' Drops lists show the newest 100.
+
 ## Artifacts (`artifacts.get`, `artifacts.act`)
 
 What a thread holds, one row per thing however often it comes up: Linear tickets, GitHub PRs and issues,

@@ -281,7 +281,8 @@ export interface DropBlob {
 }
 
 /**
- * The shared drop box: history newest first, bounded to `MAX_DROPS`. Every mutation, from any
+ * The shared drop box: history newest first; `list()` is the newest `MAX_DROPS` (devices' Drops list),
+ * while older drops stay fetchable until the store evicts them. Every mutation, from any
  * caller (phone command, CLI, HTTP), reports through `onChange` so the server can fan it out.
  */
 export interface DropBox {

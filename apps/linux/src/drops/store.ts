@@ -4,6 +4,11 @@
 // in the index and in the `DropFile.path` handed to phones, so a leaked directory listing is not
 // enough to fetch bytes over HTTP. The index is read once at construction and rewritten (tmp +
 // rename) after every mutation, like the other file stores.
+//
+// The host keeps up to DEFAULT_KEPT_DROPS drops ($RELAY_MAX_DROPS) and DEFAULT_KEPT_BYTES of blobs
+// ($RELAY_MAX_DROPS_MB), evicting the oldest (and deleting its files) past whichever comes first:
+// agents embed `/drops/<id>/<token>` in chat replies, and a drop evicted early leaves an old
+// bubble's image broken. Devices only ever see the newest MAX_DROPS of them in their Drops list.
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -30,7 +35,30 @@ const DropRecord = z.object({
   poster: z.string().min(1).optional(),
 });
 type DropRecord = z.infer<typeof DropRecord>;
-const IndexFile = z.array(DropRecord).max(MAX_DROPS);
+const IndexFile = z.array(DropRecord);
+
+/** How many drops the host keeps by default; the Drops list still shows only the newest MAX_DROPS. */
+export const DEFAULT_KEPT_DROPS = 1000;
+/** Total blob bytes the host keeps by default. */
+export const DEFAULT_KEPT_BYTES = 2 * 1024 * 1024 * 1024;
+
+/** `$RELAY_MAX_DROPS` (a positive integer) and `$RELAY_MAX_DROPS_MB` (positive MiB of blobs), or the defaults. */
+export function dropLimitsFromEnv(env: Readonly<Record<string, string | undefined>> = process.env): { maxDrops: number; maxBytes: number } {
+  const count = env["RELAY_MAX_DROPS"];
+  const mb = env["RELAY_MAX_DROPS_MB"];
+  let maxDrops = DEFAULT_KEPT_DROPS;
+  let maxBytes = DEFAULT_KEPT_BYTES;
+  if (count !== undefined && count.trim() !== "") {
+    maxDrops = Number(count);
+    if (!Number.isInteger(maxDrops) || maxDrops <= 0) throw new Error(`RELAY_MAX_DROPS must be a positive integer, got ${count}`);
+  }
+  if (mb !== undefined && mb.trim() !== "") {
+    const value = Number(mb);
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`RELAY_MAX_DROPS_MB must be a positive number, got ${mb}`);
+    maxBytes = Math.floor(value * 1024 * 1024);
+  }
+  return { maxDrops, maxBytes };
+}
 
 export function defaultDropsDir(): string {
   const base = process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config");
@@ -46,6 +74,10 @@ export interface FileDropStoreOptions {
   readonly probeAudio?: AudioProbe;
   /** Moves an MP4-family drop's index to the front so the phone can stream it. */
   readonly faststart?: Faststart;
+  /** Most drops kept; the oldest past it is evicted. Default DEFAULT_KEPT_DROPS. */
+  readonly maxDrops?: number;
+  /** Most blob bytes kept; the oldest drops past it are evicted (never the one just added). Default DEFAULT_KEPT_BYTES. */
+  readonly maxBytes?: number;
 }
 
 export class FileDropStore implements DropBox {
@@ -55,6 +87,8 @@ export class FileDropStore implements DropBox {
   private readonly probe: VideoProbe;
   private readonly probeAudio: AudioProbe;
   private readonly faststart: Faststart;
+  private readonly maxDrops: number;
+  private readonly maxBytes: number;
 
   constructor(
     private readonly dir: string = defaultDropsDir(),
@@ -68,10 +102,13 @@ export class FileDropStore implements DropBox {
     this.probe = options.probe ?? ffmpegProbe(log);
     this.probeAudio = options.probeAudio ?? ffprobeDuration(log);
     this.faststart = options.faststart ?? ffmpegFaststart(log);
+    this.maxDrops = options.maxDrops ?? DEFAULT_KEPT_DROPS;
+    this.maxBytes = options.maxBytes ?? DEFAULT_KEPT_BYTES;
   }
 
+  /** The newest MAX_DROPS: what devices' Drops lists show (older kept drops still serve their blobs). */
   list(): readonly Drop[] {
-    return this.records.map((record) => record.drop);
+    return this.records.slice(0, MAX_DROPS).map((record) => record.drop);
   }
 
   putText(origin: DropOrigin, text: string): Drop {
@@ -198,13 +235,25 @@ export class FileDropStore implements DropBox {
     };
   }
 
-  /** Prepends `record`, evicts past `MAX_DROPS`, persists, then reports evictions and the add. */
+  /**
+   * Prepends `record`, evicts the oldest past `maxDrops` drops or `maxBytes` of blobs, persists, then
+   * reports evictions and the add. A kept drop that falls out of the newest MAX_DROPS is reported
+   * removed too, so devices' lists stay at MAX_DROPS; its blob keeps serving.
+   */
   private add(record: DropRecord): void {
     this.records.unshift(record);
-    const evicted = this.records.splice(MAX_DROPS);
+    let keep = Math.min(this.records.length, this.maxDrops);
+    let bytes = this.records.slice(0, keep).reduce((sum, kept) => sum + (kept.drop.file?.size ?? 0), 0);
+    while (keep > 1 && bytes > this.maxBytes) {
+      keep -= 1;
+      bytes -= this.records[keep]?.drop.file?.size ?? 0;
+    }
+    // Devices showed the previous newest MAX_DROPS (now at 1..MAX_DROPS); whatever of those is no longer shown leaves their lists.
+    const unlisted = this.records.slice(Math.min(keep, MAX_DROPS), MAX_DROPS + 1);
+    const evicted = this.records.splice(keep);
     for (const old of evicted) this.unlink(old);
     this.persist();
-    for (const old of evicted) this.onChange?.({ kind: "removed", id: old.drop.id });
+    for (const old of unlisted) this.onChange?.({ kind: "removed", id: old.drop.id });
     this.onChange?.({ kind: "added", drop: record.drop });
   }
 

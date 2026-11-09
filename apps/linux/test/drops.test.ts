@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_DROPS } from "@relay/protocol";
 import { afterEach, describe, expect, it } from "vitest";
-import { FileDropStore } from "../src/drops/store";
+import { DEFAULT_KEPT_BYTES, DEFAULT_KEPT_DROPS, dropLimitsFromEnv, FileDropStore } from "../src/drops/store";
 import type { DropChange } from "../src/seams";
 
 const dirs: string[] = [];
@@ -77,11 +77,12 @@ describe("FileDropStore", () => {
     expect(file.kind).toBe("file");
   });
 
-  it("evicts the oldest drop past MAX_DROPS and deletes its blob", () => {
+  it("lists only the newest MAX_DROPS but keeps older drops serving", () => {
     const dir = freshDir();
     const store = new FileDropStore(dir);
     const oldest = store.putBlob("host", { name: "old.bin", mimeType: "application/octet-stream", bytes: new Uint8Array([1]) });
-    const oldestPath = store.open(oldest.id, oldest.file?.path.split("/")[3] ?? "")?.path ?? "";
+    const token = oldest.file?.path.split("/")[3] ?? "";
+    const oldestPath = store.open(oldest.id, token)?.path ?? "";
     expect(existsSync(oldestPath)).toBe(true);
 
     for (let i = 0; i < MAX_DROPS - 1; i += 1) store.putText("host", `drop ${i}`);
@@ -96,8 +97,49 @@ describe("FileDropStore", () => {
     expect(store.list()).toHaveLength(MAX_DROPS);
     expect(store.list()[0]?.id).toBe(newest.id);
     expect(store.list().some((drop) => drop.id === oldest.id)).toBe(false);
+    // Out of the devices' lists, but an old chat bubble's embed still loads.
+    expect(removed).toEqual([oldest.id]);
+    expect(store.open(oldest.id, token)?.path).toBe(oldestPath);
+    expect(existsSync(oldestPath)).toBe(true);
+    // And it survives a restart.
+    expect(new FileDropStore(dir).open(oldest.id, token)).not.toBeNull();
+  });
+
+  it("evicts the oldest drop past maxDrops and deletes its blob", () => {
+    const store = new FileDropStore(freshDir(), { maxDrops: 3 });
+    const oldest = store.putBlob("host", { name: "old.bin", mimeType: "application/octet-stream", bytes: new Uint8Array([1]) });
+    const oldestPath = store.open(oldest.id, oldest.file?.path.split("/")[3] ?? "")?.path ?? "";
+    store.putText("host", "a");
+    store.putText("host", "b");
+    const removed: string[] = [];
+    store.onChange = (change: DropChange): void => {
+      if (change.kind === "removed") removed.push(change.id);
+    };
+    store.putText("host", "c");
+    expect(store.list()).toHaveLength(3);
     expect(existsSync(oldestPath)).toBe(false);
     expect(removed).toEqual([oldest.id]);
+  });
+
+  it("evicts the oldest drops past maxBytes, never the one just added", () => {
+    const store = new FileDropStore(freshDir(), { maxBytes: 10 });
+    const blob = (name: string, size: number) => store.putBlob("host", { name, mimeType: "application/octet-stream", bytes: new Uint8Array(size).fill(1) });
+    const a = blob("a", 4);
+    const b = blob("b", 4);
+    expect(store.list().map((drop) => drop.id)).toEqual([b.id, a.id]);
+    const c = blob("c", 4);
+    expect(store.list().map((drop) => drop.id)).toEqual([c.id, b.id]);
+    const big = blob("big", 20);
+    expect(store.list().map((drop) => drop.id)).toEqual([big.id]);
+  });
+
+  it("reads its limits from $RELAY_MAX_DROPS and $RELAY_MAX_DROPS_MB", () => {
+    expect(dropLimitsFromEnv({})).toEqual({ maxDrops: DEFAULT_KEPT_DROPS, maxBytes: DEFAULT_KEPT_BYTES });
+    expect(DEFAULT_KEPT_DROPS).toBe(1000);
+    expect(DEFAULT_KEPT_BYTES).toBe(2 * 1024 * 1024 * 1024);
+    expect(dropLimitsFromEnv({ RELAY_MAX_DROPS: "50", RELAY_MAX_DROPS_MB: "512" })).toEqual({ maxDrops: 50, maxBytes: 512 * 1024 * 1024 });
+    expect(() => dropLimitsFromEnv({ RELAY_MAX_DROPS: "1.5" })).toThrow(/RELAY_MAX_DROPS/);
+    expect(() => dropLimitsFromEnv({ RELAY_MAX_DROPS_MB: "lots" })).toThrow(/RELAY_MAX_DROPS_MB/);
   });
 
   it("removes drops with their blob and reports unknown ids", () => {

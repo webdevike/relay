@@ -12,6 +12,7 @@ import {
   ESCALATOR_DEVICE_ID,
   FILES_PRESENCE_FEATURE,
   MEETINGS_FEATURE,
+  RENDER_REPORT_FEATURE,
   PROTOCOL_VERSION,
   defaultTabs,
   parseClientMessage,
@@ -38,6 +39,7 @@ import type { ReactionRelaying } from "./reactions/service";
 import type { BookmarkRelaying } from "./bookmarks/service";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
+import type { RenderFailureReporting } from "./render-failures/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
@@ -128,6 +130,8 @@ export interface SessionDeps {
   readonly meetings: MeetingsRelaying | null;
   /** null when the host runs no remote control; `control.*` frames are then ignored and `welcome.features` leaves it out. */
   readonly control: ControlRelaying | null;
+  /** Where `render.failed` reports go; absent or null drops them and leaves the feature out of `welcome.features`. */
+  readonly renderFailures?: RenderFailureReporting | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -674,6 +678,12 @@ export class ClientSession {
             thread: message.thread,
             reactions: reactions?.snapshot(message.thread) ?? {},
           });
+        break;
+      }
+      case "render.failed": {
+        // Fire and forget: the service logs it and tells the bubble's agent; the device gets no answer.
+        const { thread, message: key, kind, form, src, error, surface } = message;
+        this.deps.renderFailures?.report({ thread, message: key, kind, form, src, error, surface }, { id: deviceId, name: this.deviceName ?? deviceId });
         break;
       }
       case "artifacts.get":
@@ -1251,6 +1261,7 @@ export class ClientSession {
       ...(this.deps.control === null ? [] : [CONTROL_FEATURE]),
       ...(this.deps.bookmarks === null ? [] : [BOOKMARKS_FEATURE]),
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
+      ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
     ];
     this.sink.send({
       t: "welcome",

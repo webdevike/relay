@@ -55,10 +55,11 @@ import { readThreadMemory } from "./live/brief";
 import { openAiKey, OpenAiLive } from "./live/openai";
 import { LiveService } from "./live/service";
 import { FileDeviceStore } from "./device-store";
-import { isAudioMime, playsOnIphone } from "./drops/audio";
-import { FileDropStore } from "./drops/store";
+import { embedFor } from "./drops/embed";
+import { dropLimitsFromEnv, FileDropStore } from "./drops/store";
 import {
   ffmpegProbe,
+  probeVideoCodec,
   isVideoMime,
   maxVideoBytesFromEnv,
   videoMimeOf,
@@ -78,6 +79,7 @@ import {
   defaultCatchUpStatePath,
 } from "./catchup/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService, replyReactionsFromEnv } from "./reactions/service";
+import { defaultRenderFailuresPath, RenderFailureService } from "./render-failures/service";
 import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { ActivityService } from "./activity/service";
@@ -180,7 +182,10 @@ const USAGE = `relay-linux <command>
                                    goes as a file, anything else as text; \`share -\` or no
                                    arguments reads stdin. A video (mp4/webm/mov) is capped at
                                    25 MB ($RELAY_MAX_VIDEO_MB on the host) and gets a poster;
-                                   blobs also print a ready-to-paste markdown embed
+                                   blobs also print what to paste: markdown \`![..](..)\` for
+                                   image/video/audio, an openui Model() block for .glb/.gltf,
+                                   a link for anything else, with warnings for formats the
+                                   iPhone can't play (webm, non-H.264 video, ogg/opus)
   board list                       list the running host's dashboards
   board get <slug>                 print one dashboard
   board put <slug> [< json]        create/replace from {title, workspace?, icon?, widgets?}
@@ -374,6 +379,7 @@ function serve(
   const pushTokens = new FilePushTokenStore();
   const drops = new FileDropStore(undefined, {
     maxVideoBytes: maxVideoBytesFromEnv(),
+    ...dropLimitsFromEnv(),
     probe: ffmpegProbe(log),
   });
   // Live widgets' read-only data; `assistant` is only read once a query arrives, long after it is initialised.
@@ -604,6 +610,14 @@ function serve(
         await target.turn(text);
       },
     },
+  });
+  const renderFailures = new RenderFailureService({
+    path: defaultRenderFailuresPath(),
+    assistant: (id) => assistant?.thread(id),
+    sessions: () => agents.sessions,
+    reply: (sessionId, text) => agents.reply(sessionId, text, true),
+    clock: systemClock,
+    log,
   });
   const bookmarks = new BookmarkService({
     path: defaultBookmarksPath(),
@@ -892,6 +906,7 @@ function serve(
       files,
       meetings,
       control,
+      renderFailures,
       hostToken,
       skills,
       canvasPage: () => CANVAS_PAGE,
@@ -1294,6 +1309,8 @@ function hostFetch(url: string, init: RequestInit = {}): Promise<Response> {
 async function share(positionals: string[]): Promise<void> {
   const url = `${hostUrl()}/drops`;
   let response: Response;
+  // The video codec, probed here on the original so `share` can warn about a video the iPhone won't play.
+  let codec: string | undefined;
   const single = positionals.length === 1 ? positionals[0] : undefined;
   if (single !== undefined && single !== "-" && isFile(single)) {
     const file = Bun.file(single);
@@ -1307,6 +1324,7 @@ async function share(positionals: string[]): Promise<void> {
       console.error(new VideoTooLarge(name, file.size, maxVideo).message);
       process.exit(1);
     }
+    if (isVideoMime(videoMimeOf(name, type))) codec = await probeVideoCodec(single);
     response = await hostFetch(url, {
       method: "POST",
       headers: { "content-type": type, "x-drop-name": name },
@@ -1330,11 +1348,13 @@ async function share(positionals: string[]): Promise<void> {
     console.log(`shared ${drop.kind} ${drop.id}`);
     return;
   }
-  // Blob drops also print their fetch path so an agent can reference it (e.g. a ```ui compare
-  // widget), then the markdown that shows it inline: the phone plays a video embedded this way.
-  const video = isVideoMime(drop.file.mimeType);
-  const audio = isAudioMime(drop.file.mimeType);
-  console.log(`shared ${video ? "video" : audio ? "audio" : drop.kind} ${drop.id} ${drop.file.path}`);
+  // Blob drops also print their fetch path so an agent can reference it (e.g. a Compare widget),
+  // then exactly what to paste to show it inline for its type (embedFor): markdown for images,
+  // video and audio, an openui Model block for GLB/GLTF, a plain link for anything else.
+  const embed = embedFor({ name: drop.file.name, mimeType: drop.file.mimeType, path: drop.file.path, ...(codec === undefined ? {} : { codec }) });
+  const video = embed.kind === "video";
+  const audio = embed.kind === "audio";
+  console.log(`shared ${embed.kind} ${drop.id} ${drop.file.path}`);
   const { durationMs, width, height, poster } = drop.file;
   if (video) {
     const facts = [
@@ -1352,10 +1372,9 @@ async function share(positionals: string[]): Promise<void> {
       drop.file.mimeType,
     ];
     console.log(`audio ${facts.join(" · ")}`);
-    if (!playsOnIphone(drop.file.name)) console.error("warning: iPhone cannot play this format; convert to m4a or mp3 first (ffmpeg -i in.ogg -c:a aac out.m4a)");
   }
-  const caption = drop.file.name.replace(/\.[^.]+$/, "").replace(/[[\]]/g, "");
-  console.log(`embed ![${caption}](${drop.file.path})`);
+  for (const line of embed.lines) console.log(line);
+  for (const line of embed.warnings) console.error(line);
 }
 
 /** `assistant say --agent <id> <text>`: the running host hands the text to agent `id` as a turn from the host's jobs. */

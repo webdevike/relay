@@ -36,6 +36,7 @@ import type { UsageService } from "./usage/service";
 import type { StatsService } from "./stats/service";
 import type { CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
+import type { RenderFailureReporting } from "./render-failures/service";
 import type { BookmarkRelaying } from "./bookmarks/service";
 import { handleAgentReaction } from "./reactions/http";
 import type { ArtifactRelaying } from "./artifacts/service";
@@ -45,6 +46,7 @@ import { guardWrite, type WriteBody } from "./http-guard";
 import { serveBlob } from "./drops/serve";
 import { audioMimeOf, isAudioMime } from "./drops/audio";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
+import { modelMimeOf } from "./drops/model";
 import { PairingCoordinator } from "./pairing";
 import type { FilePresence } from "./files/presence";
 import { handleStudioRequest } from "./studio/http";
@@ -145,6 +147,8 @@ export interface ServerDeps {
   readonly meetings: MeetingsRelaying | null;
   /** Remote control of the connected Relay Desktops; null disables `/control/*` and leaves the feature out of `welcome`. */
   readonly control: ControlRelay | null;
+  /** Where devices' `render.failed` reports go; absent or null leaves RENDER_REPORT_FEATURE out of `welcome.features`. */
+  readonly renderFailures?: RenderFailureReporting | null;
   /** The bearer token every state-changing loopback route requires (`controlToken` in serve.json, 0600). */
   readonly hostToken: string;
   /** The Skills page's catalog and live skill rooms; absent or null disables `/skills`. */
@@ -705,7 +709,7 @@ export class RelayServer {
           return Response.json(drops.putText("host", text));
         }
         const name = basename(request.headers.get("x-drop-name") ?? "") || "file";
-        const mimeType = audioMimeOf(name, videoMimeOf(name, type.split(";")[0] ?? type));
+        const mimeType = modelMimeOf(name, audioMimeOf(name, videoMimeOf(name, type.split(";")[0] ?? type)));
         const bytes = new Uint8Array(await request.arrayBuffer());
         const blob = { name, mimeType, bytes };
         return Response.json(
@@ -837,6 +841,7 @@ export class RelayServer {
         files: this.deps.files,
         meetings: this.deps.meetings,
         control: this.deps.control,
+        renderFailures: this.deps.renderFailures ?? null,
       },
       (closed) => {
         const reason = closed.closeReason;

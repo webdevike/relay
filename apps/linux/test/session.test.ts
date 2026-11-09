@@ -2,6 +2,8 @@ import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   defaultTabs,
+  RENDER_REPORT_FEATURE,
+  type RenderFailure,
   type AgentApproval,
   type AgentAsk,
   type AgentAskAnswer,
@@ -32,6 +34,7 @@ import type { StatsService } from "../src/stats/service";
 import type { CatchUpDeck } from "../src/catchup/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { BookmarkRelaying } from "../src/bookmarks/service";
+import type { RenderFailureReporting } from "../src/render-failures/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
 import type { ActivityRelaying } from "../src/activity/service";
 import type { QueryRelaying } from "../src/query/service";
@@ -183,6 +186,7 @@ interface HarnessOptions {
   files?: FilePresenceRelaying;
   meetings?: MeetingsRelaying;
   control?: ControlRelaying;
+  renderFailures?: RenderFailureReporting;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -245,6 +249,7 @@ function harness(options: HarnessOptions = {}): Harness {
     files: options.files ?? null,
     meetings: options.meetings ?? null,
     control: options.control ?? null,
+    renderFailures: options.renderFailures ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1228,6 +1233,33 @@ describe("bookmarks", () => {
     expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({ features: expect.arrayContaining(["bookmarks"]) });
     bare.session.receive({ t: "bookmark.set", thread: "session:s1", message: "user@1", on: true });
     expect(bare.sink.last()).toEqual({ t: "bookmarks.snapshot", thread: "session:s1", messages: [] });
+  });
+});
+
+describe("render failures", () => {
+  it("offers render.report and hands each render.failed frame to the service with this device, answering nothing", () => {
+    const reports: [RenderFailure, { id: string; name: string }][] = [];
+    const h = harness({ renderFailures: { report: (failure, device) => reports.push([failure, device]) } });
+    pair(h);
+    expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({ features: expect.arrayContaining([RENDER_REPORT_FEATURE]) });
+    const sent = h.sink.sent.length;
+    const failure: RenderFailure = {
+      thread: "assistant:astra",
+      message: "assistant@5",
+      kind: "model",
+      form: "markdown",
+      src: "/drops/abc/tok",
+      error: "served model/gltf-binary: markdown can't show a 3D model",
+      surface: "phone",
+    };
+    h.session.receive({ t: "render.failed", ...failure });
+    expect(reports).toEqual([[failure, { id: "phone-1", name: "Isaac's iPhone" }]]);
+    expect(h.sink.sent.length).toBe(sent);
+    const bare = harness();
+    pair(bare);
+    expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({ features: expect.arrayContaining([RENDER_REPORT_FEATURE]) });
+    bare.session.receive({ t: "render.failed", ...failure });
+    expect(bare.closed).toEqual([]);
   });
 });
 
