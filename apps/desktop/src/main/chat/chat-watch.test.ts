@@ -73,7 +73,9 @@ describe('ChatWatch', () => {
     fs.writeFileSync(file, '{}\n')
     const old = new Date(Date.now() - 3 * 3600_000)
     fs.utimesSync(file, old, old)
-    watch = new ChatWatch({ dirs: [dir] })
+    // FSEvents may stay silent for an append through an open descriptor; the sweep is the guarantee
+    // for a file that is not recently active, so the budget holds against a sweep shorter than it.
+    watch = new ChatWatch({ dirs: [dir], sweepMs: 200 })
     const got = collect(watch)
     watch.start()
     await ready()
