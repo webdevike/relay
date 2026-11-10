@@ -43,19 +43,22 @@ const isObject = (v: unknown): v is Record<string, unknown> =>
 
 const sidebarClamp = (n: number) => Math.min(Math.max(n, SIDEBAR_MIN), SIDEBAR_MAX)
 
+/** What a missing layout.json reads as. */
+export const LAYOUT_DEFAULTS: LayoutRead = {
+  sidebarWidth: SIDEBAR_DEFAULT,
+  tabs: null,
+  dock: null,
+  workspaces: null,
+  tiling: null,
+  legacyPanel: null,
+  sidebar: null,
+  ui: null,
+  malformed: false,
+}
+
 /** Parses layout.json text. null means the file is missing. Never throws. */
 export function readLayoutText(text: string | null): LayoutRead {
-  const defaults: LayoutRead = {
-    sidebarWidth: SIDEBAR_DEFAULT,
-    tabs: null,
-    dock: null,
-    workspaces: null,
-    tiling: null,
-    legacyPanel: null,
-    sidebar: null,
-    ui: null,
-    malformed: false,
-  }
+  const defaults = { ...LAYOUT_DEFAULTS }
   if (text === null) return defaults
   let body: unknown
   try {

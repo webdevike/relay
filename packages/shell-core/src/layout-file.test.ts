@@ -1,16 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { mergeLayout, readLayoutText, serializeLayout } from './layout-file'
+import { LAYOUT_DEFAULTS, mergeLayout, readLayoutText, serializeLayout } from './layout-file'
 
-const defaults = {
-  sidebarWidth: 272,
-  tabs: null,
-  dock: null,
-  tiling: null,
-  workspaces: null,
-  legacyPanel: { width: 420, tool: 'files' },
-  sidebar: null,
-  malformed: false,
-}
+const defaults = { ...LAYOUT_DEFAULTS, legacyPanel: { width: 420, tool: 'files' } }
 
 describe('readLayoutText', () => {
   it('missing file gives defaults silently, with nothing to migrate', () => {
