@@ -38,6 +38,7 @@ test('nav rows and counts come from the fixture root', { tag: '@smoke' }, async 
     'nav-canvas',
     'nav-rooms',
     'nav-studio',
+    'nav-feed',
     'nav-reviews',
     'nav-test-bench',
     'nav-jobs',
