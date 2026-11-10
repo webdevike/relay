@@ -9,9 +9,9 @@ import { useEffect, useRef } from "react";
 import { requireOptionalNativeModule, type NativeModule } from "expo-modules-core";
 import type { PendingImage } from "@/dictation/machine";
 
-interface PasteImageEvents {
+type PasteImageEvents = {
   pasteImage: (event: { data: string; width: number; height: number }) => void;
-}
+};
 
 declare class PasteImageNative extends NativeModule<PasteImageEvents> {
   setActive(active: boolean): void;

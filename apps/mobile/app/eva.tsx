@@ -5,7 +5,7 @@
  * (`useAssistantStore().threads[agent]` mirrors its snapshot while this screen is showing); this
  * screen renders it as a chat, sends a turn with `assistant.turn`, and
  * echoes the sent words and pictures until the host's next snapshot carries them. The pill's "+"
- * opens a sheet to pick library photos or paste a clipboard image; queued images show as
+ * opens a sheet for the camera or library photos, and the field's own Paste attaches a copied image; queued images show as
  * thumbnails above the field. Bubbles stack their images above the text, tap to open. The newest
  * settled reply may carry tap-to-answer reply chips (`lib/replyChips.ts`); a tap sends that label as
  * a turn, as the composer does, and leaves the draft alone. While the thread's omp session is
