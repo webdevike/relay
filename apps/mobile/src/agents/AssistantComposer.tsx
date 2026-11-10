@@ -5,8 +5,9 @@
  * assistant/model chip, the mic and call under it; call becomes send once there is something to send.
  *
  * The mic: a tap dictates into the field (x drops it, stop keeps the words to edit, the accent
- * arrow sends); a hold is walkie-talkie, sent when the finger lifts, with the edge glow
- * (`ListeningOrb`, mounted by the screen through `onWalkie`). Holding the pill's open middle talks
+ * arrow sends); a hold is walkie-talkie, sent when the finger lifts: the pill shows the live level
+ * and the screen's edge glows (`ListeningOrb`, mounted by the screen through `onWalkie`), with no
+ * transcript bubble. Holding the pill's open middle talks
  * the same way; tapping it starts typing.
  */
 import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
@@ -67,7 +68,7 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
   const button = dark ? BUTTON_DARK : colors.surfaceRaised;
   // The round call button: white on dark, near-black on light.
   const call = dark ? { fill: "#FFFFFF", glyph: "#111111" } : { fill: "#1B1C1E", glyph: "#FFFFFF" };
-  const { phase, transcript } = useDictation();
+  const { phase } = useDictation();
   useMicLevel(phase);
   // Leaving the thread mid-dictation aborts the recognizer (the actor outlives this screen).
   useEffect(
@@ -169,13 +170,6 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
   const dictating = tap.dictating;
   return (
     <View>
-      {talking && (
-        <Animated.View entering={FadeIn.duration(motion.duration.fast).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(motion.duration.fast)} style={[styles.heard, { backgroundColor: dark ? "#262626" : colors.surface }]}>
-          <Text variant="body" color={transcript === "" ? "textMuted" : "text"} numberOfLines={4}>
-            {transcript === "" ? "Listening" : transcript}
-          </Text>
-        </Animated.View>
-      )}
       <ComposerPill
         expanded={expanded}
         header={
@@ -248,5 +242,4 @@ const styles = StyleSheet.create({
   input: { fontSize: 17, lineHeight: COMPOSER_FIELD.line, paddingHorizontal: spacing.xs, paddingTop: COMPOSER_FIELD.padTop, paddingBottom: COMPOSER_FIELD.padBottom, minHeight: COMPOSER_FIELD.min, maxHeight: COMPOSER_FIELD.max, textAlignVertical: "top" },
   chip: { flexShrink: 1, minWidth: 0 },
   tray: { paddingBottom: spacing.sm },
-  heard: { marginBottom: spacing.sm, marginHorizontal: spacing.xs, borderRadius: 18, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
 });
