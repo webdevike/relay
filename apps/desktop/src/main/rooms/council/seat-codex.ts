@@ -16,6 +16,9 @@ import type {
 } from './seat'
 import { abortError, isImagePath, keepGenerated, StderrTail, stopChild } from './seat-util'
 
+/** How long after codex exits its pipes may stay open before the turn settles anyway. */
+const EXIT_GRACE_MS = 2000
+
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
@@ -231,27 +234,42 @@ export async function startCodexSeat(spec: SeatSpec, o: CodexSeatOptions): Promi
       input.signal?.removeEventListener('abort', onAbort)
       reject(e)
     })
-    child.once('close', (code, signal) => {
-      framer.end()
-      input.signal?.removeEventListener('abort', onAbort)
-      if (running === child) running = null
-      if (aborted) return reject(aborted)
-      if (stopped) return reject(abortError('seat stopped'))
-      if (failure !== null) return reject(new Error(failure))
-      if (code !== 0)
-        return reject(new Error(stderr.text(`Codex ended (${signal ?? `exit ${code}`})`)))
-      const dir = generatedDir()
-      const fresh =
-        dir === null
-          ? []
-          : [...imagesIn(dir)].filter((n) => !before.has(n)).map((n) => path.join(dir, n))
-      resolve({
-        text,
-        usage,
-        images: keepGenerated([...new Set([...named, ...fresh])], spec.cwd),
-        toolCalls,
-        ms: Date.now() - t0,
-      })
+    let ended = false
+    const end = (code: number | null, signal: NodeJS.Signals | null, via: string): void => {
+      if (ended) return
+      ended = true
+      try {
+        framer.end()
+        input.signal?.removeEventListener('abort', onAbort)
+        if (running === child) running = null
+        o.log?.(`codex seat ${spec.seatId}: turn ended on ${via} (${signal ?? `exit ${code}`})`)
+        if (aborted) return reject(aborted)
+        if (stopped) return reject(abortError('seat stopped'))
+        if (failure !== null) return reject(new Error(failure))
+        if (code !== 0)
+          return reject(new Error(stderr.text(`Codex ended (${signal ?? `exit ${code}`})`)))
+        const dir = generatedDir()
+        const fresh =
+          dir === null
+            ? []
+            : [...imagesIn(dir)].filter((n) => !before.has(n)).map((n) => path.join(dir, n))
+        resolve({
+          text,
+          usage,
+          images: keepGenerated([...new Set([...named, ...fresh])], spec.cwd),
+          toolCalls,
+          ms: Date.now() - t0,
+        })
+      } catch (e) {
+        o.log?.(`codex seat ${spec.seatId}: ending the turn failed: ${String(e)}`)
+        reject(e instanceof Error ? e : new Error(String(e)))
+      }
+    }
+    child.once('close', (code, signal) => end(code, signal, 'close'))
+    // A process codex left behind can hold stdout open after codex exits, and then 'close'
+    // never comes: settle from 'exit' once the pipes have had a moment to drain.
+    child.once('exit', (code, signal) => {
+      setTimeout(() => end(code, signal, 'exit'), EXIT_GRACE_MS).unref()
     })
     return promise
   }

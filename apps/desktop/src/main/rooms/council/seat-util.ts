@@ -1,4 +1,4 @@
-import type { ChildProcess } from 'node:child_process'
+import { execFileSync, type ChildProcess } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { STOP_STEP_MS } from '../runner'
@@ -22,12 +22,14 @@ export function imageMime(p: string): string {
 
 /**
  * Copies images a seat generated (wherever its harness saved them) into
- * `<cwd>/renders/generated/`, keeping names unique; answers the copies' absolute paths.
+ * `<cwd>/renders/generated/`, keeping names unique; answers the copies' absolute paths. The
+ * copy runs through mkdir and cp: seat trees sit under the Eva root, where the app's write trap
+ * throws on in-process writes.
  */
 export function keepGenerated(files: readonly string[], cwd: string): string[] {
   if (files.length === 0) return []
   const dir = path.join(cwd, GENERATED_DIR)
-  fs.mkdirSync(dir, { recursive: true })
+  execFileSync('/bin/mkdir', ['-p', dir])
   const out: string[] = []
   for (const file of files) {
     if (path.dirname(path.resolve(file)) === dir) {
@@ -39,7 +41,7 @@ export function keepGenerated(files: readonly string[], cwd: string): string[] {
     let dest = path.join(dir, `${stem}${ext}`)
     for (let n = 2; fs.existsSync(dest); n++) dest = path.join(dir, `${stem}-${n}${ext}`)
     try {
-      fs.copyFileSync(file, dest)
+      execFileSync('/bin/cp', [file, dest])
       out.push(dest)
     } catch {
       /* gone already: nothing to keep */
