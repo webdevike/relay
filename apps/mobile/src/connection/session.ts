@@ -269,6 +269,10 @@ export class SessionMachine {
       case "studio.library":
       case "studio.segments":
       case "studio.res":
+      case "rooms.state":
+      case "rooms.room":
+      case "rooms.res":
+      case "rooms.cmd":
       case "reviews.res":
       case "reviews.queue":
       case "reviews.astra":

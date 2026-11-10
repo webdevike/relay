@@ -3,7 +3,9 @@ import { IconMoodSmile, IconPin } from '@tabler/icons-react'
 import { useState } from 'react'
 import { Markdown } from '../chat/markdown/Markdown'
 import { EvaPopover } from '../overlay'
-import { ROOM_JUDGE, ROOM_SYSTEM } from '@evaos/contract'
+import { ROOM_JUDGE, ROOM_SYSTEM, type RoomCouncil } from '@evaos/contract'
+import { CouncilCard } from './CouncilCards'
+import { PartPill, RenderStrip, RolePill, modelLine } from './council-bits'
 import { mentionMarkdown } from './mentions'
 import { ISAAC_PERSON, JUDGE_PERSON, SYSTEM_PERSON } from './roster'
 import { toggleReaction } from './rooms-store'
@@ -64,10 +66,20 @@ export interface RoomMessageRowProps {
   agents: readonly RoomAgent[]
   /** A later message of the same author within the group window: no avatar or name header. */
   continuation: boolean
+  /** Present in council rooms: cards need its parts. */
+  council?: RoomCouncil | undefined
 }
 
-export function RoomMessageRow({ roomId, msg, agents, continuation }: RoomMessageRowProps) {
+export function RoomMessageRow({
+  roomId,
+  msg,
+  agents,
+  continuation,
+  council,
+}: RoomMessageRowProps) {
   const author = authorOf(agents, msg.author)
+  const seat = agents.find((a) => a.id === msg.author)?.seat
+  const part = msg.part ?? seat?.part
   const [picker, setPicker] = useState(false)
   const summary = msg.kind === 'summary'
   const react = (emoji: string): void => {
@@ -93,9 +105,23 @@ export function RoomMessageRow({ roomId, msg, agents, continuation }: RoomMessag
         {continuation ? null : (
           <div className="eva-room-row-head">
             <span className="eva-room-row-name">{author.name}</span>
-            {author.title ? <span className="eva-room-row-title">{author.title}</span> : null}
-            {author.role ? <span className="eva-room-row-role">{author.role}</span> : null}
+            {author.title && !seat ? (
+              <span className="eva-room-row-title">{author.title}</span>
+            ) : null}
+            {seat ? (
+              <>
+                <RolePill role={seat.role} />
+                {part ? <PartPill part={part} branch={seat.branch} /> : null}
+              </>
+            ) : author.role ? (
+              <span className="eva-room-row-role">{author.role}</span>
+            ) : null}
             <span className="eva-room-row-time">{timeLabel(msg.ts)}</span>
+            {seat ? (
+              <span className="eva-room-row-time" data-testid="room-seat-line">
+                {modelLine(seat.modelKey, seat.harness, seat.thinking)}
+              </span>
+            ) : null}
           </div>
         )}
         {summary ? (
@@ -106,9 +132,13 @@ export function RoomMessageRow({ roomId, msg, agents, continuation }: RoomMessag
             </div>
             <Markdown text={mentionMarkdown(msg.text, agents)} />
           </div>
-        ) : (
+        ) : msg.text.trim() !== '' ? (
           <Markdown text={mentionMarkdown(msg.text, agents)} />
-        )}
+        ) : null}
+        {msg.renders && msg.renders.length > 0 ? <RenderStrip renders={msg.renders} /> : null}
+        {msg.card ? (
+          <CouncilCard card={msg.card} ctx={{ roomId, agents, parts: council?.parts ?? [] }} />
+        ) : null}
         {msg.reactions.length > 0 ? (
           <div className="eva-room-reactions">
             {msg.reactions.map((r) => (

@@ -519,3 +519,991 @@
 .eva-rooms-mention-name {
   font-weight: var(--eva-fw-medium);
 }
+
+/* ------------------------------------------------------------------------------------------ */
+/* Council rooms: effort dial, phase strip, spend meter, renders and cards.                    */
+/* ------------------------------------------------------------------------------------------ */
+
+/* The page answers to its own width (a 360px pane), not the window's. */
+.eva-rooms-shell {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  container-type: inline-size;
+  container-name: rooms;
+}
+@container rooms (max-width: 640px) {
+  .eva-rooms {
+    flex-direction: column;
+  }
+  .eva-rooms-rail {
+    width: 100%;
+    flex-direction: row;
+    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid var(--eva-c-border);
+  }
+  .eva-rooms-rail-head {
+    flex: none;
+    gap: var(--mantine-spacing-xs);
+    padding: var(--mantine-spacing-xs) var(--mantine-spacing-xs) var(--mantine-spacing-xs)
+      var(--mantine-spacing-md);
+  }
+  .eva-rooms-rail-list {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: var(--mantine-spacing-xs) var(--mantine-spacing-xs) var(--mantine-spacing-xs) 0;
+  }
+  .eva-rooms-rail-row {
+    flex: none;
+    width: auto;
+    max-width: 180px;
+  }
+  .eva-rooms-header {
+    padding-inline: var(--mantine-spacing-md);
+  }
+  .eva-room-row {
+    padding-inline: var(--mantine-spacing-md);
+  }
+  .eva-rooms-new {
+    padding-inline: var(--mantine-spacing-md);
+  }
+}
+
+.eva-rooms-header {
+  flex-wrap: wrap;
+  row-gap: var(--mantine-spacing-xs);
+}
+.eva-rooms-title {
+  flex: 1 1 10rem;
+}
+.eva-room-row-head {
+  flex-wrap: wrap;
+  row-gap: calc(var(--mantine-spacing-xs) * 0.2);
+}
+.eva-rooms-council-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  min-width: 0;
+}
+.eva-rooms-council-form,
+.eva-rooms-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+.eva-rooms-field {
+  gap: var(--mantine-spacing-xs);
+  align-items: flex-start;
+}
+.eva-rooms-field .eva-rooms-roster-label {
+  margin: 0;
+}
+
+/* Chip */
+.eva-dial-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-height: 32px;
+  max-width: 100%;
+  padding: 0 var(--mantine-spacing-md);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  font: inherit;
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  cursor: pointer;
+  transition: border-color var(--eva-dur-fast) ease;
+}
+.eva-dial-chip:hover,
+.eva-dial-chip[aria-expanded='true'] {
+  border-color: var(--eva-text-dim);
+}
+.eva-dial-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-dial-dots {
+  display: inline-flex;
+  gap: calc(var(--mantine-spacing-xs) * 0.3);
+}
+.eva-dial-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--eva-text) 25%, transparent);
+}
+.eva-dial-dots i[data-on] {
+  background: var(--eva-text);
+}
+
+/* Popover */
+.eva-dial-pop {
+  width: 500px;
+  max-width: calc(100vw - 16px);
+  max-height: min(80vh, 780px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.eva-dial-thinking {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md) 0;
+}
+.eva-dial-thinking-head {
+  display: flex;
+  align-items: center;
+  height: var(--eva-control-sm);
+}
+.eva-dial-thinking-side {
+  display: inline-flex;
+  justify-content: flex-end;
+  width: 34px;
+  color: var(--eva-text-dim);
+}
+.eva-dial-thinking-label {
+  flex: 1;
+  text-align: center;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-text);
+}
+.eva-dial-reset {
+  color: var(--eva-text-dim);
+}
+.eva-dial-reset:disabled {
+  background: transparent;
+  opacity: 0.4;
+}
+.eva-dial-rail {
+  padding: 0 var(--mantine-spacing-lg);
+}
+/* Same rail as the composer's thinking slider: 32px tall, 16px past the end dots. */
+.eva-dial-pop .eva-dial-slider {
+  --slider-size-md: 16px;
+  --slider-radius: var(--eva-radius-round);
+  --slider-track-bg: color-mix(in srgb, var(--eva-text) 7%, transparent);
+  --slider-color: color-mix(in srgb, var(--eva-text) 9%, transparent);
+  margin-top: calc(var(--mantine-spacing-xs) / 4);
+}
+.eva-dial-slider .eva-dial-slider-track {
+  height: 32px;
+}
+.eva-dial-slider .eva-dial-slider-mark {
+  width: 6px;
+  height: 6px;
+  border: 0;
+  background: color-mix(in srgb, var(--eva-text) 30%, transparent);
+  transform: translate(5px, 13px);
+}
+.eva-dial-slider .eva-dial-slider-thumb {
+  border: 1px solid color-mix(in srgb, var(--mantine-color-black) 8%, transparent);
+  background: var(--mantine-color-white);
+  color: transparent;
+  box-shadow: var(--mantine-shadow-sm);
+}
+.eva-dial-names {
+  position: relative;
+  height: 22px;
+  margin-top: var(--mantine-spacing-xs);
+}
+.eva-dial-names span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+  white-space: nowrap;
+}
+.eva-dial-names span[data-on] {
+  color: var(--eva-text);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-dial-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-md);
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-dial-dim {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-dial-est {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: var(--mantine-spacing-xs);
+}
+.eva-dial-est > div {
+  display: flex;
+  flex-direction: column;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+}
+.eva-dial-est b {
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.eva-dial-est span {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-dial-sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-dial-sec-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-dial-sec-side {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-regular);
+  color: var(--eva-text-dim);
+}
+.eva-dial-route {
+  display: flex;
+  flex-direction: column;
+}
+.eva-dial-route-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-xs) 0;
+  font-size: var(--eva-fz-label);
+}
+.eva-dial-route-row + .eva-dial-route-row {
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-dial-route-what {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 150px;
+  min-width: 0;
+  font-size: var(--eva-fz-body);
+}
+.eva-dial-route-row[data-moved] .eva-dial-route-what > span:first-child {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-dial-prov {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-dial-anthropic {
+  color: var(--mantine-color-orange-6);
+}
+.eva-dial-parts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--mantine-spacing-xs);
+}
+.eva-dial-part {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+}
+.eva-dial-part b {
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-dial-part small {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-dial-seats {
+  display: flex;
+  flex-direction: column;
+}
+.eva-dial-seat {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  min-height: 44px;
+  padding: calc(var(--mantine-spacing-xs) / 2) 0;
+}
+.eva-dial-seat + .eva-dial-seat {
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-dial-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.eva-dial-who-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.2) var(--mantine-spacing-xs);
+}
+.eva-dial-who-line b {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-dial-override {
+  color: var(--mantine-color-yellow-light-color);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-dial-think {
+  flex: none;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+  white-space: nowrap;
+}
+.eva-dial-av {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+.eva-dial-av-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--eva-surface);
+  border-radius: 50%;
+  background: var(--eva-c-muted-background);
+  color: var(--eva-text);
+  box-sizing: content-box;
+  width: 13px;
+  height: 13px;
+}
+.eva-dial-foot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+  line-height: 1.5;
+}
+.eva-dial-foot p {
+  margin: 0;
+}
+.eva-dial-raise {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+}
+.eva-dial-error,
+.eva-card-error {
+  font-size: var(--eva-fz-label);
+  color: var(--mantine-color-red-7);
+}
+
+/* Pills */
+.eva-role-pill,
+.eva-part-pill,
+.eva-status,
+.eva-verdict {
+  flex: none;
+  padding: 0 var(--mantine-spacing-xs);
+  border-radius: var(--eva-radius-round);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.6;
+  white-space: nowrap;
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-role-pill[data-role='integrator'] {
+  background: var(--mantine-color-cyan-light);
+  color: var(--mantine-color-cyan-light-color);
+}
+.eva-role-pill[data-role='builder'] {
+  background: var(--mantine-color-blue-light);
+  color: var(--mantine-color-blue-light-color);
+}
+.eva-role-pill[data-role='look'] {
+  background: var(--mantine-color-yellow-light);
+  color: var(--mantine-color-yellow-light-color);
+}
+.eva-role-pill[data-role='director'] {
+  background: var(--mantine-color-pink-light);
+  color: var(--mantine-color-pink-light-color);
+}
+.eva-role-pill[data-role='critic'] {
+  background: var(--mantine-color-red-light);
+  color: var(--mantine-color-red-light-color);
+}
+.eva-role-pill[data-role='researcher'] {
+  background: var(--mantine-color-teal-light);
+  color: var(--mantine-color-teal-light-color);
+}
+.eva-role-pill[data-role='judge'] {
+  background: var(--mantine-color-grape-light);
+  color: var(--mantine-color-grape-light-color);
+}
+.eva-part-pill {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--eva-c-border);
+}
+.eva-status[data-status='ok'],
+.eva-verdict[data-verdict='converged'] {
+  background: var(--mantine-color-green-light);
+  color: var(--mantine-color-green-light-color);
+}
+.eva-status[data-status='failed'] {
+  background: var(--mantine-color-red-light);
+  color: var(--mantine-color-red-light-color);
+}
+.eva-status[data-status='bounced'],
+.eva-verdict[data-verdict='plateau'],
+.eva-verdict[data-verdict='cap'] {
+  background: var(--mantine-color-yellow-light);
+  color: var(--mantine-color-yellow-light-color);
+}
+
+/* Phase strip */
+.eva-phases {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-lg);
+  border-bottom: 1px solid var(--eva-c-border);
+  font-size: var(--eva-fz-label);
+}
+.eva-phases-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.eva-phase {
+  display: inline-flex;
+  align-items: center;
+}
+.eva-phase-sep {
+  color: var(--eva-text-dim);
+  opacity: 0.6;
+}
+.eva-phase-name {
+  padding: calc(var(--mantine-spacing-xs) * 0.2) var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius-round);
+  color: var(--eva-text-dim);
+  white-space: nowrap;
+}
+.eva-phase[data-state='todo'] .eva-phase-name {
+  opacity: 0.65;
+}
+.eva-phase[data-state='now'] .eva-phase-name {
+  background: color-mix(in srgb, var(--eva-accent) 15%, transparent);
+  color: var(--eva-accent);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-phases-hint .eva-phase-name {
+  padding-block: 0;
+}
+.eva-phases-hint .eva-phase[data-state='now'] .eva-phase-name {
+  background: transparent;
+  color: var(--eva-text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@container rooms (max-width: 640px) {
+  .eva-phases {
+    padding-inline: var(--mantine-spacing-md);
+  }
+}
+
+/* Spend meter */
+.eva-meter {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  width: 168px;
+  max-width: 100%;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-meter-text b {
+  color: var(--eva-text);
+  font-weight: var(--eva-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.eva-meter-bar {
+  position: relative;
+  height: 6px;
+  border-radius: var(--eva-radius-round);
+  background: color-mix(in srgb, var(--eva-text) 10%, transparent);
+}
+.eva-meter-bar b {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mantine-color-green-6);
+  transition: width 0.4s ease;
+}
+.eva-meter[data-warn] .eva-meter-bar b {
+  background: var(--mantine-color-yellow-6);
+}
+.eva-meter[data-warn] .eva-meter-text b {
+  color: var(--mantine-color-yellow-light-color);
+}
+.eva-meter-bar i {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--eva-text-dim);
+}
+
+/* Renders */
+.eva-renders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+  margin-top: var(--mantine-spacing-xs);
+}
+.eva-render {
+  margin: 0;
+  max-width: 100%;
+}
+.eva-render figcaption {
+  margin-top: calc(var(--mantine-spacing-xs) * 0.2);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-render-btn {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+.eva-render img,
+.eva-board-part img {
+  display: block;
+  max-width: 100%;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+  object-fit: cover;
+  transition: border-color var(--eva-dur-fast) ease;
+}
+.eva-render-btn:hover img {
+  border-color: var(--eva-text-dim);
+}
+.eva-lightbox-img {
+  display: block;
+  max-width: 100%;
+  max-height: 78vh;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+/* Cards */
+.eva-card {
+  container-type: inline-size;
+  container-name: card;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  max-width: 680px;
+  margin-top: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-card-radius);
+  background: var(--eva-surface);
+  font-size: var(--eva-fz-body);
+}
+.eva-card[data-tone='warn'] {
+  border-color: color-mix(in srgb, var(--mantine-color-yellow-6) 55%, var(--eva-c-border));
+  background: color-mix(in srgb, var(--mantine-color-yellow-6) 7%, var(--eva-surface));
+}
+.eva-deliverable {
+  max-width: 760px;
+  border-color: color-mix(in srgb, var(--eva-accent) 45%, var(--eva-c-border));
+}
+.eva-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+.eva-card-head b {
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-card-title-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-card-path,
+.eva-paths dd,
+.eva-ask-action {
+  font-family: var(--eva-font-mono);
+  font-size: var(--eva-fz-label);
+}
+.eva-card-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--eva-text-dim);
+}
+.eva-card-note {
+  margin: 0;
+}
+.eva-dim {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.eva-contract {
+  max-height: 10em;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
+  mask-image: linear-gradient(to bottom, #000 70%, transparent);
+}
+.eva-contract[data-open] {
+  max-height: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.eva-card > button {
+  align-self: flex-start;
+}
+.eva-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+}
+.eva-answered {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  margin: 0;
+  color: var(--eva-text-dim);
+}
+.eva-ask-action {
+  display: block;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+/* Parts board */
+.eva-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--mantine-spacing-sm);
+}
+.eva-board-part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  margin: 0;
+}
+.eva-board-part .eva-render-btn {
+  width: 100%;
+}
+.eva-board-part img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+}
+.eva-board-empty {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border: 1px dashed var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-board-part figcaption {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.2);
+  font-size: var(--eva-fz-label);
+  line-height: 1.4;
+}
+.eva-board-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+}
+.eva-board-line b {
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+}
+
+/* Scorecard */
+.eva-score {
+  display: flex;
+  flex-direction: column;
+}
+.eva-score-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(60px, 120px) 64px;
+  align-items: center;
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  min-height: 34px;
+  padding: calc(var(--mantine-spacing-xs) * 0.3) 0;
+}
+.eva-score-row + .eva-score-row {
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-score-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.2) var(--mantine-spacing-xs);
+  min-width: 0;
+}
+.eva-score-bar {
+  height: 6px;
+  border-radius: var(--eva-radius-round);
+  background: color-mix(in srgb, var(--eva-text) 10%, transparent);
+  overflow: hidden;
+}
+.eva-score-bar b {
+  display: block;
+  height: 100%;
+  background: var(--eva-accent);
+}
+.eva-score-bar b[data-met] {
+  background: var(--mantine-color-green-6);
+}
+.eva-score-val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--eva-fw-medium);
+}
+.eva-score-val small {
+  margin-left: calc(var(--mantine-spacing-xs) * 0.4);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-regular);
+}
+.eva-score-val small[data-dir='up'] {
+  color: var(--mantine-color-green-light-color);
+}
+.eva-score-val small[data-dir='down'] {
+  color: var(--mantine-color-red-light-color);
+}
+.eva-score-total {
+  display: flex;
+  justify-content: space-between;
+  padding-top: var(--mantine-spacing-xs);
+  border-top: 1px solid var(--eva-c-border);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-fixes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.eva-log summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-log table,
+.eva-who {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--eva-fz-label);
+}
+.eva-log th,
+.eva-who th {
+  padding: calc(var(--mantine-spacing-xs) * 0.4) calc(var(--mantine-spacing-xs) * 0.6);
+  text-align: center;
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-text-dim);
+}
+.eva-log td,
+.eva-who td {
+  padding: calc(var(--mantine-spacing-xs) * 0.5) calc(var(--mantine-spacing-xs) * 0.6);
+  border-top: 1px solid var(--eva-c-border);
+  vertical-align: top;
+  text-align: center;
+}
+.eva-log th:first-child,
+.eva-log td:first-child,
+.eva-who th:first-child,
+.eva-who td:first-child {
+  padding-left: 0;
+  text-align: left;
+}
+.eva-log th:last-child,
+.eva-log td:last-child {
+  padding-right: 0;
+  text-align: right;
+}
+.eva-who th:nth-child(2),
+.eva-who th:nth-child(5),
+.eva-who td:nth-child(2),
+.eva-who td:nth-child(5) {
+  text-align: left;
+}
+.eva-who th:nth-child(3),
+.eva-who th:nth-child(4),
+.eva-who td.eva-num {
+  text-align: right;
+}
+
+/* Deliverable */
+.eva-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: var(--mantine-spacing-xs);
+}
+.eva-stats > div {
+  display: flex;
+  flex-direction: column;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-muted-background);
+}
+.eva-stats b {
+  font-size: var(--eva-fz-heading);
+  font-weight: var(--eva-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.eva-stats span {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-before-after {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--mantine-spacing-sm);
+}
+.eva-before-after > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.eva-card-sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-card-sec ul {
+  margin: 0;
+  padding-left: calc(var(--mantine-spacing-xs) * 2);
+}
+.eva-who-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.2) var(--mantine-spacing-xs);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-who td:first-child {
+  display: table-cell;
+}
+.eva-paths {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: calc(var(--mantine-spacing-xs) * 0.2) var(--mantine-spacing-sm);
+  margin: 0;
+  font-size: var(--eva-fz-label);
+}
+.eva-paths dt {
+  color: var(--eva-text-dim);
+}
+.eva-paths dd {
+  margin: 0;
+  word-break: break-all;
+  user-select: text;
+}
+@container card (max-width: 520px) {
+  .eva-who thead {
+    display: none;
+  }
+  .eva-who,
+  .eva-who tbody,
+  .eva-who tr,
+  .eva-who td {
+    display: block;
+    width: 100%;
+  }
+  .eva-who tr {
+    padding: var(--mantine-spacing-xs) 0;
+    border-top: 1px solid var(--eva-c-border);
+  }
+  .eva-who td {
+    padding: calc(var(--mantine-spacing-xs) * 0.1) 0;
+    border: 0;
+    text-align: left !important;
+  }
+  .eva-who td[data-label]:not([data-label='Seat'])::before {
+    content: attr(data-label) ': ';
+    color: var(--eva-text-dim);
+  }
+  .eva-score-row {
+    grid-template-columns: minmax(0, 1fr) 64px;
+  }
+  .eva-score-bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+/* The council bar (chip and meter) takes its own row under the title. */
+.eva-rooms-council-bar {
+  order: 10;
+  flex: 1 0 100%;
+}
+.eva-contract :is(h1, h2, h3, h4) {
+  margin: var(--mantine-spacing-sm) 0 calc(var(--mantine-spacing-xs) * 0.2);
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-contract :is(h1, h2, h3, h4):first-child {
+  margin-top: 0;
+}
+.eva-contract ul {
+  margin: 0;
+}

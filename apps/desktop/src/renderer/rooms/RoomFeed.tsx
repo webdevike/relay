@@ -53,6 +53,7 @@ export function RoomFeed({ room }: { room: Room }) {
               msg={m}
               agents={room.agents}
               continuation={i > 0}
+              council={room.council}
             />
           )),
         )}

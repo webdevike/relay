@@ -17,6 +17,7 @@ import {
   defaultTabs,
   parseClientMessage,
   QUERY_FEATURE,
+  ROOMS_FEATURE,
   STATS_FEATURE,
   toHex,
   type AgentApproval,
@@ -70,6 +71,7 @@ import {
   type TextInjecting,
   type VncAccess,
 } from "./seams";
+import type { RoomsRelaying } from "./rooms/relay";
 
 export interface SessionDeps {
   readonly hostName: string;
@@ -135,6 +137,8 @@ export interface SessionDeps {
   readonly control: ControlRelaying | null;
   /** Where `render.failed` reports go; absent or null drops them and leaves the feature out of `welcome.features`. */
   readonly renderFailures?: RenderFailureReporting | null;
+  /** Rooms of the connected Relay Desktops; absent or null ignores `rooms.*` and leaves the feature out of `welcome.features`. */
+  readonly rooms?: RoomsRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -350,6 +354,7 @@ export class ClientSession {
     this.deps.calls?.drop(this.sink);
     this.deps.files?.drop(this.sink);
     this.deps.control?.drop(this.sink);
+    this.deps.rooms?.drop(this.sink);
     this.deps.live?.drop(this.sink);
     this.closed = true;
     this.onClose(this);
@@ -954,6 +959,21 @@ export class ClientSession {
       case "control.res":
         this.deps.control?.result(this.sink, message.rid, message.result);
         break;
+      case "rooms.sync":
+        this.deps.rooms?.sync(this.sink, message.rooms);
+        break;
+      case "rooms.upsert":
+        this.deps.rooms?.upsert(this.sink, message.room);
+        break;
+      case "rooms.res":
+        this.deps.rooms?.result(this.sink, message.rid, message.result);
+        break;
+      case "rooms.get":
+        this.deps.rooms?.get(this.sink);
+        break;
+      case "rooms.cmd":
+        this.deps.rooms?.cmd(this.sink, message.rid, message.cmd);
+        break;
       case "hello":
       case "auth":
       case "pair.request":
@@ -1271,6 +1291,7 @@ export class ClientSession {
       ...(this.deps.bookmarks === null ? [] : [BOOKMARKS_FEATURE]),
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
       ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
+      ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE]),
     ];
     this.sink.send({
       t: "welcome",
@@ -1324,6 +1345,7 @@ export class ClientSession {
     this.deps.calls?.drop(this.sink);
     this.deps.live?.drop(this.sink);
     this.deps.control?.drop(this.sink);
+    this.deps.rooms?.drop(this.sink);
     this.closed = true;
     this.failure = `${code}: ${message}`;
     this.sink.send({ t: "error", code, message });

@@ -14,12 +14,36 @@ export const ROOM_SYSTEM = 'system'
 // Spec: Eva work/relay-rooms-council/SPEC.md.
 // ---------------------------------------------------------------------------------------------
 
-export const CouncilRoleSchema = z.enum(['integrator', 'builder', 'look', 'director', 'critic', 'researcher', 'judge'])
+export const CouncilRoleSchema = z.enum([
+  'integrator',
+  'builder',
+  'look',
+  'director',
+  'critic',
+  'researcher',
+  'judge',
+])
 export const CouncilProviderSchema = z.enum(['anthropic', 'openai'])
 export const CouncilHarnessSchema = z.enum(['omp', 'claude-code', 'codex'])
 export const CouncilThinkingSchema = z.enum(['medium', 'high', 'xhigh', 'max'])
-export const CouncilModelKeySchema = z.enum(['fable-5.2', 'opus-5.5', 'sonnet-5.5', 'astra-6', 'sol-6.1'])
-export const CouncilTurnKindSchema = z.enum(['code', 'params', 'merge', 'image', 'critique', 'score', 'research', 'plan', 'talk'])
+export const CouncilModelKeySchema = z.enum([
+  'fable-5.2',
+  'opus-5.5',
+  'sonnet-5.5',
+  'astra-6',
+  'sol-6.1',
+])
+export const CouncilTurnKindSchema = z.enum([
+  'code',
+  'params',
+  'merge',
+  'image',
+  'critique',
+  'score',
+  'research',
+  'plan',
+  'talk',
+])
 /** Where a council room is: brief, contract (split) or plan (unsplit), then rounds of build > look > integrate > critique > judge, then converge and deliver. */
 export const CouncilStageSchema = z.enum([
   'brief',
@@ -90,7 +114,12 @@ export const RoomRenderSchema = z.object({
 export type RoomRender = z.infer<typeof RoomRenderSchema>
 
 export const RoomCardSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('contract'), version: z.number(), path: z.string(), text: z.string() }),
+  z.object({
+    type: z.literal('contract'),
+    version: z.number(),
+    path: z.string(),
+    text: z.string(),
+  }),
   z.object({
     type: z.literal('parts'),
     round: z.number(),
@@ -109,7 +138,13 @@ export const RoomCardSchema = z.discriminatedUnion('type', [
     type: z.literal('scorecard'),
     round: z.number(),
     criteria: z.array(
-      z.object({ id: z.string(), name: z.string(), owner: z.string(), score: z.number(), delta: z.number().optional() }),
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        owner: z.string(),
+        score: z.number(),
+        delta: z.number().optional(),
+      }),
     ),
     total: z.number(),
     verdict: z.enum(['continue', 'converged', 'plateau', 'cap', 'branch', 'stopped']),
@@ -176,9 +211,16 @@ export const RoomCouncilSchema = z.object({
   renderCmd: z.string(),
   contract: z.object({ path: z.string(), version: z.number() }).optional(),
   rubric: z.array(RubricCriterionSchema),
-  scores: z.array(z.object({ round: z.number(), total: z.number(), criteria: z.record(z.string(), z.number()) })),
+  scores: z.array(
+    z.object({ round: z.number(), total: z.number(), criteria: z.record(z.string(), z.number()) }),
+  ),
   /** List-price spend so far, the notch estimate and the hard cap; per seat by agent id. */
-  spend: z.object({ usd: z.number(), estimate: z.number(), cap: z.number(), byAgent: z.record(z.string(), z.number()) }),
+  spend: z.object({
+    usd: z.number(),
+    estimate: z.number(),
+    cap: z.number(),
+    byAgent: z.record(z.string(), z.number()),
+  }),
   minutesEstimate: z.number(),
   /** Waiting on Isaac's Continue / Wrap at 80 % of the cap. */
   paused: z.boolean().optional(),
@@ -297,7 +339,8 @@ export const RoomCouncilInputSchema = z
     /** Full-figure render command run in the integrator's tree; `--part <name>` is appended for a part. */
     renderCmd: z.string().min(1).max(1000).optional(),
     rubric: z.array(RubricCriterionSchema).max(12).optional(),
-    routing: z.record(CouncilRoleSchema, CouncilProviderSchema).optional(),
+    /** Only the overridden roles; the rest keep COUNCIL_DEFAULT_ROUTING. */
+    routing: z.partialRecord(CouncilRoleSchema, CouncilProviderSchema).optional(),
   })
   .strict()
 export type RoomCouncilInput = z.infer<typeof RoomCouncilInputSchema>
@@ -312,7 +355,9 @@ export const roomsInvoke = {
         council: RoomCouncilInputSchema.optional(),
       })
       .strict()
-      .refine((v) => Boolean(v.agentIds) !== Boolean(v.council), { message: 'pass agentIds or council' }),
+      .refine((v) => Boolean(v.agentIds) !== Boolean(v.council), {
+        message: 'pass agentIds or council',
+      }),
     output: z.object({ roomId: z.string() }),
   },
   /** Council: one notch up on a live room; new seats join at the next round with the full feed. */

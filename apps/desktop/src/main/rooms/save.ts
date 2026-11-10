@@ -1,7 +1,8 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { EvaFs } from '@evaos/eva-core'
-import type { Room } from '@evaos/contract'
+import type { Room, RoomCard } from '@evaos/contract'
+import { councilLabel, councilMoney } from '@relay/protocol'
 import { authorName, slugOf } from './prompts'
 
 const pad = (n: number): string => String(n).padStart(2, '0')
@@ -16,14 +17,64 @@ const timeOf = (ts: number): string => {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+/** A council room's deliverable card, once it delivered. */
+function deliverableOf(room: Room): (RoomCard & { type: 'deliverable' }) | undefined {
+  for (const m of room.messages) if (m.card?.type === 'deliverable') return m.card
+  return undefined
+}
+
+const list = (lines: readonly string[], empty: string): string =>
+  lines.length > 0 ? lines.map((x) => `- ${x}`).join('\n') : empty
+
+/** The council part of a record: notch, spend, scores, and what the deliverable says. */
+function councilSection(room: Room): string {
+  const c = room.council
+  if (!c) return ''
+  const d = deliverableOf(room)
+  const scores = c.scores.map((s) => `Round ${s.round}: ${s.total}/10`)
+  const delivered = d
+    ? `
+### Changes
+
+${list(d.changes, '_None recorded._')}
+
+### Dissent
+
+${list(d.dissent, 'None')}
+
+### Who did what
+
+${list(
+  d.who.map(
+    (w) =>
+      `${authorName(room, w.agentId)}${w.part ? ` (${w.part})` : ''}: ${w.did}, ${w.turns} turns, ${councilMoney(w.usd)}, moved ${w.moved}`,
+  ),
+  '_Nobody took a turn._',
+)}
+`
+    : ''
+  return `
+## Council
+
+- Notch: ${councilLabel(c.effort)}, parts: ${c.parts.join(', ')}, ${c.round} of ${c.maxRounds} rounds
+- Spend: ${councilMoney(c.spend.usd)} list of a ${councilMoney(c.spend.cap)} cap (estimate ${councilMoney(c.spend.estimate)})
+- Workdir: ${c.workdir} (merge by hand; the source ${c.source} was not touched)
+${c.routingFile ? `- Routing log: ${c.routingFile}\n` : ''}
+### Scores
+
+${list(scores, '_No scorecard._')}
+${delivered}`
+}
+
 /** The markdown record of a resolved room: the summary first, then the thread, grep-friendly. */
 export function roomRecord(room: Room): string {
   const summary = room.messages.find((m) => m.kind === 'summary')
+  const d = deliverableOf(room)
   const people = room.agents
     .map((a) => `- ${a.name}, ${a.title} (${a.role}, ${a.model})${a.failed ? ', dropped out' : ''}`)
     .join('\n')
   const thread = room.messages
-    .filter((m) => m.kind !== 'summary')
+    .filter((m) => m.kind !== 'summary' && m.card?.type !== 'deliverable')
     .map((m) => {
       const re =
         m.reactions.length > 0
@@ -33,11 +84,16 @@ export function roomRecord(room: Room): string {
     })
     .join('\n')
   const minutes = Math.round(((room.resolvedAt ?? room.startedAt) - room.startedAt) / 60_000)
+  const summaryText =
+    summary?.text ??
+    (d
+      ? `Delivered ${d.total}/10.${d.changes.length > 0 ? ` ${d.changes.join('; ')}.` : ''}`
+      : '_No summary was written._')
   return `# Room: ${room.title}
 
 - Date: ${dateStamp(room.startedAt)} ${timeOf(room.startedAt)}, ${minutes} min, ${room.rounds} rounds
 - Asked by: Isaac
-- Summary by: ${summary ? authorName(room, summary.author) : 'nobody'}
+- Summary by: ${summary ? authorName(room, summary.author) : d ? 'Room' : 'nobody'}
 ${room.judge ? `- Judge: ${room.judge.verdict}: ${room.judge.note}\n` : ''}
 ## Question
 
@@ -45,8 +101,8 @@ ${room.prompt}
 
 ## Summary
 
-${summary?.text ?? '_No summary was written._'}
-
+${summaryText}
+${councilSection(room)}
 ## People
 
 ${people}
@@ -57,16 +113,33 @@ ${thread}
 `
 }
 
-/** `memory/rooms/<date>-<slug>.md`, relative to the Eva root, never clobbering an earlier room. */
-export function roomRecordRel(evaRoot: string, room: Room): string {
-  const base = `${dateStamp(room.startedAt)}-${slugOf(room.title)}`
-  let rel = `memory/rooms/${base}.md`
-  for (let n = 2; fs.existsSync(path.join(evaRoot, rel)); n++) rel = `memory/rooms/${base}-${n}.md`
-  return rel
+/**
+ * `memory/rooms/<date>-<slug>`, relative to the Eva root, with neither a record (`.md`) nor a
+ * routing log (`.routing.jsonl`) there yet: a room's two files share it, never clobbering an
+ * earlier room.
+ */
+export function roomStem(evaRoot: string, room: Room): string {
+  const base = `memory/rooms/${dateStamp(room.startedAt)}-${slugOf(room.title)}`
+  const taken = (stem: string): boolean =>
+    fs.existsSync(path.join(evaRoot, `${stem}.md`)) ||
+    fs.existsSync(path.join(evaRoot, `${stem}.routing.jsonl`))
+  let stem = base
+  for (let n = 2; taken(stem); n++) stem = `${base}-${n}`
+  return stem
 }
 
 /** The journal heading and bullets a resolved room adds. */
 export function journalEntry(room: Room, file: string): { heading: string; bullets: string[] } {
+  const d = deliverableOf(room)
+  if (room.council && d) {
+    return {
+      heading: `${dateStamp(room.startedAt)} [eva-interface] Council room: ${room.title}`,
+      bullets: [
+        `Delivered: ${d.total}/10 at ${councilLabel(room.council.effort)}, ${councilMoney(d.spent)} list, workdir ${d.workdir} (merge by hand)`,
+        `Record: ${file}`,
+      ],
+    }
+  }
   const summary = room.messages.find((m) => m.kind === 'summary')?.text ?? ''
   const m = /\*\*Decision\*\*\s*\n([\s\S]*?)(?:\n\s*\n|\n\*\*|$)/.exec(summary)
   const decision = (m?.[1] ?? summary).replace(/\s+/g, ' ').trim().slice(0, 300)
@@ -87,9 +160,12 @@ export interface SaveRoomOptions {
   journal: (heading: string, bullets: string[]) => Promise<void>
 }
 
-/** Writes the record and the journal line; returns the record's absolute path. */
-export async function saveRoom(room: Room, o: SaveRoomOptions): Promise<string> {
-  const rel = roomRecordRel(o.evaRoot, room)
+/**
+ * Writes the record to `<stem>.md` (a fresh stem unless the room already holds one) and the
+ * journal line; returns the record's absolute path.
+ */
+export async function saveRoom(room: Room, o: SaveRoomOptions, stem?: string): Promise<string> {
+  const rel = `${stem ?? roomStem(o.evaRoot, room)}.md`
   await o.evaFs.write('room-record', rel, roomRecord(room))
   const file = path.join(o.evaRoot, rel)
   const entry = journalEntry(room, file)

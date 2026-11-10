@@ -1,6 +1,7 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { Room as RoomDto } from '@evaos/contract'
+import type { CouncilRouting } from '@relay/protocol'
 import { invoke, on } from '../ipc'
 import { withPortrait } from './roster'
 import type { Room, RoomMessage, RoomReaction } from './types'
@@ -104,6 +105,53 @@ export async function startRoom(prompt: string, agentIds: string[]): Promise<voi
     return
   }
   set((s) => ({ ...s, activeRoomId: r.value.roomId }))
+}
+
+/** What the New room form hands over for a council room. */
+export interface CouncilStart {
+  effort: number
+  source: string
+  refs: string[]
+  renderCmd?: string
+  /** Only the roles moved off their default provider. */
+  routing: Partial<CouncilRouting>
+}
+
+/** Starts a council room (cast from the notch in main) and opens it; a failure stays on the form. */
+export async function startCouncilRoom(prompt: string, council: CouncilStart): Promise<void> {
+  set((s) => ({ ...s, createError: null }))
+  const r = await invoke('rooms.create', { prompt, council })
+  if (!r.ok) {
+    set((s) => ({ ...s, createError: r.error.message }))
+    return
+  }
+  set((s) => ({ ...s, activeRoomId: r.value.roomId }))
+}
+
+/** An action's failure as the message to show next to its button; null when it went through. */
+const failure = (r: { ok: true } | { ok: false; error: { message: string } }): string | null =>
+  r.ok ? null : r.error.message
+
+/** One notch up on a live council room; its new seats join at the next round. */
+export async function raiseRoom(roomId: string): Promise<string | null> {
+  return failure(await invoke('rooms.raise', { roomId }))
+}
+
+/** The answer to the 80 % cap pause. */
+export async function budgetRoom(
+  roomId: string,
+  choice: 'continue' | 'wrap',
+): Promise<string | null> {
+  return failure(await invoke('rooms.budget', { roomId, choice }))
+}
+
+/** Allow or deny a seat's outward action. */
+export async function answerAsk(
+  roomId: string,
+  askId: string,
+  allow: boolean,
+): Promise<string | null> {
+  return failure(await invoke('rooms.answer', { roomId, askId, allow }))
 }
 
 export async function postToRoom(roomId: string, text: string): Promise<void> {

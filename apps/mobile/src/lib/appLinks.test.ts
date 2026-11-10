@@ -35,6 +35,8 @@ describe("systemPath", () => {
     expect(systemPath("relay://open/assistants")).toBe("/assistants");
     expect(systemPath("relay://open/settings")).toBe("/settings");
     expect(systemPath("relay://open/studio")).toBe("/studio");
+    expect(systemPath("relay://open/rooms")).toBe("/rooms");
+    expect(systemPath("relay://open/rooms/r1")).toBe("/rooms/r1");
     expect(systemPath("relay://open/board")).toBe("/boards");
     expect(systemPath("relay://open/board/mind-map")).toBe("/boards?slug=mind-map");
     expect(systemPath("relay://open/canvas?canvas=artifacts")).toBe("/canvas?slug=artifacts");

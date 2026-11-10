@@ -1,4 +1,13 @@
-import { ActionIcon, Avatar, Button, Checkbox, Textarea, Tooltip } from '@mantine/core'
+import {
+  ActionIcon,
+  Avatar,
+  Button,
+  Checkbox,
+  SegmentedControl,
+  TextInput,
+  Textarea,
+  Tooltip,
+} from '@mantine/core'
 import {
   IconBrain,
   IconFileSearch,
@@ -9,7 +18,7 @@ import {
   IconUsersGroup,
 } from '@tabler/icons-react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { roomIsLive, type RoomPresence } from '@evaos/contract'
+import { roomIsLive, type RoomCouncil, type RoomPresence } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { pageMeta } from '../pages/page-meta'
 import { TypingDots } from '../ui/TypingDots'
@@ -19,8 +28,21 @@ import { EvaPopover } from '../overlay'
 import { insertMention, insertRaw, mentionChoices, mentionQueryAt, mentionables } from './mentions'
 import { AuthorAvatar, authorOf, type Author } from './RoomMessageRow'
 import { ROSTER } from './roster'
-import { postToRoom, setActive, startRoom, stopRoom, useRooms } from './rooms-store'
+import {
+  postToRoom,
+  raiseRoom,
+  setActive,
+  startCouncilRoom,
+  startRoom,
+  stopRoom,
+  useRooms,
+} from './rooms-store'
 import type { Room, RoomPhase } from './types'
+import { COUNCIL_DEFAULT_EFFORT, councilNotch } from '@relay/protocol'
+import { EffortDial } from './EffortDial'
+import { PhaseStrip } from './PhaseStrip'
+import { SpendMeter } from './SpendMeter'
+import { fullRouting, routingOverrides } from './council-view'
 import './rooms.css'
 
 const PHASE_LABEL: Record<RoomPhase, string> = {
@@ -73,16 +95,37 @@ function StatusPill({ room }: { room: Room }) {
   )
 }
 
+type RoomMode = 'debate' | 'council'
+
 function NewRoomForm({ title, description }: { title: string; description: string }) {
+  const [mode, setMode] = useState<RoomMode>('debate')
   const [prompt, setPrompt] = useState('')
   const [picked, setPicked] = useState<string[]>(() => ROSTER.map((a) => a.id))
+  const [dial, setDial] = useState({ effort: COUNCIL_DEFAULT_EFFORT, routing: fullRouting({}) })
+  const [source, setSource] = useState('')
+  const [refs, setRefs] = useState('')
+  const [renderCmd, setRenderCmd] = useState('')
   const [starting, setStarting] = useState(false)
   const error = useRooms((s) => s.createError)
-  const canStart = prompt.trim() !== '' && picked.length > 0 && !starting
+  const council = mode === 'council'
+  const canStart =
+    prompt.trim() !== '' && (council ? source.trim() !== '' : picked.length > 0) && !starting
   const start = (): void => {
     if (!canStart) return
     setStarting(true)
-    void startRoom(prompt, picked).finally(() => setStarting(false))
+    const run = council
+      ? startCouncilRoom(prompt, {
+          effort: dial.effort,
+          source: source.trim(),
+          refs: refs
+            .split('\n')
+            .map((l) => l.trim())
+            .filter((l) => l !== ''),
+          ...(renderCmd.trim() !== '' ? { renderCmd: renderCmd.trim() } : {}),
+          routing: routingOverrides(dial.routing),
+        })
+      : startRoom(prompt, picked)
+    void run.finally(() => setStarting(false))
   }
   return (
     <div className="eva-rooms-new" data-testid="rooms-new">
@@ -93,8 +136,18 @@ function NewRoomForm({ title, description }: { title: string; description: strin
         </h1>
         <p className="eva-rooms-dim">{description}</p>
       </div>
+      <SegmentedControl
+        value={mode}
+        onChange={(v) => setMode(v as RoomMode)}
+        data={[
+          { value: 'debate', label: 'Debate' },
+          { value: 'council', label: 'Council' },
+        ]}
+        aria-label="Kind of room"
+        data-testid="rooms-mode"
+      />
       <Textarea
-        label="Question for the room"
+        label={council ? 'What should the room build?' : 'Question for the room'}
         autosize
         minRows={2}
         maxRows={6}
@@ -102,47 +155,90 @@ function NewRoomForm({ title, description }: { title: string; description: strin
         onChange={(e) => setPrompt(e.currentTarget.value)}
         data-testid="rooms-prompt"
       />
-      <div className="eva-rooms-roster">
-        <div className="eva-rooms-roster-label">Who is in the room</div>
-        {ROSTER.map((a) => (
-          <Checkbox
-            key={a.id}
-            className="eva-rooms-roster-row"
-            checked={picked.includes(a.id)}
-            onChange={(e) =>
-              setPicked((p) =>
-                e.currentTarget.checked ? [...p, a.id] : p.filter((id) => id !== a.id),
-              )
-            }
-            data-testid={`rooms-pick-${a.id}`}
-            label={
-              <span className="eva-rooms-roster-person">
-                <AuthorAvatar author={a} size="md" />
-                <span className="eva-rooms-roster-text">
-                  <span className="eva-rooms-roster-line">
-                    <span className="eva-rooms-roster-name">{a.name}</span>
-                    <span className="eva-rooms-dim">{a.title}</span>
-                    {a.tools === 'read-only' ? (
-                      <Tooltip label="Can read code and the web" openDelay={300}>
-                        <IconTool
-                          size={14}
-                          stroke={1.5}
-                          className="eva-rooms-roster-tool"
-                          aria-label="Can read code and the web"
-                          data-testid={`rooms-tools-${a.id}`}
-                        />
-                      </Tooltip>
-                    ) : null}
-                  </span>
-                  <span className="eva-rooms-dim">
-                    {a.role}, {a.model}
+      {council ? (
+        <div className="eva-rooms-council-form" data-testid="rooms-council-form">
+          <div className="eva-rooms-field">
+            <span className="eva-rooms-roster-label">Effort</span>
+            <div>
+              <EffortDial
+                effort={dial.effort}
+                routing={dial.routing}
+                onChange={setDial}
+                position="bottom-start"
+                testid="new-room-dial"
+              />
+            </div>
+          </div>
+          <TextInput
+            label="Source folder"
+            description="Copied into the room's workdir. The original is never edited."
+            placeholder="work/blender-learning/cel-face"
+            value={source}
+            onChange={(e) => setSource(e.currentTarget.value)}
+            data-testid="rooms-source"
+          />
+          <Textarea
+            label="Reference images"
+            description="Full paths, one per line."
+            autosize
+            minRows={2}
+            maxRows={5}
+            value={refs}
+            onChange={(e) => setRefs(e.currentTarget.value)}
+            data-testid="rooms-refs"
+          />
+          <TextInput
+            label="Render command (optional)"
+            description="Run in the integrator's tree. A part adds --part <name>."
+            placeholder="Blender -b --python build.py -- --quick"
+            value={renderCmd}
+            onChange={(e) => setRenderCmd(e.currentTarget.value)}
+            data-testid="rooms-render-cmd"
+          />
+        </div>
+      ) : (
+        <div className="eva-rooms-roster">
+          <div className="eva-rooms-roster-label">Who is in the room</div>
+          {ROSTER.map((a) => (
+            <Checkbox
+              key={a.id}
+              className="eva-rooms-roster-row"
+              checked={picked.includes(a.id)}
+              onChange={(e) =>
+                setPicked((p) =>
+                  e.currentTarget.checked ? [...p, a.id] : p.filter((id) => id !== a.id),
+                )
+              }
+              data-testid={`rooms-pick-${a.id}`}
+              label={
+                <span className="eva-rooms-roster-person">
+                  <AuthorAvatar author={a} size="md" />
+                  <span className="eva-rooms-roster-text">
+                    <span className="eva-rooms-roster-line">
+                      <span className="eva-rooms-roster-name">{a.name}</span>
+                      <span className="eva-rooms-dim">{a.title}</span>
+                      {a.tools === 'read-only' ? (
+                        <Tooltip label="Can read code and the web" openDelay={300}>
+                          <IconTool
+                            size={14}
+                            stroke={1.5}
+                            className="eva-rooms-roster-tool"
+                            aria-label="Can read code and the web"
+                            data-testid={`rooms-tools-${a.id}`}
+                          />
+                        </Tooltip>
+                      ) : null}
+                    </span>
+                    <span className="eva-rooms-dim">
+                      {a.role}, {a.model}
+                    </span>
                   </span>
                 </span>
-              </span>
-            }
-          />
-        ))}
-      </div>
+              }
+            />
+          ))}
+        </div>
+      )}
       <div className="eva-rooms-new-actions">
         <Button onClick={start} disabled={!canStart} loading={starting} data-testid="rooms-start">
           Start room
@@ -296,52 +392,85 @@ function Composer({ room }: { room: Room }) {
   )
 }
 
+function CouncilControls({ room, council }: { room: Room; council: RoomCouncil }) {
+  const live = roomIsLive(room.phase)
+  return (
+    <div className="eva-rooms-council-bar" data-testid="room-council-bar">
+      <EffortDial
+        live
+        effort={council.effort}
+        routing={fullRouting(council.routing)}
+        onRaise={live ? () => raiseRoom(room.id) : undefined}
+        testid="room-effort-dial"
+      />
+      <SpendMeter council={council} />
+    </div>
+  )
+}
+
 function RoomView({ room }: { room: Room }) {
   const live = roomIsLive(room.phase)
   const now = useNow(live)
   const elapsed = (room.resolvedAt ?? now) - room.startedAt
+  const council = room.council
   return (
     <div className="eva-rooms-main" data-testid={`room-${room.id}`}>
       <div className="eva-rooms-header">
         <h1 className="eva-rooms-title" title={room.prompt}>
           {room.title}
         </h1>
-        <Avatar.Group spacing="xs">
-          {room.agents.map((a) => {
-            const p = room.presence[a.id]
-            const state = p ? `${PRESENCE_VERB[p.state]}${p.detail ? `: ${p.detail}` : ''}` : null
-            return (
-              <Tooltip
-                key={a.id}
-                label={`${a.name}, ${a.title} (${a.role})${state ? `, ${state}` : ''}`}
-                openDelay={300}
-              >
-                <span className="eva-rooms-head-avatar" data-testid={`room-avatar-${a.id}`}>
-                  <AuthorAvatar author={a} size="sm" />
-                  {p ? <span className="eva-rooms-presence-dot" data-state={p.state} /> : null}
-                </span>
-              </Tooltip>
-            )
-          })}
-        </Avatar.Group>
+        {council ? null : (
+          <Avatar.Group spacing="xs">
+            {room.agents.map((a) => {
+              const p = room.presence[a.id]
+              const state = p ? `${PRESENCE_VERB[p.state]}${p.detail ? `: ${p.detail}` : ''}` : null
+              return (
+                <Tooltip
+                  key={a.id}
+                  label={`${a.name}, ${a.title} (${a.role})${state ? `, ${state}` : ''}`}
+                  openDelay={300}
+                >
+                  <span className="eva-rooms-head-avatar" data-testid={`room-avatar-${a.id}`}>
+                    <AuthorAvatar author={a} size="sm" />
+                    {p ? <span className="eva-rooms-presence-dot" data-state={p.state} /> : null}
+                  </span>
+                </Tooltip>
+              )
+            })}
+          </Avatar.Group>
+        )}
+        {council ? <CouncilControls room={room} council={council} /> : null}
         <StatusPill room={room} />
         <span className="eva-rooms-clock" data-testid="room-clock">
           {elapsedLabel(elapsed)}
         </span>
         {live ? (
-          <Tooltip label="Resolve now: pin the summary from what was said" openDelay={300}>
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              aria-label="Resolve now"
+          council ? (
+            <Button
+              variant="default"
+              size="sm"
+              leftSection={<IconPlayerStop size={14} stroke={1.5} />}
               onClick={() => void stopRoom(room.id)}
               data-testid="room-stop"
             >
-              <IconPlayerStop size={16} stroke={1.5} />
-            </ActionIcon>
-          </Tooltip>
+              Resolve now
+            </Button>
+          ) : (
+            <Tooltip label="Resolve now: pin the summary from what was said" openDelay={300}>
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                aria-label="Resolve now"
+                onClick={() => void stopRoom(room.id)}
+                data-testid="room-stop"
+              >
+                <IconPlayerStop size={16} stroke={1.5} />
+              </ActionIcon>
+            </Tooltip>
+          )
         ) : null}
       </div>
+      {council ? <PhaseStrip council={council} resolved={room.phase === 'resolved'} /> : null}
       <RoomFeed room={room} />
       <Composer room={room} />
     </div>
@@ -383,6 +512,11 @@ function Rail({ now }: { now: number }) {
             >
               <span className="eva-rooms-rail-row-title">{r.title}</span>
               <span className="eva-rooms-rail-row-meta">
+                {r.council ? (
+                  <span className="eva-rooms-pill" data-testid={`rooms-rail-notch-${id}`}>
+                    {councilNotch(r.council.effort).name}
+                  </span>
+                ) : null}
                 <StatusPill room={r} />
                 <span className="eva-rooms-clock">
                   {elapsedLabel((r.resolvedAt ?? now) - r.startedAt)}
@@ -403,13 +537,15 @@ export function RoomsPage({ place }: { place: Place }) {
   const live = useRooms((s) => s.order.some((id) => roomIsLive(s.rooms[id]?.phase ?? 'resolved')))
   const now = useNow(any && live)
   return (
-    <div className="eva-rooms" data-testid="rooms-page">
-      {any ? <Rail now={now} /> : null}
-      {room ? (
-        <RoomView key={room.id} room={room} />
-      ) : (
-        <NewRoomForm title={meta.title} description={meta.description} />
-      )}
+    <div className="eva-rooms-shell">
+      <div className="eva-rooms" data-testid="rooms-page">
+        {any ? <Rail now={now} /> : null}
+        {room ? (
+          <RoomView key={room.id} room={room} />
+        ) : (
+          <NewRoomForm title={meta.title} description={meta.description} />
+        )}
+      </div>
     </div>
   )
 }

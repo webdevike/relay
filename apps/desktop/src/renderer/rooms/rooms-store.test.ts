@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Room as RoomDto } from '@evaos/contract'
 import {
+  answerAsk,
   applyRoom,
   applyRooms,
+  budgetRoom,
   groupMessages,
+  raiseRoom,
   resetRoomsForTests,
   roomsStore,
   setActive,
+  startCouncilRoom,
   startRoom,
   toggleReaction,
   toggleReactionIn,
@@ -145,5 +149,40 @@ describe('rooms store', () => {
     expect(roomsStore.getState().rooms.r1!.messages[0]!.reactions).toEqual([
       { emoji: '👍', by: ['isaac'] },
     ])
+  })
+
+  it('startCouncilRoom sends the council block and opens the room, or keeps the error', async () => {
+    const council = {
+      effort: 3,
+      source: 'work/blender-learning/cel-face',
+      refs: ['/tmp/ref.webp'],
+      routing: { judge: 'anthropic' as const },
+    }
+    invoke.mockResolvedValueOnce({ ok: true, value: { roomId: 'c1' } })
+    await startCouncilRoom('Match the target', council)
+    expect(invoke).toHaveBeenCalledWith('rooms.create', { prompt: 'Match the target', council })
+    expect(roomsStore.getState().activeRoomId).toBe('c1')
+    invoke.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'internal', message: 'source missing' },
+    })
+    await startCouncilRoom('x', council)
+    expect(roomsStore.getState().createError).toBe('source missing')
+  })
+
+  it("council actions pass their arguments and hand back main's failure, if any", async () => {
+    invoke.mockResolvedValueOnce({ ok: true, value: { effort: 4 } })
+    expect(await raiseRoom('c1')).toBeNull()
+    expect(invoke).toHaveBeenLastCalledWith('rooms.raise', { roomId: 'c1' })
+    invoke.mockResolvedValueOnce({ ok: true, value: { cap: 9 } })
+    expect(await budgetRoom('c1', 'continue')).toBeNull()
+    expect(invoke).toHaveBeenLastCalledWith('rooms.budget', { roomId: 'c1', choice: 'continue' })
+    invoke.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'no such ask' } })
+    expect(await answerAsk('c1', 'a1', false)).toBe('no such ask')
+    expect(invoke).toHaveBeenLastCalledWith('rooms.answer', {
+      roomId: 'c1',
+      askId: 'a1',
+      allow: false,
+    })
   })
 })

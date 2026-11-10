@@ -32,6 +32,8 @@ import type { CanvasPeer } from "./canvas/room";
 import type { CanvasRoom, CanvasService } from "./canvas/service";
 import { handleControlRequest } from "./control/http";
 import type { ControlRelay } from "./control/relay";
+import { RoomsRelay } from "./rooms/relay";
+import { systemClock } from "./session";
 import type { FileBoardStore } from "./boards/store";
 import type { UsageService } from "./usage/service";
 import type { StatsService } from "./stats/service";
@@ -237,6 +239,8 @@ export class RelayServer {
   private readonly skillSockets = new Set<Socket>();
   private readonly ingestSockets = new Set<Socket>();
   private readonly vncTickets: VncTickets;
+  /** Rooms of the connected Relay Desktops, relayed to the phones (always on: ROOMS_FEATURE). */
+  private readonly rooms: RoomsRelay;
   private server: Server<SocketData> | null = null;
 
   constructor(
@@ -245,6 +249,7 @@ export class RelayServer {
   ) {
     this.pairing = new PairingCoordinator(deps.pairing);
     this.vncTickets = new VncTickets(config.vncPort);
+    this.rooms = new RoomsRelay(systemClock, deps.log, () => deps.control?.pick("active")?.sink ?? null);
   }
 
   /** Returns the bound port. */
@@ -848,6 +853,7 @@ export class RelayServer {
         meetings: this.deps.meetings,
         control: this.deps.control,
         renderFailures: this.deps.renderFailures ?? null,
+        rooms: this.rooms,
       },
       (closed) => {
         const reason = closed.closeReason;

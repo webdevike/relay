@@ -18,6 +18,8 @@ import { USAGE_WARN, usageHint, usagePeak } from "@/lib/usage";
 import { liveReviewItems } from "@relay/protocol";
 import { useReviewsStore } from "@/state/reviews";
 import { recordingTitle, useMeetingsStore } from "@/state/meetings";
+import { useRoomsStore } from "@/state/rooms";
+import { roomLive } from "@/rooms/model";
 
 export interface HomeApp {
   key: string;
@@ -58,6 +60,8 @@ export function useHomeApps(): HomeApp[] {
   const usage = useUsageStore((state) => state.usage);
   // Jobs the host is still making; pushed live while connected.
   const studioActive = useStudioStore((state) => state.jobs.filter(studioJobActive).length);
+  // Rooms still working on the desktop; pushed live while the host relays them.
+  const roomsLive = useRoomsStore((state) => state.rooms.filter(roomLive).length);
   // Asked on every welcome and pushed on every change; rows marked Done drop out.
   const reviewsQueue = useReviewsStore((state) => state.queue);
   const reviewsWaiting = reviewsQueue === null ? null : liveReviewItems(reviewsQueue).length;
@@ -173,6 +177,15 @@ export function useHomeApps(): HomeApp[] {
       hint: studioActive === 0 ? "Make images and video" : `${studioActive} running`,
       ...(studioActive > 0 ? { value: studioActive } : {}),
       href: "/studio",
+    },
+    {
+      key: "rooms",
+      symbol: "rectangle.3.group.fill",
+      label: "Rooms",
+      color: "indigo",
+      hint: roomsLive === 0 ? "Teams of models that build together" : `${roomsLive} running`,
+      ...(roomsLive > 0 ? { value: roomsLive } : {}),
+      href: "/rooms",
     },
     {
       key: "settings",

@@ -11,6 +11,9 @@ export const withPortrait = (a: RoomAgentDto): RoomAgent => ({
   avatar: portrait(seedOf(a.name)),
 })
 
+/** The portrait a person of this name gets in every room (council seats are cast by name). */
+export const portraitOf = (name: string): string => portrait(seedOf(name))
+
 /** The default people a room starts with; each a Mantine theme color so avatars stay distinct. */
 export const ROSTER: readonly RoomAgent[] = ROOM_PEOPLE.map(withPortrait)
 

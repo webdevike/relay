@@ -11,6 +11,7 @@ import {
   encode,
   parseServerMessage,
   BOOKMARKS_FEATURE,
+  ROOMS_FEATURE,
   reactionExcerpt,
   WS_PATH,
   type ArtifactAction,
@@ -24,6 +25,8 @@ import {
   type MeetingsResult,
   type ReviewsOp,
   type ReviewsResult,
+  type RoomsCmd,
+  type RoomsResult,
   type StudioOp,
   type StudioResult,
 } from "@relay/protocol";
@@ -43,6 +46,7 @@ import { isTurnKey, useBookmarksStore } from "@/state/bookmarks";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useCanvasStore } from "@/state/canvas";
 import { useStudioStore } from "@/state/studio";
+import { useRoomsStore } from "@/state/rooms";
 import { useReviewsStore } from "@/state/reviews";
 import { useMeetingsStore } from "@/state/meetings";
 import { callIsLive, useCallStore } from "@/state/call";
@@ -66,6 +70,7 @@ import { createReactionFrameRouter } from "./reactions";
 import { createBookmarkFrameRouter } from "./bookmarks";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import { createStudioFrameRouter, PendingStudio } from "./studio";
+import { createRoomsFrameRouter, PendingRooms } from "./rooms";
 import { createReviewsFrameRouter, PendingReviews } from "./reviews";
 import { createMeetingsFrameRouter, PendingMeetings } from "./meetings";
 import { createQueryClient, createQueryFrameRouter, PendingQueries } from "./query";
@@ -124,6 +129,7 @@ const reactionThreads = new Map<string, number>();
 const artifactThreads = new Map<string, number>();
 const pendingActs = new PendingActs();
 const pendingStudio = new PendingStudio();
+const pendingRooms = new PendingRooms();
 const pendingReviews = new PendingReviews();
 const pendingMeetings = new PendingMeetings();
 const pendingQueries = new PendingQueries();
@@ -163,6 +169,7 @@ const routeBookmarkFrame = createBookmarkFrameRouter(useBookmarksStore.getState(
 const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(), pendingActs);
 const routeCanvasFrame = createCanvasFrameRouter(useCanvasStore.getState(), () => hostAuthority);
 const routeStudioFrame = createStudioFrameRouter(useStudioStore.getState(), pendingStudio);
+const routeRoomsFrame = createRoomsFrameRouter(useRoomsStore.getState(), pendingRooms);
 const routeReviewsFrame = createReviewsFrameRouter(useReviewsStore.getState(), pendingReviews);
 const routeMeetingsFrame = createMeetingsFrameRouter(useMeetingsStore.getState(), pendingMeetings);
 const routeQueryFrame = createQueryFrameRouter(
@@ -264,6 +271,8 @@ socket.onMessage = (data) => {
       socket.send(encode(frame));
     // Studio jobs ran on while away; the host sends the whole state again.
     socket.send(encode({ t: "studio.list" }));
+    // Rooms ran on while away; only a host that relays them is asked.
+    if (message.features?.includes(ROOMS_FEATURE) === true) socket.send(encode({ t: "rooms.get" }));
     // The Reviews queue moved while away; the host answers with its last read at once.
     void sendReviews({ kind: "queue", refresh: false });
     // Recordings started, ended or moved on while away.
@@ -290,6 +299,7 @@ socket.onMessage = (data) => {
   routeArtifactFrame(message);
   routeCanvasFrame(message);
   routeStudioFrame(message);
+  routeRoomsFrame(message);
   routeReviewsFrame(message);
   routeMeetingsFrame(message);
   routeQueryFrame(message);
@@ -474,10 +484,12 @@ async function retarget(id: string | null): Promise<void> {
   useArtifactsStore.getState().clear();
   useCanvasStore.getState().clear();
   useStudioStore.getState().clear();
+  useRoomsStore.getState().clear();
   useReviewsStore.getState().clear();
   useMeetingsStore.getState().clear();
   pendingActs.cancelAll();
   pendingStudio.cancelAll();
+  pendingRooms.cancelAll();
   pendingReviews.cancelAll();
   pendingMeetings.cancelAll();
   pendingQueries.cancelAll();
@@ -794,6 +806,28 @@ export function studioRequest(op: StudioOp): Promise<StudioResult> {
     return Promise.resolve({ rid, ok: false, error: "Not connected to your Mac." });
   const answer = pendingStudio.add(rid);
   socket.send(encode({ t: "studio.req", rid, op }));
+  return answer;
+}
+
+/** Ephemeral; the answer lands in `useRoomsStore()`. Also sent on every welcome. Nothing goes to a host without Rooms. */
+export function requestRooms(): void {
+  if (useConnectionStore.getState().status !== "connected" || useRoomsStore.getState().supported !== true) return;
+  socket.send(encode({ t: "rooms.get" }));
+}
+
+/**
+ * One Rooms command (create, post, raise, budget, answer, stop, image). The desktop's answer
+ * resolves it; fails at once while not connected or when the host has no Rooms (an older host
+ * would drop the socket on the frame), and after `ROOMS_TIMEOUT_MS` unanswered.
+ */
+export function roomsRequest(cmd: RoomsCmd): Promise<RoomsResult> {
+  if (useConnectionStore.getState().status !== "connected")
+    return Promise.resolve({ ok: false, code: "offline", message: "Not connected to your Mac." });
+  if (useRoomsStore.getState().supported !== true)
+    return Promise.resolve({ ok: false, code: "unsupported", message: "Update Relay Host on your Mac to use Rooms." });
+  const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const answer = pendingRooms.add(rid);
+  socket.send(encode({ t: "rooms.cmd", rid, cmd }));
   return answer;
 }
 

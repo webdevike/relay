@@ -39,6 +39,9 @@ export function appLinkRoute(url: string): AppRoute | "none" | null {
       return { how: "navigate", href: link.sub === undefined ? "/boards" : { pathname: "/boards", params: { slug: link.sub } } };
     case "studio":
       return { how: "navigate", href: "/studio" };
+    // `relay://open/rooms/<id>` is that room; bare, the list.
+    case "rooms":
+      return { how: "navigate", href: link.sub === undefined ? "/rooms" : `/rooms/${encodeURIComponent(link.sub)}` };
     case "reviews": {
       const item = link.params?.item;
       return item === undefined ? { how: "navigate", href: "/reviews" } : { how: "push", href: `/reviews?item=${encodeURIComponent(item)}` };

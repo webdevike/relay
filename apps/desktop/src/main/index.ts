@@ -37,6 +37,7 @@ import { createHostReviews } from './relay/host-reviews'
 import { createPrSource, localPrFacts, toolRunner } from './context-popover/pr-source'
 import { startStatusReader } from './relay/artifacts-status'
 import { registerRoomsIpc } from './rooms/rooms-ipc'
+import { startRoomsBridge } from './relay/rooms-bridge'
 import { registerFilesIpc } from './files/files-ipc'
 import { registerFilesPresenceIpc } from './files/presence-ipc'
 import { registerTerminalIpc } from './terminal/terminal-ipc'
@@ -243,7 +244,9 @@ function bootstrap(): void {
             }
           : null,
       )
-      registerRoomsIpc(ctx)
+      // Rooms on the phone: the Relay Host relays this app's rooms and the phone's commands.
+      const roomsBridge = startRoomsBridge({ client: chat.frames, service: registerRoomsIpc(ctx) })
+      ctx.onBeforeQuit(async () => roomsBridge.stop())
       // Agent cursors in the Files editor and Isaac's caret, through the Relay Host; Files tells
       // presence which host file a host-backed root shows, presence tells Files' saves apart.
       let files: { hostPathOf(root: string, rel: string): string | null } | null = null
