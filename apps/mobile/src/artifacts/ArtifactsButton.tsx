@@ -1,7 +1,7 @@
 /**
- * The thread header's Artifacts button: a round stack glyph like the call button beside it, with a
- * blue dot while the thread holds something that arrived since the sheet was last opened there
- * (or an agent's tab Isaac has not opened).
+ * The thread header's Artifacts button: a stack glyph like the buttons beside it, with a blue dot
+ * while the thread holds something that arrived since the sheet was last opened there (or an
+ * agent's tab Isaac has not opened).
  */
 import { View } from "react-native";
 import { IconButton } from "@/ui/IconButton";
@@ -12,11 +12,11 @@ import { hasNewArtifacts } from "./format";
 
 export interface ArtifactsButtonProps {
   thread: string;
-  tone: "default" | "overlay";
+  size: number;
   onPress: () => void;
 }
 
-export function ArtifactsButton({ thread, tone, onPress }: ArtifactsButtonProps) {
+export function ArtifactsButton({ thread, size, onPress }: ArtifactsButtonProps) {
   const colors = useColors();
   const seenAt = useArtifactsSeenStore((state) => state.seen[thread] ?? null);
   const fresh = useArtifactsStore((state) => {
@@ -25,8 +25,8 @@ export function ArtifactsButton({ thread, tone, onPress }: ArtifactsButtonProps)
   });
   return (
     <View>
-      <IconButton symbol="square.stack.3d.up" tone={tone} accessibilityLabel={fresh ? "Artifacts, new items" : "Artifacts"} onPress={onPress} />
-      {fresh && <View pointerEvents="none" style={{ position: "absolute", top: 1, right: 1, width: 9, height: 9, borderRadius: 5, backgroundColor: colors.accent }} />}
+      <IconButton symbol="square.stack.3d.up" size={size} glyphSize={19} backgroundColor="transparent" accessibilityLabel={fresh ? "Artifacts, new items" : "Artifacts"} onPress={onPress} />
+      {fresh && <View pointerEvents="none" style={{ position: "absolute", top: 5, right: 4, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent }} />}
     </View>
   );
 }

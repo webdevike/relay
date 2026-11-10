@@ -11,23 +11,26 @@
  * a turn, as the composer does, and leaves the draft alone. While the thread's omp session is
  * blocked on an `ask` or a tool approval, its card sits above the composer (the session is
  * subscribed while the thread shows, as the Agent Inbox does). Questions the assistant asked that
- * Isaac has not answered (`snapshot.asks`) show as quiet badges above the composer
- * (`agents/OpenAskBadges`); what runs now lives in the Artifacts sheet's Running row.
+ * Isaac has not answered (`snapshot.asks`) are counted on the header's question button, which
+ * opens `agents/OpenAsksSheet` to answer or dismiss each; what runs now shows as chips under the
+ * header row (`agents/RunningChips`).
  *
- * Look (after OpenAI's Dots chat): no title; the agent's avatar ring and name chip occupy a
- * dedicated header above the scrolling conversation (tapping them opens a menu); the user's
+ * Look: one compact frosted header row (`ui/FrostedBar`: back, the agent's small animated portrait
+ * with name and status, which opens a menu, then questions, artifacts and call) that the
+ * conversation scrolls under; the user's
  * words are blue bubbles on the right with a delivery receipt, the agent's replies are dark grey bubbles
  * on the left with three typing dots while she works before her reply text streams. The rounded composer keeps multiline text
  * above a persistent row of attachment, hold-to-talk mic and send controls. The mic is the Agent Inbox's: hold to talk, release to send.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, LayoutAnimation, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
+import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
-import { assistantReactionThread, MAX_REPLY_IMAGES, type AssistantMessage, type OpenAsk } from "@relay/protocol";
+import { assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, type AssistantMessage, type OpenAsk } from "@relay/protocol";
 import { AttachmentTray } from "@/ui/AttachmentTray";
-import { AvatarRing, NAME_PILL_GAP, NAME_PILL_HEIGHT, RING_SIZE } from "@/ui/AvatarRing";
+import { AvatarTitle } from "@/ui/AvatarTitle";
+import { FrostedBar } from "@/ui/FrostedBar";
 import { Banner } from "@/ui/Banner";
 import { Callout } from "@/ui/Callout";
 import { EmptyState } from "@/ui/EmptyState";
@@ -48,7 +51,9 @@ import { BackgroundRow } from "@/agents/BackgroundRow";
 import { AskCard } from "@/agents/AskCard";
 import { SessionApprovalCard } from "@/agents/SessionApprovalCard";
 import { usePendingAsk } from "@/agents/usePendingAsk";
-import { useAgentsStore } from "@/state/agents";
+import { ownedBy, useAgentsStore } from "@/state/agents";
+import { useActivityStore } from "@/state/activity";
+import { runningChips } from "@/lib/activity";
 import { ReplyWidgetActions } from "@/agents/WidgetActions";
 import { backgroundOf } from "@/lib/background";
 import { BubbleMenuProvider, ChatBubble } from "@/agents/BubbleMenu";
@@ -82,7 +87,9 @@ import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 import { draftKey, useThreadDraft } from "@/state/drafts";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
-import { OpenAskBadges } from "@/agents/OpenAskBadges";
+import { OpenAsksButton } from "@/agents/OpenAsksButton";
+import { OpenAsksSheet } from "@/agents/OpenAsksSheet";
+import { RunningChips } from "@/agents/RunningChips";
 import { AskInlineCard } from "@/agents/AskInlineCard";
 import { WaitingMark } from "@/ui/WaitingMark";
 import { askCards, askRowId, askRowTarget, isAskRow, pruneHidden, visibleAsks, waitingMessageIds, withAskRows } from "@/lib/openAsks";
@@ -93,11 +100,11 @@ import { useTurnBookmarks } from "@/turns/useTurnBookmarks";
 
 /** Id of the row echoing a sent turn before the host's snapshot lists it. */
 const PENDING_ID = "pending-turn";
-/** The avatar ring starts this far below the status bar. */
-const HEADER_TOP = 2;
-/** Space below the status bar that the avatar ring and its name pill take. */
-const HEADER_HEIGHT = HEADER_TOP + RING_SIZE + NAME_PILL_GAP + NAME_PILL_HEIGHT;
-/** The oldest rows start this far below the header, so they open clear of the avatar. */
+/** The header's one row: back, identity and buttons, under the status bar. */
+const HEADER_ROW = 44;
+/** The header's round glyph buttons. */
+const HEADER_BUTTON = 36;
+/** The oldest rows start this far below the header. */
 const HEADER_GAP = 8;
 /** Gap between the pill and the bottom safe area. */
 const COMPOSER_BOTTOM = spacing.md;
@@ -108,8 +115,10 @@ const BUBBLE_DARK = "#212121";
 /** Space between rows of different senders, and between rows of one sender's run. */
 const GAP_SENDER = 16;
 const GAP_RUN = 4;
-/** After a badge tap's scroll starts, how long before the row rings: the smooth scroll has mostly landed. */
+/** After Show in chat's scroll starts, how long before the row rings: the smooth scroll has mostly landed. */
 const RING_DELAY_MS = 420;
+/** Show in chat waits for the questions sheet to start closing before it scrolls. */
+const SHEET_CLOSE_MS = 250;
 /** Proportion of the width a bubble may take. */
 const USER_MAX_WIDTH = "80%";
 const USER_RADIUS = 24;
@@ -169,6 +178,11 @@ function Thread({ agent }: { agent: string }) {
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
   const artifactsThread = assistantReactionThread(agent);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
+  // The Artifacts tab the sheet opens on: the Working group when a running chip that is not a session was tapped.
+  const [artifactsTab, setArtifactsTab] = useState<string | null>(null);
+  const [asksOpen, setAsksOpen] = useState(false);
+  // The frosted header floats over the list, so the list pads itself by however tall the header is.
+  const [headerHeight, setHeaderHeight] = useState(insets.top + HEADER_ROW);
   // Follow the thread's artifacts while it shows, so the header button's dot is live.
   useEffect(() => watchArtifacts(artifactsThread), [artifactsThread]);
   // Rows this screen adds to the thread (the avatar editor) go with it.
@@ -308,7 +322,7 @@ function Thread({ agent }: { agent: string }) {
       setHiddenAsks((current) => new Set([...current].filter((id) => id !== ask.id)));
     });
   };
-  /** The badge Isaac last tapped: its row (`id`) rings anew each time `n` grows, so the same badge tapped again rings again. */
+  /** The row Show in chat last scrolled to: it rings anew each time `n` grows, so the same ask shown again rings again. */
   const [rung, setRung] = useState({ id: "", n: 0 });
   const ringTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(
@@ -318,6 +332,11 @@ function Thread({ agent }: { agent: string }) {
     [],
   );
   const pendingApproval = useAgentsStore((state) => (sessionId === null ? undefined : state.approvals[sessionId]));
+  // What runs for this thread now (helpers, sessions, harnesses, rooms, and its own sessions only while they work): chips under the header row.
+  const activityItems = useActivityStore((state) => state.items);
+  const sessions = useAgentsStore((state) => state.sessions);
+  const owned = useMemo(() => ownedBy(sessions, agent), [sessions, agent]);
+  const running = useMemo(() => runningChips(activityItems, artifactsThread, { threadSession: sessionId, sessions }, owned), [activityItems, artifactsThread, sessionId, sessions, owned]);
 
   // Background messages (the host's job lines arrive as `status` rows) show as quiet rows; any other status row is machinery, never shown.
   // Memoized: the bookmarks index these rows, and a keystroke in the composer must not rebuild them.
@@ -328,17 +347,15 @@ function Thread({ agent }: { agent: string }) {
   const newestSettled = settled[settled.length - 1];
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending) : null;
-  // Badged asks, minus the one its card shows and the one whose chips already sit under the newest reply.
+  // Open questions, minus the one whose ask card shows above the composer: the header button's count and its sheet.
   const shownAsks = useMemo(
-    () =>
-      visibleAsks(
-        openAsks,
-        pendingAsk === undefined || sessionId === null ? null : { sessionId, askId: pendingAsk.id },
-        replies === null ? null : (newestSettled?.id ?? null),
-        hiddenAsks,
-      ),
-    [openAsks, pendingAsk, sessionId, replies, newestSettled, hiddenAsks],
+    () => visibleAsks(openAsks, pendingAsk === undefined || sessionId === null ? null : { sessionId, askId: pendingAsk.id }, hiddenAsks),
+    [openAsks, pendingAsk, sessionId, hiddenAsks],
   );
+  // The last question answered or dismissed closes the sheet.
+  useEffect(() => {
+    if (shownAsks.length === 0) setAsksOpen(false);
+  }, [shownAsks.length]);
   // An open ask with a bubble in the thread marks that bubble; one without (a session's, an `ask` card left open) is a card where it was asked.
   const messageIds = useMemo(() => new Set(messages.map((message) => message.id)), [messages]);
   const waitingIds = useMemo(() => waitingMessageIds(openAsks, hiddenAsks, messageIds), [openAsks, hiddenAsks, messageIds]);
@@ -357,16 +374,6 @@ function Thread({ agent }: { agent: string }) {
   // and the newest row is not an assistant message already showing words. Once text streams, it is the indicator.
   const newest = newestFirst[0];
   const typing = busy && !(newestSettled?.role === "assistant" && newestSettled.text.trim() !== "");
-  // The badge row has one height; when it comes or goes the composer grows or shrinks, and the
-  // list's padding follows on the next layout, both eased instead of jumping.
-  const asksRowShown = shownAsks.length > 0;
-  const asksRowWas = useRef(asksRowShown);
-  const easeComposerLayout = useRef(false);
-  if (asksRowWas.current !== asksRowShown) {
-    asksRowWas.current = asksRowShown;
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    easeComposerLayout.current = true;
-  }
 
   // Only the newest message Isaac typed carries a receipt: Sending while its echo is pending, Seen once
   // the host's snapshot lists it.
@@ -375,13 +382,9 @@ function Thread({ agent }: { agent: string }) {
 
   const dark = useScheme() === "dark";
   const bg = dark ? BG_DARK : colors.bg;
-  const listTop = insets.top + HEADER_HEIGHT + HEADER_GAP;
+  const listTop = headerHeight + HEADER_GAP;
 
   const onComposerLayout = (event: LayoutChangeEvent): void => {
-    if (easeComposerLayout.current) {
-      easeComposerLayout.current = false;
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    }
     setComposerHeight(event.nativeEvent.layout.height);
   };
 
@@ -419,9 +422,8 @@ function Thread({ agent }: { agent: string }) {
   };
 
   /**
-   * An open ask's badge tapped: the chat scrolls to the bubble that asked it (or its inline card),
-   * centred, and the row rings (`WaitingMark`). It is answered there, with the reply chips or the
-   * card's own; the badge only finds it.
+   * Show in chat (the questions sheet): the chat scrolls to the bubble that asked it (or its inline
+   * card), centred, and the row rings (`WaitingMark`).
    */
   const jumpToAsk = (ask: OpenAsk): void => {
     Keyboard.dismiss();
@@ -437,25 +439,16 @@ function Thread({ agent }: { agent: string }) {
   };
 
   /**
-   * An answer tapped on an inline ask card: a thread ask goes out as Isaac's turn too (tagged with its
-   * question unless the card is the newest row); a session ask's answer only to the host, which hands
-   * it to the asking session.
+   * An answer to an open ask, from an inline card or the questions sheet: a thread ask goes out as
+   * Isaac's turn too (tagged with its question unless its row is the newest); a session ask's
+   * answer only to the host, which hands it to the asking session.
    */
-  const answerCard = (ask: OpenAsk, reply: string): void => {
-    if (ask.source !== "session") sendTurn(answerText(reply, ask.question, newestFirst[0]?.id !== askRowId(ask)), [], false);
-    resolveAsk(ask, "answered", reply);
-  };
-
-  /** The `+N` badge: every open ask by label; picking one jumps to it. */
-  const openAllAsks = (): void => {
-    Keyboard.dismiss();
-    ActionSheetIOS.showActionSheetWithOptions(
-      { title: "Open questions", options: [...shownAsks.map((ask) => ask.label), "Cancel"], cancelButtonIndex: shownAsks.length },
-      (index) => {
-        const ask = shownAsks[index];
-        if (ask !== undefined) jumpToAsk(ask);
-      },
-    );
+  const answerOpenAsk = (ask: OpenAsk, reply: string): void => {
+    if (ask.source !== "session") {
+      const target = askRowTarget(ask, messageIds);
+      sendTurn(answerText(reply, ask.question, target !== newestSettled?.id && target !== newestFirst[0]?.id), [], false);
+    }
+    resolveAsk(ask, "answered", reply.slice(0, MAX_ASK_ANSWER));
   };
 
   /** Sign-in card tapped: the credentials sheet, a modal route (the bottom-sheet modal did not present on this screen). */
@@ -492,7 +485,7 @@ function Thread({ agent }: { agent: string }) {
             <ReplyWidgetActions reply={connected ? widgetReply : null}>
               <FlatList
                 ref={listRef}
-                style={[styles.fill, { marginTop: listTop }]}
+                style={styles.fill}
                 data={newestFirst}
                 inverted
                 keyExtractor={(message) => message.id}
@@ -512,7 +505,7 @@ function Thread({ agent }: { agent: string }) {
                           onPick={
                             connected
                               ? (reply) => {
-                                  answerCard(card, reply);
+                                  answerOpenAsk(card, reply);
                                 }
                               : null
                           }
@@ -547,8 +540,9 @@ function Thread({ agent }: { agent: string }) {
                 }}
                 // Inverted: the header sits at the visual bottom, below the newest row.
                 ListHeaderComponent={typing ? <TypingRow title={title} gap={newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER} /> : null}
-                // Inverted: reserve room at the visual bottom for the floating composer.
-                contentContainerStyle={{ paddingTop: composerHeight + spacing.md }}
+                // Inverted: reserve room at the visual bottom for the floating composer, and at the visual top for the frosted header.
+                contentContainerStyle={{ paddingTop: composerHeight + spacing.md, paddingBottom: listTop }}
+                scrollIndicatorInsets={{ top: headerHeight, bottom: composerHeight }}
                 contentOffset={{ x: 0, y: initialOffset.current }}
                 {...scrollHandlers}
                 keyboardDismissMode="interactive"
@@ -557,15 +551,13 @@ function Thread({ agent }: { agent: string }) {
             </ReplyWidgetActions>
           )}
           <ScrollToBottom visible={awayFromBottom} onPress={scrollToBottom} bottom={composerHeight + spacing.sm} />
-          <View pointerEvents="box-none" style={[styles.header, { top: insets.top + HEADER_TOP }]}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${title} menu`}
-              onPress={openMenu}
-            >
-              <AvatarRing name={title} portrait={portrait} motion={{ signals, paused: onCall }} />
-            </Pressable>
-            <View style={styles.back}>
+          <FrostedBar
+            style={[styles.header, { paddingTop: insets.top }]}
+            onLayout={(event) => {
+              setHeaderHeight(event.nativeEvent.layout.height);
+            }}
+          >
+            <View style={styles.headerRow}>
               <BackButton
                 onPress={() => {
                   // Opened from Assistants it goes back there; a notification tap into a cold app has nothing behind it.
@@ -573,21 +565,32 @@ function Thread({ agent }: { agent: string }) {
                   else router.replace("/assistants");
                 }}
               />
-            </View>
-            <View style={styles.artifacts}>
+              <Pressable accessibilityRole="button" accessibilityLabel={`${title} menu`} onPress={openMenu} style={styles.identity}>
+                <AvatarTitle name={title} portrait={portrait} motion={{ signals, paused: onCall }} />
+              </Pressable>
+              {shownAsks.length > 0 && (
+                <OpenAsksButton
+                  count={shownAsks.length}
+                  size={HEADER_BUTTON}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setAsksOpen(true);
+                  }}
+                />
+              )}
               <ArtifactsButton
                 thread={artifactsThread}
-                tone={dark ? "overlay" : "default"}
+                size={HEADER_BUTTON}
                 onPress={() => {
                   Keyboard.dismiss();
                   setArtifactsOpen(true);
                 }}
               />
-            </View>
-            <View style={styles.call}>
               <IconButton
-                symbol="phone.fill"
-                tone={dark ? "overlay" : "default"}
+                symbol="phone"
+                size={HEADER_BUTTON}
+                glyphSize={18}
+                backgroundColor="transparent"
                 disabled={!connected}
                 accessibilityLabel={`Call ${title}`}
                 onPress={() => {
@@ -599,7 +602,22 @@ function Thread({ agent }: { agent: string }) {
                 }}
               />
             </View>
-          </View>
+            {running.length > 0 && (
+              <View style={styles.running}>
+                <RunningChips
+                  chips={running}
+                  onOpenSession={(id) => {
+                    router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
+                  }}
+                  onOpenWorking={() => {
+                    Keyboard.dismiss();
+                    setArtifactsTab("subagents");
+                    setArtifactsOpen(true);
+                  }}
+                />
+              </View>
+            )}
+          </FrostedBar>
           {/* No Pinned row under the header on the phone (Isaac, 2026-11-05): pins stay in the thread's Artifacts and on
               the desktop rail; `@/pins/PinnedRow` is kept for when it comes back. */}
         </View>
@@ -610,15 +628,6 @@ function Thread({ agent }: { agent: string }) {
               <Banner tone="danger" message={banner} />
             </View>
           )}
-          <OpenAskBadges
-            asks={shownAsks}
-            background={bg}
-            onOpen={jumpToAsk}
-            onDismiss={(ask) => {
-              resolveAsk(ask, "dismissed");
-            }}
-            onMore={openAllAsks}
-          />
           {/* What the assistant is blocked on, answered here; sending a message instead cancels the ask (the host's bridge does). */}
           {sessionId !== null && pendingApproval !== undefined ? (
             <View style={styles.blocked}>
@@ -718,8 +727,29 @@ function Thread({ agent }: { agent: string }) {
           agent={agent}
           session={sessionId}
           open={artifactsOpen}
+          tab={artifactsTab}
           onClose={() => {
             setArtifactsOpen(false);
+            setArtifactsTab(null);
+          }}
+        />
+        <OpenAsksSheet
+          open={asksOpen}
+          asks={shownAsks}
+          assistant={title}
+          connected={connected}
+          onAnswer={answerOpenAsk}
+          onDismiss={(ask) => {
+            resolveAsk(ask, "dismissed");
+          }}
+          onShow={(ask) => {
+            setAsksOpen(false);
+            setTimeout(() => {
+              jumpToAsk(ask);
+            }, SHEET_CLOSE_MS);
+          }}
+          onClose={() => {
+            setAsksOpen(false);
           }}
         />
       </View>
@@ -727,15 +757,9 @@ function Thread({ agent }: { agent: string }) {
   );
 }
 
-/** Round glass back chevron: translucent white on dark, the surface colour on light. */
+/** Back chevron, a plain glyph on the frosted header. */
 function BackButton({ onPress }: { onPress: () => void }) {
-  const colors = useColors();
-  const dark = useScheme() === "dark";
-  return dark ? (
-    <IconButton symbol="chevron.left" onPress={onPress} tone="overlay" accessibilityLabel="Back" />
-  ) : (
-    <IconButton symbol="chevron.left" onPress={onPress} backgroundColor={colors.surface} tintColor={colors.text} accessibilityLabel="Back" />
-  );
+  return <IconButton symbol="chevron.left" size={HEADER_BUTTON} glyphSize={19} backgroundColor="transparent" onPress={onPress} accessibilityLabel="Back" />;
 }
 
 /** A row this screen added itself (the avatar editor) can close itself; host rows pass through. */
@@ -972,11 +996,12 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
 const styles = StyleSheet.create({
   root: { flex: 1 },
   fill: { flex: 1 },
-  header: { position: "absolute", left: 0, right: 0, alignItems: "center" },
-  back: { position: "absolute", top: spacing.xs, left: spacing.lg },
-  call: { position: "absolute", top: spacing.xs, right: spacing.lg },
-  /** Left of the call button: its width (IconButton's 40) and a small gap further in. */
-  artifacts: { position: "absolute", top: spacing.xs, right: spacing.lg + 40 + spacing.sm },
+  /** Floats over the list's top; the list pads itself by its measured height. */
+  header: { position: "absolute", top: 0, left: 0, right: 0 },
+  headerRow: { height: HEADER_ROW, flexDirection: "row", alignItems: "center", paddingHorizontal: spacing.sm, gap: spacing.xs },
+  /** The identity takes the room the buttons leave. */
+  identity: { flex: 1, minWidth: 0, paddingHorizontal: spacing.xs },
+  running: { paddingBottom: spacing.xs + 2 },
   userRow: { paddingHorizontal: spacing.lg, alignItems: "flex-end" },
   userBubbleFrame: { maxWidth: USER_MAX_WIDTH },
   userBubble: { borderRadius: USER_RADIUS, paddingVertical: 11, paddingHorizontal: 17 },
@@ -997,7 +1022,7 @@ const styles = StyleSheet.create({
   status: { textAlign: "center", paddingHorizontal: spacing.xxxl, fontWeight: "400" },
   composer: { paddingBottom: COMPOSER_BOTTOM },
   banner: { paddingBottom: spacing.sm },
-  /** The ask or approval card the assistant is blocked on, between the badges and the pill, as wide as the pill. */
+  /** The ask or approval card the assistant is blocked on, above the pill, as wide as the pill. */
   blocked: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
   pillRow: { paddingHorizontal: spacing.lg },
   composerActions: { flexDirection: "row", gap: spacing.sm },

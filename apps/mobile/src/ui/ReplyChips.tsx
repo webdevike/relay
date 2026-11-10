@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { Chip } from "./Chip";
@@ -12,13 +13,15 @@ export interface ReplyChipsProps {
   onPick: (reply: string) => void;
   /** The answer a session's ask goes with unless Isaac says otherwise: its chip is drawn selected. */
   selected?: string | undefined;
+  /** A last element in the same wrapping row (the open-questions sheet's "Other" chip). */
+  trailing?: ReactNode;
 }
 
 /**
  * Tap-to-answer replies under a chat bubble: a wrapping row of `Chip`s, left-aligned, fading in. One
  * VoiceOver group, "Suggested replies", with a button per answer. Nothing is sent without a tap.
  */
-export function ReplyChips({ replies, onPick, selected }: ReplyChipsProps) {
+export function ReplyChips({ replies, onPick, selected, trailing }: ReplyChipsProps) {
   return (
     <Animated.View
       entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
@@ -37,6 +40,7 @@ export function ReplyChips({ replies, onPick, selected }: ReplyChipsProps) {
           }}
         />
       ))}
+      {trailing}
     </Animated.View>
   );
 }

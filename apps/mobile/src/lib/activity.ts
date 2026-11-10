@@ -1,8 +1,8 @@
 /**
- * Pure rules for the Artifacts sheet's Running section on an assistant thread: everything the
- * host's activity list says this assistant has in progress (sessions, helpers, harnesses, canvas
- * rooms) plus the sessions it started for its own work while they run, each once. The detail lives
- * in the sheet's Working group (`artifacts/format.ts` `taskGroups`).
+ * Pure rules for the running chips in an assistant thread's header (`agents/RunningChips`):
+ * everything the host's activity list says this assistant has in progress (sessions, helpers,
+ * harnesses, canvas rooms) plus the sessions it started for its own work while they run, each
+ * once. The detail lives in the Artifacts sheet's Working group (`artifacts/format.ts` `taskGroups`).
  */
 import { ownedActive, type ActivityItem } from "@evaos/chat-core/activity";
 import type { AgentSession } from "@relay/protocol";
