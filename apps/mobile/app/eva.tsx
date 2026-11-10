@@ -23,12 +23,11 @@
  * above a persistent row of attachment, hold-to-talk mic and send controls. The mic is the Agent Inbox's: hold to talk, release to send.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, TextInput, View, type LayoutChangeEvent } from "react-native";
+import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View, type LayoutChangeEvent, type TextInput } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, type AssistantMessage, type OpenAsk } from "@relay/protocol";
-import { AttachmentTray } from "@/ui/AttachmentTray";
 import { AvatarTitle } from "@/ui/AvatarTitle";
 import { FrostedBar } from "@/ui/FrostedBar";
 import { Banner } from "@/ui/Banner";
@@ -63,7 +62,7 @@ import { radii, spacing, useColors, useScheme } from "@/theme";
 import { agentPortrait, agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
 import { useMotionSignals } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
-import { requestAssistant, sendCommand, stopAssistant, subscribeAgent, unsubscribeAgent, watchArtifacts } from "@/connection";
+import { requestAgentOptions, requestAssistant, sendCommand, stopAssistant, subscribeAgent, unsubscribeAgent, watchArtifacts } from "@/connection";
 import { warn } from "@/connection/log";
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
@@ -72,16 +71,16 @@ import { answerText, stripAnswerContext } from "@evaos/chat-core/answer-context"
 import { userImageUrls } from "@evaos/chat-core/image-urls";
 import { MarkdownImages } from "@/agents/MarkdownImages";
 import { RenderMessage } from "@/agents/RenderReportContext";
-import { PasteImageChip } from "@/ui/PasteImageChip";
 import { usePasteImage } from "@/lib/pasteImage";
 import { CallScreen } from "@/call/CallScreen";
 import { startVoiceCall } from "@/call/live";
 import { useCallStore } from "@/state/call";
 import { useLiveCallStore } from "@/state/liveCall";
-import { DictationButton } from "@/dictation/DictationButton";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
 import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
 import { useDictation } from "@/dictation/useDictation";
+import { useWalkieOrb } from "@/dictation/walkie";
+import { AssistantComposer } from "@/agents/AssistantComposer";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
@@ -149,10 +148,9 @@ function Thread({ agent }: { agent: string }) {
   const composer = useRef<TextInput>(null);
   // Where the composer's cursor is, for Reply to quote above it.
   const cursor = useRef(0);
-  // The hold-to-talk mic's pipeline, from pressing to the words being sent: the composer is inert meanwhile.
+  // The dictation pipeline, from pressing the mic to the words being sent: no image pastes meanwhile.
   const dictationPhase = useDictation().phase;
   const listening = dictationPhase === "listening" || dictationPhase === "finishing" || dictationPhase === "sending";
-  const [inputHeight, setInputHeight] = useState(40);
   const [failure, setFailure] = useState<string | null>(null);
   // A legacy call that a live call's fallback (Action Button, Call) could not start.
   const callFailure = useLiveCallStore((state) => (state.failure?.agent === agent ? state.failure.message : null));
@@ -199,8 +197,6 @@ function Thread({ agent }: { agent: string }) {
     }, [agent]),
   );
 
-  const text = draft.trim();
-  const canSend = connected && !listening && (text !== "" || photos.length > 0);
   const full = photos.length >= MAX_REPLY_IMAGES;
   const [composing, setComposing] = useState(false);
 
@@ -255,10 +251,11 @@ function Thread({ agent }: { agent: string }) {
     });
   };
 
-  // Hold-to-talk (the Agent Inbox's mic) delivers what was heard as Isaac's next turn, to this thread.
+  // Hold-to-talk delivers what was heard as Isaac's next turn, to this thread; a tap dictation
+  // borrows the target for the composer's field and points it back here when it ends.
   const trackTurnRef = useRef(trackTurn);
   trackTurnRef.current = trackTurn;
-  useFocusEffect(useCallback(() => {
+  const pointDictationHere = useCallback(() => {
     setDictationTarget({
       kind: "assistant",
       agent,
@@ -268,15 +265,15 @@ function Thread({ agent }: { agent: string }) {
         });
       },
     });
+  }, [agent, title]);
+  useFocusEffect(useCallback(() => {
+    pointDictationHere();
     return () => {
       resetDictationTarget();
     };
-  }, [agent, title]));
-
-  const send = (): void => {
-    if (!canSend) return;
-    sendTurn(text, photos, true);
-  };
+  }, [pointDictationHere]));
+  // A hold mounts the edge glow until it has faded; a tap that dictates into the field never shows it.
+  const walkieOrb = useWalkieOrb();
 
   // A widget's reply button or input in the thread answers as a chip does: Isaac's next turn. One
   // callback for the thread's life, so the widgets below don't redraw on every keystroke.
@@ -337,6 +334,12 @@ function Thread({ agent }: { agent: string }) {
   const sessions = useAgentsStore((state) => state.sessions);
   const owned = useMemo(() => ownedBy(sessions, agent), [sessions, agent]);
   const running = useMemo(() => runningChips(activityItems, artifactsThread, { threadSession: sessionId, sessions }, owned), [activityItems, artifactsThread, sessionId, sessions, owned]);
+  // The model and thinking level of the thread's session, for the composer's chip.
+  const threadSession = sessionId === null ? undefined : sessions[sessionId];
+  const threadOptions = useAgentsStore((state) => (sessionId === null ? undefined : state.options[sessionId]));
+  useEffect(() => {
+    if (connected && sessionId !== null) requestAgentOptions(sessionId);
+  }, [connected, sessionId]);
 
   // Background messages (the host's job lines arrive as `status` rows) show as quiet rows; any other status row is machinery, never shown.
   // Memoized: the bookmarks index these rows, and a keystroke in the composer must not rebuild them.
@@ -419,6 +422,40 @@ function Thread({ agent }: { agent: string }) {
         if (index === 1) attach("library");
       },
     );
+  };
+
+  /** The composer's voice-call button: a live call, or the legacy call when GPT-Live is unavailable. */
+  const call = (): void => {
+    Keyboard.dismiss();
+    setFailure(null);
+    startVoiceCall(agent).catch((error: unknown) => {
+      setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't call ${title}.`);
+    });
+  };
+
+  /** The card's chip: the thinking levels the thread session's model takes, else the avatar menu. */
+  const openThinking = (): void => {
+    const levels = threadOptions?.models.find((model) => model.name === threadSession?.model)?.thinkingLevels ?? [];
+    if (sessionId === null || levels.length === 0) {
+      openMenu();
+      return;
+    }
+    ActionSheetIOS.showActionSheetWithOptions(
+      { title: `${title}'s thinking`, message: threadSession?.model, options: [...levels.map(capitalized), "Cancel"], cancelButtonIndex: levels.length },
+      (index) => {
+        const level = levels[index];
+        if (level === undefined || level === threadSession?.thinkingLevel) return;
+        sendCommand({ kind: "agent.configure", sessionId, thinkingLevel: level }).catch((error: unknown) => {
+          setFailure(error instanceof Error && error.message !== "" ? error.message : "Couldn't change the thinking level.");
+        });
+      },
+    );
+  };
+  const chip = {
+    // "Claude Opus 5.5" reads "Opus 5.5": the chip has little room.
+    label: threadSession?.model === undefined ? title : `${title} · ${threadSession.model.replace(/^Claude\s+/i, "")}`,
+    detail: threadSession?.thinkingLevel === undefined ? undefined : capitalized(threadSession.thinkingLevel),
+    onPress: openThinking,
   };
 
   /**
@@ -586,21 +623,6 @@ function Thread({ agent }: { agent: string }) {
                   setArtifactsOpen(true);
                 }}
               />
-              <IconButton
-                symbol="phone"
-                size={HEADER_BUTTON}
-                glyphSize={18}
-                backgroundColor="transparent"
-                disabled={!connected}
-                accessibilityLabel={`Call ${title}`}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setFailure(null);
-                  startVoiceCall(agent).catch((error: unknown) => {
-                    setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't call ${title}.`);
-                  });
-                }}
-              />
             </View>
             {running.length > 0 && (
               <View style={styles.running}>
@@ -655,55 +677,29 @@ function Thread({ agent }: { agent: string }) {
             )
           )}
           <View style={styles.pillRow}>
-            <View style={[styles.composerCard, { backgroundColor: dark ? BUBBLE_DARK : colors.surface, borderColor: colors.hairline }]}>
-              {photos.length > 0 && (
-                <View style={styles.tray}>
-                  <AttachmentTray
-                    uris={photos.map((photo) => photo.uri)}
-                    onRemove={(index) => {
-                      setPhotos((current) => current.filter((_, i) => i !== index));
-                    }}
-                  />
-                </View>
-              )}
-              {!full && (
-                <PasteImageChip
-                  active={composing && connected && !listening}
-                  onImage={(image) => {
-                    setPhotos((current) => [...current, photoOfImage(image)].slice(0, MAX_REPLY_IMAGES));
-                  }}
-                  style={styles.tray}
-                />
-              )}
-              <TextInput
-                ref={composer}
-                value={draft}
-                onChangeText={setDraft}
-                onSelectionChange={(event) => {
-                  cursor.current = event.nativeEvent.selection.start;
-                }}
-                onFocus={() => { setComposing(true); followContent(); }}
-                onBlur={() => { setComposing(false); }}
-                placeholder={listening ? "Listening…" : connected ? `Message ${title}` : "Not connected"}
-                editable={connected && !listening}
-                multiline
-                keyboardAppearance={dark ? "dark" : "light"}
-                placeholderTextColor={colors.textMuted}
-                selectionColor={colors.accent}
-                onContentSizeChange={(event) => {
-                  setInputHeight(Math.max(40, Math.min(128, Math.ceil(event.nativeEvent.contentSize.height))));
-                }}
-                style={[styles.composerInput, { height: inputHeight, color: colors.text }]}
-                accessibilityLabel={`Message ${title}`}
-              />
-              <View style={styles.composerToolbar}>
-                <AttachButton onPress={openAttach} disabled={!connected || listening} />
-                <View style={styles.composerActions}>
-                  <DictationButton size={44} backgroundColor={colors.hairline} />
-                  <SendButton onPress={send} disabled={!canSend} />
-                </View>
-              </View>
-            </View>
+            <AssistantComposer
+              title={title}
+              connected={connected}
+              draft={draft}
+              setDraft={setDraft}
+              photos={photos}
+              setPhotos={setPhotos}
+              inputRef={composer}
+              cursor={cursor}
+              composing={composing}
+              onComposing={(focused) => {
+                setComposing(focused);
+                if (focused) followContent();
+              }}
+              onAttach={openAttach}
+              onSend={(words, sent) => {
+                if (connected) sendTurn(words, sent, true);
+              }}
+              onCall={call}
+              chip={chip}
+              onWalkie={walkieOrb.start}
+              restoreTarget={pointDictationHere}
+            />
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -714,7 +710,7 @@ function Thread({ agent }: { agent: string }) {
           setViewing(null);
         }}
       />
-      <ListeningOrb />
+      {walkieOrb.shown && <ListeningOrb />}
       {onCall && <CallScreen agent={agent} title={title} portrait={portrait} />}
     </SafeAreaView>
   );
@@ -776,19 +772,9 @@ function LocalRowFrame({ agent, id, children }: { agent: string; id: string; chi
   );
 }
 
-/** Composer actions stay visible in the bottom row, including the disabled send arrow. */
-function AttachButton({ onPress, disabled }: { onPress: () => void; disabled: boolean }) {
-  const colors = useColors();
-  return <IconButton symbol="plus" size={44} glyphSize={24} onPress={onPress} disabled={disabled}
-    backgroundColor={colors.hairline} accessibilityLabel="Attach image" />;
-}
-
-
-function SendButton({ onPress, disabled }: { onPress: () => void; disabled: boolean }) {
-  const colors = useColors();
-  return <IconButton symbol="arrow.up" size={44} glyphSize={21} onPress={onPress} disabled={disabled} disabledOpacity={0.8}
-    backgroundColor={disabled ? colors.hairline : colors.bubbleUser}
-    tintColor={disabled ? colors.textMuted : "#FFFFFF"} accessibilityLabel="Send" />;
+/** "medium" reads "Medium" in the chip and the thinking sheet. */
+function capitalized(word: string): string {
+  return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 /** Space above a row: the sender gap when the row above (older) is by someone else, the run gap when it is by the same one. */
@@ -1025,15 +1011,10 @@ const styles = StyleSheet.create({
   /** The ask or approval card the assistant is blocked on, above the pill, as wide as the pill. */
   blocked: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
   pillRow: { paddingHorizontal: spacing.lg },
-  composerActions: { flexDirection: "row", gap: spacing.sm },
-  composerCard: { borderRadius: 28, borderWidth: StyleSheet.hairlineWidth, padding: 10, gap: 4 },
-  composerInput: { fontSize: 17, lineHeight: 22, paddingTop: 4, paddingBottom: 4, paddingHorizontal: 6, textAlignVertical: "top" },
-  composerToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   menuTitle: { textAlign: "center", paddingBottom: spacing.md },
   menuRows: { marginHorizontal: -spacing.xl },
   imagesAbove: { marginBottom: spacing.xs },
   signinAbove: { marginBottom: spacing.sm },
   /** Clear of the reaction badges that overlap the bubble's bottom corner. */
   replies: { marginTop: spacing.sm },
-  tray: { paddingTop: spacing.md },
 });

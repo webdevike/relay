@@ -16,24 +16,21 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { SymbolView } from "expo-symbols";
-import { Text } from "@/ui/Text";
-import { Banner } from "@/ui/Banner";
-import { motion, radii, spacing, useColors, type Colors } from "@/theme";
-import { impactHaptic, notifyHaptic, selectHaptic, tapHaptic } from "@/lib/haptics";
+import { motion, spacing, useColors, type Colors } from "@/theme";
+import { impactHaptic, selectHaptic, tapHaptic } from "@/lib/haptics";
 import { useConnectionStore } from "@/state/connection";
 import { debug } from "@/connection/log";
-import { useSpeechRecognitionEvent } from "expo-speech-recognition";
-import { VozDictation } from "../../modules/voz-dictation";
 import { MicGlyph, type MicGlyphMode } from "./MicGlyph";
 import { micLevel, sendLift, wheelConfirm, wheelDetent, wheelPosition } from "./signals";
+import { DictationStatus } from "./DictationStatus";
+import { useMicLevel } from "./useMicLevel";
 import { WHEEL_STEP_RAD } from "./SkillWheel";
 import { dictationActor } from "./actor";
-import { useDictation, openDictationSettings } from "./useDictation";
+import { useDictation } from "./useDictation";
 import { phaseOf, type DictationPhase } from "./machine";
 import type { AgentSkill, AgentSkillChoice } from "@relay/protocol";
 
 const DEFAULT_SIZE = 40;
-const CHIP_WIDTH = 220;
 /** Finger travel (pt) up from the button that submits the dictation (or fires `onLift`). */
 const SEND_SWIPE_DISTANCE = 56;
 /** Finger travel (pt) left from the button that opens the skill wheel. */
@@ -85,22 +82,6 @@ function tintFor(phase: DictationPhase, colors: Colors): string {
   return tints[phase];
 }
 
-const errorMessage: Record<string, string> = {
-  "not-allowed": "Microphone access is off.",
-  "service-not-allowed": "Speech recognition isn't available on this device.",
-  "audio-capture": "Couldn't capture audio.",
-  network: "Network error during recognition.",
-  aborted: "Dictation stopped unexpectedly.",
-  "no-speech": "Didn't catch that.",
-  accessibility_denied: "Relay needs Accessibility access on your Mac.",
-  agent_not_found: "That agent session is gone.",
-  agent_cannot_respond: "That agent can't take a reply right now.",
-  invalid_command: "Mac rejected the transcript.",
-  internal: "Something went wrong.",
-};
-
-const DEFAULT_ERROR_MESSAGE = "Something went wrong.";
-
 /**
  * Hold-to-talk mic: press and hold to listen, release to send. The flick up submits (insert plus
  * Return) unless the screen sets `launches`, which makes the flick start a new session with what
@@ -134,25 +115,7 @@ export function DictationButton({
   const state = useDictation();
   const ring = useSharedValue(1);
   const level = micLevel;
-  useSpeechRecognitionEvent("volumechange", (event) => {
-    // iOS reports roughly -2..10; below 0 is inaudible.
-    const normalized = Math.min(1, Math.max(0, event.value / 8));
-    level.value = withTiming(normalized, { duration: 70 });
-  });
-  useEffect(() => {
-    // Voz reports its own 0..1 loudness while it records.
-    const subscription = VozDictation.addListener("level", (event) => {
-      level.value = withTiming(event.value, { duration: 70 });
-    });
-    return () => {
-      subscription.remove();
-    };
-  }, [level]);
-  useEffect(() => {
-    if (state.phase === "sent") notifyHaptic("success");
-    if (state.phase !== "listening")
-      level.value = withTiming(0, { duration: motion.duration.fast });
-  }, [state.phase, level]);
+  useMicLevel(state.phase);
 
   useEffect(() => {
     if (state.phase === "listening") {
@@ -499,46 +462,9 @@ export function DictationButton({
     opacity: !connected ? 0.4 : pressed.value ? 0.85 : 1,
   }));
 
-  const showPermissionChip = state.phase === "permission_denied";
-  const showErrorChip = state.phase === "error";
-  const showNothingHeardChip = state.phase === "idle" && state.nothingHeard;
-  const chipVisible = showPermissionChip || showErrorChip || showNothingHeardChip;
-
   return (
     <View style={{ alignItems: "center" }}>
-      {chipVisible && (
-        <View
-          style={{
-            position: "absolute",
-            bottom: BUTTON_SIZE + spacing.md,
-            width: CHIP_WIDTH,
-            backgroundColor: colors.surfaceRaised,
-            borderRadius: radii.md,
-            padding: spacing.md,
-            gap: spacing.sm,
-          }}
-        >
-          {showPermissionChip && (
-            <Banner
-              tone="warn"
-              message="Speech recognition access is off."
-              actionLabel="Open Settings"
-              onAction={openDictationSettings}
-            />
-          )}
-          {showErrorChip && (
-            <Banner
-              tone="danger"
-              message={errorMessage[state.errorCode ?? "internal"] ?? DEFAULT_ERROR_MESSAGE}
-            />
-          )}
-          {showNothingHeardChip && (
-            <Text variant="label" color="textMuted">
-              Nothing heard
-            </Text>
-          )}
-        </View>
-      )}
+      <DictationStatus bottom={BUTTON_SIZE + spacing.md} />
       <View
         style={{
           width: BUTTON_SIZE,

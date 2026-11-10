@@ -6,6 +6,8 @@ import { impactHaptic, tapHaptic } from "@/lib/haptics";
 
 /** The capsule's fixed height, for a row of chips that must not change height. */
 export const CHIP_HEIGHT = 28;
+/** Height of a `large` chip, level with a composer's 40pt round buttons. */
+const CHIP_HEIGHT_LARGE = 40;
 /** Long labels (a shell command) stop here and end in an ellipsis. */
 const MAX_WIDTH = 200;
 
@@ -29,10 +31,16 @@ export interface ChipProps {
   style?: StyleProp<ViewStyle>;
   /** Light text on a dark capsule, for chrome over media (the Studio editor). */
   overlay?: boolean;
+  /** Muted words after the label, e.g. a model's thinking level. */
+  detail?: string | undefined;
+  /** `large`: a 40pt borderless capsule with body text, for a composer's control row. */
+  size?: "regular" | "large";
 }
 
 /** A small tappable capsule in a row of chips: optional leading glyph, one-line label. */
-export function Chip({ label, leading, selected = false, onPress, onLongPress, accessibilityLabel, accessibilityHint, accessibilityActions, onAccessibilityAction, hitSlop, style, overlay = false }: ChipProps) {
+export function Chip({ label, detail, leading, selected = false, onPress, onLongPress, accessibilityLabel, accessibilityHint, accessibilityActions, onAccessibilityAction, hitSlop, style, overlay = false, size = "regular" }: ChipProps) {
+  const large = size === "large";
+  const height = large ? CHIP_HEIGHT_LARGE : CHIP_HEIGHT;
   const colors = useColors();
   return (
     <Pressable
@@ -57,14 +65,14 @@ export function Chip({ label, leading, selected = false, onPress, onLongPress, a
       }
       style={({ pressed }) => [
         {
-          height: CHIP_HEIGHT,
-          maxWidth: MAX_WIDTH,
+          height,
+          maxWidth: large ? undefined : MAX_WIDTH,
           flexDirection: "row",
           alignItems: "center",
           gap: spacing.xs,
-          paddingHorizontal: spacing.md,
-          borderRadius: CHIP_HEIGHT / 2,
-          borderWidth: 1,
+          paddingHorizontal: large ? spacing.lg : spacing.md,
+          borderRadius: height / 2,
+          borderWidth: large ? 0 : 1,
           borderColor: selected ? colors.accent : overlay ? "#2C2E33" : colors.hairline,
           backgroundColor: selected ? toneFill(colors, "accent", 0.12) : overlay ? "#1A1B1E" : colors.surfaceRaised,
           opacity: pressed ? 0.7 : 1,
@@ -73,8 +81,9 @@ export function Chip({ label, leading, selected = false, onPress, onLongPress, a
       ]}
     >
       {leading}
-      <Text variant="caption" color={selected ? "accent" : "text"} numberOfLines={1} style={[{ flexShrink: 1 }, overlay && !selected && { color: "#E9ECEF" }]}>
+      <Text variant={large ? "body" : "caption"} color={selected ? "accent" : "text"} numberOfLines={1} style={[{ flexShrink: 1 }, overlay && !selected && { color: "#E9ECEF" }]}>
         {label}
+        {detail !== undefined && <Text variant={large ? "body" : "caption"} color="textMuted">{` ${detail}`}</Text>}
       </Text>
     </Pressable>
   );

@@ -1,8 +1,8 @@
-import { Pressable, StyleSheet, View, type Insets } from "react-native";
+import { Pressable, type Insets } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useColors } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
-import { loadSkia } from "@/dictation/skia";
+import { Disc } from "./Disc";
 
 export interface IconButtonProps {
   symbol: SFSymbol;
@@ -25,11 +25,7 @@ export interface IconButtonProps {
 
 const OVERLAY = { tint: "#FFFFFF", background: "rgba(255,255,255,0.12)" } as const;
 
-/**
- * Round icon button. The disc is drawn with Skia when the build has it: a View circle from
- * `borderRadius` came out as a teardrop on iOS (one corner left square by Fabric), which no
- * combination of corner props fixed.
- */
+/** Round icon button: a glyph on a `Disc`. */
 export function IconButton({
   symbol,
   onPress,
@@ -49,7 +45,6 @@ export function IconButton({
   const backgroundColor =
     backgroundOverride ?? (overlay ? OVERLAY.background : colors.surfaceRaised);
   const tintColor = tintOverride ?? (overlay ? OVERLAY.tint : colors.text);
-  const sk = loadSkia();
   return (
     <Pressable
       disabled={disabled}
@@ -70,13 +65,7 @@ export function IconButton({
         opacity: disabled ? disabledOpacity : pressed ? 0.8 : 1,
       })}
     >
-      {sk === null ? (
-        <View style={[StyleSheet.absoluteFill, { borderRadius: size / 2, backgroundColor }]} />
-      ) : (
-        <sk.Canvas style={StyleSheet.absoluteFill}>
-          <sk.Circle cx={size / 2} cy={size / 2} r={size / 2} color={backgroundColor} />
-        </sk.Canvas>
-      )}
+      <Disc size={size} color={backgroundColor} />
       <SymbolView name={symbol} size={glyphSize ?? size * 0.45} tintColor={tintColor} />
     </Pressable>
   );
