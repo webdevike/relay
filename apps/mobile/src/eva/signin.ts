@@ -1,7 +1,8 @@
 /**
- * The sign-in handoff in Eva's thread: a card on her reply opens a sheet that sends the site's
- * credentials to the host (`assistant.signin`), which types them into the login page in her
- * contained browser. The model never sees them; nothing here stores or logs them.
+ * The sign-in handoff in Eva's thread: a card on her reply opens her browser as a sheet (already on
+ * the login page), whose `Password` form sends the site's credentials to the host
+ * (`assistant.signin`), which types them into that page. The model never sees them; nothing here
+ * stores or logs them.
  */
 
 /** The site's icon, as Google's favicon service serves it, at 2x for a 32pt tile. */

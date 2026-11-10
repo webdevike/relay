@@ -13,6 +13,7 @@ import { registerBoardsIpc } from '../relay/boards-ipc'
 import { registerReactionsIpc } from '../relay/reactions-ipc'
 import { registerRenderIpc } from '../relay/render-ipc'
 import { registerAsksIpc } from '../relay/asks-ipc'
+import { registerSigninIpc } from '../relay/signin-ipc'
 import { registerArtifactsIpc } from '../relay/artifacts-ipc'
 import { registerActivityIpc } from '../relay/activity-ipc'
 import { registerCanvasLiveIpc } from '../relay/canvas-live-ipc'
@@ -188,6 +189,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   registerRenderIpc(ctx, relay)
   // The open questions of the assistant threads shown (the phone's badges), as the host keeps them.
   const offAsks = registerAsksIpc(ctx, relay)
+  // A sign-in card's username and password, typed into the login page by the host.
+  registerSigninIpc(ctx, relay)
   // What each thread holds (tickets, PRs, media, subagents), for the Artifacts panel.
   const offArtifacts = registerArtifactsIpc(ctx, relay)
   // What agents are running (helpers, sessions, harnesses, canvas), for the Working tab and the chips.

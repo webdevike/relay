@@ -2,11 +2,10 @@
 // before the details marker is spoken; code, images, tables, sign-in and replies tokens and markup are
 // dropped and links become their text, so nothing reads out as symbols.
 
-import { splitPins } from "@relay/protocol";
+import { splitPins, splitSignin } from "@relay/protocol";
 import { spokenPart } from "../assistant/voice";
 import { SILENCE_MARKER } from "../assistant/service";
 import { splitReplies } from "../assistant/replies";
-import { splitSignin } from "../assistant/signin";
 
 /**
  * `markdown` as plain speech for any voice. Lines become sentences (a finished line without end

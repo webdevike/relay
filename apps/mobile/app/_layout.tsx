@@ -58,9 +58,14 @@ export default function RootLayout() {
           <Stack.Screen name="screen" options={{ orientation: "all" }} />
           {/* Cards are thrown sideways; an edge swipe back would fight a throw that starts near the edge. */}
           <Stack.Screen name="catch-up" options={{ gestureEnabled: false }} />
+          {/* From a sign-in card (it carries `host`) Eva's computer comes up as a sheet over the thread. */}
           <Stack.Screen
             name="eva-computer"
-            options={{ gestureEnabled: false, contentStyle: { backgroundColor: "#000000" } }}
+            options={({ route }) => ({
+              gestureEnabled: false,
+              contentStyle: { backgroundColor: "#000000" },
+              presentation: route.params !== undefined && "host" in route.params ? "modal" : "card",
+            })}
           />
           {/* The board pans under the finger; an edge swipe back would leave the room mid-drag. Back to chat is the way out. */}
           <Stack.Screen name="canvas" options={{ gestureEnabled: false }} />

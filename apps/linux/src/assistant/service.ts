@@ -19,7 +19,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { MAX_ASK_QUESTION, OpenAsk, splitPins, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
+import { MAX_ASK_QUESTION, OpenAsk, signinHost, splitPins, splitSignin, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { liveSessionId } from "../agents/session-ref";
 import { parseSessionRows } from "../agents/transcript";
@@ -32,7 +32,7 @@ import type { AskJudge } from "./ask-judge";
 import { type AskStore, MAX_ASK_FROM, MAX_ASK_REPLIES, MAX_ASK_REPLY } from "./ask-store";
 import { type AssistantAgentConfig, RegistryError } from "./registry";
 import { splitReplies } from "./replies";
-import { type FillSpawn, runFill, signinHost, splitSignin } from "./signin";
+import { type FillSpawn, runFill } from "./signin";
 import type { AssistantStore } from "./store";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
 

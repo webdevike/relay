@@ -5,12 +5,17 @@
  * zoom and the session survive the keyboard coming and going. Pinch zooms the view (native web
  * view zoom, unlocked by `ALLOW_PINCH_ZOOM_JS`); taps and typing reach the remote browser through
  * the page itself. Bottom row: history arrows (not wired yet, shown at 40%) and keyboard + reload.
+ *
+ * Opened from a sign-in card (params `agent`, `messageId`, `url`, `host`; `_layout` presents it as a
+ * sheet then): the chip says `Sign in to <host>` and the history arrows give way to `Password`,
+ * which opens the username and password form (`eva-signin`) for the same page. The container tab
+ * is already on the login page, so Isaac signs in right here and the session lands in Eva's profile.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Keyboard, StyleSheet, View } from "react-native";
+import { Keyboard, Pressable, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { Banner } from "@/ui/Banner";
 import { ChromePill } from "@/ui/ChromePill";
@@ -18,7 +23,9 @@ import { IconButton } from "@/ui/IconButton";
 import { Text } from "@/ui/Text";
 import { Toast } from "@/ui/Toast";
 import { spacing } from "@/theme";
-import { BLUR_KEYBOARD_JS, ALLOW_PINCH_ZOOM_JS, EVA_COMPUTER_URL, FOCUS_KEYBOARD_JS, KEYBOARD_NONE } from "@/eva/computer";
+import { EVA_COMPUTER_URL } from "@relay/protocol";
+import { BLUR_KEYBOARD_JS, ALLOW_PINCH_ZOOM_JS, FOCUS_KEYBOARD_JS, KEYBOARD_NONE } from "@/eva/computer";
+import { tapHaptic } from "@/lib/haptics";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 
 const BUTTON = 44;
@@ -29,6 +36,9 @@ const GLASS_BUTTON = "transparent";
 
 export default function EvaComputer() {
   const router = useRouter();
+  // A sign-in card opened it: every param is set (expo-router hands over strings).
+  const params = useLocalSearchParams<{ agent?: string; messageId?: string; url?: string; host?: string }>();
+  const signin = params.agent !== undefined && params.messageId !== undefined && params.url !== undefined && params.host !== undefined ? { agent: params.agent, messageId: params.messageId, url: params.url, host: params.host } : null;
   const web = useRef<WebView>(null);
   const [loading, setLoading] = useState(true);
   const [failure, setFailure] = useState<string | null>(null);
@@ -69,12 +79,13 @@ export default function EvaComputer() {
   );
 
   return (
-    <SafeAreaView style={styles.root} edges={["top", "bottom"]}>
+    // As a sheet (sign-in) the top inset is the sheet's own edge, not the status bar.
+    <SafeAreaView style={styles.root} edges={signin === null ? ["top", "bottom"] : ["bottom"]}>
       <StatusBar style="light" />
       <View style={styles.bar}>
         <IconButton symbol="xmark" tone="overlay" size={BUTTON} onPress={close} accessibilityLabel="Close" />
         <View style={styles.title}>
-          <ChromePill symbol="laptopcomputer" label="Eva's computer" />
+          <ChromePill symbol={signin === null ? "laptopcomputer" : "lock.fill"} label={signin === null ? "Eva's computer" : `Sign in to ${signin.host}`} />
         </View>
         <IconButton symbol="arrow.clockwise" tone="overlay" size={BUTTON} onPress={reload} accessibilityLabel="Reload" />
       </View>
@@ -129,10 +140,24 @@ export default function EvaComputer() {
       </View>
 
       <View style={styles.bar}>
-        <ChromePill>
-          <IconButton symbol="chevron.left" tone="overlay" size={BUTTON} backgroundColor={GLASS_BUTTON} disabled onPress={noop} accessibilityLabel={HISTORY_LABEL} />
-          <IconButton symbol="chevron.right" tone="overlay" size={BUTTON} backgroundColor={GLASS_BUTTON} disabled onPress={noop} accessibilityLabel={HISTORY_LABEL} />
-        </ChromePill>
+        {signin === null ? (
+          <ChromePill>
+            <IconButton symbol="chevron.left" tone="overlay" size={BUTTON} backgroundColor={GLASS_BUTTON} disabled onPress={noop} accessibilityLabel={HISTORY_LABEL} />
+            <IconButton symbol="chevron.right" tone="overlay" size={BUTTON} backgroundColor={GLASS_BUTTON} disabled onPress={noop} accessibilityLabel={HISTORY_LABEL} />
+          </ChromePill>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Sign in with username and password"
+            onPress={() => {
+              tapHaptic();
+              router.push({ pathname: "/eva-signin", params: signin });
+            }}
+            style={({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })}
+          >
+            <ChromePill symbol="key.fill" label="Password" />
+          </Pressable>
+        )}
         <ChromePill>
           <IconButton symbol="keyboard" tone="overlay" size={BUTTON} backgroundColor={GLASS_BUTTON} onPress={toggleKeyboard} accessibilityLabel={keyboardUp ? "Hide keyboard" : "Show keyboard"} />
           <IconButton symbol="arrow.clockwise" tone="overlay" size={BUTTON} backgroundColor={GLASS_BUTTON} onPress={reload} accessibilityLabel="Reload" />

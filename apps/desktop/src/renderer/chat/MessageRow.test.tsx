@@ -6,6 +6,7 @@ import { MessageRow, ToolRunRow } from './MessageRow'
 import { resetTabsForTests, tabsStore } from '../tabs/tabs-store'
 import { resetTilingForTests } from '../tiling/tiling-store'
 import { mountTestDock } from '../tiling/test-dock'
+import { EVA_COMPUTER_URL } from '@relay/protocol'
 
 const invoke = vi.hoisted(() => vi.fn())
 vi.mock('../ipc', () => ({ invoke }))
@@ -110,6 +111,73 @@ describe('MessageRow', () => {
     )
     await Promise.resolve()
     unmount()
+  })
+
+  describe('sign-in handoff', () => {
+    const HANDOFF = 'Sign in needed: Sketchfab.\n[[signin:https://sketchfab.com/login]]'
+
+    it('shows the card instead of the raw token, with the password form only in an assistant thread', () => {
+      const { container, unmount } = wrap(<MessageRow m={makeMessage('a', 'assistant', HANDOFF)} />)
+      expect(container.textContent).not.toContain('[[signin')
+      expect(screen.getByText('Sign in needed: Sketchfab.')).toBeInTheDocument()
+      expect(screen.getByText('Sign in to sketchfab.com')).toBeInTheDocument()
+      expect(screen.getByTestId('signin-open-browser')).toBeInTheDocument()
+      expect(screen.queryByTestId('signin-use-password')).toBeNull()
+      unmount()
+      wrap(<MessageRow m={makeMessage('a', 'assistant', HANDOFF)} agent="nova" />)
+      expect(screen.getByTestId('signin-use-password')).toBeInTheDocument()
+    })
+
+    it("opens Eva's browser screen as a page tab of this workspace", async () => {
+      invoke.mockResolvedValue({ ok: true, value: {} })
+      resetTabsForTests()
+      resetTilingForTests()
+      tabsStore.setState({ loaded: true })
+      const unmount = mountTestDock()
+      wrap(<MessageRow m={makeMessage('a', 'assistant', HANDOFF)} agent="nova" />)
+      fireEvent.click(screen.getByTestId('signin-open-browser'))
+      expect(invoke).toHaveBeenCalledWith(
+        'browser.createTab',
+        expect.objectContaining({ url: EVA_COMPUTER_URL }),
+      )
+      await Promise.resolve()
+      unmount()
+    })
+
+    it('sends the typed credentials to the host and then shows them submitted', async () => {
+      invoke.mockResolvedValue({ ok: true, value: {} })
+      wrap(<MessageRow m={makeMessage('s1', 'assistant', HANDOFF)} agent="nova" />)
+      fireEvent.click(screen.getByTestId('signin-use-password'))
+      fireEvent.change(screen.getByLabelText('Username or email'), {
+        target: { value: ' isaac@x.test ' },
+      })
+      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'pw' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+      await waitFor(() => expect(screen.getByText('Credentials submitted')).toBeInTheDocument())
+      expect(invoke).toHaveBeenCalledWith('signin.submit', {
+        agent: 'nova',
+        messageId: 's1',
+        url: 'https://sketchfab.com/login',
+        username: 'isaac@x.test',
+        password: 'pw',
+      })
+      expect(screen.queryByLabelText('Password')).toBeNull()
+      expect(screen.queryByTestId('signin-use-password')).toBeNull()
+    })
+
+    it("shows the host's refusal and keeps the form", async () => {
+      invoke.mockResolvedValue({
+        ok: false,
+        error: { code: 'internal', message: 'Incorrect username or password.' },
+      })
+      wrap(<MessageRow m={makeMessage('s2', 'assistant', HANDOFF)} agent="nova" />)
+      fireEvent.click(screen.getByTestId('signin-use-password'))
+      fireEvent.change(screen.getByLabelText('Username or email'), { target: { value: 'isaac' } })
+      fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'wrong' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('Incorrect username or password.')
+      expect(screen.getByLabelText('Password')).toBeInTheDocument()
+    })
   })
 
   it('shows thinking inline', () => {

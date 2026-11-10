@@ -71,6 +71,18 @@ export type RelayCommand =
     }
   /** Adds an assistant to the host's registry; with `start`, its thread opens with "Hi <title>". */
   | { kind: 'assistant.create'; id: string; title: string; scope?: string; start: boolean }
+  /**
+   * Isaac's credentials for the login page (`url`) agent `agent`'s reply `messageId` asked him to
+   * sign in to: the host types them into that page in Eva's contained browser. Never logged.
+   */
+  | {
+      kind: 'assistant.signin'
+      agent: string
+      messageId: string
+      url: string
+      username: string
+      password: string
+    }
 
 /**
  * Relay's images for a reply, or why Relay would refuse them (native reply_away's GIF check, plus

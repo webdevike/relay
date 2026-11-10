@@ -20,8 +20,9 @@ import { BubbleActions } from './reactions/BubbleActions'
 import { CanvasRow } from './CanvasRow'
 import { BackgroundRow } from './BackgroundRow'
 import { parseBackground } from '@evaos/chat-core/background'
-import { stripAnswerContext } from '@relay/protocol'
+import { splitSignin, stripAnswerContext } from '@relay/protocol'
 import { ReplyChips } from './ReplyChips'
+import { SignInCard } from './SignInCard'
 import { resolveAsk } from './asks/asks-store'
 import type { OpenAsk } from '@evaos/contract'
 
@@ -84,7 +85,8 @@ function Row({
 
 /**
  * A reply without its `[[replies: ...]]` line (cut while it streams in, too), so it never shows,
- * copies or quotes; the newest reply (`live`) shows the answers as buttons under it.
+ * copies or quotes; the newest reply (`live`) shows the answers as buttons under it. A
+ * `[[signin:<url>]]` line before it becomes the sign-in card above the bubble, as on the phone.
  */
 function AssistantBody({
   m,
@@ -98,10 +100,12 @@ function AssistantBody({
   agent: string | undefined
 }) {
   // `[[pin: label | value]]` lines are pins (the host makes them), never shown; an `@computer`
-  // plan block is the run's, never shown either; then the replies token.
+  // plan block is the run's, never shown either; then the replies token, then the sign-in token.
   const split = useMemo(() => {
     const pinned = splitPins(stripComputerPlan(m.text), m.streaming)
-    return splitReplies(pinned.text, m.streaming)
+    const answered = splitReplies(pinned.text, m.streaming)
+    const { text, signin } = splitSignin(answered.text, m.streaming)
+    return { ...answered, text, signin }
   }, [m.text, m.streaming])
   const shown = useMemo(
     () => (split.text === m.text ? m : { ...m, text: split.text }),
@@ -116,13 +120,18 @@ function AssistantBody({
   )
   return (
     <>
-      <BubbleActions m={shown} corner="end">
-        <WidgetScope.Provider value={m.id}>
-          <RenderMessage.Provider value={renderAt}>
-            <Markdown text={split.text} />
-          </RenderMessage.Provider>
-        </WidgetScope.Provider>
-      </BubbleActions>
+      {split.signin !== undefined ? (
+        <SignInCard signin={split.signin} agent={agent} messageId={m.id} />
+      ) : null}
+      {split.signin === undefined || split.text.trim() !== '' ? (
+        <BubbleActions m={shown} corner="end">
+          <WidgetScope.Provider value={m.id}>
+            <RenderMessage.Provider value={renderAt}>
+              <Markdown text={split.text} />
+            </RenderMessage.Provider>
+          </WidgetScope.Provider>
+        </BubbleActions>
+      ) : null}
       {waiting !== undefined ? (
         <div className="eva-waiting-tag">
           <span data-testid="waiting-tag">Waiting on you</span>

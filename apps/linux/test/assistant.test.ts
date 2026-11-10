@@ -9,7 +9,7 @@ import { liveVoiceFor, loadRegistry, RegistryError } from "../src/assistant/regi
 import { handleAssistantAsks, handleAssistantSay } from "../src/assistant/http";
 import { assistantStatus, AssistantService, AssistantThreads, lastReplyOf, MAX_LAST_REPLY, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
 import { MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from "../src/assistant/replies";
-import { type FillSpawn, splitSignin } from "../src/assistant/signin";
+import type { FillSpawn } from "../src/assistant/signin";
 import { type AskCase, AskStore } from "../src/assistant/ask-store";
 import type { AskJudge } from "../src/assistant/ask-judge";
 import { defaultAssistantPath, FileAssistantStore, type AssistantRecord } from "../src/assistant/store";
@@ -824,29 +824,6 @@ describe("AssistantService earlier contexts", () => {
 });
 
 describe("sign-in token", () => {
-  it("strips the token from a reply and carries url and host", () => {
-    expect(splitSignin("Sign in to GitHub.\n[[signin:https://github.com/login]]", false)).toEqual({
-      text: "Sign in to GitHub.",
-      signin: { url: "https://github.com/login", host: "github.com" },
-    });
-    expect(splitSignin("[[signin:http://localhost:3000/x?a=1]]\n", false)).toEqual({ text: "", signin: { url: "http://localhost:3000/x?a=1", host: "localhost" } });
-  });
-
-  it("cuts a token that is not an http(s) url without a card, and leaves a token in mid-text alone", () => {
-    expect(splitSignin("hi [[signin:javascript:alert(1)]]", false)).toEqual({ text: "hi" });
-    expect(splitSignin("hi [[signin:not a url]]", false)).toEqual({ text: "hi [[signin:not a url]]" });
-    expect(splitSignin("[[signin:https://a.com]] then more", false)).toEqual({ text: "[[signin:https://a.com]] then more" });
-  });
-
-  it("hides a token that is still streaming in, but not other text", () => {
-    for (const partial of ["Sign in.\n[", "Sign in.\n[[", "Sign in.\n[[sig", "Sign in.\n[[signin:", "Sign in.\n[[signin:https://git"]) {
-      expect(splitSignin(partial, true)).toEqual({ text: "Sign in." });
-      expect(splitSignin(partial, false)).toEqual({ text: partial });
-    }
-    expect(splitSignin("array[[0]] is", true)).toEqual({ text: "array[[0]] is" });
-    expect(splitSignin("done\n[[signin:https://github.com/login]]", true).signin?.host).toBe("github.com");
-  });
-
   it("shows the card on the assistant row and leaves a reply that is only the token", () => {
     const rows: AgentMessage[] = [
       { id: "a1", role: "assistant", text: "Please sign in.\n[[signin:https://github.com/login]]", at: 1 },

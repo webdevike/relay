@@ -1,14 +1,8 @@
 /**
  * Eva's computer: the contained Chromium Eva drives, as a Selkies web screen Isaac can watch and
- * type into from the phone. The web view opens `EVA_COMPUTER_URL`; the scripts below run inside the
- * stream page.
+ * type into from the phone. The web view opens `EVA_COMPUTER_URL` (@relay/protocol); the scripts
+ * below run inside the stream page.
  */
-
-/**
- * The Selkies screen on the Mac Mini, published on the tailnet by `tailscale serve` (MagicDNS name
- * required, no auth: being on the tailnet is the auth). See `workflows/eva-browser.md`.
- */
-export const EVA_COMPUTER_URL = "https://isaacs-mac-mini.tail80fdb0.ts.net:3100/";
 
 /** Messages the injected scripts post back through `window.ReactNativeWebView`. */
 export const KEYBOARD_FOCUSED = "keyboard:focused";

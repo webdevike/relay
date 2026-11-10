@@ -1,9 +1,8 @@
 /**
- * "Sign in to continue": the sheet behind a sign-in card in an assistant's thread (Dot's handoff). Two ways
- * through. `Username and password` reveals a form; submit sends `assistant.signin` for that agent, and the host
- * types the credentials into the login page in Eva's contained browser, so the model never sees
- * them. `Open Eva's browser` opens her computer for logins a form cannot do (Google, Apple,
- * passkeys). A full-screen modal route: the bottom-sheet modal did not present on the Eva screen.
+ * The username and password form behind `Password` in Eva's computer opened from a sign-in card
+ * (`eva-computer` with the card's params). Submit sends `assistant.signin` for that agent, and the
+ * host types the credentials into the login page in Eva's contained browser, so the model never
+ * sees them; on success the form closes back to the browser sheet, where the page signs in.
  */
 import { useState } from "react";
 import { KeyboardAvoidingView, ScrollView, StyleSheet, View } from "react-native";
@@ -28,7 +27,6 @@ export default function EvaSignIn() {
   const router = useRouter();
   const { agent, messageId, url, host } = useLocalSearchParams<{ agent: string; messageId: string; url: string; host: string }>();
   const markSignedIn = useAssistantStore((state) => state.markSignedIn);
-  const [form, setForm] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -54,11 +52,6 @@ export default function EvaSignIn() {
     );
   };
 
-  const openBrowser = (): void => {
-    router.dismiss();
-    router.push("/eva-computer");
-  };
-
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.surface }]} edges={["top", "bottom"]}>
       <KeyboardAvoidingView style={styles.root} behavior="padding">
@@ -66,56 +59,45 @@ export default function EvaSignIn() {
           <View style={styles.head}>
             <SiteIcon host={host} size={ICON} />
             <Text variant="title" style={styles.centered}>
-              Sign in to continue
+              Sign in to {host}
             </Text>
             <Text variant="label" color="textMuted" numberOfLines={2} style={styles.centered}>
               {url}
             </Text>
           </View>
           <View style={styles.options}>
-            <Button
-              label="Username and password"
-              variant={form ? "primary" : "secondary"}
-              disabled={busy}
-              onPress={() => {
-                setForm(true);
-              }}
-            />
-            {form && (
-              <View style={styles.form}>
-                <Text variant="caption" color="textMuted">
-                  Goes straight into the page in Eva's browser. She never sees it.
-                </Text>
-                <TextField
-                  value={username}
-                  onChangeText={(text) => {
-                    setUsername(text.slice(0, MAX_SIGNIN_FIELD));
-                  }}
-                  placeholder="Username or email"
-                  credential="username"
-                  editable={!busy}
-                  returnKeyType="next"
-                />
-                <TextField
-                  value={password}
-                  onChangeText={(text) => {
-                    setPassword(text.slice(0, MAX_SIGNIN_FIELD));
-                  }}
-                  placeholder="Password"
-                  credential="password"
-                  editable={!busy}
-                  returnKeyType="go"
-                  onSubmit={submit}
-                />
-                {failure !== null && (
-                  <View style={styles.banner}>
-                    <Banner tone="danger" message={failure} />
-                  </View>
-                )}
-                <Button label="Sign in" loading={busy} disabled={!ready} onPress={submit} />
-              </View>
-            )}
-            <Button label="Open Eva's browser" variant="secondary" disabled={busy} onPress={openBrowser} />
+            <View style={styles.form}>
+              <Text variant="caption" color="textMuted">
+                Goes straight into the page in Eva's browser. She never sees it.
+              </Text>
+              <TextField
+                value={username}
+                onChangeText={(text) => {
+                  setUsername(text.slice(0, MAX_SIGNIN_FIELD));
+                }}
+                placeholder="Username or email"
+                credential="username"
+                editable={!busy}
+                returnKeyType="next"
+              />
+              <TextField
+                value={password}
+                onChangeText={(text) => {
+                  setPassword(text.slice(0, MAX_SIGNIN_FIELD));
+                }}
+                placeholder="Password"
+                credential="password"
+                editable={!busy}
+                returnKeyType="go"
+                onSubmit={submit}
+              />
+              {failure !== null && (
+                <View style={styles.banner}>
+                  <Banner tone="danger" message={failure} />
+                </View>
+              )}
+              <Button label="Sign in" loading={busy} disabled={!ready} onPress={submit} />
+            </View>
             <Button
               label="Cancel"
               variant="ghost"

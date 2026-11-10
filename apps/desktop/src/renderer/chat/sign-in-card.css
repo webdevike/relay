@@ -1,0 +1,73 @@
+/* A reply's sign-in card (its `[[signin:<url>]]`): bordered like the canvas Join card, no shadow. */
+.eva-signin-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  max-width: 34rem;
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-xl);
+}
+.eva-signin-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-md);
+  min-width: 0;
+}
+.eva-signin-card-icon {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: var(--eva-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  object-fit: cover;
+  background: var(--eva-c-muted-background);
+  color: var(--eva-text-dim);
+}
+.eva-signin-card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+}
+.eva-signin-card-title {
+  font-weight: var(--eva-fw-semibold);
+  color: var(--eva-text);
+  overflow-wrap: anywhere;
+}
+.eva-signin-card-sub {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-signin-card-check {
+  flex: none;
+  color: var(--eva-text);
+}
+.eva-signin-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-signin-card-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-signin-card-note {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-signin-card-error {
+  color: var(--mantine-color-red-text);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}

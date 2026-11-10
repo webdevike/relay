@@ -527,10 +527,10 @@ function Thread({ agent }: { agent: string }) {
     resolveAsk(ask, "answered", reply.slice(0, MAX_ASK_ANSWER));
   };
 
-  /** Sign-in card tapped: the credentials sheet, a modal route (the bottom-sheet modal did not present on this screen). */
+  /** Sign-in card tapped: Eva's browser as a sheet, already on the login page, with `Password` for the form. */
   const openSignIn = (messageId: string, signin: NonNullable<AssistantMessage["signin"]>): void => {
     Keyboard.dismiss();
-    router.push({ pathname: "/eva-signin", params: { agent, messageId, url: signin.url, host: signin.host } });
+    router.push({ pathname: "/eva-computer", params: { agent, messageId, url: signin.url, host: signin.host } });
   };
 
   /** Reply from a bubble's menu: its text quoted above the cursor's line, then the composer focused there. */
