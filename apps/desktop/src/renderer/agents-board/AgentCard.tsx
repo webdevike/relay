@@ -46,7 +46,7 @@ export const RUN_ICON: Record<AgentCard['kind'], Icon> = {
   canvas: IconSchema,
 }
 
-const PR_ICON: Record<NonNullable<AgentPr['state']>, Icon> = {
+export const PR_ICON: Record<NonNullable<AgentPr['state']>, Icon> = {
   open: IconGitPullRequest,
   draft: IconGitPullRequestDraft,
   merged: IconGitMerge,

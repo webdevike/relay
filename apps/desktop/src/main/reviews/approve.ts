@@ -53,6 +53,12 @@ export function approveLine(key: string): string {
   return `Approve request: Isaac approved the auto-work draft PR for ${key} in Relay Reviews. Run \`bun jobs/astra-auto-work/scripts/ready.ts ${key} approve\` from /Users/ike/Eva and report what it printed.`
 }
 
+/** The line Astra acts on when Isaac sends a ticket from the Agents board: start or resume its work. */
+export function sendLine(key: string, title: string, url: string, note: string): string {
+  const ask = note.trim() ? ` Isaac adds: ${note.trim()}` : ''
+  return `Work request: Isaac sent ${key} (${title}, ${url}) from the Relay Agents board. If its auto-work session is live, hand it there; otherwise open or resume the work item (skill://work) and start a session on it, then report which session took it.${ask}`
+}
+
 export function readLedgers(evaRoot: string): Array<{ key: string; text: string }> {
   const dir = path.join(evaRoot, 'work/items')
   let names: string[]

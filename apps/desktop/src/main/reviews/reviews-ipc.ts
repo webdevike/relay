@@ -20,6 +20,7 @@ import {
   readLedgers,
   readLoop,
   readTicketWork,
+  sendLine,
   workOf,
 } from './approve'
 import { registerRemoteReviews, type RemoteReviewsDeps } from './remote-reviews'
@@ -41,6 +42,29 @@ const DONE_FILE = 'reviews-done.json'
 const QUEUE_TTL_MS = 60_000
 
 const fail = (code: string, message: string): Error => Object.assign(new Error(message), { code })
+
+const PR_SEARCH_QUERY = `query($q: String!) { search(query: $q, type: ISSUE, first: 30) { nodes {
+  ... on PullRequest { number title url state isDraft headRefName repository { nameWithOwner } } } } }`
+const PrSearch = z.object({
+  data: z.object({
+    search: z.object({
+      nodes: z.array(
+        z.union([
+          z.object({
+            number: z.number(),
+            title: z.string(),
+            url: z.string(),
+            state: z.enum(['OPEN', 'MERGED', 'CLOSED']),
+            isDraft: z.boolean(),
+            headRefName: z.string(),
+            repository: z.object({ nameWithOwner: z.string() }),
+          }),
+          z.object({}),
+        ]),
+      ),
+    }),
+  }),
+})
 
 const ms = (iso: unknown): number => {
   const t = typeof iso === 'string' ? Date.parse(iso) : NaN
@@ -404,6 +428,38 @@ export function registerReviewsIpc(
         [a.key]: Date.now(),
       })
     return sent
+  })
+
+  handle(ctx, 'reviews.sendTicket', ({ key, title, url, note }) =>
+    tellAstra(sendLine(key, title, url, note)),
+  )
+
+  // PRs that name a ticket: GitHub's search finds the key in a title or body; ticketPrs (renderer)
+  // keeps those whose title or branch carries it.
+  handle(ctx, 'reviews.prSearch', async ({ key }) => {
+    const out = await gh([
+      'api',
+      'graphql',
+      '-f',
+      `query=${PR_SEARCH_QUERY}`,
+      '-f',
+      `q="${key}" org:${REVIEWS_ORG} is:pr`,
+    ])
+    return PrSearch.parse(JSON.parse(out)).data.search.nodes.flatMap((n) =>
+      'number' in n
+        ? [
+            {
+              repo: n.repository.nameWithOwner,
+              number: n.number,
+              title: n.title,
+              url: n.url,
+              state: n.state,
+              draft: n.isDraft,
+              head: n.headRefName,
+            },
+          ]
+        : [],
+    )
   })
 
   handle(ctx, 'reviews.done', ({ url, updatedAt, done: on }) => {

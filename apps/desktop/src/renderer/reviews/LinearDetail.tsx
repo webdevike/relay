@@ -10,6 +10,7 @@ import {
   IconLock,
   IconQuote,
   IconRefresh,
+  IconUserCircle,
 } from '@tabler/icons-react'
 import type { LinearComment, LinearRow, LinearTicket } from '@evaos/contract'
 import { invoke } from '../ipc'
@@ -21,8 +22,12 @@ import { Avatar, RailSection, SourceMark, fail } from './review-ui'
 import { AstraThreadView, threadPropsOf, useAstraItem } from './AstraInline'
 import { mergeTimeline, threadReplyText } from './astra-timeline'
 import { ticketContext } from './astra-context'
+import { Clamped, LinearStatus, PriorityIcon } from './LinearPanelParts'
 
 type Tab = 'details' | 'comments'
+
+/** Comments the panel shows before "Show earlier": the newest few, where the talk is. */
+const PANEL_COMMENTS = 3
 
 interface Person {
   name: string
@@ -389,19 +394,29 @@ function Rail({ t }: { t: LinearTicket }) {
  * A Linear ticket in the E3 layout: Details (description, images inline) and Comments (threads with
  * replies, reply under a comment, quote a selection, @mentions), properties in the rail. @Astra
  * makes a comment a private question to Astra; anything for Linear shows the exact text first.
+ * `panel` (the Agents board's ticket view): one column in the container's scroll, title, status
+ * picker, assignee and priority on top, the description clamped, the latest comments, the composer.
  */
 export function LinearDetail({
   row,
   now,
   onBack,
   onDone,
+  onLoaded,
+  variant = 'page',
 }: {
   row: LinearRow
   now: number
-  onBack: () => void
+  onBack?: () => void
   /** Done on this ticket (its url and title as loaded). */
-  onDone: (t: LinearTicket) => void
+  onDone?: (t: LinearTicket) => void
+  /** The ticket as each load read it (its attachments link PRs). */
+  onLoaded?: (t: LinearTicket) => void
+  variant?: 'page' | 'panel'
 }) {
+  const [allComments, setAllComments] = useState(false)
+  const loaded = useRef(onLoaded)
+  loaded.current = onLoaded
   const [ticket, setTicket] = useState<{ t: LinearTicket; at: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<Tab>('details')
@@ -417,8 +432,10 @@ export function LinearDetail({
   const load = useCallback(async () => {
     setError(null)
     const r = await invoke('reviews.linearTicket', { key: row.key })
-    if (r.ok) setTicket({ t: r.value, at: Date.now() })
-    else setError(r.error.message)
+    if (r.ok) {
+      setTicket({ t: r.value, at: Date.now() })
+      loaded.current?.(r.value)
+    } else setError(r.error.message)
   }, [row.key])
   useEffect(() => {
     setTicket(null)
@@ -490,6 +507,150 @@ export function LinearDetail({
     } else setDraft((d) => `${d}${quoteOf(text)}`)
   }
 
+  const entry = (e: (typeof timeline)[number]) =>
+    e.kind === 'astra' ? (
+      <AstraThreadView
+        key={`astra-${e.thread.id}`}
+        {...threadProps(e.thread)}
+        now={now}
+        look="linear"
+        me={t.me.name}
+        onReply={(root, text) =>
+          astra.ask(threadReplyText(root, text), t.key, () => ticketContext(t))
+        }
+        onUseAsReply={setDraft}
+      />
+    ) : (
+      <div key={e.item.id} className="eva-rv-lthread" data-testid="linear-thread">
+        <CommentView
+          c={e.item}
+          now={now}
+          people={everyone}
+          onReply={() =>
+            setReply((r) => (r && r.to.id === e.item.id ? r : { to: e.item, text: '' }))
+          }
+          onQuote={(text) => quote(text, e.item)}
+        />
+        {repliesTo(e.item.id).length > 0 || reply?.to.id === e.item.id ? (
+          <div className="eva-rv-lreplies">
+            {repliesTo(e.item.id).map((r) => (
+              <CommentView
+                key={r.id}
+                c={r}
+                now={now}
+                people={everyone}
+                onQuote={(text) => quote(text, e.item)}
+              />
+            ))}
+            {reply?.to.id === e.item.id ? (
+              <div className="eva-rv-linline" data-testid="linear-inline-reply">
+                <div className="eva-rv-dim eva-rv-small">
+                  Replying to {e.item.author.name}&apos;s comment
+                </div>
+                <ReplyBox
+                  value={reply.text}
+                  onChange={(text) => setReply({ to: e.item, text })}
+                  people={t.people}
+                  placeholder={`Reply to ${e.item.author.name}. Type @Astra to ask Astra privately.`}
+                  target={`sends to Linear as a reply to ${e.item.author.name}`}
+                  busy={busy}
+                  autoFocus
+                  onSend={() => void send(reply.text, e.item)}
+                  onCancel={() => setReply(null)}
+                  testid="linear-reply-box"
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    )
+
+  const composer = (
+    <ReplyBox
+      value={draft}
+      onChange={setDraft}
+      people={t.people}
+      placeholder="Leave a comment. Type @ to mention, @Astra to ask Astra privately."
+      target={`sends to ${t.key} as a new comment`}
+      busy={busy}
+      onSend={() => void send(draft, null)}
+      testid="linear-composer"
+    />
+  )
+
+  const confirmModal = (
+    <EvaModal
+      opened={confirm !== null}
+      onClose={() => setConfirm(null)}
+      title={confirm?.parent ? 'Post this reply on Linear?' : 'Post this comment on Linear?'}
+      size={480}
+    >
+      <div className="eva-rv-confirm-text" data-testid="review-confirm-text">
+        {confirm?.body}
+      </div>
+      <div className="eva-rv-dim eva-rv-small">
+        {confirm?.parent
+          ? `Posts as you under ${confirm.parent.author.name}'s comment on ${t.key}.`
+          : `Posts as you on ${t.key}.`}{' '}
+        Everyone on the ticket sees it.
+      </div>
+      <div className="eva-rv-modal-actions">
+        <Button variant="default" onClick={() => setConfirm(null)}>
+          Cancel
+        </Button>
+        <Button loading={busy} onClick={() => void post()} data-testid="review-confirm-post">
+          {confirm?.parent ? 'Post reply' : 'Post comment'}
+        </Button>
+      </div>
+    </EvaModal>
+  )
+
+  if (variant === 'panel') {
+    const hidden = allComments ? 0 : Math.max(0, timeline.length - PANEL_COMMENTS)
+    return (
+      <section className="eva-rv-lpanel" data-testid="linear-detail">
+        <h2 className="eva-rv-lpanel-title">{t.title}</h2>
+        <div className="eva-rv-lprops">
+          <LinearStatus ticket={t} onChanged={() => void load()} />
+          <span className="eva-rv-lprop" data-testid="linear-assignee">
+            {t.assignee ? <Avatar login={t.assignee} /> : <IconUserCircle size={14} />}
+            {t.assignee ?? 'Unassigned'}
+          </span>
+          <span className="eva-rv-lprop" data-testid="linear-priority">
+            <PriorityIcon label={t.priority} />
+            {t.priority}
+          </span>
+        </div>
+        <Clamped>
+          {t.description.trim() ? (
+            <Markdown text={linearDisplay(t.description, everyone)} />
+          ) : (
+            <span className="eva-rv-dim">No description.</span>
+          )}
+        </Clamped>
+        <div className="eva-rv-lpanel-comments" data-testid="linear-comments">
+          <h3 className="eva-rv-lpanel-head">
+            Comments <span className="eva-rv-dim">{t.comments.length}</span>
+          </h3>
+          {hidden > 0 ? (
+            <button
+              type="button"
+              className="eva-rv-lpanel-more"
+              onClick={() => setAllComments(true)}
+              data-testid="linear-comments-more"
+            >
+              Show {hidden} earlier {hidden === 1 ? 'comment' : 'comments'}
+            </button>
+          ) : null}
+          {timeline.slice(hidden).map(entry)}
+          {composer}
+        </div>
+        {confirmModal}
+      </section>
+    )
+  }
+
   return (
     <section className="eva-rv-detail" data-testid="linear-detail">
       <header className="eva-rv-topbar">
@@ -498,7 +659,7 @@ export function LinearDetail({
             type="button"
             className="eva-rv-iconbtn"
             aria-label="Back to inbox"
-            onClick={onBack}
+            onClick={() => onBack?.()}
           >
             <IconChevronLeft size={14} />
           </button>
@@ -517,7 +678,7 @@ export function LinearDetail({
           size="xs"
           variant="default"
           leftSection={<IconCheck size={14} />}
-          onClick={() => onDone(t)}
+          onClick={() => onDone?.(t)}
           data-testid="review-done"
         >
           Done
@@ -601,110 +762,16 @@ export function LinearDetail({
             ) : (
               <div className="eva-rv-conv" data-testid="linear-comments">
                 {timeline.length === 0 ? <div className="eva-rv-dim">No comments yet.</div> : null}
-                {timeline.map((e) =>
-                  e.kind === 'astra' ? (
-                    <AstraThreadView
-                      key={`astra-${e.thread.id}`}
-                      {...threadProps(e.thread)}
-                      now={now}
-                      look="linear"
-                      me={t.me.name}
-                      onReply={(root, text) =>
-                        astra.ask(threadReplyText(root, text), t.key, () => ticketContext(t))
-                      }
-                      onUseAsReply={setDraft}
-                    />
-                  ) : (
-                    <div key={e.item.id} className="eva-rv-lthread" data-testid="linear-thread">
-                      <CommentView
-                        c={e.item}
-                        now={now}
-                        people={everyone}
-                        onReply={() =>
-                          setReply((r) =>
-                            r && r.to.id === e.item.id ? r : { to: e.item, text: '' },
-                          )
-                        }
-                        onQuote={(text) => quote(text, e.item)}
-                      />
-                      {repliesTo(e.item.id).length > 0 || reply?.to.id === e.item.id ? (
-                        <div className="eva-rv-lreplies">
-                          {repliesTo(e.item.id).map((r) => (
-                            <CommentView
-                              key={r.id}
-                              c={r}
-                              now={now}
-                              people={everyone}
-                              onQuote={(text) => quote(text, e.item)}
-                            />
-                          ))}
-                          {reply?.to.id === e.item.id ? (
-                            <div className="eva-rv-linline" data-testid="linear-inline-reply">
-                              <div className="eva-rv-dim eva-rv-small">
-                                Replying to {e.item.author.name}&apos;s comment
-                              </div>
-                              <ReplyBox
-                                value={reply.text}
-                                onChange={(text) => setReply({ to: e.item, text })}
-                                people={t.people}
-                                placeholder={`Reply to ${e.item.author.name}. Type @Astra to ask Astra privately.`}
-                                target={`sends to Linear as a reply to ${e.item.author.name}`}
-                                busy={busy}
-                                autoFocus
-                                onSend={() => void send(reply.text, e.item)}
-                                onCancel={() => setReply(null)}
-                                testid="linear-reply-box"
-                              />
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  ),
-                )}
+                {timeline.map(entry)}
               </div>
             )}
           </div>
-          <div className="eva-rv-composer">
-            <ReplyBox
-              value={draft}
-              onChange={setDraft}
-              people={t.people}
-              placeholder="Leave a comment. Type @ to mention, @Astra to ask Astra privately."
-              target={`sends to ${t.key} as a new comment`}
-              busy={busy}
-              onSend={() => void send(draft, null)}
-              testid="linear-composer"
-            />
-          </div>
+          <div className="eva-rv-composer">{composer}</div>
         </div>
         <Rail t={t} />
       </div>
 
-      <EvaModal
-        opened={confirm !== null}
-        onClose={() => setConfirm(null)}
-        title={confirm?.parent ? 'Post this reply on Linear?' : 'Post this comment on Linear?'}
-        size={480}
-      >
-        <div className="eva-rv-confirm-text" data-testid="review-confirm-text">
-          {confirm?.body}
-        </div>
-        <div className="eva-rv-dim eva-rv-small">
-          {confirm?.parent
-            ? `Posts as you under ${confirm.parent.author.name}'s comment on ${t.key}.`
-            : `Posts as you on ${t.key}.`}{' '}
-          Everyone on the ticket sees it.
-        </div>
-        <div className="eva-rv-modal-actions">
-          <Button variant="default" onClick={() => setConfirm(null)}>
-            Cancel
-          </Button>
-          <Button loading={busy} onClick={() => void post()} data-testid="review-confirm-post">
-            {confirm?.parent ? 'Post reply' : 'Post comment'}
-          </Button>
-        </div>
-      </EvaModal>
+      {confirmModal}
     </section>
   )
 }

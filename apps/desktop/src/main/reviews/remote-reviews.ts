@@ -688,4 +688,14 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
     }
     return { status: 'sent' as const, command }
   })
+
+  // The host's reviews service has no PR search, workflow states or ticket hand-off yet: a thin
+  // client links PRs from Linear's attachments and shows the status without the picker.
+  handle(ctx, 'reviews.prSearch', () => [])
+  const notHere = (): never => {
+    throw fail('thin-client', 'Not available on a thin client yet; use the Mini')
+  }
+  handle(ctx, 'reviews.linearStates', notHere)
+  handle(ctx, 'reviews.linearSetState', notHere)
+  handle(ctx, 'reviews.sendTicket', notHere)
 }

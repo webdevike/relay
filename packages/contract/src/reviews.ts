@@ -117,6 +117,30 @@ export const AstraSendSchema = z.object({
   status: z.enum(['sent', 'dry-run']),
   command: z.string(),
 })
+export type AstraSend = z.infer<typeof AstraSendSchema>
+
+/** A pull request a search found for a ticket key: enough to link it, not to show it. */
+export const ReviewPrHitSchema = z.object({
+  repo: z.string(),
+  number: z.number().int(),
+  title: z.string(),
+  url: z.string(),
+  state: z.enum(['OPEN', 'MERGED', 'CLOSED']),
+  draft: z.boolean(),
+  /** The head branch, so a link by branch name is told apart from one by title. */
+  head: z.string(),
+})
+export type ReviewPrHit = z.infer<typeof ReviewPrHitSchema>
+
+/** A Linear workflow state of the ticket's team, for the status picker. */
+export const LinearStateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.string(),
+  color: z.string(),
+  position: z.number(),
+})
+export type LinearState = z.infer<typeof LinearStateSchema>
 
 /** One turn of an item's Astra session as Reviews shows it inline. */
 export const AstraTurnSchema = z.object({
@@ -448,6 +472,36 @@ export const reviewsInvoke = {
    */
   'reviews.approve': {
     input: PrRef.strict(),
+    output: AstraSendSchema,
+  },
+  /** PRs in the org that name a ticket key (title or body); the renderer keeps title and branch matches. */
+  'reviews.prSearch': {
+    input: z.object({ key: LinearKey }).strict(),
+    output: z.array(ReviewPrHitSchema),
+  },
+  /** The ticket team's workflow states, in board order. */
+  'reviews.linearStates': {
+    input: z.object({ issueId: z.string().min(1) }).strict(),
+    output: z.array(LinearStateSchema),
+  },
+  /** Moves a ticket to another workflow state, after Isaac picks it. Test instances never write. */
+  'reviews.linearSetState': {
+    input: z.object({ issueId: z.string().min(1), stateId: z.string().min(1) }).strict(),
+    output: z.object({ name: z.string(), type: z.string(), color: z.string() }),
+  },
+  /**
+   * Hands a ticket to Astra from the Agents board: she starts its work or passes it to its live
+   * auto-work session. The app never starts a session itself.
+   */
+  'reviews.sendTicket': {
+    input: z
+      .object({
+        key: LinearKey,
+        title: z.string().max(400),
+        url: z.string().url(),
+        note: z.string().max(2_000),
+      })
+      .strict(),
     output: AstraSendSchema,
   },
 } as const

@@ -196,6 +196,31 @@ const CommentMade = z.object({
   }),
 })
 
+const StatesData = z.object({
+  issue: z.object({
+    team: z.object({
+      states: z.object({
+        nodes: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            type: z.string(),
+            color: z.string(),
+            position: z.number(),
+          }),
+        ),
+      }),
+    }),
+  }),
+})
+
+const StateSet = z.object({
+  issueUpdate: z.object({
+    success: z.boolean(),
+    issue: z.object({ state: z.object({ name: z.string(), type: z.string(), color: z.string() }) }),
+  }),
+})
+
 export function registerLinearInbox(
   ctx: MainContext,
   opts: { reads: boolean; writes: boolean },
@@ -326,5 +351,28 @@ export function registerLinearInbox(
       throw fail('linear-failed', 'Linear did not take the comment')
     }
     return { url: data.commentCreate.comment.url }
+  })
+
+  // The status picker: the workflow states of the ticket's team, in Linear's own board order.
+  handle(ctx, 'reviews.linearStates', async ({ issueId }) => {
+    const data = StatesData.parse(
+      await gql(
+        `query($id: String!) { issue(id: $id) { team { states { nodes { id name type color position } } } } }`,
+        { id: issueId },
+      ),
+    )
+    return [...data.issue.team.states.nodes].sort((a, b) => a.position - b.position)
+  })
+
+  handle(ctx, 'reviews.linearSetState', async ({ issueId, stateId }) => {
+    if (!opts.writes) throw fail('dry-run', 'Test instance: the status was not changed in Linear')
+    const data = StateSet.parse(
+      await gql(
+        `mutation($id: String!, $stateId: String!) { issueUpdate(id: $id, input: { stateId: $stateId }) { success issue { state { name type color } } } }`,
+        { id: issueId, stateId },
+      ),
+    )
+    if (!data.issueUpdate.success) throw fail('linear-failed', 'Linear did not take the status')
+    return data.issueUpdate.issue.state
   })
 }

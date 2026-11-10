@@ -1094,3 +1094,142 @@ button.eva-rv-sfile {
   color: inherit;
   cursor: pointer;
 }
+
+/*
+ * Panel variant (the Agents board's ticket view): no rail, no inner scrolls; the Detail and the
+ * ticket flow in the panel's one scroll.
+ */
+.eva-rv-detail[data-variant='panel'] {
+  flex: none;
+}
+.eva-rv-detail[data-variant='panel'] .eva-rv-topbar {
+  border-bottom: 0;
+}
+.eva-rv-detail[data-variant='panel'] .eva-rv-head {
+  padding-top: 0;
+}
+.eva-rv-detail[data-variant='panel'] .eva-rv-main,
+.eva-rv-detail[data-variant='panel'] .eva-rv-content,
+.eva-rv-detail[data-variant='panel'] .eva-rv-scroll {
+  flex: none;
+  min-height: auto;
+  overflow: visible;
+}
+.eva-rv-files[data-compact] {
+  height: auto;
+}
+.eva-rv-files[data-compact] .eva-rv-files-bar {
+  flex-wrap: wrap;
+}
+.eva-rv-files[data-compact] .eva-rv-filelist {
+  display: none;
+}
+.eva-rv-files[data-compact] .eva-rv-filediffs {
+  overflow: visible;
+}
+.eva-rv-reviewers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-sm);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-reviewer {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+
+/* The ticket in the panel: title, a row of properties, the clamped description, the comments. */
+.eva-rv-lpanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-md) 0;
+}
+.eva-rv-lpanel-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+}
+.eva-rv-lprops {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-lprop {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  color: var(--eva-c-foreground);
+}
+.eva-rv-lstatus {
+  font-size: var(--eva-fz-label);
+  padding: calc(var(--mantine-spacing-xs) * 0.2) calc(var(--mantine-spacing-xs) * 0.8);
+  border-radius: var(--eva-radius);
+  transition: background-color var(--eva-dur-fast) ease;
+}
+.eva-rv-lstatus:hover {
+  background: var(--eva-hover);
+}
+.eva-rv-lprio {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-rv-lprio[data-priority='Urgent'] {
+  color: var(--eva-c-danger);
+}
+.eva-rv-lstates-loading {
+  display: grid;
+  place-items: center;
+  padding: var(--mantine-spacing-sm);
+}
+.eva-rv-clamp-body {
+  max-height: 240px;
+  overflow: hidden;
+}
+.eva-rv-clamp[data-overflows]:not([data-open]) .eva-rv-clamp-body {
+  mask-image: linear-gradient(to bottom, black calc(100% - 48px), transparent);
+}
+.eva-rv-clamp[data-open] .eva-rv-clamp-body {
+  max-height: none;
+}
+.eva-rv-lpanel-more {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  cursor: pointer;
+}
+.eva-rv-lpanel-more:hover {
+  color: var(--eva-c-foreground);
+}
+.eva-rv-lpanel-comments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  padding-top: var(--mantine-spacing-sm);
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-rv-lpanel-head {
+  margin: 0;
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-c-foreground);
+}
+.eva-rv-detail[data-variant='panel'],
+.eva-rv-detail[data-variant='panel'] .eva-rv-content {
+  min-width: 0;
+}
+.eva-rv-detail[data-variant='panel'] .eva-rv-body,
+.eva-rv-detail[data-variant='panel'] .eva-rv-comment,
+.eva-rv-lpanel .eva-rv-body,
+.eva-rv-lpanel .eva-rv-lcomment-body {
+  overflow-wrap: anywhere;
+}

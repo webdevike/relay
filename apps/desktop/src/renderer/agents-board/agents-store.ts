@@ -14,6 +14,8 @@ export interface AgentsBoardState {
   error: string | null
   /** The card whose side panel is open. */
   selected: string | null
+  /** The panel is folded to a strip beside the board; opening a card unfolds it. */
+  collapsed: boolean
   filters: BoardFilters
 }
 
@@ -21,6 +23,7 @@ export const agentsBoardStore = createStore<AgentsBoardState>(() => ({
   board: null,
   error: null,
   selected: null,
+  collapsed: false,
   filters: DEFAULT_FILTERS,
 }))
 
@@ -67,5 +70,9 @@ export function setBoardFilters(patch: Partial<BoardFilters>): void {
 }
 
 export function selectCard(id: string | null): void {
-  agentsBoardStore.setState({ selected: id })
+  agentsBoardStore.setState({ selected: id, collapsed: false })
+}
+
+export function collapsePanel(collapsed: boolean): void {
+  agentsBoardStore.setState({ collapsed })
 }

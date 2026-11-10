@@ -8,6 +8,12 @@
   height: 100%;
   min-height: 0;
   display: flex;
+}
+.eva-ab-main {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
   flex-direction: column;
 }
 
@@ -234,58 +240,163 @@
   text-overflow: ellipsis;
 }
 
-/* Side panel. */
-.eva-ab-ptitle {
+/*
+ * Side panel: beside the board, which shrinks and stays live. A hairline left border, no shadow;
+ * the sash on that border resizes it.
+ */
+.eva-ab-side {
+  position: relative;
+  flex: none;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) * 0.4);
-  font-weight: var(--eva-fw-medium);
+  border-left: 1px solid var(--eva-c-border);
+  background: var(--eva-c-background);
 }
-.eva-ab-panel {
+.eva-ab-sash {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 7px;
+  z-index: 2;
+  cursor: col-resize;
+  outline: none;
+}
+.eva-ab-sash:hover,
+.eva-ab-sash:focus-visible,
+.eva-ab-sash.is-dragging {
+  background: linear-gradient(
+    to right,
+    transparent 3px,
+    var(--eva-c-ring) 3px 4px,
+    transparent 4px
+  );
+}
+.eva-ab-side-collapsed {
+  width: 36px;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  padding-top: var(--mantine-spacing-sm);
+}
+.eva-ab-side-label {
+  writing-mode: vertical-rl;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: 60%;
+}
+
+/* The ticket view: a slim head, then one scroll for agent, ticket and the PR tabs. */
+.eva-ab-tv {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--mantine-spacing-lg);
+}
+.eva-ab-tv-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) var(--mantine-spacing-xs)
+    var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-ab-tv-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.eva-ab-tv-spacer {
+  flex: 1;
+}
+.eva-ab-tv-dim {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-tv-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--eva-radius);
+  color: var(--eva-c-muted-foreground);
+  transition: background-color var(--eva-dur-fast) ease;
+}
+.eva-ab-tv-iconbtn:hover {
+  background: var(--eva-hover);
+  color: var(--eva-c-foreground);
+}
+.eva-ab-tv-note {
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-tv-title {
+  padding: 0 var(--mantine-spacing-md);
+}
+
+.eva-ab-tv-agent {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-c-border);
+}
+.eva-ab-tv-agentrow {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
 }
 .eva-ab-pcolumn {
   display: flex;
   align-items: center;
-  gap: var(--mantine-spacing-xs);
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
   font-size: var(--eva-fz-body);
   font-weight: var(--eva-fw-medium);
   color: var(--eva-c-foreground);
+  white-space: nowrap;
 }
 .eva-ab-reason {
-  margin: var(--mantine-spacing-xs) 0 0;
-  font-size: var(--eva-fz-body);
+  margin: 0;
+  font-size: var(--eva-fz-label);
   line-height: 1.5;
   color: var(--eva-c-muted-foreground);
 }
-.eva-ab-psection {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xs);
-}
-.eva-ab-phead {
-  margin: 0;
-  font-size: var(--eva-fz-label);
-  font-weight: var(--eva-fw-medium);
-  color: var(--eva-c-muted-foreground);
-}
-.eva-ab-links {
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--eva-c-border);
-}
-.eva-ab-link {
+.eva-ab-tv-session {
   display: flex;
   align-items: center;
   gap: var(--mantine-spacing-sm);
-  padding: var(--mantine-spacing-xs) calc(var(--mantine-spacing-xs) * 0.5);
-  border-bottom: 1px solid var(--eva-c-border);
-  transition: background-color var(--eva-dur-fast) ease;
+  padding: calc(var(--mantine-spacing-xs) * 0.8) var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  transition: border-color var(--eva-dur-fast) ease;
 }
-.eva-ab-link:hover {
-  background: var(--eva-hover);
+.eva-ab-tv-session:hover {
+  border-color: var(--eva-c-muted-foreground);
+}
+.eva-ab-tv-open {
+  flex: none;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-ab-tv-session:hover .eva-ab-tv-open {
+  color: var(--eva-c-foreground);
+}
+.eva-ab-tv-live {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: calc(var(--mantine-spacing-xs) * 0.6);
+  border-radius: 50%;
+  background: var(--mantine-color-yellow-filled);
+  vertical-align: 1px;
 }
 .eva-ab-linkicon {
   flex: none;
@@ -311,18 +422,28 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.eva-ab-facts {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
-  gap: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
-  margin: 0;
-  font-size: var(--eva-fz-body);
+
+/* Linked PRs: one tab each, the PR's state in its glyph's color. */
+.eva-ab-tv-prs {
+  border-top: 1px solid var(--eva-c-border);
+  margin-top: var(--mantine-spacing-md);
 }
-.eva-ab-factlabel {
-  color: var(--eva-c-muted-foreground);
+.eva-ab-tv-prtabs {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  overflow-x: auto;
+  background: var(--eva-c-background);
 }
-.eva-ab-factvalue {
-  margin: 0;
-  color: var(--eva-c-foreground);
-  overflow-wrap: anywhere;
+.eva-ab-tv-prtabs .eva-rv-tab {
+  white-space: nowrap;
+}
+[data-pr='open'] > .eva-ab-tv-prglyph {
+  color: var(--mantine-color-green-filled);
+}
+[data-pr='merged'] > .eva-ab-tv-prglyph {
+  color: var(--mantine-color-violet-filled);
+}
+[data-pr='closed'] > .eva-ab-tv-prglyph {
+  color: var(--mantine-color-red-filled);
 }

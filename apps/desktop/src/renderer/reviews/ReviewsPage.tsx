@@ -107,6 +107,26 @@ function Rail({ pr }: { pr: ReviewPr }) {
   )
 }
 
+/** The rail's Reviewers as one row under the title, where the panel has no room for the rail. */
+function Reviewers({ pr }: { pr: ReviewPr }) {
+  return (
+    <div className="eva-rv-reviewers" data-testid="review-reviewers">
+      {pr.reviewers.length === 0 ? <span className="eva-rv-dim">No reviewers</span> : null}
+      {pr.reviewers.map((r) => {
+        const s = REVIEW_STATE[r.state] ?? { label: r.state.toLowerCase(), tone: 'gray' }
+        return (
+          <span key={r.login} className="eva-rv-reviewer">
+            <Avatar login={r.login} />
+            <span>{r.login}</span>
+            <span className="eva-rv-pill" data-tone={s.tone}>
+              {s.label}
+            </span>
+          </span>
+        )
+      })}
+    </div>
+  )
+}
 function CheckIcon({ state }: { state: string }) {
   if (state === 'pass') return <IconCircleCheck size={15} className="eva-rv-ok" />
   if (state === 'fail') return <IconCircleX size={15} className="eva-rv-bad" />
@@ -233,7 +253,11 @@ const REVIEW_EVENTS = [
   { value: 'request-changes', label: 'Request changes' },
 ] as const
 
-/** The PR: E3 header, tabs, the tab's body beside the rail, and the comment box or review dock. */
+/**
+ * The PR: E3 header, tabs, the tab's body beside the rail, and the comment box or review dock.
+ * `panel` (the Agents board's ticket view) drops back, Done and the rail: its reviewers sit under
+ * the title, Review is in the top bar, and the page flows in its container's one scroll.
+ */
 export function Detail({
   pr,
   fetchedAt,
@@ -241,14 +265,17 @@ export function Detail({
   onBack,
   onRefresh,
   onDone,
+  variant = 'page',
 }: {
   pr: ReviewPr
   fetchedAt: number
   now: number
-  onBack: () => void
+  onBack?: () => void
   onRefresh: () => void
-  onDone: () => void
+  onDone?: () => void
+  variant?: 'page' | 'panel'
 }) {
+  const panel = variant === 'panel'
   const [tab, setTab] = useState<Tab>('conversation')
   const [focusFile, setFocusFile] = useState<string | null>(null)
   const [viewed, setViewed] = useLocal<string[]>(`eva-reviews-viewed:${pr.url}`, [])
@@ -335,19 +362,21 @@ export function Detail({
         : 'Closed'
 
   return (
-    <section className="eva-rv-detail" data-testid="review-detail">
+    <section className="eva-rv-detail" data-variant={variant} data-testid="review-detail">
       <header className="eva-rv-topbar">
-        <Tooltip label="Back to inbox" openDelay={300}>
-          <button
-            type="button"
-            className="eva-rv-iconbtn"
-            aria-label="Back to inbox"
-            data-testid="review-back"
-            onClick={onBack}
-          >
-            <IconChevronLeft size={14} />
-          </button>
-        </Tooltip>
+        {onBack ? (
+          <Tooltip label="Back to inbox" openDelay={300}>
+            <button
+              type="button"
+              className="eva-rv-iconbtn"
+              aria-label="Back to inbox"
+              data-testid="review-back"
+              onClick={onBack}
+            >
+              <IconChevronLeft size={14} />
+            </button>
+          </Tooltip>
+        ) : null}
         <span className="eva-rv-spacer" />
         <Tooltip label={`Updated ${agoPhrase(fetchedAt, now)}. Refresh`} openDelay={300}>
           <button
@@ -399,15 +428,28 @@ export function Detail({
             </span>
           </Tooltip>
         ) : null}
-        <Button
-          size="xs"
-          variant="default"
-          leftSection={<IconCheck size={14} />}
-          onClick={onDone}
-          data-testid="review-done"
-        >
-          Done
-        </Button>
+        {panel ? (
+          <Button
+            size="xs"
+            variant="default"
+            leftSection={<IconMessage size={14} />}
+            onClick={() => setConfirm('review')}
+            data-testid="review-changes"
+          >
+            Review
+          </Button>
+        ) : null}
+        {onDone ? (
+          <Button
+            size="xs"
+            variant="default"
+            leftSection={<IconCheck size={14} />}
+            onClick={onDone}
+            data-testid="review-done"
+          >
+            Done
+          </Button>
+        ) : null}
       </header>
       <div className="eva-rv-head">
         <h1 className="eva-rv-title eva-rv-title-wrap">{pr.title}</h1>
@@ -442,6 +484,7 @@ export function Detail({
             </span>
           </Tooltip>
         </div>
+        {panel ? <Reviewers pr={pr} /> : null}
       </div>
       <nav className="eva-rv-tabs" role="tablist">
         {TABS.map((t) => (
@@ -471,6 +514,7 @@ export function Detail({
                 pr={pr}
                 viewed={viewedSet}
                 focus={focusFile}
+                compact={panel}
                 onViewed={(p, on) => setViewed(on ? [...viewed, p] : viewed.filter((v) => v !== p))}
               />
             ) : null}
@@ -539,7 +583,7 @@ export function Detail({
             </div>
           ) : null}
         </div>
-        <Rail pr={pr} />
+        {panel ? null : <Rail pr={pr} />}
       </div>
 
       <EvaModal

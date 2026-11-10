@@ -13,23 +13,28 @@ const CHANGE_LABEL: Record<string, string> = {
   RENAMED: 'renamed',
 }
 
-/** Files: a flat file rail (filter, Viewed boxes) beside every file's diff, split by default. */
+/**
+ * Files: a flat file rail (filter, Viewed boxes) beside every file's diff, split by default.
+ * `compact` (a narrow side panel): no rail, unified diffs, each file's card head still marks Viewed.
+ */
 export function ReviewFiles({
   pr,
   viewed,
   onViewed,
   focus,
+  compact = false,
 }: {
   pr: ReviewPr
   viewed: ReadonlySet<string>
   onViewed: (path: string, on: boolean) => void
   /** A path to scroll to (from the Guide's View in diff). */
   focus: string | null
+  compact?: boolean
 }) {
   const diffs = useMemo(() => new Map(parseDiff(pr.diff).map((f) => [f.path, f])), [pr.diff])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
-  const [mode, setMode] = useState<'split' | 'unified'>('split')
+  const [mode, setMode] = useState<'split' | 'unified'>(compact ? 'unified' : 'split')
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [active, setActive] = useState<string | null>(focus)
   const scroller = useRef<HTMLDivElement>(null)
@@ -51,7 +56,7 @@ export function ReviewFiles({
   }, [focus])
 
   return (
-    <div className="eva-rv-files" data-testid="review-files">
+    <div className="eva-rv-files" data-compact={compact || undefined} data-testid="review-files">
       <div className="eva-rv-files-bar">
         <TextInput
           size="xs"
