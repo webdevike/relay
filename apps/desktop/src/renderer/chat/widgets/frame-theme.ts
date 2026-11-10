@@ -51,16 +51,19 @@ export function frameThemeFor(config: ThemeConfig, scheme: ColorScheme): FrameTh
 
 /**
  * The `relay-widget:` page main serves for one widget (main/chat/widget-frame.ts): the agent's
- * code, the palette and, for Mantine, the theme config it draws with.
+ * code, the palette and, for Mantine, the theme config it draws with, and `fill` for a page that
+ * fills a fixed-size box (a dashboard tile with a height) instead of sizing to its content.
  */
 export function frameUrl(
   runtime: FrameRuntime,
   source: string,
   theme: FrameTheme,
   config?: ThemeConfig,
+  fill = false,
 ): string {
   const params = new URLSearchParams({ source, theme: JSON.stringify(theme) })
   if (config) params.set('config', JSON.stringify(config))
+  if (fill) params.set('fill', '1')
   return `relay-widget://frame/${runtime}?${params.toString()}`
 }
 

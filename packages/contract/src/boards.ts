@@ -12,6 +12,11 @@ export const BoardWidgetSchema = z.object({
   spec: z.unknown(),
   /** A live tile's OpenUI Lang source: its `Query(...)` statements fetch host data while shown. */
   openui: z.string().optional(),
+  /** A Mantine tile's JSX (the ```mantine-widget contract), drawn in a sandboxed page; `spec` is
+   * then its fallback for clients without them. */
+  mantine: z.string().optional(),
+  /** A Mantine tile's fixed height in px; without it the tile is as tall as its content. */
+  height: z.number().optional(),
 })
 export type BoardWidget = z.infer<typeof BoardWidgetSchema>
 

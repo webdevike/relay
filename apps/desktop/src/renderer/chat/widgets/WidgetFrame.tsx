@@ -29,22 +29,32 @@ export function WidgetFramePending() {
 }
 
 /**
- * An agent-made widget (```html-widget or ```mantine-widget): its page from
- * @relay/widget-runtime/frame, served by main on `relay-widget:` and run in a sandboxed iframe
- * (scripts only: opaque origin, no popups, no top navigation). It draws with the Settings > Theme
- * config in the current scheme and reloads when either changes. The page posts its height, which
- * sizes the frame up to MAX_FRAME_HEIGHT, and `relay.reply` text, which goes out as Isaac's next
- * turn exactly like a widget reply button. Messages count only from this frame's own window.
+ * An agent-made widget (```html-widget or ```mantine-widget, or a dashboard's Mantine tile): its
+ * page from @relay/widget-runtime/frame, served by main on `relay-widget:` and run in a sandboxed
+ * iframe (scripts only: opaque origin, no popups, no top navigation). It draws with the Settings >
+ * Theme config in the current scheme and reloads when either changes. The page posts its height,
+ * which sizes the frame up to MAX_FRAME_HEIGHT, and `relay.reply` text, which goes out as Isaac's
+ * next turn exactly like a widget reply button. Messages count only from this frame's own window.
+ * With `height` (a Mantine tile's) the frame is that tall and the page fills it instead.
  */
-export function WidgetFrame({ runtime, code }: { runtime: FrameRuntime; code: string }) {
+export function WidgetFrame({
+  runtime,
+  code,
+  height: box,
+}: {
+  runtime: FrameRuntime
+  code: string
+  height?: number | undefined
+}) {
   const config = useStore(themeStore, (s) => s.present)
   const scheme = useColorScheme()
+  const fill = runtime === 'mantine' && box !== undefined
   const url = useMemo(() => {
     const theme = frameThemeFor(config, scheme)
     return runtime === 'mantine'
-      ? frameUrl('mantine', code, theme, config)
+      ? frameUrl('mantine', code, theme, config, fill)
       : frameUrl('html', code, theme)
-  }, [runtime, code, config, scheme])
+  }, [runtime, code, config, scheme, fill])
   const frame = useRef<HTMLIFrameElement>(null)
   const actions = useWidgetActions()
   const [measured, setMeasured] = useState<{ url: string; height: number } | null>(null)
@@ -67,7 +77,7 @@ export function WidgetFrame({ runtime, code }: { runtime: FrameRuntime; code: st
 
   return (
     <div className="eva-widget" data-testid="widget-page" data-runtime={runtime}>
-      {height === undefined && <WidgetFramePending />}
+      {height === undefined && !fill && <WidgetFramePending />}
       <iframe
         ref={frame}
         className="eva-widget-page"
@@ -75,7 +85,7 @@ export function WidgetFrame({ runtime, code }: { runtime: FrameRuntime; code: st
         src={url}
         sandbox="allow-scripts"
         referrerPolicy="no-referrer"
-        style={{ height: Math.min(height ?? 0, MAX_FRAME_HEIGHT) }}
+        style={{ height: fill ? box : Math.min(height ?? 0, MAX_FRAME_HEIGHT) }}
       />
     </div>
   )

@@ -355,7 +355,7 @@ describe("live board widgets", () => {
     await boards.put("ops", { title: "Ops" });
     await expect(boards.apply("ops", [{ op: "upsert", id: "bad", openui: 'root = Text("x")\nq = Query("shell", {}, {})' }])).rejects.toThrow(/widget bad openui: q: unknown query tool "shell"/);
     await expect(boards.apply("ops", [{ op: "upsert", id: "bad", openui: 'root = Text("x")\nq = Query("jobs", {}, {}, 1)' }])).rejects.toThrow(/refresh is 1s/);
-    await expect(boards.apply("ops", [{ op: "upsert", id: "bad" }])).rejects.toThrow(/needs a spec or an openui source/);
+    await expect(boards.apply("ops", [{ op: "upsert", id: "bad" }])).rejects.toThrow(/needs a spec, an openui source or mantine JSX/);
     expect(boards.get("ops")?.widgets).toEqual([]);
     expect(boards.rev).toBe(1);
   });

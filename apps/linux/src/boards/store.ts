@@ -1,7 +1,8 @@
 // Live dashboards on disk: `<dir>/<slug>.json`, one pretty-printed `Board` per file. Files are read
 // once at start (invalid ones are logged and skipped); afterwards memory is authoritative. Every
 // write runs through one async queue: render the tiles written as live OpenUI (checked, then
-// evaluated against real query data into the static `spec` older clients draw), validate the whole
+// evaluated against real query data into the static `spec` older clients draw), check the tiles
+// written as Mantine JSX (their `spec` is the older clients' fallback), validate the whole
 // result, persist it (tmp + rename), then commit it in memory, bump the global rev and report the
 // change. A write that fails changes nothing, so a batch of ops lands all together or not at all.
 
@@ -9,6 +10,7 @@ import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Board, BoardOp, BoardPut, type BoardWidgetInput, type ServerMessage, type WidgetSpec } from "@relay/protocol";
+import { mantineSourceRefusal } from "../../../../packages/widget-runtime/src/check";
 import { z } from "zod";
 
 export type BoardDelta = Extract<ServerMessage, { t: "board.delta" }>;
@@ -42,10 +44,33 @@ type BoardDraft = Omit<Board, "widgets"> & { widgets: BoardWidgetInput[] };
 /** Checks a live source and renders it against real query data into its static `spec`; throws why not. */
 export type LiveRender = (source: string) => Promise<WidgetSpec>;
 
-/** A tile as written: an `openui` source drops any `spec` beside it (the host renders its own). */
+/** What a client without Mantine tiles draws for one written without a `spec`. */
+export const MANTINE_FALLBACK: WidgetSpec = {
+  widget: "text",
+  text: "This tile needs a newer Relay to show.",
+  style: "muted",
+};
+
+/**
+ * A tile as written: an `openui` source drops any `spec` beside it (the host renders its own); a
+ * `mantine` source must compile and keeps a `spec` beside it as its fallback (else MANTINE_FALLBACK).
+ */
 function inputWidget(widget: BoardWidgetInput): BoardWidgetInput {
+  if (widget.mantine !== undefined) {
+    if (widget.openui !== undefined) throw new BoardError(400, `widget ${widget.id} has both openui and mantine; give one`);
+    const refusal = mantineSourceRefusal(widget.mantine);
+    if (refusal !== null) throw new BoardError(400, `widget ${widget.id} mantine: ${refusal}`);
+    return {
+      id: widget.id,
+      span: widget.span,
+      spec: widget.spec ?? MANTINE_FALLBACK,
+      mantine: widget.mantine,
+      ...(widget.height === undefined ? {} : { height: widget.height }),
+    };
+  }
+  if (widget.height !== undefined) throw new BoardError(400, `widget ${widget.id}: height is for mantine tiles`);
   if (widget.openui !== undefined) return { id: widget.id, span: widget.span, openui: widget.openui };
-  if (widget.spec === undefined) throw new BoardError(400, `widget ${widget.id} needs a spec or an openui source`);
+  if (widget.spec === undefined) throw new BoardError(400, `widget ${widget.id} needs a spec, an openui source or mantine JSX`);
   return { id: widget.id, span: widget.span, spec: widget.spec };
 }
 
@@ -73,6 +98,8 @@ export function applyOps(board: Board, ops: readonly BoardOp[]): BoardDraft {
       span: op.span ?? existing?.span ?? 12,
       ...(op.spec === undefined ? {} : { spec: op.spec }),
       ...(op.openui === undefined ? {} : { openui: op.openui }),
+      ...(op.mantine === undefined ? {} : { mantine: op.mantine }),
+      ...(op.height === undefined ? {} : { height: op.height }),
     });
     if (op.after === undefined) {
       if (existing === undefined) next.widgets.push(widget);

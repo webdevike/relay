@@ -3,7 +3,9 @@
  * on the host's grid on larger screens and full-width tiles on phones, updated on `board.delta`.
  * A board fed by a host-side sampler (the office Wi-Fi meter) reads as a live view. A live tile
  * (an `openui` source) runs its Query statements over `query.req` while the board is open, on a
- * host whose welcome offers "query"; on an older host it draws the spec the host rendered.
+ * host whose welcome offers "query"; on an older host it draws the spec the host rendered. A
+ * Mantine tile (`mantine` JSX) runs in the chat's sandboxed `HtmlFrame`, the tile's width and its
+ * `height` (else its content's).
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { router, useLocalSearchParams } from "expo-router";
@@ -14,9 +16,11 @@ import { Row } from "@/ui/Row";
 import { Separator } from "@/ui/Separator";
 import { EmptyState } from "@/ui/EmptyState";
 import { Text } from "@/ui/Text";
-import { spacing } from "@/theme";
+import { spacing, type } from "@/theme";
 import { useBoardsStore } from "@/state/boards";
 import { liveQuery } from "@/connection";
+import { openExternal } from "@/lib/links";
+import { HtmlFrame } from "@/ui/HtmlFrame";
 import { Widget } from "@/agents/Widget";
 import { OpenUIRuntimeContext } from "@/agents/OpenUIRuntime";
 
@@ -66,7 +70,21 @@ function BoardGrid({ board }: { board: Board }) {
     <View style={styles.grid}>
       {board.widgets.map((w) => (
         <View key={w.id} style={[styles.cell, { width: width < 600 ? "100%" : `${(w.span / 12) * 100}%` }]}>
-          {queries && w.openui !== undefined ? <LiveTile widget={w} source={w.openui} /> : <Widget spec={w.spec} />}
+          {w.mantine !== undefined ? (
+            <HtmlFrame
+              code={w.mantine}
+              runtime="mantine"
+              height={w.height}
+              fontSize={type.body.fontSize}
+              lineHeight={type.body.lineHeight}
+              onReply={null}
+              onOpenLink={openExternal}
+            />
+          ) : queries && w.openui !== undefined ? (
+            <LiveTile widget={w} source={w.openui} />
+          ) : (
+            <Widget spec={w.spec} />
+          )}
         </View>
       ))}
     </View>

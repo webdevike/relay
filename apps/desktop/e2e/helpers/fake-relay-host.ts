@@ -493,6 +493,15 @@ export class FakeRelayHost {
     await promise
   }
 
+  /** The dashboards a `board.subscribe` or `board.get` gets, as one `board.snapshot`. */
+  private boards: Json[] = []
+
+  /** Sets the dashboards and pushes them to every device as a fresh snapshot. */
+  setBoards(boards: Json[]): void {
+    this.boards = boards
+    this.broadcast({ t: 'board.snapshot', rev: 1, boards })
+  }
+
   /** Sets the canvas rooms and pushes them to every device, as the host does on any change. */
   setCanvasRooms(rooms: Json[]): void {
     this.canvasRooms = rooms
@@ -1257,6 +1266,9 @@ export class FakeRelayHost {
           f.on === true ? [...have, message] : have.filter((k) => k !== message),
         )
       }
+      case 'board.subscribe':
+      case 'board.get':
+        return peer.send({ t: 'board.snapshot', rev: 1, boards: this.boards })
       case 'canvas.get':
         return peer.send({ t: 'canvas.rooms', rev: 1, rooms: this.canvasRooms })
       case 'activity.get':

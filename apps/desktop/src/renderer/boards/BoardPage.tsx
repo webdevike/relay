@@ -5,6 +5,7 @@ import type { BoardWidget } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { OpenUIQuery } from '../chat/widgets/actions'
 import { OpenUIBlock, WidgetBlock } from '../chat/widgets/Widget'
+import { WidgetFrame } from '../chat/widgets/WidgetFrame'
 import { boardOf, boardSlugOf, useBoards } from './boards-store'
 import { liveQuery } from './live-query'
 import './boards.css'
@@ -25,22 +26,29 @@ export function updatedLabel(stamp: string): string {
 }
 
 /**
- * One tile. A live tile (its `openui` source, on a host that answers queries) runs its Query
- * statements while on screen, refreshing on their own intervals; otherwise the spec draws like a
- * ```ui fence (for a live tile, the host's render of it at write time). A tile that doesn't parse
- * shows its source in place.
+ * One tile. A Mantine tile runs its JSX in the chat's sandboxed widget page, the tile's width and
+ * its `height` (else its content's). A live tile (its `openui` source, on a host that answers
+ * queries) runs its Query statements while on screen, refreshing on their own intervals; otherwise
+ * the spec draws like a ```ui fence (for a live tile, the host's render of it at write time). A
+ * tile that doesn't parse shows its source in place.
  */
 function Tile({ widget, stacked, live }: { widget: BoardWidget; stacked: boolean; live: boolean }) {
   const json = useMemo(() => JSON.stringify(widget.spec), [widget.spec])
   const openui = live ? widget.openui : undefined
+  let body: ReactNode
+  if (widget.mantine !== undefined)
+    body = <WidgetFrame runtime="mantine" code={widget.mantine} height={widget.height} />
+  else if (openui !== undefined) body = <OpenUIBlock code={openui} closed />
+  else body = <WidgetBlock json={json} />
   return (
     <div
       className="eva-board-tile"
       data-testid={`board-tile-${widget.id}`}
       data-live={openui !== undefined || undefined}
+      data-mantine={widget.mantine !== undefined || undefined}
       style={{ gridColumn: `span ${stacked ? 12 : widget.span}` }}
     >
-      {openui !== undefined ? <OpenUIBlock code={openui} closed /> : <WidgetBlock json={json} />}
+      {body}
     </div>
   )
 }

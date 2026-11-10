@@ -9,6 +9,7 @@
     "./theme-components.css": "./src/theme-components.css",
     "./frame": "./src/frame.ts",
     "./proto": "./src/proto.ts",
+    "./check": "./src/check.ts",
     "./systems": "./src/systems/index.ts"
   },
   "scripts": {

@@ -236,6 +236,8 @@ again = Button("Refresh now", @Run(items), null, "subtle")
 
 When no OpenUI component fits (a configurator, a mini app, a bespoke chart or form), write the UI yourself. Prefer `openui` whenever it can express the thing: it streams, is checked by the hook, and renders in more places. Both custom fences run in a sandboxed web view on the phone and a sandboxed iframe on Relay desktop: **no network at all** (no fetch, CDN, fonts, images except `data:`), no navigation, sized to their content (up to ~1200px, then scroll inside), transparent over the chat, drawn only once the fence closes. State is local and resets when the message re-renders. Never put data you did not compute or were not given into one.
 
+The same JSX also makes a dashboard tile (`board ops` with `mantine`, skill://dashboards): same sandbox, drawn the tile's width, and its `height` when the tile sets one.
+
 `relay` is in scope in both:
 - `relay.reply(text)`: sends `text` as Isaac's next message in this session. Only works inside a tap/click handler (user gesture); calls on load are ignored. Returns `true` when sent.
 - `relay.colorScheme`: `"light" | "dark"`. `relay.theme`: `{ dark, colors: { fg, muted, faint, border, surface, raised, accent, ok, warn, danger, bg }, font, radius }` (the host palette).

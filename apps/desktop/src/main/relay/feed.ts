@@ -227,6 +227,8 @@ const BoardWidgetSchema = z.object({
   span: z.number().catch(BOARD_COLUMNS).default(BOARD_COLUMNS),
   spec: z.looseObject({}),
   openui: z.string().min(1).optional().catch(undefined),
+  mantine: z.string().min(1).optional().catch(undefined),
+  height: z.number().int().min(40).max(1200).optional().catch(undefined),
 })
 const BoardSchema = z.object({
   slug: z.string().min(1),
@@ -240,7 +242,8 @@ const BoardSchema = z.object({
 /**
  * A board as Relay sends it, or null without a slug or a title. A tile without an id or a spec is
  * dropped; a span outside the grid is clamped to it (native BoardWidget::columns). A live tile
- * keeps its `openui` source next to the static `spec` the host rendered from it.
+ * keeps its `openui` source next to the static `spec` the host rendered from it; a Mantine tile
+ * keeps its `mantine` JSX (and `height`) next to its fallback `spec`.
  */
 export function parseBoard(value: unknown): Board | null {
   const r = BoardSchema.safeParse(value)
@@ -256,6 +259,8 @@ export function parseBoard(value: unknown): Board | null {
       span,
       spec: w.spec,
       ...(w.openui === undefined ? {} : { openui: w.openui }),
+      ...(w.mantine === undefined ? {} : { mantine: w.mantine }),
+      ...(w.height === undefined ? {} : { height: w.height }),
     })
   }
   return {

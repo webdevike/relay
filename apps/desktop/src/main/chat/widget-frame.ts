@@ -42,7 +42,7 @@ function page(html: string, csp: string): Response {
 
 /**
  * Answers `relay-widget://frame/html?source=&theme=`,
- * `relay-widget://frame/mantine?source=&theme=&config=` and
+ * `relay-widget://frame/mantine?source=&theme=&config=[&fill=1]` and
  * `relay-widget://frame/proto?source=&system=&scheme=` with the widget's page.
  */
 export function handleFrameRequest(request: Request): Response {
@@ -62,7 +62,8 @@ export function handleFrameRequest(request: Request): Response {
   if (source === null || theme === null)
     return new Response('Missing source or theme', { status: 400 })
   const config = parseObject(url.searchParams.get('config')) as ThemeConfig | null
+  const fill = url.searchParams.get('fill') === '1'
   return runtime === 'mantine'
-    ? page(mantineFrameDocument(source, theme, config ?? undefined), MANTINE_FRAME_CSP)
+    ? page(mantineFrameDocument(source, theme, config ?? undefined, { fill }), MANTINE_FRAME_CSP)
     : page(htmlFrameDocument(source, theme), HTML_FRAME_CSP)
 }

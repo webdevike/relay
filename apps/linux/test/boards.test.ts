@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Board } from "@relay/protocol";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { handleBoardRequest } from "../src/boards/http";
-import { BoardError, FileBoardStore, type BoardDelta } from "../src/boards/store";
+import { BoardError, FileBoardStore, MANTINE_FALLBACK, type BoardDelta } from "../src/boards/store";
 
 const dirs: string[] = [];
 
@@ -127,6 +128,36 @@ describe("FileBoardStore", () => {
     const reloaded = store(dir);
     expect(reloaded.boards.list().map((board) => board.slug)).toEqual(["keep"]);
     expect(reloaded.log).toHaveLength(2);
+  });
+});
+
+describe("Mantine tiles", () => {
+  const JSX = '<AspectRatio ratio={4 / 3}><Image src="data:image/png;base64,AA==" fit="cover" /></AspectRatio>';
+
+  it("store their JSX and height with a fallback spec older clients draw, keeping a writer's spec", async () => {
+    const { boards, dir } = store();
+    await boards.put("deals", { title: "Deals", widgets: [{ id: "a", span: 4, mantine: JSX, height: 320 }] });
+    const board = await boards.apply("deals", [{ op: "upsert", id: "b", mantine: JSX, spec: stat("9") }]);
+    expect(board.widgets).toEqual([
+      { id: "a", span: 4, spec: MANTINE_FALLBACK, mantine: JSX, height: 320 },
+      { id: "b", span: 12, spec: stat("9"), mantine: JSX },
+    ]);
+    expect(Board.parse(JSON.parse(readFileSync(join(dir, "deals.json"), "utf8")))).toEqual(board);
+    // An older client's schema has no `mantine`: zod drops it and the tile draws its spec.
+    const older = z.object({ widgets: z.array(z.object({ id: z.string(), span: z.number(), spec: z.unknown() })) });
+    expect(older.parse(board).widgets[0]).toEqual({ id: "a", span: 4, spec: MANTINE_FALLBACK });
+  });
+
+  it("refuse JSX that does not compile or names an unknown component, openui beside it, and height without it", async () => {
+    const { boards } = store();
+    await boards.put("deals", { title: "Deals" });
+    const refused = (op: object) => boards.apply("deals", [{ op: "upsert", id: "a", ...op }]);
+    await expect(refused({ mantine: "<Card>" })).rejects.toThrow(/widget a mantine: does not compile/);
+    await expect(refused({ mantine: "<DealCard />" })).rejects.toThrow(/unknown component <DealCard>/);
+    await expect(refused({ mantine: JSX, openui: 'root = Text("x")' })).rejects.toThrow(/both openui and mantine/);
+    await expect(refused({ spec: stat("1"), height: 200 })).rejects.toThrow(/height is for mantine tiles/);
+    await expect(refused({ mantine: JSX, height: 20 })).rejects.toBeInstanceOf(BoardError);
+    expect(boards.get("deals")?.widgets).toEqual([]);
   });
 });
 

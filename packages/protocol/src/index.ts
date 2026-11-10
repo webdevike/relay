@@ -1232,25 +1232,46 @@ const BoardSpan = z.number().int().min(1).max(BOARD_COLUMNS);
 /** A board widget's live OpenUI Lang source (`Query(...)` for data, refreshing while on screen). */
 export const BoardOpenUI = z.string().min(1).max(MAX_LIVE_OPENUI);
 
+/** Longest JSX a Mantine tile holds: room for a few inlined `data:` images. */
+export const MAX_BOARD_MANTINE = 200_000;
+
+/**
+ * A board tile's ```mantine-widget JSX: the chat fence's contract (a component body or one
+ * element, every Mantine name in scope) in the same sandbox (no network, `data:` images only).
+ */
+export const BoardMantine = z.string().min(1).max(MAX_BOARD_MANTINE);
+
+/** A Mantine tile's fixed height in px; without it the tile is as tall as its content (up to 1200). */
+export const BoardTileHeight = z.number().int().min(40).max(1200);
+
 /**
  * One tile spanning `span` of the board's 12 columns. A live tile carries its `openui` source,
  * which clients that run OpenUI draw (with query data); `spec` is then the host's static render of
- * it at write time, what older clients draw.
+ * it at write time, what older clients draw. A Mantine tile carries its `mantine` JSX, drawn in a
+ * sandboxed page the tile's width (and `height`, when set) by clients that know the field; `spec`
+ * is its fallback for older clients, which drop the unknown keys.
  */
 export const BoardWidget = z.object({
   id: BoardWidgetId,
   span: BoardSpan.default(BOARD_COLUMNS),
   spec: WidgetNode,
   openui: BoardOpenUI.optional(),
+  mantine: BoardMantine.optional(),
+  height: BoardTileHeight.optional(),
 });
 export type BoardWidget = z.infer<typeof BoardWidget>;
 
-/** A tile as written: a `spec`, or an `openui` source the host checks and renders (a `spec` next to it is replaced). */
+/**
+ * A tile as written: a `spec`, an `openui` source the host checks and renders (a `spec` next to it
+ * is replaced), or `mantine` JSX the host checks (a `spec` next to it is the older clients' fallback).
+ */
 export const BoardWidgetInput = z.object({
   id: BoardWidgetId,
   span: BoardSpan.default(BOARD_COLUMNS),
   spec: WidgetNode.optional(),
   openui: BoardOpenUI.optional(),
+  mantine: BoardMantine.optional(),
+  height: BoardTileHeight.optional(),
 });
 export type BoardWidgetInput = z.infer<typeof BoardWidgetInput>;
 
@@ -1290,8 +1311,9 @@ export type BoardPut = z.infer<typeof BoardPut>;
 
 /**
  * One edit to an existing board. `upsert.after`: the tile id to place it after, null for first;
- * absent keeps an existing tile where it is and appends a new one. An upsert gives `spec` or a
- * live `openui` source (checked and rendered by the host; it wins over a `spec` beside it).
+ * absent keeps an existing tile where it is and appends a new one. An upsert gives `spec`, a live
+ * `openui` source (checked and rendered by the host; it wins over a `spec` beside it) or `mantine`
+ * JSX (checked by the host; a `spec` beside it is the fallback older clients draw).
  */
 export const BoardOp = z.discriminatedUnion("op", [
   z.object({
@@ -1300,6 +1322,8 @@ export const BoardOp = z.discriminatedUnion("op", [
     span: BoardSpan.optional(),
     spec: WidgetNode.optional(),
     openui: BoardOpenUI.optional(),
+    mantine: BoardMantine.optional(),
+    height: BoardTileHeight.optional(),
     after: BoardWidgetId.nullable().optional(),
   }),
   z.object({ op: z.literal("remove"), id: BoardWidgetId }),

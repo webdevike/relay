@@ -6,7 +6,8 @@
  * desktop). `runtime` "html" shows the code as an HTML fragment; "mantine" runs it as JSX in the
  * bundled Mantine runtime with the shared theme. Nothing loads from the network, and the page cannot
  * navigate: a tapped web link opens through `onOpenLink` instead. `code` null (still streaming)
- * shows the same spinner frame as a page that hasn't laid out yet.
+ * shows the same spinner frame as a page that hasn't laid out yet. A Mantine page with `height` (a
+ * dashboard tile's) is exactly that tall and fills it, scrolling inside when its content is taller.
  */
 import { useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
@@ -29,6 +30,8 @@ export interface HtmlFrameProps {
   onOpenLink: (url: string) => void;
   /** Taller content scrolls inside the frame from here. */
   maxHeight?: number;
+  /** A fixed box height for a Mantine page that fills it (`mantineFrameDocument` `fill`). */
+  height?: number | undefined;
 }
 
 /** Height of the loading frame before the page reports its own. */
@@ -42,12 +45,14 @@ const ORIGINS = ["*"];
 const SYSTEM_FONT = "-apple-system, system-ui, sans-serif";
 const MONO_FONT = "ui-monospace, Menlo, monospace";
 
-export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onReply, onOpenLink, maxHeight = MAX_HEIGHT }: HtmlFrameProps) {
+export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onReply, onOpenLink, maxHeight = MAX_HEIGHT, height: box }: HtmlFrameProps) {
   const colors = useColors();
   const scheme = useScheme();
   const web = useRef<WebView>(null);
   const [measured, setMeasured] = useState<{ code: string; height: number } | null>(null);
   const height = measured !== null && measured.code === code ? measured.height : null;
+  const fill = runtime === "mantine" && box !== undefined;
+  const limit = fill ? box : maxHeight;
 
   const source = useMemo(() => {
     if (code === null) return null;
@@ -69,8 +74,8 @@ export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onRepl
       font: { family: SYSTEM_FONT, mono: MONO_FONT, size: fontSize, lineHeight },
       radius: { sm: radii.sm, md: radii.md, lg: radii.lg },
     };
-    return { html: runtime === "mantine" ? mantineFrameDocument(code, theme) : htmlFrameDocument(code, theme) };
-  }, [code, runtime, colors, scheme, fontSize, lineHeight]);
+    return { html: runtime === "mantine" ? mantineFrameDocument(code, theme, undefined, { fill }) : htmlFrameDocument(code, theme) };
+  }, [code, runtime, colors, scheme, fontSize, lineHeight, fill]);
 
   const onMessage = (event: WebViewMessageEvent): void => {
     const message = parseFrameMessage(event.nativeEvent.data);
@@ -85,7 +90,7 @@ export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onRepl
     return false;
   };
 
-  const shown = height === null ? PLACEHOLDER_HEIGHT : Math.min(Math.max(height, 1), maxHeight);
+  const shown = fill ? box : height === null ? PLACEHOLDER_HEIGHT : Math.min(Math.max(height, 1), maxHeight);
   return (
     <View style={{ height: shown }}>
       {source !== null ? (
@@ -99,7 +104,7 @@ export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onRepl
           containerStyle={styles.web}
           javaScriptEnabled
           javaScriptCanOpenWindowsAutomatically={false}
-          scrollEnabled={height !== null && height > maxHeight}
+          scrollEnabled={height !== null && height > limit}
           bounces={false}
           overScrollMode="never"
           showsVerticalScrollIndicator={false}

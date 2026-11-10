@@ -68,8 +68,14 @@ export function head(csp: string): string {
 <meta name="format-detection" content="telephone=no, date=no, address=no, email=no">`;
 }
 
-/** Page chrome both kinds share: transparent, no callouts or selection outside inputs. */
-const CHROME_STYLE = `html, body { background: transparent !important; -webkit-text-size-adjust: 100%; }
+/**
+ * Page chrome both kinds share: transparent, no callouts or selection outside inputs. Scrollbars
+ * never take width: a classic (non-overlay) scrollbar that came and went while the frame sized
+ * itself would narrow the page, shrink width-driven content (an AspectRatio, a `w="100%"` image),
+ * change the height the page reports, and settle with a stray scrollbar. Wheel and touch still scroll.
+ */
+const CHROME_STYLE = `html, body { background: transparent !important; -webkit-text-size-adjust: 100%; scrollbar-width: none; }
+::-webkit-scrollbar { display: none; }
 body {
   margin: 0; padding: 0; display: flow-root;
   -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
@@ -152,15 +158,31 @@ ${body}
 </body></html>`;
 }
 
+/** How a Mantine page sits in its host. */
+export interface MantineFrameOptions {
+  /**
+   * A fixed-size box (a dashboard tile with a height): the page, `#root` and so `h="100%"` fill it,
+   * taller content scrolls inside. Otherwise the page is as tall as its content.
+   */
+  fill?: boolean;
+}
+
+/** A filled page: html, body and the root all take the frame's height. */
+const FILL_STYLE = `html, body, #root { height: 100%; }
+body { overflow: auto; }
+#root { padding: 0; }`;
+
 /**
  * The full document for `source`, the agent's JSX (a component body, or one JSX element), drawn by
  * the bundled Mantine runtime with the shared theme `config` (the Default preset unless the host has
- * its own, as the desktop theme editor does) in the host's light or dark scheme.
+ * its own, as the desktop theme editor does) in the host's light or dark scheme. The frame's
+ * viewport is the box it sits in, so `useViewportSize()` in the JSX reads that box's width and height.
  */
 export function mantineFrameDocument(
   source: string,
   theme: FrameTheme,
   config: ThemeConfig = defaultConfig,
+  { fill = false }: MantineFrameOptions = {},
 ): string {
   const scheme = theme.dark ? "dark" : "light";
   const mount = { source, config, colorScheme: scheme };
@@ -170,7 +192,7 @@ ${head(MANTINE_FRAME_CSP)}
 <style>${WIDGET_RUNTIME_CSS}</style>
 <style>${paletteStyle(theme)}
 ${CHROME_STYLE}
-#root { padding: 1px 0; }</style>
+#root { padding: 1px 0; }${fill ? `\n${FILL_STYLE}` : ""}</style>
 <script>${bridgeScript(theme, theme.dark)}</script>
 <script>${WIDGET_RUNTIME_JS}</script>
 </head><body>
