@@ -171,7 +171,8 @@ export const RoomCardSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('deliverable'),
-    total: z.number(),
+    /** The last scorecard's total; absent when the room wrapped before any scorecard. */
+    total: z.number().optional(),
     spent: z.number(),
     minutes: z.number(),
     workdir: z.string(),

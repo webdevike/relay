@@ -304,8 +304,8 @@ function DeliverableCard({ card, ctx }: { card: CardOf<'deliverable'>; ctx: Card
       </div>
       <div className="eva-stats">
         <div>
-          <b>{score(card.total)}</b>
-          <span>of 10</span>
+          <b>{card.total === undefined ? 'Not scored' : score(card.total)}</b>
+          <span>{card.total === undefined ? 'no scorecard ran' : 'of 10'}</span>
         </div>
         <div>
           <b>{councilMoney(card.spent)}</b>

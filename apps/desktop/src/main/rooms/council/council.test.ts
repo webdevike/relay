@@ -454,6 +454,9 @@ describe('CouncilSession', () => {
     expect(cards(room, 'pause')[0]!.answered).toBe('wrap')
     expect(cards(room, 'scorecard')).toHaveLength(0)
     expect(cards(room, 'deliverable')).toHaveLength(1)
+    // No scorecard ran: the delivery says so instead of claiming 0/10.
+    expect(cards(room, 'deliverable')[0]!.total).toBeUndefined()
+    expect(room.messages.at(-1)!.text).toMatch(/^Delivered: not scored after 1 round/)
     expect(room.council!.spend.cap).toBeCloseTo(cap)
     expect(room.phase).toBe('resolved')
   }, 60_000)

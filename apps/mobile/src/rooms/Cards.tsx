@@ -225,7 +225,7 @@ function DeliverableCard({ room, card }: { room: RoomWire; card: Of<"deliverable
       <Text variant="title">Delivered</Text>
       <View style={{ flexDirection: "row", gap: spacing.sm }}>
         {[
-          ["Score", final === undefined ? card.total.toFixed(1) : final.toFixed(1)],
+          ["Score", final !== undefined ? final.toFixed(1) : card.total !== undefined ? card.total.toFixed(1) : "Not scored"],
           ["Spent", councilMoney(card.spent)],
           ["Time", `${String(Math.round(card.minutes))} min`],
         ].map(([label, value]) => (

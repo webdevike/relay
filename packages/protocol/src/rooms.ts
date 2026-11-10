@@ -50,7 +50,7 @@ export type RoomWireCard =
   | { type: "pause"; spent: number; cap: number; nextCap: number; answered?: "continue" | "wrap" | undefined }
   | { type: "ask"; askId: string; agentId: string; action: string; answered?: "allow" | "deny" | undefined }
   | {
-      type: "deliverable"; total: number; spent: number; minutes: number; workdir: string; record?: string | undefined; routingFile?: string | undefined;
+      type: "deliverable"; total?: number | undefined; spent: number; minutes: number; workdir: string; record?: string | undefined; routingFile?: string | undefined;
       before: RoomWireRender[]; after: RoomWireRender[]; changes: string[]; dissent: string[];
       who: { agentId: string; part?: string | undefined; did: string; turns: number; usd: number; moved: string }[];
     };

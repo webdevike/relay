@@ -1362,7 +1362,7 @@ export class CouncilSession {
     const names = new Map(this.c.rubric.map((c) => [c.id, c.name]))
     const card: RoomCard & { type: 'deliverable' } = {
       type: 'deliverable',
-      total: last?.total ?? 0,
+      ...(last ? { total: last.total } : {}),
       spent: this.c.spend.usd,
       minutes: Math.round((this.now() - this.room.startedAt) / 60_000),
       workdir: wd.root,
@@ -1394,7 +1394,7 @@ export class CouncilSession {
     }
     const msg = this.append(
       ROOM_SYSTEM,
-      `Delivered: ${card.total}/10 after ${this.c.round} round${this.c.round === 1 ? '' : 's'}, ${councilMoney(card.spent)} list. The work is in ${wd.root}/main; merge it by hand.`,
+      `Delivered: ${card.total === undefined ? 'not scored' : `${card.total}/10`} after ${this.c.round} round${this.c.round === 1 ? '' : 's'}, ${councilMoney(card.spent)} list. The work is in ${wd.root}/main; merge it by hand.`,
       { kind: 'card', card, renders: this.full },
     )
     this.room.phase = 'resolved'
