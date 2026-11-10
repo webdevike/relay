@@ -15,7 +15,7 @@ import {
   IconUser,
   type Icon,
 } from '@tabler/icons-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import {
   STATS_RANGES,
   type StatsRange,
