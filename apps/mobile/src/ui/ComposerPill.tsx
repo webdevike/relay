@@ -9,12 +9,16 @@ import {
 import Animated, {
   Easing,
   ReduceMotion,
+  useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
+import { scheduleOnUI } from "react-native-worklets";
 import { spacing, useColors, useScheme } from "@/theme";
+import { keyboardHeight, keyboardOpenHeight, keyboardRising, keyboardUpOrFalling, KEYBOARD_RIDE_MS } from "@/lib/keyboardMotion";
+import { keyboardOpenness } from "@/lib/keyboardCurve";
 
 /** The round controls in the pill's row. */
 export const COMPOSER_BUTTON = 40;
@@ -51,9 +55,9 @@ const FIELD_BOTTOM_IDLE =
   PILL_INNER / 2 - (COMPOSER_FIELD.min - COMPOSER_FIELD.padTop - COMPOSER_FIELD.line / 2);
 
 /**
- * Opening and closing ride along with the iOS keyboard: about its duration, on a curve close to its
- * own, started in the same frame as the focus that raises it. A line typed into the open card grows
- * it faster, so the new line is never clipped for long.
+ * A shape change the keyboard does not drive (a photo queued or a draft cleared with the keyboard
+ * down) runs on about the keyboard's own curve. A line typed into the open card grows it faster, so
+ * the new line is never clipped for long.
  */
 const OPEN = {
   duration: 320,
@@ -93,8 +97,10 @@ export interface ComposerPillProps {
  *
  * The shape change runs on the UI thread with no layout jump: the controls row stays pinned to the
  * bottom (same inset in both shapes), the card's top edge rises with an animated height, and the
- * field glides from the row's open middle to its place above the row in the same motion. Nothing
- * remounts and nothing swaps styles, so neither the field nor the buttons flicker.
+ * field glides from the row's open middle to its place above the row in the same motion. Opening
+ * with the keyboard rising, or closing with it falling, the shape takes its progress from the
+ * keyboard's height each frame (`lib/keyboardMotion`), so card, keyboard and the lift on it are one
+ * motion. Nothing remounts and nothing swaps styles, so neither the field nor the buttons flicker.
  */
 export function ComposerPill({
   expanded,
@@ -123,35 +129,73 @@ export function ComposerPill({
   };
 
   // The card's height follows the field (it grows with each line, up to five) and the queued images.
+  // Kept in both shapes, so a closing card shrinks from its real height.
   const [fieldHeight, setFieldHeight] = useState<number>(COMPOSER_FIELD.min);
   const [headerHeight, setHeaderHeight] = useState(0);
-  const inner = expanded
-    ? FIELD_BOTTOM + fieldHeight + PAD + (header === undefined ? 0 : headerHeight)
-    : PILL_INNER;
+  const cardInner = FIELD_BOTTOM + fieldHeight + PAD + (expanded && header !== undefined ? headerHeight : 0);
 
-  const progress = useSharedValue(expanded ? 1 : 0);
-  const shown = useRef<{ expanded: boolean; inner: number } | null>(null);
-  // Layout effect: the animation starts in the commit that changes the shape, not a frame later.
+  // How open the card is, 0 (pill) to 1 (card): `own` when the shape animates on its own, the
+  // keyboard's openness while `rides`.
+  const own = useSharedValue(expanded ? 1 : 0);
+  const rides = useSharedValue(false);
+  const card = useSharedValue(cardInner + 2 * BORDER);
+  // Layout effects: each change starts in the commit that makes it, not a frame later.
+  const shownCard = useRef(cardInner);
   useLayoutEffect(() => {
-    const before = shown.current;
-    shown.current = { expanded, inner };
-    const target = inner + 2 * BORDER;
-    if (before === null) {
-      progress.value = expanded ? 1 : 0;
-      height.value = target;
+    if (shownCard.current === cardInner) return;
+    shownCard.current = cardInner;
+    const target = cardInner + 2 * BORDER;
+    card.value = expanded ? withTiming(target, GROW) : target;
+  }, [cardInner, expanded, card]);
+
+  const shownExpanded = useRef(expanded);
+  // Which ride is current: a hand-back timer from an earlier ride (or an unmounted pill) stands down.
+  const ride = useRef(0);
+  useLayoutEffect(() => {
+    if (shownExpanded.current === expanded) return;
+    shownExpanded.current = expanded;
+    const to = expanded ? 1 : 0;
+    ride.current += 1;
+    if (!(expanded ? keyboardRising() : keyboardUpOrFalling())) {
+      settle(own, rides, to);
       return;
     }
-    if (before.expanded !== expanded) {
-      progress.value = withTiming(expanded ? 1 : 0, OPEN);
-      height.value = withTiming(target, OPEN);
-    } else if (before.inner !== inner) {
-      height.value = withTiming(target, GROW);
-    }
-  }, [expanded, inner, progress, height]);
+    // Ride along: the keyboard's openness drives the shape until it lands, then `own` (already at
+    // the end) takes over. A keyboard that never moves hands back after the ride's time.
+    scheduleOnUI(() => {
+      "worklet";
+      own.value = to;
+      rides.value = true;
+    });
+    const mine = ride.current;
+    setTimeout(() => {
+      if (ride.current === mine) settle(own, rides, to);
+    }, KEYBOARD_RIDE_MS);
+  }, [expanded, own, rides]);
+  useLayoutEffect(
+    () => () => {
+      ride.current += 1;
+    },
+    [],
+  );
 
-  const pillStyle = useAnimatedStyle(() => ({ height: height.value }));
+  // Each worklet names the keyboard's shared values itself, so Reanimated reruns it as they move.
+  const pillStyle = useAnimatedStyle(() => {
+    const p = rides.value ? keyboardOpenness(keyboardHeight.value, keyboardOpenHeight.value) : own.value;
+    return { height: COMPOSER_PILL_HEIGHT + (card.value - COMPOSER_PILL_HEIGHT) * p };
+  });
+  // The screen pads its list by the pill's live height.
+  useAnimatedReaction(
+    () => {
+      const p = rides.value ? keyboardOpenness(keyboardHeight.value, keyboardOpenHeight.value) : own.value;
+      return COMPOSER_PILL_HEIGHT + (card.value - COMPOSER_PILL_HEIGHT) * p;
+    },
+    (now) => {
+      height.value = now;
+    },
+  );
   const fieldStyle = useAnimatedStyle(() => {
-    const p = progress.value;
+    const p = rides.value ? keyboardOpenness(keyboardHeight.value, keyboardOpenHeight.value) : own.value;
     return {
       left: idleLeft + (FIELD_X - idleLeft) * p,
       right: idleRight + (FIELD_X - idleRight) * p,
@@ -211,6 +255,20 @@ export function ComposerPill({
       </View>
     </Animated.View>
   );
+}
+
+/**
+ * Ends a ride (or skips one): the shape animates on its own from wherever it shows now to `to`, on
+ * the UI thread, so handing over from the keyboard never jumps.
+ */
+function settle(own: SharedValue<number>, rides: SharedValue<boolean>, to: number): void {
+  scheduleOnUI(() => {
+    "worklet";
+    const now = rides.value ? keyboardOpenness(keyboardHeight.value, keyboardOpenHeight.value) : own.value;
+    rides.value = false;
+    own.value = now;
+    own.value = withTiming(to, OPEN);
+  });
 }
 
 const styles = StyleSheet.create({

@@ -20,6 +20,7 @@ import { LevelDots } from "@/ui/LevelDots";
 import { Text } from "@/ui/Text";
 import { motion, spacing, useColors, useScheme } from "@/theme";
 import type { Photo } from "@/lib/photo";
+import { expectKeyboard } from "@/lib/keyboardMotion";
 import type { PopoverAnchor } from "@/agents/ThinkingPopover";
 import { ComposerMic } from "@/dictation/ComposerMic";
 import { micLevel } from "@/dictation/signals";
@@ -83,10 +84,12 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
     },
     restoreTarget,
   });
-  // A tap on the pill (or the mic) opens the card and focuses the field in the same tick, so the card
-  // grows and the keyboard rises as one motion (the collapsed field takes no touches of its own).
+  // A tap on the pill (or the mic) starts the keyboard's rise, opens the card and focuses the field
+  // in the same tick, so card, keyboard and the lift on it are one motion from the first frame (the
+  // collapsed field takes no touches of its own).
   const [opening, setOpening] = useState(false);
   const open = (): void => {
+    expectKeyboard();
     setOpening(true);
     inputRef.current?.focus();
   };

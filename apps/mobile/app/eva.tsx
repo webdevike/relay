@@ -26,7 +26,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ActionSheetIOS, FlatList, Keyboard, Pressable, StyleSheet, View, type LayoutChangeEvent, type TextInput } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedKeyboard, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import { expectKeyboard, keyboardHeight } from "@/lib/keyboardMotion";
 import { answerText, assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, stripAnswerContext, type AssistantMessage, type OpenAsk } from "@relay/protocol";
 import { AvatarTitle } from "@/ui/AvatarTitle";
 import { FrostedBar } from "@/ui/FrostedBar";
@@ -167,16 +168,16 @@ function Thread({ agent }: { agent: string }) {
   const [stackHeight, setStackHeight] = useState(0);
   const stack = useSharedValue(0);
   const pillHeight = useSharedValue(COMPOSER_PILL_HEIGHT);
-  // The keyboard, frame by frame on the UI thread (its own curve, interactive dismiss included): the
-  // composer and the list ride on it as a transform, so nothing re-lays out while it moves.
-  const keyboard = useAnimatedKeyboard();
+  // The keyboard, frame by frame on the UI thread (`lib/keyboardMotion`: started by the composer's
+  // tap, on the keyboard's own curve): the composer and the list ride on it as a transform, so nothing
+  // re-lays out while it moves.
   const bottomInset = insets.bottom;
   // One style object per view (the list's and the composer's), the same lift in both.
   const listLiftStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: -Math.max(0, keyboard.height.value + KEYBOARD_GAP - bottomInset - COMPOSER_BOTTOM) }],
+    transform: [{ translateY: -Math.max(0, keyboardHeight.value + KEYBOARD_GAP - bottomInset - COMPOSER_BOTTOM) }],
   }));
   const composerLiftStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: -Math.max(0, keyboard.height.value + KEYBOARD_GAP - bottomInset - COMPOSER_BOTTOM) }],
+    transform: [{ translateY: -Math.max(0, keyboardHeight.value + KEYBOARD_GAP - bottomInset - COMPOSER_BOTTOM) }],
   }));
   // Inverted list: room at its visual bottom for the composer, so the newest message sits fully above the pill and rises with the card.
   const reserveStyle = useAnimatedStyle(() => ({ height: stack.value + pillHeight.value + COMPOSER_BOTTOM + spacing.md }));
@@ -538,6 +539,7 @@ function Thread({ agent }: { agent: string }) {
     setDraft(next.draft);
     cursor.current = next.cursor;
     requestAnimationFrame(() => {
+      expectKeyboard();
       composer.current?.focus();
       composer.current?.setSelection(next.cursor, next.cursor);
     });
@@ -627,7 +629,8 @@ function Thread({ agent }: { agent: string }) {
                 scrollIndicatorInsets={{ top: headerHeight + keyboardRoom, bottom: stackHeight + COMPOSER_PILL_HEIGHT + COMPOSER_BOTTOM }}
                 contentOffset={{ x: 0, y: initialOffset.current }}
                 {...scrollHandlers}
-                keyboardDismissMode="interactive"
+                // On drag, not interactive: the composer rides the keyboard's whole moves, and a finger-driven dismiss is not one it can follow without a native keyboard module.
+                keyboardDismissMode="on-drag"
                 keyboardShouldPersistTaps="handled"
               />
             </ReplyWidgetActions>
