@@ -13,6 +13,7 @@ export type FixedPage =
   | 'canvas'
   | 'rooms'
   | 'studio'
+  | 'feed'
   | 'reviews'
   | 'settings'
   | 'setup'
@@ -61,6 +62,7 @@ const FIXED_PAGES: readonly string[] = [
   'canvas',
   'rooms',
   'studio',
+  'feed',
   'reviews',
   'settings',
   'setup',

@@ -65,6 +65,13 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'IconPhotoSpark',
   },
   {
+    slug: 'feed',
+    page: 'feed',
+    title: 'Feed',
+    description: 'New tools, platforms and designs, ranked to your taste.',
+    icon: 'IconCompass',
+  },
+  {
     slug: 'reviews',
     page: 'reviews',
     title: 'Reviews',

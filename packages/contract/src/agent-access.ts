@@ -22,6 +22,7 @@ export const AGENT_FIXED_PAGES = [
   'canvas',
   'rooms',
   'studio',
+  'feed',
   'reviews',
   'settings',
   'setup',
@@ -173,6 +174,14 @@ export const AGENT_PAGES: readonly AgentPageInfo[] = [
     link: 'relay://open/studio?job=<id>',
     read: [...PANES, 'studio.list'],
     change: ['studio.generate (free backends)', 'studio.open'],
+  },
+  {
+    key: 'feed',
+    title: 'Feed',
+    description: "Isaac's discovery feed: new tools, platforms and designs, ranked to his taste.",
+    link: 'relay://open/feed',
+    read: PANES,
+    change: ['page.open'],
   },
   {
     key: 'reviews',

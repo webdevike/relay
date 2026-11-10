@@ -1,0 +1,124 @@
+.eva-feed-col {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--eva-space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--eva-space-md);
+}
+.eva-feed-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.eva-feed-heading {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--eva-c-foreground);
+}
+.eva-feed-spacer {
+  flex: 1;
+}
+.eva-feed-note {
+  margin: 0;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-feed-card {
+  border: 1px solid var(--eva-c-border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--eva-c-background);
+  display: flex;
+  flex-direction: column;
+  transition: border-color 120ms;
+}
+.eva-feed-card:hover {
+  border-color: var(--eva-c-ring);
+}
+.eva-feed-meta {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px 8px;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-feed-source {
+  color: var(--eva-c-foreground);
+  font-weight: 600;
+}
+.eva-feed-media {
+  all: unset;
+  display: block;
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: var(--eva-c-secondary-background);
+  cursor: pointer;
+}
+.eva-feed-media img,
+.eva-feed-media video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.eva-feed-media video {
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.eva-feed-media:hover video {
+  opacity: 1;
+}
+.eva-feed-title {
+  margin: 0;
+  padding: 12px 16px 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.eva-feed-title button {
+  all: unset;
+  cursor: pointer;
+  color: var(--eva-c-foreground);
+}
+.eva-feed-why {
+  margin: 4px 0 0;
+  padding: 0 16px;
+  color: var(--eva-c-muted-foreground);
+  line-height: 1.45;
+}
+.eva-feed-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px 10px;
+}
+.eva-feed-sources {
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-feed-sources ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+.eva-feed-sources li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+  border-top: 1px solid var(--eva-c-border);
+}
+.eva-feed-source-state {
+  text-align: right;
+}
+.eva-feed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.eva-feed-process {
+  color: var(--eva-c-foreground);
+}

@@ -4,6 +4,7 @@ import { shellInvoke } from './shell'
 import { evaEvents, evaInvoke } from './eva'
 import { jobsInvoke } from './jobs'
 import { skillsInvoke } from './skills'
+import { feedInvoke } from './feed'
 import { habitsInvoke } from './habits'
 import { meetingsEvents, meetingsInvoke } from './meetings'
 import { chatEvents, chatInvoke } from './chat'
@@ -103,6 +104,7 @@ export const invokeContract = {
   ...evaInvoke,
   ...jobsInvoke,
   ...skillsInvoke,
+  ...feedInvoke,
   ...habitsInvoke,
   ...meetingsInvoke,
   ...chatInvoke,
@@ -204,6 +206,7 @@ export {
   type WorkspaceDetail,
 } from './eva'
 export { type JobSummaryDto, type JobSettingsDto } from './jobs'
+export { FeedItemSchema, type FeedItemDto, type FeedAction } from './feed'
 export { GateStatusSchema, type GateStatus } from './habits'
 export {
   type Proposal,
