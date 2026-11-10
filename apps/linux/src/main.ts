@@ -78,6 +78,7 @@ import {
   defaultCatchUpNotesPath,
   defaultCatchUpStatePath,
 } from "./catchup/service";
+import { defaultFeedDir, FeedService } from "./feed/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService, replyReactionsFromEnv } from "./reactions/service";
 import { defaultRenderFailuresPath, RenderFailureService } from "./render-failures/service";
 import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
@@ -407,6 +408,10 @@ function serve(
       server.broadcastExcept({ t: "usage.snapshot", usage: snapshot }, null);
     },
   });
+  // The discovery feed `work/discovery-feed/fetch.ts` writes in the Eva hub; a host without that feed (and without features.feed) has none.
+  const discoveryDir = defaultFeedDir(agentHome);
+  const feed =
+    discoveryDir !== null && featureOn(config, "feed", existsSync(join(discoveryDir, "feed.json"))) ? new FeedService(discoveryDir) : null;
   // Snapshots go out on feed or state changes, and handoffs reach the assistant threads, long after
   // `server` and `assistant` below are initialised.
   // Catch Up reads a feed an Eva job builds; a host without that feed (and without features.catchup) has none.
@@ -894,6 +899,7 @@ function serve(
       usage,
       stats,
       catchup,
+      feed,
       reactions,
       bookmarks,
       artifacts,

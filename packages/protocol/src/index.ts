@@ -1053,6 +1053,43 @@ export const CatchUpSnapshot = z.object({
 export type CatchUpSnapshot = z.infer<typeof CatchUpSnapshot>;
 
 // ---------------------------------------------------------------------------------------------
+// Feed: Isaac's discovery feed, a vertical scroll of cards (tools, designs, process videos) that
+// `work/discovery-feed/fetch.ts` ranks into `feed.json`. The host reads it on `feed.list` and appends
+// each `feed.signal` (like, save, skip) to `signals.jsonl`, the same files Relay Desktop's Feed page
+// uses. A thumbnail the container cached from a host blocked on Isaac's devices (X, Behance, twimg)
+// arrives as `image: "/feed/media/<file>"`, which the phone fetches from the host's own HTTP port;
+// any other image is its https URL.
+
+export const FEED_ACTIONS = ["like", "skip", "save"] as const;
+export const FeedAction = z.enum(FEED_ACTIONS);
+export type FeedAction = z.infer<typeof FeedAction>;
+
+export const FeedItem = z.object({
+  id: z.string().min(1).max(200),
+  source: z.string().max(80),
+  title: z.string().max(400),
+  why: z.string().max(600),
+  /** https URL, or `/feed/media/<file>` on the host. */
+  image: z.string().max(2000).optional(),
+  url: z.string().max(2000),
+  ts: z.number(),
+  meta: z.string().max(200).optional(),
+  /** Interest chip the card files under (`game-dev`, `3d`, `woodworking`, ...). */
+  tag: z.string().max(40).optional(),
+  /** A build log, devlog or "how I made": ranked higher by the fetcher. */
+  process: z.boolean().optional(),
+});
+export type FeedItem = z.infer<typeof FeedItem>;
+
+export const FeedSnapshot = z.object({
+  generatedAt: z.string().nullable(),
+  items: z.array(FeedItem),
+  /** id -> the action Isaac last took on it (newest signal wins). */
+  acted: z.record(z.string(), FeedAction),
+});
+export type FeedSnapshot = z.infer<typeof FeedSnapshot>;
+
+// ---------------------------------------------------------------------------------------------
 // Reactions: iMessage-style tapbacks Isaac puts on a chat bubble (his own or the agent's), in an
 // assistant thread or a regular session. One reaction per bubble: a new emoji replaces the old,
 // the same one again clears it (`toggleReaction`). The host stores them per thread and message
@@ -1693,6 +1730,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
     signal: CatchUpSignal.optional(),
     text: z.string().trim().max(MAX_CATCHUP_NOTE).default(""),
   }),
+  /** Ask for the discovery feed; answered by `feed.snapshot`. */
+  z.object({ t: z.literal("feed.list") }),
+  /** Isaac liked, saved or skipped a feed card: the host appends it to `signals.jsonl`, which the next fetch ranks with. No answer. */
+  z.object({ t: z.literal("feed.signal"), id: nonEmpty, action: FeedAction, title: z.string().max(400), source: z.string().max(80) }),
   /** Ask for a thread's reactions; answered by `reactions.snapshot`. */
   z.object({ t: z.literal("reactions.get"), thread: ReactionThread }),
   /** Ask for a thread's bookmarks; answered by `bookmarks.snapshot`. Only sent to a host whose `welcome.features` has BOOKMARKS_FEATURE. */
@@ -1949,6 +1990,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   CatchUpSnapshot.extend({ t: z.literal("catchup.snapshot") }),
   /** Answer to `catchup.note`: `ok` false when the host has no notes file or the card left the feed. */
   z.object({ t: z.literal("catchup.noted"), id: nonEmpty, ok: z.boolean() }),
+  /** Isaac's discovery feed (`work/discovery-feed/feed.json` in the Eva hub); the answer to `feed.list`. */
+  FeedSnapshot.extend({ t: z.literal("feed.snapshot") }),
   /** A thread's reactions: the answer to `reactions.get`, and pushed to every device when they change. */
   z.object({
     t: z.literal("reactions.snapshot"),

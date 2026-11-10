@@ -17,6 +17,8 @@ import {
   type CatchUpSignal,
   type ClientMessage,
   type Command,
+  type FeedAction,
+  type FeedItem,
   type InputEvent,
   type MeetingsOp,
   type MeetingsResult,
@@ -34,6 +36,7 @@ import { useGateStore } from "@/state/gate";
 import { useUsageStore } from "@/state/usage";
 import { useActivityStore } from "@/state/activity";
 import { useCatchUpStore } from "@/state/catchup";
+import { useFeedStore } from "@/state/feed";
 import { useAssistantStore } from "@/state/assistant";
 import { useReactionsStore } from "@/state/reactions";
 import { isTurnKey, useBookmarksStore } from "@/state/bookmarks";
@@ -57,6 +60,7 @@ import { createGateFrameRouter } from "./gate";
 import { createUsageFrameRouter } from "./usage";
 import { createActivityFrameRouter } from "./activity";
 import { createCatchUpFrameRouter } from "./catchup";
+import { createFeedFrameRouter } from "./feed";
 import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
 import { createBookmarkFrameRouter } from "./bookmarks";
@@ -150,6 +154,7 @@ const routeGateFrame = createGateFrameRouter(useGateStore.getState());
 const routeUsageFrame = createUsageFrameRouter(useUsageStore.getState());
 const routeActivityFrame = createActivityFrameRouter(useActivityStore.getState());
 const routeCatchUpFrame = createCatchUpFrameRouter(useCatchUpStore.getState());
+const routeFeedFrame = createFeedFrameRouter(useFeedStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
 const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState());
 const routeBookmarkFrame = createBookmarkFrameRouter(useBookmarksStore.getState(), (thread, key) => {
@@ -279,6 +284,7 @@ socket.onMessage = (data) => {
   routeUsageFrame(message);
   routeActivityFrame(message);
   routeCatchUpFrame(message);
+  routeFeedFrame(message);
   routeReactionFrame(message);
   routeBookmarkFrame(message);
   routeArtifactFrame(message);
@@ -462,6 +468,7 @@ async function retarget(id: string | null): Promise<void> {
   useUsageStore.getState().set(null);
   useActivityStore.getState().set([]);
   useCatchUpStore.getState().set(null);
+  useFeedStore.getState().set(null);
   useReactionsStore.getState().clear();
   useBookmarksStore.getState().clearHost();
   useArtifactsStore.getState().clear();
@@ -595,6 +602,23 @@ export function refreshUsage(): void {
 export function requestCatchUp(): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "catchup.list" }));
+}
+
+/** Ephemeral; the answer lands in `useFeedStore().items`. Asked when the Feed screen shows. */
+export function requestFeed(): void {
+  if (useConnectionStore.getState().status !== "connected") return;
+  socket.send(encode({ t: "feed.list" }));
+}
+
+/**
+ * Isaac liked, saved or skipped a card: shown at once, then appended by the host to the feed's
+ * `signals.jsonl` (the next fetch ranks with it). False (nothing sent, nothing shown) while not connected.
+ */
+export function signalFeed(item: FeedItem, action: FeedAction): boolean {
+  if (useConnectionStore.getState().status !== "connected") return false;
+  useFeedStore.getState().actLocal(item.id, action);
+  socket.send(encode({ t: "feed.signal", id: item.id, action, title: item.title, source: item.source }));
+  return true;
 }
 
 /**

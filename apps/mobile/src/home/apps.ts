@@ -158,6 +158,14 @@ export function useHomeApps(): HomeApp[] {
       href: "/boards",
     },
     {
+      key: "feed",
+      symbol: "square.stack.fill",
+      label: "Feed",
+      color: "orange",
+      hint: "Tools, designs and process, ranked for you",
+      href: "/feed",
+    },
+    {
       key: "studio",
       symbol: "wand.and.stars",
       label: "Studio",
