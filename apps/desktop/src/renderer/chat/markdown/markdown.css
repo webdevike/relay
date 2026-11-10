@@ -146,15 +146,14 @@
   max-width: 100%;
 }
 
-/* Tables fit their columns while the column is wide enough, then scroll sideways in place. */
+/* Tables hug their content (never stretched to the column), then scroll sideways in place when wider than it. */
 .eva-md-table {
+  width: fit-content;
   max-width: 100%;
   overflow-x: auto;
-  border: 1px solid var(--eva-border);
-  border-radius: var(--eva-radius);
 }
 .eva-md-table table {
-  min-width: 100%;
+  width: auto;
   border-collapse: collapse;
   font-size: var(--eva-fz-label);
   line-height: var(--eva-lh-label);
@@ -162,19 +161,25 @@
 }
 .eva-md-table th,
 .eva-md-table td {
-  padding: 6px var(--eva-space-native-sm);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-xs);
   text-align: left;
   vertical-align: top;
   overflow-wrap: normal;
 }
+/* Markdown alignment (`:---:`, `---:`) arrives as an align attribute or inline style. */
+.eva-md-table [align='right'] {
+  text-align: right;
+}
+.eva-md-table [align='center'] {
+  text-align: center;
+}
 .eva-md-table th {
   font-weight: var(--eva-fw-medium);
   color: var(--eva-text-dim);
-  background: var(--eva-c-muted-background);
   white-space: nowrap;
+  border-bottom: 1px solid var(--eva-border);
 }
-.eva-md-table tr + tr td,
-.eva-md-table thead + tbody tr:first-child td {
+.eva-md-table tr + tr td {
   border-top: 1px solid var(--eva-border);
 }
 

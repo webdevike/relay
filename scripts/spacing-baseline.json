@@ -97,7 +97,6 @@
     "padding: 0 4px 0 var(--eva-space-native-sm)": 1,
     "padding: 0 6px": 1,
     "padding: 1px 5px": 1,
-    "padding: 6px var(--eva-space-native-sm)": 1,
     "padding: var(--eva-space-sm) var(--eva-space-native-sm)": 1
   },
   "apps/desktop/src/renderer/chat/strips/strips.css": {

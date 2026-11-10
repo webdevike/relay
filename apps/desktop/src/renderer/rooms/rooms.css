@@ -1340,7 +1340,7 @@
   padding: 0;
   list-style: none;
 }
-.eva-log summary {
+.eva-council-log summary {
   min-height: 32px;
   display: flex;
   align-items: center;
@@ -1348,35 +1348,35 @@
   font-size: var(--eva-fz-label);
   color: var(--eva-text-dim);
 }
-.eva-log table,
+.eva-council-log table,
 .eva-who {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--eva-fz-label);
 }
-.eva-log th,
+.eva-council-log th,
 .eva-who th {
   padding: calc(var(--mantine-spacing-xs) * 0.4) calc(var(--mantine-spacing-xs) * 0.6);
   text-align: center;
   font-weight: var(--eva-fw-medium);
   color: var(--eva-text-dim);
 }
-.eva-log td,
+.eva-council-log td,
 .eva-who td {
   padding: calc(var(--mantine-spacing-xs) * 0.5) calc(var(--mantine-spacing-xs) * 0.6);
   border-top: 1px solid var(--eva-c-border);
   vertical-align: top;
   text-align: center;
 }
-.eva-log th:first-child,
-.eva-log td:first-child,
+.eva-council-log th:first-child,
+.eva-council-log td:first-child,
 .eva-who th:first-child,
 .eva-who td:first-child {
   padding-left: 0;
   text-align: left;
 }
-.eva-log th:last-child,
-.eva-log td:last-child {
+.eva-council-log th:last-child,
+.eva-council-log td:last-child {
   padding-right: 0;
   text-align: right;
 }

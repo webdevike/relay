@@ -155,7 +155,7 @@ function ScorecardCard({ card, ctx }: { card: CardOf<'scorecard'>; ctx: CardCtx 
         </ul>
       ) : null}
       {card.log.length > 0 ? (
-        <details className="eva-log">
+        <details className="eva-council-log">
           <summary>Routing log, {card.log.length} turns</summary>
           <table>
             <thead>
