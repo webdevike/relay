@@ -28,15 +28,31 @@ Host changes: build and stage, then STOP; the install needs Isaac's heads-up via
 ## Milestones
 - [x] M0 2026-11-10: contract committed (63fd435b). Codex CLI 0.167.0 installed (`npm i -g @openai/codex`);
   `codex exec --json` and `claude -p --input-format stream-json` both smoke-tested on the Mini.
-- [ ] M1 engine + adapters, renderer, host relay + bridge, phone (parallel slices). HostBridge and
-  DialRenderer done (host 0.2.82 built in apps/mac-host/build, pre-integration). Run died ~18:44Z
-  (disk full); resumed 19:18Z: SeatAdapters, CouncilEngine, PhoneRooms relaunched to finish in place
-  (briefs in `.council-briefs/`, not committed).
-- [ ] M2 integrated, checks green, desktop deployed, host built (not installed), phone OTA
-- [ ] M3 Maul demo at Team, measured cost and time
+- [x] M1 2026-11-10: engine + seat adapters (omp, Claude Code, Codex; outward-action guard), desktop
+  dial/phase strip/spend meter/cards, host relay + desktop bridge, phone Rooms screens. Run died ~18:44Z
+  (disk full); resumed 19:18Z, the three unfinished slices finished in place.
+- [x] M2 2026-11-10: on main (cd9c5032, fixes 758e5c04 and 6c8afae6). Desktop deployed: build
+  6c8afae65b published (Mini staged "Update ready"). Host: the installed Relay Host 0.2.89 (built from
+  main by another session) already carries the rooms relay (`rooms.sync` in its binary); nothing left
+  to install. Phone OTA 761bc083-6e1b-898b-94da-3e9eb6331fa3 (runtime 0.1.0; rooms gated on the
+  host's `rooms` feature). Desktop proof: `proof/rooms-council/desktop-*.png` (fixture data).
+  Phone proof: none in the Simulator (Isaac's order: he tests on the device).
+- [x] M3 2026-11-10: Lockdown Maul at Team, real run in a hidden Relay Dev: 19.2 min, $5.41 list (cap
+  $5.31; paused at 99% after round 1's merge, answered "wrap"). Contract + 2 parts built in parallel,
+  1 paintover, merged (151/151 contract checks). Judge's final position: Head 4, Body 5, Hands 4, Legs
+  4, Look 7, integration 6, GG preservation 8. Record `memory/rooms/2026-11-10-make-the-lockdown-maul-
+  render-match-the-target-art-keep-the-2.md`, routing log beside it, work in
+  `~/Eva/work/rooms/room-mwb4t3f4-1/main`. The first attempt hung on the Codex art director's turn
+  (generated image copied in-process under the Eva root, where the app's write trap throws); fixed in
+  758e5c04; that attempt spent about $3.40 list before it was stopped.
 
 ## Checks
-(filled per milestone)
+Desktop: typecheck clean (only the old widget-runtime @mantine/core error), 2356 unit tests, lint,
+spacing and em-dash lint. Host: 881 tests. Phone: 901 tests. Real seat smokes per harness (omp, Claude
+Code, Codex): file written, usage back, Codex resume, a real `git push` turned into an ask and denied.
 
 ## Next
-(filled per milestone)
+- The integrator (Opus) took $3.70 of $5.41: its contract turn alone was $2.15 against the dial's
+  ~$3.5 room estimate. Either raise the integrator's estimate or cap its contract turn; Team cannot
+  finish a scored round inside its cap today.
+- `EVAOS_HIDDEN_WINDOW=1` still put a Relay Dev window on screen; hidden via System Events.
