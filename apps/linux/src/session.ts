@@ -35,6 +35,7 @@ import type { SessionFiles } from "./agents/session-files";
 import type { BoardDelta, FileBoardStore } from "./boards/store";
 import { isLoopback } from "./boards/http";
 import { EMPTY_CATCHUP, type CatchUpDeck } from "./catchup/service";
+import { EMPTY_FEED, type FeedDeck } from "./feed/service";
 import type { ReactionRelaying } from "./reactions/service";
 import type { BookmarkRelaying } from "./bookmarks/service";
 import type { ArtifactRelaying } from "./artifacts/service";
@@ -106,6 +107,8 @@ export interface SessionDeps {
   readonly stats: StatsService | null;
   /** null when the host has no Catch Up feed; `catchup.*` then answers an empty deck. */
   readonly catchup: CatchUpDeck | null;
+  /** null when the host has no discovery feed; `feed.list` then answers an empty feed and signals are dropped. */
+  readonly feed: FeedDeck | null;
   /** null when the host keeps no reactions; `reactions.get` then answers empty and set/clear are dropped. */
   readonly reactions: ReactionRelaying | null;
   /** null when the host keeps no bookmarks; `bookmarks.get` then answers empty, set is dropped and `welcome.features` leaves it out. */
@@ -645,6 +648,12 @@ export class ClientSession {
           id: message.id,
           ok: this.deps.catchup?.note(message.id, message.text, message.signal) === true,
         });
+        break;
+      case "feed.list":
+        this.sink.send({ t: "feed.snapshot", ...(this.deps.feed?.snapshot() ?? EMPTY_FEED) });
+        break;
+      case "feed.signal":
+        this.deps.feed?.signal(message.id, message.action, message.title, message.source);
         break;
       case "reactions.get":
         this.sink.send({

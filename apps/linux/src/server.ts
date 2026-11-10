@@ -25,6 +25,7 @@ import {
   type AssistantAdmin,
 } from "./assistant/http";
 import { handleCatchUpBounce } from "./catchup/http";
+import { FEED_MEDIA_PREFIX, handleFeedMedia, type FeedDeck } from "./feed/service";
 import { handleBoardRequest, isLoopback } from "./boards/http";
 import { authorizeCanvasSocket, handleCanvasRequest } from "./canvas/http";
 import type { CanvasPeer } from "./canvas/room";
@@ -123,6 +124,8 @@ export interface ServerDeps {
   readonly stats: StatsService | null;
   /** The Catch Up deck; null answers `catchup.*` with an empty deck. */
   readonly catchup: CatchUpDeck | null;
+  /** Isaac's discovery feed; null answers `feed.list` empty and 404s `/feed/media`. */
+  readonly feed: FeedDeck | null;
   /** Reactions on chat bubbles; null answers `reactions.get` empty and drops set/clear. */
   readonly reactions: ReactionRelaying | null;
   /** Bookmarks on chat turns; null answers `bookmarks.get` empty, drops set, and leaves "bookmarks" out of `welcome.features`. */
@@ -384,6 +387,8 @@ export class RelayServer {
         }
         if (path.startsWith("/studio/"))
           return handleStudioRequest(this.deps.studio, request, path);
+        if (path.startsWith(FEED_MEDIA_PREFIX))
+          return handleFeedMedia(this.deps.feed, request, path);
         if (path.startsWith("/reviews/media/"))
           return handleReviewsMedia(this.deps.reviews, request, path);
         if (path === "/boards" || path.startsWith("/boards/"))
@@ -829,6 +834,7 @@ export class RelayServer {
         usage: this.deps.usage,
         stats: this.deps.stats,
         catchup: this.deps.catchup,
+        feed: this.deps.feed,
         reactions: this.deps.reactions,
         bookmarks: this.deps.bookmarks,
         artifacts: this.deps.artifacts,

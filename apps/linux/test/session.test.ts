@@ -32,6 +32,7 @@ import { PairingCoordinator } from "../src/pairing";
 import type { UsageService } from "../src/usage/service";
 import type { StatsService } from "../src/stats/service";
 import type { CatchUpDeck } from "../src/catchup/service";
+import type { FeedDeck } from "../src/feed/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { BookmarkRelaying } from "../src/bookmarks/service";
 import type { RenderFailureReporting } from "../src/render-failures/service";
@@ -174,6 +175,7 @@ interface HarnessOptions {
   usage?: UsageService;
   stats?: StatsService;
   catchup?: CatchUpDeck;
+  feed?: FeedDeck;
   reactions?: ReactionRelaying;
   bookmarks?: BookmarkRelaying;
   artifacts?: ArtifactRelaying;
@@ -237,6 +239,7 @@ function harness(options: HarnessOptions = {}): Harness {
     usage: options.usage ?? null,
     stats: options.stats ?? null,
     catchup: options.catchup ?? null,
+    feed: options.feed ?? null,
     reactions: options.reactions ?? null,
     bookmarks: options.bookmarks ?? null,
     artifacts: options.artifacts ?? null,
@@ -1071,6 +1074,29 @@ describe("stats", () => {
       t: "stats.snapshot",
       stats: { updatedAt: null, refreshing: false, profiles: [], ranges: null },
     });
+  });
+});
+
+describe("discovery feed", () => {
+  it("answers feed.list with the snapshot and hands a signal to the feed; a host without one answers empty", () => {
+    const signals: string[] = [];
+    const snapshot = { generatedAt: "t", items: [], acted: { a: "like" as const } };
+    const feed: FeedDeck = {
+      snapshot: () => snapshot,
+      signal: (id, action, title, source) => void signals.push(`${id} ${action} ${title} ${source}`),
+      openMedia: () => null,
+    };
+    const h = harness({ feed });
+    pair(h);
+    h.session.receive({ t: "feed.list" });
+    expect(h.sink.last()).toEqual({ t: "feed.snapshot", ...snapshot });
+    h.session.receive({ t: "feed.signal", id: "a", action: "save", title: "A", source: "HN" });
+    expect(signals).toEqual(["a save A HN"]);
+    const bare = harness();
+    pair(bare);
+    bare.session.receive({ t: "feed.list" });
+    expect(bare.sink.last()).toEqual({ t: "feed.snapshot", generatedAt: null, items: [], acted: {} });
+    bare.session.receive({ t: "feed.signal", id: "a", action: "like", title: "A", source: "HN" });
   });
 });
 

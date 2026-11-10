@@ -94,6 +94,7 @@ const server = new RelayServer(
     usage: null,
     stats: null,
     catchup: null,
+    feed: null,
     reactions: null,
     bookmarks: null,
     artifacts: null,
