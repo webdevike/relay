@@ -21,6 +21,7 @@ import { ReviewsPage } from '../reviews/ReviewsPage'
 import { SkillsPage } from '../skills/SkillsPage'
 import { TestBenchPage } from '../test-bench/TestBenchPage'
 import { SetupPage } from '../setup/SetupPage'
+import { FeedPage } from '../feed/FeedPage'
 
 export type PageRegistryKind =
   'page' | 'settings' | 'workspace' | 'meeting' | 'canvas' | 'agent' | 'board' | 'review'
@@ -36,6 +37,7 @@ const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   meetings: MeetingsHome,
   rooms: RoomsPage,
   studio: StudioPage,
+  feed: FeedPage,
   reviews: ReviewsPage,
   setup: SetupPage,
 }
