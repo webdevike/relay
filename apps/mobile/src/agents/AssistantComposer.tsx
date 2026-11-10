@@ -9,20 +9,18 @@
  * (`ListeningOrb`, mounted by the screen through `onWalkie`). Holding the pill's open middle talks
  * the same way; tapping it starts typing.
  */
-import { useEffect, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
-import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
-import { MAX_REPLY_IMAGES } from "@relay/protocol";
-import { ComposerPill, COMPOSER_BUTTON } from "@/ui/ComposerPill";
+import Animated, { FadeIn, FadeOut, ReduceMotion, type SharedValue } from "react-native-reanimated";
+import { ComposerPill, COMPOSER_BUTTON, COMPOSER_FIELD } from "@/ui/ComposerPill";
 import { AttachmentTray } from "@/ui/AttachmentTray";
-import { PasteImageChip } from "@/ui/PasteImageChip";
 import { IconButton } from "@/ui/IconButton";
 import { Chip } from "@/ui/Chip";
 import { LevelDots } from "@/ui/LevelDots";
 import { Text } from "@/ui/Text";
 import { motion, spacing, useColors, useScheme } from "@/theme";
-import { photoOfImage } from "@/lib/clipboard";
 import type { Photo } from "@/lib/photo";
+import type { PopoverAnchor } from "@/agents/ThinkingPopover";
 import { ComposerMic } from "@/dictation/ComposerMic";
 import { micLevel } from "@/dictation/signals";
 import { dictationActor } from "@/dictation/actor";
@@ -33,9 +31,6 @@ import { useHoldToTalkGesture } from "@/dictation/walkie";
 
 /** Dark mode buttons inside the pill: one step lighter than its fill. */
 const BUTTON_DARK = "#3A3A3A";
-const LINE_HEIGHT = 22;
-/** About five lines before the field scrolls. */
-const MAX_FIELD = LINE_HEIGHT * 5 + 12;
 
 export interface AssistantComposerProps {
   title: string;
@@ -55,15 +50,17 @@ export interface AssistantComposerProps {
   /** Sends a turn: the words and the queued photos. */
   onSend: (text: string, photos: Photo[]) => void;
   onCall: () => void;
-  /** The assistant and its model, in the card's chip; tapping it changes the thinking level. */
-  chip: { label: string; detail?: string | undefined; onPress: () => void };
+  /** The model and its thinking level, in the card's chip; a tap gets the chip's place on screen, to open the level picker over it. */
+  chip: { label: string; detail?: string | undefined; onPress: (anchor: PopoverAnchor) => void };
   /** A hold started: the screen shows the edge glow until it has faded. */
   onWalkie: () => void;
   /** Points dictation back at this thread, where a hold sends its words. */
   restoreTarget: () => void;
+  /** The pill's height on screen, frame by frame (`ComposerPill` `height`). */
+  height: SharedValue<number>;
 }
 
-export function AssistantComposer({ title, connected, draft, setDraft, photos, setPhotos, inputRef, cursor, composing, onComposing, onAttach, onSend, onCall, chip, onWalkie, restoreTarget }: AssistantComposerProps) {
+export function AssistantComposer({ title, connected, draft, setDraft, photos, setPhotos, inputRef, cursor, composing, onComposing, onAttach, onSend, onCall, chip, onWalkie, restoreTarget, height }: AssistantComposerProps) {
   const colors = useColors();
   const dark = useScheme() === "dark";
   const button = dark ? BUTTON_DARK : colors.surfaceRaised;
@@ -86,12 +83,14 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
     },
     restoreTarget,
   });
-  // A tap on the pill (or the mic) opens the card first: the collapsed field takes no touches, so
-  // it can only take focus once the card has laid it out.
+  // A tap on the pill (or the mic) opens the card and focuses the field in the same tick, so the card
+  // grows and the keyboard rises as one motion (the collapsed field takes no touches of its own).
   const [opening, setOpening] = useState(false);
-  useEffect(() => {
-    if (opening) inputRef.current?.focus();
-  }, [opening, inputRef]);
+  const open = (): void => {
+    setOpening(true);
+    inputRef.current?.focus();
+  };
+  const chipBox = useRef<View>(null);
   // The finger is down on a hold: the pill shows the live level and "Release to send".
   const [holding, setHolding] = useState(false);
   const hold = {
@@ -105,14 +104,11 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
   };
   const pillGesture = useHoldToTalkGesture({
     enabled: connected,
-    onTap: () => {
-      setOpening(true);
-    },
+    onTap: open,
     ...hold,
   });
 
   const text = draft.trim();
-  const full = photos.length >= MAX_REPLY_IMAGES;
   const hasContent = text !== "" || photos.length > 0;
   const expanded = composing || opening || draft !== "" || photos.length > 0 || tap.dictating;
   const talking = holding && (phase === "listening" || phase === "requesting_permission");
@@ -143,7 +139,7 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
       keyboardAppearance={dark ? "dark" : "light"}
       placeholderTextColor={colors.textMuted}
       selectionColor={colors.accent}
-      style={[styles.input, { color: colors.text }, expanded ? styles.inputCard : styles.inputPill]}
+      style={[styles.input, { color: colors.text }]}
       accessibilityLabel={`Message ${title}`}
     />
   );
@@ -156,7 +152,7 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
       enabled={connected}
       onTap={() => {
         tap.begin();
-        setOpening(true);
+        open();
       }}
       {...hold}
     />
@@ -180,31 +176,39 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
       <ComposerPill
         expanded={expanded}
         header={
-          <>
-            {photos.length > 0 && (
-              <View style={styles.tray}>
-                <AttachmentTray
-                  uris={photos.map((photo) => photo.uri)}
-                  onRemove={(index) => {
-                    setPhotos((current) => current.filter((_, i) => i !== index));
-                  }}
-                />
-              </View>
-            )}
-            {!full && (
-              <PasteImageChip
-                active={composing && connected && !dictating}
-                onImage={(image) => {
-                  setPhotos((current) => [...current, photoOfImage(image)].slice(0, MAX_REPLY_IMAGES));
+          photos.length > 0 ? (
+            <View style={styles.tray}>
+              <AttachmentTray
+                uris={photos.map((photo) => photo.uri)}
+                onRemove={(index) => {
+                  setPhotos((current) => current.filter((_, i) => i !== index));
                 }}
-                style={styles.tray}
               />
-            )}
-          </>
+            </View>
+          ) : undefined
         }
         field={field}
         leading={dictating ? <IconButton symbol="xmark" size={COMPOSER_BUTTON} glyphSize={17} backgroundColor={button} onPress={tap.cancel} accessibilityLabel="Cancel dictation" /> : attach}
-        middle={dictating ? undefined : <Chip size="large" label={chip.label} detail={chip.detail} onPress={chip.onPress} style={[styles.chip, { backgroundColor: button }]} accessibilityLabel={`${chip.label}${chip.detail === undefined ? "" : ` ${chip.detail}`}, change thinking`} />}
+        middle={
+          dictating ? undefined : (
+            <Animated.View entering={FadeIn.duration(motion.duration.base).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(motion.duration.fast).reduceMotion(ReduceMotion.System)} style={styles.chip}>
+              <View ref={chipBox} collapsable={false} style={styles.chip}>
+                <Chip
+                  size="large"
+                  label={chip.label}
+                  detail={chip.detail}
+                  onPress={() => {
+                    chipBox.current?.measureInWindow((x, y, width, height) => {
+                      chip.onPress({ x, y, width, height });
+                    });
+                  }}
+                  style={[styles.chip, { backgroundColor: button }]}
+                  accessibilityLabel={`${chip.label}${chip.detail === undefined ? "" : ` ${chip.detail}`}, change thinking`}
+                />
+              </View>
+            </Animated.View>
+          )
+        }
         trailing={
           dictating ? (
             <>
@@ -220,6 +224,7 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
           )
         }
         gesture={pillGesture}
+        height={height}
         overlay={
           talking ? (
             <>
@@ -236,9 +241,8 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
 }
 
 const styles = StyleSheet.create({
-  input: { fontSize: 17, lineHeight: LINE_HEIGHT, paddingHorizontal: spacing.xs },
-  inputPill: { paddingTop: 0, paddingBottom: 0, maxHeight: LINE_HEIGHT + 4 },
-  inputCard: { minHeight: 44, maxHeight: MAX_FIELD, paddingTop: spacing.xs, paddingBottom: spacing.sm, textAlignVertical: "top" },
+  /** The same metrics in both shapes (`COMPOSER_FIELD`): opening the card moves the field, never restyles it. */
+  input: { fontSize: 17, lineHeight: COMPOSER_FIELD.line, paddingHorizontal: spacing.xs, paddingTop: COMPOSER_FIELD.padTop, paddingBottom: COMPOSER_FIELD.padBottom, minHeight: COMPOSER_FIELD.min, maxHeight: COMPOSER_FIELD.max, textAlignVertical: "top" },
   chip: { flexShrink: 1, minWidth: 0 },
   tray: { paddingBottom: spacing.sm },
   heard: { marginBottom: spacing.sm, marginHorizontal: spacing.xs, borderRadius: 18, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },

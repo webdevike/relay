@@ -9,7 +9,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import type { AgentSkill } from "@relay/protocol";
 import { IconButton } from "@/ui/IconButton";
-import { PasteImageChip } from "@/ui/PasteImageChip";
 import { SuggestionList } from "@/ui/SuggestionList";
 import { usePasteImage } from "@/lib/pasteImage";
 import type { PendingImage } from "@/dictation/machine";
@@ -65,7 +64,6 @@ export function TypedReply({ draft, onDraft, canSend, onSend, onPasteImage, skil
           />
         </View>
       )}
-      <PasteImageChip active={focused} onImage={onPasteImage} style={styles.paste} />
       <TextInput
         ref={field}
         style={[styles.field, { backgroundColor: colors.bg, color: colors.text }]}
@@ -109,6 +107,5 @@ const styles = StyleSheet.create({
     lineHeight: type.body.lineHeight,
   },
   /** Pinned to the bottom-right corner, so it stays put as the draft grows. */
-  paste: { marginBottom: spacing.sm },
   send: { position: "absolute", right: INSET, bottom: INSET },
 });

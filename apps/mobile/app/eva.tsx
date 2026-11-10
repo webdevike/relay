@@ -23,10 +23,10 @@
  * above a persistent row of attachment, hold-to-talk mic and send controls. The mic is the Agent Inbox's: hold to talk, release to send.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActionSheetIOS, FlatList, Keyboard, KeyboardAvoidingView, Pressable, StyleSheet, View, type LayoutChangeEvent, type TextInput } from "react-native";
+import { ActionSheetIOS, FlatList, Keyboard, Pressable, StyleSheet, View, type LayoutChangeEvent, type TextInput } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import Animated, { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
+import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedKeyboard, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, type AssistantMessage, type OpenAsk } from "@relay/protocol";
 import { AvatarTitle } from "@/ui/AvatarTitle";
 import { FrostedBar } from "@/ui/FrostedBar";
@@ -81,6 +81,8 @@ import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
 import { useDictation } from "@/dictation/useDictation";
 import { useWalkieOrb } from "@/dictation/walkie";
 import { AssistantComposer } from "@/agents/AssistantComposer";
+import { ThinkingPopover, type PopoverAnchor } from "@/agents/ThinkingPopover";
+import { COMPOSER_PILL_HEIGHT } from "@/ui/ComposerPill";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
@@ -105,8 +107,10 @@ const HEADER_ROW = 44;
 const HEADER_BUTTON = 36;
 /** The oldest rows start this far below the header. */
 const HEADER_GAP = 8;
-/** Gap between the pill and the bottom safe area. */
-const COMPOSER_BOTTOM = spacing.md;
+/** Gap between the idle pill and the bottom safe area: low, just above the home indicator, as the Claude app's. */
+const COMPOSER_BOTTOM = spacing.xs;
+/** Gap between the open card and the keyboard. */
+const KEYBOARD_GAP = spacing.sm;
 /** Thread background in dark mode: pure black, as Dot's; the pill and bubbles sit on it. */
 const BG_DARK = "#000000";
 /** Assistant bubble fill in dark mode. */
@@ -159,8 +163,42 @@ function Thread({ agent }: { agent: string }) {
   const [turnFailed, setTurnFailed] = useState(false);
   const signals = useMotionSignals(agent, turnFailed);
   const onCall = useCallStore((state) => state.call?.agent === agent);
-  // The composer floats over the list, so the list pads itself by however tall the composer is.
-  const [composerHeight, setComposerHeight] = useState(108 + COMPOSER_BOTTOM);
+  // The composer floats over the list, so the list pads itself by however tall the composer is: the
+  // banner and ask cards above the pill (`stack`) plus the pill, whose height animates on the UI thread.
+  const [stackHeight, setStackHeight] = useState(0);
+  const stack = useSharedValue(0);
+  const pillHeight = useSharedValue(COMPOSER_PILL_HEIGHT);
+  // The keyboard, frame by frame on the UI thread (its own curve, interactive dismiss included): the
+  // composer and the list ride on it as a transform, so nothing re-lays out while it moves.
+  const keyboard = useAnimatedKeyboard();
+  const bottomInset = insets.bottom;
+  // One style object per view (the list's and the composer's), the same lift in both.
+  const listLiftStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -Math.max(0, keyboard.height.value + KEYBOARD_GAP - bottomInset - COMPOSER_BOTTOM) }],
+  }));
+  const composerLiftStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: -Math.max(0, keyboard.height.value + KEYBOARD_GAP - bottomInset - COMPOSER_BOTTOM) }],
+  }));
+  // Inverted list: room at its visual bottom for the composer, so the newest message sits fully above the pill and rises with the card.
+  const reserveStyle = useAnimatedStyle(() => ({ height: stack.value + pillHeight.value + COMPOSER_BOTTOM + spacing.md }));
+  const emptyStyle = useAnimatedStyle(() => ({ paddingBottom: stack.value + pillHeight.value + COMPOSER_BOTTOM }));
+  const overComposerStyle = useAnimatedStyle(() => ({ transform: [{ translateY: -(stack.value + pillHeight.value + COMPOSER_BOTTOM) }] }));
+  // The list is lifted with the keyboard, which pushes its oldest end under the header: pad that end by as much while it is up.
+  const [keyboardRoom, setKeyboardRoom] = useState(0);
+  useEffect(() => {
+    const shown = Keyboard.addListener("keyboardWillShow", (event) => {
+      setKeyboardRoom(Math.max(0, event.endCoordinates.height - bottomInset));
+    });
+    const hidden = Keyboard.addListener("keyboardWillHide", () => {
+      setKeyboardRoom(0);
+    });
+    return () => {
+      shown.remove();
+      hidden.remove();
+    };
+  }, [bottomInset]);
+  // The thinking-level popover, over the composer's model chip.
+  const [thinkingAnchor, setThinkingAnchor] = useState<PopoverAnchor | null>(null);
   // Images queued on the composer, sent with the next turn.
   const [photos, setPhotos] = useState<Photo[]>([]);
   // The images of the tapped bubble, open in the full-screen viewer.
@@ -387,8 +425,10 @@ function Thread({ agent }: { agent: string }) {
   const bg = dark ? BG_DARK : colors.bg;
   const listTop = headerHeight + HEADER_GAP;
 
-  const onComposerLayout = (event: LayoutChangeEvent): void => {
-    setComposerHeight(event.nativeEvent.layout.height);
+  const onStackLayout = (event: LayoutChangeEvent): void => {
+    const height = event.nativeEvent.layout.height;
+    setStackHeight(height);
+    stack.value = height;
   };
 
   /** The avatar menu: a native action sheet, since a bottom-sheet modal did not present on this screen. */
@@ -433,27 +473,26 @@ function Thread({ agent }: { agent: string }) {
     });
   };
 
-  /** The card's chip: the thinking levels the thread session's model takes, else the avatar menu. */
-  const openThinking = (): void => {
-    const levels = threadOptions?.models.find((model) => model.name === threadSession?.model)?.thinkingLevels ?? [];
-    if (sessionId === null || levels.length === 0) {
+  /** The thinking levels the thread session's model takes (empty: unknown model or an older host). */
+  const thinkingLevels = threadOptions?.models.find((model) => model.name === threadSession?.model)?.thinkingLevels ?? [];
+  // "Claude Opus 5.5" reads "Opus 5.5": the chip has little room, and the header already names the assistant.
+  const modelName = threadSession?.model?.replace(/^Claude\s+/i, "");
+  /** The card's chip: the thinking-level popover over it, else (no levels to pick) the avatar menu. */
+  const openThinking = (anchor: PopoverAnchor): void => {
+    if (sessionId === null || thinkingLevels.length === 0) {
       openMenu();
       return;
     }
-    ActionSheetIOS.showActionSheetWithOptions(
-      { title: `${title}'s thinking`, message: threadSession?.model, options: [...levels.map(capitalized), "Cancel"], cancelButtonIndex: levels.length },
-      (index) => {
-        const level = levels[index];
-        if (level === undefined || level === threadSession?.thinkingLevel) return;
-        sendCommand({ kind: "agent.configure", sessionId, thinkingLevel: level }).catch((error: unknown) => {
-          setFailure(error instanceof Error && error.message !== "" ? error.message : "Couldn't change the thinking level.");
-        });
-      },
-    );
+    setThinkingAnchor(anchor);
+  };
+  const setThinking = (level: string): void => {
+    if (sessionId === null) return;
+    sendCommand({ kind: "agent.configure", sessionId, thinkingLevel: level }).catch((error: unknown) => {
+      setFailure(error instanceof Error && error.message !== "" ? error.message : "Couldn't change the thinking level.");
+    });
   };
   const chip = {
-    // "Claude Opus 5.5" reads "Opus 5.5": the chip has little room.
-    label: threadSession?.model === undefined ? title : `${title} · ${threadSession.model.replace(/^Claude\s+/i, "")}`,
+    label: modelName ?? title,
     detail: threadSession?.thinkingLevel === undefined ? undefined : capitalized(threadSession.thinkingLevel),
     onPress: openThinking,
   };
@@ -507,16 +546,17 @@ function Thread({ agent }: { agent: string }) {
 
   const screen = (
     <SafeAreaView style={[styles.root, { backgroundColor: bg }]} edges={["bottom"]}>
-      <KeyboardAvoidingView style={styles.fill} behavior="padding">
-        <View style={styles.fill}>
+      <View style={styles.fill}>
+        {/* The list rides on the keyboard with the composer (a transform, so it never re-lays out while the keyboard moves). */}
+        <Animated.View style={[styles.fill, listLiftStyle]}>
           {rows.length === 0 ? (
-            <View style={[styles.fill, { paddingTop: listTop, paddingBottom: composerHeight }]}>
+            <Animated.View style={[styles.fill, { paddingTop: listTop }, emptyStyle]}>
               <EmptyState
                 symbol="bubble.left.and.text.bubble.right"
                 title={`Say hi to ${title}`}
                 body={connected || snapshot !== null ? "She lives on your Mac and keeps this one conversation going, day and night." : "Connect to your host to load the conversation."}
               />
-            </View>
+            </Animated.View>
           ) : (
             // Reply buttons and inputs in the thread's widgets answer as Isaac's turn; offline they stay disabled.
             <ReplyWidgetActions reply={connected ? widgetReply : null}>
@@ -575,11 +615,17 @@ function Thread({ agent }: { agent: string }) {
                     </MessageAppearance>
                   );
                 }}
-                // Inverted: the header sits at the visual bottom, below the newest row.
-                ListHeaderComponent={typing ? <TypingRow title={title} gap={newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER} /> : null}
-                // Inverted: reserve room at the visual bottom for the floating composer, and at the visual top for the frosted header.
-                contentContainerStyle={{ paddingTop: composerHeight + spacing.md, paddingBottom: listTop }}
-                scrollIndicatorInsets={{ top: headerHeight, bottom: composerHeight }}
+                // Inverted: the header sits at the visual bottom, below the newest row; under it, room for the floating composer
+                // that grows with the card on the UI thread, so the newest message stays just above the pill.
+                ListHeaderComponent={
+                  <>
+                    {typing && <TypingRow title={title} gap={newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER} />}
+                    <Animated.View style={reserveStyle} />
+                  </>
+                }
+                // Inverted: room at the visual top for the frosted header, and for the keyboard's lift while it is up.
+                contentContainerStyle={{ paddingBottom: listTop + keyboardRoom }}
+                scrollIndicatorInsets={{ top: headerHeight + keyboardRoom, bottom: stackHeight + COMPOSER_PILL_HEIGHT + COMPOSER_BOTTOM }}
                 contentOffset={{ x: 0, y: initialOffset.current }}
                 {...scrollHandlers}
                 keyboardDismissMode="interactive"
@@ -587,95 +633,100 @@ function Thread({ agent }: { agent: string }) {
               />
             </ReplyWidgetActions>
           )}
-          <ScrollToBottom visible={awayFromBottom} onPress={scrollToBottom} bottom={composerHeight + spacing.sm} />
-          <FrostedBar
-            style={[styles.header, { paddingTop: insets.top }]}
-            onLayout={(event) => {
-              setHeaderHeight(event.nativeEvent.layout.height);
-            }}
-          >
-            <View style={styles.headerRow}>
-              <BackButton
-                onPress={() => {
-                  // Opened from Assistants it goes back there; a notification tap into a cold app has nothing behind it.
-                  if (router.canGoBack()) router.back();
-                  else router.replace("/assistants");
-                }}
-              />
-              <Pressable accessibilityRole="button" accessibilityLabel={`${title} menu`} onPress={openMenu} style={styles.identity}>
-                <AvatarTitle name={title} portrait={portrait} motion={{ signals, paused: onCall }} />
-              </Pressable>
-              {shownAsks.length > 0 && (
-                <OpenAsksButton
-                  count={shownAsks.length}
-                  size={HEADER_BUTTON}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setAsksOpen(true);
-                  }}
-                />
-              )}
-              <ArtifactsButton
-                thread={artifactsThread}
+          {/* Pinned to the composer's top edge as it grows and lifts. */}
+          <Animated.View pointerEvents="box-none" style={[styles.overComposer, overComposerStyle]}>
+            <ScrollToBottom visible={awayFromBottom} onPress={scrollToBottom} />
+          </Animated.View>
+        </Animated.View>
+        <FrostedBar
+          style={[styles.header, { paddingTop: insets.top }]}
+          onLayout={(event) => {
+            setHeaderHeight(event.nativeEvent.layout.height);
+          }}
+        >
+          <View style={styles.headerRow}>
+            <BackButton
+              onPress={() => {
+                // Opened from Assistants it goes back there; a notification tap into a cold app has nothing behind it.
+                if (router.canGoBack()) router.back();
+                else router.replace("/assistants");
+              }}
+            />
+            <Pressable accessibilityRole="button" accessibilityLabel={`${title} menu`} onPress={openMenu} style={styles.identity}>
+              <AvatarTitle name={title} portrait={portrait} motion={{ signals, paused: onCall }} />
+            </Pressable>
+            {shownAsks.length > 0 && (
+              <OpenAsksButton
+                count={shownAsks.length}
                 size={HEADER_BUTTON}
                 onPress={() => {
                   Keyboard.dismiss();
+                  setAsksOpen(true);
+                }}
+              />
+            )}
+            <ArtifactsButton
+              thread={artifactsThread}
+              size={HEADER_BUTTON}
+              onPress={() => {
+                Keyboard.dismiss();
+                setArtifactsOpen(true);
+              }}
+            />
+          </View>
+          {running.length > 0 && (
+            <View style={styles.running}>
+              <RunningChips
+                chips={running}
+                onOpenSession={(id) => {
+                  router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
+                }}
+                onOpenWorking={() => {
+                  Keyboard.dismiss();
+                  setArtifactsTab("subagents");
                   setArtifactsOpen(true);
                 }}
               />
             </View>
-            {running.length > 0 && (
-              <View style={styles.running}>
-                <RunningChips
-                  chips={running}
-                  onOpenSession={(id) => {
-                    router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
-                  }}
-                  onOpenWorking={() => {
-                    Keyboard.dismiss();
-                    setArtifactsTab("subagents");
-                    setArtifactsOpen(true);
-                  }}
-                />
+          )}
+        </FrostedBar>
+        {/* No Pinned row under the header on the phone (Isaac, 2026-11-05): pins stay in the thread's Artifacts and on
+            the desktop rail; `@/pins/PinnedRow` is kept for when it comes back. */}
+        {/* Floats over the list at the safe-area bottom and rides on the keyboard; the list pads itself by its height. */}
+        <Animated.View pointerEvents="box-none" style={[styles.composer, composerLiftStyle]}>
+          <View onLayout={onStackLayout}>
+            {banner !== null && (
+              <View style={[styles.banner, { backgroundColor: bg }]}>
+                <Banner tone="danger" message={banner} />
               </View>
             )}
-          </FrostedBar>
-          {/* No Pinned row under the header on the phone (Isaac, 2026-11-05): pins stay in the thread's Artifacts and on
-              the desktop rail; `@/pins/PinnedRow` is kept for when it comes back. */}
-        </View>
-        {/* Pulled over the list by its own height, so the list runs under it. */}
-        <View onLayout={onComposerLayout} style={[styles.composer, { marginTop: -composerHeight }]}>
-          {banner !== null && (
-            <View style={[styles.banner, { backgroundColor: bg }]}>
-              <Banner tone="danger" message={banner} />
-            </View>
-          )}
-          {/* What the assistant is blocked on, answered here; sending a message instead cancels the ask (the host's bridge does). */}
-          {sessionId !== null && pendingApproval !== undefined ? (
-            <View style={styles.blocked}>
-              <SessionApprovalCard sessionId={sessionId} approval={pendingApproval} />
-            </View>
-          ) : (
-            pendingAsk !== undefined && (
+            {/* What the assistant is blocked on, answered here; sending a message instead cancels the ask (the host's bridge does). */}
+            {sessionId !== null && pendingApproval !== undefined ? (
               <View style={styles.blocked}>
-                <AskCard
-                  key={pendingAsk.id}
-                  ask={pendingAsk}
-                  onSubmit={(results) => {
-                    answerAsk(results);
-                    // The host closes its open ask; keep the badge from flashing back until it does.
-                    const ask = openAsks?.find((entry) => entry.askId === pendingAsk.id);
-                    if (ask !== undefined) hideAsk(ask.id);
-                  }}
-                  onCancel={() => {
-                    cancelAsk();
-                    const ask = openAsks?.find((entry) => entry.askId === pendingAsk.id);
-                    if (ask !== undefined) resolveAsk(ask, "dismissed");
-                  }}
-                />
+                <SessionApprovalCard sessionId={sessionId} approval={pendingApproval} />
               </View>
-            )
-          )}
+            ) : (
+              pendingAsk !== undefined && (
+                <View style={styles.blocked}>
+                  <AskCard
+                    key={pendingAsk.id}
+                    ask={pendingAsk}
+                    onSubmit={(results) => {
+                      answerAsk(results);
+                      // The host closes its open ask; keep the badge from flashing back until it does.
+                      const ask = openAsks?.find((entry) => entry.askId === pendingAsk.id);
+                      if (ask !== undefined) hideAsk(ask.id);
+                    }}
+                    onCancel={() => {
+                      cancelAsk();
+                      const ask = openAsks?.find((entry) => entry.askId === pendingAsk.id);
+                      if (ask !== undefined) resolveAsk(ask, "dismissed");
+                    }}
+                  />
+                </View>
+              )
+            )}
+          </View>
           <View style={styles.pillRow}>
             <AssistantComposer
               title={title}
@@ -699,10 +750,11 @@ function Thread({ agent }: { agent: string }) {
               chip={chip}
               onWalkie={walkieOrb.start}
               restoreTarget={pointDictationHere}
+              height={pillHeight}
             />
           </View>
-        </View>
-      </KeyboardAvoidingView>
+        </Animated.View>
+      </View>
       <ImageViewer
         images={viewerImages}
         start={viewing?.start ?? 0}
@@ -746,6 +798,17 @@ function Thread({ agent }: { agent: string }) {
           }}
           onClose={() => {
             setAsksOpen(false);
+          }}
+        />
+        {/* Last, over everything: it fills the screen (a tap outside closes it). */}
+        <ThinkingPopover
+          anchor={thinkingAnchor}
+          model={modelName ?? title}
+          levels={thinkingLevels}
+          current={threadSession?.thinkingLevel}
+          onSelect={setThinking}
+          onClose={() => {
+            setThinkingAnchor(null);
           }}
         />
       </View>
@@ -1006,7 +1069,10 @@ const styles = StyleSheet.create({
   widgetCard: { borderRadius: EVA_RADIUS, padding: EVA_RADIUS - radii.md },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radii.lg, padding: spacing.md, gap: spacing.sm },
   status: { textAlign: "center", paddingHorizontal: spacing.xxxl, fontWeight: "400" },
-  composer: { paddingBottom: COMPOSER_BOTTOM },
+  /** At the safe-area bottom, over the list (the list reserves its height); lifted by the keyboard as a transform. */
+  composer: { position: "absolute", left: 0, right: 0, bottom: 0, paddingBottom: COMPOSER_BOTTOM },
+  /** A zero-height line at the list's bottom, moved up to the composer's top edge: the scroll-to-bottom button sits on it. */
+  overComposer: { position: "absolute", left: 0, right: 0, bottom: 0, height: 0 },
   banner: { paddingBottom: spacing.sm },
   /** The ask or approval card the assistant is blocked on, above the pill, as wide as the pill. */
   blocked: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
