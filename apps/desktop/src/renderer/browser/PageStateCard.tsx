@@ -1,6 +1,6 @@
 import { Button, Text, UnstyledButton } from '@mantine/core'
 import { IconGlobe } from '@tabler/icons-react'
-import { BLOCKED_URL_CODE } from '@evaos/browser-core/address'
+import { BLOCKED_URL_CODE, PAGE_GONE_CODE } from '@evaos/browser-core/address'
 import type { TabState } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { useRecent } from '../tiling/recent'
@@ -51,6 +51,20 @@ export function PageStateCard({ tabId, tab }: { tabId: string; tab: TabState | u
         <p className="eva-dim">
           Only web pages (http and https) open in this panel. {tab.error.host} was not loaded.
         </p>
+      </div>
+    )
+  }
+  if (tab?.error?.code === PAGE_GONE_CODE) {
+    return (
+      <div className="eva-page-card" data-testid="page-error">
+        <h2 className="eva-heading">This page stopped</h2>
+        <p className="eva-dim">
+          The page for {tab.error.host} quit before it could show. Try again; if it keeps happening,
+          restart Relay.
+        </p>
+        <Button variant="default" onClick={() => void invoke('browser.reload', { tabId: tab.id })}>
+          Try again
+        </Button>
       </div>
     )
   }

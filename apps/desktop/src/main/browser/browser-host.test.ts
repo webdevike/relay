@@ -100,6 +100,7 @@ vi.mock('./guest-session', () => ({
 }))
 
 import { setImmediate as nextTick } from 'node:timers/promises'
+import { PAGE_GONE_CODE } from '@evaos/browser-core/address'
 import type { TabsSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { BrowserHost, LIVE_SCOPES, MAX_TABS } from './browser-host'
@@ -776,5 +777,24 @@ describe('BrowserHost slots', () => {
       'browser.popup',
       expect.objectContaining({ openerId: a.id, scope: 'A' }),
     ])
+  })
+
+  it('a page whose renderer dies or never starts shows the error card; Try again loads it anew', () => {
+    host.setScope('A')
+    const a = host.createTab('http://proto.test:4380/', true)!
+    host.setSlots([{ tabId: a.id, ...R1 }])
+    const view = viewOf(host, a.id)!
+    expect(view.visible).toBe(true)
+    // What macOS does past ~10k main-process descriptors: no did-fail-load, only this.
+    view.webContents.fire('render-process-gone', {}, { reason: 'crashed', exitCode: 6 })
+    expect(host.snapshot().tabs[0]).toMatchObject({
+      loading: false,
+      error: { host: 'proto.test:4380', code: PAGE_GONE_CODE },
+    })
+    expect(view.visible).toBe(false)
+    host.reload(a.id)
+    expect(view.webContents.loadURL).toHaveBeenLastCalledWith('http://proto.test:4380/')
+    expect(host.snapshot().tabs[0]!.error).toBeNull()
+    expect(view.visible).toBe(true)
   })
 })

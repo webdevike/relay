@@ -7,7 +7,7 @@ import {
   type WebContents,
   type WindowOpenHandlerResponse,
 } from 'electron'
-import { BLOCKED_URL_CODE, loadableUrl } from '@evaos/browser-core/address'
+import { BLOCKED_URL_CODE, PAGE_GONE_CODE, loadableUrl } from '@evaos/browser-core/address'
 import { isAppSwitchUrl } from '@evaos/browser-core/app-switch'
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
 import { FORWARD_FROM_GUEST, PINNED_SCOPE, chordOfInput } from '@evaos/shell-core'
@@ -443,6 +443,14 @@ export class BrowserHost {
       s.loading = false
       s.error = { host: hostOf(url), code }
       this.navState(tab)
+      this.changed()
+    })
+    // A renderer that dies, or never starts, sends no did-fail-load: without this the tab keeps
+    // its URL and the slot stays an empty dark rect. Show the error card (Try again reloads).
+    wc.on('render-process-gone', () => {
+      if (tab.view !== view) return
+      s.loading = false
+      s.error = { host: hostOf(s.url), code: PAGE_GONE_CODE }
       this.changed()
     })
     wc.on('page-favicon-updated', (_e, favicons) => {

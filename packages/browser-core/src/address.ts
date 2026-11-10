@@ -5,6 +5,13 @@ export const LOADABLE_PROTOCOLS: ReadonlySet<string> = new Set(['http:', 'https:
 export const BLOCKED_URL_CODE = -20
 
 /**
+ * The page's renderer process ended (crashed, killed, or never started: macOS refuses to start a
+ * sandboxed helper once the main process holds ~10k descriptors). Not a Chromium net error code;
+ * the host reports it from `render-process-gone` so the tab shows a card instead of a blank view.
+ */
+export const PAGE_GONE_CODE = 1
+
+/**
  * Whether the guest view may load `url`. `file:`, `chrome:` and friends are refused at this
  * single choke point so the address bar cannot bypass the page-navigation guard. Extension
  * pages (`chrome-extension:`) open only when the extension host itself asks.
