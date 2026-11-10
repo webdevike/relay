@@ -13,7 +13,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import type { FeedAction, FeedItem } from "@relay/protocol";
 import { FeedPost } from "@/feed/FeedPost";
 import { hostBaseUrl, requestFeed, signalFeed } from "@/connection";
-import { feedTags, visibleFeed } from "@/lib/feed";
+import { feedSources, feedTags, visibleFeed } from "@/lib/feed";
 import { openExternal } from "@/lib/links";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { useConnectionStore } from "@/state/connection";
@@ -32,6 +32,7 @@ export default function Feed() {
   const acted = useFeedStore((state) => state.acted);
   const connected = useConnectionStore((state) => state.status === "connected");
   const [tag, setTag] = useState<string | null>(null);
+  const [source, setSource] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const toast = useTransientMessage();
   const showToast = toast.show;
@@ -43,9 +44,11 @@ export default function Feed() {
   );
 
   const tags = items === null ? [] : feedTags(items, acted);
-  // A tag whose cards were all skipped is no longer a chip: fall back to everything.
+  const sources = items === null ? [] : feedSources(items, acted);
+  // A tag or platform whose cards were all skipped is no longer a chip: fall back to everything.
   const activeTag = tag !== null && tags.includes(tag) ? tag : null;
-  const cards = items === null ? [] : visibleFeed(items, acted, activeTag);
+  const activeSource = source !== null && sources.includes(source) ? source : null;
+  const cards = items === null ? [] : visibleFeed(items, acted, activeTag, activeSource);
   const hostBase = connected ? hostBaseUrl() : null;
 
   const onAct = useCallback(
@@ -80,6 +83,22 @@ export default function Feed() {
         />
         <Text variant="title">Feed</Text>
       </View>
+      {sources.length > 1 && (
+        <View style={styles.chipsWrap}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} accessibilityLabel="Filter by platform">
+            {[null, ...sources].map((s) => (
+              <Chip
+                key={s ?? "all"}
+                label={s ?? "All platforms"}
+                selected={activeSource === s}
+                onPress={() => {
+                  setSource(s);
+                }}
+              />
+            ))}
+          </ScrollView>
+        </View>
+      )}
       {tags.length > 0 && (
         <View style={styles.chipsWrap}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} accessibilityLabel="Filter by interest">

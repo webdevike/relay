@@ -123,9 +123,11 @@ export function FeedPage(_props: { place: Place }) {
   }, [])
 
   const [tag, setTag] = useState<string | null>(null)
+  const [source, setSource] = useState<string | null>(null)
   const live = (items ?? []).filter((i) => acted[i.id] !== 'skip')
   const tags = [...new Set(live.flatMap((i) => (i.tag ? [i.tag] : [])))].sort()
-  const visible = live.filter((i) => tag === null || i.tag === tag)
+  const platforms = [...new Set(live.map((i) => i.source))].sort()
+  const visible = live.filter((i) => (tag === null || i.tag === tag) && (source === null || i.source === source))
   const names = Object.keys(sources).sort()
 
   return (
@@ -143,6 +145,21 @@ export function FeedPage(_props: { place: Place }) {
           Refresh
         </Button>
       </div>
+      {platforms.length > 1 && (
+        <div className="eva-feed-chips" role="toolbar" aria-label="Filter by platform">
+          {[null, ...platforms].map((p) => (
+            <Button
+              key={p ?? 'all'}
+              size="compact-xs"
+              radius="xl"
+              variant={source === p ? 'filled' : 'default'}
+              onClick={() => setSource(p)}
+            >
+              {p ?? 'all platforms'}
+            </Button>
+          ))}
+        </div>
+      )}
       {tags.length > 0 && (
         <div className="eva-feed-chips" role="toolbar" aria-label="Filter by interest">
           {[null, ...tags].map((t) => (
