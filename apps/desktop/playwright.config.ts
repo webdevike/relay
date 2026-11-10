@@ -22,6 +22,8 @@ if (!Number.isInteger(workers) || workers < 1) {
 }
 
 const SERIAL_SPECS = [
+  // Real pointer drags of the sidebar grip and the dock sash, across three launches.
+  '**/ui-persistence.spec.ts',
   // Frame-time p95 and pinned-gap budgets while streaming 5,000 messages.
   '**/chat-bench.spec.ts',
   // Entrance and scroll animations asserted by timing (150ms fades, 2s budgets).

@@ -24,6 +24,7 @@ import {
 } from '@evaos/contract'
 import { SeriesChart } from '../stats/SeriesChart'
 import { startStats, useStats } from '../stats/stats-store'
+import { parseOneOf, usePref } from '../ui-prefs'
 import {
   RANGE_LABEL,
   compact,
@@ -319,11 +320,13 @@ function Waiting({ children, busy }: { children: string; busy: boolean }) {
   )
 }
 
+const parseRange = parseOneOf<StatsRangeKey>(STATS_RANGES)
+
 /** Settings > Usage: what omp cost on the Relay Host, leading with what to act on. */
 export function UsageSection() {
   useEffect(() => startStats(), [])
   const view = useStats((v) => v)
-  const [range, setRange] = useState<StatsRangeKey>('7d')
+  const [range, setRange] = usePref<StatsRangeKey>('usage.range', '7d', parseRange)
   if (view === null) return <Waiting busy>Loading usage</Waiting>
   const snap = view.stats
   if (snap === null) return <Waiting busy={false}>{view.unavailable ?? 'No usage yet.'}</Waiting>

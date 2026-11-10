@@ -1,4 +1,13 @@
 import { useStore } from 'zustand'
+import {
+  bindPref,
+  getPref,
+  parseBool,
+  parseOneOf,
+  setPref,
+  whenUiPrefsLoaded,
+  type Parse,
+} from '../ui-prefs'
 import { createStore } from 'zustand/vanilla'
 import type {
   FileContent,
@@ -164,6 +173,40 @@ let evaRootFor: string | null | undefined
  */
 let agentRootFor: { file: string | null; root: string; name: string } | undefined
 
+interface SavedTree {
+  expanded: string[]
+  showIgnored: boolean
+}
+const parseTree: Parse<SavedTree> = (raw) => {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+  return {
+    expanded: Array.isArray(r['expanded'])
+      ? r['expanded'].filter((d): d is string => typeof d === 'string')
+      : [],
+    showIgnored: r['showIgnored'] === true,
+  }
+}
+const treeKey = (root: string): string => `files.tree.${root}`
+
+/** The folders left open and the show-ignored choice of one root, kept in layout.json. */
+function saveTree(root: string): void {
+  const w = space(root)
+  if (w) setPref(treeKey(root), { expanded: [...w.expanded], showIgnored: w.showIgnored })
+}
+
+/** Reopens the folders and the show-ignored choice a root had when the app last ran. */
+function restoreTree(root: string): void {
+  const saved = getPref<SavedTree | null>(treeKey(root), null, parseTree)
+  if (saved === null) return
+  update(root, (w) => ({
+    expanded: new Set([...w.expanded, ...saved.expanded]),
+    showIgnored: saved.showIgnored,
+  }))
+  for (const dir of saved.expanded) if (dir !== '') void loadDir(root, dir)
+  syncWatch(root)
+}
+
 function ensureSpace(root: string, name: string): void {
   if (space(root)) return
   filesStore.setState((s) => ({
@@ -196,6 +239,7 @@ function ensureSpace(root: string, name: string): void {
       },
     },
   }))
+  whenUiPrefsLoaded(() => restoreTree(root))
 }
 
 /** Points the panel at the chat's root (its worktree), or the Eva root without a chat. */
@@ -358,6 +402,7 @@ export async function loadDir(root: string, dir: string): Promise<void> {
         expanded.delete(dir)
         return { children, expanded, error: dir === '' ? r.error.message : w.error }
       })
+      saveTree(root)
       return
     }
     update(root, (w) => ({ children: { ...w.children, [dir]: r.value.entries } }))
@@ -373,12 +418,14 @@ export function setExpanded(root: string, dir: string, open: boolean): void {
     else expanded.delete(dir)
     return { expanded }
   })
+  saveTree(root)
   if (open && space(root)?.children[dir] === undefined) void loadDir(root, dir)
   syncWatch(root)
 }
 
 export function collapseAll(root: string): void {
   update(root, () => ({ expanded: new Set() }))
+  saveTree(root)
   syncWatch(root)
 }
 
@@ -388,12 +435,14 @@ export function select(root: string, path: string | null): void {
 
 export function setShowIgnored(root: string, show: boolean): void {
   update(root, () => ({ showIgnored: show }))
+  saveTree(root)
 }
 
 /** Expands every folder above `path` and moves the tree cursor to it. */
 export function revealInTree(root: string, path: string): void {
   const dirs = ancestorsOf(path)
   update(root, (w) => ({ expanded: new Set([...w.expanded, ...dirs]), selected: path }))
+  saveTree(root)
   const w = space(root)
   for (const d of dirs) if (w && w.children[d] === undefined) void loadDir(root, d)
   syncWatch(root)
@@ -824,3 +873,15 @@ export function resetFilesStoreForTests(): void {
     agentFiles: {},
   })
 }
+
+// The side panel (Explorer or Search, or folded away) is the user's choice, kept in layout.json.
+bindPref(filesStore, 'files.side', {
+  select: (s) => s.side,
+  apply: (side) => ({ side }),
+  parse: parseOneOf<SideView>(['explorer', 'search']),
+})
+bindPref(filesStore, 'files.sideOpen', {
+  select: (s) => s.sideOpen,
+  apply: (sideOpen) => ({ sideOpen }),
+  parse: parseBool,
+})

@@ -35,6 +35,7 @@ describe('layout', () => {
       tiling: null,
       legacyPanel: null,
       sidebar: null,
+      ui: null,
       reset: false,
     })
     fs.writeFileSync(path.join(dir, 'layout.json'), '{not json')

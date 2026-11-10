@@ -4,8 +4,11 @@ import { IconChevronDown, IconChevronRight, IconSearch } from '@tabler/icons-rea
 import type { ReviewPr } from '@evaos/contract'
 import { DiffView } from './DiffView'
 import { parseDiff, splitPath } from './diff'
+import { parseOneOf, usePref } from '../ui-prefs'
 
 type Filter = 'all' | 'unviewed' | 'viewed'
+type DiffMode = 'split' | 'unified'
+const parseDiffMode = parseOneOf<DiffMode>(['split', 'unified'])
 
 const CHANGE_LABEL: Record<string, string> = {
   ADDED: 'added',
@@ -34,7 +37,8 @@ export function ReviewFiles({
   const diffs = useMemo(() => new Map(parseDiff(pr.diff).map((f) => [f.path, f])), [pr.diff])
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
-  const [mode, setMode] = useState<'split' | 'unified'>(compact ? 'unified' : 'split')
+  const [savedMode, setMode] = usePref<DiffMode | null>('reviews.diffMode', null, parseDiffMode)
+  const mode: DiffMode = savedMode ?? (compact ? 'unified' : 'split')
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [active, setActive] = useState<string | null>(focus)
   const scroller = useRef<HTMLDivElement>(null)
@@ -84,7 +88,7 @@ export function ReviewFiles({
         <SegmentedControl
           size="xs"
           value={mode}
-          onChange={(v) => setMode(v as 'split' | 'unified')}
+          onChange={(v) => setMode(v as DiffMode)}
           data={[
             { value: 'unified', label: 'Unified' },
             { value: 'split', label: 'Split' },

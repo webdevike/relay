@@ -4,6 +4,7 @@ import { Categories } from '@evaos/chat-core/categories'
 import type { ChatAgent, ChatList, ChatRow } from '@evaos/contract'
 import { notifications } from '@mantine/notifications'
 import { invoke, on } from '../../ipc'
+import { bindPref, parseBool, stringSet } from '../../ui-prefs'
 import { showSettledToast } from './settle-toast'
 
 export const LIST_LOAD_ERROR =
@@ -308,3 +309,20 @@ export function resetListForTests(): void {
     renamingCategory: null,
   })
 }
+
+// The folds are the user's choices (collapsed groups already live in chat.json).
+bindPref(listStore, 'chat.list.snoozedOpen', {
+  select: (s) => s.showSnoozed,
+  apply: (showSnoozed) => ({ showSnoozed }),
+  parse: parseBool,
+})
+bindPref(listStore, 'chat.list.settledOpen', {
+  select: (s) => s.showSettled,
+  apply: (showSettled) => ({ showSettled }),
+  parse: parseBool,
+})
+bindPref(listStore, 'chat.list.expanded', {
+  select: (s) => s.expanded,
+  apply: (expanded) => ({ expanded }),
+  ...stringSet,
+})

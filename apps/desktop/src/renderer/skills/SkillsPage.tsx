@@ -21,14 +21,21 @@ import {
   type SkillSort,
 } from './skills-model'
 import { loadSkills, selectSkill, setGroupOpen, useSkills } from './skills-store'
+import { parseNumber, parseOneOf, parseString, usePref, type Parse } from '../ui-prefs'
 import './skills.css'
 
 const PANEL_MIN = 340
 const PANEL_DEFAULT = 440
 /** The table keeps at least this much beside the panel. */
 const TABLE_MIN = 420
-/** The panel's width, kept while the app runs. */
-let panelWidth = PANEL_DEFAULT
+const parsePanelWidth = parseNumber(0, 4000)
+const parseSort: Parse<SkillSort> = (raw) => {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+  const key = parseOneOf<SkillSort['key']>(['name', 'uses', 'lastUsed', 'updated'])(r['key'])
+  const dir = parseOneOf<SkillSort['dir']>(['asc', 'desc'])(r['dir'])
+  return key === null || dir === null ? null : { key, dir }
+}
 
 function FilterMenu({
   label,
@@ -75,11 +82,11 @@ export function SkillsPage(_: { place: Place }) {
   const expanded = useSkills((s) => s.expanded)
   const detail = useSkills((s) => (s.selected === null ? null : (s.details[s.selected] ?? null)))
   const [query, setQuery] = useState('')
-  const [source, setSource] = useState(ANY)
-  const [origin, setOrigin] = useState(ANY)
-  const [usedBy, setUsedBy] = useState(ANY)
-  const [sort, setSort] = useState<SkillSort>(DEFAULT_SORT)
-  const [width, setWidth] = useState(panelWidth)
+  const [source, setSource] = usePref('skills.source', ANY, parseString)
+  const [origin, setOrigin] = usePref('skills.origin', ANY, parseString)
+  const [usedBy, setUsedBy] = usePref('skills.usedBy', ANY, parseString)
+  const [sort, setSort] = usePref('skills.sort', DEFAULT_SORT, parseSort)
+  const [width, setWidth] = usePref('skills.panelWidth', PANEL_DEFAULT, parsePanelWidth)
   const [now, setNow] = useState(Date.now())
   const search = useRef<HTMLInputElement>(null)
   const body = useRef<HTMLDivElement>(null)
@@ -142,8 +149,7 @@ export function SkillsPage(_: { place: Place }) {
     const start = width
     const max = Math.max(PANEL_MIN, (body.current?.clientWidth ?? 1200) - TABLE_MIN)
     const move = (ev: PointerEvent): void => {
-      panelWidth = Math.round(Math.min(Math.max(start - (ev.clientX - startX), PANEL_MIN), max))
-      setWidth(panelWidth)
+      setWidth(Math.round(Math.min(Math.max(start - (ev.clientX - startX), PANEL_MIN), max)))
     }
     const up = (): void => {
       window.removeEventListener('pointermove', move)
@@ -261,7 +267,6 @@ export function SkillsPage(_: { place: Place }) {
             aria-label="Resize panel"
             onPointerDown={onResizeStart}
             onDoubleClick={() => {
-              panelWidth = PANEL_DEFAULT
               setWidth(PANEL_DEFAULT)
             }}
           />

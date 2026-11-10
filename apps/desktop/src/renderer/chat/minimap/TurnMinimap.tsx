@@ -21,6 +21,7 @@ import type { OpenAsk } from '@evaos/contract'
 import type { VListHandle } from 'virtua'
 import { canBookmark, toggleBookmark, useBookmarks } from './bookmarks'
 import type { TurnFlag } from '@evaos/chat-core/turn-flags'
+import { parseOneOf, usePref } from '../../ui-prefs'
 import {
   compressTicks,
   marked,
@@ -49,6 +50,7 @@ const FLAG_LABEL: Record<TurnFlag, string> = {
 
 /** What the filter keeps: every turn, the flagged and bookmarked ones, or the ones holding an open ask. */
 type Show = 'all' | 'flagged' | 'asks'
+const parseShow = parseOneOf<Show>(['all', 'flagged', 'asks'])
 
 const SHOW_LABEL: Record<Show, string> = {
   all: 'All turns',
@@ -112,7 +114,7 @@ export function TurnMinimap({
   shown: boolean
 }) {
   const bookmarks = useBookmarks(thread)
-  const [show, setShow] = useState<Show>('all')
+  const [show, setShow] = usePref<Show>('chat.minimap.show', 'all', parseShow)
   const [menu, setMenu] = useState(false)
   const list = useMemo(
     () =>

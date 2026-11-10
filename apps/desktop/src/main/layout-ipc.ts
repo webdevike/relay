@@ -12,6 +12,8 @@ const DOCK_MAX_BYTES = 512 * 1024
 const WORKSPACES_MAX_BYTES = 4 * 1024 * 1024
 /** Hidden rows, order and favorites are a few KB; anything this big is not them. */
 const SIDEBAR_MAX_BYTES = 256 * 1024
+/** One patch of filters, sorts, folds and widths is a few hundred bytes. */
+const UI_MAX_BYTES = 64 * 1024
 
 export function loadLayout(config: ConfigStore): {
   sidebarWidth: number
@@ -21,6 +23,7 @@ export function loadLayout(config: ConfigStore): {
   tiling: Record<string, unknown> | null
   legacyPanel: LegacyPanel | null
   sidebar: Record<string, unknown> | null
+  ui: Record<string, unknown> | null
   reset: boolean
 } {
   const r = readLayoutText(config.readText(FILE))
@@ -32,6 +35,7 @@ export function loadLayout(config: ConfigStore): {
     tiling: r.tiling,
     legacyPanel: r.legacyPanel,
     sidebar: r.sidebar,
+    ui: r.ui,
     reset: r.malformed,
   }
 }
@@ -52,7 +56,10 @@ export function saveLayout(config: ConfigStore, patch: LayoutPatch): void {
  * saved layout against its tabs on load (shell-core reconcileDock), so main keeps it verbatim.
  */
 function toPatch(input: InvokeInput<'layout.save'>): LayoutPatch {
-  const { dock, sidebar, workspaces } = input
+  const { dock, sidebar, workspaces, ui } = input
+  if (ui !== undefined && JSON.stringify(ui).length > UI_MAX_BYTES) {
+    throw Object.assign(new Error('UI settings too large'), { code: 'invalid-ui' })
+  }
   if (sidebar !== undefined && JSON.stringify(sidebar).length > SIDEBAR_MAX_BYTES) {
     throw Object.assign(new Error('Sidebar settings too large'), { code: 'invalid-sidebar' })
   }

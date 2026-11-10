@@ -79,6 +79,8 @@ export const shellInvoke = {
       legacyPanel: z.object({ width: z.number(), tool: ToolKindSchema }).nullable(),
       /** The sidebar customization saved in layout.json; the renderer validates it. */
       sidebar: z.record(z.string(), z.unknown()).nullable(),
+      /** Per-key UI choices (filters, sort, folds, panel widths); the renderer validates each. */
+      ui: z.record(z.string(), z.unknown()).nullable(),
       reset: z.boolean(),
     }),
   },
@@ -93,6 +95,8 @@ export const shellInvoke = {
         workspaces: z.record(z.string(), z.unknown()).optional(),
         /** The sidebar customization (visibility, order, favorites), replaced whole. */
         sidebar: z.record(z.string(), z.unknown()).optional(),
+        /** UI choices merged key by key; null deletes a key. */
+        ui: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
     output: Empty,

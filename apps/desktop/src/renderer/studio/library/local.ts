@@ -3,7 +3,16 @@
 // references) lives on the host and arrives through studio-store.
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import { STUDIO_UNSORTED, type StudioAspect } from '@evaos/contract'
+import { STUDIO_UNSORTED, StudioAspectSchema, type StudioAspect } from '@evaos/contract'
+import {
+  bindPref,
+  parseBool,
+  parseNumber,
+  parseOneOf,
+  parseString,
+  parseStringList,
+  type Parse,
+} from '../../ui-prefs'
 
 /** `all`, `fav`, STUDIO_UNSORTED or a project id. */
 export type StudioViewId = string
@@ -105,6 +114,64 @@ const initial = (): LocalState => ({
 })
 
 export const localStore = createStore<LocalState>(initial)
+
+// Kept in layout.json: the open view, the filters and the create bar's settings. The prompt,
+// references and selection are drafts and start empty.
+bindPref(localStore, 'studio.view', {
+  select: (s) => s.view,
+  apply: (view) => ({ view }),
+  parse: parseString,
+})
+bindPref(localStore, 'studio.models', {
+  select: (s) => s.models,
+  apply: (models) => ({ models }),
+  parse: parseStringList,
+})
+bindPref(localStore, 'studio.favOnly', {
+  select: (s) => s.favOnly,
+  apply: (favOnly) => ({ favOnly }),
+  parse: parseBool,
+})
+bindPref(localStore, 'studio.date', {
+  select: (s) => s.date,
+  apply: (date) => ({ date }),
+  parse: parseOneOf<DateFilter>(['all', 'today', 'week']),
+})
+
+type SavedComposer = Pick<
+  ComposerState,
+  'choice' | 'aspect' | 'count' | 'seedMode' | 'seed' | 'steps' | 'dest'
+>
+const parseComposer: Parse<SavedComposer> = (raw) => {
+  if (typeof raw !== 'object' || raw === null) return null
+  const r = raw as Record<string, unknown>
+  const aspect = StudioAspectSchema.safeParse(r['aspect'])
+  const steps = parseNumber(0, 10_000)(r['steps'])
+  return {
+    choice: parseString(r['choice']) ?? INITIAL_COMPOSER.choice,
+    aspect: aspect.success ? aspect.data : INITIAL_COMPOSER.aspect,
+    count: parseNumber(1, 100)(r['count']) ?? INITIAL_COMPOSER.count,
+    seedMode: parseOneOf<ComposerState['seedMode']>(['random', 'fixed'])(r['seedMode']) ?? 'random',
+    seed: parseNumber(0, Number.MAX_SAFE_INTEGER)(r['seed']) ?? INITIAL_COMPOSER.seed,
+    steps,
+    dest: parseString(r['dest']) ?? INITIAL_COMPOSER.dest,
+  }
+}
+const SAVED_COMPOSER_KEYS = ['choice', 'aspect', 'count', 'seedMode', 'seed', 'steps', 'dest'] as const
+bindPref<LocalState, SavedComposer>(localStore, 'studio.composer', {
+  select: ({ composer: c }) => ({
+    choice: c.choice,
+    aspect: c.aspect,
+    count: c.count,
+    seedMode: c.seedMode,
+    seed: c.seed,
+    steps: c.steps,
+    dest: c.dest,
+  }),
+  apply: (c) => ({ composer: { ...localStore.getState().composer, ...c } }),
+  parse: parseComposer,
+  same: (a, b) => SAVED_COMPOSER_KEYS.every((k) => a[k] === b[k]),
+})
 
 export function useLocal<T>(selector: (s: LocalState) => T): T {
   return useStore(localStore, selector)

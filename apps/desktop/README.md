@@ -62,6 +62,17 @@ in the config dir, keyed by session file or, for a new chat, its tab's `draft:<t
 by the supervisor) shows the relaunched window without taking focus. `state.read` reports
 `instance`, `build`, `update {pending, build, summary}` and the open chat's `draft`.
 
+### What Isaac changes in the UI stays changed
+
+Every user-adjustable choice lives under the config dir (`~/Library/Application Support/Relay
+Desktop`), never in the app bundle and never in memory alone, so it survives a renderer reload, a
+quit and reopen, and a bundle swap. Theme: `theme.json`. Pane layout, sidebar width and order,
+favorites: `layout.json`. Small choices (filters, sort, view mode, folds, panel widths, the sidebar
+shown or hidden) go through `src/renderer/ui-prefs.ts` into `layout.json` under `ui`: `usePref` in a
+component, `bindPref` for a zustand slice. A new choice uses one of those; do not add a bare
+`useState`, a module variable or a new `localStorage` key for it. `e2e/ui-persistence.spec.ts`
+changes theme, sidebar order and widths, quits, and relaunches from a copy of the build.
+
 ## Assistant portraits
 
 An agent's portrait moves calmly with its thread through `@relay/portrait-motion` (linked from the

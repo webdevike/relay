@@ -2,7 +2,11 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
 
-afterEach(() => cleanup())
+// Saved UI choices must not leak between tests. Imported late so a spec's own ipc mock applies to it.
+afterEach(async () => {
+  cleanup()
+  ;(await import('./ui-prefs')).resetUiPrefsForTests()
+})
 
 if (!window.matchMedia) {
   window.matchMedia = ((query: string) => ({

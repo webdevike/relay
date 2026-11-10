@@ -4,6 +4,7 @@ import type { DashboardPayload } from '@evaos/contract'
 import type { FilterId } from '@evaos/eva-core/model/dashboard'
 import { invoke } from '../ipc'
 import { setWorkspaceNames } from '../eva/names-store'
+import { bindPref, parseOneOf } from '../ui-prefs'
 
 export type Range = 7 | 30 | 90
 
@@ -26,6 +27,19 @@ const initial = (): DashboardState => ({
 })
 
 export const dashboardStore = createStore<DashboardState>(initial)
+
+export const RANGES: readonly Range[] = [7, 30, 90]
+const FILTERS: readonly FilterId[] = ['all', 'active', 'todos', 'quiet']
+bindPref(dashboardStore, 'dashboard.filter', {
+  select: (s) => s.filter,
+  apply: (filter) => ({ filter }),
+  parse: parseOneOf(FILTERS),
+})
+bindPref(dashboardStore, 'dashboard.range', {
+  select: (s) => s.range,
+  apply: (range) => ({ range }),
+  parse: parseOneOf(RANGES),
+})
 
 export function useDashboard<T>(selector: (s: DashboardState) => T): T {
   return useStore(dashboardStore, selector)

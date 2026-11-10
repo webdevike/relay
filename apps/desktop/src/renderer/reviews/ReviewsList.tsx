@@ -36,13 +36,17 @@ import {
   sourceOf,
   type SourceFilter,
 } from './queue-search'
-import { SourceMark, useLocal } from './review-ui'
+import { SourceMark } from './review-ui'
 import { ReviewRowMenu, activateReviewRow, type RowMenuState } from './ReviewRowMenu'
 import { reviewIdOf, reviewIdOfPlace } from './review-place'
 import { activePlace, useTabs } from '../tabs/tabs-store'
 import { rowPills, rowStatusKey, useRowStatus } from './row-status'
 import { RowMarks } from './RowMarks'
+import { parseOneOf, parseStringList, usePref } from '../ui-prefs'
 import './reviews.css'
+
+const DEFAULT_CLOSED = ['completed']
+const parseSource = parseOneOf<SourceFilter>(['all', 'github', 'linear', 'slack'])
 
 const VIEWS: Array<{ value: ReviewsView; label: string }> = [
   { value: 'created', label: 'Created' },
@@ -74,8 +78,13 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
   const doneLocal = useReviews((s) => s.doneLocal)
   const done = useMemo(() => ({ ...queueDone, ...doneLocal }), [queueDone, doneLocal])
   const [now, setNow] = useState(Date.now())
-  const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set(['completed']))
-  const [source, setSource] = useLocal<SourceFilter>('eva.reviews.source', 'all')
+  const [closedList, setClosedList] = usePref(
+    'reviews.closedSections',
+    DEFAULT_CLOSED,
+    parseStringList,
+  )
+  const closed: ReadonlySet<string> = useMemo(() => new Set(closedList), [closedList])
+  const [source, setSource] = usePref<SourceFilter>('reviews.source', 'all', parseSource)
   const [query, setQuery] = useState('')
   const [menu, setMenu] = useState<RowMenuState | null>(null)
 
@@ -401,7 +410,7 @@ export function ReviewsList({ variant = 'sidebar' }: { variant?: 'sidebar' | 'pa
           const next = new Set(closed)
           if (c) next.add(id)
           else next.delete(id)
-          setClosed(next)
+          setClosedList([...next])
         }}
         forceOpen={searching}
         loading={githubLoading && groups.length === 0 ? { label: 'Loading reviews' } : false}

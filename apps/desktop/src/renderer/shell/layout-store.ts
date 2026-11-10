@@ -6,6 +6,7 @@ import { invoke } from '../ipc'
 import { registerAction } from '../hotkeys/router'
 import { applySavedLayout, tilingStore } from '../tiling/tiling-store'
 import { applySidebarPrefs } from '../sidebar/sidebar-prefs'
+import { applyUiPrefs, bindPref, parseBool } from '../ui-prefs'
 
 export const FOLDED_LABEL =
   'Sidebar hidden to fit the window. Widen the window or close a pane to bring it back.'
@@ -17,7 +18,7 @@ export interface LayoutState {
   windowWidth: number
   /** Preferred width persisted to layout.json, never overwritten by window fitting. */
   sidebarWidth: number
-  /** Preference, memory only (D-04). */
+  /** Preference; the choice to hide the sidebar is saved in layout.json `ui` (ui-prefs.ts). */
   sidebarWanted: boolean
   /** The smallest width the panes on screen take (tiling-store contentMin). */
   contentMin: number
@@ -57,6 +58,15 @@ function patch(p: Partial<Base>): void {
     return { ...p, ...derive(base) }
   })
 }
+
+bindPref(layoutStore, 'shell.sidebarOpen', {
+  select: (s) => s.sidebarWanted,
+  apply: (sidebarWanted) => ({
+    sidebarWanted,
+    ...derive({ ...layoutStore.getState(), sidebarWanted }),
+  }),
+  parse: parseBool,
+})
 
 // The sidebar folds when the panes on screen need its room.
 tilingStore.subscribe((s, prev) => {
@@ -121,6 +131,7 @@ export async function loadLayout(): Promise<void> {
       })
       patch({ sidebarWidth, loaded: true })
       applySidebarPrefs(r.value.sidebar)
+      applyUiPrefs(r.value.ui)
       if (r.value.reset && !resetToastShown) {
         resetToastShown = true
         notifications.show({ message: 'Layout was reset to defaults.' })
@@ -131,6 +142,7 @@ export async function loadLayout(): Promise<void> {
     // keep defaults silently
   }
   applySavedLayout({ dock: null, tiling: null, legacy: null, sidebarWidth: SIDEBAR_DEFAULT })
+  applyUiPrefs(null)
 }
 
 /** Test seam. */

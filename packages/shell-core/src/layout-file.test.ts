@@ -98,3 +98,17 @@ describe('sidebar customization', () => {
     expect(mergeLayout({ sidebar: { a: 1 } }, { sidebarWidth: 280 })['sidebar']).toEqual({ a: 1 })
   })
 })
+
+describe('ui choices', () => {
+  it('reads the saved object and ignores anything else', () => {
+    expect(readLayoutText('{"ui": {"a.b": 3}}').ui).toEqual({ 'a.b': 3 })
+    expect(readLayoutText('{"ui": [1]}').ui).toBeNull()
+  })
+  it('merges key by key, deletes on null, and keeps every other key', () => {
+    const next = mergeLayout(
+      { sidebar_width: 300, ui: { keep: 1, change: 1, drop: 1 } },
+      { ui: { change: 2, drop: null, add: [1] } },
+    )
+    expect(next).toEqual({ sidebar_width: 300, ui: { keep: 1, change: 2, add: [1] } })
+  })
+})

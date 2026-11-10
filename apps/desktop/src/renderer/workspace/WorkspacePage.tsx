@@ -19,7 +19,8 @@ import { registerReloader } from '../reload/reload'
 import { openNewTodo } from '../todo/new-todo-store'
 import { ActivityChart } from '../ui/ActivityChart'
 import { Segmented } from '../dashboard/Segmented'
-import type { Range } from '../dashboard/dashboard-store'
+import { RANGES, type Range } from '../dashboard/dashboard-store'
+import { parseFlags, parseOneOf, usePref } from '../ui-prefs'
 import { loadWorkspace, useWorkspace } from './workspace-store'
 import '../dashboard/dashboard.css'
 import './workspace.css'
@@ -89,8 +90,11 @@ function Timeline({ data }: { data: WorkspaceDetail }) {
   )
 }
 
-function Sections({ sections }: { sections: WorkspaceDetail['sections'] }) {
-  const [open, setOpen] = useState<Record<number, boolean>>({})
+const NO_FLAGS: Record<string, boolean> = {}
+const parseRange = parseOneOf(RANGES)
+
+function Sections({ id, sections }: { id: string; sections: WorkspaceDetail['sections'] }) {
+  const [open, setOpen] = usePref(`workspace.sections.${id}`, NO_FLAGS, parseFlags)
   return (
     <section data-testid="ws-sections" className="eva-ws-sections">
       {sections.length === 0 ? (
@@ -122,7 +126,7 @@ export function WorkspacePage({ place }: { place: Place }) {
   const id = place.page.slice('workspace:'.length)
   const root = useRef<HTMLDivElement>(null)
   const [compact, setCompact] = useState(false)
-  const [range, setRange] = useState<Range>(7)
+  const [range, setRange] = usePref<Range>('workspace.range', 7, parseRange)
   const data = useWorkspace((s) => (s.id === id ? s.data : null))
   const loading = useWorkspace((s) => s.id !== id || s.loading)
   const error = useWorkspace((s) => s.id === id && s.error)
@@ -288,7 +292,7 @@ export function WorkspacePage({ place }: { place: Place }) {
           )}
         </section>
       </div>
-      <Sections sections={data.sections} />
+      <Sections id={id} sections={data.sections} />
     </div>,
   )
 }

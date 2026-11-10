@@ -5,6 +5,7 @@ import type { LinearRow, ReviewQueue, ReviewRow, SlackRow } from '@evaos/contrac
 import { invoke } from '../ipc'
 import type { SlackState } from './SlackDetail'
 import { itemLinkOf } from './queue-search'
+import { bindPref, parseOneOf } from '../ui-prefs'
 
 export type ReviewsView = 'for-me' | 'created'
 
@@ -77,6 +78,12 @@ function loadAll(): void {
   })
   void readSlack()
 }
+
+bindPref(reviewsStore, 'reviews.view', {
+  select: (s) => s.view,
+  apply: (view) => ({ view }),
+  parse: parseOneOf<ReviewsView>(['for-me', 'created']),
+})
 
 export function setView(view: ReviewsView): void {
   set({ view, selected: null, ticket: null, thread: null })

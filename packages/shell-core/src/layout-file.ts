@@ -20,6 +20,8 @@ export interface LayoutRead {
   legacyPanel: LegacyPanel | null
   /** The sidebar customization (shown/hidden items, order, favorites); the renderer validates it. */
   sidebar: Record<string, unknown> | null
+  /** Small per-key UI choices (filters, sort, folds, panel widths): `ui-prefs.ts` in the renderer. */
+  ui: Record<string, unknown> | null
   malformed: boolean
 }
 
@@ -32,6 +34,8 @@ export interface LayoutPatch {
   workspaces?: Record<string, unknown>
   /** The sidebar customization, replaced whole. */
   sidebar?: Record<string, unknown>
+  /** UI choices merged key by key; a null value deletes the key. */
+  ui?: Record<string, unknown>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -49,6 +53,7 @@ export function readLayoutText(text: string | null): LayoutRead {
     tiling: null,
     legacyPanel: null,
     sidebar: null,
+    ui: null,
     malformed: false,
   }
   if (text === null) return defaults
@@ -80,6 +85,7 @@ export function readLayoutText(text: string | null): LayoutRead {
     tiling,
     legacyPanel,
     sidebar: isObject(body['sidebar']) ? body['sidebar'] : null,
+    ui: isObject(body['ui']) ? body['ui'] : null,
     malformed: false,
   }
 }
@@ -96,6 +102,14 @@ export function mergeLayout(existing: unknown, patch: LayoutPatch): Record<strin
   }
   if ('tabs' in patch) out['tabs'] = patch.tabs
   if (patch.sidebar !== undefined) out['sidebar'] = patch.sidebar
+  if (patch.ui !== undefined) {
+    const ui: Record<string, unknown> = isObject(out['ui']) ? { ...out['ui'] } : {}
+    for (const [k, v] of Object.entries(patch.ui)) {
+      if (v === null) delete ui[k]
+      else ui[k] = v
+    }
+    out['ui'] = ui
+  }
   if (patch.workspaces !== undefined) out['workspaces'] = patch.workspaces
   if (patch.dock !== undefined) {
     out['dock'] = patch.dock

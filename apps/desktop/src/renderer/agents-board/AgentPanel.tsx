@@ -4,6 +4,7 @@ import { IconLayoutSidebarRightExpand } from '@tabler/icons-react'
 import type { AgentCard } from '@evaos/contract'
 import { EvaDrawer } from '../overlay'
 import { useOccludeBrowser } from '../overlay/overlay-store'
+import { parseNumber, usePref } from '../ui-prefs'
 import { TicketView } from './TicketView'
 
 export const PANEL_MIN = 380
@@ -11,8 +12,7 @@ const PANEL_DEFAULT = 560
 /** The board keeps at least this much beside the panel; a narrower page gets the drawer instead. */
 export const BOARD_MIN = 480
 const STEP = 16
-/** The panel's width, kept while the app runs. */
-let panelWidth = PANEL_DEFAULT
+const parsePanelWidth = parseNumber(0, 4000)
 
 /**
  * The card's side panel. Beside the board (the board shrinks and stays live; drag the edge to
@@ -36,7 +36,7 @@ export function AgentPanel({
   onCollapse: (collapsed: boolean) => void
   onClose: () => void
 }) {
-  const [width, setWidth] = useState(panelWidth)
+  const [width, setWidth] = usePref('agents.panelWidth', PANEL_DEFAULT, parsePanelWidth)
   const [dragging, setDragging] = useState(false)
   const widthRef = useRef(width)
   widthRef.current = width
@@ -58,8 +58,7 @@ export function AgentPanel({
   const max = Math.max(PANEL_MIN, pageWidth - BOARD_MIN)
   const shown = Math.min(Math.max(width, PANEL_MIN), max)
   const resize = (px: number): void => {
-    panelWidth = Math.round(Math.min(Math.max(px, PANEL_MIN), max))
-    setWidth(panelWidth)
+    setWidth(Math.round(Math.min(Math.max(px, PANEL_MIN), max)))
   }
   const onResizeStart = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return
