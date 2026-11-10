@@ -18,22 +18,25 @@ export function railFits(width: number, column: number): boolean {
   return width >= column + 2 * (RAIL_GAP + RAIL_W + RAIL_EDGE)
 }
 
-/** True while the element in `ref` is wide enough for the rail; follows resizes. */
-export function useRailFits(ref: RefObject<HTMLElement | null>): boolean {
-  const [fits, setFits] = useState(false)
+/** True while the element in `ref` is wide enough for a gutter rail (`fits`, the pin rail's by default); follows resizes. */
+export function useRailFits(
+  ref: RefObject<HTMLElement | null>,
+  fits: (width: number, column: number) => boolean = railFits,
+): boolean {
+  const [ok, setOk] = useState(false)
   useEffect(() => {
     const el = ref.current
     if (el === null) return
     const measure = (): void => {
       const column = parseFloat(getComputedStyle(el).getPropertyValue('--eva-chat-column-w'))
-      setFits(railFits(el.clientWidth, Number.isFinite(column) ? column : 780))
+      setOk(fits(el.clientWidth, Number.isFinite(column) ? column : 780))
     }
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [ref])
-  return fits
+  }, [ref, fits])
+  return ok
 }
 
 /**

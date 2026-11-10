@@ -7,7 +7,7 @@ const invoke = vi.hoisted(() => vi.fn())
 vi.mock('../../ipc', () => ({ invoke, on: () => () => {} }))
 
 import { BOOKMARKS_KEY, applyHostBookmarks, reloadBookmarksForTests } from './bookmarks'
-import { TurnMinimap } from './TurnMinimap'
+import { TURN_RAIL_GAP, TURN_RAIL_W, TurnMinimap, turnRailFits } from './TurnMinimap'
 import type { Turn } from '@evaos/chat-core/turns'
 import type { OpenAsk } from '@evaos/contract'
 
@@ -52,6 +52,7 @@ function setup(
   top = 0,
   waiting: ReadonlyMap<string, readonly OpenAsk[]> = new Map(),
   loose: readonly OpenAsk[] = [],
+  fits = true,
 ) {
   const jump = vi.fn()
   const onJumpAsk = vi.fn(() => true)
@@ -77,6 +78,7 @@ function setup(
             }}
             jump={jump}
             shown
+            fits={fits}
           />
           <textarea aria-label="composer" />
         </div>
@@ -241,6 +243,23 @@ describe('TurnMinimap', () => {
     fireEvent.keyDown(box, { key: 'ArrowDown', altKey: true, shiftKey: true })
     fireEvent.keyDown(document.body, { key: 'ArrowDown', altKey: true })
     expect(jump).not.toHaveBeenCalled()
+  })
+
+  it('hides where the log is too narrow to keep it off the text, still stepping with Alt+Down', () => {
+    const column = 780
+    const need = column + 2 * (TURN_RAIL_W + TURN_RAIL_GAP)
+    expect(turnRailFits(need, column)).toBe(true)
+    expect(turnRailFits(need - 1, column)).toBe(false)
+    const { jump } = setup(
+      [0, 1, 2, 3].map((i) => turn(i)),
+      0,
+      new Map([['user@2', [ask('a1', 'Push it?')]]]),
+      [ask('a2', 'Loose one?')],
+      false,
+    )
+    expect(screen.queryByTestId('turn-minimap')).toBeNull()
+    fireEvent.keyDown(screen.getByLabelText('composer'), { key: 'ArrowDown', altKey: true })
+    expect(jump).toHaveBeenLastCalledWith(expect.objectContaining({ row: 'u1' }))
   })
 
   it('follows the scroll', () => {

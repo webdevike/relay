@@ -4,7 +4,8 @@
 // jumps to the bubble (it flashes, then keeps a thin accent edge and a "Waiting on you" tag with a
 // dismiss x), the filter's Open asks keeps only those turns, asks with no bubble sit in one entry
 // at the end of the rail, and answering or dismissing (or the host resolving it) clears it live.
-// No badge line above the composer. Saves screenshots to proof/asks-rail/ (EVAOS_PROOF=1).
+// No badge line above the composer. A chat too narrow for the rail beside its text hides it and
+// shows a header count that opens the same asks. Saves screenshots to proof/asks-rail/ (EVAOS_PROOF=1).
 //
 //   source scripts/env.sh
 //   pnpm -C apps/desktop exec electron-vite build
@@ -255,4 +256,70 @@ test('open asks live in the rail: ring, filter, tick click jumps, dismiss from c
     answer: 'Merge',
   })
   await expect(shell.locator(sel('ask-badge'))).toHaveCount(0)
+})
+
+/** Rightmost edge of the turn rail and leftmost edge of the message text on screen, px; null when the rail is hidden. */
+const railAndText = (shell: Page) =>
+  shell.evaluate((log) => {
+    const rail = document.querySelector(`${log} [data-testid="turn-minimap"]`)
+    const left = Math.min(
+      ...[...document.querySelectorAll(`${log} .eva-row-inner`)].map(
+        (el) => el.getBoundingClientRect().left,
+      ),
+    )
+    if (rail === null) return { rail: null, text: left }
+    // The rail's own box is pointer-transparent and wider than its ticks: measure what it draws.
+    const drawn = [...rail.querySelectorAll('.eva-tm-bar, .eva-tm-wait, .eva-tm-filter')]
+    return { rail: Math.max(...drawn.map((el) => el.getBoundingClientRect().right)), text: left }
+  }, LOG)
+
+test('the rail never sits on the text: a narrow chat hides it and the header counts its open asks', async ({
+  app,
+  shell,
+}) => {
+  test.setTimeout(180_000)
+  await openChat(app, shell)
+  const button = shell.locator(sel('asks-button'))
+
+  // Wide: the rail is beside the text, nothing in the header.
+  await expect(waitingTicks(shell)).toHaveCount(2)
+  await expect(button).toHaveCount(0)
+  const wide = await railAndText(shell)
+  expect(wide.rail).not.toBeNull()
+  expect(wide.rail!).toBeLessThan(wide.text)
+
+  // Every width down to a narrow window: either the rail clears the text or it is gone and the
+  // header carries the count.
+  for (const w of [1500, 1300, 1150, 1050, 950, 850, 760]) {
+    await resize(app, w, 1000)
+    await shell.waitForTimeout(150)
+    const at = await railAndText(shell)
+    if (at.rail === null) {
+      await expect(button).toBeVisible()
+      await expect(button).toHaveAttribute('aria-label', 'Waiting on you, 2 open asks')
+    } else {
+      expect(at.rail, `rail overlaps the text at ${w}px`).toBeLessThan(at.text)
+      await expect(button).toHaveCount(0)
+    }
+  }
+  await expect(shell.locator(sel('turn-minimap'))).toHaveCount(0)
+  await shot(app, shell, 'narrow-header-count')
+
+  // The count opens the same asks: a question jumps to its bubble, Dismiss closes one on the host.
+  await button.click()
+  await expect(shell.locator(sel('asks-popover'))).toContainText(FIRST_Q)
+  await shot(app, shell, 'narrow-asks-popover')
+  await shell.locator(sel('asks-popover')).getByRole('button', { name: FIRST_Q }).click()
+  await expect(row(shell, 'ask1a')).toBeVisible()
+  await expect(shell.locator(sel('asks-popover'))).toHaveCount(0)
+  await button.click()
+  await shell.locator(sel('asks-popover')).getByRole('button', { name: 'Dismiss' }).last().click()
+  await expect(button).toHaveAttribute('aria-label', 'Waiting on you, 1 open ask')
+  await expect.poll(() => host.openAsks(AGENT).map((a) => a.id)).toEqual(['a1b2c3d4'])
+
+  // Wide again: the rail is back and the header count gone.
+  await shell.keyboard.press('Escape')
+  await resize(app, 1900, 1000)
+  await expect(waitingTicks(shell)).toHaveCount(1)
+  await expect(button).toHaveCount(0)
 })

@@ -6,6 +6,8 @@ import { ArtifactsButton } from '../artifacts/ArtifactsButton'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChatLog } from './ChatLog'
 import { askAgentOf, useWatchedAsks } from './asks/asks-store'
+import { AsksButton } from './asks/AsksButton'
+import { turnRailFits } from './minimap/TurnMinimap'
 import { useProfile } from '../pages/profile'
 import { Composer, type ComposerHandle } from './Composer'
 import { WidgetActions, type WidgetActionsValue } from './widgets/actions'
@@ -272,6 +274,8 @@ function ChatView({
   const sectionRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const railOk = useRailFits(sectionRef)
+  // The turn rail at the log's left edge: where it would sit on the text, its open asks move to a header count.
+  const turnRailOk = useRailFits(sectionRef, turnRailFits)
   const pins = usePinsFor(paneId, pane?.file ?? '', agent, true)
 
   // An error is a banner, not a lock: the next send retries (and restarts omp if it exited).
@@ -340,6 +344,9 @@ function ChatView({
             {agent !== null ? <AgentCrumb id={agent} /> : 'New chat'}
           </h2>
         )}
+        {askAgent !== null && pane && !turnRailOk ? (
+          <AsksButton agent={askAgent} paneId={paneId} />
+        ) : null}
         {!railOk ? <PinsButton scope={pins} /> : null}
         {agent !== null ? <ArtifactsButton agent={agent} /> : <ContextButton />}
         {lead ? (

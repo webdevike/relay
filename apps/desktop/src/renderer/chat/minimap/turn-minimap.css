@@ -238,6 +238,33 @@
   gap: calc(var(--mantine-spacing-xs) / 2.5);
 }
 
+/* Where the log is too narrow for the rail: the header's open-ask count and its popover. */
+.eva-chat-header .eva-asks-btn {
+  margin-left: 0;
+  width: auto;
+  padding: 0 calc(var(--mantine-spacing-xs) / 1.5);
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+  color: var(--eva-accent);
+}
+.eva-asks-count {
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+}
+.eva-asks-pop {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-asks-title {
+  color: var(--eva-text-dim);
+  font-weight: var(--eva-fw-medium);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .eva-tm-bar {
     transition: none;

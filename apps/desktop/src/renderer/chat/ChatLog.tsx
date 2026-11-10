@@ -13,9 +13,10 @@ import type { ChatMessage } from '@evaos/chat-core/message'
 import { dropQuietTurns } from '@evaos/chat-core/quiet'
 import { reactionKeyOf } from '@evaos/chat-core/reactions'
 import { registerReveal } from '../pins/pins-scope'
+import { useRailFits } from '../pins/PinsRail'
 import { MessageRow, ToolRunRow } from './MessageRow'
 import { ReactionScope, useReactions } from './reactions/reactions-store'
-import { TurnMinimap } from './minimap/TurnMinimap'
+import { TurnMinimap, turnRailFits } from './minimap/TurnMinimap'
 import { buildTurns, type Turn } from '@evaos/chat-core/turns'
 import { turnRows } from './minimap/rows'
 import { askAgentOf, resolveAsk, useOpenAsks } from './asks/asks-store'
@@ -129,6 +130,8 @@ export function ChatLog({
   }, [all, showThinking, showTools, typing])
   const liveId = liveRowId(items, busy)
   const ref = useRef<VListHandle>(null)
+  const logRef = useRef<HTMLDivElement>(null)
+  const railFits = useRailFits(logRef, turnRailFits)
   const pin = useRef<PinState>({ pinned: true, newReply: false })
   const first = useRef(true)
   /** The file and visibility the last layout pass handled. */
@@ -273,7 +276,7 @@ export function ChatLog({
   }
 
   return (
-    <div className="eva-log" data-testid="chat-log" role="log" aria-live="off">
+    <div className="eva-log" data-testid="chat-log" role="log" aria-live="off" ref={logRef}>
       <Profiler id="chat-log" onRender={onRender}>
         <VList
           ref={ref}
@@ -331,6 +334,7 @@ export function ChatLog({
         subscribe={watchScroll}
         jump={jumpToTurn}
         shown={shown}
+        fits={railFits}
       />
     </div>
   )

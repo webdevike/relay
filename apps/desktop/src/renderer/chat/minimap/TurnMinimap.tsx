@@ -43,6 +43,19 @@ const LEAVE_MS = 160
 /** How long after a jump the next Alt+Up/Down chains from it, ms. */
 const SETTLE_MS = 700
 
+/** Width of the rail (turn-minimap.css `.eva-tm`), and the least air between it and the message text, px. */
+export const TURN_RAIL_W = 28
+export const TURN_RAIL_GAP = 8
+
+/**
+ * Whether a log `width` px wide leaves the rail room left of its message column (`column` px wide,
+ * centred): below it the ticks would sit on the text, so the rail hides and the chat header's
+ * asks button takes its open asks.
+ */
+export function turnRailFits(width: number, column: number): boolean {
+  return width >= column + 2 * (TURN_RAIL_W + TURN_RAIL_GAP)
+}
+
 const FLAG_LABEL: Record<TurnFlag, string> = {
   ask: 'Asked you something',
   shipped: 'Said something shipped',
@@ -78,7 +91,8 @@ interface View {
  * card tells the question, and a click on the tick or the question jumps to the asking bubble.
  * Asks with no bubble (`loose`) sit in one entry at the end of the rail, with their answers. Every
  * card can dismiss an ask unanswered. The filter button at the top keeps only flagged and
- * bookmarked turns, or only the ones with an open ask. Alt+Up and Alt+Down step between turns.
+ * bookmarked turns, or only the ones with an open ask. Alt+Up and Alt+Down step between turns,
+ * also while the rail is hidden because the log is too narrow for it (`fits` false).
  */
 export function TurnMinimap({
   turns,
@@ -92,6 +106,7 @@ export function TurnMinimap({
   subscribe,
   jump,
   shown,
+  fits,
 }: {
   turns: readonly Turn[]
   /** The open asks each turn holds, by turn key. */
@@ -112,6 +127,8 @@ export function TurnMinimap({
   jump: (turn: Turn) => void
   /** The pane is on screen (it stays mounted, hidden, while another page shows). */
   shown: boolean
+  /** The log leaves room for the rail beside its text (`turnRailFits`); hidden otherwise. */
+  fits: boolean
 }) {
   const bookmarks = useBookmarks(thread)
   const [show, setShow] = usePref<Show>('chat.minimap.show', 'all', parseShow)
@@ -130,6 +147,7 @@ export function TurnMinimap({
   const [view, setView] = useState<View>({ active: 0, from: 0, to: 0 })
   const [hover, setHover] = useState<number | null>(null)
   const leave = useRef<number | undefined>(undefined)
+  const drawn = fits && (turns.length >= 2 || loose.length > 0)
 
   useLayoutEffect(() => {
     const host = root.current?.parentElement
@@ -142,7 +160,8 @@ export function TurnMinimap({
     const ro = new ResizeObserver(measure)
     ro.observe(host)
     return () => ro.disconnect()
-  }, [])
+    // Measured again whenever the rail comes back: while hidden it has no element to measure from.
+  }, [drawn])
 
   const offsets = (): { top: number; bottom: number; at: (item: number) => number } | null => {
     const h = listRef.current
@@ -235,7 +254,7 @@ export function TurnMinimap({
       ),
     [list, bookmarks, waiting, height, view],
   )
-  if (turns.length < 2 && loose.length === 0) return null
+  if (!drawn) return null
 
   const open = (i: number): void => {
     window.clearTimeout(leave.current)
@@ -411,7 +430,7 @@ function CardShell({
  * One open ask in a card: its question (a click brings its bubble into view), the answers when
  * it has no bubble to hold them (`chips`), and a quiet Dismiss.
  */
-function AskLine({
+export function AskLine({
   ask,
   chips = false,
   onJump,
