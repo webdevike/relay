@@ -3,7 +3,7 @@
  * runtime, in an `HtmlFrame`, drawn once the fence closes. `relay.reply(text)` in the page answers
  * the session like a widget reply button.
  */
-import { openExternal } from "@/lib/links";
+import { openChatLink } from "@/lib/links";
 import { HtmlFrame } from "@/ui/HtmlFrame";
 import { useWidgetActions } from "./WidgetActions";
 
@@ -24,7 +24,7 @@ export function HtmlWidget({ code, runtime, partial, fontSize, lineHeight }: Htm
       fontSize={fontSize}
       lineHeight={lineHeight}
       onReply={actions?.reply ?? null}
-      onOpenLink={openExternal}
+      onOpenLink={openChatLink}
     />
   );
 }

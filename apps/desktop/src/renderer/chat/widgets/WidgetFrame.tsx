@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { parseFrameMessage } from '@relay/widget-runtime/frame'
 import { themeStore, useColorScheme } from '../../theme/theme-config'
+import { openLink } from '../../navigation/open-link'
 import { useWidgetActions } from './actions'
 import { frameThemeFor, frameUrl, type FrameRuntime } from './frame-theme'
 
@@ -67,6 +68,8 @@ export function WidgetFrame({
       if (message?.type === 'height') {
         rememberHeight(url, message.height)
         setMeasured({ url, height: message.height })
+      } else if (message?.type === 'open') {
+        openLink(message.url)
       } else if (message?.type === 'reply' && actions.canReply) {
         actions.reply(message.text)
       }

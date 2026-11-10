@@ -7,6 +7,7 @@ import { Markdown } from '../markdown/Markdown'
 import { WidgetActions } from './actions'
 import { frameThemeFor, frameUrl } from './frame-theme'
 import { MAX_FRAME_HEIGHT, WidgetFrame } from './WidgetFrame'
+import { openLink } from '../../navigation/open-link'
 import { THEME_PRESETS, seedTheme, setColorScheme } from '../../theme/theme-config'
 
 vi.mock('../../navigation/open-link', () => ({ openLink: vi.fn() }))
@@ -169,6 +170,15 @@ describe('WidgetFrame', () => {
     const reply = show(<WidgetFrame runtime="html" code="<p>off</p>" />, vi.fn(), false)
     post({ type: 'reply', text: 'Runs by week' })
     expect(reply).not.toHaveBeenCalled()
+  })
+
+  it("opens a page's link through the app's link handling, in a pane that cannot reply too", () => {
+    show(<WidgetFrame runtime="mantine" code="<p>link</p>" height={200} />, vi.fn(), false)
+    post({ type: 'open', url: 'https://example.com/deal' })
+    expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/deal')
+    post({ type: 'open', url: 'javascript:alert(1)' }, window)
+    post({ type: 'open', url: 'file:///etc/passwd' })
+    expect(openLink).toHaveBeenCalledTimes(1)
   })
 
   it('follows the theme editor and the color scheme live', () => {

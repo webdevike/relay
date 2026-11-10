@@ -240,6 +240,7 @@ The same JSX also makes a dashboard tile (`board ops` with `mantine`, skill://da
 
 `relay` is in scope in both:
 - `relay.reply(text)`: sends `text` as Isaac's next message in this session. Only works inside a tap/click handler (user gesture); calls on load are ignored. Returns `true` when sent.
+- `relay.open(url)`: opens `url` outside the widget (desktop: Relay's link handling; phone: the system handler or in-app link). Only `http(s)://` and `relay://` URLs, only inside a tap/click handler. Returns `true` when sent. Plain `<a href>` / Mantine `<Anchor href>` clicks and `window.open` do the same, so they work as written; a widget frame never navigates, so a link can no longer blank a tile.
 - `relay.colorScheme`: `"light" | "dark"`. `relay.theme`: `{ dark, colors: { fg, muted, faint, border, surface, raised, accent, ok, warn, danger, bg }, font, radius }` (the host palette).
 
 ### ```mantine-widget (preferred custom fence)

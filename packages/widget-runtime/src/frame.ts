@@ -39,7 +39,12 @@ export type FrameMessage =
   /** The content height in CSS pixels, sent on load and whenever it changes. */
   | { type: "height"; height: number }
   /** `relay.reply(text)` from a user gesture: send `text` as the next message. */
-  | { type: "reply"; text: string };
+  | { type: "reply"; text: string }
+  /** A clicked link, `window.open` or `relay.open(url)`: open `url` outside the frame. */
+  | { type: "open"; url: string };
+
+/** The only links a widget may open: web pages and in-app `relay://` addresses. */
+const OPENABLE_URL = /^(https?|relay):\/\/./i;
 
 /** No network, no frames, no plugins: only the page's own inline script, style and data: images. */
 export const HTML_FRAME_CSP =
@@ -127,7 +132,39 @@ export function bridgeScript(theme: FrameTheme | null, dark: boolean): string {
       post({ type: "reply", text: text });
       return true;
     },
+    open: function (url) {
+      return openUrl(url, true);
+    },
   });
+  function openUrl(url, needGesture) {
+    if (typeof url !== "string") return false;
+    var abs;
+    try { abs = new URL(url, document.baseURI).href; } catch (e) { return false; }
+    if (!/^(https?|relay):[/][/]./i.test(abs)) return false;
+    if (needGesture && navigator.userActivation && !navigator.userActivation.isActive) return false;
+    post({ type: "open", url: abs });
+    return true;
+  }
+  // The frame never navigates: every link click and window.open goes to the host instead.
+  function linkOf(event) {
+    var target = event.target;
+    return target && target.closest ? target.closest("a[href], area[href]") : null;
+  }
+  document.addEventListener("click", function (event) {
+    var link = linkOf(event);
+    if (!link) return;
+    event.preventDefault();
+    var href = link.getAttribute("href");
+    if (href.charAt(0) !== "#") openUrl(href, false);
+  }, true);
+  document.addEventListener("auxclick", function (event) {
+    if (linkOf(event)) event.preventDefault();
+  }, true);
+  document.addEventListener("submit", function (event) { event.preventDefault(); }, true);
+  window.open = function (url) {
+    openUrl(String(url), true);
+    return null;
+  };
   var last = -1;
   function measure() {
     var body = document.body;
@@ -221,6 +258,10 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
   if (message["type"] === "reply") {
     const text = message["text"];
     return typeof text === "string" && text.trim() !== "" ? { type: "reply", text } : null;
+  }
+  if (message["type"] === "open") {
+    const url = message["url"];
+    return typeof url === "string" && OPENABLE_URL.test(url) ? { type: "open", url } : null;
   }
   return null;
 }

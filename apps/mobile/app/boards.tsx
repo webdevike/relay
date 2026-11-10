@@ -19,7 +19,7 @@ import { Text } from "@/ui/Text";
 import { spacing, type } from "@/theme";
 import { useBoardsStore } from "@/state/boards";
 import { liveQuery } from "@/connection";
-import { openExternal } from "@/lib/links";
+import { openChatLink } from "@/lib/links";
 import { HtmlFrame } from "@/ui/HtmlFrame";
 import { Widget } from "@/agents/Widget";
 import { OpenUIRuntimeContext } from "@/agents/OpenUIRuntime";
@@ -78,7 +78,7 @@ function BoardGrid({ board }: { board: Board }) {
               fontSize={type.body.fontSize}
               lineHeight={type.body.lineHeight}
               onReply={null}
-              onOpenLink={openExternal}
+              onOpenLink={openChatLink}
             />
           ) : queries && w.openui !== undefined ? (
             <LiveTile widget={w} source={w.openui} />

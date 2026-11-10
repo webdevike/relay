@@ -26,7 +26,7 @@ export interface HtmlFrameProps {
   lineHeight: number;
   /** `relay.reply(text)` from a tap in the page; null leaves it doing nothing. */
   onReply: ((text: string) => void) | null;
-  /** A tapped http(s) or mailto link. */
+  /** A link clicked in the page, `window.open` or `relay.open(url)`: an http(s) or relay:// URL. */
   onOpenLink: (url: string) => void;
   /** Taller content scrolls inside the frame from here. */
   maxHeight?: number;
@@ -81,12 +81,15 @@ export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onRepl
     const message = parseFrameMessage(event.nativeEvent.data);
     if (message === null || code === null) return;
     if (message.type === "height") setMeasured({ code, height: message.height });
+    else if (message.type === "open") onOpenLink(message.url);
     else onReply?.(message.text);
   };
 
+  // The page's own script sends links through `relay.open`; this only stops anything else (a
+  // navigation the script could not intercept) from replacing the page, opening a tapped web link.
   const onShouldStartLoad = (request: ShouldStartLoadRequest): boolean => {
     if (request.url.startsWith("about:")) return true;
-    if (request.navigationType === "click" && /^(https?|mailto):/i.test(request.url)) onOpenLink(request.url);
+    if (request.navigationType === "click" && /^https?:\/\//i.test(request.url)) onOpenLink(request.url);
     return false;
   };
 
