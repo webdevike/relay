@@ -32,6 +32,7 @@ import {
 } from "./artifacts";
 import { StudioJob, StudioLibrary, StudioOp, StudioResult, StudioRid, StudioSegments, StudioState } from "./studio";
 import { MeetingsClientFrames, MeetingsServerFrames } from "./meetings";
+import { RoomsClientFrames, RoomsServerFrames } from "./rooms";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
 import { StatsSnapshot } from "./stats";
@@ -1831,6 +1832,7 @@ export const ClientMessage = z.discriminatedUnion("t", [
   /** Isaac's editor is saving `path` with these bytes (sha1 hex): that write is his, not an agent's. */
   z.object({ t: z.literal("files.saved"), path: HostFilePath, hash: z.string().min(1).max(128) }),
   ...MeetingsClientFrames,
+  ...RoomsClientFrames,
   /** This desktop can be driven by the host's agents (ControlPresence). Only sent to a host whose `welcome.features` has CONTROL_FEATURE. */
   ControlPresence,
   /** The answer to `control.req` with the same rid. */
@@ -2117,6 +2119,7 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("nack"), id: nonEmpty, error: AckError }),
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),
   ...MeetingsServerFrames,
+  ...RoomsServerFrames,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
@@ -2162,5 +2165,7 @@ export * from "./activity";
 export * from "./studio";
 export * from "./reviews";
 export * from "./meetings";
+export * from "./rooms";
+export * from "./rooms-council";
 export * from "./query";
 export * from "./stats";
