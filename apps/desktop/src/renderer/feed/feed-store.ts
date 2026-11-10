@@ -49,7 +49,9 @@ export async function loadFeed(): Promise<void> {
 /** Optimistic; the signal is appended to work/discovery-feed/signals.jsonl and the next fetch ranks with it. */
 export function signalItem(item: FeedItemDto, action: FeedAction): void {
   const { acted } = feedStore.getState()
-  feedStore.setState({ acted: { ...acted, [item.id]: acted[item.id] === action ? acted[item.id] : action } })
+  feedStore.setState({
+    acted: { ...acted, [item.id]: acted[item.id] === action ? acted[item.id] : action },
+  })
   void invoke('feed.signal', { id: item.id, action, title: item.title, source: item.source })
 }
 

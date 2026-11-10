@@ -13,7 +13,8 @@ export function feedList(root: string) {
   const dir = path.join(root, FEED_DIR)
   let generatedAt: string | null = null
   let rawItems: unknown[] = []
-  let sources: Record<string, { ok: boolean; count?: number; error?: string; disabled?: boolean }> = {}
+  let sources: Record<string, { ok: boolean; count?: number; error?: string; disabled?: boolean }> =
+    {}
   try {
     const feed = JSON.parse(fs.readFileSync(path.join(dir, 'feed.json'), 'utf8')) as {
       generatedAt?: string
@@ -32,7 +33,11 @@ export function feedList(root: string) {
     try {
       const file = path.join(dir, 'media', path.basename(image))
       if (fs.statSync(file).size > 1_000_000) return undefined
-      const mime = file.endsWith('.png') ? 'image/png' : file.endsWith('.webp') ? 'image/webp' : 'image/jpeg'
+      const mime = file.endsWith('.png')
+        ? 'image/png'
+        : file.endsWith('.webp')
+          ? 'image/webp'
+          : 'image/jpeg'
       return `data:${mime};base64,${fs.readFileSync(file).toString('base64')}`
     } catch {
       return undefined
@@ -61,7 +66,10 @@ export function feedSignal(
 ): { recorded: true } {
   const dir = path.join(root, FEED_DIR)
   fs.mkdirSync(dir, { recursive: true })
-  fs.appendFileSync(path.join(dir, 'signals.jsonl'), JSON.stringify({ ...s, ts: Date.now() }) + '\n')
+  fs.appendFileSync(
+    path.join(dir, 'signals.jsonl'),
+    JSON.stringify({ ...s, ts: Date.now() }) + '\n',
+  )
   return { recorded: true }
 }
 

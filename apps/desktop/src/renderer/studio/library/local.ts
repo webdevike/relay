@@ -157,7 +157,15 @@ const parseComposer: Parse<SavedComposer> = (raw) => {
     dest: parseString(r['dest']) ?? INITIAL_COMPOSER.dest,
   }
 }
-const SAVED_COMPOSER_KEYS = ['choice', 'aspect', 'count', 'seedMode', 'seed', 'steps', 'dest'] as const
+const SAVED_COMPOSER_KEYS = [
+  'choice',
+  'aspect',
+  'count',
+  'seedMode',
+  'seed',
+  'steps',
+  'dest',
+] as const
 bindPref<LocalState, SavedComposer>(localStore, 'studio.composer', {
   select: ({ composer: c }) => ({
     choice: c.choice,
