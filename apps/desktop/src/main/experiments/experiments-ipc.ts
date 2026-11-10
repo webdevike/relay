@@ -1,5 +1,5 @@
 import * as path from 'node:path'
-import { watch } from 'chokidar'
+import { watchTrees } from '../tree-watch'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
 import { createExperimentsService, type ExperimentsService } from './experiments-service'
@@ -34,17 +34,6 @@ export function startExperimentsWatch(
   const pending = new Set<string>()
   let timer: NodeJS.Timeout | null = null
   let closed = false
-  const watcher = watch(root, {
-    ignoreInitial: true,
-    depth: 2,
-    // status.json is renamed into place after every logged run; no write to wait out.
-    awaitWriteFinish: false,
-    // Run lines and audits change on every test; status.json already reports that progress.
-    ignored: (p) => {
-      const parts = path.relative(root, p).split(path.sep)
-      return parts[1] === 'runs' || parts[1] === 'audits' || parts.some((s) => s === '.git')
-    },
-  })
   const onChange = (p: string): void => {
     const id = closed ? null : experimentOf(root, p)
     if (!id) return
@@ -57,19 +46,21 @@ export function startExperimentsWatch(
       send(ids)
     }, debounceMs)
   }
-  watcher
-    .on('add', onChange)
-    .on('change', onChange)
-    .on('unlink', onChange)
-    .on('addDir', onChange)
-    .on('unlinkDir', onChange)
-    .on('error', (e) => console.error('[experiments-watch]', e instanceof Error ? e.message : e))
+  const watcher = watchTrees([root], onChange, {
+    depth: 2,
+    // Run lines and audits change on every test; status.json already reports that progress.
+    ignored: (p) => {
+      const parts = path.relative(root, p).split(path.sep)
+      return parts[1] === 'runs' || parts[1] === 'audits' || parts.some((s) => s === '.git')
+    },
+    label: 'experiments-watch',
+  })
   return {
     async close() {
       closed = true
       clearTimeout(timer ?? undefined)
       pending.clear()
-      await watcher.close()
+      watcher.close()
     },
   }
 }

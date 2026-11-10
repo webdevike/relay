@@ -1,5 +1,5 @@
 import * as path from 'node:path'
-import { watch } from 'chokidar'
+import { watchTrees } from '../tree-watch'
 import type { MainContext } from '../context'
 import { emit } from '../ipc/handle'
 
@@ -44,12 +44,6 @@ export function startEvaWatchWith(
   let timer: NodeJS.Timeout | null = null
   let closed = false
 
-  const watcher = watch(watchTargets(root), {
-    ignoreInitial: true,
-    depth: 4,
-    awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
-    ignored: isIgnoredPath,
-  })
   const onChange = (p: string): void => {
     if (closed) return
     const area = areaFor(root, p)
@@ -64,9 +58,11 @@ export function startEvaWatchWith(
       send(areas)
     }, debounceMs)
   }
-  watcher.on('add', onChange).on('change', onChange).on('unlink', onChange)
-  watcher.on('addDir', onChange).on('unlinkDir', onChange)
-  watcher.on('error', (err) => console.error('[eva-watch] watcher error:', (err as Error).message))
+  const watcher = watchTrees(watchTargets(root), onChange, {
+    depth: 4,
+    ignored: isIgnoredPath,
+    label: 'eva-watch',
+  })
 
   return {
     async close() {
@@ -74,7 +70,7 @@ export function startEvaWatchWith(
       if (timer) clearTimeout(timer)
       timer = null
       pending.clear()
-      await watcher.close()
+      watcher.close()
     },
   }
 }

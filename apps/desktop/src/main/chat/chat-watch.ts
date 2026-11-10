@@ -1,6 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { watch, type FSWatcher } from 'chokidar'
+import { watchTrees, type TreeWatch } from '../tree-watch'
 import { RECENTLY_ACTIVE_MS } from '@evaos/chat-core/chat-groups'
 
 export interface ChatWatchOptions {
@@ -39,8 +39,9 @@ export function classify(dir: string, p: string): string | null {
 
 /**
  * Debounced batches of changed session paths. FSEvents can miss appends to a file its writer holds
- * open (the reason the Rust app polls), so chokidar is backed by a fast stat poll of recent or live
- * files and a slower sweep of the rest. Poll cost stays flat: only recent files are stat'd fast.
+ * open (the reason the Rust app polls), so the folder watch is backed by a fast stat poll of recent
+ * or live files and a slower sweep of the rest. Poll cost stays flat: only recent files are stat'd
+ * fast.
  */
 export class ChatWatch {
   private readonly debounceMs: number
@@ -52,7 +53,7 @@ export class ChatWatch {
   private readonly pending = new Set<string>()
   private readonly stamps = new Map<string, Stamp>()
   private readonly folders = new Map<string, number>()
-  private watcher: FSWatcher | null = null
+  private watcher: TreeWatch | null = null
   private pollTimer: NodeJS.Timeout | null = null
   private sweepTimer: NodeJS.Timeout | null = null
   private flushTimer: NodeJS.Timeout | null = null
@@ -76,22 +77,16 @@ export class ChatWatch {
   start(): void {
     if (this.watcher || this.closed) return
     this.snapshot()
-    const watcher = watch([...this.o.dirs], {
-      ignoreInitial: true,
-      depth: 1,
-      awaitWriteFinish: false,
-      followSymlinks: false,
-    })
-    const hit = (p: string): void => {
-      for (const dir of this.o.dirs) {
-        const target = classify(dir, p)
-        if (target !== null) return this.mark(target)
-      }
-    }
-    watcher.on('add', hit).on('change', hit).on('unlink', hit)
-    watcher.on('addDir', hit).on('unlinkDir', hit)
-    watcher.on('error', (e) => console.error('[chat-watch] watcher error:', (e as Error).message))
-    this.watcher = watcher
+    this.watcher = watchTrees(
+      this.o.dirs,
+      (p) => {
+        for (const dir of this.o.dirs) {
+          const target = classify(dir, p)
+          if (target !== null) return this.mark(target)
+        }
+      },
+      { depth: 1, label: 'chat-watch' },
+    )
     this.pollTimer = setInterval(() => this.poll(false), this.pollMs)
     this.sweepTimer = setInterval(() => this.poll(true), this.sweepMs)
   }
@@ -104,9 +99,8 @@ export class ChatWatch {
     this.pollTimer = this.sweepTimer = this.flushTimer = null
     this.pending.clear()
     this.cbs.clear()
-    const w = this.watcher
+    this.watcher?.close()
     this.watcher = null
-    await w?.close()
   }
 
   private mark(file: string): void {

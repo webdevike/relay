@@ -5,7 +5,7 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { watch, type FSWatcher } from 'chokidar'
+import { watchTrees, type TreeWatch } from '../tree-watch'
 import { z } from 'zod'
 import type { ActivityItem } from '@evaos/chat-core/activity'
 import { sessionId } from '@evaos/chat-core/session-id'
@@ -149,18 +149,17 @@ export function registerAgentsBoard(
   }
 
   // Ledgers and the assistants' state files: watched once the board was first asked for.
-  let files: FSWatcher | null = null
+  let files: TreeWatch | null = null
   const watchFiles = (): void => {
-    if (files) return
-    files = watch([path.join(evaRoot, 'work/items'), path.join(evaRoot, 'work/eva/agents')], {
-      ignoreInitial: true,
-      depth: 1,
-      ignored: (p: string) =>
-        /(^|\/)\.[^/]*\.tmp$/.test(p) || /\.(png|jpe?g|webm|mp4|log)$/i.test(p),
-    })
-    files.on('all', changed)
-    files.on('error', (err) =>
-      console.error('[agents-board] watcher error:', err instanceof Error ? err.message : err),
+    files ??= watchTrees(
+      [path.join(evaRoot, 'work/items'), path.join(evaRoot, 'work/eva/agents')],
+      changed,
+      {
+        depth: 1,
+        ignored: (p: string) =>
+          /(^|\/)\.[^/]*\.tmp$/.test(p) || /\.(png|jpe?g|webm|mp4|log)$/i.test(p),
+        label: 'agents-board',
+      },
     )
   }
 
@@ -264,6 +263,6 @@ export function registerAgentsBoard(
   ctx.onBeforeQuit(async () => {
     for (const off of offs) off()
     clearTimeout(timer)
-    await files?.close()
+    files?.close()
   })
 }
