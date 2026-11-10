@@ -735,8 +735,10 @@ export const MAX_ASK_ANSWER = 500;
  * the composer instead), or a question another omp session put to him through the thread
  * (`source` "session", `relay-linux asks add`: `from` names it, `sessionId` is where the answer goes,
  * `default` is what it does unless he says otherwise). The host keeps them per thread until Isaac
- * taps an answer, dismisses one, or the assistant resolves one (`relay-linux asks resolve <id>`); a
- * typed message never closes one.
+ * taps an answer, dismisses one, or the assistant resolves one (`relay-linux asks resolve <id>`).
+ * The thread's own asks also close from his later turns: one naming it in an `[answer to: ...]`
+ * tag, one a model judge reads as clearly answering it, and the third later turn that does neither.
+ * A session's ask never closes from the thread.
  */
 export const OpenAsk = z.object({
   /** Short stable id (8 hex), what `relay-linux asks resolve` takes. */
@@ -2169,3 +2171,4 @@ export * from "./rooms";
 export * from "./rooms-council";
 export * from "./query";
 export * from "./stats";
+export * from "./answer-context";

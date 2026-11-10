@@ -10,7 +10,8 @@ import { handleAssistantAsks, handleAssistantSay } from "../src/assistant/http";
 import { assistantStatus, AssistantService, AssistantThreads, lastReplyOf, MAX_LAST_REPLY, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
 import { MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from "../src/assistant/replies";
 import { type FillSpawn, splitSignin } from "../src/assistant/signin";
-import { AskStore } from "../src/assistant/ask-store";
+import { type AskCase, AskStore } from "../src/assistant/ask-store";
+import type { AskJudge } from "../src/assistant/ask-judge";
 import { defaultAssistantPath, FileAssistantStore, type AssistantRecord } from "../src/assistant/store";
 import { voiceTurn } from "../src/assistant/voice";
 import type { PushMessage } from "../src/push/notifier";
@@ -147,6 +148,8 @@ interface HarnessOptions {
   reconnected?: Promise<void>;
   /** The thread's open asks; default an in-memory store whose `since` is the fake clock's start (1000). */
   asks?: AskStore;
+  /** Reads Isaac's later turns on an open ask; default none. */
+  judgeAsk?: AskJudge;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -195,6 +198,7 @@ function harness(options: HarnessOptions = {}) {
     agentHome: options.agentHome === null ? null : home,
     store,
     asks,
+    ...(options.judgeAsk === undefined ? {} : { judgeAsk: options.judgeAsk }),
     tokens: {
       tokens: () => tokens,
       unregister: (deviceId) => {
@@ -1027,7 +1031,7 @@ describe("AssistantService open asks", () => {
     const snapshot = await h.service.snapshot();
     expect(snapshot.messages.at(-1)).toEqual({ id: "a1", role: "assistant", text: "Done. Want me to push it?", at: 1_200, replies: ["Yes", "Not yet"] });
     expect(snapshot.asks).toEqual([{ id: expect.stringMatching(/^[0-9a-f]{8}$/) as string, source: "replies", label: "Push the fix", question: "Want me to push it?", replies: ["Yes", "Not yet"], at: 1_200, messageId: "a1" }]);
-    // A typed answer in his own words leaves it open; tapping "Not yet" (its label as his turn) answers it.
+    // Without a judge, a typed answer in his own words leaves it open; tapping "Not yet" (its label as his turn) answers it.
     h.agents.transcript.push({ id: "u2", role: "user", text: "hmm, let me check the CI first", at: 1_300 });
     expect((await h.service.snapshot()).asks).toHaveLength(1);
     h.agents.transcript.push({ id: "u3", role: "user", text: "Not yet", at: 1_400 });
@@ -1061,6 +1065,42 @@ describe("AssistantService open asks", () => {
     expect((await h.service.snapshot()).asks).toHaveLength(1);
     h.service.observe({ kind: "ask.resolved", sessionId: "eva-1", id: "k1", answered: true });
     expect((await h.service.snapshot()).asks).toEqual([]);
+  });
+
+  it("has the judge read his later turn once the reply settles, closes the ask it calls answered for every device, and never asks twice for the same turns", async () => {
+    const read: AskCase[] = [];
+    const verdicts = [false, true];
+    const h = harness({
+      judgeAsk: (ask) => {
+        read.push(ask);
+        return Promise.resolve(verdicts.shift() ?? false);
+      },
+    });
+    h.register("idle");
+    h.agents.transcript = [{ id: "a1", role: "assistant", text: "Done. Want me to push it?\n[[replies: Yes | Not yet]]", at: 1_200 }];
+    expect((await h.service.snapshot()).asks).toHaveLength(1);
+    h.register("working");
+    h.agents.transcript.push({ id: "u1", role: "user", text: "what did CI say", at: 1_300 });
+    await h.service.snapshot();
+    expect(read).toEqual([]);
+    h.register("idle");
+    h.agents.transcript.push({ id: "a2", role: "assistant", text: "CI is green.", at: 1_350 });
+    await h.service.snapshot();
+    await h.service.snapshot();
+    await flush();
+    expect(read).toMatchObject([{ question: "Want me to push it?", said: ["what did CI say"], reply: "CI is green.", upTo: 1_300 }]);
+    expect((await h.service.snapshot()).asks).toHaveLength(1);
+    h.agents.transcript.push({ id: "u2", role: "user", text: "ok ship it then", at: 1_400 }, { id: "a3", role: "assistant", text: "Pushed.", at: 1_450 });
+    h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    h.broadcasts.length = 0;
+    await h.service.snapshot();
+    await flush();
+    expect(read).toHaveLength(2);
+    expect(h.asks.get(read[1]?.id ?? "")).toMatchObject({ state: "answered", answer: "ok ship it then" });
+    h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
+    expect(h.broadcasts).toMatchObject([{ t: "assistant.snapshot", agent: "astra", snapshot: { asks: [] } }]);
   });
 });
 

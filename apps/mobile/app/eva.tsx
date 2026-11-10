@@ -27,7 +27,7 @@ import { ActionSheetIOS, FlatList, Keyboard, Pressable, StyleSheet, View, type L
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedKeyboard, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
-import { assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, type AssistantMessage, type OpenAsk } from "@relay/protocol";
+import { answerText, assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, stripAnswerContext, type AssistantMessage, type OpenAsk } from "@relay/protocol";
 import { AvatarTitle } from "@/ui/AvatarTitle";
 import { FrostedBar } from "@/ui/FrostedBar";
 import { Banner } from "@/ui/Banner";
@@ -67,7 +67,6 @@ import { warn } from "@/connection/log";
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
 import { photoOfImage } from "@/lib/clipboard";
-import { answerText, stripAnswerContext } from "@evaos/chat-core/answer-context";
 import { userImageUrls } from "@evaos/chat-core/image-urls";
 import { MarkdownImages } from "@/agents/MarkdownImages";
 import { RenderMessage } from "@/agents/RenderReportContext";

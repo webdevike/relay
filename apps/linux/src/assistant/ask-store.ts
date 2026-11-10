@@ -7,16 +7,19 @@
 //   - omp `ask` tool cards, as the bridge reports them (`addCard`, `cardResolved`);
 //   - questions another omp session puts to Isaac through the thread (`relay-linux asks add`,
 //     `addSession`), whose answer goes back to that session, not into the thread.
-// An ask closes when Isaac taps an answer (the `assistant.ask.resolve` command, or, for the first
-// two sources, a later turn of his that is exactly one of its answers), dismisses it, or the
-// assistant resolves it (`relay-linux asks resolve`). A typed message never closes one: he often
-// answers much later. `since` is when the file was first made: rows older than it never become
-// asks, so an upgrade does not flood the badges with the thread's history.
+// An ask closes when Isaac taps an answer (the `assistant.ask.resolve` command), dismisses it, or
+// the assistant resolves it (`relay-linux asks resolve`). The thread's own asks (the first two
+// sources) also close on their own from his later turns: one that is exactly one of its answers or
+// names it in an `[answer to: "..."]` tag answers it; one a model judge reads as clearly answering
+// or settling it answers it (`unjudged`/`judged`, run by the service); and `ASK_LAPSE_TURNS` later
+// turns that did neither leave it behind (resolved). A session's ask never closes from the thread:
+// its answer goes back to the asking session. `since` is when the file was first made: rows older
+// than it never become asks, so an upgrade does not flood the badges with the thread's history.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { type AgentAsk, type AssistantMessage, MAX_ASK_LABEL, MAX_ASK_QUESTION, MAX_OPEN_ASKS, OpenAsk } from "@relay/protocol";
+import { type AgentAsk, answerExcerpt, answerTagOf, type AssistantMessage, MAX_ASK_LABEL, MAX_ASK_QUESTION, MAX_OPEN_ASKS, OpenAsk } from "@relay/protocol";
 import { z } from "zod";
 import { askId, askKey, askLabel, askQuestion, clipAt, withoutLeadIn } from "./asks";
 
@@ -27,6 +30,8 @@ export const MAX_ASK_REPLIES = 8;
 export const MAX_ASK_REPLY = 80;
 /** Longest `from` of a session's ask (the protocol's limit). */
 export const MAX_ASK_FROM = 80;
+/** Isaac's turns after a thread's ask that neither answer it nor name it before it closes as left behind. */
+export const ASK_LAPSE_TURNS = 3;
 
 export type AskState = "open" | "answered" | "dismissed" | "resolved";
 
@@ -39,8 +44,22 @@ const StoredAsk = OpenAsk.extend({
   answer: z.string().min(1).optional(),
   /** A session's ask: its answer reached the asking session. */
   delivered: z.boolean().optional(),
+  /** The time of his latest later turn the judge has read for this ask; turns up to it are not judged again. */
+  judgedTo: z.number().int().nonnegative().optional(),
 });
 export type StoredAsk = z.infer<typeof StoredAsk>;
+
+/** A thread's open ask with turns of Isaac's after it the judge has not read yet (`AskStore.unjudged`). */
+export interface AskCase {
+  readonly id: string;
+  readonly question: string;
+  /** Every turn of his after the ask, oldest first. */
+  readonly said: readonly string[];
+  /** The assistant's reply after his latest turn, when it has one. */
+  readonly reply?: string;
+  /** The time of his latest turn: what `judged` records. */
+  readonly upTo: number;
+}
 
 /** A question another omp session puts to Isaac (`addSession`). */
 export interface SessionAskInput {
@@ -75,8 +94,10 @@ export class AskStore {
   /**
    * Takes the thread as a snapshot shows it. `asking` holds the ids of the settled assistant rows
    * that end on answers, with their `[[ask-label]]` when they gave one. A row since `since` with a
-   * question becomes an ask, or refreshes the open ask that asks the same thing; a user row after
-   * an open ask that is exactly one of its answers (case aside) answers it. True when anything changed.
+   * question becomes an ask, or refreshes the open ask that asks the same thing. A user row after
+   * an open ask of the thread that is exactly one of its answers (case aside), or whose answer tag
+   * names its question, answers it; the `ASK_LAPSE_TURNS`th that does neither resolves it. True
+   * when anything changed.
    */
   observe(rows: readonly AssistantMessage[], asking: ReadonlyMap<string, string | undefined>): boolean {
     const record = this.load();
@@ -85,13 +106,23 @@ export class AskStore {
     for (const ask of record.asks) for (const key of ask.keys) byKey.set(key, ask);
     const position = new Map<string, number>();
     rows.forEach((row, index) => position.set(row.id, index));
+    /** Isaac's turns after each open ask so far that did not close it. */
+    const passed = new Map<string, number>();
     rows.forEach((row, index) => {
       if (row.role === "user") {
-        const said = row.text.trim().toLowerCase();
+        const said = row.text.trim();
+        const tag = answerTagOf(said);
         for (const ask of record.asks) {
-          if (ask.state !== "open" || ask.source === "session" || !ask.replies.some((reply) => reply.toLowerCase() === said)) continue;
-          const at = ask.messageId === undefined ? undefined : position.get(ask.messageId);
-          if (at === undefined ? ask.at < row.at : at < index) changed = this.close(ask, "answered") || changed;
+          if (ask.state !== "open" || ask.source === "session" || !this.after(ask, row, index, position)) continue;
+          const answers = tag === null ? ask.replies.some((reply) => reply.toLowerCase() === said.toLowerCase()) : tag.question === answerExcerpt(ask.question);
+          if (answers) {
+            changed = this.close(ask, "answered") || changed;
+            if (tag !== null && tag.answer.trim() !== "") ask.answer = tag.answer.trim();
+            continue;
+          }
+          const n = (passed.get(ask.id) ?? 0) + 1;
+          passed.set(ask.id, n);
+          if (n >= ASK_LAPSE_TURNS) changed = this.close(ask, "resolved") || changed;
         }
         return;
       }
@@ -121,6 +152,40 @@ export class AskStore {
     });
     if (changed) this.save(record);
     return changed;
+  }
+
+  /**
+   * The thread's open asks with a turn of Isaac's after them the judge has not read (newer than
+   * `judgedTo`), from the same rows `observe` just took: the question, all his turns after it, and
+   * the assistant's reply after the latest. A session's ask is never judged (its answer has a recipient).
+   */
+  unjudged(rows: readonly AssistantMessage[]): AskCase[] {
+    const position = new Map<string, number>();
+    rows.forEach((row, index) => position.set(row.id, index));
+    const cases: AskCase[] = [];
+    for (const ask of this.load().asks) {
+      if (ask.state !== "open" || ask.source === "session") continue;
+      const later = rows.flatMap((row, index) => (row.role === "user" && this.after(ask, row, index, position) ? [{ row, index }] : []));
+      const last = later.at(-1);
+      if (last === undefined || last.row.at <= (ask.judgedTo ?? -1)) continue;
+      const reply = rows.slice(last.index + 1).find((row) => row.role === "assistant")?.text.trim();
+      cases.push({
+        id: ask.id,
+        question: ask.question,
+        said: later.map(({ row }) => row.text.trim()),
+        ...(reply === undefined || reply === "" ? {} : { reply }),
+        upTo: last.row.at,
+      });
+    }
+    return cases;
+  }
+
+  /** The judge has read Isaac's turns on ask `id` up to the one at `upTo`. */
+  judged(id: string, upTo: number): void {
+    const ask = this.get(id);
+    if (ask === undefined || (ask.judgedTo ?? -1) >= upTo) return;
+    ask.judgedTo = upTo;
+    this.save(this.load());
   }
 
   /** The bridge reported an `ask` card on session `sessionId`: its first question becomes an ask. True when anything changed. */
@@ -235,6 +300,12 @@ export class AskStore {
     const ask: StoredAsk = { id, ...fields, state: "open", keys: [key] };
     record.asks.push(ask);
     return ask;
+  }
+
+  /** `row` (at `index` of the rows `position` maps) comes after `ask`'s bubble, or after its time when it has none in them. */
+  private after(ask: StoredAsk, row: AssistantMessage, index: number, position: ReadonlyMap<string, number>): boolean {
+    const at = ask.messageId === undefined ? undefined : position.get(ask.messageId);
+    return at === undefined ? ask.at < row.at : at < index;
   }
 
   private close(ask: StoredAsk, how: Exclude<AskState, "open">): boolean {

@@ -47,6 +47,7 @@ import {
 import { AssistantService, AssistantThreads, type AssistantThreadsDeps } from "./assistant/service";
 import { spawnFill } from "./assistant/signin";
 import { AskStore, defaultAsksPath } from "./assistant/ask-store";
+import { claudeAskJudge } from "./assistant/ask-judge";
 import { ago } from "./query/tools";
 import { defaultAssistantPath, defaultAssistantsDir, FileAssistantStore } from "./assistant/store";
 import { CallService } from "./call/service";
@@ -484,6 +485,8 @@ function serve(
           cli: Bun.main.endsWith(".ts") ? `bun "${Bun.main}"` : `"${process.execPath}"`,
           log,
         });
+  // One judge for every thread: did Isaac's later turns already answer an open ask?
+  const askJudge = claudeAskJudge(bunRun, resolveClaude());
   const thread = (agent: AssistantAgentConfig): AssistantService =>
     new AssistantService({
       agent,
@@ -496,6 +499,7 @@ function serve(
       agentHome,
       store: new FileAssistantStore(defaultAssistantPath(agent.id)),
       asks: new AskStore(defaultAsksPath(agent.id)),
+      judgeAsk: askJudge,
       tokens: pushTokens,
       sender: new ExpoPushSender(),
       broadcast: (message): void => {

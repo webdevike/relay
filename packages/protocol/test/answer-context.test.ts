@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { answerText, MAX_ANSWER_CONTEXT, stripAnswerContext } from './answer-context'
+import {
+  answerExcerpt,
+  answerTagOf,
+  answerText,
+  MAX_ANSWER_CONTEXT,
+  stripAnswerContext,
+} from '../src/answer-context'
 
 describe('answerText', () => {
   it('leaves an answer to the newest message bare', () => {
@@ -31,5 +37,15 @@ describe('stripAnswerContext', () => {
     expect(stripAnswerContext(tagged)).toBe('Skip it')
     expect(stripAnswerContext('Skip it')).toBe('Skip it')
     expect(stripAnswerContext('hi [answer to: "x"] there')).toBe('hi [answer to: "x"] there')
+  })
+})
+
+describe('answerTagOf', () => {
+  it('reads back the question a tagged answer names, long questions included, and the words after it', () => {
+    const long = `Ship "the thing"\n${'and more '.repeat(30)}?`
+    const tag = answerTagOf(answerText('Ship it', long, true))
+    expect(tag).toEqual({ question: answerExcerpt(long), answer: 'Ship it' })
+    expect(answerTagOf('Ship it')).toBeNull()
+    expect(answerTagOf('hi [answer to: "x"] there')).toBeNull()
   })
 })

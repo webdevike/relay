@@ -2,9 +2,10 @@ import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { type AgentAsk, type AssistantMessage, MAX_ASK_LABEL, MAX_ASK_QUESTION, MAX_OPEN_ASKS } from "@relay/protocol";
-import { AskStore, CLOSED_ASK_TTL_MS, defaultAsksPath } from "../src/assistant/ask-store";
+import { answerText, type AgentAsk, type AssistantMessage, MAX_ASK_LABEL, MAX_ASK_QUESTION, MAX_OPEN_ASKS } from "@relay/protocol";
+import { ASK_LAPSE_TURNS, AskStore, CLOSED_ASK_TTL_MS, defaultAsksPath } from "../src/assistant/ask-store";
 import { askId, askKey, askLabel, askQuestion } from "../src/assistant/asks";
+import { judgePrompt, parseVerdict } from "../src/assistant/ask-judge";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -34,6 +35,24 @@ function store(path: string | null = null) {
 const card = (id: string, question: string, extra: Partial<AgentAsk["questions"][number]> = {}): AgentAsk => ({
   id,
   questions: [{ id: "q1", question, options: [{ label: "Ship it" }, { label: "Hold" }], ...extra }, { id: "q2", question: "And then?", options: [{ label: "x" }] }],
+});
+
+describe("the ask judge", () => {
+  it("counts only a bare ANSWERED as answered, so a hedge or anything else leaves the ask open", () => {
+    expect(parseVerdict("ANSWERED")).toBe(true);
+    expect(parseVerdict(" answered.\n")).toBe(true);
+    expect(parseVerdict("OPEN")).toBe(false);
+    expect(parseVerdict("Answered? Not really, it is OPEN")).toBe(false);
+    expect(parseVerdict("")).toBe(false);
+  });
+
+  it("shows the model the question, his turns in order and the reply when there is one", () => {
+    const prompt = judgePrompt({ id: "00000001", question: "Push it?", said: ["what did CI say", "ok ship it"], reply: "Pushed.", upTo: 1 });
+    expect(prompt).toContain("Push it?\n");
+    expect(prompt).toContain("1. what did CI say\n2. ok ship it");
+    expect(prompt).toContain("reply to the latest of them:\nPushed.");
+    expect(judgePrompt({ id: "00000001", question: "Push it?", said: ["x"], upTo: 1 })).not.toContain("reply to the latest");
+  });
 });
 
 describe("askQuestion", () => {
@@ -106,6 +125,50 @@ describe("AskStore", () => {
     expect(asks.open()).toHaveLength(1);
     observe([said("u0", "yes", 1_050), ask, said("u1", "hmm, let me think about it", 1_200), said("u2", "  not YET ", 1_300)]);
     expect(asks.open()).toEqual([]);
+  });
+
+  it("is answered by a later turn whose answer tag names its question, in his own words, and not by a tag naming another", () => {
+    const { asks, observe } = store();
+    const push = asked("a1", `Done. Want me to push the "fix" for ${"the billing path and ".repeat(6)}the invoices now?`, 1_100);
+    const deploy = asked("a2", "Deploy after?", 1_200);
+    observe([push, deploy]);
+    const pushAsk = asks.open()[0];
+    expect(pushAsk?.question.length).toBeGreaterThan(120);
+    observe([push, deploy, said("u1", answerText("wait for CI", pushAsk?.question ?? "", true), 1_300)]);
+    expect(asks.open().map((ask) => ask.question)).toEqual(["Deploy after?"]);
+    expect(asks.get(pushAsk?.id ?? "")).toMatchObject({ state: "answered", answer: "wait for CI" });
+  });
+
+  it(`resolves a thread's ask left behind by ${String(ASK_LAPSE_TURNS)} later turns of his, but never a session's`, () => {
+    const { asks, clock, observe } = store();
+    const session = asks.addSession({ from: "Golf", sessionId: "s1", question: "Book it?", options: ["Book it", "Skip"] });
+    clock.now = 1_050;
+    const rows: AssistantMessage[] = [asked("a1", "Push?", 1_100)];
+    for (let n = 1; n < ASK_LAPSE_TURNS; n += 1) rows.push(said(`u${String(n)}`, `something else ${String(n)}`, 1_100 + n * 100));
+    observe(rows);
+    expect(asks.open()).toHaveLength(2);
+    observe([...rows, { id: "s", role: "status", text: "[From Nova's background jobs] heartbeat", at: 1_900 }]);
+    expect(asks.open()).toHaveLength(2);
+    observe([...rows, said("last", "and another thing", 2_000)]);
+    expect(asks.open().map((ask) => ask.id)).toEqual([session.id]);
+  });
+
+  it("hands the judge each open thread ask with his turns after it and the reply after the latest, once per new turn", () => {
+    const { asks, observe } = store();
+    asks.addSession({ from: "Golf", question: "Book it?", options: ["Book it", "Skip"] });
+    const rows: AssistantMessage[] = [said("u0", "morning", 1_050), asked("a1", "Push?", 1_100)];
+    observe(rows);
+    expect(asks.unjudged(rows)).toEqual([]);
+    rows.push(said("u1", "sure, go ahead and ship it", 1_200), { id: "a2", role: "assistant", text: "Pushed.", at: 1_300 });
+    observe(rows);
+    const [first, ...rest] = asks.unjudged(rows);
+    expect(rest).toEqual([]);
+    expect(first).toEqual({ id: asks.open()[1]?.id, question: "Push?", said: ["sure, go ahead and ship it"], reply: "Pushed.", upTo: 1_200 });
+    asks.judged(first?.id ?? "", 1_200);
+    expect(asks.unjudged(rows)).toEqual([]);
+    rows.push(said("u2", "actually also tag it", 1_400));
+    expect(asks.unjudged(rows)).toMatchObject([{ said: ["sure, go ahead and ship it", "actually also tag it"], upTo: 1_400 }]);
+    expect(asks.unjudged(rows)[0]?.reply).toBeUndefined();
   });
 
   it("refreshes an open ask asked again instead of adding a second, but a closed one asked again is a new ask", () => {

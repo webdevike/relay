@@ -1,5 +1,5 @@
 import type { OpenAsk } from '@evaos/contract'
-import { answerText } from '@evaos/chat-core/answer-context'
+import { answerText } from '@relay/protocol'
 import { resolveAsk } from './asks/asks-store'
 import { useWidgetActions } from './widgets/actions'
 

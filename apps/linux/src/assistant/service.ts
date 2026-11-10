@@ -28,6 +28,7 @@ import { pushPreview } from "../push/preview";
 import type { PushTokenSource } from "../push/token-store";
 import { AckFailure, type AgentProvider, type AgentProviderChange, type AskInput, type AskStatus, type AssistantRelaying, type AssistantThread } from "../seams";
 import type { SessionClock } from "../session";
+import type { AskJudge } from "./ask-judge";
 import { type AskStore, MAX_ASK_FROM, MAX_ASK_REPLIES, MAX_ASK_REPLY } from "./ask-store";
 import { type AssistantAgentConfig, RegistryError } from "./registry";
 import { splitReplies } from "./replies";
@@ -82,6 +83,8 @@ export interface AssistantServiceDeps {
   readonly store: AssistantStore;
   /** The thread's open asks (`assistants/<id>.asks.json`). */
   readonly asks: AskStore;
+  /** Reads whether Isaac's later turns already answered an open ask (`claudeAskJudge`); absent, only exact answers, answer tags and the turn count close one. */
+  readonly judgeAsk?: AskJudge;
   readonly tokens: PushTokenSource & { unregister(deviceId: string): void };
   readonly sender: PushSender;
   /** Sends `message` to every socket following this thread. */
@@ -228,6 +231,8 @@ export class AssistantService implements AssistantThread {
   private readonly transcripts = new Map<string, { mtimeMs: number; size: number; messages: AssistantMessage[]; asking: Map<string, string | undefined> }>();
   /** Messages whose sign-in the host has filled. Kept in memory only; a host restart forgets it. */
   private readonly submitted = new Set<string>();
+  /** Open asks the judge is reading now, so a snapshot while it thinks does not ask again. */
+  private readonly judging = new Set<string>();
 
   constructor(private readonly deps: AssistantServiceDeps) {
     this.id = deps.agent.id;
@@ -286,7 +291,38 @@ export class AssistantService implements AssistantThread {
     const live = session === undefined ? [] : toAssistantMessages((await this.deps.agents.conversation(session.id)) ?? [], this.prime(), this.prefix, asking);
     const messages = this.markSubmitted([...earlier, ...live]);
     this.deps.asks.observe(messages, asking);
-    return { rev, messages, busy: session?.status === "working", sessionId: session?.id ?? "", asks: this.deps.asks.open() };
+    const busy = session?.status === "working";
+    // Judged once the turn settles, so the judge reads the assistant's reply to Isaac's latest turn too.
+    if (!busy) this.judgeAsks(messages);
+    return { rev, messages, busy, sessionId: session?.id ?? "", asks: this.deps.asks.open() };
+  }
+
+  /**
+   * Has the judge read the open asks with turns of Isaac's after them it has not read yet; an ask
+   * it calls answered closes (`resolveAsk`, which tells every device). A failed judge leaves the
+   * ask open and is not retried for the same turns.
+   */
+  private judgeAsks(messages: readonly AssistantMessage[]): void {
+    const judge = this.deps.judgeAsk;
+    if (judge === undefined) return;
+    for (const ask of this.deps.asks.unjudged(messages)) {
+      if (this.judging.has(ask.id)) continue;
+      this.judging.add(ask.id);
+      judge(ask)
+        .then(
+          (answered) => {
+            this.deps.asks.judged(ask.id, ask.upTo);
+            if (!answered) return;
+            this.deps.log(`assistant ${this.id}: ask ${ask.id} answered by a later turn (judge)`);
+            this.resolveAsk(ask.id, "answered", ask.said.at(-1));
+          },
+          (error: unknown) => {
+            this.deps.asks.judged(ask.id, ask.upTo);
+            this.deps.log(`assistant ${this.id}: ask ${ask.id} not judged: ${error instanceof Error ? error.message : String(error)}`);
+          },
+        )
+        .finally(() => this.judging.delete(ask.id));
+    }
   }
 
   /**
