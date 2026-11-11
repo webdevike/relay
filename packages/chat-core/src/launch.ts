@@ -70,6 +70,8 @@ export interface ModelInfo {
   contextWindow: number | null
   images: boolean
   levels: string[]
+  /** List $ per million tokens from omp's `cost` (cacheRead is the cached input); absent when omp gives none. */
+  price?: { input: number; output: number; cached: number }
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -92,6 +94,7 @@ export function parseModels(data: unknown): ModelInfo[] {
     const efforts = (Array.isArray(thinking.efforts) ? thinking.efforts : []).filter(
       (e): e is string => typeof e === 'string',
     )
+    const cost = isObj(m.cost) ? m.cost : null
     out.push({
       provider: m.provider,
       id: m.id,
@@ -99,6 +102,15 @@ export function parseModels(data: unknown): ModelInfo[] {
       contextWindow: typeof m.contextWindow === 'number' ? m.contextWindow : null,
       images: Array.isArray(m.input) && m.input.includes('image'),
       levels: m.reasoning === true && efforts.length > 0 ? ['off', ...efforts] : [],
+      ...(cost && typeof cost.input === 'number' && typeof cost.output === 'number'
+        ? {
+            price: {
+              input: cost.input,
+              output: cost.output,
+              cached: typeof cost.cacheRead === 'number' ? cost.cacheRead : cost.input,
+            },
+          }
+        : {}),
     })
   }
   return out

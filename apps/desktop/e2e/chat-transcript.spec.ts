@@ -26,7 +26,7 @@ test('chat transcript: past session shows the active branch with thinking and to
   await expect(shell.getByRole('heading', { name: 'What should Eva work on?' })).toBeVisible()
   await expect(shell.getByTestId('composer-input')).toHaveAttribute(
     'placeholder',
-    'Ask anything, / for commands, @ for Computer and skills',
+    'Ask anything, / for commands, @ for agents, Computer and skills',
   )
   await shell.getByTestId('nav-chat').click()
   const list = shell.getByTestId('chat-tree')

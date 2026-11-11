@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { carryOf, layersFor, readBoardCarry, registerBoardCarry } from './handoff'
-import { mentionablesOf, routeOf } from '../comment-model'
+import { routeOf } from '../comment-model'
+import { agentsOf } from '../../chat/composer/at-menu'
 
 describe('carryOf', () => {
   it('keeps the page, the view, the selected cards and the open thread', () => {
@@ -72,7 +73,7 @@ describe('comment routing on the Canvas page', () => {
     { id: 'astra', title: 'Astra', scope: 'eCard Systems work' },
     { id: 'nova', title: 'Nova', scope: '' },
   ]
-  const candidates = mentionablesOf(agents)
+  const candidates = agentsOf(agents)
   it('lists the registry', () => {
     expect(candidates).toEqual([
       { id: 'astra', name: 'Astra', hint: 'eCard Systems work' },

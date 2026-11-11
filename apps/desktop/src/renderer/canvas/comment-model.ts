@@ -82,17 +82,6 @@ export function awaitingAnswer(thread: Pick<CanvasThread, 'resolved' | 'messages
   return !thread.resolved && thread.messages.at(-1)?.kind === 'human'
 }
 
-/** A registry assistant as the `@` menu lists it: its id and title (what an `@name` matches) and what it covers. */
-export function mentionablesOf(
-  agents: readonly { id: string; title: string; scope: string }[],
-): Mentionable[] {
-  return agents.map((a) => ({
-    id: a.id,
-    name: a.title,
-    ...(a.scope === '' ? {} : { hint: a.scope }),
-  }))
-}
-
 /**
  * Who a comment on the Canvas page is for: the agent an `@name` in `text` names, else `current` (the
  * thread's assignee), else nobody. `mentioned` tells a mention from a thread that kept its agent.

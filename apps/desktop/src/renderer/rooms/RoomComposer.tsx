@@ -1,27 +1,36 @@
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { ActionIcon, Textarea } from '@mantine/core'
-import { IconArrowUp, IconBrain, IconFileSearch } from '@tabler/icons-react'
+import { IconArrowUp } from '@tabler/icons-react'
 import { roomIsLive } from '@evaos/contract'
+import { useAssistants } from '../assistants/assistants-store'
+import { AgentFace } from '../comments/ThreadParts'
+import { MentionBackdrop } from '../chat/composer/MentionBackdrop'
 import { SlashMenu, type MenuRow } from '../chat/composer/SlashMenu'
+import {
+  atQueryAt,
+  atRows,
+  insertAgent,
+  roomAgentsAt,
+  type AtAgent,
+} from '../chat/composer/at-menu'
 import '../chat/composer/composer.css'
-import { TypingDots } from '../ui/TypingDots'
-import { insertMention, insertRaw, mentionChoices, mentionQueryAt, mentionables } from './mentions'
-import { presenceGroups } from './presence'
-import { AuthorAvatar, authorOf } from './RoomMessageRow'
 import { postToRoom } from './rooms-store'
 import type { Room } from './types'
 
 /** What the box says: a chat room is always open to Isaac; a council room only while it can take posts. */
 function placeholderOf(room: Room, open: boolean): string {
+  if (room.phase === 'paused')
+    return room.kind === 'chat'
+      ? 'Paused: your message waits for Resume'
+      : 'Paused: your message joins the next round'
   if (room.kind === 'chat') return 'Message the room, or @mention a member'
-  if (room.phase === 'paused') return 'Paused: your message joins the next round'
   return open ? 'Message the room, @ to address someone' : 'The room is closed'
 }
 
 /**
- * A room's composer, built from the chat composer's parts: the box, the @ menu (the members and
- * Isaac) and the round send button, with who is doing what above it. A chat room's setup draft
- * waits in the box unsent.
+ * A room's composer, built from the chat composer's parts: the box, the one `@` menu (the members
+ * "in this room", then the assistants who would join as guests; a council room's people) with
+ * inline chips, and the round send button. A chat room's setup draft waits in the box unsent.
  */
 export function RoomComposer({ room }: { room: Room }) {
   const [text, setText] = useState(() =>
@@ -29,29 +38,41 @@ export function RoomComposer({ room }: { room: Room }) {
   )
   const [caret, setCaret] = useState(0)
   const [pick, setPick] = useState(0)
+  const [hidden, setHidden] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const field = useRef<HTMLTextAreaElement>(null)
-  // A paused council room takes posts too: they join the next round once it resumes.
+  // A paused room takes posts too: they are answered once it resumes.
   const open = room.kind === 'chat' || roomIsLive(room.phase) || room.phase === 'paused'
-  const people = useMemo(() => mentionables(room.agents), [room.agents])
-  const query = mentionQueryAt(text, caret)
-  const choices = query ? mentionChoices(people, query.query) : []
-  const rows: MenuRow[] = choices.map((c) => {
-    const author = authorOf(room.agents, c.id)
-    return {
-      key: c.id,
-      title: c.name,
-      description: author.role || author.title,
-      icon: <AuthorAvatar author={author} size="sm" />,
-    }
-  })
+  const registry = useAssistants((s) => s.data?.agents)
+  const members = room.chat?.setup.members
+  const agents: AtAgent[] = useMemo(
+    () =>
+      members
+        ? roomAgentsAt(members, registry ?? [])
+        : room.agents.map((a) => ({ id: a.id, name: a.name, note: a.role || a.title })),
+    [members, registry, room.agents],
+  )
+  const query = open ? atQueryAt(text, caret) : null
+  const at = query && !hidden ? atRows(null, query.query, 'top', agents, false) : []
+  const rows: MenuRow[] = at.map((r) => ({
+    key: r.key,
+    title: r.title,
+    description: r.description,
+    ...(r.section ? { section: r.section } : {}),
+    icon: <AgentFace id={r.item.kind === 'agent' ? r.item.id : r.key} name={r.title} />,
+  }))
   const selected = Math.min(pick, rows.length - 1)
 
+  const edit = (value: string, at: number): void => {
+    setText(value)
+    setCaret(at)
+    setPick(0)
+    setHidden(false)
+  }
   const send = (): void => {
     const body = text.trim()
     if (body === '' || !open) return
-    setText('')
-    setCaret(0)
+    edit('', 0)
     setError(null)
     void postToRoom(room.id, body).then((e) => {
       if (e === null) return
@@ -60,12 +81,10 @@ export function RoomComposer({ room }: { room: Room }) {
     })
   }
   const choose = (i: number): void => {
-    const c = choices[i]
-    if (!query || !c) return
-    const next = insertMention(text, caret, query, c.name)
-    setText(next.text)
-    setCaret(next.caret)
-    setPick(0)
+    const item = at[i]?.item
+    if (!query || item?.kind !== 'agent') return
+    const next = insertAgent(text, caret, query, item.name)
+    edit(next.text, next.caret)
     const el = field.current
     if (el) {
       el.focus()
@@ -80,7 +99,7 @@ export function RoomComposer({ room }: { room: Room }) {
         setPick((selected + d + rows.length) % rows.length)
         return
       }
-      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+      if ((e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) || e.key === 'Tab') {
         e.preventDefault()
         choose(selected)
         return
@@ -88,10 +107,7 @@ export function RoomComposer({ room }: { room: Room }) {
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
-        // Closing means leaving the @word: a trailing space ends the query.
-        const next = insertRaw(text, caret, ' ')
-        setText(next.text)
-        setCaret(next.caret)
+        setHidden(true)
         return
       }
     }
@@ -100,25 +116,8 @@ export function RoomComposer({ room }: { room: Room }) {
       send()
     }
   }
-  const groups = presenceGroups(room)
   return (
     <div className="eva-composer eva-room-composer" data-testid="room-composer-box">
-      {groups.length > 0 ? (
-        <div className="eva-rooms-typing" data-testid="room-presence" aria-live="polite">
-          {groups.map((g) => (
-            <span key={g.label} className="eva-rooms-presence" data-state={g.state}>
-              {g.state === 'typing' ? (
-                <TypingDots label={g.label} size="inline" />
-              ) : g.state === 'reading' ? (
-                <IconFileSearch size={14} stroke={1.5} aria-hidden />
-              ) : (
-                <IconBrain size={14} stroke={1.5} aria-hidden />
-              )}
-              <span>{g.label}</span>
-            </span>
-          ))}
-        </div>
-      ) : null}
       <div className="eva-composer-frame">
         {rows.length > 0 ? (
           <SlashMenu
@@ -142,15 +141,17 @@ export function RoomComposer({ room }: { room: Room }) {
             aria-label="Message the room"
             value={text}
             disabled={!open}
-            onChange={(e) => {
-              setText(e.currentTarget.value)
-              setCaret(e.currentTarget.selectionStart ?? e.currentTarget.value.length)
-              setPick(0)
-            }}
+            onChange={(e) =>
+              edit(
+                e.currentTarget.value,
+                e.currentTarget.selectionStart ?? e.currentTarget.value.length,
+              )
+            }
             onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
             onKeyDown={onKeyDown}
             data-testid="room-composer"
           />
+          <MentionBackdrop text={text} field={field} people={agents} />
         </div>
         <div className="eva-composer-toolbar">
           <div className="eva-composer-tools" />

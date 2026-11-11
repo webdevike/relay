@@ -3,9 +3,10 @@ import { IconMoodSmile, IconPin } from '@tabler/icons-react'
 import { useState } from 'react'
 import { Markdown } from '../chat/markdown/Markdown'
 import { EvaPopover } from '../overlay'
-import { ROOM_JUDGE, ROOM_SYSTEM, type RoomCouncil } from '@evaos/contract'
+import { ROOM_JUDGE, ROOM_SYSTEM, type ChatRoomMember, type RoomCouncil } from '@evaos/contract'
 import { CouncilCard } from './CouncilCards'
 import { PartPill, RenderStrip, RolePill, modelLine } from './council-bits'
+import { MemberFace } from './MemberStack'
 import { mentionMarkdown } from './mentions'
 import { ISAAC_PERSON, JUDGE_PERSON, SYSTEM_PERSON } from './roster'
 import { toggleReaction } from './rooms-store'
@@ -68,6 +69,8 @@ export interface RoomMessageRowProps {
   continuation: boolean
   /** Present in council rooms: cards need its parts. */
   council?: RoomCouncil | undefined
+  /** A chat room's member who wrote it: its face (a rounded square), its role and guest tags. */
+  member?: ChatRoomMember | undefined
 }
 
 export function RoomMessageRow({
@@ -76,6 +79,7 @@ export function RoomMessageRow({
   agents,
   continuation,
   council,
+  member,
 }: RoomMessageRowProps) {
   const author = authorOf(agents, msg.author)
   const seat = agents.find((a) => a.id === msg.author)?.seat
@@ -93,10 +97,13 @@ export function RoomMessageRow({
       data-summary={summary ? 'true' : undefined}
       data-open={picker ? 'true' : undefined}
       data-testid={`room-msg-${msg.id}`}
+      data-author={msg.author}
     >
       <div className="eva-room-row-gutter">
         {continuation ? (
           <span className="eva-room-row-time eva-room-row-time-hover">{timeLabel(msg.ts)}</span>
+        ) : member ? (
+          <MemberFace member={member} className="eva-room-member-face eva-room-row-face" />
         ) : (
           <AuthorAvatar author={author} size="md" />
         )}
@@ -105,7 +112,7 @@ export function RoomMessageRow({
         {continuation ? null : (
           <div className="eva-room-row-head">
             <span className="eva-room-row-name">{author.name}</span>
-            {author.title && !seat ? (
+            {author.title && !seat && !member ? (
               <span className="eva-room-row-title">{author.title}</span>
             ) : null}
             {seat ? (
@@ -115,6 +122,9 @@ export function RoomMessageRow({
               </>
             ) : author.role ? (
               <span className="eva-room-row-role">{author.role}</span>
+            ) : null}
+            {member?.guest && member.role !== 'Guest' ? (
+              <span className="eva-room-row-role">Guest</span>
             ) : null}
             <span className="eva-room-row-time">{timeLabel(msg.ts)}</span>
             {seat ? (

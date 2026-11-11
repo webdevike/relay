@@ -15,6 +15,8 @@ const arg = (name) => {
 }
 const mode = arg('--mode')
 const resumeFile = arg('--resume') ?? null
+// A Relay room member (desktop main/rooms/chat-room.ts): answers as itself, slowly enough to watch.
+const roomSeat = /^You are (.+?), a member of a Relay room/.exec(arg('--system-prompt') ?? '')?.[1] ?? null
 
 // ---- `usage --json` (the usage meter): the profile's fixture, timestamps moved to now.
 if (mode === undefined && argv.includes('usage')) {
@@ -271,6 +273,17 @@ async function runPlain(promptId, text, images, slow) {
   if (!ctx.aborted) replay = null
 }
 
+let seatTurns = 0
+async function runSeat(promptId, text, name) {
+  const ctx = { promptId, text, aborted: false, cur: null, assistant: null, delay: Number(process.env.FAKE_OMP_SEAT_DELAY_MS ?? 120) }
+  replay = ctx
+  seatTurns++
+  log('seat-turn', { name, turn: seatTurns })
+  const parts = [`${name} here, `, 'turn ', `${seatTurns}. `, 'I read ', 'the room ', 'and ', 'agree.']
+  await playFrames(shortReply(text, { parts }), ctx, false)
+  if (!ctx.aborted) replay = null
+}
+
 function renameFile(file, name) {
   const lines = readFileSync(file, 'utf8').split('\n')
   const rec = { type: 'title', v: 1, title: name, updatedAt: Date.now() }
@@ -360,6 +373,7 @@ async function handle(cmd) {
       const kw = DIALOG_KEYWORDS.find((k) => text.includes(k))
       // do not await: stdin must keep being served while replaying
       if (kw) void runDialog(id, text, kw, slow)
+      else if (roomSeat) void runSeat(id, text, roomSeat)
       else if (images || slow) void runPlain(id, text, images, slow)
       else void runReplay(id, text)
       return

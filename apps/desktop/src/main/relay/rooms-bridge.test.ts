@@ -87,7 +87,7 @@ afterEach(() => {
 })
 
 describe('rooms bridge (desktop side)', () => {
-  it('keeps chat rooms off the wire (hosts refuse idle rooms) and resyncs after a delete', () => {
+  it('keeps chat rooms off a host without rooms.chat (it refuses idle rooms) and resyncs after a delete', () => {
     const { host, change, remove } = setup()
     host.welcome(['rooms'])
     change(CHAT)
@@ -95,6 +95,16 @@ describe('rooms bridge (desktop side)', () => {
     expect(host.sent).toEqual([
       { t: 'rooms.sync', rooms: [ROOM] },
       { t: 'rooms.sync', rooms: [ROOM] },
+    ])
+  })
+
+  it('sends chat rooms, idle ones too, to a host with rooms.chat', () => {
+    const { host, change } = setup()
+    host.welcome(['rooms', 'rooms.resume', 'rooms.chat'])
+    change(CHAT)
+    expect(host.sent).toEqual([
+      { t: 'rooms.sync', rooms: [CHAT, ROOM] },
+      { t: 'rooms.upsert', room: CHAT },
     ])
   })
 

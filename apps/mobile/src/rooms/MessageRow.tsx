@@ -1,4 +1,4 @@
-/** One entry of a room's feed: a seat's message, Isaac's, the summary, or a card. */
+/** One entry of a room's feed: a seat's or member's message, Isaac's, the room's quiet note, the summary, or a card. */
 import { View } from "react-native";
 import { COUNCIL_HARNESS_LABEL, COUNCIL_MODELS, COUNCIL_ROLE_LABEL, COUNCIL_WHOLE, type RoomWire, type RoomWireMessage } from "@relay/protocol";
 import { MessageText } from "@/agents/MessageText";
@@ -21,14 +21,24 @@ export function MessageRow({ room, message, actions }: { room: RoomWire; message
       </View>
     );
   }
+  // A chat room's own notes ("Penny joined as a guest", "Paused ..."): one quiet centered line.
+  if (room.chat !== undefined && message.author === "system") {
+    return (
+      <Text variant="label" color="textMuted" style={{ paddingHorizontal: spacing.lg, textAlign: "center" }}>
+        {message.text}
+      </Text>
+    );
+  }
   const author = authorOf(room, message.author);
   const seat = author.agent?.seat;
+  const member = room.chat?.setup.members.find((m) => m.id === message.author);
   const summary = message.kind === "summary";
   const body = (
     <View style={{ flex: 1, gap: spacing.xs + 2 }}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.sm }}>
         <Text variant="body" style={{ fontWeight: "700" }}>{summary ? `${author.name}: summary` : author.name}</Text>
         {seat !== undefined && <Tag label={COUNCIL_ROLE_LABEL[seat.role]} />}
+        {member !== undefined && member.role !== "" && <Tag label={member.role} />}
         {(message.part ?? seat?.part) !== undefined && (message.part ?? seat?.part) !== COUNCIL_WHOLE && <Tag label={message.part ?? seat?.part ?? ""} tone="accent" />}
         <Text variant="label" color="textFaint">{CLOCK.format(message.ts)}</Text>
       </View>

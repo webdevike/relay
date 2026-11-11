@@ -7,9 +7,9 @@ import { COUNCIL_MODELS } from '@relay/protocol'
 import { toolDetail } from '../omp-frames'
 import type { GuardInstall } from './guard'
 import type {
+  CouncilSeatSpec,
   SeatHandle,
   SeatPresence,
-  SeatSpec,
   SeatTurnInput,
   SeatTurnResult,
   SeatUsage,
@@ -88,7 +88,10 @@ export interface CodexSeatOptions {
  * left out. The first turn starts a thread; later turns `codex exec resume <thread>`.
  * The system prompt goes in once, as the thread's developer instructions.
  */
-export async function startCodexSeat(spec: SeatSpec, o: CodexSeatOptions): Promise<SeatHandle> {
+export async function startCodexSeat(
+  spec: CouncilSeatSpec,
+  o: CodexSeatOptions,
+): Promise<SeatHandle> {
   const env: NodeJS.ProcessEnv = { ...process.env, ...o.env, ...o.guard.env }
   delete env.ELECTRON_RUN_AS_NODE
   await probeCodex(o.codexBin, env)

@@ -33,10 +33,10 @@ describe('presenceGroups', () => {
       }),
     )
     expect(groups).toEqual([
-      { state: 'thinking', label: 'Mara is thinking' },
-      { state: 'reading', label: 'Jonah is reading' },
-      { state: 'reading', label: 'Theo is reading main/index.ts' },
-      { state: 'typing', label: 'Sam and Priya are typing' },
+      { state: 'thinking', label: 'Mara is thinking', ids: ['skeptic'] },
+      { state: 'reading', label: 'Jonah is reading', ids: ['pm'] },
+      { state: 'reading', label: 'Theo is reading main/index.ts', ids: ['builder'] },
+      { state: 'typing', label: 'Sam and Priya are typing', ids: ['ops', 'advocate'] },
     ])
     expect(
       presenceLabel(

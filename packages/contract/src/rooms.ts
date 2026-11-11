@@ -292,12 +292,14 @@ export const RoomPresenceSchema = z.object({
 export type RoomPresence = z.infer<typeof RoomPresenceSchema>
 
 /**
- * idle (chat rooms): created, nothing has run; Isaac's first message starts it.
+ * idle (chat rooms): nobody is speaking. A new room is idle until Isaac's first message; each of
+ * his messages starts a burst of turns (open) that ends idle again.
  * open: agents talk. wrapping: the soft clock passed, everyone is told to close. resolved: the
  * summary is pinned and saved. failed: nobody could talk (omp missing, every agent dead).
- * paused (council rooms): no seat runs; the room's state is on disk (`<workdir>/room.json`) and
- * Resume continues at the next round with the same seats. Isaac paused it at a round boundary, or
- * Relay quit while it ran (that round runs again).
+ * paused: no seat runs; the room's state is on disk (`<workdir>/room.json`) and Resume continues
+ * with the same seats. Council: Isaac paused it at a round boundary, or Relay quit while it ran
+ * (that round runs again). Chat: Isaac paused it, the next turn would cross the budget, or Relay
+ * quit mid-burst (the burst goes on from the turn it was in).
  */
 export const RoomPhaseSchema = z.enum(['idle', 'open', 'wrapping', 'resolved', 'failed', 'paused'])
 export type RoomPhase = z.infer<typeof RoomPhaseSchema>
@@ -348,8 +350,12 @@ export const roomIsLive = (phase: RoomPhase): boolean => phase === 'open' || pha
 export const roomActivity = (room: Pick<Room, 'startedAt' | 'messages'>): number =>
   Math.max(room.startedAt, room.messages[room.messages.length - 1]?.ts ?? 0)
 
-/** What a room's menu may do to it now: Pause while a council room runs, Resume once it stopped. */
-export function roomRunAction(room: Pick<Room, 'phase' | 'council'>): 'pause' | 'resume' | null {
+/** What a room's menu may do to it now: Pause while it runs, Resume once it stopped. */
+export function roomRunAction(
+  room: Pick<Room, 'phase' | 'council' | 'kind'>,
+): 'pause' | 'resume' | null {
+  if (room.kind === 'chat')
+    return room.phase === 'open' ? 'pause' : room.phase === 'paused' ? 'resume' : null
   const council = room.council
   if (!council) return null
   if (roomIsLive(room.phase))
@@ -424,20 +430,25 @@ export const roomsInvoke = {
     input: z.object({ roomId, askId: z.string().min(1).max(64), allow: z.boolean() }).strict(),
     output: z.object({ answered: z.literal(true) }),
   },
-  /** Isaac posts; the text is appended at once and joins the next round's delta (a paused room's next round once resumed). */
+  /**
+   * Isaac posts; the text is appended at once. Council: it joins the next round's delta (a paused
+   * room's next round once resumed). Chat: it starts a burst (mentioned members first; an @mentioned
+   * assistant not in the room joins as a guest), or redirects the running one after its turn.
+   */
   'rooms.post': {
     input: z.object({ roomId, text: z.string().min(1).max(4000) }).strict(),
     output: z.object({ posted: z.literal(true) }),
   },
-  /** Council: stop at the end of the round the room is in; seats end, the state stays on disk. */
+  /** Council: stop at the end of the round the room is in. Chat: stop the turn now. Seats end, the state stays on disk. */
   'rooms.pause': {
     input: z.object({ roomId }).strict(),
     output: z.object({ pausing: z.literal(true) }),
   },
   /**
    * Council: run a paused, wrapped or failed room on from its next round with the same seats
-   * (their harness sessions resume). Resolves with the cap in force (raised when the spend was
-   * already at the pause line).
+   * (their harness sessions resume). Chat: go on with the burst from the turn it stopped at.
+   * Resolves with the cap in force (council: raised when the spend was already at the pause
+   * line; chat: the setup's budget, which Members raises).
    */
   'rooms.resume': {
     input: z.object({ roomId }).strict(),

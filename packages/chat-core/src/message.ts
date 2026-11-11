@@ -129,6 +129,7 @@ export const ModelInfoSchema = z.object({
   contextWindow: z.number().nullable(),
   images: z.boolean(),
   levels: z.array(z.string()),
+  price: z.object({ input: z.number(), output: z.number(), cached: z.number() }).optional(),
 })
 export type ModelInfo = z.infer<typeof ModelInfoSchema>
 

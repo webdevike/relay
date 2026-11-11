@@ -19,6 +19,7 @@ import {
   QUERY_FEATURE,
   ROOMS_FEATURE,
   ROOMS_RESUME_FEATURE,
+  ROOMS_CHAT_FEATURE,
   STATS_FEATURE,
   toHex,
   type AgentApproval,
@@ -971,7 +972,7 @@ export class ClientSession {
         this.deps.rooms?.result(this.sink, message.rid, message.result);
         break;
       case "rooms.get":
-        this.deps.rooms?.get(this.sink);
+        this.deps.rooms?.get(this.sink, message.chat === true);
         break;
       case "rooms.cmd":
         this.deps.rooms?.cmd(this.sink, message.rid, message.cmd);
@@ -1293,7 +1294,7 @@ export class ClientSession {
       ...(this.deps.bookmarks === null ? [] : [BOOKMARKS_FEATURE]),
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
       ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
-      ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE]),
+      ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE]),
     ];
     this.sink.send({
       t: "welcome",

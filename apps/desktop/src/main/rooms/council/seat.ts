@@ -1,6 +1,7 @@
 import * as fs from 'node:fs'
 import type { CouncilHarness, CouncilModelKey, CouncilThinking } from '@relay/protocol'
 import { COUNCIL_HARNESS_LABEL, COUNCIL_MODELS } from '@relay/protocol'
+import type { OmpThinking } from '@evaos/contract'
 import { findClaude, findCodex, isExecutable, seatPath } from './bins'
 import { installGuard } from './guard'
 import { startClaudeSeat } from './seat-claude'
@@ -8,13 +9,15 @@ import { startCodexSeat } from './seat-codex'
 import { startOmpSeat } from './seat-omp'
 import type { SeatSession } from './state'
 
-/** One council seat to start: a model in a harness, working in its own worktree. */
+/** One seat to start: a model in a harness, working in its own worktree or the room's workdir. */
 export interface SeatSpec {
   roomId: string
   seatId: string
   harness: CouncilHarness
-  model: CouncilModelKey
-  thinking: CouncilThinking
+  /** A council model (any harness), or an exact omp `provider/id` (chat room members; omp only). */
+  model: CouncilModelKey | { omp: string }
+  /** omp takes every level; a council seat in Claude Code or Codex uses a CouncilThinking. */
+  thinking: OmpThinking
   systemPrompt: string
   /** The seat's worktree. */
   cwd: string
@@ -33,6 +36,14 @@ export interface SeatSpec {
   /** Claude Code `--max-budget-usd`. */
   budgetUsd?: number
 }
+
+/** A council seat: a council model at a council level, which every harness runs. */
+export type CouncilSeatSpec = Omit<SeatSpec, 'model' | 'thinking'> & {
+  model: CouncilModelKey
+  thinking: CouncilThinking
+}
+
+const isCouncilSpec = (spec: SeatSpec): spec is CouncilSeatSpec => typeof spec.model === 'string'
 
 export interface SeatPresence {
   state: 'thinking' | 'reading' | 'typing'
@@ -111,7 +122,6 @@ export function createSeatLauncher(opts: {
         path: pathEnv,
         scratch: spec.scratch,
       })
-      const model = COUNCIL_MODELS[spec.model]
       const label = COUNCIL_HARNESS_LABEL[spec.harness]
       const ompOpts = {
         ompBin: opts.ompBin,
@@ -120,26 +130,28 @@ export function createSeatLauncher(opts: {
         log,
         ...(opts.ompModel ? { model: opts.ompModel } : {}),
       }
-      const omp = (why: string): Promise<SeatHandle> => {
-        const fallback = `${why}, so ${model.short} runs in omp`
-        log(`seat ${spec.seatId}: ${fallback}`)
-        return startOmpSeat(spec, ompOpts, fallback)
-      }
       const native = async (
+        council: CouncilSeatSpec,
         provider: 'anthropic' | 'openai',
         bin: string | null,
-        run: (bin: string, spec: SeatSpec) => Promise<SeatHandle>,
+        run: (bin: string, spec: CouncilSeatSpec) => Promise<SeatHandle>,
       ): Promise<SeatHandle> => {
+        const model = COUNCIL_MODELS[council.model]
+        const omp = (why: string): Promise<SeatHandle> => {
+          const fallback = `${why}, so ${model.short} runs in omp`
+          log(`seat ${spec.seatId}: ${fallback}`)
+          return startOmpSeat(spec, ompOpts, fallback)
+        }
         if (model.provider !== provider) return omp(`${label} does not run ${model.short}`)
         if (bin === null || !isExecutable(bin)) return omp(`${label} is not installed`)
         try {
-          return await run(bin, spec)
+          return await run(bin, council)
         } catch (e) {
           const why = (e instanceof Error ? e.message : String(e)).split('\n')[0]!.slice(0, 120)
-          if (spec.resume) {
+          if (council.resume) {
             // A session the harness no longer has: start the same seat fresh before giving up on it.
             log(`seat ${spec.seatId}: could not resume (${why}), starting fresh`)
-            const { resume: _gone, ...fresh } = spec
+            const { resume: _gone, ...fresh } = council
             try {
               return await run(bin, fresh)
             } catch {
@@ -151,13 +163,13 @@ export function createSeatLauncher(opts: {
       }
       try {
         const handle =
-          opts.ompModel !== undefined || spec.harness === 'omp'
+          opts.ompModel !== undefined || spec.harness === 'omp' || !isCouncilSpec(spec)
             ? await startOmpSeat(spec, ompOpts)
             : spec.harness === 'claude-code'
-              ? await native('anthropic', opts.claudeBin ?? findClaude(env), (claudeBin, s) =>
+              ? await native(spec, 'anthropic', opts.claudeBin ?? findClaude(env), (claudeBin, s) =>
                   startClaudeSeat(s, { claudeBin, guard, env, log }),
                 )
-              : await native('openai', opts.codexBin ?? findCodex(env), (codexBin, s) =>
+              : await native(spec, 'openai', opts.codexBin ?? findCodex(env), (codexBin, s) =>
                   startCodexSeat(s, { codexBin, guard, env, log }),
                 )
         return {

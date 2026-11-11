@@ -31,12 +31,19 @@ export const ROOMS_FEATURE = "rooms";
  * host sends paused rooms as `resolved`.
  */
 export const ROOMS_RESUME_FEATURE = "rooms.resume";
+/**
+ * A host that relays chat rooms (Assistants > Rooms on the desktop: `kind: "chat"`, the `idle`
+ * phase, members with their own model and role). A desktop sends them only to such a host (an
+ * older one drops the socket over the `idle` phase); the host sends them only to phones that ask
+ * with `rooms.get {chat: true}`, so a phone that cannot draw them never sees one.
+ */
+export const ROOMS_CHAT_FEATURE = "rooms.chat";
 /** Largest room frame the host relays, in bytes of JSON. */
 export const MAX_ROOM_BYTES = 2_000_000;
 export const MAX_ROOMS = 24;
 
 export type RoomStage = "brief" | "contract" | "plan" | "build" | "look" | "integrate" | "critique" | "judge" | "converge" | "deliver";
-export type RoomWirePhase = "open" | "wrapping" | "resolved" | "failed" | "paused";
+export type RoomWirePhase = "idle" | "open" | "wrapping" | "resolved" | "failed" | "paused";
 
 export interface RoomWireRender { path: string; caption: string }
 export interface RoomWireRoutingEntry {
@@ -83,19 +90,34 @@ export interface RoomWireCouncil {
   spend: { usd: number; estimate: number; cap: number; byAgent: Record<string, number> };
   minutesEstimate: number; paused?: boolean | undefined; pauseRequested?: boolean | undefined; routingFile?: string | undefined;
 }
+/** A chat room's member: an assistant (`assistant`, its registry id) or a custom agent, on an exact omp model. */
+export interface RoomWireMember {
+  id: string; assistant?: string | undefined; name: string; model: string; thinking: string; role: string;
+  instructions?: string | undefined; guest?: boolean | undefined;
+}
+export interface RoomWireChat {
+  setup: {
+    title?: string | undefined; template: string; members: RoomWireMember[]; effort: number; budget: number;
+    folder?: string | undefined; refs: string[]; draft?: string | undefined;
+  };
+  rev: number;
+  /** List price so far: the room's total and each member's. */
+  spend: { usd: number; byMember: Record<string, number> };
+}
 export interface RoomWire {
-  id: string; title: string; prompt: string; agents: RoomWireAgent[]; messages: RoomWireMessage[];
+  id: string; kind?: "council" | "chat" | undefined; title: string; prompt: string; agents: RoomWireAgent[]; messages: RoomWireMessage[];
   presence: Record<string, { state: "thinking" | "reading" | "typing"; detail?: string | undefined; since: number }>;
   phase: RoomWirePhase; rounds: number; judge?: { verdict: "continue" | "converged"; note: string; at: number } | undefined;
   error?: string | undefined; startedAt: number; resolvedAt?: number | undefined; file?: string | undefined;
   council?: RoomWireCouncil | undefined;
+  chat?: RoomWireChat | undefined;
 }
 
 const nonEmpty = z.string().min(1);
 const roomId = z.string().min(1).max(64);
 /** A room on the wire: checked for its id and phase, the rest passes through (see RoomWire). */
 export const RoomWireSchema = z
-  .object({ id: roomId, title: z.string(), phase: z.enum(["open", "wrapping", "resolved", "failed", "paused"]), startedAt: z.number() })
+  .object({ id: roomId, title: z.string(), phase: z.enum(["idle", "open", "wrapping", "resolved", "failed", "paused"]), startedAt: z.number() })
   .passthrough();
 
 export const RoomsRid = z.string().min(1).max(64);
@@ -141,7 +163,8 @@ export const RoomsClientFrames = [
   z.object({ t: z.literal("rooms.sync"), rooms: z.array(RoomWireSchema).max(MAX_ROOMS) }),
   z.object({ t: z.literal("rooms.upsert"), room: RoomWireSchema }),
   z.object({ t: z.literal("rooms.res"), rid: RoomsRid, result: RoomsResult }),
-  z.object({ t: z.literal("rooms.get") }),
+  /** `chat`: the phone draws chat rooms too (ROOMS_CHAT_FEATURE); without it the host leaves them out. */
+  z.object({ t: z.literal("rooms.get"), chat: z.boolean().optional() }),
   z.object({ t: z.literal("rooms.cmd"), rid: RoomsRid, cmd: RoomsCmd }),
 ] as const;
 

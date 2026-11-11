@@ -21,7 +21,8 @@ type Row = { kind: 'agent'; a: Assistant } | { kind: 'room'; r: Room } | { kind:
 
 /** What a room row says on its right: Idle before anything ran, Paused, a green dot while live. */
 function RoomTag({ room }: { room: Room }) {
-  if (room.phase === 'idle') return <small className="eva-room-tag">Idle</small>
+  if (room.phase === 'idle')
+    return room.messages.length === 0 ? <small className="eva-room-tag">Idle</small> : null
   if (room.phase === 'paused') return <small className="eva-room-tag">Paused</small>
   if (roomIsLive(room.phase)) return <span className="eva-room-live" aria-label="Live" />
   return null

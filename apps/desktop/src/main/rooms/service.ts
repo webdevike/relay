@@ -28,9 +28,12 @@ export interface RoomsService {
   react(roomId: string, messageId: string, emoji: string): void
   /** Council: resolve now. */
   stop(roomId: string): Promise<void>
-  /** Council: stop at the end of the round it is in; the state stays on disk. */
+  /** Council: stop at the end of the round it is in. Chat: stop the turn now. The state stays on disk. */
   pause(roomId: string): void
-  /** Council: run a paused, wrapped or failed room on from its next round; resolves with the cap. */
+  /**
+   * Council: run a paused, wrapped or failed room on from its next round. Chat: go on with the
+   * burst (refused while its next turn would cross the budget). Resolves with the cap.
+   */
   resume(roomId: string): Promise<number>
   /** One notch up; resolves with the new effort. */
   raise(roomId: string): Promise<number>

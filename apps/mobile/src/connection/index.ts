@@ -11,6 +11,7 @@ import {
   encode,
   parseServerMessage,
   BOOKMARKS_FEATURE,
+  ROOMS_CHAT_FEATURE,
   ROOMS_FEATURE,
   reactionExcerpt,
   WS_PATH,
@@ -271,8 +272,9 @@ socket.onMessage = (data) => {
       socket.send(encode(frame));
     // Studio jobs ran on while away; the host sends the whole state again.
     socket.send(encode({ t: "studio.list" }));
-    // Rooms ran on while away; only a host that relays them is asked.
-    if (message.features?.includes(ROOMS_FEATURE) === true) socket.send(encode({ t: "rooms.get" }));
+    // Rooms ran on while away; only a host that relays them is asked (chat rooms too when it relays them).
+    if (message.features?.includes(ROOMS_FEATURE) === true)
+      socket.send(encode({ t: "rooms.get", ...(message.features.includes(ROOMS_CHAT_FEATURE) ? { chat: true } : {}) }));
     // The Reviews queue moved while away; the host answers with its last read at once.
     void sendReviews({ kind: "queue", refresh: false });
     // Recordings started, ended or moved on while away.
@@ -812,7 +814,7 @@ export function studioRequest(op: StudioOp): Promise<StudioResult> {
 /** Ephemeral; the answer lands in `useRoomsStore()`. Also sent on every welcome. Nothing goes to a host without Rooms. */
 export function requestRooms(): void {
   if (useConnectionStore.getState().status !== "connected" || useRoomsStore.getState().supported !== true) return;
-  socket.send(encode({ t: "rooms.get" }));
+  socket.send(encode({ t: "rooms.get", ...(useRoomsStore.getState().chats ? { chat: true } : {}) }));
 }
 
 /**

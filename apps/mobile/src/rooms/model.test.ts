@@ -34,6 +34,40 @@ describe("createCommand", () => {
   });
 });
 
+describe("chat rooms", () => {
+  const chat = (phase: RoomWire["phase"], messages = 0): RoomWire => ({
+    id: "c1",
+    kind: "chat",
+    title: "Store choice",
+    prompt: "",
+    agents: [],
+    messages: Array.from({ length: messages }, (_, i) => ({ id: `m${String(i)}`, author: "isaac", text: "hi", ts: 1, reactions: [], kind: "message" as const, mentions: [] })),
+    presence: {},
+    phase,
+    rounds: 0,
+    startedAt: 1,
+    chat: {
+      setup: { template: "blank", members: [{ id: "nova", name: "Nova", model: "a/b", thinking: "high", role: "Judge" }], effort: 1, budget: 3, refs: [] },
+      rev: 0,
+      spend: { usd: 0.42, byMember: { nova: 0.42 } },
+    },
+  });
+
+  it("says idle, who is waiting, or talking, with the spend against the budget", () => {
+    expect(roomStatus(chat("idle"))).toBe("Idle");
+    expect(roomStatus(chat("idle", 2))).toBe("Waiting for you · $0.42 of $3.00");
+    expect(roomStatus(chat("open", 2))).toBe("Talking · $0.42 of $3.00");
+    expect(roomStatus(chat("paused", 2))).toBe("Paused");
+  });
+
+  it("pauses while members talk and resumes a paused room, on a host that relays both", () => {
+    expect(runControl(chat("open"), true)).toEqual({ op: "pause", label: "Pause", busy: false });
+    expect(runControl(chat("paused"), true)).toEqual({ op: "resume", label: "Resume (budget $3.00)", busy: false });
+    expect(runControl(chat("idle"), true)).toBeNull();
+    expect(runControl(chat("open"), false)).toBeNull();
+  });
+});
+
 describe("spendView", () => {
   it("turns amber at 80 % of the cap, not before", () => {
     const council = councilOfRoom(runningRoom());

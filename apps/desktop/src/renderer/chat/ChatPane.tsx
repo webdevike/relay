@@ -433,7 +433,13 @@ function ChatView({
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
       <StatusStrip paneId={paneId} />
       {current === undefined ? (
-        <Composer ref={composer} paneId={paneId} disabled={!pane} draftKey={draftKey} />
+        <Composer
+          ref={composer}
+          paneId={paneId}
+          disabled={!pane}
+          draftKey={draftKey}
+          agent={agent}
+        />
       ) : null}
     </section>
   )

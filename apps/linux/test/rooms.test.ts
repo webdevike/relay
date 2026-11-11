@@ -76,6 +76,20 @@ describe("rooms relay", () => {
     expect(s.book.received).toEqual([]);
   });
 
+  it("hands chat rooms (idle ones too) only to phones that asked for them", () => {
+    const s = setup();
+    const newPhone = new Sink();
+    const chat = room("c1", 2, { kind: "chat", phase: "idle" });
+    s.relay.sync(s.mini, [room("r1", 1), chat]);
+    s.relay.get(s.phone);
+    s.relay.get(newPhone, true);
+    expect(s.phone.last()).toEqual({ t: "rooms.state", rooms: [room("r1", 1)] });
+    expect(newPhone.last()).toEqual({ t: "rooms.state", rooms: [chat, room("r1", 1)] });
+    s.relay.upsert(s.mini, { ...chat, phase: "open" });
+    expect(s.phone.received).toHaveLength(1);
+    expect(newPhone.last()).toMatchObject({ t: "rooms.room", room: { id: "c1", phase: "open" } });
+  });
+
   it("routes a command to the owning desktop and answers with the phone's rid", () => {
     const s = setup();
     s.relay.sync(s.mini, [room("r0", 1)]);

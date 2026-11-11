@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react'
-import { ActionIcon, Button } from '@mantine/core'
+import { ActionIcon, Button, Progress } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
   IconCopy,
@@ -223,28 +223,44 @@ export function RoomHeaderTitle({ id }: { id: string }) {
   )
 }
 
-/** The room header's "..." button: the room's menu. */
+/** The room header's right side: a chat room's spend against its budget, then "...": the room's menu. */
 export function RoomHeaderMenu({ id }: { id: string }) {
   const room = useRooms((s) => s.rooms[id] ?? null)
   const [opened, setOpened] = useState(false)
   if (!room) return null
+  const chat = room.chat
   return (
-    <RoomMenu
-      room={room}
-      opened={opened}
-      onChange={setOpened}
-      renameIn="header"
-      target={
-        <ActionIcon
-          variant="subtle"
-          className="eva-header-btn"
-          aria-label="Room options"
-          title="Room options"
-          data-testid="room-menu-button"
-        >
-          <IconDots size={16} stroke={1.5} />
-        </ActionIcon>
-      }
-    />
+    <>
+      {chat ? (
+        <span className="eva-room-spend" data-testid="room-spend">
+          <span>
+            ${chat.spend.usd.toFixed(2)} / ${chat.setup.budget.toFixed(2)}
+          </span>
+          <Progress
+            className="eva-room-spend-bar"
+            size="xs"
+            value={Math.min(100, (chat.spend.usd / chat.setup.budget) * 100)}
+            aria-label="Spent of the budget"
+          />
+        </span>
+      ) : null}
+      <RoomMenu
+        room={room}
+        opened={opened}
+        onChange={setOpened}
+        renameIn="header"
+        target={
+          <ActionIcon
+            variant="subtle"
+            className="eva-header-btn"
+            aria-label="Room options"
+            title="Room options"
+            data-testid="room-menu-button"
+          >
+            <IconDots size={16} stroke={1.5} />
+          </ActionIcon>
+        }
+      />
+    </>
   )
 }

@@ -32,6 +32,10 @@ describe("welcome", () => {
     // Pause / resume ride on Rooms: the resume feature alone sends nothing.
     route(welcome(["query", "rooms.resume"]));
     expect(useRoomsStore.getState()).toMatchObject({ supported: false, resumes: false });
+    route(welcome(["rooms", "rooms.resume", "rooms.chat"]));
+    expect(useRoomsStore.getState()).toMatchObject({ supported: true, resumes: true, chats: true });
+    route(welcome(["rooms"]));
+    expect(useRoomsStore.getState()).toMatchObject({ chats: false });
   });
 });
 

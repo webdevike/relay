@@ -1,22 +1,19 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
-import type { ChatRoomSetup, Room } from '@evaos/contract'
-import { ChatRoom } from './chat-room'
-import { readRoomStates } from './council/state'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ModelInfo } from '@evaos/chat-core/launch'
+import type { ChatRoomMember, ChatRoomSetup, Room } from '@evaos/contract'
+import { ChatRoom, type ChatRoomDeps, type RoomAssistant } from './chat-room'
+import { readRoomStates, type ChatRoomState } from './council/state'
+import type { SeatHandle, SeatLauncher, SeatSpec, SeatTurnInput } from './council/seat'
+
+const OPUS = 'anthropic/claude-opus-5-5'
 
 const SETUP: ChatRoomSetup = {
   template: 'debate',
   members: [
-    {
-      id: 'nova',
-      assistant: 'nova',
-      name: 'Nova',
-      model: 'anthropic/claude-opus-5-5',
-      thinking: 'high',
-      role: 'Judge',
-    },
+    { id: 'nova', assistant: 'nova', name: 'Nova', model: OPUS, thinking: 'high', role: 'Judge' },
     {
       id: 'builder',
       name: 'Builder',
@@ -32,55 +29,152 @@ const SETUP: ChatRoomSetup = {
   draft: 'Start with the weapons.',
 }
 
+const member = (id: string, role: string): ChatRoomMember => ({
+  id,
+  name: id[0]!.toUpperCase() + id.slice(1),
+  model: OPUS,
+  thinking: 'medium',
+  role,
+})
+
+/** $0.02 a turn at this price: 1000 tokens in at $10/M, 100 out at $100/M. A first turn is guessed at $0.16. */
+const CATALOG: ModelInfo[] = [
+  {
+    provider: 'anthropic',
+    id: 'claude-opus-5-5',
+    name: 'Opus 5.5',
+    contextWindow: 200000,
+    images: true,
+    levels: ['off', 'low', 'medium', 'high'],
+    price: { input: 10, output: 100, cached: 1 },
+  },
+]
+
+const abortError = (): Error => Object.assign(new Error('turn aborted'), { name: 'AbortError' })
+
+/** Seats that answer from a script; `hold(seat)` keeps that seat's turns waiting until `release()`. */
+class FakeLauncher implements SeatLauncher {
+  specs: SeatSpec[] = []
+  turns: { seat: string; prompt: string }[] = []
+  stopped: string[] = []
+  script: Record<string, string[]> = {}
+  private gate: { seat: string; done: PromiseWithResolvers<void> } | null = null
+
+  hold(seat: string): void {
+    this.gate = { seat, done: Promise.withResolvers<void>() }
+  }
+
+  release(): void {
+    this.gate?.done.resolve()
+    this.gate = null
+  }
+
+  async start(spec: SeatSpec): Promise<SeatHandle> {
+    this.specs.push(spec)
+    fs.mkdirSync(spec.sessionDir, { recursive: true })
+    const file = path.join(spec.sessionDir, `${spec.seatId}.jsonl`)
+    const resumed = spec.resume?.harness === 'omp' && fs.existsSync(spec.resume.file)
+    let ran = resumed
+    return {
+      harness: 'omp',
+      resumed,
+      session: () => (ran ? { harness: 'omp', file } : null),
+      turn: async (input: SeatTurnInput) => {
+        this.turns.push({ seat: spec.seatId, prompt: input.prompt })
+        input.onPartial?.('…')
+        const gate = this.gate
+        if (gate?.seat === spec.seatId) {
+          await new Promise<void>((resolve, reject) => {
+            input.signal?.addEventListener('abort', () => reject(abortError()), { once: true })
+            void gate.done.promise.then(resolve)
+          })
+        }
+        fs.writeFileSync(file, '{}\n')
+        ran = true
+        const said = this.turns.filter((t) => t.seat === spec.seatId).length
+        const text = this.script[spec.seatId]?.[said - 1] ?? `${spec.seatId} says ${said}`
+        return {
+          text,
+          usage: { input: 1000, output: 100, cached: 0 },
+          images: [],
+          toolCalls: 0,
+          ms: 1,
+        }
+      },
+      stop: async () => {
+        this.stopped.push(spec.seatId)
+      },
+      onExit: () => undefined,
+    }
+  }
+}
+
 const dirs: string[] = []
 afterEach(() => {
   for (const d of dirs.splice(0)) fs.rmSync(d, { recursive: true, force: true })
 })
 
-function deps() {
-  const roomsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-rooms-'))
-  dirs.push(roomsDir)
-  const changes: Room[] = []
-  return { roomsDir, changes, onChange: (r: Room) => changes.push(r), log: () => undefined }
+interface TestDeps extends ChatRoomDeps {
+  changes: Room[]
+  launcher: FakeLauncher
+  roomsDir: string
 }
 
+function deps(assistants: RoomAssistant[] = []): TestDeps {
+  const evaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-rooms-'))
+  dirs.push(evaRoot)
+  fs.mkdirSync(path.join(evaRoot, 'work', 'src'), { recursive: true })
+  fs.writeFileSync(path.join(evaRoot, 'work', 'src', 'notes.md'), 'hi\n')
+  const changes: Room[] = []
+  const launcher = new FakeLauncher()
+  const d: ChatRoomDeps = {
+    evaRoot,
+    onChange: (r: Room) => changes.push(r),
+    log: () => undefined,
+    launcher,
+    catalog: async () => CATALOG,
+    assistants: () => assistants,
+    asksRoot: path.join(evaRoot, 'asks'),
+  }
+  return { ...d, changes, launcher, roomsDir: path.join(evaRoot, 'work', 'rooms') }
+}
+
+const states = (roomsDir: string): ChatRoomState[] =>
+  readRoomStates(roomsDir, () => undefined).filter((s): s is ChatRoomState => 'kind' in s)
+
 /** What a new app run lists from disk. */
-const reload = (roomsDir: string): Room[] =>
-  readRoomStates(roomsDir, () => undefined).flatMap((s) =>
-    'kind' in s
-      ? [ChatRoom.restore(s, { roomsDir, onChange: () => undefined, log: () => undefined }).room]
-      : [],
-  )
+const reload = (d: TestDeps): ChatRoom[] =>
+  states(d.roomsDir).map((s) => ChatRoom.restore(s, { ...d, onChange: () => undefined }))
+
+const said = (room: Room): string[][] =>
+  room.messages.filter((m) => m.author !== 'isaac').map((m) => [m.author, m.text])
 
 describe('ChatRoom', () => {
   it('is saved idle at once and comes back after a restart with the same setup', () => {
     const d = deps()
     const r = ChatRoom.create('room-a', SETUP, 1000, d)
     expect(r.room).toMatchObject({ kind: 'chat', phase: 'idle', title: 'New room', messages: [] })
-    const [back] = reload(d.roomsDir)
-    expect(back).toMatchObject({ id: 'room-a', kind: 'chat', phase: 'idle', startedAt: 1000 })
-    expect(back!.chat).toEqual({ setup: SETUP, rev: 0 })
-    expect(back!.agents.map((a) => [a.id, a.model, a.role])).toEqual([
-      ['nova', 'anthropic/claude-opus-5-5', 'Judge'],
+    const [back] = reload(d)
+    expect(back!.room).toMatchObject({ id: 'room-a', kind: 'chat', phase: 'idle', startedAt: 1000 })
+    expect(back!.room.chat).toEqual({ setup: SETUP, rev: 0, spend: { usd: 0, byMember: {} } })
+    expect(back!.room.agents.map((a) => [a.id, a.model, a.role])).toEqual([
+      ['nova', OPUS, 'Judge'],
       ['builder', 'openai-codex/gpt-6-sol', 'Argue for'],
     ])
   })
 
-  it("Isaac's first message is kept and names the room; the room stays idle until the engine runs", () => {
+  it("Isaac's first message is kept and names the room", async () => {
     const d = deps()
     const r = ChatRoom.create('room-b', SETUP, 1000, d)
     r.post('Should @Nova pick Postgres?\nDetails follow.')
-    r.post('And a second thought.')
     expect(r.room.title).toBe('Should @Nova pick Postgres?')
-    expect(r.room.phase).toBe('idle')
     expect(r.room.messages.map((m) => [m.id, m.author, m.mentions])).toEqual([
       ['m1', 'isaac', ['nova']],
-      ['m2', 'isaac', []],
     ])
-    const [back] = reload(d.roomsDir)
-    expect(back!.title).toBe('Should @Nova pick Postgres?')
-    expect(back!.chat!.setup.title).toBe('Should @Nova pick Postgres?')
-    expect(back!.messages).toHaveLength(2)
+    await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
+    const [back] = reload(d)
+    expect(back!.room.chat!.setup.title).toBe('Should @Nova pick Postgres?')
+    await r.destroy()
   })
 
   it('rename and update are saved; members are replaced whole and null clears a field', () => {
@@ -89,14 +183,167 @@ describe('ChatRoom', () => {
     r.rename('Boxhead weapons')
     const rev = r.update({ members: [SETUP.members[1]!], folder: null, budget: 5 })
     expect(rev).toBe(1)
-    const [back] = reload(d.roomsDir)
-    expect(back!.title).toBe('Boxhead weapons')
-    expect(back!.chat!.rev).toBe(1)
-    expect(back!.chat!.setup.members.map((m) => m.id)).toEqual(['builder'])
-    expect(back!.chat!.setup.folder).toBeUndefined()
-    expect(back!.chat!.setup.budget).toBe(5)
-    expect(back!.agents.map((a) => a.id)).toEqual(['builder'])
+    const [back] = reload(d)
+    expect(back!.room.title).toBe('Boxhead weapons')
+    expect(back!.room.chat!.rev).toBe(1)
+    expect(back!.room.chat!.setup.members.map((m) => m.id)).toEqual(['builder'])
+    expect(back!.room.chat!.setup.folder).toBeUndefined()
+    expect(back!.room.chat!.setup.budget).toBe(5)
+    expect(back!.room.agents.map((a) => a.id)).toEqual(['builder'])
     expect(() => r.update({ members: [] })).toThrow()
     expect(d.changes.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('runs a burst: the mentioned member first, a handoff by @, the judge last, bounded by effort', async () => {
+    const d = deps()
+    const setup: ChatRoomSetup = {
+      ...SETUP,
+      members: [
+        member('astra', 'Argue for'),
+        member('polaris', 'Argue against'),
+        member('nova', 'Judge'),
+      ],
+      effort: 1,
+    }
+    d.launcher.script = {
+      polaris: ['Counterpoint: one Mac. @Astra what is the write rate?'],
+      astra: ['About 40 writes a second.'],
+      nova: ['Calling it: SQLite now.'],
+    }
+    const r = ChatRoom.create('room-d', setup, 1000, d)
+    r.post('@Polaris should we move to Postgres?')
+    await vi.waitFor(() => expect(said(r.room)).toHaveLength(3))
+    await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
+    expect(said(r.room)).toEqual([
+      ['polaris', 'Counterpoint: one Mac. @Astra what is the write rate?'],
+      ['astra', 'About 40 writes a second.'],
+      ['nova', 'Calling it: SQLite now.'],
+    ])
+    // Each seat sees what it has not seen: the judge gets the whole thread, Astra Polaris's handoff.
+    const prompt = (seat: string): string => d.launcher.turns.find((t) => t.seat === seat)!.prompt
+    expect(prompt('astra')).toContain('Polaris: Counterpoint')
+    expect(prompt('nova')).toContain('Astra: About 40')
+    // Exact model and thinking, cwd = the room's main/ with the folder copied in.
+    const spec = d.launcher.specs.find((s) => s.seatId === 'astra')!
+    expect(spec).toMatchObject({ harness: 'omp', model: { omp: OPUS }, thinking: 'medium' })
+    expect(spec.cwd).toBe(path.join(d.roomsDir, 'room-d', 'main'))
+    expect(fs.readFileSync(path.join(spec.cwd, 'notes.md'), 'utf8')).toBe('hi\n')
+    expect(spec.systemPrompt).toContain('- Polaris (Argue against)')
+    expect(spec.systemPrompt).toContain("The room's question: @Polaris should we move to Postgres?")
+    // $0.02 a turn, per member and in total, on disk.
+    const spend = states(d.roomsDir)[0]!.room.chat!.spend
+    expect(spend.usd).toBeCloseTo(0.06)
+    expect(spend.byMember.astra).toBeCloseTo(0.02)
+    await r.destroy()
+  })
+
+  it('never starts a turn whose estimate would cross the budget; Resume goes on once it is raised', async () => {
+    const d = deps()
+    // First turn guessed at $0.16, costs $0.02: Astra fits $0.17, Polaris's first turn does not.
+    const setup: ChatRoomSetup = {
+      ...SETUP,
+      members: [member('astra', 'Argue for'), member('polaris', 'Argue against')],
+      effort: 1,
+      budget: 0.17,
+    }
+    const r = ChatRoom.create('room-e', setup, 1000, d)
+    r.post('Go.')
+    await vi.waitFor(() => expect(r.room.phase).toBe('paused'))
+    expect(said(r.room).map(([a]) => a)).toEqual(['astra', 'system'])
+    expect(r.room.messages.at(-1)!.text).toContain("Paused before Polaris's turn")
+    expect(r.room.chat!.spend.usd).toBeCloseTo(0.02)
+    expect(d.launcher.turns.map((t) => t.seat)).toEqual(['astra'])
+    await expect(r.resume()).rejects.toThrow(/Raise it in Members/)
+    r.update({ budget: 1 })
+    await r.resume()
+    await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
+    expect(d.launcher.turns.map((t) => t.seat)).toEqual(['astra', 'polaris'])
+    await r.destroy()
+  })
+
+  it('pause stops the turn now; after a restart the room is paused and Resume picks the seat session up', async () => {
+    const d = deps()
+    const setup: ChatRoomSetup = {
+      ...SETUP,
+      members: [member('astra', 'Argue for'), member('polaris', 'Argue against')],
+      effort: 1,
+    }
+    const r = ChatRoom.create('room-f', setup, 1000, d)
+    d.launcher.hold('polaris')
+    r.post('Go.')
+    await vi.waitFor(() => expect(d.launcher.turns).toHaveLength(2))
+    expect(said(r.room).map(([a]) => a)).toEqual(['astra', 'polaris'])
+    expect(r.room.presence.polaris?.state).toBe('typing')
+    r.pause()
+    await vi.waitFor(() => expect(d.launcher.stopped).toContain('astra'))
+    expect(r.room.phase).toBe('paused')
+    // The dropped turn left nothing behind; Polaris is still up next.
+    await vi.waitFor(() => expect(said(r.room).map(([a]) => a)).toEqual(['astra', 'system']))
+    await r.destroy()
+    d.launcher.release()
+
+    const saved = states(d.roomsDir)[0]!
+    expect(saved.room.phase).toBe('paused')
+    expect(saved.burst?.queue).toEqual(['polaris'])
+    expect(saved.seats.astra?.session).toEqual({
+      harness: 'omp',
+      file: path.join(d.roomsDir, 'room-f', 'sessions', 'astra', 'astra.jsonl'),
+    })
+
+    // A new app run: nothing runs until Resume.
+    const launcher2 = new FakeLauncher()
+    const [back] = states(d.roomsDir).map((s) => ChatRoom.restore(s, { ...d, launcher: launcher2 }))
+    expect(back!.room.phase).toBe('paused')
+    expect(launcher2.specs).toHaveLength(0)
+    await back!.resume()
+    await vi.waitFor(() => expect(back!.room.phase).toBe('idle'))
+    expect(launcher2.turns.map((t) => t.seat)).toEqual(['polaris'])
+    await back!.destroy()
+
+    // A room saved mid-burst (Relay was killed) comes back paused too, with a quiet line.
+    const killed = { ...states(d.roomsDir)[0]!, burst: { queue: ['astra'], left: 1, last: null } }
+    killed.room = { ...killed.room, phase: 'open' }
+    const again = ChatRoom.restore(killed, { ...d, launcher: launcher2 })
+    expect(again.room.phase).toBe('paused')
+    expect(again.room.messages.at(-1)!.text).toContain('Paused when Relay quit')
+    // Astra's saved session is resumed when she runs again.
+    await again.resume()
+    await vi.waitFor(() => expect(again.room.phase).toBe('idle'))
+    const astra = launcher2.specs.find((s) => s.seatId === 'astra')!
+    expect(astra.resume).toEqual(saved.seats.astra!.session)
+    await again.destroy()
+  })
+
+  it('an @mentioned assistant who is not in the room joins as a guest and answers first', async () => {
+    const d = deps([
+      { id: 'nova', title: 'Nova', scope: 'Chief of staff' },
+      { id: 'penny', title: 'Penny', scope: 'Errands', model: `${OPUS}:low` },
+    ])
+    const setup: ChatRoomSetup = { ...SETUP, members: [SETUP.members[0]!], effort: 1 }
+    const r = ChatRoom.create('room-g', setup, 1000, d)
+    r.post('@Penny find a 2TB SSD under $200')
+    await vi.waitFor(() => expect(said(r.room)).toHaveLength(3))
+    await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
+    const penny = r.setup.members.find((m) => m.assistant === 'penny')
+    expect(penny).toMatchObject({
+      id: 'penny',
+      name: 'Penny',
+      model: OPUS,
+      thinking: 'low',
+      guest: true,
+    })
+    expect(r.room.chat!.rev).toBe(1)
+    expect(r.room.messages.map((m) => [m.author, m.text.split(' ')[0]])).toEqual([
+      ['isaac', '@Penny'],
+      ['system', 'Penny'],
+      ['penny', 'penny'],
+      ['nova', 'nova'],
+    ])
+    expect(r.room.messages[1]!.text).toBe('Penny joined as a guest')
+    expect(r.room.messages[0]!.mentions).toEqual(['penny'])
+    // Nova's persona comes from the registry.
+    const nova = d.launcher.specs.find((s) => s.seatId === 'nova')!
+    expect(nova.systemPrompt).toContain("Isaac's assistant Nova (Chief of staff)")
+    await r.destroy()
   })
 })

@@ -1,4 +1,12 @@
-import { useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from 'react'
+import {
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from 'react'
 import { slashMatches, type SlashCommand } from '@evaos/chat-core/launch'
 import { ActionIcon, Textarea, Tooltip } from '@mantine/core'
 import {
@@ -18,15 +26,20 @@ import { Toolbar } from './composer/Toolbar'
 import { useLaunchState } from './composer/useLaunchState'
 import { SlashMenu, type MenuRow } from './composer/SlashMenu'
 import { ComputerChip } from './composer/ComputerChip'
+import { MentionBackdrop } from './composer/MentionBackdrop'
 import {
   atQueryAt,
   atRows,
+  chatAgentsAt,
+  insertAgent,
   splitChip,
   withChip,
   type AtLevel,
   type AtRow,
   type ComputerMode,
 } from './composer/at-menu'
+import { useAssistants } from '../assistants/assistants-store'
+import { AgentFace } from '../comments/ThreadParts'
 import {
   ACCEPTED_IMAGE_TYPES,
   MAX_PROMPT_IMAGES,
@@ -86,12 +99,15 @@ export function Composer({
   paneId,
   disabled,
   draftKey = null,
+  agent = null,
   ref,
 }: {
   paneId: string
   disabled: boolean
   /** Where the unsent text is saved (draftKeyFor); null keeps it unsaved. */
   draftKey?: string | null
+  /** The assistant whose thread this is: first in the @ menu's Agents, "in this chat". */
+  agent?: string | null
   ref?: Ref<ComposerHandle>
 }) {
   const loaded = useDraftsLoaded()
@@ -176,7 +192,10 @@ export function Composer({
       : { prefix: '', hits: [] }
   const slashSelected = Math.min(slashIx, Math.max(slash.hits.length - 1, 0))
 
-  // The `@` menu: Computer (opens its modes), then skills. Esc closes it until the text changes.
+  // The `@` menu: the agents, then Computer (opens its modes) and skills. Esc closes it until the
+  // text changes.
+  const registry = useAssistants((s) => s.data?.agents)
+  const agents = useMemo(() => chatAgentsAt(registry ?? [], agent), [registry, agent])
   const [atLevel, setAtLevel] = useState<AtLevel>('top')
   const [atIx, setAtIx] = useState(0)
   const [atHidden, setAtHidden] = useState(false)
@@ -184,7 +203,7 @@ export function Composer({
   useEffect(() => {
     if (!atOpen) setAtLevel('top')
   }, [atOpen])
-  const at: AtRow[] = atQuery && !atHidden ? atRows(commands, atQuery.query, atLevel) : []
+  const at: AtRow[] = atQuery && !atHidden ? atRows(commands, atQuery.query, atLevel, agents) : []
   const atSelected = Math.min(atIx, Math.max(at.length - 1, 0))
   const pendingCaret = useRef<number | null>(null)
   useLayoutEffect(() => {
@@ -202,7 +221,7 @@ export function Composer({
     setAtLevel(to)
     setAtIx(to === 'top' ? 0 : 1)
   }
-  /** Picks a row of the `@` menu: opens a sub-list, sets the chip, or starts the skill. */
+  /** Picks a row of the `@` menu: opens a sub-list, sets the chip, starts the skill or names the agent. */
   const pickAt = (index = atSelected): void => {
     const row = at[index]
     if (!row || !atQuery) return
@@ -211,7 +230,11 @@ export function Composer({
     if (item.kind === 'back') return enter('top')
     const before = text.slice(0, atQuery.start)
     const after = text.slice(caret)
-    if (item.kind === 'computer') {
+    if (item.kind === 'agent') {
+      const next = insertAgent(text, caret, atQuery, item.name)
+      setText(next.text)
+      pendingCaret.current = next.caret
+    } else if (item.kind === 'computer') {
       const joined =
         before.endsWith(' ') && after.startsWith(' ') ? before + after.slice(1) : before + after
       setBox((b) => ({ key: b.key, text: joined, computer: item.mode }))
@@ -230,11 +253,13 @@ export function Composer({
     description: r.description,
     ...(r.section ? { section: r.section } : {}),
     ...(r.children ? { chevron: true } : {}),
-    ...(r.item.kind === 'computer-menu' || r.item.kind === 'computer'
-      ? { icon: <IconDeviceDesktop size={16} /> }
-      : r.item.kind === 'back'
-        ? { icon: <IconChevronLeft size={16} /> }
-        : {}),
+    ...(r.item.kind === 'agent'
+      ? { icon: <AgentFace id={r.item.id} name={r.title} /> }
+      : r.item.kind === 'computer-menu' || r.item.kind === 'computer'
+        ? { icon: <IconDeviceDesktop size={16} /> }
+        : r.item.kind === 'back'
+          ? { icon: <IconChevronLeft size={16} /> }
+          : {}),
   }))
   const slashRowsView: MenuRow[] = slash.hits.map((c) => ({
     key: c.name,
@@ -551,7 +576,7 @@ export function Composer({
                 ? 'Session is not running. Resume it to send a message.'
                 : computer
                   ? 'What should Computer do?'
-                  : 'Ask anything, / for commands, @ for Computer and skills'
+                  : 'Ask anything, / for commands, @ for agents, Computer and skills'
             }
             disabled={disabled}
             value={text}
@@ -643,6 +668,7 @@ export function Composer({
               }
             }}
           />
+          <MentionBackdrop text={text} field={input} people={agents} />
         </div>
         <Toolbar
           paneId={paneId}

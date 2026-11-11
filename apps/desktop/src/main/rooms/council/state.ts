@@ -73,11 +73,32 @@ export const CouncilStateSchema = z.object({
 })
 export type CouncilState = z.infer<typeof CouncilStateSchema>
 
-/** A chat room: the whole room (its setup and messages ride on `room.chat` and `room.messages`). */
+/**
+ * A chat room: the whole room (its setup, spend and messages ride on `room.chat` and
+ * `room.messages`), each member's seat (how many messages it has been shown, its omp session, what
+ * its last turn cost) and the burst in progress, if any.
+ */
 export const ChatRoomStateSchema = z.object({
   version: z.literal(ROOM_STATE_VERSION),
   kind: z.literal('chat'),
   room: RoomSchema,
+  seats: z
+    .record(
+      z.string(),
+      z.object({
+        seen: z.number().int().min(0),
+        session: SeatSessionSchema.optional(),
+        lastCost: z.number().min(0).optional(),
+      }),
+    )
+    .default({}),
+  burst: z
+    .object({
+      queue: z.array(z.string()),
+      left: z.number().int(),
+      last: z.string().nullable(),
+    })
+    .optional(),
 })
 export type ChatRoomState = z.infer<typeof ChatRoomStateSchema>
 

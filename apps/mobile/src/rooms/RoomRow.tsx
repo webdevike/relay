@@ -10,11 +10,12 @@ export function RoomRow({ room, onPress }: { room: RoomWire; onPress: () => void
   const colors = useColors();
   const live = roomLive(room);
   const notch = notchName(room);
-  const spent = room.council?.spend.usd;
+  const tag = notch ?? (room.chat === undefined ? "Debate" : `${String(room.chat.setup.members.length)} members`);
+  const spent = room.council?.spend.usd ?? room.chat?.spend.usd;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${room.title}. ${notch ?? "Debate"}. ${roomStatus(room)}${live ? ". Running" : ""}`}
+      accessibilityLabel={`${room.title}. ${tag}. ${roomStatus(room)}${live ? ". Running" : ""}`}
       onPress={onPress}
       style={({ pressed }) => ({ minHeight: 76, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.xs + 2, justifyContent: "center", opacity: pressed ? 0.7 : 1 })}
     >
@@ -25,7 +26,7 @@ export function RoomRow({ room, onPress }: { room: RoomWire; onPress: () => void
         </Text>
       </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm }}>
-        <Tag label={notch ?? "Debate"} tone={notch === null ? "textMuted" : "accent"} />
+        <Tag label={tag} tone={notch === null ? "textMuted" : "accent"} />
         <Text variant="label" color="textMuted" numberOfLines={1} style={{ flex: 1 }}>
           {roomStatus(room)}
         </Text>

@@ -6,6 +6,8 @@ export interface PresenceGroup {
   state: RoomPresence['state']
   /** "Mara is thinking", "Theo is reading main/index.ts", "Sam and Priya are typing". */
   label: string
+  /** Who the line is about, in order. */
+  ids: string[]
 }
 
 /** "Mara", "Mara and Priya", "Mara, Priya and Sam". */
@@ -21,16 +23,11 @@ const names = (list: string[]): string =>
 export function presenceGroups(room: Room): PresenceGroup[] {
   const by: Record<RoomPresence['state'], string[]> = { thinking: [], reading: [], typing: [] }
   const out: PresenceGroup[] = []
+  const name = (id: string): string => firstName(authorOf(room.agents, id))
   for (const [id, p] of Object.entries(room.presence)) {
-    const name = firstName(authorOf(room.agents, id))
     if (p.state === 'reading' && p.detail)
-      out.push({ state: 'reading', label: `${name} is ${p.detail}` })
-    else by[p.state].push(name)
-  }
-  const verb: Record<RoomPresence['state'], string> = {
-    thinking: 'thinking',
-    reading: 'reading',
-    typing: 'typing',
+      out.push({ state: 'reading', label: `${name(id)} is ${p.detail}`, ids: [id] })
+    else by[p.state].push(id)
   }
   const groups: PresenceGroup[] = []
   for (const state of ['thinking', 'reading', 'typing'] as const) {
@@ -38,7 +35,8 @@ export function presenceGroups(room: Room): PresenceGroup[] {
     if (list.length > 0) {
       groups.push({
         state,
-        label: `${names(list)} ${list.length === 1 ? 'is' : 'are'} ${verb[state]}`,
+        label: `${names(list.map(name))} ${list.length === 1 ? 'is' : 'are'} ${state}`,
+        ids: list,
       })
     }
     if (state === 'reading') groups.push(...out)

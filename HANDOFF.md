@@ -38,6 +38,9 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
   build and stage, then STOP; Isaac gets a heads-up via Nova. Native phone changes: stop and ask (TestFlight).
 - No em dashes in UI strings or copy. No iOS Simulator.
 - Each slice: lint, unit tests, `electron-vite build` + hidden e2e for the changed specs, push main, deploy OK.
+- Parallel session (Nova, 2026-11-11 21:02Z) builds the shared agent browser in Relay desktop: never edit
+  browser/web-tab files; `git fetch && git rebase origin/main` before every push. The S3 work card must be
+  able to link to an agent's browser tab later (keep its target a generic link, not chat-only).
 
 ## Architecture decisions (Eva, 2026-11-11)
 - New rooms are kind `chat`: a persisted conversational room. Setup = {title?, template, members[], effort,
@@ -55,7 +58,7 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
 ## Slices
 - [x] S1 nav + new room + empty room (contract, persistence of idle rooms, Rooms section in the Assistants
       sub-nav, New room page with templates + member editor + model picker, empty room view, context menu).
-- [ ] S2 multi-speaker room chat + unified @ picker (engine, notch avatar stack, hover card, speaking ring).
+- [x] S2 multi-speaker room chat + unified @ picker (engine, notch avatar stack, hover card, speaking ring).
 - [ ] S3 assistant pop-in/out + one-row work card.
 - [ ] S4 decision cards (poll, pros/cons, decision record, council proposal, catch-up pill, Where we are,
       Since you left).
@@ -90,3 +93,43 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
     room titles to names-store), page-meta/tab-meta/registry/PageRouter/nav-level(inAssistants)/MainNav/open-link
     know `room:<id>` and `rooms` = New room; new `model-catalog.ts`, `RoomModelPicker.tsx`, `MemberStack.tsx`,
     `RoomComposer.tsx`, `RoomMenu.tsx` (menu, delete confirm, inline rename, header title/menu).
+- 2026-11-11 S2 done.
+  - Engine: `rooms/chat-turns.ts` (burstFor/nextSpeaker/afterTurn: mentioned members first, then setup order,
+    @handoff puts that member next, effort x members turns capped at 20, a Judge/Chair role gets the last word,
+    @Isaac with no handoff ends the burst). `rooms/chat-room.ts` runs it: each member an omp seat
+    (`SeatSpec.model` is now a council key or `{omp}` exact id, `thinking` any omp level; council untouched),
+    own session file under `sessions/<member>` (saved in room.json `seats`, resumed), scratch `tmp/<member>`,
+    cwd `main/` (RoomWorkdir.create, `source` now optional, setup.folder copied in, refs under refs/), guard
+    via the launcher, system prompt with role, instructions, registry persona, other members, question and
+    chat rules. Turns stream (partials + presence) through rooms.changed; spend from usage at omp catalog
+    prices (`ModelInfo.price` from omp `cost`, else the council table; `usageCost` generalised in protocol),
+    `room.chat.spend {usd, byMember}`. Hard cap: a turn whose estimate (last cost x1.25, else 8k in / 800 out)
+    would cross the budget is not started; the room pauses with a quiet line; Resume refuses until Members
+    raises the budget. Pause aborts the turn in flight (it reruns on Resume) and stops seats; quit or crash
+    mid-burst comes back paused (never auto-runs). Isaac posting mid-burst redirects the next turn. @Assistant
+    not in the room joins as a guest (setup rev bump, "X joined as a guest", speaks first). Phases for chat:
+    idle (nobody speaking) / open (a burst) / paused. Seats stop 5 min after a burst.
+  - UI: RoomFeed draws chat rooms multi-speaker (member face, name, role tag; Isaac as the chat's user bubble
+    with chips; quiet centered system lines; presence row with faces at the log end); notch stack speaking
+    ring (data-turn, member color, reduced-motion off); hover card live status + real cost; header spend
+    `$x / $cap` + bar before "..."; context menu Pause/Resume for chat rooms (roomRunAction).
+  - One @ menu (`chat/composer/at-menu.ts`): Agents (chat: its assistant "in this chat", then the registry;
+    room: members "in this room", then "<scope> · joins as guest") then Actions (Computer + skills, unchanged).
+    Picking an agent inserts `@First ` drawn as an inline chip (`MentionBackdrop`). rooms/mentions.ts keeps
+    only mentionMarkdown; canvas `mentionablesOf` became `agentsOf` in at-menu (Canvas + doc comments use it).
+    A room's menu has no Actions (no computer runs in rooms). In a 1:1 chat @Agent only inserts the chip and
+    sends the text as is (pull-in is S3).
+  - Phone wire: protocol ROOMS_CHAT_FEATURE ("rooms.chat"), RoomWire `kind`/`chat`, phase `idle`, `rooms.get
+    {chat}`. Host (apps/linux) relays chat rooms only to phones that ask with chat:true and advertises the
+    feature; desktop bridge sends chat rooms only to such a host; phone asks with chat:true only when the host
+    advertises it, and draws chat rooms (status/spend, role tags, quiet lines, Pause/Resume, posts any time).
+  - Tests: chat-turns.test (order, handoff, effort, judge last, Isaac stop), chat-room.test (burst over seats,
+    budget cap never crossed + resume after raise, pause/resume persistence with seat session resume after a
+    restart, crash mid-burst, guest join), at-menu.test (Agents + Actions rows, room rows), bridge + host relay +
+    phone model/router tests. e2e rooms-assistants.spec S2 x2 (fake omp seats: `--system-prompt` "You are
+    <Name>, a member of a Relay room" answers as that member). Proof: proof/rooms-assistants/s2-*.png.
+  - Host: built (not installed) `apps/mac-host/build/Relay Host.app` + `RelayHost.zip`, version 0.2.92
+    (`cd apps/mac-host && ./build.sh 0.2.92`). Isaac installs it (or `./build.sh 0.2.92 --release` to ship
+    it on the update channel); phone chat rooms light up only after that host runs.
+  - Left: guard asks from chat-room seats are not surfaced (they wait 10 min, then deny); no memory/rooms
+    record on finish; @computer in a room is not offered.

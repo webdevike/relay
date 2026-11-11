@@ -6,9 +6,9 @@ import { COUNCIL_MODELS } from '@relay/protocol'
 import { toolDetail } from '../omp-frames'
 import type { GuardInstall } from './guard'
 import type {
+  CouncilSeatSpec,
   SeatHandle,
   SeatPresence,
-  SeatSpec,
   SeatTurnInput,
   SeatTurnResult,
   SeatUsage,
@@ -73,7 +73,10 @@ export interface ClaudeSeatOptions {
  * stay out; the guard comes in as a PreToolUse hook. Rejects when the binary is missing or does
  * not answer `initialize` (the launcher then falls back to omp).
  */
-export async function startClaudeSeat(spec: SeatSpec, o: ClaudeSeatOptions): Promise<SeatHandle> {
+export async function startClaudeSeat(
+  spec: CouncilSeatSpec,
+  o: ClaudeSeatOptions,
+): Promise<SeatHandle> {
   const model = COUNCIL_MODELS[spec.model]
   const resumeId = spec.resume?.harness === 'claude-code' ? spec.resume.id : null
   /** Claude Code keeps the id across `--resume`; the init frame says so, and that wins. */

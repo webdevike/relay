@@ -27,7 +27,8 @@ import {
 import type { Mentionable } from '@relay/canvas-live/mentions'
 import { newThreadId, postInThread, setResolved, type ThreadMsg } from '@relay/canvas-live/threads'
 import { useAssistants } from '../assistants/assistants-store'
-import { awaitingAnswer, mentionablesOf } from '../canvas/comment-model'
+import { awaitingAnswer } from '../canvas/comment-model'
+import { agentsOf } from '../chat/composer/at-menu'
 import { AgentFace, Composer, Face, ThreadMessages, avatarAgent } from '../comments/ThreadParts'
 import { TypingDots } from '../ui/TypingDots'
 import { pmPos, pmRange } from './doc-comments'
@@ -216,7 +217,7 @@ export function DocThreads({
 }: DocThreadsProps) {
   useLive(editor, doc)
   const agents = useAssistants((s) => s.data?.agents)
-  const mentionables = useMemo(() => mentionablesOf(agents ?? []), [agents])
+  const mentionables = useMemo(() => agentsOf(agents ?? []), [agents])
   const titleOf = (id: string | undefined): string | null =>
     id === undefined ? null : (agents?.find((a) => a.id === id)?.title ?? id)
   const threads = snapDocThreads(docThreadsOf(doc))

@@ -10,12 +10,13 @@ import {
   type ChatRoomSetupPatch,
   type Room,
 } from '@evaos/contract'
+import { REGISTRY_FILE, parseRegistry } from '../assistants/assistants'
 import { catalogFor } from '../chat/live-ipc'
 import type { MainContext } from '../context'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { evaFsFor } from '../eva/runtime'
 import { emit, handle } from '../ipc/handle'
-import { ChatRoom } from './chat-room'
+import { ChatRoom, type ChatRoomDeps } from './chat-room'
 import { findClaude, findCodex } from './council/bins'
 import { CouncilSession, type CouncilDeps } from './council/council'
 import { createSeatLauncher } from './council/seat'
@@ -134,7 +135,20 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     onChange,
     log,
   }
-  const chatDeps = { roomsDir, onChange, log }
+  const chatDeps: ChatRoomDeps = {
+    evaRoot,
+    onChange,
+    log,
+    launcher,
+    catalog: () => catalogFor(ctx).list(),
+    assistants: () => {
+      try {
+        return parseRegistry(fs.readFileSync(path.join(evaRoot, REGISTRY_FILE), 'utf8'))
+      } catch {
+        return []
+      }
+    },
+  }
   const liveRooms = (): number =>
     [...sessions.values()].filter((s) => roomIsLive(s.room.phase)).length
 
@@ -211,9 +225,10 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     post: (roomId, text) => session(roomId).post(text),
     react: (roomId, messageId, emoji) => session(roomId).react(messageId, emoji),
     stop: (roomId) => council(roomId).stop(),
-    pause: (roomId) => council(roomId).pause(),
+    pause: (roomId) => session(roomId).pause(),
     async resume(roomId) {
-      const s = council(roomId)
+      const s = session(roomId)
+      if (s instanceof ChatRoom) return s.resume()
       if (!s.resumable) throw fail('bad-input', 'The room is running.')
       if (liveRooms() >= MAX_LIVE_ROOMS) {
         throw fail(

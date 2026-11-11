@@ -6,13 +6,13 @@
 // renderer's IPC uses and goes back as `rooms.res` with the same rid. Older hosts get nothing; a
 // host without ROOMS_RESUME_FEATURE refuses the `paused` phase, so it sees paused rooms as resolved.
 //
-// Chat rooms (Assistants > Rooms) stay off the wire for now: every Relay Host out there refuses a
-// room in the `idle` phase (its RoomWireSchema knows five phases and drops the socket over a
-// frame it refuses), and the phone's room screens are built for council rooms. They go out once
-// the host and the phone learn chat rooms.
+// Chat rooms (Assistants > Rooms) go out only to a host with ROOMS_CHAT_FEATURE: every older Relay
+// Host refuses a room in the `idle` phase (its RoomWireSchema knows five phases and drops the
+// socket over a frame it refuses). That host hands them only to phones that can draw them.
 import { roomsInvoke, type Room } from '@evaos/contract'
 import {
   MAX_ROOMS,
+  ROOMS_CHAT_FEATURE,
   ROOMS_FEATURE,
   ROOMS_RESUME_FEATURE,
   RoomsCmd,
@@ -88,15 +88,13 @@ export function startRoomsBridge(deps: {
   let enabled = false
   /** The host takes the `paused` phase (and relays pause / resume). */
   let resumeHost = false
-  /** What the phone may see: council rooms, a paused one as resolved on an older host. */
+  /** The host takes chat rooms and the `idle` phase. */
+  let chatHost = false
+  const sent = (room: Room): boolean => room.kind === 'council' || chatHost
+  /** What the phone may see: a paused room as resolved on an older host. */
   const wire = (room: Room): Room =>
     resumeHost || room.phase !== 'paused' ? room : { ...room, phase: 'resolved' }
-  const shared = (): Room[] =>
-    service
-      .list()
-      .filter((r) => r.kind === 'council')
-      .slice(0, MAX_ROOMS)
-      .map(wire)
+  const shared = (): Room[] => service.list().filter(sent).slice(0, MAX_ROOMS).map(wire)
   /** Per room: when it last went out, and the timer holding its latest change. */
   const sentAt = new Map<string, number>()
   const timers = new Map<string, NodeJS.Timeout>()
@@ -110,13 +108,13 @@ export function startRoomsBridge(deps: {
     timers.delete(roomId)
     if (!enabled) return
     const room = service.list().find((r) => r.id === roomId)
-    if (room === undefined || room.kind !== 'council') return
+    if (room === undefined || !sent(room)) return
     sentAt.set(roomId, now())
     client.sendFrame({ t: 'rooms.upsert', room: wire(room) })
   }
 
   const offChange = service.onChange((room) => {
-    if (!enabled || room.kind !== 'council' || timers.has(room.id)) return
+    if (!enabled || !sent(room) || timers.has(room.id)) return
     const wait = (sentAt.get(room.id) ?? Number.NEGATIVE_INFINITY) + UPSERT_EVERY_MS - now()
     if (wait <= 0) upsert(room.id)
     else
@@ -149,6 +147,7 @@ export function startRoomsBridge(deps: {
     if (f.t === 'welcome') {
       enabled = client.hostHas(ROOMS_FEATURE)
       resumeHost = client.hostHas(ROOMS_RESUME_FEATURE)
+      chatHost = client.hostHas(ROOMS_CHAT_FEATURE)
       clearTimers()
       sentAt.clear()
       if (enabled) client.sendFrame({ t: 'rooms.sync', rooms: shared() })

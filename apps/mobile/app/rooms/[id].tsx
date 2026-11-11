@@ -4,7 +4,9 @@
  * Under it the feed: seats' messages with their role, part and model, renders you can open full
  * screen, and the council's cards. Isaac posts from the composer at the bottom (a paused room takes
  * posts for its next round); Resolve now ends the room; a council room pauses at the end of its
- * round and resumes with the same seats (only on a host with ROOMS_RESUME_FEATURE).
+ * round and resumes with the same seats (only on a host with ROOMS_RESUME_FEATURE). A chat room
+ * (Assistants > Rooms on the Mac, on a host with ROOMS_CHAT_FEATURE) is its members talking: each
+ * with its name and role, the room's notes as quiet lines, Pause and Resume, and Isaac posts any time.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
@@ -71,7 +73,8 @@ export default function RoomScreen() {
   }
 
   const live = roomLive(room);
-  const canPost = live || room.phase === "paused";
+  // A chat room always takes Isaac's messages: each one starts the members talking.
+  const canPost = live || room.phase === "paused" || room.chat !== undefined;
   const council = room.council;
   const control = runControl(room, hostResumes);
   const send = async (): Promise<void> => {
@@ -146,9 +149,21 @@ export default function RoomScreen() {
             <PhaseStrip room={room} />
           </View>
         )}
-        {council === undefined && live && (
+        {council === undefined && room.chat === undefined && live && (
           <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md, alignItems: "flex-start" }}>
             <Button label="Resolve now" variant="secondary" height={TAP} onPress={() => void roomsRequest({ op: "stop", roomId: room.id })} />
+          </View>
+        )}
+        {room.chat !== undefined && control !== null && (
+          <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.xs, alignItems: "flex-start" }}>
+            <Button
+              label={control.label}
+              variant={control.op === "resume" ? "primary" : "secondary"}
+              height={TAP}
+              disabled={running}
+              onPress={() => void run(control.op)}
+            />
+            {runError !== null && <Text variant="label" color="danger">{runError}</Text>}
           </View>
         )}
         <Separator />
@@ -173,7 +188,15 @@ export default function RoomScreen() {
               <TextInput
                 value={text}
                 onChangeText={setText}
-                placeholder={room.phase === "paused" ? "Joins the next round once it resumes" : "Say something to the room"}
+                placeholder={
+                  room.chat !== undefined
+                    ? room.phase === "paused"
+                      ? "Waits for Resume"
+                      : "Message the room, or @mention a member"
+                    : room.phase === "paused"
+                      ? "Joins the next round once it resumes"
+                      : "Say something to the room"
+                }
                 placeholderTextColor={colors.textFaint}
                 multiline
                 keyboardAppearance={scheme}

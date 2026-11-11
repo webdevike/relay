@@ -285,8 +285,8 @@ export async function startOmpSeat(
       '--config',
       configFile,
       '--model',
-      o.model ?? COUNCIL_MODELS[spec.model].omp,
-      // omp takes medium | high | xhigh | max as is.
+      o.model ?? (typeof spec.model === 'string' ? COUNCIL_MODELS[spec.model].omp : spec.model.omp),
+      // omp takes every level (off .. max) as is.
       '--thinking',
       spec.thinking,
       '--system-prompt',

@@ -169,8 +169,35 @@
   min-width: 0;
 }
 .eva-composer-line {
+  position: relative;
   display: flex;
   align-items: flex-start;
+}
+/* Inline @ chips (MentionBackdrop): the layer under the field draws the text, the field keeps the caret. */
+.eva-composer-line[data-mentions] .eva-composer-input.eva-composer-input {
+  color: transparent;
+  caret-color: var(--eva-text);
+}
+.eva-at-backdrop {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--eva-text);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  border-style: solid;
+  border-color: transparent;
+}
+.eva-at-chip {
+  color: var(--mantine-color-blue-7);
+  background: color-mix(in srgb, var(--mantine-color-blue-6) 14%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mantine-color-blue-6) 14%, transparent);
+  border-radius: var(--mantine-radius-xs);
+}
+[data-mantine-color-scheme='dark'] .eva-at-chip {
+  color: var(--mantine-color-blue-4);
+  background: color-mix(in srgb, var(--mantine-color-blue-4) 16%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mantine-color-blue-4) 16%, transparent);
 }
 .eva-composer-line > .eva-composer-field {
   flex: 1;

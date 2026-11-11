@@ -1363,8 +1363,24 @@
 .eva-room-stack-member:hover .eva-room-stack-face {
   transform: translateY(-2px) rotate(0) scale(1.08);
 }
-.eva-room-stack-member[data-status='speaking'] .eva-room-stack-face {
-  border-color: var(--mantine-color-green-6);
+/* The member whose turn it is: its color as the border, a ring pulsing out of it. */
+.eva-room-stack-member[data-turn] .eva-room-stack-face {
+  border-color: var(--eva-member-c);
+  animation: eva-room-ring 1.6s ease-out infinite;
+}
+@keyframes eva-room-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--eva-member-c) 70%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 var(--mantine-spacing-xs) transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-room-stack-member[data-turn] .eva-room-stack-face {
+    animation: none;
+  }
 }
 .eva-room-stack-face img,
 .eva-room-member-face img {
@@ -1409,6 +1425,42 @@
 }
 .eva-room-composer {
   padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-md);
+}
+
+/* A chat room's log: members' rows, Isaac's bubbles, the room's quiet lines, who is speaking. */
+.eva-room-row-face {
+  width: calc(var(--eva-control-xs) + var(--mantine-spacing-xs));
+  height: calc(var(--eva-control-xs) + var(--mantine-spacing-xs));
+}
+.eva-room-isaac {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-lg);
+}
+.eva-room-sys {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-lg);
+  text-align: center;
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-member-face.eva-room-presence-face {
+  width: calc(var(--eva-control-xs) * 0.75);
+  height: calc(var(--eva-control-xs) * 0.75);
+  border-width: 1px;
+  font-size: var(--eva-fz-caption);
+}
+.eva-rooms-feed > .eva-rooms-typing {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-lg);
+}
+.eva-room-spend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.eva-room-spend-bar {
+  width: calc(var(--eva-control-xs) * 4);
 }
 
 /* The setup form (New room, Members...) */

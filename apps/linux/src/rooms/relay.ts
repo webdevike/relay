@@ -4,7 +4,9 @@
 //
 // A socket's role is set by the first rooms frame it sends: `rooms.sync`/`upsert`/`res` make it
 // a desktop, `rooms.get`/`cmd` a phone. Phones never send desktop frames and the reverse; such
-// frames are dropped with a log. Only phones that asked (`rooms.get`) hear room changes.
+// frames are dropped with a log. Only phones that asked (`rooms.get`) hear room changes, and only
+// those that asked with `chat: true` (ROOMS_CHAT_FEATURE) see chat rooms: an older phone's schema
+// refuses their `idle` phase.
 
 import { randomBytes } from "node:crypto";
 import { MAX_ROOM_BYTES, MAX_ROOMS, type RoomsCmd, type RoomsResult, type RoomWireSchema } from "@relay/protocol";
@@ -34,16 +36,20 @@ export interface RoomsRelaying {
   sync(sink: FrameSink, rooms: readonly HostRoom[]): void;
   upsert(sink: FrameSink, room: HostRoom): void;
   result(sink: FrameSink, rid: string, result: RoomsResult): void;
-  get(sink: FrameSink): void;
+  get(sink: FrameSink, chat?: boolean): void;
   cmd(sink: FrameSink, rid: string, cmd: RoomsCmd): void;
   drop(sink: FrameSink): void;
 }
 
 const fail = (code: string, message: string): RoomsResult => ({ ok: false, code, message });
 
+/** A chat room (Assistants > Rooms): only phones that draw them get it. */
+const isChat = (room: HostRoom): boolean => room["kind"] === "chat";
+
 export class RoomsRelay implements RoomsRelaying {
   private readonly desktops = new Map<FrameSink, Desktop>();
-  private readonly phones = new Set<FrameSink>();
+  /** Phones that asked for rooms, and whether they draw chat rooms. */
+  private readonly phones = new Map<FrameSink, { chat: boolean }>();
   /** Sockets that sent a phone frame; their desktop frames are refused. */
   private readonly phoneSockets = new WeakSet<FrameSink>();
   private readonly pending = new Map<string, Pending>();
@@ -75,7 +81,7 @@ export class RoomsRelay implements RoomsRelaying {
       if (oldest !== undefined) desktop.rooms.delete(oldest.id);
     }
     desktop.rooms.set(room.id, room);
-    for (const phone of this.phones) phone.send({ t: "rooms.room", room });
+    for (const [phone, p] of this.phones) if (p.chat || !isChat(room)) phone.send({ t: "rooms.room", room });
   }
 
   result(sink: FrameSink, rid: string, result: RoomsResult): void {
@@ -86,10 +92,10 @@ export class RoomsRelay implements RoomsRelaying {
     this.finish(rid, result);
   }
 
-  get(sink: FrameSink): void {
+  get(sink: FrameSink, chat = false): void {
     if (!this.phone(sink, "rooms.get")) return;
-    this.phones.add(sink);
-    sink.send({ t: "rooms.state", rooms: this.all() });
+    this.phones.set(sink, { chat });
+    sink.send({ t: "rooms.state", rooms: this.all(chat) });
   }
 
   cmd(sink: FrameSink, rid: string, cmd: RoomsCmd): void {
@@ -123,17 +129,15 @@ export class RoomsRelay implements RoomsRelaying {
     if (this.desktops.delete(sink)) this.sendState();
   }
 
-  /** Every room of every connected desktop, newest first. */
-  private all(): HostRoom[] {
+  /** Every room of every connected desktop (chat rooms only for `chat`), newest first. */
+  private all(chat: boolean): HostRoom[] {
     const rooms: HostRoom[] = [];
-    for (const d of this.desktops.values()) rooms.push(...d.rooms.values());
+    for (const d of this.desktops.values()) for (const r of d.rooms.values()) if (chat || !isChat(r)) rooms.push(r);
     return rooms.sort((a, b) => b.startedAt - a.startedAt);
   }
 
   private sendState(): void {
-    if (this.phones.size === 0) return;
-    const rooms = this.all();
-    for (const phone of this.phones) phone.send({ t: "rooms.state", rooms });
+    for (const [phone, p] of this.phones) phone.send({ t: "rooms.state", rooms: this.all(p.chat) });
   }
 
   private finish(hostRid: string, result: RoomsResult): void {

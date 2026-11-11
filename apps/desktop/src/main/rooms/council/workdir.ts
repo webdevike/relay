@@ -64,17 +64,20 @@ export class RoomWorkdir {
     this.seatsDir = path.join(root, 'seats')
   }
 
-  /** Copies `source` (never touched again) and `refs`, then makes main/ a repo with one commit. */
+  /**
+   * Copies `source` (never touched again; a chat room may have none) and `refs`, then makes main/
+   * a repo with one commit.
+   */
   static async create(o: {
     evaRoot: string
     roomId: string
-    source: string
+    source?: string
     refs: readonly string[]
     exec?: Exec
   }): Promise<RoomWorkdir> {
     const exec = o.exec ?? execFileP
-    const source = path.resolve(o.evaRoot, o.source)
-    if (!fs.statSync(source, { throwIfNoEntry: false })?.isDirectory()) {
+    const source = o.source === undefined ? null : path.resolve(o.evaRoot, o.source)
+    if (source !== null && !fs.statSync(source, { throwIfNoEntry: false })?.isDirectory()) {
       throw Object.assign(new Error(`The source folder ${source} does not exist.`), {
         code: 'bad-input',
       })
@@ -82,9 +85,11 @@ export class RoomWorkdir {
     const root = path.join(o.evaRoot, 'work', 'rooms', o.roomId)
     const wd0 = new RoomWorkdir(root, [], exec)
     await exec('mkdir', ['-p', wd0.main, wd0.refsDir, wd0.roundsDir, wd0.seatsDir], o.evaRoot)
-    await exec('cp', ['-R', `${source}/.`, wd0.main], o.evaRoot)
-    // A source that is its own repo would drag its history (and remotes) into the room.
-    await exec('rm', ['-rf', path.join(wd0.main, '.git')], root)
+    if (source !== null) {
+      await exec('cp', ['-R', `${source}/.`, wd0.main], o.evaRoot)
+      // A source that is its own repo would drag its history (and remotes) into the room.
+      await exec('rm', ['-rf', path.join(wd0.main, '.git')], root)
+    }
     const refs: string[] = []
     for (const [i, r] of o.refs.entries()) {
       const abs = path.resolve(o.evaRoot, r)
@@ -105,7 +110,13 @@ export class RoomWorkdir {
       wd.main,
     )
     await wd.git(wd.main, ['add', '-A'])
-    await wd.git(wd.main, ['commit', '-q', '--allow-empty', '-m', `Room source: ${source}`])
+    await wd.git(wd.main, [
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      source === null ? 'Room workdir' : `Room source: ${source}`,
+    ])
     return wd
   }
 

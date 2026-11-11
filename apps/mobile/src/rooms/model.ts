@@ -43,11 +43,17 @@ export interface RunControl {
 /**
  * Pause while a council round runs (stops at the end of it), Resume once the room stopped (paused,
  * resolved or failed: it runs on from the next round with the same seats, up to the cap shown).
+ * A chat room pauses while its members talk and resumes once paused (its budget is the cap).
  * Null for a debate room, a wrapping or cap-paused room, or a host without ROOMS_RESUME_FEATURE.
  */
 export function runControl(room: RoomWire, hostResumes: boolean): RunControl | null {
+  if (!hostResumes) return null;
+  if (room.chat !== undefined) {
+    if (room.phase === "open") return { op: "pause", label: "Pause", busy: false };
+    return room.phase === "paused" ? { op: "resume", label: `Resume (budget ${councilMoney(room.chat.setup.budget)})`, busy: false } : null;
+  }
   const council = room.council;
-  if (!hostResumes || council === undefined) return null;
+  if (council === undefined) return null;
   if (room.phase === "open") {
     if (council.paused === true) return null;
     return council.pauseRequested === true ? { op: "pause", label: "Pausing after this round", busy: true } : { op: "pause", label: "Pause", busy: false };
@@ -163,12 +169,17 @@ export function spendView(council: RoomWireCouncil): SpendView {
   return { usd, cap, estimate, fraction, estimateAt: cap > 0 ? Math.min(1, estimate / cap) : 0, warn: cap > 0 && usd >= cap * COUNCIL_PAUSE_AT };
 }
 
-/** "Round 2 of 3 · Build" while a council runs, the phase otherwise. */
+/** "Round 2 of 3 · Build" while a council runs; who is talking in a chat room; the phase otherwise. */
 export function roomStatus(room: RoomWire): string {
   const council = room.council;
   if (room.phase === "failed") return "Failed";
   if (room.phase === "resolved") return "Done";
   if (room.phase === "paused") return "Paused";
+  if (room.chat !== undefined) {
+    const spend = `${councilMoney(room.chat.spend.usd)} of ${councilMoney(room.chat.setup.budget)}`;
+    if (room.phase === "idle") return room.messages.length === 0 ? "Idle" : `Waiting for you · ${spend}`;
+    return `Talking · ${spend}`;
+  }
   if (council === undefined) return room.phase === "wrapping" ? "Wrapping up" : `Round ${String(room.rounds)}`;
   if (council.paused === true) return "Paused for your call";
   const stage = stageLabel(council.stage);

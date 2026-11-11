@@ -59,7 +59,8 @@ import { PagePanel } from './PagePanel'
 import { Lightbox } from './Lightbox'
 import { boardImages } from './lightbox-model'
 import { Comments, type AskState } from './Comments'
-import { anchorFor, mentionablesOf, nodeAt, routeOf, type Anchor, type Box } from './comment-model'
+import { anchorFor, nodeAt, routeOf, type Anchor, type Box } from './comment-model'
+import { agentsOf } from '../chat/composer/at-menu'
 import {
   absolutePositions,
   toBoard,
@@ -504,7 +505,7 @@ function Board({
 
   /** Who an `@` can name: the registry's assistants. */
   const agents = useAssistants((s) => s.data?.agents)
-  const mentionables = useMemo(() => mentionablesOf(agents ?? []), [agents])
+  const mentionables = useMemo(() => agentsOf(agents ?? []), [agents])
   /** Threads whose agent is being started, or refused. */
   const [asks, setAsks] = useState<Record<string, AskState>>({})
   const setAsk = (thread: string, state: AskState | null): void => {

@@ -284,10 +284,23 @@ export function councilTurnCost(model: CouncilModelKey, kind: TurnKind, thinking
   return (inp * CACHED * p.cached + inp * (1 - CACHED) * p.input + OUT[kind][thinking] * p.output) / 1e6;
 }
 
-/** List price of real usage (what a harness reported for one turn). */
-export function councilUsageCost(model: CouncilModelKey, usage: { input: number; output: number; cached: number }): number {
-  const p = COUNCIL_MODELS[model].price;
-  return (usage.input * p.input + usage.cached * p.cached + usage.output * p.output) / 1e6;
+/** List $ per million tokens: input, output, cached input. */
+export type ModelPrice = CouncilModel["price"];
+export type TokenUsage = { input: number; output: number; cached: number };
+
+/** List price of real usage (what a harness reported for one turn) at `price`. */
+export function usageCost(price: ModelPrice, usage: TokenUsage): number {
+  return (usage.input * price.input + usage.cached * price.cached + usage.output * price.output) / 1e6;
+}
+
+/** List price of real usage on a council model. */
+export function councilUsageCost(model: CouncilModelKey, usage: TokenUsage): number {
+  return usageCost(COUNCIL_MODELS[model].price, usage);
+}
+
+/** The council's list price of an exact omp model id, when it is one of the council models. */
+export function councilPriceOf(ompModel: string): ModelPrice | null {
+  return Object.values(COUNCIL_MODELS).find((m) => m.omp === ompModel)?.price ?? null;
 }
 
 function seatRound(s: CouncilSeat, split: boolean): number {

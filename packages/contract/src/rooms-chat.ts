@@ -40,6 +40,8 @@ export const ChatRoomMemberSchema = z
     /** What the member does in this room ("Argue for", "Reviews diffs"); may be empty. */
     role: z.string().trim().max(80),
     instructions: z.string().trim().max(4000).optional(),
+    /** Joined because Isaac @mentioned an assistant who was not in the room. */
+    guest: z.boolean().optional(),
   })
   .strict()
 export type ChatRoomMember = z.infer<typeof ChatRoomMemberSchema>
@@ -102,10 +104,18 @@ export const ChatRoomSetupPatchSchema = ChatRoomSetupFieldsSchema.partial()
   .superRefine((s, ctx) => uniqueMembers(s.members, ctx))
 export type ChatRoomSetupPatch = z.infer<typeof ChatRoomSetupPatchSchema>
 
-/** What a chat room carries on its Room: the setup and how many times it was changed. */
+/** What the members have cost so far, list price from usage: the room's total and each member's. */
+export const RoomChatSpendSchema = z.object({
+  usd: z.number().min(0),
+  byMember: z.record(z.string(), z.number().min(0)),
+})
+export type RoomChatSpend = z.infer<typeof RoomChatSpendSchema>
+
+/** What a chat room carries on its Room: the setup, how many times it was changed and the spend. */
 export const RoomChatSchema = z.object({
   setup: ChatRoomSetupSchema,
   rev: z.number().int().min(0),
+  spend: RoomChatSpendSchema.default({ usd: 0, byMember: {} }),
 })
 export type RoomChat = z.infer<typeof RoomChatSchema>
 
