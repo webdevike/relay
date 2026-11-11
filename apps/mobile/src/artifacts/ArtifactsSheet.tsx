@@ -10,7 +10,10 @@
  * Open and Pin. Media is a two-column grid. Subagents shows the thread's tasks by state (Needs
  * input, Ready for review, Working, then Resolved folded), the phone's twin of the desktop's
  * running popover. What runs now shows as chips in the thread's header (`agents/RunningChips`);
- * one that is not a session opens this sheet on the Subagents tab (`tab`).
+ * one that is not a session opens this sheet on the Subagents tab (`tab`). The rows are drawn only
+ * while the sheet shows: a closed sheet sits under every thread, and a long thread holds thousands
+ * of artifacts (Nova's: 2,000, 700 of them pictures), which kept every row, and after a look at
+ * Media every picture, alive behind the chat.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActionSheetIOS, ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
@@ -142,6 +145,9 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
   const [query, setQuery] = useState<string | null>(null);
   const [viewer, setViewer] = useState<{ images: ViewerImage[]; start: number } | null>(null);
   const [video, setVideo] = useState<string | null>(null);
+  // Open, or still sliding closed: the rows are drawn. Fully closed (the sheet's index -1), they are not.
+  const [shown, setShown] = useState(open);
+  if (open && !shown) setShown(true);
 
   useEffect(() => {
     if (open) {
@@ -380,6 +386,7 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
         onChange={(index) => {
           if (index === -1) {
             setQuery(null);
+            setShown(false);
             if (open) onClose();
           }
         }}
@@ -458,7 +465,7 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
           </View>
         )}
         <BottomSheetScrollView contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxl }} keyboardShouldPersistTaps="handled">
-          {body}
+          {shown ? body : null}
         </BottomSheetScrollView>
       </BottomSheet>
       <ImageViewer images={viewer?.images ?? null} start={viewer?.start ?? 0} onClose={() => { setViewer(null); }} />

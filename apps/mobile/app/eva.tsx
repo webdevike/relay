@@ -22,7 +22,7 @@
  * on the left with three typing dots while she works before her reply text streams. The rounded composer keeps multiline text
  * above a persistent row of attachment, hold-to-talk mic and send controls. The mic is the Agent Inbox's: hold to talk, release to send.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActionSheetIOS, FlatList, Keyboard, Pressable, StyleSheet, View, type LayoutChangeEvent, type TextInput } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -130,10 +130,22 @@ const USER_MAX_WIDTH = "80%";
 const USER_RADIUS = 24;
 const EVA_RADIUS = 22;
 /**
- * Where each agent's thread was left, as the inverted list's offset (0 = the newest message in
- * view), as AgentCard keeps it per session: a thread that remounts opens where Isaac was.
+ * Where each agent's thread was left: the inverted list's offset (0 = the newest message in view)
+ * and how many rows it held, as AgentCard keeps the offset per session: a thread that remounts
+ * opens where Isaac was, with the history he had scrolled back to.
  */
-const scrollMemory = new Map<string, number>();
+const scrollMemory = new Map<string, { offset: number; drawn: number }>();
+/**
+ * Rows the list holds at first, newest first; nearing the oldest held row adds this many more. A
+ * thread keeps every context it ever had (Nova's: 7,000+ rows), and the list measures and lays out
+ * every row it holds, so history comes in as Isaac scrolls back to it.
+ */
+const PAGE = 40;
+/**
+ * Screens of rows kept drawn around the visible one (2 above, 2 below). The list's default, 21,
+ * kept ten screens of images, videos, widgets and web views alive on each side of a long thread.
+ */
+const WINDOW_SCREENS = 5;
 
 /** Keyed by agent, so moving to another agent's thread (a notification tap) starts with a fresh composer. */
 export default function Eva() {
@@ -206,12 +218,21 @@ function Thread({ agent }: { agent: string }) {
   const [photos, setPhotos] = useState<Photo[]>([]);
   // The images of the tapped bubble, open in the full-screen viewer.
   const [viewing, setViewing] = useState<{ uris: string[]; start: number } | null>(null);
-  // Read once per mount: coming back to the thread restores its position and follow mode.
-  const initialOffset = useRef(scrollMemory.get(agent) ?? 0);
+  // Read once per mount: coming back to the thread restores its position, follow mode and loaded
+  // history; one left at its newest row starts again from the newest page.
+  const kept = scrollMemory.get(agent);
+  const memory = useRef(kept === undefined || kept.offset < 1 ? { offset: 0, drawn: PAGE } : kept);
+  scrollMemory.set(agent, memory.current);
+  const initialOffset = useRef(memory.current.offset);
+  // Rows the list holds, newest first: a page more each time Isaac nears the oldest one held.
+  const [drawn, setDrawn] = useState(memory.current.drawn);
+  useEffect(() => {
+    memory.current.drawn = drawn;
+  }, [drawn]);
   const { listRef, awayFromBottom, scrollToBottom, scrollToRow, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>({
     initialOffset: initialOffset.current,
     onOffset: (offset) => {
-      scrollMemory.set(agent, offset);
+      memory.current.offset = offset;
     },
   });
   const viewerImages = useMemo(() => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))), [viewing]);
@@ -413,6 +434,19 @@ function Thread({ agent }: { agent: string }) {
     const all = [...withAskRows(messages, cards), ...localRows, ...pendingRow];
     return { rows: all, newestFirst: [...all].reverse() };
   }, [messages, cards, localRows, pendingRow]);
+  // What the list holds: the newest `drawn` rows. Nearing the oldest of them adds a page.
+  const listed = useMemo(() => newestFirst.slice(0, drawn), [newestFirst, drawn]);
+  const total = newestFirst.length;
+  const loadOlder = useCallback(() => {
+    setDrawn((count) => (count < total ? count + PAGE : count));
+  }, [total]);
+  // Show in chat for a row older than the list holds: the list takes it in first, then scrolls once it is there.
+  const [jumpTo, setJumpTo] = useState<number | null>(null);
+  useEffect(() => {
+    if (jumpTo === null || jumpTo >= listed.length) return;
+    setJumpTo(null);
+    scrollToRow(jumpTo);
+  }, [jumpTo, listed.length, scrollToRow]);
   // Turns of the host's rows, for bookmarks: flagged by an ask nobody answered and by reactions.
   const turnRows = useMemo(() => assistantTurnRows(rows, (message) => message.id === PENDING_ID || isLocalRow(message.id) || isAskRow(message.id), pendingAsk !== undefined), [rows, pendingAsk]);
   useTurnBookmarks({ turnRows, thread: artifactsThread });
@@ -513,7 +547,11 @@ function Thread({ agent }: { agent: string }) {
     const target = askRowTarget(ask, messageIds);
     const index = newestFirst.findIndex((row) => row.id === target);
     if (index < 0) return;
-    scrollToRow(index);
+    if (index < listed.length) scrollToRow(index);
+    else {
+      setDrawn(index + PAGE);
+      setJumpTo(index);
+    }
     // Ring once the scroll has settled; the row is on screen by then even when the list had to lay it out first.
     clearTimeout(ringTimer.current);
     ringTimer.current = setTimeout(() => {
@@ -535,10 +573,30 @@ function Thread({ agent }: { agent: string }) {
   };
 
   /** Sign-in card tapped: Eva's browser as a sheet, already on the login page, with `Password` for the form. */
-  const openSignIn = (messageId: string, signin: NonNullable<AssistantMessage["signin"]>): void => {
-    Keyboard.dismiss();
-    router.push({ pathname: "/eva-computer", params: { agent, messageId, url: signin.url, host: signin.host } });
+  const openSignIn = useCallback(
+    (messageId: string, signin: NonNullable<AssistantMessage["signin"]>): void => {
+      Keyboard.dismiss();
+      router.push({ pathname: "/eva-computer", params: { agent, messageId, url: signin.url, host: signin.host } });
+    },
+    [agent, router],
+  );
+
+  /** A reply chip under a bubble: the chips' row is an open ask too, answered, so its badge goes with it. An older bubble's answer carries its question. */
+  const replyToRow = (message: AssistantMessage, reply: string): void => {
+    const ask = openAsks?.find((entry) => entry.messageId === message.id);
+    sendTurn(ask === undefined ? reply : answerText(reply, ask.question, message !== newestSettled), [], false);
+    if (ask !== undefined) resolveAsk(ask, "answered", reply);
   };
+  // The rows get callbacks that never change (each reads the screen's latest state), so a memoized row
+  // redraws only when its own message or marks change, not on every snapshot or keystroke.
+  const replyToRowRef = useRef(replyToRow);
+  replyToRowRef.current = replyToRow;
+  const onRowReply = useCallback((message: AssistantMessage, reply: string) => {
+    replyToRowRef.current(message, reply);
+  }, []);
+  const onOpenImages = useCallback((uris: string[], start: number) => {
+    setViewing({ uris, start });
+  }, []);
 
   /** Reply from a bubble's menu: its text quoted above the cursor's line, then the composer focused there. */
   const replyWith = (quoted: string): void => {
@@ -571,7 +629,7 @@ function Thread({ agent }: { agent: string }) {
               <FlatList
                 ref={listRef}
                 style={styles.fill}
-                data={newestFirst}
+                data={listed}
                 inverted
                 keyExtractor={(message) => message.id}
                 extraData={`${latestUserId ?? ""}|${receipt ?? ""}|${String(connected)}|${rung.id}:${String(rung.n)}|${[...waitingIds].join(",")}`}
@@ -607,15 +665,8 @@ function Thread({ agent }: { agent: string }) {
                             replies={item === newestSettled ? replies : connected ? (openAsks?.find((entry) => entry.messageId === item.id && waitingIds.has(item.id))?.replies ?? null) : null}
                             waiting={waitingIds.has(item.id)}
                             pulse={rung.id === item.id ? rung.n : 0}
-                            onReply={(reply) => {
-                              // The chips' row is an open ask too: answered, so its badge goes with it. An older bubble's answer carries its question.
-                              const ask = openAsks?.find((entry) => entry.messageId === item.id);
-                              sendTurn(ask === undefined ? reply : answerText(reply, ask.question, item !== newestSettled), [], false);
-                              if (ask !== undefined) resolveAsk(ask, "answered", reply);
-                            }}
-                            onOpenImages={(uris, start) => {
-                              setViewing({ uris, start });
-                            }}
+                            onReply={onRowReply}
+                            onOpenImages={onOpenImages}
                             onSignIn={openSignIn}
                           />
                         </LocalRowFrame>
@@ -635,6 +686,11 @@ function Thread({ agent }: { agent: string }) {
                 contentContainerStyle={{ paddingBottom: listTop + keyboardRoom }}
                 scrollIndicatorInsets={{ top: headerHeight + keyboardRoom, bottom: stackHeight + COMPOSER_PILL_HEIGHT + COMPOSER_BOTTOM }}
                 contentOffset={{ x: 0, y: initialOffset.current }}
+                onEndReached={loadOlder}
+                onEndReachedThreshold={1}
+                initialNumToRender={10}
+                maxToRenderPerBatch={6}
+                windowSize={WINDOW_SCREENS}
                 {...scrollHandlers}
                 // On drag, not interactive: the composer rides the keyboard's whole moves, and a finger-driven dismiss is not one it can follow without a native keyboard module.
                 keyboardDismissMode="on-drag"
@@ -888,15 +944,15 @@ interface RowProps {
   onSignIn: (messageId: string, signin: NonNullable<AssistantMessage["signin"]>) => void;
   /** Tap-to-answer replies to show under the bubble: the newest settled reply, and any older bubble with an open ask. */
   replies: readonly string[] | null;
-  /** A reply chip was tapped: send its words as Isaac's turn. */
-  onReply: (reply: string) => void;
+  /** A reply chip under `message` was tapped: send its words as Isaac's turn. */
+  onReply: (message: AssistantMessage, reply: string) => void;
   /** An open ask sits on this bubble: it keeps its accent edge and "Waiting on you" tag. */
   waiting: boolean;
   /** Rings the bubble when it grows (`WaitingMark`); 0 until a badge was tapped. */
   pulse: number;
 }
 
-function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply, waiting, pulse }: RowProps) {
+function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply, waiting, pulse }: RowProps) {
   const signedIn = useAssistantStore((state) => threadOf(state, agent).signedIn[message.id] === true);
   const guests = useAssistantStore((state) => state.guests);
   const colors = useColors();
@@ -1030,7 +1086,12 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
             ))}
             {replies !== null && (
               <View style={styles.replies}>
-                <ReplyChips replies={replies} onPick={onReply} />
+                <ReplyChips
+                  replies={replies}
+                  onPick={(reply) => {
+                    onReply(message, reply);
+                  }}
+                />
               </View>
             )}
           </View>
@@ -1064,6 +1125,9 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
       );
   }
 }
+
+/** A snapshot redraws only the rows whose message or marks changed: unchanged messages keep their objects (`sharedSnapshot`) and the callbacks never change. */
+const Row = memo(RowView);
 
 const styles = StyleSheet.create({
   root: { flex: 1 },

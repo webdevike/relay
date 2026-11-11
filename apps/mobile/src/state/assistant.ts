@@ -73,6 +73,35 @@ export function shownSnapshot(snapshot: AssistantSnapshot): AssistantSnapshot {
   return { ...snapshot, messages: snapshot.messages.map((message) => (tagged(message) ? { ...message, text: untagged(message.text) } : message)) };
 }
 
+/** Deep equality of two values decoded from JSON. */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a)) return Array.isArray(b) && a.length === b.length && a.every((item, i) => sameJson(item, b[i]));
+  if (Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && sameJson(Reflect.get(a, key), Reflect.get(b, key)));
+}
+
+/**
+ * `next` with every message that has not changed since `previous` replaced by the object `previous`
+ * held, and the array itself when nothing changed. The host sends the whole thread on every change
+ * (every 150 ms while a reply streams), so without this every drawn row of a long thread redraws
+ * and re-parses its markdown on each frame.
+ */
+export function sharedSnapshot(previous: AssistantSnapshot | null, next: AssistantSnapshot): AssistantSnapshot {
+  if (previous === null) return next;
+  const before = new Map(previous.messages.map((message) => [message.id, message]));
+  let changed = previous.messages.length !== next.messages.length;
+  const messages = next.messages.map((message, i) => {
+    const old = before.get(message.id);
+    const kept = old !== undefined && sameJson(old, message) ? old : message;
+    if (kept !== previous.messages[i]) changed = true;
+    return kept;
+  });
+  return { ...next, messages: changed ? messages : previous.messages };
+}
+
 /** The thread for `agent`, empty when the phone has heard nothing about it. */
 export function threadOf(store: Pick<AssistantStore, "threads">, agent: string): AssistantThread {
   return store.threads[agent] ?? EMPTY_THREAD;
@@ -130,8 +159,10 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
       set({ guests });
     },
     set: (agent, received) => {
-      const snapshot = shownSnapshot(received);
-      update(agent, (thread) => ({ snapshot, pending: settlePending(snapshot, thread.pending) }));
+      update(agent, (thread) => {
+        const snapshot = sharedSnapshot(thread.snapshot, shownSnapshot(received));
+        return { snapshot, pending: settlePending(snapshot, thread.pending) };
+      });
     },
     setPending: (agent, turn) => {
       update(agent, (thread) => ({ pending: turn === null ? null : { ...turn, sinceRev: thread.snapshot?.rev ?? -1 } }));
