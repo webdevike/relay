@@ -300,14 +300,22 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
     with `rooms`) moved to db47bff56b for new omp sessions. Host process not rebuilt (no host route needed).
     Phone JS on main, no OTA.
 
-- S5 polish (RoomsPolish): decision-record face clusters are a clean overlapping stack (22px squares, eva-gap overlap, page-color ring, Isaac's badge same size); 1:1 user bubbles show registry `@Assistant` mentions as the room's `.eva-at-chip` (shared rooms/MentionText.tsx; @computer and unknown words plain). Proof: proof/rooms-assistants/s5-polish-decision.png, s5-polish-chip.png; sha/build id in the final report.
+- S5 polish (RoomsPolish): decision-record face clusters are a clean overlapping stack (22px squares, eva-gap overlap, page-color ring, Isaac's badge same size); 1:1 user bubbles show registry `@Assistant` mentions as the room's `.eva-at-chip` (shared rooms/MentionText.tsx; @computer and unknown words plain). Proof: proof/rooms-assistants/s5-polish-decision.png, s5-polish-chip.png. Main 017c62cf, deploy 017c62cfaa.
+
+### Close-out (Eva, 2026-11-11)
+- CI: red from 00d54f9f to cf73e2b0 (contract rooms-chat.test.ts lacked `kind`; CI typechecks tests). Fixed
+  in d3f11d16, green on d3f11d16 and db47bff5. Every push now runs CI's exact list first.
+- Relay Host 0.2.93 built from main a9fbe1a2 (S2 rooms.chat, S3 consult + guest bridge, S4 rooms.decide, S5
+  token stripping; all four feature strings verified in the binary), NOT installed:
+  Eva `work/relay-host-0293/apps/mac-host/build/Relay Host.app` and `RelayHost.zip`. Installed today: 0.2.92.
+- Phone OTA eb52a495-b7c0-806e-adbf-0dc38c5874f3 (runtime 0.1.0, from clean checkout a9fbe1a2, no `_Pnpm_`
+  worklet names in the .hbc). Rooms/guest/decision parts light up per host feature string.
+- Eva: S5 room line added to every assistant prime.md (`.omp/assistant/agents/*/prime.md`, loads on the
+  next new thread). S3 consult lines NOT added yet: they need host 0.2.93 + assistant omp restarts first.
 
 ## For Isaac
-- Relay Host: install the consolidated host build Eva makes from main (S2 chat rooms on the phone, S3
-  consult, S4 rooms.decide), then restart every assistant's omp (S3's relay-bridge `guest` request; on the
-  Mini the extension is a symlink into a checkout: update it to main first).
-- Eva rule lines: S3's consult lines (S3 log above) and S5's room line (S5 log above).
-- Phone: JS for S2-S5 is on main but no OTA is published; publish from a clean checkout
-  (`env -u CI pnpm ota:publish`). Each part stays inert until the host advertises its feature.
+- Relay Host 0.2.93 (staged, see Close-out): install it, then restart every assistant's omp so the new
+  relay-bridge `guest` request loads (on the Mini the extension is a symlink into a checkout: keep it on main).
+  After that Eva adds S3's consult lines (S3 log) to the primes.
 - Decide the assistant room limits: $10 budget and effort 4 (Deep) by default
   (`ASSISTANT_ROOM_LIMITS`, packages/contract/src/rooms-agent.ts); your own edits lift them per room.
