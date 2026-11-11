@@ -40,6 +40,7 @@ export function RoomMenu({
   onChange,
   target,
   position = 'bottom-end',
+  renameIn,
 }: {
   room: Room
   opened: boolean
@@ -47,6 +48,8 @@ export function RoomMenu({
   /** What the menu hangs from: its button, or an anchor at the pointer. */
   target: ReactElement
   position?: 'bottom-end' | 'bottom-start'
+  /** Where Rename puts the title field: the nav row or the room's header. */
+  renameIn: 'nav' | 'header'
 }) {
   const [deleting, setDeleting] = useState(false)
   const run = roomRunAction(room)
@@ -59,7 +62,7 @@ export function RoomMenu({
           <EvaMenu.Item
             data-testid="room-menu-rename"
             leftSection={<IconPencil size={16} stroke={1.5} />}
-            onClick={() => setRenaming(room.id)}
+            onClick={() => setRenaming(room.id, renameIn)}
           >
             Rename
           </EvaMenu.Item>
@@ -209,7 +212,7 @@ export function RoomRenameField({ room, className }: { room: Room; className: st
 /** A room's title in its header; a field while it is renamed. */
 export function RoomHeaderTitle({ id }: { id: string }) {
   const room = useRooms((s) => s.rooms[id] ?? null)
-  const renaming = useRooms((s) => s.renaming === id)
+  const renaming = useRooms((s) => s.renaming?.id === id && s.renaming.where === 'header')
   if (!room) return null
   return renaming ? (
     <RoomRenameField room={room} className="eva-room-rename eva-room-rename-head" />
@@ -230,6 +233,7 @@ export function RoomHeaderMenu({ id }: { id: string }) {
       room={room}
       opened={opened}
       onChange={setOpened}
+      renameIn="header"
       target={
         <ActionIcon
           variant="subtle"

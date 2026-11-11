@@ -53,7 +53,7 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
 - The old top-level Rooms page/nav row is folded into Assistants > Rooms.
 
 ## Slices
-- [ ] S1 nav + new room + empty room (contract, persistence of idle rooms, Rooms section in the Assistants
+- [x] S1 nav + new room + empty room (contract, persistence of idle rooms, Rooms section in the Assistants
       sub-nav, New room page with templates + member editor + model picker, empty room view, context menu).
 - [ ] S2 multi-speaker room chat + unified @ picker (engine, notch avatar stack, hover card, speaking ring).
 - [ ] S3 assistant pop-in/out + one-row work card.
@@ -63,8 +63,16 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
 
 ## Log
 - 2026-11-11 worktree created off origin/main 16569631; code map written.
-- 2026-11-11 S1 IN PROGRESS (uncommitted, not built, not typechecked; nothing pushed or deployed). Run stopped at its
-  request budget. Done in the worktree:
+- 2026-11-11 S1 done (the list below plus NewRoomPage/RoomSetupForm, RoomPage, MainHeader room branch, AssistantsList
+  Rooms section, tests, css, e2e). Checks: typecheck clean except `packages/widget-runtime/src/theme.ts` not
+  resolving `@mantine/core` in this worktree (file untouched; install issue); lint ok (spacing baseline shrunk);
+  unit tests 2325 pass (habit-ipc.test flaked once under load, passes alone); `e2e/rooms-assistants.spec.ts`,
+  sidebar.spec and `e2e:smoke` green. Proof: proof/rooms-assistants/s1-*.png.
+  Phone: chat rooms are kept OFF the phone wire (rooms-bridge.ts). Reason: every installed Relay Host validates rooms
+  with RoomWireSchema, which knows only open|wrapping|resolved|failed|paused and drops the desktop's socket on a
+  frame it refuses, so an `idle` chat room would cut the Mac off; the phone's room screens are council-shaped too.
+  They go out once a host + phone update knows `idle` and chat rooms (S2 or later). No phone code changed, no OTA.
+  rooms-resume.live.spec now opens rooms by place; not run (real models, opt-in). Earlier progress notes:
   - contract: `rooms-chat.ts` (ChatRoomSetup/Member/Patch schemas, OMP_THINKING_LEVELS, templates + ROLE_INSTRUCTIONS,
     templateMembers, fitThinking, memberProblem, autoTitle, memberIdFor, ROOM_EFFORTS); `rooms.ts`: phase `idle`,
     Room `kind` (default council) + `chat {setup, rev}`, roomActivity, roomRunAction, IPC rooms.open/update/rename/
@@ -82,12 +90,3 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
     room titles to names-store), page-meta/tab-meta/registry/PageRouter/nav-level(inAssistants)/MainNav/open-link
     know `room:<id>` and `rooms` = New room; new `model-catalog.ts`, `RoomModelPicker.tsx`, `MemberStack.tsx`,
     `RoomComposer.tsx`, `RoomMenu.tsx` (menu, delete confirm, inline rename, header title/menu).
-  Still to do for S1: `NewRoomPage.tsx` + `RoomSetupForm.tsx` (create/edit), `RoomPage.tsx` (chat room view with
-  notch + empty hint + RoomComposer; council RoomView moved out of RoomsPage.tsx), delete RoomsPage.tsx, MainHeader
-  room branch (RoomHeaderTitle, MemberStack notch, RoomHeaderMenu), AssistantsList Rooms section (rows, Idle/Paused
-  tags, live dot, right-click RoomMenu, inline rename, + New room), roster.ts drop ROSTER (fix roster/mentions/
-  presence tests), rooms-store.test rewrite, rooms-bridge.test (ROOM needs kind 'council', fake onRemove), contract
-  tests (setup parsing, memberProblem, templates), chat-room persistence test, rooms.css cleanup (rail/new form
-  styles out, stack/card/form styles in; then `node scripts/lint-spacing.ts --update`), e2e
-  `e2e/rooms-assistants.spec.ts` + sidebar.spec (no nav-rooms) + rooms-resume.live.spec (open room via
-  `room:<id>`), then typecheck/lint/test/build/e2e, commit, rebase, push, deploy.

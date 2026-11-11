@@ -246,7 +246,7 @@ describe('registry', () => {
     expect(assistantIdFrom('!!!')).toBe('')
   })
 
-  it('keeps file order, gives an absent scope as empty and drops entries without an id', () => {
+  it('keeps file order and its model, gives an absent scope as empty and drops entries without an id', () => {
     expect(
       parseRegistry(
         JSON.stringify({
@@ -263,6 +263,7 @@ describe('registry', () => {
         title: 'Astra',
         scope: 'Work',
         avatar: { style: 'notionists', seed: 'astra' },
+        model: 'x',
       },
       { id: 'nova', title: 'Nova', scope: '', avatar: { style: 'notionists', seed: 'nova' } },
     ])

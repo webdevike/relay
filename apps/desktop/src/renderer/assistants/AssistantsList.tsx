@@ -37,7 +37,7 @@ export function AssistantsList() {
   const here = useTabs(activePlace)
   const order = useRooms((s) => s.order)
   const rooms = useRooms((s) => s.rooms)
-  const renaming = useRooms((s) => s.renaming)
+  const renaming = useRooms((s) => (s.renaming?.where === 'nav' ? s.renaming.id : null))
   // The menu stays mounted after it closes, so the Delete confirm it opened stays up.
   const [menu, setMenu] = useState<{ room: Room; x: number; y: number; open: boolean } | null>(null)
   if (agents === null) return null
@@ -160,6 +160,7 @@ export function AssistantsList() {
               room={rooms[menu.room.id] ?? menu.room}
               opened={menu.open}
               position="bottom-start"
+              renameIn="nav"
               onChange={(o) => setMenu({ ...menu, open: o })}
               target={
                 <span

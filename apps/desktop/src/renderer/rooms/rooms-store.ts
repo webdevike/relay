@@ -15,11 +15,13 @@ export interface RoomsState {
   rooms: Record<string, Room>
   /** Room ids, latest activity first. */
   order: string[]
-  /** The room whose title is being renamed in place (its nav row or its header), if any. */
-  renaming: string | null
+  /** The room whose title is being renamed in place, and where: its nav row or its header. */
+  renaming: { id: string; where: RenameWhere } | null
   /** The room whose setup form shows in place of its chat (Members...), if any. */
   editing: string | null
 }
+
+export type RenameWhere = 'nav' | 'header'
 
 const initial = (): RoomsState => ({ rooms: {}, order: [], renaming: null, editing: null })
 
@@ -114,7 +116,7 @@ export function dropRoom(roomId: string): void {
     delete rooms[roomId]
     return {
       ...settle(rooms),
-      renaming: s.renaming === roomId ? null : s.renaming,
+      renaming: s.renaming?.id === roomId ? null : s.renaming,
       editing: s.editing === roomId ? null : s.editing,
     }
   })
@@ -213,9 +215,9 @@ export async function resumeRoom(roomId: string): Promise<string | null> {
   return failure(await invoke('rooms.resume', { roomId }))
 }
 
-/** Shows the title field of room `roomId` in place of its title (null: none). */
-export function setRenaming(roomId: string | null): void {
-  set(() => ({ renaming: roomId }))
+/** Shows the title field of room `roomId` in its nav row or its header (null: none). */
+export function setRenaming(roomId: string | null, where: RenameWhere = 'nav'): void {
+  set(() => ({ renaming: roomId === null ? null : { id: roomId, where } }))
 }
 
 /** Shows the setup form of room `roomId` in place of its chat (null: back to the chat). */

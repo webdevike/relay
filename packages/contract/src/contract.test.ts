@@ -648,15 +648,29 @@ describe('contract', () => {
 
   describe('rooms channels', () => {
     it('lists the rooms channels and validates strict, bounded inputs', () => {
-      for (const c of ['rooms.create', 'rooms.post', 'rooms.react', 'rooms.stop', 'rooms.list']) {
+      for (const c of [
+        'rooms.create',
+        'rooms.open',
+        'rooms.update',
+        'rooms.rename',
+        'rooms.duplicate',
+        'rooms.delete',
+        'rooms.post',
+        'rooms.react',
+        'rooms.stop',
+        'rooms.list',
+      ]) {
         expect(INVOKE_CHANNELS).toContain(c)
       }
       expect(EVENT_CHANNELS).toContain('rooms.changed')
+      expect(EVENT_CHANNELS).toContain('rooms.removed')
+      // rooms.create is the council room; a chat room is rooms.open.
       const create = invokeContract['rooms.create'].input
-      expect(create.safeParse({ prompt: 'Should we?', agentIds: ['pm'] }).success).toBe(true)
-      expect(create.safeParse({ prompt: '', agentIds: ['pm'] }).success).toBe(false)
-      expect(create.safeParse({ prompt: 'x', agentIds: [] }).success).toBe(false)
-      expect(create.safeParse({ prompt: 'x', agentIds: ['pm'], extra: 1 }).success).toBe(false)
+      const council = { effort: 2, source: 'work/src' }
+      expect(create.safeParse({ prompt: 'Should we?', council }).success).toBe(true)
+      expect(create.safeParse({ prompt: 'Should we?', agentIds: ['pm'] }).success).toBe(false)
+      expect(create.safeParse({ prompt: '', council }).success).toBe(false)
+      expect(create.safeParse({ prompt: 'x', council, extra: 1 }).success).toBe(false)
       expect(invokeContract['rooms.post'].input.safeParse({ roomId: 'r', text: '' }).success).toBe(
         false,
       )

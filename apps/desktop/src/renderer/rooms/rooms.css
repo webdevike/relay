@@ -1317,7 +1317,7 @@
 }
 .eva-room-stack-member {
   position: relative;
-  margin-left: calc(var(--mantine-spacing-xs) * -0.75);
+  margin-left: calc(-1 * var(--mantine-spacing-xs));
   --eva-tilt: -5deg;
 }
 .eva-room-stack-member:first-child {

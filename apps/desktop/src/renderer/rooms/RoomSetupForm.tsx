@@ -140,9 +140,9 @@ export function RoomSetupForm({
       refs: form?.refs ?? '',
     }
   }
+  // The first template fills in once the catalog, the registry and the settings are here.
   useEffect(() => {
     if (form === null && pick !== null) setForm(preset('debate'))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pick, form])
 
   if (catalogError && !models)

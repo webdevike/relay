@@ -112,12 +112,13 @@ async function waitFor(
   }
 }
 
-async function openRooms(page: Page): Promise<void> {
-  await page.evaluate(() => {
+/** A room opens as its own place under Assistants > Rooms (`room:<id>`). */
+async function openRoom(page: Page, id: string): Promise<void> {
+  await page.evaluate((key) => {
     const w = window as unknown as E2eWindow // e2e hooks (EVAOS_E2E)
-    w.__evaosShell?.openPlace('rooms', false)
-  })
-  await page.waitForSelector(sel('rooms-page'))
+    w.__evaosShell?.openPlace(key, false)
+  }, `room:${id}`)
+  await page.waitForSelector(sel(`room-${id}`))
 }
 
 async function shellOf(app: ElectronApplication): Promise<Page> {
@@ -157,7 +158,7 @@ test('a council room paused after round 1 survives a quit and resumes to the end
   shell,
   configDir,
 }) => {
-  await openRooms(shell)
+  await shell.waitForSelector(sel('rail'))
   const made = await invoke(shell, 'rooms.create', {
     prompt: 'Make poem.md a four-line poem about a lighthouse with an AABB rhyme. Keep it short.',
     council: {
@@ -177,7 +178,7 @@ test('a council room paused after round 1 survives a quit and resumes to the end
     },
   })
   const id = z.object({ roomId: z.string() }).parse(made.value).roomId
-  await shell.click(sel(`rooms-rail-${id}`))
+  await openRoom(shell, id)
   await expect(shell.locator(phase(id))).toHaveText('Live')
 
   // Pause once round 1 runs: the room stops at the end of it.
@@ -208,8 +209,7 @@ test('a council room paused after round 1 survives a quit and resumes to the end
   const again = await launchApp(configDir, env)
   try {
     const page = await shellOf(again)
-    await openRooms(page)
-    await page.click(sel(`rooms-rail-${id}`))
+    await openRoom(page, id)
     await expect(page.locator(phase(id))).toHaveText('Paused')
     await shot(page, '3-reopened')
     await page.click(sel('room-resume'))
