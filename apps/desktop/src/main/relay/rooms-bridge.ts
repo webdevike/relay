@@ -59,6 +59,16 @@ async function run(service: RoomsService, cmd: RoomsCmd): Promise<unknown> {
       return service.budget(cmd.roomId, cmd.choice)
     case 'answer':
       return service.answer(cmd.roomId, cmd.askId, cmd.allow)
+    case 'vote':
+      return service.vote(cmd.roomId, cmd.cardId, cmd.option)
+    case 'callPoll':
+      return service.callPoll(cmd.roomId, cmd.cardId, cmd.option)
+    case 'reopenPoll':
+      return service.reopenPoll(cmd.roomId, cmd.cardId)
+    case 'answerAsk':
+      return service.answerAsk(cmd.roomId, cmd.cardId, cmd.answer)
+    case 'decide':
+      return service.decide(cmd.roomId, cmd.cardId, cmd.action, cmd.option)
     case 'image':
       return service.image(cmd.roomId, cmd.path, cmd.max)
   }

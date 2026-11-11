@@ -1,7 +1,13 @@
 // The rooms registry as one service: the renderer's rooms.* IPC (rooms-ipc.ts) and the phone's
 // rooms.cmd frames relayed by Relay Host (relay/rooms-bridge.ts) both drive rooms through it, so
 // a room started on the phone behaves exactly like one started on the desktop.
-import type { ChatRoomSetup, ChatRoomSetupPatch, Room, roomsInvoke } from '@evaos/contract'
+import type {
+  ChatRoomSetup,
+  ChatRoomSetupPatch,
+  DecideAction,
+  Room,
+  roomsInvoke,
+} from '@evaos/contract'
 import type { z } from 'zod'
 
 /** What rooms.create takes: a council room (prompt and notch). */
@@ -40,6 +46,14 @@ export interface RoomsService {
   /** The answer to the 80 % cap pause; resolves with the cap now in force. */
   budget(roomId: string, choice: 'continue' | 'wrap'): Promise<number>
   answer(roomId: string, askId: string, allow: boolean): void
+  // Chat rooms' decision cards (`cardId`: the message that carries the card).
+  /** Isaac's vote on a poll; null takes it back. */
+  vote(roomId: string, cardId: string, option: string | null): void
+  callPoll(roomId: string, cardId: string, option?: string): void
+  reopenPoll(roomId: string, cardId: string): void
+  /** Marks the question answered and posts the answer (the members talk again). */
+  answerAsk(roomId: string, cardId: string, answer: string): void
+  decide(roomId: string, cardId: string, action: DecideAction, option?: string): void
   /**
    * A room image (a render or reference under the room's workdir or refs) as a JPEG data URL at
    * most `max` px on its long side; rejects paths outside the room.

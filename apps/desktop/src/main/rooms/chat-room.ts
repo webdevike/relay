@@ -19,12 +19,24 @@ import {
   ROOM_MAX_MEMBERS,
   ROOM_SYSTEM,
   UNTITLED_ROOM,
+  answerQuestion,
+  applyDecisionMarkers,
   autoTitle,
+  callPoll,
+  cardById,
+  decide,
   fitThinking,
   levelsFor,
   memberIdFor,
   mentionsIn,
+  optionLabel,
+  reopenPoll,
+  splitDecisionMarkers,
+  voteOn,
   type ChatRoomMember,
+  type DecideAction,
+  type DecisionCardType,
+  type DecisionKindCard,
   type ChatRoomSetup,
   type ChatRoomSetupPatch,
   type Room,
@@ -33,11 +45,11 @@ import {
   type RoomMessage,
 } from '@evaos/contract'
 import { councilMoney, councilPriceOf, usageCost, type ModelPrice } from '@relay/protocol'
-import { afterTurn, burstFor, nextSpeaker, type Burst } from './chat-turns'
+import { afterTurn, burstFor, judgeOf, nextSpeaker, type Burst } from './chat-turns'
 import type { SeatHandle, SeatLauncher } from './council/seat'
 import { ROOM_STATE_VERSION, writeRoomState, type ChatRoomState } from './council/state'
 import { RoomWorkdir } from './council/workdir'
-import { dedash, transcriptLines, trimReply } from './prompts'
+import { decisionBrief, dedash, transcriptLines, trimReply } from './prompts'
 
 /** Mantine colors members cycle through, so mentions and avatars stay apart. */
 const COLORS = ['blue', 'orange', 'teal', 'violet', 'green', 'pink', 'cyan', 'grape'] as const
@@ -121,6 +133,8 @@ export class ChatRoom {
   private streaming: string | null = null
   private idleTimer: NodeJS.Timeout | null = null
   private destroyed = false
+  /** Isaac's newest vote line: his next vote on the same poll rewrites it instead of adding one. */
+  private voteLine: { msg: string; poll: string } | null = null
 
   private constructor(
     room: Room,
@@ -212,10 +226,11 @@ export class ChatRoom {
 
   /**
    * Isaac posts: the message is kept (an unnamed room takes its title from it) and starts a burst.
-   * An assistant he @mentions who is not in the room joins as a guest and is first to answer.
+   * An assistant he @mentions who is not in the room joins as a guest and is first to answer;
+   * `first` (a member id: the one whose question he answers) speaks before everyone.
    * While a turn runs, the next one comes from this message; a paused room waits for Resume.
    */
-  post(text: string): void {
+  post(text: string, first?: string): void {
     const body = text.trim()
     const msg = this.append(ROOM_ISAAC, body)
     if (this.room.prompt === '') this.room.prompt = body
@@ -227,7 +242,7 @@ export class ChatRoom {
     this.changed()
     // Posts are planned in order, each after the guests the one before pulled in.
     this.planning = this.planning
-      .then(() => this.plan(msg))
+      .then(() => this.plan(msg, first))
       .catch((e: unknown) =>
         this.deps.log(`${this.room.id}: could not plan a burst: ${errText(e)}`),
       )
@@ -243,6 +258,73 @@ export class ChatRoom {
       if (r.by.length === 0) m.reactions = m.reactions.filter((x) => x !== r)
     } else r.by.push(ROOM_ISAAC)
     this.changed()
+  }
+
+  // ---- Isaac on the decision cards: each a quiet line the members read on their next turn ------
+
+  /** Isaac's vote (null, or his pick again, takes it back); repeated votes rewrite one line. */
+  vote(cardId: string, option: string | null): void {
+    const poll = this.card(cardId, 'poll')
+    voteOn(poll, option)
+    const pick = poll.votes[ROOM_ISAAC]
+    const text = pick
+      ? `Isaac voted ${optionLabel(poll.options, pick)}`
+      : `Isaac took back his vote on ${poll.question}`
+    const last = this.room.messages[this.room.messages.length - 1]
+    if (last && this.voteLine?.msg === last.id && this.voteLine.poll === cardId) last.text = text
+    else this.voteLine = { msg: this.append(ROOM_SYSTEM, text).id, poll: cardId }
+    this.changed()
+  }
+
+  callPoll(cardId: string, option?: string): void {
+    const poll = this.card(cardId, 'poll')
+    const pick = callPoll(poll, option)
+    this.append(ROOM_SYSTEM, `Isaac called the vote: ${optionLabel(poll.options, pick)}`)
+    this.changed()
+  }
+
+  /** The vote is open again, and so is a call made on it. */
+  reopenPoll(cardId: string): void {
+    const poll = this.card(cardId, 'poll')
+    reopenPoll(poll)
+    for (const m of this.room.messages)
+      if (m.card?.type === 'decision' && m.card.poll === cardId && m.card.state !== 'reopened')
+        m.card.state = 'reopened'
+    this.append(ROOM_SYSTEM, `Isaac reopened the vote: ${poll.question}`)
+    this.changed()
+  }
+
+  /** Isaac's answer to a member's question: marked on its card, then posted (the asker answers first). */
+  answerAsk(cardId: string, answer: string): void {
+    const card = this.card(cardId, 'question')
+    const pick = answerQuestion(card, answer)
+    const asker = this.setup.members.some((m) => m.id === card.by) ? card.by : undefined
+    this.post(`${card.text} ${pick}`, asker)
+  }
+
+  /** Isaac accepts, overrides (with `option`, one of its alternatives) or reopens a decision. */
+  decide(cardId: string, action: DecideAction, option?: string): void {
+    const card = this.card(cardId, 'decision')
+    const poll = card.poll ? cardById(this.room, card.poll, 'poll') : null
+    decide(card, action, option, poll)
+    this.append(
+      ROOM_SYSTEM,
+      action === 'accept'
+        ? `Isaac accepted the call: ${card.title}`
+        : action === 'override'
+          ? `Isaac overrode the call (${card.previous ?? ''}): ${card.title}`
+          : `Isaac reopened the decision: ${card.title}`,
+    )
+    this.changed()
+  }
+
+  private card<T extends DecisionCardType>(
+    id: string,
+    type: T,
+  ): Extract<DecisionKindCard, { type: T }> {
+    const card = cardById(this.room, id, type)
+    if (!card) throw failure('That card is not in the room.')
+    return card
   }
 
   /** Stops the burst now: the turn in flight is dropped and runs again on Resume; seats end. */
@@ -301,11 +383,12 @@ export class ChatRoom {
   // ---- the engine -------------------------------------------------------------------------------
 
   /** The burst `msg` starts, after the guests it mentions joined; runs it unless the room is paused. */
-  private async plan(msg: RoomMessage): Promise<void> {
+  private async plan(msg: RoomMessage, first?: string): Promise<void> {
     await this.addGuests(msg.text)
     if (this.destroyed) return
     msg.mentions = mentionsIn(msg.text, this.room.agents)
-    this.burst = burstFor(this.setup.members, msg.mentions, this.setup.effort)
+    const order = first ? [first, ...msg.mentions.filter((id) => id !== first)] : msg.mentions
+    this.burst = burstFor(this.setup.members, order, this.setup.effort)
     // A turn in flight finishes; the turn after it comes from this burst.
     if (this.abort !== null && this.room.phase === 'open') this.redirect = true
     if (this.room.phase !== 'paused') this.room.phase = 'open'
@@ -420,7 +503,8 @@ export class ChatRoom {
     if (this.destroyed || this.room.phase !== 'open') return
     const seen = this.seats[member.id]?.seen ?? 0
     const delta = this.room.messages.slice(seen).filter((m) => m.author !== member.id)
-    const prompt = `${transcriptLines(this.room, delta)}\n\nYour turn, ${member.name}. Write your message to the room.`
+    const brief = decisionBrief(this.room)
+    const prompt = `${transcriptLines(this.room, delta)}${brief ? `\n\n${brief}` : ''}\n\nYour turn, ${member.name}. Write your message to the room.`
     const ac = new AbortController()
     this.abort = ac
     this.room.presence[member.id] = { state: 'thinking', since: Date.now() }
@@ -441,9 +525,11 @@ export class ChatRoom {
         },
         onPartial: (t) => {
           if (ac.signal.aborted) return
-          if (msg) msg.text = dedash(t)
-          else {
-            msg = this.append(member.id, dedash(t))
+          // Markers become cards when the reply ends; until then they never show.
+          const shown = splitDecisionMarkers(dedash(t), true).text
+          if (msg) msg.text = shown
+          else if (shown !== '') {
+            msg = this.append(member.id, shown)
             this.streaming = msg.id
           }
           this.room.presence[member.id] = { state: 'typing', since: Date.now() }
@@ -451,13 +537,21 @@ export class ChatRoom {
         },
       })
       delete this.room.presence[member.id]
-      const text = trimReply(dedash(r.text.trim()))
-      if (text === '') drop()
+      const reply = splitDecisionMarkers(dedash(r.text.trim()))
+      const text = trimReply(reply.text)
+      const cards = applyDecisionMarkers(this.room, member.id, reply.markers)
+      if (text === '' && cards.length === 0) drop()
       else {
         msg ??= this.append(member.id, text)
         msg.text = text
         msg.mentions = mentionsIn(text, this.room.agents)
         this.streaming = null
+        // One card per message: the first rides on the reply, any more follow it.
+        cards.forEach((card, i) => {
+          const holder = i === 0 ? msg! : this.append(member.id, '')
+          card.id = holder.id
+          holder.card = card
+        })
       }
       const cost = price ? usageCost(price, r.usage) : 0
       this.spend.usd += cost
@@ -474,7 +568,7 @@ export class ChatRoom {
           this.burst!,
           member.id,
           msg?.mentions ?? [],
-          /(^|\s)@isaac\b/i.test(text),
+          /(^|\s)@isaac\b/i.test(text) || cards.some((c) => c.type === 'question'),
         )
       this.changed()
     } catch (e) {
@@ -591,9 +685,33 @@ export class ChatRoom {
 - Talk to the others by name. Writing @Name hands the next turn to that member.
 - Write @Isaac only when only Isaac can answer, and then stop.
 - Build on what was said, disagree with evidence, never repeat someone.`,
+      this.decisionRules(member),
     ]
       .filter((l) => l !== '')
       .join('\n\n')
+  }
+
+  /**
+   * How a member makes decision cards: the markers, and when each fits. The judge or chair makes
+   * the call; in a room without one, any member may once the room agrees.
+   */
+  private decisionRules(member: ChatRoomMember): string {
+    const judge = judgeOf(this.setup.members)
+    const judgeName = this.setup.members.find((m) => m.id === judge)?.name
+    const call =
+      judge === null
+        ? '- [[decision: the call | why, in one sentence | Name: the next step]] records the call once the room agrees. Use a poll option\'s exact words when it settles the poll. One call per question; Isaac accepts or overrides it.'
+        : judge === member.id
+          ? "- [[decision: the call | why, in one sentence | Name: the next step]] is yours to make, as the room's judge: when the room has said enough (usually your last turn), make the call. Use a poll option's exact words when it settles the poll. Isaac accepts or overrides it."
+          : `- ${judgeName} makes the call with [[decision: ...]]. On a proposed call you may write [[agree]] or [[dissent: why]].`
+    return `Decision cards (optional; the room draws them as cards and cuts the markers from your text):
+- Put each marker on its own line after your message. Plain words inside, no em dashes, no brackets.
+- [[poll: question | option | option | option]] opens a vote (2 to 6 short options) when the room circles between clear choices. Any member may open one; one open poll at a time.
+- [[vote: option]] votes on the open poll, by the option's words or its number. Vote again to change your vote.
+- [[pros: subject | point | point]] and [[cons: subject | point | point]] list tradeoffs with your name on them; the same subject adds to the same list. [[dispute: point]] marks a point you disagree with.
+- [[ask-isaac: question | Yes | No | Not sure | note: what each answer changes]] asks Isaac something only he knows, with 2 to 4 short answers. Then stop: nobody talks until he answers.
+${call}
+- The prompt shows "Where the room stands" with the cards' current state (votes, disputes, answers). Do not restate it.`
   }
 
   /** The list price of `model`: omp's catalog, else the council's table; null when unknown. */

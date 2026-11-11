@@ -241,6 +241,11 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     raise: async (roomId) => council(roomId).raise(),
     budget: async (roomId, choice) => council(roomId).budget(choice),
     answer: (roomId, askId, allow) => council(roomId).answer(askId, allow),
+    vote: (roomId, cardId, option) => chat(roomId).vote(cardId, option),
+    callPoll: (roomId, cardId, option) => chat(roomId).callPoll(cardId, option),
+    reopenPoll: (roomId, cardId) => chat(roomId).reopenPoll(cardId),
+    answerAsk: (roomId, cardId, answer) => chat(roomId).answerAsk(cardId, answer),
+    decide: (roomId, cardId, action, option) => chat(roomId).decide(cardId, action, option),
     async image(roomId, p, max) {
       const c = council(roomId).room.council!
       const img = nativeImage.createFromPath(roomImagePath(c.workdir, c.refs, p))
@@ -299,6 +304,26 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
   handle(ctx, 'rooms.answer', ({ roomId, askId, allow }) => {
     service.answer(roomId, askId, allow)
     return { answered: true as const }
+  })
+  handle(ctx, 'rooms.vote', ({ roomId, cardId, option }) => {
+    service.vote(roomId, cardId, option)
+    return { voted: true as const }
+  })
+  handle(ctx, 'rooms.callPoll', ({ roomId, cardId, option }) => {
+    service.callPoll(roomId, cardId, option)
+    return { called: true as const }
+  })
+  handle(ctx, 'rooms.reopenPoll', ({ roomId, cardId }) => {
+    service.reopenPoll(roomId, cardId)
+    return { reopened: true as const }
+  })
+  handle(ctx, 'rooms.answerAsk', ({ roomId, cardId, answer }) => {
+    service.answerAsk(roomId, cardId, answer)
+    return { answered: true as const }
+  })
+  handle(ctx, 'rooms.decide', ({ roomId, cardId, action, option }) => {
+    service.decide(roomId, cardId, action, option)
+    return { decided: true as const }
   })
   handle(ctx, 'rooms.list', () => ({ rooms: service.list() }))
 

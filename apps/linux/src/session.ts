@@ -20,6 +20,7 @@ import {
   ROOMS_FEATURE,
   ROOMS_RESUME_FEATURE,
   ROOMS_CHAT_FEATURE,
+  ROOMS_DECIDE_FEATURE,
   ASSISTANT_GUESTS_FEATURE,
   STATS_FEATURE,
   toHex,
@@ -1295,7 +1296,7 @@ export class ClientSession {
       ...(this.deps.bookmarks === null ? [] : [BOOKMARKS_FEATURE]),
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
       ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
-      ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE]),
+      ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE]),
       // Snapshots carry guest rows (another assistant popped into a thread) with their entry.
       ...(this.deps.assistant?.consult === undefined ? [] : [ASSISTANT_GUESTS_FEATURE]),
     ];

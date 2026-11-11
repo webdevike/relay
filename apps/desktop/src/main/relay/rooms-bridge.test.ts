@@ -62,6 +62,11 @@ function setup() {
     ),
     budget: vi.fn(() => Promise.resolve(9)),
     answer: vi.fn(),
+    vote: vi.fn(),
+    callPoll: vi.fn(),
+    reopenPoll: vi.fn(),
+    answerAsk: vi.fn(),
+    decide: vi.fn(),
     image: vi.fn(() => Promise.reject(new Error('boom'))),
   } satisfies RoomsService
   let clock = 10_000
@@ -160,5 +165,26 @@ describe('rooms bridge (desktop side)', () => {
     host.push({ t: 'rooms.cmd', rid: 'd', cmd: { op: 'post', roomId: 'r1', text: 'hi' } })
     expect(await answered(host, 'd')).toEqual({ ok: true })
     expect(service.post).toHaveBeenCalledWith('r1', 'hi')
+  })
+
+  it("runs Isaac's actions on a chat room's decision cards", async () => {
+    const { host, service } = setup()
+    host.welcome(['rooms', 'rooms.chat', 'rooms.decide'])
+    const cmds = [
+      { op: 'vote', roomId: 'c1', cardId: 'm4', option: 'o2' },
+      { op: 'callPoll', roomId: 'c1', cardId: 'm4' },
+      { op: 'reopenPoll', roomId: 'c1', cardId: 'm4' },
+      { op: 'answerAsk', roomId: 'c1', cardId: 'm7', answer: 'No' },
+      { op: 'decide', roomId: 'c1', cardId: 'm9', action: 'override', option: 'o1' },
+    ]
+    for (const [i, cmd] of cmds.entries()) {
+      host.push({ t: 'rooms.cmd', rid: `r${i}`, cmd })
+      expect(await answered(host, `r${i}`)).toEqual({ ok: true })
+    }
+    expect(service.vote).toHaveBeenCalledWith('c1', 'm4', 'o2')
+    expect(service.callPoll).toHaveBeenCalledWith('c1', 'm4', undefined)
+    expect(service.reopenPoll).toHaveBeenCalledWith('c1', 'm4')
+    expect(service.answerAsk).toHaveBeenCalledWith('c1', 'm7', 'No')
+    expect(service.decide).toHaveBeenCalledWith('c1', 'm9', 'override', 'o1')
   })
 })

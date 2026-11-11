@@ -1,5 +1,11 @@
 import { z } from 'zod'
 import { ChatRoomSetupPatchSchema, ChatRoomSetupSchema, RoomChatSchema } from './rooms-chat'
+import {
+  DecisionCardSchema,
+  PollCardSchema,
+  ProsConsCardSchema,
+  QuestionCardSchema,
+} from './rooms-decisions'
 
 /** Isaac's author id in a room; every other author is a RoomAgent id, `judge` or `system`. */
 export const ROOM_ISAAC = 'isaac'
@@ -194,6 +200,11 @@ export const RoomCardSchema = z.discriminatedUnion('type', [
       }),
     ),
   }),
+  // Chat rooms' decision cards (rooms-decisions.ts), on the message of the member who made them.
+  PollCardSchema,
+  ProsConsCardSchema,
+  QuestionCardSchema,
+  DecisionCardSchema,
 ])
 export type RoomCard = z.infer<typeof RoomCardSchema>
 
@@ -364,6 +375,7 @@ export function roomRunAction(
 }
 
 const roomId = z.string().min(1).max(64)
+const cardId = z.string().min(1).max(64)
 
 export const RoomCouncilInputSchema = z
   .object({
@@ -458,6 +470,40 @@ export const roomsInvoke = {
   'rooms.react': {
     input: z.object({ roomId, messageId: z.string().min(1), emoji: z.string().min(1) }).strict(),
     output: z.object({ reacted: z.literal(true) }),
+  },
+  // Isaac's actions on a chat room's decision cards (rooms-decisions.ts); `cardId` is the id of
+  // the message that carries the card. Each one shows in the room as a quiet line the members read
+  // on their next turn; only an answer is a post (it starts the members talking again).
+  /** Isaac's vote on a poll (`option` id); null, or his current pick again, takes it back. */
+  'rooms.vote': {
+    input: z.object({ roomId, cardId, option: z.string().min(1).max(64).nullable() }).strict(),
+    output: z.object({ voted: z.literal(true) }),
+  },
+  /** Isaac calls a poll: `option`, else his vote, else the leader. */
+  'rooms.callPoll': {
+    input: z.object({ roomId, cardId, option: z.string().min(1).max(64).optional() }).strict(),
+    output: z.object({ called: z.literal(true) }),
+  },
+  'rooms.reopenPoll': {
+    input: z.object({ roomId, cardId }).strict(),
+    output: z.object({ reopened: z.literal(true) }),
+  },
+  /** Isaac's answer to a member's question: marked on the card and posted as his message. */
+  'rooms.answerAsk': {
+    input: z.object({ roomId, cardId, answer: z.string().min(1).max(80) }).strict(),
+    output: z.object({ answered: z.literal(true) }),
+  },
+  /** Isaac's call on a decision: accept it, override it with an alternative (`option`), or reopen it. */
+  'rooms.decide': {
+    input: z
+      .object({
+        roomId,
+        cardId,
+        action: z.enum(['accept', 'override', 'reopen']),
+        option: z.string().min(1).max(64).optional(),
+      })
+      .strict(),
+    output: z.object({ decided: z.literal(true) }),
   },
   /** Resolve now: summary from what exists, then save. */
   'rooms.stop': {

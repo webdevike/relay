@@ -346,4 +346,118 @@ describe('ChatRoom', () => {
     expect(nova.systemPrompt).toContain("Isaac's assistant Nova (Chief of staff)")
     await r.destroy()
   })
+
+  it('turns markers into decision cards: a poll later votes tally, an ask ends the burst', async () => {
+    const d = deps()
+    const setup: ChatRoomSetup = {
+      ...SETUP,
+      members: [member('astra', 'Argue for'), member('polaris', 'Argue against'), member('nova', 'Judge')],
+      effort: 2,
+    }
+    d.launcher.script = {
+      astra: [
+        'Postgres wins on concurrency \u2014 six writers. @Polaris\n[[poll: Which store \u2014 next 6 months? | SQLite now, Postgres later | Stay on SQLite | Move to Postgres now]]\n[[vote: 3]]',
+        'Agreed on backups. @Polaris\n[[cons: Staying on SQLite | One writer at a time]]\n[[dispute: Zero ops]]',
+      ],
+      polaris: [
+        'SQLite. The write rate settles it. @Astra\n[[vote: Stay on SQLite]]\n[[pros: Staying on SQLite | Zero ops \u2013 no daemon | Litestream covers backups]]',
+        '@Isaac one thing only you know.\n[[ask-isaac: Is a second host coming this quarter? | Yes | No | Not sure | note: Yes flips this]]',
+      ],
+    }
+    const r = ChatRoom.create('room-dec', setup, 1000, d)
+    r.post('Should Relay Host move from SQLite to Postgres?')
+    await vi.waitFor(() => expect(r.room.messages.some((m) => m.card?.type === 'question')).toBe(true))
+    await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
+    const cards = r.room.messages.filter((m) => m.card).map((m) => [m.id, m.author, m.card!.type])
+    expect(cards).toEqual([
+      ['m2', 'astra', 'poll'],
+      ['m3', 'polaris', 'proscons'],
+      ['m5', 'polaris', 'question'],
+    ])
+    // The question stopped the burst before the judge's closing turn.
+    expect(d.launcher.turns.map((t) => t.seat)).toEqual(['astra', 'polaris', 'astra', 'polaris'])
+    const poll = r.room.messages[1]!.card!
+    expect(poll).toMatchObject({
+      question: 'Which store, next 6 months?',
+      votes: { astra: 'o3', polaris: 'o2' },
+      state: 'open',
+    })
+    expect(r.room.messages[1]!.text).toBe('Postgres wins on concurrency, six writers. @Polaris')
+    const pc = r.room.messages[2]!.card!
+    expect(pc).toMatchObject({
+      pros: [
+        { text: 'Zero ops, no daemon', by: ['polaris'], state: 'disputed', against: ['astra'] },
+        { text: 'Litestream covers backups', state: 'agreed' },
+      ],
+      cons: [{ text: 'One writer at a time', by: ['astra'] }],
+    })
+    // No em dash and no marker reaches the room, the cards or room.json.
+    const disk = fs.readFileSync(path.join(r.workdir, 'room.json'), 'utf8')
+    expect(disk).not.toMatch(/[\u2014\u2013]|\[\[/)
+    expect(JSON.stringify(r.room.messages)).not.toMatch(/[\u2014\u2013]|\[\[/)
+    // The next turn's prompt says where the cards stand.
+    expect(d.launcher.turns[3]!.prompt).toContain('Where the room stands:')
+    expect(d.launcher.turns[3]!.prompt).toContain('2) Stay on SQLite: Polaris')
+    const [back] = reload(d)
+    expect(back!.room.messages[4]!.card).toMatchObject({ type: 'question', answers: ['Yes', 'No', 'Not sure'] })
+    await r.destroy()
+  })
+
+  it("Isaac's votes rewrite one line, his answer is a post the asker answers first, his call is recorded", async () => {
+    const d = deps()
+    const setup: ChatRoomSetup = {
+      ...SETUP,
+      members: [member('astra', 'Argue for'), member('polaris', 'Argue against'), member('nova', 'Judge')],
+      effort: 1,
+    }
+    d.launcher.script = {
+      astra: ['Voting.\n[[poll: Which store? | SQLite | Postgres]]\n[[vote: Postgres]]', '[[vote: SQLite]]'],
+      polaris: ['[[ask-isaac: Second host this quarter? | Yes | No]]', 'Then SQLite holds.'],
+      nova: [
+        'Calling it.\n[[decision: SQLite | One Mac, 40 writes a second | Polaris: add Litestream]]',
+      ],
+    }
+    const r = ChatRoom.create('room-isaac', setup, 1000, d)
+    r.post('Postgres or SQLite?')
+    await vi.waitFor(() => expect(r.room.messages.some((m) => m.card?.type === 'question')).toBe(true))
+    await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
+    const poll = r.room.messages.find((m) => m.card?.type === 'poll')!
+    const ask = r.room.messages.find((m) => m.card?.type === 'question')!
+    r.vote(poll.id, 'o1')
+    r.vote(poll.id, 'o2')
+    const lines = r.room.messages.filter((m) => m.author === 'system').map((m) => m.text)
+    expect(lines).toEqual(['Isaac voted Postgres'])
+    expect(() => r.answerAsk(ask.id, 'Maybe')).toThrow(/Not one/)
+    r.answerAsk(ask.id, 'No')
+    expect(ask.card).toMatchObject({ answered: 'No' })
+    await vi.waitFor(() => expect(r.room.messages.some((m) => m.card?.type === 'decision')).toBe(true))
+    await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
+    const isaac = r.room.messages.filter((m) => m.author === 'isaac').map((m) => m.text)
+    expect(isaac).toEqual(['Postgres or SQLite?', 'Second host this quarter? No'])
+    // Polaris asked, so Polaris answers first; the judge closes with the call.
+    expect(d.launcher.turns.map((t) => t.seat).slice(2)).toEqual(['polaris', 'astra', 'nova'])
+    // Astra's second reply only voted: no message, her vote moved.
+    expect(said(r.room).filter(([a]) => a === 'astra')).toHaveLength(1)
+    const dec = r.room.messages.find((m) => m.card?.type === 'decision')!
+    expect(dec.card).toMatchObject({
+      title: 'SQLite',
+      option: 'o1',
+      agree: ['nova', 'astra'],
+      dissent: [{ by: 'isaac', note: 'Voted Postgres' }],
+      next: { who: 'polaris', text: 'add Litestream' },
+      state: 'proposed',
+    })
+    r.decide(dec.id, 'override', 'o2')
+    expect(dec.card).toMatchObject({ state: 'overridden', title: 'Postgres', previous: 'SQLite' })
+    expect(r.room.messages.at(-1)!.text).toBe('Isaac overrode the call (SQLite): Postgres')
+    r.reopenPoll(poll.id)
+    expect(dec.card).toMatchObject({ state: 'reopened' })
+    expect(r.room.messages.at(-1)!.text).toBe('Isaac reopened the vote: Which store?')
+    expect(() => r.decide('m999', 'accept')).toThrow(/not in the room/)
+    const [back] = reload(d)
+    expect(back!.room.messages.find((m) => m.id === dec.id)!.card).toMatchObject({
+      state: 'reopened',
+    })
+    await r.destroy()
+  })
 })

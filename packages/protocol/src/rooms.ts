@@ -38,6 +38,13 @@ export const ROOMS_RESUME_FEATURE = "rooms.resume";
  * with `rooms.get {chat: true}`, so a phone that cannot draw them never sees one.
  */
 export const ROOMS_CHAT_FEATURE = "rooms.chat";
+/**
+ * A host that relays Isaac's actions on a chat room's decision cards (`rooms.cmd` vote, callPoll,
+ * reopenPoll, answerAsk, decide). The cards themselves ride on room frames, which every host passes
+ * through, so a phone draws them on any host; it sends the actions only to a host with this
+ * feature (an older one drops the socket on a cmd its schema does not know).
+ */
+export const ROOMS_DECIDE_FEATURE = "rooms.decide";
 /** Largest room frame the host relays, in bytes of JSON. */
 export const MAX_ROOM_BYTES = 2_000_000;
 export const MAX_ROOMS = 24;
@@ -66,7 +73,23 @@ export type RoomWireCard =
       type: "deliverable"; total?: number | undefined; spent: number; minutes: number; workdir: string; record?: string | undefined; routingFile?: string | undefined;
       before: RoomWireRender[]; after: RoomWireRender[]; changes: string[]; dissent: string[];
       who: { agentId: string; part?: string | undefined; did: string; turns: number; usd: number; moved: string }[];
+    }
+  // A chat room's decision cards (Relay Desktop @evaos/contract rooms-decisions.ts); `id` is the
+  // message that carries the card, the `cardId` of the actions below.
+  | {
+      type: "poll"; id: string; by: string; question: string; options: RoomWireOption[];
+      votes: Record<string, string>; state: "open" | "called" | "reopened"; called?: { option: string; by: string } | undefined;
+    }
+  | { type: "proscons"; id: string; subject: string; pros: RoomWirePoint[]; cons: RoomWirePoint[] }
+  | { type: "question"; id: string; by: string; text: string; sub?: string | undefined; answers: string[]; answered?: string | undefined }
+  | {
+      type: "decision"; id: string; by: string; title: string; why: string; agree: string[];
+      dissent: { by: string; note?: string | undefined }[]; next?: { who?: string | undefined; text: string } | undefined;
+      alternatives: RoomWireOption[]; poll?: string | undefined; option?: string | undefined;
+      state: "proposed" | "accepted" | "overridden" | "reopened"; previous?: string | undefined;
     };
+export interface RoomWireOption { id: string; label: string }
+export interface RoomWirePoint { text: string; by: string[]; state: "agreed" | "disputed"; against?: string[] | undefined }
 export interface RoomWireSeat {
   role: CouncilRole; modelKey: CouncilModelKey; harness: CouncilHarness; thinking: CouncilThinking;
   part?: string | undefined; branch?: "A" | "B" | undefined; override: boolean; worktree?: string | undefined;
@@ -147,6 +170,12 @@ export const RoomsCmd = z.discriminatedUnion("op", [
   z.object({ op: z.literal("raise"), roomId }),
   z.object({ op: z.literal("budget"), roomId, choice: z.enum(["continue", "wrap"]) }),
   z.object({ op: z.literal("answer"), roomId, askId: z.string().min(1).max(64), allow: z.boolean() }),
+  // A chat room's decision cards (needs ROOMS_DECIDE_FEATURE); `cardId` is the card's message id.
+  z.object({ op: z.literal("vote"), roomId, cardId: z.string().min(1).max(64), option: z.string().min(1).max(64).nullable() }),
+  z.object({ op: z.literal("callPoll"), roomId, cardId: z.string().min(1).max(64), option: z.string().min(1).max(64).optional() }),
+  z.object({ op: z.literal("reopenPoll"), roomId, cardId: z.string().min(1).max(64) }),
+  z.object({ op: z.literal("answerAsk"), roomId, cardId: z.string().min(1).max(64), answer: z.string().min(1).max(80) }),
+  z.object({ op: z.literal("decide"), roomId, cardId: z.string().min(1).max(64), action: z.enum(["accept", "override", "reopen"]), option: z.string().min(1).max(64).optional() }),
   /** A render or reference image of the room, as a JPEG data URL at most `max` px on its long side. */
   z.object({ op: z.literal("image"), roomId, path: z.string().min(1).max(2000), max: z.number().int().min(64).max(2048).default(1024) }),
 ]);
