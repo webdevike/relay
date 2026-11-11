@@ -1,10 +1,11 @@
-import { useRef, useState, type KeyboardEvent } from 'react'
+import { useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { Loader } from '@mantine/core'
 import { IconGlobe, IconPin, IconPinnedOff, IconX } from '@tabler/icons-react'
 import type { IDockviewPanelHeaderProps, IDockviewPanelProps } from 'dockview-react'
 import { toolTabFromJson, type SubagentTab, type ToolTab } from '@evaos/shell-core'
 import type { TabState } from '@evaos/contract'
+import { AgentFace } from '../../browser/AgentCaption'
 import { useBrowserStore } from '../../browser/browser-store'
 import { useChatStore } from '../../chat/chat-store'
 import { useFrontChatPane } from '../../chat/front-chat'
@@ -40,8 +41,19 @@ function SubagentGlyph({ tab }: { tab: SubagentTab }) {
   return <SubagentStateIcon state={subagentState(subagent, now)} />
 }
 
-/** A page tab's glyph: a spinner while it loads, its favicon, else a globe. */
+/** A page tab's glyph: an agent's face on its tab, a spinner while it loads, its favicon, else a globe. */
 function WebGlyph({ page }: { page: TabState | undefined }) {
+  if (page?.agent) {
+    return (
+      <span
+        className="eva-tab-agent-glyph"
+        data-status={page.agent.status}
+        style={{ '--eva-agent': page.agent.color } as CSSProperties}
+      >
+        <AgentFace agent={page.agent} size="xs" />
+      </span>
+    )
+  }
   if (page?.loading) return <Loader size={12} />
   if (page?.favicon) {
     return <img className="eva-web-favicon" src={page.favicon} alt="" width={14} height={14} />
@@ -86,6 +98,7 @@ export function ToolTabView({ api, params }: IDockviewPanelHeaderProps<{ tab?: T
         className={pinned ? 'eva-pane-tab eva-pane-tab-pinned' : 'eva-pane-tab'}
         data-active={active || undefined}
         data-pinned={pinned || undefined}
+        data-agent-bg={page?.agent?.background || undefined}
         data-pane-tab
         data-testid={`pane-tab-${id}`}
         title={title}
@@ -111,7 +124,7 @@ export function ToolTabView({ api, params }: IDockviewPanelHeaderProps<{ tab?: T
         {pinned ? null : (
           <>
             <span className="eva-pane-tab-title">{title}</span>
-            {page?.openedBy ? <OwnerMark name={page.openedBy} /> : null}
+            {page?.openedBy && !page.agent ? <OwnerMark name={page.openedBy} /> : null}
             <button
               type="button"
               className="eva-pane-tab-close"

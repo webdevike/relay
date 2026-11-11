@@ -5,6 +5,7 @@ import { isDispatchFromGuest } from '../hotkeys/router'
 import { invoke, on } from '../ipc'
 import { tabsStore } from '../tabs/tabs-store'
 import {
+  activateTab,
   addToolTab,
   closeTab,
   inWorkspace,
@@ -115,6 +116,15 @@ export function showWebTab(tabId: string, opts: Placement & { scope?: string } =
   const place = (): string => placeWebTab(tabId, opts)
   const pane = ws === front ? place() : inWorkspace(ws, place)
   return { pane, tab: webPanelId(tabId), tabId }
+}
+
+/** Brings page `tabId`'s tab to the front of its pane on screen, adding it when no pane holds it. */
+export function focusWebTab(tabId: string): string {
+  const panel = webPanelId(tabId)
+  const open = paneSnapshot().panes.find((p) => p.views.includes(panel))
+  if (!open) return showWebTab(tabId).pane
+  activateTab(panel)
+  return open.id
 }
 
 /**

@@ -15,6 +15,8 @@ import { PendingDialog } from './cards/PendingDialog'
 import { JobsStrip } from './strips/JobsStrip'
 import { StatusStrip } from './strips/StatusStrip'
 import { SubagentChips } from './strips/SubagentChips'
+import { AgentWorkCards } from './strips/AgentWorkCards'
+import { useFrontChatPane } from './front-chat'
 import { openActivity } from '../activity/open-activity'
 import { useActivityItems } from '../activity/activity-store'
 import { ownedActive } from '@evaos/chat-core/activity'
@@ -176,6 +178,8 @@ function ChatView({
     const front = frontToolTabs(s).find((t) => t.kind === 'subagent' && t.session === pane?.file)
     return front?.kind === 'subagent' ? front.name : null
   })
+  // Agents' pages in the workspace on screen get their work cards in the chat in front.
+  const inFront = useFrontChatPane() === paneId
   const sidebarLabel =
     sidebarState === 'open'
       ? 'Hide sidebar'
@@ -429,6 +433,7 @@ function ChatView({
           onClearDone={() => chatStore.getState().clearDone(paneId)}
         />
       ) : null}
+      {inFront ? <AgentWorkCards /> : null}
       <PendingDialog paneId={paneId} />
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
       <StatusStrip paneId={paneId} />

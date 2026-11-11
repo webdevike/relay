@@ -53,7 +53,7 @@ import {
   zoomPane,
   closeAppTab,
 } from '../tiling/tiling-store'
-import { openWebPage, showWebTab, webPanelId, type WebPagePlace } from '../tiling/web-tabs'
+import { focusWebTab, openWebPage, webPanelId, type WebPagePlace } from '../tiling/web-tabs'
 import { browserStore } from '../browser/browser-store'
 import { paneTabTitle } from '../tiling/pane-tab-meta'
 import { chatStore } from '../chat/chat-store'
@@ -491,8 +491,13 @@ async function openPage(
   asked?: { background?: boolean },
 ): Promise<object> {
   const at = { ...(url ? { url } : {}), ...(pane !== undefined ? { pane } : {}) }
-  if (scope === undefined)
-    return openWebPage({ ...at, ...(asked?.background ? { background: true } : {}) })
+  if (scope === undefined) {
+    return openWebPage({
+      ...at,
+      ...(asked?.background ? { background: true } : {}),
+      agent: await agentIdentity(undefined),
+    })
+  }
   const t = await targetOf(scope)
   const away = !inFront(t)
   const background = away || asked?.background === true
@@ -704,14 +709,8 @@ export const rendererActions: AgentRunners<'renderer'> = {
     const front = frontWorkspace()
     const ws = workspaceHolding(panel) ?? t?.scope ?? front
     if (workspaceHolding(panel) === null) await pageExists(tabId)
-    const show = (): string => {
-      const open = paneSnapshot().panes.find((p) => p.views.includes(panel))
-      if (!open) return showWebTab(tabId).pane
-      activateTab(panel)
-      return open.id
-    }
-    if (ws === front) return { active: panel, pane: show() }
-    const pane = inWorkspace(ws, show)
+    if (ws === front) return { active: panel, pane: focusWebTab(tabId) }
+    const pane = inWorkspace(ws, () => focusWebTab(tabId))
     announce(t !== null && t.scope === ws ? t : await targetOf(ws), 'showed a page')
     return { active: panel, pane, scope: ws, background: true }
   },

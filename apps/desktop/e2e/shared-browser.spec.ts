@@ -23,11 +23,16 @@ async function controlApi(configDir: string) {
     port: number
     token: string
   }
-  return async (action: string, params: Record<string, unknown>, scope = 'agent:nova') => {
+  // No scope: the call comes from the workspace on screen.
+  return async (
+    action: string,
+    params: Record<string, unknown>,
+    scope: string | null = 'agent:nova',
+  ) => {
     const res = await fetch(`http://127.0.0.1:${port}/actions/${action}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ params, scope }),
+      body: JSON.stringify({ params, ...(scope === null ? {} : { scope }) }),
     })
     return (await res.json()) as AgentResult
   }
@@ -224,4 +229,97 @@ test('agents drive a page off screen: read, type, click, ask before buying, paus
   await ok('browser.done', { tabId, summary: 'Ordered ORICO 2TB, $89.99' })
   const done = ((await ok('browser.tabs', {})).tabs as typeof listed).find((t) => t.tabId === tabId)
   expect(done?.agent).toMatchObject({ status: 'done', caption: 'Ordered ORICO 2TB, $89.99' })
+})
+
+test('an agent at work in the page on screen: ring, face on the tab, caption, Take over, Allow', async ({
+  app,
+  shell,
+  configDir,
+}) => {
+  await expect(shell.locator('[data-pane-tab]').first()).toBeVisible()
+  const run = await controlApi(configDir)
+  const ok = async (action: string, params: Record<string, unknown>) => {
+    const r = await run(action, params, null)
+    expect(r, `${action}: ${r.message}`).toMatchObject({ ok: true })
+    return r.value!
+  }
+  // The workspace on screen: the page opens in front, beside the chat.
+  const opened = await ok('browser.open', { url: server.url('/shop.html?q=ORICO+2TB') })
+  const tabId = opened.tabId as string
+  expect(opened.background).toBeFalsy()
+  const panel = webPanel(shell, tabId)
+  await expect(panel).toBeVisible()
+  const frame = panel.locator('[data-testid=browser-frame]')
+  const caption = panel.locator('[data-testid=agent-caption]')
+  const tab = shell.locator(`[data-testid="pane-tab-web:${tabId}"]`)
+  // Opened but not driving yet: its face on the tab, no ring or caption.
+  await expect(tab.locator('.eva-tab-agent-glyph')).toHaveAttribute('data-status', 'idle')
+  await expect(caption).toHaveCount(0)
+  await expect
+    .poll(async () => (await ok('browser.read', { tabId, mode: 'text' })).text)
+    .toContain('Add to Cart')
+
+  await ok('browser.click', {
+    tabId,
+    text: 'Add to Cart',
+    caption: 'Adding the ORICO 2TB to the cart',
+  })
+  await expect(frame).toHaveAttribute('data-agent', 'working')
+  await expect(caption).toHaveAttribute('data-status', 'working')
+  await expect(caption).toContainText('Adding the ORICO 2TB to the cart')
+  await expect(tab.locator('.eva-tab-agent-glyph')).toHaveAttribute('data-status', 'working')
+  // The chat in front gets its one-row work card.
+  const card = shell.locator(`[data-testid=agent-work-${tabId}]`)
+  await expect(card).toHaveAttribute('data-status', 'working')
+  await expect(card).toContainText('Adding the ORICO 2TB to the cart')
+  await caption.hover()
+  await proofShot(app, shell, 'agent-working', { phase: 'shared-browser' })
+
+  // Take over: the agent pauses and hears so; Hand back lets it go on.
+  await caption.locator('[data-testid=agent-take-over]').click()
+  await expect(caption).toHaveAttribute('data-status', 'paused')
+  await expect(caption).toContainText("You're driving.")
+  expect(await run('browser.scroll', { tabId, dy: 100 }, null)).toMatchObject({
+    ok: false,
+    code: 'paused-by-isaac',
+  })
+  await proofShot(app, shell, 'agent-paused', { phase: 'shared-browser' })
+  await caption.locator('[data-testid=agent-hand-back]').click()
+  await expect(caption).toHaveAttribute('data-status', 'working')
+
+  // A purchase asks in the row under the page; Allow lets it through.
+  await ok('browser.click', { tabId, text: 'Proceed to checkout' })
+  const placing = run('browser.click', { tabId, text: 'Place your order' }, null)
+  await expect(caption).toHaveAttribute('data-status', 'ask')
+  await expect(caption).toContainText('wants to place your order, $89.99')
+  await expect(frame).toHaveAttribute('data-agent', 'ask')
+  await expect(card).toHaveAttribute('data-status', 'ask')
+  await expect(card).toContainText('Wants to place your order, $89.99')
+  await proofShot(app, shell, 'agent-ask', { phase: 'shared-browser' })
+  await caption.locator('[data-testid=agent-allow]').click()
+  expect(await placing).toMatchObject({ ok: true })
+  expect(await guestEval(app, tabId, 'document.getElementById("placed").hidden')).toBe(false)
+
+  // The same ask answered from the chat's work card: Not now stops it.
+  await ok('browser.navigate', { tabId, go: 'reload' })
+  const again = run('browser.click', { tabId, text: 'Place your order' }, null)
+  await expect(card).toHaveAttribute('data-status', 'ask')
+  await card.locator('[data-testid=agent-work-deny]').click()
+  expect(await again).toMatchObject({ ok: false, code: 'declined-by-isaac' })
+  await expect(card).toHaveAttribute('data-status', 'stopped')
+
+  // Done: how it ended, dismissable; the ring and row go.
+  await ok('browser.done', { tabId, summary: 'Ordered ORICO 2TB, $89.99' })
+  await expect(caption).toHaveAttribute('data-status', 'done')
+  await expect(caption).toContainText('Ordered ORICO 2TB, $89.99')
+  await proofShot(app, shell, 'agent-done', { phase: 'shared-browser' })
+  // The work card brings the agent's tab forward.
+  const pane = await paneOfPage(shell, tabId)
+  await shell.locator(`[data-testid=page-new-tab-${pane}]`).click()
+  await expect(tab).not.toHaveAttribute('data-active', 'true')
+  await card.click()
+  await expect(tab).toHaveAttribute('data-active', 'true')
+  await caption.locator('[data-testid=agent-dismiss]').click()
+  await expect(caption).toHaveCount(0)
+  await expect(frame).not.toHaveAttribute('data-agent', /.+/)
 })

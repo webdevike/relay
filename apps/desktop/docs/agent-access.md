@@ -66,6 +66,44 @@ Mini's own app while none has been used, and that desktop runs it exactly like a
 `--device <id or name>` picks one, `--device local` skips the host. Toasts (Undo, approvals,
 "waiting for you to finish typing") show on the Mac that ran the action.
 
+## Shared browser: agents drive pages in Isaac's session
+
+Relay's web page tabs are a real browser on Isaac's signed-in profile (the persistent guest
+partition: his cookies and logins). Any agent can open, read and drive a page with the same
+actions, from relay-ctl, relay-mcp or the Relay Host (`--device`). Prefer this to the
+eva-browser container for anything that needs his sign-ins.
+
+| Action                                                               | What it does                                                                                                                      |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `browser.open` `{url, background?}`                                  | A page tab in the caller's workspace; the tab shows the caller's face. `background` parks it quietly at the end of the strip.     |
+| `browser.tabs`                                                       | Every page in every workspace: tabId, url, title, scope, and an agent's page's `agent` (name, status, caption).                   |
+| `browser.read` `{tabId, mode?}`                                      | `outline` (default): headings and every control as `[n123] button "Add to Cart"`; `text`; `html` of a `selector`. Off screen too. |
+| `browser.screenshot` `{tabId}`                                       | PNG of the page as it renders, off screen too (relay-mcp answers an image; relay-ctl writes a file).                              |
+| `browser.navigate` `{tabId, url \| go}`                              | Load an address, or `back` / `forward` / `reload`.                                                                                |
+| `browser.click` `{tabId, ref \| selector \| text \| x,y}`            | Real (trusted) mouse input; the agent's cursor glides there first.                                                                |
+| `browser.type` `{tabId, text, ref \| label \| ..., clear?, submit?}` | Types into a field (clicked first when named).                                                                                    |
+| `browser.press` / `browser.scroll`                                   | A key with modifiers; scroll by `dy`, to `top`/`bottom`, or an element into view.                                                 |
+| `browser.wait` `{tabId, until}`                                      | `load`, `handback`, `approval`, `text`, `selector` (up to 75 s).                                                                  |
+| `browser.caption`, or `caption` on any drive action                  | The one line Isaac reads under the page and on the chat's work card.                                                              |
+| `browser.done` `{tabId, summary, outcome?}`                          | Ends the run: ring and cursor go, the caption becomes the summary (done or stopped).                                              |
+
+What Isaac sees: the tab carries the agent's rounded-square face (breathing while it works, a
+dot when it asks); the page sits in a soft ring of the agent's color with one caption row under
+it; the agent's cursor (its face as a tag) moves to each click; the chat in front shows a
+one-row work card per page an agent drives (a click brings the tab forward). Renderer:
+`browser/AgentCaption.tsx`, `chat/strips/AgentWorkCards.tsx`; main: `browser/agent-drive.ts`,
+`agent-guard.ts`, `agent-cursor.ts`, `page-control.ts` (CDP on the page's webContents).
+
+Take over: any click, key or scroll of Isaac's in the page (or Take over on the caption row)
+pauses the agent; its actions fail `paused-by-isaac` until he presses Hand back
+(`browser.wait until handback`). Guardrail: a click, Enter or submit whose button reads like a
+purchase, send, submit or delete (Place order, Buy now, Pay, Subscribe, Send, Post, Delete,
+Cancel subscription), any submit of a form with card fields, or an action the agent declares
+with `intent {kind, label}` waits for Isaac's Allow, asked in the caption row and on the work card
+("Penny wants to place your order, $89.99 · Allow / Not now"). Not now fails it
+`declined-by-isaac`; other actions meanwhile fail `awaiting-approval`. Add to cart, checkout
+links, sign-in and search never ask.
+
 ## Rules
 
 - Settings changes: ask Isaac first. Every agent change shows "<Agent> changed <setting> to <value> · Undo"; `settings.undo` and the toast's Undo put it back.

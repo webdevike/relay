@@ -145,6 +145,193 @@
   align-items: center;
   justify-content: center;
 }
+/* An agent's background page tab: grouped at the end of the strip, quietly tinted and dim. */
+.eva-pane-tab[data-agent-bg]:not([data-active]) {
+  background: color-mix(in srgb, var(--eva-text) 4%, transparent);
+  color: var(--eva-text-dim);
+}
+/* A page an agent drives: a soft ring in the agent's color, its one caption row underneath. The
+ * native page paints over anything drawn on the slot, so the ring is the frame's border. */
+.eva-browser-frame {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 0 solid transparent;
+  transition: border-color var(--eva-dur-fast) ease;
+}
+.eva-browser-frame[data-agent] {
+  border-width: 2px;
+  border-color: color-mix(in srgb, var(--eva-agent) 70%, transparent);
+}
+.eva-browser-frame[data-agent='paused'] {
+  border-color: color-mix(in srgb, var(--eva-agent) 35%, transparent);
+}
+.eva-browser-frame[data-agent='ask'] {
+  border-color: color-mix(in srgb, var(--eva-accent) 70%, transparent);
+}
+.eva-browser-frame[data-agent='done'],
+.eva-browser-frame[data-agent='stopped'] {
+  border-color: color-mix(in srgb, var(--eva-agent) 30%, transparent);
+}
+.eva-agent-caption {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  flex: none;
+  min-width: 0;
+  height: 36px;
+  padding: 0 calc(var(--mantine-spacing-xs) / 2) 0 var(--mantine-spacing-xs);
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  font-size: var(--eva-fz-label);
+  white-space: nowrap;
+}
+.eva-agent-caption[data-status='ask'] {
+  background: color-mix(in srgb, var(--eva-accent) 14%, var(--eva-surface));
+}
+.eva-agent-caption-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-agent-caption-text b {
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-agent-caption .eva-dim {
+  color: var(--eva-text-dim);
+}
+.eva-agent-ok {
+  flex: none;
+  color: var(--mantine-color-green-6);
+}
+.eva-agent-face {
+  flex: none;
+  display: block;
+  object-fit: cover;
+  background: var(--eva-surface-2);
+  border: 1px solid var(--eva-border);
+}
+.eva-agent-face-s {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+}
+.eva-agent-face-xs {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+}
+.eva-agent-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--eva-text-dim) 40%,
+    var(--eva-text) 50%,
+    var(--eva-text-dim) 60%
+  );
+  background-size: 300% 100%;
+  background-clip: text;
+  color: transparent;
+  animation: eva-agent-shimmer 2.2s linear infinite;
+}
+@keyframes eva-agent-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+.eva-agent-acts {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  flex: none;
+}
+.eva-agent-acts-hover {
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) ease;
+}
+.eva-browser-frame:hover .eva-agent-acts-hover,
+.eva-agent-acts-hover:focus-within {
+  opacity: 1;
+}
+.eva-agent-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.75);
+  height: 26px;
+  padding: 0 var(--mantine-spacing-xs);
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: color-mix(in srgb, var(--eva-text) 8%, transparent);
+  color: var(--eva-text);
+  font: inherit;
+  font-weight: var(--eva-fw-medium);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.eva-agent-btn:hover {
+  background: color-mix(in srgb, var(--eva-text) 13%, transparent);
+}
+.eva-agent-btn-primary {
+  background: var(--mantine-primary-color-filled);
+  color: var(--mantine-primary-color-contrast);
+}
+.eva-agent-btn-primary:hover {
+  background: var(--mantine-primary-color-filled-hover);
+}
+.eva-agent-btn-quiet {
+  background: none;
+  color: var(--eva-text-dim);
+}
+.eva-agent-btn-quiet:hover {
+  background: var(--eva-hover);
+  color: var(--eva-text);
+}
+.eva-agent-btn-icon {
+  width: 26px;
+  padding: 0;
+  justify-content: center;
+}
+/* A page tab an agent drives: its face breathes while it works; a dot when it asks. */
+.eva-tab-agent-glyph {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+.eva-tab-agent-glyph[data-status='working'] .eva-agent-face {
+  animation: eva-agent-breathe 2s ease-in-out infinite;
+}
+.eva-tab-agent-glyph[data-status='ask']::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  top: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--eva-accent);
+}
+@keyframes eva-agent-breathe {
+  0%,
+  100% {
+    outline: 2px solid color-mix(in srgb, var(--eva-agent) 0%, transparent);
+  }
+  50% {
+    outline: 2px solid color-mix(in srgb, var(--eva-agent) 55%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-agent-shimmer,
+  .eva-tab-agent-glyph .eva-agent-face {
+    animation: none;
+  }
+  .eva-agent-shimmer {
+    color: var(--eva-text-dim);
+  }
+}
 .eva-page-card {
   max-width: 320px;
   padding: var(--eva-space-lg);

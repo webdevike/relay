@@ -1,0 +1,76 @@
+/* An agent's work card above the composer: one row per page it drives, a click opens its tab. */
+.eva-agent-work {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  flex: none;
+  box-sizing: border-box;
+  width: calc(100% - var(--eva-space-native-lg) * 2);
+  max-width: var(--eva-chat-column-w);
+  margin: calc(var(--mantine-spacing-xs) / 2) auto 0;
+}
+.eva-agent-work-card {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  height: 36px;
+  padding: 0 var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  font-size: var(--eva-fz-body);
+  cursor: pointer;
+  transition: background-color var(--eva-dur-fast) ease;
+}
+.eva-agent-work-card:hover {
+  background: var(--eva-hover);
+}
+.eva-agent-work-card:focus-visible {
+  outline: 2px solid var(--eva-accent);
+  outline-offset: 1px;
+}
+.eva-agent-work-card[data-status='working'] {
+  border-color: color-mix(in srgb, var(--eva-agent) 55%, var(--eva-border));
+}
+.eva-agent-work-card[data-status='ask'] {
+  border-color: color-mix(in srgb, var(--eva-accent) 45%, var(--eva-border));
+  background: color-mix(in srgb, var(--eva-accent) 10%, var(--eva-surface));
+}
+.eva-agent-work-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-agent-work-card[data-status='paused'] .eva-agent-work-line,
+.eva-agent-work-card[data-status='stopped'] .eva-agent-work-line {
+  color: var(--eva-text-dim);
+}
+.eva-agent-work-card[data-status='ask'] .eva-agent-work-line {
+  font-weight: var(--eva-fw-medium);
+}
+.eva-agent-work-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  flex: none;
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+}
+.eva-agent-work-card[data-status='done'] .eva-agent-work-meta svg {
+  color: var(--mantine-color-green-6);
+}
+.eva-agent-work-go {
+  flex: none;
+  color: var(--eva-text-dim);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) ease;
+}
+.eva-agent-work-card:hover .eva-agent-work-go,
+.eva-agent-work-card:focus-visible .eva-agent-work-go {
+  opacity: 1;
+}
