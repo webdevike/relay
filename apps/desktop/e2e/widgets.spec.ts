@@ -318,7 +318,9 @@ test('every widget kind renders inline, media loads, and replies send the next t
   const panel = shell.locator('[data-testid=panel-toggle]:visible').first()
   if ((await panel.getAttribute('aria-pressed')) === 'true') await panel.click()
   await expect(panel).toHaveAttribute('aria-pressed', 'false')
-  fs.rmSync(OUT, { recursive: true, force: true })
+  // Only this test's own shots: the OpenUI test writes into the same dir in parallel.
+  for (const f of fs.existsSync(OUT) ? fs.readdirSync(OUT) : [])
+    if (f.startsWith('widgets-')) fs.rmSync(path.join(OUT, f), { force: true })
   await scheme(shell, 'light')
   await shootReply(app, shell, 'light')
   await scheme(shell, 'dark')

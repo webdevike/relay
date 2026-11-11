@@ -298,7 +298,12 @@ test('a short chat shows no navigator, a narrow window keeps it inside the log',
 }) => {
   test.setTimeout(120_000)
   await openChat(app, shell)
+  // Narrower than the column plus the rail's room on both sides, the rail hides (turnRailFits).
   await resize(app, 900, 520)
+  await scrollTo(shell, 'end')
+  await expect(shell.locator(sel('turn-minimap-ticks'))).toHaveCount(0)
+  // Wide enough for the rail but short: it stays inside the log.
+  await resize(app, 1400, 520)
   await scrollTo(shell, 'end')
   const log = (await shell.locator(LOG).boundingBox())!
   const box = (await shell.locator(sel('turn-minimap-ticks')).boundingBox())!
