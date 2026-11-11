@@ -1,27 +1,37 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { Room as RoomDto } from '@evaos/contract'
-import type { CouncilRouting } from '@relay/protocol'
+import {
+  roomActivity,
+  type ChatRoomSetup,
+  type ChatRoomSetupPatch,
+  type Room as RoomDto,
+} from '@evaos/contract'
+import { setRoomTitles } from '../eva/names-store'
 import { invoke, on } from '../ipc'
 import { withPortrait } from './roster'
 import type { Room, RoomMessage, RoomReaction } from './types'
 
 export interface RoomsState {
   rooms: Record<string, Room>
-  /** Room ids, newest first. */
+  /** Room ids, latest activity first. */
   order: string[]
-  /** null shows the new-room form. */
-  activeRoomId: string | null
-  /** Why the last Start room failed, shown on the form. */
-  createError: string | null
+  /** The room whose title is being renamed in place (its nav row or its header), if any. */
+  renaming: string | null
+  /** The room whose setup form shows in place of its chat (Members...), if any. */
+  editing: string | null
 }
 
-const initial = (): RoomsState => ({ rooms: {}, order: [], activeRoomId: null, createError: null })
+const initial = (): RoomsState => ({ rooms: {}, order: [], renaming: null, editing: null })
 
 export const roomsStore = createStore<RoomsState>(initial)
 
 export function useRooms<T>(selector: (s: RoomsState) => T): T {
   return useStore(roomsStore, selector)
+}
+
+/** The room id a `room:<id>` place shows, else null. */
+export function roomIdOf(page: string): string | null {
+  return page.startsWith('room:') ? page.slice('room:'.length) : null
 }
 
 /** Consecutive messages by one author within this window share one header. */
@@ -72,65 +82,78 @@ export function toggleReactionIn(
   return out
 }
 
-const set = (f: (s: RoomsState) => RoomsState): void => roomsStore.setState(f)
+/** The rooms as the store keeps them: latest activity first, their titles named for tabs. */
+function settle(rooms: Record<string, Room>): Pick<RoomsState, 'rooms' | 'order'> {
+  const order = Object.values(rooms)
+    .sort((a, b) => roomActivity(b) - roomActivity(a))
+    .map((r) => r.id)
+  setRoomTitles(Object.fromEntries(order.map((id) => [id, rooms[id]!.title])))
+  return { rooms, order }
+}
+
+const set = (f: (s: RoomsState) => Partial<RoomsState>): void =>
+  roomsStore.setState((s) => ({ ...s, ...f(s) }))
 
 /** Main's room, people given their portraits. */
 export const fromDto = (r: RoomDto): Room => ({ ...r, agents: r.agents.map(withPortrait) })
 
-/** One room from main replaces what the store holds for it; a new id goes to the top. */
+/** One room from main replaces what the store holds for it. */
 export function applyRoom(dto: RoomDto): void {
-  const room = fromDto(dto)
-  set((s) => ({
-    ...s,
-    rooms: { ...s.rooms, [room.id]: room },
-    order: s.order.includes(room.id) ? s.order : [room.id, ...s.order],
-  }))
+  set((s) => settle({ ...s.rooms, [dto.id]: fromDto(dto) }))
 }
 
-/** Main's full list (`rooms.list` is newest first). */
+/** Main's full list. */
 export function applyRooms(dtos: readonly RoomDto[]): void {
-  set((s) => ({
-    ...s,
-    rooms: Object.fromEntries(dtos.map((d) => [d.id, fromDto(d)])),
-    order: dtos.map((d) => d.id),
-  }))
+  set(() => settle(Object.fromEntries(dtos.map((d) => [d.id, fromDto(d)]))))
 }
 
-/** Starts a room in main and opens it; a failure stays on the form. */
-export async function startRoom(prompt: string, agentIds: string[]): Promise<void> {
-  set((s) => ({ ...s, createError: null }))
-  const r = await invoke('rooms.create', { prompt, agentIds })
-  if (!r.ok) {
-    set((s) => ({ ...s, createError: r.error.message }))
-    return
-  }
-  set((s) => ({ ...s, activeRoomId: r.value.roomId }))
+/** A room main deleted. */
+export function dropRoom(roomId: string): void {
+  set((s) => {
+    const rooms = { ...s.rooms }
+    delete rooms[roomId]
+    return {
+      ...settle(rooms),
+      renaming: s.renaming === roomId ? null : s.renaming,
+      editing: s.editing === roomId ? null : s.editing,
+    }
+  })
 }
 
-/** What the New room form hands over for a council room. */
-export interface CouncilStart {
-  effort: number
-  source: string
-  refs: string[]
-  renderCmd?: string
-  /** Only the roles moved off their default provider. */
-  routing: Partial<CouncilRouting>
+type Answer<T> = { ok: true; value: T } | { ok: false; error: { message: string } }
+
+/** An action's failure as the message to show next to its control; null when it went through. */
+const failure = (r: Answer<unknown>): string | null => (r.ok ? null : r.error.message)
+
+/** A new idle chat room; answers its id, or why main refused it. */
+export async function openRoom(
+  setup: ChatRoomSetup,
+): Promise<{ roomId: string } | { error: string }> {
+  const r: Answer<{ roomId: string }> = await invoke('rooms.open', { setup })
+  return r.ok ? { roomId: r.value.roomId } : { error: r.error.message }
 }
 
-/** Starts a council room (cast from the notch in main) and opens it; a failure stays on the form. */
-export async function startCouncilRoom(prompt: string, council: CouncilStart): Promise<void> {
-  set((s) => ({ ...s, createError: null }))
-  const r = await invoke('rooms.create', { prompt, council })
-  if (!r.ok) {
-    set((s) => ({ ...s, createError: r.error.message }))
-    return
-  }
-  set((s) => ({ ...s, activeRoomId: r.value.roomId }))
+/** A chat room's new setup (members replace the list). */
+export async function updateRoom(
+  roomId: string,
+  setup: ChatRoomSetupPatch,
+): Promise<string | null> {
+  return failure(await invoke('rooms.update', { roomId, setup }))
 }
 
-/** An action's failure as the message to show next to its button; null when it went through. */
-const failure = (r: { ok: true } | { ok: false; error: { message: string } }): string | null =>
-  r.ok ? null : r.error.message
+export async function renameRoom(roomId: string, title: string): Promise<string | null> {
+  return failure(await invoke('rooms.rename', { roomId, title }))
+}
+
+/** A chat room's copy (same setup, no messages); answers its id, or null when main refused. */
+export async function duplicateRoom(roomId: string): Promise<string | null> {
+  const r = await invoke('rooms.duplicate', { roomId })
+  return r.ok ? r.value.roomId : null
+}
+
+export async function deleteRoom(roomId: string): Promise<string | null> {
+  return failure(await invoke('rooms.delete', { roomId }))
+}
 
 /** One notch up on a live council room; its new seats join at the next round. */
 export async function raiseRoom(roomId: string): Promise<string | null> {
@@ -154,8 +177,8 @@ export async function answerAsk(
   return failure(await invoke('rooms.answer', { roomId, askId, allow }))
 }
 
-export async function postToRoom(roomId: string, text: string): Promise<void> {
-  await invoke('rooms.post', { roomId, text })
+export async function postToRoom(roomId: string, text: string): Promise<string | null> {
+  return failure(await invoke('rooms.post', { roomId, text }))
 }
 
 /**
@@ -165,13 +188,13 @@ export async function postToRoom(roomId: string, text: string): Promise<void> {
 export async function toggleReaction(roomId: string, msgId: string, emoji: string): Promise<void> {
   set((s) => {
     const room = s.rooms[roomId]
-    if (!room) return s
+    if (!room) return {}
     const i = room.messages.findIndex((m) => m.id === msgId)
-    if (i === -1) return s
-    const m = room.messages[i]!
+    if (i === -1) return {}
     const messages = room.messages.slice()
+    const m = messages[i]!
     messages[i] = { ...m, reactions: toggleReactionIn(m.reactions, emoji, 'isaac') }
-    return { ...s, rooms: { ...s.rooms, [roomId]: { ...room, messages } } }
+    return { rooms: { ...s.rooms, [roomId]: { ...room, messages } } }
   })
   await invoke('rooms.react', { roomId, messageId: msgId, emoji })
 }
@@ -190,17 +213,27 @@ export async function resumeRoom(roomId: string): Promise<string | null> {
   return failure(await invoke('rooms.resume', { roomId }))
 }
 
-export function setActive(roomId: string | null): void {
-  set((s) => (s.activeRoomId === roomId ? s : { ...s, activeRoomId: roomId }))
+/** Shows the title field of room `roomId` in place of its title (null: none). */
+export function setRenaming(roomId: string | null): void {
+  set(() => ({ renaming: roomId }))
+}
+
+/** Shows the setup form of room `roomId` in place of its chat (null: back to the chat). */
+export function setEditing(roomId: string | null): void {
+  set(() => ({ editing: roomId }))
 }
 
 /** Mirrors main's rooms for the life of the window. */
 export function startRooms(): () => void {
-  const off = on('rooms.changed', ({ room }) => applyRoom(room))
+  const offChanged = on('rooms.changed', ({ room }) => applyRoom(room))
+  const offRemoved = on('rooms.removed', ({ roomId }) => dropRoom(roomId))
   void invoke('rooms.list', {}).then((r) => {
     if (r.ok) applyRooms(r.value.rooms)
   })
-  return off
+  return () => {
+    offChanged()
+    offRemoved()
+  }
 }
 
 export function resetRoomsForTests(): void {

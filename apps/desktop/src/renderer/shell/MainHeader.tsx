@@ -7,6 +7,9 @@ import { agentIdOf } from '../assistants/assistants-store'
 import { useNamesVersion } from '../eva/names-store'
 import { ContextButton } from '../context/ContextButton'
 import { ArtifactsButton } from '../artifacts/ArtifactsButton'
+import { RoomHeaderMenu, RoomHeaderTitle } from '../rooms/RoomMenu'
+import { RoomNotch } from '../rooms/MemberStack'
+import { roomIdOf } from '../rooms/rooms-store'
 import { tabTitle } from '../tabs/tab-meta'
 import { toggleToolPanes, toolsShown, useTiling } from '../tiling/tiling-store'
 import { FOLDED_LABEL, toggleSidebar, useLayout } from './layout-store'
@@ -18,6 +21,7 @@ import { FOLDED_LABEL, toggleSidebar, useLayout } from './layout-store'
 export function MainHeader({ place, lead }: { place: Place; lead: boolean }) {
   useNamesVersion()
   const agent = agentIdOf(place)
+  const room = roomIdOf(place.page)
   const state = useLayout((s) => s.state)
   const panelOpen = useTiling(toolsShown)
   const sidebarLabel =
@@ -51,11 +55,21 @@ export function MainHeader({ place, lead }: { place: Place; lead: boolean }) {
         <span className="eva-main-header-title">
           <AgentCrumb id={agent} />
         </span>
+      ) : room !== null ? (
+        <span className="eva-main-header-title">
+          <RoomHeaderTitle id={room} />
+        </span>
       ) : (
         <span className="eva-main-header-title">{tabTitle(place)}</span>
       )}
-      {agent !== null ? <AgentNotch id={agent} /> : null}
-      {agent !== null ? <ArtifactsButton agent={agent} /> : <ContextButton />}
+      {agent !== null ? <AgentNotch id={agent} /> : room !== null ? <RoomNotch id={room} /> : null}
+      {agent !== null ? (
+        <ArtifactsButton agent={agent} />
+      ) : room !== null ? (
+        <RoomHeaderMenu id={room} />
+      ) : (
+        <ContextButton />
+      )}
       {lead ? (
         <Tooltip
           label={

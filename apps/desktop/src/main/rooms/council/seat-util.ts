@@ -1,7 +1,7 @@
 import { execFileSync, type ChildProcess } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { STOP_STEP_MS } from '../runner'
+import { STOP_STEP_MS } from '../omp-frames'
 
 /** Where a seat's generated images land, inside its own worktree. */
 export const GENERATED_DIR = path.join('renders', 'generated')

@@ -534,6 +534,7 @@ describe('CouncilSession', () => {
     const states = readRoomStates(path.join(evaRoot, 'work', 'rooms'), () => undefined)
     expect(states).toHaveLength(1)
     const state = states[0]!
+    if ('kind' in state) throw new Error('a council room was saved as a chat room')
     expect(state.room.phase).toBe('paused')
     expect(state.progress).toEqual({ briefed: true, planned: true, nextRound: 2 })
     expect(state.room.messages.at(-1)!.text).toBe('Keep the stripes thin.')

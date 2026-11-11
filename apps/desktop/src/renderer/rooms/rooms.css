@@ -1,77 +1,9 @@
-/* Rooms: a fixed rail of rooms, then one room as a divided feed with a composer. */
+/* Rooms (Assistants > Rooms): a council room's feed and cards, a chat room's notch, members and setup form. */
 .eva-rooms {
   flex: 1;
   min-height: 0;
   min-width: 0;
   display: flex;
-}
-.eva-rooms-dim {
-  margin: 0;
-  color: var(--eva-c-muted-foreground);
-}
-
-/* Rail */
-.eva-rooms-rail {
-  flex: none;
-  width: 240px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  border-right: 1px solid var(--eva-c-border);
-}
-.eva-rooms-rail-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-sm) var(--mantine-spacing-xs)
-    var(--mantine-spacing-md);
-}
-.eva-rooms-rail-title {
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-semibold);
-}
-.eva-rooms-rail-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  padding: 0 var(--mantine-spacing-xs) var(--mantine-spacing-sm);
-}
-.eva-rooms-rail-row {
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) / 2);
-  width: 100%;
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
-  box-sizing: border-box;
-  border: 0;
-  border-radius: var(--eva-radius);
-  background: transparent;
-  color: var(--eva-c-foreground);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color var(--eva-dur-fast) ease;
-}
-.eva-rooms-rail-row:hover {
-  background: var(--eva-hover);
-}
-.eva-rooms-rail-row[data-active='true'] {
-  background: var(--eva-nav-active-bg);
-  color: var(--eva-nav-active-fg);
-}
-.eva-rooms-rail-row-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-medium);
-}
-.eva-rooms-rail-row-meta {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
 }
 
 .eva-rooms-pill {
@@ -341,14 +273,6 @@
 }
 
 /* Typing line and composer */
-.eva-rooms-composer {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) / 2);
-  padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-md);
-  background: var(--eva-bg);
-}
 .eva-rooms-typing {
   display: flex;
   flex-wrap: wrap;
@@ -362,112 +286,6 @@
   display: inline-flex;
   align-items: center;
   gap: calc(var(--mantine-spacing-xs) / 2);
-}
-.eva-rooms-head-avatar {
-  position: relative;
-  display: inline-flex;
-}
-.eva-rooms-presence-dot {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  border: 2px solid var(--eva-c-background);
-  background: var(--eva-c-muted-foreground);
-}
-.eva-rooms-presence-dot[data-state='reading'] {
-  background: var(--eva-accent);
-}
-.eva-rooms-presence-dot[data-state='typing'] {
-  background: var(--mantine-color-green-6);
-}
-.eva-rooms-composer-row {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--mantine-spacing-xs);
-}
-.eva-rooms-composer-field {
-  flex: 1;
-  min-width: 0;
-}
-
-/* New room form (the empty state) */
-.eva-rooms-new {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-lg);
-  width: 100%;
-  max-width: 560px;
-  box-sizing: border-box;
-  margin: 0 auto;
-  padding: var(--mantine-spacing-xl) var(--mantine-spacing-lg);
-}
-.eva-rooms-new-head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xs);
-  color: var(--eva-c-muted-foreground);
-}
-.eva-rooms-new-title {
-  margin: 0;
-  font-size: var(--eva-fz-display);
-  font-weight: var(--eva-fw-semibold);
-  line-height: 1.2;
-  color: var(--eva-c-foreground);
-}
-.eva-rooms-roster {
-  display: flex;
-  flex-direction: column;
-}
-.eva-rooms-roster-label {
-  margin-bottom: var(--mantine-spacing-xs);
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-medium);
-}
-.eva-rooms-roster-row {
-  padding: var(--mantine-spacing-xs) 0;
-}
-.eva-rooms-roster-row + .eva-rooms-roster-row {
-  border-top: 1px solid var(--eva-c-border);
-}
-.eva-rooms-roster-person {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-sm);
-}
-.eva-rooms-roster-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.eva-rooms-roster-line {
-  display: flex;
-  align-items: baseline;
-  gap: var(--mantine-spacing-xs);
-}
-.eva-rooms-roster-tool {
-  align-self: center;
-  color: var(--eva-c-muted-foreground);
-}
-.eva-rooms-roster-name {
-  font-weight: var(--eva-fw-medium);
-}
-.eva-rooms-roster-text .eva-rooms-dim {
-  font-size: var(--eva-fz-label);
-}
-.eva-rooms-new-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-sm);
-}
-.eva-rooms-error {
-  font-size: var(--eva-fz-label);
-  color: var(--mantine-color-red-7);
 }
 
 /* @mentions: a quiet pill in the person's theme color (Markdown renders `mention:` links). */
@@ -496,34 +314,6 @@
   --eva-mention: var(--mantine-color-green-7);
 }
 
-/* The @ picker under the composer */
-.eva-rooms-mention-list {
-  display: flex;
-  flex-direction: column;
-  min-width: 220px;
-  padding: calc(var(--mantine-spacing-xs) / 2);
-}
-.eva-rooms-mention-row {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
-  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs);
-  border: 0;
-  border-radius: var(--eva-radius);
-  background: transparent;
-  color: var(--eva-c-foreground);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.eva-rooms-mention-row[data-active='true'],
-.eva-rooms-mention-row:hover {
-  background: var(--eva-hover);
-}
-.eva-rooms-mention-name {
-  font-weight: var(--eva-fw-medium);
-}
-
 /* ------------------------------------------------------------------------------------------ */
 /* Council rooms: effort dial, phase strip, spend meter, renders and cards.                    */
 /* ------------------------------------------------------------------------------------------ */
@@ -538,40 +328,10 @@
   container-name: rooms;
 }
 @container rooms (max-width: 640px) {
-  .eva-rooms {
-    flex-direction: column;
-  }
-  .eva-rooms-rail {
-    width: 100%;
-    flex-direction: row;
-    align-items: center;
-    border-right: 0;
-    border-bottom: 1px solid var(--eva-c-border);
-  }
-  .eva-rooms-rail-head {
-    flex: none;
-    gap: var(--mantine-spacing-xs);
-    padding: var(--mantine-spacing-xs) var(--mantine-spacing-xs) var(--mantine-spacing-xs)
-      var(--mantine-spacing-md);
-  }
-  .eva-rooms-rail-list {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding: var(--mantine-spacing-xs) var(--mantine-spacing-xs) var(--mantine-spacing-xs) 0;
-  }
-  .eva-rooms-rail-row {
-    flex: none;
-    width: auto;
-    max-width: 180px;
-  }
   .eva-rooms-header {
     padding-inline: var(--mantine-spacing-md);
   }
   .eva-room-row {
-    padding-inline: var(--mantine-spacing-md);
-  }
-  .eva-rooms-new {
     padding-inline: var(--mantine-spacing-md);
   }
 }
@@ -593,19 +353,6 @@
   align-items: center;
   gap: var(--mantine-spacing-sm) var(--mantine-spacing-md);
   min-width: 0;
-}
-.eva-rooms-council-form,
-.eva-rooms-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-md);
-}
-.eva-rooms-field {
-  gap: var(--mantine-spacing-xs);
-  align-items: flex-start;
-}
-.eva-rooms-field .eva-rooms-roster-label {
-  margin: 0;
 }
 
 /* Chip */
@@ -1510,4 +1257,307 @@
 }
 .eva-contract ul {
   margin: 0;
+}
+
+/* ------------------------------------------------------------------------------------------ */
+/* Chat rooms: nav rows, notch avatar stack, member cards, the empty room and the setup form.   */
+/* ------------------------------------------------------------------------------------------ */
+.eva-room-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: var(--eva-control-xs);
+  height: var(--eva-control-xs);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-tag {
+  font-size: var(--eva-fz-label);
+  font-style: italic;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-live {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mantine-color-green-6);
+}
+.eva-room-rename {
+  width: 100%;
+  min-width: 0;
+  padding: 0 var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-background);
+  color: var(--eva-c-foreground);
+  font: inherit;
+  -webkit-app-region: no-drag;
+}
+.eva-room-rename-head {
+  max-width: 320px;
+}
+.eva-room-head-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-room-head-fill {
+  flex: 1;
+}
+.eva-room-notch.eva-as-notch {
+  width: auto;
+  min-width: calc(var(--eva-control-xs) * 6);
+  justify-content: center;
+}
+.eva-room-stack {
+  display: inline-flex;
+  align-items: center;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+.eva-room-stack-member {
+  position: relative;
+  margin-left: calc(var(--mantine-spacing-xs) * -0.75);
+  --eva-tilt: -5deg;
+}
+.eva-room-stack-member:first-child {
+  margin-left: 0;
+}
+.eva-room-stack-member[data-tilt='1'] {
+  --eva-tilt: 3deg;
+}
+.eva-room-stack-member[data-tilt='2'] {
+  --eva-tilt: -2deg;
+}
+.eva-room-stack-member[data-tilt='3'] {
+  --eva-tilt: 5deg;
+}
+.eva-room-stack-member[data-tilt='4'] {
+  --eva-tilt: -4deg;
+}
+.eva-room-stack-member[data-tilt='5'] {
+  --eva-tilt: 2deg;
+}
+.eva-room-stack-member:hover {
+  z-index: 2;
+}
+.eva-room-stack-face,
+.eva-room-member-face {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  box-sizing: border-box;
+  border: 2px solid var(--mantine-color-gray-2);
+  border-radius: calc(var(--eva-radius) * 1.5);
+  background: var(--mantine-color-gray-1);
+  color: var(--mantine-color-gray-7);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-room-stack-face {
+  width: calc(var(--eva-control-xs) + var(--mantine-spacing-xs));
+  height: calc(var(--eva-control-xs) + var(--mantine-spacing-xs));
+  box-shadow: var(--mantine-shadow-xs);
+  transform: rotate(var(--eva-tilt));
+  transition: transform var(--eva-dur-fast) ease;
+}
+.eva-room-stack-member:hover .eva-room-stack-face {
+  transform: translateY(-2px) rotate(0) scale(1.08);
+}
+.eva-room-stack-member[data-status='speaking'] .eva-room-stack-face {
+  border-color: var(--mantine-color-green-6);
+}
+.eva-room-stack-face img,
+.eva-room-member-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.eva-room-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  font-size: var(--eva-fz-label);
+  line-height: 1.45;
+}
+.eva-room-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-body);
+}
+.eva-room-card-fill {
+  flex: 1;
+}
+.eva-room-card-kind,
+.eva-room-card-key,
+.eva-room-card-status {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-card-status[data-status='speaking'] {
+  color: var(--mantine-color-green-7);
+}
+.eva-room-model-id {
+  font-family: var(--mantine-font-family-monospace);
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-composer {
+  padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-md);
+}
+
+/* The setup form (New room, Members...) */
+.eva-room-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+  width: 100%;
+  max-width: 560px;
+  box-sizing: border-box;
+  margin: 0 auto;
+  padding: var(--mantine-spacing-xl) var(--mantine-spacing-lg);
+}
+.eva-room-form-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-room-form-title {
+  margin: 0;
+  font-size: var(--eva-fz-display);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-room-form-sub,
+.eva-room-form-hint {
+  margin: 0;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-room-form-label {
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-room-form-error {
+  margin: 0;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-danger);
+}
+.eva-room-form-actions {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-room-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-room-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-sm)
+    calc(var(--mantine-spacing-xs) / 2) calc(var(--mantine-spacing-xs) / 2);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius-round);
+  font-size: var(--eva-fz-label);
+}
+.eva-room-chip[data-on] {
+  border-color: var(--eva-accent);
+  background: color-mix(in srgb, var(--eva-accent) 12%, transparent);
+}
+.eva-room-chip img {
+  width: var(--eva-control-xs);
+  height: var(--eva-control-xs);
+  border-radius: 50%;
+  background: var(--mantine-color-gray-1);
+}
+.eva-room-member {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-card-radius);
+  background: var(--eva-surface);
+}
+.eva-room-member-top {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-room-member-face {
+  width: calc(var(--eva-control-xs) + var(--mantine-spacing-xs));
+  height: calc(var(--eva-control-xs) + var(--mantine-spacing-xs));
+}
+.eva-room-member-name {
+  flex: 1;
+  min-width: 0;
+}
+.eva-room-member-kind {
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-member-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--mantine-spacing-xs);
+}
+.eva-room-member-more {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-model {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  height: 30px;
+  padding: 0 var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+}
+.eva-room-model-name {
+  font-weight: var(--eva-fw-semibold);
+  white-space: nowrap;
+}
+.eva-room-model .eva-room-model-id {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-room-model-family {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm) 0;
+  font-size: var(--eva-fz-caption);
+  text-transform: uppercase;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-room-effort {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-room-effort-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--eva-c-muted-background);
+}
+.eva-room-effort-dot[data-on] {
+  background: var(--eva-accent);
 }

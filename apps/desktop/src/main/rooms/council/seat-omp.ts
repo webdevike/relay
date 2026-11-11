@@ -4,7 +4,7 @@ import type { PromptImage } from '@evaos/chat-core/transport'
 import type { Frame } from '@evaos/chat-core/line-framer'
 import { COUNCIL_MODELS } from '@relay/protocol'
 import { OmpStdioTransport } from '../../chat/omp-transport'
-import { messageText, presenceOf, STOP_STEP_MS } from '../runner'
+import { messageText, presenceOf, STOP_STEP_MS } from '../omp-frames'
 import type { GuardInstall } from './guard'
 import type {
   SeatHandle,

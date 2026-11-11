@@ -3,25 +3,24 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { nativeImage } from 'electron'
 import {
-  ROOM_JUDGE_MODEL,
+  memberProblem,
+  roomActivity,
   roomIsLive,
-  roomPerson,
+  type ChatRoomSetup,
+  type ChatRoomSetupPatch,
   type Room,
-  type RoomAgent,
 } from '@evaos/contract'
 import { catalogFor } from '../chat/live-ipc'
 import type { MainContext } from '../context'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { evaFsFor } from '../eva/runtime'
 import { emit, handle } from '../ipc/handle'
+import { ChatRoom } from './chat-room'
 import { findClaude, findCodex } from './council/bins'
 import { CouncilSession, type CouncilDeps } from './council/council'
 import { createSeatLauncher } from './council/seat'
-import { readRoomStates } from './council/state'
+import { newRoomId, readRoomStates } from './council/state'
 import { roomImagePath } from './council/workdir'
-import { JevClient, readJevKey } from './jev'
-import { RoomSession } from './orchestrator'
-import { OmpAgentRunner, privateCwd } from './runner'
 import { roomStem, saveRoom } from './save'
 import type { RoomsCreateInput, RoomsErrorCode, RoomsService } from './service'
 
@@ -38,20 +37,14 @@ const fail = (code: RoomsErrorCode, message: string): Error =>
   Object.assign(new Error(message), { code })
 
 /**
- * `rooms.*`: the rooms of this app (debate rooms of omp personas, council rooms of seats in
- * worktrees). Debate rooms live for the app session; their record is the file they save on
- * resolve. Council rooms also keep their state in `<eva>/work/rooms/<id>/room.json`, so the ones
- * found there at launch are listed again and resume where they stopped. Returns the same rooms as
- * a service for the phone's bridge.
+ * `rooms.*`: the rooms of this app. Council rooms (seats in worktrees) and chat rooms (Assistants >
+ * Rooms) both keep their state in `<eva>/work/rooms/<id>/room.json`, so the ones found there at
+ * launch are listed again: a council room resumes where it stopped, a chat room is as it was.
+ * Returns the same rooms as a service for the phone's bridge.
  */
 export function registerRoomsIpc(ctx: MainContext): RoomsService {
   const { evaRoot, ompBin, live } = ctx.env
-  // Read-only seats look at real code: the app's own checkout (no .omp inside) when the Eva
-  // root has it. Chat-only seats and the judge get an empty private dir: the Eva root's
-  // .omp/tools would reach them as project tools no matter the flags.
-  const repo = path.join(evaRoot, 'work', 'evaos-electron')
-  const toolsCwd = fs.existsSync(repo) ? repo : evaRoot
-  const runner = new OmpAgentRunner({ ompBin, live, cwd: privateCwd(os.tmpdir()), toolsCwd })
+  const roomsDir = path.join(evaRoot, 'work', 'rooms')
   const log = (line: string): void => console.info(`[rooms] ${line}`)
   const claudeBin = ctx.env.claudeBin || (live ? findClaude() : null)
   const codexBin = process.env.EVAOS_CODEX_BIN || (live ? findCodex() : null)
@@ -63,10 +56,10 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     ...(process.env.EVAOS_ROOMS_SEAT_MODEL ? { ompModel: process.env.EVAOS_ROOMS_SEAT_MODEL } : {}),
     log,
   })
-  const sessions = new Map<string, RoomSession | CouncilSession>()
-  const order: string[] = []
+  const sessions = new Map<string, CouncilSession | ChatRoom>()
   const pending = new Map<string, NodeJS.Timeout>()
   const listeners = new Set<(room: Room) => void>()
+  const removeListeners = new Set<(roomId: string) => void>()
 
   const onChange = (room: Room): void => {
     if (pending.has(room.id)) return
@@ -97,7 +90,7 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
       throw new Error(`journal-add exited ${r.code}: ${r.stderr.trim() || r.stdout.trim()}`)
   }
 
-  const session = (roomId: string): RoomSession | CouncilSession => {
+  const session = (roomId: string): CouncilSession | ChatRoom => {
     const s = sessions.get(roomId)
     if (!s) throw fail('no-room', `No room ${roomId}`)
     return s
@@ -109,16 +102,24 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     return s
   }
 
-  /** The roster entries asked for; a model missing from omp's catalog fails that agent early. */
-  const agentsFor = async (agentIds: string[]): Promise<RoomAgent[]> => {
-    const people = agentIds.map((id) => roomPerson(id)).filter((a): a is RoomAgent => a !== null)
-    if (people.length === 0) throw fail('bad-input', 'No known agent was picked.')
-    const known = await catalogFor(ctx)
+  const chat = (roomId: string): ChatRoom => {
+    const s = session(roomId)
+    if (!(s instanceof ChatRoom)) throw fail('not-chat', 'This room has no member setup.')
+    return s
+  }
+
+  /** Every member's model is one omp lists, at a thinking level that model takes. */
+  const checkMembers = async (setup: Pick<ChatRoomSetup, 'members'>): Promise<void> => {
+    const models = await catalogFor(ctx)
       .list()
-      .then((models) => new Set(models.map((m) => `${m.provider}/${m.id}`)))
-      .catch(() => null)
-    if (known === null) return people
-    return people.map((a) => (known.has(a.model) ? a : { ...a, failed: true }))
+      .catch((e: unknown) => {
+        throw fail(
+          'bad-input',
+          `Could not read omp's models: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
+    const problem = memberProblem(setup.members, models)
+    if (problem) throw fail('bad-input', problem)
   }
 
   const evaFs = evaFsFor(ctx)
@@ -133,24 +134,35 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     onChange,
     log,
   }
+  const chatDeps = { roomsDir, onChange, log }
   const liveRooms = (): number =>
     [...sessions.values()].filter((s) => roomIsLive(s.room.phase)).length
 
-  // Council rooms an earlier run of the app saved: listed again, newest first, resumable.
-  const saved = readRoomStates(path.join(evaRoot, 'work', 'rooms'), log).sort(
-    (a, b) => b.room.startedAt - a.room.startedAt,
-  )
-  for (const state of saved) {
-    const s = new CouncilSession(state.room.prompt, state.input, councilDeps, state)
+  // Rooms an earlier run of the app saved: listed again, council ones resumable.
+  for (const state of readRoomStates(roomsDir, log)) {
+    const s =
+      'kind' in state
+        ? ChatRoom.restore(state, chatDeps)
+        : new CouncilSession(state.room.prompt, state.input, councilDeps, state)
     sessions.set(s.room.id, s)
-    order.push(s.room.id)
+  }
+
+  const added = (s: CouncilSession | ChatRoom): string => {
+    sessions.set(s.room.id, s)
+    onChange(s.room)
+    return s.room.id
   }
 
   const service: RoomsService = {
-    list: () => order.map((id) => sessions.get(id)!.room),
+    list: () =>
+      [...sessions.values()].map((s) => s.room).sort((a, b) => roomActivity(b) - roomActivity(a)),
     onChange: (cb) => {
       listeners.add(cb)
       return () => listeners.delete(cb)
+    },
+    onRemove: (cb) => {
+      removeListeners.add(cb)
+      return () => removeListeners.delete(cb)
     },
     async create(input: RoomsCreateInput) {
       if (liveRooms() >= MAX_LIVE_ROOMS) {
@@ -159,32 +171,46 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
           `${MAX_LIVE_ROOMS} rooms are already live. Resolve one before starting another.`,
         )
       }
-      let s: RoomSession | CouncilSession
-      if (input.council) {
-        s = new CouncilSession(input.prompt, input.council, councilDeps)
-      } else if (input.agentIds) {
-        const agents = await agentsFor(input.agentIds)
-        // The key is read per room (secrets/jev.env may appear later) and lives only in the client.
-        const key = readJevKey(evaRoot)
-        s = new RoomSession(input.prompt, agents, {
-          runner,
-          judgeModel: ROOM_JUDGE_MODEL,
-          save: (room) => save(room),
-          onChange,
-          log,
-          ...(key ? { jev: new JevClient(key) } : {}),
-        })
-        if (!key) log(`${s.room.id}: no TYPESAFE_API_KEY, model judge only`)
-      } else throw fail('bad-input', 'Pass agentIds or council.')
-      sessions.set(s.room.id, s)
-      order.unshift(s.room.id)
-      onChange(s.room)
+      const s = new CouncilSession(input.prompt, input.council, councilDeps)
+      const roomId = added(s)
       void s.start()
-      return { roomId: s.room.id }
+      return { roomId }
+    },
+    async open(setup) {
+      await checkMembers(setup)
+      const now = Date.now()
+      return { roomId: added(ChatRoom.create(newRoomId(now), setup, now, chatDeps)) }
+    },
+    async update(roomId, patch: ChatRoomSetupPatch) {
+      const room = chat(roomId)
+      if (patch.members) await checkMembers({ members: patch.members })
+      return room.update(patch)
+    },
+    rename: (roomId, title) => session(roomId).rename(title),
+    duplicate(roomId) {
+      const { setup } = chat(roomId)
+      const copy = {
+        ...structuredClone(setup),
+        ...(setup.title ? { title: `${setup.title} copy` } : {}),
+      }
+      const now = Date.now()
+      return { roomId: added(ChatRoom.create(newRoomId(now), copy, now, chatDeps)) }
+    },
+    async delete(roomId) {
+      const s = session(roomId)
+      await s.destroy()
+      sessions.delete(roomId)
+      clearTimeout(pending.get(roomId))
+      pending.delete(roomId)
+      // Only ever the room's own folder: its id names one directory right under work/rooms.
+      const dir = path.join(roomsDir, roomId)
+      if (path.dirname(dir) === roomsDir) fs.rmSync(dir, { recursive: true, force: true })
+      emit(ctx, 'rooms.removed', { roomId })
+      for (const cb of removeListeners) cb(roomId)
     },
     post: (roomId, text) => session(roomId).post(text),
     react: (roomId, messageId, emoji) => session(roomId).react(messageId, emoji),
-    stop: (roomId) => session(roomId).stop(),
+    stop: (roomId) => council(roomId).stop(),
     pause: (roomId) => council(roomId).pause(),
     async resume(roomId) {
       const s = council(roomId)
@@ -195,9 +221,6 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
           `${MAX_LIVE_ROOMS} rooms are already live. Pause or resolve one before resuming another.`,
         )
       }
-      // A resumed room goes back to the top of the list, as a new one would.
-      order.splice(order.indexOf(roomId), 1)
-      order.unshift(roomId)
       return s.resume()
     },
     raise: async (roomId) => council(roomId).raise(),
@@ -223,6 +246,20 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
   }
 
   handle(ctx, 'rooms.create', (input) => service.create(input))
+  handle(ctx, 'rooms.open', ({ setup }) => service.open(setup))
+  handle(ctx, 'rooms.update', async ({ roomId, setup }) => ({
+    roomId,
+    rev: await service.update(roomId, setup),
+  }))
+  handle(ctx, 'rooms.rename', ({ roomId, title }) => {
+    service.rename(roomId, title)
+    return { renamed: true as const }
+  })
+  handle(ctx, 'rooms.duplicate', ({ roomId }) => service.duplicate(roomId))
+  handle(ctx, 'rooms.delete', async ({ roomId }) => {
+    await service.delete(roomId)
+    return { deleted: true as const }
+  })
   handle(ctx, 'rooms.post', ({ roomId, text }) => {
     service.post(roomId, text)
     return { posted: true as const }
@@ -256,7 +293,7 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
   // If main is hard killed or crashes, no hook runs: the room comes back paused from its last
   // save at the next launch; the children's stdin pipe closes and omp exits on EOF when idle
   // (observed), but a seat mid-tool, or a tool child that outlives it, can linger until it
-  // finishes. Debate rooms die with the app.
+  // finishes. Chat rooms are on disk after every change.
   ctx.onBeforeQuit(async () => {
     for (const t of pending.values()) clearTimeout(t)
     await Promise.allSettled([...sessions.values()].map((s) => s.destroy()))

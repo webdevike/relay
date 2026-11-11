@@ -1,4 +1,4 @@
-import { ROOM_PEOPLE, type RoomAgent as RoomAgentDto } from '@evaos/contract'
+import type { RoomAgent as RoomAgentDto } from '@evaos/contract'
 import { portrait } from '../ui/portrait'
 import type { RoomAgent } from './types'
 
@@ -13,9 +13,6 @@ export const withPortrait = (a: RoomAgentDto): RoomAgent => ({
 
 /** The portrait a person of this name gets in every room (council seats are cast by name). */
 export const portraitOf = (name: string): string => portrait(seedOf(name))
-
-/** The default people a room starts with; each a Mantine theme color so avatars stay distinct. */
-export const ROSTER: readonly RoomAgent[] = ROOM_PEOPLE.map(withPortrait)
 
 /** Isaac as a room author, the same shape as an agent so rows render alike. */
 export const ISAAC_PERSON: Omit<RoomAgent, 'model' | 'brief' | 'tools'> = {

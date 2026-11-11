@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { JEV_MODEL, JEV_URL } from '../rooms/jev'
+import { JEV_MODEL, JEV_URL } from './jev'
 import { computerModels } from './brain'
 
 /**

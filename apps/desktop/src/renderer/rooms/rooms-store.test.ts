@@ -5,13 +5,14 @@ import {
   applyRoom,
   applyRooms,
   budgetRoom,
+  dropRoom,
   groupMessages,
+  openRoom,
   raiseRoom,
   resetRoomsForTests,
   roomsStore,
-  setActive,
-  startCouncilRoom,
-  startRoom,
+  setEditing,
+  setRenaming,
   toggleReaction,
   toggleReactionIn,
 } from './rooms-store'
@@ -36,6 +37,7 @@ const msg = (id: string, author: string, ts: number, kind: RoomMessage['kind'] =
 
 const dto = (id: string, extra: Partial<RoomDto> = {}): RoomDto => ({
   id,
+  kind: 'council',
   title: `Room ${id}`,
   prompt: `Room ${id}`,
   agents: [
@@ -107,30 +109,57 @@ describe('rooms store', () => {
     invoke.mockReset()
   })
 
-  it('mirrors rooms from main with portraits, newest first, and keeps order on updates', () => {
+  it('mirrors rooms from main with portraits, latest activity first', () => {
     applyRoom(dto('r1'))
-    applyRoom(dto('r2'))
+    applyRoom(dto('r2', { startedAt: 2000 }))
     const s = roomsStore.getState()
     expect(s.order).toEqual(['r2', 'r1'])
     expect(s.rooms.r1!.agents[0]!.avatar.startsWith('data:image/svg+xml')).toBe(true)
-    applyRoom(dto('r1', { phase: 'resolved', resolvedAt: 5000, messages: [msg('m1', 'pm', 2000)] }))
-    expect(roomsStore.getState().order).toEqual(['r2', 'r1'])
+    // A message in r1 is its latest activity: it moves to the top.
+    applyRoom(dto('r1', { phase: 'resolved', resolvedAt: 5000, messages: [msg('m1', 'pm', 3000)] }))
+    expect(roomsStore.getState().order).toEqual(['r1', 'r2'])
     expect(roomsStore.getState().rooms.r1).toMatchObject({ phase: 'resolved', resolvedAt: 5000 })
     applyRooms([dto('r3'), dto('r1')])
     expect(roomsStore.getState().order).toEqual(['r3', 'r1'])
     expect(roomsStore.getState().rooms.r2).toBeUndefined()
   })
 
-  it('startRoom opens the new room, or keeps the error on the form', async () => {
-    invoke.mockResolvedValueOnce({ ok: true, value: { roomId: 'r9' } })
-    await startRoom('Should we?', ['pm'])
-    expect(invoke).toHaveBeenCalledWith('rooms.create', { prompt: 'Should we?', agentIds: ['pm'] })
-    expect(roomsStore.getState().activeRoomId).toBe('r9')
-    invoke.mockResolvedValueOnce({ ok: false, error: { code: 'internal', message: 'omp missing' } })
-    await startRoom('x', ['pm'])
-    expect(roomsStore.getState().createError).toBe('omp missing')
-    setActive(null)
-    expect(roomsStore.getState().activeRoomId).toBeNull()
+  it('a deleted room leaves the list and ends its rename or edit', () => {
+    applyRoom(dto('r1'))
+    applyRoom(dto('r2'))
+    setRenaming('r1')
+    setEditing('r1')
+    dropRoom('r1')
+    const s = roomsStore.getState()
+    expect(s.order).toEqual(['r2'])
+    expect(s.renaming).toBeNull()
+    expect(s.editing).toBeNull()
+  })
+
+  it("openRoom answers the new room's id, or main's refusal", async () => {
+    const setup = {
+      template: 'blank' as const,
+      members: [
+        {
+          id: 'a',
+          name: 'A',
+          model: 'anthropic/claude-opus-5-5',
+          thinking: 'high' as const,
+          role: '',
+        },
+      ],
+      effort: 3,
+      budget: 3,
+      refs: [],
+    }
+    invoke.mockResolvedValueOnce({ ok: true, value: { roomId: 'c9' } })
+    expect(await openRoom(setup)).toEqual({ roomId: 'c9' })
+    expect(invoke).toHaveBeenCalledWith('rooms.open', { setup })
+    invoke.mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'bad-input', message: 'no such model' },
+    })
+    expect(await openRoom(setup)).toEqual({ error: 'no such model' })
   })
 
   it("toggles Isaac's reaction locally and tells main", async () => {
@@ -149,25 +178,6 @@ describe('rooms store', () => {
     expect(roomsStore.getState().rooms.r1!.messages[0]!.reactions).toEqual([
       { emoji: '👍', by: ['isaac'] },
     ])
-  })
-
-  it('startCouncilRoom sends the council block and opens the room, or keeps the error', async () => {
-    const council = {
-      effort: 3,
-      source: 'work/blender-learning/cel-face',
-      refs: ['/tmp/ref.webp'],
-      routing: { judge: 'anthropic' as const },
-    }
-    invoke.mockResolvedValueOnce({ ok: true, value: { roomId: 'c1' } })
-    await startCouncilRoom('Match the target', council)
-    expect(invoke).toHaveBeenCalledWith('rooms.create', { prompt: 'Match the target', council })
-    expect(roomsStore.getState().activeRoomId).toBe('c1')
-    invoke.mockResolvedValueOnce({
-      ok: false,
-      error: { code: 'internal', message: 'source missing' },
-    })
-    await startCouncilRoom('x', council)
-    expect(roomsStore.getState().createError).toBe('source missing')
   })
 
   it("council actions pass their arguments and hand back main's failure, if any", async () => {

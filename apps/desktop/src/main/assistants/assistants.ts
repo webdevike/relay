@@ -34,6 +34,8 @@ export interface Agent {
   scope: string
   /** The portrait: the registry's designed one, else notionists from its seed, else from the id. */
   avatar: AssistantPortrait
+  /** The omp model its session starts on (`provider/id`, maybe `:thinking`), when the registry names one. */
+  model?: string
 }
 
 const AgentSchema = z.object({
@@ -42,6 +44,7 @@ const AgentSchema = z.object({
   scope: z.string().optional().catch(undefined),
   /** A notionists seed, or a designed portrait; anything else draws the id's notionists face. */
   avatar: z.union([z.string(), AssistantPortraitSchema]).optional().catch(undefined),
+  model: z.string().trim().min(1).optional().catch(undefined),
 })
 
 /** Longest registry id the host takes. */
@@ -76,13 +79,14 @@ export function parseRegistry(text: string): Agent[] {
   for (const a of agents) {
     const r = AgentSchema.safeParse(a)
     if (!r.success) continue
-    const { id, title, scope, avatar } = r.data
+    const { id, title, scope, avatar, model } = r.data
     const seed = typeof avatar === 'string' ? avatar.trim() || id : id
     out.push({
       id,
       title,
       scope: scope ?? '',
       avatar: typeof avatar === 'object' ? avatar : { style: 'notionists', seed },
+      ...(model ? { model } : {}),
     })
   }
   return out
@@ -282,6 +286,7 @@ export class AssistantsService {
         title: agent.title,
         scope: agent.scope,
         avatar: agent.avatar,
+        ...(agent.model ? { model: agent.model } : {}),
         status,
         // Relay's detail is the running tool while it works (an open `ask` already reads Needs you).
         tool: status === 'working' ? (session?.detail ?? null) : null,

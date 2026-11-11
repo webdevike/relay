@@ -29,18 +29,29 @@ class FakeHost implements RelayFrames, RelayFeatures {
 }
 
 // Only the fields the bridge reads; the rest of a Room passes through untouched.
-const ROOM = { id: 'r1', title: 'Face', phase: 'open', startedAt: 1 } as unknown as Room
+const ROOM = { id: 'r1', kind: 'council', title: 'Face', phase: 'open', startedAt: 1 } as Room
+const CHAT = { id: 'c1', kind: 'chat', title: 'New room', phase: 'idle', startedAt: 2 } as Room
 
 function setup() {
   const host = new FakeHost()
   const changes = new Set<(room: Room) => void>()
+  const removes = new Set<(roomId: string) => void>()
   const service = {
-    list: vi.fn(() => [ROOM]),
+    list: vi.fn(() => [CHAT, ROOM]),
     onChange: (cb: (room: Room) => void) => {
       changes.add(cb)
       return () => changes.delete(cb)
     },
+    onRemove: (cb: (roomId: string) => void) => {
+      removes.add(cb)
+      return () => removes.delete(cb)
+    },
     create: vi.fn(() => Promise.resolve({ roomId: 'r9' })),
+    open: vi.fn(() => Promise.resolve({ roomId: 'c9' })),
+    update: vi.fn(() => Promise.resolve(1)),
+    rename: vi.fn(),
+    duplicate: vi.fn(() => ({ roomId: 'c8' })),
+    delete: vi.fn(() => Promise.resolve()),
     post: vi.fn(),
     react: vi.fn(),
     stop: vi.fn(() => Promise.resolve()),
@@ -55,10 +66,13 @@ function setup() {
   } satisfies RoomsService
   let clock = 10_000
   const bridge = startRoomsBridge({ client: host, service, now: () => clock })
-  const change = (): void => {
-    for (const cb of changes) cb(ROOM)
+  const change = (room: Room = ROOM): void => {
+    for (const cb of changes) cb(room)
   }
-  return { host, service, bridge, change, tick: (ms: number) => (clock += ms) }
+  const remove = (roomId: string): void => {
+    for (const cb of removes) cb(roomId)
+  }
+  return { host, service, bridge, change, remove, tick: (ms: number) => (clock += ms) }
 }
 
 const answered = async (host: FakeHost, rid: string): Promise<unknown> => {
@@ -73,6 +87,17 @@ afterEach(() => {
 })
 
 describe('rooms bridge (desktop side)', () => {
+  it('keeps chat rooms off the wire (hosts refuse idle rooms) and resyncs after a delete', () => {
+    const { host, change, remove } = setup()
+    host.welcome(['rooms'])
+    change(CHAT)
+    remove('r2')
+    expect(host.sent).toEqual([
+      { t: 'rooms.sync', rooms: [ROOM] },
+      { t: 'rooms.sync', rooms: [ROOM] },
+    ])
+  })
+
   it('syncs only to a host that lists "rooms", on every welcome', () => {
     const { host, change } = setup()
     host.welcome(['control'])

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { presenceGroups, presenceLabel } from './presence'
-import { ROSTER } from './roster'
+import { ROSTER } from './test-roster'
 import type { Room } from './types'
 
 const room = (presence: Room['presence']): Room => ({
   id: 'r',
+  kind: 'council',
   title: 't',
   prompt: 't',
   agents: ROSTER.slice(),

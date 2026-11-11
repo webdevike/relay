@@ -1,4 +1,5 @@
 import type { Place } from '@evaos/shell-core'
+import { UNTITLED_ROOM } from '@evaos/contract'
 import {
   agentTitle,
   boardTitle,
@@ -6,6 +7,7 @@ import {
   chatTitle,
   meetingTitle,
   reviewTitle,
+  roomTitle,
   workspaceTitle,
 } from '../eva/names-store'
 import { reviewFallbackTitle, reviewIconOf } from '../reviews/review-place'
@@ -21,7 +23,7 @@ const TITLES: Record<string, string> = {
   habits: 'Habits',
   meetings: 'Meetings',
   canvas: 'Canvas',
-  rooms: 'Rooms',
+  rooms: 'New room',
   studio: 'Studio',
   feed: 'Feed',
   reviews: 'Reviews',
@@ -72,6 +74,8 @@ export function tabTitle(place: Place): string {
     const id = place.page.slice('review:'.length)
     return reviewTitle(id) ?? reviewFallbackTitle(id)
   }
+  if (place.page.startsWith('room:'))
+    return roomTitle(place.page.slice('room:'.length)) ?? UNTITLED_ROOM
   if (place.page === 'meetings' && place.meeting)
     return meetingTitle(place.meeting) ?? place.meeting
   if (place.page === 'canvas' && place.canvas) return canvasTitle(place.canvas) ?? place.canvas
@@ -83,5 +87,6 @@ export function tabIconName(place: Place): string {
   if (place.page.startsWith('workspace:')) return 'IconFolder'
   if (place.page.startsWith('board:')) return 'IconLayoutDashboard'
   if (place.page.startsWith('review:')) return reviewIconOf(place.page.slice('review:'.length))
+  if (place.page.startsWith('room:')) return 'IconUsersGroup'
   return ICONS[place.page] ?? 'IconFile'
 }

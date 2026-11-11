@@ -12,7 +12,8 @@ import { HabitsPage } from '../habits/HabitsPage'
 import { MeetingPage } from '../meetings/MeetingPage'
 import { MeetingsHome } from '../meetings/MeetingsHome'
 import { JobsPage } from '../jobs/JobsPage'
-import { RoomsPage } from '../rooms/RoomsPage'
+import { NewRoomPage } from '../rooms/NewRoomPage'
+import { RoomPage } from '../rooms/RoomPage'
 import { WorkspacePage } from '../workspace/WorkspacePage'
 import { SettingsPage } from '../settings/SettingsPage'
 import { StudioPage } from '../studio/StudioPage'
@@ -24,7 +25,7 @@ import { SetupPage } from '../setup/SetupPage'
 import { FeedPage } from '../feed/FeedPage'
 
 export type PageRegistryKind =
-  'page' | 'settings' | 'workspace' | 'meeting' | 'canvas' | 'agent' | 'board' | 'review'
+  'page' | 'settings' | 'workspace' | 'meeting' | 'canvas' | 'agent' | 'board' | 'review' | 'room'
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   assistants: AssistantsHome,
@@ -35,7 +36,7 @@ const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   'test-bench': TestBenchPage,
   habits: HabitsPage,
   meetings: MeetingsHome,
-  rooms: RoomsPage,
+  rooms: NewRoomPage,
   studio: StudioPage,
   feed: FeedPage,
   reviews: ReviewsPage,
@@ -58,4 +59,5 @@ export const pageRegistry: Record<PageRegistryKind, ComponentType<{ place: Place
   agent: AgentPage,
   board: BoardPage,
   review: ReviewPage,
+  room: RoomPage,
 }

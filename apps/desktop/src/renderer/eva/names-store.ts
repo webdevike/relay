@@ -13,6 +13,8 @@ export interface NamesState {
   boards: Record<string, string>
   /** Review item titles by the id after `review:` (`pr:owner/repo#12`), as the queue or detail last showed them. */
   reviews: Record<string, string>
+  /** Room titles by id (Assistants > Rooms), as main last sent them. */
+  rooms: Record<string, string>
   version: number
 }
 
@@ -38,6 +40,7 @@ export const namesStore = createStore<NamesState>(() => ({
   agents: {},
   boards: {},
   reviews: savedReviewTitles(),
+  rooms: {},
   version: 0,
 }))
 
@@ -59,6 +62,18 @@ export function setAgentTitles(map: Record<string, string>): void {
 
 export function agentTitle(id: string): string | null {
   return Object.hasOwn(namesStore.getState().agents, id) ? namesStore.getState().agents[id]! : null
+}
+
+/** A streaming room changes many times a second; only a changed title bumps the names. */
+export function setRoomTitles(map: Record<string, string>): void {
+  const now = namesStore.getState().rooms
+  const keys = Object.keys(map)
+  if (keys.length === Object.keys(now).length && keys.every((k) => now[k] === map[k])) return
+  namesStore.setState((s) => ({ rooms: { ...map }, version: s.version + 1 }))
+}
+
+export function roomTitle(id: string): string | null {
+  return Object.hasOwn(namesStore.getState().rooms, id) ? namesStore.getState().rooms[id]! : null
 }
 
 export function setBoardTitles(map: Record<string, string>): void {

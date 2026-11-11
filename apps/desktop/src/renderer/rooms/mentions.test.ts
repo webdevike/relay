@@ -7,7 +7,7 @@ import {
   mentionQueryAt,
   mentionables,
 } from './mentions'
-import { ROSTER } from './roster'
+import { ROSTER } from './test-roster'
 
 describe('mentionMarkdown', () => {
   it("turns @names into mention: links in the person's color, Isaac included, not inside code", () => {

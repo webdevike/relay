@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { MENTION_EVERYONE, mentionSpans, mentionsIn } from './rooms-mentions'
-import { ROOM_PEOPLE } from './rooms-roster'
+
+const ROOM_PEOPLE = [
+  { id: 'skeptic', name: 'Mara Voss' },
+  { id: 'builder', name: 'Theo Lindqvist' },
+]
 
 const isaac = { id: 'isaac', name: 'Isaac' }
 

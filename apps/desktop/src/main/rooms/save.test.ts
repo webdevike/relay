@@ -3,16 +3,45 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { ROOM_PEOPLE, type Room } from '@evaos/contract'
+import type { Room, RoomAgent } from '@evaos/contract'
 import { createEvaFs, installWriteTrap, type EvaFs } from '@evaos/eva-core'
 import { dateStamp, journalEntry, roomRecord, saveRoom } from './save'
 
 const t0 = new Date(2026, 9, 26, 14, 5).getTime()
+const person = (
+  id: string,
+  name: string,
+  title: string,
+  role: string,
+  model: string,
+): RoomAgent => ({
+  id,
+  name,
+  title,
+  role,
+  brief: '',
+  model,
+  tools: 'none',
+  color: 'blue',
+})
 const room = (): Room => ({
   id: 'room-1',
+  kind: 'council',
   title: 'Should Relay auto-archive idle chats?',
   prompt: 'Should Relay auto-archive idle chats?\nContext line.',
-  agents: ROOM_PEOPLE.slice(0, 2).map((a, i) => (i === 1 ? { ...a, failed: true } : a)),
+  agents: [
+    person('skeptic', 'Mara Voss', 'Principal Engineer', 'Skeptic', 'anthropic/claude-opus-5-5'),
+    {
+      ...person(
+        'builder',
+        'Theo Lindqvist',
+        'Senior Engineer',
+        'Builder',
+        'openai-codex/gpt-6.1-sol',
+      ),
+      failed: true,
+    },
+  ],
   messages: [
     {
       id: 'm1',

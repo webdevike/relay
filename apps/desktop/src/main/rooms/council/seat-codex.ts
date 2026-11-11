@@ -4,7 +4,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { LineFramer, type Frame } from '@evaos/chat-core/line-framer'
 import { COUNCIL_MODELS } from '@relay/protocol'
-import { toolDetail } from '../runner'
+import { toolDetail } from '../omp-frames'
 import type { GuardInstall } from './guard'
 import type {
   SeatHandle,

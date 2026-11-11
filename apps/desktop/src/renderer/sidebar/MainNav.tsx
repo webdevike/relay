@@ -23,7 +23,7 @@ import './customize.css'
 import { NavRow } from './NavRow'
 import { SidebarFooter } from './SidebarFooter'
 import { ensureSkillsLoaded, useSkillCount } from '../skills/skills-store'
-import { openSub } from './nav-level'
+import { inAssistants, openSub } from './nav-level'
 import { SidebarMenu, type MenuAt, type MenuTarget } from './SidebarMenu'
 import {
   FAVORITES_ID,
@@ -307,7 +307,7 @@ export function MainNav() {
         icon={n.icon}
         active={
           here.page === n.page ||
-          (n.id === 'assistants' && here.page.startsWith('agent:')) ||
+          (n.id === 'assistants' && inAssistants(here)) ||
           (n.id === 'reviews' && here.page.startsWith('review:'))
         }
         count={prefs.badgeStyle === 'count' ? countLabel(count) : null}

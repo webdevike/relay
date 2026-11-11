@@ -231,7 +231,7 @@ export const agentActions = {
   'page.open': {
     title: 'Open a page',
     description:
-      'Opens a page in the current app tab (or a new one): a top-level page slug, or `workspace:<slug>`, `agent:<id>`, `board:<slug>`. For `reviews`, `item` opens that pull request, Linear issue or Slack thread (its link). To show it beside the chat instead, use tab.open with kind `page` and args {page: "reviews", item}.',
+      'Opens a page in the current app tab (or a new one): a top-level page slug, or `workspace:<slug>`, `agent:<id>`, `board:<slug>`, `room:<id>`. For `reviews`, `item` opens that pull request, Linear issue or Slack thread (its link). To show it beside the chat instead, use tab.open with kind `page` and args {page: "reviews", item}.',
     params: z
       .object({
         page: z.union([
@@ -239,7 +239,7 @@ export const agentActions = {
           z
             .string()
             .max(300)
-            .regex(/^(workspace|agent|board):.+$/),
+            .regex(/^(workspace|agent|board|room):.+$/),
         ]),
         newTab: z.boolean().optional(),
         settingsSection: AgentSettingsSectionSchema.optional(),

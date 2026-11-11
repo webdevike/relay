@@ -45,7 +45,6 @@ import {
   type RoomRender,
   type RubricCriterion,
 } from '@evaos/contract'
-import { newRoomId } from '../orchestrator'
 import { firstName, transcriptLines } from '../prompts'
 import {
   ROLE_JOB,
@@ -73,7 +72,13 @@ import {
 } from './council-prompts'
 import { RoutingLog, turnKind, type TurnPurpose } from './routing-log'
 import type { SeatHandle, SeatLauncher, SeatPresence, SeatTurnResult } from './seat'
-import { ROOM_STATE_VERSION, writeRoomState, type CouncilState, type SeatSession } from './state'
+import {
+  ROOM_STATE_VERSION,
+  newRoomId,
+  writeRoomState,
+  type CouncilState,
+  type SeatSession,
+} from './state'
 import { MAIN_BRANCH, RoomWorkdir, seatBranch, type Exec } from './workdir'
 
 export interface CouncilDeps {
@@ -236,6 +241,7 @@ export class CouncilSession {
     const workdir = path.join(deps.evaRoot, 'work', 'rooms', id)
     this.room = {
       id,
+      kind: 'council',
       title: text.split('\n')[0] || 'Untitled room',
       prompt: text,
       agents: cast.seats.map((s) => this.agentFor(s, s.id, s.name)),
@@ -576,6 +582,12 @@ export class CouncilSession {
       r.by = r.by.filter((b) => b !== ROOM_ISAAC)
       if (r.by.length === 0) m.reactions = m.reactions.filter((x) => x !== r)
     } else r.by.push(ROOM_ISAAC)
+    this.changed()
+  }
+
+  /** Isaac names the room; the record and the routing log keep their stem. */
+  rename(title: string): void {
+    this.room.title = title
     this.changed()
   }
 

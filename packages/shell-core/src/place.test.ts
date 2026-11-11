@@ -27,11 +27,13 @@ describe('pages', () => {
       'studio',
       'settings',
       'board:ops',
+      'room:room-abc-1',
     ]
     for (const p of pages) expect(pageFromKey(pageKey(p))).toBe(p)
     expect(pageFromKey('nope')).toBeNull()
     expect(pageFromKey('board:')).toBeNull()
     expect(pageFromKey('review:')).toBeNull()
+    expect(pageFromKey('room:')).toBeNull()
     for (const key of [
       'review:pr:eCardSystems/api#172',
       'review:linear:ENG-6648',

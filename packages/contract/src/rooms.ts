@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ChatRoomSetupPatchSchema, ChatRoomSetupSchema, RoomChatSchema } from './rooms-chat'
 
 /** Isaac's author id in a room; every other author is a RoomAgent id, `judge` or `system`. */
 export const ROOM_ISAAC = 'isaac'
@@ -291,14 +292,19 @@ export const RoomPresenceSchema = z.object({
 export type RoomPresence = z.infer<typeof RoomPresenceSchema>
 
 /**
+ * idle (chat rooms): created, nothing has run; Isaac's first message starts it.
  * open: agents talk. wrapping: the soft clock passed, everyone is told to close. resolved: the
  * summary is pinned and saved. failed: nobody could talk (omp missing, every agent dead).
  * paused (council rooms): no seat runs; the room's state is on disk (`<workdir>/room.json`) and
  * Resume continues at the next round with the same seats. Isaac paused it at a round boundary, or
  * Relay quit while it ran (that round runs again).
  */
-export const RoomPhaseSchema = z.enum(['open', 'wrapping', 'resolved', 'failed', 'paused'])
+export const RoomPhaseSchema = z.enum(['idle', 'open', 'wrapping', 'resolved', 'failed', 'paused'])
 export type RoomPhase = z.infer<typeof RoomPhaseSchema>
+
+/** council: the effort-dial build room (phone too). chat: a conversation of chosen members. */
+export const RoomKindSchema = z.enum(['council', 'chat'])
+export type RoomKind = z.infer<typeof RoomKindSchema>
 
 export const RoomJudgeSchema = z.object({
   verdict: z.enum(['continue', 'converged']),
@@ -309,6 +315,8 @@ export type RoomJudge = z.infer<typeof RoomJudgeSchema>
 
 export const RoomSchema = z.object({
   id: z.string(),
+  /** Rooms saved before kinds existed are council rooms. */
+  kind: RoomKindSchema.default('council'),
   title: z.string(),
   prompt: z.string(),
   agents: z.array(RoomAgentSchema),
@@ -328,11 +336,26 @@ export const RoomSchema = z.object({
   file: z.string().optional(),
   /** Present on council (effort dial) rooms. */
   council: RoomCouncilSchema.optional(),
+  /** Present on chat rooms: the setup its members run on. */
+  chat: RoomChatSchema.optional(),
 })
 export type Room = z.infer<typeof RoomSchema>
 
 /** A room is live while its agents may still post. */
 export const roomIsLive = (phase: RoomPhase): boolean => phase === 'open' || phase === 'wrapping'
+
+/** When anything last happened in a room: its newest message, else when it was made. */
+export const roomActivity = (room: Pick<Room, 'startedAt' | 'messages'>): number =>
+  Math.max(room.startedAt, room.messages[room.messages.length - 1]?.ts ?? 0)
+
+/** What a room's menu may do to it now: Pause while a council room runs, Resume once it stopped. */
+export function roomRunAction(room: Pick<Room, 'phase' | 'council'>): 'pause' | 'resume' | null {
+  const council = room.council
+  if (!council) return null
+  if (roomIsLive(room.phase))
+    return room.phase === 'open' && !council.paused && !council.pauseRequested ? 'pause' : null
+  return room.phase === 'idle' ? null : 'resume'
+}
 
 const roomId = z.string().min(1).max(64)
 
@@ -352,19 +375,39 @@ export const RoomCouncilInputSchema = z
 export type RoomCouncilInput = z.infer<typeof RoomCouncilInputSchema>
 
 export const roomsInvoke = {
-  /** A debate room needs `agentIds`; a council room needs `council` and casts its seats from the notch. */
+  /** A council room: cast from the notch, it starts at once (the phone's New room). */
   'rooms.create': {
     input: z
       .object({
         prompt: z.string().min(1).max(4000),
-        agentIds: z.array(z.string()).min(1).max(8).optional(),
-        council: RoomCouncilInputSchema.optional(),
+        council: RoomCouncilInputSchema,
       })
-      .strict()
-      .refine((v) => Boolean(v.agentIds) !== Boolean(v.council), {
-        message: 'pass agentIds or council',
-      }),
+      .strict(),
     output: z.object({ roomId: z.string() }),
+  },
+  /** A chat room from its setup, idle until Isaac's first message; saved at once. */
+  'rooms.open': {
+    input: z.object({ setup: ChatRoomSetupSchema }).strict(),
+    output: z.object({ roomId: z.string() }),
+  },
+  /** Changes a chat room's setup (members replace the whole list); answers its new revision. */
+  'rooms.update': {
+    input: z.object({ roomId, setup: ChatRoomSetupPatchSchema }).strict(),
+    output: z.object({ roomId: z.string(), rev: z.number() }),
+  },
+  'rooms.rename': {
+    input: z.object({ roomId, title: z.string().trim().min(1).max(120) }).strict(),
+    output: z.object({ renamed: z.literal(true) }),
+  },
+  /** A chat room's copy: the same setup, no messages, idle. */
+  'rooms.duplicate': {
+    input: z.object({ roomId }).strict(),
+    output: z.object({ roomId: z.string() }),
+  },
+  /** Stops the room if it runs, drops it from the list and deletes its folder under work/rooms. */
+  'rooms.delete': {
+    input: z.object({ roomId }).strict(),
+    output: z.object({ deleted: z.literal(true) }),
   },
   /** Council: one notch up on a live room; new seats join at the next round with the full feed. */
   'rooms.raise': {
@@ -416,4 +459,6 @@ export const roomsInvoke = {
 export const roomsEvents = {
   /** The whole room, debounced; rooms are small. */
   'rooms.changed': z.object({ room: RoomSchema }),
+  /** A room was deleted. */
+  'rooms.removed': z.object({ roomId: z.string() }),
 } as const

@@ -1,6 +1,7 @@
-// A council room on disk: `<workdir>/room.json`, rewritten after every round (and debounced on
-// every change), so a room outlives the app. Relay Desktop lists every room it finds there at
-// launch; a paused, wrapped or failed one resumes at its next round with the same seats.
+// A room on disk: `<eva>/work/rooms/<id>/room.json`. A council room rewrites it after every round
+// (and debounced on every change); a chat room after every change. Relay Desktop lists every room
+// it finds there at launch; a paused, wrapped or failed council room resumes at its next round
+// with the same seats, a chat room comes back as it was.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { z } from 'zod'
@@ -13,6 +14,10 @@ import {
 
 export const ROOM_STATE_FILE = 'room.json'
 export const ROOM_STATE_VERSION = 1
+
+let roomSeq = 0
+/** A new room's id, which also names its folder under `<eva>/work/rooms`. */
+export const newRoomId = (now: number): string => `room-${now.toString(36)}-${++roomSeq}`
 
 /**
  * What a seat's harness needs to pick its session up again; saved with the room so a paused room
@@ -68,8 +73,19 @@ export const CouncilStateSchema = z.object({
 })
 export type CouncilState = z.infer<typeof CouncilStateSchema>
 
+/** A chat room: the whole room (its setup and messages ride on `room.chat` and `room.messages`). */
+export const ChatRoomStateSchema = z.object({
+  version: z.literal(ROOM_STATE_VERSION),
+  kind: z.literal('chat'),
+  room: RoomSchema,
+})
+export type ChatRoomState = z.infer<typeof ChatRoomStateSchema>
+
+/** A saved room of either kind; a council state has no `kind`. */
+export type RoomState = CouncilState | ChatRoomState
+
 /** Writes the state whole (temp file, then rename), so a crash never leaves half a file. */
-export function writeRoomState(workdir: string, state: CouncilState): void {
+export function writeRoomState(workdir: string, state: RoomState): void {
   const file = path.join(workdir, ROOM_STATE_FILE)
   const tmp = `${file}.${process.pid}.tmp`
   fs.writeFileSync(tmp, JSON.stringify(state))
@@ -77,14 +93,14 @@ export function writeRoomState(workdir: string, state: CouncilState): void {
 }
 
 /** Every room state under `roomsDir` (`<eva>/work/rooms`) that parses; the rest are logged and skipped. */
-export function readRoomStates(roomsDir: string, log: (line: string) => void): CouncilState[] {
+export function readRoomStates(roomsDir: string, log: (line: string) => void): RoomState[] {
   let dirs: string[]
   try {
     dirs = fs.readdirSync(roomsDir)
   } catch {
     return []
   }
-  const out: CouncilState[] = []
+  const out: RoomState[] = []
   for (const d of dirs) {
     const file = path.join(roomsDir, d, ROOM_STATE_FILE)
     let raw: string
@@ -94,7 +110,11 @@ export function readRoomStates(roomsDir: string, log: (line: string) => void): C
       continue // a room from before rooms were saved, or not a room
     }
     try {
-      const parsed = CouncilStateSchema.safeParse(JSON.parse(raw))
+      const json: unknown = JSON.parse(raw)
+      // A chat room says so; a council state has no `kind`.
+      const chat =
+        typeof json === 'object' && json !== null && 'kind' in json && json.kind === 'chat'
+      const parsed = chat ? ChatRoomStateSchema.safeParse(json) : CouncilStateSchema.safeParse(json)
       if (parsed.success) out.push(parsed.data)
       else log(`${file}: not a room state (${parsed.error.issues[0]?.message ?? 'invalid'})`)
     } catch (e) {

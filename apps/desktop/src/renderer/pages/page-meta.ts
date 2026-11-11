@@ -1,9 +1,11 @@
 import type { PageKey, Place } from '@evaos/shell-core'
+import { UNTITLED_ROOM } from '@evaos/contract'
 import {
   agentTitle,
   boardTitle,
   meetingTitle,
   reviewTitle,
+  roomTitle,
   workspaceTitle,
 } from '../eva/names-store'
 import { reviewFallbackTitle } from '../reviews/review-place'
@@ -50,13 +52,6 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'IconSparkles',
   },
   { slug: 'canvas', page: 'canvas', title: 'Canvas', description: '', icon: 'IconSchema' },
-  {
-    slug: 'rooms',
-    page: 'rooms',
-    title: 'Rooms',
-    description: 'Several agents talk a question through and pin the decision.',
-    icon: 'IconUsersGroup',
-  },
   {
     slug: 'studio',
     page: 'studio',
@@ -110,7 +105,16 @@ export const NAV_PAGES: readonly NavPage[] = [
 ]
 
 export type PageKind =
-  'page' | 'settings' | 'workspace' | 'meeting' | 'chat' | 'canvas' | 'agent' | 'board' | 'review'
+  | 'page'
+  | 'settings'
+  | 'workspace'
+  | 'meeting'
+  | 'chat'
+  | 'canvas'
+  | 'agent'
+  | 'board'
+  | 'review'
+  | 'room'
 
 export interface PageMeta {
   kind: PageKind
@@ -146,6 +150,19 @@ export function pageMeta(place: Place): PageMeta {
       slug: 'review',
       title: reviewTitle(id) ?? reviewFallbackTitle(id),
       description: '',
+    }
+  }
+  // Rooms live under Assistants: `rooms` is the New room page, `room:<id>` one room.
+  if (page.startsWith('room:')) {
+    const id = page.slice('room:'.length)
+    return { kind: 'room', slug: 'room', title: roomTitle(id) ?? UNTITLED_ROOM, description: '' }
+  }
+  if (page === 'rooms') {
+    return {
+      kind: 'page',
+      slug: 'rooms',
+      title: 'New room',
+      description: 'Assemble who is in it. Nobody starts until you send the first message.',
     }
   }
   if (page === 'meetings' && place.meeting !== null) {

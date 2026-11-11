@@ -27,7 +27,7 @@ const PROVIDER_LABEL: Record<string, string> = {
 }
 
 /** A thinking level or provider id as a label: `xhigh` reads Extra high, else capitalised. */
-function thinkingLabel(level: string): string {
+export function thinkingLabel(level: string): string {
   return level === 'xhigh' ? 'Extra high' : level.charAt(0).toUpperCase() + level.slice(1)
 }
 
@@ -36,7 +36,7 @@ function providerLabel(provider: string): string {
 }
 
 /** The provider's brand mark (Anthropic's in its orange, others in currentColor), or null. */
-function providerLogo(provider: string, size: number): ReactNode {
+export function providerLogo(provider: string, size: number): ReactNode {
   if (provider === 'anthropic')
     return <IconAnthropic size={size} className="eva-brand-anthropic" aria-hidden />
   if (provider === 'openai' || provider === 'openai-codex')

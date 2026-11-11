@@ -39,6 +39,8 @@ export const AssistantSchema = z.object({
   scope: z.string(),
   /** Its portrait: the registry's designed one, else notionists from its seed, else from the id. */
   avatar: AssistantPortraitSchema,
+  /** The omp model the registry starts it on (`provider/id`, maybe `:thinking`), when it names one. */
+  model: z.string().optional(),
   status: AssistantStatusSchema,
   /** The tool Relay hears its thread running now (`working` only, e.g. `web_search`), else null. */
   tool: z.string().nullable(),

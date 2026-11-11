@@ -159,7 +159,7 @@ function openPageLink(link: Extract<AppLink, { kind: 'open' }>, target: OpenTarg
 export function appLinkPlace(link: AppLink): Place | null {
   if (link.kind === 'assistant') return placeOf(`agent:${link.id}`)
   const params = link.params ?? {}
-  if (link.page === 'workspace' || link.page === 'board') {
+  if (link.page === 'workspace' || link.page === 'board' || link.page === 'room') {
     return link.sub === undefined ? null : placeOf(`${link.page}:${link.sub}`)
   }
   const page = pageFromKey(link.page)

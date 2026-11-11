@@ -19,8 +19,15 @@ export function backToRoot(): void {
   navLevelStore.setState({ level: 'root' })
 }
 
+/** Whether a place is under Assistants: the home, an assistant's thread, a room or New room. */
+export const inAssistants = (place: Place): boolean =>
+  place.page === 'assistants' ||
+  place.page === 'rooms' ||
+  place.page.startsWith('agent:') ||
+  place.page.startsWith('room:')
+
 export function levelForPlace(place: Place): Exclude<NavLevel, 'root'> | null {
-  if (place.page === 'assistants' || place.page.startsWith('agent:')) return 'assistants'
+  if (inAssistants(place)) return 'assistants'
   if (place.page === 'chat') return 'chats'
   if (place.page === 'meetings') return 'meetings'
   if (place.page === 'reviews' || place.page.startsWith('review:')) return 'reviews'
