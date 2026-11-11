@@ -157,7 +157,8 @@ describe('runWalk', () => {
     expect(w.pointed).toEqual(['Here is the new header', 'And the bigger button'])
     expect(c.asked).toEqual([])
     expect(r.outcome).toBe('done')
-  })
+    // Each look step holds LOOK_HOLD_MS (1.5 s) in real time: two steps are over 3 s before any overhead.
+  }, 15_000)
 
   it('fails without opening anything when the plan has no steps', async () => {
     const w = world({ value: '0' })
