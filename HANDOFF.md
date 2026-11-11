@@ -133,3 +133,7 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
     it on the update channel); phone chat rooms light up only after that host runs.
   - Left: guard asks from chat-room seats are not surfaced (they wait 10 min, then deny); no memory/rooms
     record on finish; @computer in a room is not offered.
+  - Shipped: main 00d54f9f, desktop deploy published build 00d54f9fef (Mini staged "Update ready"; MBP picks it
+    up on its next poll). Phone JS is on main but NOT published by OTA: `pnpm ota:publish` in this worktree
+    refused the bundle (two copies of react-native in node_modules: not a clean install). Publish it from a
+    clean checkout; it is inert until the host advertises rooms.chat.
