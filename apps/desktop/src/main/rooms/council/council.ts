@@ -196,6 +196,8 @@ export class CouncilSession {
   private reserved = 0
   /** The dearest turn each seat has run per cost kind: a better guess than the model for the next one. */
   private readonly dearest = new Map<string, number>()
+  /** The dearest turn each seat has run of any kind (from the routing log too, across resumes). */
+  private readonly dearestAny = new Map<string, number>()
   /** The latest full render, the source's renders, part renders by part (and by branch). */
   private full: RoomRender[] = []
   private before: RoomRender[] = []
@@ -278,6 +280,8 @@ export class CouncilSession {
     this.bounces = s.bounces
     this.plateauStreak = s.plateauStreak
     this.routing.entries.push(...s.routing)
+    for (const e of s.routing)
+      this.dearestAny.set(e.seat, Math.max(e.usd, this.dearestAny.get(e.seat) ?? 0))
     for (const [id, v] of Object.entries(s.seats)) this.saved.set(id, v)
     this.msgSeq = this.room.messages.reduce((n, m) => Math.max(n, msgNum(m.id)), 0)
     this.resolving = true
@@ -848,6 +852,8 @@ export class CouncilSession {
       purpose === 'build' && this.c.parts.length <= 1 ? 'build' : COST_KIND[purpose]
     // Held before the turn starts, so turns running together (the final positions) cannot pass
     // the cap between them: the cost model's guess, or this seat's dearest turn of the kind so far.
+    // A final position carries everything the seat has not seen yet, so it holds the seat's
+    // dearest turn of any kind: the wrap after a cap pause must not pass the cap.
     const images =
       purpose === 'paintover' || (purpose === 'critique' && s.role === 'director')
         ? COUNCIL_IMAGE_USD
@@ -855,6 +861,7 @@ export class CouncilSession {
     const est = Math.max(
       councilTurnCost(s.modelKey, kind, s.thinking) + images,
       this.dearest.get(`${id}:${kind}`) ?? 0,
+      purpose === 'final' ? (this.dearestAny.get(id) ?? 0) : 0,
     )
     if (spend.usd + this.reserved + est > spend.cap) {
       if (!this.capNoted) {
@@ -866,6 +873,8 @@ export class CouncilSession {
       }
       return null
     }
+    // Held at once, before anything awaits, so the turns starting with this one see it.
+    this.reserved += est
     const post = o.post ?? true
     const delta = this.room.messages.filter(
       (m) => msgNum(m.id) > seat.seen && m.author !== id && m.kind !== 'summary',
@@ -875,10 +884,15 @@ export class CouncilSession {
       delta.length > 0 ? `New in the room:\n${transcriptLines(this.room, delta)}\n\n` : ''
     const since = this.now()
     // A read of this seat's own tree: no need to queue behind other seats' commits.
-    const head0 = await wd.head(seat.tree)
+    let head0: string
+    try {
+      head0 = await wd.head(seat.tree)
+    } catch (e) {
+      this.reserved -= est
+      throw e
+    }
     const ac = new AbortController()
     this.aborts.add(ac)
-    this.reserved += est
     this.setPresence(id, { state: 'thinking' })
     let r: SeatTurnResult
     try {
@@ -909,6 +923,7 @@ export class CouncilSession {
     spend.usd += usd
     spend.byAgent[id] = (spend.byAgent[id] ?? 0) + usd
     this.dearest.set(`${id}:${kind}`, Math.max(usd, this.dearest.get(`${id}:${kind}`) ?? 0))
+    this.dearestAny.set(id, Math.max(usd, this.dearestAny.get(id) ?? 0))
     const round = this.c.round
     const { files, renders } = await this.git(async () => {
       const head1 = await wd.commit(

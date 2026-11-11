@@ -8,7 +8,8 @@ import { COUNCIL_PAUSE_AT, councilCast } from '@relay/protocol'
 import type { Room, RoomCard, RoomCouncilInput, RoutingEntry } from '@evaos/contract'
 import { createEvaFs } from '@evaos/eva-core'
 import { roomStem, saveRoom } from '../save'
-import { CouncilSession } from './council'
+import { CouncilSession, type CouncilDeps } from './council'
+import { readRoomStates } from './state'
 import type { SeatHandle, SeatLauncher, SeatSpec, SeatTurnInput, SeatTurnResult } from './seat'
 
 interface TurnCtx {
@@ -216,6 +217,22 @@ function setup(
   )
   const evaFs = createEvaFs({ root: evaRoot })
   const journal: string[][] = []
+  const deps: CouncilDeps = {
+    launcher,
+    evaRoot,
+    stem: (room) => roomStem(evaRoot, room),
+    save: (room, stem) =>
+      saveRoom(
+        room,
+        { evaRoot, evaFs, journal: async (h, b) => void journal.push([h, ...b]) },
+        stem,
+      ),
+    writeRouting: (rel, content) => evaFs.write('room-routing', rel, content),
+    onChange: () => undefined,
+    log: (line) => (process.env.COUNCIL_DEBUG ? console.error(line) : undefined),
+    asksRoot: tmp,
+    pollMs: 5,
+  }
   const s = new CouncilSession(
     'Make the Maul render match the target.',
     {
@@ -225,24 +242,9 @@ function setup(
       renderCmd: 'blender -b --python build.py --',
       ...extra,
     },
-    {
-      launcher,
-      evaRoot,
-      stem: (room) => roomStem(evaRoot, room),
-      save: (room, stem) =>
-        saveRoom(
-          room,
-          { evaRoot, evaFs, journal: async (h, b) => void journal.push([h, ...b]) },
-          stem,
-        ),
-      writeRouting: (rel, content) => evaFs.write('room-routing', rel, content),
-      onChange: () => undefined,
-      log: (line) => (process.env.COUNCIL_DEBUG ? console.error(line) : undefined),
-      asksRoot: tmp,
-      pollMs: 5,
-    },
+    deps,
   )
-  return { s, launcher, evaRoot, src, journal, room: s.room }
+  return { s, launcher, evaRoot, src, journal, deps, room: s.room }
 }
 
 const cards = <T extends RoomCard['type']>(room: Room, type: T): (RoomCard & { type: T })[] =>
@@ -462,6 +464,107 @@ describe('CouncilSession', () => {
     expect(room.messages.at(-1)!.text).toMatch(/^Delivered: not scored after 1 round/)
     expect(room.council!.spend.cap).toBeCloseTo(cap)
     expect(room.phase).toBe('resolved')
+  }, 60_000)
+
+  it('turns starting together hold their spend first: the final positions cannot pass the cap', async () => {
+    const cap = councilCast(3).cap
+    // Every turn costs up to 12 % of the cap (at Opus prices): the room runs into the cap mid-round
+    // and the final positions all start at once.
+    const turn = { input: 0, cached: 0, output: Math.ceil((cap * 0.12) / 20e-6) }
+    const { s, room } = setup(
+      3,
+      Object.fromEntries(
+        Object.entries(defaults((r) => (r === 1 ? 6 : 9))).map(([role, script]) => [
+          role,
+          async (t: TurnCtx) => {
+            const raw = await script(t)
+            const out: Scripted = typeof raw === 'string' ? { text: raw } : raw
+            return { ...out, usage: turn }
+          },
+        ]),
+      ),
+      (r) => (r === 1 ? 6 : 9),
+    )
+    await s.start()
+    await until(() => room.council!.paused === true || room.phase === 'resolved', 'the pause')
+    if (room.council!.paused) s.budget('wrap')
+    await s.settled()
+    const c = room.council!
+    expect(room.phase).toBe('resolved')
+    // Not every seat got its final position in: those that could pass the cap were skipped.
+    expect(room.messages.some((m) => m.text.includes('turns that could pass the cap are skipped'))).toBe(true)
+    expect(c.spend.usd).toBeLessThanOrEqual(c.spend.cap + 1e-9)
+    expect(c.spend.cap).toBeCloseTo(cap)
+  }, 60_000)
+
+  it('pause after round 1: saved on disk, reopened from the state, resumed to the end with the same seat sessions', async () => {
+    const ref = {} as { s: CouncilSession }
+    let paused = false
+    const base = defaults((r) => (r === 1 ? 6 : 9))
+    const out = setup(
+      3,
+      {
+        builder: (t) => {
+          if (!paused && roundOf(t.prompt) === 1 && /Work on/.test(t.prompt)) {
+            paused = true
+            ref.s.pause()
+          }
+          return base.builder!(t)
+        },
+      },
+      (r) => (r === 1 ? 6 : 9),
+    )
+    ref.s = out.s
+    const { s, room, launcher, evaRoot, deps } = out
+    await s.start()
+    await s.settled()
+    // Round 1 finished (its scorecard is in), then the room stopped.
+    expect(room.phase).toBe('paused')
+    expect(cards(room, 'scorecard').map((x) => x.round)).toEqual([1])
+    expect(cards(room, 'deliverable')).toHaveLength(0)
+    expect(s.resumable).toBe(true)
+    expect(() => s.pause()).toThrow('not running')
+    // Isaac's post while paused is kept for the next round.
+    s.post('Keep the stripes thin.')
+    await s.destroy() // the app quits
+
+    // A new app run finds the room on disk, exactly where it stopped.
+    const states = readRoomStates(path.join(evaRoot, 'work', 'rooms'), () => undefined)
+    expect(states).toHaveLength(1)
+    const state = states[0]!
+    expect(state.room.phase).toBe('paused')
+    expect(state.progress).toEqual({ briefed: true, planned: true, nextRound: 2 })
+    expect(state.room.messages.at(-1)!.text).toBe('Keep the stripes thin.')
+    const seatIds = room.agents.map((a) => a.id)
+    expect(Object.keys(state.seats).sort()).toEqual([...seatIds].sort())
+    for (const id of seatIds) expect(state.seats[id]!.session).toMatchObject({ harness: 'omp' })
+
+    const started = launcher.specs.length
+    const turnsBefore = launcher.turns.length
+    const again = new CouncilSession('', state.input, deps, state)
+    expect(again.room.phase).toBe('paused')
+    expect(again.resumable).toBe(true)
+    expect(await again.resume()).toBeCloseTo(state.room.council!.spend.cap)
+    await again.settled()
+    const r = again.room
+    expect(r.phase).toBe('resolved')
+    // Round 2 ran, round 1 did not run again; it converged and delivered.
+    expect(cards(r, 'scorecard').map((x) => [x.round, x.total, x.verdict])).toEqual([
+      [1, 6, 'continue'],
+      [2, 9, 'converged'],
+    ])
+    const after = launcher.turns.slice(turnsBefore)
+    expect(after.some((t) => /Round 1, /.test(t.prompt))).toBe(false)
+    expect(after.some((t) => /Round 2, build/.test(t.prompt))).toBe(true)
+    expect(cards(r, 'deliverable')).toHaveLength(1)
+    // Every seat came back on its own harness session.
+    const resumed = launcher.specs.slice(started)
+    expect(resumed.map((x) => x.seatId).sort()).toEqual([...seatIds].sort())
+    for (const spec of resumed) expect(spec.resume).toEqual(state.seats[spec.seatId]!.session)
+    // The resumed seats saw Isaac's post from the pause.
+    expect(after.some((t) => t.prompt.includes('Keep the stripes thin.'))).toBe(true)
+    // The record counts both rounds.
+    expect(fs.readFileSync(r.file!, 'utf8')).toContain(', 2 rounds')
   }, 60_000)
 
   it('raise mid-run: new seats join at the next round with the thread, the integrator re-splits 2 -> 4', async () => {

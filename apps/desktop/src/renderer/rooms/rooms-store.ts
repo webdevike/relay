@@ -180,6 +180,16 @@ export async function stopRoom(roomId: string): Promise<void> {
   await invoke('rooms.stop', { roomId })
 }
 
+/** Council: stop at the end of the round the room is in; the state stays on disk. */
+export async function pauseRoom(roomId: string): Promise<string | null> {
+  return failure(await invoke('rooms.pause', { roomId }))
+}
+
+/** Council: run a paused, wrapped or failed room on from its next round with the same seats. */
+export async function resumeRoom(roomId: string): Promise<string | null> {
+  return failure(await invoke('rooms.resume', { roomId }))
+}
+
 export function setActive(roomId: string | null): void {
   set((s) => (s.activeRoomId === roomId ? s : { ...s, activeRoomId: roomId }))
 }

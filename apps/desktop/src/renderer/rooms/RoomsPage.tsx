@@ -11,6 +11,8 @@ import {
 import {
   IconBrain,
   IconFileSearch,
+  IconPlayerPause,
+  IconPlayerPlay,
   IconPlayerStop,
   IconPlus,
   IconSend,
@@ -29,8 +31,10 @@ import { insertMention, insertRaw, mentionChoices, mentionQueryAt, mentionables 
 import { AuthorAvatar, authorOf, type Author } from './RoomMessageRow'
 import { ROSTER } from './roster'
 import {
+  pauseRoom,
   postToRoom,
   raiseRoom,
+  resumeRoom,
   setActive,
   startCouncilRoom,
   startRoom,
@@ -38,7 +42,7 @@ import {
   useRooms,
 } from './rooms-store'
 import type { Room, RoomPhase } from './types'
-import { COUNCIL_DEFAULT_EFFORT, councilNotch } from '@relay/protocol'
+import { COUNCIL_DEFAULT_EFFORT, councilNotch, councilResumeCap } from '@relay/protocol'
 import { EffortDial } from './EffortDial'
 import { PhaseStrip } from './PhaseStrip'
 import { SpendMeter } from './SpendMeter'
@@ -50,6 +54,7 @@ const PHASE_LABEL: Record<RoomPhase, string> = {
   wrapping: 'Wrapping up',
   resolved: 'Resolved',
   failed: 'Failed',
+  paused: 'Paused',
 }
 
 const PRESENCE_VERB: Record<RoomPresence['state'], string> = {
@@ -258,7 +263,8 @@ function Composer({ room }: { room: Room }) {
   const [caret, setCaret] = useState(0)
   const [pick, setPick] = useState(0)
   const field = useRef<HTMLTextAreaElement>(null)
-  const live = roomIsLive(room.phase)
+  // A paused council room takes posts too: they join the next round once it resumes.
+  const live = roomIsLive(room.phase) || room.phase === 'paused'
   const people = useMemo(() => mentionables(room.agents), [room.agents])
   const query = mentionQueryAt(text, caret)
   const choices = query ? mentionChoices(people, query.query) : []
@@ -342,7 +348,13 @@ function Composer({ room }: { room: Room }) {
               minRows={1}
               maxRows={6}
               className="eva-rooms-composer-field"
-              placeholder={live ? 'Message the room, @ to address someone' : 'The room is closed'}
+              placeholder={
+                room.phase === 'paused'
+                  ? 'Paused: your message joins the next round'
+                  : live
+                    ? 'Message the room, @ to address someone'
+                    : 'The room is closed'
+              }
               aria-label="Message the room"
               value={text}
               disabled={!live}
@@ -408,6 +420,63 @@ function CouncilControls({ room, council }: { room: Room; council: RoomCouncil }
   )
 }
 
+/** Council: Pause (at the end of this round) while it runs; Resume once it stops. */
+function CouncilRunButton({ room, council }: { room: Room; council: RoomCouncil }) {
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const act = (fn: (id: string) => Promise<string | null>): void => {
+    setBusy(true)
+    setError(null)
+    void fn(room.id).then((e) => {
+      setBusy(false)
+      setError(e)
+    })
+  }
+  if (roomIsLive(room.phase)) {
+    if (room.phase !== 'open' || council.paused) return null
+    const pausing = council.pauseRequested === true
+    return (
+      <Tooltip
+        label={error ?? 'Stop at the end of this round; Resume carries on with the same people'}
+        openDelay={300}
+        multiline
+        maw={280}
+      >
+        <Button
+          variant="default"
+          size="sm"
+          leftSection={<IconPlayerPause size={14} stroke={1.5} />}
+          disabled={pausing || busy}
+          onClick={() => act(pauseRoom)}
+          data-testid="room-pause"
+        >
+          {pausing ? 'Pausing after this round' : 'Pause'}
+        </Button>
+      </Tooltip>
+    )
+  }
+  const cap = councilResumeCap(council.spend)
+  return (
+    <Tooltip
+      label={error ?? `Run on from the next round with the same people, up to $${cap.toFixed(2)}`}
+      openDelay={300}
+      multiline
+      maw={280}
+    >
+      <Button
+        variant={room.phase === 'paused' ? 'filled' : 'default'}
+        size="sm"
+        leftSection={<IconPlayerPlay size={14} stroke={1.5} />}
+        disabled={busy}
+        onClick={() => act(resumeRoom)}
+        data-testid="room-resume"
+      >
+        Resume
+      </Button>
+    </Tooltip>
+  )
+}
+
 function RoomView({ room }: { room: Room }) {
   const live = roomIsLive(room.phase)
   const now = useNow(live)
@@ -444,6 +513,7 @@ function RoomView({ room }: { room: Room }) {
         <span className="eva-rooms-clock" data-testid="room-clock">
           {elapsedLabel(elapsed)}
         </span>
+        {council ? <CouncilRunButton room={room} council={council} /> : null}
         {live ? (
           council ? (
             <Button

@@ -24,11 +24,14 @@ afterEach(() => {
 describe("welcome", () => {
   it("says whether the host relays rooms, every time", () => {
     route(welcome(["rooms"]));
-    expect(useRoomsStore.getState().supported).toBe(true);
+    expect(useRoomsStore.getState()).toMatchObject({ supported: true, resumes: false });
+    route(welcome(["rooms", "rooms.resume"]));
+    expect(useRoomsStore.getState()).toMatchObject({ supported: true, resumes: true });
     route(welcome());
-    expect(useRoomsStore.getState().supported).toBe(false);
-    route(welcome(["query"]));
-    expect(useRoomsStore.getState().supported).toBe(false);
+    expect(useRoomsStore.getState()).toMatchObject({ supported: false, resumes: false });
+    // Pause / resume ride on Rooms: the resume feature alone sends nothing.
+    route(welcome(["query", "rooms.resume"]));
+    expect(useRoomsStore.getState()).toMatchObject({ supported: false, resumes: false });
   });
 });
 

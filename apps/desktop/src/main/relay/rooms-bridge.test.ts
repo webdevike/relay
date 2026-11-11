@@ -44,6 +44,8 @@ function setup() {
     post: vi.fn(),
     react: vi.fn(),
     stop: vi.fn(() => Promise.resolve()),
+    pause: vi.fn(() => Promise.resolve()),
+    resume: vi.fn(() => Promise.resolve(5)),
     raise: vi.fn(() =>
       Promise.reject(Object.assign(new Error('Already at Max'), { code: 'max-effort' })),
     ),

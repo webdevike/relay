@@ -11,6 +11,8 @@ import {
   COUNCIL_ROLES,
   COUNCIL_TARGET_SCORE,
   councilCast,
+  councilMoney,
+  councilResumeCap,
   councilLabel,
   councilNotch,
   type CouncilCast,
@@ -30,6 +32,29 @@ import {
 
 /** Whether the room is still working (a wrapping room is finishing its last round). */
 export const roomLive = (room: RoomWire): boolean => room.phase === "open" || room.phase === "wrapping";
+
+/** The Pause / Resume control a council room shows: what it does, its label, and whether it is waiting. */
+export interface RunControl {
+  op: "pause" | "resume";
+  label: string;
+  busy: boolean;
+}
+
+/**
+ * Pause while a council round runs (stops at the end of it), Resume once the room stopped (paused,
+ * resolved or failed: it runs on from the next round with the same seats, up to the cap shown).
+ * Null for a debate room, a wrapping or cap-paused room, or a host without ROOMS_RESUME_FEATURE.
+ */
+export function runControl(room: RoomWire, hostResumes: boolean): RunControl | null {
+  const council = room.council;
+  if (!hostResumes || council === undefined) return null;
+  if (room.phase === "open") {
+    if (council.paused === true) return null;
+    return council.pauseRequested === true ? { op: "pause", label: "Pausing after this round", busy: true } : { op: "pause", label: "Pause", busy: false };
+  }
+  if (room.phase === "wrapping") return null;
+  return { op: "resume", label: `Resume (up to ${councilMoney(councilResumeCap(council.spend))})`, busy: false };
+}
 
 /** A seat as the dial and the room draw it, whether it comes from a cast (before Start) or a room. */
 export interface SeatView {
@@ -143,6 +168,7 @@ export function roomStatus(room: RoomWire): string {
   const council = room.council;
   if (room.phase === "failed") return "Failed";
   if (room.phase === "resolved") return "Done";
+  if (room.phase === "paused") return "Paused";
   if (council === undefined) return room.phase === "wrapping" ? "Wrapping up" : `Round ${String(room.rounds)}`;
   if (council.paused === true) return "Paused for your call";
   const stage = stageLabel(council.stage);

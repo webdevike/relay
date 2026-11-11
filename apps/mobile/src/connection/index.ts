@@ -816,14 +816,16 @@ export function requestRooms(): void {
 }
 
 /**
- * One Rooms command (create, post, raise, budget, answer, stop, image). The desktop's answer
- * resolves it; fails at once while not connected or when the host has no Rooms (an older host
- * would drop the socket on the frame), and after `ROOMS_TIMEOUT_MS` unanswered.
+ * One Rooms command (create, post, raise, budget, answer, stop, pause, resume, image). The desktop's
+ * answer resolves it; fails at once while not connected or when the host has no Rooms (an older host
+ * would drop the socket on the frame) or, for pause / resume, no ROOMS_RESUME_FEATURE, and after
+ * `ROOMS_TIMEOUT_MS` unanswered.
  */
 export function roomsRequest(cmd: RoomsCmd): Promise<RoomsResult> {
   if (useConnectionStore.getState().status !== "connected")
     return Promise.resolve({ ok: false, code: "offline", message: "Not connected to your Mac." });
-  if (useRoomsStore.getState().supported !== true)
+  const rooms = useRoomsStore.getState();
+  if (rooms.supported !== true || ((cmd.op === "pause" || cmd.op === "resume") && !rooms.resumes))
     return Promise.resolve({ ok: false, code: "unsupported", message: "Update Relay Host on your Mac to use Rooms." });
   const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   const answer = pendingRooms.add(rid);

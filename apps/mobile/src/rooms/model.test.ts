@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { COUNCIL_DEFAULT_EFFORT, COUNCIL_DEFAULT_ROUTING, COUNCIL_PAUSE_AT, type RoomWire, type RoomWireCouncil } from "@relay/protocol";
 import { debateRoom, doneRoom, runningRoom } from "./fixtures";
-import { authorOf, commandError, createCommand, createdRoomId, deltaLabel, notchName, phaseSteps, roomStatus, seatsOfRoom, spendView, type NewRoomDraft } from "./model";
+import { authorOf, commandError, createCommand, createdRoomId, deltaLabel, notchName, phaseSteps, roomStatus, runControl, seatsOfRoom, spendView, type NewRoomDraft } from "./model";
 
 function councilOfRoom(room: RoomWire): RoomWireCouncil {
   if (room.council === undefined) throw new Error("fixture has no council");
@@ -68,6 +68,28 @@ describe("roomStatus", () => {
     expect(roomStatus(room)).toBe("Paused for your call");
     expect(roomStatus(doneRoom())).toBe("Done");
     expect(roomStatus({ ...room, phase: "failed" })).toBe("Failed");
+    expect(roomStatus({ ...room, phase: "paused" })).toBe("Paused");
+  });
+});
+
+describe("runControl", () => {
+  it("pauses a running council round, then resumes a stopped room up to its resume cap", () => {
+    const room = runningRoom();
+    const council = councilOfRoom(room);
+    const running = { ...room, council: { ...council, paused: false } };
+    expect(runControl(running, true)).toEqual({ op: "pause", label: "Pause", busy: false });
+    expect(runControl({ ...running, council: { ...council, paused: false, pauseRequested: true } }, true)).toMatchObject({ op: "pause", busy: true });
+    // Waiting on the cap pause, or finishing: neither.
+    expect(runControl(room, true)).toBeNull();
+    expect(runControl({ ...running, phase: "wrapping" }, true)).toBeNull();
+    // Spend 5.12 is past the pause line of the 6.30 cap: Resume adds one estimate (4.20) on the higher.
+    expect(runControl({ ...running, phase: "paused" }, true)).toEqual({ op: "resume", label: "Resume (up to $11)", busy: false });
+    expect(runControl(doneRoom(), true)?.op).toBe("resume");
+  });
+
+  it("shows nothing on a host without pause / resume, or for a debate room", () => {
+    expect(runControl({ ...runningRoom(), phase: "paused" }, false)).toBeNull();
+    expect(runControl(debateRoom(), true)).toBeNull();
   });
 });
 

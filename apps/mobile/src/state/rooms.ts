@@ -2,18 +2,20 @@
  * Rooms as the phone last heard them: every room of every connected desktop, newest first. Not
  * persisted: the host relays them and the driver asks for the list on every (re)connection
  * (`rooms.get`). `supported` is whether the connected host's `welcome.features` has ROOMS_FEATURE;
- * null until the first welcome. Nothing rooms-related is sent while it is not true.
+ * null until the first welcome. Nothing rooms-related is sent while it is not true. `resumes` is
+ * whether it also has ROOMS_RESUME_FEATURE (relays pause / resume); Pause and Resume show only then.
  */
 import { create } from "zustand";
 import type { RoomWire } from "@relay/protocol";
 
 export interface RoomsStore {
   supported: boolean | null;
+  resumes: boolean;
   /** False until the first `rooms.state` from this host. */
   loaded: boolean;
   /** Newest first. */
   rooms: RoomWire[];
-  setSupported: (supported: boolean) => void;
+  setSupported: (supported: boolean, resumes?: boolean) => void;
   /** `rooms.state`: replaces every room. */
   setState: (rooms: readonly unknown[]) => void;
   /** `rooms.room`: replaces the room with the same id, or inserts it. */
@@ -49,10 +51,11 @@ export function asRoom(raw: unknown): RoomWire | null {
 
 export const useRoomsStore = create<RoomsStore>((set) => ({
   supported: null,
+  resumes: false,
   loaded: false,
   rooms: [],
-  setSupported: (supported) => {
-    set({ supported });
+  setSupported: (supported, resumes = false) => {
+    set({ supported, resumes: supported && resumes });
   },
   setState: (frames) => {
     const rooms = frames.map(asRoom).filter((room): room is RoomWire => room !== null);
@@ -64,7 +67,7 @@ export const useRoomsStore = create<RoomsStore>((set) => ({
     set((state) => ({ rooms: [...state.rooms.filter((r) => r.id !== room.id), room].sort(newestFirst) }));
   },
   clear: () => {
-    set({ supported: null, loaded: false, rooms: [] });
+    set({ supported: null, resumes: false, loaded: false, rooms: [] });
   },
 }));
 

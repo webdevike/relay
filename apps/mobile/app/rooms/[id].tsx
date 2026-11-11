@@ -2,8 +2,9 @@
  * One room (`/rooms/<id>`). The header carries the title, the effort chip (opens the dial; the only
  * thing it changes is "Raise one notch" while the room runs), the spend meter and the phase strip.
  * Under it the feed: seats' messages with their role, part and model, renders you can open full
- * screen, and the council's cards. Isaac posts from the composer at the bottom; Resolve now ends
- * the room.
+ * screen, and the council's cards. Isaac posts from the composer at the bottom (a paused room takes
+ * posts for its next round); Resolve now ends the room; a council room pauses at the end of its
+ * round and resumes with the same seats (only on a host with ROOMS_RESUME_FEATURE).
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
@@ -16,8 +17,8 @@ import type { CardActions } from "@/rooms/Cards";
 import { MessageRow } from "@/rooms/MessageRow";
 import { Bar, TAP } from "@/rooms/primitives";
 import { PhaseStrip, SpendMeter } from "@/rooms/Status";
-import { castOfRoom, commandError, notchLabel, roomLive, roomStatus, routingOf, seatsOfRoom } from "@/rooms/model";
-import { useRoom } from "@/state/rooms";
+import { castOfRoom, commandError, notchLabel, roomLive, roomStatus, routingOf, runControl, seatsOfRoom } from "@/rooms/model";
+import { useRoom, useRoomsStore } from "@/state/rooms";
 import { radii, spacing, useColors, useScheme } from "@/theme";
 import { Button } from "@/ui/Button";
 import { EmptyState } from "@/ui/EmptyState";
@@ -39,6 +40,9 @@ export default function RoomScreen() {
   const [dialOpen, setDialOpen] = useState(false);
   const [raising, setRaising] = useState(false);
   const [raiseError, setRaiseError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const hostResumes = useRoomsStore((state) => state.resumes);
 
   useFocusEffect(
     useCallback(() => {
@@ -67,7 +71,9 @@ export default function RoomScreen() {
   }
 
   const live = roomLive(room);
+  const canPost = live || room.phase === "paused";
   const council = room.council;
+  const control = runControl(room, hostResumes);
   const send = async (): Promise<void> => {
     const body = text.trim();
     if (body === "") return;
@@ -83,6 +89,12 @@ export default function RoomScreen() {
     setRaiseError(null);
     setRaiseError(commandError(await roomsRequest({ op: "raise", roomId: room.id })));
     setRaising(false);
+  };
+  const run = async (op: "pause" | "resume"): Promise<void> => {
+    setRunning(true);
+    setRunError(null);
+    setRunError(commandError(await roomsRequest({ op, roomId: room.id })));
+    setRunning(false);
   };
   const chip = notchLabel(room);
   const typing = Object.entries(room.presence).map(([agent, p]) => `${room.agents.find((a) => a.id === agent)?.name ?? "Someone"} is ${p.state}`);
@@ -119,6 +131,18 @@ export default function RoomScreen() {
               </View>
               {live && <Button label="Resolve now" variant="secondary" height={TAP} onPress={() => void roomsRequest({ op: "stop", roomId: room.id })} />}
             </View>
+            {control !== null && (
+              <View style={{ paddingHorizontal: spacing.lg, gap: spacing.xs, alignItems: "flex-start" }}>
+                <Button
+                  label={control.label}
+                  variant={control.op === "resume" && room.phase === "paused" ? "primary" : "secondary"}
+                  height={TAP}
+                  disabled={control.busy || running}
+                  onPress={() => void run(control.op)}
+                />
+                {runError !== null && <Text variant="label" color="danger">{runError}</Text>}
+              </View>
+            )}
             <PhaseStrip room={room} />
           </View>
         )}
@@ -142,14 +166,14 @@ export default function RoomScreen() {
             ) : null
           }
         />
-        {live && (
+        {canPost && (
           <View style={{ borderTopWidth: 1, borderTopColor: colors.hairline, padding: spacing.md, gap: spacing.xs }}>
             {error !== null && <Text variant="label" color="danger">{error}</Text>}
             <View style={{ flexDirection: "row", alignItems: "flex-end", gap: spacing.sm }}>
               <TextInput
                 value={text}
                 onChangeText={setText}
-                placeholder="Say something to the room"
+                placeholder={room.phase === "paused" ? "Joins the next round once it resumes" : "Say something to the room"}
                 placeholderTextColor={colors.textFaint}
                 multiline
                 keyboardAppearance={scheme}

@@ -175,6 +175,35 @@ describe('seat guard: PreToolUse hook', { timeout: 20_000 }, () => {
     expect(await write).toContain('"deny"')
   })
 
+  it('refuses writes into the system temp dirs at once, pointing at the seat TMPDIR', async () => {
+    const { g, workdir, asks } = setup()
+    const scratch = path.join(workdir, 'tmp')
+    expect(g.env.TMPDIR).toBe(scratch)
+    for (const input of [
+      { tool_name: 'Write', tool_input: { file_path: '/tmp/relay-guard-x.txt' }, cwd: workdir },
+      { tool_name: 'Bash', tool_input: { command: 'echo x > /private/tmp/y.txt' }, cwd: workdir },
+      {
+        tool_name: 'Bash',
+        tool_input: { command: `cp out.png ${path.join(os.tmpdir(), 'z.png')}` },
+        cwd: workdir,
+      },
+    ]) {
+      const res = JSON.parse(await hook(g, input)) as { hookSpecificOutput: Record<string, unknown> }
+      expect(res.hookSpecificOutput.permissionDecision).toBe('deny')
+      expect(String(res.hookSpecificOutput.permissionDecisionReason)).toContain(scratch)
+    }
+    // Denied without asking Isaac.
+    expect(fs.existsSync(asks) ? fs.readdirSync(asks) : []).toEqual([])
+    // The seat's own scratch is fine.
+    expect(
+      await hook(g, {
+        tool_name: 'Write',
+        tool_input: { file_path: path.join(scratch, 'a.txt') },
+        cwd: workdir,
+      }),
+    ).toBe('')
+  })
+
   it('reads a Codex shell call given as argv and an apply_patch outside the room', async () => {
     const { g, workdir, asks } = setup()
     const a = hook(g, {

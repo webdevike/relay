@@ -93,6 +93,10 @@
   background: color-mix(in srgb, var(--mantine-color-yellow-6) 18%, transparent);
   color: var(--mantine-color-yellow-8);
 }
+.eva-rooms-pill[data-status='paused'] {
+  background: color-mix(in srgb, var(--mantine-color-blue-6) 15%, transparent);
+  color: var(--mantine-color-blue-7);
+}
 .eva-rooms-pill[data-status='failed'] {
   background: color-mix(in srgb, var(--mantine-color-red-6) 15%, transparent);
   color: var(--mantine-color-red-7);

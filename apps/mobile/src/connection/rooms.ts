@@ -1,10 +1,10 @@
 /**
  * Routes Rooms' server frames: `welcome` says whether the host relays rooms (`features` has
  * ROOMS_FEATURE; an older host drops the socket on a frame it does not know, so nothing is sent
- * without it), `rooms.state` replaces the list, `rooms.room` patches one, and `rooms.res` settles
- * the `rooms.cmd` waiting on its rid.
+ * without it) and pause / resume (ROOMS_RESUME_FEATURE), `rooms.state` replaces the list,
+ * `rooms.room` patches one, and `rooms.res` settles the `rooms.cmd` waiting on its rid.
  */
-import { ROOMS_FEATURE, type RoomsResult, type ServerMessage } from "@relay/protocol";
+import { ROOMS_FEATURE, ROOMS_RESUME_FEATURE, type RoomsResult, type ServerMessage } from "@relay/protocol";
 import type { RoomsStore } from "@/state/rooms";
 
 export type RoomsFrameRouter = (message: ServerMessage) => void;
@@ -47,7 +47,8 @@ type RoutedStore = Pick<RoomsStore, "setSupported" | "setState" | "upsert">;
 export function createRoomsFrameRouter(store: RoutedStore, pending: PendingRooms): RoomsFrameRouter {
   // Every other frame belongs to the session machine, the command queue or another router.
   return (message) => {
-    if (message.t === "welcome") store.setSupported(message.features?.includes(ROOMS_FEATURE) === true);
+    if (message.t === "welcome")
+      store.setSupported(message.features?.includes(ROOMS_FEATURE) === true, message.features?.includes(ROOMS_RESUME_FEATURE) === true);
     if (message.t === "rooms.state") store.setState(message.rooms);
     if (message.t === "rooms.room") store.upsert(message.room);
     if (message.t === "rooms.res") pending.settle(message.rid, message.result);
