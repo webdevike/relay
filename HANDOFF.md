@@ -231,3 +231,9 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
     decision-view.test (strip, catch-up counts, since index), bridge + phone router/model tests. e2e
     rooms-assistants.spec "S4 ..." (FAKE_OMP_ROOM_SCRIPT scripted member replies). Proof:
     proof/rooms-assistants/s4-*.png.
+  - Checks: typecheck (all packages, CI style, zero errors in S4 files; contract rooms-chat.test.ts errors are
+    S2's, Eva is fixing), lint, desktop/contract/protocol/mobile/linux tests (council.test flaked once under load
+    avg ~50, passes alone), build, rooms-assistants.spec 4/4, e2e:smoke 7/7.
+  - Shipped: main 89e3a2ab + cf73e2b0, desktop deploy published build cf73e2b0d7 (Mini staged "Update ready";
+    MBP on its next poll). Host: code only (rooms.decide advertised in apps/linux session.ts), not built. Phone
+    JS on main, no OTA; cards show on any host, buttons need a host with rooms.decide.
