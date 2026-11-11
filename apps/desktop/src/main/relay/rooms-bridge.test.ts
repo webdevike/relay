@@ -52,6 +52,7 @@ function setup() {
     rename: vi.fn(),
     duplicate: vi.fn(() => ({ roomId: 'c8' })),
     delete: vi.fn(() => Promise.resolve()),
+    convene: vi.fn(() => true),
     post: vi.fn(),
     react: vi.fn(),
     stop: vi.fn(() => Promise.resolve()),

@@ -25,6 +25,7 @@ import {
   callPoll,
   cardById,
   decide,
+  isaacLimits,
   fitThinking,
   levelsFor,
   memberIdFor,
@@ -43,6 +44,8 @@ import {
   type RoomAgent,
   type RoomChat,
   type RoomMessage,
+  type RoomLimits,
+  type RoomOrigin,
 } from '@evaos/contract'
 import { councilMoney, councilPriceOf, usageCost, type ModelPrice } from '@relay/protocol'
 import { afterTurn, burstFor, judgeOf, nextSpeaker, type Burst } from './chat-turns'
@@ -97,7 +100,20 @@ export interface ChatRoomDeps {
   /** Where each room's guard asks go (`<asksRoot>/<id>/asks`); the OS temp dir by default. */
   asksRoot?: string
   seatIdleMs?: number
+  /** How often the asks folder is read while seats run. */
+  askPollMs?: number
 }
+
+/** What an assistant's room carries from rooms.create. */
+export interface ChatRoomOrigin {
+  by: RoomOrigin
+  limits: RoomLimits
+  /** Proposed as a council: phase `proposed` until Isaac convenes it. */
+  proposal?: boolean
+}
+
+const ASK_POLL_MS = 1000
+const ASK_ID_RE = /^[A-Za-z0-9._-]{1,64}$/
 
 const errText = (e: unknown): string =>
   (e instanceof Error ? e.message : String(e)).split('\n')[0]!.slice(0, 200)
@@ -135,6 +151,8 @@ export class ChatRoom {
   private destroyed = false
   /** Isaac's newest vote line: his next vote on the same poll rewrites it instead of adding one. */
   private voteLine: { msg: string; poll: string } | null = null
+  /** Reads the guard's asks while any seat runs. */
+  private askTimer: NodeJS.Timeout | null = null
 
   private constructor(
     room: Room,
@@ -148,8 +166,14 @@ export class ChatRoom {
     this.burst = burst
   }
 
-  /** A new idle room, on disk before this returns. */
-  static create(id: string, setup: ChatRoomSetup, now: number, deps: ChatRoomDeps): ChatRoom {
+  /** A new idle room (proposed when an assistant proposes it), on disk before this returns. */
+  static create(
+    id: string,
+    setup: ChatRoomSetup,
+    now: number,
+    deps: ChatRoomDeps,
+    origin?: ChatRoomOrigin,
+  ): ChatRoom {
     const room = new ChatRoom(
       {
         id,
@@ -159,10 +183,21 @@ export class ChatRoom {
         agents: chatAgents(setup),
         messages: [],
         presence: {},
-        phase: 'idle',
+        phase: origin?.proposal ? 'proposed' : 'idle',
         rounds: 0,
         startedAt: now,
-        chat: { setup, rev: 0, spend: NEW_SPEND() },
+        chat: {
+          setup,
+          rev: 0,
+          spend: NEW_SPEND(),
+          ...(origin
+            ? {
+                by: origin.by,
+                limits: origin.limits,
+                ...(origin.proposal ? { proposal: true } : {}),
+              }
+            : {}),
+        },
       },
       deps,
     )
@@ -182,11 +217,14 @@ export class ChatRoom {
       structuredClone(state.seats),
       state.burst ? structuredClone(state.burst) : null,
     )
-    if (room.room.phase === 'open') {
+    // A guard that asked before the quit is gone: its ask can no longer be allowed.
+    const closed = room.closeAsks()
+    const wasOpen = room.room.phase === 'open'
+    if (wasOpen) {
       room.room.phase = 'paused'
       room.append(ROOM_SYSTEM, 'Paused when Relay quit. Resume goes on from the turn it was in.')
-      room.save()
     }
+    if (closed || wasOpen) room.save()
     return room
   }
 
@@ -203,19 +241,37 @@ export class ChatRoom {
     return this.room.chat!.spend
   }
 
-  /** Applies `patch` (members replace the list, null clears a field); answers the new revision. */
-  update(patch: ChatRoomSetupPatch): number {
+  /**
+   * Applies `patch` (members replace the list, null clears a field); answers the new revision.
+   * Isaac's own change (`isaac`) raises the room's assistant limits to what he set.
+   */
+  update(patch: ChatRoomSetupPatch, isaac = true): number {
     const merged: Record<string, unknown> = { ...this.setup }
     for (const [k, v] of Object.entries(patch)) {
       if (v === null) delete merged[k]
       else if (v !== undefined) merged[k] = v
     }
     const rev = this.setSetup(ChatRoomSetupSchema.parse(merged))
+    const limits = isaac ? isaacLimits(this.room.chat!.limits, this.setup) : undefined
+    if (limits) this.room.chat = { ...this.room.chat!, limits }
     // A member who left stops; one whose model or role changed gets a new seat at its next turn.
     for (const id of [...this.live.keys()])
       if (!this.setup.members.some((m) => m.id === id)) void this.stopSeat(id)
     this.changed()
     return rev
+  }
+
+  /**
+   * Isaac pressed Convene on a proposal: the room is listed and its question (the draft) goes in
+   * as his first message. Answers false when it was convened already (a second click sends nothing).
+   */
+  convene(): boolean {
+    if (this.room.phase !== 'proposed') return false
+    this.room.phase = 'idle'
+    const question = this.setup.draft?.trim() || this.setup.title
+    if (question) this.post(question)
+    else this.changed()
+    return true
   }
 
   rename(title: string): void {
@@ -232,6 +288,8 @@ export class ChatRoom {
    */
   post(text: string, first?: string): void {
     const body = text.trim()
+    // Writing in a proposed room is convening it: his message is the consent.
+    if (this.room.phase === 'proposed') this.room.phase = 'idle'
     const msg = this.append(ROOM_ISAAC, body)
     if (this.room.prompt === '') this.room.prompt = body
     if (this.setup.title === undefined) {
@@ -363,6 +421,81 @@ export class ChatRoom {
     return this.setup.budget
   }
 
+  /** Isaac's Allow / Deny on a seat's outward action: the guard reads the answer file. */
+  answer(askId: string, allow: boolean): void {
+    const card = this.room.messages.find(
+      (m) => m.card?.type === 'ask' && m.card.askId === askId,
+    )?.card
+    if (card?.type !== 'ask' || !ASK_ID_RE.test(askId)) throw failure(`No ask ${askId}`)
+    if (card.answered) return
+    // The asks folder is in the OS temp dir, outside the Eva root's write trap.
+    fs.writeFileSync(path.join(this.asksDir, `${askId}.answer`), allow ? 'allow' : 'deny')
+    card.answered = allow ? 'allow' : 'deny'
+    this.changed()
+  }
+
+  /** `<asksRoot>/<id>/asks`: where the members' guard writes `<askId>.json` and waits for `.answer`. */
+  private get asksDir(): string {
+    return path.join(
+      this.deps.asksRoot ?? path.join(os.tmpdir(), 'relay-rooms'),
+      this.room.id,
+      'asks',
+    )
+  }
+
+  private watchAsks(): void {
+    if (this.askTimer !== null || this.destroyed) return
+    this.askTimer = setInterval(() => this.readAsks(), this.deps.askPollMs ?? ASK_POLL_MS)
+    this.askTimer.unref?.()
+  }
+
+  /** Each new ask file becomes an ask card in the room: "<Name> wants to run: git push ...". */
+  private readAsks(): void {
+    let files: string[]
+    try {
+      files = fs.readdirSync(this.asksDir)
+    } catch {
+      return
+    }
+    const known = new Set(
+      this.room.messages.flatMap((m) => (m.card?.type === 'ask' ? [m.card.askId] : [])),
+    )
+    let added = false
+    for (const f of files) {
+      if (!f.endsWith('.json')) continue
+      const id = f.slice(0, -5)
+      if (known.has(id) || !ASK_ID_RE.test(id)) continue
+      let ask: { seatId?: unknown; action?: unknown }
+      try {
+        ask = JSON.parse(fs.readFileSync(path.join(this.asksDir, f), 'utf8')) as typeof ask
+      } catch {
+        continue // half written: next poll
+      }
+      const seatId = typeof ask.seatId === 'string' ? ask.seatId : 'unknown'
+      const action = typeof ask.action === 'string' ? ask.action : 'an outward action'
+      const who = this.setup.members.find((m) => m.id === seatId)
+      const msg = this.append(
+        ROOM_SYSTEM,
+        `${who ? who.name.split(/\s+/)[0] : seatId} wants to run: ${action}`,
+      )
+      msg.kind = 'card'
+      msg.card = { type: 'ask', askId: id, agentId: seatId, action }
+      added = true
+    }
+    if (added) this.changed()
+  }
+
+  /** Asks no guard waits on any more (its seat ended) are denied; answers whether any were open. */
+  private closeAsks(): boolean {
+    let closed = false
+    for (const m of this.room.messages)
+      if (m.card?.type === 'ask' && !m.card.answered) {
+        m.card.answered = 'deny'
+        closed = true
+      }
+    return closed
+  }
+
   /**
    * The app quits or the room is deleted: a running burst is saved paused (Resume goes on from the
    * turn it was in), the turn in flight stops and every seat ends.
@@ -372,10 +505,13 @@ export class ChatRoom {
       this.room.phase = 'paused'
       this.append(ROOM_SYSTEM, 'Paused when Relay quit. Resume goes on from the turn it was in.')
     }
+    this.closeAsks()
     this.save()
     this.destroyed = true
     this.stopTurn()
     clearTimeout(this.idleTimer ?? undefined)
+    clearInterval(this.askTimer ?? undefined)
+    this.askTimer = null
     await this.stopSeats()
     await this.running
   }
@@ -596,11 +732,7 @@ export class ChatRoom {
     if (have) await this.stopSeat(member.id)
     const wd = await this.roomWorkdir()
     const saved = this.seats[member.id]
-    const asksDir = path.join(
-      this.deps.asksRoot ?? path.join(os.tmpdir(), 'relay-rooms'),
-      this.room.id,
-      'asks',
-    )
+    const asksDir = this.asksDir
     fs.mkdirSync(asksDir, { recursive: true })
     const handle = await this.deps.launcher.start({
       roomId: this.room.id,
@@ -632,6 +764,7 @@ export class ChatRoom {
     }
     const seat = { handle, key }
     this.live.set(member.id, seat)
+    this.watchAsks()
     handle.onExit((err) => {
       if (this.live.get(member.id) !== seat) return
       this.live.delete(member.id)
@@ -678,7 +811,7 @@ export class ChatRoom {
         : '',
       `The room's question: ${this.room.prompt}`,
       `Your working folder is ${wd.main}${this.setup.folder ? ` (a copy of ${this.setup.folder})` : ''}; everything under ${wd.root} (references in refs/) is yours to read.${urls.length > 0 ? ` Links Isaac gave: ${urls.join(', ')}.` : ''}`,
-      'Outward actions are blocked: git push, deploys, publishing, sending mail or messages, purchases, and deleting or writing outside the room folder. Do the work locally.',
+      "Outward actions (git push, deploys, publishing, sending mail or messages, purchases, deleting or writing outside the room folder) wait for Isaac's Allow in the room and fail if he denies them. Do the work locally.",
       `Chat rules:
 - Each turn you are shown what was said since your last turn, as \`[id] Name: text\` lines, then asked for your message.
 - Your message is plain text: 1 to 4 short sentences, no headings, no name prefix, no em dashes.
@@ -743,9 +876,14 @@ ${call}
     await seat.handle.stop().catch(() => undefined)
   }
 
-  /** Every seat ends; their sessions are kept for the next turn or Resume. */
+  /** Every seat ends (their sessions are kept for the next turn or Resume) and so do their asks. */
   private async stopSeats(): Promise<void> {
     await Promise.allSettled([...this.live.keys()].map((id) => this.stopSeat(id)))
+    if (this.live.size === 0) {
+      clearInterval(this.askTimer ?? undefined)
+      this.askTimer = null
+      if (this.closeAsks()) this.emit()
+    }
     if (!this.destroyed) this.save()
   }
 

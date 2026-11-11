@@ -45,7 +45,10 @@ export function AssistantsList() {
   const open = agentIdOf(here)
   const openRoom = roomIdOf(here.page)
   const roomRows: Row[] = [
-    ...order.flatMap((id): Row[] => (rooms[id] ? [{ kind: 'room', r: rooms[id] }] : [])),
+    // A council proposal lives on its card in the assistant's chat until Isaac convenes it.
+    ...order.flatMap((id): Row[] =>
+      rooms[id] && rooms[id].phase !== 'proposed' ? [{ kind: 'room', r: rooms[id] }] : [],
+    ),
     { kind: 'new' },
   ]
   return (

@@ -3,6 +3,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { nativeImage } from 'electron'
 import {
+  assistantCeiling,
+  boundsProblem,
   memberProblem,
   roomActivity,
   roomIsLive,
@@ -16,13 +18,14 @@ import type { MainContext } from '../context'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { evaFsFor } from '../eva/runtime'
 import { emit, handle } from '../ipc/handle'
-import { ChatRoom, type ChatRoomDeps } from './chat-room'
+import { ChatRoom, type ChatRoomDeps, type RoomAssistant } from './chat-room'
 import { findClaude, findCodex } from './council/bins'
 import { CouncilSession, type CouncilDeps } from './council/council'
 import { createSeatLauncher } from './council/seat'
 import { newRoomId, readRoomStates } from './council/state'
 import { roomImagePath } from './council/workdir'
 import { roomStem, saveRoom } from './save'
+import type { RoomsAgentDeps } from './rooms-agent'
 import type { RoomsCreateInput, RoomsErrorCode, RoomsService } from './service'
 
 /** Streaming replies change a room many times a second; the renderer gets one room per burst. */
@@ -36,6 +39,23 @@ const IMAGE_MAX = 2048
 
 const fail = (code: RoomsErrorCode, message: string): Error =>
   Object.assign(new Error(message), { code })
+
+/** The registry's assistants (`.omp/assistant/agents.json`); none when it cannot be read. */
+function readAssistants(evaRoot: string): readonly RoomAssistant[] {
+  try {
+    return parseRegistry(fs.readFileSync(path.join(evaRoot, REGISTRY_FILE), 'utf8'))
+  } catch {
+    return []
+  }
+}
+
+/** What the rooms.* agent actions read: the registry's assistants and omp's catalog. */
+export function roomsAgentDeps(ctx: MainContext): RoomsAgentDeps {
+  return {
+    assistants: () => readAssistants(ctx.env.evaRoot),
+    catalog: () => catalogFor(ctx).list(),
+  }
+}
 
 /**
  * `rooms.*`: the rooms of this app. Council rooms (seats in worktrees) and chat rooms (Assistants >
@@ -141,13 +161,7 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     log,
     launcher,
     catalog: () => catalogFor(ctx).list(),
-    assistants: () => {
-      try {
-        return parseRegistry(fs.readFileSync(path.join(evaRoot, REGISTRY_FILE), 'utf8'))
-      } catch {
-        return []
-      }
-    },
+    assistants: () => readAssistants(evaRoot),
   }
   const liveRooms = (): number =>
     [...sessions.values()].filter((s) => roomIsLive(s.room.phase)).length
@@ -190,16 +204,25 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
       void s.start()
       return { roomId }
     },
-    async open(setup) {
+    async open(setup, origin) {
+      if (origin) {
+        const problem = boundsProblem(setup, origin.limits)
+        if (problem) throw fail('bad-input', problem)
+      }
       await checkMembers(setup)
       const now = Date.now()
-      return { roomId: added(ChatRoom.create(newRoomId(now), setup, now, chatDeps)) }
+      return { roomId: added(ChatRoom.create(newRoomId(now), setup, now, chatDeps, origin)) }
     },
-    async update(roomId, patch: ChatRoomSetupPatch) {
+    async update(roomId, patch: ChatRoomSetupPatch, by) {
       const room = chat(roomId)
+      if (by) {
+        const problem = boundsProblem(patch, assistantCeiling(room.room.chat!))
+        if (problem) throw fail('bad-input', problem)
+      }
       if (patch.members) await checkMembers({ members: patch.members })
-      return room.update(patch)
+      return room.update(patch, by === undefined)
     },
+    convene: (roomId) => chat(roomId).convene(),
     rename: (roomId, title) => session(roomId).rename(title),
     duplicate(roomId) {
       const { setup } = chat(roomId)
@@ -240,7 +263,7 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     },
     raise: async (roomId) => council(roomId).raise(),
     budget: async (roomId, choice) => council(roomId).budget(choice),
-    answer: (roomId, askId, allow) => council(roomId).answer(askId, allow),
+    answer: (roomId, askId, allow) => session(roomId).answer(askId, allow),
     vote: (roomId, cardId, option) => chat(roomId).vote(cardId, option),
     callPoll: (roomId, cardId, option) => chat(roomId).callPoll(cardId, option),
     reopenPoll: (roomId, cardId) => chat(roomId).reopenPoll(cardId),
@@ -276,6 +299,7 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     return { renamed: true as const }
   })
   handle(ctx, 'rooms.duplicate', ({ roomId }) => service.duplicate(roomId))
+  handle(ctx, 'rooms.convene', ({ roomId }) => ({ convened: service.convene(roomId) }))
   handle(ctx, 'rooms.delete', async ({ roomId }) => {
     await service.delete(roomId)
     return { deleted: true as const }

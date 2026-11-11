@@ -20,11 +20,34 @@ export interface RoomsState {
   renaming: { id: string; where: RenameWhere } | null
   /** The room whose setup form shows in place of its chat (Members...), if any. */
   editing: string | null
+  /** Main's list arrived: a room missing from `rooms` is gone, not still loading. */
+  loaded: boolean
+  /** Proposals Isaac turned down with Not now (their cards say so; kept across launches). */
+  declined: readonly string[]
 }
 
 export type RenameWhere = 'nav' | 'header'
 
-const initial = (): RoomsState => ({ rooms: {}, order: [], renaming: null, editing: null })
+const DECLINED_KEY = 'relay.rooms.declined'
+const DECLINED_MAX = 200
+
+function readDeclined(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(DECLINED_KEY) ?? '[]')
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+const initial = (): RoomsState => ({
+  rooms: {},
+  order: [],
+  renaming: null,
+  editing: null,
+  loaded: false,
+  declined: readDeclined(),
+})
 
 export const roomsStore = createStore<RoomsState>(initial)
 
@@ -107,7 +130,7 @@ export function applyRoom(dto: RoomDto): void {
 
 /** Main's full list. */
 export function applyRooms(dtos: readonly RoomDto[]): void {
-  set(() => settle(Object.fromEntries(dtos.map((d) => [d.id, fromDto(d)]))))
+  set(() => ({ ...settle(Object.fromEntries(dtos.map((d) => [d.id, fromDto(d)]))), loaded: true }))
 }
 
 /** A room main deleted. */
@@ -156,6 +179,28 @@ export async function duplicateRoom(roomId: string): Promise<string | null> {
 
 export async function deleteRoom(roomId: string): Promise<string | null> {
   return failure(await invoke('rooms.delete', { roomId }))
+}
+
+/**
+ * Convene an assistant's council proposal: the room is listed and its question goes in as Isaac's
+ * first message (his click is the consent; a second click sends nothing).
+ */
+export async function conveneRoom(roomId: string): Promise<string | null> {
+  return failure(await invoke('rooms.convene', { roomId }))
+}
+
+/** Not now on a proposal: the room is deleted and its card says Not now from then on. */
+export async function declineRoom(roomId: string): Promise<string | null> {
+  const declined = [...roomsStore.getState().declined.filter((id) => id !== roomId), roomId].slice(
+    -DECLINED_MAX,
+  )
+  set(() => ({ declined }))
+  try {
+    localStorage.setItem(DECLINED_KEY, JSON.stringify(declined))
+  } catch {
+    // Storage full or off: the card says Not now until the next launch.
+  }
+  return deleteRoom(roomId)
 }
 
 /** One notch up on a live council room; its new seats join at the next round. */

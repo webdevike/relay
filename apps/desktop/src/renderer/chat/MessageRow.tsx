@@ -21,7 +21,8 @@ import { CanvasRow } from './CanvasRow'
 import { GuestRow } from './GuestRow'
 import { BackgroundRow } from './BackgroundRow'
 import { parseBackground } from '@evaos/chat-core/background'
-import { splitSignin, stripAnswerContext } from '@relay/protocol'
+import { splitRoomCards, splitSignin, stripAnswerContext } from '@relay/protocol'
+import { RoomCards } from '../rooms/RoomCard'
 import { ReplyChips } from './ReplyChips'
 import { SignInCard } from './SignInCard'
 import { resolveAsk } from './asks/asks-store'
@@ -87,7 +88,8 @@ function Row({
 /**
  * A reply without its `[[replies: ...]]` line (cut while it streams in, too), so it never shows,
  * copies or quotes; the newest reply (`live`) shows the answers as buttons under it. A
- * `[[signin:<url>]]` line before it becomes the sign-in card above the bubble, as on the phone.
+ * `[[signin:<url>]]` line before it becomes the sign-in card above the bubble, as on the phone; a
+ * `[[room:<id>]]` line (an assistant set up a room) becomes that room's live card under it.
  */
 function AssistantBody({
   m,
@@ -101,12 +103,14 @@ function AssistantBody({
   agent: string | undefined
 }) {
   // `[[pin: label | value]]` lines are pins (the host makes them), never shown; an `@computer`
-  // plan block is the run's, never shown either; then the replies token, then the sign-in token.
+  // plan block is the run's, never shown either; then the replies token, the sign-in token and
+  // room tokens.
   const split = useMemo(() => {
     const pinned = splitPins(stripComputerPlan(m.text), m.streaming)
     const answered = splitReplies(pinned.text, m.streaming)
-    const { text, signin } = splitSignin(answered.text, m.streaming)
-    return { ...answered, text, signin }
+    const signed = splitSignin(answered.text, m.streaming)
+    const { text, rooms } = splitRoomCards(signed.text, m.streaming)
+    return { ...answered, text, signin: signed.signin, rooms }
   }, [m.text, m.streaming])
   const shown = useMemo(
     () => (split.text === m.text ? m : { ...m, text: split.text }),
@@ -124,7 +128,7 @@ function AssistantBody({
       {split.signin !== undefined ? (
         <SignInCard signin={split.signin} agent={agent} messageId={m.id} />
       ) : null}
-      {split.signin === undefined || split.text.trim() !== '' ? (
+      {(split.signin === undefined && split.rooms.length === 0) || split.text.trim() !== '' ? (
         <BubbleActions m={shown} corner="end">
           <WidgetScope.Provider value={m.id}>
             <RenderMessage.Provider value={renderAt}>
@@ -133,6 +137,7 @@ function AssistantBody({
           </WidgetScope.Provider>
         </BubbleActions>
       ) : null}
+      <RoomCards rooms={split.rooms} />
       {waiting !== undefined ? (
         <div className="eva-waiting-tag">
           <span data-testid="waiting-tag">Waiting on you</span>

@@ -33,6 +33,7 @@ const PHASE_LABEL: Record<RoomPhase, string> = {
   resolved: 'Resolved',
   failed: 'Failed',
   paused: 'Paused',
+  proposed: 'Proposed',
 }
 
 /** "0:42", "12:05", "1:02:09". */
@@ -181,7 +182,9 @@ function ChatRoomView({ room }: { room: Room }) {
       <WhereStrip room={room} />
       {room.messages.length === 0 ? (
         <div className="eva-room-empty" data-testid="room-empty">
-          Everyone's here. Nothing runs until you send the first message.
+          {room.phase === 'proposed'
+            ? 'A proposed council. Send the question to convene it.'
+            : "Everyone's here. Nothing runs until you send the first message."}
         </div>
       ) : (
         <RoomFeed key={room.id} room={room} />

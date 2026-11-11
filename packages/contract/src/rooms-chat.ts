@@ -111,11 +111,34 @@ export const RoomChatSpendSchema = z.object({
 })
 export type RoomChatSpend = z.infer<typeof RoomChatSpendSchema>
 
+/** Who set a room up when an assistant did (agent action rooms.create): from the request's scope. */
+export const RoomOriginSchema = z.object({
+  /** The registry assistant whose thread asked (`agent:<id>` scope). */
+  assistant: z.string().min(1).max(64).optional(),
+  /** Else the chat session file that asked. */
+  session: z.string().min(1).max(4096).optional(),
+  at: z.number(),
+})
+export type RoomOrigin = z.infer<typeof RoomOriginSchema>
+
+/** The most an assistant may set a room's budget (USD) and effort to. */
+export const RoomLimitsSchema = z.object({
+  budget: z.number().positive(),
+  effort: z.number().int().min(1).max(5),
+})
+export type RoomLimits = z.infer<typeof RoomLimitsSchema>
+
 /** What a chat room carries on its Room: the setup, how many times it was changed and the spend. */
 export const RoomChatSchema = z.object({
   setup: ChatRoomSetupSchema,
   rev: z.number().int().min(0),
   spend: RoomChatSpendSchema.default({ usd: 0, byMember: {} }),
+  /** An assistant set it up (rooms.create); absent for Isaac's own rooms. */
+  by: RoomOriginSchema.optional(),
+  /** What an assistant may raise budget and effort to here (rooms-agent.ts assistantCeiling). */
+  limits: RoomLimitsSchema.optional(),
+  /** An assistant proposed it as a council: phase `proposed` until Isaac convenes it. */
+  proposal: z.boolean().optional(),
 })
 export type RoomChat = z.infer<typeof RoomChatSchema>
 

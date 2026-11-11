@@ -55,6 +55,8 @@ export function registerAgentControl(
   connections: Connections,
   frames: RelayFrames,
   browser: BrowserHost,
+  /** rooms.create / rooms.update / rooms.list (rooms/rooms-agent.ts). */
+  rooms: Pick<AgentRunners<'main'>, 'rooms.create' | 'rooms.update' | 'rooms.list'>,
 ): void {
   const runs = createReplyRegistry()
   const confirms = createReplyRegistry()
@@ -160,6 +162,7 @@ export function registerAgentControl(
     ...canvasLiveRunners(canvas),
     ...studioRunners(studio, (p) => renderer('studio.open', p)),
     ...browserRunners(drive),
+    ...rooms,
   }
 
   const token = randomBytes(32).toString('hex')

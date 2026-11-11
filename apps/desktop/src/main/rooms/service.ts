@@ -6,6 +6,8 @@ import type {
   ChatRoomSetupPatch,
   DecideAction,
   Room,
+  RoomLimits,
+  RoomOrigin,
   roomsInvoke,
 } from '@evaos/contract'
 import type { z } from 'zod'
@@ -21,10 +23,22 @@ export interface RoomsService {
   onRemove(cb: (roomId: string) => void): () => void
   /** A council room; it starts at once. */
   create(input: RoomsCreateInput): Promise<{ roomId: string }>
-  /** A chat room, idle until Isaac's first message; every member's model is checked against omp's catalog. */
-  open(setup: ChatRoomSetup): Promise<{ roomId: string }>
-  /** Changes a chat room's setup; resolves with its new revision. */
-  update(roomId: string, patch: ChatRoomSetupPatch): Promise<number>
+  /**
+   * A chat room, idle until Isaac's first message; every member's model is checked against omp's
+   * catalog. `origin`: an assistant set it up (rooms.create), held to its limits; `proposal`
+   * makes it a council proposal (phase `proposed`) Isaac convenes from the card.
+   */
+  open(
+    setup: ChatRoomSetup,
+    origin?: { by: RoomOrigin; limits: RoomLimits; proposal?: boolean },
+  ): Promise<{ roomId: string }>
+  /**
+   * Changes a chat room's setup; resolves with its new revision. `by`: an assistant's change
+   * (held to the room's assistant ceiling); without it the change is Isaac's (lifts the ceiling).
+   */
+  update(roomId: string, patch: ChatRoomSetupPatch, by?: RoomOrigin): Promise<number>
+  /** Isaac convened a proposal: its question goes in as his first message; false when it was already. */
+  convene(roomId: string): boolean
   rename(roomId: string, title: string): void
   /** A chat room's copy: the same setup, no messages, idle. */
   duplicate(roomId: string): { roomId: string }

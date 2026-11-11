@@ -2253,3 +2253,4 @@ export * from "./query";
 export * from "./stats";
 export * from "./answer-context";
 export * from "./signin";
+export * from "./room-card";

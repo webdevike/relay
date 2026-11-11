@@ -311,8 +311,18 @@ export type RoomPresence = z.infer<typeof RoomPresenceSchema>
  * with the same seats. Council: Isaac paused it at a round boundary, or Relay quit while it ran
  * (that round runs again). Chat: Isaac paused it, the next turn would cross the budget, or Relay
  * quit mid-burst (the burst goes on from the turn it was in).
+ * proposed (chat rooms): an assistant proposed it as a council (rooms.create proposal); nothing
+ * runs and the Rooms nav leaves it out until Isaac convenes it from the card in that chat.
  */
-export const RoomPhaseSchema = z.enum(['idle', 'open', 'wrapping', 'resolved', 'failed', 'paused'])
+export const RoomPhaseSchema = z.enum([
+  'idle',
+  'open',
+  'wrapping',
+  'resolved',
+  'failed',
+  'paused',
+  'proposed',
+])
 export type RoomPhase = z.infer<typeof RoomPhaseSchema>
 
 /** council: the effort-dial build room (phone too). chat: a conversation of chosen members. */
@@ -421,6 +431,14 @@ export const roomsInvoke = {
   'rooms.duplicate': {
     input: z.object({ roomId }).strict(),
     output: z.object({ roomId: z.string() }),
+  },
+  /**
+   * Isaac convenes an assistant's council proposal: the room is listed and its question goes in as
+   * his first message. `convened` false: it was convened already (nothing sent twice).
+   */
+  'rooms.convene': {
+    input: z.object({ roomId }).strict(),
+    output: z.object({ convened: z.boolean() }),
   },
   /** Stops the room if it runs, drops it from the list and deletes its folder under work/rooms. */
   'rooms.delete': {

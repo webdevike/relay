@@ -100,7 +100,9 @@ export function startRoomsBridge(deps: {
   let resumeHost = false
   /** The host takes chat rooms and the `idle` phase. */
   let chatHost = false
-  const sent = (room: Room): boolean => room.kind === 'council' || chatHost
+  /** A council proposal (phase `proposed`) is the assistant's chat card until Isaac convenes it. */
+  const sent = (room: Room): boolean =>
+    (room.kind === 'council' || chatHost) && room.phase !== 'proposed'
   /** What the phone may see: a paused room as resolved on an older host. */
   const wire = (room: Room): Room =>
     resumeHost || room.phase !== 'paused' ? room : { ...room, phase: 'resolved' }

@@ -1,0 +1,132 @@
+/* A reply's room card (its `[[room:<id>]]`): bordered like the sign-in card, no shadow. */
+.eva-room-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+}
+.eva-room-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  max-width: 30rem;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-xl);
+}
+.eva-room-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+}
+.eva-room-card-icon {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-room-card-kind {
+  font-weight: var(--eva-fw-semibold);
+  color: var(--eva-text);
+  overflow-wrap: anywhere;
+}
+.eva-room-card-fill {
+  flex: 1;
+}
+.eva-room-card-updated {
+  color: var(--mantine-primary-color-filled);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-room-card-state {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-room-card-title {
+  color: var(--eva-text);
+  overflow-wrap: anywhere;
+}
+.eva-room-card-people {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+}
+.eva-room-card-roster {
+  min-width: 0;
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-room-card-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-md);
+  margin: 0;
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-room-card-facts dt {
+  color: var(--eva-text-dim);
+}
+.eva-room-card-facts dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--eva-text);
+  overflow-wrap: anywhere;
+}
+.eva-room-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-room-card-error {
+  color: var(--mantine-color-red-text);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+/* A proposal turned down, or a room deleted since: one quiet line where the card was. */
+.eva-room-card-gone {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+/* A convened council: one row, the whole row opens the room. */
+.eva-room-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  max-width: 30rem;
+  width: 100%;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius-lg);
+  background: transparent;
+  color: var(--eva-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.eva-room-strip:hover {
+  background: var(--eva-c-muted-background);
+}
+.eva-room-strip-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-room-strip-open {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}

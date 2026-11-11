@@ -30,6 +30,7 @@ import {
   parseSettingValue,
 } from './agent-access'
 import { parseAppLink } from '@evaos/chat-core/widget'
+import { ASSISTANT_ROOM_LIMITS, RoomsCreateFields, RoomsUpdateFields } from './rooms-agent'
 
 /**
  * Agent control: every user-reachable action an agent (Eva, Nova, any omp session) may run in the
@@ -982,6 +983,40 @@ export const agentActions = {
       }),
     side: 'renderer',
     focus: 'panel',
+    destructive: false,
+  },
+  'rooms.create': {
+    title: 'Set up a room',
+    description: `Sets up a room in Assistants > Rooms from your conversation with Isaac: members (an \`assistant\` id or a \`custom\` name, each on an exact omp \`model\` with its \`thinking\` level, a \`role\` and optional \`instructions\`), \`effort\` 1..5, \`budget\` (USD hard cap), optional \`title\`, \`folder\` (copied into the room), \`refs\`, \`draft\` (prefilled in the room's composer, never sent) and \`template\`. It is created idle: nobody speaks until Isaac sends a message there. Your rooms stay within $${ASSISTANT_ROOM_LIMITS.budget} and effort ${ASSISTANT_ROOM_LIMITS.effort} unless Isaac raises them. \`proposal: true\` proposes a council on a question instead (\`draft\` is the question): it is not listed until Isaac presses Convene on the card, which sends the question as his first message. Answers {roomId, link, state, card}: put \`card\` on its own line in your reply; Relay draws it as a live card of the room (Open room, Edit setup) and keeps it current through rooms.update.`,
+    params: z
+      .object({ ...RoomsCreateFields, scope })
+      .strict()
+      .refine((v) => v.proposal !== true || v.draft !== undefined, {
+        message: 'a proposal needs `draft`: the question the council takes up',
+        path: ['draft'],
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'rooms.update': {
+    title: 'Change a room',
+    description:
+      "Changes a room's setup (rooms.list finds it): any of title, effort, budget, folder, refs, draft (null clears folder or draft), template, and `members`: a full list replaces them, or `{add: [...], remove: [id or name], replace: {from: id or name, to: {...}}}` changes some (a replaced member keeps its role, instructions and thinking unless `to` gives them). The card in your chat updates in place; do not post it again. The same limits as rooms.create apply. Answers {roomId, link, rev}.",
+    params: z.object({ ...RoomsUpdateFields, scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'rooms.list': {
+    title: 'List rooms',
+    description:
+      'The rooms in Assistants > Rooms, latest activity first: roomId, title, kind (chat or council), phase (idle, open, paused, proposed...), link, members (id, name, model, thinking, role), effort, budget, spent, rev, how many messages, who set it up, and its card token.',
+    params: Empty,
+    side: 'main',
+    focus: 'none',
     destructive: false,
   },
   describe: {
