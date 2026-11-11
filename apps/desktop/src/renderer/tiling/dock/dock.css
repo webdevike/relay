@@ -120,6 +120,17 @@
 .eva-dock-prefix[data-lead-in] {
   padding-left: var(--eva-traffic);
 }
+/* A pane of pages: its one-click New tab, then the add menu as a narrow chevron. */
+.eva-dock-newtab {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+.eva-dock-newtab .eva-tabbar-btn[aria-haspopup] {
+  width: 18px;
+  min-width: 18px;
+  color: var(--eva-c-muted-foreground);
+}
 
 /* A pane holding app tabs: tabs on the shell background, the content a bordered card. */
 .dockview-theme-relay .dv-groupview[data-pane-kind='app'] > .dv-content-container {

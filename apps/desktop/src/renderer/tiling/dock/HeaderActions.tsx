@@ -1,10 +1,18 @@
 import { ActionIcon, Kbd, Tooltip } from '@mantine/core'
-import { IconArrowLeft, IconArrowRight, IconArrowsMinimize, IconX } from '@tabler/icons-react'
+import {
+  IconArrowLeft,
+  IconArrowRight,
+  IconArrowsMinimize,
+  IconChevronDown,
+  IconPlus,
+  IconX,
+} from '@tabler/icons-react'
 import type { IDockviewHeaderActionsProps } from 'dockview-react'
 import { appTabOf } from '@evaos/shell-core'
 import { useLayout } from '../../shell/layout-store'
 import { goBack, goForward, useTabs } from '../../tabs/tabs-store'
 import { closePaneById, useTiling, zoomPane, type PaneView } from '../tiling-store'
+import { openWebPage, webTabOf } from '../web-tabs'
 import { AddMenu } from './AddMenu'
 
 function tip(label: string, chord?: string) {
@@ -71,13 +79,43 @@ export function PrefixActions({ group }: IDockviewHeaderActionsProps) {
   )
 }
 
-/** Right after the last tab of every pane: its one + menu. */
+/**
+ * Right after the last tab of every pane: its one + menu. A pane of pages reads like a browser
+ * strip: + opens a new page there in one click (Cmd+T), and the add menu sits behind a chevron.
+ */
 export function LeftActions({ group }: IDockviewHeaderActionsProps) {
   const pane = usePane(group.id)
   const lead = useTiling((s) => s.lead === group.id)
   if (!pane) return null
+  const testid = lead ? 'tab-new' : `pane-add-${group.id}`
+  if (pane.app || webTabOf(pane.active) === null) {
+    return <AddMenu pane={group.id} app={pane.app} testid={testid} />
+  }
   return (
-    <AddMenu pane={group.id} app={pane.app} testid={lead ? 'tab-new' : `pane-add-${group.id}`} />
+    <div className="eva-dock-newtab">
+      <Tooltip label={tip('New tab', '⌘T')} position="bottom" openDelay={400}>
+        <ActionIcon
+          variant="subtle"
+          size={28}
+          className="eva-tabbar-btn"
+          aria-label="New tab"
+          data-testid={`page-new-tab-${group.id}`}
+          onClick={() => {
+            openWebPage({ pane: group.id }).catch((e: unknown) => {
+              console.warn('Could not open a page', e)
+            })
+          }}
+        >
+          <IconPlus size={16} stroke={1.5} />
+        </ActionIcon>
+      </Tooltip>
+      <AddMenu
+        pane={group.id}
+        app={false}
+        testid={testid}
+        trigger={<IconChevronDown size={14} stroke={1.5} />}
+      />
+    </div>
   )
 }
 

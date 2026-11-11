@@ -39,8 +39,21 @@ const icon = (I: typeof IconPlus) => <I size={16} stroke={1.5} />
 /** Past this many rows the filter field shows before anything is typed. */
 const FILTER_AT = 8
 
-/** The one + of a pane, right after its last tab: add a tool, a board, split, maximize, new chat. */
-export function AddMenu({ pane, app, testid }: { pane: string; app: boolean; testid: string }) {
+/**
+ * The one + of a pane, right after its last tab: add a tool, a board, split, maximize, new chat.
+ * `trigger` replaces the + glyph (a pane of pages shows its own New tab + and a chevron here).
+ */
+export function AddMenu({
+  pane,
+  app,
+  testid,
+  trigger,
+}: {
+  pane: string
+  app: boolean
+  testid: string
+  trigger?: ReactNode
+}) {
   const [opened, setOpened] = useState(false)
   return (
     <EvaPopover opened={opened} onChange={setOpened} position="bottom-start" width={220}>
@@ -48,7 +61,7 @@ export function AddMenu({ pane, app, testid }: { pane: string; app: boolean; tes
         <Tooltip label="Add a tab or split" position="bottom" openDelay={400} disabled={opened}>
           <ActionIcon
             variant="subtle"
-            size={28}
+            size={trigger ? 20 : 28}
             className="eva-tabbar-btn"
             aria-label="Add a tab or split"
             aria-haspopup="menu"
@@ -56,7 +69,7 @@ export function AddMenu({ pane, app, testid }: { pane: string; app: boolean; tes
             data-testid={testid}
             onClick={() => setOpened((o) => !o)}
           >
-            {icon(IconPlus)}
+            {trigger ?? icon(IconPlus)}
           </ActionIcon>
         </Tooltip>
       </EvaPopover.Target>

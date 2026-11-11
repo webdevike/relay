@@ -7,11 +7,14 @@ import {
   IconCookie,
   IconCopy,
   IconExternalLink,
+  IconLock,
   IconRefresh,
+  IconSearch,
   IconX,
 } from '@tabler/icons-react'
 import type { TabState } from '@evaos/contract'
 import { invoke } from '../ipc'
+import { addressDisplay } from './address-display'
 import { ImportArcModal } from './ImportArcModal'
 import { ExtensionActions } from './ExtensionActions'
 import { Suggestions, type SuggestionItem } from './Suggestions'
@@ -58,6 +61,7 @@ export function AddressRow({
 }) {
   const [text, setText] = useState('')
   const input = useRef<HTMLInputElement>(null)
+  const [editing, setEditing] = useState(false)
   const [items, setItems] = useState<SuggestionItem[]>([])
   const [active, setActive] = useState(-1)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -115,6 +119,9 @@ export function AddressRow({
   }
   const url = tab?.url ?? ''
   useEffect(() => setText(url), [url])
+  // Not editing: host first, the rest dimmed (the input's own text hides under it).
+  const display = addressDisplay(url)
+  const shown = !editing && text === url ? display : null
   // A new blank page: its address field takes the focus once its tab shows.
   useEffect(() => {
     if (!wantFocus || !visible) return
@@ -148,39 +155,61 @@ export function AddressRow({
       >
         {tab?.loading ? <IconX size={16} /> : <IconRefresh size={16} />}
       </Btn>
-      <TextInput
-        ref={input}
-        className="eva-address-input"
-        size="xs"
-        placeholder="Search, URL, or port such as 3000"
-        aria-label="Address"
-        data-testid="address-input"
-        data-tab-id={tabId}
-        value={text}
-        onChange={(e) => {
-          setText(e.currentTarget.value)
-          ask(e.currentTarget.value)
-        }}
-        onBlur={close}
-        onFocus={(e) => e.currentTarget.select()}
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowDown' && items.length) {
-            e.preventDefault()
-            setActive((a) => (a + 1) % items.length)
-          } else if (e.key === 'ArrowUp' && items.length) {
-            e.preventDefault()
-            setActive((a) => (a <= 0 ? items.length - 1 : a - 1))
-          } else if (e.key === 'Enter') {
-            go(active >= 0 && items[active] ? items[active].url : text)
-          } else if (e.key === 'Escape') {
-            if (items.length) close()
-            else {
-              setText(url)
-              input.current?.blur()
-            }
+      <div className="eva-address-field">
+        <TextInput
+          ref={input}
+          className="eva-address-input"
+          size="xs"
+          placeholder="Search, URL, or port such as 3000"
+          aria-label="Address"
+          data-testid="address-input"
+          data-tab-id={tabId}
+          data-display={shown ? true : undefined}
+          value={text}
+          leftSection={
+            display?.secure ? (
+              <IconLock className="eva-address-glyph" size={13} stroke={1.75} />
+            ) : (
+              <IconSearch className="eva-address-glyph" size={13} />
+            )
           }
-        }}
-      />
+          onChange={(e) => {
+            setText(e.currentTarget.value)
+            ask(e.currentTarget.value)
+          }}
+          onBlur={() => {
+            setEditing(false)
+            close()
+          }}
+          onFocus={(e) => {
+            setEditing(true)
+            e.currentTarget.select()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown' && items.length) {
+              e.preventDefault()
+              setActive((a) => (a + 1) % items.length)
+            } else if (e.key === 'ArrowUp' && items.length) {
+              e.preventDefault()
+              setActive((a) => (a <= 0 ? items.length - 1 : a - 1))
+            } else if (e.key === 'Enter') {
+              go(active >= 0 && items[active] ? items[active].url : text)
+            } else if (e.key === 'Escape') {
+              if (items.length) close()
+              else {
+                setText(url)
+                input.current?.blur()
+              }
+            }
+          }}
+        />
+        {shown ? (
+          <span className="eva-address-display" aria-hidden data-testid="address-display">
+            {shown.host}
+            <span>{shown.rest}</span>
+          </span>
+        ) : null}
+      </div>
       <Btn label="Copy link" testId="btn-copy-link" onClick={act('copyLink')}>
         <IconCopy size={16} />
       </Btn>

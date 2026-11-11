@@ -20,6 +20,38 @@
   border-radius: var(--eva-radius);
   color: var(--eva-text);
 }
+.eva-address-glyph {
+  color: var(--eva-c-muted-foreground);
+}
+/* Not editing: the host reads first and the rest of the address dims, like a browser's omnibox. */
+.eva-address-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.eva-address-input input[data-display] {
+  color: transparent;
+}
+.eva-address-display {
+  position: absolute;
+  /* Mantine's xs left section is one xs input height wide; the text starts right after it. */
+  inset: 0 var(--eva-space-sm) 0 calc(1.875rem * var(--mantine-scale));
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+  font-size: var(--mantine-font-size-xs);
+  color: var(--eva-text);
+}
+.eva-address-display > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--eva-c-muted-foreground);
+}
 .eva-address-progress {
   position: absolute;
   left: 0;

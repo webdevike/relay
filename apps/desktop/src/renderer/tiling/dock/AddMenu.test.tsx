@@ -33,7 +33,10 @@ vi.mock('../../tabs/tabs-store', () => ({
   goForward: vi.fn(),
   useTabs: () => undefined,
 }))
-vi.mock('../web-tabs', () => ({ openWebPage: m.openWebPage }))
+vi.mock('../web-tabs', () => ({
+  openWebPage: m.openWebPage,
+  webTabOf: (id: string | null) => (id?.startsWith('web:') ? id.slice('web:'.length) : null),
+}))
 vi.mock('../tiling-store', () => ({
   splitAt: m.splitAt,
   zoomPane: m.zoomPane,
@@ -89,6 +92,19 @@ describe('pane + menu', () => {
       expect(
         within(screen.getByTestId(`strip-${p.id}`)).getAllByLabelText('Add a tab or split'),
       ).toHaveLength(1)
+    }
+  })
+
+  it('a pane of pages opens a new page in one click and keeps the menu behind a chevron', async () => {
+    m.state.panes.push({ id: 'p3', app: false, views: ['web:t4'], active: 'web:t4', rect: null })
+    try {
+      wrap(<LeftActions {...props('p3')} />)
+      fireEvent.click(screen.getByTestId('page-new-tab-p3'))
+      expect(m.openWebPage).toHaveBeenCalledWith({ pane: 'p3' })
+      fireEvent.click(screen.getByTestId('pane-add-p3'))
+      expect(await screen.findByTestId('pane-add-menu-p3')).toBeTruthy()
+    } finally {
+      m.state.panes.pop()
     }
   })
 
