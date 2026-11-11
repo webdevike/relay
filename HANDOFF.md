@@ -184,3 +184,13 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
       and `--title "<short card title>"` for a clear card. `relay-linux assistant list` names every assistant.
     - A line `[Asked by <name> in Isaac's chat] ...` is another assistant putting Isaac's question to you:
       answer it as you would Isaac, in your own words; your reply goes back into that chat."
+  - Shipped: main bba5571c (WIP) + ae5f2764, desktop deploy published build ae5f276415 (Mini staged "Update
+    ready"; MBP not reachable by ssh, picks it up on its next poll). The deploy also moved the Relay runtime
+    (omp bridge + relay-linux CLI) to ae5f276415 for new omp sessions; the Relay Host process itself still needs
+    Eva's consolidated host build for `/assistant/consult`. Checks: chat-core, protocol, linux (consult +
+    assistant), desktop unit 2347 pass; lint ok; desktop typecheck only the pre-existing widget-runtime
+    @mantine/core + ThemeControls; mobile typecheck the same 14 pre-existing errors; e2e assistant-guests +
+    e2e:smoke green. Pre-existing/flaky: linux canvas-pacing.test (bun:test under vitest), canvas.test and
+    chat-core turns.test flake under load (pass alone).
+  - Left: phone OTA (from a clean checkout; inert until a host advertises assistant.guests); Eva's rules lines
+    above; no in-thread typing for guests on the phone; subagent/inbox views ignore guest rows.
