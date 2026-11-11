@@ -17,11 +17,18 @@ const timeOf = (ts: number): string => {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-/** A council room's deliverable card, once it delivered. */
+/** A council room's latest deliverable card (a resumed room delivers again). */
 function deliverableOf(room: Room): (RoomCard & { type: 'deliverable' }) | undefined {
-  for (const m of room.messages) if (m.card?.type === 'deliverable') return m.card
+  for (let i = room.messages.length - 1; i >= 0; i--) {
+    const card = room.messages[i]!.card
+    if (card?.type === 'deliverable') return card
+  }
   return undefined
 }
+
+/** "7.5/10", or "not scored" when the room had no scorecard. */
+const scoreText = (total: number | undefined): string =>
+  total === undefined ? 'not scored' : `${total}/10`
 
 const list = (lines: readonly string[], empty: string): string =>
   lines.length > 0 ? lines.map((x) => `- ${x}`).join('\n') : empty
@@ -87,11 +94,11 @@ export function roomRecord(room: Room): string {
   const summaryText =
     summary?.text ??
     (d
-      ? `Delivered ${d.total}/10.${d.changes.length > 0 ? ` ${d.changes.join('; ')}.` : ''}`
+      ? `Delivered ${scoreText(d.total)}.${d.changes.length > 0 ? ` ${d.changes.join('; ')}.` : ''}`
       : '_No summary was written._')
   return `# Room: ${room.title}
 
-- Date: ${dateStamp(room.startedAt)} ${timeOf(room.startedAt)}, ${minutes} min, ${room.rounds} rounds
+- Date: ${dateStamp(room.startedAt)} ${timeOf(room.startedAt)}, ${minutes} min, ${room.rounds} round${room.rounds === 1 ? '' : 's'}
 - Asked by: Isaac
 - Summary by: ${summary ? authorName(room, summary.author) : d ? 'Room' : 'nobody'}
 ${room.judge ? `- Judge: ${room.judge.verdict}: ${room.judge.note}\n` : ''}
@@ -135,7 +142,7 @@ export function journalEntry(room: Room, file: string): { heading: string; bulle
     return {
       heading: `${dateStamp(room.startedAt)} [eva-interface] Council room: ${room.title}`,
       bullets: [
-        `Delivered: ${d.total}/10 at ${councilLabel(room.council.effort)}, ${councilMoney(d.spent)} list, workdir ${d.workdir} (merge by hand)`,
+        `Delivered: ${scoreText(d.total)} at ${councilLabel(room.council.effort)}, ${councilMoney(d.spent)} list, workdir ${d.workdir} (merge by hand)`,
         `Record: ${file}`,
       ],
     }

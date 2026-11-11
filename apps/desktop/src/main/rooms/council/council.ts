@@ -22,8 +22,11 @@ import {
   councilLabel,
   councilMoney,
   councilOwnerPart,
+  councilResumeCap,
   councilSeatLine,
+  councilTurnCost,
   councilUsageCost,
+  type CouncilCostKind,
   type CouncilRole,
   type CouncilRouting,
   type CouncilSeat,
@@ -70,6 +73,7 @@ import {
 } from './council-prompts'
 import { RoutingLog, turnKind, type TurnPurpose } from './routing-log'
 import type { SeatHandle, SeatLauncher, SeatPresence, SeatTurnResult } from './seat'
+import { ROOM_STATE_VERSION, writeRoomState, type CouncilState, type SeatSession } from './state'
 import { MAIN_BRANCH, RoomWorkdir, seatBranch, type Exec } from './workdir'
 
 export interface CouncilDeps {
@@ -84,18 +88,38 @@ export interface CouncilDeps {
   onChange: (room: Room) => void
   log: (line: string) => void
   now?: () => number
-  /** Where seats' outward-action asks land: `<asksRoot>/<room id>/asks` (default the OS temp dir). */
+  /** Where seats' outward-action asks land: `<asksRoot>/<room id>/asks` (default the OS temp dir, outside every seat's reach). */
   asksRoot?: string
   /** How often the asks folder is read. */
   pollMs?: number
+  /** How long after a change the room's state is written (it is also written at once after every round). */
+  saveMs?: number
   exec?: Exec
 }
 
 /** Images attached to one turn, at most; the newest renders first, then the references. */
 const MAX_IMAGES = 6
 const ASK_POLL_MS = 1000
+const SAVE_MS = 1000
 const ASK_ID_RE = /^[A-Za-z0-9._-]{1,64}$/
 const CONTRACT_FILE = 'contract.md'
+
+/** The cost-model turn a purpose is, for reserving its spend before it runs. */
+const COST_KIND: Record<TurnPurpose, CouncilCostKind> = {
+  rubric: 'talk',
+  contract: 'integrate',
+  paintover: 'talk',
+  object: 'talk',
+  plan: 'talk',
+  build: 'part',
+  look: 'look',
+  integrate: 'integrate',
+  critique: 'talk',
+  research: 'talk',
+  score: 'talk',
+  answer: 'talk',
+  final: 'talk',
+}
 
 interface Seat {
   agent: RoomAgent
@@ -111,7 +135,15 @@ interface TurnOut {
   files: string[]
 }
 
-type Choice = 'continue' | 'wrap'
+/** Isaac's answer at the cap pause; `pause` is his Pause button pressed while it waits. */
+type Choice = 'continue' | 'wrap' | 'pause'
+
+/** How far the run got (saved): brief and contract (or plan) done, and the next round to run. */
+interface Progress {
+  briefed: boolean
+  planned: boolean
+  nextRound: number
+}
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 const msgNum = (id: string): number => Number(id.slice(1))
@@ -141,17 +173,29 @@ export class CouncilSession {
   private destroyed = false
   private stopRequested = false
   private delivering = false
+  /** Isaac pressed Pause: the room stops at the end of this round (`pauseNow`: at once, mid-round). */
+  private pauseRequested = false
+  private pauseNow = false
+  private progress: Progress = { briefed: false, planned: false, nextRound: 1 }
+  /** Per seat, saved: what it has been shown and its harness session (also for seats not running). */
+  private readonly saved = new Map<string, { seen: number; session?: SeatSession }>()
+  private saveTimer: NodeJS.Timeout | null = null
   private readonly aborts = new Set<AbortController>()
   private readonly drafts = new Map<string, RoomMessage>()
   /** Post-turn git work (commit, diff, render copies) runs one at a time across seats. */
   private gitChain: Promise<unknown> = Promise.resolve()
-  private pause: { card: RoomCard & { type: 'pause' }; resolve: (c: Choice) => void } | null = null
+  private capPause: { card: RoomCard & { type: 'pause' }; resolve: (c: Choice) => void } | null =
+    null
   private raisePending = false
   /** Isaac's posts up to this message number have been answered. */
   private isaacSeen = 0
   private askTimer: NodeJS.Timeout | null = null
   private readonly askCards = new Map<string, RoomMessage>()
   private capNoted = false
+  /** Spend held for turns running now (their estimate), so parallel turns cannot pass the cap together. */
+  private reserved = 0
+  /** The dearest turn each seat has run per cost kind: a better guess than the model for the next one. */
+  private readonly dearest = new Map<string, number>()
   /** The latest full render, the source's renders, part renders by part (and by branch). */
   private full: RoomRender[] = []
   private before: RoomRender[] = []
@@ -163,18 +207,30 @@ export class CouncilSession {
   private plateauStreak = 0
   private finals: { id: string; text: string }[] = []
 
+  /** A new room, or (with `state`) one saved on disk, not running until resume(). */
   constructor(
     prompt: string,
     private readonly input: RoomCouncilInput,
     private readonly deps: CouncilDeps,
+    state?: CouncilState,
   ) {
     this.now = deps.now ?? Date.now
+    this.overrides = input.routing ?? {}
+    this.routing = new RoutingLog(
+      (content) => this.deps.writeRouting(`${this.stem}.routing.jsonl`, content),
+      (line) => this.deps.log(`${this.room.id}: ${line}`),
+    )
+    if (state) {
+      this.room = structuredClone(state.room)
+      this.asksDir = this.asksDirFor(this.room.id)
+      this.restore(state)
+      return
+    }
     const now = this.now()
     const text = prompt.trim()
     const id = newRoomId(now)
-    this.overrides = input.routing ?? {}
     const cast = councilCast(input.effort, this.overrides)
-    this.asksDir = path.join(deps.asksRoot ?? path.join(os.tmpdir(), 'relay-rooms'), id, 'asks')
+    this.asksDir = this.asksDirFor(id)
     const workdir = path.join(deps.evaRoot, 'work', 'rooms', id)
     this.room = {
       id,
@@ -203,10 +259,33 @@ export class CouncilSession {
         minutesEstimate: cast.minutes,
       },
     }
-    this.routing = new RoutingLog(
-      (content) => this.deps.writeRouting(`${this.stem}.routing.jsonl`, content),
-      (line) => this.deps.log(`${this.room.id}: ${line}`),
-    )
+  }
+
+  private asksDirFor(id: string): string {
+    return path.join(this.deps.asksRoot ?? path.join(os.tmpdir(), 'relay-rooms'), id, 'asks')
+  }
+
+  /** Takes a saved room back as it was. One that was running when Relay stopped comes back paused. */
+  private restore(s: CouncilState): void {
+    this.stem = s.stem
+    this.progress = { ...s.progress }
+    this.isaacSeen = s.isaacSeen
+    this.full = s.renders.full
+    this.before = s.renders.before
+    this.paintover = s.renders.paintover
+    for (const [k, v] of Object.entries(s.renders.parts)) this.partRenders.set(k, v)
+    this.fixes = s.fixes
+    this.bounces = s.bounces
+    this.plateauStreak = s.plateauStreak
+    this.routing.entries.push(...s.routing)
+    for (const [id, v] of Object.entries(s.seats)) this.saved.set(id, v)
+    this.msgSeq = this.room.messages.reduce((n, m) => Math.max(n, msgNum(m.id)), 0)
+    this.resolving = true
+    if (roomIsLive(this.room.phase)) {
+      this.markPaused(
+        `Relay stopped while the room ran${this.c.round > 0 ? ` round ${this.c.round}` : ''}. Resume runs it on from round ${this.progress.nextRound} with the same people.`,
+      )
+    }
   }
 
   private get c(): NonNullable<Room['council']> {
@@ -217,9 +296,9 @@ export class CouncilSession {
     return roomIsLive(this.room.phase) && !this.resolving
   }
 
-  /** Turns stop starting once Isaac resolves (except the final positions) or the app quits. */
+  /** Turns stop starting once Isaac resolves (except the final positions), pauses at once, or the app quits. */
   private get halted(): boolean {
-    return this.destroyed || (this.stopRequested && !this.delivering)
+    return this.destroyed || this.pauseNow || (this.stopRequested && !this.delivering)
   }
 
   private agentFor(s: CouncilSeat, id: string, name: string, joinedRound?: number): RoomAgent {
@@ -248,6 +327,49 @@ export class CouncilSession {
 
   private changed(): void {
     this.deps.onChange(this.room)
+    if (this.saveTimer || !this.stem) return
+    this.saveTimer = setTimeout(() => {
+      this.saveTimer = null
+      this.save()
+    }, this.deps.saveMs ?? SAVE_MS)
+    this.saveTimer.unref()
+  }
+
+  /** The room as it is now, on disk (`<workdir>/room.json`); a failed write is logged, never fatal. */
+  private save(): void {
+    if (!this.stem) return // the workdir is not there yet
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer)
+      this.saveTimer = null
+    }
+    for (const [id, s] of this.seats) {
+      const session = s.handle?.session() ?? this.saved.get(id)?.session
+      this.saved.set(id, { seen: s.seen, ...(session ? { session } : {}) })
+    }
+    const state: CouncilState = {
+      version: ROOM_STATE_VERSION,
+      room: { ...this.room, presence: {} },
+      input: this.input,
+      stem: this.stem,
+      progress: { ...this.progress },
+      seats: Object.fromEntries(this.saved),
+      isaacSeen: this.isaacSeen,
+      renders: {
+        full: this.full,
+        before: this.before,
+        paintover: this.paintover,
+        parts: Object.fromEntries(this.partRenders),
+      },
+      fixes: this.fixes,
+      bounces: this.bounces,
+      plateauStreak: this.plateauStreak,
+      routing: this.routing.entries,
+    }
+    try {
+      writeRoomState(this.c.workdir, state)
+    } catch (e) {
+      this.deps.log(`${this.room.id}: could not save the room: ${errText(e)}`)
+    }
   }
 
   /** Copies the source into the workdir, opens every seat, then runs the room. */
@@ -273,19 +395,31 @@ export class CouncilSession {
       this.stem = this.deps.stem(this.room)
       this.c.routingFile = path.join(this.deps.evaRoot, `${this.stem}.routing.jsonl`)
       fs.mkdirSync(this.asksDir, { recursive: true })
+      this.save()
     } catch (e) {
       this.fail(`Could not set up the room workdir: ${errText(e)}`)
       return
     }
+    await this.openSeats()
+  }
+
+  /** Opens every seat (resuming their sessions when the room was saved), then runs the room. */
+  private async openSeats(): Promise<void> {
     await Promise.all(this.room.agents.map((a) => this.open(a)))
-    if (this.destroyed) return
+    if (this.destroyed || this.pauseNow) return
     if (this.liveSeats().length === 0) {
       this.fail('No seat could start.')
       return
     }
     this.askTimer = setInterval(() => this.readAsks(), this.deps.pollMs ?? ASK_POLL_MS)
     this.askTimer.unref()
-    this.loop = this.run().catch((e) => this.fail(errText(e)))
+    // Cleared when the run ends (delivered, paused, failed): the room can be resumed from then on.
+    const loop: Promise<void> = this.run()
+      .catch((e) => this.fail(errText(e)))
+      .finally(() => {
+        if (this.loop === loop) this.loop = null
+      })
+    this.loop = loop
   }
 
   /** The integrator works in main/; with no integrator nobody does (the room merges builders). */
@@ -304,11 +438,13 @@ export class CouncilSession {
       return
     }
     if (a.seat) a.seat.worktree = tree
+    const saved = this.saved.get(a.id)
     const seat: Seat = { agent: a, handle: null, tree, seen: 0 }
     this.seats.set(a.id, seat)
     const s = a.seat!
     const spend = this.c.spend
     const live = Math.max(1, this.room.agents.filter((x) => !x.failed).length)
+    const scratch = path.join(wd.root, 'tmp', a.id)
     try {
       const h = await this.deps.launcher.start({
         roomId: this.room.id,
@@ -323,6 +459,7 @@ export class CouncilSession {
           prompt: this.room.prompt,
           tree,
           workdir: wd.root,
+          scratch,
           mainDir: wd.main,
           contractPath: path.join(wd.main, CONTRACT_FILE),
           renderCmd: this.c.renderCmd,
@@ -333,6 +470,9 @@ export class CouncilSession {
         readDirs: [wd.root, ...wd.refs],
         workdir: wd.root,
         asksDir: this.asksDir,
+        scratch,
+        sessionDir: path.join(wd.root, 'sessions', a.id),
+        ...(saved?.session ? { resume: saved.session } : {}),
         ...(s.harness === 'claude-code'
           ? { budgetUsd: Math.max(0.01, (spend.cap - spend.usd) / live) }
           : {}),
@@ -342,6 +482,13 @@ export class CouncilSession {
         return
       }
       seat.handle = h
+      // A resumed session has seen the feed up to where it stopped; a fresh one gets all of it.
+      if (h.resumed && saved) seat.seen = saved.seen
+      else if (saved?.session)
+        this.append(
+          ROOM_SYSTEM,
+          `${firstName(a.name)} could not pick up the earlier session and starts fresh with the whole thread.`,
+        )
       if (h.harness !== s.harness) {
         s.harness = h.harness
         this.append(
@@ -387,6 +534,7 @@ export class CouncilSession {
     this.room.error = error
     this.room.presence = {}
     this.changed()
+    this.save()
     void this.stopAll()
   }
 
@@ -394,17 +542,24 @@ export class CouncilSession {
     clearInterval(this.askTimer ?? undefined)
     this.askTimer = null
     for (const ac of this.aborts) ac.abort()
+    // Each seat's session is kept before its process goes: Resume picks it up from here.
+    for (const [id, s] of this.seats) {
+      const session = s.handle?.session()
+      if (session) this.saved.set(id, { seen: s.seen, session })
+    }
     const hs = [...this.seats.values()]
       .map((s) => s.handle)
       .filter((h): h is SeatHandle => h !== null)
     for (const s of this.seats.values()) s.handle = null
     await Promise.allSettled(hs.map((h) => h.stop()))
+    fs.rmSync(path.dirname(this.asksDir), { recursive: true, force: true })
   }
 
   // ---- Isaac's side ---------------------------------------------------------------------------
 
+  /** A paused room takes posts too: they are answered once it resumes. */
   post(text: string): void {
-    if (!this.live) throw new Error('The room is closed.')
+    if (!this.live && this.room.phase !== 'paused') throw new Error('The room is closed.')
     this.append(ROOM_ISAAC, text.trim())
   }
 
@@ -429,15 +584,119 @@ export class CouncilSession {
     await this.settled()
   }
 
+  /**
+   * Pause: the room stops at the end of the round it is in (at once when it waits at the cap
+   * pause); the seats end and the state stays on disk for Resume.
+   */
+  pause(): void {
+    if (!this.live || this.delivering) throw new Error('The room is not running.')
+    if (this.pauseRequested) return
+    this.pauseRequested = true
+    this.c.pauseRequested = true
+    this.append(
+      ROOM_SYSTEM,
+      this.capPause
+        ? 'Pausing now.'
+        : `Pausing after round ${Math.max(1, this.c.round)}: the turns running now finish first.`,
+    )
+    this.answerPause('pause')
+  }
+
+  /** The app quits: a running room is saved as paused, so it resumes at the round it was in. */
   async destroy(): Promise<void> {
+    const wasLive = this.live
     this.destroyed = true
     this.resolving = true
     this.answerPause('wrap')
+    if (wasLive && this.stem) {
+      this.markPaused(
+        `Relay quit during ${this.c.round > 0 ? `round ${this.c.round}` : 'the brief'}. Resume runs it on from round ${this.progress.nextRound} with the same people.`,
+      )
+    }
     await this.stopAll()
+    this.save()
   }
 
   settled(): Promise<void> {
     return this.loop ?? Promise.resolve()
+  }
+
+  /** Not running, and the state is there to run on from: paused, wrapped or failed. */
+  get resumable(): boolean {
+    return !this.live && this.stem !== '' && this.loop === null
+  }
+
+  /**
+   * Runs a paused, wrapped or failed room on from its next round with the same seats, their
+   * harness sessions resumed. Resolves with the cap now in force: past the pause line Resume is
+   * Isaac's tap to go on, so the cap rises by one estimate (councilResumeCap).
+   */
+  async resume(): Promise<number> {
+    if (!this.resumable) throw coded('The room is running.', 'bad-input')
+    const c = this.c
+    this.wd = RoomWorkdir.open({
+      root: c.workdir,
+      refs: c.refs,
+      ...(this.deps.exec ? { exec: this.deps.exec } : {}),
+    })
+    this.resolving = false
+    this.destroyed = false
+    this.stopRequested = false
+    this.delivering = false
+    this.pauseRequested = false
+    this.pauseNow = false
+    this.capNoted = false
+    this.finals = []
+    this.seats.clear()
+    this.askCards.clear()
+    const capBefore = c.spend.cap
+    c.spend.cap = councilResumeCap(c.spend)
+    c.paused = false
+    c.pauseRequested = false
+    for (const m of this.room.messages) {
+      // Cards nobody can answer any more: Resume is the Continue, and an ask's guard is gone.
+      if (m.card?.type === 'pause' && !m.card.answered) m.card.answered = 'continue'
+      if (m.card?.type === 'ask' && !m.card.answered) m.card.answered = 'deny'
+    }
+    for (const a of this.room.agents) delete a.failed
+    const round = this.progress.nextRound
+    if (round > c.maxRounds) c.maxRounds = round
+    this.room.phase = 'open'
+    delete this.room.error
+    delete this.room.resolvedAt
+    fs.mkdirSync(this.asksDir, { recursive: true })
+    this.append(
+      ROOM_SYSTEM,
+      `Resumed at ${this.progress.planned ? `round ${round} of ${c.maxRounds}` : 'the start'}, ${councilMoney(c.spend.usd)} spent${c.spend.cap !== capBefore ? `; cap raised to ${councilMoney(c.spend.cap)}` : ` of a ${councilMoney(c.spend.cap)} cap`}.`,
+    )
+    this.save()
+    this.loop = null
+    await this.openSeats()
+    return c.spend.cap
+  }
+
+  /** The room stops running and says why; its seats are stopped by the caller. */
+  private markPaused(why: string): void {
+    this.resolving = true
+    this.room.phase = 'paused'
+    this.room.presence = {}
+    this.room.resolvedAt = this.now()
+    this.c.paused = false
+    this.c.pauseRequested = false
+    for (const m of this.room.messages)
+      if (m.card?.type === 'ask' && !m.card.answered) m.card.answered = 'deny'
+    this.append(ROOM_SYSTEM, why)
+  }
+
+  /** Isaac's pause lands: the seats end, the room waits on disk. */
+  private async enterPaused(): Promise<void> {
+    const next = this.progress.nextRound
+    this.markPaused(
+      `Paused${next > 1 ? ` after round ${next - 1}` : ''}. Resume picks up at ${this.progress.planned ? `round ${next}` : 'the start'} with the same people.`,
+    )
+    this.save()
+    await this.stopAll()
+    this.save()
   }
 
   /** One notch up; the new seats join at the next round boundary. */
@@ -455,16 +714,17 @@ export class CouncilSession {
   }
 
   /** The answer to the cap pause; resolves with the cap in force after it. */
-  budget(choice: Choice): number {
+  budget(choice: 'continue' | 'wrap'): number {
     this.answerPause(choice)
     return this.c.spend.cap
   }
 
   private answerPause(choice: Choice): void {
-    const p = this.pause
+    const p = this.capPause
     if (!p) return
-    this.pause = null
-    p.card.answered = choice
+    this.capPause = null
+    // Pause leaves the card open: Resume answers it with Continue.
+    if (choice !== 'pause') p.card.answered = choice
     if (choice === 'continue') this.c.spend.cap = p.card.nextCap
     this.c.paused = false
     this.changed()
@@ -584,12 +844,24 @@ export class CouncilSession {
     const s = seat?.agent.seat
     if (!seat || !seat.handle || !s || seat.agent.failed || this.halted) return null
     const spend = this.c.spend
-    if (spend.usd >= spend.cap) {
+    const kind: CouncilCostKind =
+      purpose === 'build' && this.c.parts.length <= 1 ? 'build' : COST_KIND[purpose]
+    // Held before the turn starts, so turns running together (the final positions) cannot pass
+    // the cap between them: the cost model's guess, or this seat's dearest turn of the kind so far.
+    const images =
+      purpose === 'paintover' || (purpose === 'critique' && s.role === 'director')
+        ? COUNCIL_IMAGE_USD
+        : 0
+    const est = Math.max(
+      councilTurnCost(s.modelKey, kind, s.thinking) + images,
+      this.dearest.get(`${id}:${kind}`) ?? 0,
+    )
+    if (spend.usd + this.reserved + est > spend.cap) {
       if (!this.capNoted) {
         this.capNoted = true
         this.append(
           ROOM_SYSTEM,
-          `Spend reached the ${councilMoney(spend.cap)} cap; no more turns start.`,
+          `${councilMoney(spend.usd)} of the ${councilMoney(spend.cap)} cap spent: turns that could pass the cap are skipped, starting with ${firstName(seat.agent.name)}'s.`,
         )
       }
       return null
@@ -606,6 +878,7 @@ export class CouncilSession {
     const head0 = await wd.head(seat.tree)
     const ac = new AbortController()
     this.aborts.add(ac)
+    this.reserved += est
     this.setPresence(id, { state: 'thinking' })
     let r: SeatTurnResult
     try {
@@ -628,12 +901,14 @@ export class CouncilSession {
       }
       return null
     } finally {
+      this.reserved -= est
       this.aborts.delete(ac)
       this.setPresence(id, null)
     }
     const usd = councilUsageCost(s.modelKey, r.usage) + r.images.length * COUNCIL_IMAGE_USD
     spend.usd += usd
     spend.byAgent[id] = (spend.byAgent[id] ?? 0) + usd
+    this.dearest.set(`${id}:${kind}`, Math.max(usd, this.dearest.get(`${id}:${kind}`) ?? 0))
     const round = this.c.round
     const { files, renders } = await this.git(async () => {
       const head1 = await wd.commit(
@@ -691,7 +966,7 @@ export class CouncilSession {
 
   /**
    * Before a phase: answer Isaac, pause at 80 % of the cap until he picks. False when the room
-   * should go straight to delivering.
+   * should go straight to delivering, or (`pauseNow`) stop where it is.
    */
   private async gate(stage: NonNullable<Room['council']>['stage']): Promise<boolean> {
     if (this.halted || this.stopRequested) return false
@@ -705,14 +980,16 @@ export class CouncilSession {
         nextCap: spend.cap + spend.estimate,
       }
       const { promise, resolve } = Promise.withResolvers<Choice>()
-      this.pause = { card, resolve }
+      this.capPause = { card, resolve }
       this.c.paused = true
       this.append(
         ROOM_SYSTEM,
         `Over budget soon: ${councilMoney(spend.usd)} of the ${councilMoney(spend.cap)} cap spent. Continue to ${councilMoney(card.nextCap)} or wrap now?`,
         { kind: 'card', card },
       )
-      if ((await promise) === 'wrap') return false
+      const choice = await promise
+      if (choice === 'pause') this.pauseNow = true
+      if (choice !== 'continue') return false
     }
     if (this.halted || this.stopRequested) return false
     this.c.stage = stage
@@ -720,21 +997,56 @@ export class CouncilSession {
     return true
   }
 
+  /**
+   * Brief, contract or plan, rounds, deliver; each step done is saved, so a resumed room starts
+   * at the step after the last one that finished. A pause lands between rounds (at once when it
+   * comes at the cap pause, and then that round runs again on Resume).
+   */
   private async run(): Promise<void> {
-    await this.brief()
-    const split = this.c.parts.length > 1
-    if (await this.gate(split ? 'contract' : 'plan')) {
-      if (split) await this.contract(1)
-      else await this.plan()
+    const p = this.progress
+    if (!p.briefed) {
+      await this.brief()
+      if (this.destroyed) return
+      p.briefed = true
+      this.save()
     }
-    for (let round = 1; round <= this.c.maxRounds; round++) {
-      if (!(await this.gate('build'))) break
+    if (!p.planned) {
+      const split = this.c.parts.length > 1
+      if (await this.gate(split ? 'contract' : 'plan')) {
+        if (split) await this.contract(1)
+        else await this.plan()
+      }
+      if (this.destroyed) return
+      if (!this.pauseNow) {
+        p.planned = true
+        this.save()
+      }
+    }
+    let ended = false
+    for (let round = p.nextRound; round <= this.c.maxRounds && !this.pauseNow; round++) {
+      if (this.pauseRequested) break
+      if (!(await this.gate('build'))) {
+        ended = !this.pauseNow
+        break
+      }
       this.c.round = round
       this.room.rounds = round
       this.changed()
       if (this.raisePending) await this.applyRaise()
       const end = await this.round(round)
-      if (end) break
+      if (this.destroyed) return
+      if (this.pauseNow) break
+      p.nextRound = round + 1
+      this.save()
+      if (end) {
+        ended = true
+        break
+      }
+    }
+    if (this.destroyed) return
+    if (!ended && (this.pauseRequested || this.pauseNow)) {
+      await this.enterPaused()
+      return
     }
     await this.deliver()
   }
@@ -1409,5 +1721,7 @@ export class CouncilSession {
     }
     this.changed()
     await this.stopAll()
+    // After stopAll: the seats' sessions are in, so Resume can run the room on for more rounds.
+    this.save()
   }
 }

@@ -15,6 +15,10 @@ export interface RoomsService {
   post(roomId: string, text: string): void
   react(roomId: string, messageId: string, emoji: string): void
   stop(roomId: string): Promise<void>
+  /** Council: stop at the end of the round it is in; the state stays on disk. */
+  pause(roomId: string): void
+  /** Council: run a paused, wrapped or failed room on from its next round; resolves with the cap. */
+  resume(roomId: string): Promise<number>
   /** One notch up; resolves with the new effort. */
   raise(roomId: string): Promise<number>
   /** The answer to the 80 % cap pause; resolves with the cap now in force. */

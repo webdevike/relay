@@ -59,6 +59,8 @@ export interface SeatContext {
   /** The seat's working tree (main/ for the integrator). */
   tree: string
   workdir: string
+  /** The seat's TMPDIR inside the room. */
+  scratch: string
   mainDir: string
   contractPath: string
   renderCmd: string
@@ -106,6 +108,7 @@ ${c.prompt}
 Where things are:
 - Your working tree: ${c.tree}${role === 'integrator' ? ' (this is main/, the integrated tree only you write)' : ' (your own git worktree; the room commits it after each of your turns)'}
 - Room workdir: ${c.workdir}; integrated tree: ${c.mainDir}
+- Scratch: ${c.scratch} (your TMPDIR). Throwaway scripts and temp files go there, never in /tmp.
 - Contract: ${c.contractPath} (only the integrator edits it)
 - Render command: ${renderCommand(c.renderCmd)} for the whole figure, ${renderCommand(c.renderCmd, '<name>')} for one part. Renders go under renders/ in your tree.
 - References (read-only): ${c.refs.length > 0 ? c.refs.join(', ') : 'none'}

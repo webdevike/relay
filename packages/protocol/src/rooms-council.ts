@@ -207,6 +207,16 @@ export const COUNCIL_TARGET_SCORE = 8;
 /** A total gain below this for two rounds is a plateau. */
 export const COUNCIL_PLATEAU = 0.5;
 
+/**
+ * The cap a resumed room runs under. Below the pause line the cap stays; at or past it, Resume
+ * is Isaac's tap to go on (as Continue at the pause): one more estimate on top of the higher of
+ * the cap and the spend.
+ */
+export function councilResumeCap(spend: { usd: number; estimate: number; cap: number }): number {
+  if (spend.usd < COUNCIL_PAUSE_AT * spend.cap) return spend.cap;
+  return Math.round((Math.max(spend.usd, spend.cap) + spend.estimate) * 100) / 100;
+}
+
 export interface CouncilSeat {
   /** Stable seat id inside a room: `<role>-<n>` (`builder-2`). */
   id: string;
@@ -248,7 +258,8 @@ export interface CouncilCast {
 
 // Cost model, same as SPEC.md "Cost model": per turn kind, input tokens (85 % cached) and output
 // tokens by thinking level; minutes per turn kind by thinking level.
-type TurnKind = "build" | "part" | "integrate" | "look" | "talk";
+export type CouncilCostKind = "build" | "part" | "integrate" | "look" | "talk";
+type TurnKind = CouncilCostKind;
 const OUT: Record<TurnKind, Record<CouncilThinking, number>> = {
   build: { medium: 4e3, high: 8e3, xhigh: 14e3, max: 22e3 },
   part: { medium: 3e3, high: 6e3, xhigh: 10e3, max: 16e3 },

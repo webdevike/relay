@@ -15,8 +15,9 @@ import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { evaFsFor } from '../eva/runtime'
 import { emit, handle } from '../ipc/handle'
 import { findClaude, findCodex } from './council/bins'
-import { CouncilSession } from './council/council'
+import { CouncilSession, type CouncilDeps } from './council/council'
 import { createSeatLauncher } from './council/seat'
+import { readRoomStates } from './council/state'
 import { roomImagePath } from './council/workdir'
 import { JevClient, readJevKey } from './jev'
 import { RoomSession } from './orchestrator'
@@ -37,9 +38,11 @@ const fail = (code: RoomsErrorCode, message: string): Error =>
   Object.assign(new Error(message), { code })
 
 /**
- * `rooms.*`: live rooms this app session runs (debate rooms of omp personas, council rooms of
- * seats in worktrees). A room's record is the file it saves on resolve; nothing is persisted
- * otherwise. Returns the same rooms as a service for the phone's bridge.
+ * `rooms.*`: the rooms of this app (debate rooms of omp personas, council rooms of seats in
+ * worktrees). Debate rooms live for the app session; their record is the file they save on
+ * resolve. Council rooms also keep their state in `<eva>/work/rooms/<id>/room.json`, so the ones
+ * found there at launch are listed again and resume where they stopped. Returns the same rooms as
+ * a service for the phone's bridge.
  */
 export function registerRoomsIpc(ctx: MainContext): RoomsService {
   const { evaRoot, ompBin, live } = ctx.env
@@ -56,6 +59,10 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     ompBin,
     ...(claudeBin ? { claudeBin } : {}),
     ...(codexBin ? { codexBin } : {}),
+    // Tests run every seat in omp on a cheap model.
+    ...(process.env.EVAOS_ROOMS_SEAT_MODEL
+      ? { ompModel: process.env.EVAOS_ROOMS_SEAT_MODEL }
+      : {}),
     log,
   })
   const sessions = new Map<string, RoomSession | CouncilSession>()
@@ -119,6 +126,27 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
   const evaFs = evaFsFor(ctx)
   const save = (room: Room, stem?: string): Promise<string> =>
     saveRoom(room, { evaRoot, evaFs, journal }, stem)
+  const councilDeps: CouncilDeps = {
+    launcher,
+    evaRoot,
+    stem: (room) => roomStem(evaRoot, room),
+    save,
+    writeRouting: (rel, content) => evaFs.write('room-routing', rel, content),
+    onChange,
+    log,
+  }
+  const liveRooms = (): number =>
+    [...sessions.values()].filter((s) => roomIsLive(s.room.phase)).length
+
+  // Council rooms an earlier run of the app saved: listed again, newest first, resumable.
+  const saved = readRoomStates(path.join(evaRoot, 'work', 'rooms'), log).sort(
+    (a, b) => b.room.startedAt - a.room.startedAt,
+  )
+  for (const state of saved) {
+    const s = new CouncilSession(state.room.prompt, state.input, councilDeps, state)
+    sessions.set(s.room.id, s)
+    order.push(s.room.id)
+  }
 
   const service: RoomsService = {
     list: () => order.map((id) => sessions.get(id)!.room),
@@ -127,8 +155,7 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
       return () => listeners.delete(cb)
     },
     async create(input: RoomsCreateInput) {
-      const liveRooms = [...sessions.values()].filter((s) => roomIsLive(s.room.phase)).length
-      if (liveRooms >= MAX_LIVE_ROOMS) {
+      if (liveRooms() >= MAX_LIVE_ROOMS) {
         throw fail(
           'too-many-rooms',
           `${MAX_LIVE_ROOMS} rooms are already live. Resolve one before starting another.`,
@@ -136,15 +163,7 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
       }
       let s: RoomSession | CouncilSession
       if (input.council) {
-        s = new CouncilSession(input.prompt, input.council, {
-          launcher,
-          evaRoot,
-          stem: (room) => roomStem(evaRoot, room),
-          save,
-          writeRouting: (rel, content) => evaFs.write('room-routing', rel, content),
-          onChange,
-          log,
-        })
+        s = new CouncilSession(input.prompt, input.council, councilDeps)
       } else if (input.agentIds) {
         const agents = await agentsFor(input.agentIds)
         // The key is read per room (secrets/jev.env may appear later) and lives only in the client.
@@ -168,6 +187,21 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     post: (roomId, text) => session(roomId).post(text),
     react: (roomId, messageId, emoji) => session(roomId).react(messageId, emoji),
     stop: (roomId) => session(roomId).stop(),
+    pause: (roomId) => council(roomId).pause(),
+    async resume(roomId) {
+      const s = council(roomId)
+      if (!s.resumable) throw fail('bad-input', 'The room is running.')
+      if (liveRooms() >= MAX_LIVE_ROOMS) {
+        throw fail(
+          'too-many-rooms',
+          `${MAX_LIVE_ROOMS} rooms are already live. Pause or resolve one before resuming another.`,
+        )
+      }
+      // A resumed room goes back to the top of the list, as a new one would.
+      order.splice(order.indexOf(roomId), 1)
+      order.unshift(roomId)
+      return s.resume()
+    },
     raise: async (roomId) => council(roomId).raise(),
     budget: async (roomId, choice) => council(roomId).budget(choice),
     answer: (roomId, askId, allow) => council(roomId).answer(askId, allow),
@@ -203,6 +237,11 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     await service.stop(roomId)
     return { stopped: true as const }
   })
+  handle(ctx, 'rooms.pause', ({ roomId }) => {
+    service.pause(roomId)
+    return { pausing: true as const }
+  })
+  handle(ctx, 'rooms.resume', async ({ roomId }) => ({ cap: await service.resume(roomId) }))
   handle(ctx, 'rooms.raise', async ({ roomId }) => ({ effort: await service.raise(roomId) }))
   handle(ctx, 'rooms.budget', async ({ roomId, choice }) => ({
     cap: await service.budget(roomId, choice),
@@ -213,12 +252,13 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
   })
   handle(ctx, 'rooms.list', () => ({ rooms: service.list() }))
 
-  // Rooms die with the app. What is guaranteed: on a normal quit this hook ends every process
-  // (stdin EOF, then SIGTERM, then SIGKILL to its process group, so tool children go too) and
-  // waits for the exits (bounded, inside the 12 s quit cap). What is not: if main is hard killed
-  // or crashes, no hook runs; the children's stdin pipe closes and omp exits on EOF when idle
+  // On a normal quit this hook saves every running council room as paused (it resumes at the
+  // round it was in) and ends every process (stdin EOF, then SIGTERM, then SIGKILL to its process
+  // group, so tool children go too), waiting for the exits (bounded, inside the 12 s quit cap).
+  // If main is hard killed or crashes, no hook runs: the room comes back paused from its last
+  // save at the next launch; the children's stdin pipe closes and omp exits on EOF when idle
   // (observed), but a seat mid-tool, or a tool child that outlives it, can linger until it
-  // finishes. Council workdirs stay on disk either way.
+  // finishes. Debate rooms die with the app.
   ctx.onBeforeQuit(async () => {
     for (const t of pending.values()) clearTimeout(t)
     await Promise.allSettled([...sessions.values()].map((s) => s.destroy()))

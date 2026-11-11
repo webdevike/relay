@@ -100,6 +100,26 @@ export interface OmpSeatOptions {
   guard: GuardInstall
   env?: NodeJS.ProcessEnv
   log?: (line: string) => void
+  /** omp `--model` for every seat (tests run a cheap model); default the seat's own. */
+  model?: string
+}
+
+/** The newest session file omp wrote in `dir`, or null. */
+function newestSession(dir: string): string | null {
+  let best: { file: string; at: number } | null = null
+  let names: string[] = []
+  try {
+    names = fs.readdirSync(dir)
+  } catch {
+    return null
+  }
+  for (const n of names) {
+    if (!n.endsWith('.jsonl') || n.startsWith('.')) continue
+    const file = path.join(dir, n)
+    const at = fs.statSync(file).mtimeMs
+    if (!best || at > best.at) best = { file, at }
+  }
+  return best?.file ?? null
 }
 
 /**
@@ -245,12 +265,15 @@ export async function startOmpSeat(
     }
   })
 
-  const model = COUNCIL_MODELS[spec.model]
+  const resumeFile =
+    spec.resume?.harness === 'omp' && fs.existsSync(spec.resume.file) ? spec.resume.file : null
   await t.start({
-    sessionFile: null,
+    // `--resume <file>`: the seat's earlier turns come back and new ones append to the same file.
+    sessionFile: resumeFile,
     cwd: spec.cwd,
     args: [
-      '--no-session',
+      '--session-dir',
+      spec.sessionDir,
       '--no-extensions',
       '--no-skills',
       '--no-rules',
@@ -262,7 +285,7 @@ export async function startOmpSeat(
       '--config',
       configFile,
       '--model',
-      model.omp,
+      o.model ?? COUNCIL_MODELS[spec.model].omp,
       // omp takes medium | high | xhigh | max as is.
       '--thinking',
       spec.thinking,
@@ -275,6 +298,11 @@ export async function startOmpSeat(
   return {
     harness: 'omp',
     ...(fallback ? { fallback } : {}),
+    resumed: resumeFile !== null,
+    session: () => {
+      const file = resumeFile ?? newestSession(spec.sessionDir)
+      return file === null ? null : { harness: 'omp', file }
+    },
     turn: (input) => {
       const { promise, resolve, reject } = Promise.withResolvers<SeatTurnResult>()
       if (exited) {

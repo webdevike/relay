@@ -75,6 +75,9 @@ export interface ClaudeSeatOptions {
  */
 export async function startClaudeSeat(spec: SeatSpec, o: ClaudeSeatOptions): Promise<SeatHandle> {
   const model = COUNCIL_MODELS[spec.model]
+  const resumeId = spec.resume?.harness === 'claude-code' ? spec.resume.id : null
+  /** Claude Code keeps the id across `--resume`; the init frame says so, and that wins. */
+  let sessionId = resumeId ?? randomUUID()
   const args = [
     '-p',
     '--input-format',
@@ -88,8 +91,7 @@ export async function startClaudeSeat(spec: SeatSpec, o: ClaudeSeatOptions): Pro
     // Claude Code takes medium | high | xhigh | max as is.
     '--effort',
     spec.thinking,
-    '--session-id',
-    randomUUID(),
+    ...(resumeId ? ['--resume', resumeId] : ['--session-id', sessionId]),
     '--permission-mode',
     'bypassPermissions',
     '--setting-sources',
@@ -161,6 +163,11 @@ export async function startClaudeSeat(spec: SeatSpec, o: ClaudeSeatOptions): Pro
 
   const onFrame = (f: Frame): void => {
     switch (f.type) {
+      case 'system': {
+        if (f.subtype === 'init' && typeof f.session_id === 'string' && f.session_id !== '')
+          sessionId = f.session_id
+        return
+      }
       case 'control_response': {
         const r = f.response
         if (isObj(r) && r.request_id === 'init') {
@@ -281,6 +288,8 @@ export async function startClaudeSeat(spec: SeatSpec, o: ClaudeSeatOptions): Pro
 
   return {
     harness: 'claude-code',
+    resumed: resumeId !== null,
+    session: () => ({ harness: 'claude-code', id: sessionId }),
     turn: (input) => {
       const { promise, resolve, reject } = Promise.withResolvers<SeatTurnResult>()
       if (exited) {

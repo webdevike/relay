@@ -225,6 +225,8 @@ export const RoomCouncilSchema = z.object({
   minutesEstimate: z.number(),
   /** Waiting on Isaac's Continue / Wrap at 80 % of the cap. */
   paused: z.boolean().optional(),
+  /** Isaac asked to pause: the room stops at the end of the round it is in. */
+  pauseRequested: z.boolean().optional(),
   routingFile: z.string().optional(),
 })
 export type RoomCouncil = z.infer<typeof RoomCouncilSchema>
@@ -291,8 +293,11 @@ export type RoomPresence = z.infer<typeof RoomPresenceSchema>
 /**
  * open: agents talk. wrapping: the soft clock passed, everyone is told to close. resolved: the
  * summary is pinned and saved. failed: nobody could talk (omp missing, every agent dead).
+ * paused (council rooms): no seat runs; the room's state is on disk (`<workdir>/room.json`) and
+ * Resume continues at the next round with the same seats. Isaac paused it at a round boundary, or
+ * Relay quit while it ran (that round runs again).
  */
-export const RoomPhaseSchema = z.enum(['open', 'wrapping', 'resolved', 'failed'])
+export const RoomPhaseSchema = z.enum(['open', 'wrapping', 'resolved', 'failed', 'paused'])
 export type RoomPhase = z.infer<typeof RoomPhaseSchema>
 
 export const RoomJudgeSchema = z.object({
@@ -376,10 +381,24 @@ export const roomsInvoke = {
     input: z.object({ roomId, askId: z.string().min(1).max(64), allow: z.boolean() }).strict(),
     output: z.object({ answered: z.literal(true) }),
   },
-  /** Isaac posts; the text is appended at once and joins the next round's delta. */
+  /** Isaac posts; the text is appended at once and joins the next round's delta (a paused room's next round once resumed). */
   'rooms.post': {
     input: z.object({ roomId, text: z.string().min(1).max(4000) }).strict(),
     output: z.object({ posted: z.literal(true) }),
+  },
+  /** Council: stop at the end of the round the room is in; seats end, the state stays on disk. */
+  'rooms.pause': {
+    input: z.object({ roomId }).strict(),
+    output: z.object({ pausing: z.literal(true) }),
+  },
+  /**
+   * Council: run a paused, wrapped or failed room on from its next round with the same seats
+   * (their harness sessions resume). Resolves with the cap in force (raised when the spend was
+   * already at the pause line).
+   */
+  'rooms.resume': {
+    input: z.object({ roomId }).strict(),
+    output: z.object({ cap: z.number() }),
   },
   /** Toggles Isaac's reaction on a message. */
   'rooms.react': {

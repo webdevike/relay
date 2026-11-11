@@ -131,6 +131,8 @@ function spec(over: Partial<SeatSpec>): SeatSpec {
     readDirs: [path.join(room, 'refs')],
     workdir: room,
     asksDir: path.join(room, 'asks'),
+    scratch: path.join(room, 'tmp', 'theo'),
+    sessionDir: path.join(room, 'sessions', 'theo'),
     ...over,
   }
 }

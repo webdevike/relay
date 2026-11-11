@@ -29,6 +29,8 @@ export interface GuardOptions {
   seatId: string
   /** The seat's PATH without the shims (real binaries are resolved from it). */
   path: string
+  /** The seat's scratch dir inside the room: its TMPDIR, the only temp space it may write. */
+  scratch: string
   /** Where the guard's files go; a fresh temp dir by default. */
   dir?: string
   /** Node to run the guard with: the app itself as node by default. */
@@ -114,19 +116,33 @@ function real(p) {
 }
 
 const roots = [cfg.workdir, real(cfg.workdir)]
-const scratch = [os.tmpdir(), real(os.tmpdir()), '/tmp', '/private/tmp', '/dev']
+const scratch = [cfg.scratch, real(cfg.scratch), '/dev']
+/** The system temp dirs: a seat's scratch is its own TMPDIR inside the room, never these. */
+const temps = cfg.temps.flatMap((t) => [t, real(t)])
 const inside = (p, dir) => p === dir || p.startsWith(dir.endsWith('/') ? dir : dir + '/')
+/** Marks a write into a system temp dir: denied at once, with where to write instead. */
+const TEMP_WRITE = 'temp write '
 
-/** True when a path (relative to cwd) is outside the room and outside scratch space. */
-function outside(p, cwd) {
-  if (typeof p !== 'string' || p === '') return false
+/** Where a path (relative to cwd) lands: 'in' the room or its scratch, a system 'temp' dir, or 'out'. */
+function where(p, cwd) {
+  if (typeof p !== 'string' || p === '') return 'in'
   let q = p
   if (q === '~' || q.startsWith('~/')) q = home + q.slice(1)
   q = q.replace(/^\$HOME(?=\/|$)/, home).replace(/^\$\{HOME\}(?=\/|$)/, home)
-  if (q.includes('$')) return false
+  if (q.includes('$')) return 'in'
   const abs = path.resolve(cwd, q)
   const both = [abs, real(abs), real(path.dirname(abs))]
-  return !both.some((a) => roots.some((r) => inside(a, r)) || scratch.some((r) => inside(a, r)))
+  if (both.some((a) => roots.some((r) => inside(a, r)) || scratch.some((r) => inside(a, r)))) return 'in'
+  return both.some((a) => temps.some((r) => inside(a, r))) ? 'temp' : 'out'
+}
+
+/** True when deleting or reading from a path leaves the room (system temp dirs are fine to clean up). */
+const outside = (p, cwd) => where(p, cwd) === 'out'
+
+/** The action a write to p is, or null when it stays in the room. */
+function writeTo(p, cwd) {
+  const w = where(p, cwd)
+  return w === 'temp' ? TEMP_WRITE + p : w === 'out' ? 'write ' + p + ' (outside the room)' : null
 }
 
 /** Index of the first positional arg, skipping flags (and the values of flags that take one). */
@@ -232,15 +248,20 @@ function classify(argv, cwd) {
     return out.length > 0 ? name + ' ' + out.join(' ') + ' (outside the room)' : null
   }
   if (name === 'mv') {
-    const out = args.filter((a) => !a.startsWith('-') && outside(a, cwd))
+    const paths = args.filter((a) => !a.startsWith('-'))
+    const dest = paths.length > 1 ? writeTo(paths[paths.length - 1], cwd) : null
+    if (dest !== null && dest.startsWith(TEMP_WRITE)) return dest
+    const out = paths.filter((a) => outside(a, cwd))
     return out.length > 0 ? 'mv ' + out.join(' ') + ' (outside the room)' : null
   }
   if (name === 'cp' || name === 'rsync' || name === 'ditto' || name === 'install' || name === 'ln') {
     const paths = args.filter((a) => !a.startsWith('-'))
-    const dest = paths[paths.length - 1]
-    return paths.length > 1 && outside(dest, cwd) ? 'write ' + dest + ' (outside the room)' : null
+    return paths.length > 1 ? writeTo(paths[paths.length - 1], cwd) : null
   }
   if (name === 'tee' || name === 'touch' || name === 'mkdir') {
+    const writes = args.filter((a) => !a.startsWith('-')).map((a) => writeTo(a, cwd)).filter((a) => a !== null)
+    const temp = writes.find((a) => a.startsWith(TEMP_WRITE))
+    if (temp) return temp
     const out = args.filter((a) => !a.startsWith('-') && outside(a, cwd))
     return out.length > 0 ? 'write ' + out.join(' ') + ' (outside the room)' : null
   }
@@ -325,7 +346,8 @@ function shellActions(src, cwd, depth) {
   const found = []
   for (let words of commands(src)) {
     if (words[0] === '>') {
-      if (outside(words[1], cwd)) found.push('write ' + words[1] + ' (outside the room)')
+      const w = writeTo(words[1], cwd)
+      if (w) found.push(w)
       continue
     }
     for (;;) {
@@ -387,7 +409,10 @@ function toolActions(input) {
   const found = []
   const cmd = ti.command !== undefined ? ti.command : ti.cmd
   if (typeof cmd === 'string' && /^\s*\*\*\* Begin Patch/.test(cmd)) {
-    for (const p of patchPaths(cmd)) if (outside(p, cwd)) found.push('write ' + p + ' (outside the room)')
+    for (const p of patchPaths(cmd)) {
+      const w = writeTo(p, cwd)
+      if (w) found.push(w)
+    }
   } else if (typeof cmd === 'string') {
     found.push(...shellActions(cmd, cwd, 0))
   } else if (Array.isArray(cmd) && cmd.every((x) => typeof x === 'string')) {
@@ -400,12 +425,16 @@ function toolActions(input) {
   }
   for (const k of ['input', 'patch']) {
     if (typeof ti[k] === 'string' && /\*\*\* Begin Patch/.test(ti[k])) {
-      for (const p of patchPaths(ti[k])) if (outside(p, cwd)) found.push('write ' + p + ' (outside the room)')
+      for (const p of patchPaths(ti[k])) {
+        const w = writeTo(p, cwd)
+        if (w) found.push(w)
+      }
     }
   }
   if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(name)) {
     const p = ti.file_path || ti.notebook_path || ti.path
-    if (outside(p, cwd)) found.push('write ' + p + ' (outside the room)')
+    const w = writeTo(p, cwd)
+    if (w) found.push(w)
   }
   return found
 }
@@ -465,13 +494,19 @@ function takeGrant(action) {
 }
 
 function denied(action) {
+  if (action.startsWith(TEMP_WRITE)) {
+    return 'Not in ' + action.slice(TEMP_WRITE.length) + ': scratch files go in your TMPDIR (' + cfg.scratch + '), inside the room. Write it there instead.'
+  }
   return 'Isaac did not allow this: ' + action + '. Do not try it another way; keep working inside the room and say what you needed in your reply.'
 }
+
+/** A temp-dir write is refused without asking; anything else outward waits for Isaac. */
+const allowed = (action) => !action.startsWith(TEMP_WRITE) && ask(action)
 
 const mode = process.argv[2]
 if (mode === 'check') {
   const action = classify(process.argv.slice(3), process.cwd())
-  if (!action || takeGrant(action) || ask(action)) process.exit(0)
+  if (!action || takeGrant(action) || allowed(action)) process.exit(0)
   process.stderr.write('Relay: ' + denied(action) + '\n')
   process.exit(1)
 } else if (mode === 'hook') {
@@ -484,7 +519,7 @@ if (mode === 'check') {
     input = JSON.parse(raw)
   } catch {}
   for (const action of toolActions(input)) {
-    if (ask(action)) {
+    if (allowed(action)) {
       grant(action)
       continue
     }
@@ -518,6 +553,9 @@ export function installGuard(o: GuardOptions): GuardInstall {
     path.join(dir, 'config.json'),
     JSON.stringify({
       workdir: path.resolve(o.workdir),
+      scratch: path.resolve(o.scratch),
+      // The app's own temp dir (guard files, asks) and the system ones.
+      temps: [...new Set([os.tmpdir(), '/tmp', '/private/tmp', '/var/folders', '/private/var/folders'])],
       asksDir: o.asksDir,
       seatId: o.seatId,
       waitMs: o.waitMs ?? ASK_WAIT_MS,
@@ -561,7 +599,14 @@ export function installGuard(o: GuardOptions): GuardInstall {
   return {
     dir,
     binDir,
-    env: { PATH: seatPathEnv, CLAUDE_ENV_FILE: envFile },
+    // Every temp file a seat's tools make lands in its scratch dir inside the room, never /tmp.
+    env: {
+      PATH: seatPathEnv,
+      CLAUDE_ENV_FILE: envFile,
+      TMPDIR: path.resolve(o.scratch),
+      TMP: path.resolve(o.scratch),
+      TEMP: path.resolve(o.scratch),
+    },
     hookCommand,
     claudeSettings,
     codexArgs,

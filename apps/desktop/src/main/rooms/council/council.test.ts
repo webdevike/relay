@@ -139,6 +139,9 @@ class FakeLauncher implements SeatLauncher {
     let n = 0
     return {
       harness: spec.harness,
+      // Every seat "resumes" what it is handed; its session is a file in its session dir.
+      resumed: spec.resume !== undefined,
+      session: () => ({ harness: 'omp', file: path.join(spec.sessionDir, 'session.jsonl') }),
       onExit: () => undefined,
       stop: async () => undefined,
       turn: async (input) => {

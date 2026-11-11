@@ -2,9 +2,17 @@
 // welcome lists "rooms" this app sends every room it runs (`rooms.sync`) on each (re)connect, then
 // each changed room (`rooms.upsert`, at most one per room every UPSERT_EVERY_MS, the last change
 // always included). The host's `rooms.cmd` (a phone's command) runs on the same RoomsService the
-// renderer's IPC uses and goes back as `rooms.res` with the same rid. Older hosts get nothing.
-import { roomsInvoke } from '@evaos/contract'
-import { MAX_ROOMS, ROOMS_FEATURE, RoomsCmd, RoomsRid, type RoomsResult } from '@relay/protocol'
+// renderer's IPC uses and goes back as `rooms.res` with the same rid. Older hosts get nothing; a
+// host without ROOMS_RESUME_FEATURE refuses the `paused` phase, so it sees paused rooms as resolved.
+import { roomsInvoke, type Room } from '@evaos/contract'
+import {
+  MAX_ROOMS,
+  ROOMS_FEATURE,
+  ROOMS_RESUME_FEATURE,
+  RoomsCmd,
+  RoomsRid,
+  type RoomsResult,
+} from '@relay/protocol'
 import type { RelayFeatures, RelayFrames } from './client'
 import type { RoomsService } from '../rooms/service'
 
@@ -35,6 +43,10 @@ async function run(service: RoomsService, cmd: RoomsCmd): Promise<unknown> {
       return service.react(cmd.roomId, cmd.messageId, cmd.emoji)
     case 'stop':
       return service.stop(cmd.roomId)
+    case 'pause':
+      return service.pause(cmd.roomId)
+    case 'resume':
+      return service.resume(cmd.roomId)
     case 'raise':
       return service.raise(cmd.roomId)
     case 'budget':
@@ -68,6 +80,10 @@ export function startRoomsBridge(deps: {
   const { client, service } = deps
   const now = deps.now ?? Date.now
   let enabled = false
+  /** The host takes the `paused` phase (and relays pause / resume). */
+  let resumeHost = false
+  const wire = (room: Room): Room =>
+    resumeHost || room.phase !== 'paused' ? room : { ...room, phase: 'resolved' }
   /** Per room: when it last went out, and the timer holding its latest change. */
   const sentAt = new Map<string, number>()
   const timers = new Map<string, NodeJS.Timeout>()
@@ -83,7 +99,7 @@ export function startRoomsBridge(deps: {
     const room = service.list().find((r) => r.id === roomId)
     if (room === undefined) return
     sentAt.set(roomId, now())
-    client.sendFrame({ t: 'rooms.upsert', room })
+    client.sendFrame({ t: 'rooms.upsert', room: wire(room) })
   }
 
   const offChange = service.onChange((room) => {
@@ -111,9 +127,11 @@ export function startRoomsBridge(deps: {
   const offFrame = client.onFrame((f) => {
     if (f.t === 'welcome') {
       enabled = client.hostHas(ROOMS_FEATURE)
+      resumeHost = client.hostHas(ROOMS_RESUME_FEATURE)
       clearTimers()
       sentAt.clear()
-      if (enabled) client.sendFrame({ t: 'rooms.sync', rooms: service.list().slice(0, MAX_ROOMS) })
+      if (enabled)
+        client.sendFrame({ t: 'rooms.sync', rooms: service.list().slice(0, MAX_ROOMS).map(wire) })
       return
     }
     if (f.t !== 'rooms.cmd' || !enabled) return

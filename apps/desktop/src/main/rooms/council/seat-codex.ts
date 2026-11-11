@@ -94,14 +94,15 @@ export async function startCodexSeat(spec: SeatSpec, o: CodexSeatOptions): Promi
   await probeCodex(o.codexBin, env)
   const codexHome = env.CODEX_HOME ?? path.join(os.homedir(), '.codex')
   const model = COUNCIL_MODELS[spec.model]
-  let threadId: string | null = null
+  const resume = spec.resume?.harness === 'codex' ? spec.resume : null
+  let threadId: string | null = resume?.thread ?? null
   let running: ChildProcess | null = null
   let busy = false
   /**
    * `turn.completed` carries the thread's running totals, and `exec resume` loads the earlier
    * turns' tokens with the thread (measured on codex 0.167), so a turn's usage is the difference.
    */
-  let totals = { input: 0, cached: 0, output: 0 }
+  let totals = resume ? { ...resume.totals } : { input: 0, cached: 0, output: 0 }
   let stopped = false
 
   /** Flags both `exec` and `exec resume` take. */
@@ -276,6 +277,9 @@ export async function startCodexSeat(spec: SeatSpec, o: CodexSeatOptions): Promi
 
   return {
     harness: 'codex',
+    resumed: resume !== null,
+    session: () =>
+      threadId === null ? null : { harness: 'codex', thread: threadId, totals: { ...totals } },
     turn: async (input) => {
       if (stopped) throw new Error('seat stopped')
       if (busy) throw new Error('a turn is already running')

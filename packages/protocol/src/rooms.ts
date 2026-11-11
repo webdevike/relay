@@ -25,12 +25,18 @@ import type {
 } from "./rooms-council";
 
 export const ROOMS_FEATURE = "rooms";
+/**
+ * A host that relays `rooms.cmd` pause / resume and rooms in the `paused` phase. Phones send those
+ * only to such a host (an older one drops the socket on an unknown frame); a desktop on an older
+ * host sends paused rooms as `resolved`.
+ */
+export const ROOMS_RESUME_FEATURE = "rooms.resume";
 /** Largest room frame the host relays, in bytes of JSON. */
 export const MAX_ROOM_BYTES = 2_000_000;
 export const MAX_ROOMS = 24;
 
 export type RoomStage = "brief" | "contract" | "plan" | "build" | "look" | "integrate" | "critique" | "judge" | "converge" | "deliver";
-export type RoomWirePhase = "open" | "wrapping" | "resolved" | "failed";
+export type RoomWirePhase = "open" | "wrapping" | "resolved" | "failed" | "paused";
 
 export interface RoomWireRender { path: string; caption: string }
 export interface RoomWireRoutingEntry {
@@ -75,7 +81,7 @@ export interface RoomWireCouncil {
   rubric: { id: string; name: string; owner: string }[];
   scores: { round: number; total: number; criteria: Record<string, number> }[];
   spend: { usd: number; estimate: number; cap: number; byAgent: Record<string, number> };
-  minutesEstimate: number; paused?: boolean | undefined; routingFile?: string | undefined;
+  minutesEstimate: number; paused?: boolean | undefined; pauseRequested?: boolean | undefined; routingFile?: string | undefined;
 }
 export interface RoomWire {
   id: string; title: string; prompt: string; agents: RoomWireAgent[]; messages: RoomWireMessage[];
@@ -89,7 +95,7 @@ const nonEmpty = z.string().min(1);
 const roomId = z.string().min(1).max(64);
 /** A room on the wire: checked for its id and phase, the rest passes through (see RoomWire). */
 export const RoomWireSchema = z
-  .object({ id: roomId, title: z.string(), phase: z.enum(["open", "wrapping", "resolved", "failed"]), startedAt: z.number() })
+  .object({ id: roomId, title: z.string(), phase: z.enum(["open", "wrapping", "resolved", "failed", "paused"]), startedAt: z.number() })
   .passthrough();
 
 export const RoomsRid = z.string().min(1).max(64);
@@ -111,6 +117,10 @@ export const RoomsCmd = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("post"), roomId, text: z.string().min(1).max(4000) }),
   z.object({ op: z.literal("react"), roomId, messageId: nonEmpty, emoji: nonEmpty }),
+  /** Stop at the end of the round the room is in (needs ROOMS_RESUME_FEATURE). */
+  z.object({ op: z.literal("pause"), roomId }),
+  /** Run a paused, wrapped or failed council room on from its next round (needs ROOMS_RESUME_FEATURE). */
+  z.object({ op: z.literal("resume"), roomId }),
   z.object({ op: z.literal("stop"), roomId }),
   z.object({ op: z.literal("raise"), roomId }),
   z.object({ op: z.literal("budget"), roomId, choice: z.enum(["continue", "wrap"]) }),

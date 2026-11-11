@@ -29,6 +29,7 @@ function setup(): { g: GuardInstall; workdir: string; asks: string } {
     asksDir: asks,
     seatId: 'theo',
     path: `${realBin}:/usr/bin:/bin`,
+    scratch: path.join(workdir, 'tmp'),
     dir: path.join(base, 'guard'),
     waitMs: 4000,
     pollMs: 20,

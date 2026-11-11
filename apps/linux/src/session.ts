@@ -18,6 +18,7 @@ import {
   parseClientMessage,
   QUERY_FEATURE,
   ROOMS_FEATURE,
+  ROOMS_RESUME_FEATURE,
   STATS_FEATURE,
   toHex,
   type AgentApproval,
@@ -1291,7 +1292,7 @@ export class ClientSession {
       ...(this.deps.bookmarks === null ? [] : [BOOKMARKS_FEATURE]),
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
       ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
-      ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE]),
+      ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE]),
     ];
     this.sink.send({
       t: "welcome",

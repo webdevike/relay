@@ -4,9 +4,8 @@ import * as path from 'node:path'
 import type { RoomRender } from '@evaos/contract'
 
 /**
- * Runs a program and resolves with its stdout; rejects with stderr on a non-zero exit. Every
- * write into a room workdir goes through a child process (cp, mkdir, git): the workdir sits
- * under the Eva root, where the app's write trap blocks in-process writes.
+ * Runs a program and resolves with its stdout; rejects with stderr on a non-zero exit. Copies,
+ * merges and commits in a room workdir go through child processes (cp, mkdir, git).
  */
 export type Exec = (file: string, args: string[], cwd: string) => Promise<string>
 
@@ -43,7 +42,9 @@ export const seatBranch = (seatId: string): string => `seat/${seatId}`
 /**
  * `<eva>/work/rooms/<room id>`: `main/` (the integrator's tree, a git repo holding a copy of the
  * source), `seats/<seat id>/` (one worktree per seat), `refs/` (read-only copies of the
- * references), `rounds/r<N>/<seat id>/` (every render a turn made, kept past overwrites).
+ * references), `rounds/r<N>/<seat id>/` (every render a turn made, kept past overwrites),
+ * `tmp/<seat id>/` (each seat's TMPDIR), `sessions/<seat id>/` (omp seats' session files) and
+ * `room.json` (the room's saved state, council/state.ts).
  */
 export class RoomWorkdir {
   readonly main: string
@@ -108,13 +109,22 @@ export class RoomWorkdir {
     return wd
   }
 
+  /** The workdir a saved room already has (Resume): nothing is copied again. */
+  static open(o: { root: string; refs: readonly string[]; exec?: Exec }): RoomWorkdir {
+    if (!fs.statSync(path.join(o.root, 'main'), { throwIfNoEntry: false })?.isDirectory()) {
+      throw Object.assign(new Error(`The room workdir ${o.root} is gone.`), { code: 'bad-input' })
+    }
+    return new RoomWorkdir(o.root, [...o.refs], o.exec ?? execFileP)
+  }
+
   git(cwd: string, args: string[]): Promise<string> {
     return this.exec('git', [...GIT, ...args], cwd)
   }
 
-  /** A worktree for one seat on its own branch, `seats/<seat id>`, from main's tip. */
+  /** A seat's worktree on its own branch, `seats/<seat id>`, from main's tip (kept when it exists). */
   async addSeat(seatId: string): Promise<string> {
     const dir = path.join(this.seatsDir, seatId)
+    if (fs.existsSync(path.join(dir, '.git'))) return dir
     await this.git(this.main, ['worktree', 'add', '-q', '-b', seatBranch(seatId), dir, MAIN_BRANCH])
     return dir
   }
