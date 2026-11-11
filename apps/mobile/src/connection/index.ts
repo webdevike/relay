@@ -205,6 +205,8 @@ socket.onOpen = () => {
   void dispatch({ type: "socketOpen" });
 };
 socket.onClose = () => {
+  // What was held for a socket that is gone: the next welcome asks for everything again.
+  latestFrames.clear();
   // The host hangs up a call with its socket; say so here rather than leave the screen listening.
   const call = useCallStore.getState().call;
   if (call !== null && call.state !== "ended")
@@ -221,7 +223,36 @@ socket.onClose = () => {
 socket.onError = (error) => {
   warn("socket", "error", error);
 };
+/**
+ * Whole-state frames the host sends again on every change, of which only the newest per thread is
+ * ever drawn: an assistant's thread (Nova's: 7,000 rows, 4 MB, every 150 ms while a reply streams)
+ * and a thread's artifacts (2,000 items, 1 MB). Decoding and drawing one took the JS thread longer
+ * than the gap to the next, so the frames queued behind it in native memory without bound and the
+ * app grew past 2 GB while Isaac chatted. Such a frame is held raw (a newer one replaces it) and
+ * decoded once the frames already queued have been taken, so a burst costs one decode.
+ */
+const LATEST_ONLY = /^\{"t":"(assistant\.snapshot|artifacts\.snapshot)","(?:agent|thread)":"([^"]*)"/;
+const latestFrames = new Map<string, string>();
+let latestTimer: number | null = null;
+
+function takeLatestFrames(): void {
+  latestTimer = null;
+  const frames = [...latestFrames.values()];
+  latestFrames.clear();
+  for (const frame of frames) handleFrame(frame);
+}
+
 socket.onMessage = (data) => {
+  const latest = LATEST_ONLY.exec(data.slice(0, 200));
+  if (latest === null) {
+    handleFrame(data);
+    return;
+  }
+  latestFrames.set(`${latest[1] ?? ""}:${latest[2] ?? ""}`, data);
+  latestTimer ??= setTimeout(takeLatestFrames, 0);
+};
+
+function handleFrame(data: string): void {
   const result = parseServerMessage(data);
   if (!result.ok) {
     warn("socket", "malformed server message", result.error);
@@ -308,7 +339,7 @@ socket.onMessage = (data) => {
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
-};
+}
 
 async function dispatch(input: Parameters<SessionMachine["handle"]>[0]): Promise<void> {
   if (machine === null) return;
