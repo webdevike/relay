@@ -98,9 +98,17 @@ describe('chat room setup', () => {
 
   it('offers Pause only while a council room runs and Resume once it stopped', () => {
     const council = { pauseRequested: false } as never
-    expect(roomRunAction({ phase: 'idle' })).toBeNull()
-    expect(roomRunAction({ phase: 'open', council })).toBe('pause')
-    expect(roomRunAction({ phase: 'paused', council })).toBe('resume')
-    expect(roomRunAction({ phase: 'open', council: { pauseRequested: true } as never })).toBeNull()
+    expect(roomRunAction({ kind: 'council', phase: 'idle' })).toBeNull()
+    expect(roomRunAction({ kind: 'council', phase: 'open', council })).toBe('pause')
+    expect(roomRunAction({ kind: 'council', phase: 'paused', council })).toBe('resume')
+    expect(
+      roomRunAction({ kind: 'council', phase: 'open', council: { pauseRequested: true } as never }),
+    ).toBeNull()
+  })
+
+  it('offers Pause while a chat room talks and Resume once paused, nothing while idle', () => {
+    expect(roomRunAction({ kind: 'chat', phase: 'idle' })).toBeNull()
+    expect(roomRunAction({ kind: 'chat', phase: 'open' })).toBe('pause')
+    expect(roomRunAction({ kind: 'chat', phase: 'paused' })).toBe('resume')
   })
 })
