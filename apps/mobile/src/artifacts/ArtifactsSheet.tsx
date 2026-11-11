@@ -19,7 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ActionSheetIOS, ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { ScrollView } from "react-native-gesture-handler";
 import ReanimatedSwipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
-import BottomSheet, { BottomSheetBackdrop, BottomSheetScrollView, BottomSheetTextInput, type BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
+import BottomSheet, { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetScrollView, BottomSheetTextInput, type BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useRouter } from "expo-router";
 import { useVideoPlayer, VideoView } from "expo-video";
@@ -307,6 +307,8 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
   const searching = query !== null;
   const results = searching ? searchArtifacts(items, query) : NO_ITEMS;
 
+  // The Media tab's pictures, newest first: drawn by the virtualized grid below instead of `body`.
+  const media = !searching && snapshot !== undefined && tab?.id === "media" ? mediaTiles(rows) : null;
   let body: ReactNode;
   if (searching) {
     body =
@@ -349,8 +351,7 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
         )
       );
   } else if (tab.id === "media") {
-    const tiles = mediaTiles(rows);
-    body = tiles.length === 0 ? <Empty text={EMPTY_COPY["media"] ?? ""} /> : <MediaGrid tiles={tiles} base={base} now={now} onOpen={(item) => { openItem(item, tiles); }} />;
+    body = media === null || media.length === 0 ? <Empty text={EMPTY_COPY["media"] ?? ""} /> : null;
   } else {
     const groups = groupRows(tab, rows);
     body = (
@@ -464,9 +465,33 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
             />
           </View>
         )}
-        <BottomSheetScrollView contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxl }} keyboardShouldPersistTaps="handled">
-          {shown ? body : null}
-        </BottomSheetScrollView>
+        {/* Media is a virtualized grid: a long thread holds hundreds of pictures, and each drawn tile holds its decoded image. */}
+        {shown && media !== null && media.length > 0 ? (
+          <BottomSheetFlatList
+            data={media}
+            numColumns={2}
+            keyExtractor={(item) => item.id}
+            columnWrapperStyle={styles.gridRow}
+            contentContainerStyle={[styles.grid, { paddingBottom: insets.bottom + spacing.xxl }]}
+            initialNumToRender={8}
+            maxToRenderPerBatch={8}
+            windowSize={5}
+            renderItem={({ item }) => (
+              <MediaTile
+                item={item}
+                base={base}
+                now={now}
+                onOpen={() => {
+                  openItem(item, media);
+                }}
+              />
+            )}
+          />
+        ) : (
+          <BottomSheetScrollView contentContainerStyle={{ paddingBottom: insets.bottom + spacing.xxl }} keyboardShouldPersistTaps="handled">
+            {shown ? body : null}
+          </BottomSheetScrollView>
+        )}
       </BottomSheet>
       <ImageViewer images={viewer?.images ?? null} start={viewer?.start ?? 0} onClose={() => { setViewer(null); }} />
       {video !== null && <VideoModal uri={video} onClose={() => { setVideo(null); }} />}
@@ -679,38 +704,32 @@ function RuleHeader({ tab, agents, nameOf, now }: { tab: ArtifactTab; agents: As
   );
 }
 
-function MediaGrid({ tiles, base, now, onOpen }: { tiles: Artifact[]; base: string | null; now: number; onOpen: (item: Artifact) => void }) {
+function MediaTile({ item, base, now, onOpen }: { item: Artifact; base: string | null; now: number; onOpen: () => void }) {
   const colors = useColors();
   const { width } = useWindowDimensions();
   const tile = (width - spacing.xl * 2 - spacing.md) / 2;
+  const src = hostUrl(isVideo(item) ? (item.media?.poster ?? undefined) : item.url, base);
+  const length = videoLength(item);
   return (
-    <View style={styles.grid}>
-      {tiles.map((item) => {
-        const src = hostUrl(isVideo(item) ? (item.media?.poster ?? undefined) : item.url, base);
-        const length = videoLength(item);
-        return (
-          <Pressable key={item.id} accessibilityRole="imagebutton" accessibilityLabel={item.caption ?? item.title} onPress={() => { onOpen(item); }} style={{ width: tile }}>
-            <View style={[styles.tile, { width: tile, height: tile * 0.75, backgroundColor: colors.surfaceRaised }]}>
-              {src !== null && <Image source={{ uri: src }} style={StyleSheet.absoluteFill} resizeMode="cover" />}
-              {length !== null && (
-                <View style={styles.length}>
-                  <SymbolView name="play.fill" size={9} tintColor="#FFFFFF" />
-                  <Text variant="caption" tabular style={styles.lengthText}>
-                    {length}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <Text variant="label" numberOfLines={1} style={styles.tileCaption}>
-              {item.caption ?? item.title}
+    <Pressable accessibilityRole="imagebutton" accessibilityLabel={item.caption ?? item.title} onPress={onOpen} style={{ width: tile }}>
+      <View style={[styles.tile, { width: tile, height: tile * 0.75, backgroundColor: colors.surfaceRaised }]}>
+        {src !== null && <Image source={{ uri: src }} style={StyleSheet.absoluteFill} resizeMode="cover" />}
+        {length !== null && (
+          <View style={styles.length}>
+            <SymbolView name="play.fill" size={9} tintColor="#FFFFFF" />
+            <Text variant="caption" tabular style={styles.lengthText}>
+              {length}
             </Text>
-            <Text variant="caption" color="textMuted">
-              {metaLine({ ...item, mentions: 0 }, now)}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
+          </View>
+        )}
+      </View>
+      <Text variant="label" numberOfLines={1} style={styles.tileCaption}>
+        {item.caption ?? item.title}
+      </Text>
+      <Text variant="caption" color="textMuted">
+        {metaLine({ ...item, mentions: 0 }, now)}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -755,7 +774,8 @@ const styles = StyleSheet.create({
   action: { width: 72, alignItems: "center", justifyContent: "center", gap: 2 },
   actionText: { color: "#FFFFFF" },
   empty: { paddingHorizontal: spacing.xl, paddingVertical: spacing.xxl, textAlign: "center" },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, paddingHorizontal: spacing.xl, paddingTop: spacing.sm },
+  grid: { gap: spacing.md, paddingHorizontal: spacing.xl, paddingTop: spacing.sm },
+  gridRow: { gap: spacing.md },
   tile: { borderRadius: radii.md, overflow: "hidden" },
   tileCaption: { marginTop: spacing.xs },
   length: { position: "absolute", right: spacing.xs, bottom: spacing.xs, flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "rgba(0,0,0,0.6)", borderRadius: radii.sm, paddingHorizontal: 5, paddingVertical: 1 },
