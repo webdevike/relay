@@ -56,6 +56,8 @@ import { useActivityStore } from "@/state/activity";
 import { runningChips } from "@/lib/activity";
 import { ReplyWidgetActions } from "@/agents/WidgetActions";
 import { backgroundOf } from "@/lib/background";
+import { guestRowKind } from "@/lib/guests";
+import { GuestBubble, GuestLine, WorkCardRow } from "@/agents/GuestRows";
 import { BubbleMenuProvider, ChatBubble } from "@/agents/BubbleMenu";
 import { quoteIntoDraft } from "@/lib/bubbleMenu";
 import { bubbleReactionKey } from "@/lib/reactions";
@@ -379,10 +381,14 @@ function Thread({ agent }: { agent: string }) {
     if (connected && sessionId !== null) requestAgentOptions(sessionId);
   }, [connected, sessionId]);
 
-  // Background messages (the host's job lines arrive as `status` rows) show as quiet rows; any other status row is machinery, never shown.
+  // Background messages (the host's job lines arrive as `status` rows) show as quiet rows, and so do a guest's joined/left lines from a host that sends guests; any other status row is machinery, never shown.
   // Memoized: the bookmarks index these rows, and a keystroke in the composer must not rebuild them.
   const pendingRow = useMemo<AssistantMessage[]>(() => (pending === null ? [] : [{ id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }]), [pending]);
-  const messages = useMemo(() => (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null), [snapshot]);
+  const guests = useAssistantStore((state) => state.guests);
+  const messages = useMemo(
+    () => (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null || guestRowKind(message, guests) !== null),
+    [snapshot, guests],
+  );
   // What the host's transcript (plus the echo of a turn in flight) says; local rows come after it and never count as its newest reply.
   const settled = useMemo(() => [...messages, ...pendingRow], [messages, pendingRow]);
   const newestSettled = settled[settled.length - 1];
@@ -850,7 +856,7 @@ function gapAbove(message: AssistantMessage, above: AssistantMessage | undefined
 
 /** Who a row reads as for spacing and entrance: a background message is a quiet system row, not Isaac's turn. */
 function senderOf(message: AssistantMessage): "user" | "status" | "eva" {
-  if (message.role === "status" || backgroundOf(message) !== null) return "status";
+  if (message.role === "status" || backgroundOf(message) !== null || message.guest?.kind === "join" || message.guest?.kind === "leave") return "status";
   return message.role === "user" ? "user" : "eva";
 }
 
@@ -891,6 +897,7 @@ interface RowProps {
 
 function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply, waiting, pulse }: RowProps) {
   const signedIn = useAssistantStore((state) => threadOf(state, agent).signedIn[message.id] === true);
+  const guests = useAssistantStore((state) => state.guests);
   const colors = useColors();
   const dark = useScheme() === "dark";
   const bubbleFill = dark ? BUBBLE_DARK : colors.surface;
@@ -912,6 +919,13 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
         />
       </View>
     );
+  // Another assistant in the thread (a host that sends guests): its joined/left line, its bubble or its work card.
+  const guestKind = guestRowKind(message, guests);
+  if (guestKind !== null && message.guest !== undefined) {
+    if (guestKind === "line") return <GuestLine entry={message.guest} />;
+    if (guestKind === "say") return <GuestBubble entry={message.guest} />;
+    return <WorkCardRow entry={message.guest} />;
+  }
   // A turn Isaac did not type (a job line, heartbeat, canvas notice, handoff, tapback): a quiet centered row.
   const background = backgroundOf(message);
   if (background !== null) return <BackgroundRow message={background} at={message.at} fill={bubbleFill} />;

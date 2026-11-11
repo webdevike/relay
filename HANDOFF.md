@@ -59,7 +59,7 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
 - [x] S1 nav + new room + empty room (contract, persistence of idle rooms, Rooms section in the Assistants
       sub-nav, New room page with templates + member editor + model picker, empty room view, context menu).
 - [x] S2 multi-speaker room chat + unified @ picker (engine, notch avatar stack, hover card, speaking ring).
-- [ ] S3 assistant pop-in/out + one-row work card.
+- [x] S3 assistant pop-in/out + one-row work card.
 - [ ] S4 decision cards (poll, pros/cons, decision record, council proposal, catch-up pill, Where we are,
       Since you left).
 - [ ] S5 rooms.create / rooms.update tool (agent action, relay-linux CLI, Room ready card).
@@ -137,3 +137,50 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
     up on its next poll). Phone JS is on main but NOT published by OTA: `pnpm ota:publish` in this worktree
     refused the bundle (two copies of react-native in node_modules: not a clean install). Publish it from a
     clean checkout; it is inert until the host advertises rooms.chat.
+- 2026-11-11 S3 done (pop-in/out + one-row work card).
+  - Data: `relay-guest` omp custom message, `GuestEntry {kind: join|leave|say|work, agent {id,title,color?},
+    text?, work? {id,title,state working|done|failed,startedAt,endedAt?,link?}}` in packages/protocol (+
+    `foldGuestWork`, ASSISTANT_GUESTS_FEATURE "assistant.guests") and chat-core `guest-entry.ts` (schema,
+    `guestEntryOf`, `foldGuestWork`, `guestTyping`, `workLink`; link defaults to `agent:<id>`). State changes are
+    new entries with the same work.id; clients show the latest state at the first row's place.
+  - Host (apps/linux): `relay-linux assistant consult --agent <B> [--title T] [--work] <question>` (caller =
+    $RELAY_ASSISTANT) -> loopback POST /assistant/consult (90 s request timeout) -> `assistant/consult.ts`
+    (`Consults`, owned by AssistantThreads): join posted to A (refuses with "restart A's omp" when A's bridge is
+    old), B gets `[Asked by <A> in <human>'s chat] <question>`; quick when B settles within 30 s (say + leave,
+    the CLI prints the answer), else / --work / B already busy: B's first words as say, leave, work card
+    `working`; host keeps watching B, posts `done` (first line of B's reply) or `failed` (B's session ended),
+    held until A is idle. Restart recovery: each A session is read once; a `working` card no job watches is
+    watched again (B's reply after startedAt finishes it). Bridge request `guest` (omp-extension relay-bridge.ts,
+    agents/bridge.ts; aside mid-turn, appended when idle); transcript.ts `guestRowOf`; service.ts maps guest rows
+    (join/leave -> status + guest, say/work -> card titled with the guest + guest), folds work in snapshots, and
+    shows `[Asked by ...]` turns as status rows; welcome advertises assistant.guests. Starter
+    `assistant-prime.md` has an "Other assistants" section.
+  - Desktop: MessageRow role `guest` -> GuestRow (centered joined/left line with 16 px face; guest bubble with
+    left bar, tint, name in the guest color, `guest` pill) and WorkCard (variant A one row, orbiting conic
+    border while working with a reduced-motion pulse, time right: m:ss running / "2m 14s" done, short under
+    340 px, gone under 250 px; whole row opens work.link via openFromNav; hover follow-up fills `@Name ` through
+    the pane's composer fill). ChatLog folds work then drops quiet turns (guest turns stay, minus the silent
+    reply) and shows the guest typing between join and its first words. chat-core parseBackground shows
+    `[Asked by X ...]` as a quiet row in B's thread.
+  - Phone JS (apps/mobile, committed, NO OTA): store `guests` from welcome (assistant.guests); eva.tsx draws
+    GuestLine / GuestBubble / WorkCardRow (tap -> /eva?agent=<id>) via `lib/guests.ts`; without the feature the
+    host's status/card fallbacks show as before.
+  - Tests: chat-core guest-entry (parse, fold working->done, separate works, failed wins, link, typing), quiet
+    (guest turn kept), background ([Asked by]); host consult.test (quick, slow -> card -> done held until A idle,
+    busy/--work, failed, old bridge refused, restart recovery) + assistant.test (transcript -> snapshot mapping
+    and folding); phone lib/guests.test. e2e `assistant-guests.spec.ts` -> proof/rooms-assistants/s3-*.png.
+  - Host: per Eva (2026-11-11) NOT built here: Eva builds one consolidated Relay Host from main. Install steps for
+    Isaac: install that Relay Host build; then restart every assistant's omp (the relay-bridge extension gains
+    the `guest` request; an omp running the old one makes consult fail with "restart <A>'s omp session"). On
+    Isaac's Mac the extension is a symlink into a checkout: update that checkout to main first.
+  - Eva-side instruction lines (for Isaac's assistants; they must live where resumed threads load them, i.e.
+    Eva's rules or AGENTS.md, not prime.md). Add under the assistants' rules:
+    "- When Isaac @mentions another assistant (`@Penny ...`), or you want another assistant's help, bring them
+      in: run `relay-linux assistant consult --agent <their id> "<the question, with the context they need>"`.
+      Never answer for them. They join this chat, answer as themselves and leave; their answer prints for you
+      and Isaac already sees it, so add only what you have to add.
+    - Work that takes them longer than about 30 seconds becomes a work card in this chat while they carry on in
+      their own chat; it shows their result when they finish. Add `--work` when you already know it is a task
+      and `--title "<short card title>"` for a clear card. `relay-linux assistant list` names every assistant.
+    - A line `[Asked by <name> in Isaac's chat] ...` is another assistant putting Isaac's question to you:
+      answer it as you would Isaac, in your own words; your reply goes back into that chat."

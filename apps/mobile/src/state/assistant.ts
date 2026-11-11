@@ -35,7 +35,14 @@ export interface AssistantStore {
   agents: AssistantAgent[] | null;
   /** Threads by agent id; an agent the phone has heard nothing about yet has no entry. */
   threads: Record<string, AssistantThread>;
+  /**
+   * The host sends guest rows (another assistant joined, spoke, left, or works on something) with
+   * their entry (`welcome.features` has ASSISTANT_GUESTS_FEATURE): they show as joined/left lines,
+   * guest bubbles and work cards. Off, they stay the plain status and card rows.
+   */
+  guests: boolean;
   setAgents: (agents: AssistantAgent[]) => void;
+  setGuests: (guests: boolean) => void;
   set: (agent: string, snapshot: AssistantSnapshot) => void;
   /** Echo a turn sent to `agent`; null clears it. */
   setPending: (agent: string, turn: { text: string; images: Photo[] } | null) => void;
@@ -115,8 +122,12 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
   return {
     agents: null,
     threads: {},
+    guests: false,
     setAgents: (agents) => {
       set({ agents });
+    },
+    setGuests: (guests) => {
+      set({ guests });
     },
     set: (agent, received) => {
       const snapshot = shownSnapshot(received);

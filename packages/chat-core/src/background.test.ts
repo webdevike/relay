@@ -79,8 +79,14 @@ describe('parseBackground', () => {
 
   it("shows another assistant's question as a quiet row in the asked assistant's thread", () => {
     expect(
-      parseBackground("[Asked by Nova in Isaac's chat] Find a 2TB USB4 SSD under $200. Isaac wants it by Friday."),
-    ).toMatchObject({ kind: 'event', icon: 'chat', summary: 'Nova asked · Find a 2TB USB4 SSD under $200' })
+      parseBackground(
+        "[Asked by Nova in Isaac's chat] Find a 2TB USB4 SSD under $200. Isaac wants it by Friday.",
+      ),
+    ).toMatchObject({
+      kind: 'event',
+      icon: 'chat',
+      summary: 'Nova asked · Find a 2TB USB4 SSD under $200',
+    })
   })
 
   it('leaves what Isaac typed alone', () => {

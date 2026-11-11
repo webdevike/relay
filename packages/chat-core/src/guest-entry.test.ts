@@ -16,10 +16,19 @@ const entry = (id: string, parentId: string | null, details: unknown, customType
     parentId,
     timestamp: '2026-11-11T10:00:00.000Z',
   })
-const work = (state: 'working' | 'done' | 'failed', extra: Partial<GuestEntry> = {}): GuestEntry => ({
+const work = (
+  state: 'working' | 'done' | 'failed',
+  extra: Partial<GuestEntry> = {},
+): GuestEntry => ({
   kind: 'work',
   agent: penny,
-  work: { id: 'w1', title: 'Find a 2TB USB4 SSD', state, startedAt: 1_000, ...(state === 'working' ? {} : { endedAt: 135_000 }) },
+  work: {
+    id: 'w1',
+    title: 'Find a 2TB USB4 SSD',
+    state,
+    startedAt: 1_000,
+    ...(state === 'working' ? {} : { endedAt: 135_000 }),
+  },
   ...extra,
 })
 const row = (id: string, guest: GuestEntry): ChatMessage => makeMessage(id, 'guest', '', { guest })
@@ -27,7 +36,12 @@ const row = (id: string, guest: GuestEntry): ChatMessage => makeMessage(id, 'gue
 describe('relay-guest rows', () => {
   it('reads join, say, leave and work rows from the session file and skips broken ones', () => {
     const text = [
-      j({ type: 'message', id: 'u', parentId: null, message: { role: 'user', content: '@Penny find an SSD' } }),
+      j({
+        type: 'message',
+        id: 'u',
+        parentId: null,
+        message: { role: 'user', content: '@Penny find an SSD' },
+      }),
       entry('g1', 'u', { kind: 'join', agent: penny }),
       entry('g2', 'g1', { kind: 'say', agent: penny, text: "On it, I'll report back in my chat." }),
       entry('g3', 'g2', { kind: 'leave', agent: penny }),
@@ -47,7 +61,10 @@ describe('relay-guest rows', () => {
       ['g4', 'guest', 'work'],
       ['g5', 'guest', 'work'],
     ])
-    expect(rows[2]).toMatchObject({ text: 'guest g2', guest: { agent: penny, text: "On it, I'll report back in my chat." } })
+    expect(rows[2]).toMatchObject({
+      text: 'guest g2',
+      guest: { agent: penny, text: "On it, I'll report back in my chat." },
+    })
   })
 
   it('folds a piece of work into one row: its latest state, where it started', () => {
@@ -70,7 +87,11 @@ describe('relay-guest rows', () => {
       work: { id: 'w2', title: 'Book the flight', state, startedAt: 5_000 },
       ...(state === 'failed' ? { text: "Penny's session ended" } : {}),
     })
-    const folded = foldGuestWork([row('a', work('working')), row('b', other('working')), row('c', other('failed'))])
+    const folded = foldGuestWork([
+      row('a', work('working')),
+      row('b', other('working')),
+      row('c', other('failed')),
+    ])
     expect(folded.map((m) => [m.id, m.guest?.work?.id, m.guest?.work?.state])).toEqual([
       ['a', 'w1', 'working'],
       ['b', 'w2', 'failed'],

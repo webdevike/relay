@@ -85,21 +85,24 @@
   outline: 2px solid var(--eva-accent);
   outline-offset: 2px;
 }
-/* A 1px ring; while the work runs a soft highlight in the guest's color orbits it. */
+/*
+ * A 1px ring (the pseudo element's transparent border, its background painted under it and masked
+ * to it); while the work runs a soft highlight in the guest's color orbits it.
+ */
 .eva-work::after {
   content: '';
   position: absolute;
   inset: 0;
-  padding: 1px;
+  border: 1px solid transparent;
   border-radius: inherit;
   pointer-events: none;
-  background: color-mix(in srgb, var(--eva-text) 7%, transparent);
+  background: color-mix(in srgb, var(--eva-text) 7%, transparent) border-box;
   -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0) padding-box,
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask:
-    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0) padding-box exclude,
     linear-gradient(#000 0 0);
 }
 .eva-work[data-state='working']::after {
@@ -111,6 +114,7 @@
       transparent 30%
     ),
     color-mix(in srgb, var(--eva-text) 7%, transparent);
+  background-origin: border-box;
   animation: eva-work-orbit 2.5s linear infinite;
 }
 @keyframes eva-work-orbit {

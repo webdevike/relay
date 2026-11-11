@@ -34,8 +34,12 @@ describe('dropQuietTurns', () => {
     const list = [
       makeMessage('u1', 'user', '@Penny what does a 2TB USB4 SSD cost?'),
       makeMessage('x1', 'tool', 'relay-linux assistant consult'),
-      makeMessage('g1', 'guest', 'Penny joined the chat', { guest: { kind: 'join', agent: penny } }),
-      makeMessage('g2', 'guest', 'Penny: $189', { guest: { kind: 'say', agent: penny, text: '$189' } }),
+      makeMessage('g1', 'guest', 'Penny joined the chat', {
+        guest: { kind: 'join', agent: penny },
+      }),
+      makeMessage('g2', 'guest', 'Penny: $189', {
+        guest: { kind: 'say', agent: penny, text: '$189' },
+      }),
       makeMessage('a1', 'assistant', '(nothing to report)'),
     ]
     expect(ids(list)).toEqual(['u1', 'x1', 'g1', 'g2'])
