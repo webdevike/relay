@@ -11,6 +11,7 @@ import {
 import { VList, type VListHandle } from 'virtua'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import { dropQuietTurns } from '@evaos/chat-core/quiet'
+import { foldGuestWork, guestTyping } from '@evaos/chat-core/guest-entry'
 import { reactionKeyOf } from '@evaos/chat-core/reactions'
 import { registerReveal } from '../pins/pins-scope'
 import { useRailFits } from '../pins/PinsRail'
@@ -118,14 +119,17 @@ export function ChatLog({
   }, [])
   // Settings > Chat > Show thinking applies live: thinking rows are dropped, not collapsed.
   // Show tool details off folds each run of tool calls into one line (the Rust tool group).
-  // Background turns answered "(nothing to report)" never show.
+  // Background turns answered "(nothing to report)" never show. Each piece of work another
+  // assistant took on is one card (its latest state, where it started); a guest that joined and
+  // has not spoken yet shows typing.
   const items = useMemo(() => {
-    const kept = dropQuietTurns(all)
+    const kept = dropQuietTurns(foldGuestWork(all))
     const base = showThinking ? kept : kept.filter((m) => m.role !== 'thinking')
     const out = logItems(base, !showTools)
     const last = kept.at(-1)
     const streaming = last?.role === 'assistant' && last.streaming === true && last.text !== ''
-    if (typing !== null && !streaming) out.push({ kind: 'typing', who: typing })
+    const who = guestTyping(kept)?.title ?? typing
+    if (who !== null && !streaming) out.push({ kind: 'typing', who })
     return out
   }, [all, showThinking, showTools, typing])
   const liveId = liveRowId(items, busy)

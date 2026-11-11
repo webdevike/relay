@@ -33,6 +33,14 @@ export interface CanvasRow {
   text?: string;
 }
 
+/** A guest row (protocol `GuestEntry`): another assistant joined, spoke, left, or works on something. */
+export interface GuestRow {
+  kind: "join" | "leave" | "say" | "work";
+  agent: { id: string; title: string; color?: string };
+  text?: string;
+  work?: { id: string; title: string; state: "working" | "done" | "failed"; startedAt: number; endedAt?: number; link?: string };
+}
+
 export interface InboxMessage {
   id: string;
   role: Role;
@@ -42,10 +50,13 @@ export interface InboxMessage {
   images?: ImageRef[];
   streaming?: boolean;
   canvas?: CanvasRow;
+  guest?: GuestRow;
 }
 
 /** omp custom message type the host's live canvas posts into a chat (relay-bridge `canvas` request). */
 export const CANVAS_MESSAGE_TYPE = "relay-canvas";
+/** omp custom message type the host's consult flow posts into the asking assistant's chat (relay-bridge `guest` request). */
+export const GUEST_MESSAGE_TYPE = "relay-guest";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 
@@ -67,6 +78,32 @@ export function canvasRowOf(message: { customType?: unknown; details?: unknown }
   if (isRecord(human) && typeof human["name"] === "string" && typeof human["text"] === "string") row.human = { name: human["name"], text: human["text"] };
   if (typeof d["text"] === "string") row.text = d["text"];
   return row;
+}
+
+/**
+ * The guest row of a `relay-guest` custom message (its `details`), or null for any other custom
+ * message or details this build cannot read. The host validates the row again before it reaches a client.
+ */
+export function guestRowOf(message: { customType?: unknown; details?: unknown }): GuestRow | null {
+  if (message.customType !== GUEST_MESSAGE_TYPE || !isRecord(message.details)) return null;
+  const d = message.details;
+  const kind = d["kind"];
+  const agent = d["agent"];
+  if (kind !== "join" && kind !== "leave" && kind !== "say" && kind !== "work") return null;
+  if (!isRecord(agent) || typeof agent["id"] !== "string" || typeof agent["title"] !== "string") return null;
+  const row: GuestRow = { kind, agent: { id: agent["id"], title: agent["title"] } };
+  if (typeof agent["color"] === "string") row.agent.color = agent["color"];
+  if (typeof d["text"] === "string") row.text = d["text"];
+  const work = d["work"];
+  if (isRecord(work)) {
+    const state = work["state"];
+    if (typeof work["id"] !== "string" || typeof work["title"] !== "string" || typeof work["startedAt"] !== "number") return null;
+    if (state !== "working" && state !== "done" && state !== "failed") return null;
+    row.work = { id: work["id"], title: work["title"], state, startedAt: work["startedAt"] };
+    if (typeof work["endedAt"] === "number") row.work.endedAt = work["endedAt"];
+    if (typeof work["link"] === "string") row.work.link = work["link"];
+  }
+  return kind === "work" && row.work === undefined ? null : row;
 }
 
 export const MAX_SUMMARY = 120;
@@ -310,8 +347,8 @@ interface SessionEntryLine {
 
 /**
  * The rows one session-file entry contributes: a `message` entry's rows, the command row of a
- * skill the user invoked or a live canvas row (`custom_message`s), or the notice a `compaction` entry (a `/handoff`,
- * `/compact`, or omp compacting on its own) leaves.
+ * skill the user invoked, a live canvas row or a guest row (`custom_message`s), or the notice a
+ * `compaction` entry (a `/handoff`, `/compact`, or omp compacting on its own) leaves.
  */
 function entryRows(entry: SessionEntryLine, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
   const stamp = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
@@ -320,6 +357,8 @@ function entryRows(entry: SessionEntryLine, images: Map<string, Image> | null, n
   if (entry.type === "custom_message") {
     const canvas = canvasRowOf(entry);
     if (canvas !== null) return [{ id: nextId(), role: "system", text: typeof entry.content === "string" ? entry.content : "", at, canvas }];
+    const guest = guestRowOf(entry);
+    if (guest !== null) return [{ id: nextId(), role: "system", text: typeof entry.content === "string" ? entry.content : "", at, guest }];
     const command = skillCommandOf(entry);
     return command === null ? [] : [{ id: nextId(), role: "user", text: command, at }];
   }

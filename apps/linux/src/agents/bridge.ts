@@ -8,7 +8,8 @@
 //   host -> extension   conversation { id } | reply { id, text, submit, images? } | note { id, text } |
 //                       options { id } | image { id, imageId } | configure { id, ...change } | abort { id } |
 //                       end { id } | gate { id, action, target?, reason?, photo? } | approval { id, approvalId, allow } |
-//                       canvas { id, content, details } (a live canvas row: `relay-canvas` custom message)
+//                       canvas { id, content, details } (a live canvas row: `relay-canvas` custom message) |
+//                       guest { id, content, details } (another assistant in the chat: `relay-guest` custom message)
 //
 // Sessions are validated with zod at this boundary: a misbehaving extension version can only
 // produce a logged parse error, never a malformed frame on the phone's WebSocket.
@@ -16,7 +17,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, AgentGoal, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type CanvasEntry as CanvasEntryT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
+import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, AgentGoal, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type CanvasEntry as CanvasEntryT, type GuestEntry as GuestEntryT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
 import { z } from "zod";
 import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
 import { destructivePattern } from "./destructive";
@@ -71,7 +72,7 @@ const Inbound = z.discriminatedUnion("t", [
 ]);
 type Inbound = z.infer<typeof Inbound>;
 
-type RequestKind = "conversation" | "reply" | "note" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "approval" | "gate" | "canvas";
+type RequestKind = "conversation" | "reply" | "note" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "approval" | "gate" | "canvas" | "guest";
 
 /** The error code a rejected request maps to; the extension's message is passed through. */
 const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
@@ -87,6 +88,7 @@ const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
   approval: "agent_cannot_respond",
   gate: "gate_failed",
   canvas: "agent_cannot_respond",
+  guest: "agent_cannot_respond",
 };
 
 const REQUEST_TIMEOUT_MS = 5000;
@@ -260,6 +262,16 @@ export class OmpBridgeProvider implements AgentProvider {
    */
   async canvas(sessionId: string, content: string, details: CanvasEntryT): Promise<boolean> {
     return (await this.request(this.require(sessionId), "canvas", { content, details })) === true;
+  }
+
+  /**
+   * Posts a guest row (another assistant joined, spoke, left, or works on something) into the
+   * session's chat as a `relay-guest` custom message: shown, written to the session file, and
+   * pushed to the phone as an `AgentMessage` with `guest`. Never starts a model turn: mid-turn it
+   * goes in as an aside. Resolves false when the session's bridge predates guest rows.
+   */
+  async guest(sessionId: string, content: string, details: GuestEntryT): Promise<boolean> {
+    return (await this.request(this.require(sessionId), "guest", { content, details })) === true;
   }
 
   /** The live session whose transcript is `file` (top-level sessions report theirs); null when none is. */

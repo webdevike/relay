@@ -20,6 +20,7 @@ import {
   ROOMS_FEATURE,
   ROOMS_RESUME_FEATURE,
   ROOMS_CHAT_FEATURE,
+  ASSISTANT_GUESTS_FEATURE,
   STATS_FEATURE,
   toHex,
   type AgentApproval,
@@ -1295,6 +1296,8 @@ export class ClientSession {
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
       ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
       ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE]),
+      // Snapshots carry guest rows (another assistant popped into a thread) with their entry.
+      ...(this.deps.assistant?.consult === undefined ? [] : [ASSISTANT_GUESTS_FEATURE]),
     ];
     this.sink.send({
       t: "welcome",

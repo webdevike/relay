@@ -18,6 +18,7 @@ import { reactionKeyOf } from '@evaos/chat-core/reactions'
 import { ToolBlock, ToolGroup } from './ToolRows'
 import { BubbleActions } from './reactions/BubbleActions'
 import { CanvasRow } from './CanvasRow'
+import { GuestRow } from './GuestRow'
 import { BackgroundRow } from './BackgroundRow'
 import { parseBackground } from '@evaos/chat-core/background'
 import { splitSignin, stripAnswerContext } from '@relay/protocol'
@@ -212,6 +213,8 @@ function MessageRowImpl({
     body = <ToolBlock m={m} images={imagesOf(m)} />
   } else if (m.role === 'canvas' && m.canvas) {
     body = <CanvasRow entry={m.canvas} />
+  } else if (m.role === 'guest' && m.guest) {
+    body = <GuestRow entry={m.guest} />
   } else {
     body = <div className="eva-notice">{m.text}</div>
   }

@@ -33,6 +33,7 @@ import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
 import { handleAssistantFile } from "./assistant/files";
 import type { FoundAsk, ListedAsk } from "./assistant/http";
+import type { ConsultResult } from "./seams";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
 import { defaultSocketPath, OmpBridgeProvider } from "./agents/bridge";
 import { openBridgeLink, SubagentFileMirrors } from "./agents/subagent-mirrors";
@@ -197,6 +198,14 @@ const USAGE = `relay-linux <command>
                                    hand assistant thread <id> (from <agent-home>/${REGISTRY_FILE})
                                    of the running host a message from a background job; it
                                    relays it to Isaac. \`say -\` or no text reads stdin
+  assistant consult --agent <id> [--title "Card title"] [--work] <question> ...
+                                   from an assistant's session ($RELAY_ASSISTANT): bring
+                                   assistant <id> into this chat and put the question to it in
+                                   its own thread. It joins (Isaac sees it), answers as itself and
+                                   leaves; the answer prints here. Work that takes longer than
+                                   30 s (or --work) becomes a work card in this chat while it
+                                   carries on in its own chat; the card shows its result when it
+                                   is done. \`consult -\` or no question reads stdin
   assistant list                   the running host's registry entries (JSON)
   assistant create --title <Name> [--scope "what it is for"] [--id <id>] [--start]
                                    add an assistant: registry entry, a first-run prime.md (it
@@ -524,6 +533,8 @@ function serve(
       ? {}
       : { register: (input: unknown) => registryAdmin.create(input) }),
     ...(agentHome === null ? {} : { file: (req) => handleAssistantFile(agentHome, req) }),
+    // One assistant brings another into its chat (`assistant consult`): guest rows go in through its bridge.
+    guests: { post: (sessionId, content, details) => agents.guest(sessionId, content, details), human },
   });
   const stopRegistryWatch =
     registryAdmin === null || assistant === null
@@ -1406,6 +1417,30 @@ async function assistantSay(agent: string | undefined, positionals: string[]): P
   console.log(`told ${agent}`);
 }
 
+/** `assistant consult --agent <id> <question>`: brings assistant `id` into the calling assistant's chat (`POST /assistant/consult`). */
+async function assistantConsult(options: { agent: string | undefined; title: string | undefined; work: boolean }, positionals: string[]): Promise<void> {
+  const from = process.env["RELAY_ASSISTANT"]?.trim();
+  if (from === undefined || from === "") throw new Error("assistant consult: run this from an assistant's session ($RELAY_ASSISTANT is not set)");
+  if (options.agent === undefined || options.agent === "") throw new Error("assistant consult: missing --agent <id> (the assistant to bring in)");
+  const question = (positionals.length === 0 || positionals[0] === "-" ? await Bun.stdin.text() : positionals.join(" ")).trim();
+  if (question === "") throw new Error("assistant consult: missing <question>");
+  const response = await hostFetch(`${hostUrl()}/assistant/consult`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ from, agent: options.agent, question, ...(options.title === undefined ? {} : { title: options.title }), ...(options.work ? { work: true } : {}) }),
+  });
+  if (!response.ok) {
+    console.error(await response.text());
+    process.exit(1);
+  }
+  const result = (await response.json()) as ConsultResult;
+  if (result.kind === "answer") {
+    console.log(`${options.agent} answered in the chat (Isaac sees it as their own message, so do not repeat it):\n\n${result.text}`);
+    return;
+  }
+  console.log(`${options.agent} is working on "${result.title}" in their own chat. A work card is in this chat and shows the result when they finish (work ${result.id}).`);
+}
+
 interface AssistantCliOptions {
   readonly agent: string | undefined;
   readonly id: string | undefined;
@@ -1502,7 +1537,7 @@ async function assistantAdminCommand(verb: string, options: AssistantCliOptions)
     }
     default:
       throw new Error(
-        `assistant: unknown subcommand ${verb}; try say, list, create, set or retire`,
+        `assistant: unknown subcommand ${verb}; try say, consult, list, create, set or retire`,
       );
   }
 }
@@ -2230,6 +2265,7 @@ async function main(argv: string[]): Promise<void> {
       session: { type: "string" },
       handoff: { type: "string" },
       leave: { type: "boolean", default: false },
+      work: { type: "boolean", default: false },
       history: { type: "boolean", default: false },
       since: { type: "string" },
       id: { type: "string" },
@@ -2352,7 +2388,11 @@ async function main(argv: string[]): Promise<void> {
         await assistantSay(values.agent, positionals.slice(2));
         return;
       }
-      if (verb === undefined) throw new Error("assistant: try say, list, create, set or retire");
+      if (verb === "consult") {
+        await assistantConsult({ agent: values.agent, title: values.title, work: values.work }, positionals.slice(2));
+        return;
+      }
+      if (verb === undefined) throw new Error("assistant: try say, consult, list, create, set or retire");
       await assistantAdminCommand(verb, {
         agent: values.agent,
         id: values.id,

@@ -494,6 +494,73 @@ export type CanvasRoomInfo = z.infer<typeof CanvasRoomInfo>;
 /** A canvas room's web client is opened with a token from `canvas.open`; it stays valid this long (reloads and reconnects reuse it). */
 export const CANVAS_TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 
+// ---------------------------------------------------------------------------------------------
+// Guests: another assistant pops into an assistant's chat. The host's consult flow (`relay-linux
+// assistant consult`) writes `GuestEntry` rows into the asking assistant's session file as
+// `relay-guest` custom messages: the guest joined, said something, left, or took the question
+// away as work (a card; each state change is a new row with the same `work.id`, and clients
+// show one row per piece of work: the latest state, where it started). Phones draw guest rows
+// only from a host with ASSISTANT_GUESTS_FEATURE; older phones get the `status` and `card` rows.
+// ---------------------------------------------------------------------------------------------
+
+export const ASSISTANT_GUESTS_FEATURE = "assistant.guests";
+
+/** The assistant that popped in: its registry id, title and accent when it has one. */
+export const GuestAgent = z.object({
+  id: z.string().min(1).max(100),
+  title: z.string().min(1).max(100),
+  color: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional()
+    .catch(undefined),
+});
+export type GuestAgent = z.infer<typeof GuestAgent>;
+
+/** Work a guest took on in its own chat; `link` is where the card opens (a place such as `agent:<id>`, the guest's chat when absent). */
+export const GuestWork = z.object({
+  id: z.string().min(1).max(100),
+  title: z.string().max(400),
+  state: z.enum(["working", "done", "failed"]),
+  startedAt: ms,
+  endedAt: ms.optional(),
+  link: z.string().max(400).optional(),
+});
+export type GuestWork = z.infer<typeof GuestWork>;
+
+/** One guest row: `text` is what it said (`say`), the result line (`done`) or the reason (`failed`). */
+export const GuestEntry = z.object({
+  kind: z.enum(["join", "leave", "say", "work"]),
+  agent: GuestAgent,
+  text: z.string().max(20_000).optional(),
+  work: GuestWork.optional(),
+});
+export type GuestEntry = z.infer<typeof GuestEntry>;
+
+/** `list` with each piece of work as one row: the latest state of a `work.id`, at the place (and under the id) of its first row. */
+export function foldGuestWork<T extends { id: string; guest?: GuestEntry | undefined }>(list: readonly T[]): T[] {
+  const latest = new Map<string, T>();
+  for (const m of list) {
+    const id = m.guest?.work?.id;
+    if (m.guest?.kind === "work" && id !== undefined) latest.set(id, m);
+  }
+  if (latest.size === 0) return [...list];
+  const placed = new Set<string>();
+  const out: T[] = [];
+  for (const m of list) {
+    const id = m.guest?.kind === "work" ? m.guest.work?.id : undefined;
+    if (id === undefined) {
+      out.push(m);
+      continue;
+    }
+    if (placed.has(id)) continue;
+    placed.add(id);
+    const last = latest.get(id) ?? m;
+    out.push(last === m ? m : { ...last, id: m.id });
+  }
+  return out;
+}
+
 export const AgentMessage = z.object({
   id: nonEmpty,
   role: AgentMessageRole,
@@ -517,6 +584,8 @@ export const AgentMessage = z.object({
   streaming: z.boolean().optional(),
   /** A live canvas row (role "system"): Join card, canvas turn or wrap-up; builds without canvas show `text`. */
   canvas: CanvasEntry.optional().catch(undefined),
+  /** A guest row (role "system"): another assistant joined, spoke, left, or works on something; builds without guests show `text`. */
+  guest: GuestEntry.optional().catch(undefined),
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
 
@@ -716,6 +785,11 @@ export const AssistantMessage = z.object({
   voice: z.boolean().optional(),
   /** A live canvas row (role "card"): Join card, canvas turn or wrap-up; builds without canvas show `text`. */
   canvas: CanvasEntry.optional().catch(undefined),
+  /**
+   * A guest row: join and leave come as `status`, say and work as `card` titled with the guest's
+   * name (what a phone without guests shows). Work rows are folded by `work.id` (latest state).
+   */
+  guest: GuestEntry.optional().catch(undefined),
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 

@@ -227,7 +227,29 @@ export interface AssistantRelaying {
   file?(
     req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">,
   ): Omit<AssistantFileRes, "t" | "rid">;
+  /**
+   * `relay-linux assistant consult` (`POST /assistant/consult`): assistant `from` brings assistant
+   * `agent` into its chat with Isaac and puts `question` to it (`assistant/consult.ts`). Rejects
+   * with `AckFailure`. Absent where the host cannot post guest rows.
+   */
+  consult?(request: ConsultRequest): Promise<ConsultResult>;
 }
+
+/** A question one assistant puts to another from its chat with Isaac. */
+export interface ConsultRequest {
+  /** A: the assistant whose chat the question comes from. */
+  readonly from: string;
+  /** B: the assistant asked. */
+  readonly agent: string;
+  readonly question: string;
+  /** The work card's title; the question's first line when absent. */
+  readonly title?: string | undefined;
+  /** Straight to a work card: A knows it is a task. */
+  readonly work?: boolean | undefined;
+}
+
+/** What a consult answers: B's reply (quick), or the work card that now stands in A's chat. */
+export type ConsultResult = { readonly kind: "answer"; readonly text: string } | { readonly kind: "work"; readonly id: string; readonly title: string };
 
 /** What the session needs of the host's live canvas rooms (`canvas/service.ts`). */
 export interface CanvasRelaying {

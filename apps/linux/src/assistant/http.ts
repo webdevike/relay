@@ -11,6 +11,10 @@
 //     `answer` (a session's ask then gets it delivered) or else as resolved by the assistant;
 //     `GET /assistant/asks/<id>` reads one, open or closed, from whichever thread has it
 //     (`relay-linux asks list|add|resolve|get`). An id that is not open (or, for get, not kept) is a 404.
+//   - `POST /assistant/consult` (JSON `{ from, agent, question, title?, work? }`) brings assistant
+//     `agent` into assistant `from`'s chat and puts the question to it (`consult.ts`); answers
+//     `{ kind: "answer", text }` once it settles within the quick wait, else `{ kind: "work", id,
+//     title }` once its work card is in the chat (`relay-linux assistant consult`).
 
 import { MAX_ASK_ANSWER, type OpenAsk } from "@relay/protocol";
 import { z } from "zod";
@@ -124,6 +128,33 @@ export async function handleAssistantSay(assistant: AssistantRelaying | null, re
     return new Response("ok");
   } catch (error) {
     return new Response(error instanceof Error ? error.message : String(error), { status: 503 });
+  }
+}
+
+/** What `POST /assistant/consult` takes; the consult checks the fields themselves. */
+const ConsultBody = z.object({
+  from: z.string().min(1),
+  agent: z.string().min(1),
+  question: z.string(),
+  title: z.string().optional(),
+  work: z.boolean().optional(),
+});
+
+/** Answers `POST /assistant/consult`; `assistant` null (no threads on this host) is a 404. */
+export async function handleAssistantConsult(assistant: AssistantRelaying | null, request: Request, remote: string): Promise<Response> {
+  if (!isLoopback(remote)) return new Response("loopback only", { status: 403 });
+  if (assistant?.consult === undefined) return new Response("assistant consult disabled", { status: 404 });
+  if (request.method !== "POST") return new Response("method not allowed", { status: 405 });
+  const read = await jsonBody(request);
+  if (read instanceof Response) return read;
+  const parsed = ConsultBody.safeParse(read.body);
+  if (!parsed.success) return new Response("expected { from, agent, question, title?, work? }", { status: 400 });
+  try {
+    return Response.json(await assistant.consult(parsed.data));
+  } catch (error) {
+    if (!(error instanceof AckFailure)) return new Response(error instanceof Error ? error.message : String(error), { status: 500 });
+    const status = error.error.code === "invalid_command" ? 400 : error.error.code === "agent_not_found" ? 404 : 503;
+    return new Response(error.error.message, { status });
   }
 }
 

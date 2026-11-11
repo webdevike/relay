@@ -1,5 +1,6 @@
 import { imageSize } from './image-size'
 import { canvasEntryOf } from './canvas-live'
+import { guestEntryOf } from './guest-entry'
 import { makeMessage, type ChatImage, type ChatMessage, type SessionMeta } from './message'
 
 type Json = Record<string, unknown>
@@ -142,12 +143,18 @@ function stampOf(message: Json): { at?: number } {
 }
 
 export function messagesFrom(message: Json, id: string): ChatMessage[] {
-  // A custom message the session shows: only the Relay bridge's live canvas rows have a row.
+  // A custom message the session shows: only the Relay bridge's live canvas and guest rows have a row.
   if (message.role === 'custom') {
+    // A live frame may come without an id; the kind and time tell its rows apart.
+    const at = typeof message.timestamp === 'number' ? message.timestamp : ''
+    const guest = guestEntryOf(message.customType, message.details)
+    if (guest) {
+      const work = guest.work ? `${guest.work.id}-${guest.work.state}-` : ''
+      const rowId = id !== '' ? id : `guest-${guest.agent.id}-${guest.kind}-${work}${at}`
+      return [makeMessage(rowId, 'guest', textOf(message.content), { guest })]
+    }
     const canvas = canvasEntryOf(message.customType, message.details)
     if (!canvas) return []
-    // A live frame may come without an id; the room, kind and time tell its rows apart.
-    const at = typeof message.timestamp === 'number' ? message.timestamp : ''
     const rowId = id !== '' ? id : `canvas-${canvas.roomId}-${canvas.kind}-${at}`
     return [makeMessage(rowId, 'canvas', textOf(message.content), { canvas })]
   }

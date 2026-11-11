@@ -98,7 +98,8 @@ export function toTurns(
   const turns: AstraTurn[] = []
   let last: number | undefined
   for (const m of messages) {
-    if (m.role === 'thinking' || m.role === 'canvas' || m.role === 'notice') continue
+    if (m.role === 'thinking' || m.role === 'canvas' || m.role === 'guest' || m.role === 'notice')
+      continue
     let at = m.role === 'tool' ? undefined : (m.at ?? seen?.get(m.id))
     if (at === undefined && seen && m.role !== 'tool') {
       at = now

@@ -53,6 +53,8 @@ const EXCHANGE = /^Canvas "(.+?)" · ([^:\n]+):\s*(.*)/s
 const REQUEST = /^\[Canvas request from ([^\]]+)\]\s*(.*)/s
 const HANDOFF = /^\[Relay Assist handoff\]\s*(.*)/s
 const REACTED = /^\[(\S+) reacted (.+?) to your message:\s*"(.*?)"\]/s
+/** Another assistant put the human's question to this one (the Relay host's consult). */
+const ASKED = /^\[Asked by (.+?) in [^\]]+?'s chat\]\s*(.*)/s
 
 function parseItem(line: string): HeartbeatItem | null {
   const m = ITEM.exec(line.trim())
@@ -137,6 +139,8 @@ export function parseBackground(raw: string): BackgroundMessage | null {
   }
   const handoff = HANDOFF.exec(text)
   if (handoff) return event('hand', said('Relay Assist', firstSentence(handoff[1]!)), text)
+  const asked = ASKED.exec(text)
+  if (asked) return event('chat', said(`${asked[1]} asked`, firstSentence(asked[2]!)), text)
   const reacted = REACTED.exec(text)
   if (reacted) {
     return event(

@@ -1,0 +1,195 @@
+/*
+ * Another assistant in a chat (relay-guest rows): quiet joined/left lines, its bubble, and the
+ * one-row work card. `--eva-guest-c` is the guest's color (its portrait's accent).
+ */
+
+/* "Penny joined the chat" */
+.eva-guest-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-guest-line-face {
+  width: 16px;
+  height: 16px;
+  background: var(--mantine-color-gray-1);
+}
+
+/* What the guest said: face, name in its color, a guest pill, a left bar and a faint tint. */
+.eva-guest-say {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border-left: 2px solid color-mix(in srgb, var(--eva-guest-c, var(--eva-accent)) 55%, transparent);
+  border-radius: 0 var(--eva-radius) var(--eva-radius) 0;
+  background: color-mix(in srgb, var(--eva-guest-c, var(--eva-accent)) 8%, transparent);
+}
+.eva-guest-say-face {
+  width: 36px;
+  height: 36px;
+  background: var(--mantine-color-gray-1);
+}
+.eva-guest-say-body {
+  flex: 1;
+  min-width: 0;
+}
+.eva-guest-say-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-guest-say-name {
+  font-weight: var(--eva-fw-semibold);
+  color: var(--eva-guest-c, var(--eva-accent));
+}
+.eva-guest-pill {
+  padding: 0 var(--mantine-spacing-xs);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-c-muted-background);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-caption);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.6;
+}
+
+/* The work card (variant A): one row; the result keeps the room when it is narrow. */
+@property --eva-work-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.eva-work {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  width: 440px;
+  max-width: 100%;
+  padding: var(--mantine-spacing-xs);
+  border-radius: var(--eva-card-radius);
+  background: color-mix(in srgb, var(--eva-text) 4%, transparent);
+  font-size: var(--eva-fz-body);
+  line-height: 1.35;
+  cursor: pointer;
+  container-type: inline-size;
+  transition: background-color 0.15s ease;
+}
+.eva-work:hover {
+  background: color-mix(in srgb, var(--eva-text) 7%, transparent);
+}
+.eva-work:focus-visible {
+  outline: 2px solid var(--eva-accent);
+  outline-offset: 2px;
+}
+/* A 1px ring; while the work runs a soft highlight in the guest's color orbits it. */
+.eva-work::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--eva-text) 7%, transparent);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+.eva-work[data-state='working']::after {
+  background:
+    conic-gradient(
+      from var(--eva-work-angle),
+      transparent 0%,
+      color-mix(in srgb, var(--eva-guest-c, var(--eva-accent)) 65%, transparent) 12%,
+      transparent 30%
+    ),
+    color-mix(in srgb, var(--eva-text) 7%, transparent);
+  animation: eva-work-orbit 2.5s linear infinite;
+}
+@keyframes eva-work-orbit {
+  to {
+    --eva-work-angle: 360deg;
+  }
+}
+@keyframes eva-work-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-work[data-state='working']::after {
+    background: color-mix(in srgb, var(--eva-guest-c, var(--eva-accent)) 40%, transparent);
+    animation: eva-work-pulse 2.5s ease-in-out infinite;
+  }
+}
+.eva-work-face {
+  width: 22px;
+  height: 22px;
+  background: var(--mantine-color-gray-1);
+}
+.eva-work-line {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+.eva-work[data-state='working'] .eva-work-line,
+.eva-work[data-state='failed'] .eva-work-line {
+  color: var(--eva-text-dim);
+}
+.eva-work-ask {
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.eva-work:hover .eva-work-ask,
+.eva-work-ask:focus-visible {
+  opacity: 1;
+}
+.eva-work-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  padding-right: var(--mantine-spacing-xs);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+}
+.eva-work-meta[data-bad] svg {
+  color: var(--mantine-color-red-5);
+}
+.eva-work-time-short {
+  display: none;
+}
+@container (max-width: 339px) {
+  .eva-work-time-full {
+    display: none;
+  }
+  .eva-work-time-short {
+    display: inline;
+  }
+}
+@container (max-width: 249px) {
+  .eva-work-meta:not([data-bad]) {
+    display: none;
+  }
+  .eva-work-meta[data-bad] svg + * {
+    display: none;
+  }
+}

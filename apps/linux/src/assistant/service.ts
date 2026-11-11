@@ -14,23 +14,26 @@
 //     answered, which every snapshot carries;
 //   - pushes each settled reply to every registered phone not looking at the thread;
 //   - takes messages from the host's own jobs (`relay-linux assistant say --agent <id>`) as
-//     prefixed turns that the agent then relays to Isaac in its own words.
+//     prefixed turns that the agent then relays to Isaac in its own words;
+//   - shows another assistant popping into the thread (`relay-guest` rows, `consult.ts`) and a
+//     question another assistant put to this one as a quiet row.
 // `AssistantThreads` holds one service per registry agent and routes requests by agent id.
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { MAX_ASK_QUESTION, OpenAsk, signinHost, splitPins, splitSignin, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type ServerMessage } from "@relay/protocol";
+import { foldGuestWork, MAX_ASK_QUESTION, OpenAsk, signinHost, splitPins, splitSignin, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type GuestEntry, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { liveSessionId } from "../agents/session-ref";
 import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
 import { pushPreview } from "../push/preview";
 import type { PushTokenSource } from "../push/token-store";
-import { AckFailure, type AgentProvider, type AgentProviderChange, type AskInput, type AskStatus, type AssistantRelaying, type AssistantThread } from "../seams";
+import { AckFailure, type AgentProvider, type AgentProviderChange, type AskInput, type AskStatus, type AssistantRelaying, type AssistantThread, type ConsultRequest, type ConsultResult } from "../seams";
 import type { SessionClock } from "../session";
 import type { AskJudge } from "./ask-judge";
 import { type AskStore, MAX_ASK_FROM, MAX_ASK_REPLIES, MAX_ASK_REPLY } from "./ask-store";
 import { type AssistantAgentConfig, RegistryError } from "./registry";
+import { CONSULT_TURN, type ConsultDeps, Consults } from "./consult";
 import { splitReplies } from "./replies";
 import { type FillSpawn, runFill } from "./signin";
 import type { AssistantStore } from "./store";
@@ -109,17 +112,28 @@ export function noAccountMessage(title: string, logPath: string | null): string 
   return `${title} can't think yet: no AI account is signed in on this Mac. Open Settings > Setup in Relay and sign in with Claude or ChatGPT (or add an API key), then start ${title} again.${logPath === null ? "" : ` Host log: ${logPath}`}`;
 }
 
+/** What a phone without guest rows shows of guest `entry`'s card: what it said, or where its work stands. */
+function guestCardText(entry: GuestEntry, content: string): string {
+  const work = entry.work;
+  if (entry.kind !== "work" || work === undefined) return entry.text ?? content;
+  if (work.state === "working") return `Working on ${work.title} in ${entry.agent.title}'s chat`;
+  if (work.state === "done") return entry.text ?? `Finished ${work.title}`;
+  return `Stopped ${work.title}${entry.text === undefined ? "" : `: ${entry.text}`}`;
+}
+
 /**
  * The thread as the phone shows it: Isaac's turns and the agent's replies, and the host's job lines
- * (`prefix` and the legacy prefixes) as `status` rows, which the phone draws as quiet background
- * rows (an older phone hides them). Left out: tool rows, omp's synthetic system rows, the persona
- * prime (including the pre-registry Eva and Astra primes), a reply with nothing to show (still empty
+ * (`prefix` and the legacy prefixes) and questions other assistants put to the agent as `status`
+ * rows, which the phone draws as quiet background rows (an older phone hides them). Left out: tool
+ * rows, omp's synthetic system rows, the persona prime (including the pre-registry Eva and Astra
+ * primes), a reply with nothing to show (still empty
  * while streaming, or a prime turn that only ran tools) and the silence marker, whole or still
  * streaming in. Isaac's turns show without the surface tag the sending client put on them. A turn
  * said on a call shows its words without the voice note, marked `voice`; a reply's details marker
  * becomes a paragraph break, and its answers token becomes the row's `replies`. `asking`, when
  * given, collects the settled rows that end on answers, with their `[[ask-label]]` (the open asks'
- * sources); the label never reaches the row.
+ * sources); the label never reaches the row. Guest rows keep their entry: join and leave as
+ * `status`, say and work as a `card` titled with the guest's name (work rows unfolded).
  */
 export function toAssistantMessages(messages: readonly AgentMessage[], prime: string | null, prefix: string, asking?: Map<string, string | undefined>): AssistantMessage[] {
   const out: AssistantMessage[] = [];
@@ -129,6 +143,12 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
     if (message.canvas !== undefined) {
       // A live canvas row (Join card, canvas turn, wrap-up): a card, whatever role the transcript gave it.
       out.push({ id: message.id, role: "card", text: message.text, at: message.at, canvas: message.canvas });
+      continue;
+    }
+    const guest = message.guest;
+    if (guest !== undefined) {
+      if (guest.kind === "join" || guest.kind === "leave") out.push({ id: message.id, role: "status", text: message.text, at: message.at, guest });
+      else out.push({ id: message.id, role: "card", title: guest.agent.title, text: guestCardText(guest, message.text), at: message.at, guest });
       continue;
     }
     if (message.role === "user") {
@@ -142,7 +162,7 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
       if (isPrime) continue;
       // A job line (heartbeat, job report, handoff) is not Isaac's: a `status` row, which a phone from
       // before background rows never shows and a newer one draws as a quiet row, not his bubble.
-      if (said.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => said.startsWith(legacy))) {
+      if (said.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => said.startsWith(legacy)) || CONSULT_TURN.test(said)) {
         out.push({ id: message.id, role: "status", text: said, at: message.at });
         continue;
       }
@@ -254,6 +274,12 @@ export class AssistantService implements AssistantThread {
     return this.agent.liveVoice;
   }
 
+  /** The accent of the agent's portrait (`#rrggbb`), when it has one; its guest rows carry it. */
+  get color(): string | undefined {
+    const accent = this.agent.portrait?.colors?.accent;
+    return accent !== undefined && /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : undefined;
+  }
+
   /**
    * Takes the agent's changed registry entry (same id). The live session keeps running; a new
    * title, profile or model applies from its next start, its listing and calls change at once.
@@ -289,12 +315,21 @@ export class AssistantService implements AssistantThread {
     const asking = new Map<string, string | undefined>();
     const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id), asking);
     const live = session === undefined ? [] : toAssistantMessages((await this.deps.agents.conversation(session.id)) ?? [], this.prime(), this.prefix, asking);
-    const messages = this.markSubmitted([...earlier, ...live]);
+    // One work card per piece of work: its latest state, where it started.
+    const messages = this.markSubmitted(foldGuestWork([...earlier, ...live]));
     this.deps.asks.observe(messages, asking);
     const busy = session?.status === "working";
     // Judged once the turn settles, so the judge reads the assistant's reply to Isaac's latest turn too.
     if (!busy) this.judgeAsks(messages);
     return { rev, messages, busy, sessionId: session?.id ?? "", asks: this.deps.asks.open() };
+  }
+
+  /** The live session's settled rows as the phone shows them, guest rows unfolded; empty while no session is live. */
+  async settled(): Promise<AssistantMessage[]> {
+    const session = this.current();
+    if (session === undefined) return [];
+    const live = ((await this.deps.agents.conversation(session.id)) ?? []).filter((message) => message.streaming !== true);
+    return toAssistantMessages(live, this.prime(), this.prefix);
   }
 
   /**
@@ -398,8 +433,7 @@ export class AssistantService implements AssistantThread {
   async listing(): Promise<AssistantAgent> {
     const session = this.current();
     const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id));
-    const live = session === undefined ? [] : ((await this.deps.agents.conversation(session.id)) ?? []).filter((message) => message.streaming !== true);
-    const lastReply = lastReplyOf([...earlier, ...toAssistantMessages(live, this.prime(), this.prefix)]);
+    const lastReply = lastReplyOf([...earlier, ...(await this.settled())]);
     return {
       id: this.id,
       title: this.title,
@@ -728,6 +762,8 @@ export interface AssistantThreadsDeps {
   readonly register?: (input: unknown) => { readonly id: string; readonly title: string };
   /** Reads or saves an agent's prime.md or thread memory (`handleAssistantFile`); without it `assistant.file.req` answers that the host has no agent home. */
   readonly file?: (req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">) => Omit<AssistantFileRes, "t" | "rid">;
+  /** What `consult` needs: posting a guest row into a session's chat (the bridge's `guest`) and the human's name; without it `consult` nacks. */
+  readonly guests?: Pick<ConsultDeps, "post" | "human">;
 }
 
 /**
@@ -742,12 +778,16 @@ export class AssistantThreads implements AssistantRelaying {
   private lastSent: string | null = null;
   private flushes = 0;
   private current: readonly AssistantService[];
+  /** One assistant bringing another into its chat (`consult.ts`); null without `deps.post`. */
+  private readonly consults: Consults | null;
 
   constructor(
     threads: readonly AssistantService[],
     private readonly deps?: AssistantThreadsDeps,
   ) {
     this.current = threads;
+    const guests = deps?.guests;
+    this.consults = deps === undefined || guests === undefined ? null : new Consults({ threads: () => this.current, ...guests, clock: deps.clock, log: deps.log });
   }
 
   get threads(): readonly AssistantService[] {
@@ -772,6 +812,13 @@ export class AssistantThreads implements AssistantRelaying {
     let listed = false;
     for (const thread of this.current) listed = thread.observe(change) || listed;
     if (listed) this.scheduleBroadcast();
+    this.consults?.observe(change);
+  }
+
+  /** `relay-linux assistant consult`: assistant `request.from` brings `request.agent` into its chat (`Consults.consult`). Rejects with `AckFailure`. */
+  consult(request: ConsultRequest): Promise<ConsultResult> {
+    if (this.consults === null) return Promise.reject(new AckFailure({ code: "invalid_command", message: "this host cannot bring assistants into each other's chats" }));
+    return this.consults.consult(request);
   }
 
   /**

@@ -795,6 +795,38 @@ describe("AssistantService earlier contexts", () => {
     expect((await h.service.snapshot()).messages.map((message) => message.text)).toEqual(["one", "two"]);
   });
 
+  it("shows guest rows from the transcript: join and leave as status rows, say and one folded work card as titled cards", async () => {
+    const h = harness();
+    const penny = { id: "penny", title: "Penny", color: "#22aa66" };
+    const guest = (content: string, details: Record<string, unknown>, timestamp: string): string => JSON.stringify({ type: "custom_message", customType: "relay-guest", content, display: true, details, timestamp });
+    const work = (state: string, extra: Record<string, unknown> = {}) => ({ kind: "work", agent: penny, work: { id: "w1", title: "Find an SSD", state, startedAt: 3, link: "agent:penny", ...extra } });
+    const file = join(h.home, "2026-11-11T0400_gggg.jsonl");
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ type: "message", message: { role: "user", content: "@Penny find an SSD", timestamp: 1 } }),
+        guest("Penny joined the chat", { kind: "join", agent: penny }, "2026-11-11T10:00:00.000Z"),
+        guest("Penny: On it", { kind: "say", agent: penny, text: "On it, I'll report back in my chat." }, "2026-11-11T10:00:01.000Z"),
+        guest("Penny left the chat", { kind: "leave", agent: penny }, "2026-11-11T10:00:02.000Z"),
+        guest("Penny is working on Find an SSD", work("working"), "2026-11-11T10:00:03.000Z"),
+        JSON.stringify({ type: "message", message: { role: "user", content: "[Asked by Nova in Isaac's chat] Compare two quotes", timestamp: 4 } }),
+        guest("Penny finished Find an SSD: $189", { ...work("done", { endedAt: 9 }), text: "Acasis + SN7100 · $189" }, "2026-11-11T10:02:00.000Z"),
+      ].join("\n"),
+    );
+    new FileAssistantStore(h.storePath).save({ history: [file] });
+    const messages = (await h.service.snapshot()).messages;
+    expect(messages.map((m) => [m.role, m.title ?? null, m.text, m.guest?.kind ?? null, m.guest?.work?.state ?? null])).toEqual([
+      ["user", null, "@Penny find an SSD", null, null],
+      ["status", null, "Penny joined the chat", "join", null],
+      ["card", "Penny", "On it, I'll report back in my chat.", "say", null],
+      ["status", null, "Penny left the chat", "leave", null],
+      ["card", "Penny", "Acasis + SN7100 · $189", "work", "done"],
+      ["status", null, "[Asked by Nova in Isaac's chat] Compare two quotes", null, null],
+    ]);
+    expect(messages[4]?.id).toBe("2026-11-11T0400_gggg-5");
+    expect(messages[2]?.guest?.agent).toEqual(penny);
+  });
+
   it("starts a new primed session after a rollover and keeps the history in the agent's store", async () => {
     const h = harness({ prime: "You are Eva.", history: ["/sessions/old.jsonl"] });
     const turn = h.service.turn("hi");

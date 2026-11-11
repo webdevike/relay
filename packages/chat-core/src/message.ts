@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { CanvasChatEntrySchema } from './canvas-live'
+import { GuestEntrySchema } from './guest-entry'
 
 export const ToolIoSchema = z.object({
   call: z.string(),
@@ -24,8 +25,11 @@ export type ChatImage = z.infer<typeof ChatImageSchema>
 
 export const ChatMessageSchema = z.object({
   id: z.string(),
-  /** `canvas`: a live canvas row (a `relay-canvas` custom message); `canvas` holds its entry. */
-  role: z.enum(['user', 'assistant', 'tool', 'thinking', 'notice', 'canvas']),
+  /**
+   * `canvas`: a live canvas row (a `relay-canvas` custom message); `canvas` holds its entry.
+   * `guest`: another assistant in this chat (a `relay-guest` custom message); `guest` holds it.
+   */
+  role: z.enum(['user', 'assistant', 'tool', 'thinking', 'notice', 'canvas', 'guest']),
   text: z.string(),
   detail: z.string(),
   streaming: z.boolean(),
@@ -38,6 +42,7 @@ export const ChatMessageSchema = z.object({
    */
   at: z.number().optional(),
   canvas: CanvasChatEntrySchema.optional(),
+  guest: GuestEntrySchema.optional(),
 })
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
 export type ToolIo = z.infer<typeof ToolIoSchema>

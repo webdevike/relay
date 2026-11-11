@@ -43,6 +43,8 @@ import {
   skillCommandOf,
   CANVAS_MESSAGE_TYPE,
   type CanvasRow,
+  GUEST_MESSAGE_TYPE,
+  type GuestRow,
   toolCallOf,
   textOf,
   type Image,
@@ -375,7 +377,9 @@ type Inbound =
   // A phone's habit gate command: start or finish a habit/task (`target`), or override with a reason.
   | { t: "gate"; id: string; action: "start" | "done" | "override"; target?: string; reason?: string; photo?: Image }
   // A live canvas row for this chat (Join card, canvas turn, wrap-up): `content` is the line the model reads.
-  | { t: "canvas"; id: string; content: string; details: CanvasRow };
+  | { t: "canvas"; id: string; content: string; details: CanvasRow }
+  // Another assistant in this chat (joined, said, left, works on something): `content` is the line the model reads.
+  | { t: "guest"; id: string; content: string; details: GuestRow };
 
 /** Thinking selectors a model accepts; "off" applies to any model, the rest come from its catalog entry. */
 function thinkingLevelsFor(model: Model): ThinkingLevel[] {
@@ -1169,6 +1173,20 @@ export default function relayBridge(pi: ExtensionAPI): void {
         if (ctx.isIdle()) pi.sendMessage(message);
         else pi.sendMessage(message, { deliverAs: frame.details.kind === "start" ? "aside" : "nextTurn" });
         const row: InboxMessage = { id: nextId(), role: "system", text: frame.content, at: Date.now(), canvas: frame.details };
+        record(row);
+        send({ t: "messages", append: [row] });
+        return true;
+      }
+      case "guest": {
+        // Shown in the chat and written to the session file, never a turn of its own. Idle, omp
+        // appends it at once (the host holds a finished work card until this session is idle).
+        // Mid-turn the row goes in as an aside to the running turn (the one whose `assistant
+        // consult` call brought the guest in): it lands when that tool call returns. The phone
+        // gets the row now either way.
+        const message = { customType: GUEST_MESSAGE_TYPE, content: frame.content, display: true, details: frame.details };
+        if (ctx.isIdle()) pi.sendMessage(message);
+        else pi.sendMessage(message, { deliverAs: "aside" });
+        const row: InboxMessage = { id: nextId(), role: "system", text: frame.content, at: Date.now(), guest: frame.details };
         record(row);
         send({ t: "messages", append: [row] });
         return true;

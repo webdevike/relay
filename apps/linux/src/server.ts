@@ -19,6 +19,7 @@ import type { SessionFiles } from "./agents/session-files";
 import {
   handleAssistantAdmin,
   handleAssistantAsks,
+  handleAssistantConsult,
   handleAssistantSay,
   isAssistantAdminPath,
   isAssistantAsksPath,
@@ -175,6 +176,7 @@ export function loopbackWriteBody(path: string): WriteBody | null {
   if (
     isAssistantAsksPath(path) ||
     isAssistantAdminPath(path) ||
+    path === "/assistant/consult" ||
     path === "/catchup/bounce" ||
     path === "/reactions/agent" ||
     path === "/boards" ||
@@ -412,6 +414,12 @@ export class RelayServer {
         if (path === "/query") return handleQueryRequest(this.deps.query, request, remote);
         if (path === "/assistant/say")
           return handleAssistantSay(this.deps.assistant, request, remote);
+        if (path === "/assistant/consult") {
+          // A consult waits for the asked assistant's answer up to its quick wait (30 s), past
+          // Bun's 10 s idle timeout for a request that has sent nothing yet.
+          srv.timeout(request, 90);
+          return handleAssistantConsult(this.deps.assistant, request, remote);
+        }
         if (isAssistantAsksPath(path))
           return handleAssistantAsks(this.deps.assistant, request, remote, path);
         if (isAssistantAdminPath(path))
