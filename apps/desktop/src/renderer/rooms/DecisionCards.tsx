@@ -23,9 +23,11 @@ import {
   type PollCard,
   type ProsConsCard,
   type QuestionCard,
+  type RoomCard,
 } from '@evaos/contract'
 import { MemberFace } from './MemberStack'
 import {
+  answerAsk,
   answerRoomAsk,
   callRoomPoll,
   decideInRoom,
@@ -488,4 +490,32 @@ export function RoomDecisionCard({ card, room }: { card: DecisionKindCard; room:
         />
       )
   }
+}
+
+/**
+ * A member's outward action (git push, a deploy, a purchase...) waiting on Isaac: the guard's ask
+ * drawn as his question card, Allow / Deny, answered through rooms.answer.
+ */
+export function SeatAskView({
+  card,
+  room,
+}: {
+  card: Extract<RoomCard, { type: 'ask' }>
+  room: Room
+}) {
+  return (
+    <QuestionView
+      card={{
+        type: 'question',
+        id: card.askId,
+        by: card.agentId,
+        text: `Wants to run: ${card.action}`,
+        sub: 'It runs only if you allow it.',
+        answers: ['Allow', 'Deny'],
+        ...(card.answered ? { answered: card.answered === 'allow' ? 'Allow' : 'Deny' } : {}),
+      }}
+      people={roomPeople(room)}
+      onAnswer={(a) => answerAsk(room.id, card.askId, a === 'Allow')}
+    />
+  )
 }

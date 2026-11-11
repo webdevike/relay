@@ -480,4 +480,68 @@ describe('ChatRoom', () => {
     })
     await r.destroy()
   })
+
+  it("an assistant's proposal stays proposed until convened once; its question is Isaac's first message", async () => {
+    const d = deps()
+    const by = { assistant: 'nova', at: 5 }
+    const r = ChatRoom.create('room-p', { ...SETUP, draft: 'Godot or Unreal?' }, 1000, d, {
+      by,
+      limits: { budget: 10, effort: 4 },
+      proposal: true,
+    })
+    expect(r.room.phase).toBe('proposed')
+    expect(r.room.chat).toMatchObject({ by, limits: { budget: 10, effort: 4 }, proposal: true })
+    expect(reload(d)[0]!.room.phase).toBe('proposed')
+    expect(d.launcher.turns).toHaveLength(0)
+    expect(r.convene()).toBe(true)
+    expect(r.convene()).toBe(false)
+    expect(r.room.messages.filter((m) => m.author === 'isaac').map((m) => m.text)).toEqual([
+      'Godot or Unreal?',
+    ])
+    await vi.waitFor(() => expect(d.launcher.turns.length).toBeGreaterThan(0))
+    await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
+    await r.destroy()
+  })
+
+  it("an assistant's change keeps its limits and bumps the revision; Isaac's raises them to what he set", () => {
+    const d = deps()
+    const r = ChatRoom.create('room-l', SETUP, 1000, d, {
+      by: { assistant: 'nova', at: 1 },
+      limits: { budget: 10, effort: 4 },
+    })
+    expect(r.update({ budget: 8 }, false)).toBe(1)
+    expect(r.room.chat!.limits).toEqual({ budget: 10, effort: 4 })
+    expect(r.update({ budget: 25, effort: 5 })).toBe(2)
+    expect(r.room.chat!.limits).toEqual({ budget: 25, effort: 5 })
+    expect(reload(d)[0]!.room.chat).toMatchObject({ rev: 2, limits: { budget: 25, effort: 5 } })
+  })
+
+  it("a member's outward action becomes an ask card; Allow writes the guard's answer file", async () => {
+    const d = deps()
+    const r = ChatRoom.create('room-g', SETUP, 1000, { ...d, askPollMs: 10 })
+    d.launcher.hold('nova')
+    r.post('@Nova push it')
+    await vi.waitFor(() => expect(d.launcher.turns.some((t) => t.seat === 'nova')).toBe(true))
+    const asks = d.launcher.specs[0]!.asksDir
+    fs.writeFileSync(
+      path.join(asks, 'nova-1.json'),
+      JSON.stringify({ id: 'nova-1', seatId: 'nova', action: 'git push origin main' }),
+    )
+    await vi.waitFor(() =>
+      expect(r.room.messages.find((m) => m.card?.type === 'ask')?.card).toEqual({
+        type: 'ask',
+        askId: 'nova-1',
+        agentId: 'nova',
+        action: 'git push origin main',
+      }),
+    )
+    expect(() => r.answer('nope', true)).toThrow()
+    r.answer('nova-1', true)
+    expect(fs.readFileSync(path.join(asks, 'nova-1.answer'), 'utf8')).toBe('allow')
+    expect(r.room.messages.find((m) => m.card?.type === 'ask')?.card).toMatchObject({
+      answered: 'allow',
+    })
+    d.launcher.release()
+    await r.destroy()
+  })
 })

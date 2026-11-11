@@ -7,7 +7,7 @@ import '../chat/composer/composer.css'
 import { getPref, setPref, type Parse } from '../ui-prefs'
 import { TypingDots } from '../ui/TypingDots'
 import { catchUp, sinceIndex } from './decision-view'
-import { RoomDecisionCard } from './DecisionCards'
+import { RoomDecisionCard, SeatAskView } from './DecisionCards'
 import { MemberFace } from './MemberStack'
 import { mentionMarkdown } from './mentions'
 import { presenceGroups } from './presence'
@@ -174,7 +174,11 @@ export function RoomFeed({ room }: { room: Room }) {
               {m.id === sinceId ? (
                 <SinceBlock room={room} from={since!} onDismiss={() => setSince(null)} />
               ) : null}
-              {members && (m.author === ISAAC || m.author === ROOM_SYSTEM) ? (
+              {members && m.card?.type === 'ask' ? (
+                <div className="eva-rooms-ask" data-testid={`room-msg-${m.id}`}>
+                  <SeatAskView card={m.card} room={room} />
+                </div>
+              ) : members && (m.author === ISAAC || m.author === ROOM_SYSTEM) ? (
                 <ChatRoomOwnRow msg={m} room={room} />
               ) : (
                 <RoomMessageRow

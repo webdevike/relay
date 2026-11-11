@@ -2,12 +2,14 @@ import { useState, type MouseEvent } from 'react'
 import { Button } from '@mantine/core'
 import { IconArrowUpRight, IconScale, IconUsersGroup } from '@tabler/icons-react'
 import { councilMoney, type RoomCardRef } from '@relay/protocol'
-import { ROOM_EFFORTS } from '@evaos/contract'
+import { ROOM_EFFORTS, ROOM_SYSTEM, latestCard } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 import { openFromNav } from '../navigation/open-in-app'
+import { DecisionRecord, roomPeople } from './DecisionCards'
+import { whereWeAre } from './decision-view'
 import { MemberStack } from './MemberStack'
-import { conveneRoom, declineRoom, setEditing, useRooms } from './rooms-store'
-import type { Room } from './types'
+import { conveneRoom, decideInRoom, declineRoom, setEditing, useRooms } from './rooms-store'
+import { ISAAC, type Room } from './types'
 import './room-card.css'
 
 /** "Light · cap $3": the effort's name and the hard cap. */
@@ -155,16 +157,42 @@ function ProposalCard({ room }: { room: Room }) {
   )
 }
 
-/** A convened council: one row with its state; the whole row opens the room. */
+/**
+ * A convened council: one row with where it stands (Where we are: leaning, decided, questions for
+ * Isaac); the whole row opens the room. Once the room makes its call, the card is the decision
+ * record, acting on the room.
+ */
 function CouncilStrip({ room }: { room: Room }) {
+  const decision = latestCard(room, 'decision')
+  if (decision)
+    return (
+      <div data-testid={`room-card-${room.id}`} data-phase={room.phase} data-proposal>
+        <DecisionRecord
+          card={decision}
+          people={roomPeople(room)}
+          onDecide={(action, option) => decideInRoom(room.id, decision.id, action, option)}
+          onOpen={() => openFromNav(placeOf(`room:${room.id}`), {})}
+        />
+      </div>
+    )
+  const w = whereWeAre(room)
+  const lean =
+    w?.lean.kind === 'decided' || w?.lean.kind === 'leaning'
+      ? `${w.lean.kind} ${w.lean.text}`
+      : w?.lean.kind === 'split'
+        ? 'split vote'
+        : w?.lean.kind === 'voting'
+          ? 'voting'
+          : null
   const state =
     room.phase === 'open'
       ? 'in session'
       : room.phase === 'paused'
         ? 'paused'
-        : room.messages.some((m) => m.author !== 'isaac' && m.author !== 'system')
+        : room.messages.some((m) => m.author !== ISAAC && m.author !== ROOM_SYSTEM)
           ? 'waiting on you'
           : 'starting'
+  const you = w?.you?.kind === 'question' ? `${w.you.count} for you` : null
   return (
     <button
       type="button"
@@ -176,7 +204,7 @@ function CouncilStrip({ room }: { room: Room }) {
     >
       <MemberStack room={room} />
       <span className="eva-room-strip-text" data-testid="room-card-strip">
-        Council · {state}
+        {['Council', lean ?? state, you].filter((s) => s !== null).join(' · ')}
       </span>
       <span className="eva-room-strip-open">
         <IconArrowUpRight size={14} stroke={1.5} aria-hidden />

@@ -2,7 +2,7 @@
 // before the details marker is spoken; code, images, tables, sign-in and replies tokens and markup are
 // dropped and links become their text, so nothing reads out as symbols.
 
-import { splitPins, splitSignin } from "@relay/protocol";
+import { splitPins, splitRoomCards, splitSignin } from "@relay/protocol";
 import { spokenPart } from "../assistant/voice";
 import { SILENCE_MARKER } from "../assistant/service";
 import { splitReplies } from "../assistant/replies";
@@ -13,7 +13,8 @@ import { splitReplies } from "../assistant/replies";
  * code fence hides everything after it and a half-written sign-in or replies token is held back.
  */
 export function plainSpeech(markdown: string, streaming: boolean): string {
-  const lines = splitSignin(splitReplies(splitPins(spokenPart(markdown), streaming).text, streaming).text, streaming)
+  const shown = splitSignin(splitReplies(splitPins(spokenPart(markdown), streaming).text, streaming).text, streaming).text;
+  const lines = splitRoomCards(shown, streaming)
     .text.replace(/```[\s\S]*?(?:```|$)/g, "\n")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")

@@ -27,14 +27,25 @@ export interface WhereWeAre {
     | null
 }
 
-/** The strip's content; null while the room has no decision card yet. */
+/**
+ * The strip's content; null while the room has no decision card and nothing waits on Isaac. A
+ * member's outward action waiting for his Allow (a guard ask) counts as a question for him.
+ */
 export function whereWeAre(room: Pick<Room, 'messages' | 'prompt' | 'title'>): WhereWeAre | null {
   const poll = latestCard(room, 'poll')
   const decision = latestCard(room, 'decision')
   const open = room.messages.filter(
-    (m) => m.card?.type === 'question' && m.card.answered === undefined,
+    (m) =>
+      (m.card?.type === 'question' && m.card.answered === undefined) ||
+      (m.card?.type === 'ask' && m.card.answered === undefined),
   )
-  if (!poll && !decision && !latestCard(room, 'proscons') && !latestCard(room, 'question'))
+  if (
+    !poll &&
+    !decision &&
+    !latestCard(room, 'proscons') &&
+    !latestCard(room, 'question') &&
+    open.length === 0
+  )
     return null
   let lean: WhereWeAre['lean'] = { kind: 'open' }
   if (decision && decision.state !== 'reopened') lean = { kind: 'decided', text: decision.title }

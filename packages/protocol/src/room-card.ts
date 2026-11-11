@@ -37,7 +37,8 @@ export function splitRoomCards(text: string, streaming = false): { text: string;
       cut = true;
       return "";
     });
-    if (rest.trim() !== "" || rest === line) kept.push(rest === line ? line : rest.trimEnd());
+    if (rest === line) kept.push(line);
+    else if (rest.trim() !== "") kept.push(rest.replace(/(\S)[ \t]{2,}(?=\S)/g, "$1 ").trimEnd());
   }
   let out = cut ? kept.join("\n").replace(/\n{3,}/g, "\n\n").replace(/^\n+|\n+$/g, "") : text;
   if (streaming && !fenced) {

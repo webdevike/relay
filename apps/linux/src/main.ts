@@ -19,7 +19,7 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
-import { Drop, sessionReactionThread, type ServerMessage } from "@relay/protocol";
+import { ControlResult, Drop, sessionReactionThread, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "./agents/herdr";
 import { ASR_SCRIPT, AsrWorker, asrPython } from "./meetings/asr";
 import { loadAutoname, MeetingPipeline, type Autoname } from "./meetings/pipeline";
@@ -142,6 +142,7 @@ import { queryTools } from "./query/tools";
 import { ReviewsService } from "./reviews/service";
 import { FilePresence } from "./files/presence";
 import { ControlRelay } from "./control/relay";
+import { roomsControlRequest, roomsOutput } from "./control/rooms-cli";
 
 const USAGE = `relay-linux <command>
 
@@ -206,6 +207,13 @@ const USAGE = `relay-linux <command>
                                    30 s (or --work) becomes a work card in this chat while it
                                    carries on in its own chat; the card shows its result when it
                                    is done. \`consult -\` or no question reads stdin
+  rooms list | create '<json>' | update <roomId> '<json>' [--device <id or name>]
+                                   from an assistant's session ($RELAY_ASSISTANT): set up a
+                                   room in Relay Desktop (Assistants > Rooms) from this chat, or
+                                   change one; created idle, nothing runs until Isaac speaks.
+                                   create prints the card token to put on its own line in your
+                                   reply. \`relay-linux rooms\` alone prints the JSON shape; - or
+                                   no JSON reads stdin
   assistant list                   the running host's registry entries (JSON)
   assistant create --title <Name> [--scope "what it is for"] [--id <id>] [--start]
                                    add an assistant: registry entry, a first-run prime.md (it
@@ -1441,6 +1449,24 @@ async function assistantConsult(options: { agent: string | undefined; title: str
   console.log(`${options.agent} is working on "${result.title}" in their own chat. A work card is in this chat and shows the result when they finish (work ${result.id}).`);
 }
 
+/** `rooms create|update|list`: the desktop's rooms.* agent action through `POST /control/run`, as the calling assistant. */
+async function roomsCommand(verb: string | undefined, args: string[], device: string | undefined): Promise<void> {
+  const body = await roomsControlRequest({ verb, args, stdin: () => Bun.stdin.text(), assistant: process.env["RELAY_ASSISTANT"]?.trim() || undefined, device });
+  const response = await hostFetch(`${hostUrl()}/control/run`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const parsed = ControlResult.safeParse(await response.json().catch(() => null));
+  if (!parsed.success) {
+    console.error(`rooms ${verb}: Relay Host answered ${String(response.status)} ${response.statusText}`);
+    process.exit(1);
+  }
+  const out = roomsOutput(body.action, parsed.data);
+  for (const line of out.lines) (out.ok ? console.log : console.error)(line);
+  if (!out.ok) process.exit(1);
+}
+
 interface AssistantCliOptions {
   readonly agent: string | undefined;
   readonly id: string | undefined;
@@ -2292,6 +2318,7 @@ async function main(argv: string[]): Promise<void> {
       default: { type: "string" },
       answer: { type: "string" },
       help: { type: "boolean", short: "h", default: false },
+      device: { type: "string" },
     },
   });
   const command = positionals[0] ?? "serve";
@@ -2438,6 +2465,9 @@ async function main(argv: string[]): Promise<void> {
       return;
     case "react":
       await react(values.agent, positionals.slice(1), values.message, values.clear);
+      return;
+    case "rooms":
+      await roomsCommand(positionals[1], positionals.slice(2), values.device);
       return;
     default:
       throw new Error(`unknown command ${command}\n\n${USAGE}`);

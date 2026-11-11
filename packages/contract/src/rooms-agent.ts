@@ -50,7 +50,11 @@ export const RoomsAgentMemberSchema = z
       'The exact omp model id, provider/id (as `omp --list-models` prints it)',
     ),
     thinking: OmpThinkingSchema.describe('Its thinking level; the model must take it'),
-    role: z.string().trim().max(80).describe('What it does here ("Critic", "Argue for"); may be ""'),
+    role: z
+      .string()
+      .trim()
+      .max(80)
+      .describe('What it does here ("Critic", "Argue for"); may be ""'),
     instructions: z.string().trim().min(1).max(4000).optional(),
   })
   .strict()
@@ -110,7 +114,7 @@ export const RoomsUpdateFields = {
 
 /** The card token an assistant's reply carries for a room (its own line). */
 export const roomCardToken = (roomId: string, title?: string): string =>
-  `[[room:${roomId}${title ? ` | ${title.replace(/[[\]\n|]/g, ' ').trim()}` : ''}]]`
+  `[[room:${roomId}${title ? ` | ${title.replace(/[[\]\n|\s]+/g, ' ').trim()}` : ''}]]`
 
 /** The room's place as a deep link (`room:<id>`). */
 export const roomLink = (roomId: string): string => `relay://open/room/${roomId}`
@@ -235,7 +239,8 @@ export function changeMembers(
     members = [...members, ...c.add.map((m) => resolveMember(m, assistants, taken))]
   }
   if (members.length === 0) throw coded('A room keeps at least one member.')
-  if (members.length > ROOM_MAX_MEMBERS) throw coded(`A room holds at most ${ROOM_MAX_MEMBERS} members.`)
+  if (members.length > ROOM_MAX_MEMBERS)
+    throw coded(`A room holds at most ${ROOM_MAX_MEMBERS} members.`)
   return members
 }
 

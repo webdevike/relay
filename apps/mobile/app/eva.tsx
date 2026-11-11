@@ -28,7 +28,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { expectKeyboard, keyboardHeight } from "@/lib/keyboardMotion";
-import { answerText, assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, stripAnswerContext, type AssistantMessage, type OpenAsk } from "@relay/protocol";
+import { answerText, assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, splitRoomCards, stripAnswerContext, type AssistantMessage, type OpenAsk } from "@relay/protocol";
 import { AvatarTitle } from "@/ui/AvatarTitle";
 import { FrostedBar } from "@/ui/FrostedBar";
 import { Banner } from "@/ui/Banner";
@@ -36,6 +36,7 @@ import { Callout } from "@/ui/Callout";
 import { EmptyState } from "@/ui/EmptyState";
 import { IconButton } from "@/ui/IconButton";
 import { SignInCard } from "@/ui/SignInCard";
+import { RoomCardRow } from "@/rooms/RoomCardRow";
 import { Text } from "@/ui/Text";
 import { MessageAppearance } from "@/ui/MessageAppearance";
 import { ReplyChips } from "@/ui/ReplyChips";
@@ -968,12 +969,15 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
     }
     case "assistant": {
       // Markdown images Eva embeds stack above the bubble as tiles, as Dot's do; the prose keeps its bubble.
-      const { images: tiles, hasBody } = topLevelImages(message.text);
+      // A `[[room:<id>]]` line (an assistant set up a room) is a room card under it.
+      const roomed = splitRoomCards(message.text, streaming);
+      const text = roomed.text;
+      const { images: tiles, hasBody } = topLevelImages(text);
       const { signin } = message;
-      const showBubble = hasBody || (imageCount === 0 && tiles.length === 0 && signin === undefined);
+      const showBubble = hasBody || (imageCount === 0 && tiles.length === 0 && signin === undefined && roomed.rooms.length === 0);
       // A reply with widgets breaks out to the row's full width: its prose stays in texting bubbles,
       // each widget sits in a card of its own between them. One reaction target for the whole reply.
-      const segments = hasBody ? bubbleSegments(message.text) : [];
+      const segments = hasBody ? bubbleSegments(text) : [];
       const wide = segments.some((segment) => segment.kind === "widget");
       // The whole row reports its media's failures, tiles above the bubble included (`RenderMessage`).
       return (
@@ -998,7 +1002,7 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
               </View>
             )}
             {showBubble && (
-              <ChatBubble messageKey={reactionKey} side="left" text={message.text} style={wide ? styles.evaWideFrame : styles.evaBubbleFrame} radius={EVA_RADIUS} ring={page}>
+              <ChatBubble messageKey={reactionKey} side="left" text={text} style={wide ? styles.evaWideFrame : styles.evaBubbleFrame} radius={EVA_RADIUS} ring={page}>
                 {wide ? (
                   <View style={styles.segments}>
                     {segments.map((segment, i) =>
@@ -1015,12 +1019,15 @@ function Row({ agent, message, receipt, streaming, sessionId, local, onOpenImage
                   </View>
                 ) : (
                   <View style={[styles.evaBubble, { backgroundColor: bubbleFill }]}>
-                    <MessageText text={message.text} large skipImages streaming={streaming} />
+                    <MessageText text={text} large skipImages streaming={streaming} />
                   </View>
                 )}
                 {waiting && <WaitingMark radius={EVA_RADIUS} pulse={pulse} page={page} />}
               </ChatBubble>
             )}
+            {roomed.rooms.map((r) => (
+              <RoomCardRow key={r.id} refRoom={r} />
+            ))}
             {replies !== null && (
               <View style={styles.replies}>
                 <ReplyChips replies={replies} onPick={onReply} />

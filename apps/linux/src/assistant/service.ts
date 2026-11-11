@@ -21,7 +21,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { foldGuestWork, MAX_ASK_QUESTION, OpenAsk, signinHost, splitPins, splitSignin, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type GuestEntry, type ServerMessage } from "@relay/protocol";
+import { foldGuestWork, MAX_ASK_QUESTION, OpenAsk, roomCardFallback, signinHost, splitPins, splitRoomCards, splitSignin, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type GuestEntry, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { liveSessionId } from "../agents/session-ref";
 import { parseSessionRows } from "../agents/transcript";
@@ -721,7 +721,9 @@ export class AssistantService implements AssistantThread {
   private push(reply: string): void {
     if (isSilent(reply)) return;
     // A push is display: no client's surface tag, even one an agent echoed back.
-    const raw = splitReplies(splitPins(untagged(reply)).text, false).text;
+    // A `[[room:<id>]]` card line reads as `Room: <title>` when it is all the reply says.
+    const roomed = splitRoomCards(splitReplies(splitPins(untagged(reply)).text, false).text);
+    const raw = roomed.text.trim() === "" && roomed.rooms[0] !== undefined ? roomCardFallback(roomed.rooms[0]) : roomed.text;
     const { text: shown, signin } = splitSignin(raw, false);
     const text = signin === undefined ? withoutDetailsMarker(raw) : shown.trim().length > 0 ? withoutDetailsMarker(shown.trim()) : `Sign in to ${signin.host}`;
     const recipients: { deviceId: string; token: string }[] = [];

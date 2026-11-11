@@ -126,6 +126,8 @@ export interface RoomWireChat {
   rev: number;
   /** List price so far: the room's total and each member's. */
   spend: { usd: number; byMember: Record<string, number> };
+  /** An assistant proposed it as a council (it reaches the phone once Isaac convened it). */
+  proposal?: boolean | undefined;
 }
 export interface RoomWire {
   id: string; kind?: "council" | "chat" | undefined; title: string; prompt: string; agents: RoomWireAgent[]; messages: RoomWireMessage[];
