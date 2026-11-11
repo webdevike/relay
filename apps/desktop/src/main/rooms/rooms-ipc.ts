@@ -60,9 +60,7 @@ export function registerRoomsIpc(ctx: MainContext): RoomsService {
     ...(claudeBin ? { claudeBin } : {}),
     ...(codexBin ? { codexBin } : {}),
     // Tests run every seat in omp on a cheap model.
-    ...(process.env.EVAOS_ROOMS_SEAT_MODEL
-      ? { ompModel: process.env.EVAOS_ROOMS_SEAT_MODEL }
-      : {}),
+    ...(process.env.EVAOS_ROOMS_SEAT_MODEL ? { ompModel: process.env.EVAOS_ROOMS_SEAT_MODEL } : {}),
     log,
   })
   const sessions = new Map<string, RoomSession | CouncilSession>()

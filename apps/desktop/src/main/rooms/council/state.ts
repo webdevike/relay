@@ -43,7 +43,11 @@ export const CouncilStateSchema = z.object({
   /** `memory/rooms/<stem>`: the record and routing log keep it across resumes. */
   stem: z.string(),
   /** How far the run got: the brief and the contract (or plan) are done, and the next round to run. */
-  progress: z.object({ briefed: z.boolean(), planned: z.boolean(), nextRound: z.number().int().min(1) }),
+  progress: z.object({
+    briefed: z.boolean(),
+    planned: z.boolean(),
+    nextRound: z.number().int().min(1),
+  }),
   /** Per seat: the highest message number it has been shown, and its harness session. */
   seats: z.record(
     z.string(),

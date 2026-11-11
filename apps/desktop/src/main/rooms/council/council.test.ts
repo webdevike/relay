@@ -492,7 +492,9 @@ describe('CouncilSession', () => {
     const c = room.council!
     expect(room.phase).toBe('resolved')
     // Not every seat got its final position in: those that could pass the cap were skipped.
-    expect(room.messages.some((m) => m.text.includes('turns that could pass the cap are skipped'))).toBe(true)
+    expect(
+      room.messages.some((m) => m.text.includes('turns that could pass the cap are skipped')),
+    ).toBe(true)
     expect(c.spend.usd).toBeLessThanOrEqual(c.spend.cap + 1e-9)
     expect(c.spend.cap).toBeCloseTo(cap)
   }, 60_000)

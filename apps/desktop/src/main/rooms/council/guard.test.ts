@@ -188,7 +188,9 @@ describe('seat guard: PreToolUse hook', { timeout: 20_000 }, () => {
         cwd: workdir,
       },
     ]) {
-      const res = JSON.parse(await hook(g, input)) as { hookSpecificOutput: Record<string, unknown> }
+      const res = JSON.parse(await hook(g, input)) as {
+        hookSpecificOutput: Record<string, unknown>
+      }
       expect(res.hookSpecificOutput.permissionDecision).toBe('deny')
       expect(String(res.hookSpecificOutput.permissionDecisionReason)).toContain(scratch)
     }

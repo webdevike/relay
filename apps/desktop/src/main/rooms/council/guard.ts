@@ -555,7 +555,9 @@ export function installGuard(o: GuardOptions): GuardInstall {
       workdir: path.resolve(o.workdir),
       scratch: path.resolve(o.scratch),
       // The app's own temp dir (guard files, asks) and the system ones.
-      temps: [...new Set([os.tmpdir(), '/tmp', '/private/tmp', '/var/folders', '/private/var/folders'])],
+      temps: [
+        ...new Set([os.tmpdir(), '/tmp', '/private/tmp', '/var/folders', '/private/var/folders']),
+      ],
       asksDir: o.asksDir,
       seatId: o.seatId,
       waitMs: o.waitMs ?? ASK_WAIT_MS,

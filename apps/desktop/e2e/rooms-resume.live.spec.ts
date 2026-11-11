@@ -66,23 +66,39 @@ interface E2eWindow {
   __evaosShell?: { openPlace(k: string, n: boolean): void }
 }
 
-const invoke = async (page: Page, channel: string, input: unknown): Promise<z.infer<typeof Result>> =>
+const invoke = async (
+  page: Page,
+  channel: string,
+  input: unknown,
+): Promise<z.infer<typeof Result>> =>
   Result.parse(
-    await page.evaluate(([c, i]) => {
-      const w = window as unknown as E2eWindow // the preload's bridge, typed in the app, not here
-      return w.eva.invoke(c, i)
-    }, [channel, input] as const),
+    await page.evaluate(
+      ([c, i]) => {
+        const w = window as unknown as E2eWindow // the preload's bridge, typed in the app, not here
+        return w.eva.invoke(c, i)
+      },
+      [channel, input] as const,
+    ),
   )
 
 async function room(page: Page, id: string): Promise<WireRoom> {
   const r = await invoke(page, 'rooms.list', {})
-  const found = z.object({ rooms: z.array(WireRoom) }).parse(r.value).rooms.find((x) => x.id === id)
+  const found = z
+    .object({ rooms: z.array(WireRoom) })
+    .parse(r.value)
+    .rooms.find((x) => x.id === id)
   if (!found) throw new Error(`room ${id} is not listed`)
   return found
 }
 
 /** Answers the 80 % cap pause with Continue whenever it shows up (list prices of a cheap model). */
-async function waitFor(page: Page, id: string, ok: (r: WireRoom) => boolean, what: string, ms: number): Promise<WireRoom> {
+async function waitFor(
+  page: Page,
+  id: string,
+  ok: (r: WireRoom) => boolean,
+  what: string,
+  ms: number,
+): Promise<WireRoom> {
   const end = Date.now() + ms
   for (;;) {
     const r = await room(page, id)
@@ -90,7 +106,8 @@ async function waitFor(page: Page, id: string, ok: (r: WireRoom) => boolean, wha
     if (r.phase === 'failed' || r.phase === 'resolved')
       throw new Error(`room ${r.phase} while waiting for ${what} (round ${r.council?.round})`)
     if (r.council?.paused) await invoke(page, 'rooms.budget', { roomId: id, choice: 'continue' })
-    if (Date.now() > end) throw new Error(`timed out waiting for ${what} (phase ${r.phase}, round ${r.council?.round})`)
+    if (Date.now() > end)
+      throw new Error(`timed out waiting for ${what} (phase ${r.phase}, round ${r.council?.round})`)
     await page.waitForTimeout(2000)
   }
 }
@@ -118,7 +135,10 @@ const evaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rooms-resume-eva-'))
 fs.mkdirSync(path.join(evaRoot, 'work/src'), { recursive: true })
 fs.mkdirSync(path.join(evaRoot, 'memory/rooms'), { recursive: true })
 fs.mkdirSync(path.join(evaRoot, '.omp/tools'), { recursive: true })
-fs.writeFileSync(path.join(evaRoot, '.omp/tools/journal-add.ts'), '// test: the journal is not kept\n')
+fs.writeFileSync(
+  path.join(evaRoot, '.omp/tools/journal-add.ts'),
+  '// test: the journal is not kept\n',
+)
 fs.writeFileSync(
   path.join(evaRoot, 'work/src/poem.md'),
   '# Lighthouse\n\nThe light goes round.\nThe sea is wide.\n',
@@ -132,7 +152,11 @@ const env = {
 }
 test.use({ launchEnv: env })
 
-test('a council room paused after round 1 survives a quit and resumes to the end on the same seats', async ({ app, shell, configDir }) => {
+test('a council room paused after round 1 survives a quit and resumes to the end on the same seats', async ({
+  app,
+  shell,
+  configDir,
+}) => {
   await openRooms(shell)
   const made = await invoke(shell, 'rooms.create', {
     prompt: 'Make poem.md a four-line poem about a lighthouse with an AABB rhyme. Keep it short.',
@@ -162,14 +186,20 @@ test('a council room paused after round 1 survives a quit and resumes to the end
   await expect(shell.locator(sel('room-pause'))).toHaveText('Pausing after this round')
   await shot(shell, '1-pausing')
   const paused = await waitFor(shell, id, (r) => r.phase === 'paused', 'the pause', 900_000)
-  expect(paused.messages.filter((m) => m.card?.type === 'scorecard').map((m) => m.card!.round)).toEqual([1])
+  expect(
+    paused.messages.filter((m) => m.card?.type === 'scorecard').map((m) => m.card!.round),
+  ).toEqual([1])
   await expect(shell.locator(phase(id))).toHaveText('Paused')
   await expect(shell.locator(sel('room-resume'))).toBeVisible()
   await shot(shell, '2-paused')
   const workdir = paused.council!.workdir
-  const state = RoomState.parse(JSON.parse(fs.readFileSync(path.join(workdir, 'room.json'), 'utf8')))
+  const state = RoomState.parse(
+    JSON.parse(fs.readFileSync(path.join(workdir, 'room.json'), 'utf8')),
+  )
   expect(state.progress.nextRound).toBe(2)
-  const sessions = Object.fromEntries(Object.entries(state.seats).map(([seat, s]) => [seat, s.session?.file]))
+  const sessions = Object.fromEntries(
+    Object.entries(state.seats).map(([seat, s]) => [seat, s.session?.file]),
+  )
   for (const file of Object.values(sessions)) expect(file && fs.existsSync(file)).toBe(true)
   const spentAtPause = paused.council!.spend.usd
 
@@ -187,7 +217,9 @@ test('a council room paused after round 1 survives a quit and resumes to the end
     const done = await waitFor(page, id, (r) => r.phase === 'resolved', 'the delivery', 1_200_000)
     await shot(page, '4-resolved')
     // Round 1 ran once, round 2 after the resume; then the delivery.
-    const rounds = done.messages.filter((m) => m.card?.type === 'scorecard').map((m) => m.card!.round)
+    const rounds = done.messages
+      .filter((m) => m.card?.type === 'scorecard')
+      .map((m) => m.card!.round)
     expect(rounds[0]).toBe(1)
     expect(rounds.filter((r) => r === 1)).toHaveLength(1)
     expect(done.council!.round).toBeGreaterThanOrEqual(2)
@@ -197,7 +229,10 @@ test('a council room paused after round 1 survives a quit and resumes to the end
     // Every seat went on in its own omp session: one session file per seat, the one saved at the pause.
     for (const [seat, file] of Object.entries(sessions)) {
       const dir = path.dirname(file!)
-      expect(fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')), seat).toEqual([path.basename(file!)])
+      expect(
+        fs.readdirSync(dir).filter((f) => f.endsWith('.jsonl')),
+        seat,
+      ).toEqual([path.basename(file!)])
     }
     const record = fs.readFileSync(done.file!, 'utf8')
     expect(record).toMatch(/, \d+ rounds?\b/)
