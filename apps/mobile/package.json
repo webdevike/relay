@@ -10,6 +10,7 @@
     "lint": "eslint src app",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
+    "test:native": "sh scripts/test-native.sh",
     "build": "expo export --platform ios --output-dir dist",
     "android": "expo run:android",
     "vnc:build": "bun vnc/build.mjs"

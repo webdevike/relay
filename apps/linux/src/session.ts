@@ -814,15 +814,16 @@ export class ClientSession {
         break;
       case "live.start":
       case "live.end":
+      case "live.resume":
         if (this.deps.live !== null) this.deps.live.receive(this.sink, message);
-        else if (message.t === "live.start")
+        else if (message.t !== "live.end")
           this.sink.send({
             t: "live.state",
             callId: message.callId,
             agent: message.agent,
             state: "ended",
             error: "This host cannot take live calls",
-            fallback: true,
+            ...(message.t === "live.start" ? { fallback: true } : {}),
           });
         break;
       case "studio.list":

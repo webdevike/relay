@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentSession, ServerMessage } from "@relay/protocol";
+import { LIVE_RECONNECT_GRACE_MS, type AgentSession, type ServerMessage } from "@relay/protocol";
 import { voiceNote } from "../src/assistant/voice";
 import { estimatedTokens, headline, liveBrief, memoryBrief, recentTurns } from "../src/live/brief";
 import { clockLine, CLOSE_WAIT_MS, liveInstructions, LiveCall, pickFiller, TICK_MS, TRANSCRIPT_WAIT_MS, WAIT_FILLERS, type LiveThread } from "../src/live/call";
@@ -356,5 +356,71 @@ describe("live session setup", () => {
     const service = new LiveService({ thread: () => new FakeThread(), api: null, voice: () => "marin", clock: new FakeClock(), log: () => undefined });
     service.receive(sink, { t: "live.start", callId: "l1", agent: "nova", sdp: "v=0" });
     expect(sent).toEqual([{ t: "live.state", callId: "l1", agent: "nova", state: "ended", error: "No OpenAI key on this host", fallback: true }]);
+  });
+});
+
+interface FakePhone {
+  readonly sink: FrameSink;
+  readonly sent: ServerMessage[];
+}
+
+describe("live call without its phone", () => {
+  function phone(): FakePhone {
+    const sent: ServerMessage[] = [];
+    return { sent, sink: { send: (message) => sent.push(message), close: () => undefined } };
+  }
+
+  async function calling(): Promise<{ service: LiveService; api: FakeApi; clock: FakeClock; first: FakePhone }> {
+    const api = new FakeApi();
+    const clock = new FakeClock();
+    const service = new LiveService({ thread: () => new FakeThread(), api, voice: () => "marin", clock, log: () => undefined });
+    const first = phone();
+    service.receive(first.sink, { t: "live.start", callId: "l1", agent: "nova", sdp: "v=0" });
+    await settle();
+    return { service, api, clock, first };
+  }
+
+  it("ends the call and closes the GPT-Live session when the phone's socket stays gone past the grace", async () => {
+    const h = await calling();
+    h.service.drop(h.first.sink);
+    h.clock.advance(LIVE_RECONNECT_GRACE_MS - 1);
+    expect(h.api.sent.some((event) => event["type"] === "session.close")).toBe(false);
+    h.clock.advance(1);
+    expect(h.api.sent.at(-1)).toMatchObject({ type: "session.close" });
+    h.clock.advance(CLOSE_WAIT_MS);
+    expect(h.api.sidebandClosed).toBe(true);
+    const late = phone();
+    h.service.receive(late.sink, { t: "live.resume", callId: "l1", agent: "nova" });
+    expect(late.sent).toEqual([{ t: "live.state", callId: "l1", agent: "nova", state: "ended", error: "The call ended while the phone was away" }]);
+  });
+
+  it("keeps the call when the phone reconnects within the grace, and reports to the new socket", async () => {
+    const h = await calling();
+    h.service.drop(h.first.sink);
+    h.clock.advance(LIVE_RECONNECT_GRACE_MS / 2);
+    const back = phone();
+    h.service.receive(back.sink, { t: "live.resume", callId: "l1", agent: "nova" });
+    expect(back.sent).toEqual([{ t: "live.state", callId: "l1", agent: "nova", state: "listening" }]);
+    h.clock.advance(LIVE_RECONNECT_GRACE_MS * 2);
+    expect(h.api.sent.some((event) => event["type"] === "session.close")).toBe(false);
+    h.api.emit({ type: "session.closed", reason: "peer_disconnected", usage: { seconds: 42 } });
+    expect(back.sent.at(-1)).toMatchObject({ t: "live.state", callId: "l1", state: "ended" });
+    expect(h.first.sent.some((message) => message.t === "live.state" && message.state === "ended")).toBe(false);
+  });
+
+  it("hangs up from a new socket, and a second drop starts a fresh grace", async () => {
+    const h = await calling();
+    h.service.drop(h.first.sink);
+    const back = phone();
+    h.service.receive(back.sink, { t: "live.resume", callId: "l1", agent: "nova" });
+    h.service.drop(back.sink);
+    h.clock.advance(LIVE_RECONNECT_GRACE_MS);
+    expect(h.api.sent.at(-1)).toMatchObject({ type: "session.close" });
+
+    const other = await calling();
+    const fresh = phone();
+    other.service.drop(other.first.sink);
+    other.service.receive(fresh.sink, { t: "live.end", callId: "l1" });
+    expect(other.api.sent.at(-1)).toMatchObject({ type: "session.close" });
   });
 });

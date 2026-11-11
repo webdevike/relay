@@ -1,6 +1,8 @@
 // What a live call shows outside the app: the lock screen banner (assistant, state, the latest
 // words, elapsed time, End) and the Dynamic Island. LiveCallEngine (modules/live-call) starts,
-// updates and ends the activity; End runs EndLiveCallIntent in the app.
+// updates and ends the activity; End runs EndLiveCallIntent in the app. Past its stale date (the
+// app stopped refreshing it: killed or suspended mid-call) it shows "Disconnected" with no running
+// timer, and End still clears it.
 
 import ActivityKit
 import AppIntents
@@ -20,20 +22,24 @@ private let accent = Color(red: 0x7C / 255, green: 0x9C / 255, blue: 0xFF / 255)
 private extension LiveCallAttributes.ContentState {
   var ended: Bool { state == "ended" }
 
-  func label(_ name: String) -> String {
+  func label(_ name: String, stale: Bool) -> String {
+    if stale && !ended { return "Disconnected" }
     switch state {
     case "connecting": return "Connecting…"
     case "listening": return "Listening"
     case "thinking": return "\(name) is thinking…"
     case "speaking": return "Speaking"
+    case "reconnecting": return "Reconnecting…"
     case "ended": return "Call ended"
     default: return state
     }
   }
 
-  var symbol: String {
+  func symbol(stale: Bool) -> String {
+    if stale && !ended { return "phone.down" }
     switch state {
     case "thinking": return "ellipsis.bubble"
+    case "reconnecting": return "arrow.triangle.2.circlepath"
     case "ended": return "phone.down"
     default: return "waveform"
     }
@@ -42,9 +48,10 @@ private extension LiveCallAttributes.ContentState {
 
 private struct Elapsed: View {
   let state: LiveCallAttributes.ContentState
+  let stale: Bool
 
   var body: some View {
-    if state.ended {
+    if state.ended || stale {
       Text("Ended")
     } else {
       Text(timerInterval: state.startedAt...Date.distantFuture, countsDown: false)
@@ -70,21 +77,22 @@ private struct LockScreenBanner: View {
 
   var body: some View {
     let state = context.state
+    let stale = context.isStale
     VStack(alignment: .leading, spacing: 10) {
       HStack(alignment: .center, spacing: 12) {
-        Image(systemName: state.symbol)
+        Image(systemName: state.symbol(stale: stale))
           .font(.title2.weight(.semibold))
           .foregroundStyle(accent)
           .frame(width: 32)
         VStack(alignment: .leading, spacing: 2) {
           Text(context.attributes.agentName)
             .font(.headline)
-          Text(state.label(context.attributes.agentName))
+          Text(state.label(context.attributes.agentName, stale: stale))
             .font(.subheadline)
             .foregroundStyle(.secondary)
         }
         Spacer(minLength: 8)
-        Elapsed(state: state)
+        Elapsed(state: state, stale: stale)
           .font(.subheadline.weight(.medium))
           .foregroundStyle(.secondary)
           .multilineTextAlignment(.trailing)
@@ -111,18 +119,19 @@ struct LiveCallLiveActivity: Widget {
         .activitySystemActionForegroundColor(accent)
     } dynamicIsland: { context in
       let state = context.state
+      let stale = context.isStale
       let name = context.attributes.agentName
       return DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
           Label {
             Text(name).font(.headline)
           } icon: {
-            Image(systemName: state.symbol).foregroundStyle(accent)
+            Image(systemName: state.symbol(stale: stale)).foregroundStyle(accent)
           }
           .padding(.leading, 4)
         }
         DynamicIslandExpandedRegion(.trailing) {
-          Elapsed(state: state)
+          Elapsed(state: state, stale: stale)
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.trailing)
@@ -131,7 +140,7 @@ struct LiveCallLiveActivity: Widget {
         }
         DynamicIslandExpandedRegion(.bottom) {
           VStack(alignment: .leading, spacing: 8) {
-            Text(state.line.isEmpty ? state.label(name) : state.line)
+            Text(state.line.isEmpty || stale ? state.label(name, stale: stale) : state.line)
               .font(.subheadline)
               .lineLimit(2)
               .frame(maxWidth: .infinity, alignment: .leading)
@@ -141,14 +150,14 @@ struct LiveCallLiveActivity: Widget {
           }
         }
       } compactLeading: {
-        Image(systemName: state.symbol)
+        Image(systemName: state.symbol(stale: stale))
           .foregroundStyle(accent)
       } compactTrailing: {
-        if state.state == "connecting" || state.state == "thinking" || state.ended {
-          Image(systemName: state.ended ? "phone.down.fill" : "ellipsis")
+        if stale || state.ended || state.state == "connecting" || state.state == "thinking" || state.state == "reconnecting" {
+          Image(systemName: stale || state.ended ? "phone.down.fill" : "ellipsis")
             .foregroundStyle(accent)
         } else {
-          Elapsed(state: state)
+          Elapsed(state: state, stale: stale)
             .frame(maxWidth: 44)
             .foregroundStyle(accent)
         }

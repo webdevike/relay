@@ -1084,6 +1084,7 @@ describe("live call frames", () => {
     });
     roundTrip(parseClientMessage, { t: "live.end", callId: "l-1" });
     roundTrip(parseClientMessage, { t: "live.end", callId: "l-1", reason: "ICE failed" });
+    roundTrip(parseClientMessage, { t: "live.resume", callId: "l-1", agent: "astra" });
     roundTrip(parseServerMessage, {
       t: "live.answer",
       callId: "l-1",

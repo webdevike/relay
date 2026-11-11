@@ -8,9 +8,13 @@
 // `live.start` -> `live.answer` -> remote description (on an IPv6-only network each IPv4 candidate
 // also at its NAT64 address, see LiveCallNetwork) -> `session.started` on the data channel:
 // listening. Anything failing before that ends the call cleanly and reports a fallback (the
-// legacy call); once live, failures just end it. end(): `session.close` (waiting up to 3 s for
-// `session.closed`), `live.end` to the host, everything closed, audio session handed back, the
-// Live Activity ended. One call at a time: starting another ends the current one first.
+// legacy call). Once live, a watchdog (LiveCallLiveness) checks every 2 s: losing the host link or
+// the WebRTC connection shows `reconnecting` (the host link is redialed and the call claimed with
+// `live.resume`) and ends the call if it is not back within 20 s; hearing nothing at all (no host
+// frame, data channel event or GPT-Live audio packet) for 45 s ends it too. end(): `session.close`
+// (waiting up to 3 s for `session.closed`), `live.end` to the host, everything closed, audio
+// session handed back, the Live Activity ended; with no call running it ends any leftover Live
+// Activity. One call at a time: starting another ends the current one first.
 
 import AVFoundation
 import Foundation
@@ -49,7 +53,7 @@ public enum LiveCallOutcome: Equatable {
 public struct LiveCallSnapshot: Equatable {
   public let agent: String
   public let callId: String
-  /// `connecting`, `listening`, `thinking`, `speaking` or `ended`.
+  /// `connecting`, `listening`, `thinking`, `speaking`, `reconnecting` or `ended`.
   public var state: String
   /// What the assistant is working on (`thinking`): Isaac's words, from the host.
   public var text: String?
@@ -95,7 +99,7 @@ private final class LiveCallRun {
   let agent: String
   let startedAt = Date()
   let observer = LiveCallPeerObserver()
-  let link = LiveCallHostLink()
+  var link = LiveCallHostLink()
   let gathered = LiveCallWaiter<Void>()
   let answer = LiveCallWaiter<String>()
   let started = LiveCallWaiter<Void>()
@@ -110,6 +114,13 @@ private final class LiveCallRun {
   var youEndMs: Int?
   var speakingTimer: Task<Void, Never>?
   var disconnectTimer: Task<Void, Never>?
+  var watchdog: Task<Void, Never>?
+  var redial: Task<Void, Never>?
+  var liveness = LiveCallLiveness(now: Date())
+  /// Showing `reconnecting`: the host link or WebRTC is down, within the grace.
+  var reconnecting = false
+  /// GPT-Live audio packets received so far (WebRTC stats); more since the last check is "heard".
+  var packetsReceived: Double = 0
   var audioObservers: [NSObjectProtocol] = []
   /// Why it did not go live, network-wise; sent to the host with `live.end`, never shown.
   var diagnosis: String?
@@ -217,13 +228,37 @@ public final class LiveCallEngine {
     NSLog("[LiveCall] live \(run.id)")
     UINotificationFeedbackGenerator().notificationOccurred(.success)
     update(run) { $0.state = run.hostThinking ? "thinking" : "listening" }
+    startWatchdog(run)
     return .live
   }
 
-  /// Hangs up the running call, if any. `reason` only when it failed.
+  /// Hangs up the running call, if any. `reason` only when it failed. With no call running (the
+  /// app was killed mid-call and End relaunched it) or one already ending, ends every Live
+  /// Activity still showing a call, so End always clears the card.
   public func end(reason: String? = nil) async {
-    guard let run else { return }
+    guard let run, !run.ending else {
+      activity.endAll()
+      return
+    }
     await finish(run, error: reason, fallback: false)
+  }
+
+  /// At launch: no call runs yet, so every live call Live Activity is a leftover of a killed app.
+  public func sweepOrphanedActivities() {
+    guard run == nil else { return }
+    activity.endAll()
+  }
+
+  /// The app is terminating: tell GPT-Live and the host the call is over (best effort, nothing
+  /// waits for them) and end the Live Activity before the process goes.
+  public func terminate() {
+    if let run, !run.ending {
+      NSLog("[LiveCall] app terminating; ending \(run.id)")
+      run.ending = true
+      sendEvent(["type": "session.close"], on: run)
+      run.link.send(["t": "live.end", "callId": run.id, "reason": "app terminated"])
+    }
+    activity.endAllBeforeExit(seconds: 2)
   }
 
   public func setMuted(_ muted: Bool) {
@@ -250,15 +285,7 @@ public final class LiveCallEngine {
     try check(run)
     guard let sdp = peer.localDescription?.sdp else { throw LiveCallFailure.fallback("No WebRTC offer") }
 
-    run.link.onFrame = { [weak self, weak run] frame in
-      guard let self, let run else { return }
-      self.hostFrame(frame, run)
-    }
-    run.link.onClose = { [weak run] reason in
-      // The voice flows phone <-> OpenAI; without the host the call goes on, it just hears no `thinking`.
-      NSLog("[LiveCall] host link closed: \(reason)")
-      if let run, !run.live { run.failWaits(LiveCallFailure.fallback("Lost the connection to your Mac")) }
-    }
+    attach(run.link, to: run)
     try await run.link.connect(to: LiveCallHostStore.load(), secondsPerHost: Self.hostSeconds)
     try check(run)
     run.link.send(["t": "live.start", "callId": run.id, "agent": run.agent, "sdp": sdp])
@@ -404,6 +431,58 @@ public final class LiveCallEngine {
 
   // MARK: - Host and GPT-Live events
 
+  /// Routes `link`'s frames and close to `run`, while it is the run's current link.
+  private func attach(_ link: LiveCallHostLink, to run: LiveCallRun) {
+    link.onFrame = { [weak self, weak run, weak link] frame in
+      guard let self, let run, let link, link === run.link else { return }
+      run.liveness.heard(at: Date())
+      self.hostFrame(frame, run)
+    }
+    link.onClose = { [weak self, weak run, weak link] reason in
+      NSLog("[LiveCall] host link closed: \(reason)")
+      guard let self, let run, let link, link === run.link, !run.ending else { return }
+      if run.live {
+        self.hostLinkLost(run)
+      } else {
+        run.failWaits(LiveCallFailure.fallback("Lost the connection to your Mac"))
+      }
+    }
+  }
+
+  /// The host link dropped mid-call: `reconnecting`, and redial until it is back (the host keeps
+  /// the call for us as long) or the watchdog ends the call.
+  private func hostLinkLost(_ run: LiveCallRun) {
+    run.liveness.hostLost(at: Date())
+    evaluate(run)
+    guard run.redial == nil else { return }
+    run.redial = Task { @MainActor [weak self, weak run] in
+      while !Task.isCancelled {
+        guard let self, let run, !run.ending, run.liveness.hostLostAt != nil else { return }
+        let link = LiveCallHostLink()
+        self.attach(link, to: run)
+        do {
+          try await link.connect(to: LiveCallHostStore.load(), secondsPerHost: Self.hostSeconds)
+        } catch {
+          link.close()
+          try? await Task.sleep(nanoseconds: 2_000_000_000)
+          continue
+        }
+        guard !Task.isCancelled, !run.ending, self.run === run else {
+          link.close()
+          return
+        }
+        run.link.close()
+        run.link = link
+        run.redial = nil
+        link.send(["t": "live.resume", "callId": run.id, "agent": run.agent])
+        NSLog("[LiveCall] host link back; resuming \(run.id)")
+        run.liveness.hostBack(at: Date())
+        self.evaluate(run)
+        return
+      }
+    }
+  }
+
   private func hostFrame(_ frame: [String: Any], _ run: LiveCallRun) {
     guard frame["callId"] as? String == run.id, !run.ending else { return }
     switch frame["t"] as? String {
@@ -444,6 +523,7 @@ public final class LiveCallEngine {
       let event = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       let type = event["type"] as? String
     else { return }
+    run.liveness.heard(at: Date())
     switch type {
     case "session.started":
       run.started.resolve(())
@@ -502,27 +582,87 @@ public final class LiveCallEngine {
     case .connected:
       run.disconnectTimer?.cancel()
       run.disconnectTimer = nil
-    case .disconnected:
-      // Often a network handover that recovers; give it a few seconds.
-      run.disconnectTimer?.cancel()
-      run.disconnectTimer = Task { @MainActor [weak self, weak run] in
-        try? await Task.sleep(nanoseconds: 6_000_000_000)
-        guard !Task.isCancelled, let self, let run else { return }
-        self.connectionLost(run)
+      if run.live {
+        run.liveness.peerBack(at: Date())
+        evaluate(run)
       }
-    case .failed:
-      connectionLost(run)
+    case .disconnected:
+      // Often a network handover that recovers. Live: `reconnecting` within the watchdog's grace.
+      if run.live {
+        run.liveness.peerLost(at: Date())
+        evaluate(run)
+        return
+      }
+      run.disconnectTimer?.cancel()
+      run.disconnectTimer = Task { @MainActor [weak run] in
+        try? await Task.sleep(nanoseconds: 6_000_000_000)
+        guard !Task.isCancelled, let run, !run.ending, !run.live else { return }
+        run.failWaits(LiveCallFailure.fallback("Couldn't connect to GPT-Live"))
+      }
+    case .failed, .closed:
+      if run.live {
+        Task { await finish(run, error: "Lost the voice connection", fallback: false) }
+      } else {
+        run.failWaits(LiveCallFailure.fallback("Couldn't connect to GPT-Live"))
+      }
     default:
       break
     }
   }
 
-  private func connectionLost(_ run: LiveCallRun) {
-    guard !run.ending else { return }
-    if run.live {
-      Task { await finish(run, error: "Lost the voice connection", fallback: false) }
-    } else {
-      run.failWaits(LiveCallFailure.fallback("Couldn't connect to GPT-Live"))
+  // MARK: - Watchdog
+
+  /// Every 2 s while the call is live: count GPT-Live's audio packets, then let LiveCallLiveness
+  /// say whether the call is live, reconnecting, or over. A suspended app checks again the moment
+  /// it wakes, and a call that died meanwhile ends then.
+  private func startWatchdog(_ run: LiveCallRun) {
+    run.liveness = LiveCallLiveness(now: Date())
+    run.watchdog?.cancel()
+    run.watchdog = Task { @MainActor [weak self, weak run] in
+      while !Task.isCancelled {
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        guard !Task.isCancelled, let self, let run, !run.ending else { return }
+        self.sampleAudio(run)
+        self.evaluate(run)
+      }
+    }
+  }
+
+  private func sampleAudio(_ run: LiveCallRun) {
+    run.peer?.statistics { [weak run] report in
+      var packets: Double = 0
+      for stats in report.statistics.values where stats.type == "inbound-rtp" {
+        packets += (stats.values["packetsReceived"] as? NSNumber)?.doubleValue ?? 0
+      }
+      DispatchQueue.main.async {
+        MainActor.assumeIsolated {
+          guard let run, !run.ending, packets > run.packetsReceived else { return }
+          run.packetsReceived = packets
+          run.liveness.heard(at: Date())
+        }
+      }
+    }
+  }
+
+  private func evaluate(_ run: LiveCallRun) {
+    guard run.live, !run.ending, self.run === run else { return }
+    switch run.liveness.verdict(at: Date()) {
+    case .live:
+      if run.reconnecting {
+        run.reconnecting = false
+        NSLog("[LiveCall] reconnected \(run.id)")
+        update(run) { $0.state = run.hostThinking ? "thinking" : "listening" }
+      }
+      activity.keepAlive()
+    case .reconnecting:
+      if !run.reconnecting {
+        run.reconnecting = true
+        NSLog("[LiveCall] reconnecting \(run.id)")
+        update(run) { $0.state = "reconnecting" }
+      }
+      activity.keepAlive()
+    case .end(let reason):
+      Task { await finish(run, error: reason, fallback: false) }
     }
   }
 
@@ -535,6 +675,8 @@ public final class LiveCallEngine {
     run.failWaits(LiveCallFailure.cancelled)
     run.speakingTimer?.cancel()
     run.disconnectTimer?.cancel()
+    run.watchdog?.cancel()
+    run.redial?.cancel()
     run.audioObservers.forEach(NotificationCenter.default.removeObserver)
     run.audioObservers = []
     // Hung up is hung up: the microphone goes quiet and the Live Activity says so now, not after
@@ -582,6 +724,8 @@ public final class LiveCallEngine {
   private func update(_ run: LiveCallRun, _ change: (inout LiveCallSnapshot) -> Void) {
     guard self.run === run, var next = snapshot, next.callId == run.id else { return }
     change(&next)
+    // While reconnecting, words and host states still update the line but not the state.
+    if run.reconnecting && next.state != "ended" { next.state = "reconnecting" }
     guard next != snapshot else { return }
     snapshot = next
     onState?(next)

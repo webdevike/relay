@@ -119,7 +119,7 @@ const server = Bun.serve<Conn>({
       }
       if (!conn.authed) return;
       if (message.t === "ping") conn.sink.send({ t: "pong", ts: message.ts, serverTs: Date.now() });
-      else if (message.t === "live.start" || message.t === "live.end") live.receive(conn.sink, message);
+      else if (message.t === "live.start" || message.t === "live.end" || message.t === "live.resume") live.receive(conn.sink, message);
     },
     close(ws) {
       live.drop(ws.data.sink);

@@ -7,7 +7,8 @@
  */
 import { requireOptionalNativeModule, type NativeModule } from "expo-modules-core";
 
-export type LiveCallPhase = "connecting" | "listening" | "thinking" | "speaking" | "ended";
+/** `reconnecting`: the host link or the voice connection dropped; the call ends if it is not back within 20 s. */
+export type LiveCallPhase = "connecting" | "listening" | "thinking" | "speaking" | "reconnecting" | "ended";
 
 export interface LiveCallSnapshot {
   agent: string;
@@ -57,6 +58,7 @@ declare class LiveCallNative extends NativeModule<LiveCallEvents> {
   configure(options: { hosts: LiveCallHost[] }): void;
   /** Starts a call with `agent` (ending any other first); resolves once it is live or why not. */
   start(agent: string): Promise<LiveCallOutcome>;
+  /** Hangs up; with no call running, ends any Live Activity a killed call left behind. */
   end(): Promise<void>;
   setMuted(muted: boolean): void;
   current(): LiveCallSnapshot | null;

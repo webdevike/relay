@@ -9,7 +9,7 @@ import Foundation
 
 public struct LiveCallAttributes: ActivityAttributes {
   public struct ContentState: Codable, Hashable {
-    /// `connecting`, `listening`, `thinking`, `speaking` or `ended`.
+    /// `connecting`, `listening`, `thinking`, `speaking`, `reconnecting` or `ended`.
     public var state: String
     /// The latest words of the conversation (the assistant's, or Isaac's prefixed "You: "), or why it ended.
     public var line: String

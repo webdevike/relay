@@ -1,6 +1,7 @@
 {
   "platforms": ["apple"],
   "apple": {
-    "modules": ["LiveCallModule"]
+    "modules": ["LiveCallModule"],
+    "appDelegateSubscribers": ["LiveCallAppDelegate"]
   }
 }

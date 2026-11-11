@@ -843,14 +843,18 @@ const CallAudio = z.string().min(1).max(MAX_CALL_AUDIO_BASE64);
 // (`live.answer`); microphone and voice then flow phone <-> OpenAI over WebRTC. The host attaches
 // to the session's sideband and answers every delegation by giving Isaac's words to the
 // assistant's normal thread as a voice turn, handing the reply back for the voice to say. The
-// phone ends the call with `session.close` on its data channel and `live.end` here; a session the
-// phone abandons is closed by the host after MAX_LIVE_CALL_MS.
+// phone ends the call with `session.close` on its data channel and `live.end` here. When the
+// phone's socket closes mid-call, the host keeps the call LIVE_RECONNECT_GRACE_MS for the phone to
+// reconnect and claim it (`live.resume`), then ends it (and the GPT-Live session with it); a call
+// is never longer than MAX_LIVE_CALL_MS.
 // ---------------------------------------------------------------------------------------------
 
 /** Longest SDP offer or answer a live frame carries. */
 export const MAX_LIVE_SDP = 64 * 1024;
 /** A live call the phone never ends is closed by the host after this long. */
 export const MAX_LIVE_CALL_MS = 30 * 60_000;
+/** How long a live call outlives its phone's socket, for the phone to reconnect with `live.resume`. */
+export const LIVE_RECONNECT_GRACE_MS = 20_000;
 
 /**
  * Where a live call stands, as the host sees it. `connecting`: creating the GPT-Live session;
@@ -1808,6 +1812,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("live.start"), callId: CallId, agent: AssistantAgentId, sdp: LiveSdp }),
   /** Hang up live call `callId` (the phone also sends `session.close` on its data channel). `reason`: why, when it failed. */
   z.object({ t: z.literal("live.end"), callId: CallId, reason: z.string().max(2000).optional() }),
+  /** Claim live call `callId` with `agent` again on a new socket after the old one closed. Answered by `live.state`: where it stands, or `ended` when the host no longer has it. */
+  z.object({ t: z.literal("live.resume"), callId: CallId, agent: AssistantAgentId }),
   /** Ask for Studio's jobs, uploads and backends; answered by `studio.state`. */
   z.object({ t: z.literal("studio.list") }),
   /** Create, quote, cancel, delete, upload, grab a frame or refresh in Studio; answered by `studio.res` with the same `rid`. */

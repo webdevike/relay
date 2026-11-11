@@ -2224,6 +2224,7 @@ describe("live calls", () => {
     const frames: LiveClientMessage[] = [
       { t: "live.start", callId: "l1", agent: "nova", sdp: "v=0" },
       { t: "live.end", callId: "l1" },
+      { t: "live.resume", callId: "l1", agent: "nova" },
     ];
     for (const frame of frames) h.session.receive(frame);
     expect(received.map((entry) => entry.message)).toEqual(frames);
@@ -2244,6 +2245,8 @@ describe("live calls", () => {
       error: "This host cannot take live calls",
       fallback: true,
     });
+    h.session.receive({ t: "live.resume", callId: "l1", agent: "nova" });
+    expect(h.sink.last()).toEqual({ t: "live.state", callId: "l1", agent: "nova", state: "ended", error: "This host cannot take live calls" });
   });
 });
 

@@ -458,6 +458,13 @@ export class LiveCall {
     this.sideband.send({ type: "session.commentary.append", event_id: `${id}-say`, delegation_id: this.delegation, content: spoken });
   }
 
+  /** Tells the phone where the call stands again (it reconnected with `live.resume`). */
+  resendState(): void {
+    if (this.ended || this.state === null) return;
+    const text = this.stateText;
+    this.deps.send({ t: "live.state", callId: this.id, agent: this.agent, state: this.state, ...(text === undefined ? {} : { text }) });
+  }
+
   private setState(state: LiveState, text?: string): void {
     if (this.ended || (state === this.state && text === this.stateText)) return;
     this.state = state;

@@ -262,7 +262,7 @@ export type LiveClientMessage = Extract<ClientMessage, { t: `live.${string}` }>;
 export interface LiveRelaying {
   /** A `live.*` frame from the phone on `sink`; replies go back through it. */
   receive(sink: FrameSink, message: LiveClientMessage): void;
-  /** The socket closed; its call keeps running without it. */
+  /** The socket closed; its call waits LIVE_RECONNECT_GRACE_MS for a `live.resume`, then ends. */
   drop(sink: FrameSink): void;
   /** Every provider change; each call picks out its agent's session. */
   observe(change: AgentProviderChange): void;

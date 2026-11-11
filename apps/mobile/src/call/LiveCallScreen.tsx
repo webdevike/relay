@@ -26,6 +26,7 @@ const LABEL: Record<LiveCallPhase, string> = {
   listening: "Listening",
   thinking: "Thinking",
   speaking: "Speaking",
+  reconnecting: "Reconnecting…",
   ended: "Call ended",
 };
 const RING = 132;
