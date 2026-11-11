@@ -15,6 +15,8 @@ test.use({ startOnChat: false, toolPanes: false })
 test.setTimeout(1_800_000)
 
 const sel = (id: string): string => `[data-testid="${id}"]`
+/** The open room's phase pill (the rail rows carry one each too). */
+const phase = (id: string): string => `${sel(`room-${id}`)} ${sel('room-phase')}`
 const SHOTS = process.env.EVAOS_ROOMS_SHOTS ?? path.join(__dirname, '../test-results/rooms-resume')
 const MODEL = process.env.EVAOS_ROOMS_SEAT_MODEL ?? 'anthropic/claude-haiku-4-5'
 
@@ -85,7 +87,8 @@ async function waitFor(page: Page, id: string, ok: (r: WireRoom) => boolean, wha
   for (;;) {
     const r = await room(page, id)
     if (ok(r)) return r
-    if (r.phase === 'failed') throw new Error(`room failed while waiting for ${what}`)
+    if (r.phase === 'failed' || r.phase === 'resolved')
+      throw new Error(`room ${r.phase} while waiting for ${what} (round ${r.council?.round})`)
     if (r.council?.paused) await invoke(page, 'rooms.budget', { roomId: id, choice: 'continue' })
     if (Date.now() > end) throw new Error(`timed out waiting for ${what} (phase ${r.phase}, round ${r.council?.round})`)
     await page.waitForTimeout(2000)
@@ -97,7 +100,7 @@ async function openRooms(page: Page): Promise<void> {
     const w = window as unknown as E2eWindow // e2e hooks (EVAOS_E2E)
     w.__evaosShell?.openPlace('rooms', false)
   })
-  await page.waitForSelector(sel('rooms-rail'))
+  await page.waitForSelector(sel('rooms-page'))
 }
 
 async function shellOf(app: ElectronApplication): Promise<Page> {
@@ -133,12 +136,25 @@ test('a council room paused after round 1 survives a quit and resumes to the end
   await openRooms(shell)
   const made = await invoke(shell, 'rooms.create', {
     prompt: 'Make poem.md a four-line poem about a lighthouse with an AABB rhyme. Keep it short.',
-    council: { effort: 2, source: 'work/src', refs: [], routing: {} },
+    council: {
+      effort: 2,
+      source: 'work/src',
+      refs: [],
+      routing: {},
+      // A criterion round 1 cannot meet, so the judge does not call it converged before the pause.
+      rubric: [
+        { id: 'c1', name: 'Rhyme: four lines, AABB', owner: 'Whole' },
+        {
+          id: 'c2',
+          name: 'Revised: score 2 while the poem has had one build round, 9 once a second round revised it',
+          owner: 'Whole',
+        },
+      ],
+    },
   })
-  expect(made.ok, made.error?.message).toBe(true)
   const id = z.object({ roomId: z.string() }).parse(made.value).roomId
   await shell.click(sel(`rooms-rail-${id}`))
-  await expect(shell.locator(sel('room-phase'))).toHaveText('Live')
+  await expect(shell.locator(phase(id))).toHaveText('Live')
 
   // Pause once round 1 runs: the room stops at the end of it.
   await waitFor(shell, id, (r) => (r.council?.round ?? 0) >= 1, 'round 1', 900_000)
@@ -147,7 +163,7 @@ test('a council room paused after round 1 survives a quit and resumes to the end
   await shot(shell, '1-pausing')
   const paused = await waitFor(shell, id, (r) => r.phase === 'paused', 'the pause', 900_000)
   expect(paused.messages.filter((m) => m.card?.type === 'scorecard').map((m) => m.card!.round)).toEqual([1])
-  await expect(shell.locator(sel('room-phase'))).toHaveText('Paused')
+  await expect(shell.locator(phase(id))).toHaveText('Paused')
   await expect(shell.locator(sel('room-resume'))).toBeVisible()
   await shot(shell, '2-paused')
   const workdir = paused.council!.workdir
@@ -164,10 +180,10 @@ test('a council room paused after round 1 survives a quit and resumes to the end
     const page = await shellOf(again)
     await openRooms(page)
     await page.click(sel(`rooms-rail-${id}`))
-    await expect(page.locator(sel('room-phase'))).toHaveText('Paused')
+    await expect(page.locator(phase(id))).toHaveText('Paused')
     await shot(page, '3-reopened')
     await page.click(sel('room-resume'))
-    await expect(page.locator(sel('room-phase'))).toHaveText('Live')
+    await expect(page.locator(phase(id))).toHaveText('Live')
     const done = await waitFor(page, id, (r) => r.phase === 'resolved', 'the delivery', 1_200_000)
     await shot(page, '4-resolved')
     // Round 1 ran once, round 2 after the resume; then the delivery.
