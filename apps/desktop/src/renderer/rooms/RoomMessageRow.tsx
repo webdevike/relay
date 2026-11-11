@@ -1,6 +1,6 @@
 import { ActionIcon, Avatar, Tooltip } from '@mantine/core'
 import { IconMoodSmile, IconPin } from '@tabler/icons-react'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Markdown } from '../chat/markdown/Markdown'
 import { EvaPopover } from '../overlay'
 import { ROOM_JUDGE, ROOM_SYSTEM, type ChatRoomMember, type RoomCouncil } from '@evaos/contract'
@@ -71,6 +71,8 @@ export interface RoomMessageRowProps {
   council?: RoomCouncil | undefined
   /** A chat room's member who wrote it: its face (a rounded square), its role and guest tags. */
   member?: ChatRoomMember | undefined
+  /** Drawn in place of the council card: a chat room's decision card, wired to its room. */
+  cardSlot?: ReactNode
 }
 
 export function RoomMessageRow({
@@ -80,6 +82,7 @@ export function RoomMessageRow({
   continuation,
   council,
   member,
+  cardSlot,
 }: RoomMessageRowProps) {
   const author = authorOf(agents, msg.author)
   const seat = agents.find((a) => a.id === msg.author)?.seat
@@ -146,9 +149,10 @@ export function RoomMessageRow({
           <Markdown text={mentionMarkdown(msg.text, agents)} />
         ) : null}
         {msg.renders && msg.renders.length > 0 ? <RenderStrip renders={msg.renders} /> : null}
-        {msg.card ? (
-          <CouncilCard card={msg.card} ctx={{ roomId, agents, parts: council?.parts ?? [] }} />
-        ) : null}
+        {cardSlot ??
+          (msg.card ? (
+            <CouncilCard card={msg.card} ctx={{ roomId, agents, parts: council?.parts ?? [] }} />
+          ) : null)}
         {msg.reactions.length > 0 ? (
           <div className="eva-room-reactions">
             {msg.reactions.map((r) => (

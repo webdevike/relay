@@ -1,11 +1,12 @@
 /**
  * Routes Rooms' server frames: `welcome` says whether the host relays rooms (`features` has
  * ROOMS_FEATURE; an older host drops the socket on a frame it does not know, so nothing is sent
- * without it), pause / resume (ROOMS_RESUME_FEATURE) and chat rooms (ROOMS_CHAT_FEATURE),
+ * without it), pause / resume (ROOMS_RESUME_FEATURE), chat rooms (ROOMS_CHAT_FEATURE) and actions
+ * on their decision cards (ROOMS_DECIDE_FEATURE),
  * `rooms.state` replaces the list, `rooms.room` patches one, and `rooms.res` settles the
  * `rooms.cmd` waiting on its rid.
  */
-import { ROOMS_CHAT_FEATURE, ROOMS_FEATURE, ROOMS_RESUME_FEATURE, type RoomsResult, type ServerMessage } from "@relay/protocol";
+import { ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE, ROOMS_FEATURE, ROOMS_RESUME_FEATURE, type RoomsResult, type ServerMessage } from "@relay/protocol";
 import type { RoomsStore } from "@/state/rooms";
 
 export type RoomsFrameRouter = (message: ServerMessage) => void;
@@ -53,6 +54,7 @@ export function createRoomsFrameRouter(store: RoutedStore, pending: PendingRooms
         message.features?.includes(ROOMS_FEATURE) === true,
         message.features?.includes(ROOMS_RESUME_FEATURE) === true,
         message.features?.includes(ROOMS_CHAT_FEATURE) === true,
+        message.features?.includes(ROOMS_DECIDE_FEATURE) === true,
       );
     if (message.t === "rooms.state") store.setState(message.rooms);
     if (message.t === "rooms.room") store.upsert(message.room);

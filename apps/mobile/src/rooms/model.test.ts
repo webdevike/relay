@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { COUNCIL_DEFAULT_EFFORT, COUNCIL_DEFAULT_ROUTING, COUNCIL_PAUSE_AT, type RoomWire, type RoomWireCouncil } from "@relay/protocol";
 import { debateRoom, doneRoom, runningRoom } from "./fixtures";
-import { authorOf, commandError, createCommand, createdRoomId, deltaLabel, notchName, phaseSteps, roomStatus, runControl, seatsOfRoom, spendView, type NewRoomDraft } from "./model";
+import { authorOf, commandError, createCommand, createdRoomId, deltaLabel, notchName, phaseSteps, pollRows, roomStatus, runControl, seatsOfRoom, spendView, type NewRoomDraft, type PollWire } from "./model";
 
 function councilOfRoom(room: RoomWire): RoomWireCouncil {
   if (room.council === undefined) throw new Error("fixture has no council");
@@ -159,5 +159,25 @@ describe("results", () => {
     expect(deltaLabel(1.46)).toBe("+1.5");
     expect(deltaLabel(-0.3)).toBe("-0.3");
     expect(deltaLabel(0)).toBeNull();
+  });
+});
+
+describe("pollRows", () => {
+  const poll = (patch: Partial<PollWire> = {}): PollWire => ({
+    type: "poll", id: "m3", by: "nova", question: "Which store?",
+    options: [{ id: "o1", label: "SQLite" }, { id: "o2", label: "Postgres" }],
+    votes: { nova: "o1", astra: "o2", isaac: "o1" }, state: "open", ...patch,
+  });
+
+  it("tallies voters per option, marks Isaac's pick and the leader", () => {
+    expect(pollRows(poll())).toEqual([
+      { id: "o1", label: "SQLite", voters: ["nova", "isaac"], mine: true, state: "lead" },
+      { id: "o2", label: "Postgres", voters: ["astra"], mine: false, state: null },
+    ]);
+  });
+
+  it("has no leader on a tie, and a called poll has a winner", () => {
+    expect(pollRows(poll({ votes: { nova: "o1", astra: "o2" } })).map((r) => r.state)).toEqual([null, null]);
+    expect(pollRows(poll({ state: "called", called: { option: "o2", by: "isaac" } })).map((r) => r.state)).toEqual(["lose", "win"]);
   });
 });

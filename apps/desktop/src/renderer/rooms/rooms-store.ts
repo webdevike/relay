@@ -4,6 +4,7 @@ import {
   roomActivity,
   type ChatRoomSetup,
   type ChatRoomSetupPatch,
+  type DecideAction,
   type Room as RoomDto,
 } from '@evaos/contract'
 import { setRoomTitles } from '../eva/names-store'
@@ -181,6 +182,51 @@ export async function answerAsk(
 
 export async function postToRoom(roomId: string, text: string): Promise<string | null> {
   return failure(await invoke('rooms.post', { roomId, text }))
+}
+
+// Isaac on a chat room's decision cards; each answers why main refused it, or null. Main's next
+// `rooms.changed` carries the card's new state and the room's line about it.
+
+/** His vote (`option` id); null, or his current pick again, takes it back. */
+export async function voteInRoom(
+  roomId: string,
+  cardId: string,
+  option: string | null,
+): Promise<string | null> {
+  return failure(await invoke('rooms.vote', { roomId, cardId, option }))
+}
+
+/** Calls a poll: `option`, else his vote, else the leader. */
+export async function callRoomPoll(
+  roomId: string,
+  cardId: string,
+  option?: string,
+): Promise<string | null> {
+  return failure(await invoke('rooms.callPoll', { roomId, cardId, ...(option ? { option } : {}) }))
+}
+
+export async function reopenRoomPoll(roomId: string, cardId: string): Promise<string | null> {
+  return failure(await invoke('rooms.reopenPoll', { roomId, cardId }))
+}
+
+/** His answer to a member's question: posted, so the members talk again. */
+export async function answerRoomAsk(
+  roomId: string,
+  cardId: string,
+  answer: string,
+): Promise<string | null> {
+  return failure(await invoke('rooms.answerAsk', { roomId, cardId, answer }))
+}
+
+export async function decideInRoom(
+  roomId: string,
+  cardId: string,
+  action: DecideAction,
+  option?: string,
+): Promise<string | null> {
+  return failure(
+    await invoke('rooms.decide', { roomId, cardId, action, ...(option ? { option } : {}) }),
+  )
 }
 
 /**

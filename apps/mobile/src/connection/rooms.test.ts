@@ -33,9 +33,11 @@ describe("welcome", () => {
     route(welcome(["query", "rooms.resume"]));
     expect(useRoomsStore.getState()).toMatchObject({ supported: false, resumes: false });
     route(welcome(["rooms", "rooms.resume", "rooms.chat"]));
-    expect(useRoomsStore.getState()).toMatchObject({ supported: true, resumes: true, chats: true });
+    expect(useRoomsStore.getState()).toMatchObject({ supported: true, resumes: true, chats: true, decides: false });
+    route(welcome(["rooms", "rooms.chat", "rooms.decide"]));
+    expect(useRoomsStore.getState()).toMatchObject({ chats: true, decides: true });
     route(welcome(["rooms"]));
-    expect(useRoomsStore.getState()).toMatchObject({ chats: false });
+    expect(useRoomsStore.getState()).toMatchObject({ chats: false, decides: false });
   });
 });
 

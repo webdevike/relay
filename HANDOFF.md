@@ -60,8 +60,8 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
       sub-nav, New room page with templates + member editor + model picker, empty room view, context menu).
 - [x] S2 multi-speaker room chat + unified @ picker (engine, notch avatar stack, hover card, speaking ring).
 - [x] S3 assistant pop-in/out + one-row work card.
-- [ ] S4 decision cards (poll, pros/cons, decision record, council proposal, catch-up pill, Where we are,
-      Since you left).
+- [x] S4 decision cards in rooms (poll, pros/cons, question for Isaac, decision record, catch-up pill, Where we
+      are, Since you left). The council proposal card in an assistant's 1:1 chat is S5 (reuses DecisionRecord).
 - [ ] S5 rooms.create / rooms.update tool (agent action, relay-linux CLI, Room ready card).
 
 ## Log
@@ -194,3 +194,40 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
     chat-core turns.test flake under load (pass alone).
   - Left: phone OTA (from a clean checkout; inert until a host advertises assistant.guests); Eva's rules lines
     above; no in-thread typing for guests on the phone; subagent/inbox views ignore guest rows.
+
+### S4
+- 2026-11-11 S4 (worktree work/relay-rooms-decisions, branch eva/rooms-decisions).
+  - Contract `rooms-decisions.ts`: card schemas on the RoomCard union (`poll` {question, options, votes by
+    author incl. isaac, state open|called|reopened, called}, `proscons` {subject, pros/cons points with by[],
+    agreed|disputed, against[]}, `question` {by, text, sub, answers, answered}, `decision` {title, why, agree,
+    dissent[{by,note}], next{who,text}, alternatives, poll/option, state proposed|accepted|overridden|reopened,
+    previous}); a card's id is the message that carries it. `splitDecisionMarkers` (markers anywhere outside
+    code fences, malformed ones cut and ignored, partial ones hidden while streaming), `applyDecisionMarkers`
+    (votes, points, disputes, agree/dissent update earlier cards; a decision reads agree/dissent from its poll's
+    votes and calls it), Isaac's `voteOn`/`callPoll`/`reopenPoll`/`answerQuestion`/`decide`.
+  - Markers members write (taught in the seat system prompt, judge/chair makes the call): `[[poll: q | a | b]]`,
+    `[[vote: a or 2]]`, `[[pros: subject | point]]`, `[[cons: ...]]`, `[[dispute: point]]`,
+    `[[ask-isaac: q | Yes | No | note: what it changes]]` (ends the burst), `[[decision: call | why | Name: next]]`,
+    `[[agree]]`, `[[dissent: why]]`. Each turn's prompt adds "Where the room stands" (cards' current state) and
+    transcript lines carry a card note.
+  - Engine (chat-room.ts): markers parsed after dedash (no em dash reaches a card), one card per message
+    (extra cards follow as same-author messages), a reply that only votes leaves no message. IPC rooms.vote,
+    rooms.callPoll, rooms.reopenPoll, rooms.answerAsk, rooms.decide: each a quiet room line the members read
+    next turn ("Isaac voted X" rewritten in place on re-votes); answerAsk posts "<question> <answer>" as Isaac and
+    the asker speaks first.
+  - UI: `rooms/DecisionCards.tsx` (PollView, ProsConsView, QuestionView, DecisionRecord, RoomDecisionCard;
+    decisions.css minimal style), `rooms/RoomKeepUp.tsx` (WhereStrip under the notch, CatchUpPill + summary
+    panel, SinceBlock), `rooms/decision-view.ts` (pure whereWeAre / catchUp / sinceIndex). "Since you left"
+    remembers the last message seen per room in the UI prefs (`rooms.seen`), not room.json.
+  - For S5: `DecisionRecord` from `apps/desktop/src/renderer/rooms/DecisionCards.tsx`, props `{ card:
+    DecisionCard; people: DecisionPeople (id -> {name, member?}); onDecide?: (action, option?) =>
+    Promise<string | null>; onOpen?: () => void }`; `roomPeople(room)` builds `people` from a room.
+  - Phone: cards ride on room frames through any host (RoomWire passthrough; RoomWireCard mirrors them) and
+    draw in the chat room thread (`src/rooms/DecisionCards.tsx`); their buttons need a host with
+    ROOMS_DECIDE_FEATURE ("rooms.decide": RoomsCmd vote/callPoll/reopenPoll/answerAsk/decide). Host code
+    advertises it (apps/linux session.ts); host NOT built (Eva builds one consolidated host from main).
+  - Tests: contract rooms-decisions.test (each marker, malformed, streaming, tally, decide transitions),
+    chat-room.test (cards from seats, no em dash or marker on disk, burst stop on ask, Isaac's actions),
+    decision-view.test (strip, catch-up counts, since index), bridge + phone router/model tests. e2e
+    rooms-assistants.spec "S4 ..." (FAKE_OMP_ROOM_SCRIPT scripted member replies). Proof:
+    proof/rooms-assistants/s4-*.png.

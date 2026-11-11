@@ -1,4 +1,4 @@
-/** One entry of a room's feed: a seat's or member's message, Isaac's, the room's quiet note, the summary, or a card. */
+/** One entry of a room's feed: a seat's or member's message (with its decision card), Isaac's, the room's quiet note, the summary, or a card. */
 import { View } from "react-native";
 import { COUNCIL_HARNESS_LABEL, COUNCIL_MODELS, COUNCIL_ROLE_LABEL, COUNCIL_WHOLE, type RoomWire, type RoomWireMessage } from "@relay/protocol";
 import { MessageText } from "@/agents/MessageText";
@@ -6,6 +6,7 @@ import { spacing } from "@/theme";
 import { Avatar } from "@/ui/Avatar";
 import { Text } from "@/ui/Text";
 import { RoomCard, type CardActions } from "./Cards";
+import { DecisionCardView, isDecisionWireCard, type DecisionActions } from "./DecisionCards";
 import { authorOf } from "./model";
 import { Block, Tag } from "./primitives";
 import { RenderThumb } from "./RoomImage";
@@ -13,7 +14,8 @@ import { SeatAvatar } from "./SeatList";
 
 const CLOCK = new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit" });
 
-export function MessageRow({ room, message, actions }: { room: RoomWire; message: RoomWireMessage; actions: CardActions }) {
+/** `decisions`: Isaac's actions on a chat room's decision cards; null when the host does not relay them. */
+export function MessageRow({ room, message, actions, decisions }: { room: RoomWire; message: RoomWireMessage; actions: CardActions; decisions: DecisionActions | null }) {
   if (message.kind === "card" && message.card !== undefined) {
     return (
       <View style={{ paddingHorizontal: spacing.lg }}>
@@ -45,7 +47,8 @@ export function MessageRow({ room, message, actions }: { room: RoomWire; message
       {seat !== undefined && (
         <Text variant="label" color="textMuted">{`${COUNCIL_MODELS[seat.modelKey].name} · ${COUNCIL_HARNESS_LABEL[seat.harness]}`}</Text>
       )}
-      <MessageText text={message.text} />
+      {message.text !== "" && <MessageText text={message.text} />}
+      {isDecisionWireCard(message.card) && <DecisionCardView room={room} card={message.card} actions={decisions} />}
       {message.renders !== undefined && message.renders.length > 0 && (
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm, marginTop: spacing.xs }}>
           {message.renders.map((r) => (

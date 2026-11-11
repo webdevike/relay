@@ -351,7 +351,11 @@ describe('ChatRoom', () => {
     const d = deps()
     const setup: ChatRoomSetup = {
       ...SETUP,
-      members: [member('astra', 'Argue for'), member('polaris', 'Argue against'), member('nova', 'Judge')],
+      members: [
+        member('astra', 'Argue for'),
+        member('polaris', 'Argue against'),
+        member('nova', 'Judge'),
+      ],
       effort: 2,
     }
     d.launcher.script = {
@@ -366,7 +370,9 @@ describe('ChatRoom', () => {
     }
     const r = ChatRoom.create('room-dec', setup, 1000, d)
     r.post('Should Relay Host move from SQLite to Postgres?')
-    await vi.waitFor(() => expect(r.room.messages.some((m) => m.card?.type === 'question')).toBe(true))
+    await vi.waitFor(() =>
+      expect(r.room.messages.some((m) => m.card?.type === 'question')).toBe(true),
+    )
     await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
     const cards = r.room.messages.filter((m) => m.card).map((m) => [m.id, m.author, m.card!.type])
     expect(cards).toEqual([
@@ -399,7 +405,10 @@ describe('ChatRoom', () => {
     expect(d.launcher.turns[3]!.prompt).toContain('Where the room stands:')
     expect(d.launcher.turns[3]!.prompt).toContain('2) Stay on SQLite: Polaris')
     const [back] = reload(d)
-    expect(back!.room.messages[4]!.card).toMatchObject({ type: 'question', answers: ['Yes', 'No', 'Not sure'] })
+    expect(back!.room.messages[4]!.card).toMatchObject({
+      type: 'question',
+      answers: ['Yes', 'No', 'Not sure'],
+    })
     await r.destroy()
   })
 
@@ -407,11 +416,18 @@ describe('ChatRoom', () => {
     const d = deps()
     const setup: ChatRoomSetup = {
       ...SETUP,
-      members: [member('astra', 'Argue for'), member('polaris', 'Argue against'), member('nova', 'Judge')],
+      members: [
+        member('astra', 'Argue for'),
+        member('polaris', 'Argue against'),
+        member('nova', 'Judge'),
+      ],
       effort: 1,
     }
     d.launcher.script = {
-      astra: ['Voting.\n[[poll: Which store? | SQLite | Postgres]]\n[[vote: Postgres]]', '[[vote: SQLite]]'],
+      astra: [
+        'Voting.\n[[poll: Which store? | SQLite | Postgres]]\n[[vote: Postgres]]',
+        '[[vote: SQLite]]',
+      ],
       polaris: ['[[ask-isaac: Second host this quarter? | Yes | No]]', 'Then SQLite holds.'],
       nova: [
         'Calling it.\n[[decision: SQLite | One Mac, 40 writes a second | Polaris: add Litestream]]',
@@ -419,7 +435,9 @@ describe('ChatRoom', () => {
     }
     const r = ChatRoom.create('room-isaac', setup, 1000, d)
     r.post('Postgres or SQLite?')
-    await vi.waitFor(() => expect(r.room.messages.some((m) => m.card?.type === 'question')).toBe(true))
+    await vi.waitFor(() =>
+      expect(r.room.messages.some((m) => m.card?.type === 'question')).toBe(true),
+    )
     await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
     const poll = r.room.messages.find((m) => m.card?.type === 'poll')!
     const ask = r.room.messages.find((m) => m.card?.type === 'question')!
@@ -430,7 +448,9 @@ describe('ChatRoom', () => {
     expect(() => r.answerAsk(ask.id, 'Maybe')).toThrow(/Not one/)
     r.answerAsk(ask.id, 'No')
     expect(ask.card).toMatchObject({ answered: 'No' })
-    await vi.waitFor(() => expect(r.room.messages.some((m) => m.card?.type === 'decision')).toBe(true))
+    await vi.waitFor(() =>
+      expect(r.room.messages.some((m) => m.card?.type === 'decision')).toBe(true),
+    )
     await vi.waitFor(() => expect(r.room.phase).toBe('idle'))
     const isaac = r.room.messages.filter((m) => m.author === 'isaac').map((m) => m.text)
     expect(isaac).toEqual(['Postgres or SQLite?', 'Second host this quarter? No'])

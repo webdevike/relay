@@ -23,7 +23,7 @@ Tests must never attach to a real omp session.
 - `[select]` (5 options with optionDetails), `[confirm]`, `[input]`, `[editor]`, `[ask]` (one question, 4 options, recommended 1), `[ask-multi]` (two questions, second `multi: true`), `[ask-bad]` (`questions` is a string): emit `agent_start`, then `extension_ui_request {id:'ui-<n>', method, ...}` and wait. `extension_ui_response` with that id continues the turn with the reply `Answer received: <compact JSON of the response minus type/id>`, or `Answer received: cancelled` for `{cancelled:true}`. Every response is logged `{event:'ui-response', detail:<frame>}`. Closing stdin cancels waiting dialogs and exits 0 within 1 s.
 - `[slow]`: 400 ms per frame for the reply, so writer and abort tests can race it.
 - `prompt.images`: logged `{event:'prompt-images', detail:{count, mimeTypes}}`; reply `Got <n> image(s)`.
-- A Relay room member (`--system-prompt` starting `You are <Name>, a member of a Relay room`): every prompt is answered `<Name> here, turn <n>. I read the room and agree.` in 7 deltas, `FAKE_OMP_SEAT_DELAY_MS` (default 120) per frame, logged `{event:'seat-turn', detail:{name, turn}}`.
+- A Relay room member (`--system-prompt` starting `You are <Name>, a member of a Relay room`): every prompt is answered `<Name> here, turn <n>. I read the room and agree.` in 7 deltas, `FAKE_OMP_SEAT_DELAY_MS` (default 120) per frame, logged `{event:'seat-turn', detail:{name, turn}}`. With `FAKE_OMP_ROOM_SCRIPT` (a JSON file `{ "<Name>": ["reply of turn 1", ...] }`) the member's turn `n` answers its scripted reply instead (in six deltas; decision markers like `[[poll: ...]]` included), the default once the script runs out.
 
 ## Recordings
 

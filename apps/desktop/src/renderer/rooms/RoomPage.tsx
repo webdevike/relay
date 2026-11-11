@@ -10,6 +10,7 @@ import { EffortDial } from './EffortDial'
 import { PhaseStrip } from './PhaseStrip'
 import { RoomComposer } from './RoomComposer'
 import { RoomFeed } from './RoomFeed'
+import { WhereStrip } from './RoomKeepUp'
 import { RoomSetupForm } from './RoomSetupForm'
 import {
   pauseRoom,
@@ -177,12 +178,13 @@ function ChatRoomView({ room }: { room: Room }) {
   return (
     <div className="eva-rooms-main" data-testid={`room-${room.id}`} data-phase={room.phase}>
       <div className="eva-chat-notch-room" aria-hidden />
+      <WhereStrip room={room} />
       {room.messages.length === 0 ? (
         <div className="eva-room-empty" data-testid="room-empty">
           Everyone's here. Nothing runs until you send the first message.
         </div>
       ) : (
-        <RoomFeed room={room} />
+        <RoomFeed key={room.id} room={room} />
       )}
       <RoomComposer key={room.id} room={room} />
     </div>

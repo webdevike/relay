@@ -118,7 +118,17 @@ export type DecisionMarker =
   | { kind: 'agree' }
   | { kind: 'dissent'; note: string }
 
-const KINDS = ['poll', 'vote', 'pros', 'cons', 'dispute', 'ask-isaac', 'decision', 'agree', 'dissent']
+const KINDS = [
+  'poll',
+  'vote',
+  'pros',
+  'cons',
+  'dispute',
+  'ask-isaac',
+  'decision',
+  'agree',
+  'dissent',
+]
 const TOKEN = new RegExp(`\\[\\[\\s*(${KINDS.join('|')})\\s*(?::([^\\[\\]\\n]*))?\\]\\]`, 'gi')
 const OPENERS = KINDS.map((k) => `[[${k}`)
 const FENCE = /^[ \t]*(?:```|~~~)/
@@ -404,8 +414,7 @@ export function applyDecisionMarkers(
         const key = norm(m.subject)
         let card =
           (fresh.find((c) => c.type === 'proscons' && norm(c.subject) === key) as
-            | ProsConsCard
-            | undefined) ??
+            ProsConsCard | undefined) ??
           (room.messages.findLast(
             (x) => x.card?.type === 'proscons' && norm(x.card.subject) === key,
           )?.card as ProsConsCard | undefined)
@@ -418,7 +427,8 @@ export function applyDecisionMarkers(
           const have = side.find((p) => norm(p.text) === norm(text))
           if (have) {
             if (!have.by.includes(author)) have.by.push(author)
-          } else if (side.length < MAX_POINTS * 2) side.push({ text, by: [author], state: 'agreed' })
+          } else if (side.length < MAX_POINTS * 2)
+            side.push({ text, by: [author], state: 'agreed' })
         }
         break
       }
@@ -454,7 +464,8 @@ export function applyDecisionMarkers(
         if (fresh.some((c) => c.type === 'decision')) break
         const poll = latestCard(room, 'poll', fresh)
         const option = poll ? matchOption(poll.options, m.title) : null
-        const who = poll && option ? sides(poll, option, [author]) : { agree: [author], dissent: [] }
+        const who =
+          poll && option ? sides(poll, option, [author]) : { agree: [author], dissent: [] }
         const card: DecisionCard = {
           type: 'decision',
           id: '',

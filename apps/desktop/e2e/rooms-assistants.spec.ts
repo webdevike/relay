@@ -14,68 +14,156 @@ import { EVA_FIXTURE_ROOT, REPO_ROOT } from './helpers/paths'
 const PROOF = path.join(REPO_ROOT, 'proof', 'rooms-assistants')
 let evaRoot = ''
 
+interface SeedMember {
+  id: string
+  assistant?: string
+  name: string
+  model: string
+  thinking: string
+  role: string
+}
+
+/** A saved chat room's room.json: its members, title and messages (an empty one is idle). */
+const roomFile = (
+  id: string,
+  title: string,
+  members: SeedMember[],
+  messages: { author: string; text: string }[],
+  effort: number,
+  now: number,
+): unknown => ({
+  version: 1,
+  kind: 'chat',
+  room: {
+    id,
+    kind: 'chat',
+    title,
+    prompt: messages[0]?.text ?? '',
+    agents: members.map((m, i) => ({
+      id: m.id,
+      name: m.name,
+      title: m.role,
+      role: m.role,
+      brief: '',
+      model: m.model,
+      tools: 'full',
+      color: ['blue', 'orange', 'teal'][i],
+    })),
+    messages: messages.map((m, i) => ({
+      id: `m${i + 1}`,
+      author: m.author,
+      text: m.text,
+      ts: now - (messages.length - i) * 60_000,
+      reactions: [],
+      kind: 'message',
+      mentions: [],
+    })),
+    presence: {},
+    phase: 'idle',
+    rounds: 0,
+    startedAt: now - 3_600_000,
+    chat: {
+      setup: { title, template: 'blank', members, effort, budget: 3, refs: [] },
+      rev: 0,
+      spend: { usd: 0, byMember: {} },
+    },
+  },
+})
+
 /** A saved, idle two-member room: Nova (an assistant) and Skeptic (a custom agent). */
 const S2_ROOM = 'room-s2-talk'
-const s2Room = (now: number): unknown => {
-  const members = [
-    {
-      id: 'nova',
-      assistant: 'nova',
-      name: 'Nova',
-      model: 'anthropic/claude-opus-5-5',
-      thinking: 'medium',
-      role: 'Judge',
-    },
-    {
-      id: 'skeptic',
-      name: 'Skeptic',
-      model: 'fake/text-only',
-      thinking: 'off',
-      role: 'Argue against',
-    },
-  ]
-  return {
-    version: 1,
-    kind: 'chat',
-    room: {
-      id: S2_ROOM,
-      kind: 'chat',
-      title: 'Store choice',
-      prompt: '',
-      agents: members.map((m, i) => ({
-        id: m.id,
-        name: m.name,
-        title: m.role,
-        role: m.role,
-        brief: '',
-        model: m.model,
-        tools: 'full',
-        color: ['blue', 'orange'][i],
-      })),
-      messages: [],
-      presence: {},
-      phase: 'idle',
-      rounds: 0,
-      startedAt: now,
-      chat: {
-        setup: {
-          title: 'Store choice',
-          template: 'blank',
-          members,
-          effort: 1,
-          budget: 3,
-          refs: [],
-        },
-        rev: 0,
+const s2Room = (now: number): unknown =>
+  roomFile(
+    S2_ROOM,
+    'Store choice',
+    [
+      {
+        id: 'nova',
+        assistant: 'nova',
+        name: 'Nova',
+        model: 'anthropic/claude-opus-5-5',
+        thinking: 'medium',
+        role: 'Judge',
       },
-    },
-  }
+      {
+        id: 'skeptic',
+        name: 'Skeptic',
+        model: 'fake/text-only',
+        thinking: 'off',
+        role: 'Argue against',
+      },
+    ],
+    [],
+    1,
+    now,
+  )
+
+/**
+ * Slice 4's room: Astra and Polaris argue, Nova judges; an earlier exchange makes the log scroll.
+ * Their replies are scripted (FAKE_OMP_ROOM_SCRIPT) with decision markers.
+ */
+const S4_ROOM = 'room-s4-store'
+const S4_MEMBERS: SeedMember[] = [
+  { id: 'astra', name: 'Astra', model: 'fake/text-only', thinking: 'off', role: 'Argue for' },
+  {
+    id: 'polaris',
+    name: 'Polaris',
+    model: 'fake/text-only',
+    thinking: 'off',
+    role: 'Argue against',
+  },
+  {
+    id: 'nova',
+    assistant: 'nova',
+    name: 'Nova',
+    model: 'anthropic/claude-opus-5-5',
+    thinking: 'medium',
+    role: 'Judge',
+  },
+]
+const S4_HISTORY = [
+  [
+    'isaac',
+    'Relay Host keeps its sessions in SQLite. Before the second Mac shows up, sanity check it.',
+  ],
+  ['astra', 'The worker pool writes from 6 processes and WAL still serialises writers.'],
+  ['polaris', 'The host is one Mac Mini. The write rate is what matters, not the process count.'],
+  ['astra', 'Fair. I will pull the last 7 days of commit timings.'],
+  ['polaris', 'Backups are the real gap today: nothing leaves the Mini.'],
+  ['nova', 'Two threads then: write load and backups. Bring numbers next time.'],
+  ['astra', 'Peak is 40 writes a second over the last 7 days, p99 commit 3 ms.'],
+  ['polaris', 'That is far under what SQLite handles on this machine.'],
+  ['nova', 'Noted. Isaac decides when we pick this up again.'],
+  ['isaac', 'One more data point: the sessions table is 14 tables now, about 30 by spring.'],
+  ['astra', 'Then a migration grows with every table we add.'],
+  ['polaris', 'A migration script later is a day of work. Not a reason to run a daemon today.'],
+  ['astra', 'FTS5 is the part that worries me, not the tables.'],
+  ['nova', 'Park it until Isaac asks. Both of you, keep the numbers handy.'],
+].map(([author, text]) => ({ author: author!, text: text! }))
+const S4_SCRIPT = {
+  Astra: [
+    'Postgres still wins on concurrency once a second host writes. @Polaris what do you see?',
+    'Postgres. Migration only gets harder as the schema grows. @Polaris\n[[vote: 3]]',
+    'FTS5 and JSON queries will not port cleanly either. @Polaris\n[[cons: Staying on SQLite | FTS5 and JSON queries will not port cleanly]]\n[[dispute: Zero ops]]',
+    'Fine. Migrating while it is 14 tables would still be cheaper.\n[[vote: 3]]',
+  ],
+  Polaris: [
+    'Three positions on the table, so let us vote. @Astra\n[[poll: Which store for the next 6 months? | SQLite now, Postgres when a second host exists | Stay on SQLite | Move to Postgres now]]\n[[vote: Stay on SQLite]]',
+    'Tradeoffs so far, with who said what. @Astra\n[[pros: Staying on SQLite | Peak 40 writes a second, far under the WAL ceiling | Zero ops: no daemon on the Mini | Litestream to R2 covers backups]]\n[[cons: Staying on SQLite | One writer at a time | Cannot serve a second host]]',
+    '@Isaac one thing only you know.\n[[ask-isaac: Is a second Relay Host coming this quarter? | Yes | No | Not sure | note: Yes flips this to Postgres now. No keeps SQLite with a revisit trigger.]]',
+    'Then SQLite with a revisit trigger holds. Switching to the trigger option.\n[[vote: 1]]',
+  ],
+  Nova: [
+    'Calling it. Isaac, accept or override.\n[[decision: SQLite now, Postgres when a second host exists | Peak load is 40 writes a second on one Mac Mini. Postgres adds a daemon and buys nothing until a second host. | Polaris: Add Litestream backups to R2 today]]',
+  ],
 }
 
 const test = base.extend({
   launchEnv: async ({}, use, testInfo) => {
-    // Slice 2's tests start with a saved two-member room and a second assistant, Penny.
+    // Slice 2's tests start with a saved two-member room and a second assistant, Penny; slice 4's
+    // with a three-member room whose members answer from a script.
     const s2 = testInfo.title.startsWith('S2')
+    const s4 = testInfo.title.startsWith('S4')
     evaRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rooms-eva-'))
     fs.cpSync(EVA_FIXTURE_ROOT, evaRoot, { recursive: true })
     fs.rmSync(path.join(evaRoot, 'work', 'rooms'), { recursive: true, force: true })
@@ -94,7 +182,22 @@ const test = base.extend({
       fs.mkdirSync(dir, { recursive: true })
       fs.writeFileSync(path.join(dir, 'room.json'), JSON.stringify(s2Room(Date.now())))
     }
-    await use({ EVAOS_EVA_ROOT: evaRoot, FAKE_OMP_DELAY_MS: '5' })
+    const env: Record<string, string> = { EVAOS_EVA_ROOT: evaRoot, FAKE_OMP_DELAY_MS: '5' }
+    if (s4) {
+      const dir = path.join(evaRoot, 'work', 'rooms', S4_ROOM)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(
+        path.join(dir, 'room.json'),
+        JSON.stringify(
+          roomFile(S4_ROOM, 'Postgres vs SQLite', S4_MEMBERS, S4_HISTORY, 3, Date.now()),
+        ),
+      )
+      const script = path.join(evaRoot, 'room-script.json')
+      fs.writeFileSync(script, JSON.stringify(S4_SCRIPT))
+      env.FAKE_OMP_ROOM_SCRIPT = script
+      env.FAKE_OMP_SEAT_DELAY_MS = '150'
+    }
+    await use(env)
     fs.rmSync(evaRoot, { recursive: true, force: true })
   },
 })
@@ -274,4 +377,136 @@ test('S2 chat composer @ menu: Agents then Actions, an agent goes in as a chip',
   await box.press('Enter')
   await box.press('Enter')
   await expect(shell.locator(sel('computer-chip'))).toHaveAttribute('data-mode', 'headless')
+})
+
+test('S4 decision cards: poll, votes, pros/cons, a question, the call; Where we are, catch-up, since you left', async ({
+  shell,
+}) => {
+  const card = (kind: string) => shell.locator(`[data-testid^="decision-${kind}-"]`)
+  const fromDisk = (): {
+    messages: {
+      author: string
+      text: string
+      card?: { type: string; state?: string; answered?: string }
+    }[]
+  } =>
+    JSON.parse(fs.readFileSync(path.join(evaRoot, 'work', 'rooms', S4_ROOM, 'room.json'), 'utf8'))
+      .room
+  await shell.locator(sel('nav-assistants')).click()
+  await shell.locator(sel(`sidebar-room-${S4_ROOM}`)).click()
+  const feed = shell.locator(sel('room-feed'))
+  await expect(feed).toContainText('Peak is 40 writes a second')
+  // No card yet: no strip.
+  await expect(shell.locator(sel('room-where'))).toHaveCount(0)
+
+  const box = shell.locator(sel('room-composer'))
+  await box.fill('Should Relay Host move from SQLite to Postgres now?')
+  await box.press('Enter')
+
+  // Isaac reads back while the members talk: the catch-up pill counts what arrives.
+  await expect(feed.locator('[data-author="astra"]').last()).toContainText('Postgres still wins', {
+    timeout: 20_000,
+  })
+  await feed.evaluate((el) => {
+    el.scrollTop = 0
+  })
+  const pill = shell.locator(sel('room-catchup-pill'))
+  await expect(pill).toContainText('1 question for you', { timeout: 30_000 })
+  await expect(pill).toContainText(/\d+ new/)
+  await shot(shell, 's4-pill.png')
+  await pill.click()
+  const panel = shell.locator(sel('room-catchup-panel'))
+  await expect(panel).toContainText('Vote opened: Which store for the next 6 months?')
+  await expect(panel).toContainText('Tradeoffs listed, 1 disputed')
+  await expect(panel).toContainText('Polaris asks you: Is a second Relay Host coming this quarter?')
+  await shot(shell, 's4-pill-panel.png')
+  // A summary line jumps to its card.
+  await panel.getByText('Vote opened').click()
+  await expect(card('poll')).toBeInViewport()
+
+  // The poll: members' votes tallied on one card; Isaac taps to vote.
+  const poll = card('poll')
+  await expect(poll).toContainText('2 of 4')
+  await expect(poll.locator(sel('poll-option-o2'))).toContainText('1')
+  await expect(poll.locator(sel('poll-option-o3'))).toContainText('1')
+  await poll.locator(sel('poll-option-o1')).click()
+  await expect(poll).toContainText('3 of 4')
+  await expect(poll.locator(sel('poll-option-o1'))).toHaveAttribute('data-mine', 'true')
+  await expect(feed).toContainText('Isaac voted SQLite now, Postgres when a second host exists')
+  await poll.hover()
+  await expect(poll.locator(sel('poll-call'))).toBeVisible()
+  await shot(shell, 's4-poll.png')
+  // The pill's arrow goes to the latest message; the pill is gone once Isaac is caught up.
+  await shell.locator(sel('room-catchup-latest')).click()
+  await expect(pill).toHaveCount(0)
+
+  // Pros and cons: two columns, a disputed point.
+  const pc = card('proscons')
+  await pc.scrollIntoViewIfNeeded()
+  await expect(pc).toContainText('Staying on SQLite')
+  await expect(pc).toContainText('1 disputed')
+  await expect(pc.locator('[data-disputed]')).toContainText('Zero ops: no daemon on the Mini')
+  await shot(shell, 's4-proscons.png')
+
+  // Where we are: the question, the leaning, the question waiting on Isaac (a click jumps to it).
+  const where = shell.locator(sel('room-where'))
+  await expect(where).toContainText('Which store for the next 6 months?')
+  await expect(where).toContainText('Split vote')
+  await expect(where.locator(sel('room-where-you'))).toHaveText('1 question for you')
+  await where.locator(sel('room-where-you')).click()
+  const question = card('question')
+  await expect(question).toBeInViewport()
+  await expect(question).toContainText('Yes flips this to Postgres now.')
+  await expect(question).toContainText('For you')
+  await shot(shell, 's4-question.png')
+
+  // Back at the bottom, Isaac answers; then he leaves while the members go on.
+  await feed.evaluate((el) => {
+    el.scrollTop = el.scrollHeight
+  })
+  await question.locator(sel('question-answer-1')).click()
+  await expect(feed.locator('[data-author="isaac"]').last()).toContainText(
+    'Is a second Relay Host coming this quarter? No',
+  )
+  await expect(question).toHaveAttribute('data-state', 'answered')
+  await shell.locator(sel('sidebar-room-new')).click()
+  await expect(shell.locator(sel('room-form'))).toBeVisible()
+  await expect
+    .poll(() => fromDisk().messages.some((m) => m.card?.type === 'decision'), { timeout: 30_000 })
+    .toBe(true)
+
+  // Since you left: a summary where he stopped; the strip now asks for his call.
+  await shell.locator(sel(`sidebar-room-${S4_ROOM}`)).click()
+  const since = shell.locator(sel('room-since'))
+  await expect(since).toBeVisible()
+  await expect(since).toContainText('Since you left')
+  await expect(since).toContainText(
+    'Decided: SQLite now, Postgres when a second host exists. Accept or override',
+  )
+  await expect(where.locator(sel('room-where-you'))).toHaveText('Your call on the decision')
+  await expect(where).toContainText('Decided SQLite now, Postgres when a second host exists')
+  await shot(shell, 's4-since.png')
+
+  // The decision record: agree / dissent, the next step; Isaac accepts.
+  const record = card('record')
+  await record.scrollIntoViewIfNeeded()
+  await expect(record).toHaveAttribute('data-state', 'proposed')
+  await expect(record).toContainText('Your call')
+  await expect(record).toContainText('Add Litestream backups to R2 today')
+  await expect(record.locator(sel('decision-override-o2'))).toContainText('Stay on SQLite instead')
+  await shot(shell, 's4-decision.png')
+  await record.locator(sel('decision-accept')).click()
+  await expect(record).toHaveAttribute('data-state', 'accepted')
+  await expect(feed).toContainText(
+    'Isaac accepted the call: SQLite now, Postgres when a second host exists',
+  )
+  await expect(where.locator(sel('room-where-you'))).toHaveCount(0)
+  await expect(poll).toHaveAttribute('data-state', 'called')
+  await shot(shell, 's4-accepted.png')
+  await expect
+    .poll(() => fromDisk().messages.find((m) => m.card?.type === 'decision')?.card?.state)
+    .toBe('accepted')
+  expect(fromDisk().messages.find((m) => m.card?.type === 'question')?.card?.answered).toBe('No')
+  // No marker reaches the room.
+  expect(JSON.stringify(fromDisk().messages)).not.toContain('[[')
 })

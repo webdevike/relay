@@ -6,7 +6,9 @@
  * posts for its next round); Resolve now ends the room; a council room pauses at the end of its
  * round and resumes with the same seats (only on a host with ROOMS_RESUME_FEATURE). A chat room
  * (Assistants > Rooms on the Mac, on a host with ROOMS_CHAT_FEATURE) is its members talking: each
- * with its name and role, the room's notes as quiet lines, Pause and Resume, and Isaac posts any time.
+ * with its name and role, the room's notes as quiet lines, Pause and Resume, and Isaac posts any time;
+ * its decision cards (poll, pros and cons, a question for him, the call) take his taps on a host
+ * with ROOMS_DECIDE_FEATURE.
  */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } from "react-native";
@@ -16,6 +18,7 @@ import type { RoomWireMessage } from "@relay/protocol";
 import { requestRooms, roomsRequest } from "@/connection";
 import { DialSheet } from "@/rooms/DialSheet";
 import type { CardActions } from "@/rooms/Cards";
+import type { DecisionActions } from "@/rooms/DecisionCards";
 import { MessageRow } from "@/rooms/MessageRow";
 import { Bar, TAP } from "@/rooms/primitives";
 import { PhaseStrip, SpendMeter } from "@/rooms/Status";
@@ -45,6 +48,7 @@ export default function RoomScreen() {
   const [running, setRunning] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const hostResumes = useRoomsStore((state) => state.resumes);
+  const hostDecides = useRoomsStore((state) => state.decides);
 
   useFocusEffect(
     useCallback(() => {
@@ -58,6 +62,20 @@ export default function RoomScreen() {
       answer: async (askId, allow) => commandError(await roomsRequest({ op: "answer", roomId: id, askId, allow })),
     }),
     [id],
+  );
+  const decisions = useMemo<DecisionActions | null>(
+    () =>
+      hostDecides
+        ? {
+            vote: async (cardId, option) => commandError(await roomsRequest({ op: "vote", roomId: id, cardId, option })),
+            callPoll: async (cardId) => commandError(await roomsRequest({ op: "callPoll", roomId: id, cardId })),
+            reopenPoll: async (cardId) => commandError(await roomsRequest({ op: "reopenPoll", roomId: id, cardId })),
+            answer: async (cardId, answer) => commandError(await roomsRequest({ op: "answerAsk", roomId: id, cardId, answer })),
+            decide: async (cardId, action, option) =>
+              commandError(await roomsRequest({ op: "decide", roomId: id, cardId, action, ...(option === undefined ? {} : { option }) })),
+          }
+        : null,
+    [id, hostDecides],
   );
 
   const back = (): void => {
@@ -174,7 +192,7 @@ export default function RoomScreen() {
           ItemSeparatorComponent={() => <View style={{ height: spacing.xl }} />}
           contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.xl }}
           onContentSizeChange={() => { list.current?.scrollToEnd({ animated: false }); }}
-          renderItem={({ item }) => <MessageRow room={room} message={item} actions={actions} />}
+          renderItem={({ item }) => <MessageRow room={room} message={item} actions={actions} decisions={decisions} />}
           ListFooterComponent={
             live && typing.length > 0 ? (
               <Text variant="label" color="textMuted" style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>{typing.join(" · ")}</Text>

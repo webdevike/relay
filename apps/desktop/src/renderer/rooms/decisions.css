@@ -1,0 +1,489 @@
+/* A chat room's decision cards and the keep-me-in-the-know surfaces (Eva rooms-assistants-proto
+   decisions.css). Minimal: one faint fill per card (no border), one hierarchy level, actions only
+   where Isaac must act, the rest on hover; the accent tint marks what waits on him. */
+.eva-dec {
+  position: relative;
+  box-sizing: border-box;
+  width: 500px;
+  max-width: 100%;
+  margin-top: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  border-radius: var(--eva-card-radius);
+  background: color-mix(in srgb, var(--eva-text) 4%, transparent);
+  font-size: var(--eva-fz-body);
+  line-height: 1.4;
+  transition: background-color var(--eva-dur-fast) ease;
+}
+.eva-dec:hover {
+  background: color-mix(in srgb, var(--eva-text) 6%, transparent);
+}
+.eva-dec[data-you] {
+  background: color-mix(in srgb, var(--eva-accent) 10%, transparent);
+}
+.eva-dec[data-you]:hover {
+  background: color-mix(in srgb, var(--eva-accent) 13%, transparent);
+}
+.eva-dec-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  min-height: var(--eva-control-xs);
+}
+.eva-dec-head-icon {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-dec-q,
+.eva-dec-call {
+  flex: 1;
+  min-width: 0;
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-dec-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+}
+.eva-dec-meta[data-ok] svg {
+  color: var(--mantine-color-green-5);
+}
+.eva-dec-you {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: color-mix(in srgb, var(--eva-accent) 55%, var(--eva-text));
+}
+/* hover-only icon actions */
+.eva-dec-hover {
+  display: inline-flex;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  opacity: 0;
+  transition: opacity var(--eva-dur-fast) ease;
+}
+.eva-dec:hover .eva-dec-hover,
+.eva-dec-hover:focus-within {
+  opacity: 1;
+}
+.eva-dec-icon {
+  display: inline-grid;
+  place-items: center;
+  width: var(--eva-control-xs);
+  height: var(--eva-control-xs);
+  border-radius: var(--eva-radius);
+  color: var(--eva-text-dim);
+}
+.eva-dec-icon:hover {
+  color: var(--eva-text);
+  background: var(--eva-hover);
+}
+.eva-dec-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  margin-top: var(--mantine-spacing-xs);
+}
+.eva-dec-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  max-width: 100%;
+  height: 28px;
+  padding: 0 var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius);
+  background: color-mix(in srgb, var(--eva-text) 8%, transparent);
+  color: var(--eva-text);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-semibold);
+  white-space: nowrap;
+}
+.eva-dec-btn:hover {
+  background: color-mix(in srgb, var(--eva-text) 13%, transparent);
+}
+.eva-dec-btn[data-primary] {
+  background: var(--mantine-primary-color-filled);
+  color: var(--mantine-primary-color-contrast);
+}
+.eva-dec-btn[data-primary]:hover {
+  background: var(--mantine-primary-color-filled-hover);
+}
+.eva-dec-btn[data-quiet] {
+  background: none;
+  color: var(--eva-text-dim);
+}
+.eva-dec-btn[data-quiet]:hover {
+  color: var(--eva-text);
+  background: var(--eva-hover);
+}
+.eva-dec-btn-label {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-dec-error {
+  margin-top: var(--mantine-spacing-xs);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-danger);
+}
+.eva-dec-why {
+  max-width: 62ch;
+  margin-top: calc(var(--mantine-spacing-xs) / 4);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: 1.45;
+}
+
+/* faces: small rounded squares, overlapping in a cluster; Isaac's is the accent "I" */
+.eva-dec-face {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: 5px;
+  background: var(--mantine-color-gray-1);
+  color: var(--mantine-color-gray-7);
+  font-size: 9px;
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-dec-face img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.eva-dec-face[data-me] {
+  border-color: var(--eva-accent);
+  background: var(--eva-accent);
+  color: var(--mantine-color-white);
+}
+.eva-dec-face[data-empty] {
+  visibility: hidden;
+}
+/* Each face takes 11px of a 16px face: the next one overlaps it. */
+.eva-dec-faces {
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 11px;
+  align-items: center;
+}
+
+/* poll: option rows, the bar is the tally */
+.eva-dec-options {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  margin-top: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-dec-option {
+  display: grid;
+  color: inherit;
+  font-size: inherit;
+  grid-template-columns: 1fr auto 14px;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4) var(--mantine-spacing-xs);
+  margin: 0 calc(-1 * var(--mantine-spacing-xs));
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.8);
+  border-radius: var(--eva-radius);
+  text-align: left;
+}
+.eva-dec-option:hover:not(:disabled) {
+  background: var(--eva-hover);
+}
+.eva-dec-option:disabled {
+  cursor: default;
+  color: inherit;
+}
+.eva-dec-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-dec-option-n {
+  grid-column: 3;
+  text-align: right;
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--eva-text-dim);
+}
+.eva-dec-option .eva-dec-faces {
+  grid-column: 2;
+}
+.eva-dec-bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: var(--eva-radius-round);
+  background: color-mix(in srgb, var(--eva-text) 7%, transparent);
+}
+.eva-dec-bar i {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--eva-text) 30%, transparent);
+  transition: width 0.3s ease;
+}
+.eva-dec-option[data-state='lead'] .eva-dec-bar i {
+  background: var(--eva-accent);
+}
+.eva-dec-option[data-mine] .eva-dec-option-label,
+.eva-dec-option[data-state='win'] .eva-dec-option-label {
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-dec-option[data-state='win'] .eva-dec-bar i {
+  background: var(--mantine-color-green-5);
+}
+.eva-dec-option[data-state='lose'] {
+  opacity: 0.45;
+}
+
+/* pros / cons */
+.eva-dec-pc {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 var(--mantine-spacing-lg);
+  margin-top: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-dec-col-title {
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-text-dim);
+}
+.eva-dec-point {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.4) 0;
+  font-size: var(--eva-fz-label);
+  line-height: 1.45;
+}
+.eva-dec-point-text {
+  flex: 1;
+  min-width: 0;
+}
+.eva-dec-mark {
+  flex: none;
+  display: inline-flex;
+  color: var(--mantine-color-green-5);
+}
+.eva-dec-point[data-disputed] .eva-dec-mark {
+  color: var(--mantine-color-yellow-5);
+}
+.eva-dec-link {
+  padding: calc(var(--mantine-spacing-xs) / 4) 0;
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-dec-link:hover {
+  color: var(--eva-text);
+}
+
+/* decision record */
+.eva-dec-who {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  margin-top: calc(var(--mantine-spacing-xs) * 0.8);
+  font-size: var(--eva-fz-label);
+  color: var(--eva-text-dim);
+}
+.eva-dec-side {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+}
+.eva-dec-next {
+  color: var(--eva-text);
+}
+
+/* an answered question: one quiet line */
+.eva-dec-line {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  max-width: 500px;
+  min-height: 28px;
+  margin-top: calc(var(--mantine-spacing-xs) * 0.6);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-dec-line-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* where we are: a slim strip under the notch */
+.eva-dec-where {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  height: 32px;
+  padding: 0 var(--mantine-spacing-lg);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--eva-text) 3%, transparent);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  white-space: nowrap;
+}
+.eva-dec-where > svg {
+  flex: none;
+}
+.eva-dec-where-q {
+  flex: 0 1 auto;
+  min-width: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--eva-text);
+}
+.eva-dec-where-lean {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-dec-where-lean b {
+  font-weight: var(--eva-fw-medium);
+  color: var(--eva-text);
+}
+.eva-dec-where-fill {
+  flex: 1;
+}
+.eva-dec-where .eva-dec-you {
+  padding: 0;
+}
+
+/* catch-up pill and its summary (a floating overlay: a shadow is allowed) */
+.eva-dec-catch {
+  position: absolute;
+  left: 50%;
+  bottom: var(--mantine-spacing-md);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform: translateX(-50%);
+}
+.eva-dec-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 4);
+  height: 30px;
+  padding: 0 calc(var(--mantine-spacing-xs) * 0.4) 0 var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-popover-bg);
+  color: var(--eva-popover-fg);
+  box-shadow: var(--mantine-shadow-md);
+  font-size: var(--eva-fz-label);
+  white-space: nowrap;
+}
+.eva-dec-pill-main {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  color: inherit;
+  font-size: inherit;
+}
+.eva-dec-pill-main > svg {
+  color: var(--eva-text-dim);
+}
+.eva-dec-pill-you {
+  font-weight: var(--eva-fw-medium);
+  color: color-mix(in srgb, var(--eva-accent) 55%, var(--eva-text));
+}
+.eva-dec-panel {
+  box-sizing: border-box;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  margin-bottom: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-card-radius);
+  background: var(--eva-popover-bg);
+  color: var(--eva-popover-fg);
+  box-shadow: var(--mantine-shadow-md);
+}
+.eva-dec-sum {
+  display: flex;
+  flex-direction: column;
+}
+.eva-dec-sum-item {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.8);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-label);
+  line-height: 1.45;
+  text-align: left;
+}
+.eva-dec-sum-item:hover {
+  background: var(--eva-hover);
+}
+.eva-dec-sum-item > svg {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-dec-sum-item[data-you] {
+  color: color-mix(in srgb, var(--eva-accent) 55%, var(--eva-text));
+}
+.eva-dec-sum-item[data-you] > svg {
+  color: inherit;
+}
+
+/* since you left: a summary block where Isaac stopped reading */
+.eva-dec-since {
+  max-width: 520px;
+  margin: var(--mantine-spacing-xs) var(--mantine-spacing-lg) calc(var(--mantine-spacing-xs) * 0.6)
+    calc(var(--mantine-spacing-xl) * 2);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: var(--eva-card-radius);
+  background: color-mix(in srgb, var(--eva-text) 4%, transparent);
+}
+.eva-dec-since-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+  min-height: var(--eva-control-xs);
+  padding: calc(var(--mantine-spacing-xs) / 4) calc(var(--mantine-spacing-xs) * 0.8);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-dec-since-title {
+  flex: 1;
+}
+
+/* a jump lands on its message with a short accent flash */
+.eva-dec-flash {
+  animation: eva-dec-flash 1.6s ease;
+}
+@keyframes eva-dec-flash {
+  0%,
+  30% {
+    background: color-mix(in srgb, var(--eva-accent) 14%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-dec-flash {
+    animation: none;
+  }
+  .eva-dec-bar i {
+    transition: none;
+  }
+}

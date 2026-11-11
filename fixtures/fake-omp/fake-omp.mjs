@@ -274,12 +274,27 @@ async function runPlain(promptId, text, images, slow) {
 }
 
 let seatTurns = 0
+/** `FAKE_OMP_ROOM_SCRIPT`: a JSON file of each member's replies by name, turn by turn (e2e decision cards). */
+const roomScript = (() => {
+  const file = process.env.FAKE_OMP_ROOM_SCRIPT
+  if (!file || !roomSeat) return []
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'))[roomSeat] ?? []
+  } catch {
+    return []
+  }
+})()
 async function runSeat(promptId, text, name) {
   const ctx = { promptId, text, aborted: false, cur: null, assistant: null, delay: Number(process.env.FAKE_OMP_SEAT_DELAY_MS ?? 120) }
   replay = ctx
   seatTurns++
   log('seat-turn', { name, turn: seatTurns })
-  const parts = [`${name} here, `, 'turn ', `${seatTurns}. `, 'I read ', 'the room ', 'and ', 'agree.']
+  const scripted = roomScript[seatTurns - 1]
+  // A scripted reply streams in six deltas, so markers arrive split across frames as with a model.
+  const step = typeof scripted === 'string' ? Math.ceil(scripted.length / 6) : 0
+  const parts = typeof scripted === 'string'
+    ? Array.from({ length: Math.ceil(scripted.length / step) }, (_, i) => scripted.slice(i * step, (i + 1) * step))
+    : [`${name} here, `, 'turn ', `${seatTurns}. `, 'I read ', 'the room ', 'and ', 'agree.']
   await playFrames(shortReply(text, { parts }), ctx, false)
   if (!ctx.aborted) replay = null
 }

@@ -24,6 +24,7 @@ import {
   type CouncilThinking,
   type RoomStage,
   type RoomWire,
+  type RoomWireCard,
   type RoomWireAgent,
   type RoomWireCouncil,
   type RoomsCmd,
@@ -277,4 +278,22 @@ export function stopAt(x: number, width: number, stops: number, inset: number): 
   if (span <= 0 || stops < 2) return 1;
   const raw = Math.round(((x - inset) / span) * (stops - 1));
   return Math.max(0, Math.min(stops - 1, raw)) + 1;
+}
+
+export type PollWire = Extract<RoomWireCard, { type: "poll" }>;
+
+/** A poll's options as rows: who picked each (in vote order), and whether it leads, won or lost. */
+export function pollRows(card: PollWire): { id: string; label: string; voters: string[]; mine: boolean; state: "lead" | "win" | "lose" | null }[] {
+  const voters = (id: string) => Object.entries(card.votes).filter(([, pick]) => pick === id).map(([who]) => who);
+  const counts = card.options.map((o) => voters(o.id).length);
+  const top = Math.max(0, ...counts);
+  const lead = top > 0 && counts.filter((n) => n === top).length === 1 ? card.options[counts.indexOf(top)]?.id : undefined;
+  const called = card.state === "called" ? card.called?.option : undefined;
+  return card.options.map((o) => ({
+    id: o.id,
+    label: o.label,
+    voters: voters(o.id),
+    mine: card.votes["isaac"] === o.id,
+    state: called !== undefined ? (called === o.id ? "win" : "lose") : lead === o.id ? "lead" : null,
+  }));
 }

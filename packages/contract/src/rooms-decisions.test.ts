@@ -30,7 +30,9 @@ const agent = (id: string, name: string) => ({
 })
 
 /** A room the markers act on: cards land on messages as the engine would put them. */
-function roomOf(): Pick<Room, 'messages' | 'agents'> & { say: (who: string, raw: string) => DecisionKindCard[] } {
+function roomOf(): Pick<Room, 'messages' | 'agents'> & {
+  say: (who: string, raw: string) => DecisionKindCard[]
+} {
   const room = {
     agents: [agent('astra', 'Astra'), agent('polaris', 'Polaris Vale'), agent('nova', 'Nova')],
     messages: [] as RoomMessage[],
@@ -62,7 +64,8 @@ function roomOf(): Pick<Room, 'messages' | 'agents'> & { say: (who: string, raw:
   return room
 }
 
-const OPTS = '[[poll: Which store? | SQLite now, Postgres later | Stay on SQLite | Move to Postgres now]]'
+const OPTS =
+  '[[poll: Which store? | SQLite now, Postgres later | Stay on SQLite | Move to Postgres now]]'
 
 describe('splitDecisionMarkers', () => {
   it('reads each kind and cuts it from the text', () => {
@@ -163,9 +166,10 @@ describe('applyDecisionMarkers', () => {
 
   it('collects pros and cons by subject, backs repeated points and marks disputes', () => {
     const room = roomOf()
-    const [pc] = room.say('astra', '[[pros: Staying on SQLite | Zero ops]]\n[[cons: Staying on SQLite | One writer]]') as [
-      ProsConsCard,
-    ]
+    const [pc] = room.say(
+      'astra',
+      '[[pros: Staying on SQLite | Zero ops]]\n[[cons: Staying on SQLite | One writer]]',
+    ) as [ProsConsCard]
     expect(room.messages).toHaveLength(1)
     room.say('polaris', '[[pros: staying on sqlite | zero ops | A migration later is one day]]')
     room.say('astra', '[[dispute: migration later]]')

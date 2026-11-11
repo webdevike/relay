@@ -700,7 +700,7 @@ export class ChatRoom {
     const judgeName = this.setup.members.find((m) => m.id === judge)?.name
     const call =
       judge === null
-        ? '- [[decision: the call | why, in one sentence | Name: the next step]] records the call once the room agrees. Use a poll option\'s exact words when it settles the poll. One call per question; Isaac accepts or overrides it.'
+        ? "- [[decision: the call | why, in one sentence | Name: the next step]] records the call once the room agrees. Use a poll option's exact words when it settles the poll. One call per question; Isaac accepts or overrides it."
         : judge === member.id
           ? "- [[decision: the call | why, in one sentence | Name: the next step]] is yours to make, as the room's judge: when the room has said enough (usually your last turn), make the call. Use a poll option's exact words when it settles the poll. Isaac accepts or overrides it."
           : `- ${judgeName} makes the call with [[decision: ...]]. On a proposed call you may write [[agree]] or [[dissent: why]].`
