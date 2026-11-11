@@ -93,8 +93,13 @@ export {
   type TabState,
   type TabsSnapshot,
   type SwitchApp,
+  type TabAgent,
+  type AgentTabStatus,
+  type AgentIdentity,
+  type AgentTabOp,
   SwitchAppSchema,
   SwitchAppIdSchema,
+  AgentIdentitySchema,
 } from './browser'
 
 export const invokeContract = {

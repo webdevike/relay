@@ -11,7 +11,7 @@ import { BLOCKED_URL_CODE, PAGE_GONE_CODE, loadableUrl } from '@evaos/browser-co
 import { isAppSwitchUrl } from '@evaos/browser-core/app-switch'
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
 import { FORWARD_FROM_GUEST, PINNED_SCOPE, chordOfInput } from '@evaos/shell-core'
-import type { TabState, TabsSnapshot } from '@evaos/contract'
+import type { AgentIdentity, TabAgent, TabState, TabsSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit } from '../ipc/handle'
 import { allowGuestPopup } from './guest-permissions'
@@ -61,7 +61,18 @@ export interface CreateTabOptions extends NavigateOptions {
   openedBy?: string
   /** Opened by a guest page: never made its scope's active tab on creation. */
   popup?: boolean
+  /** An agent's tab (TabState.agent, idle until it drives it). */
+  agent?: AgentIdentity
 }
+
+/** A tab as the agent drive lists it: its state and the workspace scope that owns it. */
+export interface ScopedTab {
+  state: TabState
+  scope: string
+}
+
+/** The viewport a driven page gets while it is not on screen, when no slot has set one yet. */
+const DRIVE_SIZE = { width: 1280, height: 800 }
 
 /** Upper bound on live tab views; each one is a full renderer process a guest page could spawn. */
 export const MAX_TABS = 32
@@ -70,6 +81,10 @@ export const MAX_TABS = 32
 export const LIVE_SCOPES = 5
 
 type TabListener = (tab: TabState, view: WebContentsView) => void
+
+/** An agent is acting in the tab (or waiting on Isaac there): it keeps its live view. */
+const busy = (a: TabAgent | undefined): boolean =>
+  a !== undefined && (a.status === 'working' || a.status === 'paused' || a.status === 'ask')
 
 function hostOf(url: string): string {
   try {
@@ -102,6 +117,11 @@ export class BrowserHost {
   private closed: TabListener[] = []
   /** Sign-in popups by webContents id, with the tab that opened them. */
   private popups = new Map<number, Tab>()
+  private input: Array<(tabId: string) => void> = []
+  /** Tabs the agent drive is sending input to right now, with how many actions are in flight. */
+  private actingIn = new Map<string, number>()
+  /** The last on-screen page size: a page driven in the background lays out at it. */
+  private driveSize = { ...DRIVE_SIZE }
 
   readonly history: HistoryStore
   private readonly saved: SavedTabsStore
@@ -300,6 +320,19 @@ export class BrowserHost {
       favicon: null,
       pinned: false,
       ...(opts.openedBy ? { openedBy: opts.openedBy } : {}),
+      ...(opts.agent
+        ? {
+            agent: {
+              ...opts.agent,
+              status: 'idle' as const,
+              caption: '',
+              background: !activate,
+              ask: null,
+              since: Date.now(),
+              ended: null,
+            },
+          }
+        : {}),
     }
     const scope = opts.scope ?? this.scope
     // A new tab follows the eCard app of the tab its own scope shows.
@@ -379,11 +412,17 @@ export class BrowserHost {
     wc.on('did-create-window', (win) => this.wirePopup(tab, win))
     // A click into a page makes it the active tab (its extension actions, a key it forwards).
     wc.on('focus', () => {
+      if (this.actingIn.has(s.id)) return
       if (tab.view !== view || this.activeId === s.id || !this.visibleIds().includes(s.id)) return
       this.select(s.id)
       this.changed()
     })
+    // Isaac's own input in a tab (not the drive's CDP input): an agent driving it pauses.
+    wc.on('before-mouse-event', (_e, mouse) => {
+      if (mouse.type === 'mouseDown' || mouse.type === 'mouseWheel') this.userInput(tab, view)
+    })
     wc.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown') this.userInput(tab, view)
       if (matchesAppChord(input) === 'devtools') {
         event.preventDefault()
         wc.openDevTools({ mode: 'detach' })
@@ -514,6 +553,15 @@ export class BrowserHost {
               switchApp: tab.switchApp,
               popup: true,
               ...(tab.state.openedBy ? { openedBy: tab.state.openedBy } : {}),
+              ...(tab.state.agent
+                ? {
+                    agent: {
+                      id: tab.state.agent.id,
+                      name: tab.state.agent.name,
+                      color: tab.state.agent.color,
+                    },
+                  }
+                : {}),
             })
             if (opened) {
               emit(this.ctx, 'browser.popup', {
@@ -704,7 +752,9 @@ export class BrowserHost {
     this.recent = [scope, ...this.recent.filter((s) => s !== scope)].slice(0, LIVE_SCOPES)
     const keep = new Set(this.recent)
     for (const [id, t] of this.tabs) {
-      if (t.scope !== PINNED_SCOPE && !keep.has(t.scope) && !this.slots.has(id)) this.discard(t)
+      if (t.scope === PINNED_SCOPE || keep.has(t.scope) || this.slots.has(id)) continue
+      // A page an agent is driving keeps running while Isaac looks elsewhere.
+      if (!busy(t.state.agent)) this.discard(t)
     }
     this.select(this.restoredActive())
     this.changed()
@@ -757,6 +807,7 @@ export class BrowserHost {
       if (!t) continue
       this.slots.delete(tabId)
       this.slots.set(tabId, { x, y, width, height })
+      if (width > 0 && height > 0) this.driveSize = { width, height }
       if (!t.view) {
         this.live(t)
         revived = true
@@ -822,9 +873,74 @@ export class BrowserHost {
       t.view.setBounds(bounds)
       const show = this.shows(t, bounds)
       t.view.setVisible(show)
+      // A page an agent drove off screen lays out at its view again.
+      if (show) t.control?.viewport(null).catch(() => undefined)
       if (was && !show) hidden = true
     }
     if (hidden && !this.ctx.shell.webContents.isDestroyed()) this.ctx.shell.webContents.focus()
+  }
+
+  // Agents ------------------------------------------------------------------------------------
+
+  agentOf(id: string): TabAgent | undefined {
+    return this.tabs.get(id)?.state.agent
+  }
+
+  /** Sets (or, undefined, clears) the agent of tab `id` and what it is doing there. */
+  setAgent(id: string, agent: TabAgent | undefined): void {
+    const t = this.tab(id)
+    if (agent) t.state.agent = agent
+    else delete t.state.agent
+    // A page an agent drives in the background keeps its timers and loads at full speed.
+    if (t.view && !t.view.webContents.isDestroyed()) {
+      t.view.webContents.setBackgroundThrottling(!busy(agent))
+    }
+    this.changed()
+  }
+
+  /** Every tab, whatever its scope, in creation order. */
+  allTabs(): ScopedTab[] {
+    return [...this.tabs.values()].map((t) => ({ state: { ...t.state }, scope: t.scope }))
+  }
+
+  /** Whether tab `id` is on screen now (Isaac can see the agent's cursor there). */
+  isShown(id: string): boolean {
+    return this.slots.has(id) && this.tabs.get(id)?.view?.getVisible() === true
+  }
+
+  /** Tab `id`'s live view for the agent drive, revived when dormant. */
+  driveView(id: string): WebContentsView {
+    return this.live(this.tab(id))
+  }
+
+  /** The viewport a page driven off screen lays out at: the last on-screen page size. */
+  driveViewport(): { width: number; height: number } {
+    return { ...this.driveSize }
+  }
+
+  /**
+   * Runs the drive's own input into tab `id`: the input events it causes are not Isaac's (no
+   * pause) and its focus does not make the tab active.
+   */
+  async acting<T>(id: string, fn: () => Promise<T>): Promise<T> {
+    this.actingIn.set(id, (this.actingIn.get(id) ?? 0) + 1)
+    try {
+      return await fn()
+    } finally {
+      const n = (this.actingIn.get(id) ?? 1) - 1
+      if (n <= 0) this.actingIn.delete(id)
+      else this.actingIn.set(id, n)
+    }
+  }
+
+  /** Isaac clicked, scrolled or typed in a tab an agent owns. */
+  onUserInput(cb: (tabId: string) => void): void {
+    this.input.push(cb)
+  }
+
+  private userInput(tab: Tab, view: WebContentsView): void {
+    if (tab.view !== view || !tab.state.agent || this.actingIn.has(tab.state.id)) return
+    for (const cb of this.input) cb(tab.state.id)
   }
 
   private changed(): void {

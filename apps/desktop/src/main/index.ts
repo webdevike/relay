@@ -258,7 +258,7 @@ function bootstrap(): void {
       )
       files = registerFilesIpc(ctx, chat, presence.noteSave)
       registerTerminalIpc(ctx, chat)
-      registerBrowser(ctx)
+      const browser = registerBrowser(ctx)
       const update = registerUpdate(ctx, {
         chatWorking: () => chat.anyWorking(),
         restart: restartForUpdate,
@@ -311,6 +311,7 @@ function bootstrap(): void {
         chat.studio,
         connections,
         chat.frames,
+        browser,
       )
       installTestHooks(ctx)
     } catch (e) {

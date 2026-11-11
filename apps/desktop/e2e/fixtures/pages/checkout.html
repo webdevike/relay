@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Checkout</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: sans-serif;
+        background: #f6f6f4;
+      }
+      .box {
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 16px;
+        max-width: 420px;
+      }
+      button {
+        font-size: 15px;
+        padding: 8px 18px;
+        background: #f0c14b;
+        border: 1px solid #a88734;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Checkout</h1>
+    <div class="box" id="box">
+      <p>ORICO 2TB Portable SSD</p>
+      <p>Items: $84.99</p>
+      <p>Shipping: $5.00</p>
+      <p><strong>Order total: $89.99</strong></p>
+      <button id="place">Place your order</button>
+    </div>
+    <p id="placed" hidden>Order placed. Arrives Thursday.</p>
+    <script>
+      document.getElementById('place').addEventListener('click', (e) => {
+        if (!e.isTrusted) return
+        document.getElementById('box').hidden = true
+        document.getElementById('placed').hidden = false
+      })
+    </script>
+  </body>
+</html>

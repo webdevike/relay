@@ -72,6 +72,7 @@ import {
 } from '../context/context-store'
 import { snapshotFocus } from './focus-safety'
 import { announce, inFront, targetOf, whenShown, type ScopeTarget } from './scope'
+import { agentIdentity } from './identity'
 import { accessActions } from './access'
 
 /** A failure with a stable code; main reports it as `{ ok: false, code, message }`. */
@@ -480,25 +481,30 @@ function openerOf(t: ScopeTarget): string | undefined {
 
 /**
  * browser.open and tab.open `browser`: a page tab in the caller's workspace (see openWebPage),
- * in the background with a quiet dot when that workspace is not on screen.
+ * in the background with a quiet dot when that workspace is not on screen. An agent's page shows
+ * its face; `background` keeps it at the end of the strip without coming forward.
  */
 async function openPage(
   url: string | undefined,
   scope: string | undefined,
   pane: string | undefined,
+  asked?: { background?: boolean },
 ): Promise<object> {
   const at = { ...(url ? { url } : {}), ...(pane !== undefined ? { pane } : {}) }
-  if (scope === undefined) return openWebPage(at)
+  if (scope === undefined)
+    return openWebPage({ ...at, ...(asked?.background ? { background: true } : {}) })
   const t = await targetOf(scope)
-  const background = !inFront(t)
+  const away = !inFront(t)
+  const background = away || asked?.background === true
   const openedBy = openerOf(t)
   const placed: WebPagePlace = await openWebPage({
     ...at,
     scope: t.scope,
     ...(background ? { background: true } : {}),
     ...(openedBy ? { openedBy } : {}),
+    agent: await agentIdentity(scope),
   })
-  if (background) announce(t, 'opened a page')
+  if (away) announce(t, 'opened a page')
   return { ...placed, scope: t.scope, background }
 }
 
@@ -690,7 +696,8 @@ export const rendererActions: AgentRunners<'renderer'> = {
         return shown
       },
     ),
-  'browser.open': ({ url, scope }) => openPage(url, scope, undefined),
+  'browser.open': ({ url, scope, background }) =>
+    openPage(url, scope, undefined, background ? { background } : undefined),
   'browser.focusTab': async ({ tabId, scope }) => {
     const panel = webPanelId(tabId)
     const t = scope === undefined ? null : await targetOf(scope)

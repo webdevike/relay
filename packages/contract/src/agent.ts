@@ -180,6 +180,53 @@ const ArtifactTabId = z.string().min(1).max(48)
 const ARTIFACTS_SCOPE =
   "Acts on the calling session's thread (an assistant's whole thread, else the chat's)."
 
+// Driving a page -------------------------------------------------------------------------------
+
+/** What a drive action acts on: a ref from browser.read, a CSS selector, visible text, or a point. */
+const BrowserTarget = {
+  ref: z
+    .string()
+    .regex(/^n?\d{1,10}$/)
+    .optional()
+    .describe('An element ref from browser.read (`n123`)'),
+  selector: z.string().min(1).max(1000).optional().describe('A CSS selector'),
+  text: z
+    .string()
+    .min(1)
+    .max(300)
+    .optional()
+    .describe('Visible text of a button, link, label or field (first match)'),
+  x: z.number().min(0).max(20_000).optional().describe('Viewport x in CSS px, with y'),
+  y: z.number().min(0).max(20_000).optional(),
+}
+const hasTarget = (v: { ref?: string; selector?: string; text?: string; x?: number }): boolean =>
+  v.ref !== undefined || v.selector !== undefined || v.text !== undefined || v.x !== undefined
+const pointPaired = (v: { x?: number; y?: number }): boolean =>
+  (v.x === undefined) === (v.y === undefined)
+const Caption = z
+  .string()
+  .min(1)
+  .max(200)
+  .optional()
+  .describe('One line Isaac sees on the page: what you are doing now ("Sorting by price")')
+/**
+ * A consequential action the agent declares: Isaac's Allow comes first, inline on the page and on
+ * the chat's work card. The app also asks on its own when a button or form looks like one.
+ */
+const Intent = z
+  .object({
+    kind: z.enum(['purchase', 'send', 'submit', 'delete']),
+    label: z
+      .string()
+      .min(1)
+      .max(160)
+      .describe('What it does, as Isaac reads it: "place order $89.99"'),
+  })
+  .strict()
+  .optional()
+const DRIVE_RULES =
+  "Acts as the calling agent in Isaac's signed-in session: the tab shows your face, a ring and your caption. When Isaac clicks or types in the tab he takes over: actions answer `paused-by-isaac` until he hands back (browser.wait until handback). Purchases, sends, submits and deletes wait for his Allow."
+
 export const agentActions = {
   'state.read': {
     title: 'Read state',
@@ -424,8 +471,10 @@ export const agentActions = {
   'browser.open': {
     title: 'Open a web page',
     description:
-      'Opens a URL (or a bare local port like `3000`) as a new page tab of the workspace (`web:<tabId>`): in the pane holding its pages, else a new pane right of the chat. With `scope` it lands in that workspace (in the background, with a quiet dot, when it is not on screen); a session an assistant owns marks the page as opened by it. Answers `pane`, `tab` and `tabId`.',
-    params: z.object({ url: z.string().min(1).max(2048), scope }).strict(),
+      "Opens a URL (or a bare local port like `3000`) as a new page tab of the workspace (`web:<tabId>`): in the pane holding its pages, else a new pane right of the chat. With `scope` it lands in that workspace (in the background, with a quiet dot, when it is not on screen); a session an assistant owns marks the page as opened by it, and the tab shows that agent's face (the browser.* drive actions act on it). `background` adds it quietly at the end of the strip without bringing it forward (pages you compare on the side). Pages share Isaac's signed-in browser session. Answers `pane`, `tab` and `tabId`.",
+    params: z
+      .object({ url: z.string().min(1).max(2048), background: z.boolean().optional(), scope })
+      .strict(),
     side: 'renderer',
     focus: 'panel',
     destructive: false,
@@ -446,6 +495,197 @@ export const agentActions = {
     side: 'renderer',
     focus: 'panel',
     destructive: false,
+  },
+  'browser.tabs': {
+    title: 'List web pages',
+    description:
+      "Every open page in every workspace: tabId, url, title, loading, the workspace scope, and for an agent's page its agent (name, status working/paused/ask/done/stopped/idle, caption).",
+    params: z.object({ scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.read': {
+    title: 'Read a web page',
+    description:
+      'Reads a page (works in the background, nothing on screen moves). `outline` (default): url, title, headings and every interactive element as `[n123] button "Add to Cart"` (the ref drives browser.click/type/scroll), with values, checked and disabled states. `text`: the page\'s visible text. `html`: the HTML of `selector` (else the document). `maxChars` caps text and html (default 20000).',
+    params: z
+      .object({
+        tabId: TabIdSchema,
+        mode: z.enum(['outline', 'text', 'html']).optional(),
+        selector: z.string().min(1).max(1000).optional(),
+        maxChars: z.number().int().min(100).max(200_000).optional(),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.screenshot': {
+    title: 'Screenshot a web page',
+    description:
+      'PNG of the page as it renders (works for pages in the background), base64 with its size.',
+    params: z.object({ tabId: TabIdSchema, scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.navigate': {
+    title: 'Go to an address',
+    description: `Loads \`url\` (an address, search words or a bare port) in the page, or goes \`back\`, \`forward\` or \`reload\`; answers once it loaded (url, title). ${DRIVE_RULES}`,
+    params: z
+      .object({
+        tabId: TabIdSchema,
+        url: z.string().min(1).max(2048).optional(),
+        go: z.enum(['back', 'forward', 'reload']).optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict()
+      .refine((v) => (v.url === undefined) !== (v.go === undefined), {
+        message: 'Give exactly one of url or go',
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.click': {
+    title: 'Click in a web page',
+    description: `Clicks an element (\`ref\` from browser.read, \`selector\`, visible \`text\`) or a point (\`x\`,\`y\`) with real mouse input; your cursor moves there first. Declare \`intent\` for a purchase, send, submit or delete: it waits for Isaac's Allow (up to 75 s; then browser.wait until approval). Answers what it clicked and the page's url. ${DRIVE_RULES}`,
+    params: z
+      .object({ tabId: TabIdSchema, ...BrowserTarget, caption: Caption, intent: Intent, scope })
+      .strict()
+      .refine(hasTarget, { message: 'Give ref, selector, text or x and y' })
+      .refine(pointPaired, { message: 'x and y go together' }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.type': {
+    title: 'Type into a web page',
+    description: `Types \`text\` into a field (clicked first when you name it by \`ref\`, \`selector\`, its visible \`label\` or placeholder, or \`x\`,\`y\`; else the focused element). \`clear\` empties it first; \`submit\` presses Enter after (a form that submits a purchase, message or delete waits for Isaac's Allow). ${DRIVE_RULES}`,
+    params: z
+      .object({
+        tabId: TabIdSchema,
+        text: z.string().max(10_000).describe('What to type'),
+        ref: BrowserTarget.ref,
+        selector: BrowserTarget.selector,
+        label: z
+          .string()
+          .min(1)
+          .max(300)
+          .optional()
+          .describe('Visible label or placeholder of the field'),
+        x: BrowserTarget.x,
+        y: BrowserTarget.y,
+        clear: z.boolean().optional(),
+        submit: z.boolean().optional(),
+        caption: Caption,
+        intent: Intent,
+        scope,
+      })
+      .strict()
+      .refine(pointPaired, { message: 'x and y go together' }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.press': {
+    title: 'Press a key in a web page',
+    description: `Presses a key in the page: \`Enter\`, \`Tab\`, \`Escape\`, \`Backspace\`, \`Delete\`, \`Space\`, arrows, \`PageDown\`, \`Home\`, \`End\` or a character, with modifiers like \`Meta+a\` or \`Shift+Tab\`. Enter in a form that buys, sends or deletes waits for Isaac's Allow. ${DRIVE_RULES}`,
+    params: z
+      .object({
+        tabId: TabIdSchema,
+        key: z.string().min(1).max(40),
+        caption: Caption,
+        intent: Intent,
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.scroll': {
+    title: 'Scroll a web page',
+    description: `Scrolls by \`dy\` CSS px (negative is up), to the \`top\` or \`bottom\`, or an element (\`ref\`, \`selector\`, \`text\`) into view. ${DRIVE_RULES}`,
+    params: z
+      .object({
+        tabId: TabIdSchema,
+        dy: z.number().min(-50_000).max(50_000).optional(),
+        to: z.enum(['top', 'bottom']).optional(),
+        ref: BrowserTarget.ref,
+        selector: BrowserTarget.selector,
+        text: BrowserTarget.text,
+        caption: Caption,
+        scope,
+      })
+      .strict()
+      .refine(
+        (v) =>
+          [v.dy, v.to, v.ref ?? v.selector ?? v.text].filter((x) => x !== undefined).length === 1,
+        { message: 'Give one of dy, to, or an element' },
+      ),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.wait': {
+    title: 'Wait in a web page',
+    description:
+      'Waits (up to `timeoutMs`, default 30000, max 75000) until the page `load`s, Isaac hands the tab back (`handback`), answers the approval row (`approval`: allowed or not), `text` (`value`) shows on the page, or `selector` (`value`) matches. Answers `{met, status}`; met false on timeout.',
+    params: z
+      .object({
+        tabId: TabIdSchema,
+        until: z.enum(['load', 'handback', 'approval', 'text', 'selector']),
+        value: z.string().min(1).max(1000).optional(),
+        timeoutMs: z.number().int().min(0).max(75_000).optional(),
+        scope,
+      })
+      .strict()
+      .refine((v) => (v.until === 'text' || v.until === 'selector') === (v.value !== undefined), {
+        message: '`value` goes with until text or selector, and only with them',
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.caption': {
+    title: 'Say what you are doing in a web page',
+    description:
+      'Sets the one-line caption Isaac sees on your tab and its work card ("Comparing prices at B&H"). Every drive action also takes `caption`.',
+    params: z.object({ tabId: TabIdSchema, text: z.string().min(1).max(200), scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'browser.done': {
+    title: 'Finish in a web page',
+    description:
+      'Ends your run in the tab: the ring and cursor go, the caption becomes `summary` with a check (`outcome` done, the default) or as stopped (`stopped`, for example after Isaac said Not now). The page stays open with your face on its tab.',
+    params: z
+      .object({
+        tabId: TabIdSchema,
+        summary: z.string().min(1).max(200),
+        outcome: z.enum(['done', 'stopped']).optional(),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
   },
   'ecard.switch': {
     title: 'Switch the eCard app',

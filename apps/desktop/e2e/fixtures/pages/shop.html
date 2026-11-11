@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Shop</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: sans-serif;
+        background: #f6f6f4;
+        color: #1c1c1c;
+      }
+      header,
+      main {
+        padding: 16px 24px;
+      }
+      header {
+        background: #20262e;
+        color: #fff;
+        display: flex;
+        gap: 16px;
+        align-items: center;
+      }
+      .result {
+        background: #fff;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 12px 0;
+        max-width: 420px;
+      }
+      button {
+        font-size: 14px;
+        padding: 6px 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Shop</h1>
+      <form role="search" action="shop.html">
+        <input name="q" type="search" placeholder="Search Shop" aria-label="Search Shop" />
+        <button type="submit">Go</button>
+      </form>
+    </header>
+    <main id="main"></main>
+    <script>
+      const q = new URLSearchParams(location.search).get('q')
+      const main = document.getElementById('main')
+      if (q) {
+        main.innerHTML = `
+          <h2>Results for "${q.replace(/[<>&"]/g, '')}"</h2>
+          <div class="result">
+            <h3>ORICO 2TB Portable SSD</h3>
+            <p>$84.99</p>
+            <button id="add">Add to Cart</button>
+            <p id="added" hidden>Added to cart. <a href="checkout.html">Proceed to checkout</a></p>
+          </div>`
+        document.getElementById('add').addEventListener('click', () => {
+          localStorage.setItem('cart', 'orico-2tb')
+          document.getElementById('added').hidden = false
+        })
+      } else {
+        main.innerHTML = '<h2>Deals for you</h2><p>Search for anything.</p>'
+      }
+      // How many clicks reached the page, trusted (real input) or not.
+      window.clicks = { trusted: 0, untrusted: 0 }
+      document.addEventListener('click', (e) => window.clicks[e.isTrusted ? 'trusted' : 'untrusted']++)
+    </script>
+  </body>
+</html>

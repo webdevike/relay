@@ -1,3 +1,4 @@
+import type { AgentIdentity } from '@evaos/contract'
 import { activeTab, appPanelId, toolTabId, type Side, type WebTab } from '@evaos/shell-core'
 import { browserStore, focusAddressOf } from '../browser/browser-store'
 import { isDispatchFromGuest } from '../hotkeys/router'
@@ -32,6 +33,8 @@ export interface OpenWebPageOptions {
   scope?: string
   /** Who opened it, shown on its tab (a session's title, a helper's name). */
   openedBy?: string
+  /** An agent's page: its face on the tab (TabState.agent). */
+  agent?: AgentIdentity
 }
 
 export interface WebPagePlace {
@@ -61,12 +64,30 @@ interface Placement {
   after?: string
 }
 
+/**
+ * Where a page Isaac (or an agent in front) adds joins `pane`: before the agents' background
+ * pages, which stay grouped at the end of the strip; at the end when there are none.
+ */
+function beforeAgentGroup(views: readonly string[]): number | undefined {
+  const tabs = browserStore.getState().tabs
+  const at = views.findIndex((v) => {
+    const id = webTabOf(v)
+    return id !== null && tabs.find((t) => t.id === id)?.agent?.background === true
+  })
+  return at < 0 ? undefined : at
+}
+
 /** Adds page `tabId` to the panes the engine holds now (see openWebPage); answers its pane. */
 function placeWebTab(tabId: string, at: Placement): string {
   const tab: WebTab = { kind: 'web', id: tabId }
   const front = !at.background
-  if (at.pane !== undefined) return addToolTab(tab, { pane: at.pane }, front)
   const { panes, focus } = paneSnapshot()
+  const into = (pane: string): string => {
+    const views = panes.find((p) => p.id === pane)?.views ?? []
+    const index = front ? beforeAgentGroup(views) : undefined
+    return addToolTab(tab, index === undefined ? { pane } : { pane, index }, front)
+  }
+  if (at.pane !== undefined) return into(at.pane)
   const opener = at.after === undefined ? undefined : panes.find((p) => p.views.includes(at.after!))
   if (opener && at.after !== undefined) {
     return addToolTab(tab, { pane: opener.id, index: opener.views.indexOf(at.after) + 1 }, front)
@@ -76,7 +97,7 @@ function placeWebTab(tabId: string, at: Placement): string {
   }
   const pages = panes.filter((p) => p.views.some((v) => webTabOf(v) !== null))
   const home = pages.find((p) => p.id === focus) ?? pages[0]
-  if (home) return addToolTab(tab, { pane: home.id }, front)
+  if (home) return into(home.id)
   const thread = appPanelId(activeTab(tabsStore.getState().tabs).id)
   const chat = panes.find((p) => p.views.includes(thread)) ?? panes.find((p) => p.app) ?? panes[0]
   if (!chat) fail('not-found', 'The panes are not ready')
@@ -112,6 +133,7 @@ export async function openWebPage(opts: OpenWebPageOptions = {}): Promise<WebPag
     scope,
     ...(opts.openedBy ? { openedBy: opts.openedBy } : {}),
     ...(opts.background ? { background: true } : {}),
+    ...(opts.agent ? { agent: opts.agent } : {}),
   })
   if (!r.ok) fail(r.error.code, r.error.message)
   const page = r.value

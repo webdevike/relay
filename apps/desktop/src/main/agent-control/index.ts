@@ -23,6 +23,10 @@ import { startControlServer, type RunBody } from './server'
 import { artifactsRunners } from '../relay/artifacts-agent'
 import { canvasLiveRunners } from '../relay/canvas-live-agent'
 import { studioRunners } from '../relay/studio-agent'
+import { AgentDrive, type DriveIdentity } from '../browser/agent-drive'
+import { browserRunners } from '../browser/agent-runners'
+import type { BrowserHost } from '../browser/browser-host'
+import { registerTestHook } from '../test-hooks'
 import type {
   RelayArtifacts,
   RelayCanvas,
@@ -33,6 +37,8 @@ import type {
 
 const RENDERER_TIMEOUT_MS = 15_000
 const CONFIRM_TIMEOUT_MS = 60_000
+/** How long a session's face and color are reused before the renderer is asked again. */
+const IDENTITY_TTL_MS = 60_000
 
 /**
  * The agent control API (see server.ts): agents drive the app through the action registry in
@@ -48,6 +54,7 @@ export function registerAgentControl(
   studio: RelayStudio & Pick<RelayCanvas, 'canvasOrigin'>,
   connections: Connections,
   frames: RelayFrames,
+  browser: BrowserHost,
 ): void {
   const runs = createReplyRegistry()
   const confirms = createReplyRegistry()
@@ -87,6 +94,25 @@ export function registerAgentControl(
   }
 
   const screenshot = (): Promise<Buffer> => captureWindow(ctx.win, ctx.shell)
+
+  // Agents driving pages: who the calling session is comes from the renderer (its assistant's
+  // name, accent and portrait), cached per scope.
+  const identities = new Map<string, { at: number; who: DriveIdentity }>()
+  const drive = new AgentDrive(browser, async (scope) => {
+    const key = scope ?? ''
+    const hit = identities.get(key)
+    if (hit && Date.now() - hit.at < IDENTITY_TTL_MS) return hit.who
+    const r = await renderer('@agentOf', { scope })
+    if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code })
+    const who = r.value as DriveIdentity
+    identities.set(key, { at: Date.now(), who })
+    return who
+  })
+  handle(ctx, 'browser.agent', ({ tabId, op }) => {
+    drive.op(tabId, op)
+    return { ok: true as const }
+  })
+  registerTestHook('agentDrive', drive)
 
   const main: AgentRunners<'main'> = {
     'state.read': async () => {
@@ -133,6 +159,7 @@ export function registerAgentControl(
     ...artifactsRunners(artifacts),
     ...canvasLiveRunners(canvas),
     ...studioRunners(studio, (p) => renderer('studio.open', p)),
+    ...browserRunners(drive),
   }
 
   const token = randomBytes(32).toString('hex')

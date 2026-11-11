@@ -36,11 +36,12 @@ export function registerBrowserIpc(ctx: MainContext, host: BrowserHost): void {
   handle(ctx, 'browser.systemBrowser', () => ({
     name: app.getApplicationNameForProtocol('https://') || null,
   }))
-  handle(ctx, 'browser.createTab', async ({ url, scope, openedBy, background }) => {
+  handle(ctx, 'browser.createTab', async ({ url, scope, openedBy, background, agent }) => {
     await host.ready
     const tab = host.createTab(url ? (normalize(url) ?? undefined) : undefined, !background, {
       scope,
       ...(openedBy ? { openedBy } : {}),
+      ...(agent ? { agent } : {}),
     })
     if (!tab) throw Object.assign(new Error('Tab limit reached'), { code: 'tab-limit' })
     return tab

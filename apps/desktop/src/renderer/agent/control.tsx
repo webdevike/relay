@@ -12,6 +12,7 @@ import { actorOf, announceChange } from './access'
 import { decide, isTyping, snapshotFocus, withFocusHold } from './focus-safety'
 import { isAway, startScopeWatch } from './scope'
 import { startPresence } from './presence'
+import { agentIdentityWithFace } from './identity'
 
 interface Queued {
   action: AgentActionId
@@ -102,6 +103,21 @@ export async function dispatch(action: string, params: unknown): Promise<AgentRe
     const p = params as { scope?: string; text?: string }
     announceChange(`${actorOf(p.scope)} ${p.text ?? 'changed something'}`)
     return { ok: true, value: {} }
+  }
+  // Main's browser drive asks who a session is: its face and color on the pages it drives.
+  if (action === '@agentOf') {
+    const scope =
+      typeof params === 'object' &&
+      params !== null &&
+      'scope' in params &&
+      typeof params.scope === 'string'
+        ? params.scope
+        : undefined
+    try {
+      return { ok: true, value: await agentIdentityWithFace(scope) }
+    } catch (e) {
+      return errorResult(e)
+    }
   }
   if (!isAgentActionId(action)) {
     return { ok: false, code: 'unknown-action', message: `No action ${action}` }
