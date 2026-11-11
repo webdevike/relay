@@ -62,7 +62,8 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
 - [x] S3 assistant pop-in/out + one-row work card.
 - [x] S4 decision cards in rooms (poll, pros/cons, question for Isaac, decision record, catch-up pill, Where we
       are, Since you left). The council proposal card in an assistant's 1:1 chat is S5 (reuses DecisionRecord).
-- [ ] S5 rooms.create / rooms.update tool (agent action, relay-linux CLI, Room ready card).
+- [x] S5 rooms.create / rooms.update / rooms.list (agent action, relay-linux CLI, Room ready + council proposal
+      cards, seat approval asks in rooms).
 
 ## Log
 - 2026-11-11 worktree created off origin/main 16569631; code map written.
@@ -237,3 +238,64 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
   - Shipped: main 89e3a2ab + cf73e2b0, desktop deploy published build cf73e2b0d7 (Mini staged "Update ready";
     MBP on its next poll). Host: code only (rooms.decide advertised in apps/linux session.ts), not built. Phone
     JS on main, no OTA; cards show on any host, buttons need a host with rooms.decide.
+
+### S5
+- 2026-11-11 S5 (worktree work/relay-rooms-assistants, rebased on S4 cf73e2b0).
+  - Contract `rooms-agent.ts`: agent actions `rooms.create` {title?, members[{assistant|custom, model (exact omp
+    id), thinking, role, instructions?}], effort, budget, folder?, refs?, draft?, template?, proposal?} ->
+    {roomId, link `relay://open/room/<id>` (the app's existing room link), state idle|proposed, card
+    `[[room:<id> | <title>]]`, next}; `rooms.update` {roomId, any field, members as a full list or {add, remove
+    [id or name], replace {from, to}}} -> {roomId, link, rev}; `rooms.list`. Helpers resolveMembers,
+    changeMembers (a replaced member keeps role, instructions, place; thinking fitted to a new model),
+    assistantCeiling, isaacLimits, boundsProblem, roomCardToken. RoomChat gains `by` (who made it, from the
+    request scope: `agent:<id>` -> assistant, else the session file), `limits`, `proposal`; Room phase gains
+    `proposed`. IPC `rooms.convene`.
+  - Bounds (DECISION FOR ISAAC): `ASSISTANT_ROOM_LIMITS = {budget: 10, effort: 4}` in
+    packages/contract/src/rooms-agent.ts, enforced in main (rooms-ipc open/update with an origin). An
+    assistant-made room keeps `limits`; Isaac's own Save (Edit setup / Members) raises them to what he set; an
+    assistant changing Isaac's own room may go up to the default or what Isaac set, whichever is higher.
+  - Main: `rooms/rooms-agent.ts` (runners, wired into registerAgentControl as its last arg), ChatRoom
+    create(origin)/convene() (once; a second click sends nothing; posting in a proposed room convenes it),
+    update(patch, isaac). Seat approval asks in chat rooms: ChatRoom polls the guard's asks dir while seats
+    run, each ask is an `ask` card (Isaac's Allow / Deny writes `<askId>.answer` through rooms.answer, which
+    now routes chat rooms too); asks left open when the seats stop, at quit or restore are denied. The seat
+    prompt now says outward actions wait for Isaac's Allow. Proposals stay off the phone wire (old hosts refuse
+    unknown phases) and out of the Rooms nav until convened.
+  - Desktop UI: `rooms/RoomCard.tsx` + room-card.css. MessageRow splits `[[room:...]]` (protocol
+    `splitRoomCards`, also hidden while streaming) into a live card keyed by roomId: Room ready (title, stack
+    with S1 hover cards, roster, effort + cap, folder, Updated ×N from rev, Open room / Edit setup), proposal
+    (question, stack, effort + cap, Convene / Edit members / Not now), convened strip (Council · leaning X /
+    in session / N for you, from S4 whereWeAre; opens the room), then S4 `DecisionRecord` acting on the room.
+    Missing room: "Room deleted"; Not now: "Not now" (declined ids kept in localStorage). Seat asks render as
+    S4 `QuestionView` (For you tint, Allow / Deny) via `SeatAskView`; Where we are counts them.
+  - Host (apps/linux, code + tests, NOT built): `relay-linux rooms list|create '<json>'|update <roomId>
+    '<json>' [--device]` posts the action to the host's existing `POST /control/run` with scope
+    `agent:$RELAY_ASSISTANT` (control/rooms-cli.ts); pushes and call speech drop room tokens (a token-only
+    reply pushes `Room: <title>`). No new host route: works on the installed host once this CLI is deployed.
+  - Phone JS (committed, NO OTA): eva.tsx splits the token; `rooms/RoomCardRow.tsx` opens /rooms/<id> when the
+    host has rooms.chat and the room is on the wire, else `Room: <title>`.
+  - relay MCP: `.omp/tools/relay-mcp.ts` builds its tools from GET /actions, so rooms_create / rooms_update /
+    rooms_list appear with no edit (a running omp picks them up on its next tools/list or session start); its
+    scope is RELAY_ASSISTANT, so attribution works. No relay-ctl change either. Eva rule line to add for
+    assistants (where resumed threads load rules): "- When Isaac wants several agents to work something out,
+    set up a room: relay MCP `rooms_create` (or `relay-linux rooms create`), then put the returned `card` on its
+    own line in your reply. For a big decision, propose a council with `proposal: true` and the question as
+    `draft`; Isaac convenes it. Change it with `rooms_update`; the card updates itself, never post it twice.
+    Your rooms stay within $10 and effort 4."
+  - Note: rooms are per desktop; actions go to the Mac Isaac used last (`--device` / relay-mcp `device` picks
+    one), and the card renders from that Mac's rooms.
+  - Tests: contract rooms-agent.test (params, member resolve/replace/remove/add, bounds, token), protocol
+    room-card.test, desktop chat-room.test (proposal convene once, limits + rev, ask card -> answer file),
+    linux rooms-cli.test. e2e `rooms-from-chat.spec.ts` (control server actions against the test app) ->
+    proof/rooms-assistants/s5-room-ready.png, s5-room-updated.png, s5-open-room.png, s5-proposal.png,
+    s5-convened.png, s5-convened-room.png, s5-not-now.png.
+
+## For Isaac
+- Relay Host: install the consolidated host build Eva makes from main (S2 chat rooms on the phone, S3
+  consult, S4 rooms.decide), then restart every assistant's omp (S3's relay-bridge `guest` request; on the
+  Mini the extension is a symlink into a checkout: update it to main first).
+- Eva rule lines: S3's consult lines (S3 log above) and S5's room line (S5 log above).
+- Phone: JS for S2-S5 is on main but no OTA is published; publish from a clean checkout
+  (`env -u CI pnpm ota:publish`). Each part stays inert until the host advertises its feature.
+- Decide the assistant room limits: $10 budget and effort 4 (Deep) by default
+  (`ASSISTANT_ROOM_LIMITS`, packages/contract/src/rooms-agent.ts); your own edits lift them per room.
