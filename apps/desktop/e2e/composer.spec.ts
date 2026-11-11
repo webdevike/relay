@@ -6,7 +6,7 @@ import { test as base, expect } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { proofShot } from './helpers/proofShot'
 
-// Composer toolbar: model picker, access mode, account selector (unsent chats only) and the
+// Composer toolbar: model picker, account selector (unsent chats only) and the
 // context ring, all against the fake omp.
 const LOG = path.join(os.tmpdir(), `evaos-fake-omp-composer-${process.pid}.log`)
 
@@ -56,7 +56,7 @@ const send = async (shell: Page, text: string): Promise<void> => {
   await box.press('Enter')
 }
 
-test('toolbar: model, context ring, access restart, images flag', async ({ app, shell }) => {
+test('toolbar: model, context ring, images flag', async ({ app, shell }) => {
   await openRow(shell, 'p4-ecard')
   await send(shell, 'hi')
   await expect(shell.locator(sel('chat-log'))).toContainText(
@@ -88,23 +88,6 @@ test('toolbar: model, context ring, access restart, images flag', async ({ app, 
   await expect(shell.getByRole('tooltip')).toHaveText('Context 21% used')
   await shell.mouse.move(0, 0)
 
-  // 3. Access: Full access by default; Ask before edits restarts omp on the same file, no signal.
-  const access = shell.locator(sel('composer-access'))
-  await expect(access).toContainText('Full access')
-  const before = spawns().length
-  await access.click()
-  await shell.locator(sel('access-option-always-ask')).click()
-  await expect(access).toContainText('Ask before edits')
-  await expect.poll(() => spawns().length).toBe(before + 1)
-  const restarted = argvOf(spawns().at(-1)!)
-  expect(restarted).toContain('--approval-mode')
-  expect(restarted[restarted.indexOf('--approval-mode') + 1]).toBe('always-ask')
-  expect(restarted).toContain('--resume')
-  const log = readLog()
-  const ended = log.findIndex((e) => e.event === 'stdin-end')
-  expect(ended).toBeGreaterThanOrEqual(0)
-  expect(log.filter((e) => e.event === 'signal')).toHaveLength(0)
-  expect(log.filter((e) => e.event === 'exit').every((e) => e.detail?.code === 0)).toBe(true)
   await proofShot(app, shell, 'composer-toolbar', { phase: 'phase-4' })
 
   // 5. A model without image support disables attaching.
@@ -155,6 +138,5 @@ test('toolbar controls are disabled while the session is closed', async ({ shell
     ).eva.invoke('chat.close', { paneId: 'pane-1' }),
   )
   await expect(model).toHaveAttribute('aria-disabled', 'true')
-  await expect(shell.locator(sel('composer-access'))).toHaveAttribute('aria-disabled', 'true')
   await expect(model).toBeDisabled()
 })

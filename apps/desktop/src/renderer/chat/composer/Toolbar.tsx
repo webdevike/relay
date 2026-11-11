@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react'
-import { AccessPicker } from './AccessPicker'
 import { AccountPicker } from './AccountPicker'
 import { ContextRing } from './ContextRing'
 import { ModelPicker } from './ModelPicker'
@@ -7,7 +6,7 @@ import type { LaunchControls } from './useLaunchState'
 import { useChatStore } from '../chat-store'
 
 /**
- * Native wrapping toolbar: attach, account and access at the left; context, model and
+ * Native wrapping toolbar: attach and account at the left; context, model and
  * actions at the right. The right group wraps as a unit at narrow panel widths.
  */
 export function Toolbar({
@@ -45,7 +44,6 @@ export function Toolbar({
           {state && state.unsent && state.harness === 'omp' ? (
             <AccountPicker state={state} disabled={off} onChange={(p) => void launch.apply(p)} />
           ) : null}
-          <AccessPicker state={state} disabled={off} onChange={(p) => void launch.apply(p)} />
         </div>
         <div className="eva-composer-actions">
           <ContextRing tokens={tokens} window={window} />

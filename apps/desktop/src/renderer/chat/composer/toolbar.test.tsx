@@ -35,7 +35,6 @@ const models = [
 ]
 let favorites: string[] = []
 const invoke = vi.fn((channel: string, input?: Record<string, unknown>) => {
-  const patch = input?.patch as Record<string, unknown> | undefined
   if (channel === 'chat.models')
     return Promise.resolve({ ok: true, value: { models, thinking: 'low' } })
   if (channel === 'chat.launchState') return Promise.resolve({ ok: true, value: current })
@@ -52,12 +51,6 @@ const invoke = vi.fn((channel: string, input?: Record<string, unknown>) => {
     })
   }
   if (channel === 'chat.setLaunch') {
-    if (patch?.approval === 'write' && current.harness === 'omp' && !current.unsent) {
-      return Promise.resolve({
-        ok: false,
-        error: { code: 'busy', message: 'Wait for the reply to finish, then change access.' },
-      })
-    }
     return Promise.resolve({ ok: true, value: current })
   }
   return Promise.resolve({ ok: true, value: {} })
@@ -132,8 +125,7 @@ describe('Composer toolbar', () => {
     current = { ...baseState, unsent: false }
     open(1, 100)
     wrap()
-    await screen.findByTestId('composer-access')
-    await waitFor(() => expect(screen.getByTestId('composer-access')).toHaveTextContent('Full'))
+    await screen.findByTestId('composer-model')
     expect(screen.queryByTestId('composer-account')).toBeNull()
   })
 
@@ -200,26 +192,10 @@ describe('Composer toolbar', () => {
     })
   })
 
-  it('access labels come from APPROVAL_LABEL and a busy refusal shows inline', async () => {
-    current = { ...baseState, unsent: false }
-    open(1, 100)
-    wrap()
-    const user = userEvent.setup()
-    await waitFor(() => expect(screen.getByTestId('composer-access')).toHaveTextContent('Full'))
-    await user.click(screen.getByTestId('composer-access'))
-    expect(await screen.findByText('Ask before commands')).toBeInTheDocument()
-    expect(screen.getByText('Ask before edits')).toBeInTheDocument()
-    await user.click(screen.getByTestId('access-option-write'))
-    expect(await screen.findByTestId('composer-launch-error')).toHaveTextContent(
-      'Wait for the reply to finish, then change access.',
-    )
-  })
-
   it('controls are aria-disabled at half opacity class with no pane, and attach follows imagesAllowed', async () => {
     chatStore.setState({ panes: {} })
     const { unmount } = wrap(true)
     expect(screen.getByTestId('composer-model')).toHaveAttribute('aria-disabled', 'true')
-    expect(screen.getByTestId('composer-access')).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByRole('button', { name: 'Attach image' })).toHaveAttribute(
       'aria-disabled',
       'true',
