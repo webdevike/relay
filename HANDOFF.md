@@ -300,6 +300,8 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
     with `rooms`) moved to db47bff56b for new omp sessions. Host process not rebuilt (no host route needed).
     Phone JS on main, no OTA.
 
+- S5 polish (RoomsPolish): decision-record face clusters are a clean overlapping stack (22px squares, eva-gap overlap, page-color ring, Isaac's badge same size); 1:1 user bubbles show registry `@Assistant` mentions as the room's `.eva-at-chip` (shared rooms/MentionText.tsx; @computer and unknown words plain). Proof: proof/rooms-assistants/s5-polish-decision.png, s5-polish-chip.png; sha/build id in the final report.
+
 ## For Isaac
 - Relay Host: install the consolidated host build Eva makes from main (S2 chat rooms on the phone, S3
   consult, S4 rooms.decide), then restart every assistant's omp (S3's relay-bridge `guest` request; on the

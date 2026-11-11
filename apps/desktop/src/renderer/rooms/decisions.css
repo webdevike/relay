@@ -147,8 +147,8 @@
   display: inline-grid;
   place-items: center;
   box-sizing: border-box;
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
   overflow: hidden;
   border: 1px solid var(--mantine-color-gray-2);
   border-radius: 5px;
@@ -170,12 +170,23 @@
 .eva-dec-face[data-empty] {
   visibility: hidden;
 }
-/* Each face takes 11px of a 16px face: the next one overlaps it. */
+/* A cluster like the room's MemberStack: faces overlap by a negative margin, each ringed in the page
+   color so the one on top reads cleanly; Isaac's badge is the same size and ring. */
 .eva-dec-faces {
-  display: inline-grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 11px;
+  display: inline-flex;
   align-items: center;
+}
+.eva-dec-faces > .eva-dec-face {
+  position: relative;
+  box-shadow: 0 0 0 2px var(--mantine-color-body);
+}
+.eva-dec-faces > .eva-dec-face + .eva-dec-face {
+  margin-left: calc(-1 * var(--eva-gap));
+}
+/* A letter face under the next one sits left of center so the overlap never clips it. */
+.eva-dec-faces > .eva-dec-face:not(:last-child) {
+  justify-items: start;
+  text-indent: 4px;
 }
 
 /* poll: option rows, the bar is the tally */

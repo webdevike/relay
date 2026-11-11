@@ -503,6 +503,7 @@ test('S4 decision cards: poll, votes, pros/cons, a question, the call; Where we 
   await expect(where.locator(sel('room-where-you'))).toHaveCount(0)
   await expect(poll).toHaveAttribute('data-state', 'called')
   await shot(shell, 's4-accepted.png')
+  await record.screenshot({ path: path.join(PROOF, 's5-polish-decision.png') })
   await expect
     .poll(() => fromDisk().messages.find((m) => m.card?.type === 'decision')?.card?.state)
     .toBe('accepted')

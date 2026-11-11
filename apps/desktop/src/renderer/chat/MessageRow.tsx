@@ -26,6 +26,8 @@ import { RoomCards } from '../rooms/RoomCard'
 import { ReplyChips } from './ReplyChips'
 import { SignInCard } from './SignInCard'
 import { resolveAsk } from './asks/asks-store'
+import { useAssistants } from '../assistants/assistants-store'
+import { MentionText } from '../rooms/MentionText'
 import type { OpenAsk } from '@evaos/contract'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
@@ -168,6 +170,13 @@ function AssistantBody({
   )
 }
 
+/** A user bubble's text, the registry assistants' `@Name`s as the room's chips (@computer and unknown words stay plain). */
+function AssistantMentions({ text }: { text: string }) {
+  const agents = useAssistants((s) => s.data?.agents)
+  const people = useMemo(() => (agents ?? []).map((a) => ({ id: a.id, name: a.title })), [agents])
+  return <MentionText text={text} people={people} />
+}
+
 /**
  * `live`: the newest row of an idle chat, the one tap-to-answer replies show under. `waiting`: the
  * open ask (of assistant `agent`'s thread) this row carries; it keeps its replies, an accent edge
@@ -200,7 +209,9 @@ function MessageRowImpl({
         {text ? pictures : null}
         <BubbleActions m={m} corner="start">
           {text ? (
-            <div className="eva-bubble">{linked.rest}</div>
+            <div className="eva-bubble">
+              <AssistantMentions text={linked.rest} />
+            </div>
           ) : (
             <>
               <Images images={m.images} />

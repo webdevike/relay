@@ -116,6 +116,11 @@ test('S3 a guest joins, answers as a guest bubble, leaves, and its errand is one
   await shell.getByTestId('sidebar-agent-nova').click()
   const log = shell.locator(LOG)
   await expect(log.locator(sel('guest-line'))).toContainText('Penny joined the chat')
+  // Isaac's "@Penny ..." is the room's chip in his bubble, the rest plain text.
+  const bubble = log.locator('.eva-turn-user .eva-bubble', { hasText: 'find a 2TB USB4 SSD' })
+  await expect(bubble.locator('.eva-at-chip')).toHaveText('@Penny')
+  await expect(bubble).toContainText('find a 2TB USB4 SSD under $200')
+  await bubble.screenshot({ path: path.join(PROOF, 's5-polish-chip.png') })
   // Joined and not spoken yet: Penny is typing.
   await expect(log.locator(`${sel('chat-typing')} [aria-label="Penny is typing"]`)).toBeVisible()
 

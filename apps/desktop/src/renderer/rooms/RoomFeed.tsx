@@ -1,6 +1,6 @@
 import { IconArrowDown, IconBrain, IconFileSearch, IconPin } from '@tabler/icons-react'
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ROOM_SYSTEM, isDecisionCard, mentionSpans } from '@evaos/contract'
+import { ROOM_SYSTEM, isDecisionCard } from '@evaos/contract'
 import { Markdown } from '../chat/markdown/Markdown'
 import '../chat/chat.css'
 import '../chat/composer/composer.css'
@@ -9,6 +9,7 @@ import { TypingDots } from '../ui/TypingDots'
 import { catchUp, sinceIndex } from './decision-view'
 import { RoomDecisionCard, SeatAskView } from './DecisionCards'
 import { MemberFace } from './MemberStack'
+import { MentionText } from './MentionText'
 import { mentionMarkdown } from './mentions'
 import { presenceGroups } from './presence'
 import { RoomMessageRow, authorOf } from './RoomMessageRow'
@@ -30,24 +31,12 @@ const parseSeen: Parse<Record<string, string>> = (v) =>
     : null
 
 /** Isaac's text with its @mentions as the composer's chips. */
-function MentionText({ text, room }: { text: string; room: Room }) {
-  const people = [...room.agents, { id: ISAAC_PERSON.id, name: ISAAC_PERSON.name }]
-  let at = 0
-  const parts = mentionSpans(text, people).map((s) => {
-    const before = text.slice(at, s.start)
-    at = s.end
-    return (
-      <Fragment key={s.start}>
-        {before}
-        <span className="eva-at-chip">{text.slice(s.start, s.end)}</span>
-      </Fragment>
-    )
-  })
+function RoomMentionText({ text, room }: { text: string; room: Room }) {
   return (
-    <>
-      {parts}
-      {text.slice(at)}
-    </>
+    <MentionText
+      text={text}
+      people={[...room.agents, { id: ISAAC_PERSON.id, name: ISAAC_PERSON.name }]}
+    />
   )
 }
 
@@ -64,7 +53,7 @@ function ChatRoomOwnRow({ msg, room }: { msg: RoomMessage; room: Room }) {
     <div className="eva-room-isaac" data-testid={`room-msg-${msg.id}`} data-author={msg.author}>
       <div className="eva-turn-user">
         <div className="eva-bubble">
-          <MentionText text={msg.text} room={room} />
+          <RoomMentionText text={msg.text} room={room} />
         </div>
       </div>
     </div>
