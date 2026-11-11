@@ -289,6 +289,16 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
     linux rooms-cli.test. e2e `rooms-from-chat.spec.ts` (control server actions against the test app) ->
     proof/rooms-assistants/s5-room-ready.png, s5-room-updated.png, s5-open-room.png, s5-proposal.png,
     s5-convened.png, s5-convened-room.png, s5-not-now.png.
+  - Checks (CI style, from apps/desktop): `pnpm -r --include-workspace-root typecheck` 0 errors, lint ok,
+    `pnpm -r --include-workspace-root test` all green (desktop 2372, contract 123, chat-core 407...), build,
+    e2e rooms-from-chat + rooms-assistants 5/5, e2e:smoke 7/7; protocol 215, mobile 917, linux rooms-cli /
+    assistant / call / consult green. Outside desktop CI, pre-existing: apps/linux typecheck 3 errors in
+    contract agent.ts browser drive refinements (exactOptionalPropertyTypes, pulled in by
+    test/avatar-parity.test.ts; browser session's code), apps/mobile typecheck 13 (none in S5 files).
+  - Shipped: main 667f3697 + c7ce5f56 (WIP) + db47bff5, desktop deploy published build db47bff56b (Mini staged
+    "Update ready"; MBP not reachable by ssh, picks it up on its next poll). The Relay runtime (relay-linux CLI
+    with `rooms`) moved to db47bff56b for new omp sessions. Host process not rebuilt (no host route needed).
+    Phone JS on main, no OTA.
 
 ## For Isaac
 - Relay Host: install the consolidated host build Eva makes from main (S2 chat rooms on the phone, S3
