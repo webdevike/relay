@@ -139,13 +139,13 @@ test("a sign-in reply is a card: password to the host, Eva's browser in a page t
   await card.getByLabel('Username or email').fill('isaac@example.com')
   await card.getByLabel('Password', { exact: true }).fill('wrong')
   await shot(app, shell, 'form')
-  await card.getByRole('button', { name: 'Sign in' }).click()
+  await card.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(card.getByRole('alert')).toHaveText('Incorrect username or password.')
   await shot(app, shell, 'refused')
 
   // The right one: sent once to the agent's thread, then shown submitted.
   await card.getByLabel('Password', { exact: true }).fill('right')
-  await card.getByRole('button', { name: 'Sign in' }).click()
+  await card.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(card).toContainText('Credentials submitted')
   await expect(card.getByTestId('signin-use-password')).toHaveCount(0)
   const sent = host.commands.filter((c) => c.cmd.kind === 'assistant.signin').map((c) => c.cmd)

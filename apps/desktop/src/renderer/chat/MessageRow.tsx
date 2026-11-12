@@ -228,7 +228,7 @@ function MessageRowImpl({
   } else if (m.role === 'tool') {
     body = <ToolBlock m={m} images={imagesOf(m)} />
   } else if (m.role === 'canvas' && m.canvas) {
-    body = <CanvasRow entry={m.canvas} />
+    body = <CanvasRow entry={m.canvas} messageId={m.id} />
   } else if (m.role === 'guest' && m.guest) {
     body = <GuestRow entry={m.guest} />
   } else {

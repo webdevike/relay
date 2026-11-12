@@ -134,7 +134,6 @@ async function roomOnItsOwnAndBack(shell: Page, offset: boolean): Promise<void> 
   const card = shell.locator(sel('canvas-start'))
   await scrollToCard(shell)
   await expect(card).toContainText('Join Nova on Mind map')
-  await expect(card).toContainText('Sketch the onboarding flow together')
   // Let the list settle, then note where it is.
   await shell.waitForTimeout(300)
   const before = await scrollTop(shell)
@@ -188,7 +187,7 @@ async function roomOnItsOwnAndBack(shell: Page, offset: boolean): Promise<void> 
   // The room ends: the card says so and offers the board instead.
   host.setCanvasRooms([{ ...ROOM, live: false, endedAt: Date.now() }])
   await expect(card).toContainText('Ended')
-  await expect(card.getByRole('button', { name: 'Join' })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Join', exact: true })).toHaveCount(0)
   await card.getByRole('button', { name: 'Open board' }).click()
   await expect(shell.locator(`${sel('canvas-board')}[data-slug="mind-map"]`)).toBeVisible()
 }
@@ -214,7 +213,13 @@ test('Join opens beside the chat; a room that ends says so, and Open board bring
   await shell.locator(sel('chat-row-p4-canvas')).click()
   const card = shell.locator(sel('canvas-start'))
   await scrollToCard(shell)
-  await card.getByRole('button', { name: 'Join' }).click()
+  // One row; the purpose is its details, one click away.
+  await expect(card.getByTestId('canvas-start-why')).toHaveCount(0)
+  await card.getByRole('button', { name: 'Join Nova on Mind map' }).click()
+  await expect(card).toContainText('Sketch the onboarding flow together')
+  await card.getByRole('button', { name: 'Join Nova on Mind map' }).click()
+  await expect(card.getByTestId('canvas-start-why')).toHaveCount(0)
+  await card.getByRole('button', { name: 'Join', exact: true }).click()
   // Beside the chat, not instead of it: the chat pane stays, the room is a tab of a tool pane,
   // and there is no Back to chat (the chat is right there).
   await expect(shell.locator(sel('chat-pane'))).toBeVisible()

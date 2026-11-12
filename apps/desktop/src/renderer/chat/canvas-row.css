@@ -1,46 +1,4 @@
-/* Live canvas rows in a chat: the Join card, a canvas turn, the wrap-up. Bordered, no shadow. */
-.eva-canvas-card {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-md);
-  padding: var(--mantine-spacing-md);
-  border: 1px solid var(--eva-border);
-  border-radius: var(--eva-radius-xl);
-}
-.eva-canvas-card[data-live='false'] {
-  color: var(--eva-text-dim);
-}
-.eva-canvas-card-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: calc(var(--mantine-spacing-xs) / 4);
-}
-.eva-canvas-card-title {
-  font-weight: var(--eva-fw-semibold);
-  color: var(--eva-text);
-  overflow-wrap: anywhere;
-}
-.eva-canvas-card-sub {
-  color: var(--eva-text-dim);
-  font-size: var(--eva-fz-label);
-  line-height: var(--eva-lh-label);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.eva-canvas-card-actions {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-sm);
-}
-.eva-canvas-card-state {
-  color: var(--eva-text-dim);
-  font-size: var(--eva-fz-label);
-}
-
+/* Live canvas rows in a chat: a canvas turn. The Join card and the wrap-up are StatusCards. */
 .eva-canvas-turn {
   display: flex;
   align-items: flex-start;
@@ -65,25 +23,4 @@
 .eva-canvas-turn-who {
   font-weight: var(--eva-fw-semibold);
   color: var(--eva-text);
-}
-
-.eva-canvas-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-sm);
-  padding: var(--mantine-spacing-md);
-  border: 1px solid var(--eva-border);
-  border-radius: var(--eva-radius-xl);
-}
-.eva-canvas-wrap-head {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-sm);
-  min-width: 0;
-}
-.eva-canvas-wrap-head .eva-canvas-card-sub {
-  flex: 1;
-}
-.eva-canvas-wrap-open {
-  flex: none;
 }

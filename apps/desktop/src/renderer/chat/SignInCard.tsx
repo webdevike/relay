@@ -1,4 +1,5 @@
 import './sign-in-card.css'
+import { StatusCard } from './status-card/StatusCard'
 import { useState, type FormEvent } from 'react'
 import { Button, PasswordInput, TextInput } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
@@ -60,6 +61,7 @@ export function SignInCard({
   const [failure, setFailure] = useState<string | null>(null)
   const [iconFailed, setIconFailed] = useState(false)
   const ready = username.trim() !== '' && password !== '' && !busy
+  const [expanded, setExpanded] = useState(false)
 
   const submit = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
@@ -80,115 +82,131 @@ export function SignInCard({
     }
     setPassword('')
     setForm(false)
+    setExpanded(false)
     signedInStore.setState((s) => ({ keys: new Set([...s.keys, key]) }))
   }
 
+  const icon = iconFailed ? (
+    <span className="eva-signin-card-icon">
+      <IconWorld size={16} stroke={1.5} />
+    </span>
+  ) : (
+    <img
+      className="eva-signin-card-icon"
+      src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(signin.host)}&sz=64`}
+      alt=""
+      onError={() => setIconFailed(true)}
+    />
+  )
+
   return (
-    <div
-      className="eva-signin-card"
-      data-testid="signin-card"
-      data-submitted={submitted || undefined}
-    >
-      <div className="eva-signin-card-head">
-        {iconFailed ? (
-          <span className="eva-signin-card-icon">
-            <IconWorld size={18} stroke={1.5} />
-          </span>
-        ) : (
-          <img
-            className="eva-signin-card-icon"
-            src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(signin.host)}&sz=64`}
-            alt=""
-            onError={() => setIconFailed(true)}
-          />
-        )}
-        <div className="eva-signin-card-text">
-          <div className="eva-signin-card-title">Sign in to {signin.host}</div>
-          <div className="eva-signin-card-sub" title={signin.url}>
-            {submitted ? 'Credentials submitted' : signin.url}
-          </div>
-        </div>
-        {submitted ? <IconCheck className="eva-signin-card-check" size={18} stroke={2} /> : null}
-      </div>
-      <div className="eva-signin-card-actions">
-        <Button
-          size="sm"
-          leftSection={<IconWorld size={16} stroke={1.5} />}
-          data-testid="signin-open-browser"
-          onClick={() => {
-            openEvaComputer().catch(() => {
-              notifications.show({
-                message: "Relay could not open Eva's browser.",
-                color: 'yellow',
-              })
-            })
-          }}
-        >
-          Open Eva&apos;s browser
-        </Button>
-        {agent !== undefined && !submitted ? (
+    <StatusCard
+      id={`signin:${key}`}
+      testId="signin-card"
+      data={{ 'data-submitted': submitted || undefined }}
+      lead={icon}
+      line={`Sign in to ${signin.host}`}
+      lineTitle={signin.url}
+      open={expanded}
+      onOpenChange={setExpanded}
+      actions={
+        <>
           <Button
-            size="sm"
-            variant={form ? 'light' : 'default'}
-            leftSection={<IconKey size={16} stroke={1.5} />}
-            data-testid="signin-use-password"
-            aria-expanded={form}
-            onClick={() => setForm((open) => !open)}
+            size="compact-xs"
+            leftSection={<IconWorld size={14} stroke={1.5} />}
+            data-testid="signin-open-browser"
+            onClick={() => {
+              openEvaComputer().catch(() => {
+                notifications.show({
+                  message: "Relay could not open Eva's browser.",
+                  color: 'yellow',
+                })
+              })
+            }}
           >
-            Use password
+            Open Eva&apos;s browser
           </Button>
-        ) : null}
-      </div>
-      {form && !submitted ? (
-        <form className="eva-signin-card-form" onSubmit={(e) => void submit(e)}>
-          <div className="eva-signin-card-note">
-            Goes straight into the page in Eva&apos;s browser. She never sees it.
-          </div>
-          <TextInput
-            size="sm"
-            placeholder="Username or email"
-            aria-label="Username or email"
-            autoComplete="username"
-            autoFocus
-            maxLength={MAX_SIGNIN_FIELD}
-            disabled={busy}
-            value={username}
-            onChange={(e) => setUsername(e.currentTarget.value)}
-          />
-          <PasswordInput
-            size="sm"
-            placeholder="Password"
-            aria-label="Password"
-            autoComplete="current-password"
-            maxLength={MAX_SIGNIN_FIELD}
-            disabled={busy}
-            value={password}
-            onChange={(e) => setPassword(e.currentTarget.value)}
-          />
-          {failure !== null ? (
-            <div className="eva-signin-card-error" role="alert">
-              {failure}
-            </div>
-          ) : null}
-          <div className="eva-signin-card-actions">
-            <Button type="submit" size="sm" loading={busy} disabled={!ready}>
-              Sign in
-            </Button>
+          {agent !== undefined && !submitted ? (
             <Button
-              size="sm"
-              variant="subtle"
-              color="gray"
-              disabled={busy}
+              size="compact-xs"
+              variant={form ? 'light' : 'default'}
+              leftSection={<IconKey size={14} stroke={1.5} />}
+              data-testid="signin-use-password"
+              aria-expanded={form && expanded}
               onClick={() => {
-                setForm(false)
-                setFailure(null)
+                const close = form && expanded
+                setForm(!close)
+                setExpanded(!close)
               }}
             >
-              Cancel
+              Use password
             </Button>
-          </div>
-        </form>
-      ) : null}
-    </div>
+          ) : null}
+        </>
+      }
+      meta={
+        submitted ? (
+          <>
+            <IconCheck size={14} stroke={2} aria-hidden />
+            Credentials submitted
+          </>
+        ) : undefined
+      }
+      details={
+        <>
+          <div className="eva-signin-card-sub">{signin.url}</div>
+          {form && !submitted ? (
+            <form className="eva-signin-card-form" onSubmit={(e) => void submit(e)}>
+              <div className="eva-signin-card-sub">
+                Goes straight into the page in Eva&apos;s browser. She never sees it.
+              </div>
+              <TextInput
+                size="sm"
+                placeholder="Username or email"
+                aria-label="Username or email"
+                autoComplete="username"
+                autoFocus
+                maxLength={MAX_SIGNIN_FIELD}
+                disabled={busy}
+                value={username}
+                onChange={(e) => setUsername(e.currentTarget.value)}
+              />
+              <PasswordInput
+                size="sm"
+                placeholder="Password"
+                aria-label="Password"
+                autoComplete="current-password"
+                maxLength={MAX_SIGNIN_FIELD}
+                disabled={busy}
+                value={password}
+                onChange={(e) => setPassword(e.currentTarget.value)}
+              />
+              {failure !== null ? (
+                <div className="eva-signin-card-error" role="alert">
+                  {failure}
+                </div>
+              ) : null}
+              <div className="eva-signin-card-actions">
+                <Button type="submit" size="sm" loading={busy} disabled={!ready}>
+                  Sign in
+                </Button>
+                <Button
+                  size="sm"
+                  variant="subtle"
+                  color="gray"
+                  disabled={busy}
+                  onClick={() => {
+                    setForm(false)
+                    setFailure(null)
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : null}
+        </>
+      }
+    />
   )
 }

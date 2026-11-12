@@ -1,25 +1,27 @@
-import { useState, type MouseEvent } from 'react'
+import { useState } from 'react'
 import { Button } from '@mantine/core'
-import { IconArrowUpRight, IconScale, IconUsersGroup } from '@tabler/icons-react'
+import { IconScale, IconUsersGroup } from '@tabler/icons-react'
 import { councilMoney, type RoomCardRef } from '@relay/protocol'
 import { ROOM_EFFORTS, ROOM_SYSTEM, latestCard } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 import { openFromNav } from '../navigation/open-in-app'
+import type { ClickMods } from '../navigation/open-target'
 import { DecisionRecord, roomPeople } from './DecisionCards'
 import { whereWeAre } from './decision-view'
 import { MemberStack } from './MemberStack'
 import { conveneRoom, decideInRoom, declineRoom, setEditing, useRooms } from './rooms-store'
 import { ISAAC, type Room } from './types'
 import './room-card.css'
+import { StatusCard } from '../chat/status-card/StatusCard'
 
 /** "Light · cap $3": the effort's name and the hard cap. */
 const effortLine = (effort: number, budget: number): string =>
   `${ROOM_EFFORTS[effort - 1]?.name ?? `Effort ${effort}`} · cap ${councilMoney(budget)}`
 
-const open = (id: string, e: MouseEvent): void => openFromNav(placeOf(`room:${id}`), e)
+const open = (id: string, e: ClickMods): void => openFromNav(placeOf(`room:${id}`), e)
 
 /** The setup form of the room, in edit mode, on the room's page; Save goes through rooms.update. */
-const editSetup = (id: string, e: MouseEvent): void => {
+const editSetup = (id: string, e: ClickMods): void => {
   setEditing(id)
   open(id, e)
 }
@@ -49,57 +51,72 @@ function ReadyCard({ room }: { room: Room }) {
   const { setup, rev } = chat
   const state = room.phase === 'open' ? 'Live' : room.phase === 'paused' ? 'Paused' : 'Idle'
   return (
-    <div className="eva-room-card" data-testid={`room-card-${room.id}`} data-phase={room.phase}>
-      <div className="eva-room-card-head">
+    <StatusCard
+      id={`room:${room.id}:ready`}
+      testId={`room-card-${room.id}`}
+      data={{ 'data-phase': room.phase }}
+      lead={
         <span className="eva-room-glyph" aria-hidden>
           <IconUsersGroup size={12} stroke={1.5} />
         </span>
-        <span className="eva-room-card-kind">Room ready</span>
-        <span className="eva-room-card-fill" />
-        {rev > 0 ? (
-          <span className="eva-room-card-updated" data-testid="room-card-updated">
-            Updated ×{rev}
-          </span>
-        ) : null}
-        <span className="eva-room-card-state">{state}</span>
-      </div>
-      <div className="eva-room-card-title" data-testid="room-card-title">
-        {room.title}
-      </div>
-      <div className="eva-room-card-people">
-        <MemberStack room={room} />
-        <span className="eva-room-card-roster" data-testid="room-card-roster">
-          {setup.members
-            .map((m) => (m.role ? `${m.name.split(/\s+/)[0]} · ${m.role}` : m.name))
-            .join(', ')}
-        </span>
-      </div>
-      <dl className="eva-room-card-facts">
-        <dt>Effort</dt>
-        <dd>{effortLine(setup.effort, setup.budget)}</dd>
-        {setup.folder ? (
-          <>
-            <dt>Folder</dt>
-            <dd>
-              <code>{setup.folder}</code>
-            </dd>
-          </>
-        ) : null}
-      </dl>
-      <div className="eva-room-card-actions">
-        <Button size="xs" data-testid="room-card-open" onClick={(e) => open(room.id, e)}>
+      }
+      line={
+        <>
+          <span className="eva-room-card-kind">Room ready</span>{' '}
+          <span data-testid="room-card-title">{room.title}</span>
+        </>
+      }
+      lineTitle={room.title}
+      actions={
+        <Button size="compact-xs" data-testid="room-card-open" onClick={(e) => open(room.id, e)}>
           Open room
         </Button>
-        <Button
-          size="xs"
-          variant="default"
-          data-testid="room-card-edit"
-          onClick={(e) => editSetup(room.id, e)}
-        >
-          Edit setup
-        </Button>
-      </div>
-    </div>
+      }
+      meta={
+        <>
+          {rev > 0 ? (
+            <span className="eva-room-card-updated" data-testid="room-card-updated">
+              Updated ×{rev}
+            </span>
+          ) : null}
+          {state}
+        </>
+      }
+      details={
+        <>
+          <div className="eva-room-card-people">
+            <MemberStack room={room} />
+            <span className="eva-room-card-roster" data-testid="room-card-roster">
+              {setup.members
+                .map((m) => (m.role ? `${m.name.split(/\s+/)[0]} · ${m.role}` : m.name))
+                .join(', ')}
+            </span>
+          </div>
+          <dl className="eva-room-card-facts">
+            <dt>Effort</dt>
+            <dd>{effortLine(setup.effort, setup.budget)}</dd>
+            {setup.folder ? (
+              <>
+                <dt>Folder</dt>
+                <dd>
+                  <code>{setup.folder}</code>
+                </dd>
+              </>
+            ) : null}
+          </dl>
+          <div className="eva-room-card-actions">
+            <Button
+              size="xs"
+              variant="default"
+              data-testid="room-card-edit"
+              onClick={(e) => editSetup(room.id, e)}
+            >
+              Edit setup
+            </Button>
+          </div>
+        </>
+      }
+    />
   )
 }
 
@@ -193,24 +210,18 @@ function CouncilStrip({ room }: { room: Room }) {
           ? 'waiting on you'
           : 'starting'
   const you = w?.you?.kind === 'question' ? `${w.you.count} for you` : null
+  const summary = ['Council', lean ?? state, you].filter((s) => s !== null).join(' · ')
   return (
-    <button
-      type="button"
-      className="eva-room-strip"
-      data-testid={`room-card-${room.id}`}
-      data-phase={room.phase}
-      data-proposal
-      onClick={(e) => open(room.id, e)}
-    >
-      <MemberStack room={room} />
-      <span className="eva-room-strip-text" data-testid="room-card-strip">
-        {['Council', lean ?? state, you].filter((s) => s !== null).join(' · ')}
-      </span>
-      <span className="eva-room-strip-open">
-        <IconArrowUpRight size={14} stroke={1.5} aria-hidden />
-        Open room
-      </span>
-    </button>
+    <StatusCard
+      id={`room:${room.id}:council`}
+      testId={`room-card-${room.id}`}
+      data={{ 'data-phase': room.phase, 'data-proposal': true }}
+      label="Open room"
+      lead={<MemberStack room={room} />}
+      line={<span data-testid="room-card-strip">{summary}</span>}
+      lineTitle={summary}
+      onOpen={(e) => open(room.id, e)}
+    />
   )
 }
 

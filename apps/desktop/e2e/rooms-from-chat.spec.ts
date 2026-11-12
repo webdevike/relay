@@ -149,6 +149,9 @@ test('S5 rooms.create posts a live Room ready card; rooms.update, Open room, and
   await expect(card).toBeVisible()
   await expect(log).not.toContainText('[[room:')
   await expect(card.getByTestId('room-card-title')).toHaveText('Boxhead weapon system')
+  // One row: the people and facts open under it on a click.
+  await expect(card.getByTestId('room-card-roster')).toHaveCount(0)
+  await card.getByTestId('room-card-title').click()
   await expect(card.getByTestId('room-card-roster')).toHaveText('Nova · Builder, Sol · Critic')
   await expect(card).toContainText('Light · cap $3')
   await expect(card).toContainText('work/boxhead-godot')

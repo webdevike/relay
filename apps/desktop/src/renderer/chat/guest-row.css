@@ -56,104 +56,14 @@
   line-height: 1.6;
 }
 
-/* The work card (variant A): one row; the result keeps the room when it is narrow. */
-@property --eva-work-angle {
-  syntax: '<angle>';
-  initial-value: 0deg;
-  inherits: false;
-}
-.eva-work {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-sm);
-  width: 440px;
-  max-width: 100%;
-  padding: var(--mantine-spacing-xs);
-  border-radius: var(--eva-card-radius);
-  background: color-mix(in srgb, var(--eva-text) 4%, transparent);
-  font-size: var(--eva-fz-body);
-  line-height: 1.35;
-  cursor: pointer;
-  container-type: inline-size;
-  transition: background-color 0.15s ease;
-}
-.eva-work:hover {
-  background: color-mix(in srgb, var(--eva-text) 7%, transparent);
-}
-.eva-work:focus-visible {
-  outline: 2px solid var(--eva-accent);
-  outline-offset: 2px;
-}
-/*
- * A 1px ring (the pseudo element's transparent border, its background painted under it and masked
- * to it); while the work runs a soft highlight in the guest's color orbits it.
- */
-.eva-work::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border: 1px solid transparent;
-  border-radius: inherit;
-  pointer-events: none;
-  background: color-mix(in srgb, var(--eva-text) 7%, transparent) border-box;
-  -webkit-mask:
-    linear-gradient(#000 0 0) padding-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) padding-box exclude,
-    linear-gradient(#000 0 0);
-}
-.eva-work[data-state='working']::after {
-  background:
-    conic-gradient(
-      from var(--eva-work-angle),
-      transparent 0%,
-      color-mix(in srgb, var(--eva-guest-c, var(--eva-accent)) 65%, transparent) 12%,
-      transparent 30%
-    ),
-    color-mix(in srgb, var(--eva-text) 7%, transparent);
-  background-origin: border-box;
-  animation: eva-work-orbit 2.5s linear infinite;
-}
-@keyframes eva-work-orbit {
-  to {
-    --eva-work-angle: 360deg;
-  }
-}
-@keyframes eva-work-pulse {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .eva-work[data-state='working']::after {
-    background: color-mix(in srgb, var(--eva-guest-c, var(--eva-accent)) 40%, transparent);
-    animation: eva-work-pulse 2.5s ease-in-out infinite;
-  }
-}
+/* The guest's work card is a StatusCard: the face, the narrow-width time and the result tones. */
 .eva-work-face {
   width: 22px;
   height: 22px;
   background: var(--mantine-color-gray-1);
 }
-.eva-work-line {
-  flex: 1;
-  min-width: 0;
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow-wrap: anywhere;
-}
-.eva-work[data-state='working'] .eva-work-line,
-.eva-work[data-state='failed'] .eva-work-line {
+.eva-status-card[data-state='working'] .eva-status-line,
+.eva-status-card[data-state='failed'] .eva-status-line {
   color: var(--eva-text-dim);
 }
 .eva-work-ask {
@@ -161,7 +71,7 @@
   opacity: 0;
   transition: opacity 0.15s ease;
 }
-.eva-work:hover .eva-work-ask,
+.eva-status-card:hover .eva-work-ask,
 .eva-work-ask:focus-visible {
   opacity: 1;
 }

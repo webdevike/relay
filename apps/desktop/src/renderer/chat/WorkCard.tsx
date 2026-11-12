@@ -7,6 +7,7 @@ import { AgentPortrait } from '../assistants/AgentPortrait'
 import { openFromNav } from '../navigation/open-in-app'
 import { ReactionScope } from './reactions/reactions-store'
 import { useGuestStyle } from './guest-style'
+import { StatusCard } from './status-card/StatusCard'
 
 /** `0:02`, `14:05`, `1:02:09`: how long the work has run so far. */
 function clock(ms: number): string {
@@ -58,57 +59,52 @@ export function WorkCard({ entry }: { entry: GuestEntry }) {
   const ran = (work.endedAt ?? now) - work.startedAt
   const page = pageFromKey(workLink(entry)) ?? `agent:${entry.agent.id}`
   const name = entry.agent.title
+  const failed = work.state === 'failed'
   return (
-    <div
-      className="eva-work"
-      data-testid="work-card"
-      data-state={work.state}
-      role="link"
-      tabIndex={0}
+    <StatusCard
+      id={`work:${work.id}`}
+      testId="work-card"
+      data={{ 'data-state': work.state }}
       style={style}
-      title={`Open ${name}'s chat: ${line}`}
-      onClick={(e) => openFromNav(placeOf(page), e)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          openFromNav(placeOf(page), e)
-        }
-      }}
-    >
-      <AgentPortrait id={entry.agent.id} className="eva-work-face" />
-      <span className="eva-work-line" data-testid="work-card-line">
-        {work.state === 'failed' ? (entry.text ?? `Stopped ${work.title}`) : line}
-      </span>
-      {work.state === 'done' && reply !== undefined ? (
-        <Tooltip label={`Ask ${name} a follow-up`} openDelay={300}>
-          <ActionIcon
-            className="eva-work-ask"
-            variant="subtle"
-            color="gray"
-            size="sm"
-            aria-label={`Ask ${name} a follow-up`}
-            data-testid="work-card-ask"
-            onClick={(e) => {
-              e.stopPropagation()
-              reply(`@${name} `)
-            }}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <IconMessagePlus size={16} stroke={1.75} />
-          </ActionIcon>
-        </Tooltip>
-      ) : null}
-      {work.state === 'failed' ? (
-        <span className="eva-work-meta" data-bad>
-          <IconAlertTriangle size={14} stroke={1.75} aria-hidden />
-          <span>Stopped</span>
+      orbit={working}
+      label={`Open ${name}'s chat: ${line}`}
+      onOpen={(e) => openFromNav(placeOf(page), e)}
+      lead={<AgentPortrait id={entry.agent.id} className="eva-work-face" />}
+      line={
+        <span data-testid="work-card-line">
+          {failed ? (entry.text ?? `Stopped ${work.title}`) : line}
         </span>
-      ) : (
-        <span className="eva-work-meta" data-testid="work-card-time">
-          <span className="eva-work-time-full">{working ? clock(ran) : took(ran)}</span>
-          <span className="eva-work-time-short">{short(ran)}</span>
-        </span>
-      )}
-    </div>
+      }
+      actions={
+        work.state === 'done' && reply !== undefined ? (
+          <Tooltip label={`Ask ${name} a follow-up`} openDelay={300}>
+            <ActionIcon
+              className="eva-work-ask"
+              variant="subtle"
+              color="gray"
+              size="sm"
+              aria-label={`Ask ${name} a follow-up`}
+              data-testid="work-card-ask"
+              onClick={() => reply(`@${name} `)}
+            >
+              <IconMessagePlus size={16} stroke={1.75} />
+            </ActionIcon>
+          </Tooltip>
+        ) : undefined
+      }
+      meta={
+        failed ? (
+          <span className="eva-work-meta" data-bad>
+            <IconAlertTriangle size={14} stroke={1.75} aria-hidden />
+            <span>Stopped</span>
+          </span>
+        ) : (
+          <span className="eva-work-meta" data-testid="work-card-time">
+            <span className="eva-work-time-full">{working ? clock(ran) : took(ran)}</span>
+            <span className="eva-work-time-short">{short(ran)}</span>
+          </span>
+        )
+      }
+    />
   )
 }

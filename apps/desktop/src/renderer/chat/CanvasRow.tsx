@@ -1,4 +1,5 @@
 import './canvas-row.css'
+import { StatusCard } from './status-card/StatusCard'
 import { Button } from '@mantine/core'
 import { IconSchema } from '@tabler/icons-react'
 import type { CanvasChatEntry } from '@evaos/chat-core/canvas-live'
@@ -16,46 +17,40 @@ function useRoomLive(roomId: string): boolean | null {
 }
 
 /** The Join card: who is at which board and why, with Join while the room is live. */
-function StartCard({ entry }: { entry: CanvasChatEntry }) {
+function StartCard({ entry, messageId }: { entry: CanvasChatEntry; messageId: string }) {
   const live = useRoomLive(entry.roomId)
   const board = entry.board || entry.slug
   return (
-    <div className="eva-canvas-card" data-testid="canvas-start" data-live={live === true}>
-      <AgentAvatar agent={entry.agent} size={36} />
-      <div className="eva-canvas-card-text">
-        <div className="eva-canvas-card-title">
-          Join {entry.agent.name} on {board}
-        </div>
-        {entry.text ? (
-          <div className="eva-canvas-card-sub" title={entry.text}>
-            {entry.text}
-          </div>
-        ) : null}
-      </div>
-      {live === true ? (
-        <Button
-          size="sm"
-          data-testid="canvas-join"
-          onClick={(e) => joinCanvas(entry.slug, openTargetOf(e))}
-        >
-          Join
-        </Button>
-      ) : (
-        <div className="eva-canvas-card-actions">
-          <span className="eva-canvas-card-state">
-            {live === false ? 'Ended' : "Relay isn't connected"}
-          </span>
+    <StatusCard
+      id={`canvas:${messageId}`}
+      testId="canvas-start"
+      data={{ 'data-live': String(live === true) }}
+      lead={<AgentAvatar agent={entry.agent} size={22} />}
+      line={`Join ${entry.agent.name} on ${board}`}
+      lineTitle={`Join ${entry.agent.name} on ${board}`}
+      details={entry.text ? <div data-testid="canvas-start-why">{entry.text}</div> : undefined}
+      actions={
+        live === true ? (
           <Button
-            size="sm"
+            size="compact-xs"
+            data-testid="canvas-join"
+            onClick={(e) => joinCanvas(entry.slug, openTargetOf(e))}
+          >
+            Join
+          </Button>
+        ) : (
+          <Button
+            size="compact-xs"
             variant="default"
             data-testid="canvas-open-board"
             onClick={(e) => openBoard(entry.slug, openTargetOf(e))}
           >
             Open board
           </Button>
-        </div>
-      )}
-    </div>
+        )
+      }
+      meta={live === true ? undefined : live === false ? 'Ended' : "Relay isn't connected"}
+    />
   )
 }
 
@@ -86,31 +81,32 @@ function TurnRow({ entry }: { entry: CanvasChatEntry }) {
 }
 
 /** The wrap-up: the agent's summary of the canvas session, and the board it left. */
-function EndCard({ entry }: { entry: CanvasChatEntry }) {
+function EndCard({ entry, messageId }: { entry: CanvasChatEntry; messageId: string }) {
   return (
-    <div className="eva-canvas-wrap" data-testid="canvas-end">
-      <div className="eva-canvas-wrap-head">
-        <IconSchema size={16} stroke={1.5} className="eva-canvas-turn-icon" aria-hidden />
-        <span className="eva-canvas-card-title">Canvas wrap-up</span>
-        <span className="eva-canvas-card-sub">{entry.board || entry.slug}</span>
+    <StatusCard
+      id={`canvas:${messageId}`}
+      testId="canvas-end"
+      lead={<IconSchema size={16} stroke={1.5} className="eva-canvas-turn-icon" aria-hidden />}
+      line={`Canvas wrap-up · ${entry.board || entry.slug}`}
+      lineTitle={`Canvas wrap-up · ${entry.board || entry.slug}`}
+      details={entry.text ? <Markdown text={entry.text} /> : undefined}
+      actions={
         <Button
-          size="compact-sm"
+          size="compact-xs"
           variant="default"
-          className="eva-canvas-wrap-open"
           data-testid="canvas-open-board"
           onClick={(e) => openBoard(entry.slug, openTargetOf(e))}
         >
           Open board
         </Button>
-      </div>
-      {entry.text ? <Markdown text={entry.text} /> : null}
-    </div>
+      }
+    />
   )
 }
 
 /** A live canvas row in a chat: the Join card, one canvas turn, or the wrap-up. */
-export function CanvasRow({ entry }: { entry: CanvasChatEntry }) {
-  if (entry.kind === 'start') return <StartCard entry={entry} />
+export function CanvasRow({ entry, messageId }: { entry: CanvasChatEntry; messageId: string }) {
+  if (entry.kind === 'start') return <StartCard entry={entry} messageId={messageId} />
   if (entry.kind === 'turn') return <TurnRow entry={entry} />
-  return <EndCard entry={entry} />
+  return <EndCard entry={entry} messageId={messageId} />
 }

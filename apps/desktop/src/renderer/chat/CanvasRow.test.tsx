@@ -42,7 +42,12 @@ describe('canvas rows', () => {
     })
     wrap(<MessageRow m={entry('start', { text: 'Sketch the onboarding flow' })} />)
     expect(screen.getByText('Join Nova on Mind map')).toBeInTheDocument()
+    // The purpose is the card's details: one click opens them, another closes them.
+    expect(screen.queryByText('Sketch the onboarding flow')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Join Nova on Mind map' }))
     expect(screen.getByText('Sketch the onboarding flow')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Join Nova on Mind map' }))
+    expect(screen.queryByText('Sketch the onboarding flow')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Join' }))
     expect(nav.joinCanvas).toHaveBeenCalledWith('mind-map', 'here')
     fireEvent.click(screen.getByRole('button', { name: 'Join' }), { metaKey: true })
@@ -85,7 +90,9 @@ describe('canvas rows', () => {
 
   it('the wrap-up shows the summary and opens the board', () => {
     wrap(<MessageRow m={entry('end', { text: 'We picked **email** login.' })} />)
-    expect(screen.getByText('Canvas wrap-up')).toBeInTheDocument()
+    expect(screen.getByText('Canvas wrap-up · Mind map')).toBeInTheDocument()
+    expect(screen.queryByText('email')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Canvas wrap-up · Mind map' }))
     expect(screen.getByText('email').tagName).toBe('STRONG')
     fireEvent.click(screen.getByRole('button', { name: 'Open board' }))
     expect(nav.openBoard).toHaveBeenCalledWith('mind-map', 'here')

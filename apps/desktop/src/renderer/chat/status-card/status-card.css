@@ -1,0 +1,178 @@
+/*
+ * The one-row status card (StatusCard): lead, one line, actions, quiet meta, and an X on hover or
+ * focus. A card with details opens them under the row. Bordered like Relay's other cards, no shadow.
+ */
+@property --eva-status-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+.eva-status-card {
+  position: relative;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  font-size: var(--eva-fz-body);
+  container-type: inline-size;
+  transition:
+    background-color var(--eva-dur-fast) ease,
+    border-color var(--eva-dur-fast) ease;
+}
+.eva-status-card[data-interactive]:hover {
+  background: var(--eva-hover);
+}
+.eva-status-card[data-open] {
+  background: var(--eva-surface);
+}
+.eva-status-card:focus-within:has(:focus-visible) {
+  outline: 2px solid var(--eva-accent);
+  outline-offset: 1px;
+}
+.eva-status-row {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  height: 36px;
+  padding: 0 var(--mantine-spacing-xs);
+}
+.eva-status-card[data-interactive] .eva-status-row {
+  cursor: pointer;
+}
+/* The row's keyboard stop: the lead and the line. Its focus ring is the card's (above). */
+.eva-status-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  outline: none;
+}
+.eva-status-line {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-status-acts {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}
+.eva-status-meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+}
+.eva-status-go {
+  flex: none;
+  color: var(--eva-text-dim);
+  opacity: 0;
+  transition:
+    opacity var(--eva-dur-fast) ease,
+    transform var(--eva-dur-fast) ease;
+}
+.eva-status-card:hover .eva-status-go,
+.eva-status-card:focus-within .eva-status-go {
+  opacity: 1;
+}
+.eva-status-card[data-open] .eva-status-chevron {
+  transform: rotate(180deg);
+}
+.eva-status-x {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: transparent;
+  color: var(--eva-text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--eva-dur-fast) ease,
+    background-color var(--eva-dur-fast) ease;
+}
+.eva-status-card:hover .eva-status-x,
+.eva-status-card:focus-within .eva-status-x {
+  opacity: 1;
+}
+.eva-status-x:hover {
+  background: color-mix(in srgb, var(--eva-text) 10%, transparent);
+  color: var(--eva-text);
+}
+.eva-status-x:focus-visible {
+  outline: 2px solid var(--eva-accent);
+  outline-offset: 1px;
+}
+.eva-status-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs);
+  border-top: 1px solid var(--eva-border);
+  color: var(--eva-text);
+  font-size: var(--eva-fz-body);
+  overflow-wrap: anywhere;
+}
+
+/* Work that runs: a soft highlight in the card's color orbits its 1px ring. */
+.eva-status-card[data-orbit]::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px solid transparent;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    conic-gradient(
+      from var(--eva-status-angle),
+      transparent 0%,
+      color-mix(in srgb, var(--eva-guest-c, var(--eva-accent)) 65%, transparent) 12%,
+      transparent 30%
+    ),
+    color-mix(in srgb, var(--eva-text) 7%, transparent);
+  background-origin: border-box;
+  -webkit-mask:
+    linear-gradient(#000 0 0) padding-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) padding-box exclude,
+    linear-gradient(#000 0 0);
+  animation: eva-work-orbit 2.5s linear infinite;
+}
+@keyframes eva-work-orbit {
+  to {
+    --eva-status-angle: 360deg;
+  }
+}
+@keyframes eva-work-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-status-card[data-orbit]::after {
+    background: color-mix(in srgb, var(--eva-guest-c, var(--eva-accent)) 40%, transparent);
+    animation: eva-work-pulse 2.5s ease-in-out infinite;
+  }
+}
