@@ -236,6 +236,7 @@ function AppUpdateRow() {
               .then((outcome) => {
                 if (outcome === "up-to-date") show("Up to date");
                 if (outcome === "disabled") show("Updates are off in this build");
+                if (outcome === "waiting") show("Update ready; restarts once nothing is running");
               })
               .catch(() => {
                 show("Couldn't reach the update server");
