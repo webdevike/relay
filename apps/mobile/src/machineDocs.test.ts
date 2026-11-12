@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { AnyStateMachine } from "xstate";
 import { machineDiagram, newDoc, withDiagram } from "./lib/machineDiagram";
 import { dictationMachine } from "./dictation/machine";
+import { callStartMachine } from "./call/callStart.machine";
 import { commandMachine } from "./connection/command.machine";
 import { turnMachine } from "./state/turn.machine";
 import { askMachine } from "./agents/ask.machine";
@@ -24,6 +25,7 @@ import { legacyCallMachine } from "./call/legacyCall.machine";
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   { file: "dictation", title: "Dictation (hold-to-talk and tap runs)", machine: dictationMachine },
+  { file: "call-start", title: "Call button start guard", machine: callStartMachine },
   { file: "command", title: "Reliable command lifecycle (phone to host)", machine: commandMachine },
   { file: "turn", title: "Sent assistant turn (echo bubble)", machine: turnMachine },
   { file: "ask", title: "Answering an ask (card, chip, sheet)", machine: askMachine },

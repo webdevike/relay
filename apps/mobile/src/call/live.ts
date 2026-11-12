@@ -10,8 +10,10 @@ import { router } from "expo-router";
 import { callIsLive } from "@/state/call";
 import { useConnectionStore } from "@/state/connection";
 import { useLiveCallStore } from "@/state/liveCall";
+import { createActor } from "xstate";
 import { LiveCall } from "../../modules/live-call";
 import { hangUp, startCall } from "./controller";
+import { callStartMachine } from "./callStart.machine";
 
 /** How long a fallback waits for the app's connection after Relay opens. */
 const CONNECT_WAIT_MS = 15_000;
@@ -19,6 +21,8 @@ const CONNECT_WAIT_MS = 15_000;
 let following = false;
 /** Agents whose live call `startVoiceCall` is starting: their fallback is its own to run. */
 const starting = new Set<string>();
+/** One Call button start at a time: taps while a call is starting do nothing. */
+const callStart = createActor(callStartMachine).start();
 
 /** Starts following the native engine; once, from the root layout. */
 export function followLiveCalls(): void {
@@ -44,9 +48,20 @@ export function followLiveCalls(): void {
 
 /**
  * The thread's Call button: a live call, or the legacy call when GPT-Live is unavailable.
- * Throws with a message for the person when neither can start.
+ * Throws with a message for the person when neither can start. A tap while a call is starting
+ * does nothing.
  */
 export async function startVoiceCall(agent: string): Promise<void> {
+  if (!callStart.getSnapshot().can({ type: "call.start", agent })) return;
+  callStart.send({ type: "call.start", agent });
+  try {
+    await startVoiceCallNow(agent);
+  } finally {
+    callStart.send({ type: "call.settled" });
+  }
+}
+
+async function startVoiceCallNow(agent: string): Promise<void> {
   useLiveCallStore.getState().setFailure(null);
   const native = LiveCall;
   if (native === null) {
