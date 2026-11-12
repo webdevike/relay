@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { Command } from "@relay/protocol";
 import {
   deliverDictation,
-  resetDictationTarget,
-  setDictationTarget,
+  pushDictationTarget,
   setLaunchListener,
   setLaunchThinkingLevel,
 } from "./deliver";
+import type { DictationTarget } from "./targetStack.machine";
 
 /** Plain prompts from the phone carry its surface tag; slash commands don't. */
 const TAG = "<surface>iPhone - Relay</surface>\n";
@@ -22,8 +22,17 @@ function recorder(): { sent: Command[]; send: (cmd: Command) => Promise<void> } 
   };
 }
 
+/** Releases of the targets a test pushed, all dropped after it. */
+const releases: (() => void)[] = [];
+
+function point(target: DictationTarget): () => void {
+  const release = pushDictationTarget(target);
+  releases.push(release);
+  return release;
+}
+
 afterEach(() => {
-  resetDictationTarget();
+  for (const release of releases.splice(0)) release();
   setLaunchThinkingLevel("");
 });
 
@@ -41,7 +50,7 @@ describe("deliverDictation", () => {
   });
 
   it("replies to the targeted agent as the next turn, whatever the flick said", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1" });
+    point({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
       { text: "try again", submit: true, skill: null, images: [], pasted: null, launch: false },
@@ -58,7 +67,7 @@ describe("deliverDictation", () => {
   });
 
   it("cancels the ask the session is blocked on before the reply, so the reply is not stuck behind it", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1", pendingAskId: "k1" });
+    point({ kind: "agent", sessionId: "s1", pendingAskId: "k1" });
     const { sent, send } = recorder();
     await deliverDictation(
       { text: "never mind", submit: true, skill: null, images: [], pasted: null, launch: false },
@@ -71,7 +80,7 @@ describe("deliverDictation", () => {
   });
 
   it("still sends the reply when the ask had already closed elsewhere and the cancel is refused", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1", pendingAskId: "k1" });
+    point({ kind: "agent", sessionId: "s1", pendingAskId: "k1" });
     const sent: Command[] = [];
     await deliverDictation(
       { text: "hello", submit: true, skill: null, images: [], pasted: null, launch: false },
@@ -84,7 +93,7 @@ describe("deliverDictation", () => {
   });
 
   it("prefixes the armed slash command verbatim", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1" });
+    point({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
       {
@@ -103,7 +112,7 @@ describe("deliverDictation", () => {
   });
 
   it("a command picked without text goes out on its own", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1" });
+    point({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
       { text: "", submit: true, skill: "/goal show", images: [], pasted: null, launch: false },
@@ -114,9 +123,9 @@ describe("deliverDictation", () => {
     ]);
   });
 
-  it("falls back to inserting once the target is reset", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1" });
-    resetDictationTarget();
+  it("falls back to inserting once its owner releases the target", async () => {
+    const release = point({ kind: "agent", sessionId: "s1" });
+    release();
     const { sent, send } = recorder();
     await deliverDictation(
       { text: "typed", submit: false, skill: null, images: [], pasted: null, launch: false },
@@ -126,7 +135,7 @@ describe("deliverDictation", () => {
   });
 
   it("an agent reply carries the attached images without their pixel sizes", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1" });
+    point({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     const shot = { mimeType: "image/jpeg" as const, data: "abc", width: 4, height: 3 };
     await deliverDictation(
@@ -145,7 +154,7 @@ describe("deliverDictation", () => {
   });
 
   it("images alone go out as a submitted reply with empty text", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1" });
+    point({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     const shot = { mimeType: "image/png" as const, data: "xyz", width: 1, height: 1 };
     await deliverDictation(
@@ -174,7 +183,7 @@ describe("deliverDictation", () => {
   });
 
   it("pasted text follows the dictation as its own paragraph, after the armed command", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1" });
+    point({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
       {
@@ -198,7 +207,7 @@ describe("deliverDictation", () => {
   });
 
   it("pasted text alone is the whole reply", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1" });
+    point({ kind: "agent", sessionId: "s1" });
     const { sent, send } = recorder();
     await deliverDictation(
       { text: "", submit: true, skill: null, images: [], pasted: "just this", launch: false },
@@ -210,7 +219,7 @@ describe("deliverDictation", () => {
   });
 
   it("a launch starts a session with the words as the first prompt, whatever the target, and tells the listener first", async () => {
-    setDictationTarget({ kind: "agent", sessionId: "s1" });
+    point({ kind: "agent", sessionId: "s1" });
     const seen: string[] = [];
     setLaunchListener((prompt) => {
       seen.push(prompt);
@@ -275,19 +284,37 @@ describe("deliverDictation", () => {
   });
 
   it("an assistant thread gets the words as Isaac's assistant.turn, untagged, whatever the flick said", async () => {
-    setDictationTarget({ kind: "assistant", agent: "nova" });
+    point({ kind: "assistant", agent: "nova" });
     const { sent, send } = recorder();
     await deliverDictation(
       { text: "what did the run do", submit: true, skill: null, images: [], pasted: null, launch: false },
       send,
     );
-    expect(sent).toEqual([{ kind: "assistant.turn", agent: "nova", text: "what did the run do" }]);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ kind: "assistant.turn", agent: "nova", text: "what did the run do" });
+    expect(Object.keys(sent[0] ?? {}).sort()).toEqual(["agent", "clientId", "kind", "text"]);
+  });
+
+  it("an assistant turn names itself with a clientId the listener hears too, so a resend is delivered once", async () => {
+    let named: string | null = null;
+    point({
+      kind: "assistant",
+      agent: "nova",
+      onTurn: (_text, _delivery, clientId) => {
+        named = clientId;
+      },
+    });
+    const { sent, send } = recorder();
+    await deliverDictation({ text: "hi", submit: true, skill: null, images: [], pasted: null, launch: false }, send);
+    const turn = sent[0];
+    expect(turn?.kind === "assistant.turn" ? turn.clientId : undefined).toBe(named);
+    expect(named).toMatch(/^[0-9a-z]+-[0-9a-z]+$/);
   });
 
   it("an assistant turn tells its listener first, with the delivery, so a refusal shows in the thread", async () => {
     const order: string[] = [];
     let heard: Promise<void> | null = null;
-    setDictationTarget({
+    point({
       kind: "assistant",
       agent: "astra",
       onTurn: (text, delivery) => {

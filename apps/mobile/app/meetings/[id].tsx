@@ -24,7 +24,7 @@ import {
 import { MessageText } from "@/agents/MessageText";
 import { meetingsRequest } from "@/connection";
 import { DictationButton } from "@/dictation";
-import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
+import { pushDictationTarget } from "@/dictation/deliver";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { recordingTitle, useMeetingsStore } from "@/state/meetings";
 import { spacing, tabularNumbers, useColors, useScheme } from "@/theme";
@@ -70,11 +70,8 @@ function RecordingScreen({ id }: { id: string }) {
       void meetingsRequest({ kind: "open", id }).then((result) => {
         setError(result.ok ? null : (result.error ?? "Could not open the meeting."));
       });
-      // Held to talk on this screen, the words are a question for Astra.
-      setDictationTarget({ kind: "local", onText: ask });
-      return () => {
-        resetDictationTarget();
-      };
+      // Held to talk on this screen, the words are a question for Astra; leaving releases only this claim.
+      return pushDictationTarget({ kind: "local", onText: ask });
     }, [id, ask]),
   );
 

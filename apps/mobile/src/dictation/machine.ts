@@ -2,7 +2,7 @@
  * Dictation statechart (XState v5): the single source of truth for the whole hold-to-talk
  * interaction. Pure: no React, no expo-speech-recognition, no network.
  *
- * Two parallel regions share the same events:
+ * Three parallel regions share the same events:
  *
  *   speech  the pipeline: permission → listening → finishing → sending → sent, or error; a swipe
  *           left while listening detours through choosing (the skill wheel) → chosen → idle with
@@ -10,6 +10,10 @@
  *   orb     what the centered orb is doing: shown while listening, lifted once the finger has
  *           crossed the send threshold, flying after the finger lets go, collapsing into the check
  *           after a plain send, fading out, gone
+ *   tap     a composer's tap-to-dictate run: off → running (the field shows the draft plus the
+ *           words) → landing (stop, send or x pressed) → off once speech settles. The run's words
+ *           land in its own composer (`context.tap.sink`), never through the screen's dictation
+ *           target, so they arrive exactly once whatever that target is by then.
  *
  * `orb` follows `speech` through `stateIn` guards, and owns the presentation timings (flight,
  * fade), so a component only renders the current orb state. Side effects are invoked actors that
@@ -31,6 +35,7 @@ import {
   stateIn,
   type SnapshotFrom,
 } from "xstate";
+import { joinDictation, landDictation, type TapRun } from "./tapDictation";
 
 export type DictationPhase =
   | "idle"
@@ -86,6 +91,19 @@ export interface DictationContext {
   images: PendingImage[];
   /** Text pasted from the clipboard while idle; goes under the dictation on the next send, or alone. */
   pasted: string | null;
+  /** The composer's tap run, from the tap until it has landed; null otherwise. */
+  tap: TapState | null;
+}
+
+/** Where a tap run lands: the composer's draft (read when it lands) and its send. */
+export interface TapSink {
+  draft: () => string;
+  setDraft: (text: string) => void;
+  send: (text: string) => void;
+}
+
+export interface TapState extends TapRun {
+  sink: TapSink;
 }
 
 /** A clipboard image ready for `agent.reply`: base64 with no data-URI prefix. */
@@ -137,6 +155,13 @@ export type DictationEvent =
   | { type: "final"; text: string }
   | { type: "recognizerEnd" }
   | { type: "recognizerError"; code: string }
+  /**
+   * The composer's mic was tapped (its press already started listening): keep listening after the
+   * finger lifts and land the words in `sink`, after `base` (the draft as it was).
+   */
+  | { type: "tapBegin"; base: string; sink: TapSink }
+  /** Stop (keep the words for editing), send them, or drop them (the x). */
+  | { type: "tapEnd"; intent: "keep" | "send" | "cancel" }
   | { type: "reset" };
 
 export type PermissionOutcome = "granted" | "denied" | "unavailable";
@@ -174,7 +199,8 @@ function notProvided(name: string): never {
   throw new Error(`dictation actor "${name}" not provided`);
 }
 
-const fresh: DictationContext = {
+/** Everything but the tap run, which lives until speech settles whatever the speech region resets. */
+const fresh: Omit<DictationContext, "tap"> = {
   transcript: "",
   nothingHeard: false,
   errorCode: null,
@@ -207,6 +233,30 @@ export const dictationMachine = setup({
   },
   actions: {
     stopRecognizer: sendTo("recognizer", { type: "stop" }),
+    /** While a tap run listens, the field shows the draft before the tap followed by the words so far. */
+    followTap: assign({
+      tap: ({ context, event }) =>
+        context.tap !== null && (event.type === "partial" || event.type === "final")
+          ? { ...context.tap, interim: joinDictation(context.tap.base, event.text) }
+          : context.tap,
+    }),
+    endTap: assign({
+      tap: ({ context, event }) =>
+        context.tap !== null && event.type === "tapEnd" ? { ...context.tap, intent: event.intent } : context.tap,
+    }),
+    /** Until the recognizer's last words land, the field keeps what it showed (or the draft, on the x). */
+    showTapDraft: ({ context }) => {
+      const run = context.tap;
+      if (run !== null) run.sink.setDraft(run.intent === "cancel" ? run.base : run.interim);
+    },
+    /** The run's one landing: the final words (`heard`), or null when speech ended without any. */
+    landTap: ({ context }, params: { heard: string | null }) => {
+      const run = context.tap;
+      if (run === null) return;
+      const out = landDictation(run, params.heard, run.sink.draft());
+      if (out.draft !== undefined) run.sink.setDraft(out.draft);
+      if (out.send !== null) run.sink.send(out.send);
+    },
   },
   guards: {
     hasText: ({ context }) => context.transcript.trim().length > 0,
@@ -221,6 +271,25 @@ export const dictationMachine = setup({
     speechSent: stateIn({ speech: "sent" }),
     speechIdle: stateIn({ speech: "idle" }),
     speechError: stateIn({ speech: "error" }),
+    /** Speech is back where a run cannot get more words: it lands with what the field showed. */
+    speechSettled: or([
+      stateIn({ speech: "idle" }),
+      stateIn({ speech: "error" }),
+      stateIn({ speech: "permission_denied" }),
+    ]),
+    /** A tap starts a run only while its press is still opening or listening. */
+    tapCanBegin: or([stateIn({ speech: "requesting_permission" }), stateIn({ speech: { active: "listening" } })]),
+    tapRunning: stateIn({ tap: "running" }),
+    /** The x on a running tap run. */
+    tapDropped: and([
+      stateIn({ tap: "running" }),
+      ({ event }) => event.type === "tapEnd" && event.intent === "cancel",
+    ]),
+    /** A tap run's words: they land in the composer, not through `deliver`. */
+    tapHeard: and([
+      or([stateIn({ tap: "running" }), stateIn({ tap: "landing" })]),
+      ({ context }) => context.transcript.trim().length > 0,
+    ]),
   },
   delays: {
     FINISH_TIMEOUT: FINISH_TIMEOUT_MS,
@@ -232,10 +301,11 @@ export const dictationMachine = setup({
   },
 }).createMachine({
   id: "dictation",
-  context: fresh,
+  context: { ...fresh, tap: null },
   type: "parallel",
   on: {
-    reset: { target: ".speech.idle", actions: assign(fresh) },
+    // The composer leaving drops its run unlanded: there is no field left to land in.
+    reset: { target: [".speech.idle", ".tap.off"], actions: assign({ ...fresh, tap: null }) },
   },
   states: {
     speech: {
@@ -270,7 +340,11 @@ export const dictationMachine = setup({
         },
         requesting_permission: {
           // The finger may lift before the check lands; listening then ends as soon as it opens.
-          on: { release: { actions: assign({ released: true }) } },
+          on: {
+            release: { actions: assign({ released: true }) },
+            // A tap run stopped, sent or dropped before listening opened ends the moment it does.
+            tapEnd: { guard: "tapRunning", actions: assign({ released: true }) },
+          },
           invoke: {
             src: "checkPermission",
             onDone: [
@@ -318,6 +392,11 @@ export const dictationMachine = setup({
                   actions: assign({ transcript: "", wheelParent: null }),
                 },
                 abandon: { target: "#dictation.speech.idle", actions: assign(keepArmed) },
+                // The x on a tap run drops what was heard; stop and send finish the words.
+                tapEnd: [
+                  { guard: "tapDropped", target: "#dictation.speech.idle", actions: assign(keepArmed) },
+                  { guard: "tapRunning", target: "finishing", actions: "stopRecognizer" },
+                ],
                 launch: {
                   target: "finishing",
                   actions: [assign({ launching: true }), "stopRecognizer"],
@@ -371,9 +450,17 @@ export const dictationMachine = setup({
             pressStart: { target: "idle", actions: assign(keepArmed) },
           },
         },
-        /** Transient: route the finished transcript to `sending` or back to `idle` (nothing heard). */
+        /**
+         * Transient: route the finished transcript to `sending` or back to `idle` (nothing heard). A tap
+         * run's words skip the delivery: the tap region lands them in the composer once speech is `sent`.
+         */
         finished: {
           always: [
+            {
+              guard: "tapHeard",
+              target: "sent",
+              actions: assign({ transcript: ({ context }) => context.transcript.trim() }),
+            },
             {
               guard: "hasText",
               target: "sending",
@@ -459,6 +546,50 @@ export const dictationMachine = setup({
         },
         gone: {
           always: { guard: "speechIdle", target: "hidden" },
+        },
+      },
+    },
+    tap: {
+      initial: "off",
+      states: {
+        off: {
+          on: {
+            tapBegin: {
+              guard: "tapCanBegin",
+              target: "running",
+              actions: assign({
+                tap: ({ event }) => ({ base: event.base, interim: event.base, intent: null, sink: event.sink }),
+              }),
+            },
+          },
+        },
+        /** Listening after the tap: the field shows the draft plus the words so far. */
+        running: {
+          on: {
+            partial: { actions: "followTap" },
+            final: { actions: "followTap" },
+            tapEnd: { target: "landing", actions: ["endTap", "showTapDraft"] },
+          },
+          // An error or nothing at all from the recognizer: the run keeps what the field showed.
+          always: [
+            {
+              guard: "speechSent",
+              target: "off",
+              actions: [{ type: "landTap", params: ({ context }) => ({ heard: context.transcript }) }, assign({ tap: null })],
+            },
+            { guard: "speechSettled", target: "off", actions: [{ type: "landTap", params: { heard: null } }, assign({ tap: null })] },
+          ],
+        },
+        /** Stop, send or the x was pressed: waiting for the recognizer's last words, then landing once. */
+        landing: {
+          always: [
+            {
+              guard: "speechSent",
+              target: "off",
+              actions: [{ type: "landTap", params: ({ context }) => ({ heard: context.transcript }) }, assign({ tap: null })],
+            },
+            { guard: "speechSettled", target: "off", actions: [{ type: "landTap", params: { heard: null } }, assign({ tap: null })] },
+          ],
         },
       },
     },

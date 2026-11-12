@@ -1,15 +1,14 @@
 /**
  * Tap-to-dictate in a composer: a tap on the mic (its press already started listening) turns the
  * field into a live transcript after whatever was typed before. Stop keeps the words for editing,
- * send stops and sends them, the x drops them and the draft is as it was. The words arrive through
- * a `local` dictation target, so nothing reaches the host until the composer sends.
+ * send stops and sends them, the x drops them and the draft is as it was. The run lives in the
+ * dictation machine's `tap` region; this hook only reads what the field shows and sends the taps.
+ * The words land in this composer's own sink, so nothing reaches the host until the composer sends.
  */
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useSelector } from "@xstate/react";
 import { dictationActor } from "./actor";
-import { setDictationTarget } from "./deliver";
-import { useDictation } from "./useDictation";
-import { joinDictation, landDictation, type TapIntent, type TapRun } from "./tapDictation";
-import { phaseOf, type DictationPhase } from "./machine";
+import type { TapSink } from "./machine";
 
 export interface TapDictation {
   /** Listening after a tap: the field shows `live`, the composer shows x, level, stop and send. */
@@ -28,80 +27,39 @@ export interface TapDictationOptions {
   setDraft: (text: string) => void;
   /** Sends a finished dictation as the composer's turn. */
   send: (text: string) => void;
-  /** Points dictation back where hold-to-talk sends it (this screen's own target). */
-  restoreTarget: () => void;
 }
 
-/** Phases a run cannot come back from with words: it lands with what the field showed. */
-const DONE: Partial<Record<DictationPhase, true>> = { idle: true, error: true, permission_denied: true };
-
 export function useTapDictation(options: TapDictationOptions): TapDictation {
-  const { phase, transcript } = useDictation();
-  const [dictating, setDictating] = useState(false);
-  const run = useRef<TapRun | null>(null);
   const latest = useRef(options);
   latest.current = options;
-  const live = dictating && run.current !== null ? joinDictation(run.current.base, transcript) : options.draft;
-  if (dictating && run.current !== null) run.current.interim = live;
-
-  const land = (heard: string | null): void => {
-    const current = run.current;
-    if (current === null) return;
-    run.current = null;
-    const out = landDictation(current, heard, latest.current.draft);
-    if (out.draft !== undefined) latest.current.setDraft(out.draft);
-    if (out.send !== null) latest.current.send(out.send);
-    latest.current.restoreTarget();
-    setDictating(false);
-  };
-  const landRef = useRef(land);
-  landRef.current = land;
-
-  // Nothing heard, an error, the permission refused or the x: the run ends without delivered words.
-  useEffect(() => {
-    if (run.current !== null && DONE[phase] === true) landRef.current(null);
-  }, [phase]);
-
-  /** Ends listening; the words arrive through the local target, or through the phase effect when there are none. */
-  const end = (intent: Exclude<TapIntent, null>): void => {
-    const current = run.current;
-    if (current === null) return;
-    current.intent = intent;
-    setDictating(false);
-    if (intent === "cancel") {
-      latest.current.setDraft(current.base);
-      dictationActor.send({ type: "abandon" });
-    } else {
-      latest.current.setDraft(current.interim);
-    }
-    // While listening this finishes; still asking for permission, it ends the moment listening opens.
-    dictationActor.send({ type: "release" });
-  };
+  // One sink for the composer's life: the machine tells this composer's run from another's by it.
+  const [sink] = useState<TapSink>(() => ({
+    draft: () => latest.current.draft,
+    setDraft: (text) => {
+      latest.current.setDraft(text);
+    },
+    send: (text) => {
+      latest.current.send(text);
+    },
+  }));
+  const interim = useSelector(dictationActor, (snapshot) =>
+    snapshot.matches({ tap: "running" }) && snapshot.context.tap?.sink === sink ? snapshot.context.tap.interim : null,
+  );
 
   return {
-    dictating,
-    live,
+    dictating: interim !== null,
+    live: interim ?? options.draft,
     begin: () => {
-      // The press already ended (permission refused, recognizer failed): there is nothing to keep listening to.
-      if (DONE[phaseOf(dictationActor.getSnapshot())] === true) return;
-      run.current = { base: latest.current.draft, interim: latest.current.draft, intent: null };
-      setDictationTarget({
-        kind: "local",
-        onText: (heard) => {
-          landRef.current(heard);
-          return Promise.resolve();
-        },
-      });
-      setDictating(true);
+      dictationActor.send({ type: "tapBegin", base: latest.current.draft, sink });
     },
     stop: () => {
-      end("keep");
+      dictationActor.send({ type: "tapEnd", intent: "keep" });
     },
     send: () => {
-      end("send");
+      dictationActor.send({ type: "tapEnd", intent: "send" });
     },
     cancel: () => {
-      end("cancel");
+      dictationActor.send({ type: "tapEnd", intent: "cancel" });
     },
   };
 }

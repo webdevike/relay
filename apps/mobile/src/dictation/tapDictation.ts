@@ -1,6 +1,6 @@
 /**
- * Rules of tap-to-dictate in a composer (`useTapDictation` runs them): what the field shows while
- * listening and what a run leaves behind when it ends. Pure, no React Native.
+ * Rules of tap-to-dictate in a composer (the dictation machine's `tap` region runs them): what the
+ * field shows while listening and what a run leaves behind when it ends. Pure, no React Native.
  */
 
 /** The draft before the tap followed by what was heard, one space (or the draft's newline) between them. */

@@ -10,9 +10,10 @@
  * transcript bubble. Holding the pill's open middle talks
  * the same way; tapping it starts typing.
  */
-import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useEffect, useLayoutEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import Animated, { FadeIn, FadeOut, ReduceMotion, type SharedValue } from "react-native-reanimated";
+import { useActorRef, useSelector } from "@xstate/react";
 import { ComposerPill, COMPOSER_BUTTON, COMPOSER_FIELD } from "@/ui/ComposerPill";
 import { AttachmentTray } from "@/ui/AttachmentTray";
 import { IconButton } from "@/ui/IconButton";
@@ -23,6 +24,8 @@ import { motion, spacing, useColors, useScheme } from "@/theme";
 import type { Photo } from "@/lib/photo";
 import { expectKeyboard } from "@/lib/keyboardMotion";
 import type { PopoverAnchor } from "@/agents/ThinkingPopover";
+import { cardOpen, composerShapeMachine, holding as isHolding, tapDictating as isTapDictating } from "@/agents/composerShape.machine";
+import { trackComposer } from "@/agents/composerShape";
 import { ComposerMic } from "@/dictation/ComposerMic";
 import { micLevel } from "@/dictation/signals";
 import { dictationActor } from "@/dictation/actor";
@@ -45,8 +48,6 @@ export interface AssistantComposerProps {
   inputRef: RefObject<TextInput | null>;
   /** Where the field's cursor is, for Reply to quote above it. */
   cursor: RefObject<number>;
-  /** The field has focus (the keyboard is up). */
-  composing: boolean;
   onComposing: (focused: boolean) => void;
   onAttach: () => void;
   /** Sends a turn: the words and the queued photos. */
@@ -55,13 +56,11 @@ export interface AssistantComposerProps {
   chip: { label: string; detail?: string | undefined; onPress: (anchor: PopoverAnchor) => void };
   /** A hold started: the screen shows the edge glow until it has faded. */
   onWalkie: () => void;
-  /** Points dictation back at this thread, where a hold sends its words. */
-  restoreTarget: () => void;
   /** The pill's height on screen, frame by frame (`ComposerPill` `height`). */
   height: SharedValue<number>;
 }
 
-export function AssistantComposer({ title, connected, draft, setDraft, photos, setPhotos, inputRef, cursor, composing, onComposing, onAttach, onSend, chip, onWalkie, restoreTarget, height }: AssistantComposerProps) {
+export function AssistantComposer({ title, connected, draft, setDraft, photos, setPhotos, inputRef, cursor, onComposing, onAttach, onSend, chip, onWalkie, height }: AssistantComposerProps) {
   const colors = useColors();
   const dark = useScheme() === "dark";
   const button = dark ? BUTTON_DARK : colors.surfaceRaised;
@@ -82,38 +81,48 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
     send: (text) => {
       onSend(text, photos);
     },
-    restoreTarget,
   });
+  // The pill or the card, and what the finger is doing with it (`composerShape.machine.ts`).
+  const shape = useActorRef(composerShapeMachine, { input: { online: connected } });
+  useEffect(() => trackComposer(shape), [shape]);
+  useEffect(() => {
+    shape.send({ type: "composer.connection", up: connected });
+  }, [shape, connected]);
+  // Before paint, so the card never shows the mic's slots for a frame after a tap dictation starts or ends.
+  useLayoutEffect(() => {
+    shape.send({ type: tap.dictating ? "composer.tapMic" : "composer.dictationLanded" });
+  }, [shape, tap.dictating]);
+  const open = useSelector(shape, cardOpen);
+  const dictating = useSelector(shape, isTapDictating);
+  const holding = useSelector(shape, isHolding);
   // A tap on the pill (or the mic) starts the keyboard's rise, opens the card and focuses the field
   // in the same tick, so card, keyboard and the lift on it are one motion from the first frame (the
   // collapsed field takes no touches of its own).
-  const [opening, setOpening] = useState(false);
-  const open = (): void => {
+  const openCard = (): void => {
     expectKeyboard();
-    setOpening(true);
+    shape.send({ type: "composer.tapPill" });
     inputRef.current?.focus();
   };
   const chipBox = useRef<View>(null);
-  // The finger is down on a hold: the pill shows the live level and "Release to send".
-  const [holding, setHolding] = useState(false);
   const hold = {
     onHoldStart: () => {
-      setHolding(true);
+      shape.send({ type: "composer.holdStart" });
       onWalkie();
     },
     onHoldEnd: () => {
-      setHolding(false);
+      shape.send({ type: "composer.holdEnd" });
     },
   };
   const pillGesture = useHoldToTalkGesture({
     enabled: connected,
-    onTap: open,
+    onTap: openCard,
     ...hold,
   });
 
   const text = draft.trim();
   const hasContent = text !== "" || photos.length > 0;
-  const expanded = composing || opening || draft !== "" || photos.length > 0 || tap.dictating;
+  const expanded = open || draft !== "" || photos.length > 0;
+  // The finger is down on a hold: the pill shows the live level and "Release to send".
   const talking = holding && (phase === "listening" || phase === "requesting_permission");
 
   const field = (
@@ -128,11 +137,11 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
         cursor.current = event.nativeEvent.selection.start;
       }}
       onFocus={() => {
-        setOpening(false);
+        shape.send({ type: "composer.focus" });
         onComposing(true);
       }}
       onBlur={() => {
-        setOpening(false);
+        shape.send({ type: "composer.blur" });
         onComposing(false);
       }}
       placeholder={!connected ? "Not connected" : expanded ? `Chat with ${title}` : "Type or hold to talk"}
@@ -156,7 +165,7 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
       enabled={connected}
       onTap={() => {
         tap.begin();
-        open();
+        openCard();
       }}
       {...hold}
     />
@@ -165,7 +174,6 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
     <IconButton symbol="arrow.up" size={COMPOSER_BUTTON} glyphSize={18} backgroundColor={sendColors.fill} tintColor={sendColors.glyph} disabled={!connected} onPress={() => { onSend(text, photos); }} accessibilityLabel="Send" />
   );
 
-  const dictating = tap.dictating;
   return (
     <View>
       <ComposerPill

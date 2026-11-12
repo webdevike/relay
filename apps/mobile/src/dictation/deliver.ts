@@ -2,41 +2,33 @@
  * Where a finished dictation goes. The trackpad types it into the focused app (`text.insert`,
  * plus Return on a submit); an agent session gets it as `agent.reply`, always as the next turn;
  * a flick up in the inbox starts a new session with it (`agent.start` with the words as the first
- * prompt). A screen sets the target while it has focus and restores `insert` when it leaves, so
- * the one dictation actor never needs to know which screen is up. The inbox also registers a
- * launch listener so it can show the new session, words first, before the host has even opened it.
+ * prompt). A screen pushes its target while it has focus and releases that entry when it leaves
+ * (`targetStack.machine.ts`), so the one dictation actor never needs to know which screen is up. The inbox
+ * also registers a launch listener so it can show the new session, words first, before the host
+ * has even opened it.
  */
 import type { Command } from "@relay/protocol";
+import { createActor } from "xstate";
 import type { DeliverInput } from "./machine";
 import { tagged } from "./surface";
+import { targetOf, targetStackMachine, type DictationTarget } from "./targetStack.machine";
 
-export type DictationTarget =
-  | { kind: "insert" }
-  /**
-   * `pendingAskId`: the ask the session is blocked on. A reply sent behind it would only queue until
-   * the ask closes (and omp drops an ask with messages queued), so the ask is cancelled first.
-   */
-  | { kind: "agent"; sessionId: string; pendingAskId?: string }
-  /**
-   * An assistant's thread: the words are Isaac's next `assistant.turn`. `onTurn` hears of the turn
-   * the moment it is sent (before the command leaves), with the delivery, so the thread can show the
-   * echo at once and mark a refusal.
-   */
-  | { kind: "assistant"; agent: string; onTurn?: (text: string, delivery: Promise<void>) => void }
-  /** A screen of the phone's own (a meeting's Ask): the words go to `onText` and no command is sent. */
-  | { kind: "local"; onText: (text: string) => Promise<void> };
-
-const INSERT: DictationTarget = { kind: "insert" };
-let target: DictationTarget = INSERT;
+const targets = createActor(targetStackMachine).start();
+let nextOwner = 0;
 let onLaunch: ((prompt: string, delivery: Promise<void>) => void) | null = null;
 let launchThinkingLevel = "";
 
-export function setDictationTarget(next: DictationTarget): void {
-  target = next;
-}
-
-export function resetDictationTarget(): void {
-  target = INSERT;
+/**
+ * Points dictation at `target` until the returned release runs. Release drops only this entry
+ * (twice is harmless), so a screen's blur can never clear the target the next screen pushed.
+ */
+export function pushDictationTarget(target: DictationTarget): () => void {
+  nextOwner += 1;
+  const owner = nextOwner;
+  targets.send({ type: "target.pushed", owner, target });
+  return () => {
+    targets.send({ type: "target.released", owner });
+  };
 }
 
 /** Thinking level a launched session opens with; empty leaves omp's default. The inbox mirrors the setting here. */
@@ -69,8 +61,11 @@ export function deliveredText(input: DeliverInput): string {
   return spoken === "" ? input.pasted : `${spoken}\n\n${input.pasted}`;
 }
 
-/** The commands one delivery sends, in order. Images only go to an agent; the trackpad has nowhere to put them. */
-export function commandsFor(input: DeliverInput, to: DictationTarget): Command[] {
+/**
+ * The commands one delivery sends, in order. Images only go to an agent; the trackpad has nowhere to put them.
+ * `clientId` names an assistant turn, so a resend of it is delivered once.
+ */
+export function commandsFor(input: DeliverInput, to: DictationTarget, clientId: string): Command[] {
   const text = deliveredText(input);
   if (input.launch) {
     return [
@@ -84,7 +79,7 @@ export function commandsFor(input: DeliverInput, to: DictationTarget): Command[]
   if (to.kind === "assistant") {
     const images = input.images.map(({ mimeType, data }) => ({ mimeType, data }));
     return [
-      { kind: "assistant.turn", agent: to.agent, text, ...(images.length > 0 ? { images } : {}) },
+      { kind: "assistant.turn", agent: to.agent, text, clientId, ...(images.length > 0 ? { images } : {}) },
     ];
   }
   if (to.kind === "agent") {
@@ -103,13 +98,15 @@ export function commandsFor(input: DeliverInput, to: DictationTarget): Command[]
   return commands;
 }
 
-/** Sends the delivery for the current target through `send`, stopping at the first rejection. */
+/** Sends the delivery for the top target through `send`, stopping at the first rejection. */
 export async function deliverDictation(
   input: DeliverInput,
   send: (cmd: Command) => Promise<void>,
 ): Promise<void> {
+  const target = targetOf(targets.getSnapshot());
   if (target.kind === "local" && !input.launch) return target.onText(deliveredText(input));
-  const commands = commandsFor(input, target);
+  const clientId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const commands = commandsFor(input, target, clientId);
   const run = async (): Promise<void> => {
     for (const cmd of commands) {
       // The ask may have closed on another device already; that must not lose the reply behind it.
@@ -119,7 +116,7 @@ export async function deliverDictation(
   };
   if (target.kind === "assistant") {
     const delivery = Promise.resolve().then(run);
-    target.onTurn?.(deliveredText(input), delivery);
+    target.onTurn?.(deliveredText(input), delivery, clientId);
     return delivery;
   }
   if (!input.launch) return run();

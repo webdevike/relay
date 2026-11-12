@@ -9,16 +9,22 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { AnyStateMachine } from "xstate";
 import { machineDiagram, newDoc, withDiagram } from "./lib/machineDiagram";
+import { dictationMachine } from "./dictation/machine";
 import { commandMachine } from "./connection/command.machine";
 import { turnMachine } from "./state/turn.machine";
 import { roomsRequestMachine } from "./rooms/roomsRequest.machine";
+import { composerShapeMachine } from "./agents/composerShape.machine";
+import { targetStackMachine } from "./dictation/targetStack.machine";
 import { sessionMachine } from "./connection/session.machine";
 import { legacyCallMachine } from "./call/legacyCall.machine";
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
+  { file: "dictation", title: "Dictation (hold-to-talk and tap runs)", machine: dictationMachine },
   { file: "command", title: "Reliable command lifecycle (phone to host)", machine: commandMachine },
   { file: "turn", title: "Sent assistant turn (echo bubble)", machine: turnMachine },
   { file: "rooms-request", title: "Rooms request and card busy state", machine: roomsRequestMachine },
+  { file: "composer-shape", title: "Composer shape (pill, card, dictation, hold)", machine: composerShapeMachine },
+  { file: "dictation-targets", title: "Dictation target owner stack", machine: targetStackMachine },
   { file: "session", title: "Connection session (discovery, pairing, heartbeat, backoff, background)", machine: sessionMachine },
   { file: "legacy-call", title: "Legacy voice call (host speech over the app socket)", machine: legacyCallMachine },
 ];

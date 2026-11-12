@@ -82,7 +82,7 @@ import { startVoiceCall } from "@/call/live";
 import { useCallStore } from "@/state/call";
 import { useLiveCallStore } from "@/state/liveCall";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
-import { resetDictationTarget, setDictationTarget } from "@/dictation/deliver";
+import { pushDictationTarget } from "@/dictation/deliver";
 import { useDictation } from "@/dictation/useDictation";
 import { useWalkieOrb } from "@/dictation/walkie";
 import { AssistantComposer } from "@/agents/AssistantComposer";
@@ -351,23 +351,15 @@ function Thread({ agent }: { agent: string }) {
   titleRef.current = title;
   const trackTurnRef = useRef(trackTurn);
   trackTurnRef.current = trackTurn;
-  const pointDictationHere = useCallback(() => {
-    setDictationTarget({
-      kind: "assistant",
-      agent,
-      onTurn: (words, delivery) => {
-        trackTurnRef.current(`dictation-${Date.now().toString(36)}`, words, [], delivery, null, (error) => {
-          setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${titleRef.current}.`);
-        });
-      },
-    });
-  }, [agent]);
-  useFocusEffect(useCallback(() => {
-    pointDictationHere();
-    return () => {
-      resetDictationTarget();
-    };
-  }, [pointDictationHere]));
+  useFocusEffect(useCallback(() => pushDictationTarget({
+    kind: "assistant",
+    agent,
+    onTurn: (words, delivery, clientId) => {
+      trackTurnRef.current(clientId, words, [], delivery, { kind: "assistant.turn", agent, text: words, clientId }, (error) => {
+        setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${titleRef.current}.`);
+      });
+    },
+  }), [agent]));
   // A hold mounts the edge glow until it has faded; a tap that dictates into the field never shows it.
   const walkieOrb = useWalkieOrb();
 
@@ -842,7 +834,6 @@ function Thread({ agent }: { agent: string }) {
               setPhotos={setPhotos}
               inputRef={composer}
               cursor={cursor}
-              composing={composing}
               onComposing={(focused) => {
                 setComposing(focused);
                 if (focused) followContent();
@@ -853,7 +844,6 @@ function Thread({ agent }: { agent: string }) {
               }}
               chip={chip}
               onWalkie={walkieOrb.start}
-              restoreTarget={pointDictationHere}
               height={pillHeight}
             />
           </View>

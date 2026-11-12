@@ -30,8 +30,7 @@ import { ActionCarousel, type CarouselAction } from "@/agents/ActionCarousel";
 import { ListeningOrb } from "@/dictation/ListeningOrb";
 import { SkillWheel, WHEEL_EXTENT } from "@/dictation/SkillWheel";
 import {
-  resetDictationTarget,
-  setDictationTarget,
+  pushDictationTarget,
   setLaunchListener,
   setLaunchThinkingLevel,
 } from "@/dictation/deliver";
@@ -255,13 +254,11 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     }, [selectedId, connected]),
   );
 
+  // Releases only this screen's entry on blur, so a thread whose focus landed first keeps its own.
   useFocusEffect(
     useCallback(() => {
       if (selectedId === undefined) return;
-      setDictationTarget({ kind: "agent", sessionId: selectedId, ...(pendingAskId === undefined ? {} : { pendingAskId }) });
-      return () => {
-        resetDictationTarget();
-      };
+      return pushDictationTarget({ kind: "agent", sessionId: selectedId, ...(pendingAskId === undefined ? {} : { pendingAskId }) });
     }, [selectedId, pendingAskId]),
   );
 

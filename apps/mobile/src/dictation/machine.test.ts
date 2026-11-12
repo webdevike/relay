@@ -7,16 +7,20 @@ import {
   waitFor,
   type Actor,
 } from "xstate";
+import type { Command } from "@relay/protocol";
+import { deliverDictation, pushDictationTarget } from "./deliver";
 import {
   dictationMachine,
   orbOf,
   phaseOf,
+  SENT_HOLD_MS,
   type DeliverInput,
   type PendingImage,
   type DictationPhase,
   type OrbState,
   type PermissionOutcome,
   type RecognizerCommand,
+  type TapSink,
 } from "./machine";
 
 interface Harness {
@@ -835,6 +839,165 @@ describe("dictationMachine", () => {
         h.actor.send({ type: "typed", text: "two" });
         expect(h.sends).toHaveLength(1);
       });
+    });
+  });
+
+  describe("tap run", () => {
+    /** A composer's field: what it shows, and every turn it sent. */
+    function composer(initial: string): { sink: TapSink; field: () => string; sent: string[] } {
+      let draft = initial;
+      const sent: string[] = [];
+      return {
+        sink: {
+          draft: () => draft,
+          setDraft: (text) => {
+            draft = text;
+          },
+          send: (text) => {
+            sent.push(text);
+          },
+        },
+        field: () => draft,
+        sent,
+      };
+    }
+
+    async function tapAndListen(h: Harness, sink: TapSink, base: string): Promise<void> {
+      await pressAndListen(h);
+      h.actor.send({ type: "tapBegin", base, sink });
+      expect(h.actor.getSnapshot().matches({ tap: "running" })).toBe(true);
+    }
+
+    it("send-intent run delivers exactly once, to its own composer, even when the screen's target changes mid-run", async () => {
+      const commands: Command[] = [];
+      const machine = dictationMachine.provide({
+        actors: {
+          checkPermission: fromPromise<PermissionOutcome>(() => Promise.resolve("granted")),
+          recognizer: fromCallback<RecognizerCommand>(() => () => undefined),
+          deliver: fromPromise<null, DeliverInput>(async ({ input }) => {
+            await deliverDictation(input, (cmd) => {
+              commands.push(cmd);
+              return Promise.resolve();
+            });
+            return null;
+          }),
+        },
+      });
+      const clock = new SimulatedClock();
+      const actor = createActor(machine, { clock }).start();
+      const c = composer("Check the PR");
+      const releaseInbox = pushDictationTarget({ kind: "agent", sessionId: "s1" });
+      actor.send({ type: "pressStart" });
+      await waitFor(actor, (snapshot) => snapshot.matches({ speech: { active: "listening" } }));
+      actor.send({ type: "tapBegin", base: c.field(), sink: c.sink });
+      actor.send({ type: "partial", text: "and ping" });
+      // The thread's focus lands mid-run (a title arriving used to re-point the target).
+      const releaseThread = pushDictationTarget({ kind: "assistant", agent: "astra" });
+      actor.send({ type: "tapEnd", intent: "send" });
+      expect(c.field()).toBe("Check the PR and ping");
+      actor.send({ type: "final", text: "and ping Dana" });
+      expect(c.sent).toEqual(["Check the PR and ping Dana"]);
+      expect(actor.getSnapshot().matches({ tap: "off" })).toBe(true);
+      expect(actor.getSnapshot().context.tap).toBeNull();
+      clock.increment(SENT_HOLD_MS);
+      expect(phaseOf(actor.getSnapshot())).toBe("idle");
+      await Promise.resolve();
+      expect(c.sent).toEqual(["Check the PR and ping Dana"]);
+      expect(commands).toEqual([]);
+      releaseThread();
+      releaseInbox();
+    });
+
+    it("the field follows the words while listening", async () => {
+      const h = harness();
+      const c = composer("Notes:\n");
+      await tapAndListen(h, c.sink, c.field());
+      h.actor.send({ type: "partial", text: "first item" });
+      expect(h.actor.getSnapshot().context.tap?.interim).toBe("Notes:\nfirst item");
+    });
+
+    it("cancel delivers nothing and puts the draft back, even when final words arrive", async () => {
+      const h = harness();
+      const c = composer("Check the PR");
+      await tapAndListen(h, c.sink, c.field());
+      h.actor.send({ type: "partial", text: "and ping" });
+      h.actor.send({ type: "tapEnd", intent: "cancel" });
+      expect(h.phase()).toBe("idle");
+      h.actor.send({ type: "final", text: "and ping Dana" });
+      expect(c.field()).toBe("Check the PR");
+      expect(c.sent).toEqual([]);
+      expect(h.sends).toEqual([]);
+      expect(h.recognizerAlive()).toBe(false);
+    });
+
+    it("keep lands the final words in the draft and sends nothing", async () => {
+      const h = harness();
+      const c = composer("Check the PR");
+      await tapAndListen(h, c.sink, c.field());
+      h.actor.send({ type: "partial", text: "and ping" });
+      h.actor.send({ type: "tapEnd", intent: "keep" });
+      expect(h.actor.getSnapshot().matches({ tap: "landing" })).toBe(true);
+      expect(h.recognizerStops).toBe(1);
+      expect(c.field()).toBe("Check the PR and ping");
+      h.actor.send({ type: "final", text: "and ping Dana" });
+      expect(c.field()).toBe("Check the PR and ping Dana");
+      expect(c.sent).toEqual([]);
+      expect(h.sends).toEqual([]);
+    });
+
+    it("an error mid-listening keeps the words the field showed (speechSettled)", async () => {
+      const h = harness();
+      const c = composer("Check the PR");
+      await tapAndListen(h, c.sink, c.field());
+      h.actor.send({ type: "partial", text: "and ping" });
+      h.actor.send({ type: "recognizerEnd" });
+      expect(h.phase()).toBe("error");
+      expect(c.field()).toBe("Check the PR and ping");
+      expect(h.actor.getSnapshot().matches({ tap: "off" })).toBe(true);
+    });
+
+    it("send with nothing heard sends what was typed before the tap", async () => {
+      const h = harness();
+      const c = composer("Ship it");
+      await tapAndListen(h, c.sink, c.field());
+      h.actor.send({ type: "tapEnd", intent: "send" });
+      h.actor.send({ type: "recognizerEnd" });
+      expect(h.phase()).toBe("idle");
+      expect(c.sent).toEqual(["Ship it"]);
+    });
+
+    it("stopped before listening opened, the run ends the moment it does", async () => {
+      const h = harness();
+      const c = composer("");
+      h.actor.send({ type: "pressStart" });
+      h.actor.send({ type: "tapBegin", base: "", sink: c.sink });
+      h.actor.send({ type: "tapEnd", intent: "keep" });
+      await waitFor(h.actor, (snapshot) => !snapshot.matches({ speech: "requesting_permission" }));
+      expect(h.actor.getSnapshot().matches({ speech: { active: "finishing" } })).toBe(true);
+      h.actor.send({ type: "final", text: "hello" });
+      expect(c.field()).toBe("hello");
+    });
+
+    it("a tap starts nothing once the press already ended (tapCanBegin)", () => {
+      const h = harness();
+      const c = composer("draft");
+      expect(h.actor.getSnapshot().can({ type: "tapBegin", base: "draft", sink: c.sink })).toBe(false);
+      h.actor.send({ type: "tapBegin", base: "draft", sink: c.sink });
+      expect(h.actor.getSnapshot().matches({ tap: "off" })).toBe(true);
+      // tapEnd with no run is refused by both regions (tapRunning).
+      expect(h.actor.getSnapshot().can({ type: "tapEnd", intent: "send" })).toBe(false);
+    });
+
+    it("a reset drops the run without landing it", async () => {
+      const h = harness();
+      const c = composer("Check the PR");
+      await tapAndListen(h, c.sink, c.field());
+      h.actor.send({ type: "partial", text: "and ping" });
+      h.actor.send({ type: "reset" });
+      expect(h.actor.getSnapshot().matches({ tap: "off" })).toBe(true);
+      expect(h.actor.getSnapshot().context.tap).toBeNull();
+      expect(c.field()).toBe("Check the PR");
+      expect(c.sent).toEqual([]);
     });
   });
 });
