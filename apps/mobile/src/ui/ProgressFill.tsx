@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
-import Animated, { Easing, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import Animated, { Easing, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withRepeat, withSequence, withTiming } from "react-native-reanimated";
 import { withAlpha } from "@/theme";
 import { useAnimationActive } from "./useAnimationActive";
 
@@ -15,6 +15,9 @@ const STRIPE_COUNT = 40;
 const STRIPE_HEIGHT = 120;
 /** One stripe period of drift: slow enough to read as alive, never as motion. */
 const DRIFT_MS = 2600;
+/** The pulse: the fill breathes between full and this share of its strength, one breath per two periods. */
+const PULSE_LOW = 0.5;
+const PULSE_MS = 1600;
 /** The fill catching up to a fresher fraction, unless the caller says otherwise. */
 const GROW_MS = 900;
 
@@ -23,6 +26,12 @@ export interface ProgressFillProps {
   fraction: number;
   /** `#RRGGBB`; drawn at low alpha. */
   color: string;
+  /** Opacity of the solid fill; default 0.2. */
+  alpha?: number;
+  /** Opacity of the stripes; default 0.26. */
+  stripeAlpha?: number;
+  /** Breathes slowly (still under Reduce Motion or off screen). */
+  pulse?: boolean;
   /** `striped`: soft diagonal stripes that drift slowly (still under Reduce Motion or off screen). */
   texture: "solid" | "striped";
   /** How long a change of `fraction` takes to draw; default a calm catch-up. */
@@ -34,20 +43,32 @@ export interface ProgressFillProps {
  * fills its height, so the parent (clipped to its own shape, e.g. `ui/Chip`'s `background` slot) decides
  * the outline. Solid, or soft diagonal stripes in the same color. Draws no text and takes no touches.
  */
-export function ProgressFill({ fraction, color, texture, growMs = GROW_MS }: ProgressFillProps) {
+export function ProgressFill({ fraction, color, texture, alpha = FILL_ALPHA, stripeAlpha = STRIPE_ALPHA, pulse = false, growMs = GROW_MS }: ProgressFillProps) {
   const grown = useSharedValue(fraction);
   useEffect(() => {
     grown.value = withTiming(fraction, { duration: growMs, easing: Easing.out(Easing.cubic) });
   }, [grown, fraction, growMs]);
-  const style = useAnimatedStyle(() => ({ width: `${grown.value * 100}%` }));
+  const reduced = useReducedMotion();
+  const active = useAnimationActive() && !reduced;
+  const breath = useSharedValue(1);
+  const breathing = pulse && active;
+  useEffect(() => {
+    if (!breathing) return;
+    breath.value = withRepeat(withSequence(withTiming(PULSE_LOW, { duration: PULSE_MS, easing: Easing.inOut(Easing.quad) }), withTiming(1, { duration: PULSE_MS, easing: Easing.inOut(Easing.quad) })), -1, false);
+    return () => {
+      cancelAnimation(breath);
+      breath.value = 1;
+    };
+  }, [breath, breathing]);
+  const style = useAnimatedStyle(() => ({ width: `${grown.value * 100}%`, opacity: breath.value }));
   return (
-    <Animated.View pointerEvents="none" style={[styles.fill, texture === "solid" && { backgroundColor: withAlpha(color, FILL_ALPHA) }, style]}>
-      {texture === "striped" && <Stripes color={color} />}
+    <Animated.View pointerEvents="none" style={[styles.fill, texture === "solid" && { backgroundColor: withAlpha(color, alpha) }, style]}>
+      {texture === "striped" && <Stripes color={color} alpha={stripeAlpha} />}
     </Animated.View>
   );
 }
 
-function Stripes({ color }: { color: string }) {
+function Stripes({ color, alpha }: { color: string; alpha: number }) {
   const reduced = useReducedMotion();
   const active = useAnimationActive() && !reduced;
   const clock = useSharedValue(0);
@@ -60,7 +81,7 @@ function Stripes({ color }: { color: string }) {
     };
   }, [clock, active]);
   const drift = useAnimatedStyle(() => ({ transform: [{ translateX: clock.value * STRIPE_PERIOD }] }));
-  const bar = withAlpha(color, STRIPE_ALPHA);
+  const bar = withAlpha(color, alpha);
   return (
     <Animated.View style={[styles.stripes, drift]}>
       {Array.from({ length: STRIPE_COUNT }, (_, index) => (

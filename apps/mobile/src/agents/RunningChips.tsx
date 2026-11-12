@@ -8,9 +8,9 @@ import { ProgressFill } from "@/ui/ProgressFill";
 import { ChipEtaPopover } from "@/agents/ChipEtaPopover";
 import type { PopoverAnchor } from "@/agents/ThinkingPopover";
 import type { RunningChip } from "@/lib/activity";
-import { chipFill } from "@/lib/chipFill";
+import { chipFill, doneFill } from "@/lib/chipFill";
 import { LINGER_MS, lingerLeft, settleChips, type ShownChip } from "@/lib/chipLinger";
-import { spacing, useColors } from "@/theme";
+import { spacing, useColors, useScheme } from "@/theme";
 
 /** How often the estimates are read again: the fill creeps, so a frame every few seconds is plenty. */
 const TICK_MS = 5000;
@@ -24,13 +24,13 @@ const DONE_FILL_MS = 500;
  * the session it runs under); the rest open the Artifacts sheet's Working group (`onOpenWorking`).
  *
  * A chip the host has an estimate for (`eta`) draws it as its own background, under the label and
- * spinner: a fill from the left in the assistant's `tint` (solid when sure, soft stripes when rough,
- * amber once it runs long), re-read every few seconds. Its tap first shows a small card (what is
+ * spinner: a faint neutral fill from the left (solid when sure, soft stripes when rough,
+ * a slow pulse once it runs long; `lib/chipFill`), re-read every few seconds. Its tap first shows a small card (what is
  * left, how sure, Open); a long press opens straight away. When such a chip's run ends it fills up
  * and fades out over `LINGER_MS` instead of vanishing. Chip size never changes. Nothing renders when
  * nothing runs; keep it mounted so the send-off can play.
  */
-export function RunningChips({ chips, tint, style, onOpenSession, onOpenWorking }: { chips: readonly RunningChip[]; tint: string; style?: StyleProp<ViewStyle>; onOpenSession: (sessionId: string) => void; onOpenWorking: () => void }) {
+export function RunningChips({ chips, style, onOpenSession, onOpenWorking }: { chips: readonly RunningChip[]; style?: StyleProp<ViewStyle>; onOpenSession: (sessionId: string) => void; onOpenWorking: () => void }) {
   const shown = useShownChips(chips);
   const hasEta = shown.some((entry) => entry.chip.eta !== undefined);
   const now = useNow(hasEta);
@@ -51,7 +51,6 @@ export function RunningChips({ chips, tint, style, onOpenSession, onOpenWorking 
             key={entry.chip.id}
             entry={entry}
             now={now}
-            tint={tint}
             onOpen={open}
             onExplain={(id, anchor) => {
               setCard({ id, anchor });
@@ -74,8 +73,9 @@ export function RunningChips({ chips, tint, style, onOpenSession, onOpenWorking 
   );
 }
 
-function ChipItem({ entry, now, tint, onOpen, onExplain }: { entry: ShownChip; now: number; tint: string; onOpen: (chip: RunningChip) => void; onExplain: (id: string, anchor: PopoverAnchor) => void }) {
+function ChipItem({ entry, now, onOpen, onExplain }: { entry: ShownChip; now: number; onOpen: (chip: RunningChip) => void; onExplain: (id: string, anchor: PopoverAnchor) => void }) {
   const colors = useColors();
+  const scheme = useScheme();
   const { chip, done } = entry;
   const box = useRef<View>(null);
   const fade = useSharedValue(1);
@@ -84,7 +84,7 @@ function ChipItem({ entry, now, tint, onOpen, onExplain }: { entry: ShownChip; n
     else fade.value = 1;
   }, [done, fade]);
   const fadeStyle = useAnimatedStyle(() => ({ opacity: fade.value }));
-  const fill = chip.eta === undefined ? null : chipFill(etaView(chip.eta, now), tint, colors.warn);
+  const fill = chip.eta === undefined ? null : chipFill(etaView(chip.eta, now), scheme);
   const explain = (): void => {
     box.current?.measureInWindow((x, y, width, height) => {
       onExplain(chip.id, { x, y, width, height });
@@ -97,7 +97,7 @@ function ChipItem({ entry, now, tint, onOpen, onExplain }: { entry: ShownChip; n
           label={chip.label}
           accessibilityLabel={chip.waiting ? `${chip.label}, waiting on you` : `${chip.label}, running`}
           leading={chip.waiting ? <SymbolView name="hand.raised" size={12} tintColor={colors.warn} /> : <ActivityIndicator size="small" color={colors.accent} style={styles.spinner} />}
-          {...(fill === null ? {} : { background: done ? <ProgressFill fraction={1} color={tint} texture="solid" growMs={DONE_FILL_MS} /> : <ProgressFill fraction={fill.fraction} color={fill.color} texture={fill.texture} /> })}
+          {...(fill === null ? {} : { background: done ? <ProgressFill {...doneFill(scheme)} growMs={DONE_FILL_MS} /> : <ProgressFill {...fill} /> })}
           onPress={chip.eta === undefined ? () => { onOpen(chip); } : explain}
           {...(chip.eta === undefined ? {} : { onLongPress: () => { onOpen(chip); } })}
         />
