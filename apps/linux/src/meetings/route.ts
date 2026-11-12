@@ -3,7 +3,6 @@
 // Routing: eCard Systems work goes to the registry's work assistant (Astra), everything else to the
 // personal one (Nova). eCard meets on Teams and its calendar is the Outlook one mt-autoname reads, so
 // a Teams call, an Outlook event found for the call, or "eCard" in its title or context is work.
-// Isaac can move a meeting (the `route` op); the calendar then leaves it alone.
 //
 // Context: while a meeting runs, each turn of its assistant's thread gets the transcript said since
 // the thread's previous turn, as a hidden message the relay bridge adds before the turn

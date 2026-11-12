@@ -22,6 +22,7 @@ import { z } from "zod";
 import type { ToolRun } from "../reviews/exec";
 import type { Asr, Segment, Turn } from "./asr";
 import { ECHO_WINDOW_MS, ownSpeech, triples } from "./echo";
+import { calendarTitle } from "./route";
 import type { AfterCall } from "./service";
 import { SpeakerTimeline, type PlatformSample } from "./speakers";
 import type { RecordingMeta, RecordingStore } from "./store";
@@ -196,7 +197,7 @@ export function transcriptLines(
 }
 
 export const SUMMARY_PROMPT = `You write meeting notes from a machine transcript. Lines are "[mm:ss] Speaker: text". The speaker named as the host's user is the person these notes are for; labels like R_S2 are voices nobody named.
-Write these sections in Markdown, in this order, with exactly these headings and nothing before the first one:
+Start with one line "Title: <what this meeting was, 2 to 6 words, e.g. UI/UX Standup>", then write these sections in Markdown, in this order, with exactly these headings:
 ## Summary
 (one paragraph)
 ## Participants
@@ -276,7 +277,11 @@ export class MeetingPipeline implements AfterCall {
       : { annotation: found.annotation, remoteName: found.remoteName };
   }
 
-  private async summarize(transcript: string, title: string): Promise<string> {
+  /** The notes sections, and the meeting's name as the summary saw it (null when it gave none). */
+  private async summarize(
+    transcript: string,
+    title: string,
+  ): Promise<{ title: string | null; sections: string }> {
     const cwd = mkdtempSync(join(tmpdir(), "relay-meeting-"));
     try {
       const prompt = `${SUMMARY_PROMPT}\nThe host's user is ${this.deps.human}. The meeting: ${title}.\n\n<transcript>\n${transcript}\n</transcript>`;
@@ -310,7 +315,12 @@ export class MeetingPipeline implements AfterCall {
         );
       }
       const at = reply.result.indexOf("## Summary");
-      return (at >= 0 ? reply.result.slice(at) : reply.result).trim();
+      const head = at >= 0 ? reply.result.slice(0, at) : "";
+      const named = /^\W*Title:\**\s*(.+)$/im.exec(head)?.[1]?.replace(/[*"]/g, "").trim() ?? "";
+      return {
+        title: named === "" ? null : named.slice(0, 120),
+        sections: (at >= 0 ? reply.result.slice(at) : reply.result).trim(),
+      };
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
@@ -321,7 +331,7 @@ export class MeetingPipeline implements AfterCall {
     live: readonly LiveLine[],
     qa: readonly { question: string; answer: string }[],
     report: { stage(stage: RecordingMeta["stage"], error?: string): void },
-  ): Promise<{ stem: string } | null> {
+  ): Promise<{ stem: string; title: string | null; context: RecordingMeta["context"] } | null> {
     const asr = this.deps.asr;
     if (asr === null)
       throw new Error("This host has no transcription worker; run apps/linux/asr/setup.sh on it.");
@@ -374,8 +384,12 @@ export class MeetingPipeline implements AfterCall {
     const names = { ...mapped, ...call.names, ...meta.names };
     report.stage("summarizing");
     const transcript = transcriptLines([...own, ...remote], names);
-    const title = meta.title ?? `${meta.app} call`;
-    const sections = await this.summarize(transcript, title);
+    // The window's title, else the calendar event's, else what the summary calls it.
+    const known = meta.title ?? (context === null ? null : calendarTitle(context.annotation));
+    const summary = await this.summarize(transcript, known ?? `${meta.app} call`);
+    const named = known ?? summary.title;
+    const title = named ?? `${meta.app} call`;
+    const sections = summary.sections;
     const d = new Date(meta.startedAt);
     const pad = (n: number): string => String(n).padStart(2, "0");
     let md = `# Meeting Protocol - ${title}\n**Date:** ${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}\n**Time:** ${pad(d.getHours())}:${pad(d.getMinutes())}\n`;
@@ -387,7 +401,7 @@ export class MeetingPipeline implements AfterCall {
     if (qa.length > 0)
       md += `\n## Questions asked during the call\n\n${qa.map((q) => `**Q:** ${q.question}\n\n${q.answer.trim()}`).join("\n\n")}\n`;
     md += `\n---\n\n## Full Transcript\n\n${transcript}\n`;
-    const stem = protocolStem(meta);
+    const stem = protocolStem({ ...meta, title: named });
     mkdirSync(this.deps.protocolsDir, { recursive: true });
     writeFileSync(join(this.deps.protocolsDir, `${stem}.md`), md);
     writeFileSync(join(this.deps.protocolsDir, `${stem}.txt`), `${transcript}\n`);
@@ -395,6 +409,6 @@ export class MeetingPipeline implements AfterCall {
     this.deps.log(
       `meetings: notes for ${meta.id} in ${join(this.deps.protocolsDir, `${stem}.md`)}`,
     );
-    return { stem };
+    return { stem, title: named, context };
   }
 }

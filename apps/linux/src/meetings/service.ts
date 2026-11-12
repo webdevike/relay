@@ -78,7 +78,7 @@ export interface AfterCall {
     lines: readonly LiveLine[],
     qa: readonly { question: string; answer: string }[],
     report: { stage(stage: RecordingMeta["stage"], error?: string): void },
-  ): Promise<{ stem: string } | null>;
+  ): Promise<{ stem: string; title: string | null; context: RecordingMeta["context"] } | null>;
   /** The notes file of a written recording, parsed; null when there is none. */
   notes(meta: RecordingMeta): string | null;
   /** Rewrites the notes and transcript with a remote label named. */
@@ -611,6 +611,10 @@ export class MeetingsService implements MeetingsRelaying {
         done.stem = out.stem;
         done.stage = "done";
         done.error = null;
+        // What the after-call lookup and the summary learned name the call and can move it.
+        done.title ??= out.title;
+        done.context ??= out.context;
+        done.assistant = routeMeeting(done, this.deps.assistants());
         this.update(done);
         this.deps.push("Notes ready", done.title ?? `${done.app} call`, id);
       }

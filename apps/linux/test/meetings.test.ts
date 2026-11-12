@@ -282,9 +282,12 @@ describe("pipeline pieces", () => {
           { start: 3.5, end: 7, speaker: 2 },
         ]),
     };
+    let event: { annotation: string } | undefined = {
+      annotation: '**Attendees:** Todd, Bill, Isaac (Outlook: "Sync")',
+    };
+    let head = "Sure.\n";
     const autoname: Autoname = {
-      lookupMeeting: () =>
-        Promise.resolve({ annotation: '**Attendees:** Todd, Bill, Isaac (Outlook: "Sync")' }),
+      lookupMeeting: () => Promise.resolve(event),
       autoMapping: (speakers, mic) =>
         Object.fromEntries(
           speakers.map((s) => [s.label, s.label.startsWith("M_") ? mic : s.label]),
@@ -304,8 +307,7 @@ describe("pipeline pieces", () => {
         return Promise.resolve({
           code: 0,
           stdout: JSON.stringify({
-            result:
-              "Sure.\n## Summary\nRelease on Tuesday.\n## Participants\n- Isaac\n## Topics Discussed\n### Release\n- Tuesday\n## Decisions\n- Ship Tuesday.\n## Tasks\n| Task | Responsible | Deadline | Priority |\n|------|-------------|----------|----------|\n| Fix it | Bill | Open | 🟡 medium |\n## Open Questions\n- None.",
+            result: `${head}## Summary\nRelease on Tuesday.\n## Participants\n- Isaac\n## Topics Discussed\n### Release\n- Tuesday\n## Decisions\n- Ship Tuesday.\n## Tasks\n| Task | Responsible | Deadline | Priority |\n|------|-------------|----------|----------|\n| Fix it | Bill | Open | 🟡 medium |\n## Open Questions\n- None.`,
           }),
           stderr: "",
           timedOut: false,
@@ -344,6 +346,21 @@ describe("pipeline pieces", () => {
     expect(readFileSync(join(root, "shadow", `${stem}.txt`), "utf8")).toContain(
       "[0:00] Todd Barczak: Release is Tuesday.",
     );
+
+    // No window title: the calendar event names the call, else the summary's title line.
+    const untitled = { ...meta, title: null };
+    const byCalendar = await pipeline.run(untitled, [], [], { stage: () => undefined });
+    expect(byCalendar).toMatchObject({ title: "Sync", context: { annotation: event?.annotation } });
+    expect(byCalendar?.stem).toBe(protocolStem({ ...untitled, title: "Sync" }));
+    event = undefined;
+    head = "**Title:** UI/UX Standup\n\n";
+    const bySummary = await pipeline.run(untitled, [], [], { stage: () => undefined });
+    expect(bySummary).toMatchObject({ title: "UI/UX Standup", context: null });
+    const named = readFileSync(join(root, "shadow", `${bySummary?.stem ?? ""}.md`), "utf8");
+    expect(named.startsWith("# Meeting Protocol - UI/UX Standup\n")).toBe(true);
+    expect(named).not.toContain("Title:");
+    head = "";
+    expect((await pipeline.run(untitled, [], [], { stage: () => undefined }))?.title).toBeNull();
   });
 
   it("collects Astra's questions and answers", () => {
@@ -430,7 +447,7 @@ describe("meetings service", () => {
       run: (meta, lines, _qa, report) => {
         ran.lines = lines;
         report.stage("summarizing");
-        return Promise.resolve({ stem: "20261102_1004_weekly_sync_6f1c2b8e" });
+        return Promise.resolve({ stem: "20261102_1004_weekly_sync_6f1c2b8e", title: null, context: null });
       },
       notes: () => "# Meeting Protocol - Weekly Sync\n\n## Summary\nDone.\n",
       rename: () => Promise.resolve(),
@@ -685,7 +702,7 @@ describe("meetings in an assistant's chat", () => {
     expect(calendarTitle("**Attendees:** A, B")).toBeNull();
   });
 
-  function service(lookup: AfterCall["lookup"]) {
+  function service(lookup: AfterCall["lookup"], run: AfterCall["run"] = () => Promise.resolve(null)) {
     const store = new RecordingStore(join(tmp("relay-meet-route-"), "rec"));
     const clock = new FakeClock();
     const sent: ServerMessage[] = [];
@@ -696,7 +713,7 @@ describe("meetings in an assistant's chat", () => {
       shadow: true,
       human: "Isaac",
       afterCall: {
-        run: () => Promise.resolve(null),
+        run,
         notes: () => null,
         rename: () => Promise.resolve(),
         remove: () => undefined,
@@ -734,6 +751,30 @@ describe("meetings in an assistant's chat", () => {
     expect(a.sent.filter((m) => m.t === "meeting.recording").at(-1)).toMatchObject({
       recording: { assistant: "astra", title: "Release Planning" },
     });
+  });
+
+  it("names and reroutes a call from what the after-call lookup and summary found", async () => {
+    const outlook = { annotation: '**Attendees:** Todd, Isaac (Outlook: "Release Planning")' };
+    const { store, clock, svc } = service(
+      () => Promise.resolve(null),
+      () => Promise.resolve({ stem: "s", title: "Release Planning", context: outlook }),
+    );
+    svc.openIngest("dev1", "Mini", { id: ID, app: "Zoom", startedAt: clock.now() });
+    const conn = svc.connect(
+      { id: ID, deviceId: "dev1", deviceName: "Mini" },
+      { sendText: () => undefined, close: () => undefined },
+    );
+    conn.text(JSON.stringify({ t: "meeting.hello", id: ID }));
+    conn.text(JSON.stringify({ t: "meeting.end", samples: [0, 0], endedAt: clock.now() }));
+    for (let i = 0; i < 20; i += 1) await settle();
+    expect(store.load(ID)).toMatchObject({
+      stage: "done",
+      title: "Release Planning",
+      context: outlook,
+      assistant: "astra",
+    });
+    conn.closed();
+    svc.stop();
   });
 
   it("hands the chat's assistant the transcript so far, then only what is new, then the end once", () => {

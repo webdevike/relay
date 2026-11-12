@@ -146,8 +146,29 @@ struct CallDetector {
   }
 }
 
-/// The largest titled window of the app, through the window list (titles need Screen Recording,
-/// which Relay holds for Assist; without it the title is nil and the calendar names the meeting).
+/// Titles a meeting app's own windows carry outside the call (lowercased): Teams names its main
+/// window after the section in front ("Calendar", "Chat"), Zoom its meeting window "Zoom Meeting".
+let chromeTitles: Set<String> = [
+  "microsoft teams", "teams", "calendar", "chat", "activity", "calls", "onedrive", "apps", "copilot",
+  "files", "people", "communities", "teams nrc", "window", "notification center", "settings",
+  "zoom", "zoom workplace", "zoom meeting", "meeting", "webex", "cisco webex meetings",
+]
+
+/// The meeting's name among an app's on-screen windows: the largest window that is not the app's
+/// own chrome, its " | Microsoft Teams" style suffix dropped. Nil when only chrome is open (the
+/// calendar or the summary names the meeting then).
+func meetingTitle(_ windows: [(title: String, area: Double)]) -> String? {
+  var best: (area: Double, title: String)?
+  for w in windows where w.area >= 10_000 {
+    let title = (w.title.components(separatedBy: " | ").first ?? "").trimmingCharacters(in: .whitespaces)
+    if title.isEmpty || chromeTitles.contains(title.lowercased()) { continue }
+    if best == nil || w.area > best!.area { best = (w.area, title) }
+  }
+  return best?.title
+}
+
+/// The meeting's name from the app's window titles (they need Screen Recording, which Relay holds
+/// for Assist; without it every title is nil).
 func windowTitle(of app: MeetingApp) -> String? {
   let pids = Set(NSWorkspace.shared.runningApplications.compactMap { a -> pid_t? in
     guard let b = a.bundleIdentifier, app.prefixes.contains(where: { b.hasPrefix($0) }) else { return nil }
@@ -156,14 +177,11 @@ func windowTitle(of app: MeetingApp) -> String? {
   guard !pids.isEmpty,
     let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]]
   else { return nil }
-  var best: (area: Double, title: String)?
-  for w in info {
+  return meetingTitle(info.compactMap { w in
     guard let pid = w[kCGWindowOwnerPID as String] as? pid_t, pids.contains(pid),
-      let name = w[kCGWindowName as String] as? String, !name.trimmingCharacters(in: .whitespaces).isEmpty,
+      let name = w[kCGWindowName as String] as? String,
       let bounds = w[kCGWindowBounds as String] as? [String: Double]
-    else { continue }
-    let area = (bounds["Width"] ?? 0) * (bounds["Height"] ?? 0)
-    if best == nil || area > best!.area { best = (area, name) }
-  }
-  return best?.title
+    else { return nil }
+    return (name, (bounds["Width"] ?? 0) * (bounds["Height"] ?? 0))
+  })
 }

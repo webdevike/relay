@@ -18,6 +18,16 @@ check(meetingApp("com.google.Chrome.helper")?.browser == true, "chrome is a brow
 check(meetingApp("dev.eva.relay-desktop") == nil, "relay itself is never a meeting")
 check(meetingApp("com.apple.Music") == nil, "music is not a meeting")
 
+// The meeting's name from the window list: Teams' bigger main window is titled after its section.
+let teamsWindows: [(title: String, area: Double)] = [
+  ("Microsoft Teams", 480_000), ("", 115_200), ("Calendar", 1_683_072), ("Teams NRC", 1),
+  ("UI/UX Standup | Microsoft Teams", 1_329_505),
+]
+check(meetingTitle(teamsWindows) == "UI/UX Standup", "teams meeting window \(String(describing: meetingTitle(teamsWindows)))")
+check(meetingTitle([("Chat | Bob Lee | Microsoft Teams", 1_600_000), ("Calendar", 900_000)]) == nil, "teams chrome only")
+check(meetingTitle([("Zoom Meeting", 1_000_000), ("Zoom Workplace", 800_000)]) == nil, "zoom chrome only")
+check(meetingTitle([("Tiny", 50)]) == nil, "tiny windows skipped")
+
 // Detection: 3 s of mic use starts a call, 15 s without ends it, a short blip is forgotten.
 var d = CallDetector(startAfter: 3, endAfter: 15)
 check(d.sample(["Zoom"], at: 0).isEmpty, "no start at once")
