@@ -387,7 +387,6 @@ function baseMeta(extra: Partial<RecordingMeta> = {}): RecordingMeta {
     context: null,
     names: {},
     assistant: null,
-    routedByIsaac: false,
     ...extra,
   };
 }
@@ -724,7 +723,7 @@ describe("meetings in an assistant's chat", () => {
     for (let i = 0; i < 4; i += 1) await Promise.resolve();
   };
 
-  it("lets the calendar name and reroute a call, until Isaac moves it", async () => {
+  it("lets the calendar name and reroute a call", async () => {
     const outlook = { annotation: '**Attendees:** Todd, Isaac (Outlook: "Release Planning")' };
     const a = service(() => Promise.resolve(outlook));
     a.svc.openIngest("dev1", "Mini", { id: ID, app: "Zoom", startedAt: a.clock.now() });
@@ -733,22 +732,7 @@ describe("meetings in an assistant's chat", () => {
     await settle();
     expect(a.store.load(ID)).toMatchObject({ assistant: "astra", title: "Release Planning" });
     expect(a.sent.filter((m) => m.t === "meeting.recording").at(-1)).toMatchObject({
-      recording: { assistant: "astra", title: "Release Planning", routedByIsaac: false },
-    });
-
-    const b = service(() => Promise.resolve(outlook));
-    b.svc.openIngest("dev1", "Mini", { id: ID, app: "Zoom", startedAt: b.clock.now() });
-    expect(await b.svc.handle({ kind: "route", id: ID, assistant: "nova" })).toEqual({ ok: true });
-    expect(await b.svc.handle({ kind: "route", id: ID, assistant: "eva" })).toMatchObject({
-      ok: false,
-      code: "not-found",
-    });
-    b.clock.advance(60_000);
-    await settle();
-    expect(b.store.load(ID)).toMatchObject({
-      assistant: "nova",
-      routedByIsaac: true,
-      title: "Release Planning",
+      recording: { assistant: "astra", title: "Release Planning" },
     });
   });
 
@@ -785,18 +769,13 @@ describe("meetings in an assistant's chat", () => {
     expect(next).toContain("[0:09] Remote: Great, thanks.");
     expect(next).not.toContain("Release is Tuesday");
 
-    // Moved to Nova: her first turn gets the whole call.
-    void svc.handle({ kind: "route", id: ID, assistant: "nova" });
-    expect(svc.contextFor("astra")).toBeNull();
-    expect(svc.contextFor("nova")?.text).toContain("Below is the machine transcript so far");
-
     const m = store.load(ID);
     if (m === null) throw new Error("no recording");
     store.save({ ...m, stage: "done", endedAt: clock.now() });
-    expect(svc.contextFor("nova")?.text).toContain('The meeting "Dev Sync" (Microsoft Teams');
-    expect(svc.contextFor("nova")).toBeNull();
+    expect(svc.contextFor("astra")?.text).toContain('The meeting "Dev Sync" (Microsoft Teams');
+    expect(svc.contextFor("astra")).toBeNull();
     clock.advance(31 * 60_000);
-    expect(svc.contextFor("nova")).toBeNull();
+    expect(svc.contextFor("astra")).toBeNull();
     conn.closed();
     svc.stop();
   });

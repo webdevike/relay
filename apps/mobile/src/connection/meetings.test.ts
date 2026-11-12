@@ -19,7 +19,6 @@ const rec = (over: Partial<MeetingRecording> = {}): MeetingRecording => ({
   stem: null,
   seconds: 0,
   assistant: null,
-  routedByIsaac: false,
   ...over,
 });
 const line = (id: string, text: string, final = true) => ({
@@ -92,7 +91,7 @@ describe("meetings frames", () => {
     const cards = (agent: string) =>
       meetingCardsFor(useMeetingsStore.getState().state?.recordings ?? [], agent, 2).map((c) => c.recording.id);
     expect(cards("astra")).toEqual([ID]);
-    route({ t: "meeting.recording", recording: rec({ assistant: "nova", routedByIsaac: true }) });
+    route({ t: "meeting.recording", recording: rec({ assistant: "nova" }) });
     expect(useMeetingsStore.getState().state?.recordings).toHaveLength(1);
     expect(cards("astra")).toEqual([]);
     expect(cards("nova")).toEqual([ID]);

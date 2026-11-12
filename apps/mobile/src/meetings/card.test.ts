@@ -18,7 +18,6 @@ const rec = (over: Partial<MeetingRecording> = {}): MeetingRecording => ({
   stem: null,
   seconds: 0,
   assistant: "astra",
-  routedByIsaac: false,
   ...over,
 });
 

@@ -103,8 +103,6 @@ export const MeetingRecording = z.object({
    * says there while the call runs reaches it with the transcript. Older hosts leave it out.
    */
   assistant: z.string().max(64).nullable().default(null),
-  /** Isaac moved it to `assistant` himself (the `route` op); the calendar no longer moves it. */
-  routedByIsaac: z.boolean().default(false),
 });
 export type MeetingRecording = z.infer<typeof MeetingRecording>;
 
@@ -229,8 +227,6 @@ export const MeetingsOp = z.discriminatedUnion("kind", [
     label: z.string().min(1).max(100),
     name: z.string().min(1).max(200),
   }),
-  /** Move a meeting to another assistant's chat (a registry id). */
-  z.object({ kind: z.literal("route"), id: MeetingId, assistant: z.string().min(1).max(64) }),
 ]);
 export type MeetingsOp = z.infer<typeof MeetingsOp>;
 

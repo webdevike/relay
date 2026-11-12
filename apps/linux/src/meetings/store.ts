@@ -61,8 +61,6 @@ export const RecordingMeta = z.object({
   names: z.record(z.string(), z.string()),
   /** The assistant whose chat the meeting is in (route.ts); recordings from before routing have none. */
   assistant: z.string().nullable().default(null),
-  /** Isaac moved it there himself, so the calendar lookup leaves it. */
-  routedByIsaac: z.boolean().default(false),
 });
 export type RecordingMeta = z.infer<typeof RecordingMeta>;
 
@@ -82,7 +80,6 @@ export function publicRecording(m: RecordingMeta, seconds: number): MeetingRecor
     stem: m.stem,
     seconds,
     assistant: m.assistant,
-    routedByIsaac: m.routedByIsaac,
   };
 }
 

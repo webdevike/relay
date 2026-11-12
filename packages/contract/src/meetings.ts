@@ -54,8 +54,6 @@ export const RecordingSchema = z.object({
   seconds: z.number().nonnegative(),
   /** The assistant whose chat the meeting is in (a registry id), or null when the host has none. */
   assistant: z.string().max(64).nullable().default(null),
-  /** Isaac moved it there himself (the host leaves it where he put it). */
-  routedByIsaac: z.boolean().default(false),
 })
 export type Recording = z.output<typeof RecordingSchema>
 

@@ -340,7 +340,6 @@ export class MeetingsService implements MeetingsRelaying {
           { app: open.app, title: open.title ?? null, context: null },
           this.deps.assistants(),
         ),
-        routedByIsaac: false,
       });
       this.deps.log(`meetings: ${open.app} recording ${open.id} from ${deviceName}`);
       this.deps.push(
@@ -550,9 +549,9 @@ export class MeetingsService implements MeetingsRelaying {
           const now = this.deps.store.load(id);
           if (now === null || context === null) return;
           now.context = context;
-          // The calendar names the call and tells work from personal, unless Isaac moved it.
+          // The calendar names the call and tells work from personal.
           now.title ??= calendarTitle(context.annotation);
-          if (!now.routedByIsaac) now.assistant = routeMeeting(now, this.deps.assistants());
+          now.assistant = routeMeeting(now, this.deps.assistants());
           this.update(now);
           const l = this.live.get(id);
           if (context.remoteName !== undefined && l !== undefined) {
@@ -770,17 +769,6 @@ export class MeetingsService implements MeetingsRelaying {
           this.deps.store.save(m);
           if (m.stem !== null) await this.deps.afterCall.rename(m, op.label, op.name);
           this.update(m);
-          return OK;
-        }
-        case "route": {
-          const m = this.deps.store.load(op.id);
-          if (m === null) return { ok: false, error: "No such recording.", code: "not-found" };
-          if (!this.deps.assistants().some((a) => a.id === op.assistant))
-            return { ok: false, error: `No assistant ${op.assistant}.`, code: "not-found" };
-          m.assistant = op.assistant;
-          m.routedByIsaac = true;
-          this.update(m);
-          this.deps.log(`meetings: ${op.id} moved to ${op.assistant}'s chat`);
           return OK;
         }
       }

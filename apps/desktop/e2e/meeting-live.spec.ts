@@ -65,7 +65,6 @@ const recording = {
   stem: null,
   seconds: 1000,
   assistant: 'astra',
-  routedByIsaac: false,
 }
 const ASTRA: HostSession = {
   id: 'astra-1',
