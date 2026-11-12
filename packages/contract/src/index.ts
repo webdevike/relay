@@ -96,8 +96,10 @@ export {
   type TabState,
   type TabsSnapshot,
   type SwitchApp,
+  type AnnotateMark,
   SwitchAppSchema,
   SwitchAppIdSchema,
+  NOTE_MARK_COLOR,
 } from './browser'
 export * from './agent-presence'
 

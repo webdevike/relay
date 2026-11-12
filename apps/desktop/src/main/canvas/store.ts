@@ -87,6 +87,12 @@ export interface PageOp {
   id?: string | undefined
 }
 
+/** Who an agent's comment is from, as its thread shows it. */
+export interface ThreadAuthor {
+  name: string
+  color: string
+}
+
 export interface CanvasStore {
   readonly dir: string
   /** Boards newest first, with the pinned flag. */
@@ -98,16 +104,32 @@ export interface CanvasStore {
    * page does not show (threads, the other pages).
    */
   save(slug: string, board: CanvasBoard, page?: string): Promise<{ saved: boolean }>
+  /**
+   * Applies `edit` to `page` as the file has it now and writes the result, as one step no other
+   * write of the board (a save, a page or thread change) can land inside. `edit` throws to write
+   * nothing; returning the same board writes nothing. `guard` runs again at the commit (the file
+   * staged, right before it replaces the board) and throws to write nothing.
+   */
+  update<T>(
+    slug: string,
+    page: string | undefined,
+    edit: (board: CanvasBoard) => { board: CanvasBoard; value: T },
+    guard?: () => void,
+  ): Promise<{ value: T; page: string; saved: boolean }>
   /** Page operations; `page` of the result is the page to show next. */
   pages(slug: string, op: PageOp): Promise<{ pages: PageRef[]; page: string }>
   /**
    * A page's comment threads as the file has them, after `op` when given (open a pin, post in a
    * thread, resolve or reopen one). Written into the file's own `threads`, nothing else touched.
+   * `agent` writes the message as that agent (canvas.reply), else as Isaac; `guard` runs in the
+   * board's queue right before `op` applies and again at the commit, and throws to apply nothing.
    */
   threads(
     slug: string,
     page?: string,
     op?: CanvasThreadOp,
+    agent?: ThreadAuthor,
+    guard?: () => void,
   ): Promise<{ threads: CanvasThread[]; opened?: string }>
   create(): Promise<{ slug: string }>
   rename(slug: string, title: string): Promise<{ saved: true }>
@@ -145,10 +167,13 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     }
   }
 
-  async function writeText(slug: string, text: string): Promise<void> {
-    written.set(slug, text)
-    deleted.delete(slug)
-    await atomicWrite(file(slug), text)
+  /** `guard` throws at the commit (temp file staged, before the rename) to write nothing. */
+  async function writeText(slug: string, text: string, guard?: () => void): Promise<void> {
+    await atomicWrite(file(slug), text, () => {
+      guard?.()
+      written.set(slug, text)
+      deleted.delete(slug)
+    })
   }
 
   function pins(): string[] {
@@ -233,6 +258,35 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       }
       await writeText(slug, text)
       return { saved: true }
+    })
+  }
+
+  function update<T>(
+    slug: string,
+    page: string | undefined,
+    edit: (board: CanvasBoard) => { board: CanvasBoard; value: T },
+    guard?: () => void,
+  ): Promise<{ value: T; page: string; saved: boolean }> {
+    return queue.run(slug, async () => {
+      const disk = await readText(slug)
+      if (disk === null) throw coded(`No board ${slug}.`, 'not-found')
+      const file = parseBoard(disk)
+      const shown = pageView(file, page)
+      // Reads fall back to the first page; a write meant for a page the file no longer has lands
+      // nowhere rather than on another page.
+      if (page !== undefined && shown.page !== page) {
+        throw coded(`No page ${page} on board ${slug}.`, 'not-found')
+      }
+      guard?.()
+      const { board, value } = edit(shown.board)
+      if (board === shown.board) return { value, page: shown.page, saved: false }
+      const text = boardText(overFile(board, file, shown.page))
+      if (text === disk) {
+        written.set(slug, text)
+        return { value, page: shown.page, saved: false }
+      }
+      await writeText(slug, text, guard)
+      return { value, page: shown.page, saved: true }
     })
   }
 
@@ -321,6 +375,8 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     slug: string,
     page: string = FIRST_PAGE,
     op?: CanvasThreadOp,
+    agent?: ThreadAuthor,
+    guard?: () => void,
   ): Promise<{ threads: CanvasThread[]; opened?: string }> {
     return queue.run(slug, async () => {
       const disk = await readText(slug)
@@ -330,12 +386,12 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       let list = content.threads
       let opened: string | undefined
       if (op) {
+        guard?.()
         const refuse = (what: string): Error => coded(what, 'invalid-input')
         const now = Date.now()
         const message = (text: string): BoardThread['messages'][number] => ({
           id: `c-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-          kind: 'human',
-          ...HUMAN,
+          ...(agent ? { kind: 'agent' as const, ...agent } : { kind: 'human' as const, ...HUMAN }),
           text: text.trim().slice(0, MAX_THREAD_TEXT),
           ts: now,
         })
@@ -365,11 +421,12 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
         } else if (op.op === 'post') {
           const t = known(op.thread)
           if (op.text.trim() === '') throw refuse('A comment needs some text.')
-          // A human writing in a resolved thread reopens it, as in a live room.
-          const { resolved: _was, ...rest } = t
+          // A human writing in a resolved thread reopens it, as in a live room; an agent's reply does not.
+          const { resolved, ...rest } = t
           const assignee = op.assignee ?? t.assignee
           list = replace({
             ...rest,
+            ...(agent && resolved ? { resolved } : {}),
             ...(assignee === undefined ? {} : { assignee }),
             messages: [...t.messages, message(op.text)],
           })
@@ -403,7 +460,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
           list = replace(op.resolved ? { ...rest, resolved: true } : rest)
         }
         const text = boardText(withThreads(file, page, list))
-        if (text !== disk) await writeText(slug, text)
+        if (text !== disk) await writeText(slug, text, guard)
         else written.set(slug, text)
       }
       return {
@@ -483,6 +540,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     list,
     load,
     save,
+    update,
     pages,
     threads,
     create,

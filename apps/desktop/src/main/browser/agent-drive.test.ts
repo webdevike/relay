@@ -9,8 +9,20 @@ import {
 } from './agent-drive'
 import type { ElementInfo } from './agent-guard'
 
-const PENNY: DriveIdentity = { id: 'penny', name: 'Penny', color: '#86efac', avatar: null }
-const NOVA: DriveIdentity = { id: 'nova', name: 'Nova', color: '#93c5fd', avatar: null }
+const PENNY: DriveIdentity = {
+  id: 'penny',
+  name: 'Penny',
+  color: '#86efac',
+  avatar: null,
+  workspace: 'page:agent:penny',
+}
+const NOVA: DriveIdentity = {
+  id: 'nova',
+  name: 'Nova',
+  color: '#93c5fd',
+  avatar: null,
+  workspace: 'page:agent:nova',
+}
 
 const button = (label: string): ElementInfo => ({
   tag: 'button',

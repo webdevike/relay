@@ -43,6 +43,8 @@ import { registerFilesIpc } from './files/files-ipc'
 import { registerFilesPresenceIpc } from './files/presence-ipc'
 import { registerTerminalIpc } from './terminal/terminal-ipc'
 import { registerAgentControl } from './agent-control'
+import { registerAgentNotes } from './agent-presence/notes'
+import { registerBrowserAnnotate } from './browser/annotate'
 import { reportFatal } from './fatal'
 import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
@@ -261,6 +263,9 @@ function bootstrap(): void {
       files = registerFilesIpc(ctx, chat, presence.noteSave)
       registerTerminalIpc(ctx, chat)
       const browser = registerBrowser(ctx)
+      // Isaac's notes on boards and web pages go into the chat that owns them.
+      const notes = registerAgentNotes(ctx, chat)
+      registerBrowserAnnotate(ctx, browser, notes.send)
       const update = registerUpdate(ctx, {
         chatWorking: () => chat.anyWorking(),
         restart: restartForUpdate,
@@ -314,6 +319,7 @@ function bootstrap(): void {
         connections,
         chat.frames,
         browser,
+        notes,
         roomsRunners(rooms, roomsAgentDeps(ctx)),
       )
       installTestHooks(ctx)

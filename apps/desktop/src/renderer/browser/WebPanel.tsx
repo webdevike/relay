@@ -2,7 +2,7 @@ import { useEffect, useRef, type CSSProperties } from 'react'
 import { isAppSwitchUrl } from '@evaos/browser-core/app-switch'
 import './browser.css'
 import { AddressRow } from './AddressRow'
-import { AgentCaption } from './AgentCaption'
+import { AgentCaption, agentOp } from './AgentCaption'
 import { AppSwitcher } from './AppSwitcher'
 import { PageStateCard } from './PageStateCard'
 import { PasskeyBar } from './PasskeyBar'
@@ -32,7 +32,7 @@ export function WebPanel({ tabId, visible }: { tabId: string; visible: boolean }
       </AddressRow>
       {tab?.passkey && !showCard ? <PasskeyBar tab={tab} /> : null}
       <div
-        className="eva-browser-frame"
+        className="eva-browser-frame eva-agent-host"
         data-agent={agent?.status}
         data-testid="browser-frame"
         style={agent ? ({ '--eva-agent': agent.color } as CSSProperties) : undefined}
@@ -40,7 +40,9 @@ export function WebPanel({ tabId, visible }: { tabId: string; visible: boolean }
         <div className="eva-browser-slot" data-testid="browser-slot" ref={slot}>
           {showCard ? <PageStateCard tabId={tabId} tab={tab} /> : null}
         </div>
-        {agent ? <AgentCaption tabId={tabId} agent={agent} /> : null}
+        {agent ? (
+          <AgentCaption agent={agent} subject="tab" onOp={(op) => agentOp(tabId, op)} />
+        ) : null}
       </div>
     </section>
   )

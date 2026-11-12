@@ -1,11 +1,13 @@
 import { Button, Group, Text } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import {
+  CanvasBoardCallSchema,
   agentActions,
   isAgentActionId,
   type AgentActionId,
   type AgentResult,
 } from '@evaos/contract'
+import { canvasBoardCall } from '../canvas/agent/board-drivers'
 import { invoke, on } from '../ipc'
 import { readState, rendererActions } from './actions'
 import { actorOf, announceChange } from './access'
@@ -115,6 +117,16 @@ export async function dispatch(action: string, params: unknown): Promise<AgentRe
         : undefined
     try {
       return { ok: true, value: await agentIdentityWithFace(scope) }
+    } catch (e) {
+      return errorResult(e)
+    }
+  }
+  // Main's canvas drive works the board on screen: the cursor, saving, boxes, selection, view, drags.
+  if (action === '@canvas') {
+    const call = CanvasBoardCallSchema.safeParse(params)
+    if (!call.success) return { ok: false, code: 'invalid-params', message: call.error.message }
+    try {
+      return { ok: true, value: await canvasBoardCall(call.data) }
     } catch (e) {
       return errorResult(e)
     }

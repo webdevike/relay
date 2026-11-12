@@ -58,6 +58,56 @@
   right: 0;
   bottom: 0;
 }
+/* A note on a page mark (NoteComposer) in the address row's place, at its height so the page
+ * stays put; only a note of several lines grows it. */
+.eva-address-row.eva-note-row {
+  height: auto;
+  min-height: var(--eva-address-h);
+}
+/* What the note points at, in the mark's own color, as the page outlines it. */
+.eva-note-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  max-width: 30%;
+  height: var(--eva-control-xs);
+  padding: 0 var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-note-c);
+  border-radius: var(--eva-radius);
+  background: color-mix(in srgb, var(--eva-note-c) 12%, transparent);
+  color: var(--eva-text);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-medium);
+  white-space: nowrap;
+}
+.eva-note-mark svg {
+  flex: none;
+  color: var(--eva-note-c);
+}
+.eva-note-mark-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-note-input {
+  flex: 1;
+  min-width: 0;
+}
+.eva-note-input textarea {
+  min-height: var(--eva-kit-control-md);
+  max-height: calc(4lh + 2 * var(--input-padding-y) + 2px);
+  resize: none;
+  border-radius: var(--eva-radius);
+  color: var(--eva-text);
+}
+.eva-note-input textarea::placeholder {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.eva-note-input textarea:focus {
+  border-color: var(--eva-note-c);
+}
 /* The local eCard app switch: a quiet chip naming the app the tab shows, and its menu rows. */
 .eva-app-switch {
   flex: none;
@@ -150,28 +200,31 @@
   background: color-mix(in srgb, var(--eva-text) 4%, transparent);
   color: var(--eva-text-dim);
 }
-/* A page an agent drives: a soft ring in the agent's color, its one caption row underneath. The
- * native page paints over anything drawn on the slot, so the ring is the frame's border. */
+/* A page an agent drives: its slot and caption row in the agent's ring (.eva-agent-host). */
 .eva-browser-frame {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+/* A surface an agent works (a page, a board): a soft ring in the agent's color, its one caption
+ * row underneath. A native page paints over anything drawn on its slot, so the ring is a border. */
+.eva-agent-host {
   border: 0 solid transparent;
   transition: border-color var(--eva-dur-fast) ease;
 }
-.eva-browser-frame[data-agent] {
+.eva-agent-host[data-agent] {
   border-width: 2px;
   border-color: color-mix(in srgb, var(--eva-agent) 70%, transparent);
 }
-.eva-browser-frame[data-agent='paused'] {
+.eva-agent-host[data-agent='paused'] {
   border-color: color-mix(in srgb, var(--eva-agent) 35%, transparent);
 }
-.eva-browser-frame[data-agent='ask'] {
+.eva-agent-host[data-agent='ask'] {
   border-color: color-mix(in srgb, var(--eva-accent) 70%, transparent);
 }
-.eva-browser-frame[data-agent='done'],
-.eva-browser-frame[data-agent='stopped'] {
+.eva-agent-host[data-agent='done'],
+.eva-agent-host[data-agent='stopped'] {
   border-color: color-mix(in srgb, var(--eva-agent) 30%, transparent);
 }
 .eva-agent-caption {
@@ -253,7 +306,7 @@
   opacity: 0;
   transition: opacity var(--eva-dur-fast) ease;
 }
-.eva-browser-frame:hover .eva-agent-acts-hover,
+.eva-agent-host:hover .eva-agent-acts-hover,
 .eva-agent-acts-hover:focus-within {
   opacity: 1;
 }

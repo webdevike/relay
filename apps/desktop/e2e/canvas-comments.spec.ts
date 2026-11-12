@@ -7,11 +7,11 @@ import { EVA_FIXTURE_ROOT, REPO_ROOT } from './helpers/paths'
 import { startThrowawayHost, type ThrowawayHost } from './helpers/throwaway-host'
 
 // '/' and the Comment button on both Canvas surfaces. The desktop Canvas page with no live room
-// saves pins and threads into the board file (a comment that names @Nova starts a room on a
-// throwaway real host and hands the thread over); in a live room the host's page takes '/' wherever
-// focus sits and shows the Comment button with its shortcut hint. The host is the real room page,
-// board file and canvas service with a scripted mind (apps/linux test/canvas-throwaway-host.ts),
-// never the live one. The registry (what `@` lists) holds Nova.
+// saves pins and threads into the board file, and each comment goes to the chat that owns the board
+// as Isaac's note (a comment that names @Nova is hers); in a live room the host's page takes '/'
+// wherever focus sits and shows the Comment button with its shortcut hint. The host is the real
+// room page, board file and canvas service with a scripted mind (apps/linux
+// test/canvas-throwaway-host.ts), never the live one. The registry (what `@` lists) holds Nova.
 const PROOF = path.join(REPO_ROOT, 'proof', 'slash-comment')
 let host: ThrowawayHost
 
@@ -25,7 +25,7 @@ const test = base.extend({
       JSON.stringify({ agents: [{ id: 'nova', title: 'Nova', scope: 'Personal' }] }),
     )
     host = await startThrowawayHost()
-    await use({ ...host.env, EVAOS_EVA_ROOT: evaRoot })
+    await use({ ...host.env, EVAOS_EVA_ROOT: evaRoot, EVAOS_AGENT_CONTROL: '1' })
     await host.stop()
     fs.rmSync(evaRoot, { recursive: true, force: true })
   },
@@ -152,8 +152,29 @@ test('the Canvas page with no live room: / drops a pin on the selected card, on 
   await expect(shell.locator(sel('canvas-pin'))).toHaveCount(1)
 })
 
-test('a comment that names @Nova starts a live session on the board and hands her the comment, answered in its thread; / works with focus anywhere in the room', async ({
+/** Runs agent action `action` as Nova's thread through the app's agent-control server. */
+async function run(
+  configDir: string,
+  action: string,
+  params: Record<string, unknown>,
+): Promise<{ ok: boolean; message?: string }> {
+  const file = path.join(configDir, 'agent-control.json')
+  await expect.poll(() => fs.existsSync(file), { timeout: 15_000 }).toBe(true)
+  const { port, token } = JSON.parse(fs.readFileSync(file, 'utf8')) as {
+    port: number
+    token: string
+  }
+  const res = await fetch(`http://127.0.0.1:${port}/actions/${action}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ params, scope: 'agent:nova' }),
+  })
+  return (await res.json()) as { ok: boolean; message?: string }
+}
+
+test('a comment that names @Nova is hers and goes to the chat as a note; / works with focus anywhere in a live room', async ({
   shell,
+  configDir,
 }) => {
   await openBoard(shell)
   await shell.locator('.react-flow__node').first().click()
@@ -168,19 +189,28 @@ test('a comment that names @Nova starts a live session on the board and hands he
   await input.pressSequentially('Can you tighten this?')
   await shell.keyboard.press('Enter')
 
-  // The thread is Nova's; the board gives way to the room, which holds it; her answer lands in it.
+  // The thread is Nova's; the comment goes to her chat as Isaac's note and the thread says how
+  // that went (sent, or why not), quietly under the reply field.
   await expect.poll(() => board().threads?.[0]?.assignee).toBe('nova')
+  await expect
+    .poll(() => board().threads![0]!.messages.map((m) => `${m.name}: ${m.text}`))
+    .toEqual(['Isaac: @Nova Can you tighten this?'])
+  await expect(
+    shell.locator(`${sel('canvas-thread-note')}, ${sel('canvas-thread-note-error')}`),
+  ).toBeVisible()
+  await expect(shell.getByText('Sending to chat')).toHaveCount(0)
+  await shot(shell, 'after-4-note.png')
+
+  // An agent starts a live room on the board (the older room mode): the board gives way to it,
+  // carrying the open thread over.
+  const started = await run(configDir, 'canvas.live', { slug: 'mind-map', prompt: 'Tighten it' })
+  expect(started.ok, started.message).toBe(true)
   await expect(shell.locator(sel('canvas-live'))).toHaveAttribute('data-slug', 'mind-map')
   const room = shell.frameLocator(sel('canvas-live-frame'))
   await expect(room.locator('.cv-fab')).toBeVisible()
   await expect(room.locator('.cv-fab')).toHaveAttribute('title', 'Comment (press /)')
-  await expect
-    .poll(() => board().threads![0]!.messages.map((m) => `${m.name}: ${m.text}`))
-    .toEqual(['Isaac: @Nova Can you tighten this?', 'Nova: Seen. On it.'])
-  // The handoff carries the open thread into the room: it shows there without a click.
-  await expect(room.locator(sel('canvas-thread'))).toContainText('Seen. On it.')
-  await shot(shell, 'after-4-room-thread-answered.png')
-
+  await expect(room.locator(sel('canvas-thread'))).toContainText('Can you tighten this?')
+  await shot(shell, 'after-4-room-thread.png')
   // Focus outside the frame (the header): '/' still opens the comment in the room.
   await room.getByRole('button', { name: 'Close' }).click()
   await expect(room.locator(sel('canvas-thread'))).toHaveCount(0)

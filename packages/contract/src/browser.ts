@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import { AgentIdentitySchema, AgentRunOpSchema, AgentRunSchema } from './agent-presence'
+import {
+  AgentIdentitySchema,
+  AgentRunOpSchema,
+  AgentRunSchema,
+  NoteElementSchema,
+  NoteRegionSchema,
+} from './agent-presence'
 
 export const TabIdSchema = z.string().regex(/^t[0-9]{1,6}$/)
 
@@ -77,6 +83,17 @@ export const SwitchAppSchema = z.object({
   active: z.boolean(),
 })
 export type SwitchApp = z.output<typeof SwitchAppSchema>
+
+/** The note mark's color on a page Isaac drives himself (an agent's page uses the agent's). */
+export const NOTE_MARK_COLOR = '#2f6feb'
+
+/** What Isaac marked on a page for a note: one element (its box) or a dragged region. */
+export const AnnotateMarkSchema = z.object({
+  element: NoteElementSchema.optional(),
+  /** The mark in viewport CSS px, cut to the viewport. */
+  region: NoteRegionSchema,
+})
+export type AnnotateMark = z.output<typeof AnnotateMarkSchema>
 
 // Browser channels. Plans 01-08 and 01-09 extend these maps.
 export const browserInvoke = {
@@ -171,18 +188,26 @@ export const browserInvoke = {
     output: okOut,
   },
   /**
-   * Isaac marks something on the page (clicks an element or drags a region) and writes a note:
-   * it goes to the chat that owns the tab, with the element or region, a screenshot of it and the
-   * URL. Resolves once he sends or cancels (Escape); `to` is the chat's name.
+   * Isaac marks something on the page (clicks an element or drags a region) for a note. Resolves
+   * with the mark once he made it (it stays outlined on the page) or null when he cancels
+   * (Escape) or the page goes away. The note is written in the shell, never in the page, then
+   * goes with `browser.annotateSend` or is dropped with `browser.annotateCancel`.
    */
   'browser.annotate': {
     input: z.object({ tabId: TabIdSchema }).strict(),
-    output: z.object({
-      sent: z.boolean(),
-      to: z.string().max(200).nullable(),
-      cancelled: z.boolean(),
-    }),
+    output: z.object({ mark: AnnotateMarkSchema.nullable() }),
   },
+  /**
+   * Sends the note on the tab's mark to the chat that owns the tab, with the element or region,
+   * a screenshot of it and the URL; the mark leaves the page. `to` is the chat's name. Fails
+   * `no-mark` without a mark and `page-changed` when the page navigated since it was marked.
+   */
+  'browser.annotateSend': {
+    input: z.object({ tabId: TabIdSchema, text: z.string().trim().min(1).max(4000) }).strict(),
+    output: z.object({ sent: z.boolean(), to: z.string().max(200).nullable() }),
+  },
+  /** Drops the tab's mark (or closes its open picker) without a note. */
+  'browser.annotateCancel': { input: tabOnly, output: okOut },
   'browser.closeTab': {
     input: tabOnly,
     output: z.object({ activeId: z.string() }),
@@ -252,6 +277,11 @@ export const browserEvents = {
   'browser.hotkey': z.object({ chord: HotkeyChordSchema }),
   /** A short, user-facing note from the browser host (for example the tab limit). */
   'browser.notice': z.object({ message: z.string().max(200) }),
+  /**
+   * The page under a note's mark navigated or went away before the note was sent: the mark is
+   * dropped (`browser.annotateSend` refuses it) and the shell closes that tab's composer.
+   */
+  'browser.annotateDropped': z.object({ tabId: TabIdSchema }),
   /**
    * A new tab for the shell to show as a page tab: a guest page opened it (target=_blank,
    * window.open; `openerId`, beside whose page tab it goes) or an extension did (no opener). It is

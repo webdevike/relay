@@ -8,15 +8,17 @@ import {
   IconCopy,
   IconExternalLink,
   IconLock,
+  IconMessagePlus,
   IconRefresh,
   IconSearch,
   IconX,
 } from '@tabler/icons-react'
-import type { TabState } from '@evaos/contract'
-import { invoke } from '../ipc'
+import { NOTE_MARK_COLOR, type AnnotateMark, type TabState } from '@evaos/contract'
+import { invoke, on } from '../ipc'
 import { addressDisplay } from './address-display'
 import { ImportArcModal } from './ImportArcModal'
 import { ExtensionActions } from './ExtensionActions'
+import { NoteComposer } from './NoteComposer'
 import { Suggestions, type SuggestionItem } from './Suggestions'
 import { browserStore, useBrowserStore } from './browser-store'
 
@@ -24,13 +26,14 @@ function Btn(props: {
   label: string
   testId: string
   disabled?: boolean
+  active?: boolean
   onClick: () => void
   children: React.ReactNode
 }) {
   return (
     <Tooltip label={props.label} openDelay={400}>
       <ActionIcon
-        variant="subtle"
+        variant={props.active ? 'light' : 'subtle'}
         size={28}
         aria-label={props.label}
         data-testid={props.testId}
@@ -46,7 +49,7 @@ function Btn(props: {
 /**
  * Page `tabId`'s toolbar: back, forward, reload, the address field, its links and, for the
  * page the host has active, the extensions' actions (they act on the active page). `children`
- * end the row (the eCard app switch).
+ * end the row (the eCard app switch). While a note's mark is up the row is the note's composer.
  */
 export function AddressRow({
   tabId,
@@ -134,6 +137,76 @@ export function AddressRow({
   const act = (ch: 'back' | 'forward' | 'reload' | 'stop' | 'copyLink' | 'openExternal') => () => {
     void invoke(`browser.${ch}`, { tabId })
   }
+  // Isaac marks something on the page, then writes a note here for the chat that owns it.
+  const [noting, setNoting] = useState(false)
+  const [mark, setMark] = useState<AnnotateMark | null>(null)
+  const [sending, setSending] = useState(false)
+  const noteSeq = useRef(0)
+  const note = async (): Promise<void> => {
+    const n = ++noteSeq.current
+    setNoting(true)
+    const r = await invoke('browser.annotate', { tabId })
+    // A second click restarts the picker: the first one answers no mark and stays quiet.
+    if (n !== noteSeq.current) return
+    setNoting(false)
+    if (r.ok) setMark(r.value.mark)
+    else
+      notifications.show({ color: 'red', message: `Could not mark the page: ${r.error.message}` })
+  }
+  const sendNote = async (text: string): Promise<void> => {
+    setSending(true)
+    const r = await invoke('browser.annotateSend', { tabId, text })
+    setSending(false)
+    setMark(null)
+    if (!r.ok) {
+      notifications.show({ color: 'red', message: `Could not send the note: ${r.error.message}` })
+    } else if (r.value.sent) {
+      notifications.show({ message: `Sent to ${r.value.to ?? 'the chat'}` })
+    } else {
+      notifications.show({
+        message: r.value.to
+          ? `Could not send the note to ${r.value.to}`
+          : 'No chat owns this page, so the note was not sent',
+      })
+    }
+  }
+  const cancelNote = (): void => {
+    setMark(null)
+    void invoke('browser.annotateCancel', { tabId })
+  }
+  // A page closed with its note open takes the mark with it.
+  const marked = useRef(false)
+  useEffect(() => {
+    marked.current = mark !== null
+  }, [mark])
+  useEffect(
+    () => () => {
+      if (marked.current) void invoke('browser.annotateCancel', { tabId })
+    },
+    [tabId],
+  )
+  // The page navigated under the mark: the note no longer points at what it shows.
+  useEffect(
+    () =>
+      on('browser.annotateDropped', (p) => {
+        if (p.tabId !== tabId || !marked.current) return
+        setMark(null)
+        notifications.show({ message: 'The page changed, so the note was dropped' })
+      }),
+    [tabId],
+  )
+
+  if (mark) {
+    return (
+      <NoteComposer
+        mark={mark}
+        color={tab?.agent?.color ?? NOTE_MARK_COLOR}
+        sending={sending}
+        onSend={(text) => void sendNote(text)}
+        onCancel={cancelNote}
+      />
+    )
+  }
 
   return (
     <div className="eva-address-row" data-testid="address-row">
@@ -215,6 +288,15 @@ export function AddressRow({
       </Btn>
       <Btn label="Open in default browser" testId="btn-open-external" onClick={act('openExternal')}>
         <IconExternalLink size={16} />
+      </Btn>
+      <Btn
+        label="Note for chat"
+        testId="btn-annotate"
+        disabled={!tab || tab.blank || tab.error !== null}
+        active={noting}
+        onClick={() => void note()}
+      >
+        <IconMessagePlus size={16} />
       </Btn>
       <Suggestions items={items} active={active} onPick={(it) => go(it.url)} />
       <Tooltip label="Import Arc logins" openDelay={400}>

@@ -44,6 +44,8 @@ const SERIAL_SPECS = [
   '**/shared-session.spec.ts',
   // A real popup that must open within 5 s of a guest click; popups queue behind sibling launches.
   '**/browser-auth.spec.ts',
+  // The agent's cursor glides sampled frame by frame, with glide-time floors.
+  '**/canvas-drive.spec.ts',
 ]
 
 // packaged.spec.ts launches the built .app: opt in with EVAOS_PACKAGED=1, never in the project runs.

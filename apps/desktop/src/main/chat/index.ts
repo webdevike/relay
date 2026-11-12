@@ -42,7 +42,10 @@ import { createSessionManager, registerLiveIpc } from './live-ipc'
 import { SessionOwners } from './owners'
 import { registerTranscriptIpc, resolveInsideSessionsDir } from './transcript-ipc'
 import type { Place } from '@evaos/chat-core/work'
-import type { Assistants } from '@evaos/contract'
+import { machineLabel, tagged } from '@evaos/chat-core/tagged'
+import { surfaceDetail, type Assistants, type NoteOwner } from '@evaos/contract'
+import { relayImages, replyCommand } from '../relay/commands'
+import { CodedError } from './session-ops'
 import type { RelaySession } from '../relay/feed'
 import { registerComputer } from '../computer'
 import { assistantSession } from '../assistants/assistants'
@@ -79,6 +82,16 @@ export interface ChatHandles {
   hostInfo(): { name: string; version: string } | null
   /** Desktop notifications: the update flow tells it about a build that is ready. */
   notifier: Notifier
+  /**
+   * Posts `text` (and images) into a chat as Isaac's own message: an assistant's thread through
+   * Relay, a chat file through the pane that shows it, else the omp running it elsewhere. Answers
+   * the chat's name; throws `chat-not-running` when nothing can take it.
+   */
+  post(
+    owner: NoteOwner,
+    text: string,
+    images?: ReadonlyArray<{ mimeType: string; data: string }>,
+  ): Promise<string>
 }
 
 const STATUS_COALESCE_MS = 30
@@ -285,5 +298,32 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     mini,
     frames: relay,
     hostInfo: () => relay.host(),
+    post: async (owner, text, images = []) => {
+      if ('assistant' in owner) {
+        const agent = owner.assistant
+        await relay.command({ kind: 'assistant.turn', agent, text }, ASSISTANT_TURN_TIMEOUT_MS)
+        return assistants.list().agents.find((a) => a.id === agent)?.title ?? agent
+      }
+      const id = sessionId(owner.file)
+      const name =
+        list
+          .list()
+          .rows.find((r) => sessionId(r.file) === id)
+          ?.title.trim() || 'the chat'
+      const pane = manager.paneFiles().find((p) => sessionId(p.file) === id)
+      if (pane) {
+        await manager.send(pane.paneId, text, { images })
+        return name
+      }
+      const away = relay.sessions()?.get(id)
+      if (!away || away.status === 'ended') {
+        throw new CodedError('chat-not-running', `${name} is not open or running; open it first`)
+      }
+      const sending = relayImages(images)
+      if (typeof sending === 'string') throw new CodedError('invalid-input', sending)
+      const detail = surfaceDetail(ctx.env.build, relay.host()?.version ?? null)
+      await relay.command(replyCommand(id, tagged(text, machineLabel(), detail), sending))
+      return name
+    },
   }
 }

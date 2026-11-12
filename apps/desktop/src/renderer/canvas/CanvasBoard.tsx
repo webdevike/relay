@@ -3,7 +3,9 @@
  * position, autosaves edits a second after they settle, reloads outside edits (never during a
  * drag) and keeps undo history. Pointer and keys: drag empty space or scroll to pan, ⌘-scroll or
  * pinch zooms, ⇧-drag box-selects, ⌘A selects all, Escape clears, Backspace/Delete removes,
- * ⌘Z / ⌘⇧Z undo and redo. Double-clicking an image opens it full window.
+ * ⌘Z / ⌘⇧Z undo and redo. Double-clicking an image opens it full window. A chat's agent works the
+ * board on screen through its driver (agent/board-drivers.ts) with a visible cursor; Isaac's own
+ * edits while it acts take the board over from it.
  */
 import '@xyflow/react/dist/base.css'
 import {
@@ -17,6 +19,7 @@ import {
   applyNodeChanges,
   useNodesInitialized,
   useReactFlow,
+  useStoreApi,
   type Connection,
   type EdgeChange,
   type NodeChange,
@@ -58,8 +61,8 @@ import { CanvasCard } from './cards/CanvasCard'
 import { PagePanel } from './PagePanel'
 import { Lightbox } from './Lightbox'
 import { boardImages } from './lightbox-model'
-import { Comments, type AskState } from './Comments'
-import { anchorFor, nodeAt, routeOf, type Anchor, type Box } from './comment-model'
+import { Comments, type NoteState } from './Comments'
+import { anchorFor, nodeAt, pinPoint, routeOf, type Anchor, type Box } from './comment-model'
 import { agentsOf } from '../chat/composer/at-menu'
 import {
   absolutePositions,
@@ -72,6 +75,11 @@ import {
 } from './flow-model'
 import { emptyHistory, record, redo, undo, type History, type Snapshot } from './history'
 import { place, type Point, type Size } from './layout'
+import { AgentCursorLayer, type CursorLayer } from './agent/AgentCursorLayer'
+import { registerBoardDriver } from './agent/board-drivers'
+import { easeInOut, REVEAL_MS, revealView, viewTarget, type Viewport } from './agent/cursor-model'
+import { canvasAgentOp, shownRun, takesOver, useCanvasRuns } from './agent/runs-store'
+import { frontWorkspace } from '../tiling/tiling-store'
 
 const NODE_TYPES = { card: CanvasCard }
 const EDGE_TYPES = { link: CanvasEdge }
@@ -204,6 +212,16 @@ function Board({
   const timerRef = useRef<number | undefined>(undefined)
   const draggingRef = useRef(false)
   const reloadPendingRef = useRef(false)
+  /**
+   * The card the agent carried, where it was and the view before the carry, until main's write of
+   * that move lands (`landed`) or the file reloads. `panned` is the view the carry left on screen.
+   */
+  const carriedRef = useRef<{
+    node: string
+    from: { x: number; y: number }
+    view: Viewport
+    panned: Viewport | null
+  } | null>(null)
   const goneRef = useRef(false)
   const unmountedRef = useRef(false)
   const fitPendingRef = useRef(false)
@@ -212,6 +230,8 @@ function Board({
   /** A viewport the board moved to on its own (a rescue fit on open); reaching it doesn't save. */
   const quietViewRef = useRef<CanvasViewport | null>(null)
   const autoRef = useRef<AutoPlaced | null>(null)
+  /** The save in flight, for a flush to wait on. */
+  const savingRef = useRef<Promise<unknown> | null>(null)
   /** The pages' latest list, for callbacks that must not rebuild when it changes. */
   const onPagesRef = useRef(onPages)
   onPagesRef.current = onPages
@@ -223,10 +243,27 @@ function Board({
     return { key: JSON.stringify(toBoard(doc, null)), value: doc }
   }, [])
 
-  /** Records the board before an action, as one undo step. */
+  /** The agent's run on this board; Isaac's own edits take it over while it acts. */
+  const run = useCanvasRuns((s) => shownRun(s.runs, slug))
+  const runRef = useRef(run)
+  runRef.current = run
+  /** Take over was asked for this stretch of the agent's work; cleared once it stops acting. */
+  const pausingRef = useRef(false)
+  if (!takesOver(run?.status)) pausingRef.current = false
+  /** An edit of Isaac's (undo steps, drags, resizes, page changes): the agent pauses for him. */
+  const isaacEdited = useCallback(() => {
+    if (!takesOver(runRef.current?.status) || pausingRef.current) return
+    pausingRef.current = true
+    void canvasAgentOp(slug, 'takeOver').then((ok) => {
+      if (!ok) pausingRef.current = false
+    })
+  }, [slug])
+
+  /** Records the board before an action, as one undo step (an edit of Isaac's). */
   const remember = useCallback(() => {
+    isaacEdited()
     setHistory((h) => record(h, snapshot()))
-  }, [snapshot])
+  }, [snapshot, isaacEdited])
 
   /**
    * The viewport a save writes: the file's own while the board sits where a rescue fit put it,
@@ -268,14 +305,26 @@ function Board({
         timerRef.current = window.setTimeout(() => void saveNow(), SAVE_DELAY)
       return
     }
-    const board = toBoard(docRef.current, viewToSave())
+    // A card the agent is carrying saves where it was: only main's guarded write lands the move.
+    const c = carriedRef.current
+    const doc = c
+      ? {
+          ...docRef.current,
+          nodes: docRef.current.nodes.map((n) =>
+            n.id === c.node ? { ...n, position: c.from } : n,
+          ),
+        }
+      : docRef.current
+    const board = toBoard(doc, viewToSave())
     const key = JSON.stringify(board)
     if (key === syncedRef.current) {
       setSave('saved')
       return
     }
     setSave('saving')
-    const r = await invoke('canvas.save', { slug, board, page })
+    const saving = invoke('canvas.save', { slug, board, page })
+    savingRef.current = saving
+    const r = await saving
     if (goneRef.current) return
     if (r.ok) {
       syncedRef.current = key
@@ -415,13 +464,19 @@ function Board({
     timerRef.current = undefined
     syncedRef.current = key
     apply(r.value.board)
+    // The file changed under a carried card: main's write of the move landed (or the file now
+    // says where it is); either way it is no longer the agent's to take back.
+    carriedRef.current = null
     setSave('saved')
     saveIfChanged()
   }, [apply, saveIfChanged, slug, page, onPage])
 
-  /** Saves what is pending, so a page switch or page operation starts from the file as it is. */
+  /** Saves what is pending (or waits for the save in flight), so the file is as the board is. */
   const flush = useCallback(async () => {
-    if (timerRef.current === undefined) return
+    if (timerRef.current === undefined) {
+      await savingRef.current
+      return
+    }
     clearTimeout(timerRef.current)
     await saveNow()
   }, [saveNow])
@@ -438,6 +493,7 @@ function Board({
   const pageOp = useCallback(
     async (op: Omit<InvokeInput<'canvas.pages'>, 'slug'>) => {
       if (liveOn) return
+      isaacEdited()
       await flush()
       const r = await invoke('canvas.pages', { slug, ...op })
       if (goneRef.current || unmountedRef.current) return
@@ -450,7 +506,7 @@ function Board({
         op.op === 'add' || op.op === 'duplicate' || (op.op === 'delete' && op.page === page)
       if (moved && r.value.page !== page) onPage(r.value.page)
     },
-    [flush, liveOn, onPage, page, slug],
+    [flush, isaacEdited, liveOn, onPage, page, slug],
   )
 
   /** The page's comment threads, as the board file has them. */
@@ -506,28 +562,51 @@ function Board({
   /** Who an `@` can name: the registry's assistants. */
   const agents = useAssistants((s) => s.data?.agents)
   const mentionables = useMemo(() => agentsOf(agents ?? []), [agents])
-  /** Threads whose agent is being started, or refused. */
-  const [asks, setAsks] = useState<Record<string, AskState>>({})
-  const setAsk = (thread: string, state: AskState | null): void => {
+  /** Each thread's last note to the chat that works on the board: on its way, sent, or refused. */
+  const [notes, setNotes] = useState<Record<string, NoteState>>({})
+  const setNote = (thread: string, state: NoteState): void => {
     if (goneRef.current || unmountedRef.current) return
-    setAsks((all) => {
-      const { [thread]: _was, ...rest } = all
-      return state === null ? rest : { ...rest, [thread]: state }
-    })
+    setNotes((all) => ({ ...all, [thread]: state }))
   }
 
-  /** Starts a live session on the board with assistant `assistant` and hands it `thread` (the room takes over from here). */
-  const askAgent = async (thread: string, assistant: string): Promise<void> => {
-    setAsk(thread, { phase: 'asking' })
-    // The room starts from the file: what is pending on the board goes in first.
-    await flush()
-    const r = await invoke('canvas.live.ask', { slug, thread, page, assistant })
-    setAsk(thread, r.ok ? { phase: 'asking' } : { phase: 'refused', message: r.error.message })
+  /**
+   * Sends a saved comment to the chat that owns the board as Isaac's message: the thread's agent
+   * when it has one, else the chat whose agent works the board, else the chat of the workspace
+   * the board is shown in (main decides, `agent.note`).
+   */
+  const sendNote = async (
+    thread: string,
+    text: string,
+    anchor: Anchor,
+    reply: boolean,
+    assignee: string | null,
+  ): Promise<void> => {
+    setNote(thread, { phase: 'sending' })
+    const doc = docRef.current
+    const card = anchor.node === undefined ? undefined : doc.nodes.find((n) => n.id === anchor.node)
+    const r = await invoke('agent.note', {
+      note: {
+        surface: 'canvas',
+        text: text.slice(0, 4000),
+        slug,
+        board: doc.title.slice(0, 500),
+        page,
+        thread,
+        ...(card ? { node: { id: card.id, title: titleOf(card.data.spec).slice(0, 200) } } : {}),
+        at: pinPoint(anchor, boxesOf(doc.nodes)) ?? { x: anchor.x, y: anchor.y },
+        reply,
+        ...(assignee === null ? {} : { assignee }),
+      },
+      workspace: frontWorkspace() || null,
+    })
+    if (!r.ok) setNote(thread, { phase: 'refused', message: r.error.message })
+    else if (r.value.sent) setNote(thread, { phase: 'sent', to: r.value.to })
+    else setNote(thread, { phase: 'refused', message: 'Not sent: no chat works on this board' })
   }
 
   const commentProps = {
     mentionables,
-    asks: liveOn ? {} : asks,
+    notes,
     onStart: async (text: string) => {
       if (!draft) return
       const { assignee } = routeOf(text, mentionables, null)
@@ -539,14 +618,14 @@ function Board({
       })
       setDraft(null)
       setOpenThread(opened)
-      if (opened !== null && assignee !== null) void askAgent(opened, assignee)
+      if (opened !== null) void sendNote(opened, text, draft, false, assignee)
     },
     onReply: async (thread: string, text: string) => {
       // A thread keeps its agent: a reply that names no one goes to the one it has.
-      const current = threads.find((t) => t.id === thread)?.assignee
-      const { assignee } = routeOf(text, mentionables, current)
+      const current = threads.find((t) => t.id === thread)
+      const { assignee } = routeOf(text, mentionables, current?.assignee)
       await threadOp({ op: 'post', thread, text, ...(assignee === null ? {} : { assignee }) })
-      if (assignee !== null) void askAgent(thread, assignee)
+      if (current) void sendNote(thread, text, current, true, assignee)
     },
     onResolve: (thread: string, resolved: boolean) => {
       threadOp({ op: 'resolve', thread, resolved }).then(
@@ -560,10 +639,6 @@ function Board({
       threadOp({ op: 'move', thread, ...anchor }).catch((e: unknown) =>
         setSave({ error: e instanceof Error ? e.message : String(e) }),
       )
-    },
-    onAsk: (thread: string) => {
-      const assignee = threads.find((t) => t.id === thread)?.assignee
-      if (assignee) void askAgent(thread, assignee)
     },
   }
 
@@ -625,6 +700,8 @@ function Board({
     const auto = autoRef.current
     if (!auto || !initialized) return
     const t = setTimeout(() => {
+      // A move (Isaac's, or the agent taking the view) since this round started ends settling.
+      if (autoRef.current !== auto) return
       const doc = docRef.current
       const abs = absolutePositions(doc.nodes)
       const moved = doc.nodes.some((n) => {
@@ -664,6 +741,7 @@ function Board({
       setNodes(next)
       fitPendingRef.current = true
       requestAnimationFrame(() => {
+        if (!fitPendingRef.current) return
         fitPendingRef.current = false
         void flow.fitView({ padding: FIT_PADDING }).then(() => scheduleSave())
       })
@@ -676,15 +754,18 @@ function Board({
       // Removing goes through deleteSelected, which keeps children of a deleted frame.
       const kept = changes.filter((c) => c.type !== 'remove')
       setNodes((ns) => applyNodeChanges(kept, ns))
+      // React Flow only moves or resizes nodes for Isaac (the agent's drags set the nodes directly).
       if (
         kept.some(
           (c) =>
             (c.type === 'position' && !c.dragging) || (c.type === 'dimensions' && c.setAttributes),
         )
-      )
+      ) {
+        isaacEdited()
         scheduleSave()
+      }
     },
-    [scheduleSave],
+    [scheduleSave, isaacEdited],
   )
 
   const onEdgesChange = useCallback((changes: EdgeChange<LinkEdge>[]) => {
@@ -893,15 +974,17 @@ function Board({
     const r = undo(historyRef.current, snapshot())
     if (!r) return
     setHistory(r.history)
+    isaacEdited()
     restore(r.state)
-  }, [restore, snapshot])
+  }, [restore, snapshot, isaacEdited])
 
   const doRedo = useCallback(() => {
     const r = redo(historyRef.current, snapshot())
     if (!r) return
     setHistory(r.history)
+    isaacEdited()
     restore(r.state)
-  }, [restore, snapshot])
+  }, [restore, snapshot, isaacEdited])
 
   const tidy = useCallback(() => {
     remember()
@@ -966,9 +1049,150 @@ function Board({
     return () => window.removeEventListener('keydown', onSlash)
   }, [startComment])
 
+  // Main's canvas drive works this board while it is on screen (agent/board-drivers.ts): the
+  // agent's cursor, its view, selection and the cards it carries, none of them Isaac's edits.
+  const store = useStoreApi()
+  const cursorRef = useRef<CursorLayer | null>(null)
+  const carryRef = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    // The agent moving the view takes it over, as Isaac's own pan would: the open's pending fit
+    // and the settling relayout's refit would otherwise snap the board away from its work.
+    const takeView = (): void => {
+      autoRef.current = null
+      fitPendingRef.current = false
+      checkViewRef.current = false
+    }
+    const off = registerBoardDriver({
+      slug,
+      page,
+      shown: () => (wrapRef.current?.getClientRects().length ?? 0) > 0,
+      // Hide comes when Isaac takes over or the run ends: a card the agent carried whose write
+      // has not landed yet goes back, so his next save never keeps a move main refused, and the
+      // board goes back to where it was with it (unless Isaac moved the view himself since).
+      cursor: (op) => {
+        if (op.op === 'hide') {
+          const c = carriedRef.current
+          carriedRef.current = null
+          if (c) {
+            cancelAnimationFrame(carryRef.current ?? 0)
+            carryRef.current = undefined
+            draggingRef.current = false
+            setNodes((ns) => ns.map((n) => (n.id === c.node ? { ...n, position: c.from } : n)))
+            // The view is still the one the carry left: Isaac did not move it himself.
+            const vp = flow.getViewport()
+            const p = c.panned
+            const still =
+              p !== null &&
+              Math.abs(vp.x - p.x) < 0.5 &&
+              Math.abs(vp.y - p.y) < 0.5 &&
+              Math.abs(vp.zoom - p.zoom) < 1e-3
+            if (still) {
+              const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches
+              void flow.setViewport(c.view, { duration: reduce ? 0 : REVEAL_MS })
+            }
+            if (reloadPendingRef.current) void reload()
+          }
+        }
+        return cursorRef.current?.cursor(op) ?? 0
+      },
+      flush,
+      boxes: () => boxesOf(docRef.current.nodes),
+      select: (ids) => {
+        const picked = new Set(ids)
+        setNodes((ns) =>
+          ns.map((n) =>
+            picked.has(n.id) === Boolean(n.selected) ? n : { ...n, selected: picked.has(n.id) },
+          ),
+        )
+        setEdges((es) => es.map((e) => (e.selected ? { ...e, selected: false } : e)))
+      },
+      view: async ({ zoom, center, fit, pan, duration }) => {
+        takeView()
+        const timing = duration === undefined ? {} : { duration }
+        if (fit) await flow.fitView({ padding: FIT_PADDING, ...timing })
+        else {
+          const { width, height } = store.getState()
+          const target = viewTarget(
+            flow.getViewport(),
+            { w: width, h: height },
+            { zoom, center, pan },
+          )
+          await flow.setViewport(target, timing)
+        }
+        return flow.getViewport()
+      },
+      reveal: (need, want) => {
+        const { width, height } = store.getState()
+        const target = revealView(flow.getViewport(), { w: width, h: height }, need, want)
+        if (!target) return 0
+        takeView()
+        const ms = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : REVEAL_MS
+        void flow.setViewport(target, { duration: ms })
+        return ms
+      },
+      // The card rides along with the cursor, eased; main's file write that follows lands it
+      // where it already is. Reloads wait until it arrives. When its new spot is out of view the
+      // board pans in the same easing, so card and cursor stay on screen the whole way.
+      drag: (node, to, ms) => {
+        const doc = docRef.current
+        const card = doc.nodes.find((n) => n.id === node)
+        const abs = absolutePositions(doc.nodes).get(node)
+        const box = boxesOf(doc.nodes).get(node)
+        if (!card || !abs || !box) return 0
+        cancelAnimationFrame(carryRef.current ?? 0)
+        const from = card.position
+        const view = flow.getViewport()
+        const { width, height } = store.getState()
+        const end = revealView(view, { w: width, h: height }, { ...box, x: to.x, y: to.y })
+        const carried = { node, from, view, panned: end ? view : null }
+        carriedRef.current = carried
+        if (end) takeView()
+        const dest = { x: from.x + to.x - abs[0], y: from.y + to.y - abs[1] }
+        const dur = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : ms
+        cursorRef.current?.hold(node)
+        draggingRef.current = true
+        autoRef.current = null
+        const t0 = performance.now()
+        const step = (now: number): void => {
+          const k = dur === 0 ? 1 : Math.min(1, Math.max(0, now - t0) / dur)
+          const e = easeInOut(k)
+          const position = { x: from.x + (dest.x - from.x) * e, y: from.y + (dest.y - from.y) * e }
+          setNodes((ns) => ns.map((n) => (n.id === node ? { ...n, position } : n)))
+          if (end) {
+            const at = {
+              x: view.x + (end.x - view.x) * e,
+              y: view.y + (end.y - view.y) * e,
+              zoom: view.zoom + (end.zoom - view.zoom) * e,
+            }
+            carried.panned = at
+            void flow.setViewport(at)
+          }
+          if (k < 1) {
+            carryRef.current = requestAnimationFrame(step)
+            return
+          }
+          carryRef.current = undefined
+          draggingRef.current = false
+          if (reloadPendingRef.current) void reload()
+        }
+        carryRef.current = requestAnimationFrame(step)
+        return dur
+      },
+      landed: (node) => {
+        if (carriedRef.current?.node === node) carriedRef.current = null
+      },
+      goTo: (to) => void switchTo(to),
+    })
+    return () => {
+      off()
+      cancelAnimationFrame(carryRef.current ?? 0)
+    }
+  }, [slug, page, flow, flush, store, reload, switchTo])
+
   const selectedNodes = nodes.filter((n) => n.selected)
   const single = selectedNodes.length === 1 ? selectedNodes[0]! : null
   const specs = useMemo(() => nodes.map((n) => n.data.spec), [nodes])
+  const boxes = useMemo(() => boxesOf(nodes), [nodes])
   const images = useMemo(() => boardImages(specsOf(nodes)), [nodes])
   const shownLayout = effectiveLayout(layout, specs, edges.length > 0)
   const hand = tool === 'hand'
@@ -1040,7 +1264,10 @@ function Board({
             pages={pages}
             page={page}
             editable={!liveOn && loaded}
-            onSwitch={(id) => void switchTo(id)}
+            onSwitch={(id) => {
+              isaacEdited()
+              void switchTo(id)
+            }}
             onAdd={() => void pageOp({ op: 'add', page })}
             onRename={(id, t) => void pageOp({ op: 'rename', page: id, title: t })}
             onMove={(id, to) => void pageOp({ op: 'move', page: id, to })}
@@ -1063,6 +1290,11 @@ function Board({
             }}
             onSelectionDragStart={dragStart}
             onSelectionDragStop={dragStop}
+            // His own pan or zoom (an event; the agent's reveals and fits have none) takes over,
+            // as his scroll does in the shared browser, so the next reveal never fights him.
+            onMoveStart={(e) => {
+              if (e) isaacEdited()
+            }}
             onMoveEnd={(_e, vp) => {
               const quiet = quietViewRef.current
               if (quiet && quiet.x === vp.x && quiet.y === vp.y && quiet.zoom === vp.zoom) return
@@ -1097,13 +1329,14 @@ function Board({
             />
             <Comments
               threads={threads}
-              boxes={boxesOf(nodes)}
+              boxes={boxes}
               draft={draft}
               openId={openThread}
               onOpen={setOpenThread}
               onCancelDraft={() => setDraft(null)}
               {...commentProps}
             />
+            <AgentCursorLayer handle={cursorRef} boxes={boxes} />
             <BoardControls
               locked={locked}
               onLock={() => setLocked((l) => !l)}

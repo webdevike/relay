@@ -2,12 +2,13 @@
  * Comment pins on the Canvas page, drawn like a live room's (Figma style): a pin sits on the card it
  * was left on (it follows the card) or on a board spot, at screen size whatever the zoom. A pin
  * opens its thread in a popover: the messages, a reply field, Resolve. Typing `@` in a comment lists
- * the agents (the assistants of the registry); a comment that names one is for it: the thread keeps it
- * and a live session on the board with that agent answers it. A new comment is a draft pin with
- * just the field; Enter saves it into the board file.
+ * the agents (the assistants of the registry); a comment that names one is for it and the thread
+ * keeps it. Each saved comment also goes to the chat that works on the board as Isaac's message
+ * (`agent.note`); the thread says quietly where it went. A new comment is a draft pin with just the
+ * field; Enter saves it into the board file.
  */
 import { Button } from '@mantine/core'
-import { IconCheck, IconMessageCircle, IconSparkles } from '@tabler/icons-react'
+import { IconCheck, IconMessageCircle } from '@tabler/icons-react'
 import { useReactFlow, useStore } from '@xyflow/react'
 import { useRef, useState, type ReactNode } from 'react'
 import type { CanvasThread } from '@evaos/contract'
@@ -21,10 +22,13 @@ import type { ThreadAnchor } from '@relay/canvas-live/threads'
 import type { Mentionable } from '@relay/canvas-live/mentions'
 import { AgentFace, Composer, Face, ThreadMessages } from '../comments/ThreadParts'
 import { EvaPopover } from '../overlay'
-import { awaitingAnswer, excerpt, pinPoint, type Anchor, type Box } from './comment-model'
+import { excerpt, pinPoint, type Anchor, type Box } from './comment-model'
 
-/** Where a thread's session with its agent stands: starting, or why the host refused. */
-export type AskState = { phase: 'asking' } | { phase: 'refused'; message: string }
+/** Where a comment's note to the board's chat stands: on its way, sent (to that chat), or refused. */
+export type NoteState =
+  | { phase: 'sending' }
+  | { phase: 'sent'; to: string | null }
+  | { phase: 'refused'; message: string }
 
 export interface CommentsProps {
   threads: readonly CanvasThread[]
@@ -36,15 +40,13 @@ export interface CommentsProps {
   onOpen: (id: string | null) => void
   /** Who an `@` can name here: the registry's assistants. */
   mentionables: readonly Mentionable[]
-  /** Threads whose agent is being started, or refused, by thread id. */
-  asks: Readonly<Record<string, AskState>>
+  /** The last comment's note to the board's chat, by thread id. */
+  notes: Readonly<Record<string, NoteState>>
   /** Saves the draft as a new thread. Rejects with the reason it could not. */
   onStart: (text: string) => Promise<void>
   onCancelDraft: () => void
   onReply: (thread: string, text: string) => Promise<void>
   onResolve: (thread: string, resolved: boolean) => void
-  /** Starts a session on the board with the thread's agent and hands it the thread (again, after a refusal). */
-  onAsk: (thread: string) => void
   /** A pin dragged: onto a card, or to a board point. */
   onMove: (thread: string, anchor: ThreadAnchor) => void
 }
@@ -53,18 +55,16 @@ function ThreadBody({
   thread,
   grip,
   mentionables,
-  ask,
+  note,
   onReply,
   onResolve,
-  onAsk,
 }: {
   thread: CanvasThread
   grip: Grip
   mentionables: readonly Mentionable[]
-  ask: AskState | undefined
+  note: NoteState | undefined
   onReply: CommentsProps['onReply']
   onResolve: CommentsProps['onResolve']
-  onAsk: CommentsProps['onAsk']
 }) {
   const assignee = thread.assignee
     ? (mentionables.find((c) => c.id === thread.assignee) ?? {
@@ -103,23 +103,10 @@ function ThreadBody({
         send={(text) => onReply(thread.id, text)}
       />
       <div className="eva-cv-thread-actions">
-        {ask?.phase === 'asking' ? (
-          <span className="eva-cv-thread-status" role="status" data-testid="canvas-thread-asking">
-            {`Starting a session with ${assignee?.name ?? 'the agent'}`}
+        {note && note.phase !== 'refused' ? (
+          <span className="eva-cv-thread-status" role="status" data-testid="canvas-thread-note">
+            {note.phase === 'sending' ? 'Sending to chat' : `Sent to ${note.to ?? 'chat'}`}
           </span>
-        ) : assignee && awaitingAnswer(thread) ? (
-          // Only a thread the live room has not picked up (the host refused, or Relay was down) needs a second try.
-          <Button
-            variant="subtle"
-            color="gray"
-            size="compact-xs"
-            leftSection={<IconSparkles size={12} stroke={1.5} />}
-            data-testid="canvas-thread-ask"
-            title={`Start a live session on this board with ${assignee.name}, who answers this comment`}
-            onClick={() => onAsk(thread.id)}
-          >
-            {`Ask ${assignee.name}`}
-          </Button>
         ) : null}
         <Button
           variant="subtle"
@@ -132,9 +119,9 @@ function ThreadBody({
           {thread.resolved ? 'Reopen' : 'Resolve'}
         </Button>
       </div>
-      {ask?.phase === 'refused' ? (
-        <p className="eva-cv-thread-error" role="alert" data-testid="canvas-thread-ask-error">
-          {ask.message}
+      {note?.phase === 'refused' ? (
+        <p className="eva-cv-thread-error" role="alert" data-testid="canvas-thread-note-error">
+          {note.message}
         </p>
       ) : null}
     </div>
@@ -343,10 +330,9 @@ export function Comments(props: CommentsProps) {
                 thread={t}
                 grip={grip}
                 mentionables={props.mentionables}
-                ask={props.asks[t.id]}
+                note={props.notes[t.id]}
                 onReply={props.onReply}
                 onResolve={props.onResolve}
-                onAsk={props.onAsk}
               />
             )}
           </Pin>

@@ -1,4 +1,5 @@
-/* An agent's work cards above the composer: one StatusCard per page it drives, a click opens its tab. */
+/* An agent's work cards above the composer: one StatusCard per page it drives or board it works, a
+ * click opens it. */
 .eva-agent-work {
   display: flex;
   flex-direction: column;
@@ -15,6 +16,11 @@
 .eva-agent-work .eva-status-card[data-status='ask'] {
   border-color: color-mix(in srgb, var(--eva-accent) 45%, var(--eva-border));
   background: color-mix(in srgb, var(--eva-accent) 10%, var(--eva-surface));
+}
+/* A board's title before the line. */
+.eva-agent-work-what {
+  margin-right: calc(var(--mantine-spacing-xs) / 2);
+  font-weight: var(--eva-fw-semibold);
 }
 .eva-agent-work .eva-status-card[data-status='paused'] .eva-status-line,
 .eva-agent-work .eva-status-card[data-status='stopped'] .eva-status-line {

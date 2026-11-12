@@ -26,9 +26,13 @@ export { ASK_WAIT_MS } from '../agent-presence/agent-runs'
 /** How long a click or key waits for a load it started. */
 const LOAD_WAIT_MS = 15_000
 
-/** Who drives, as the drive draws it: identity plus the portrait SVG its cursor carries. */
+/**
+ * Who drives, as the drive draws it: identity plus the portrait SVG its cursor carries, and the
+ * workspace of its chat (`chat:<file>`, `page:agent:<id>`), where Isaac's notes on its surface go.
+ */
 export interface DriveIdentity extends AgentIdentity {
   avatar: string | null
+  workspace: string | null
 }
 
 /** The host surface the drive uses (BrowserHost; a fake in tests). */
@@ -138,7 +142,11 @@ export class AgentDrive {
     const seeded = this.host.agentOf(tabId)
     // A page an agent opened shows its face, idle, before it acts: its run starts from there.
     if (seeded && this.runs.view(tabId) === null) {
-      this.runs.seed(tabId, { id: seeded.id, name: seeded.name, color: seeded.color, avatar: null }, seeded.since)
+      this.runs.seed(
+        tabId,
+        { id: seeded.id, name: seeded.name, color: seeded.color, avatar: null, workspace: null },
+        seeded.since,
+      )
     }
     return seeded
   }
@@ -232,6 +240,11 @@ export class AgentDrive {
     } catch {
       return ''
     }
+  }
+
+  /** The workspace of the chat whose agent drives (or last drove) the tab, else null. */
+  workspaceOf(tabId: string): string | null {
+    return this.runs.who(tabId)?.workspace ?? null
   }
 
   // Isaac ---------------------------------------------------------------------------------------

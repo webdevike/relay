@@ -83,9 +83,7 @@ export const AgentNoteSchema = z.discriminatedUnion('surface', [
     /** The comment thread it opened or replied in. */
     thread: z.string().max(60),
     /** The card it is pinned to, else a spot on the board. */
-    node: z
-      .object({ id: z.string().max(500), title: z.string().max(200).optional() })
-      .optional(),
+    node: z.object({ id: z.string().max(500), title: z.string().max(200).optional() }).optional(),
     at: z.object({ x: z.number().finite(), y: z.number().finite() }),
     /** A reply in an existing thread (not its first comment). */
     reply: z.boolean(),
@@ -127,3 +125,64 @@ export const agentPresenceInvoke = {
     output: NoteSentSchema,
   },
 } as const
+
+const short = (s: string, max: number): string =>
+  s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s
+
+const quoted = (s: string, max = 80): string => `"${short(s.replace(/\s+/g, ' ').trim(), max)}"`
+
+/** The chat a workspace belongs to (`chat:<file>`, `page:agent:<id>`); null for any other page. */
+export function ownerOfWorkspace(workspace: string | null | undefined): NoteOwner | null {
+  if (!workspace) return null
+  if (workspace.startsWith('chat:') && workspace.length > 'chat:'.length) {
+    return { file: workspace.slice('chat:'.length) }
+  }
+  if (workspace.startsWith('page:agent:') && workspace.length > 'page:agent:'.length) {
+    return { assistant: workspace.slice('page:agent:'.length) }
+  }
+  return null
+}
+
+/** The deep link back to a canvas note's spot: the board, at the card when it has one. */
+export function noteLink(note: Extract<AgentNote, { surface: 'canvas' }>): string {
+  const q = [`canvas=${encodeURIComponent(note.slug)}`]
+  if (note.node) q.push(`node=${encodeURIComponent(note.node.id)}`)
+  return `relay://open/canvas?${q.join('&')}`
+}
+
+/**
+ * The message a note becomes in the owning chat: one header line naming the spot (board, page,
+ * card or point; page, element or region), Isaac's words, then the way back to it.
+ */
+export function noteText(note: AgentNote): string {
+  if (note.surface === 'canvas') {
+    const board = note.board.trim() ? `${quoted(note.board)} (${note.slug})` : note.slug
+    const on = note.node
+      ? `card ${note.node.title ? `${quoted(note.node.title)} ` : ''}(${note.node.id})`
+      : `the spot ${Math.round(note.at.x)},${Math.round(note.at.y)}`
+    const what = note.reply ? 'Reply in comment thread' : 'Comment'
+    return [
+      `[${what} ${note.thread} on board ${board}, page ${note.page}, ${on}]`,
+      note.text.trim(),
+      noteLink(note),
+    ].join('\n')
+  }
+  const r = note.region
+  const el = note.element
+  const target = el
+    ? [
+        `<${el.tag}>`,
+        el.role ? `role ${el.role}` : null,
+        el.label ? `label ${quoted(el.label)}` : el.text ? quoted(el.text) : null,
+        el.selector ? `selector ${el.selector}` : null,
+      ]
+        .filter((p): p is string => p !== null)
+        .join(', ')
+    : `the region ${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.w)}x${Math.round(r.h)}`
+  return [
+    `[Note on web page ${note.tabId} ${quoted(note.title || note.url)}: ${target}]`,
+    note.text.trim(),
+    note.url,
+    ...(note.image ? [`Screenshot of the marked area: ${note.image}`] : []),
+  ].join('\n')
+}

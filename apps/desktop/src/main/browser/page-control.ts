@@ -1,6 +1,7 @@
 import type { WebContents } from 'electron'
 import { CURSOR_SCRIPT, type CursorOp } from './agent-cursor'
 import { ELEMENT_INFO, FIND_BY_TEXT, type ElementInfo } from './agent-guard'
+import { PICKER_SCRIPT, describeElement, type PickOp, type PickResult } from './annotate-picker'
 
 /**
  * CDP control of one page through `webContents.debugger`, main-process only: what the agent
@@ -356,6 +357,40 @@ export class PageControl {
       }
     }
     return 0
+  }
+
+  /**
+   * Runs Isaac's note picker (annotate-picker.ts) in the cursor's isolated world, so page scripts
+   * never see it. `pick` resolves once he sends or cancels, or fails when the page goes away
+   * under it (navigation, crash) or after `timeoutMs`.
+   */
+  async pick(op: PickOp, timeoutMs: number): Promise<PickResult> {
+    const expression = `(${PICKER_SCRIPT})(${JSON.stringify(op)}, ${String(describeElement)})`
+    for (let attempt = 0; ; attempt++) {
+      const contextId = await this.isolatedWorld()
+      try {
+        const r = await this.send<{
+          result?: { value?: PickResult }
+          exceptionDetails?: { text?: string; exception?: { description?: string } }
+        }>(
+          'Runtime.evaluate',
+          { expression, contextId, returnByValue: true, awaitPromise: true },
+          timeoutMs,
+        )
+        if (r.exceptionDetails) {
+          throw new Error(
+            r.exceptionDetails.exception?.description ?? r.exceptionDetails.text ?? 'pick failed',
+          )
+        }
+        return r.result?.value ?? { cancelled: true }
+      } catch (e) {
+        // A world cached for an earlier document: make a new one once.
+        if (attempt > 0 || !/Cannot find context/i.test(e instanceof Error ? e.message : '')) {
+          throw e
+        }
+        this.world = null
+      }
+    }
   }
 
   private async isolatedWorld(): Promise<number> {

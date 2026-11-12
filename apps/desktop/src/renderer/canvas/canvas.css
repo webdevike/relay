@@ -917,6 +917,15 @@
   color: var(--eva-c-muted-foreground);
 }
 
+/* The agent's cursor (agent/AgentCursorLayer.tsx): over the cards and pins, screen-sized at any zoom. */
+.eva-cv-agent-cursor {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  overflow: hidden;
+  pointer-events: none;
+}
+
 /* Comment pins: a layer over the board that follows pan and zoom; each pin keeps its screen size. */
 .eva-cv-pins {
   position: absolute;

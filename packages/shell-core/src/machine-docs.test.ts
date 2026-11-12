@@ -37,9 +37,10 @@ describe('docs/state-machines', () => {
       const next = withDiagram(doc, diagram)
       expect(next, `${path} has no diagram markers`).not.toBeNull()
       if (update && next !== doc && next !== null) writeFileSync(path, next)
-      expect(readFileSync(path, 'utf8'), `${path} is stale: run UPDATE_MACHINE_DOCS=1 pnpm test`).toBe(
-        next,
-      )
+      expect(
+        readFileSync(path, 'utf8'),
+        `${path} is stale: run UPDATE_MACHINE_DOCS=1 pnpm test`,
+      ).toBe(next)
       expect(doc.includes('TODO'), `${path} still has a TODO`).toBe(false)
     })
   }

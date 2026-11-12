@@ -5,7 +5,7 @@ import type { CanvasBoard, CanvasNode } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
 import { createDownload, createImageReader } from './images'
-import { createCanvasStore } from './store'
+import { createCanvasStore, type CanvasStore } from './store'
 import { startCanvasWatchWith } from './watch'
 
 /** An image file in the boards folder to put on a board: its src relative to the folder, and its size. */
@@ -19,10 +19,16 @@ export interface BoardImage {
 export type AddBoardImages = (slug: string, images: readonly BoardImage[]) => Promise<number>
 
 const sinks = new WeakMap<MainContext, AddBoardImages>()
+const stores = new WeakMap<MainContext, CanvasStore>()
 
 /** The board image adder of this window's Canvas (null before registerCanvasIpc ran). */
 export function boardImagesOf(ctx: MainContext): AddBoardImages | null {
   return sinks.get(ctx) ?? null
+}
+
+/** This window's board store, for the agents' canvas drive (null before registerCanvasIpc ran). */
+export function canvasStoreOf(ctx: MainContext): CanvasStore | null {
+  return stores.get(ctx) ?? null
 }
 
 const CARD_W = 320
@@ -72,6 +78,7 @@ export function registerCanvasIpc(ctx: MainContext): void {
     config: ctx.config,
     nativePins: nativeCanvasPins,
   })
+  stores.set(ctx, store)
   const images = createImageReader({
     dir: canvasDir,
     cacheDir: path.join(configDir, 'canvas-cache'),

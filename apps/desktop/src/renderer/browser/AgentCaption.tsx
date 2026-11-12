@@ -34,12 +34,22 @@ export function AgentFace({
 export const workingLine = (a: AgentRun): string => a.caption || `${a.name} is working`
 
 /**
- * The one row under a page an agent drives: who, what it is doing, and Isaac's control for that
- * moment. Working: its caption, Take over on hover. Paused: Hand back. Ask: Allow or Not now.
- * Done or stopped: how it ended, dismissable. The native page paints over anything the shell
- * draws on it, so the row sits below the page, inside the agent's ring.
+ * The one row under a surface an agent works (a page it drives, a board): who, what it is doing,
+ * and Isaac's control for that moment. Working: its caption, Take over on hover. Paused: Hand
+ * back. Ask: Allow or Not now. Done or stopped: how it ended, dismissable. A native page paints
+ * over anything the shell draws on it, so the row sits below the surface, inside the agent's ring
+ * (an `eva-agent-host` whose `data-agent` is the status).
  */
-export function AgentCaption({ tabId, agent }: { tabId: string; agent: AgentRun }) {
+export function AgentCaption({
+  agent,
+  subject,
+  onOp,
+}: {
+  agent: AgentRun
+  /** What Isaac takes over: `tab`, `board`. */
+  subject: string
+  onOp: (op: AgentRunOp) => void
+}) {
   const s = agent.status
   const line =
     s === 'working'
@@ -81,9 +91,9 @@ export function AgentCaption({ tabId, agent }: { tabId: string; agent: AgentRun 
           <button
             type="button"
             className="eva-agent-btn"
-            title={`Pause ${agent.name} and use this tab yourself`}
+            title={`Pause ${agent.name} and use this ${subject} yourself`}
             data-testid="agent-take-over"
-            onClick={() => agentOp(tabId, 'takeOver')}
+            onClick={() => onOp('takeOver')}
           >
             <IconHandStop size={14} stroke={1.75} aria-hidden />
             Take over
@@ -94,7 +104,7 @@ export function AgentCaption({ tabId, agent }: { tabId: string; agent: AgentRun 
             className="eva-agent-btn eva-agent-btn-primary"
             title={`Let ${agent.name} go on from here`}
             data-testid="agent-hand-back"
-            onClick={() => agentOp(tabId, 'handBack')}
+            onClick={() => onOp('handBack')}
           >
             <IconPlayerPlay size={14} stroke={1.75} aria-hidden />
             Hand back
@@ -105,7 +115,7 @@ export function AgentCaption({ tabId, agent }: { tabId: string; agent: AgentRun 
               type="button"
               className="eva-agent-btn eva-agent-btn-primary"
               data-testid="agent-allow"
-              onClick={() => agentOp(tabId, 'allow')}
+              onClick={() => onOp('allow')}
             >
               Allow
             </button>
@@ -113,7 +123,7 @@ export function AgentCaption({ tabId, agent }: { tabId: string; agent: AgentRun 
               type="button"
               className="eva-agent-btn eva-agent-btn-quiet"
               data-testid="agent-deny"
-              onClick={() => agentOp(tabId, 'deny')}
+              onClick={() => onOp('deny')}
             >
               Not now
             </button>
@@ -125,7 +135,7 @@ export function AgentCaption({ tabId, agent }: { tabId: string; agent: AgentRun 
             title="Dismiss"
             aria-label="Dismiss"
             data-testid="agent-dismiss"
-            onClick={() => agentOp(tabId, 'dismiss')}
+            onClick={() => onOp('dismiss')}
           >
             <IconX size={14} stroke={1.75} aria-hidden />
           </button>

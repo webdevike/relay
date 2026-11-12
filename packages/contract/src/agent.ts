@@ -11,6 +11,12 @@ import {
 } from '@evaos/chat-core/artifacts'
 import { CanvasLiveSlugSchema } from '@evaos/chat-core/canvas-live'
 import {
+  CanvasNodeDataSchema,
+  CanvasNodeKindSchema,
+  CanvasPageIdSchema,
+  CanvasSlugSchema,
+} from './canvas'
+import {
   MAX_STUDIO_PROMPT,
   MAX_STUDIO_REFS,
   StudioAspectSchema,
@@ -200,9 +206,14 @@ const BrowserTarget = {
   x: z.number().min(0).max(20_000).optional().describe('Viewport x in CSS px, with y'),
   y: z.number().min(0).max(20_000).optional(),
 }
-const hasTarget = (v: { ref?: string; selector?: string; text?: string; x?: number }): boolean =>
+const hasTarget = (v: {
+  ref?: string | undefined
+  selector?: string | undefined
+  text?: string | undefined
+  x?: number | undefined
+}): boolean =>
   v.ref !== undefined || v.selector !== undefined || v.text !== undefined || v.x !== undefined
-const pointPaired = (v: { x?: number; y?: number }): boolean =>
+const pointPaired = (v: { x?: number | undefined; y?: number | undefined }): boolean =>
   (v.x === undefined) === (v.y === undefined)
 const Caption = z
   .string()
@@ -227,6 +238,11 @@ const Intent = z
   .optional()
 const DRIVE_RULES =
   "Acts as the calling agent in Isaac's signed-in session: the tab shows your face, a ring and your caption. When Isaac clicks or types in the tab he takes over: actions answer `paused-by-isaac` until he hands back (browser.wait until handback). Purchases, sends, submits and deletes wait for his Allow."
+/** A card id from canvas.read (its ref). */
+const CardRef = z.string().min(1).max(500)
+const BoardCoord = z.number().min(-1_000_000).max(1_000_000)
+const CANVAS_RULES =
+  'Acts as the calling agent on the board in front of Isaac: it shows your face, a ring, your cursor moving to each change and your caption; changes are saved to the board file. When Isaac edits the board he takes over: actions answer `paused-by-isaac` until he hands back (canvas.wait until handback). His comments on the board come into this chat as his messages.'
 
 export const agentActions = {
   'state.read': {
@@ -902,14 +918,284 @@ export const agentActions = {
     scoped: true,
   },
   'canvas.live': {
-    title: 'Start a live canvas with Isaac',
+    title: 'Start a live canvas room with Isaac',
     description:
-      "Takes the calling session onto a board with Isaac (the request's scope: an assistant's thread, else the chat's session file). The Relay host opens a live room on board `slug`, or on a new board titled `title` (neither: the host picks), with this session as the agent at the board: same name and look, this chat as context. Isaac gets a Join card in this chat; each canvas turn and the wrap-up come back here. `prompt` is what the canvas session is for (the card shows it). Answers the host's {roomId, slug, board, agent, joinPath}.",
+      "Older room mode (to work a board yourself from the chat, use canvas.open). Takes the calling session onto a board with Isaac (the request's scope: an assistant's thread, else the chat's session file). The Relay host opens a live room on board `slug`, or on a new board titled `title` (neither: the host picks), with this session as the agent at the board: same name and look, this chat as context. Isaac gets a Join card in this chat; each canvas turn and the wrap-up come back here. `prompt` is what the canvas session is for (the card shows it). Answers the host's {roomId, slug, board, agent, joinPath}.",
     params: z
       .object({
         slug: CanvasLiveSlugSchema.optional(),
         title: z.string().trim().min(1).max(200).optional(),
         prompt: z.string().trim().min(1).max(4000).optional(),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.open': {
+    title: 'Open a board to work on',
+    description: `Shows board \`slug\` (or a new board titled \`title\`) on the Canvas page in your workspace, beside the chat, and starts your run on it: Isaac sees your face, a ring and your caption there and a work card in this chat. \`page\` picks a page of the board. Answers slug, title, page, pages and whether the board is on screen (\`mounted\`). Then canvas.read, canvas.add, canvas.connect... ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema.optional(),
+        title: z.string().trim().min(1).max(200).optional(),
+        page: CanvasPageIdSchema.optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict()
+      .refine((v) => v.slug === undefined || v.title === undefined, {
+        message: 'Give slug (an existing board) or title (a new one), not both',
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.read': {
+    title: 'Read a board',
+    description:
+      'Reads a board page (nothing on screen moves): title, page, pages, every card (`id` is its ref for the other canvas.* actions, type, title, body, url, key, status, parent frame, and its box x,y,w,h in board units as drawn, or `placed: false`), every link (id, source, target, label) and the open comment threads (id, card, first and last message). Works whether or not the board is on screen.',
+    params: z
+      .object({ slug: CanvasSlugSchema, page: CanvasPageIdSchema.optional(), scope })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.add': {
+    title: 'Add a card to a board',
+    description: `Adds a card (\`type\`, default note; \`title\`, \`body\`, other fields in \`data\`): at board point \`x\`,\`y\` (its top left), else right of card \`near\`, else below everything. Your cursor goes there first and the card appears under it. \`parent\` puts it in a frame. Answers its id. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        type: CanvasNodeKindSchema.optional(),
+        title: z.string().max(2000).optional(),
+        body: z.string().max(20_000).optional(),
+        data: CanvasNodeDataSchema.optional(),
+        x: BoardCoord.optional(),
+        y: BoardCoord.optional(),
+        w: z.number().min(40).max(4000).optional(),
+        h: z.number().min(20).max(4000).optional(),
+        near: CardRef.optional(),
+        parent: CardRef.optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict()
+      .refine(pointPaired, { message: 'x and y go together' }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.edit': {
+    title: 'Edit a card on a board',
+    description: `Changes card \`node\`: \`title\`, \`body\`, other \`data\` fields (an empty string clears one), \`type\`, size \`w\`/\`h\`. Your cursor goes to the card first. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        node: CardRef,
+        title: z.string().max(2000).optional(),
+        body: z.string().max(20_000).optional(),
+        data: CanvasNodeDataSchema.optional(),
+        type: CanvasNodeKindSchema.optional(),
+        w: z.number().min(40).max(4000).optional(),
+        h: z.number().min(20).max(4000).optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.move': {
+    title: 'Move a card on a board',
+    description: `Moves card \`node\` so its top left is at board point \`x\`,\`y\`, or right of card \`near\`; your cursor carries it there. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        node: CardRef,
+        x: BoardCoord.optional(),
+        y: BoardCoord.optional(),
+        near: CardRef.optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict()
+      .refine(pointPaired, { message: 'x and y go together' })
+      .refine((v) => (v.x === undefined) !== (v.near === undefined), {
+        message: 'Give x and y, or near',
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.connect': {
+    title: 'Link two cards on a board',
+    description: `Draws a link from card \`from\` to card \`to\` (optional \`label\`, \`tone\` accent or proposed); your cursor runs from one to the other. A link already there is kept. Answers its id. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        from: CardRef,
+        to: CardRef,
+        label: z.string().max(200).optional(),
+        tone: z.enum(['accent', 'proposed']).optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.delete': {
+    title: 'Remove cards or links from a board',
+    description: `Removes cards \`nodes\` (with their links; cards inside a removed frame stay) and links \`edges\`; your cursor visits each card first. Remove only what you added or Isaac asked you to. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        nodes: z.array(CardRef).max(200).optional(),
+        edges: z.array(z.string().min(1).max(500)).max(200).optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict()
+      .refine((v) => (v.nodes?.length ?? 0) + (v.edges?.length ?? 0) > 0, {
+        message: 'Give nodes or edges',
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.select': {
+    title: 'Select cards on a board',
+    description: `Selects cards \`ids\` on the board on screen (an empty list clears), to point Isaac at them; your cursor goes to the first. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        ids: z.array(CardRef).max(200),
+        caption: Caption,
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.zoom': {
+    title: 'Zoom a board',
+    description: `Zooms the board on screen: \`fit\` shows every card, \`node\` centers that card, \`zoom\` sets the scale (1 is 100%). Answers the viewport. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        zoom: z.number().min(0.1).max(4).optional(),
+        fit: z.boolean().optional(),
+        node: CardRef.optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict()
+      .refine((v) => v.zoom !== undefined || v.fit === true || v.node !== undefined, {
+        message: 'Give zoom, fit or node',
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.pan': {
+    title: 'Pan a board',
+    description: `Moves the board on screen by \`dx\`,\`dy\` screen px, or centers card \`node\` at the current zoom. Answers the viewport. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        dx: z.number().min(-20_000).max(20_000).optional(),
+        dy: z.number().min(-20_000).max(20_000).optional(),
+        node: CardRef.optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict()
+      .refine((v) => (v.node === undefined) !== (v.dx === undefined && v.dy === undefined), {
+        message: 'Give dx/dy or node',
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.reply': {
+    title: 'Reply to a comment on a board',
+    description:
+      "Posts `text` as you under comment thread `thread` (the id in Isaac's comment message), so the board shows your answer beside his comment; your cursor goes to the pin. Answer him in the chat too.",
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        thread: z.string().min(1).max(60),
+        text: z.string().trim().min(1).max(4000),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.caption': {
+    title: 'Say what you are doing on a board',
+    description:
+      'Sets the one-line caption Isaac sees on the board and its work card ("Grouping the onboarding ideas"). Every canvas drive action also takes `caption`.',
+    params: z.object({ slug: CanvasSlugSchema, text: z.string().min(1).max(200), scope }).strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.wait': {
+    title: 'Wait on a board',
+    description:
+      'Waits (up to `timeoutMs`, default 30000, max 75000) until Isaac hands the board back (`handback`). Answers `{met, status}`; met false on timeout.',
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        until: z.enum(['handback']),
+        timeoutMs: z.number().int().min(0).max(75_000).optional(),
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.done': {
+    title: 'Finish on a board',
+    description:
+      'Ends your run on the board: the ring and cursor go, the caption becomes `summary` with a check (`outcome` done, the default) or as stopped. The board stays open.',
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        summary: z.string().min(1).max(200),
+        outcome: z.enum(['done', 'stopped']).optional(),
         scope,
       })
       .strict(),

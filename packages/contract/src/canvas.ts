@@ -183,6 +183,12 @@ export const CanvasRunSchema = AgentRunSchema.extend({
 export type CanvasRun = z.output<typeof CanvasRunSchema>
 
 const FlowPoint = z.object({ x: Coord, y: Coord })
+const FlowBox = z.object({
+  x: Coord,
+  y: Coord,
+  w: z.number().min(0).max(1e6),
+  h: z.number().min(0).max(1e6),
+})
 
 /**
  * One step of the agent's cursor on a board, in flow coordinates: aim at card `node` (at its
@@ -225,6 +231,19 @@ export const CanvasBoardCallSchema = z.discriminatedUnion('op', [
     pan: z.object({ dx: Coord, dy: Coord }).optional(),
     duration: z.number().min(0).max(3000).optional(),
   }),
+  /**
+   * Brings the cards `nodes` and flow box `box` (all of them together) into view clear of the
+   * board's chrome before the cursor goes there, with the cards `context` and flow box `around`
+   * too when they still fit at a readable zoom; answers the ms the board takes to get there.
+   */
+  z.object({
+    op: z.literal('reveal'),
+    ...BoardAt,
+    nodes: z.array(z.string().max(500)).max(200).optional(),
+    box: FlowBox.optional(),
+    context: z.array(z.string().max(500)).max(200).optional(),
+    around: FlowBox.optional(),
+  }),
   z.object({
     op: z.literal('drag'),
     ...BoardAt,
@@ -232,12 +251,22 @@ export const CanvasBoardCallSchema = z.discriminatedUnion('op', [
     to: FlowPoint,
     ms: z.number().min(0).max(3000),
   }),
+  /**
+   * The carried card `node`'s move is in the file: every mounted board of `slug` keeps it where
+   * it is (a later hide no longer takes it back).
+   */
+  z.object({ op: z.literal('landed'), ...BoardAt, node: z.string().max(500) }),
+  /**
+   * Shows page `page` on the board of `slug` on screen: `mounted` once it does, false while it
+   * switches there (or while no board on screen shows the slug).
+   */
+  z.object({ op: z.literal('page'), ...BoardAt }),
 ])
 export type CanvasBoardCall = z.output<typeof CanvasBoardCallSchema>
 
 export interface CanvasBoardAnswer {
   mounted: boolean
-  /** How long the step takes on screen (cursor lead + glide, a drag), else 0. */
+  /** How long the step takes on screen (cursor lead + glide, a reveal, a drag), else 0. */
   ms?: number
   boxes?: Record<string, { x: number; y: number; w: number; h: number }>
   viewport?: { x: number; y: number; zoom: number }

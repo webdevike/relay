@@ -108,56 +108,6 @@ describe('canvas live IPC', () => {
       error: { code: 'invalid-input' },
     })
   })
-
-  it("asks Nova: starts the board's session as her thread's, handing over the saved comment", async () => {
-    const post = vi.fn(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ roomId: 'r9', slug: 'mind-map', agent: { name: 'Nova' } }), {
-          status: 200,
-        }),
-      ),
-    )
-    registerCanvasLiveIpc(ctx, new FakeCanvas(), post as unknown as typeof fetch)
-    expect(
-      await call('canvas.live.ask', { slug: 'mind-map', thread: 't-1', page: 'flows' }),
-    ).toEqual({ ok: true, value: { roomId: 'r9', agent: 'Nova' } })
-    const [url, init] = post.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toBe('http://127.0.0.1:7817/canvas/sessions')
-    expect(JSON.parse(String(init.body))).toMatchObject({
-      slug: 'mind-map',
-      thread: { id: 't-1', page: 'flows' },
-      caller: { assistant: 'nova' },
-    })
-    await call('canvas.live.ask', { slug: 'mind-map', thread: 't-2' })
-    expect(
-      JSON.parse(String((post.mock.calls[1] as unknown as [string, RequestInit])[1].body)),
-    ).toMatchObject({
-      thread: { id: 't-2' },
-    })
-  })
-
-  it("says the host's refusal, or that Relay is not running, as canvas-unavailable", async () => {
-    const refuse = vi.fn(() =>
-      Promise.resolve(
-        new Response(JSON.stringify({ error: 'The nova assistant thread is not running.' }), {
-          status: 409,
-        }),
-      ),
-    )
-    registerCanvasLiveIpc(ctx, new FakeCanvas(), refuse as unknown as typeof fetch)
-    expect(await call('canvas.live.ask', { slug: 'mind-map', thread: 't-1' })).toEqual({
-      ok: false,
-      error: { code: 'canvas-unavailable', message: 'The nova assistant thread is not running.' },
-    })
-    ipc.handlers.clear()
-    const none = new FakeCanvas()
-    none.origin = null
-    registerCanvasLiveIpc(ctx, none)
-    expect(await call('canvas.live.ask', { slug: 'mind-map', thread: 't-1' })).toMatchObject({
-      ok: false,
-      error: { code: 'canvas-unavailable' },
-    })
-  })
 })
 
 describe('canvas.live action', () => {

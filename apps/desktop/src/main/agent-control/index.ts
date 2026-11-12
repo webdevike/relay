@@ -8,6 +8,7 @@ import {
   agentCatalog,
   appLinkFor,
   type AgentResult,
+  type CanvasBoardAnswer,
   type AgentRunners,
 } from '@evaos/contract'
 import type { Connections } from '../connections/connections'
@@ -26,6 +27,10 @@ import { studioRunners } from '../relay/studio-agent'
 import { AgentDrive, type DriveIdentity } from '../browser/agent-drive'
 import { browserRunners } from '../browser/agent-runners'
 import type { BrowserHost } from '../browser/browser-host'
+import { CanvasDrive } from '../canvas/agent-canvas'
+import { canvasRunners } from '../canvas/agent-runners'
+import { canvasStoreOf } from '../canvas/canvas-ipc'
+import type { AgentNotes } from '../agent-presence/notes'
 import { registerTestHook } from '../test-hooks'
 import type {
   RelayArtifacts,
@@ -55,6 +60,8 @@ export function registerAgentControl(
   connections: Connections,
   frames: RelayFrames,
   browser: BrowserHost,
+  /** Isaac's notes to the chats: told which chat's agent runs on each board and page. */
+  notes: AgentNotes,
   /** rooms.create / rooms.update / rooms.list (rooms/rooms-agent.ts). */
   rooms: Pick<AgentRunners<'main'>, 'rooms.create' | 'rooms.update' | 'rooms.list'>,
 ): void {
@@ -78,7 +85,6 @@ export function registerAgentControl(
     remote?.changed()
     return {}
   })
-  if (!ctx.env.agentControl) return
 
   const renderer = (action: string, params: unknown): Promise<AgentResult> => {
     if (ctx.shell.webContents.isDestroyed() || ctx.shell.webContents.isLoading()) {
@@ -95,12 +101,10 @@ export function registerAgentControl(
     )
   }
 
-  const screenshot = (): Promise<Buffer> => captureWindow(ctx.win, ctx.shell)
-
-  // Agents driving pages: who the calling session is comes from the renderer (its assistant's
-  // name, accent and portrait), cached per scope.
+  // Agents driving pages and boards: who the calling session is comes from the renderer (its
+  // assistant's name, accent, portrait and its chat's workspace), cached per scope.
   const identities = new Map<string, { at: number; who: DriveIdentity }>()
-  const drive = new AgentDrive(browser, async (scope) => {
+  const identify = async (scope: string | undefined): Promise<DriveIdentity> => {
     const key = scope ?? ''
     const hit = identities.get(key)
     if (hit && Date.now() - hit.at < IDENTITY_TTL_MS) return hit.who
@@ -109,13 +113,47 @@ export function registerAgentControl(
     const who = r.value as DriveIdentity
     identities.set(key, { at: Date.now(), who })
     return who
-  })
+  }
+  const drive = new AgentDrive(browser, identify)
   handle(ctx, 'browser.agent', ({ tabId, op }) => {
     drive.op(tabId, op)
     return { ok: true as const }
   })
   registerTestHook('agentDrive', drive)
 
+  const boards = canvasStoreOf(ctx)
+  if (!boards) throw new Error('registerCanvasIpc runs before registerAgentControl')
+  const canvasDrive = new CanvasDrive({
+    store: boards,
+    board: async (call) => {
+      const r = await renderer('@canvas', call)
+      return r.ok ? (r.value as CanvasBoardAnswer) : { mounted: false, ms: 0 }
+    },
+    changed: (slug) => emit(ctx, 'canvas.changed', { slug }),
+    publish: (list) => emit(ctx, 'canvas.runs', { runs: list }),
+    identify,
+    show: async (slug, scope) => {
+      const r = await renderer('tab.open', {
+        kind: 'page',
+        args: { page: 'canvas', canvas: slug },
+        ...(scope === undefined ? {} : { scope }),
+      })
+      if (!r.ok) throw Object.assign(new Error(r.message), { code: r.code })
+    },
+  })
+  handle(ctx, 'canvas.runs', () => ({ runs: canvasDrive.list() }))
+  handle(ctx, 'canvas.agent', ({ slug, op }) => {
+    canvasDrive.op(slug, op)
+    return { ok: true as const }
+  })
+  registerTestHook('canvasDrive', canvasDrive)
+  notes.runsFrom((note) =>
+    note.surface === 'canvas' ? canvasDrive.workspaceOf(note.slug) : drive.workspaceOf(note.tabId),
+  )
+
+  if (!ctx.env.agentControl) return
+
+  const screenshot = (): Promise<Buffer> => captureWindow(ctx.win, ctx.shell)
   const main: AgentRunners<'main'> = {
     'state.read': async () => {
       const r = await renderer('@state', {})
@@ -162,6 +200,7 @@ export function registerAgentControl(
     ...canvasLiveRunners(canvas),
     ...studioRunners(studio, (p) => renderer('studio.open', p)),
     ...browserRunners(drive),
+    ...canvasRunners(canvasDrive),
     ...rooms,
   }
 

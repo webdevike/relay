@@ -1,16 +1,19 @@
 import './agent-work.css'
 import type { CSSProperties } from 'react'
 import { IconCheck } from '@tabler/icons-react'
-import type { AgentRun, TabState } from '@evaos/contract'
+import type { AgentRun, AgentRunOp, TabState } from '@evaos/contract'
+import { placeOf } from '@evaos/shell-core'
 import { AgentFace, agentOp, workingLine } from '../../browser/AgentCaption'
 import { useBrowserStore } from '../../browser/browser-store'
+import { canvasAgentOp, useCanvasRuns } from '../../canvas/agent/runs-store'
 import { elapsedLabel } from '../../context/format'
 import { invoke } from '../../ipc'
-import { closeTab } from '../../tiling/tiling-store'
+import { closeTab, openPlaceBeside, useTiling } from '../../tiling/tiling-store'
 import { focusWebTab, webPanelId } from '../../tiling/web-tabs'
 import { useDismissedIds } from '../status-card/dismissed-cards'
 import { StatusCard } from '../status-card/StatusCard'
 import { useMinute } from './SubagentChips'
+
 /** The card's one line for each state of the agent's run. */
 function cardLine(a: AgentRun): string {
   switch (a.status) {
@@ -38,23 +41,46 @@ function closeFinished(tab: TabState): void {
   }
 }
 
-function WorkCard({ tab, agent, now }: { tab: TabState; agent: AgentRun; now: number }) {
+/** One surface an agent works: its run, what the card names it by, and how it opens. */
+interface Work {
+  agent: AgentRun
+  /** The card's id: a new run on the same surface is a new card, so it shows again. */
+  id: string
+  testid: string
+  /** What the card opens, for its tooltip (`Penny's tab`, `the Plan board`). */
+  what: string
+  /** The surface's own name before the line (a board's title); a page needs none. */
+  label?: string
+  open: () => void
+  op: (op: AgentRunOp) => void
+  /** What dismissing a finished run's card does besides hiding it, and what the X says. */
+  finish: () => void
+  finishLabel: string
+}
+
+function WorkCard({ work, now }: { work: Work; now: number }) {
+  const { agent, label } = work
   const s = agent.status
   const line = cardLine(agent)
   const finished = s === 'done' || s === 'stopped'
   return (
     <StatusCard
-      id={cardId(tab, agent)}
-      testId={`agent-work-${tab.id}`}
+      id={work.id}
+      testId={work.testid}
       data={{ 'data-status': s }}
-      label={`Open ${agent.name}'s tab`}
+      label={`Open ${work.what}`}
       style={{ '--eva-agent': agent.color } as CSSProperties}
       lead={<AgentFace agent={agent} size="s" />}
-      line={s === 'working' ? <span className="eva-agent-shimmer">{line}</span> : line}
-      lineTitle={line}
-      onOpen={() => focusWebTab(tab.id)}
-      onDismiss={finished ? () => closeFinished(tab) : undefined}
-      dismissLabel={finished ? 'Dismiss and close tab' : 'Dismiss'}
+      line={
+        <>
+          {label ? <b className="eva-agent-work-what">{label}</b> : null}
+          {s === 'working' ? <span className="eva-agent-shimmer">{line}</span> : line}
+        </>
+      }
+      lineTitle={label ? `${label}: ${line}` : line}
+      onOpen={work.open}
+      onDismiss={finished ? work.finish : undefined}
+      dismissLabel={finished ? work.finishLabel : 'Dismiss'}
       actions={
         s === 'ask' ? (
           <span className="eva-agent-acts">
@@ -62,7 +88,7 @@ function WorkCard({ tab, agent, now }: { tab: TabState; agent: AgentRun; now: nu
               type="button"
               className="eva-agent-btn eva-agent-btn-primary"
               data-testid="agent-work-allow"
-              onClick={() => agentOp(tab.id, 'allow')}
+              onClick={() => work.op('allow')}
             >
               Allow
             </button>
@@ -70,7 +96,7 @@ function WorkCard({ tab, agent, now }: { tab: TabState; agent: AgentRun; now: nu
               type="button"
               className="eva-agent-btn eva-agent-btn-quiet"
               data-testid="agent-work-deny"
-              onClick={() => agentOp(tab.id, 'deny')}
+              onClick={() => work.op('deny')}
             >
               Not now
             </button>
@@ -89,26 +115,53 @@ function WorkCard({ tab, agent, now }: { tab: TabState; agent: AgentRun; now: nu
   )
 }
 
-/** A run's card id: a new run on the same page is a new card, so it shows again. */
-const cardId = (tab: TabState, agent: AgentRun): string => `agent-work:${tab.id}@${agent.since}`
-
 /**
- * One row per page an agent drives in the workspace on screen, above the composer: its face, what
- * it is doing, how long, and Allow or Not now while it asks. A click brings its tab forward.
+ * One row per surface an agent works in the workspace on screen, above the composer: the pages it
+ * drives and the boards it works. Its face, what it is doing, how long, and Allow or Not now while
+ * it asks. A click brings its tab forward, or opens its board beside the chat.
  */
 export function AgentWorkCards() {
   const tabs = useBrowserStore((s) => s.tabs)
+  const runs = useCanvasRuns((s) => s.runs)
+  const front = useTiling((s) => s.scope)
   const now = useMinute()
   const dismissed = useDismissedIds()
-  const live = tabs.filter(
-    (t) =>
-      t.agent !== undefined && t.agent.status !== 'idle' && !dismissed.includes(cardId(t, t.agent)),
-  )
-  if (live.length === 0) return null
+  const work: Work[] = [
+    ...tabs.flatMap((t): Work[] =>
+      t.agent === undefined || t.agent.status === 'idle'
+        ? []
+        : [
+            {
+              agent: t.agent,
+              id: `agent-work:${t.id}@${t.agent.since}`,
+              testid: `agent-work-${t.id}`,
+              what: `${t.agent.name}'s tab`,
+              open: () => void focusWebTab(t.id),
+              op: (op) => agentOp(t.id, op),
+              finish: () => closeFinished(t),
+              finishLabel: 'Dismiss and close tab',
+            },
+          ],
+    ),
+    ...runs
+      .filter((r) => r.status !== 'idle' && r.workspace !== null && r.workspace === front)
+      .map((r): Work => ({
+        agent: r,
+        id: `agent-work:canvas:${r.slug}@${r.since}`,
+        testid: `agent-work-canvas-${r.slug}`,
+        what: `the ${r.board} board`,
+        label: r.board,
+        open: () => openPlaceBeside(placeOf('canvas', { canvas: r.slug })),
+        op: (op) => void canvasAgentOp(r.slug, op),
+        finish: () => void canvasAgentOp(r.slug, 'dismiss'),
+        finishLabel: 'Dismiss',
+      })),
+  ].filter((w) => !dismissed.includes(w.id))
+  if (work.length === 0) return null
   return (
     <div className="eva-agent-work" data-testid="agent-work">
-      {live.map((t) => (
-        <WorkCard key={t.id} tab={t} agent={t.agent!} now={now} />
+      {work.map((w) => (
+        <WorkCard key={w.testid} work={w} now={now} />
       ))}
     </div>
   )

@@ -146,10 +146,10 @@ export const AGENT_PAGES: readonly AgentPageInfo[] = [
   {
     key: 'canvas',
     title: 'Canvas',
-    description: 'Boards; live canvas rooms with an agent.',
+    description: 'Boards; an agent working one from its chat; live canvas rooms with an agent.',
     link: 'relay://open/canvas?canvas=<slug>',
-    read: PANES,
-    change: ['page.open', 'canvas.live'],
+    read: [...PANES, 'canvas.read'],
+    change: ['page.open', 'canvas.open', 'canvas.add', 'canvas.connect', 'canvas.live'],
   },
   {
     key: 'board:<slug>',

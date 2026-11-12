@@ -49,7 +49,7 @@ interface Pending {
   settled: Array<(o: Outcome) => void>
 }
 
-interface Slot<W extends RunWho> {
+interface Slot<W extends Owned> {
   actor: Actor<typeof agentRunMachine>
   who: W
   pending: Pending | null
@@ -57,7 +57,17 @@ interface Slot<W extends RunWho> {
   last: Outcome | null
   handback: Array<() => void>
   shown: string
+  /** Goes up whenever the run stops being the agent's (Take over, finish): actions in flight end. */
+  epoch: number
 }
+
+/**
+ * Who acts, with the chat it acts from: plain chats all show as Eva, so the run belongs to the
+ * chat's workspace when there is one, else to the face.
+ */
+export type Owned = RunWho & { workspace?: string | null }
+
+const ownerOf = (w: Owned): string => w.workspace ?? `${w.id ?? ''}\0${w.name}`
 
 export const fail = (code: string, message: string): never => {
   throw Object.assign(new Error(message), { code })
@@ -74,7 +84,7 @@ function outcomeOf(p: Pending, ms: number): Promise<Outcome | null> {
   return promise
 }
 
-export class AgentRuns<K extends string, W extends RunWho> {
+export class AgentRuns<K extends string, W extends Owned> {
   private slots = new Map<K, Slot<W>>()
 
   constructor(
@@ -105,7 +115,7 @@ export class AgentRuns<K extends string, W extends RunWho> {
   private slot(key: K, who: W, since: number): Slot<W> {
     const had = this.slots.get(key)
     if (had) return had
-    const slot = { who, pending: null, last: null, handback: [], shown: '' } as Omit<
+    const slot = { who, pending: null, last: null, handback: [], shown: '', epoch: 0 } as Omit<
       Slot<W>,
       'actor'
     > as Slot<W>
@@ -141,9 +151,18 @@ export class AgentRuns<K extends string, W extends RunWho> {
   drop(key: K): void {
     const s = this.slots.get(key)
     if (!s) return
+    s.epoch++
     this.release(s, { allowed: false })
     s.actor.stop()
     this.slots.delete(key)
+  }
+
+  /**
+   * The run's epoch on `key`: an action notes it when it begins and goes on only while it is
+   * unchanged and the run is working (Isaac took over or the run ended in between otherwise).
+   */
+  epoch(key: K): number {
+    return this.slots.get(key)?.epoch ?? -1
   }
 
   private release(slot: Slot<W>, o: Outcome): void {
@@ -170,14 +189,15 @@ export class AgentRuns<K extends string, W extends RunWho> {
   }
 
   /**
-   * Starts (or goes on with) `who`'s run on `key`: it becomes `working`. Fails when Isaac drives
-   * the surface, an Allow is waiting, or another agent is mid-run there.
+   * Fails, changing nothing, when `who` may not act on `key` now: Isaac drives the surface, an
+   * Allow is waiting, or another agent (another chat) is mid-run there.
    */
-  begin(key: K, who: W, caption?: string): void {
-    const slot = this.slot(key, who, this.now())
+  admit(key: K, who: W): void {
+    const slot = this.slots.get(key)
+    if (!slot) return
     const cur = runView(slot.actor.getSnapshot())
     const { noun, wait } = this.words
-    if (ACTIVE_STATUS[cur.status] && (cur.id !== who.id || cur.name !== who.name)) {
+    if (ACTIVE_STATUS[cur.status] && ownerOf(slot.who) !== ownerOf(who)) {
       fail('busy', `${cur.name} is driving this ${noun}`)
     }
     if (cur.status === 'paused') {
@@ -192,6 +212,12 @@ export class AgentRuns<K extends string, W extends RunWho> {
         `Waiting for Isaac to allow: ${cur.ask?.label ?? 'an action'}. ${wait} until approval`,
       )
     }
+  }
+
+  /** Starts (or goes on with) `who`'s run on `key`: it becomes `working`. Fails as `admit` does. */
+  begin(key: K, who: W, caption?: string): void {
+    this.admit(key, who)
+    const slot = this.slot(key, who, this.now())
     slot.who = who
     slot.actor.send({ type: 'run.begin', who, caption, now: this.now() })
   }
@@ -240,10 +266,12 @@ export class AgentRuns<K extends string, W extends RunWho> {
 
   /** Isaac's controls: Take over, Hand back, Allow, Not now, dismiss. */
   op(key: K, op: AgentRunOp): void {
-    const a = this.slots.get(key)?.actor
-    if (!a) return
+    const slot = this.slots.get(key)
+    if (!slot) return
+    const a = slot.actor
     switch (op) {
       case 'takeOver':
+        slot.epoch++
         a.send({ type: 'isaac.takeOver' })
         return
       case 'handBack':
@@ -271,9 +299,10 @@ export class AgentRuns<K extends string, W extends RunWho> {
   finish(key: K, who: W, summary: string, outcome: 'done' | 'stopped'): void {
     const slot = this.slot(key, who, this.now())
     const cur = runView(slot.actor.getSnapshot())
-    if (ACTIVE_STATUS[cur.status] && (cur.id !== who.id || cur.name !== who.name)) {
+    if (ACTIVE_STATUS[cur.status] && ownerOf(slot.who) !== ownerOf(who)) {
       fail('busy', `${cur.name} is driving this ${this.words.noun}`)
     }
+    slot.epoch++
     slot.who = who
     slot.actor.send({ type: 'run.finish', who, summary, outcome, now: this.now() })
   }

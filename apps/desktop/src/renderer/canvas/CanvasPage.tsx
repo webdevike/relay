@@ -1,6 +1,6 @@
 import { Button } from '@mantine/core'
 import { IconPlus } from '@tabler/icons-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { useReplacePlace } from '../pages/place-host'
 import { CanvasBoardView } from './CanvasBoard'
@@ -8,16 +8,20 @@ import { canvasStore, newBoard, useCanvasList, useCanvasListSurface } from './ca
 import { LiveCanvasView } from './live/LiveCanvasView'
 import { layersFor } from './live/handoff'
 import { liveRoomOn, useLiveRooms } from './live/live-store'
+import { AgentCaption } from '../browser/AgentCaption'
+import { canvasAgentOp, shownRun, useCanvasRuns } from './agent/runs-store'
 import './canvas.css'
 
 /**
  * The Canvas page: the tab's board, else the newest; an empty folder offers a new board. A board a
- * live room holds shows the room instead, and keeps showing it (ended) until Isaac moves on.
+ * live room holds shows the room instead, and keeps showing it (ended) until Isaac moves on. A
+ * board a chat's agent works sits in the agent's ring with its caption row underneath.
  */
 export function CanvasPage({ place }: { place: Place }) {
   useCanvasListSurface()
   const entries = useCanvasList((s) => s.entries)
   const error = useCanvasList((s) => s.error)
+  const run = useCanvasRuns((s) => shownRun(s.runs, place.canvas))
   const slug = place.canvas
   const replacePlace = useReplacePlace()
   const newest = entries?.[0]?.slug ?? null
@@ -56,7 +60,12 @@ export function CanvasPage({ place }: { place: Place }) {
   if (slug !== null) {
     // One wrapper whether or not a room is up, so the board is not remounted when the frame appears beside it.
     return (
-      <div className="eva-cv-stack">
+      <div
+        className="eva-cv-stack eva-agent-host"
+        data-testid="canvas-agent-frame"
+        data-agent={run?.status}
+        style={run ? ({ '--eva-agent': run.color } as CSSProperties) : undefined}
+      >
         {layers.board ? <CanvasBoardView key="board" slug={slug} /> : null}
         {shownRoom !== null ? (
           <LiveCanvasView
@@ -66,6 +75,13 @@ export function CanvasPage({ place }: { place: Place }) {
             covered={layers.covered}
             onPositioned={onPositioned}
             onBoard={() => setRoomId(null)}
+          />
+        ) : null}
+        {run ? (
+          <AgentCaption
+            agent={run}
+            subject="board"
+            onOp={(op) => void canvasAgentOp(run.slug, op)}
           />
         ) : null}
       </div>

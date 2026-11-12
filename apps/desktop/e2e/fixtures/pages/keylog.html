@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Key log</title>
+    <script>
+      // A page that records every key it can see, at the earliest point it can: capture
+      // listeners on window and document, installed before anything else runs.
+      window.__keys = []
+      for (const target of [window, document]) {
+        for (const type of ['keydown', 'keypress', 'keyup', 'beforeinput', 'input']) {
+          target.addEventListener(
+            type,
+            (e) => window.__keys.push(`${type}:${e.key ?? e.data ?? ''}`),
+            true,
+          )
+        }
+      }
+    </script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: sans-serif;
+        color: #fff;
+        background: linear-gradient(45deg, #224466, #33aa88);
+      }
+      body {
+        padding: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Key log</h1>
+    <button id="btn">Mark me</button>
+  </body>
+</html>
