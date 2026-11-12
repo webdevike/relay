@@ -28,6 +28,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import Animated, { FadeIn, FadeOut, ReduceMotion, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { expectKeyboard, keyboardHeight } from "@/lib/keyboardMotion";
+import { invertedIndicatorInsets } from "@/lib/invertedIndicatorInsets";
 import { answerText, assistantReactionThread, MAX_ASK_ANSWER, MAX_REPLY_IMAGES, splitRoomCards, stripAnswerContext, type AssistantMessage, type OpenAsk } from "@relay/protocol";
 import { AvatarTitle } from "@/ui/AvatarTitle";
 import { FrostedBar } from "@/ui/FrostedBar";
@@ -721,7 +722,8 @@ function Thread({ agent }: { agent: string }) {
                 }
                 // Inverted: room at the visual top for the frosted header, and for the keyboard's lift while it is up.
                 contentContainerStyle={{ paddingBottom: listTop + keyboardRoom }}
-                scrollIndicatorInsets={{ top: headerHeight + keyboardRoom, bottom: stackHeight + COMPOSER_PILL_HEIGHT + COMPOSER_BOTTOM }}
+                // The scroll view is flipped, so UIKit's top inset is the visual bottom: the composer there, the header (and keyboard lift) at the visual top.
+                scrollIndicatorInsets={invertedIndicatorInsets(headerHeight + keyboardRoom, stackHeight + COMPOSER_PILL_HEIGHT + COMPOSER_BOTTOM)}
                 contentOffset={{ x: 0, y: initialOffset.current }}
                 onEndReached={loadOlder}
                 onEndReachedThreshold={1}
