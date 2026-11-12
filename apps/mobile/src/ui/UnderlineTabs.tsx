@@ -1,5 +1,5 @@
 import { Pressable, ScrollView, View } from "react-native";
-import { spacing, useColors } from "@/theme";
+import { spacing, useColors, type ColorToken } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
 import { Text } from "@/ui/Text";
 
@@ -8,6 +8,11 @@ export interface UnderlineTabsProps<K extends string> {
   tabs: readonly { key: K; label: string; count?: number | undefined }[];
   value: K;
   onChange: (key: K) => void;
+  /** Each tab's testID is this plus its key. */
+  testIDPrefix?: string | undefined;
+  /** The selected tab's bar; the text color by default. */
+  barColor?: ColorToken | undefined;
+  testID?: string | undefined;
 }
 
 /**
@@ -15,10 +20,10 @@ export interface UnderlineTabsProps<K extends string> {
  * short bar under it (a page's sections, e.g. a PR's Conversation / Files / Checks / Guide).
  * Scrolls sideways when the labels outgrow the width.
  */
-export function UnderlineTabs<K extends string>({ tabs, value, onChange }: UnderlineTabsProps<K>) {
+export function UnderlineTabs<K extends string>({ tabs, value, onChange, testIDPrefix = "tab-", barColor = "text", testID }: UnderlineTabsProps<K>) {
   const colors = useColors();
   return (
-    <View style={{ borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
+    <View testID={testID} style={{ borderBottomWidth: 1, borderBottomColor: colors.hairline }}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.xl, gap: spacing.xl }}>
         {tabs.map((tab) => {
           const selected = tab.key === value;
@@ -28,7 +33,7 @@ export function UnderlineTabs<K extends string>({ tabs, value, onChange }: Under
               accessibilityRole="tab"
               accessibilityState={{ selected }}
               accessibilityLabel={tab.count === undefined ? tab.label : `${tab.label}, ${String(tab.count)}`}
-              testID={`tab-${tab.key}`}
+              testID={`${testIDPrefix}${tab.key}`}
               hitSlop={{ top: 8, bottom: 4 }}
               onPress={() => {
                 tapHaptic();
@@ -40,7 +45,7 @@ export function UnderlineTabs<K extends string>({ tabs, value, onChange }: Under
                 {tab.label}
                 {tab.count !== undefined && <Text variant="body" color="textFaint" style={{ fontWeight: "400" }}>{` ${String(tab.count)}`}</Text>}
               </Text>
-              <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 2, borderRadius: 1, backgroundColor: selected ? colors.text : "transparent" }} />
+              <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 2, borderRadius: 1, backgroundColor: selected ? colors[barColor] : "transparent" }} />
             </Pressable>
           );
         })}
