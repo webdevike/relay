@@ -15,7 +15,7 @@ import { debug, warn } from "@/connection/log";
 import { useSettingsStore } from "@/state/settings";
 import { VozDictation } from "../../modules/voz-dictation";
 import { deliverDictation } from "./deliver";
-import "./session";
+import { audioOwner } from "./session";
 import {
   dictationMachine,
   orbOf,
@@ -94,6 +94,8 @@ function runApple(report: SendBack, receive: Receive): () => void {
   receive(() => {
     ExpoSpeechRecognitionModule.stop();
   });
+  // Apple's recognizer takes the audio session on start; its `end` hands it back (session.ts).
+  audioOwner.send({ type: "dictation.started" });
   ExpoSpeechRecognitionModule.start(RECOGNIZER_OPTIONS);
   return () => {
     for (const subscription of subscriptions) subscription.remove();
