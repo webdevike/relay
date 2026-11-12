@@ -86,6 +86,10 @@ import { defaultRenderFailuresPath, RenderFailureService } from "./render-failur
 import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { ActivityService } from "./activity/service";
+import { CalibrationLog } from "./eta/calibration";
+import { RunHistory, sessionRoots, taskFiles } from "./eta/history";
+import { formatReport, runEtaReport } from "./eta/report";
+import { EtaService } from "./eta/service";
 import { listHerdrAgents } from "./agents/herdr";
 import { canvasAgentConfig, type CanvasAgentConfig } from "./canvas/agent-config";
 import { mindConfigOverlay, ompMinds, resolveOmp } from "./canvas/brain";
@@ -261,6 +265,9 @@ const USAGE = `relay-linux <command>
   catchup bounce <id> <reason> [--agent <id>]
                                    from an assistant's session: hand Catch Up card <id> back
                                    (--agent defaults to $RELAY_ASSISTANT)
+  eta [--json]                     how good the progress estimates on running badges are: past
+                                   runs replayed (the latest fifth held out) and live runs logged
+                                   in ~/.config/relay/eta-calibration.jsonl
   asks list [--agent <id>] [--json]
                                    the running host's open asks: questions an assistant asked
                                    Isaac (a reply ending on [[replies: ...]], or an omp ask) that
@@ -737,7 +744,19 @@ function serve(
           },
   });
   const canvas = liveCanvas(canvasDir, agentHome, agents, () => registry, config);
+  const eta = new EtaService({
+    history: new RunHistory(join(relayConfigDir(), "eta-history.json"), sessionRoots(), () => (agentHome === null ? new Set<string>() : taskFiles(agentHome)), log),
+    calibration: new CalibrationLog(join(relayConfigDir(), "eta-calibration.jsonl"), log),
+    sessionFile: (sessionId) => agents.sessionFile(sessionId),
+    isTask: (sessionId) => {
+      const session = agents.sessions.find((candidate) => candidate.id === sessionId);
+      return session !== undefined && (session.owner !== undefined || session.kind === "job");
+    },
+    now: () => Date.now(),
+    log,
+  });
   activity = new ActivityService({
+    eta: (items) => eta.annotate(items),
     sessions: () => agents.sessions,
     question: (sessionId) => {
       const ask = agents.pendingAsk(sessionId);
@@ -2380,6 +2399,15 @@ async function main(argv: string[]): Promise<void> {
           default: values.default,
         });
       else throw new Error("asks: try `asks list`, `asks add`, `asks get <id>` or `asks resolve <id>...`");
+      return;
+    }
+    case "eta": {
+      const agentHome = values["agent-home"] ?? loadHostConfig()?.agentHome ?? null;
+      const report = await runEtaReport(
+        new RunHistory(join(relayConfigDir(), "eta-history.json"), sessionRoots(), () => (agentHome === null ? new Set<string>() : taskFiles(agentHome))),
+        new CalibrationLog(join(relayConfigDir(), "eta-calibration.jsonl")),
+      );
+      console.log(values.json ? JSON.stringify(report, null, 2) : formatReport(report));
       return;
     }
     case "devices": {

@@ -41,7 +41,9 @@ export const ActivityEta = z.object({
   runs: z.number().int().nonnegative(),
   confidence: z.enum(['rough', 'confident']),
   overrunning: z.boolean(),
-  steps: z.object({ done: z.number().int().nonnegative(), total: z.number().int().positive() }).optional(),
+  steps: z
+    .object({ done: z.number().int().nonnegative(), total: z.number().int().positive() })
+    .optional(),
 })
 export type ActivityEta = z.infer<typeof ActivityEta>
 

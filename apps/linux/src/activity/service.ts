@@ -1,7 +1,7 @@
 // The activity list: one place where the host gathers what agents are running (helpers from the
 // artifacts, sessions from the omp bridge, harnesses from `herdr agent list`, canvas rooms), merges
-// it with what it said before (`mergeActivity`) and pushes `activity.snapshot` to every device
-// when it changes. Every client draws this list, so the Mini and the MacBook always agree.
+// it with what it said before (`mergeActivity`), attaches estimates (`eta`) and pushes
+// `activity.snapshot` to every device when it changes. Every client draws this list, so the Mini and the MacBook always agree.
 import { mergeActivity, type ActivityItem, type ActivityKind, type AgentSession, type Artifact, type CanvasRoomInfo, type ServerMessage } from "@relay/protocol";
 import type { HerdrAgent } from "../agents/herdr";
 import type { AgentProviderChange } from "../seams";
@@ -26,6 +26,8 @@ export interface ActivityServiceDeps {
   readonly broadcast: (message: ServerMessage) => void;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
+  /** Attaches how long each working session and helper has left (`EtaService.annotate`). */
+  readonly eta?: (items: readonly ActivityItem[]) => Promise<ActivityItem[]>;
 }
 
 /** What a client session and the server need of the activity list. */
@@ -111,12 +113,13 @@ export class ActivityService implements ActivityRelaying {
       }
       if (this.harnesses !== null) answered.add("harness");
       const at = this.deps.clock.now();
-      const found = [
+      const sourced = [
         ...helperItems(this.deps.helpers(), at),
         ...sessionItems(this.deps.sessions(), this.deps.question),
         ...harnessItems(this.harnesses ?? [], at),
         ...canvasItems(this.deps.rooms(), this.deps.roomCost),
       ];
+      const found = this.deps.eta === undefined ? sourced : await this.deps.eta(sourced);
       this.items = mergeActivity(this.items, found, answered, at);
       const key = JSON.stringify(this.items);
       if (force || key !== this.pushed) {

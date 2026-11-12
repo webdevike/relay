@@ -378,6 +378,33 @@ Linear; the answer is `artifacts.acted { rid, ok, error?, id? }`. Agents may not
 default tab or one Isaac hid, and change or remove only tabs they made. Images pasted into a thread are
 stored once in `artifacts/media/<sha>` and served at `GET /artifacts/media/<sha>/<token>`.
 
+## Progress estimates (`ActivityItem.eta`, `relay-host eta`)
+
+Every working session and helper in `activity.snapshot` carries `eta` when the host can say how long it has
+left (`src/eta/`); every client draws it as the fill behind that run's badge through `etaView` in
+`@relay/protocol`. Per poll `EtaService` tails the run's transcript (a session's from the bridge, a helper's
+from its item) and estimates the total from three things, blended in log space (`estimate.ts`):
+
+- History: the finished runs in every omp transcript under `~/.omp/agent/sessions` and each profile (last
+  120 days, cached per file in `$XDG_CONFIG_HOME/relay/eta-history.json`, read again every 30 minutes). A
+  run goes from a request to the reply that ends it; steers and background results stay inside it, and a
+  helper's harness nudges do too. Runs are bucketed by agent (`task`: a session an assistant listed in
+  `work/eva/agents/*/sessions.json` or a job, `helper`, `chat`) and kind of work from the title (build, fix,
+  research, review, render, deploy, prototype). The estimate is the median of similar runs that already
+  lasted longer than this one, weighted by 1/length (a run looked at a random moment is more likely a long
+  one), so it never reads done while the run goes on. Model and thinking level are kept on every run but
+  not bucketed on: held out, they made late estimates worse.
+- Plan: the run's todo list (`todo` results), else checkboxes in a HANDOFF.md or PLAN.md it wrote or read,
+  else "step k of n" in its latest reply.
+- Pace: turns so far against the turns similar runs took.
+
+Past nearly every similar run (the 90th percentile), `overrunning` is set and the badge says "Taking longer
+than usual" instead of creeping to full. When a run ends, what was predicted and how long it took go to
+`$XDG_CONFIG_HOME/relay/eta-calibration.jsonl`; runs like it (same agent and kind) are stretched or shrunk by
+the median actual-over-predicted of the latest 50 once there are 5. `relay-host eta [--json]` prints the
+accuracy: past runs replayed with the latest fifth held out, next to the plain "similar runs take their
+median" guess, and the live runs logged.
+
 ## Live canvas (`canvas.get`, `canvas.open`, `canvas.rooms`, `canvas.access`)
 
 Any omp session takes its chat onto an EvaOS board with `relay-linux canvas start <slug> [--prompt ...]`
