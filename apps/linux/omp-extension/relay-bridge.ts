@@ -42,6 +42,7 @@ import {
   parseSessionRows,
   skillCommandOf,
   CANVAS_MESSAGE_TYPE,
+  MEETING_CONTEXT_TYPE,
   type CanvasRow,
   GUEST_MESSAGE_TYPE,
   type GuestRow,
@@ -545,6 +546,35 @@ const LAUNCH_ID = process.env["RELAY_LAUNCH_ID"] || undefined;
 const OWNER = process.env["RELAY_OWNER"] || undefined;
 /** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
 const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+
+/**
+ * The meeting transcript the host has for assistant `agent`'s next turn, or null (no meeting in its
+ * chat, nothing new, or no host). The host is `$RELAY_HOST_URL`/`$RELAY_HOST_TOKEN` when it handed
+ * them down, else the one serve.json names; 2 s at most, so a stuck host never holds a turn.
+ */
+async function meetingContext(agent: string): Promise<{ id: string; text: string } | null> {
+  try {
+    let url = process.env["RELAY_HOST_URL"]?.trim().replace(/\/+$/, "") ?? "";
+    let token = process.env["RELAY_HOST_TOKEN"]?.trim() ?? "";
+    if (url === "" || token === "") {
+      const info = JSON.parse(readFileSync(join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay", "serve.json"), "utf8")) as { port?: unknown; controlToken?: unknown };
+      if (url === "" && typeof info.port === "number") url = `http://127.0.0.1:${String(info.port)}`;
+      if (token === "" && typeof info.controlToken === "string") token = info.controlToken;
+    }
+    if (url === "" || token === "") return null;
+    const response = await fetch(`${url}/meetings/context`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ agent }),
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { id?: unknown; text?: unknown };
+    return typeof body.id === "string" && typeof body.text === "string" ? { id: body.id, text: body.text } : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Where this session sits in Herdr, from the env Herdr gives every pane it launches. The tab
@@ -1613,6 +1643,18 @@ export default function relayBridge(pi: ExtensionAPI): void {
     if (ctx === null || !ctx.isIdle()) return;
     if (HANDOFF_COMMAND.test(event.text.trimStart())) setHandingOff(true);
   });
+
+  // An assistant's thread while a meeting routed to its chat runs: each turn starts with what was
+  // said since its previous turn, from the host (POST /meetings/context, meetings/route.ts), as a
+  // hidden message no chat draws. A host that is down or older only means no transcript this turn.
+  if (ASSISTANT !== null) {
+    const agent = ASSISTANT.id;
+    pi.on("before_agent_start", async () => {
+      const context = await meetingContext(agent);
+      if (context === null) return undefined;
+      return { message: { customType: MEETING_CONTEXT_TYPE, content: context.text, display: false, details: { meeting: context.id } } };
+    });
+  }
 
   // omp compacting on its own (context full, or its own auto handoff). Watched here rather than
   // through session_before_compact: any handler of that event turns off omp's speculative compaction.

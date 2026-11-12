@@ -57,6 +57,12 @@ export interface InboxMessage {
 export const CANVAS_MESSAGE_TYPE = "relay-canvas";
 /** omp custom message type the host's consult flow posts into the asking assistant's chat (relay-bridge `guest` request). */
 export const GUEST_MESSAGE_TYPE = "relay-guest";
+/**
+ * omp custom message type the relay bridge adds, hidden (`display: false`), before each turn of an
+ * assistant's thread while a meeting routed to it runs: the transcript since its last turn
+ * (meetings/route.ts). No chat draws it: it is not a row here, nor in chat-core.
+ */
+export const MEETING_CONTEXT_TYPE = "relay-meeting-context";
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 

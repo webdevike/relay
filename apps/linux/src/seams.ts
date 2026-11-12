@@ -409,6 +409,8 @@ export interface MeetingsRelaying {
   redeem(ticket: string): IngestGrant | null;
   connect(grant: IngestGrant, peer: IngestPeer): IngestConnection;
   observe(change: AgentProviderChange): void;
+  /** The hidden transcript for assistant `agent`'s next turn (`POST /meetings/context`), or null. */
+  contextFor(agent: string): { id: string; text: string } | null;
 }
 
 /** Shows / hides the pairing PIN. Exactly one `endPairing` per `beginPairing`. */

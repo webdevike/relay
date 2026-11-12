@@ -97,6 +97,14 @@ export const MeetingRecording = z.object({
   /** The notes file's stem once written (`<YYYYMMDD_HHMM>_<slug>_<id8>`). */
   stem: z.string().max(300).nullable(),
   seconds: z.number().nonnegative(),
+  /**
+   * The assistant whose chat the meeting is in (a registry id: Astra for eCard Systems work, Nova
+   * for the rest), or null when the host has none. Its chat shows the meeting card, and what Isaac
+   * says there while the call runs reaches it with the transcript. Older hosts leave it out.
+   */
+  assistant: z.string().max(64).nullable().default(null),
+  /** Isaac moved it to `assistant` himself (the `route` op); the calendar no longer moves it. */
+  routedByIsaac: z.boolean().default(false),
 });
 export type MeetingRecording = z.infer<typeof MeetingRecording>;
 
@@ -221,6 +229,8 @@ export const MeetingsOp = z.discriminatedUnion("kind", [
     label: z.string().min(1).max(100),
     name: z.string().min(1).max(200),
   }),
+  /** Move a meeting to another assistant's chat (a registry id). */
+  z.object({ kind: z.literal("route"), id: MeetingId, assistant: z.string().min(1).max(64) }),
 ]);
 export type MeetingsOp = z.infer<typeof MeetingsOp>;
 
@@ -351,3 +361,39 @@ export const MEETING_STAGE_LABEL: Record<MeetingStage, string> = {
   done: "Notes ready",
   failed: "Failed",
 };
+
+/** A meeting still on the call (recording, or the Mac still sending the last of the audio). */
+export function meetingIsLive(r: Pick<MeetingRecording, "stage">): boolean {
+  return r.stage === "recording" || r.stage === "uploading";
+}
+
+/** How long a chat keeps a meeting's "Meeting ended" card after the call (unless Isaac dismisses it). */
+export const MEETING_ENDED_CARD_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * The meeting cards assistant `agent`'s chat shows, live ones first, then the newest: every meeting
+ * routed to it that is still on the call, or ended less than `MEETING_ENDED_CARD_MS` ago.
+ */
+export function meetingCardsFor(
+  recordings: readonly MeetingRecording[],
+  agent: string,
+  now: number,
+): { recording: MeetingRecording; live: boolean }[] {
+  return recordings
+    .filter((r) => r.assistant === agent)
+    .map((recording) => ({ recording, live: meetingIsLive(recording) }))
+    .filter(
+      ({ recording, live }) =>
+        live ||
+        now - (recording.endedAt ?? recording.startedAt) < MEETING_ENDED_CARD_MS,
+    )
+    .sort((a, b) => Number(b.live) - Number(a.live) || b.recording.startedAt - a.recording.startedAt);
+}
+
+/** The one-tap questions beside a live meeting; each posts into the chat it is in, as Isaac. */
+export const MEETING_QUICK_ASKS = [
+  "What did I miss?",
+  "What was just decided?",
+  "Draft my answer",
+  "Action items so far",
+] as const;

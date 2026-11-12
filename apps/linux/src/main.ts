@@ -1193,6 +1193,15 @@ function meetingsService(o: {
     onLiveChange: o.onLiveChange,
     clock: systemClock,
     log,
+    // Read per meeting: a registry edit routes the next meeting without a restart.
+    assistants: () => {
+      if (o.agentHome === null) return [];
+      try {
+        return loadRegistry(o.agentHome);
+      } catch {
+        return [];
+      }
+    },
   });
   log(
     `meetings in ${defaultMeetingsDir()}, notes in ${protocolsDir}${shadow ? " (shadow)" : ""}, transcription ${asr === null ? `off (no ${existsSync(asrPython()) ? ASR_SCRIPT : asrPython()})` : "by relay-asr"}`,

@@ -17,6 +17,7 @@ import {
   MEETING_SAMPLE_RATE,
   MEETING_TICKET_TTL_MS,
   meetingClock,
+  meetingIsLive,
   type AstraItem,
   type LiveLine,
   type MeetingNotes,
@@ -35,6 +36,7 @@ import {
 } from "../../../../packages/eva-core/src/model/meetings-ops";
 import { parseProtocol } from "../../../../packages/eva-core/src/model/protocol";
 import type { LaunchOptions } from "../agents/herdr";
+import type { AssistantAgentConfig } from "../assistant/registry";
 import { ASK_MARK, AstraSessions } from "../reviews/astra";
 import type {
   AgentProvider,
@@ -47,6 +49,7 @@ import type {
 import type { SessionClock } from "../session";
 import type { Asr, WorkerLine, WorkerTurns } from "./asr";
 import { LiveTranscript } from "./live";
+import { calendarTitle, CONTEXT_AFTER_END_MS, meetingContext, routeMeeting, type Given } from "./route";
 import { PlatformSampleSchema, type PlatformSample } from "./speakers";
 import {
   publicRecording,
@@ -107,6 +110,8 @@ export interface MeetingsServiceDeps {
   readonly log: (line: string) => void;
   /** A call started or stopped being transcribed live (Studio holds new GPU jobs meanwhile). */
   readonly onLiveChange?: () => void;
+  /** The assistants registry as it is now (route.ts picks a meeting's chat from it). */
+  readonly assistants: () => readonly Pick<AssistantAgentConfig, "id" | "profile">[];
 }
 
 interface Ticket {
@@ -188,6 +193,8 @@ export class MeetingsService implements MeetingsRelaying {
   private readonly astra: AstraSessions;
   private readonly astraOf = new Map<string, AstraItem>();
   private readonly running = new Set<string>();
+  /** What each assistant's thread was given of each meeting (`<id>:<agent>`), for `contextFor`. */
+  private readonly given = new Map<string, Given>();
   private evaFs: EvaFs | null = null;
   private watcher: FSWatcher | null = null;
   private stateTimer: (() => void) | null = null;
@@ -226,6 +233,11 @@ export class MeetingsService implements MeetingsRelaying {
         m.stage === "summarizing"
       )
         void this.afterCall(m.id);
+      // A call recording since before meetings were routed gets its chat now.
+      if (m.stage === "recording" && m.assistant === null) {
+        m.assistant = routeMeeting(m, this.deps.assistants());
+        this.deps.store.save(m);
+      }
     }
     if (this.deps.agentHome !== null) {
       try {
@@ -324,6 +336,11 @@ export class MeetingsService implements MeetingsRelaying {
         globalTap: false,
         context: null,
         names: {},
+        assistant: routeMeeting(
+          { app: open.app, title: open.title ?? null, context: null },
+          this.deps.assistants(),
+        ),
+        routedByIsaac: false,
       });
       this.deps.log(`meetings: ${open.app} recording ${open.id} from ${deviceName}`);
       this.deps.push(
@@ -533,7 +550,10 @@ export class MeetingsService implements MeetingsRelaying {
           const now = this.deps.store.load(id);
           if (now === null || context === null) return;
           now.context = context;
-          this.deps.store.save(now);
+          // The calendar names the call and tells work from personal, unless Isaac moved it.
+          now.title ??= calendarTitle(context.annotation);
+          if (!now.routedByIsaac) now.assistant = routeMeeting(now, this.deps.assistants());
+          this.update(now);
           const l = this.live.get(id);
           if (context.remoteName !== undefined && l !== undefined) {
             for (const c of l.transcript.renameApp(context.remoteName)) l.pending.set(c.id, c);
@@ -752,6 +772,17 @@ export class MeetingsService implements MeetingsRelaying {
           this.update(m);
           return OK;
         }
+        case "route": {
+          const m = this.deps.store.load(op.id);
+          if (m === null) return { ok: false, error: "No such recording.", code: "not-found" };
+          if (!this.deps.assistants().some((a) => a.id === op.assistant))
+            return { ok: false, error: `No assistant ${op.assistant}.`, code: "not-found" };
+          m.assistant = op.assistant;
+          m.routedByIsaac = true;
+          this.update(m);
+          this.deps.log(`meetings: ${op.id} moved to ${op.assistant}'s chat`);
+          return OK;
+        }
       }
     } catch (error) {
       return fail(error);
@@ -761,6 +792,30 @@ export class MeetingsService implements MeetingsRelaying {
   /** Whether a call is being transcribed live right now. */
   transcribingLive(): boolean {
     return [...this.live.values()].some((l) => l.open);
+  }
+
+  /**
+   * What assistant `agent`'s next turn is told of the meeting in its chat (route.ts), or null: the
+   * newest one still on the call or ended under `CONTEXT_AFTER_END_MS` ago, with what was said since
+   * the thread's last turn. Each answer counts as given.
+   */
+  contextFor(agent: string): { id: string; text: string } | null {
+    const now = this.deps.clock.now();
+    const m = this.deps.store
+      .all()
+      .filter(
+        (r) =>
+          r.assistant === agent &&
+          (meetingIsLive(r) || now - (r.endedAt ?? r.startedAt) < CONTEXT_AFTER_END_MS),
+      )
+      .sort((a, b) => b.startedAt - a.startedAt)[0];
+    if (m === undefined) return null;
+    const key = `${m.id}:${agent}`;
+    const lines = this.live.get(m.id)?.transcript.all() ?? this.deps.store.lines(m.id);
+    const out = meetingContext(m, lines, this.given.get(key) ?? null, now);
+    if (out === null) return null;
+    this.given.set(key, out.given);
+    return { id: m.id, text: out.text };
   }
 
   observe(change: AgentProviderChange): void {

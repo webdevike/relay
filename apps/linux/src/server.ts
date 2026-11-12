@@ -47,6 +47,7 @@ import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
 import { CommandDedupStore } from "./dedup";
 import { guardWrite, type WriteBody } from "./http-guard";
+import { handleMeetingsContext, MEETINGS_CONTEXT_PATH } from "./meetings/http";
 import { serveBlob } from "./drops/serve";
 import { audioMimeOf, isAudioMime } from "./drops/audio";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
@@ -186,6 +187,7 @@ export function loopbackWriteBody(path: string): WriteBody | null {
     path === "/canvas/sessions" ||
     path.startsWith("/canvas/sessions/") ||
     path === "/query" ||
+    path === MEETINGS_CONTEXT_PATH ||
     path.startsWith("/control/")
   )
     return "json";
@@ -412,6 +414,8 @@ export class RelayServer {
             this.deps.query,
           );
         if (path === "/query") return handleQueryRequest(this.deps.query, request, remote);
+        if (path === MEETINGS_CONTEXT_PATH)
+          return handleMeetingsContext(this.deps.meetings, request, remote);
         if (path === "/assistant/say")
           return handleAssistantSay(this.deps.assistant, request, remote);
         if (path === "/assistant/consult") {

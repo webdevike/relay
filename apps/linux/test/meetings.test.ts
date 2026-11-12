@@ -16,6 +16,7 @@ import {
   transcriptLines,
   type Autoname,
 } from "../src/meetings/pipeline";
+import { calendarTitle, routeMeeting } from "../src/meetings/route";
 import { MeetingsService, qaOf, type AfterCall, type Conn } from "../src/meetings/service";
 import { RecordingStore, type RecordingMeta } from "../src/meetings/store";
 import type { IngestPeer } from "../src/seams";
@@ -32,6 +33,10 @@ afterEach(() => {
 });
 
 const ID = "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10";
+const AGENTS = [
+  { id: "astra", profile: "work" as const },
+  { id: "nova", profile: "personal" as const },
+];
 const wl = (
   track: "app" | "mic",
   start: number,
@@ -381,6 +386,8 @@ function baseMeta(extra: Partial<RecordingMeta> = {}): RecordingMeta {
     globalTap: false,
     context: null,
     names: {},
+    assistant: null,
+    routedByIsaac: false,
     ...extra,
   };
 }
@@ -452,6 +459,7 @@ describe("meetings service", () => {
       push: (title) => pushes.push(title),
       clock,
       log: () => undefined,
+      assistants: () => AGENTS,
     });
 
     const r = service.openIngest("dev1", "Isaac's Mac mini", {
@@ -466,6 +474,8 @@ describe("meetings service", () => {
       refused: "another Mac holds this recording",
     });
     expect(pushes).toEqual(["Recording Weekly Sync"]);
+    // A Teams call is eCard work: Astra's chat.
+    expect(store.load(ID)?.assistant).toBe("astra");
     const grant = service.redeem(r.ticket);
     if (grant === null) throw new Error("ticket not redeemed");
     expect(grant).toMatchObject({ id: ID, deviceId: "dev1" });
@@ -625,6 +635,7 @@ describe("meetings service", () => {
       push: () => undefined,
       clock,
       log: () => undefined,
+      assistants: () => AGENTS,
     });
     const conn = service.connect(
       { id: ID, deviceId: "dev1", deviceName: "Mini" },
@@ -651,5 +662,142 @@ describe("meetings service", () => {
     expect(replies[0]).not.toContain("Release is Tuesday");
     conn.closed();
     service.stop();
+  });
+});
+
+describe("meetings in an assistant's chat", () => {
+  it("routes eCard work to the work assistant and the rest to the personal one", () => {
+    const meta = (app: string, annotation: string | null, title: string | null = null) => ({
+      app,
+      title,
+      context: annotation === null ? null : { annotation },
+    });
+    expect(routeMeeting(meta("Microsoft Teams", null), AGENTS)).toBe("astra");
+    expect(routeMeeting(meta("Zoom", null), AGENTS)).toBe("nova");
+    expect(routeMeeting(meta("Slack", '**Attendees:** Bill (Outlook: "Design Review")'), AGENTS)).toBe("astra");
+    expect(routeMeeting(meta("Slack", null, "eCard platform huddle"), AGENTS)).toBe("astra");
+    expect(routeMeeting(meta("Zoom", "**Attendees:** Mom, Dad"), AGENTS)).toBe("nova");
+    // A registry with only one kind still gets the meeting; none at all routes nowhere.
+    expect(routeMeeting(meta("Zoom", null), [{ id: "astra", profile: "work" }])).toBe("astra");
+    expect(routeMeeting(meta("Zoom", null), [])).toBeNull();
+    expect(calendarTitle('**Attendees:** A, B (Outlook: "Release Planning (updated)")')).toBe(
+      "Release Planning (updated)",
+    );
+    expect(calendarTitle("**Attendees:** A, B")).toBeNull();
+  });
+
+  function service(lookup: AfterCall["lookup"]) {
+    const store = new RecordingStore(join(tmp("relay-meet-route-"), "rec"));
+    const clock = new FakeClock();
+    const sent: ServerMessage[] = [];
+    const svc = new MeetingsService({
+      store,
+      asr: idleAsr(),
+      agentHome: null,
+      shadow: true,
+      human: "Isaac",
+      afterCall: {
+        run: () => Promise.resolve(null),
+        notes: () => null,
+        rename: () => Promise.resolve(),
+        remove: () => undefined,
+        lookup,
+      },
+      agents: {
+        sessions: [],
+        conversation: () => Promise.resolve(null),
+        reply: () => Promise.resolve(),
+        configure: () => Promise.resolve(),
+      },
+      launch: null,
+      sessionFile: () => null,
+      socketPath: "/tmp/none.sock",
+      broadcast: (m) => sent.push(m),
+      push: () => undefined,
+      clock,
+      log: () => undefined,
+      assistants: () => AGENTS,
+    });
+    return { store, clock, sent, svc };
+  }
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 4; i += 1) await Promise.resolve();
+  };
+
+  it("lets the calendar name and reroute a call, until Isaac moves it", async () => {
+    const outlook = { annotation: '**Attendees:** Todd, Isaac (Outlook: "Release Planning")' };
+    const a = service(() => Promise.resolve(outlook));
+    a.svc.openIngest("dev1", "Mini", { id: ID, app: "Zoom", startedAt: a.clock.now() });
+    expect(a.store.load(ID)).toMatchObject({ assistant: "nova", title: null });
+    a.clock.advance(60_000);
+    await settle();
+    expect(a.store.load(ID)).toMatchObject({ assistant: "astra", title: "Release Planning" });
+    expect(a.sent.filter((m) => m.t === "meeting.recording").at(-1)).toMatchObject({
+      recording: { assistant: "astra", title: "Release Planning", routedByIsaac: false },
+    });
+
+    const b = service(() => Promise.resolve(outlook));
+    b.svc.openIngest("dev1", "Mini", { id: ID, app: "Zoom", startedAt: b.clock.now() });
+    expect(await b.svc.handle({ kind: "route", id: ID, assistant: "nova" })).toEqual({ ok: true });
+    expect(await b.svc.handle({ kind: "route", id: ID, assistant: "eva" })).toMatchObject({
+      ok: false,
+      code: "not-found",
+    });
+    b.clock.advance(60_000);
+    await settle();
+    expect(b.store.load(ID)).toMatchObject({
+      assistant: "nova",
+      routedByIsaac: true,
+      title: "Release Planning",
+    });
+  });
+
+  it("hands the chat's assistant the transcript so far, then only what is new, then the end once", () => {
+    const { store, clock, svc } = service(() => Promise.resolve(null));
+    svc.openIngest("dev1", "Mini", {
+      id: ID,
+      app: "Microsoft Teams",
+      title: "Dev Sync",
+      startedAt: clock.now(),
+    });
+    const conn = svc.connect(
+      { id: ID, deviceId: "dev1", deviceName: "Mini" },
+      { sendText: () => undefined, close: () => undefined },
+    );
+    conn.text(JSON.stringify({ t: "meeting.hello", id: ID }));
+    expect(svc.contextFor("astra")?.text).toContain("(nothing new said)");
+    svc.line(wl("app", 0, "Release is Tuesday."));
+    svc.line(wl("mic", 3000, "I can take the dashboard", false));
+    // Not the chat it is in.
+    expect(svc.contextFor("nova")).toBeNull();
+    const first = svc.contextFor("astra");
+    expect(first?.id).toBe(ID);
+    expect(first?.text).toContain('Isaac is in a meeting right now and it is in your chat: "Dev Sync"');
+    expect(first?.text).toContain("New in the transcript since your last turn:");
+    expect(first?.text).toContain("[0:00] Remote: Release is Tuesday.");
+    expect(first?.text).toContain("[0:03] Isaac: I can take the dashboard (still speaking)");
+    // Only a draft since: nothing to add.
+    expect(svc.contextFor("astra")).toBeNull();
+    svc.line(wl("mic", 3000, "I can take the dashboard."));
+    svc.line(wl("app", 9000, "Great, thanks."));
+    const next = svc.contextFor("astra")?.text ?? "";
+    expect(next).toContain("[0:03] Isaac: I can take the dashboard.");
+    expect(next).toContain("[0:09] Remote: Great, thanks.");
+    expect(next).not.toContain("Release is Tuesday");
+
+    // Moved to Nova: her first turn gets the whole call.
+    void svc.handle({ kind: "route", id: ID, assistant: "nova" });
+    expect(svc.contextFor("astra")).toBeNull();
+    expect(svc.contextFor("nova")?.text).toContain("Below is the machine transcript so far");
+
+    const m = store.load(ID);
+    if (m === null) throw new Error("no recording");
+    store.save({ ...m, stage: "done", endedAt: clock.now() });
+    expect(svc.contextFor("nova")?.text).toContain('The meeting "Dev Sync" (Microsoft Teams');
+    expect(svc.contextFor("nova")).toBeNull();
+    clock.advance(31 * 60_000);
+    expect(svc.contextFor("nova")).toBeNull();
+    conn.closed();
+    svc.stop();
   });
 });
