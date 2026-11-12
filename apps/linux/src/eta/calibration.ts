@@ -14,6 +14,7 @@ const Record = z.object({
   id: z.string(),
   title: z.string(),
   agent: z.enum(["chat", "task", "helper"]),
+  role: z.string().nullable().default(null),
   kind: z.enum(RUN_KINDS),
   model: z.string().nullable(),
   thinking: z.string().nullable(),

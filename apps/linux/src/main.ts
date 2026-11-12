@@ -87,7 +87,7 @@ import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { ActivityService } from "./activity/service";
 import { CalibrationLog } from "./eta/calibration";
-import { RunHistory, sessionRoots, taskFiles } from "./eta/history";
+import { RunHistory, sessionRoots, sessionSources } from "./eta/history";
 import { formatReport, runEtaReport } from "./eta/report";
 import { EtaService } from "./eta/service";
 import { listHerdrAgents } from "./agents/herdr";
@@ -108,6 +108,7 @@ import { BonjourAdvertiser } from "./mdns";
 import { PinFilePairingUI, TerminalPairingUI } from "./pairing";
 import { PAIRING_TIMEOUT_MS, systemClock } from "./session";
 import {
+  appAgentHome,
   featureOn,
   human,
   loadHostConfig,
@@ -265,9 +266,10 @@ const USAGE = `relay-linux <command>
   catchup bounce <id> <reason> [--agent <id>]
                                    from an assistant's session: hand Catch Up card <id> back
                                    (--agent defaults to $RELAY_ASSISTANT)
-  eta [--json]                     how good the progress estimates on running badges are: past
-                                   runs replayed (the latest fifth held out) and live runs logged
-                                   in ~/.config/relay/eta-calibration.jsonl
+  eta [--json] [--agent-home <dir>] how good the progress estimates on running badges are: past
+                                   runs replayed (the latest fifth held out; tasks and agent
+                                   sessions from the agent home the host app uses) and live runs
+                                   logged in ~/.config/relay/eta-calibration.jsonl
   asks list [--agent <id>] [--json]
                                    the running host's open asks: questions an assistant asked
                                    Isaac (a reply ending on [[replies: ...]], or an omp ask) that
@@ -745,13 +747,14 @@ function serve(
   });
   const canvas = liveCanvas(canvasDir, agentHome, agents, () => registry, config);
   const eta = new EtaService({
-    history: new RunHistory(join(relayConfigDir(), "eta-history.json"), sessionRoots(), () => (agentHome === null ? new Set<string>() : taskFiles(agentHome)), log),
+    history: new RunHistory(join(relayConfigDir(), "eta-history.json"), sessionRoots(), () => sessionSources(agentHome), log),
     calibration: new CalibrationLog(join(relayConfigDir(), "eta-calibration.jsonl"), log),
     sessionFile: (sessionId) => agents.sessionFile(sessionId),
     isTask: (sessionId) => {
       const session = agents.sessions.find((candidate) => candidate.id === sessionId);
       return session !== undefined && (session.owner !== undefined || session.kind === "job");
     },
+    sources: () => sessionSources(agentHome),
     now: () => Date.now(),
     log,
   });
@@ -2402,9 +2405,9 @@ async function main(argv: string[]): Promise<void> {
       return;
     }
     case "eta": {
-      const agentHome = values["agent-home"] ?? loadHostConfig()?.agentHome ?? null;
+      const agentHome = values["agent-home"] ?? appAgentHome();
       const report = await runEtaReport(
-        new RunHistory(join(relayConfigDir(), "eta-history.json"), sessionRoots(), () => (agentHome === null ? new Set<string>() : taskFiles(agentHome))),
+        new RunHistory(join(relayConfigDir(), "eta-history.json"), sessionRoots(), () => sessionSources(agentHome)),
         new CalibrationLog(join(relayConfigDir(), "eta-calibration.jsonl")),
       );
       console.log(values.json ? JSON.stringify(report, null, 2) : formatReport(report));

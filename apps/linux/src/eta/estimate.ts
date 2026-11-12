@@ -8,52 +8,85 @@ import type { PlanSteps, RunKey, RunRecord } from "./runs";
 export const MIN_BUCKET_RUNS = 8;
 /** Survivors (similar runs longer than this one already is) needed to read a conditional median. */
 const MIN_SURVIVORS = 8;
+/**
+ * Pseudo-runs of the agent's whole history a bucket's survivors are blended with: a bucket with as
+ * many survivors counts half. Replayed on held-out runs it cut task error a quarter through from
+ * 0.49 to 0.45 and halfway from 0.20 to 0.18.
+ */
+const SHRINK_RUNS = 20;
 /** Longer than this share of similar runs: overrunning. */
 const OVERRUN_QUANTILE = 0.9;
+/** Runs past a bucket's 90th percentile needed to read how heavy its tail is. */
+const MIN_TAIL_RUNS = 5;
+/** The tail index when no bucket has enough long runs: about how this machine's runs fall off. */
+const DEFAULT_TAIL = 1.5;
 
 export interface Bucket {
-  /** Which fields matched: `agent=task·kind=build`, `agent=task` or `all`. */
+  /** Which fields matched: `agent=helper·role=helper-code·kind=build`, `agent=task` or `all`. */
   readonly level: string;
   /** Finished run lengths, ms, ascending. */
   readonly durations: readonly number[];
   /** Turns those runs took, ascending. */
   readonly turns: readonly number[];
+  /**
+   * How fast the runs past the 90th percentile fall off (a Pareto index fitted to them): given a
+   * run has lasted `t` beyond them, its total is about `t * 2^(1/tail)`. NaN with too few.
+   */
+  readonly tail: number;
 }
 
 /**
  * Bucket levels, most specific first. Model and thinking level are recorded on every run but not
  * bucketed on: replaying the last fifth of history, model and thinking buckets raised the error
  * three quarters of the way through a task from 0.23 to 0.41 (thin buckets, and the model mix
- * shifts week to week), while kind and agent held up.
+ * shifts week to week). Who ran it (a helper's agent definition, an agent session's `--agent`)
+ * does carry early on: replayed, it cut held-out helper error a tenth of the way through from 0.71
+ * to 0.63 and task error a quarter through from 0.52 to 0.45 (late in long tasks it overshoots a
+ * little more: 0.24 to 0.34 at three quarters).
  */
-const LEVELS: readonly (readonly (keyof RunKey)[])[] = [["agent", "kind"], ["agent"], []];
+const LEVELS: readonly (readonly (keyof RunKey)[])[] = [["agent", "role", "kind"], ["agent", "role"], ["agent", "kind"], ["agent"], []];
 
 const bucketId = (fields: readonly (keyof RunKey)[], key: RunKey): string => fields.map((field) => `${field}=${key[field] ?? "-"}`).join("·") || "all";
 
+/** The Pareto index of the runs above the 90th percentile of `sorted`, NaN below `MIN_TAIL_RUNS`. */
+export function tailIndex(sorted: readonly number[]): number {
+  const p90 = quantile(sorted, OVERRUN_QUANTILE);
+  let n = 0;
+  let sum = 0;
+  for (const value of sorted) {
+    if (value <= p90) continue;
+    n += 1;
+    sum += Math.log(value / p90);
+  }
+  return n < MIN_TAIL_RUNS || sum <= 0 ? Number.NaN : Math.min(6, Math.max(0.8, n / sum));
+}
+
 /** Finished runs grouped at every level, for `bucketsFor`. Failed (cut short) runs are left out. */
 export class RunIndex {
-  private readonly groups = new Map<string, { durations: number[]; turns: number[] }>();
+  private readonly groups = new Map<string, Bucket>();
   readonly size: number;
 
   constructor(runs: Iterable<RunRecord>) {
+    const lists = new Map<string, { durations: number[]; turns: number[] }>();
     let size = 0;
     for (const run of runs) {
       if (run.outcome !== "done" || run.durationMs < 5000) continue;
       size += 1;
       for (const fields of LEVELS) {
         const id = bucketId(fields, run);
-        let group = this.groups.get(id);
+        let group = lists.get(id);
         if (group === undefined) {
           group = { durations: [], turns: [] };
-          this.groups.set(id, group);
+          lists.set(id, group);
         }
         group.durations.push(run.durationMs);
         group.turns.push(run.turnAt.length);
       }
     }
-    for (const group of this.groups.values()) {
+    for (const [level, group] of lists) {
       group.durations.sort((a, b) => a - b);
       group.turns.sort((a, b) => a - b);
+      this.groups.set(level, { level, durations: group.durations, turns: group.turns, tail: tailIndex(group.durations) });
     }
     this.size = size;
   }
@@ -62,9 +95,8 @@ export class RunIndex {
   bucketsFor(key: RunKey): Bucket[] {
     const out: Bucket[] = [];
     for (const fields of LEVELS) {
-      const level = bucketId(fields, key);
-      const group = this.groups.get(level);
-      if (group !== undefined) out.push({ level, durations: group.durations, turns: group.turns });
+      const group = this.groups.get(bucketId(fields, key));
+      if (group !== undefined) out.push(group);
     }
     return out;
   }
@@ -116,6 +148,8 @@ export interface LiveRun {
   readonly from: number;
   readonly turns: number;
   readonly steps: PlanSteps | null;
+  /** The longest it may run from `from` (an agent session's `--max-time`). */
+  readonly limitMs?: number;
 }
 
 /** One estimate of the total, with its middle-half range, in log space for blending. */
@@ -132,9 +166,27 @@ export function roundMs(ms: number): number {
   return Math.max(step, Math.round(ms / step) * step);
 }
 
+/**
+ * How far along a run is by what can be seen while it runs: with a plan, the share of steps done;
+ * without one, elapsed over how long similar runs usually take. (Elapsed over the estimate's own
+ * total says little: a history-only estimate sits around two thirds most of the way through.)
+ */
+export function stageOf(elapsedMs: number, typicalMs: number, steps: PlanSteps | null): number {
+  return steps === null ? elapsedMs / Math.max(typicalMs, 1) : steps.done / steps.total;
+}
+
+/**
+ * Whether estimates like this one have held up: replayed on held-out runs, the median error at this
+ * stage (`stageOf`) for this agent, with or without a plan, was small (`ConfidenceTable`). Only then
+ * is a badge solid.
+ */
+export type Trust = (key: RunKey, planned: boolean, stage: number) => boolean;
+
 export interface EstimateOptions {
   /** Learned from calibration: actual over predicted for runs like this one (1 = unbiased). */
   readonly bias?: number;
+  /** When an estimate may be drawn solid; without it every estimate is rough. */
+  readonly trust?: Trust;
 }
 
 /**
@@ -142,8 +194,12 @@ export interface EstimateOptions {
  *
  * - History: the median length of similar runs that went on longer than this one already has,
  *   weighted by 1/length (`seenQuantile`), so it never says "done" for a run that is plainly going on.
+ * - Past what history can say (few similar runs lasted this long): elapsed times how far runs past
+ *   the 90th percentile went on (`Bucket.tail`), so the estimate climbs with elapsed time instead of
+ *   parking at a fixed total.
  * - Plan: elapsed over the share of steps done, trusted more the further along it is.
  * - Pace: turns so far against the turns similar runs took, at this run's own time per turn.
+ * - Limit: never past the run's `--max-time`.
  * - Overrunning: longer than nearly every similar run, or past what any history can say.
  */
 export function estimateRun(index: RunIndex, run: LiveRun, now: number, options: EstimateOptions = {}): ActivityEta | null {
@@ -155,14 +211,27 @@ export function estimateRun(index: RunIndex, run: LiveRun, now: number, options:
   let overrunning = false;
 
   if (prior !== null) {
+    const broader = buckets.slice(buckets.indexOf(prior));
     overrunning = elapsed > quantile(prior.durations, OVERRUN_QUANTILE) * bias;
     // The specific bucket's survivors when it has enough, else the first broader one that does.
-    const survivors = [prior, ...buckets.slice(buckets.indexOf(prior) + 1)].map((bucket) => above(bucket.durations, elapsed / bias)).find((list) => list.length >= MIN_SURVIVORS);
-    if (survivors === undefined) {
-      overrunning = true;
-      parts.push({ total: elapsed * 1.25, low: elapsed * 1.05, high: elapsed * 2, weight: 1 });
-    } else {
-      parts.push({ total: seenQuantile(survivors, 0.5) * bias, low: seenQuantile(survivors, 0.25) * bias, high: seenQuantile(survivors, 0.75) * bias, weight: 1 });
+    const lists = broader.map((bucket) => above(bucket.durations, elapsed / bias));
+    const pick = lists.findIndex((list) => list.length >= MIN_SURVIVORS);
+    const survivors = pick === -1 ? [] : lists[pick]!;
+    // A thin specific bucket is shrunk toward the agent's whole history (`SHRINK_RUNS`).
+    const agentAt = broader.findIndex((bucket) => bucket.level === `agent=${run.key.agent}`);
+    const base = pick === -1 || agentAt <= pick || lists[agentAt]!.length < MIN_SURVIVORS ? null : lists[agentAt]!;
+    const own = base === null ? 1 : survivors.length / (survivors.length + SHRINK_RUNS);
+    const mix = (q: number): number => (base === null ? seenQuantile(survivors, q) : Math.exp(own * Math.log(seenQuantile(survivors, q)) + (1 - own) * Math.log(seenQuantile(base, q))));
+    // As survivors thin out, the tail takes over smoothly: all of it below MIN_SURVIVORS.
+    const tailWeight = Math.min(1, Math.max(0, (2 * MIN_SURVIVORS - survivors.length) / MIN_SURVIVORS));
+    if (tailWeight < 1) {
+      parts.push({ total: mix(0.5) * bias, low: mix(0.25) * bias, high: mix(0.75) * bias, weight: 1 - tailWeight });
+    }
+    if (tailWeight > 0) {
+      const alpha = broader.map((bucket) => bucket.tail).find((tail) => Number.isFinite(tail)) ?? DEFAULT_TAIL;
+      const t = Math.max(elapsed, 1);
+      parts.push({ total: t * 2 ** (1 / alpha), low: t * (4 / 3) ** (1 / alpha), high: t * 4 ** (1 / alpha), weight: tailWeight });
+      if (tailWeight === 1) overrunning = true;
     }
     const turnsLeft = above(prior.turns, run.turns);
     if (run.turns >= 3 && elapsed > 0 && turnsLeft.length >= MIN_SURVIVORS) {
@@ -173,17 +242,14 @@ export function estimateRun(index: RunIndex, run: LiveRun, now: number, options:
   }
 
   const steps = run.steps;
-  let planWeight = 0;
   if (steps !== null && steps.total >= 2 && steps.done >= 1 && elapsed > 0) {
     const share = steps.done / steps.total;
     if (steps.done >= steps.total) {
       parts.push({ total: elapsed * 1.05, low: elapsed, high: elapsed * 1.2, weight: 2 });
-      planWeight = 2;
     } else {
       const total = elapsed / share;
       const spread = 1 + 1 / Math.sqrt(steps.done + 1);
-      planWeight = 1.5 * share;
-      parts.push({ total, low: total / spread, high: total * spread, weight: planWeight });
+      parts.push({ total, low: total / spread, high: total * spread, weight: 1.5 * share });
     }
     if (share >= 0.8) overrunning = false;
   }
@@ -191,17 +257,19 @@ export function estimateRun(index: RunIndex, run: LiveRun, now: number, options:
   if (parts.length === 0) return null;
   const weight = parts.reduce((sum, part) => sum + part.weight, 0);
   const blend = (field: "total" | "low" | "high"): number => Math.exp(parts.reduce((sum, part) => sum + part.weight * Math.log(Math.max(1, part[field])), 0) / weight);
-  const total = Math.max(blend("total"), elapsed + 5_000);
+  const limit = run.limitMs ?? Number.POSITIVE_INFINITY;
+  const total = Math.max(Math.min(blend("total"), limit), elapsed + 5_000);
   const low = Math.min(total, Math.max(blend("low"), elapsed));
-  const high = Math.max(blend("high"), total);
+  const high = Math.max(Math.min(blend("high"), limit), total);
   const runs = prior?.durations.length ?? 0;
-  const confident = !overrunning && high / Math.max(low, 1) <= 2.2 && (planWeight >= 1 || runs >= 15);
+  const typical = prior === null ? total : quantile(prior.durations, 0.5) * bias;
+  const confident = !overrunning && (options.trust?.(run.key, steps !== null, stageOf(elapsed, typical, steps)) ?? false);
   return {
     from: run.from,
     totalMs: roundMs(total),
     lowMs: roundMs(low),
     highMs: roundMs(high),
-    typicalMs: roundMs(prior === null ? total : quantile(prior.durations, 0.5) * bias),
+    typicalMs: roundMs(typical),
     runs,
     confidence: confident ? "confident" : "rough",
     overrunning,

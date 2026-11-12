@@ -1,11 +1,15 @@
 // How good the estimates are: replaying held-out past runs through the estimator (`backtest`), and
 // what live runs logged when they finished (`CalibrationRecord`, see calibration.ts). Both report the
 // same numbers: the median error of the predicted total at points through each run, and how often
-// the real length fell inside the predicted middle-half range.
-import { estimateRun, quantile, type RunIndex } from "./estimate";
-import type { PlanSteps, RunKey, RunRecord } from "./runs";
+// the real length fell inside the predicted middle-half range. The same replay decides when a badge
+// may be solid (`ConfidenceTable`).
+import { estimateRun, quantile, RunIndex, stageOf, type Trust } from "./estimate";
+import type { PlanSteps, RunAgent, RunKey, RunRecord } from "./runs";
 
 export const CHECKPOINTS = [0.1, 0.25, 0.5, 0.75] as const;
+
+/** The held-out share of finished runs, latest first. */
+export const HOLDOUT = 0.2;
 
 export interface Prediction {
   /** Elapsed time when it was made, ms. */
@@ -44,6 +48,16 @@ export interface Accuracy {
   readonly checkpoints: readonly CheckpointStats[];
 }
 
+const finishedRun = (run: RunRecord): boolean => run.outcome === "done" && run.durationMs >= 5000;
+
+/** Splits finished runs by time: everything before the latest `HOLDOUT` share trains, the rest tests. */
+export function holdout(runs: readonly RunRecord[]): { train: RunRecord[]; test: RunRecord[]; splitAt: number | null } {
+  const finished = runs.filter(finishedRun);
+  if (finished.length < 10) return { train: [...runs], test: [], splitAt: null };
+  const splitAt = finished[Math.floor(finished.length * (1 - HOLDOUT))]!.startedAt;
+  return { train: runs.filter((run) => run.startedAt < splitAt), test: runs.filter((run) => run.startedAt >= splitAt), splitAt };
+}
+
 /** Plan steps and turns a run had reached `seconds` in. */
 function stateAt(run: RunRecord, seconds: number): { turns: number; steps: PlanSteps | null } {
   let turns = 0;
@@ -54,10 +68,13 @@ function stateAt(run: RunRecord, seconds: number): { turns: number; steps: PlanS
 }
 
 /** The estimate a past run would have shown `share` of the way through. */
-export function predictAt(index: RunIndex, run: RunRecord, share: number, bias?: number): Prediction | null {
+export function predictAt(index: RunIndex, run: RunRecord, share: number, bias?: number, trust?: Trust): Prediction | null {
   const elapsedMs = run.durationMs * share;
   const state = stateAt(run, elapsedMs / 1000);
-  const eta = estimateRun(index, { key: run, from: run.startedAt, ...state }, run.startedAt + elapsedMs, bias === undefined ? {} : { bias });
+  const eta = estimateRun(index, { key: run, from: run.startedAt, ...state, ...(run.limitMs === undefined ? {} : { limitMs: run.limitMs }) }, run.startedAt + elapsedMs, {
+    ...(bias === undefined ? {} : { bias }),
+    ...(trust === undefined ? {} : { trust }),
+  });
   return eta === null ? null : { elapsedMs, totalMs: eta.totalMs, lowMs: eta.lowMs, highMs: eta.highMs, confident: eta.confidence === "confident" };
 }
 
@@ -71,15 +88,16 @@ function nearest(record: CalibrationRecord, share: number): Prediction | null {
   return best !== null && Math.abs(best.elapsedMs - target) <= record.actualMs * 0.2 ? best : null;
 }
 
+const relativeError = (prediction: Prediction, actualMs: number): number => Math.abs(prediction.totalMs - actualMs) / actualMs;
+const median = (list: readonly number[]): number | null => (list.length === 0 ? null : quantile([...list].sort((a, b) => a - b), 0.5));
+
 function summarize(at: number, rows: readonly { prediction: Prediction; actualMs: number }[]): CheckpointStats {
-  const error = (row: { prediction: Prediction; actualMs: number }): number => Math.abs(row.prediction.totalMs - row.actualMs) / row.actualMs;
-  const median = (list: readonly number[]): number | null => (list.length === 0 ? null : quantile([...list].sort((a, b) => a - b), 0.5));
-  const confident = rows.filter((row) => row.prediction.confident).map(error);
-  const rough = rows.filter((row) => !row.prediction.confident).map(error);
+  const confident = rows.filter((row) => row.prediction.confident).map((row) => relativeError(row.prediction, row.actualMs));
+  const rough = rows.filter((row) => !row.prediction.confident).map((row) => relativeError(row.prediction, row.actualMs));
   return {
     at,
     n: rows.length,
-    medianError: median(rows.map(error)) ?? Number.NaN,
+    medianError: median(rows.map((row) => relativeError(row.prediction, row.actualMs))) ?? Number.NaN,
     inRange: rows.length === 0 ? Number.NaN : rows.filter((row) => row.actualMs >= row.prediction.lowMs && row.actualMs <= row.prediction.highMs).length / rows.length,
     confidentError: median(confident),
     roughError: median(rough),
@@ -90,11 +108,11 @@ function summarize(at: number, rows: readonly { prediction: Prediction; actualMs
 /** What a predictor would have shown for a past run `share` of the way through. */
 export type Predictor = (run: RunRecord, share: number) => Prediction | null;
 
-/** The estimator over `index`, with an optional calibration bias per run. */
+/** The estimator over `index`, with an optional calibration bias per run and a trust table. */
 export const estimatorPredictor =
-  (index: RunIndex, bias?: (run: RunRecord) => number): Predictor =>
+  (index: RunIndex, bias?: (run: RunRecord) => number, trust?: Trust): Predictor =>
   (run, share) =>
-    predictAt(index, run, share, bias?.(run));
+    predictAt(index, run, share, bias?.(run), trust);
 
 /**
  * The plain guess to beat: similar runs (same agent) usually take their median, so the total is that
@@ -112,7 +130,7 @@ export function medianPredictor(index: RunIndex): Predictor {
 
 /** Replays finished `test` runs through `predict` at each checkpoint. */
 export function backtest(test: readonly RunRecord[], predict: Predictor): Accuracy {
-  const finished = test.filter((run) => run.outcome === "done" && run.durationMs >= 5000);
+  const finished = test.filter(finishedRun);
   return {
     runs: finished.length,
     checkpoints: CHECKPOINTS.map((at) =>
@@ -140,6 +158,61 @@ export function calibrationAccuracy(records: readonly CalibrationRecord[]): Accu
         }),
       ),
     ),
+  };
+}
+
+/** A badge is solid only where replayed estimates were off by less than this (median). */
+export const TRUST_ERROR = 0.25;
+/** Replayed estimates a cell needs before it can be trusted. */
+export const TRUST_MIN = 20;
+/** Points through each replayed run, as shares of its length. */
+const TRUST_GRID = [0.05, 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95] as const;
+/** Elapsed over a typical run's length, where the no-plan cells split. */
+const STAGE_STEPS = [0.25, 0.5, 1, 2] as const;
+/** A cell: agent, plan or none, and the run's stage (`stageOf`): fifths of the plan, else `STAGE_STEPS`. */
+const cellId = (agent: RunAgent, planned: boolean, stage: number): string =>
+  `${agent}·${planned ? `plan·${Math.min(4, Math.max(0, Math.floor(stage * 5)))}` : `-·${STAGE_STEPS.filter((step) => stage >= step).length}`}`;
+
+export interface TrustCell {
+  readonly n: number;
+  readonly medianError: number;
+}
+
+/**
+ * When a badge may be solid, learned by replay: the runs before the latest fifth build an index, the
+ * latest fifth is replayed through it at points along each run, and every estimate's error lands in
+ * a cell by agent, plan or none, and the stage a live badge can see (`stageOf`). A cell is trusted
+ * when it has `TRUST_MIN` estimates with a median error under `TRUST_ERROR`; everything else draws
+ * striped.
+ */
+export class ConfidenceTable {
+  static readonly EMPTY = new ConfidenceTable({});
+
+  constructor(readonly cells: Readonly<Record<string, TrustCell>>) {}
+
+  static build(runs: readonly RunRecord[]): ConfidenceTable {
+    const { train, test } = holdout(runs);
+    const index = new RunIndex(train);
+    const errors: Record<string, number[]> = {};
+    for (const run of test) {
+      if (!finishedRun(run)) continue;
+      for (const share of TRUST_GRID) {
+        const elapsedMs = run.durationMs * share;
+        const state = stateAt(run, elapsedMs / 1000);
+        const eta = estimateRun(index, { key: run, from: run.startedAt, ...state, ...(run.limitMs === undefined ? {} : { limitMs: run.limitMs }) }, run.startedAt + elapsedMs);
+        if (eta === null) continue;
+        const id = cellId(run.agent, state.steps !== null, stageOf(elapsedMs, eta.typicalMs, state.steps));
+        (errors[id] ??= []).push(Math.abs(eta.totalMs - run.durationMs) / run.durationMs);
+      }
+    }
+    const cells: Record<string, TrustCell> = {};
+    for (const [id, list] of Object.entries(errors)) cells[id] = { n: list.length, medianError: median(list) ?? Number.NaN };
+    return new ConfidenceTable(cells);
+  }
+
+  readonly trust: Trust = (key, planned, stage) => {
+    const cell = this.cells[cellId(key.agent, planned, stage)];
+    return cell !== undefined && cell.n >= TRUST_MIN && cell.medianError < TRUST_ERROR;
   };
 }
 

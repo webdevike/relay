@@ -9,8 +9,8 @@ export type RunKind = (typeof RUN_KINDS)[number];
 
 /**
  * `task`: a session an assistant or a job started to do one thing (listed in an assistant's
- * sessions.json); `chat`: any other top-level session; `helper`: a subagent a `task` call started
- * (its transcript names a parent session).
+ * sessions.json, or an Eva agent session across its rotations); `chat`: any other top-level session;
+ * `helper`: a subagent a `task` call started (its transcript names a parent session).
  */
 export type RunAgent = "chat" | "task" | "helper";
 
@@ -24,6 +24,11 @@ export interface PlanSteps {
 
 export interface RunKey {
   readonly agent: RunAgent;
+  /**
+   * Who ran it: a helper's agent definition from the `task` call that spawned it (`helper-code`,
+   * `helper-visual`, `scout`; `task` when the call named none), an agent session's `--agent`, else null.
+   */
+  readonly role: string | null;
   readonly kind: RunKind;
   readonly model: string | null;
   readonly thinking: string | null;
@@ -41,6 +46,8 @@ export interface RunRecord extends RunKey {
   readonly outputTokens: number;
   /** Plan progress as it changed: `[seconds from start, done, total]`. */
   readonly stepsAt: readonly (readonly [number, number, number])[];
+  /** The longest it may run (an agent session's `--max-time`), from `startedAt`. */
+  readonly limitMs?: number;
 }
 
 /** A run still going: what the estimator reads each poll. */
@@ -61,7 +68,7 @@ export interface OpenRun extends RunKey {
 const KIND_RULES: readonly (readonly [RunKind, RegExp])[] = [
   ["render", /\b(render|video|image|images|3d|blender|animation|film|glb|photo|portrait|sound|audio)\b/i],
   ["deploy", /\b(deploy|ship|shipping|release|publish|install|ota|rollout|staged?)\b/i],
-  ["review", /\b(review|reviewer|audit|verify|council|critique|qa|proof|check)\b/i],
+  ["review", /\b(review|reviewer|audit|verify|council|critic|critique|qa|proof|check)\b/i],
   ["research", /\b(research|investigate|explore|scout|map|mapping|compare|analy[sz]e|survey|find|lookup|why)\b/i],
   ["fix", /\b(fix|fixes|bug|crash|broken|repair|regression|debug|hotfix|error|failing|flaky)\b/i],
   ["prototype", /\b(prototype|spike|poc|mock|mockup|sketch|experiment|demo|try)\b/i],
@@ -95,6 +102,8 @@ interface Segment {
   steps: PlanSteps | null;
   todo: boolean;
   lastStop: string | null;
+  /** A helper ends by calling `yield` (a tool call, so its last turn stops on toolUse). */
+  yielded: "done" | "failed" | null;
   title: string;
   model: string | null;
 }
@@ -144,14 +153,18 @@ export function checkboxSteps(markdown: string): PlanSteps | null {
  * a message that lands mid-turn (a steer) or a background result is part of the run it lands in.
  */
 export class TranscriptScan {
+  /** Set by the caller once it knows who ran this transcript (`RunKey.role`). */
+  role: string | null = null;
   private title = "";
   private model: string | null = null;
   private thinking: string | null = null;
   private agent: RunAgent;
   private cwd: string | null = null;
+  private parentFile: string | null = null;
   private segment: Segment | null = null;
   private planFile: string | null = null;
   private readonly closed: RunRecord[] = [];
+  private readonly spawned: Record<string, string> = {};
 
   /** `task`: the caller knows this transcript is a session an assistant or a job started. */
   constructor(
@@ -159,6 +172,21 @@ export class TranscriptScan {
     task = false,
   ) {
     this.agent = task ? "task" : "chat";
+  }
+
+  /** A helper's parent transcript (its `parentSession`), else null. */
+  get parent(): string | null {
+    return this.parentFile;
+  }
+
+  /** A helper's name in its parent's `task` call: `BossR3.jsonl` is BossR3, a nested `Lane.Wiring.jsonl` is Wiring. */
+  get name(): string | null {
+    return this.parentFile === null ? null : (basename(this.file, ".jsonl").split(".").at(-1) ?? null);
+  }
+
+  /** The helpers this transcript's `task` calls started, by name, to their agent definition. */
+  spawns(): Readonly<Record<string, string>> {
+    return this.spawned;
   }
 
   /** Feeds one jsonl line; lines that cannot matter are skipped before parsing. */
@@ -194,7 +222,7 @@ export class TranscriptScan {
       outputTokens: segment.outputTokens,
       steps: segment.steps,
       planFile: this.planFile,
-      replied: segment.lastStop !== null && segment.lastStop !== "toolUse",
+      replied: segment.yielded !== null || (segment.lastStop !== null && segment.lastStop !== "toolUse"),
     };
   }
 
@@ -205,7 +233,7 @@ export class TranscriptScan {
   }
 
   private key(segment: Segment): RunKey {
-    return { agent: this.agent, kind: classifyKind(segment.title), model: segment.model, thinking: this.thinking };
+    return { agent: this.agent, role: this.role, kind: classifyKind(segment.title), model: segment.model, thinking: this.thinking };
   }
 
   private entry(entry: Json): void {
@@ -218,8 +246,10 @@ export class TranscriptScan {
         if (this.segment !== null && this.segment.turnAt.length === 0) this.segment.title = title;
       }
     } else if (type === "session") {
-      if (str(entry["parentSession"]) !== null) {
+      const parent = str(entry["parentSession"]);
+      if (parent !== null) {
         this.agent = "helper";
+        this.parentFile = parent;
         // A helper's title is its name (`LaneBoss2.jsonl`).
         if (this.title === "") this.title = basename(this.file, ".jsonl");
       }
@@ -252,7 +282,7 @@ export class TranscriptScan {
     const role = message["role"];
     if (role === "user") {
       const segment = this.segment;
-      const ended = segment !== null && segment.turnAt.length > 0 && segment.lastStop !== null && segment.lastStop !== "toolUse";
+      const ended = segment !== null && segment.turnAt.length > 0 && (segment.yielded !== null || (segment.lastStop !== null && segment.lastStop !== "toolUse"));
       // A helper's harness nudges it after a reply; only a follow-up long after is a new run.
       if (segment === null || (ended && (this.agent !== "helper" || at - segment.lastAt > HELPER_REVIVE_MS))) {
         this.close();
@@ -263,6 +293,7 @@ export class TranscriptScan {
       segment.turnAt.push(Math.max(0, Math.round((at - segment.startedAt) / 1000)));
       segment.lastAt = at;
       segment.lastStop = str(message["stopReason"]);
+      segment.yielded = null;
       const model = modelName(str(message["model"]));
       if (model !== null) segment.model = model;
       const usage = message["usage"];
@@ -289,6 +320,16 @@ export class TranscriptScan {
       } else if (part["type"] === "toolCall") {
         const path = this.planPath(part);
         if (path !== null) this.planFile = path;
+        const args = part["arguments"];
+        if (part["name"] === "yield") {
+          const error = isObject(args) ? args["error"] : null;
+          segment.yielded = typeof error === "string" && error !== "" ? "failed" : "done";
+        } else if (part["name"] === "task" && isObject(args) && Array.isArray(args["tasks"])) {
+          for (const task of args["tasks"]) {
+            const name = isObject(task) ? str(task["name"]) : null;
+            if (name !== null && name !== "") this.spawned[name] = (isObject(task) ? str(task["agent"]) : null) ?? "task";
+          }
+        }
       }
     }
   }
@@ -316,7 +357,7 @@ export class TranscriptScan {
   }
 
   private start(at: number): Segment {
-    const segment: Segment = { startedAt: at, lastAt: at, turnAt: [], outputTokens: 0, stepsAt: [], steps: null, todo: false, lastStop: null, title: this.title, model: this.model };
+    const segment: Segment = { startedAt: at, lastAt: at, turnAt: [], outputTokens: 0, stepsAt: [], steps: null, todo: false, lastStop: null, yielded: null, title: this.title, model: this.model };
     this.segment = segment;
     this.planFile = null;
     return segment;
@@ -332,7 +373,7 @@ export class TranscriptScan {
       title: segment.title,
       startedAt: segment.startedAt,
       durationMs: segment.lastAt - segment.startedAt,
-      outcome: segment.lastStop === "stop" || segment.lastStop === "end_turn" ? "done" : "failed",
+      outcome: segment.yielded === "done" || segment.lastStop === "stop" || segment.lastStop === "end_turn" ? "done" : "failed",
       turnAt: segment.turnAt,
       outputTokens: segment.outputTokens,
       stepsAt: segment.stepsAt,

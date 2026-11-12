@@ -388,22 +388,40 @@ from its item) and estimates the total from three things, blended in log space (
 - History: the finished runs in every omp transcript under `~/.omp/agent/sessions` and each profile (last
   120 days, cached per file in `$XDG_CONFIG_HOME/relay/eta-history.json`, read again every 30 minutes). A
   run goes from a request to the reply that ends it; steers and background results stay inside it, and a
-  helper's harness nudges do too. Runs are bucketed by agent (`task`: a session an assistant listed in
-  `work/eva/agents/*/sessions.json` or a job, `helper`, `chat`) and kind of work from the title (build, fix,
-  research, review, render, deploy, prototype). The estimate is the median of similar runs that already
-  lasted longer than this one, weighted by 1/length (a run looked at a random moment is more likely a long
-  one), so it never reads done while the run goes on. Model and thinking level are kept on every run but
-  not bucketed on: held out, they made late estimates worse.
+  helper's harness nudges do too. A helper (subagent) lives beside its parent's transcript
+  (`<session>/<Name>.jsonl`, a lane's own helpers one folder deeper), ends when it calls `yield` (an
+  `error` there means it failed), and its role is the agent definition the parent's `task` call gave that
+  name (`helper-code`, `helper-visual`, `scout`; `task` when none). An Eva agent session
+  (`<agentHome>/work/eva/agent-sessions/*.json`) is one `task` run across its rotated transcripts, from its
+  start to its end (a `timeout` ran its whole `--max-time`), with its `--agent` as the role. Runs are
+  bucketed by agent (`task`: a session an assistant listed in `work/eva/agents/*/sessions.json`, a job, or
+  an agent session; `helper`; `chat`), role, and kind of work from the title (build, fix, research,
+  review, render, deploy, prototype). The estimate is the median of similar runs that already lasted
+  longer than this one, weighted by 1/length (a run looked at a random moment is more likely a long one),
+  so it never reads done while the run goes on; a thin bucket is shrunk toward the agent's whole history.
+  Model and thinking level are kept on every run but not bucketed on: held out, they made late estimates
+  worse.
 - Plan: the run's todo list (`todo` results), else checkboxes in a HANDOFF.md or PLAN.md it wrote or read,
-  else "step k of n" in its latest reply.
-- Pace: turns so far against the turns similar runs took.
+  else its agent session's `--handoff` file, else "step k of n" in its latest reply.
+- Pace: turns so far against the turns similar runs took (an agent session counts its earlier rotations).
 
-Past nearly every similar run (the 90th percentile), `overrunning` is set and the badge says "Taking longer
-than usual" instead of creeping to full. When a run ends, what was predicted and how long it took go to
+An agent session's badge runs from the session's own start (not the latest rotation's) and never past its
+`--max-time`. Past nearly every similar run (the 90th percentile), `overrunning` is set and the badge says
+"Taking longer than usual"; once few similar runs lasted that long, the total is elapsed times how far the
+runs past the 90th percentile went on (a Pareto tail fitted per bucket), so it keeps climbing with the
+elapsed time and the fill holds steady instead of parking near full.
+
+Solid (`confident`) is earned, not assumed: after each history read, `ConfidenceTable` replays the latest
+fifth of runs through an index of the ones before, at ten points along each, and files every estimate's
+error by agent, plan or none, and the stage a live badge can see (the plan's share done, else elapsed over
+a typical similar run). A badge is solid only in a cell with 20 replays whose median error was under 25%;
+everything else draws striped. When a run ends, what was predicted and how long it took go to
 `$XDG_CONFIG_HOME/relay/eta-calibration.jsonl`; runs like it (same agent and kind) are stretched or shrunk by
-the median actual-over-predicted of the latest 50 once there are 5. `relay-host eta [--json]` prints the
-accuracy: past runs replayed with the latest fifth held out, next to the plain "similar runs take their
-median" guess, and the live runs logged.
+the median actual-over-predicted of the latest 50 once there are 5. `relay-host eta [--json] [--agent-home
+<dir>]` prints the accuracy: past runs replayed with the latest fifth held out (confidence learned only from
+the runs before it), next to the plain "similar runs take their median" guess, helpers by role, and the live
+runs logged. Without `--agent-home` it reads the agent home the host app passes `serve` (host.json's, else
+`~/Eva` when it exists), so assistant tasks and agent sessions count as `task` runs there too.
 
 ## Live canvas (`canvas.get`, `canvas.open`, `canvas.rooms`, `canvas.access`)
 

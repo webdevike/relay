@@ -61,6 +61,17 @@ export function loadHostConfig(path: string = hostConfigPath()): HostConfig | nu
 }
 
 /**
+ * The agent home the Relay Host app passes `serve` (apps/mac-host/RelayHost.swift): host.json's,
+ * else `~/Eva` when it exists, else the home folder. CLI commands that read what the running host
+ * reads use it so they see the same tasks.
+ */
+export function appAgentHome(config: HostConfig | null = loadHostConfig()): string {
+  if (config?.agentHome !== undefined) return config.agentHome;
+  const eva = join(homedir(), "Eva");
+  return existsSync(eva) ? eva : homedir();
+}
+
+/**
  * Whether Isaac-specific feature `key` runs: an explicit `features.<key>` boolean wins; without a
  * host.json it is on (today's behavior); with one, it is on only when its resource is present.
  */
