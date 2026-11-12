@@ -175,6 +175,37 @@ export const DESIGN_OVERLAY = String(function (
       element.localName + (element.id ? '#' + element.id : cls.length ? '.' + cls.join('.') : '')
     )
   }
+  const WATCH: MutationObserverInit = {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    characterData: true,
+  }
+  /** `node` is `element` or inside it, through shadow roots too. */
+  const within = (node: Node, element: Element): boolean => {
+    for (let n: Node | null = node; n; n = n instanceof ShadowRoot ? n.host : n.parentNode) {
+      if (n === element) return true
+    }
+    return false
+  }
+  /**
+   * The document watch misses shadow roots: watch the ones the element lives in and the open ones
+   * inside it (the first 2000 descendants), so a change there refreshes it too.
+   */
+  const watchRoots = (o: Overlay, element: Element): void => {
+    for (
+      let root = element.getRootNode();
+      root instanceof ShadowRoot;
+      root = root.host.getRootNode()
+    )
+      o.watch.observe(root, WATCH)
+    if (element.shadowRoot) o.watch.observe(element.shadowRoot, WATCH)
+    const inner = element.querySelectorAll('*')
+    for (let i = 0; i < inner.length && i < 2000; i++) {
+      const shadow = inner[i]!.shadowRoot
+      if (shadow) o.watch.observe(shadow, WATCH)
+    }
+  }
   const answer = (o: Overlay | undefined): OverlayAnswer => {
     if (!o) return { ready: false, selectors: [], sig: '' }
     const idOf = (e: Element): number => {
@@ -278,26 +309,24 @@ export const DESIGN_OVERLAY = String(function (
       rev: 0,
       watch: new MutationObserver((records) => {
         for (const r of records) {
-          if (made.picked.some((p) => p.element !== null && p.element.contains(r.target))) {
+          if (made.picked.some((p) => p.element !== null && within(r.target, p.element))) {
             made.rev++
             return
           }
         }
       }),
     }
-    made.watch.observe(document, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      characterData: true,
-    })
+    made.watch.observe(document, WATCH)
     const tick = (): void => {
       if (!made.host.isConnected) return
       const t = made.hovered
       place(made.hover, t)
       made.tag.style.top = t && t.getBoundingClientRect().y < 20 ? '1px' : '-19px'
       for (const p of made.picked) {
-        if (!p.element || !p.element.isConnected) p.element = resolve(p.selector)
+        if (!p.element || !p.element.isConnected) {
+          p.element = resolve(p.selector)
+          if (p.element) watchRoots(made, p.element)
+        }
         place(p.frame, p.element)
         // The number sits above the element, never over its content; inside its top edge when
         // the element touches the top of the viewport.
@@ -325,6 +354,7 @@ export const DESIGN_OVERLAY = String(function (
   const setPicked = (list: Array<{ selector: string; element: Element | null }>): void => {
     for (const p of ov.picked) p.frame.remove()
     ov.picked = list.map((p, i) => ({ ...p, frame: frameFor(i + 1) }))
+    for (const p of ov.picked) if (p.element) watchRoots(ov, p.element)
   }
   switch (cmd.op) {
     case 'init':

@@ -434,20 +434,18 @@ export class BrowserHost {
       this.select(s.id)
       this.changed()
     })
-    // Isaac's own input in a tab (not the drive's CDP input): an agent driving it pauses.
+    // Isaac's own input in a tab (not the drive's CDP input): an agent driving it pauses, also
+    // when the interceptor (Design Mode) keeps that input from the page.
     wc.on('before-mouse-event', (event, mouse) => {
-      if (this.interceptor?.(s.id, { kind: 'mouse', mouse })) {
-        event.preventDefault()
-        return
-      }
       if (mouse.type === 'mouseDown' || mouse.type === 'mouseWheel') this.userInput(tab, view)
+      if (this.interceptor?.(s.id, { kind: 'mouse', mouse })) event.preventDefault()
     })
     wc.on('before-input-event', (event, input) => {
+      if (input.type === 'keyDown') this.userInput(tab, view)
       if (this.interceptor?.(s.id, { kind: 'key', input })) {
         event.preventDefault()
         return
       }
-      if (input.type === 'keyDown') this.userInput(tab, view)
       if (matchesAppChord(input) === 'devtools') {
         event.preventDefault()
         wc.openDevTools({ mode: 'detach' })

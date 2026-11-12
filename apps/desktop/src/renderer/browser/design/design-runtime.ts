@@ -40,11 +40,15 @@ const machine = designModeMachine.provide({
     }),
   },
   actions: {
-    // A preview the page refused (the element went, the session ended) is dropped from the
-    // request and the inspector says why.
+    // The page's answer to a preview: shown (a Send waiting on it may go), or refused (the
+    // element went, the session ended): dropped from the request and the inspector says why.
     previewStyle: ({ self }, p) => {
       void invoke('design.style', p).then((r) => {
-        if (!r.ok) self.send({ type: 'style.rejected', ...p, message: r.error.message })
+        self.send(
+          r.ok
+            ? { type: 'style.previewed' }
+            : { type: 'style.rejected', ...p, message: r.error.message },
+        )
       })
     },
     // A removal the page refused: the selection stays as it was, a toast says why.

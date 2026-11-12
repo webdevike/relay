@@ -396,3 +396,56 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
     .poll(() => guestEval(app, id, "document.querySelector('relay-design') === null"))
     .toBe(true)
 })
+
+test('Design Mode: an element inside a shadow root is picked and refreshed when only its inside changes', async ({
+  app,
+  shell,
+}) => {
+  const id = await newPage(shell)
+  const panel = webPanel(shell, id)
+  const toggle = panel.locator('[data-testid=btn-design-mode]')
+  await navigate(shell, id, server.url('/design.html'))
+  await expect.poll(() => guestEval(app, id, 'document.readyState')).toBe('complete')
+  // A web component: a card with an icon inside an open shadow root.
+  await guestEval(
+    app,
+    id,
+    `(() => { const host = document.createElement('x-card'); host.id = 'xcard'; document.body.prepend(host); const root = host.attachShadow({ mode: 'open' }); root.innerHTML = '<div class="inner" style="display:inline-block;width:120px;height:40px;background:#eee"><span class="icon" data-v="1"></span></div>'; return 1 })()`,
+  )
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => overlayState(app, id)).not.toBeNull()
+  const at = (await guestEval(
+    app,
+    id,
+    `(() => { const r = document.getElementById('xcard').shadowRoot.querySelector('.inner').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) } })()`,
+  )) as { x: number; y: number }
+  await click(app, id, at)
+  const items = inspector(shell, id).locator('[data-testid=design-item]')
+  await expect(items).toHaveCount(1)
+  await expect(items.first().locator('[data-testid=design-item-label]')).toHaveText('div.inner')
+  const session = () =>
+    app.evaluate((_e, tabId) => {
+      const s = (
+        globalThis as unknown as {
+          __evaosTest: {
+            hooks: {
+              design: { sessions: Map<string, { sig: string; selectors: string[] }> }
+            }
+          }
+        }
+      ).__evaosTest.hooks.design.sessions.get(tabId)
+      return s ? { sig: s.sig, selectors: [...s.selectors] } : null
+    }, id)
+  const before = (await session())!
+  expect(before.selectors[0]).toContain('>>>')
+  // Only the icon inside the selected element changes: no text, size or style of its own.
+  await guestEval(
+    app,
+    id,
+    "document.getElementById('xcard').shadowRoot.querySelector('.icon').setAttribute('data-v', '2'); 1",
+  )
+  await expect.poll(async () => (await session())?.sig).not.toBe(before.sig)
+  await sendKey(app, id, 'Escape', [])
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+})

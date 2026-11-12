@@ -36,6 +36,10 @@ export interface DesignContext extends DesignDraft {
   /** The image drawn on, fixed when drawing opens (a refresh can't swap it mid-stroke). */
   drawingFrom: string | null
   error: string | null
+  /** Style previews the page has not answered yet: a Send waits for them (`sendQueued`). */
+  previewing: number
+  /** Send was pressed while previews were out: it goes once they are answered. */
+  sendQueued: boolean
 }
 
 export type DesignEvent =
@@ -47,6 +51,8 @@ export type DesignEvent =
   | { type: 'item.remove'; selector: string }
   | { type: 'instruction.change'; text: string }
   | { type: 'style.edit'; selector: string; property: DesignStyleKey; value: string }
+  /** The page showed a preview (main answered `design.style`). */
+  | { type: 'style.previewed' }
   /** The page refused a preview (the element is gone): that edit is not kept; `message` says why. */
   | {
       type: 'style.rejected'
@@ -68,6 +74,8 @@ const cleared = {
   focus: 0,
   drawingOf: null,
   drawingFrom: null,
+  previewing: 0,
+  sendQueued: false,
 }
 
 /** True when the request says something: words, or a style edit or drawing of a present item. */
@@ -179,6 +187,9 @@ export const designModeMachine = setup({
         'design.toggle': 'stopping',
         'design.exit': 'stopping',
         'page.left': { target: 'off', actions: 'reset' },
+        'style.previewed': {
+          actions: assign({ previewing: ({ context }) => Math.max(0, context.previewing - 1) }),
+        },
         'style.rejected': {
           actions: assign({
             edits: ({ context, event }) =>
@@ -191,6 +202,7 @@ export const designModeMachine = setup({
                   ),
               ),
             error: ({ event }) => event.message,
+            previewing: ({ context }) => Math.max(0, context.previewing - 1),
           }),
         },
       },
@@ -252,6 +264,7 @@ export const designModeMachine = setup({
                       value: event.value,
                     }),
                   },
+                  assign({ previewing: ({ context }) => context.previewing + 1 }),
                   {
                     type: 'previewStyle',
                     params: ({ context, event }) => ({
@@ -285,7 +298,32 @@ export const designModeMachine = setup({
           },
           states: {
             editing: {
-              on: { 'request.send': { guard: 'hasRequest', target: '#designMode.on.sending' } },
+              // A Send pressed while previews were out goes once the page answered them (one it
+              // refused is out of the request by then); nothing left to say drops it.
+              always: [
+                {
+                  guard: ({ context }) =>
+                    context.sendQueued && context.previewing === 0 && hasRequest(context),
+                  target: '#designMode.on.sending',
+                  actions: assign({ sendQueued: false }),
+                },
+                {
+                  guard: ({ context }) => context.sendQueued && context.previewing === 0,
+                  actions: assign({ sendQueued: false }),
+                },
+              ],
+              on: {
+                'request.send': [
+                  {
+                    guard: ({ context }) => context.previewing === 0 && hasRequest(context),
+                    target: '#designMode.on.sending',
+                  },
+                  {
+                    guard: ({ context }) => context.previewing > 0 && hasRequest(context),
+                    actions: assign({ sendQueued: true }),
+                  },
+                ],
+              },
             },
             // The request went to the chat; the selection stays while the page hot-reloads.
             sent: {},

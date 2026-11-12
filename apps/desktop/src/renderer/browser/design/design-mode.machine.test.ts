@@ -28,7 +28,12 @@ function pending<T>() {
 }
 
 function start(
-  opts: { setMode?: () => Promise<void>; send?: (d: DesignDraft) => Promise<void> } = {},
+  opts: {
+    setMode?: () => Promise<void>
+    send?: (d: DesignDraft) => Promise<void>
+    /** Leave previews unanswered (the test answers with style.previewed / style.rejected). */
+    holdPreviews?: boolean
+  } = {},
 ) {
   const calls = {
     setMode: [] as boolean[],
@@ -48,7 +53,10 @@ function start(
       }),
     },
     actions: {
-      previewStyle: (_, p) => calls.preview.push(`${p.selector} ${p.property}: ${p.value}`),
+      previewStyle: ({ self }, p) => {
+        calls.preview.push(`${p.selector} ${p.property}: ${p.value}`)
+        if (!opts.holdPreviews) self.send({ type: 'style.previewed' })
+      },
       selectInPage: (_, p) => calls.select.push(p.selectors),
     },
   })
@@ -56,8 +64,8 @@ function start(
   return { actor, calls }
 }
 
-async function selected(items = [item('#a')]) {
-  const t = start()
+async function selected(items = [item('#a')], opts: Parameters<typeof start>[0] = {}) {
+  const t = start(opts)
   t.actor.send({ type: 'design.toggle' })
   await waitFor(t.actor, (s) => s.matches({ on: 'picking' }))
   t.actor.send({ type: 'page.selection', items })
@@ -281,5 +289,32 @@ describe('designModeMachine', () => {
     const s = t.actor.getSnapshot()
     expect(s.context.edits).toEqual([])
     expect(s.context.error).toBe('That element is not in the page right now')
+  })
+
+  it('a Send pressed before the page answered a preview waits, and leaves out a refused edit', async () => {
+    const t = await selected([item('#a')], { holdPreviews: true })
+    t.actor.send({ type: 'style.edit', selector: '#a', property: 'padding', value: '2px' })
+    t.actor.send({ type: 'request.send' })
+    expect(t.calls.sent).toEqual([])
+    t.actor.send({
+      type: 'style.rejected',
+      selector: '#a',
+      property: 'padding',
+      value: '2px',
+      message: 'That element is not in the page right now',
+    })
+    // Nothing left to say: the queued Send is dropped.
+    expect(t.calls.sent).toEqual([])
+    expect(t.actor.getSnapshot().context.sendQueued).toBe(false)
+
+    t.actor.send({ type: 'instruction.change', text: 'quieter' })
+    t.actor.send({ type: 'style.edit', selector: '#a', property: 'padding', value: '4px' })
+    t.actor.send({ type: 'request.send' })
+    expect(t.calls.sent).toEqual([])
+    t.actor.send({ type: 'style.previewed' })
+    await waitFor(t.actor, (s) => s.matches({ on: { selected: 'sent' } }))
+    expect(t.calls.sent[0]!.edits).toEqual([
+      { selector: '#a', property: 'padding', from: '12px', to: '4px' },
+    ])
   })
 })
