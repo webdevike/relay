@@ -5,6 +5,7 @@
   "packageManager": "pnpm@12.11.2",
   "main": "./out/main/index.js",
   "scripts": {
+    "postinstall": "node scripts/fix-pty-helper.mjs",
     "dev": "electron-vite dev",
     "dev:live": "node -e \"console.warn('RELAY DEV (live data): real Eva root and real omp, config ~/Library/Application Support/Relay Dev, CDP 9340. The stable app is never touched.')\" && EVAOS_LIVE=1 EVAOS_EVA_ROOT=$HOME/Eva EVAOS_OMP_BIN=omp electron-vite dev",
     "build": "electron-vite build",

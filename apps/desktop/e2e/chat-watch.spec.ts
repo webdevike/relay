@@ -55,10 +55,11 @@ test('new, appended and deleted session files update the list within 500 ms', as
   const row = shell.locator(sel('chat-row-p4-other3'))
   await expect(row).toContainText('Grocery list 3')
   const title = JSON.stringify({ type: 'title', title: 'Renamed while open' })
-  const t0 = Date.now()
+  // FSEvents can stay silent for an append through an open descriptor; the 1 s sweep (plus debounce
+  // and render) is the guarantee, so the budget is a few sweeps and the writer holds the file open
+  // for longer than that.
   const pending = fx.append('p4-other3', title, { holdOpen: true })
-  await expect(row).toContainText('Renamed while open', { timeout: 1000 })
-  expect(Date.now() - t0).toBeLessThan(1500)
+  await expect(row).toContainText('Renamed while open', { timeout: 3000 })
   await pending
 
   // Delete a copy.

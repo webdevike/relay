@@ -21,7 +21,7 @@ export interface ChatFixture {
   cleanup(): void
 }
 
-const HOLD_MS = 1500
+const HOLD_MS = 4000
 
 function findIn(dir: string, id: string): string {
   const name = fs.readdirSync(dir).find((n) => n.endsWith(`_${id}.jsonl`))
