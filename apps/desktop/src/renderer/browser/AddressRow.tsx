@@ -21,6 +21,7 @@ import { ExtensionActions } from './ExtensionActions'
 import { NoteComposer } from './NoteComposer'
 import { Suggestions, type SuggestionItem } from './Suggestions'
 import { browserStore, useBrowserStore } from './browser-store'
+import { DesignToggle } from './design/DesignToggle'
 
 function Btn(props: {
   label: string
@@ -289,6 +290,7 @@ export function AddressRow({
       <Btn label="Open in default browser" testId="btn-open-external" onClick={act('openExternal')}>
         <IconExternalLink size={16} />
       </Btn>
+      <DesignToggle tabId={tabId} tab={tab} />
       <Btn
         label="Note for chat"
         testId="btn-annotate"

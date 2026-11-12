@@ -1,5 +1,9 @@
 .eva-browser {
   --eva-address-h: var(--eva-control-lg);
+  /* Design Mode's inspector stacks under a narrow page (design/design.css); its content never
+   * grows the panel past its pane. */
+  container: eva-browser / inline-size;
+  min-height: 0;
 }
 
 .eva-address-row {
@@ -200,10 +204,17 @@
   background: color-mix(in srgb, var(--eva-text) 4%, transparent);
   color: var(--eva-text-dim);
 }
+/* The page's frame, and Design Mode's inspector beside it when the mode is on. */
+.eva-browser-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 /* A page an agent drives: its slot and caption row in the agent's ring (.eva-agent-host). */
 .eva-browser-frame {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }

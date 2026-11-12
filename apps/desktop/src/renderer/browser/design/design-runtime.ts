@@ -1,3 +1,4 @@
+import { notifications } from '@mantine/notifications'
 import { createActor, fromPromise, type ActorRefFrom } from 'xstate'
 import { invoke, on } from '../../ipc'
 import { frontChatPaneOf } from '../../chat/front-chat'
@@ -19,7 +20,10 @@ const machine = designModeMachine.provide({
   actors: {
     setMode: fromPromise<void, { tabId: string; on: boolean }>(async ({ input }) => {
       const r = await invoke('design.set', input)
-      if (!r.ok) throw new Error(r.error.message)
+      if (r.ok) return
+      // Turning on failed: the inspector never shows, so say why where Isaac looks.
+      if (input.on) notifications.show({ color: 'red', message: r.error.message, autoClose: 6000 })
+      throw new Error(r.error.message)
     }),
     sendRequest: fromPromise<void, DesignDraft & { tabId: string }>(async ({ input }) => {
       // The chat of the workspace on screen: the page's own, since its tab is the one in front.
