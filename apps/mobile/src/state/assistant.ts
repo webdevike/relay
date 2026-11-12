@@ -12,23 +12,31 @@ import { countOf } from "@/lib/format";
 import { portraitOf } from "@/lib/portrait";
 import type { Photo } from "@/lib/photo";
 import { previewText } from "@/agents/markdown";
+import { backgroundOf } from "@/lib/background";
 
 export interface PendingTurn {
+  /** The echo row's id, unique per send (the turn's `clientId`). */
+  id: string;
   text: string;
   /** The photos sent with the turn, kept so the echo bubble can show them until the host lists refs. */
   images: Photo[];
-  /** The snapshot rev held when the turn was sent; any later rev means the host has taken it. */
-  sinceRev: number;
+  /** The newest row's time when the turn was sent; the turn lands as a row of Isaac's after it. */
+  since: number;
+  /** Isaac's rows the thread held when the turn was sent, none of which is the turn. */
+  before: ReadonlySet<string>;
+  /** The host acked it: it reached the assistant, which takes it as a turn once it is free (a steer waits for the work under way). */
+  acked: boolean;
 }
 
 export interface AssistantThread {
   snapshot: AssistantSnapshot | null;
-  pending: PendingTurn | null;
+  /** Echoes of turns sent from here that the thread does not list yet, oldest first. */
+  pending: readonly PendingTurn[];
   /** Messages whose sign-in the host took, shown submitted before its snapshot says so. */
   signedIn: Record<string, true>;
 }
 
-export const EMPTY_THREAD: AssistantThread = { snapshot: null, pending: null, signedIn: {} };
+export const EMPTY_THREAD: AssistantThread = { snapshot: null, pending: [], signedIn: {} };
 
 export interface AssistantStore {
   /** The host's registry in its order; null until the first `assistant.agents` answer. */
@@ -44,22 +52,56 @@ export interface AssistantStore {
   setAgents: (agents: AssistantAgent[]) => void;
   setGuests: (guests: boolean) => void;
   set: (agent: string, snapshot: AssistantSnapshot) => void;
-  /** Echo a turn sent to `agent`; null clears it. */
-  setPending: (agent: string, turn: { text: string; images: Photo[] } | null) => void;
+  /** Echoes a turn sent to `agent`, after any still waiting. */
+  addPending: (agent: string, turn: { id: string; text: string; images: Photo[] }) => void;
+  /** The host acked the turn of echo `id`. */
+  ackPending: (agent: string, id: string) => void;
+  /** Drops echo `id` (its turn was refused, or never shows as a row). */
+  dropPending: (agent: string, id: string) => void;
   /** The host acked the credentials for this message of `agent`'s thread. */
   markSignedIn: (agent: string, messageId: string) => void;
 }
 
 /**
- * A snapshot that lists the echoed words as a user message, or that moved past the rev held at
- * send time (the host's transcript changed after the turn went up), retires the echo. An
- * image-only turn has no words to match, so it waits for the rev to move.
+ * The echoes `snapshot` has not taken yet; the same array when none settled. An echo retires once
+ * the snapshot lists a row of Isaac's that was not there when its turn was sent and is newer than
+ * the thread's newest row then: the turn itself, whatever the host made of its words (an
+ * image-only turn has none). Each such row retires one echo, oldest first, so a second turn sent
+ * while the first waits keeps its bubble until its own row lands. A background row (a job line,
+ * another agent's hand-off) is not his turn.
+ *
+ * A new rev alone never retires one: the host bumps rev on every streaming tick, and a turn sent
+ * while the assistant works is a steer that joins the transcript only when omp takes it, seconds or
+ * minutes later. Retiring the echo on the first rev bump emptied the thread of the turn until
+ * then, so it looked unsent and Isaac sent it again. A turn that leaves no row of his (a slash
+ * command, one omp drops) retires once acked and the thread has gone idle with something newer
+ * than the send.
  */
-export function settlePending(snapshot: AssistantSnapshot, pending: PendingTurn | null): PendingTurn | null {
-  if (pending === null) return null;
-  if (snapshot.rev > pending.sinceRev) return null;
-  if (pending.text === "") return pending;
-  return snapshot.messages.some((message) => message.role === "user" && message.text === pending.text) ? null : pending;
+export function settlePending(snapshot: AssistantSnapshot, pending: readonly PendingTurn[]): readonly PendingTurn[] {
+  if (pending.length === 0) return pending;
+  const claimed = new Set<string>();
+  const kept = pending.filter((echo) => {
+    const row = snapshot.messages.find((message) => message.role === "user" && message.at > echo.since && !echo.before.has(message.id) && !claimed.has(message.id) && backgroundOf(message) === null);
+    if (row !== undefined) {
+      claimed.add(row.id);
+      return false;
+    }
+    return !(echo.acked && !snapshot.busy && snapshot.messages.some((message) => message.role !== "user" && message.at > echo.since));
+  });
+  if (kept.length === pending.length) return pending;
+  // A row that retired an earlier echo is that turn's, never a later one's, in this snapshot or the next.
+  return claimed.size === 0 ? kept : kept.map((echo) => ({ ...echo, before: new Set([...echo.before, ...claimed]) }));
+}
+
+/** The echo of `turn`, sent while the thread shows `snapshot`. */
+export function pendingTurn(snapshot: AssistantSnapshot | null, turn: { id: string; text: string; images: Photo[] }): PendingTurn {
+  const messages = snapshot?.messages ?? [];
+  return {
+    ...turn,
+    since: messages.reduce((newest, message) => Math.max(newest, message.at), 0),
+    before: new Set(messages.filter((message) => message.role === "user").map((message) => message.id)),
+    acked: false,
+  };
 }
 
 /**
@@ -164,8 +206,14 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
         return { snapshot, pending: settlePending(snapshot, thread.pending) };
       });
     },
-    setPending: (agent, turn) => {
-      update(agent, (thread) => ({ pending: turn === null ? null : { ...turn, sinceRev: thread.snapshot?.rev ?? -1 } }));
+    addPending: (agent, turn) => {
+      update(agent, (thread) => ({ pending: [...thread.pending, pendingTurn(thread.snapshot, turn)] }));
+    },
+    ackPending: (agent, id) => {
+      update(agent, (thread) => ({ pending: thread.pending.map((echo) => (echo.id === id ? { ...echo, acked: true } : echo)) }));
+    },
+    dropPending: (agent, id) => {
+      update(agent, (thread) => ({ pending: thread.pending.filter((echo) => echo.id !== id) }));
     },
     markSignedIn: (agent, messageId) => {
       update(agent, (thread) => ({ signedIn: { ...thread.signedIn, [messageId]: true } }));

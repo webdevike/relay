@@ -7,9 +7,9 @@
  */
 import type { AssistantSnapshot } from "@relay/protocol";
 
-/** The replies to show under the newest row of `snapshot`, or null; `pending` is the echo of a turn still being sent. */
-export function liveReplies(snapshot: AssistantSnapshot | null, pending: object | null): readonly string[] | null {
-  if (snapshot === null || snapshot.busy || pending !== null) return null;
+/** The replies to show under the newest row of `snapshot`, or null; `sending`: a turn of Isaac's is still waiting to land. */
+export function liveReplies(snapshot: AssistantSnapshot | null, sending: boolean): readonly string[] | null {
+  if (snapshot === null || snapshot.busy || sending) return null;
   // Status rows are machinery the thread never shows, so the newest row is the newest other one.
   for (let i = snapshot.messages.length - 1; i >= 0; i -= 1) {
     const message = snapshot.messages[i];

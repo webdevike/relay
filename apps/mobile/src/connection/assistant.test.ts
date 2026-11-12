@@ -106,14 +106,15 @@ describe("assistant.snapshot", () => {
     expect(thread("astra").snapshot?.messages.map((m) => m.text)).toEqual(["standup?", "at ten"]);
     expect(thread("nova").snapshot?.messages.map((m) => m.text)).toEqual(["groceries"]);
 
-    useAssistantStore.getState().setPending("nova", { text: "and milk", images: [] });
-    expect(thread("nova").pending).toEqual({ text: "and milk", images: [], sinceRev: 1 });
-    expect(thread("astra").pending).toBeNull();
+    useAssistantStore.getState().addPending("nova", { id: "t1", text: "and milk", images: [] });
+    expect(thread("nova").pending).toMatchObject([{ id: "t1", text: "and milk", images: [], since: 1000, acked: false }]);
+    expect([...(thread("nova").pending[0]?.before ?? [])]).toEqual(["m0"]);
+    expect(thread("astra").pending).toEqual([]);
     // Astra moving on does not retire Nova's echo.
     route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(6, ["standup?", "at ten", "ok"]) });
-    expect(thread("nova").pending?.text).toBe("and milk");
+    expect(thread("nova").pending.map((echo) => echo.text)).toEqual(["and milk"]);
     route({ t: "assistant.snapshot", agent: "nova", snapshot: snapshot(2, ["groceries", "noted", "and milk"]) });
-    expect(thread("nova").pending).toBeNull();
+    expect(thread("nova").pending).toEqual([]);
 
     // Message ids repeat across threads; a sign-in acked in one is not submitted in the other.
     useAssistantStore.getState().markSignedIn("astra", "m0");
@@ -129,10 +130,14 @@ describe("assistant.snapshot", () => {
     });
     expect(thread("nova").snapshot?.messages.map((m) => m.text)).toEqual(["book the table", "done", "thanks", "np"]);
     // Older history: the desktop's tag from before it was Relay Desktop.
-    useAssistantStore.getState().setPending("nova", { text: "and wine", images: [] });
-    route({ t: "assistant.snapshot", agent: "nova", snapshot: snapshot(1, ["<surface>Mac Mini - EvaOS</surface>\nand wine"]) });
-    expect(thread("nova").snapshot?.messages[0]?.text).toBe("and wine");
-    expect(thread("nova").pending).toBeNull();
+    useAssistantStore.getState().addPending("nova", { id: "t1", text: "and wine", images: [] });
+    route({
+      t: "assistant.snapshot",
+      agent: "nova",
+      snapshot: snapshot(2, ["<surface>Mac Mini - Relay Desktop</surface>\nbook the table", "done", "<surface>iPhone - Relay</surface>\nthanks", "np", "<surface>Mac Mini - EvaOS</surface>\nand wine"]),
+    });
+    expect(thread("nova").snapshot?.messages[4]?.text).toBe("and wine");
+    expect(thread("nova").pending).toEqual([]);
   });
 
   it("accepts a lower rev again after a welcome (the host restarted)", () => {
@@ -142,29 +147,77 @@ describe("assistant.snapshot", () => {
     expect(thread("astra").snapshot?.rev).toBe(0);
   });
 
-  it("retires the optimistic echo once a snapshot lists the turn or moves past the rev it was sent at", () => {
-    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(1, ["earlier"]) });
-    useAssistantStore.getState().setPending("astra", { text: "ship it", images: [] });
-    expect(thread("astra").pending).toEqual({ text: "ship it", images: [], sinceRev: 1 });
-    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(1, ["earlier"]) });
-    expect(thread("astra").pending?.text).toBe("ship it");
-    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(2, ["earlier", "ok", "ship it"]) });
-    expect(thread("astra").pending).toBeNull();
-
-    useAssistantStore.getState().setPending("astra", { text: "again", images: [] });
-    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(3, ["earlier", "ok", "ship it", "sure"]) });
-    expect(thread("astra").pending).toBeNull();
+  it("retires the optimistic echo only once a row of Isaac's newer than the send shows, never on a rev bump alone", () => {
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(1, ["earlier", "ok"]) });
+    useAssistantStore.getState().addPending("astra", { id: "t1", text: "ship it", images: [] });
+    const texts = () => thread("astra").pending.map((echo) => echo.text);
+    // The assistant streams on (rev moves every tick) while the turn waits as a steer: the echo stays.
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(2, ["earlier", "ok"], true) });
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(3, ["earlier", "ok"], true) });
+    expect(texts()).toEqual(["ship it"]);
+    // A background row (a job line) is not his turn.
+    const withJobLine = snapshot(4, ["earlier", "ok"], true);
+    withJobLine.messages.push({ id: "job", role: "user", text: "[From Astra's background jobs] build is green", at: 2000 });
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: withJobLine });
+    expect(texts()).toEqual(["ship it"]);
+    // Older rows the window takes in as Isaac scrolls up are not his turn either, whatever they say.
+    const scrolledUp = snapshot(5, ["earlier", "ok"], true);
+    scrolledUp.messages.unshift({ id: "old", role: "user", text: "ship it", at: 10 });
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: scrolledUp });
+    expect(texts()).toEqual(["ship it"]);
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(6, ["earlier", "ok", "ship it"]) });
+    expect(thread("astra").pending).toEqual([]);
   });
 
-  it("keeps the pictures of an image-only echo until the rev moves, then retires it", () => {
+  it("keeps a second turn's echo while the first lands, each row retiring one echo, oldest first", () => {
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(1, ["earlier", "ok"], true) });
+    useAssistantStore.getState().addPending("astra", { id: "a", text: "first", images: [] });
+    useAssistantStore.getState().addPending("astra", { id: "b", text: "second", images: [] });
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(2, ["earlier", "ok", "first"], true) });
+    expect(thread("astra").pending.map((echo) => echo.id)).toEqual(["b"]);
+    // The next streaming tick lists nothing new: the first turn's row stays the first turn's.
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(3, ["earlier", "ok", "first"], true) });
+    expect(thread("astra").pending.map((echo) => echo.id)).toEqual(["b"]);
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(4, ["earlier", "ok", "first", "on it", "second"], true) });
+    expect(thread("astra").pending).toEqual([]);
+  });
+
+  it("retires an acked echo that leaves no row of Isaac's once the thread is idle with something newer", () => {
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(1, ["earlier", "ok"]) });
+    useAssistantStore.getState().addPending("astra", { id: "a", text: "/compact", images: [] });
+    const withReply = (rev: number, busy: boolean): AssistantSnapshot => {
+      const next = snapshot(rev, ["earlier", "ok"], busy);
+      next.messages.push({ id: "r", role: "assistant", text: "Compacted.", at: 2000 });
+      return next;
+    };
+    // Not acked yet: a newer reply alone does not retire it.
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: withReply(2, false) });
+    expect(thread("astra").pending.map((echo) => echo.id)).toEqual(["a"]);
+    useAssistantStore.getState().ackPending("astra", "a");
+    expect(thread("astra").pending[0]?.acked).toBe(true);
+    // Acked, but the thread still works: it stays.
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: withReply(3, true) });
+    expect(thread("astra").pending.map((echo) => echo.id)).toEqual(["a"]);
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: withReply(4, false) });
+    expect(thread("astra").pending).toEqual([]);
+  });
+
+  it("drops only the echo it names", () => {
+    useAssistantStore.getState().addPending("astra", { id: "a", text: "first", images: [] });
+    useAssistantStore.getState().addPending("astra", { id: "b", text: "second", images: [] });
+    useAssistantStore.getState().dropPending("astra", "a");
+    expect(thread("astra").pending.map((echo) => echo.id)).toEqual(["b"]);
+  });
+
+  it("keeps the pictures of an image-only echo until a new row of Isaac's shows, then retires it", () => {
     const photo = { image: { mimeType: "image/jpeg" as const, data: "abc" }, uri: "file:///a.jpg", width: 4, height: 3 };
     route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(1, ["earlier", "ok", ""]) });
-    useAssistantStore.getState().setPending("astra", { text: "", images: [photo] });
-    // An older empty-text user message in the snapshot must not retire an image-only echo.
-    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(1, ["earlier", "ok", ""]) });
-    expect(thread("astra").pending?.images).toEqual([photo]);
+    useAssistantStore.getState().addPending("astra", { id: "a", text: "", images: [photo] });
+    // An older empty-text user message in the snapshot must not retire an image-only echo, nor a reply alone.
     route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(2, ["earlier", "ok", "", "seen"]) });
-    expect(thread("astra").pending).toBeNull();
+    expect(thread("astra").pending[0]?.images).toEqual([photo]);
+    route({ t: "assistant.snapshot", agent: "astra", snapshot: snapshot(3, ["earlier", "ok", "", "seen", ""]) });
+    expect(thread("astra").pending).toEqual([]);
   });
 
   it("carries the session id and each message's image refs through the snapshot", () => {

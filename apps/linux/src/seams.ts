@@ -168,8 +168,11 @@ export interface AssistantThread {
   snapshot(): Promise<AssistantSnapshot>;
   /** This agent's row in `assistant.agents`: its registry entry, where its session stands and its newest reply. */
   listing(): Promise<AssistantAgent>;
-  /** Delivers `text` and any `images` as Isaac's next turn, starting or resuming the agent first. Rejects with `AckFailure` (`agent_launch_failed`). */
-  turn(text: string, images?: readonly AgentImage[]): Promise<void>;
+  /**
+   * Delivers `text` and any `images` as Isaac's next turn, starting or resuming the agent first. A `clientId` already
+   * delivered (or on its way) is not delivered again. Rejects with `AckFailure` (`agent_launch_failed`).
+   */
+  turn(text: string, images?: readonly AgentImage[], clientId?: string): Promise<void>;
   /** A background job's message to the agent, delivered as a turn it then tells Isaac about. Rejects like `turn`. */
   say(text: string): Promise<void>;
   /** Types Isaac's credentials into the login page `url` the agent asked him to sign in to (message `messageId`). Rejects with `AckFailure`. */

@@ -164,6 +164,13 @@ const EMPTY_OPTIONS: AgentOptions = { models: [], skills: [] };
 export const ASSISTANT_FOLLOW_MS = 5 * 60_000;
 const EMPTY_ASSISTANT: AssistantSnapshot = { rev: 0, messages: [], busy: false, sessionId: "" };
 
+/** `snapshot` holding only its newest `rows` rows, `older` counting those left out; the whole of it when `rows` is absent or covers it. */
+export function tailSnapshot(snapshot: AssistantSnapshot, rows: number | undefined): AssistantSnapshot {
+  if (rows === undefined || snapshot.messages.length <= rows) return snapshot;
+  const older = snapshot.messages.length - rows;
+  return { ...snapshot, messages: snapshot.messages.slice(older), older };
+}
+
 function noInputDevice(): AckFailure {
   return new AckFailure({
     code: "accessibility_denied",
@@ -212,6 +219,8 @@ export class ClientSession {
   private boardsSubscribed = false;
   /** When this socket last sent `assistant.get`, by agent id; absent for agents it never asked for. */
   private readonly assistantAskedAt = new Map<string, number>();
+  /** How many of a thread's newest rows this socket asked for (`assistant.get` `rows`), by agent id; absent: the whole thread. */
+  private readonly assistantRows = new Map<string, number>();
   /** Set by `stats.get`: this socket shows usage stats and gets every new snapshot. */
   private statsWanted = false;
 
@@ -245,6 +254,15 @@ export class ClientSession {
   /** Sends only once authenticated; used by the server for state-topic broadcasts (`mac.state`). */
   broadcast(message: ServerMessage): void {
     if (this.phase.kind === "authenticated") this.sink.send(message);
+  }
+
+  /** An assistant thread's frame for this socket: a snapshot cut to the newest rows it asked for. */
+  sendAssistant(message: ServerMessage): void {
+    if (message.t !== "assistant.snapshot") {
+      this.broadcast(message);
+      return;
+    }
+    this.broadcast({ ...message, snapshot: tailSnapshot(message.snapshot, this.assistantRows.get(message.agent)) });
   }
 
   /** Whether the phone currently has `sessionId`'s conversation open (subscribed on this socket). */
@@ -741,12 +759,14 @@ export class ClientSession {
           break;
         }
         this.assistantAskedAt.set(thread.id, this.clock.now());
+        if (message.rows === undefined) this.assistantRows.delete(thread.id);
+        else this.assistantRows.set(thread.id, message.rows);
         // The thread is on screen and its Call button one tap away: start the speech models now.
         this.deps.calls?.warm();
         void thread.snapshot().then(
           (snapshot) => {
             if (!this.closed)
-              this.sink.send({ t: "assistant.snapshot", agent: thread.id, snapshot });
+              this.sink.send({ t: "assistant.snapshot", agent: thread.id, snapshot: tailSnapshot(snapshot, message.rows) });
           },
           () => {
             if (!this.closed)
@@ -1173,7 +1193,7 @@ export class ClientSession {
             }),
           );
         }
-        return this.assistantThread(cmd.agent).turn(cmd.text, cmd.images);
+        return this.assistantThread(cmd.agent).turn(cmd.text, cmd.images, cmd.clientId);
       case "assistant.signin":
         return this.assistantThread(cmd.agent).signin(
           cmd.messageId,

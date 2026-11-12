@@ -592,10 +592,10 @@ export class RelayServer {
     return false;
   }
 
-  /** Sends `message` to every socket following agent `agent`'s thread. */
+  /** Sends `message` to every socket following agent `agent`'s thread, a snapshot cut to the rows each asked for. */
   broadcastAssistant(agent: string, message: ServerMessage): void {
     for (const ws of this.sockets) {
-      if (ws.data.session?.isFollowingAssistant(agent) === true) ws.data.session.broadcast(message);
+      if (ws.data.session?.isFollowingAssistant(agent) === true) ws.data.session.sendAssistant(message);
     }
   }
 

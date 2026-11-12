@@ -1541,6 +1541,31 @@ describe("assistant threads", () => {
     expect(h.session.isFollowingAssistant("astra")).toBe(false);
   });
 
+  it("sends a socket that asked for rows only the newest rows, on the answer and on every later push, until it asks for the whole thread", async () => {
+    const assistant = new FakeThreads();
+    assistant.nova.snapshotValue.messages.push(
+      { id: "nova-u2", role: "user", text: "and milk", at: 2 },
+      { id: "nova-a3", role: "assistant", text: "added", at: 3 },
+    );
+    const h = harness({ assistant });
+    pair(h);
+    h.session.receive({ t: "assistant.get", agent: "nova", rows: 2 });
+    await h.sink.sentCount(5);
+    expect(h.sink.last()).toMatchObject({ t: "assistant.snapshot", agent: "nova", snapshot: { older: 1, messages: [{ id: "nova-u2" }, { id: "nova-a3" }] } });
+    h.session.sendAssistant({ t: "assistant.snapshot", agent: "nova", snapshot: assistant.nova.snapshotValue });
+    expect(h.sink.last()).toMatchObject({ snapshot: { older: 1, messages: [{ id: "nova-u2" }, { id: "nova-a3" }] } });
+    // A window that covers the thread sends it as it is.
+    h.session.receive({ t: "assistant.get", agent: "nova", rows: 400 });
+    await h.sink.sentCount(7);
+    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", agent: "nova", snapshot: assistant.nova.snapshotValue });
+    h.session.receive({ t: "assistant.get", agent: "nova", rows: 1 });
+    await h.sink.sentCount(8);
+    h.session.receive({ t: "assistant.get", agent: "nova" });
+    await h.sink.sentCount(9);
+    h.session.sendAssistant({ t: "assistant.snapshot", agent: "nova", snapshot: assistant.nova.snapshotValue });
+    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", agent: "nova", snapshot: assistant.nova.snapshotValue });
+  });
+
   it("answers assistant.get for an unknown agent empty and follows nothing; without an agent on a host with no threads, says nothing", async () => {
     const h = harness({ assistant: new FakeThreads() });
     pair(h);

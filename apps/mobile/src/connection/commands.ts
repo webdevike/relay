@@ -10,6 +10,8 @@ const MAX_PENDING = 64;
 const TIMEOUT_MS = 10_000;
 /** The host acks a sign-in once the browser tool has typed the credentials and the page settled (it gives the tool 60 s). */
 export const SIGNIN_TIMEOUT_MS = 70_000;
+/** The host acks a turn once the assistant has it, starting or resuming its omp first (up to 30 s); the desktop gives it 45 s too. */
+export const TURN_TIMEOUT_MS = 45_000;
 
 /** Rejection shape for a nacked or timed-out command: `AckError`'s fields plus `"timeout"`. */
 export class CommandError extends Error {
@@ -43,18 +45,25 @@ export class CommandQueue {
     return this.pending.size;
   }
 
-  enqueue(cmd: Command): Promise<void> {
+  /**
+   * Tracks `cmd` until its ack, nack or timeout, and hands it to `send` once now. Commands already
+   * pending are not sent again here: only `onReconnect` resends them, so one tap never puts a
+   * still-unacked turn (and its images) back on the wire.
+   */
+  enqueue(cmd: Command, send?: (message: ClientMessage) => void): Promise<void> {
     if (this.pending.size >= MAX_PENDING) {
       return Promise.reject(new CommandError("internal", "too many commands pending"));
     }
-    return new Promise<void>((resolve, reject) => {
-      const id = `c-${++this.counter}-${this.nextId()}`;
+    const id = `c-${++this.counter}-${this.nextId()}`;
+    const promise = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new CommandError("timeout", "command timed out waiting for an ack"));
-      }, cmd.kind === "assistant.signin" ? SIGNIN_TIMEOUT_MS : TIMEOUT_MS);
+      }, cmd.kind === "assistant.signin" ? SIGNIN_TIMEOUT_MS : cmd.kind === "assistant.turn" ? TURN_TIMEOUT_MS : TIMEOUT_MS);
       this.pending.set(id, { id, cmd, resolve, reject, timer });
     });
+    send?.({ t: "cmd", id, cmd });
+    return promise;
   }
 
   onAck(id: string): void {

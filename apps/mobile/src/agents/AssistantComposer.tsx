@@ -1,8 +1,8 @@
 /**
  * The assistant thread's composer (`app/eva.tsx`), after the Claude app's. Idle: one floating pill
- * with attach, "Type or hold to talk", the mic and a white voice-call button. Typing (or a draft,
- * queued photos, a dictation): a card above the keyboard with the field on top and attach, the
- * assistant/model chip, the mic and call under it; call becomes send once there is something to send.
+ * with attach, "Type or hold to talk" and the mic (the voice call is in the thread's header). Typing
+ * (or a draft, queued photos, a dictation): a card above the keyboard with the field on top and
+ * attach, the assistant/model chip and the mic under it, then send once there is something to send.
  *
  * The mic: a tap dictates into the field (x drops it, stop keeps the words to edit, the accent
  * arrow sends); a hold is walkie-talkie, sent when the finger lifts: the pill shows the live level
@@ -51,7 +51,6 @@ export interface AssistantComposerProps {
   onAttach: () => void;
   /** Sends a turn: the words and the queued photos. */
   onSend: (text: string, photos: Photo[]) => void;
-  onCall: () => void;
   /** The model and its thinking level, in the card's chip; a tap gets the chip's place on screen, to open the level picker over it. */
   chip: { label: string; detail?: string | undefined; onPress: (anchor: PopoverAnchor) => void };
   /** A hold started: the screen shows the edge glow until it has faded. */
@@ -62,12 +61,12 @@ export interface AssistantComposerProps {
   height: SharedValue<number>;
 }
 
-export function AssistantComposer({ title, connected, draft, setDraft, photos, setPhotos, inputRef, cursor, composing, onComposing, onAttach, onSend, onCall, chip, onWalkie, restoreTarget, height }: AssistantComposerProps) {
+export function AssistantComposer({ title, connected, draft, setDraft, photos, setPhotos, inputRef, cursor, composing, onComposing, onAttach, onSend, chip, onWalkie, restoreTarget, height }: AssistantComposerProps) {
   const colors = useColors();
   const dark = useScheme() === "dark";
   const button = dark ? BUTTON_DARK : colors.surfaceRaised;
-  // The round call button: white on dark, near-black on light.
-  const call = dark ? { fill: "#FFFFFF", glyph: "#111111" } : { fill: "#1B1C1E", glyph: "#FFFFFF" };
+  // The round send button: white on dark, near-black on light.
+  const sendColors = dark ? { fill: "#FFFFFF", glyph: "#111111" } : { fill: "#1B1C1E", glyph: "#FFFFFF" };
   const { phase } = useDictation();
   useMicLevel(phase);
   // Leaving the thread mid-dictation aborts the recognizer (the actor outlives this screen).
@@ -137,7 +136,8 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
         onComposing(false);
       }}
       placeholder={!connected ? "Not connected" : expanded ? `Chat with ${title}` : "Type or hold to talk"}
-      editable={connected}
+      // Editable offline too: a reconnect must not drop the keyboard mid-word; the draft is kept and only sending waits.
+      editable
       multiline
       scrollEnabled={expanded}
       keyboardAppearance={dark ? "dark" : "light"}
@@ -161,10 +161,8 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
       {...hold}
     />
   );
-  const callOrSend = hasContent ? (
-    <IconButton symbol="arrow.up" size={COMPOSER_BUTTON} glyphSize={18} backgroundColor={call.fill} tintColor={call.glyph} disabled={!connected} onPress={() => { onSend(text, photos); }} accessibilityLabel="Send" />
-  ) : (
-    <IconButton symbol="waveform" size={COMPOSER_BUTTON} glyphSize={19} backgroundColor={call.fill} tintColor={call.glyph} disabled={!connected} onPress={onCall} accessibilityLabel={`Call ${title}`} />
+  const send = hasContent && (
+    <IconButton symbol="arrow.up" size={COMPOSER_BUTTON} glyphSize={18} backgroundColor={sendColors.fill} tintColor={sendColors.glyph} disabled={!connected} onPress={() => { onSend(text, photos); }} accessibilityLabel="Send" />
   );
 
   const dictating = tap.dictating;
@@ -216,7 +214,7 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
           ) : (
             <>
               {mic}
-              {callOrSend}
+              {send}
             </>
           )
         }

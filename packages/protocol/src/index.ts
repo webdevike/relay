@@ -801,6 +801,10 @@ export const MAX_ASK_LABEL = 40;
 export const MAX_ASK_QUESTION = 280;
 /** Characters of an answer a client sends with `assistant.ask.resolve` (an option's words, or free text from a client that offers it). */
 export const MAX_ASK_ANSWER = 500;
+/** Characters of `assistant.turn`'s `clientId`. */
+export const MAX_CLIENT_ID = 64;
+/** The most rows a socket may ask an `assistant.snapshot` to hold (`assistant.get` `rows`). */
+export const MAX_ASSISTANT_ROWS = 100_000;
 
 /**
  * A question waiting on Isaac in an assistant's thread: an assistant row that ended on
@@ -845,6 +849,8 @@ export const AssistantSnapshot = z.object({
   sessionId: z.string(),
   /** The thread's open asks, oldest first (`MAX_OPEN_ASKS` newest). Absent from hosts that predate them; a phone then shows no badges and never sends `assistant.ask.resolve`. */
   asks: z.array(OpenAsk).max(MAX_OPEN_ASKS).optional(),
+  /** Rows of the thread older than `messages[0]` that this snapshot leaves out (`assistant.get` `rows`); absent or 0 when it holds them all. */
+  older: z.number().int().nonnegative().optional(),
 });
 export type AssistantSnapshot = z.infer<typeof AssistantSnapshot>;
 
@@ -1567,12 +1573,17 @@ export const Command = z.discriminatedUnion("kind", [
     kind: z.literal("gate.override"),
     reason: z.string().trim().min(1).max(MAX_GATE_REASON),
   }),
-  /** Give a persistent assistant (`agent`, default the registry's first) a new turn. Text may be empty only when images are present (the host nacks a turn with neither). */
+  /**
+   * Give a persistent assistant (`agent`, default the registry's first) a new turn. Text may be empty only when images are present (the host nacks a turn with neither).
+   * `clientId` names the message, not the attempt: a phone sends it again with the same id after a send it never heard back on,
+   * and a host that already delivered that id acks without delivering it twice. Hosts before it ignore it.
+   */
   z.object({
     kind: z.literal("assistant.turn"),
     agent: AssistantAgentId.optional(),
     text: z.string().trim().max(MAX_DROP_TEXT),
     images: z.array(AgentImage).min(1).max(MAX_REPLY_IMAGES).optional(),
+    clientId: z.string().min(1).max(MAX_CLIENT_ID).optional(),
   }),
   /**
    * Credentials for the sign-in an assistant (`agent`, default the registry's first) asked for in
@@ -1767,8 +1778,12 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("board.subscribe") }),
   /** Re-request every board (after a rev gap); answered by `board.snapshot`. */
   z.object({ t: z.literal("board.get") }),
-  /** Ask for an assistant's durable conversation (`agent`, default the registry's first); answered by `assistant.snapshot`. */
-  z.object({ t: z.literal("assistant.get"), agent: AssistantAgentId.optional() }),
+  /**
+   * Ask for an assistant's durable conversation (`agent`, default the registry's first); answered by `assistant.snapshot`.
+   * `rows`: send this socket only the newest `rows` rows of it, now and on every later change (`older` counts the rest).
+   * Absent, the whole thread, as hosts before it always send.
+   */
+  z.object({ t: z.literal("assistant.get"), agent: AssistantAgentId.optional(), rows: z.number().int().positive().max(MAX_ASSISTANT_ROWS).optional() }),
   /** Ask which assistant threads the host runs; answered by `assistant.agents`. */
   z.object({ t: z.literal("assistant.agents") }),
   /** Ask for the habit gate's current state; answered by `gate.status`. */

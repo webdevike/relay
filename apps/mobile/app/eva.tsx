@@ -68,6 +68,7 @@ import { useMotionSignals } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
 import { requestAgentOptions, requestAssistant, sendCommand, stopAssistant, subscribeAgent, unsubscribeAgent, watchArtifacts } from "@/connection";
 import { warn } from "@/connection/log";
+import { CommandError } from "@/connection/commands";
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
 import { photoOfImage } from "@/lib/clipboard";
@@ -102,8 +103,8 @@ import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
 import { assistantTurnRows } from "@/turns/rows";
 import { useTurnBookmarks } from "@/turns/useTurnBookmarks";
 
-/** Id of the row echoing a sent turn before the host's snapshot lists it. */
-const PENDING_ID = "pending-turn";
+/** Prefix of the rows echoing sent turns before the host's snapshot lists them (then the echo's id). */
+const PENDING_ID = "pending-turn:";
 /** The header's one row: back, identity and buttons, under the status bar. */
 const HEADER_ROW = 44;
 /** The header's round glyph buttons. */
@@ -146,6 +147,10 @@ const PAGE = 40;
  * kept ten screens of images, videos, widgets and web views alive on each side of a long thread.
  */
 const WINDOW_SCREENS = 5;
+/** Rows of the thread the host sends at a time (`assistant.get` `rows`): the list's held rows rounded up a step, plus one. */
+const ASSISTANT_ROWS_STEP = 200;
+/** How long an acked turn's echo stays while the thread sits idle without a row of Isaac's for it (a slash command leaves none). */
+const ACKED_ECHO_MS = 30_000;
 
 /** Keyed by agent, so moving to another agent's thread (a notification tap) starts with a fresh composer. */
 export default function Eva() {
@@ -161,7 +166,6 @@ function Thread({ agent }: { agent: string }) {
   const portrait = useAssistantStore((state) => agentPortrait(state.agents, agent));
   const snapshot = useAssistantStore((state) => threadOf(state, agent).snapshot);
   const pending = useAssistantStore((state) => threadOf(state, agent).pending);
-  const setPending = useAssistantStore((state) => state.setPending);
   const connected = useConnectionStore((state) => state.status === "connected");
   const [draft, setDraft] = useThreadDraft(draftKey("assistant", agent));
   const composer = useRef<TextInput>(null);
@@ -250,13 +254,16 @@ function Thread({ agent }: { agent: string }) {
   useEffect(() => () => { useLocalRowsStore.getState().clear(agent); }, [agent]);
 
   // The thread is fetched only while this screen shows; the driver re-asks on every welcome in between.
+  // The host sends the newest rows only, always a step more than the list holds, so scrolling up
+  // finds the next page already here.
+  const rowsWanted = ASSISTANT_ROWS_STEP * Math.ceil((drawn + ASSISTANT_ROWS_STEP) / ASSISTANT_ROWS_STEP);
   useFocusEffect(
     useCallback(() => {
-      requestAssistant(agent);
+      requestAssistant(agent, rowsWanted);
       return () => {
         stopAssistant(agent);
       };
-    }, [agent]),
+    }, [agent, rowsWanted]),
   );
 
   const full = photos.length >= MAX_REPLY_IMAGES;
@@ -279,42 +286,70 @@ function Thread({ agent }: { agent: string }) {
     setPhotos((current) => [...current, photoOfImage(image)].slice(0, MAX_REPLY_IMAGES));
   });
 
+  // `clientId`s of turns whose fate is unknown (sent, then timed out unheard), by their words. Sending
+  // the same words again reuses the id, so the host, which may have delivered it after all, lands it once.
+  const unconfirmed = useRef(new Map<string, string>());
+
   /**
    * Sends a turn: the composer's words and photos, or a tapped reply chip's label. Either shows the
    * pending echo at once; a refusal clears it and says why. Only a composer send empties the draft
    * and photos, and gets them back on failure; a chip leaves the draft alone and shows again.
+   * The same turn tapped again while its echo shows sends nothing: while the JS thread is busy taps
+   * queue up and each runs before the screen redraws, so this reads the store (`trackTurn` adds the
+   * echo there synchronously), not the rendered draft.
    */
   const sendTurn = (words: string, sent: Photo[], fromComposer: boolean): void => {
+    if (threadOf(useAssistantStore.getState(), agent).pending.some((echo) => echo.text === words && echo.images.length === sent.length)) return;
+    const clientId = unconfirmed.current.get(words) ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    unconfirmed.current.delete(words);
     if (fromComposer) {
       setDraft("");
       setPhotos([]);
     }
-    const delivery = sendCommand({ kind: "assistant.turn", agent, text: words, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) });
-    trackTurn(words, sent, delivery, (error) => {
+    const delivery = sendCommand({ kind: "assistant.turn", agent, text: words, clientId, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) });
+    trackTurn(clientId, words, sent, delivery, (error) => {
+      // Only a timeout leaves the turn's fate unknown; an ack or a refusal settles it, so the same words later are a new turn.
+      if (error instanceof CommandError && error.code === "timeout") unconfirmed.current.set(words, clientId);
       // The words and pictures come back to the composer, so a lost connection never eats a message.
       if (fromComposer) {
         setDraft((current) => (current === "" ? words : current));
         setPhotos((current) => (current.length === 0 ? sent : current));
       }
-      setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${title}.`);
+      setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${titleRef.current}.`);
     });
   };
 
-  /** Shows a turn in flight as the pending echo; a refusal clears it, marks the portrait and hands the error to `fail`. */
-  const trackTurn = (words: string, sent: Photo[], delivery: Promise<void>, fail: (error: unknown) => void): void => {
+  /**
+   * Shows a turn in flight as echo `id`, marked sent once acked; a refusal drops it, marks the
+   * portrait and hands the error to `fail`. An acked turn that never shows as a row of Isaac's
+   * (a slash command, one omp drops) goes once the thread has sat idle for `ACKED_ECHO_MS`.
+   */
+  const trackTurn = (id: string, words: string, sent: Photo[], delivery: Promise<void>, fail: (error: unknown) => void): void => {
     setFailure(null);
     setTurnFailed(false);
-    setPending(agent, { text: words, images: sent });
-    delivery.catch((error: unknown) => {
-      notifyHaptic("error");
-      setTurnFailed(true);
-      setPending(agent, null);
-      fail(error);
-    });
+    const store = useAssistantStore.getState();
+    store.addPending(agent, { id, text: words, images: sent });
+    delivery.then(
+      () => {
+        store.ackPending(agent, id);
+        setTimeout(() => {
+          if (threadOf(useAssistantStore.getState(), agent).snapshot?.busy !== true) useAssistantStore.getState().dropPending(agent, id);
+        }, ACKED_ECHO_MS);
+      },
+      (error: unknown) => {
+        notifyHaptic("error");
+        setTurnFailed(true);
+        store.dropPending(agent, id);
+        fail(error);
+      },
+    );
   };
 
   // Hold-to-talk delivers what was heard as Isaac's next turn, to this thread; a tap dictation
-  // borrows the target for the composer's field and points it back here when it ends.
+  // borrows the target for the composer's field and points it back here when it ends. The title is
+  // read when an error shows, so its arrival (`assistant.agents`) never re-points the target mid-dictation.
+  const titleRef = useRef(title);
+  titleRef.current = title;
   const trackTurnRef = useRef(trackTurn);
   trackTurnRef.current = trackTurn;
   const pointDictationHere = useCallback(() => {
@@ -322,12 +357,12 @@ function Thread({ agent }: { agent: string }) {
       kind: "assistant",
       agent,
       onTurn: (words, delivery) => {
-        trackTurnRef.current(words, [], delivery, (error) => {
-          setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${title}.`);
+        trackTurnRef.current(`dictation-${Date.now().toString(36)}`, words, [], delivery, (error) => {
+          setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${titleRef.current}.`);
         });
       },
     });
-  }, [agent, title]);
+  }, [agent]);
   useFocusEffect(useCallback(() => {
     pointDictationHere();
     return () => {
@@ -391,13 +426,10 @@ function Thread({ agent }: { agent: string }) {
     [],
   );
   const pendingApproval = useAgentsStore((state) => (sessionId === null ? undefined : state.approvals[sessionId]));
-  // What runs for this thread now (helpers, sessions, harnesses, rooms, and its own sessions only while they work): chips under the header row.
-  const activityItems = useActivityStore((state) => state.items);
-  const sessions = useAgentsStore((state) => state.sessions);
-  const owned = useMemo(() => ownedBy(sessions, agent), [sessions, agent]);
-  const running = useMemo(() => runningChips(activityItems, artifactsThread, { threadSession: sessionId, sessions }, owned), [activityItems, artifactsThread, sessionId, sessions, owned]);
-  // The model and thinking level of the thread's session, for the composer's chip.
-  const threadSession = sessionId === null ? undefined : sessions[sessionId];
+  // The model and thinking level of the thread's session, for the composer's chip: primitives, so the
+  // screen redraws when they change, not on every status frame of any session the host follows.
+  const threadModel = useAgentsStore((state) => (sessionId === null ? undefined : state.sessions[sessionId]?.model));
+  const threadThinking = useAgentsStore((state) => (sessionId === null ? undefined : state.sessions[sessionId]?.thinkingLevel));
   const threadOptions = useAgentsStore((state) => (sessionId === null ? undefined : state.options[sessionId]));
   useEffect(() => {
     if (connected && sessionId !== null) requestAgentOptions(sessionId);
@@ -405,7 +437,7 @@ function Thread({ agent }: { agent: string }) {
 
   // Background messages (the host's job lines arrive as `status` rows) show as quiet rows, and so do a guest's joined/left lines from a host that sends guests; any other status row is machinery, never shown.
   // Memoized: the bookmarks index these rows, and a keystroke in the composer must not rebuild them.
-  const pendingRow = useMemo<AssistantMessage[]>(() => (pending === null ? [] : [{ id: PENDING_ID, role: "user", text: pending.text, at: Date.now() }]), [pending]);
+  const pendingRow = useMemo<AssistantMessage[]>(() => pending.map((echo) => ({ id: `${PENDING_ID}${echo.id}`, role: "user", text: echo.text, at: Date.now() })), [pending]);
   const guests = useAssistantStore((state) => state.guests);
   const messages = useMemo(
     () => (snapshot?.messages ?? []).filter((message) => message.role !== "status" || backgroundOf(message) !== null || guestRowKind(message, guests) !== null),
@@ -415,7 +447,7 @@ function Thread({ agent }: { agent: string }) {
   const settled = useMemo(() => [...messages, ...pendingRow], [messages, pendingRow]);
   const newestSettled = settled[settled.length - 1];
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
-  const replies = connected ? liveReplies(snapshot, pending) : null;
+  const replies = connected ? liveReplies(snapshot, pending.length > 0) : null;
   // Open questions, minus the one whose ask card shows above the composer: the header button's count and its sheet.
   const shownAsks = useMemo(
     () => visibleAsks(openAsks, pendingAsk === undefined || sessionId === null ? null : { sessionId, askId: pendingAsk.id }, hiddenAsks),
@@ -448,7 +480,7 @@ function Thread({ agent }: { agent: string }) {
     scrollToRow(jumpTo);
   }, [jumpTo, listed.length, scrollToRow]);
   // Turns of the host's rows, for bookmarks: flagged by an ask nobody answered and by reactions.
-  const turnRows = useMemo(() => assistantTurnRows(rows, (message) => message.id === PENDING_ID || isLocalRow(message.id) || isAskRow(message.id), pendingAsk !== undefined), [rows, pendingAsk]);
+  const turnRows = useMemo(() => assistantTurnRows(rows, (message) => message.id.startsWith(PENDING_ID) || isLocalRow(message.id) || isAskRow(message.id), pendingAsk !== undefined), [rows, pendingAsk]);
   useTurnBookmarks({ turnRows, thread: artifactsThread });
   const enteringMessages = useMessageEntrances(rows, snapshot !== null);
   const busy = snapshot?.busy === true;
@@ -457,10 +489,12 @@ function Thread({ agent }: { agent: string }) {
   const newest = newestFirst[0];
   const typing = busy && !(newestSettled?.role === "assistant" && newestSettled.text.trim() !== "");
 
-  // Only the newest message Isaac typed carries a receipt: Sending while its echo is pending, Seen once
-  // the host's snapshot lists it.
+  // Only the newest message Isaac typed carries a receipt: Sending while its echo waits on the host's
+  // ack, Sent once the host has it (a turn sent while the assistant works waits there until it is
+  // free), Seen once the host's snapshot lists it.
   const latestUserId = newestFirst.find((message) => message.role === "user" && backgroundOf(message) === null)?.id ?? null;
-  const receipt = latestUserId === null ? null : latestUserId === PENDING_ID ? "Sending" : "Seen";
+  const latestEcho = latestUserId?.startsWith(PENDING_ID) === true ? pending.find((echo) => `${PENDING_ID}${echo.id}` === latestUserId) : undefined;
+  const receipt = latestUserId === null ? null : latestEcho !== undefined ? (latestEcho.acked ? "Sent" : "Sending") : "Seen";
 
   const dark = useScheme() === "dark";
   const bg = dark ? BG_DARK : colors.bg;
@@ -505,7 +539,7 @@ function Thread({ agent }: { agent: string }) {
     );
   };
 
-  /** The composer's voice-call button: a live call, or the legacy call when GPT-Live is unavailable. */
+  /** The header's voice-call button: a live call, or the legacy call when GPT-Live is unavailable. */
   const call = (): void => {
     Keyboard.dismiss();
     setFailure(null);
@@ -515,9 +549,9 @@ function Thread({ agent }: { agent: string }) {
   };
 
   /** The thinking levels the thread session's model takes (empty: unknown model or an older host). */
-  const thinkingLevels = threadOptions?.models.find((model) => model.name === threadSession?.model)?.thinkingLevels ?? [];
+  const thinkingLevels = threadOptions?.models.find((model) => model.name === threadModel)?.thinkingLevels ?? [];
   // "Claude Opus 5.5" reads "Opus 5.5": the chip has little room, and the header already names the assistant.
-  const modelName = threadSession?.model?.replace(/^Claude\s+/i, "");
+  const modelName = threadModel?.replace(/^Claude\s+/i, "");
   /** The card's chip: the thinking-level popover over it, else (no levels to pick) the avatar menu. */
   const openThinking = (anchor: PopoverAnchor): void => {
     if (sessionId === null || thinkingLevels.length === 0) {
@@ -534,7 +568,7 @@ function Thread({ agent }: { agent: string }) {
   };
   const chip = {
     label: modelName ?? title,
-    detail: threadSession?.thinkingLevel === undefined ? undefined : capitalized(threadSession.thinkingLevel),
+    detail: threadThinking === undefined ? undefined : capitalized(threadThinking),
     onPress: openThinking,
   };
 
@@ -661,7 +695,7 @@ function Thread({ agent }: { agent: string }) {
                             receipt={item.id === latestUserId ? receipt : null}
                             streaming={busy && item === newestSettled && item.role === "assistant"}
                             sessionId={sessionId}
-                            local={item.id === PENDING_ID ? pending?.images : undefined}
+                            local={item.id.startsWith(PENDING_ID) ? pending.find((echo) => `${PENDING_ID}${echo.id}` === item.id)?.images : undefined}
                             replies={item === newestSettled ? replies : connected ? (openAsks?.find((entry) => entry.messageId === item.id && waitingIds.has(item.id))?.replies ?? null) : null}
                             waiting={waitingIds.has(item.id)}
                             pulse={rung.id === item.id ? rung.n : 0}
@@ -738,22 +772,21 @@ function Thread({ agent }: { agent: string }) {
                 setArtifactsOpen(true);
               }}
             />
+            <IconButton symbol="waveform" size={HEADER_BUTTON} glyphSize={19} backgroundColor="transparent" disabled={!connected} onPress={call} accessibilityLabel={`Call ${title}`} />
           </View>
-          {running.length > 0 && (
-            <View style={styles.running}>
-              <RunningChips
-                chips={running}
-                onOpenSession={(id) => {
-                  router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
-                }}
-                onOpenWorking={() => {
-                  Keyboard.dismiss();
-                  setArtifactsTab("subagents");
-                  setArtifactsOpen(true);
-                }}
-              />
-            </View>
-          )}
+          <ThreadRunning
+            agent={agent}
+            thread={artifactsThread}
+            sessionId={sessionId}
+            onOpenSession={(id) => {
+              router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
+            }}
+            onOpenWorking={() => {
+              Keyboard.dismiss();
+              setArtifactsTab("subagents");
+              setArtifactsOpen(true);
+            }}
+          />
         </FrostedBar>
         {/* No Pinned row under the header on the phone (Isaac, 2026-11-05): pins stay in the thread's Artifacts and on
             the desktop rail; `@/pins/PinnedRow` is kept for when it comes back. */}
@@ -811,7 +844,6 @@ function Thread({ agent }: { agent: string }) {
               onSend={(words, sent) => {
                 if (connected) sendTurn(words, sent, true);
               }}
-              onCall={call}
               chip={chip}
               onWalkie={walkieOrb.start}
               restoreTarget={pointDictationHere}
@@ -870,7 +902,7 @@ function Thread({ agent }: { agent: string }) {
           anchor={thinkingAnchor}
           model={modelName ?? title}
           levels={thinkingLevels}
-          current={threadSession?.thinkingLevel}
+          current={threadThinking}
           onSelect={setThinking}
           onClose={() => {
             setThinkingAnchor(null);
@@ -952,6 +984,24 @@ interface RowProps {
   pulse: number;
 }
 
+/**
+ * What runs for the thread now (helpers, sessions, harnesses, rooms, and its own sessions only while
+ * they work): chips under the header row. Its own component: the host publishes every session's
+ * status frames, and only these chips read them, so the thread and its rows do not redraw on each.
+ */
+function ThreadRunning({ agent, thread, sessionId, onOpenSession, onOpenWorking }: { agent: string; thread: string; sessionId: string | null; onOpenSession: (id: string) => void; onOpenWorking: () => void }) {
+  const activityItems = useActivityStore((state) => state.items);
+  const sessions = useAgentsStore((state) => state.sessions);
+  const owned = useMemo(() => ownedBy(sessions, agent), [sessions, agent]);
+  const running = useMemo(() => runningChips(activityItems, thread, { threadSession: sessionId, sessions }, owned), [activityItems, thread, sessionId, sessions, owned]);
+  if (running.length === 0) return null;
+  return (
+    <View style={styles.running}>
+      <RunningChips chips={running} onOpenSession={onOpenSession} onOpenWorking={onOpenWorking} />
+    </View>
+  );
+}
+
 function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply, waiting, pulse }: RowProps) {
   const signedIn = useAssistantStore((state) => threadOf(state, agent).signedIn[message.id] === true);
   const guests = useAssistantStore((state) => state.guests);
@@ -960,7 +1010,7 @@ function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenI
   const bubbleFill = dark ? BUBBLE_DARK : colors.surface;
   const page = dark ? BG_DARK : colors.bg;
   // The echo of a turn still being sent has the phone's clock, not the host's: no reaction yet.
-  const reactionKey = bubbleReactionKey(message, message.id === PENDING_ID);
+  const reactionKey = bubbleReactionKey(message, message.id.startsWith(PENDING_ID));
   const hasText = message.text !== "";
   const imageCount = local !== undefined ? local.length : (message.images?.length ?? 0);
   // Images stack above the text, left or right with the bubble.

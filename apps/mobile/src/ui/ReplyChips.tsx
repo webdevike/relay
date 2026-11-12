@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { Chip } from "./Chip";
@@ -19,9 +19,13 @@ export interface ReplyChipsProps {
 
 /**
  * Tap-to-answer replies under a chat bubble: a wrapping row of `Chip`s, left-aligned, fading in. One
- * VoiceOver group, "Suggested replies", with a button per answer. Nothing is sent without a tap.
+ * VoiceOver group, "Suggested replies", with a button per answer. Nothing is sent without a tap, and
+ * one tap sends once: the tapped chip is drawn selected and the row takes no more taps (a ref, so
+ * taps that queued while the JS thread was busy see it before the screen redraws).
  */
 export function ReplyChips({ replies, onPick, selected, trailing }: ReplyChipsProps) {
+  const picked = useRef<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(null);
   return (
     <Animated.View
       entering={FadeIn.duration(180).reduceMotion(ReduceMotion.System)}
@@ -33,9 +37,12 @@ export function ReplyChips({ replies, onPick, selected, trailing }: ReplyChipsPr
         <Chip
           key={reply}
           label={reply}
-          selected={reply === selected}
+          selected={chosen === null ? reply === selected : reply === chosen}
           hitSlop={HIT_SLOP}
           onPress={() => {
+            if (picked.current !== null) return;
+            picked.current = reply;
+            setChosen(reply);
             onPick(reply);
           }}
         />

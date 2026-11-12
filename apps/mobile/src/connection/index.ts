@@ -119,6 +119,8 @@ let hostTakesRenders = false;
  * `ASSISTANT_FOLLOW_MS`.
  */
 let watchedAssistant: string | null = null;
+/** How many of the watched thread's newest rows the host sends (`assistant.get` `rows`). */
+let watchedRows = 0;
 let assistantFollowTimer: number | undefined;
 const ASSISTANT_FOLLOW_MS = 4 * 60_000;
 /**
@@ -224,14 +226,16 @@ socket.onError = (error) => {
   warn("socket", "error", error);
 };
 /**
- * Whole-state frames the host sends again on every change, of which only the newest per thread is
- * ever drawn: an assistant's thread (Nova's: 7,000 rows, 4 MB, every 150 ms while a reply streams)
- * and a thread's artifacts (2,000 items, 1 MB). Decoding and drawing one took the JS thread longer
- * than the gap to the next, so the frames queued behind it in native memory without bound and the
- * app grew past 2 GB while Isaac chatted. Such a frame is held raw (a newer one replaces it) and
- * decoded once the frames already queued have been taken, so a burst costs one decode.
+ * Whole-state frames the host sends again on every change, of which only the newest per thread or
+ * room is ever drawn: an assistant's thread (every 150 ms while a reply streams), a thread's
+ * artifacts (2,000 items, 1 MB) and the rooms (each changed room whole, up to 2 MB, up to 4 times
+ * a second while it talks; the list supersedes every room held before it). Decoding and drawing
+ * one took the JS thread longer than the gap to the next, so the frames queued behind it in native
+ * memory without bound and the app grew past 2 GB while Isaac chatted. Such a frame is held raw (a
+ * newer one replaces it, keeping arrival order) and decoded once the frames already queued have
+ * been taken, so a burst costs one decode. A room frame whose id does not lead is decoded at once.
  */
-const LATEST_ONLY = /^\{"t":"(assistant\.snapshot|artifacts\.snapshot)","(?:agent|thread)":"([^"]*)"/;
+const LATEST_ONLY = /^\{"t":"(?:(assistant\.snapshot|artifacts\.snapshot)","(?:agent|thread)":"([^"]*)"|(rooms\.room)","room":\{"id":"([^"]*)"|(rooms\.state)")/;
 const latestFrames = new Map<string, string>();
 let latestTimer: number | null = null;
 
@@ -248,7 +252,13 @@ socket.onMessage = (data) => {
     handleFrame(data);
     return;
   }
-  latestFrames.set(`${latest[1] ?? ""}:${latest[2] ?? ""}`, data);
+  const kind = latest[1] ?? latest[3] ?? latest[5] ?? "";
+  // The host follows a thread for 5 minutes after the screen last asked; only the screen showing it draws it.
+  if (kind === "assistant.snapshot" && latest[2] !== watchedAssistant) return;
+  if (kind === "rooms.state") for (const key of [...latestFrames.keys()]) if (key.startsWith("rooms.room:")) latestFrames.delete(key);
+  const key = `${kind}:${latest[2] ?? latest[4] ?? ""}`;
+  latestFrames.delete(key);
+  latestFrames.set(key, data);
   latestTimer ??= setTimeout(takeLatestFrames, 0);
 };
 
@@ -287,7 +297,7 @@ function handleFrame(data: string): void {
     socket.send(encode({ t: "assistant.agents" }));
     // A thread is only fetched while its screen is showing; the screen asks again on focus.
     if (watchedAssistant !== null)
-      socket.send(encode({ t: "assistant.get", agent: watchedAssistant }));
+      socket.send(encode({ t: "assistant.get", agent: watchedAssistant, rows: watchedRows }));
     // Reactions may have changed on another device while this one was away.
     for (const thread of reactionThreads.keys()) {
       socket.send(encode({ t: "reactions.get", thread }));
@@ -552,6 +562,9 @@ async function forgetHost(id: string): Promise<void> {
  * background mode) and needs its socket. The deferred close happens when the call ends.
  */
 function onAppStateChange(next: AppStateStatus): void {
+  // `inactive` is a pass-through (Face ID, Control or Notification Center, the app switcher, a system
+  // alert): the app is still on screen and comes back without a reconnect, so only `background` closes.
+  if (next === "inactive") return;
   const active = next === "active";
   if (active === wasActive) return;
   if (!active && callIsLive()) return;
@@ -718,17 +731,20 @@ export function noteCatchUp(id: string, signal: CatchUpSignal | undefined, text:
  * Ephemeral; the answer lands in `useAssistantStore().threads[agent]`. Also marks `agent`'s
  * thread as showing: the driver re-asks on every welcome and every `ASSISTANT_FOLLOW_MS` until
  * `stopAssistant`, keeping the host's follow window open. Sends nothing while not connected (the
- * welcome will).
+ * welcome will). The host sends only the newest `rows` rows, then and on every change: a long
+ * thread whole (Nova's: 7,900 rows, 4.3 MB, every 150 ms while a reply streams) took Hermes about
+ * 230 ms a frame to decode, which kept the JS thread busy for as long as a reply streamed.
  */
-export function requestAssistant(agent: string): void {
+export function requestAssistant(agent: string, rows: number): void {
   watchedAssistant = agent;
+  watchedRows = rows;
   clearInterval(assistantFollowTimer);
   assistantFollowTimer = setInterval(() => {
     if (useConnectionStore.getState().status === "connected")
-      socket.send(encode({ t: "assistant.get", agent }));
+      socket.send(encode({ t: "assistant.get", agent, rows }));
   }, ASSISTANT_FOLLOW_MS);
   if (useConnectionStore.getState().status !== "connected") return;
-  socket.send(encode({ t: "assistant.get", agent }));
+  socket.send(encode({ t: "assistant.get", agent, rows }));
 }
 
 /**
@@ -1026,8 +1042,7 @@ export function requestAgentImage(sessionId: string, id: string): void {
  * (`echoes`). A refused command stops showing; refused words keep their bubble, marked.
  */
 export function sendCommand(cmd: Command): Promise<void> {
-  const promise = commandQueue.enqueue(cmd);
-  commandQueue.flush((message) => socket.send(encode(message)));
+  const promise = commandQueue.enqueue(cmd, (message) => socket.send(encode(message)));
   if (cmd.kind === "agent.reply") {
     const at = Date.now();
     useAgentsStore.getState().noteSent(cmd.sessionId, cmd.text, at);

@@ -452,7 +452,10 @@ export class OmpBridgeProvider implements AgentProvider {
 
   /**
    * Sends `{ t, id, ...body }` and resolves with the matching `result.value`, or rejects with
-   * `AckFailure` when the extension answers `ok: false` or stays silent.
+   * `AckFailure` when the extension answers `ok: false` or stays silent. A `reply` that gets no answer
+   * in time resolves instead: its frame is already in the live omp's socket, which takes it once its
+   * event loop is free (a busy omp did, after the phone had been told the turn failed and Isaac had
+   * sent it again). A disconnect within the wait still rejects it.
    */
   private request(connection: Connection, t: RequestKind, body: Record<string, unknown>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> {
     this.requestSeq += 1;
@@ -460,6 +463,11 @@ export class OmpBridgeProvider implements AgentProvider {
     const { promise, resolve, reject } = Promise.withResolvers<unknown>();
     const timer = setTimeout(() => {
       connection.pending.delete(id);
+      if (t === "reply") {
+        this.log(`agent session ${connection.session?.id ?? "(unregistered)"}: no answer to ${id} within ${String(timeoutMs)} ms; it is queued in the live omp`);
+        resolve(undefined);
+        return;
+      }
       reject(new AckFailure({ code: "internal", message: `omp session did not answer ${t} within ${timeoutMs} ms` }));
     }, timeoutMs);
     connection.pending.set(id, { resolve, reject, timer, kind: t });
@@ -608,7 +616,11 @@ export class OmpBridgeProvider implements AgentProvider {
         return;
       case "result": {
         const pending = connection.pending.get(frame.id);
-        if (pending === undefined) return;
+        if (pending === undefined) {
+          // Past its wait (a `reply` was acked then): a refusal now is the only trace that the turn did not land.
+          if (!frame.ok) this.log(`agent session ${connection.session?.id ?? "(unregistered)"}: ${frame.id} refused after its wait: ${frame.error ?? "no reason"}`);
+          return;
+        }
         connection.pending.delete(frame.id);
         clearTimeout(pending.timer);
         if (frame.ok) pending.resolve(frame.value);

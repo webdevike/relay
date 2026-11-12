@@ -66,6 +66,8 @@ export const MAX_LAST_REPLY = 140;
 export const SNAPSHOT_DEBOUNCE_MS = 150;
 /** How long a launched agent has to register (and, for a primed thread, to take the prime) before the turn fails. */
 export const REGISTER_TIMEOUT_MS = 30_000;
+/** Phone turn ids a thread remembers (`AssistantService.turns`), oldest forgotten first. */
+const MAX_TURN_IDS = 256;
 
 export interface AssistantServiceDeps {
   /** The registry entry this thread starts with; `configure` takes later versions of it. */
@@ -251,6 +253,12 @@ export class AssistantService implements AssistantThread {
   private readonly transcripts = new Map<string, { mtimeMs: number; size: number; messages: AssistantMessage[]; asking: Map<string, string | undefined> }>();
   /** Messages whose sign-in the host has filled. Kept in memory only; a host restart forgets it. */
   private readonly submitted = new Set<string>();
+  /**
+   * Phone turns by `clientId`, newest last (`MAX_TURN_IDS`): the delivery in flight or done. A turn
+   * sent again under the same id (a phone that never heard the ack) shares it instead of landing
+   * twice; a failed delivery forgets its id, so a retry does deliver.
+   */
+  private readonly turns = new Map<string, Promise<void>>();
   /** Open asks the judge is reading now, so a snapshot while it thinks does not ask again. */
   private readonly judging = new Set<string>();
 
@@ -445,7 +453,28 @@ export class AssistantService implements AssistantThread {
     };
   }
 
-  async turn(text: string, images?: readonly AgentImage[]): Promise<void> {
+  async turn(text: string, images?: readonly AgentImage[], clientId?: string): Promise<void> {
+    if (clientId === undefined) return this.deliver(text, images);
+    const known = this.turns.get(clientId);
+    if (known !== undefined) {
+      this.deps.log(`assistant ${this.id}: turn ${clientId} sent again; delivered once`);
+      return known;
+    }
+    const delivery = this.deliver(text, images);
+    this.turns.set(clientId, delivery);
+    for (const id of this.turns.keys()) {
+      if (this.turns.size <= MAX_TURN_IDS) break;
+      this.turns.delete(id);
+    }
+    try {
+      await delivery;
+    } catch (error) {
+      if (this.turns.get(clientId) === delivery) this.turns.delete(clientId);
+      throw error;
+    }
+  }
+
+  private async deliver(text: string, images?: readonly AgentImage[]): Promise<void> {
     const session = await this.ensureSession();
     this.deps.log(`assistant ${this.id}: turn to session ${session.id} (${session.status})`);
     await this.deps.agents.reply(session.id, text, true, images);

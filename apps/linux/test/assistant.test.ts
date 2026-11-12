@@ -570,6 +570,27 @@ describe("AssistantService turns", () => {
     ]);
   });
 
+  it("delivers a phone turn once per clientId, while in flight and after, and lets a failed one be retried", async () => {
+    const h = harness();
+    h.register("idle");
+    // The phone timed out and sent the same turn again while the first was still being handed over.
+    await Promise.all([h.service.turn("Yes, remove both", undefined, "c1"), h.service.turn("Yes, remove both", undefined, "c1")]);
+    await h.service.turn("Yes, remove both", undefined, "c1");
+    // The same words under a new id are a new turn.
+    await h.service.turn("Yes, remove both", undefined, "c2");
+    expect(h.agents.replies).toEqual([
+      ["eva-1", "Yes, remove both", true],
+      ["eva-1", "Yes, remove both", true],
+    ]);
+
+    const reply = h.agents.reply;
+    h.agents.reply = () => Promise.reject(new Error("omp gone"));
+    await expect(h.service.turn("again", undefined, "c3")).rejects.toThrow("omp gone");
+    h.agents.reply = reply;
+    await h.service.turn("again", undefined, "c3");
+    expect(h.agents.replies.at(-1)).toEqual(["eva-1", "again", true]);
+  });
+
   it("starts a new primed Eva when none is remembered and holds the turn until the prime is underway", async () => {
     const h = harness({ prime: "You are Eva.\n" });
     const turn = h.service.turn("hi");
