@@ -1,0 +1,31 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sprout Supply (demo shop)</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;margin:0;background:#f7f7f5;color:#1d1d1b}
+header{display:flex;align-items:center;gap:16px;padding:14px 28px;background:#fff;border-bottom:1px solid #e3e3df}
+header h1{font-size:18px;margin:0;flex:1}
+input{font:inherit;padding:8px 12px;border:1px solid #d4d4cf;border-radius:8px;width:260px}
+#cart{font-size:14px}
+main{max-width:980px;margin:24px auto;padding:0 28px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:#fff;border:1px solid #e3e3df;border-radius:12px;padding:16px}
+.card .img{height:110px;border-radius:8px;margin-bottom:12px}
+.card h3{font-size:15px;margin:0 0 6px}.price{font-weight:600}
+.stars{color:#a07a10;font-size:13px;margin:4px 0 12px}
+button{font:inherit;padding:8px 14px;border-radius:8px;border:1px solid #1d1d1b;background:#1d1d1b;color:#fff;cursor:pointer}
+button.ghost{background:#fff;color:#1d1d1b}
+.hidden{display:none}#checkout{background:#fff;border:1px solid #e3e3df;border-radius:12px;padding:20px;margin-top:20px}
+.done{color:#2a7a3a;font-weight:600}
+</style></head><body>
+<header><h1>Sprout Supply</h1><input id="q" placeholder="Search plants and gear"><button id="go">Search</button><span id="cart">Cart (0)</span></header>
+<main>
+<div class="grid" id="grid"></div>
+<div id="checkout" class="hidden"><h2>Checkout</h2><p id="summary"></p><button id="place">Place order</button><p id="ok" class="done hidden">Order placed (demo, nothing real).</p></div>
+</main>
+<script>
+const items=[["Monstera Deliciosa",34,"4.8","#7fb48a"],["Snake Plant",22,"4.7","#a7c29a"],["Fiddle Leaf Fig",48,"4.4","#6d9e72"],["Self-watering Pot",18,"4.6","#d9c8a9"],["Grow Light Bar",39,"4.5","#e8d58a"],["Pothos Trio",26,"4.9","#8cc49a"]];
+let cart=[];const grid=document.getElementById("grid");
+function render(f=""){grid.innerHTML="";items.filter(i=>i[0].toLowerCase().includes(f.toLowerCase())).forEach(([n,p,s,c])=>{const d=document.createElement("div");d.className="card";d.innerHTML=`<div class="img" style="background:${c}"></div><h3>${n}</h3><div class="price">$${p}</div><div class="stars">★ ${s}</div><button class="ghost">Add to cart</button>`;d.querySelector("button").onclick=()=>{cart.push([n,p]);document.getElementById("cart").textContent=`Cart (${cart.length})`;document.getElementById("checkout").classList.remove("hidden");document.getElementById("summary").textContent=cart.map(x=>x[0]+" $"+x[1]).join(", ")+" · Total $"+cart.reduce((a,x)=>a+x[1],0)};grid.appendChild(d)})}
+render();document.getElementById("go").onclick=()=>render(document.getElementById("q").value);
+document.getElementById("place").onclick=()=>document.getElementById("ok").classList.remove("hidden");
+</script></body></html>

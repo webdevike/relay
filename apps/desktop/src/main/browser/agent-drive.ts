@@ -3,7 +3,7 @@ import { normalize } from '@evaos/browser-core/address'
 import type { AgentIdentity, AgentTabOp, AgentTabStatus, TabAgent } from '@evaos/contract'
 import type { WebContents } from 'electron'
 import { riskOf, type ElementInfo, type Risk } from './agent-guard'
-import { CURSOR_GLIDE_MS, type CursorOp } from './agent-cursor'
+import { CURSOR_LEAD_MS, type CursorOp } from './agent-cursor'
 import type { BrowserHost } from './browser-host'
 import type { PageControl } from './page-control'
 
@@ -264,7 +264,7 @@ export class AgentDrive {
     this.patch(tabId, { caption: text })
   }
 
-  private async cursorOp(tabId: string, op: CursorOp): Promise<void> {
+  private async cursorOp(tabId: string, op: CursorOp): Promise<number> {
     const who = this.runs.get(tabId)?.who
     const face =
       op.op === 'hide' || !who
@@ -275,9 +275,10 @@ export class AgentDrive {
             ...(who.avatar ? { avatar: who.avatar } : {}),
           }
     try {
-      await this.host.pageControl(tabId).cursor({ ...op, ...face })
+      return await this.host.pageControl(tabId).cursor({ ...op, ...face })
     } catch {
       // A page between documents has no world to draw in; the next step draws it.
+      return 0
     }
   }
 
@@ -315,8 +316,8 @@ export class AgentDrive {
 
   /** Glides the cursor to x,y (on screen, Isaac sees it travel) and clicks there. */
   private async clickAt(tabId: string, pc: DrivePage, x: number, y: number): Promise<void> {
-    await this.cursorOp(tabId, { op: 'move', x, y })
-    if (this.host.isShown(tabId)) await sleep(CURSOR_GLIDE_MS)
+    const ms = await this.cursorOp(tabId, { op: 'move', x, y, lead: CURSOR_LEAD_MS })
+    if (ms > 0 && this.host.isShown(tabId)) await sleep(ms)
     await this.cursorOp(tabId, { op: 'click', x, y })
     await this.host.acting(tabId, () => pc.mouseClick(x, y))
   }

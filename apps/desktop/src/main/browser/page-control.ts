@@ -339,18 +339,23 @@ export class PageControl {
    * paints over anything the shell draws). It lives in an isolated world: page scripts can't
    * reach its code, and the page's Trusted Types and inline-script rules don't apply to it.
    */
-  async cursor(op: CursorOp): Promise<void> {
+  async cursor(op: CursorOp): Promise<number> {
     const expression = `(${CURSOR_SCRIPT})(${JSON.stringify(op)})`
     for (let attempt = 0; attempt < 2; attempt++) {
       const contextId = await this.isolatedWorld()
       try {
-        await this.send('Runtime.evaluate', { expression, contextId }, 5000)
-        return
+        const r = await this.send<{ result?: { value?: unknown } }>(
+          'Runtime.evaluate',
+          { expression, contextId, returnByValue: true },
+          5000,
+        )
+        return typeof r?.result?.value === 'number' ? r.result.value : 0
       } catch {
         // The document changed under the cached world: make a new one once.
         this.world = null
       }
     }
+    return 0
   }
 
   private async isolatedWorld(): Promise<number> {
