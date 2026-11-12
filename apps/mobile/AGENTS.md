@@ -2,6 +2,12 @@
 
 Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code.
 
+# State lives in XState v5 machines (Isaac, 2026-11-11)
+
+Non-trivial state (dictation, calls, sends, asks, OTA gates, rooms requests, uploads) is an XState v5
+machine, pure and tested beside its feature, with a generated diagram in `docs/state-machines/`. See
+`docs/conventions/state-machines.md` before adding a boolean flag or a `useEffect` timer.
+
 # Widgets are composed from shared primitives (Isaac, 2026-10-06)
 
 Never build a ```ui widget (or any screen element) as a one-off. Break it into base elements in
