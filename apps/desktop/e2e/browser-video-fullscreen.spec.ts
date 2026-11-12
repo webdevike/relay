@@ -136,16 +136,20 @@ test('a page tab hides under an HTML fullscreen chat video and comes back on exi
   expect(before.width).toBeGreaterThan(0)
   await shell.locator(VIDEO).scrollIntoViewIfNeeded()
 
-  // Real fullscreen would slide the desktop to a new Space, so the window's own events stand in:
-  // main emits what Electron emits when the renderer enters and leaves HTML fullscreen.
+  // Real fullscreen would slide the desktop to a new Space, so main emits what Electron emits on
+  // the shell's webContents when the renderer enters and leaves HTML fullscreen.
+  const shellUrl = shell.url()
   const emit = (event: 'enter-html-full-screen' | 'leave-html-full-screen') =>
-    app.evaluate((_e, name) => {
-      const win = (globalThis as unknown as { __evaosTest: { win: { emit(n: string): boolean } } })
-        .__evaosTest.win
-      win.emit(name)
-    }, event)
-  // Entering twice, leaving twice and a slot report mid-fullscreen are all idempotent.
-  for (const round of [1, 2]) {
+    app.evaluate(
+      ({ webContents }, [name, url]) => {
+        const wc = webContents.getAllWebContents().find((w) => w.getURL() === url)
+        if (!wc) throw new Error('no shell webContents')
+        wc.emit(name, { sender: wc })
+      },
+      [event, shellUrl] as const,
+    )
+  // Twice over: enter and leave are repeatable and each leave restores the exact bounds.
+  for (const _round of [1, 2]) {
     await emit('enter-html-full-screen')
     await expect.poll(async () => (await viewOf(app, id))?.visible).toBe(false)
     await emit('leave-html-full-screen')

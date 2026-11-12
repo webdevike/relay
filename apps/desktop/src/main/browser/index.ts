@@ -24,10 +24,8 @@ export function registerBrowser(ctx: MainContext): BrowserHost {
     console.warn('[extensions] setup failed:', e instanceof Error ? e.message : e)
   })
   // A native view paints over the renderer, so an HTML fullscreen video needs every view hidden.
-  for (const target of [ctx.win, ctx.shell.webContents]) {
-    target.on('enter-html-full-screen', () => host.setFullscreen(true))
-    target.on('leave-html-full-screen', () => host.setFullscreen(false))
-  }
+  ctx.shell.webContents.on('enter-html-full-screen', () => host.setFullscreen(true))
+  ctx.shell.webContents.on('leave-html-full-screen', () => host.setFullscreen(false))
   ctx.win.on('closed', () => host.dispose())
   ctx.onBeforeQuit(async () => host.dispose())
   return host
