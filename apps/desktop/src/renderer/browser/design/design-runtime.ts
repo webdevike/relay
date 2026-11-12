@@ -40,19 +40,21 @@ const machine = designModeMachine.provide({
     }),
   },
   actions: {
-    previewStyle: (_, p) => {
-      void invoke('design.style', p).then(failed)
+    // A preview the page refused (the element went, the session ended) is dropped from the
+    // request and the inspector says why.
+    previewStyle: ({ self }, p) => {
+      void invoke('design.style', p).then((r) => {
+        if (!r.ok) self.send({ type: 'style.rejected', ...p, message: r.error.message })
+      })
     },
+    // A removal the page refused: the selection stays as it was, a toast says why.
     selectInPage: (_, p) => {
-      void invoke('design.select', p).then(failed)
+      void invoke('design.select', p).then((r) => {
+        if (!r.ok) notifications.show({ color: 'red', message: r.error.message, autoClose: 6000 })
+      })
     },
   },
 })
-
-/** A preview or a removal the page refused: said where Isaac looks, the inspector stays. */
-function failed(r: { ok: true } | { ok: false; error: { message: string } }): void {
-  if (!r.ok) notifications.show({ color: 'red', message: r.error.message, autoClose: 6000 })
-}
 
 function listen(): void {
   if (listening) return
@@ -60,16 +62,15 @@ function listen(): void {
   on('design.selection', (p) =>
     actors.get(p.tabId)?.send({ type: 'page.selection', items: p.items }),
   )
-  on('design.exit', (p) =>
-    actors.get(p.tabId)?.send({ type: p.reason === 'escape' ? 'design.exit' : 'page.left' }),
-  )
-  // A closed page's actor goes with it (main has ended its session already).
-  browserStore.subscribe((s, prev) => {
-    for (const [id, actor] of actors) {
-      if (prev.byId[id] && !s.byId[id]) {
-        actor.stop()
-        actors.delete(id)
-      }
+  on('design.exit', (p) => {
+    const actor = actors.get(p.tabId)
+    if (!actor) return
+    if (p.reason === 'escape') return actor.send({ type: 'design.exit' })
+    actor.send({ type: 'page.left' })
+    // A closed page (any scope; main sends this for every one) takes its actor with it.
+    if (p.reason === 'closed') {
+      actor.stop()
+      actors.delete(p.tabId)
     }
   })
 }

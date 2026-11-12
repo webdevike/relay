@@ -305,6 +305,26 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect(items).toHaveCount(2)
   await expect(items.nth(1)).not.toHaveAttribute('data-missing', 'true')
 
+  // A8: a change inside a selected element alone (no new text, size or style of its own) is
+  // read again too: main's signature of the selection moves.
+  const sigOf = () =>
+    app.evaluate(
+      (_e, tabId) =>
+        (
+          globalThis as unknown as {
+            __evaosTest: { hooks: { design: { sessions: Map<string, { sig: string }> } } }
+          }
+        ).__evaosTest.hooks.design.sessions.get(tabId)?.sig ?? null,
+      id,
+    )
+  const sigBefore = await sigOf()
+  await guestEval(
+    app,
+    id,
+    "document.querySelector('h2').appendChild(document.createElement('i')); 1",
+  )
+  await expect.poll(sigOf).not.toBe(sigBefore)
+
   // A8: a full reload keeps the selection too.
   await guestEval(app, id, 'location.reload()')
   await expect.poll(() => guestEval(app, id, 'window.clicks')).toBe(0)

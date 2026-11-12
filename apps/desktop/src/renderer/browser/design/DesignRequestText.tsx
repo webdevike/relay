@@ -28,11 +28,11 @@ export function DesignRequestText({
           <li key={i}>
             <code>{e.label}</code>
             {e.source ? <span className="eva-design-request-dim"> {e.source}</span> : null}
-          </li>
-        ))}
-        {summary.edits.map((e, i) => (
-          <li key={`edit-${i}`} className="eva-design-request-dim">
-            {e}
+            {e.edits.map((edit, j) => (
+              <div key={j} className="eva-design-request-dim">
+                {edit}
+              </div>
+            ))}
           </li>
         ))}
       </ol>

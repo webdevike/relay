@@ -20,12 +20,20 @@ function fakePage() {
   let selectors: string[] = []
   let sig = 'a'
   let ready = true
+  /** While set, the next init waits for it (and fails when it rejects). */
+  let initGate: Promise<void> | null = null
+  let previewAnswer: 'ok' | 'missing' | 'rejected' = 'ok'
   const elements = new Map<string, InspectedElement | null>()
   const answer = (): OverlayAnswer => ({ ready, selectors, sig })
   const page: DesignPage = {
     overlay: async (cmd: OverlayCommand) => {
       calls.push(cmd.op === 'visible' ? `visible:${cmd.on}` : cmd.op)
-      if (cmd.op === 'init') ready = true
+      if (cmd.op === 'init') {
+        const gate = initGate
+        initGate = null
+        if (gate) await gate
+        ready = true
+      }
       if (cmd.op === 'pick') {
         const at = `#e${cmd.x}`
         if (!cmd.add) selectors = [at]
@@ -42,6 +50,7 @@ function fakePage() {
     }),
     preview: async (selector, property, value) => {
       calls.push(`preview:${selector}:${property}:${value}`)
+      return previewAnswer
     },
     settle: async () => {
       calls.push('settle')
@@ -57,6 +66,8 @@ function fakePage() {
     elements,
     setSig: (next: string) => (sig = next),
     dropDocument: () => (ready = false),
+    holdInit: (gate: Promise<void>) => (initGate = gate),
+    answerPreview: (a: 'ok' | 'missing' | 'rejected') => (previewAnswer = a),
   }
 }
 
@@ -101,7 +112,18 @@ function setup(url = 'http://127.0.0.1:5173/') {
       mouse: { type, x, y, button: 'left', clickCount: 1 } as never,
     })
   const key = (k: string, type = 'keyDown', shift = false, meta = false) =>
-    intercept('t1', { kind: 'key', input: { type, key: k, shift, meta, control: false } as never })
+    intercept('t1', {
+      kind: 'key',
+      input: {
+        type,
+        key: k,
+        code: k.length === 1 ? `Key${k.toUpperCase()}` : k,
+        shift,
+        meta,
+        control: false,
+        alt: false,
+      } as never,
+    })
   const settled = () => vi.waitFor(() => expect(events.length).toBeGreaterThan(0))
   return { design, p, wc, events, mouse, key, close: (id: string) => closed({ id }), settled }
 }
@@ -110,7 +132,7 @@ describe('DesignMode', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }))
   afterEach(() => vi.useRealTimers())
 
-  it('keeps the mouse and plain keys from the page only while it is on; the wheel scrolls and Cmd chords pass', async () => {
+  it('keeps the mouse and keys from the page only while it is on; the wheel scrolls and Relay shortcuts pass', async () => {
     const t = setup()
     expect(t.mouse('mouseDown', 5, 5)).toBe(false)
     expect(t.key('a')).toBe(false)
@@ -119,7 +141,9 @@ describe('DesignMode', () => {
     expect(t.mouse('mouseUp', 5, 5)).toBe(true)
     expect(t.mouse('mouseWheel', 5, 5)).toBe(false)
     expect(t.key('a')).toBe(true)
-    expect(t.key('r', 'keyDown', false, true)).toBe(false)
+    // Paste never reaches the page; Cmd+L (Relay's address field) goes on to BrowserHost.
+    expect(t.key('v', 'keyDown', false, true)).toBe(true)
+    expect(t.key('l', 'keyDown', false, true)).toBe(false)
     await t.design.set('t1', false)
     expect(t.mouse('mouseMove', 5, 5)).toBe(false)
     expect(t.p.calls).toContain('destroy')
@@ -240,6 +264,46 @@ describe('DesignMode', () => {
     t.close('t1')
     expect(t.design.isOn('t1')).toBe(false)
     expect(t.events.at(-1)!.payload['reason']).toBe('closed')
+    // A page closing with the mode off is said too: the renderer drops its actor on it.
+    t.close('t2')
+    expect(t.events.at(-1)).toEqual({
+      channel: 'design.exit',
+      payload: { tabId: 't2', reason: 'closed' },
+    })
+  })
+
+  it('a stop during a slow start waits for it, then destroys what it drew', async () => {
+    const t = setup()
+    const gate = Promise.withResolvers<void>()
+    t.p.holdInit(gate.promise)
+    const starting = t.design.set('t1', true)
+    await vi.waitFor(() => expect(t.p.calls).toContain('init'))
+    const stopping = t.design.set('t1', false)
+    const tick = Promise.withResolvers<void>()
+    setImmediate(tick.resolve)
+    await tick.promise
+    expect(t.p.calls).not.toContain('destroy')
+    gate.resolve()
+    await Promise.all([starting, stopping])
+    expect(t.p.calls).toEqual(['init', 'destroy'])
+    expect(t.design.isOn('t1')).toBe(false)
+  })
+
+  it('start, stop and start again while the first start fails: the last start stays on', async () => {
+    const t = setup()
+    const gate = Promise.withResolvers<void>()
+    t.p.holdInit(gate.promise)
+    const first = t.design.set('t1', true)
+    await vi.waitFor(() => expect(t.p.calls).toContain('init'))
+    const stop = t.design.set('t1', false)
+    const again = t.design.set('t1', true)
+    gate.reject(new Error('context gone'))
+    await expect(first).rejects.toMatchObject({ code: 'page-unreachable' })
+    await stop
+    await again
+    expect(t.design.isOn('t1')).toBe(true)
+    // The overlay the last start drew is the one standing: its init came after the stop.
+    expect(t.p.calls.lastIndexOf('init')).toBeGreaterThan(t.p.calls.lastIndexOf('destroy'))
   })
 
   it('a style preview goes to the element and the selection is sent as it looks now', async () => {
@@ -248,6 +312,20 @@ describe('DesignMode', () => {
     await t.design.style('t1', '#e1', 'padding', '8px')
     expect(t.p.calls).toContain('preview:#e1:padding:8px')
     expect(t.events.at(-1)!.payload['reason']).toBe('refresh')
+  })
+
+  it('a preview the page refuses fails with why, and sends nothing', async () => {
+    const t = setup()
+    await t.design.set('t1', true)
+    t.p.answerPreview('rejected')
+    await expect(t.design.style('t1', '#e1', 'padding', 'banana')).rejects.toMatchObject({
+      code: 'style-rejected',
+    })
+    t.p.answerPreview('missing')
+    await expect(t.design.style('t1', '#e1', 'padding', '8px')).rejects.toMatchObject({
+      code: 'element-missing',
+    })
+    expect(t.events).toEqual([])
   })
 
   it('refuses work in a page where it is off, and a page that is not open', async () => {

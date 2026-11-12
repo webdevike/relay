@@ -73,8 +73,8 @@ export function buildDesignPrompt(
 /** What the chat shows of a sent design request; the full prompt stays one click away. */
 export interface DesignRequestSummary {
   change: string
-  elements: Array<{ label: string; source: string | null }>
-  edits: string[]
+  /** Each selected element, with the style edits made to it (`padding 12px -> 8px`). */
+  elements: Array<{ label: string; source: string | null; edits: string[] }>
 }
 
 const quoted = (s: string): string | null => {
@@ -90,7 +90,7 @@ const quoted = (s: string): string | null => {
 export function parseDesignPrompt(text: string): DesignRequestSummary | null {
   const lines = text.split('\n')
   if (lines[0] !== '[Design request]' || lines.at(-1) !== '[/Design request]') return null
-  const out: DesignRequestSummary = { change: '', elements: [], edits: [] }
+  const out: DesignRequestSummary = { change: '', elements: [] }
   for (const line of lines) {
     const m = /^(Change|Element \d+|Source|Style edit[^:]*): (.*)$/.exec(line)
     const key = m?.[1]
@@ -98,13 +98,13 @@ export function parseDesignPrompt(text: string): DesignRequestSummary | null {
     if (key === undefined) continue
     if (key === 'Change') out.change = quoted(rest) ?? ''
     else if (key.startsWith('Element'))
-      out.elements.push({ label: quoted(rest) ?? '', source: null })
+      out.elements.push({ label: quoted(rest) ?? '', source: null, edits: [] })
     else if (key === 'Source') {
       // `"file:line" (how exact)`: the quoted part only.
       const at = /^"(?:[^"\\]|\\.)*"/.exec(rest)
       const last = out.elements.at(-1)
       if (last && at) last.source = quoted(at[0])
-    } else out.edits.push(rest.replace(/"/g, ''))
+    } else out.elements.at(-1)?.edits.push(rest.replace(/"/g, ''))
   }
   return out
 }

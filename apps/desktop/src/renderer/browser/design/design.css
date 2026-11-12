@@ -64,8 +64,9 @@
 .eva-design-item:hover {
   background: var(--eva-hover);
 }
+/* The row whose crop and styles show: Relay's selected treatment (Files tree, the mode toggle). */
 .eva-design-item[data-active] {
-  background: var(--eva-c-secondary-active-background);
+  background: var(--mantine-primary-color-light);
 }
 .eva-design-item[data-active] .eva-design-label {
   font-weight: var(--eva-fw-medium);

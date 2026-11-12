@@ -144,6 +144,9 @@ export const DESIGN_OVERLAY = String(function (
     /** A number per element node seen, so a hot update that swaps the node changes the sig. */
     ids: WeakMap<Element, number>
     seq: number
+    /** Counts DOM changes inside a selected element (a child's image or text), for the sig. */
+    rev: number
+    watch: MutationObserver
   }
   const g = globalThis as unknown as { __relayDesign?: Overlay }
   const deepAt = (x: number, y: number): Element | null => {
@@ -215,13 +218,14 @@ export const DESIGN_OVERLAY = String(function (
         ].join('|')
       })
       .join('\n')
-    return { ready: true, selectors: o.picked.map((p) => p.selector), sig }
+    return { ready: true, selectors: o.picked.map((p) => p.selector), sig: o.rev + '\n' + sig }
   }
 
   let o = g.__relayDesign
   if (cmd.op === 'destroy') {
     if (o) {
       cancelAnimationFrame(o.frame)
+      o.watch.disconnect()
       o.host.remove()
       delete g.__relayDesign
     }
@@ -230,6 +234,11 @@ export const DESIGN_OVERLAY = String(function (
   if (cmd.op === 'status') return answer(o && o.host.isConnected ? o : undefined)
   if (!o || !o.host.isConnected) {
     if (cmd.op !== 'init') return answer(undefined)
+    // A document that dropped the old host (a framework replaced <html>): stop its watch.
+    if (o) {
+      cancelAnimationFrame(o.frame)
+      o.watch.disconnect()
+    }
     const host = document.createElement('relay-design')
     host.setAttribute(
       'style',
@@ -266,7 +275,22 @@ export const DESIGN_OVERLAY = String(function (
       frame: 0,
       ids: new WeakMap(),
       seq: 0,
+      rev: 0,
+      watch: new MutationObserver((records) => {
+        for (const r of records) {
+          if (made.picked.some((p) => p.element !== null && p.element.contains(r.target))) {
+            made.rev++
+            return
+          }
+        }
+      }),
     }
+    made.watch.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    })
     const tick = (): void => {
       if (!made.host.isConnected) return
       const t = made.hovered
@@ -533,8 +557,11 @@ const WORLD = 'relay-design'
 export interface DesignPage {
   overlay(cmd: OverlayCommand): Promise<OverlayAnswer>
   inspect(selectors: string[]): Promise<InspectAnswer>
-  /** An inline style on the element `selector` names: the edit Isaac previews. */
-  preview(selector: string, property: string, value: string): Promise<void>
+  /**
+   * An inline style on the element `selector` names: the edit Isaac previews. `missing`: no such
+   * element now; `rejected`: the page's CSS did not take the value (the declaration is invalid).
+   */
+  preview(selector: string, property: string, value: string): Promise<'ok' | 'missing' | 'rejected'>
   /** Waits until the page painted what changed last (two frames, at most a moment). */
   settle(): Promise<void>
   capture(
@@ -558,9 +585,10 @@ export function designPage(
         `(${DESIGN_INSPECT})(${JSON.stringify(selectors)}, ${JSON.stringify(styleKeys)}, ${RESOLVE})`,
       ),
     preview: async (selector, property, value) => {
-      await pc.evaluate(
-        `((resolve) => { const e = resolve(${JSON.stringify(selector)}); if (e && e.style) e.style.setProperty(${JSON.stringify(property)}, ${JSON.stringify(value)}) })(${RESOLVE})`,
+      const r = await pc.evaluate<string>(
+        `((resolve, property, value) => { const e = resolve(${JSON.stringify(selector)}); if (!e || !e.style) return 'missing'; if (value.trim() !== '' && !CSS.supports(property, value)) return 'rejected'; e.style.setProperty(property, value); return 'ok' })(${RESOLVE}, ${JSON.stringify(property)}, ${JSON.stringify(value)})`,
       )
+      return r === 'missing' || r === 'rejected' ? r : 'ok'
     },
     settle: async () => {
       await pc.inWorld(

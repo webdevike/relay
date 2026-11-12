@@ -11,13 +11,14 @@ Inspired by TasteCode's browser annotations (Apache-2.0, see `THIRD_PARTY_NOTICE
 2. Press the pointer button at the right of the address row (`btn-design-mode`). The inspector
    opens beside the page (under it when the pane is narrower than 720 px).
 3. Hover: the element under the pointer gets a quiet outline and its tag. Clicks, hovers and keys
-   stay out of the page while the mode is on (Cmd and Control chords still reach Relay and the
-   page); the wheel still scrolls it.
+   (typing, paste, the page's own shortcuts) stay out of the page while the mode is on; Relay's
+   shortcuts still work and the wheel still scrolls the page.
 4. Click to select; Shift-click adds or removes one (up to 8). Each selected element keeps a
    numbered outline.
 5. In the inspector: the element (`button#save`), its component and source `file:line`, its
    screenshot and computed styles. Edit a style value (Enter or leaving the field previews it in
-   the page; the undo arrow puts it back). "Draw on it" opens the screenshot to mark it with a pen.
+   the page; the undo arrow puts it back; a value CSS does not take is refused with the reason).
+   "Draw on it" opens the screenshot to mark it with a pen.
 6. Describe the change ("8px tighter") and press Send (Cmd+Enter in the field). One prompt goes to
    the chat in front of this workspace with every element's selector, DOM, source, styles, your
    style edits and the screenshots (drawn ones replace the plain crop) as images.
@@ -47,7 +48,9 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
   taken from the page through `BrowserHost.interceptInput` (`before-mouse-event`, which carries
   no modifiers: Shift comes from the last key event in the page or the shell). Every change of the
   selection is read in the page, cropped and sent as `design.selection`; a 700 ms poll of a
-  signature of the selected elements and `dom-ready` catch hot updates and reloads.
+  signature of the selected elements (node identity, attributes, size, key styles, text, and a
+  count of DOM changes inside them) and `dom-ready` catch hot updates and reloads. Turning the
+  mode on and off is serialized per tab.
 - Page, `src/main/browser/design-page.ts`: the highlight lives in a closed shadow root in an
   isolated world (`relay-design`), so the page's scripts and styles can't reach it; reads that need
   React's fibers run in the page's world, read-only. Crops are taken with the highlight hidden.
@@ -63,7 +66,8 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 - Hover costs one CDP call per mouse move (moves arriving meanwhile are coalesced).
 - The selection is found again by its selector path; a hot update that changes the element's
   classes or position past what the path names marks it "Not in the page right now".
-- While a refresh crops, the outlines hide for a moment.
+- While a refresh crops, the outlines hide for a moment; a selected element whose content changes
+  all the time (a ticking clock inside it) refreshes on every poll.
 
 ## Verify
 

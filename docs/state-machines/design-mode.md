@@ -37,7 +37,7 @@ stateDiagram-v2
   on_picking --> on_selected : always [hasSelection]
   on_selected --> on_picking : page.selection
   on_selected --> on_selected_editing : instruction.change
-  on_selected --> on_selected_editing : style.edit
+  on_selected --> on_selected_editing : style.edit [validStyle]
   on_selected --> on_drawing : draw.open [hasCrop]
   on_selected_editing --> on_sending : request.send [hasRequest]
   on_drawing --> on_selected : page.selection [hasItems]

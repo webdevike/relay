@@ -47,6 +47,14 @@ export type DesignEvent =
   | { type: 'item.remove'; selector: string }
   | { type: 'instruction.change'; text: string }
   | { type: 'style.edit'; selector: string; property: DesignStyleKey; value: string }
+  /** The page refused a preview (the element is gone): that edit is not kept; `message` says why. */
+  | {
+      type: 'style.rejected'
+      selector: string
+      property: DesignStyleKey
+      value: string
+      message: string
+    }
   | { type: 'draw.open'; selector: string }
   | { type: 'draw.done'; png: string }
   | { type: 'draw.cancel' }
@@ -62,13 +70,13 @@ const cleared = {
   drawingFrom: null,
 }
 
-/** True when the request says something: words, a style edit or a drawing of a current item. */
+/** True when the request says something: words, or a style edit or drawing of a present item. */
 export function hasRequest(c: DesignDraft): boolean {
   const present = c.items.filter((i) => !i.missing).map((i) => i.selector)
   return (
     present.length > 0 &&
     (c.instruction.trim() !== '' ||
-      c.edits.length > 0 ||
+      c.edits.some((e) => present.includes(e.selector)) ||
       Object.keys(c.drawings).some((s) => present.includes(s)))
   )
 }
@@ -132,6 +140,9 @@ export const designModeMachine = setup({
     hasRequest: ({ context }) => hasRequest(context),
     hasCrop: ({ context }, params: { selector: string }) =>
       context.items.some((i) => i.selector === params.selector && i.crop !== null),
+    /** Empty (back to the page's own) or a value CSS takes for the property. */
+    validStyle: (_, p: { property: DesignStyleKey; value: string }) =>
+      p.value.trim() === '' || (globalThis.CSS?.supports?.(p.property, p.value) ?? true),
   },
 }).createMachine({
   id: 'designMode',
@@ -168,6 +179,20 @@ export const designModeMachine = setup({
         'design.toggle': 'stopping',
         'design.exit': 'stopping',
         'page.left': { target: 'off', actions: 'reset' },
+        'style.rejected': {
+          actions: assign({
+            edits: ({ context, event }) =>
+              context.edits.filter(
+                (e) =>
+                  !(
+                    e.selector === event.selector &&
+                    e.property === event.property &&
+                    e.to === event.value
+                  ),
+              ),
+            error: ({ event }) => event.message,
+          }),
+        },
       },
       states: {
         picking: {
@@ -211,28 +236,41 @@ export const designModeMachine = setup({
               target: '.editing',
               actions: assign({ instruction: ({ event }) => event.text, error: null }),
             },
-            'style.edit': {
-              target: '.editing',
-              actions: [
-                {
-                  type: 'recordEdit',
-                  params: ({ event }) => ({
-                    selector: event.selector,
-                    property: event.property,
-                    value: event.value,
-                  }),
+            'style.edit': [
+              {
+                guard: {
+                  type: 'validStyle',
+                  params: ({ event }) => ({ property: event.property, value: event.value }),
                 },
-                {
-                  type: 'previewStyle',
-                  params: ({ context, event }) => ({
-                    tabId: context.tabId,
-                    selector: event.selector,
-                    property: event.property,
-                    value: event.value,
-                  }),
-                },
-              ],
-            },
+                target: '.editing',
+                actions: [
+                  {
+                    type: 'recordEdit',
+                    params: ({ event }) => ({
+                      selector: event.selector,
+                      property: event.property,
+                      value: event.value,
+                    }),
+                  },
+                  {
+                    type: 'previewStyle',
+                    params: ({ context, event }) => ({
+                      tabId: context.tabId,
+                      selector: event.selector,
+                      property: event.property,
+                      value: event.value,
+                    }),
+                  },
+                ],
+              },
+              {
+                // Not CSS for that property: nothing changes in the page, the inspector says why.
+                actions: assign({
+                  error: ({ event }) =>
+                    `"${event.value.slice(0, 60)}" is not a ${event.property} value`,
+                }),
+              },
+            ],
             'draw.open': {
               guard: { type: 'hasCrop', params: ({ event }) => ({ selector: event.selector }) },
               target: 'drawing',

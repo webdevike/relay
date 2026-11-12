@@ -120,7 +120,10 @@ export const designEvents = {
     items: z.array(DesignItemSchema).max(8),
     reason: z.enum(['pick', 'refresh']),
   }),
-  /** The page ended the mode: Escape pressed in it, it went to another site, or it closed. */
+  /**
+   * The page ended the mode: Escape pressed in it, it went to another site, or it closed. `closed`
+   * comes for every page that closes, on or not, so the renderer can drop its design actor.
+   */
   'design.exit': z.object({
     tabId: TabIdSchema,
     reason: z.enum(['escape', 'navigated', 'closed']),

@@ -5,6 +5,8 @@ import {
   type EventChannel,
   type EventPayload,
 } from '@evaos/contract'
+import { matchesAppChord } from '@evaos/browser-core/hotkeys'
+import { FORWARD_FROM_GUEST, chordOfInput } from '@evaos/shell-core'
 import type { PageInput } from './browser-host'
 import {
   DESIGN_COLOR,
@@ -89,6 +91,8 @@ function labelOf(selector: string): string {
  */
 export class DesignMode {
   private sessions = new Map<string, Session>()
+  /** Each tab's latest mode change: the next waits for it, so a start and a stop never overlap. */
+  private changes = new Map<string, Promise<void>>()
   /**
    * Whether Shift is down, from the last key event in a page or the shell (keyState): Electron's
    * before-mouse-event carries no modifiers, so a Shift-click reads it here.
@@ -101,8 +105,8 @@ export class DesignMode {
     private readonly pollMs = POLL_MS,
   ) {
     host.interceptInput((tabId, input) => this.input(tabId, input))
+    // Every closed page, on or not: the renderer drops that page's design actor on `closed`.
     host.onTabClosed((tab) => {
-      if (!this.sessions.has(tab.id)) return
       this.end(tab.id)
       this.emit('design.exit', { tabId: tab.id, reason: 'closed' })
     })
@@ -117,11 +121,26 @@ export class DesignMode {
     this.shift = input.shift === true
   }
 
+  /** Turns the mode on or off in page `tabId`, after any change of it still in flight. */
   async set(tabId: string, on: boolean): Promise<void> {
+    const next = (this.changes.get(tabId) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.change(tabId, on))
+    this.changes.set(tabId, next)
+    try {
+      await next
+    } finally {
+      if (this.changes.get(tabId) === next) this.changes.delete(tabId)
+    }
+  }
+
+  private async change(tabId: string, on: boolean): Promise<void> {
     if (!on) {
       const s = this.sessions.get(tabId)
       if (!s) return
       this.end(tabId)
+      // After the page work in flight (an init still drawing), so nothing draws after the destroy.
+      await s.queue
       await this.overlay(s, { op: 'destroy' }).catch(() => undefined)
       return
     }
@@ -160,9 +179,13 @@ export class DesignMode {
     wc.on('did-navigate', s.onNavigate)
     wc.on('dom-ready', s.onReady)
     try {
-      await this.overlay(s, { op: 'init', color: DESIGN_COLOR })
+      // Through the session's queue: skipped when the page closed or left the site first.
+      await this.run(s, async () => {
+        await this.overlay(s, { op: 'init', color: DESIGN_COLOR })
+      })
     } catch (e) {
-      this.end(tabId)
+      // Only this session (the page may have ended it already).
+      if (this.sessions.get(tabId) === s) this.end(tabId)
       throw Object.assign(new Error('Design Mode could not reach this page'), {
         code: 'page-unreachable',
         cause: e,
@@ -182,7 +205,10 @@ export class DesignMode {
     })
   }
 
-  /** Previews `property: value` on one selected element and sends the selection as it looks now. */
+  /**
+   * Previews `property: value` on one selected element and sends the selection as it looks now.
+   * Throws `style-rejected` (not valid CSS for it) or `element-missing` (not in the page now).
+   */
   async style(
     tabId: string,
     selector: string,
@@ -191,7 +217,15 @@ export class DesignMode {
   ): Promise<void> {
     const s = this.session(tabId)
     await this.run(s, async () => {
-      await this.page(s).preview(selector, property, value)
+      const r = await this.page(s).preview(selector, property, value)
+      if (r === 'rejected')
+        throw Object.assign(new Error(`"${clip(value, 60)}" is not a ${property} value`), {
+          code: 'style-rejected',
+        })
+      if (r === 'missing')
+        throw Object.assign(new Error('That element is not in the page right now'), {
+          code: 'element-missing',
+        })
       const a = await this.overlay(s, { op: 'status' })
       await this.publish(s, a, 'refresh')
     })
@@ -214,9 +248,11 @@ export class DesignMode {
         this.emit('design.exit', { tabId, reason: 'escape' })
         return true
       }
-      // Keys stay out of the page while the mode is on (a pick must not type into it); chords
-      // with Cmd or Control go on to Relay's shortcuts and the page's own (copy, reload).
-      return !k.meta && !k.control
+      // Keys stay out of the page while the mode is on (no typing, pasting or page shortcuts);
+      // Relay's own shortcuts and DevTools go on to BrowserHost, which never hands them to the page.
+      if (matchesAppChord(k) === 'devtools') return false
+      const chord = chordOfInput(k)
+      return !(chord && FORWARD_FROM_GUEST.has(chord))
     }
     const m = input.mouse
     switch (m.type) {

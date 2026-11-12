@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createActor, fromPromise, waitFor } from 'xstate'
 import type { DesignItem } from '@evaos/contract'
 import { designModeMachine, type DesignDraft } from './design-mode.machine'
@@ -244,5 +244,42 @@ describe('designModeMachine', () => {
     expect(s.context.drawingFrom).toBeNull()
     t.actor.send({ type: 'draw.done', png: 'LATE' })
     expect(t.actor.getSnapshot().context.drawings).toEqual({})
+  })
+
+  it('an edit of an element that went missing does not make a request on its own', async () => {
+    const t = await selected([item('#a'), item('#b')])
+    t.actor.send({ type: 'style.edit', selector: '#a', property: 'padding', value: '2px' })
+    expect(t.actor.getSnapshot().can({ type: 'request.send' })).toBe(true)
+    t.actor.send({ type: 'page.selection', items: [item('#a', { missing: true }), item('#b')] })
+    expect(t.actor.getSnapshot().can({ type: 'request.send' })).toBe(false)
+  })
+
+  it('a value CSS does not take is refused with why, never previewed or sent', async () => {
+    vi.stubGlobal('CSS', { supports: (_p: string, v: string) => v !== 'banana' })
+    try {
+      const t = await selected()
+      t.actor.send({ type: 'style.edit', selector: '#a', property: 'padding', value: 'banana' })
+      const s = t.actor.getSnapshot()
+      expect(s.context.edits).toEqual([])
+      expect(s.context.error).toBe('"banana" is not a padding value')
+      expect(t.calls.preview).toEqual([])
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('a preview the page refused drops that edit and keeps the reason', async () => {
+    const t = await selected()
+    t.actor.send({ type: 'style.edit', selector: '#a', property: 'padding', value: '2px' })
+    t.actor.send({
+      type: 'style.rejected',
+      selector: '#a',
+      property: 'padding',
+      value: '2px',
+      message: 'That element is not in the page right now',
+    })
+    const s = t.actor.getSnapshot()
+    expect(s.context.edits).toEqual([])
+    expect(s.context.error).toBe('That element is not in the page right now')
   })
 })

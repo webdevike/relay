@@ -86,10 +86,13 @@ describe('parseDesignPrompt', () => {
     expect(parseDesignPrompt(p.text)).toEqual({
       change: 'make "this" quieter',
       elements: [
-        { label: 'button.primary', source: 'src/Button.tsx:12:5' },
-        { label: 'h2', source: null },
+        {
+          label: 'button.primary',
+          source: 'src/Button.tsx:12:5',
+          edits: ['padding 12px 16px -> 8px 12px'],
+        },
+        { label: 'h2', source: null, edits: [] },
       ],
-      edits: ['padding 12px 16px -> 8px 12px'],
     })
   })
 
