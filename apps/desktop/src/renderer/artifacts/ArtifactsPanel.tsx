@@ -69,6 +69,7 @@ import { ListEmpty, ListRow, ListTime, ListView, rowTip, type ListGroup } from '
 import { ArtifactRow, RowButton, type RowActions } from './ArtifactRow'
 import { MediaGrid, MediaLightbox } from './ArtifactsMedia'
 import { ActivityRow, KindMeta } from './ActivityRows'
+import { etaItem, etaProps, etaTrailing, helperActivityId, useEtaFill } from '../activity/eta'
 import {
   actorName,
   ageText,
@@ -328,28 +329,48 @@ function MediaView({
   )
 }
 
-function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions: RowActions }) {
+function SubagentRow({
+  row,
+  now,
+  actions,
+  run,
+  color,
+}: {
+  row: TreeRow
+  now: number
+  actions: RowActions
+  /** This helper's run in the host's activity list, when it has an estimate. */
+  run?: ActivityItem
+  color?: string
+}) {
   const { item, depth } = row
   const sub = item.subagent
   const state = subagentView(item, now)
   const running = state === 'running'
+  const fill = useEtaFill(running ? run : undefined)
+  const left = fill === null ? null : etaTrailing(fill.view)
   const line = sub?.line ?? (sub ? `Started ${whenText(sub.startedAt, now)}` : '')
   const right =
-    running && sub
+    left ??
+    (running && sub
       ? ageText(sub.startedAt, now)
       : sub?.endedAt !== undefined
         ? whenText(sub.endedAt, now)
-        : ''
+        : '')
+  const fx = fill === null ? null : etaProps(fill, color)
   return (
     <ListRow
+      className={fx === null ? undefined : 'eva-eta'}
+      data-eta={fx?.['data-eta']}
       data-testid={`artifact-row-${item.id}`}
       data-state={state ?? undefined}
-      // A child subagent sits under its parent, one step in per level.
-      style={
-        depth > 0
+      style={{
+        ...fx?.style,
+        // A child subagent sits under its parent, one step in per level.
+        ...(depth > 0
           ? { paddingLeft: `calc(var(--mantine-spacing-xs) * 0.8 + ${depth} * 24px)` }
-          : undefined
-      }
+          : {}),
+      }}
       leading={
         running ? (
           <span className="eva-spinner" aria-label="Running" />
@@ -361,7 +382,11 @@ function SubagentRow({ row, now, actions }: { row: TreeRow; now: number; actions
       }
       title={item.title}
       meta={<KindMeta kind="helper" intent={line} />}
-      tooltip={rowTip(item.title, line)}
+      tooltip={rowTip(
+        item.title,
+        line,
+        ...(fill === null ? [] : [fill.view.label, fill.view.detail]),
+      )}
       trailing={<ListTime>{right}</ListTime>}
       onActivate={() => actions.open(item)}
       actions={
@@ -392,6 +417,12 @@ type WorkRow = { type: 'helper'; row: TreeRow } | { type: 'activity'; item: Acti
  */
 function WorkingView({ thread, rows, now, actions }: ViewProps) {
   const activity = useActivity((s) => s.items)
+  // The thread's assistant tints the fills with its portrait color; a chat's rows use the accent.
+  const color = useAssistants((s) =>
+    thread.startsWith('assistant:')
+      ? agentOf(s, thread.slice('assistant:'.length))?.avatar.colors?.accent
+      : undefined,
+  )
   const { running, finished } = subagentTree(rows, now)
   const sections = activitySections(activity, thread, now)
   const open = (item: ActivityItem): void => {
@@ -427,9 +458,19 @@ function WorkingView({ thread, rows, now, actions }: ViewProps) {
         rowKey={(r) => (r.type === 'helper' ? r.row.item.id : r.item.id)}
         renderRow={(r) =>
           r.type === 'helper' ? (
-            <SubagentRow key={r.row.item.id} row={r.row} now={now} actions={actions} />
+            <SubagentRow
+              key={r.row.item.id}
+              row={r.row}
+              now={now}
+              actions={actions}
+              color={color}
+              run={etaItem(
+                activity,
+                helperActivityId(r.row.item.path ?? r.row.item.id.slice('subagent:'.length)),
+              )}
+            />
           ) : (
-            <ActivityRow key={r.item.id} item={r.item} now={now} onOpen={open} />
+            <ActivityRow key={r.item.id} item={r.item} now={now} color={color} onOpen={open} />
           )
         }
         empty={

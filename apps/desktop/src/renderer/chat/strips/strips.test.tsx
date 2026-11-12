@@ -396,3 +396,153 @@ describe('StatusStrip', () => {
     expect(container.querySelector('[data-testid="status-strip"]')).toBeNull()
   })
 })
+
+const MIN = 60_000
+const etaOf = (elapsedMin: number, over: Partial<NonNullable<ActivityItem['eta']>> = {}) => ({
+  from: Date.now() - elapsedMin * MIN,
+  totalMs: 20 * MIN,
+  lowMs: 15 * MIN,
+  highMs: 30 * MIN,
+  typicalMs: 18 * MIN,
+  runs: 34,
+  confidence: 'confident' as const,
+  overrunning: false,
+  ...over,
+})
+
+describe('SubagentChips progress fill', () => {
+  const session = (id: string, eta?: ActivityItem['eta']): ActivityItem => ({
+    ...work(`session:${id}`, 'session', 'working', {
+      to: 'chat',
+      thread: `session:${id}`,
+      session: id,
+    }),
+    ...(eta === undefined ? {} : { eta }),
+  })
+  const chips = (
+    activity: ActivityItem[],
+    extra: Partial<Parameters<typeof SubagentChips>[0]> = {},
+  ) => (
+    <MantineProvider>
+      <SubagentChips
+        subagents={[]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+        activity={activity}
+        {...extra}
+      />
+    </MantineProvider>
+  )
+
+  it('a badge with an estimate fills by how far along it is and says the time left; one without draws as before', () => {
+    wrap(
+      <SubagentChips
+        subagents={[]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+        agentColor="#3366ff"
+        activity={[session('sure', etaOf(10)), session('none')]}
+      />,
+    )
+    const sure = screen.getByTestId('activity-chip-session:sure')
+    expect(sure).toHaveAttribute('data-eta', 'solid')
+    expect(sure).toHaveClass('eva-eta')
+    expect(Number(sure.style.getPropertyValue('--eta-fraction'))).toBeCloseTo(0.5, 1)
+    expect(sure.style.getPropertyValue('--eva-eta-agent-c')).toBe('#3366ff')
+    expect(sure.querySelector('[data-testid="eta-short"]')).toHaveTextContent('10m')
+    const none = screen.getByTestId('activity-chip-session:none')
+    expect(none).not.toHaveAttribute('data-eta')
+    expect(none).not.toHaveClass('eva-eta')
+    expect(none.querySelector('[data-testid="eta-short"]')).toBeNull()
+  })
+
+  it('a rough guess is striped, and a run past its usual time is amber with no time text', () => {
+    wrap(
+      <SubagentChips
+        subagents={[]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+        activity={[session('rough', etaOf(5, { confidence: 'rough' })), session('late', etaOf(45))]}
+      />,
+    )
+    expect(screen.getByTestId('activity-chip-session:rough')).toHaveAttribute('data-eta', 'striped')
+    const late = screen.getByTestId('activity-chip-session:late')
+    expect(late).toHaveAttribute('data-eta', 'overrunning')
+    expect(late.querySelector('[data-testid="eta-short"]')).toBeNull()
+  })
+
+  it('the hover adds what is left and how sure the estimate is', async () => {
+    const user = userEvent.setup()
+    wrap(
+      <SubagentChips
+        subagents={[]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+        activity={[session('tip', etaOf(10, { runs: 3 }))]}
+      />,
+    )
+    await user.hover(screen.getByTestId('activity-chip-session:tip'))
+    const tip = await screen.findByTestId('eta-tip-session:tip')
+    expect(tip).toHaveTextContent('About 10 min left')
+    expect(tip).toHaveTextContent('Fairly sure · 3 similar runs')
+  })
+
+  it("a helper chip finds its run by its transcript's path in the host's list", () => {
+    const mine = {
+      ...work('helper:/s/chat1/b.jsonl', 'helper', 'working', {
+        to: 'subagent',
+        file: '/s/chat1/b.jsonl',
+        name: 'b',
+      }),
+      eta: etaOf(5, { confidence: 'rough' }),
+    }
+    const other = {
+      ...work('helper:/s/chat1/other.jsonl', 'helper', 'working', {
+        to: 'subagent',
+        file: '/s/chat1/other.jsonl',
+        name: 'o',
+      }),
+      eta: etaOf(5),
+    }
+    wrap(
+      <SubagentChips
+        subagents={[sub('b', false), sub('c', false)]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+        sessionFile="/s/chat1.jsonl"
+        helperActivity={[mine, other]}
+      />,
+    )
+    const b = screen.getByTestId('subagent-chip-b')
+    expect(b).toHaveAttribute('data-eta', 'striped')
+    expect(b.querySelector('[data-testid="eta-short"]')).toHaveTextContent('15m')
+    // Another file's estimate is not this one's, and a helper with none draws as before.
+    expect(screen.getByTestId('subagent-chip-c')).not.toHaveAttribute('data-eta')
+  })
+
+  it('a finished run fills up and fades out of the strip instead of vanishing', () => {
+    vi.useFakeTimers()
+    try {
+      const run = session('fin', etaOf(10))
+      const { rerender } = render(chips([run]))
+      expect(screen.getByTestId('activity-chip-session:fin')).not.toHaveAttribute(
+        'data-eta-leaving',
+      )
+      rerender(chips([]))
+      const leaving = screen.getByTestId('activity-chip-session:fin')
+      expect(leaving).toHaveAttribute('data-eta-leaving', 'chip')
+      expect(leaving.style.getPropertyValue('--eta-fraction')).toBe('1')
+      act(() => {
+        vi.advanceTimersByTime(1_500)
+      })
+      expect(screen.queryByTestId('activity-chip-session:fin')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})

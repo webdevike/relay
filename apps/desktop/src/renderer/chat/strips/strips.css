@@ -44,6 +44,11 @@
   border-color: var(--eva-text-dim);
   background: var(--eva-hover);
 }
+/* The time left, muted after the name, where the chip has room for it. */
+.eva-chip-eta {
+  color: var(--eva-text-dim);
+  font-variant-numeric: tabular-nums;
+}
 .eva-chip:focus-visible,
 .eva-chips-clear:focus-visible,
 .eva-jobs-head:focus-visible {

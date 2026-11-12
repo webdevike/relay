@@ -257,6 +257,10 @@ function ChatView({
     () => ownedActive(activityItems, ownThread).filter((i) => i.kind !== 'helper'),
     [activityItems, ownThread],
   )
+  // The owning assistant's portrait color tints the chips' progress fill; a plain chat uses the accent.
+  const agentColor = useAssistants((s) =>
+    agent === null ? undefined : agentOf(s, agent)?.avatar.colors?.accent,
+  )
 
   // A tab on this chat names it as the header does, and follows a rename or omp's auto title.
   const shownFile = pane?.file ?? ''
@@ -417,6 +421,9 @@ function ChatView({
       {pane ? (
         <SubagentChips
           subagents={pane.extras.subagents}
+          helperActivity={activityItems}
+          sessionFile={pane.file}
+          agentColor={agentColor}
           hidden={hiddenNames}
           active={viewedSubagent}
           activity={spunOff}
