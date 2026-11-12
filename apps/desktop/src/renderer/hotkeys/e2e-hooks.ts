@@ -4,6 +4,7 @@ import { setColorScheme } from '../theme/theme-config'
 import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
 import { navigateTo, tabsStore } from '../tabs/tabs-store'
 import { tabTitle } from '../tabs/tab-meta'
+import { navHistoryStore } from '../navigation/nav-history'
 import { tilingStore, toggleToolPanes } from '../tiling/tiling-store'
 import type { MotionSignals } from '@relay/portrait-motion'
 import { overrideSignals } from '../assistants/motion-store'
@@ -38,6 +39,8 @@ export interface EvaosShellHooks {
   browserScope(): string
   /** Lays signals over an agent portrait's real ones (null drops them), to reach Snoozing. */
   portraitSignals(id: string, patch: Partial<MotionSignals> | null): void
+  /** The window's Back and Forward history: where Isaac is in it and each entry's title. */
+  history(): { index: number; titles: string[]; fronts: Array<string | null> }
 }
 
 declare global {
@@ -96,6 +99,14 @@ export function initE2e(): Promise<boolean> {
         setPanel: (open) => toggleToolPanes(open),
         browserScope: () => tilingStore.getState().scope,
         portraitSignals: (id, patch) => overrideSignals(id, patch),
+        history: () => {
+          const h = navHistoryStore.getState()
+          return {
+            index: h.index,
+            titles: h.entries.map((s) => tabTitle(s.place)),
+            fronts: h.entries.map((s) => s.front),
+          }
+        },
       }
     }
     return e2e

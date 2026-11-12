@@ -97,6 +97,9 @@ export const GLOBAL_CHORDS: ReadonlyArray<{ chord: string; action: ActionId }> =
   { chord: 'cmd+w', action: 'close-tab' },
   { chord: 'cmd+[', action: 'history-back' },
   { chord: 'cmd+]', action: 'history-forward' },
+  // Back and Forward on the arrows too, except where they move the caret or the page (router.ts).
+  { chord: 'cmd+arrowleft', action: 'history-back' },
+  { chord: 'cmd+arrowright', action: 'history-forward' },
   { chord: 'escape', action: 'dismiss' },
   // Panes (tiling): split the focused pane, move between panes, close or maximize it.
   { chord: 'cmd+\\', action: 'split-right' },
@@ -126,8 +129,20 @@ export const PAGE_BROWSER_CHORDS = {
   'cmd+alt+i': 'devtools',
 } as const
 
+/**
+ * Chords that keep their normal meaning in a text field, an editor, the terminal or a web page
+ * (caret to line start and end, the page's own history): the router skips them there, and a web
+ * page never forwards them.
+ */
+export const TEXT_OWNED_CHORDS: Readonly<Record<string, true>> = {
+  'cmd+arrowleft': true,
+  'cmd+arrowright': true,
+}
+
 export const FORWARD_FROM_GUEST: ReadonlySet<string> = new Set([
-  ...GLOBAL_CHORDS.map((c) => c.chord).filter((c) => c !== 'escape'),
+  ...GLOBAL_CHORDS.map((c) => c.chord).filter(
+    (c) => c !== 'escape' && TEXT_OWNED_CHORDS[c] !== true,
+  ),
   'cmd+l',
 ])
 

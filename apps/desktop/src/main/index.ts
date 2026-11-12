@@ -13,6 +13,7 @@ import { registerCanvasIpc } from './canvas/canvas-ipc'
 import { registerLayoutIpc } from './layout-ipc'
 import { registerDraftsIpc } from './drafts-ipc'
 import { installQuitGuard } from './quit-guard'
+import { wireSwipeHistory } from './swipe'
 import { registerSettingsIpc } from './settings-ipc'
 import { registerLinksIpc } from './links/links-ipc'
 import { readLastBackground, registerThemeIpc } from './theme-ipc'
@@ -145,6 +146,7 @@ function bootstrap(): void {
         },
       }
 
+      wireSwipeHistory(ctx, win)
       const guard = installQuitGuard(ctx)
       // 75 once Isaac (or the idle auto-restart) restarts into a pending update; the
       // supervisor relaunches the stable app on 75 only. Every other quit exits 0.

@@ -2,14 +2,13 @@ import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import {
   activeTab,
-  back,
   closeOthers,
   closeTab,
   defaultTabs,
-  forward,
   loadTabs,
   navigate,
   openNewChat,
+  placeEquals,
   routeTo,
   saveTabs,
   switchTo,
@@ -20,7 +19,6 @@ import {
 } from '@evaos/shell-core'
 import type { InvokeInput } from '@evaos/contract'
 import { invoke } from '../ipc'
-import { registerAction } from '../hotkeys/router'
 import { setNavigator, type OpenPlaceOptions } from '../navigation/navigate'
 import { isFrontBare, workspaceOfTab } from './workspace-of'
 
@@ -81,33 +79,37 @@ export const activate = (id: number): void => updateTabs((t) => switchTo(t, id))
 export const close = (id: number): void => updateTabs((t) => closeTab(t, id))
 export const closeOthersOf = (id: number): void => updateTabs((t) => closeOthers(t, id))
 export const togglePinOf = (id: number): void => updateTabs((t) => togglePin(t, id))
-/** Back and Forward in app tab `id`'s history (the active one by default). */
-export function goBack(id?: number): void {
-  stepIn(id, back)
-}
-export function goForward(id?: number): void {
-  stepIn(id, forward)
-}
 
 /**
- * Steps tab `id` through its history. A step into another workspace leaves this tab as it is and
- * shows that place in its own workspace, unless the tab is all its workspace holds and the other
- * has no tab yet: then the tab steps there, history and all.
+ * Puts app tab `id` in front showing `place` without adding to any history (the window's Back and
+ * Forward, navigation/nav-history.ts, step through here). Into another workspace the tab stays as
+ * it is and that place shows in its own workspace, unless the tab is all its workspace holds and
+ * the other has no tab yet: then the tab goes there. A tab that is gone opens `place` as a visit.
  */
-function stepIn(id: number | undefined, step: (t: Tabs) => Tabs): void {
+export function restoreTab(id: number, place: Place): void {
   updateTabs((t) => {
-    const at = id === undefined ? t.active : t.list.findIndex((x) => x.id === id)
-    if (at < 0) return t
-    const moved = step({ ...t, active: at })
-    if (moved.list === t.list) return t
-    const before = t.list[at]!
-    const after = moved.list[at]!
-    const ws = workspaceOfTab(before)
-    const target = workspaceOfTab(after)
-    if (target === ws) return moved
-    const taken = t.list.some((x) => x.id !== before.id && workspaceOfTab(x) === target)
-    if (at === t.active && isFrontBare() && !taken) return moved
-    return routeTo({ ...t, active: at }, after.here, { wsOf: workspaceOfTab, front: ws })
+    const at = t.list.findIndex((x) => x.id === id)
+    if (at < 0) {
+      return routeTo(t, place, {
+        wsOf: workspaceOfTab,
+        front: workspaceOfTab(activeTab(t)),
+        reuse: isFrontBare(),
+      })
+    }
+    const tab = t.list[at]!
+    if (placeEquals(tab.here, place)) return at === t.active ? t : switchTo(t, id)
+    const shown: Tabs = {
+      ...t,
+      active: at,
+      fresh: false,
+      list: t.list.map((x, i) => (i === at ? { ...x, here: place } : x)),
+    }
+    const ws = workspaceOfTab(tab)
+    const target = workspaceOfTab({ id, here: place })
+    if (target === ws) return shown
+    const taken = t.list.some((x) => x.id !== id && workspaceOfTab(x) === target)
+    if (at === t.active && isFrontBare() && !taken) return shown
+    return routeTo({ ...t, active: at, fresh: false }, place, { wsOf: workspaceOfTab, front: ws })
   })
 }
 
@@ -120,14 +122,10 @@ export function flushPendingTabs(): void {
   flushNow()
 }
 
-/** Idempotent. Loads layout.json tabs, binds the navigator, registers actions, persists changes. */
+/** Idempotent. Loads layout.json tabs, binds the navigator, persists changes. */
 export function startTabs(): () => void {
   if (started) return started
   setNavigator(navigateTo)
-  const offs = [
-    registerAction('history-back', () => goBack()),
-    registerAction('history-forward', () => goForward()),
-  ]
 
   let lastSaved = JSON.stringify(saveTabs(tabsStore.getState().tabs))
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -202,7 +200,6 @@ export function startTabs(): () => void {
     if (typeof window !== 'undefined') window.removeEventListener('pagehide', onPageHide)
     flushNow = () => {}
     clearTimeout(timer ?? undefined)
-    offs.forEach((o) => o())
     setNavigator(null)
     started = null
   }

@@ -181,6 +181,33 @@ describe('hotkey router', () => {
     })
   })
 
+  it('cmd+left and cmd+right go Back and Forward, but leave the caret alone in a text field', () => {
+    const back = vi.fn()
+    const fwd = vi.fn()
+    const offs = [registerAction('history-back', back), registerAction('history-forward', fwd)]
+    const arrow = (k: 'ArrowLeft' | 'ArrowRight') => key({ key: k, code: k, metaKey: true })
+    expect(arrow('ArrowLeft').defaultPrevented).toBe(true)
+    expect(arrow('ArrowRight').defaultPrevented).toBe(true)
+    expect(back).toHaveBeenCalledTimes(1)
+    expect(fwd).toHaveBeenCalledTimes(1)
+    for (const tag of ['textarea', 'input'] as const) {
+      const field = document.body.appendChild(document.createElement(tag))
+      field.focus()
+      expect(arrow('ArrowLeft').defaultPrevented).toBe(false)
+      expect(arrow('ArrowRight').defaultPrevented).toBe(false)
+      field.remove()
+    }
+    expect(back).toHaveBeenCalledTimes(1)
+    expect(fwd).toHaveBeenCalledTimes(1)
+    // Cmd+[ is not a caret chord: it still steps back from a text field.
+    const field = document.body.appendChild(document.createElement('textarea'))
+    field.focus()
+    key({ key: '[', code: 'BracketLeft', metaKey: true })
+    expect(back).toHaveBeenCalledTimes(2)
+    field.remove()
+    offs.forEach((o) => o())
+  })
+
   it("cmd+w closes the page for guest keys and in a page tab's pane, else falls through", () => {
     browserStore.setState({ tabs: [{ id: 't1' }] as never, activeId: 't1' })
     const close = vi.fn()

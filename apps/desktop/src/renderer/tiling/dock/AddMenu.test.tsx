@@ -28,11 +28,6 @@ vi.mock('../../ipc', () => ({
   on: () => () => {},
 }))
 vi.mock('../../shell/layout-store', () => ({ useLayout: () => 'open' }))
-vi.mock('../../tabs/tabs-store', () => ({
-  goBack: vi.fn(),
-  goForward: vi.fn(),
-  useTabs: () => undefined,
-}))
 vi.mock('../web-tabs', () => ({
   openWebPage: m.openWebPage,
   webTabOf: (id: string | null) => (id?.startsWith('web:') ? id.slice('web:'.length) : null),

@@ -5,7 +5,8 @@
 import { activeTab, placeEquals, placeOf, type Place } from '@evaos/shell-core'
 import { openInApp } from '../../navigation/open-in-app'
 import type { OpenTarget } from '../../navigation/open-target'
-import { goBack, navigateTo, tabsStore } from '../../tabs/tabs-store'
+import { historyBack, previousSpot } from '../../navigation/nav-history'
+import { navigateTo, tabsStore } from '../../tabs/tabs-store'
 import { chatStore } from '../../chat/chat-store'
 import { frontChatPaneOf } from '../../chat/front-chat'
 import { chatScrollOf, requestChatScroll, type ChatScroll } from '../../chat/chat-scroll'
@@ -53,8 +54,8 @@ export function openBoard(slug: string, target: OpenTarget = 'here'): void {
 }
 
 /**
- * Back to the chat the room on `slug` was joined from: Back when it is the tab's previous page,
- * else a visit to it. The transcript goes back to its offset. With
+ * Back to the chat the room on `slug` was joined from: the window's Back when that is the spot
+ * before this one, else a visit to it. The transcript goes back to its offset. With
  * no return point (the board was opened another way), `origin` is the room's own chat.
  */
 export function backToChat(slug: string, origin: Place | null): void {
@@ -63,8 +64,8 @@ export function backToChat(slug: string, origin: Place | null): void {
   if (target === null) return
   points.delete(slug)
   if (point?.scroll && point.file !== '') requestChatScroll(point.file, point.scroll)
-  const prev = activeTab(tabsStore.getState().tabs).back.at(-1)
-  if (prev && placeEquals(prev, target)) goBack()
+  const prev = previousSpot()
+  if (prev && placeEquals(prev.place, target)) historyBack()
   else navigateTo(target)
 }
 

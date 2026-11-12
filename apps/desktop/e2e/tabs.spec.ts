@@ -15,7 +15,11 @@ type Snap = {
   list: Array<{ id: number; page: string; pinned: boolean; title: string }>
 }
 type Shell = {
-  __evaosShell: { tabs(): Snap; openPlace(p: string, n?: boolean, extra?: object): void }
+  __evaosShell: {
+    tabs(): Snap
+    openPlace(p: string, n?: boolean, extra?: object): void
+    history(): { index: number; titles: string[] }
+  }
 }
 
 test.use({ colorScheme: 'dark', startOnChat: false })
@@ -115,8 +119,17 @@ test('navigation, history chords and place dedupe', async ({ shell }) => {
   await expect.poll(() => titles(shell)).toEqual(['Dashboard'])
   await shell.keyboard.press('Meta+]')
   await expect.poll(() => titles(shell)).toEqual(['Habits'])
-  // Back and Forward walk one tab's history inside a workspace (all boards share Canvas).
+  // Back and Forward walk the window's history, across workspaces and within one (all boards
+  // share Canvas). A spot is an entry once it stays 150 ms.
   await open(shell, 'canvas', false, { canvas: 'first-board' })
+  await expect
+    .poll(() =>
+      shell.evaluate(() => {
+        const h = (window as unknown as Shell).__evaosShell.history()
+        return h.titles[h.index]
+      }),
+    )
+    .toBe('first-board')
   await open(shell, 'canvas', false, { canvas: 'second-board' })
   const board = async (): Promise<string | null> => {
     const t = await tabs(shell)

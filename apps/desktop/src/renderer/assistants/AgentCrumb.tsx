@@ -1,27 +1,37 @@
 import { Tooltip } from '@mantine/core'
 import { IconChevronLeft } from '@tabler/icons-react'
-import { placeOf } from '@evaos/shell-core'
+import type { MouseEvent } from 'react'
+import { placeOf, type Place } from '@evaos/shell-core'
 import { useNamesVersion, agentTitle } from '../eva/names-store'
+import { backOr } from '../navigation/nav-history'
 import { openFromNav } from '../navigation/open-in-app'
 import { AgentPortrait } from './AgentPortrait'
 import './assistants.css'
 
 /**
- * An agent's page names its way back and where it is: a back arrow (tooltip "Assistants", it goes
- * to the home) then the agent's name. Its portrait and status live in the header's notch
- * (AgentNotch).
+ * The back arrow is the window's Back (navigation/nav-history.ts). With nothing behind it, or a
+ * modified click (a new tab), it opens `home`, where the arrow used to go.
+ */
+function back(e: MouseEvent, home: Place): void {
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) openFromNav(home, e)
+  else backOr(() => openFromNav(home, e))
+}
+
+/**
+ * An agent's page names its way back and where it is: a back arrow (the window's Back) then the
+ * agent's name. Its portrait and status live in the header's notch (AgentNotch).
  */
 export function AgentCrumb({ id }: { id: string }) {
   useNamesVersion()
   return (
     <span className="eva-as-crumb" data-testid="agent-crumb">
-      <Tooltip label="Assistants" openDelay={300}>
+      <Tooltip label="Back" openDelay={300}>
         <button
           type="button"
           className="eva-as-crumb-back"
-          aria-label="Assistants"
+          aria-label="Back"
           data-testid="breadcrumb-back"
-          onClick={(e) => openFromNav(placeOf('assistants'), e)}
+          onClick={(e) => back(e, placeOf('assistants'))}
         >
           <IconChevronLeft stroke={2} aria-hidden />
         </button>

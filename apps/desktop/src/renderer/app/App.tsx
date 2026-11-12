@@ -29,6 +29,7 @@ import { startUpdate } from '../update/update-store'
 import { startMemoryWatch } from '../setup/memory-watch'
 import { startContext } from '../context/context-store'
 import { startDeepLinks } from '../navigation/deep-links'
+import { startNavHistory } from '../navigation/nav-history'
 import { startNotificationBridge } from '../notifications/visible-threads'
 import { Spotlight } from '../tour/Spotlight'
 
@@ -58,6 +59,7 @@ export function App() {
     const stopUpdate = startUpdate()
     const stopContext = startContext()
     const stopDeepLinks = startDeepLinks()
+    const stopNavHistory = startNavHistory()
     return () => {
       stopRouter()
       stopQuit()
@@ -67,6 +69,7 @@ export function App() {
       stopOwners()
       stopBrowserStore()
       stopTabs()
+      stopNavHistory()
       stopSidebar()
       stopReload()
       stopNewTodo()

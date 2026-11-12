@@ -5,6 +5,7 @@ import { placeOf, type Place } from '@evaos/shell-core'
 import { setReviewTitle } from '../eva/names-store'
 import { invoke } from '../ipc'
 import { useReplacePlace } from '../pages/place-host'
+import { backOr } from '../navigation/nav-history'
 import { LinearDetail } from './LinearDetail'
 import { SlackDetail } from './SlackDetail'
 import { Detail, markDone } from './ReviewsPage'
@@ -89,6 +90,8 @@ export function ReviewPage({ place }: { place: Place }) {
   }, [prRepo, prNumber, loadPr])
 
   const back = (): void => leave(placeOf('reviews'))
+  // The arrow is the window's Back; Done leaves for the Reviews page as before.
+  const goBack = (): void => backOr(back)
 
   const donePr = async (row: ReviewRow, p: ReviewPr): Promise<void> => {
     if (!(await markDone(p.url, Math.max(row.updatedAt, p.updatedAt)))) return
@@ -119,7 +122,7 @@ export function ReviewPage({ place }: { place: Place }) {
         key={item.row.url}
         row={item.row}
         now={now}
-        onBack={back}
+        onBack={goBack}
         onDone={() => void doneThread(item.row)}
       />
     )
@@ -130,7 +133,7 @@ export function ReviewPage({ place }: { place: Place }) {
         key={row.key}
         row={row}
         now={now}
-        onBack={back}
+        onBack={goBack}
         onDone={(t) => void doneTicket(row, t)}
       />
     )
@@ -141,7 +144,7 @@ export function ReviewPage({ place }: { place: Place }) {
         pr={pr.pr}
         fetchedAt={pr.at}
         now={now}
-        onBack={back}
+        onBack={goBack}
         onRefresh={() => {
           void loadPr(row)
           void loadQueue(true)

@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
   FORWARD_FROM_GUEST,
-  GLOBAL_CHORDS,
   actionFor,
   chordOf,
   chordOfInput,
@@ -45,8 +44,15 @@ describe('chord table', () => {
   })
   it('forwards from guests', () => {
     expect(FORWARD_FROM_GUEST.has('cmd+l')).toBe(true)
+    expect(FORWARD_FROM_GUEST.has('cmd+[')).toBe(true)
     expect(FORWARD_FROM_GUEST.has('escape')).toBe(false)
-    expect(FORWARD_FROM_GUEST.size).toBe(GLOBAL_CHORDS.length)
+  })
+  it('leaves cmd+left and cmd+right to a web page, and maps them to history elsewhere', () => {
+    expect(FORWARD_FROM_GUEST.has('cmd+arrowleft')).toBe(false)
+    expect(FORWARD_FROM_GUEST.has('cmd+arrowright')).toBe(false)
+    expect(actionFor('cmd+arrowleft')).toBe('history-back')
+    expect(actionFor('cmd+arrowright')).toBe('history-forward')
+    expect(actionFor('cmd+[')).toBe('history-back')
   })
   it('flags native edit chords', () => {
     for (const c of ['cmd+c', 'cmd+v', 'cmd+x', 'cmd+a', 'cmd+z', 'cmd+shift+z']) {

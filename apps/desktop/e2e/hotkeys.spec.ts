@@ -11,6 +11,7 @@ type W = {
   __evaosShell: {
     tabs(): Snap
     openPlace(p: string, n?: boolean, extra?: Record<string, string>): void
+    history(): { index: number; titles: string[] }
   }
   __evaosHotkeys: Array<{ chord: string; action: string }>
 }
@@ -109,11 +110,18 @@ test('implemented chords have real effects', async ({ shell }) => {
   await shell.keyboard.press('Meta+w')
   await expect.poll(async () => (await tabs(shell)).list.length).toBe(1)
 
-  // Back and forward walk the tab's history inside its workspace (Settings sections).
+  // Back and forward walk the window's history (a spot is an entry once it stays 150 ms).
   const front = async (): Promise<string> => {
     const t = await tabs(shell)
     return t.list[t.active]!.title
   }
+  const recorded = (title: string) =>
+    expect
+      .poll(async () => {
+        const h = await shell.evaluate(() => (window as unknown as W).__evaosShell.history())
+        return h.titles[h.index] === title && h.index === h.titles.length - 1
+      })
+      .toBe(true)
   const settings = (section: string) =>
     shell.evaluate(
       (s) =>
@@ -122,8 +130,10 @@ test('implemented chords have real effects', async ({ shell }) => {
     )
   await settings('Theme')
   await expect.poll(front).toBe('Settings: Theme')
+  await recorded('Settings: Theme')
   await settings('Chat')
   await expect.poll(front).toBe('Settings: Chat')
+  await recorded('Settings: Chat')
   await focusShell(shell)
   await shell.keyboard.press('Meta+[')
   await expect.poll(front).toBe('Settings: Theme')

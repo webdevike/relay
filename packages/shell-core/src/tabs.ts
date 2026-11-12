@@ -266,30 +266,3 @@ export function togglePin(tabs: Tabs, id: number): Tabs {
   rest.splice(at, 0, tab)
   return { ...tabs, list: rest, active: rest.findIndex((t) => t.id === activeId) }
 }
-
-function step(tabs: Tabs, goBack: boolean): Tabs {
-  const tab = activeTab(tabs)
-  const source = goBack ? tab.back : tab.forward
-  if (source.length === 0) return tabs
-  const target = source[source.length - 1]
-  const remaining = source.slice(0, -1)
-  const other = capped(goBack ? tab.forward : tab.back, tab.here)
-  return {
-    ...tabs,
-    list: withTab(
-      tabs,
-      tabs.active,
-      goBack
-        ? { back: remaining, forward: other, here: target }
-        : { forward: remaining, back: other, here: target },
-    ),
-  }
-}
-
-export function back(tabs: Tabs): Tabs {
-  return step(tabs, true)
-}
-
-export function forward(tabs: Tabs): Tabs {
-  return step(tabs, false)
-}

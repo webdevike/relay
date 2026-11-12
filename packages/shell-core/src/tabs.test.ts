@@ -3,14 +3,12 @@ import { placeOf, type PageKey, type Place } from './place'
 import {
   HISTORY,
   activeTab,
-  back,
   closeActive,
   closeOthers,
   closeTab,
   createTabs,
   defaultTabs,
   forkTab,
-  forward,
   loadTabs,
   navigate,
   openNewChat,
@@ -97,24 +95,14 @@ describe('tabs', () => {
     expect(tabs.active).toBe(1)
   })
 
-  it('keeps 50 history entries, back and forward step, navigate clears forward', () => {
+  it('keeps 50 places a tab came from, and a new navigation clears forward', () => {
     let tabs = at([p('dashboard')])
-    const pages: PageKey[] = ['jobs', 'habits']
     for (let i = 0; i < 51; i++) tabs = navigate(tabs, placeOf('meetings', { meeting: `m${i}` }))
     expect(HISTORY).toBe(50)
     expect(activeTab(tabs).back).toHaveLength(50)
     expect(activeTab(tabs).back[0].meeting).toBe('m0')
-    const here = activeTab(tabs).here
-    tabs = back(tabs)
-    expect(activeTab(tabs).here.meeting).toBe('m49')
-    expect(activeTab(tabs).forward).toEqual([here])
-    tabs = forward(tabs)
-    expect(activeTab(tabs).here).toEqual(here)
-    tabs = back(tabs)
-    tabs = navigate(tabs, p(pages[0]))
+    tabs = navigate(tabs, p('jobs'))
     expect(activeTab(tabs).forward).toEqual([])
-    const lone = at([p('jobs')])
-    expect(back(lone)).toBe(lone)
   })
 
   it('closing the last tab leaves one Dashboard tab', () => {

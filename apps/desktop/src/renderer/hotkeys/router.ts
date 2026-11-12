@@ -1,5 +1,6 @@
 import {
   GLOBAL_CHORDS,
+  TEXT_OWNED_CHORDS,
   chordOf,
   createScopes,
   isNativeEditChord,
@@ -56,6 +57,9 @@ for (const { chord, action } of GLOBAL_CHORDS) {
       log(chord, action)
       return dismissTop() ? 'consumed' : false
     }
+    // Cmd+Left and Cmd+Right move the caret in a text field, editor or terminal; a web page keeps
+    // them too (main never forwards them from a guest).
+    if (TEXT_OWNED_CHORDS[chord] === true && isTypingTarget()) return false
     runAction(action, chord)
     return 'consumed'
   })

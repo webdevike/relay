@@ -20,6 +20,7 @@ import {
   startTabs,
   tabsStore,
   togglePinOf,
+  restoreTab,
   flushPendingTabs,
 } from './tabs-store'
 
@@ -148,7 +149,7 @@ describe('navigation', () => {
     expect(activePlace(tabsStore.getState()).page).toBe('jobs')
   })
 
-  it('actions: new, close, pinned skip, last tab, history', () => {
+  it('actions: new, close, pinned skip, last tab', () => {
     // Close tab is a pane action now (tiling-store; Cmd+T opens a web page), history stays here.
     resetTilingForTests()
     const stopTiling = startTiling()
@@ -164,20 +165,29 @@ describe('navigation', () => {
     runAction('close-tab')
     expect(t().list).toHaveLength(1)
     togglePinOf(t().list[0]!.id)
-    navigateTo(placeOf('settings', { settingsSection: 'Theme' }))
-    navigateTo(placeOf('settings', { settingsSection: 'Chat' }))
-    runAction('history-back')
-    expect(activePlace(tabsStore.getState()).settingsSection).toBe('Theme')
-    runAction('history-forward')
-    expect(activePlace(tabsStore.getState()).settingsSection).toBe('Chat')
     stopTiling()
   })
 
-  it("a step back into another workspace shows it there and leaves this tab's place", () => {
-    const tab = { ...t().list[0]!, here: placeOf('jobs'), back: [placeOf('habits')] }
+  it("restoring a tab into another workspace shows it there and leaves this tab's place", () => {
+    const tab = { ...t().list[0]!, here: placeOf('jobs') }
     tabsStore.setState({ tabs: { ...t(), list: [tab] } })
-    runAction('history-back')
+    restoreTab(tab.id, placeOf('habits'))
     expect(t().list.map((x) => x.here.page)).toEqual(['jobs', 'habits'])
+    expect(activePlace(tabsStore.getState()).page).toBe('habits')
+    expect(t().list.every((x) => x.back.length === 0)).toBe(true)
+  })
+
+  it('restoring a tab in its own workspace points it at the place without history', () => {
+    const tab = { ...t().list[0]!, here: placeOf('settings', { settingsSection: 'Theme' }) }
+    tabsStore.setState({ tabs: { ...t(), list: [tab] } })
+    restoreTab(tab.id, placeOf('settings', { settingsSection: 'Chat' }))
+    expect(activePlace(tabsStore.getState()).settingsSection).toBe('Chat')
+    expect(t().list).toHaveLength(1)
+    expect(t().list[0]!.back).toHaveLength(0)
+  })
+
+  it('restoring a tab that is gone opens the place', () => {
+    restoreTab(99, placeOf('habits'))
     expect(activePlace(tabsStore.getState()).page).toBe('habits')
   })
 
