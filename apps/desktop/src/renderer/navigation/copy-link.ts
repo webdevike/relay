@@ -46,6 +46,8 @@ function toolAddress(tab: ToolTab, ws: string): TabAddress | null {
           params: { experiment: tab.experiment, arm: tab.arm },
         },
       }
+    case 'meeting':
+      return { kind: 'page', link: { kind: 'open', page: 'meetings', params: { meeting: tab.id } } }
     default:
       return null
   }

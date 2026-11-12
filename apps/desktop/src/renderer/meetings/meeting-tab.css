@@ -1,0 +1,154 @@
+/* A meeting beside the chat it is in (a tool tab, ~440px wide): head, speaker, transcript, quick asks. */
+.eva-meeting-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--eva-surface);
+  color: var(--eva-text);
+  font-size: var(--mantine-font-size-sm);
+}
+.eva-meeting-tab-dim {
+  color: var(--eva-text-dim);
+}
+.eva-meeting-tab > .eva-meeting-tab-dim {
+  padding: var(--mantine-spacing-md);
+}
+.eva-meeting-tab-head {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-border);
+}
+.eva-meeting-tab-cal {
+  flex: none;
+  color: var(--eva-text-dim);
+}
+.eva-meeting-tab-name {
+  flex: 1;
+  min-width: 0;
+}
+.eva-meeting-tab-title {
+  overflow: hidden;
+  font-weight: var(--eva-fw-medium);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.eva-meeting-tab-sub {
+  display: flex;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+  font-size: var(--mantine-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+.eva-meeting-tab-state {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xs);
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-border);
+  font-size: var(--mantine-font-size-xs);
+}
+.eva-meeting-tab-notes {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+  border-bottom: 1px solid var(--eva-border);
+}
+.eva-meeting-tab-notes ul {
+  margin: 0 0 calc(var(--mantine-spacing-xs) / 2);
+  padding-left: var(--mantine-spacing-md);
+}
+.eva-meeting-tab-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--eva-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.eva-meeting-tab-tx {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+}
+.eva-meeting-tab-line {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: var(--mantine-spacing-xs);
+  padding: calc(var(--mantine-spacing-xs) / 2) 0;
+  line-height: 1.45;
+}
+.eva-meeting-tab-line[data-draft='true'] .eva-meeting-tab-text {
+  color: var(--eva-text-dim);
+  font-style: italic;
+}
+.eva-meeting-tab-time {
+  color: var(--eva-text-dim);
+  font-size: var(--mantine-font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+.eva-meeting-tab-speaker {
+  color: var(--eva-accent);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-meeting-tab-speaker[data-track='mic'] {
+  color: var(--mantine-color-green-6);
+}
+.eva-meeting-tab-asks {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md) var(--mantine-spacing-sm);
+  border-top: 1px solid var(--eva-border);
+}
+.eva-meeting-tab-asks-head {
+  margin-bottom: calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+  font-size: var(--mantine-font-size-xs);
+}
+/* One row that never wraps: swipe or scroll sideways; an edge fades where more pills hide. */
+.eva-meeting-tab-ask-row {
+  --fade: 24px;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.eva-meeting-tab-ask-row::-webkit-scrollbar {
+  display: none;
+}
+.eva-meeting-tab-ask-row[data-more-end='true'] {
+  mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent);
+}
+.eva-meeting-tab-ask-row[data-more-start='true'] {
+  mask-image: linear-gradient(to right, transparent, #000 var(--fade));
+}
+.eva-meeting-tab-ask-row[data-more-start='true'][data-more-end='true'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade),
+    #000 calc(100% - var(--fade)),
+    transparent
+  );
+}
+.eva-meeting-tab-ask {
+  flex: none;
+  white-space: nowrap;
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs);
+  border: 1px solid var(--eva-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--eva-text);
+  font: inherit;
+  font-size: var(--mantine-font-size-xs);
+  cursor: pointer;
+}
+.eva-meeting-tab-ask:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--eva-accent) 50%, var(--eva-border));
+}
+.eva-meeting-tab-ask:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

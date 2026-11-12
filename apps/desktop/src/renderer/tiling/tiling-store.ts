@@ -1039,6 +1039,11 @@ export function openArmTab(view: Omit<ExperimentArmTab, 'kind'>): string {
   return openTab({ kind: 'experiment-arm', ...view })
 }
 
+/** A meeting beside the chat (the side panel), or brought forward when it is open. */
+export function openMeetingTab(id: string): string {
+  return openTab({ kind: 'meeting', id })
+}
+
 /** Brings panel `id` (`tab:<n>` or a tool tab id) to the front of its pane, and focuses that. */
 export function activateTab(id: string): void {
   const panel = api?.getPanel(id)

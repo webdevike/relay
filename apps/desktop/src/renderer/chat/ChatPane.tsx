@@ -16,6 +16,7 @@ import { JobsStrip } from './strips/JobsStrip'
 import { StatusStrip } from './strips/StatusStrip'
 import { SubagentChips } from './strips/SubagentChips'
 import { AgentWorkCards } from './strips/AgentWorkCards'
+import { MeetingCards } from './strips/MeetingCards'
 import { useFrontChatPane } from './front-chat'
 import { openActivity } from '../activity/open-activity'
 import { useActivityItems } from '../activity/activity-store'
@@ -441,6 +442,7 @@ function ChatView({
         />
       ) : null}
       {inFront ? <AgentWorkCards /> : null}
+      {agent !== null ? <MeetingCards agent={agent} /> : null}
       <PendingDialog paneId={paneId} />
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
       <StatusStrip paneId={paneId} />

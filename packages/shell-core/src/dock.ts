@@ -49,6 +49,12 @@ export type ToolTab =
       label: string
     }
   | {
+      /** One of Relay's meetings beside the chat it is in: its live transcript and quick asks. */
+      kind: 'meeting'
+      /** The recording's id. */
+      id: string
+    }
+  | {
       /**
        * A page shown beside a workspace's chat (Studio, a canvas board, a Reviews item): a tool
        * tab of that workspace, never a workspace of its own. `key` names it for good (its place's
@@ -72,6 +78,7 @@ export type ToolTab =
     }
 export type SubagentTab = Extract<ToolTab, { kind: 'subagent' }>
 export type ExperimentArmTab = Extract<ToolTab, { kind: 'experiment-arm' }>
+export type MeetingTab = Extract<ToolTab, { kind: 'meeting' }>
 export type PageTab = Extract<ToolTab, { kind: 'page' }>
 export type WebTab = Extract<ToolTab, { kind: 'web' }>
 
@@ -92,6 +99,8 @@ export function toolTabId(tab: ToolTab): string {
       return `subagent:${tab.file}`
     case 'experiment-arm':
       return `arm:${tab.experiment}/${tab.arm}`
+    case 'meeting':
+      return `meeting:${tab.id}`
     case 'page':
       return `view:${tab.key}`
     case 'web':
@@ -121,6 +130,7 @@ export function toolTabFromJson(v: unknown): ToolTab | null {
     if (place) return { kind, key: v['key'], place: placeToJson(place) }
   }
   if (kind === 'web' && str(v['id'])) return { kind, id: v['id'] }
+  if (kind === 'meeting' && str(v['id'])) return { kind, id: v['id'] }
   return null
 }
 

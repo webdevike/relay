@@ -5,6 +5,7 @@ import {
   IconGlobe,
   IconRobot,
   IconTerminal2,
+  IconUsers,
   type Icon,
 } from '@tabler/icons-react'
 import { pageTabPlace, type ToolTab } from '@evaos/shell-core'
@@ -30,6 +31,8 @@ export function paneTabTitle(tab: ToolTab): string {
       return tab.name
     case 'experiment-arm':
       return tab.label
+    case 'meeting':
+      return 'Meeting'
     case 'page':
       return tabTitle(pageTabPlace(tab))
     case 'web':
@@ -45,6 +48,8 @@ export function paneTabIcon(tab: ToolTab): Icon {
       return IconRobot
     case 'experiment-arm':
       return IconFlask
+    case 'meeting':
+      return IconUsers
     case 'page':
       return PAGE_ICONS[tabIconName(pageTabPlace(tab))] ?? IconAsterisk
     case 'web':

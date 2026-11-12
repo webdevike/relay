@@ -66,6 +66,13 @@ export const assistantsInvoke = {
     input: z.object({ agent: z.string().min(1).max(128) }).strict(),
     output: z.object({ started: z.literal(true) }),
   },
+  /** Sends `text` into the agent's thread through Relay as Isaac (a chat that is not on screen). */
+  'assistants.turn': {
+    input: z
+      .object({ agent: z.string().min(1).max(128), text: z.string().min(1).max(4000) })
+      .strict(),
+    output: z.object({ sent: z.literal(true) }),
+  },
   /**
    * Adds an assistant through Relay (`assistant.create`): the host writes its registry entry and a
    * first-run prime, then opens its thread with "Hi <title>"; the assistant gets to know Isaac by

@@ -15,6 +15,7 @@ import { InToolPaneContext, ReplacePlaceContext } from '../pages/place-host'
 import { PageView } from '../pages/PageRouter'
 import { MainHeader } from '../shell/MainHeader'
 import { ExperimentArmPanel } from '../test-bench/ExperimentArmPanel'
+import { MeetingTab } from '../meetings/MeetingTab'
 import { mountedToolTabs, replacePageTab, tabVisible, useTiling } from './tiling-store'
 
 // The files editor (and Monaco behind it) loads the first time Files opens.
@@ -151,6 +152,8 @@ function TabContent({ tab, visible }: { tab: ToolTab; visible: boolean }) {
       return <SubagentContent tab={tab} />
     case 'experiment-arm':
       return <ExperimentArmPanel key={toolTabId(tab)} view={tab} />
+    case 'meeting':
+      return <MeetingTab key={toolTabId(tab)} id={tab.id} />
     case 'page':
       return <PageContent tab={tab} />
     case 'browser':

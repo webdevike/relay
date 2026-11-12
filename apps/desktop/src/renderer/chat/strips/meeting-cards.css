@@ -1,0 +1,44 @@
+/* The meetings in an assistant's chat, above its composer: one StatusCard each, a click opens it beside. */
+.eva-meeting-cards {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  flex: none;
+  box-sizing: border-box;
+  width: calc(100% - var(--eva-space-native-lg) * 2);
+  max-width: var(--eva-chat-column-w);
+  margin: calc(var(--mantine-spacing-xs) / 2) auto 0;
+}
+.eva-meeting-cards .eva-meeting-title {
+  color: var(--eva-text-dim);
+}
+.eva-meeting-cards .eva-status-meta {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The red live dot of a meeting on the call; it breathes unless motion is reduced. */
+.eva-meeting-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: calc(var(--mantine-spacing-xs) / 2);
+  border-radius: 50%;
+  background: var(--eva-c-danger, #e5484d);
+  vertical-align: 1px;
+  animation: eva-meeting-live 1.6s ease-in-out infinite;
+}
+@keyframes eva-meeting-live {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--eva-c-danger, #e5484d) 55%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--eva-c-danger, #e5484d) 0%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-meeting-dot {
+    animation: none;
+  }
+}

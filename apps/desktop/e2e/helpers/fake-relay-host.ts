@@ -695,6 +695,49 @@ export class FakeRelayHost {
     return { t: 'studio.state', ...this.studio }
   }
 
+  /**
+   * Meetings (relay packages/protocol/src/meetings.ts): the recordings `meetings.list` answers and
+   * each one's live lines, answered to an `open` op. Add 'meetings' to `features` to turn it on.
+   */
+  readonly meetings: { recordings: Json[]; lines: Map<string, Json[]>; notes: Map<string, Json> } =
+    { recordings: [], lines: new Map(), notes: new Map() }
+  /** Every `meetings.req` op the app sent, in order. */
+  readonly meetingOps: Json[] = []
+
+  /** A recording started, moved stage or changed chat: the host's `meeting.recording` push. */
+  meetingRecording(recording: Json): void {
+    const id = String(recording.id)
+    this.meetings.recordings = [recording, ...this.meetings.recordings.filter((r) => r.id !== id)]
+    this.broadcast({ t: 'meeting.recording', recording })
+  }
+
+  /** Transcript lines a recording added or replaced: the host's `meeting.live` push. */
+  meetingLive(id: string, upsert: Json[]): void {
+    const have = this.meetings.lines.get(id) ?? []
+    const ids = new Set(upsert.map((l) => l.id))
+    this.meetings.lines.set(id, [...have.filter((l) => !ids.has(l.id)), ...upsert])
+    this.broadcast({ t: 'meeting.live', id, upsert })
+  }
+
+  private meetingsReq(peer: Peer, rid: string, op: Json): void {
+    this.meetingOps.push(op)
+    const id = String(op.id)
+    const recording = this.meetings.recordings.find((r) => r.id === id)
+    if (op.kind !== 'open' || recording === undefined)
+      return peer.send({ t: 'meetings.res', rid, ok: false, error: 'Not in this fake' })
+    peer.send({
+      t: 'meetings.res',
+      rid,
+      ok: true,
+      snapshot: {
+        recording,
+        lines: this.meetings.lines.get(id) ?? [],
+        astra: null,
+        notes: this.meetings.notes.get(id) ?? null,
+      },
+    })
+  }
+
   private studioReq(peer: Peer, rid: string, op: Json): void {
     this.studioOps.push(op)
     const answer = (a: Json): void => peer.send({ t: 'studio.res', rid, ...a })
@@ -1347,6 +1390,16 @@ export class FakeRelayHost {
       case 'studio.list':
         this.studioLists += 1
         return peer.send(this.studioState())
+      case 'meetings.list':
+        return peer.send({
+          t: 'meetings.state',
+          now: Date.now(),
+          meetings: [],
+          recordings: this.meetings.recordings,
+          digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
+        })
+      case 'meetings.req':
+        return this.meetingsReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'studio.req':
         return this.studioReq(peer, String(f.rid), JsonSchema.parse(f.op))
       case 'cmd':

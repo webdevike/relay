@@ -57,6 +57,10 @@ export function registerAssistantsIpc(
     await relay.command({ kind: 'assistant.turn', agent, text: `Hi ${title}` }, START_TIMEOUT_MS)
     return { started: true as const }
   })
+  handle(ctx, 'assistants.turn', async ({ agent, text }) => {
+    await relay.command({ kind: 'assistant.turn', agent, text }, START_TIMEOUT_MS)
+    return { sent: true as const }
+  })
   // The host writes the registry and opens the new thread with "Hi <title>"; the assistant gets to
   // know Isaac by chatting and renames itself. The registry watch below brings it into the list.
   handle(ctx, 'assistants.create', async ({ title }) => {
