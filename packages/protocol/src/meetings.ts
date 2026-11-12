@@ -386,10 +386,12 @@ export function meetingCardsFor(
     .sort((a, b) => Number(b.live) - Number(a.live) || b.recording.startedAt - a.recording.startedAt);
 }
 
-/** The one-tap questions beside a live meeting; each posts into the chat it is in, as Isaac. */
-export const MEETING_QUICK_ASKS = [
-  "What did I miss?",
-  "What was just decided?",
-  "Draft my answer",
-  "Action items so far",
+/**
+ * The Ask menu beside a meeting: `label` is the menu item, `text` what is posted into the chat the
+ * meeting is in, as Isaac (the host gives the assistant the transcript).
+ */
+export const MEETING_ASKS = [
+  { label: "Catch me up", text: "Catch me up on the meeting" },
+  { label: "Draft a reply", text: "Draft a reply for me" },
+  { label: "List actions", text: "List the actions so far" },
 ] as const;

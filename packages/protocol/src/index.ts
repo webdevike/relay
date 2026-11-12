@@ -2263,6 +2263,7 @@ export * from "./eta";
 export * from "./studio";
 export * from "./reviews";
 export * from "./meetings";
+export * from "./meeting-moments";
 export * from "./rooms";
 export * from "./rooms-council";
 export * from "./query";
