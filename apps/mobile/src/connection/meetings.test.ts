@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import type { MeetingRecording, MeetingSnapshot } from "@relay/protocol";
+import { meetingCardsFor, type MeetingRecording, type MeetingSnapshot } from "@relay/protocol";
 import { useMeetingsStore } from "@/state/meetings";
 import { createMeetingsFrameRouter, PendingMeetings } from "./meetings";
 
@@ -18,6 +18,8 @@ const rec = (over: Partial<MeetingRecording> = {}): MeetingRecording => ({
   shadow: true,
   stem: null,
   seconds: 0,
+  assistant: null,
+  routedByIsaac: false,
   ...over,
 });
 const line = (id: string, text: string, final = true) => ({
@@ -76,6 +78,24 @@ describe("meetings frames", () => {
     route({ t: "meetings.res", rid: "r2", ok: true, astra: item });
     await asked;
     expect(useMeetingsStore.getState().pages[ID]?.astra?.working).toBe(true);
+  });
+
+  it("moves a recording to the chat it is routed to, and its card with it", () => {
+    const route = createMeetingsFrameRouter(useMeetingsStore.getState(), new PendingMeetings());
+    route({
+      t: "meetings.state",
+      recordings: [rec({ assistant: "astra" })],
+      meetings: [],
+      digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
+      now: 1,
+    });
+    const cards = (agent: string) =>
+      meetingCardsFor(useMeetingsStore.getState().state?.recordings ?? [], agent, 2).map((c) => c.recording.id);
+    expect(cards("astra")).toEqual([ID]);
+    route({ t: "meeting.recording", recording: rec({ assistant: "nova", routedByIsaac: true }) });
+    expect(useMeetingsStore.getState().state?.recordings).toHaveLength(1);
+    expect(cards("astra")).toEqual([]);
+    expect(cards("nova")).toEqual([ID]);
   });
 
   it("fails what waits when the connection goes", async () => {

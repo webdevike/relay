@@ -104,6 +104,7 @@ import { WidgetCloseProvider } from "@/agents/WidgetActions";
 import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
 import { assistantTurnRows } from "@/turns/rows";
 import { useTurnBookmarks } from "@/turns/useTurnBookmarks";
+import { MeetingCards } from "@/meetings/MeetingCardRow";
 
 /** Prefix of the rows echoing sent turns before the host's snapshot lists them (then the echo's id). */
 const PENDING_ID = "pending-turn:";
@@ -795,6 +796,8 @@ function Thread({ agent }: { agent: string }) {
         {/* Floats over the list at the safe-area bottom and rides on the keyboard; the list pads itself by its height. */}
         <Animated.View pointerEvents="box-none" style={[styles.composer, composerLiftStyle]}>
           <View onLayout={onStackLayout}>
+            {/* A meeting routed to this assistant: one row each, live first; a tap opens the meeting full screen. */}
+            <MeetingCards agent={agent} />
             {banner !== null && (
               <View style={[styles.banner, { backgroundColor: bg }]}>
                 <Banner tone="danger" message={banner} />

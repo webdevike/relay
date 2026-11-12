@@ -3,6 +3,10 @@
  * (drafts dimmed, follows the newest line), the stage after it, then its notes; Ask sends a question
  * to Astra's session about the meeting (typed, or held to talk), answers inline and on the desktop
  * too. A meeting Eva filed (a stem): its summary, decisions and what waits on Isaac.
+ *
+ * Opened from an assistant's meeting card (`?chat=<agent>`) it is that chat's full-screen meeting
+ * view: no Astra dock; one swipeable row of quick asks posts into that chat as Isaac's turn (the
+ * host gives the assistant the transcript) and goes back to it.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -14,19 +18,23 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
   MEETING_STAGE_LABEL,
   meetingClock,
+  meetingIsLive,
   meetingRows,
   type MeetingDetail,
 } from "@relay/protocol";
 import { MessageText } from "@/agents/MessageText";
-import { meetingsRequest } from "@/connection";
+import { meetingsRequest, sendCommand } from "@/connection";
 import { DictationButton } from "@/dictation";
 import { pushDictationTarget } from "@/dictation/deliver";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { recordingTitle, useMeetingsStore } from "@/state/meetings";
+import { agentTitle, useAssistantStore } from "@/state/assistant";
+import { newClientId, startTurn } from "@/state/turns";
+import { QuickAsks } from "@/meetings/QuickAsks";
 import { spacing, tabularNumbers, useColors, useScheme } from "@/theme";
 import { Button } from "@/ui/Button";
 import { Screen } from "@/ui/Screen";
@@ -36,13 +44,16 @@ import { Toast } from "@/ui/Toast";
 const RECORDING_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export default function MeetingScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  return RECORDING_ID.test(id) ? <RecordingScreen id={id} /> : <RecordScreen stem={id} />;
+  const { id, chat } = useLocalSearchParams<{ id: string; chat?: string }>();
+  if (!RECORDING_ID.test(id)) return <RecordScreen stem={id} />;
+  return chat === undefined || chat === "" ? <RecordingScreen id={id} /> : <RecordingScreen id={id} chat={chat} />;
 }
 
-function RecordingScreen({ id }: { id: string }) {
+function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
   const colors = useColors();
   const scheme = useScheme();
+  const router = useRouter();
+  const agents = useAssistantStore((state) => state.agents);
   const page = useMeetingsStore((s) => s.pages[id]);
   const [error, setError] = useState<string | null>(null);
   const [question, setQuestion] = useState("");
@@ -56,13 +67,32 @@ function RecordingScreen({ id }: { id: string }) {
     async (text: string): Promise<void> => {
       const q = text.trim();
       if (q === "") return;
+      if (chat !== undefined) {
+        // From a chat: the words go into it as Isaac's turn (the command its composer sends; the
+        // host adds the transcript), then back to it.
+        const clientId = newClientId();
+        const command = { kind: "assistant.turn" as const, agent: chat, text: q, clientId };
+        startTurn({
+          agent: chat,
+          clientId,
+          text: q,
+          images: [],
+          delivery: sendCommand(command),
+          command,
+          // The thread's echo marks a refusal and offers Try again.
+          onRefused: () => undefined,
+        });
+        if (router.canGoBack()) router.back();
+        else router.replace({ pathname: "/eva", params: { agent: chat } });
+        return;
+      }
       setAsking(true);
       const result = await meetingsRequest({ kind: "ask", id, question: q });
       setAsking(false);
       if (result.ok) setQuestion("");
       else toast.show(result.error ?? "Astra could not be asked.");
     },
-    [id, toast],
+    [id, toast, chat, router],
   );
 
   useFocusEffect(
@@ -70,12 +100,13 @@ function RecordingScreen({ id }: { id: string }) {
       void meetingsRequest({ kind: "open", id }).then((result) => {
         setError(result.ok ? null : (result.error ?? "Could not open the meeting."));
       });
-      // Held to talk on this screen, the words are a question for Astra; leaving releases only this claim.
+      // Held to talk on this screen, the words are a question for Astra (from a chat, for that
+      // assistant in its chat); leaving releases only this claim.
       return pushDictationTarget({ kind: "local", onText: ask });
     }, [id, ask]),
   );
 
-  const live = page?.recording.stage === "recording";
+  const live = page !== undefined && meetingIsLive(page.recording);
   useEffect(() => {
     if (!live) return;
     const timer = setInterval(() => {
@@ -207,21 +238,30 @@ function RecordingScreen({ id }: { id: string }) {
             </View>
           ) : null}
         </ScrollView>
-        <View style={[styles.dock, { borderColor: colors.hairline, backgroundColor: colors.bg }]}>
-          <TextInput
-            value={question}
-            onChangeText={setQuestion}
-            placeholder="Ask Astra about this meeting"
-            placeholderTextColor={colors.textFaint}
-            keyboardAppearance={scheme}
-            editable={!asking}
-            returnKeyType="send"
-            onSubmitEditing={() => void ask(question)}
-            style={[styles.input, { color: colors.text, backgroundColor: colors.surfaceRaised }]}
-            testID="meeting-question"
-          />
-          <DictationButton size={40} backgroundColor={colors.surfaceRaised} />
-        </View>
+        {chat === undefined ? (
+          <View style={[styles.dock, { borderColor: colors.hairline, backgroundColor: colors.bg }]}>
+            <TextInput
+              value={question}
+              onChangeText={setQuestion}
+              placeholder="Ask Astra about this meeting"
+              placeholderTextColor={colors.textFaint}
+              keyboardAppearance={scheme}
+              editable={!asking}
+              returnKeyType="send"
+              onSubmitEditing={() => void ask(question)}
+              style={[styles.input, { color: colors.text, backgroundColor: colors.surfaceRaised }]}
+              testID="meeting-question"
+            />
+            <DictationButton size={40} backgroundColor={colors.surfaceRaised} />
+          </View>
+        ) : live ? (
+          <View style={[styles.asks, { borderColor: colors.hairline, backgroundColor: colors.bg }]} testID="meeting-quick-asks">
+            <Text variant="caption" color="textMuted" style={styles.asksLabel}>
+              Ask {agentTitle(agents, chat)} in the chat
+            </Text>
+            <QuickAsks onAsk={(text) => void ask(text)} />
+          </View>
+        ) : null}
       </KeyboardAvoidingView>
       {toast.message !== null && (
         <View style={styles.toast} pointerEvents="none">
@@ -357,6 +397,13 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   input: { flex: 1, minHeight: 40, borderRadius: 20, paddingHorizontal: spacing.md, fontSize: 16 },
+  asks: {
+    gap: spacing.sm,
+    // The pill row pads itself so pills scroll to the screen's edge.
+    paddingVertical: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  asksLabel: { paddingHorizontal: spacing.lg },
   toast: {
     position: "absolute",
     left: 0,
