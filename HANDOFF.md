@@ -317,5 +317,5 @@ README with the rooms.create/rooms.update shape, screenshots in refs/), served a
 - Relay Host 0.2.93 (staged, see Close-out): install it, then restart every assistant's omp so the new
   relay-bridge `guest` request loads (on the Mini the extension is a symlink into a checkout: keep it on main).
   After that Eva adds S3's consult lines (S3 log) to the primes.
-- Decide the assistant room limits: $10 budget and effort 4 (Deep) by default
+- Assistant room limits: decided 2026-11-11, $20 budget and effort 5 (Max) by default
   (`ASSISTANT_ROOM_LIMITS`, packages/contract/src/rooms-agent.ts); your own edits lift them per room.

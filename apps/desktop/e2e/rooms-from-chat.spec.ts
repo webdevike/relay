@@ -130,8 +130,8 @@ test('S5 rooms.create posts a live Room ready card; rooms.update, Open room, and
     folder: 'work/boxhead-godot',
     draft: 'Start with the 5 weapons the current build ships.',
   }
-  // Assistant-made rooms stay within $10 and effort 4.
-  const over = await agent(configDir, 'rooms.create', { ...setup, budget: 12 })
+  // Assistant-made rooms stay within $20 and effort 5.
+  const over = await agent(configDir, 'rooms.create', { ...setup, budget: 22 })
   expect(over).toMatchObject({ ok: false, code: 'bad-input' })
   const made = await agent(configDir, 'rooms.create', setup)
   if (!made.ok) throw new Error(made.message)

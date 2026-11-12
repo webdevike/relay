@@ -127,10 +127,10 @@ describe('limits for assistant-made rooms', () => {
   const setup: ChatRoomSetup = { template: 'blank', members, effort: 2, budget: 3, refs: [] }
 
   it('caps budget and effort; Isaac lifts them for his room', () => {
-    expect(ASSISTANT_ROOM_LIMITS).toEqual({ budget: 10, effort: 4 })
-    expect(boundsProblem({ budget: 10, effort: 4 }, ASSISTANT_ROOM_LIMITS)).toBeNull()
-    expect(boundsProblem({ budget: 12 }, ASSISTANT_ROOM_LIMITS)).toMatch(/budget \$12 is over \$10/)
-    expect(boundsProblem({ effort: 5 }, ASSISTANT_ROOM_LIMITS)).toMatch(
+    expect(ASSISTANT_ROOM_LIMITS).toEqual({ budget: 20, effort: 5 })
+    expect(boundsProblem({ budget: 20, effort: 5 }, ASSISTANT_ROOM_LIMITS)).toBeNull()
+    expect(boundsProblem({ budget: 22 }, ASSISTANT_ROOM_LIMITS)).toMatch(/budget \$22 is over \$20/)
+    expect(boundsProblem({ effort: 5 }, { budget: 20, effort: 4 })).toMatch(
       /effort 5 is over 4 \(Deep\)/,
     )
     const raised = isaacLimits(ASSISTANT_ROOM_LIMITS, { budget: 30, effort: 5 })
@@ -139,7 +139,7 @@ describe('limits for assistant-made rooms', () => {
       boundsProblem({ budget: 25, effort: 5 }, assistantCeiling({ setup, limits: raised })),
     ).toBeNull()
     // Isaac's own room: the default, or what he set when that is higher.
-    expect(assistantCeiling({ setup: { ...setup, budget: 40 } })).toEqual({ budget: 40, effort: 4 })
+    expect(assistantCeiling({ setup: { ...setup, budget: 40 } })).toEqual({ budget: 40, effort: 5 })
   })
 
   it('names the card token with the title', () => {

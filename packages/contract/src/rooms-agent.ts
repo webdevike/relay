@@ -24,10 +24,10 @@ import {
 
 /**
  * The most an assistant may give a room it sets up or changes: the budget cap in USD and the
- * effort notch (4 = Deep). Isaac's own edits of a room lift its limits to what he set. Isaac's
- * decision to confirm (HANDOFF.md S5 "Bounds").
+ * effort notch (5 = Max). Isaac's own edits of a room lift its limits to what he set. Isaac set
+ * $20 and effort 5 on 2026-11-11.
  */
-export const ASSISTANT_ROOM_LIMITS: RoomLimits = { budget: 10, effort: 4 }
+export const ASSISTANT_ROOM_LIMITS: RoomLimits = { budget: 20, effort: 5 }
 
 const coded = (message: string): Error => Object.assign(new Error(message), { code: 'bad-input' })
 
