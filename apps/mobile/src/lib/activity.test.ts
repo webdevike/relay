@@ -45,12 +45,51 @@ describe("runningChips", () => {
     expect(chips(items).map((chip) => chip.id)).toEqual(["s5", "s4", "s3", "s2", "s1"]);
   });
 
-  it("points a helper chip at the subagent session mirrored under the thread's session", () => {
-    const helper = item("helper:/s/T/Scout.jsonl", { kind: "helper", open: { to: "subagent", file: "/s/T/Scout.jsonl", name: "Scout" } });
-    const mirrored = { id: "T:Scout", parentId: "T" } as AgentSession;
-    expect(chips([helper], { threadSession: "T", sessions: { "T:Scout": mirrored } })[0]?.sessionId).toBe("T:Scout");
-    expect(chips([helper], { threadSession: "T", sessions: {} })[0]?.sessionId).toBeUndefined();
-    expect(chips([helper], { threadSession: null, sessions: { "T:Scout": mirrored } })[0]?.sessionId).toBeUndefined();
+  describe("helper chips", () => {
+    const helper = (name: string, dir = "/s/T") => item(`helper:${dir}/${name}.jsonl`, { kind: "helper", open: { to: "subagent", file: `${dir}/${name}.jsonl`, name } });
+    const sub = (parent: string, name: string) => ({ id: `${parent}:${name}`, parentId: parent }) as AgentSession;
+    const top = (id: string) => ({ id }) as AgentSession;
+    const links = (threadSession: string | null, ...list: AgentSession[]): SessionLinks => ({ threadSession, sessions: Object.fromEntries(list.map((session) => [session.id, session])) });
+
+    it("opens the subagent session mirrored under the thread's session", () => {
+      expect(chips([helper("Scout")], links("T", sub("T", "Scout")))[0]?.sessionId).toBe("T:Scout");
+    });
+
+    it("opens the mirror listed under another session, preferring the one its path names", () => {
+      const only = links("T", top("T"), top("O1"), sub("O1", "Lane"));
+      expect(chips([helper("Lane", "/s/O1")], only)[0]?.sessionId).toBe("O1:Lane");
+      expect(chips([helper("Lane", "/s/elsewhere")], only)[0]?.sessionId).toBe("O1:Lane");
+      const two = links("T", top("O1"), top("O2"), sub("O1", "Lane"), sub("O2", "Lane"));
+      expect(chips([helper("Lane", "/s/2026_O2")], two)[0]?.sessionId).toBe("O2:Lane");
+    });
+
+    it("opens the parent session when no transcript is mirrored: the one its path names, else the thread's", () => {
+      expect(chips([helper("Lane", "/s/2026_O1")], links("T", top("T"), top("O1")))[0]?.sessionId).toBe("O1");
+      expect(chips([helper("Lane")], links("T", top("T")))[0]?.sessionId).toBe("T");
+      const ambiguous = links("T", top("O1"), top("O2"), sub("O1", "Lane"), sub("O2", "Lane"));
+      expect(chips([helper("Lane", "/s/x")], ambiguous)[0]?.sessionId).toBe("T");
+    });
+
+    it("has no session only with no thread session and no parent at all", () => {
+      expect(chips([helper("Lane")], links(null))[0]?.sessionId).toBeUndefined();
+    });
+
+    it("keeps each helper its own chip when they share a parent fallback, and one chip per mirrored session", () => {
+      const shared = chips([helper("A"), helper("B")], links("T", top("T")));
+      expect(shared.map((chip) => [chip.id, chip.sessionId])).toEqual([
+        ["helper:/s/T/A.jsonl", "T"],
+        ["helper:/s/T/B.jsonl", "T"],
+      ]);
+      expect(chips([helper("A"), item("T:A", { open: { to: "chat", thread: "session:T:A", session: "T:A" } })], links("T", sub("T", "A")))).toHaveLength(1);
+    });
+  });
+
+  it("carries the activity item's eta, and an owned session's from its session item", () => {
+    const eta = { from: 0, totalMs: 10, lowMs: 5, highMs: 20, typicalMs: 10, runs: 3, confidence: "rough", overrunning: false } as const;
+    expect(chips([item("s1", { eta })])[0]?.eta).toBe(eta);
+    expect(chips([item("s1")])[0]).not.toHaveProperty("eta");
+    const shown = chips([item("session:o1", { owner: "assistant:astra", eta })], NO_LINKS, [owned("o1", "working")]);
+    expect(shown[0]?.eta).toBe(eta);
   });
 
   it("carries the session id a session chip opens", () => {

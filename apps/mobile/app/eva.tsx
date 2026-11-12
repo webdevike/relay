@@ -987,12 +987,10 @@ function ThreadRunning({ agent, thread, sessionId, onOpenSession, onOpenWorking 
   const sessions = useAgentsStore((state) => state.sessions);
   const owned = useMemo(() => ownedBy(sessions, agent), [sessions, agent]);
   const running = useMemo(() => runningChips(activityItems, thread, { threadSession: sessionId, sessions }, owned), [activityItems, thread, sessionId, sessions, owned]);
-  if (running.length === 0) return null;
-  return (
-    <View style={styles.running}>
-      <RunningChips chips={running} onOpenSession={onOpenSession} onOpenWorking={onOpenWorking} />
-    </View>
-  );
+  const colors = useColors();
+  const tint = useAssistantStore((state) => agentPortrait(state.agents, agent).colors?.accent) ?? colors.accent;
+  // Stays mounted with nothing running: a finished chip fills up and fades out before the row goes.
+  return <RunningChips chips={running} tint={tint} style={styles.running} onOpenSession={onOpenSession} onOpenWorking={onOpenWorking} />;
 }
 
 function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply, waiting, pulse, onEcho }: RowProps) {

@@ -35,10 +35,12 @@ export interface ChipProps {
   detail?: string | undefined;
   /** `large`: a 40pt borderless capsule with body text, for a composer's control row. */
   size?: "regular" | "large";
+  /** Drawn under the label and glyph, clipped to the capsule (e.g. a `ProgressFill`); never changes the chip's size. */
+  background?: ReactNode;
 }
 
 /** A small tappable capsule in a row of chips: optional leading glyph, one-line label. */
-export function Chip({ label, detail, leading, selected = false, onPress, onLongPress, accessibilityLabel, accessibilityHint, accessibilityActions, onAccessibilityAction, hitSlop, style, overlay = false, size = "regular" }: ChipProps) {
+export function Chip({ label, detail, leading, selected = false, onPress, onLongPress, accessibilityLabel, accessibilityHint, accessibilityActions, onAccessibilityAction, hitSlop, style, overlay = false, size = "regular", background }: ChipProps) {
   const large = size === "large";
   const height = large ? CHIP_HEIGHT_LARGE : CHIP_HEIGHT;
   const colors = useColors();
@@ -76,10 +78,12 @@ export function Chip({ label, detail, leading, selected = false, onPress, onLong
           borderColor: selected ? colors.accent : overlay ? "#2C2E33" : colors.hairline,
           backgroundColor: selected ? toneFill(colors, "accent", 0.12) : overlay ? "#1A1B1E" : colors.surfaceRaised,
           opacity: pressed ? 0.7 : 1,
+          overflow: background === undefined ? "visible" : "hidden",
         },
         style,
       ]}
     >
+      {background}
       {leading}
       <Text variant={large ? "body" : "caption"} color={selected ? "accent" : "text"} numberOfLines={1} style={[{ flexShrink: 1 }, overlay && !selected && { color: "#E9ECEF" }]}>
         {label}
