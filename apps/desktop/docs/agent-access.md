@@ -116,15 +116,32 @@ The same presence on a canvas board (docs/agent-presence.md): the chat assistant
 in front of Isaac while he keeps chatting with it in its chat. Board changes go to `<slug>.json`
 through the board store; the open board reloads at once.
 
-| Action                                                                    | What it does                                                                                                |
-| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `canvas.open` `{slug \| title, page?}`                                    | Shows the board on the Canvas page in the caller's workspace and starts the run (ring, caption, work card). |
-| `canvas.read` `{slug, page?}`                                             | Cards (`id` is the ref; type, text, box as drawn), links, open comment threads. Off screen too.             |
-| `canvas.add` `{slug, type?, title?, body?, data?, x,y \| near?, parent?}` | A card at a point, right of `near`, or below everything; the cursor goes there first. Answers its id.       |
-| `canvas.edit` / `canvas.move` / `canvas.connect` / `canvas.delete`        | Change, carry, link (`from`, `to`, `label`) or remove cards and links; the cursor visits each one first.    |
-| `canvas.select` / `canvas.zoom` / `canvas.pan`                            | Point at cards; `fit`, `zoom` or center a `node`; move by `dx`,`dy`.                                        |
-| `canvas.reply` `{slug, thread, text}`                                     | The agent's answer under one of Isaac's board comments.                                                     |
-| `canvas.caption`, `canvas.wait` (`handback`), `canvas.done` `{summary}`   | As the browser's.                                                                                           |
+| Action                                                                                              | What it does                                                                                                                                                                                                                  |
+| --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `canvas.open` `{slug \| title, page?}`                                                              | Shows the board on the Canvas page in the caller's workspace and starts the run (ring, caption, work card).                                                                                                                   |
+| `canvas.read` `{slug, page?}`                                                                       | Cards (`id` is the ref; type, text, box as drawn), links, open comment threads. Off screen too.                                                                                                                               |
+| `canvas.add` `{slug, type?, title?, body?, data?, from?, label?, parent?, near?, x,y?}`             | A card, no coordinates needed: after `from` (also links `from` to it, with `label`), right of `near`, inside the `parent` frame, else next in the current row. Answers its id.                                                |
+| `canvas.edit` / `canvas.move` / `canvas.connect` / `canvas.delete`                                  | Change, carry, link (`from`, `to`, `label`, `tone` accent, proposed or loop) or remove cards and links; the cursor visits each one first.                                                                                     |
+| `canvas.layout` `{slug, algorithm?, direction?, spacing?, columns?, keepPinned?, frame? \| nodes?}` | ELK lays the board (or a frame, or some cards) out: measured sizes, orthogonal routes, handles from the direction, return links drawn as loops; the cards glide there as one undo step. Answers `moved`, `kept`, `algorithm`. |
+| `canvas.align` `{nodes, to}` / `canvas.distribute` `{nodes, axis, gap?}`                            | Tidy a few cards: line up on an edge or center; equal gaps along an axis. One undo step.                                                                                                                                      |
+| `canvas.select` / `canvas.zoom` / `canvas.pan`                                                      | Point at cards; `fit`, `zoom` or center a `node`; move by `dx`,`dy`.                                                                                                                                                          |
+| `canvas.reply` `{slug, thread, text}`                                                               | The agent's answer under one of Isaac's board comments.                                                                                                                                                                       |
+| `canvas.caption`, `canvas.wait` (`handback`), `canvas.done` `{summary}`                             | As the browser's.                                                                                                                                                                                                             |
+
+### Cards for explaining, and laying out
+
+Do not guess x/y. Add cards and links without coordinates, then call `canvas.layout` once.
+
+| Card (`type`)                  | For                                            | Fields                                                                                 |
+| ------------------------------ | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `step`                         | one step of a process                          | `step` (badge), `icon` (Tabler name), `title`, `body` (one line), `status` + `tone`    |
+| `explainer`                    | a written explanation                          | `title`, `body` (markdown), `src` (image), `mermaid` (diagram), `why` (footer), `tone` |
+| `frame` with `variant: "lane"` | a phase (row) holding steps via `parent`       | `title`, `body` (caption), `tone`                                                      |
+| `note`                         | a yellow sticky: annotations and comments only | `title`, `body`                                                                        |
+
+Tones: `neutral` (default), `accent`, `success`, `warn`, `danger`, `muted`. Links: `label`, and `tone: "loop"` for a return path (dashed, with a loop icon); `canvas.layout` also marks the links that point back against the flow as loops and stores each link's route.
+
+`canvas.layout`: `algorithm` `layered` (flows), `grid` (moodboards), `radial` or `mrtree` (maps); `direction` `right` (handles right/left) or `down` (bottom/top); lanes stack as rows. Cards Isaac moved by hand are `pinned` and stay put unless `keepPinned: false`. The engine is `src/shared/canvas-layout` (ELK, shared by main and the renderer, which also uses it for a board file with no positions and for Tidy). Boards that already have positions are never moved on load.
 
 What Isaac sees: the board in a soft ring of the agent's color with the caption row (Take over,
 Hand back), the agent's cursor (shared with the browser, `@evaos/shell-core/agent-cursor`) moving

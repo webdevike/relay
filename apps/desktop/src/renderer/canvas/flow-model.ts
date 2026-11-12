@@ -27,7 +27,10 @@ export type CardNode = Node<CardData, 'card'>
 
 export type LinkData = {
   label?: string
-  tone?: 'accent' | 'proposed'
+  /** Free string: the file's tone; `edgeTone` narrows it for drawing. */
+  tone?: string
+  /** canvas.layout's routed path in board coordinates, drawn while its ends sit on the cards. */
+  route?: Array<{ x: number; y: number }>
 }
 export type LinkEdge = Edge<LinkData, 'link'>
 
@@ -111,6 +114,7 @@ export function toFlowEdges(edges: readonly CanvasEdge[]): LinkEdge[] {
     if (e.label !== undefined) edge.data!.label = e.label
     const tone = edgeTone(e.tone)
     if (tone) edge.data!.tone = tone
+    if (e.route !== undefined) edge.data!.route = e.route
     return edge
   })
 }
@@ -155,6 +159,8 @@ function fileNode(n: CardNode, at: Point): CanvasNode {
   if (h !== undefined) out.h = h
   if (spec.parent !== undefined) out.parent = spec.parent
   if (spec.data !== undefined) out.data = spec.data
+  // Isaac's own drags pin a card (canvas.layout then keeps it); the file keeps it as it is.
+  if (spec.pinned !== undefined) out.pinned = spec.pinned
   return out
 }
 
@@ -164,6 +170,7 @@ function fileEdge(e: LinkEdge): CanvasEdge {
   if (e.targetHandle) out.targetHandle = e.targetHandle
   if (e.data?.label !== undefined) out.label = e.data.label
   if (e.data?.tone !== undefined) out.tone = e.data.tone
+  if (e.data?.route !== undefined) out.route = e.data.route
   return out
 }
 

@@ -4,6 +4,8 @@ import {
   defaultWidth,
   edgeId,
   effectiveLayout,
+  engineGraph,
+  engineOptions,
   estimateHeight,
   layoutItems,
   nextNoteId,
@@ -234,6 +236,24 @@ describe('React Flow model', () => {
       toBoard({ title: 't', layout: undefined, nodes, edges: [] }, null).nodes[0],
     ).toMatchObject({ w: 512, h: 300 })
   })
+
+  it('writes a pin as the card has it, and none on a card never dragged', () => {
+    const specs = [
+      node('a', 'note', { x: 0, y: 0, pinned: true }),
+      node('b', 'note', { x: 9, y: 9 }),
+    ]
+    const at = new Map<string, Point>([
+      ['a', [0, 0]],
+      ['b', [9, 9]],
+    ])
+    const out = toBoard(
+      { title: 't', layout: undefined, nodes: toFlowNodes(specs, at), edges: [] },
+      null,
+    )
+    expect(out.nodes).toEqual(specs)
+    // The file's key order (CanvasNodeSchema), so a loaded board saves as it came.
+    expect(Object.keys(out.nodes[0]!)).toEqual(['id', 'type', 'x', 'y', 'pinned'])
+  })
 })
 
 describe('visibleShare', () => {
@@ -248,5 +268,52 @@ describe('visibleShare', () => {
     expect(visibleShare({ x: 0, y: 0, width: 0, height: 0 }, { x: 0, y: 0, zoom: 1 }, 10, 10)).toBe(
       1,
     )
+  })
+})
+
+describe('layout engine glue', () => {
+  it('picks the engine algorithm from the board layout', () => {
+    const topic = [node('t', 'topic')]
+    expect(engineOptions('flow', [], true)).toEqual({
+      algorithm: 'layered',
+      direction: 'right',
+      spacing: 56,
+      keepPinned: true,
+      only: null,
+    })
+    expect(engineOptions('grid', [], false)).toMatchObject({ algorithm: 'grid', keepPinned: false })
+    expect(engineOptions('tree', topic, true).algorithm).toBe('radial')
+    expect(engineOptions('tree', [], true).algorithm).toBe('mrtree')
+  })
+
+  it('hands the engine drawn sizes, frames, lanes, pins and the links between cards', () => {
+    const nodes = [
+      node('lane', 'frame', { w: 600, h: 200, data: { variant: 'lane' } }),
+      node('a', 'note', { parent: 'lane', pinned: true }),
+      node('b', 'step', { parent: 'a' }),
+      node('t', 'topic'),
+    ]
+    const g = engineGraph(
+      nodes,
+      [
+        { id: 'a-b', source: 'a', target: 'b', label: 'then', tone: undefined },
+        { id: 'a-x', source: 'a', target: 'x' },
+      ],
+      new Map<string, Point>([['a', [10, 20]]]),
+      new Map([['a', [230, 140] as const]]),
+    )
+    expect(g.nodes).toEqual([
+      { id: 'lane', w: 600, h: 200, frame: true, lane: true },
+      { id: 'a', w: 230, h: 140, x: 10, y: 20, parent: 'lane', pinned: true },
+      // A parent that is not a frame is no parent.
+      { id: 'b', w: 300, h: estimateHeight(nodes[2]!, 300) },
+      {
+        id: 't',
+        w: defaultWidth('topic'),
+        h: estimateHeight(nodes[3]!, defaultWidth('topic')),
+        topic: true,
+      },
+    ])
+    expect(g.edges).toEqual([{ id: 'a-b', source: 'a', target: 'b', label: 'then' }])
   })
 })

@@ -8,6 +8,9 @@ type CanvasDriveActionId =
   | 'canvas.edit'
   | 'canvas.move'
   | 'canvas.connect'
+  | 'canvas.layout'
+  | 'canvas.align'
+  | 'canvas.distribute'
   | 'canvas.delete'
   | 'canvas.select'
   | 'canvas.zoom'
@@ -26,6 +29,9 @@ export function canvasRunners(drive: CanvasDrive): Pick<AgentRunners<'main'>, Ca
     'canvas.edit': (p) => drive.edit(p),
     'canvas.move': (p) => drive.move(p),
     'canvas.connect': (p) => drive.connect(p),
+    'canvas.layout': (p) => drive.layout(p),
+    'canvas.align': (p) => drive.align(p),
+    'canvas.distribute': (p) => drive.distribute(p),
     'canvas.delete': (p) => drive.remove(p),
     'canvas.select': (p) => drive.select(p),
     'canvas.zoom': (p) => drive.view(p),

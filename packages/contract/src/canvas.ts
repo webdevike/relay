@@ -25,6 +25,16 @@ export const CANVAS_NODE_KINDS = [
    * `data.viewport` `mobile` for a phone-width screen.
    */
   'proto',
+  /**
+   * One step of a process (explaining and illustrating): `data.step` number badge, `data.icon`
+   * a Tabler icon name, `data.title`, `data.body` one line, `data.status` + `data.tone` optional.
+   */
+  'step',
+  /**
+   * A written explanation: `data.title`, `data.body` markdown (lists, bold, inline code),
+   * optional `data.src` image or `data.mermaid` diagram, optional `data.why` footer.
+   */
+  'explainer',
 ] as const
 export const CanvasNodeKindSchema = z.enum(CANVAS_NODE_KINDS)
 
@@ -56,6 +66,16 @@ export const CanvasNodeDataSchema = z.object({
   sample: Text.optional(),
   system: Text.optional(),
   viewport: Text.optional(),
+  /** Tabler icon name for a `step` card (`photo`, `list-check`...). */
+  icon: z.string().max(100).optional(),
+  /** The number badge of a `step` card ("1", "6a"). */
+  step: z.string().max(20).optional(),
+  /** The "why it matters" footer of an `explainer` card (markdown). */
+  why: Text.optional(),
+  /** Mermaid source an `explainer` card draws under its text. */
+  mermaid: Text.optional(),
+  /** `lane` on a `frame` draws it as a phase lane: heading band, tinted by `tone`. */
+  variant: z.string().max(40).optional(),
 })
 
 export const CanvasNodeSchema = z.object({
@@ -67,6 +87,8 @@ export const CanvasNodeSchema = z.object({
   h: Coord.optional(),
   parent: Id.optional(),
   data: CanvasNodeDataSchema.optional(),
+  /** Isaac moved it: canvas.layout keeps it where it is (keepPinned). */
+  pinned: z.boolean().optional(),
 })
 
 export const CanvasEdgeSchema = z.object({
@@ -77,6 +99,14 @@ export const CanvasEdgeSchema = z.object({
   targetHandle: z.string().max(100).optional(),
   label: Text.optional(),
   tone: z.string().max(100).optional(),
+  /**
+   * The orthogonal path canvas.layout routed this link along, in board coordinates, from the
+   * source card's edge to the target's. Drawn while its two ends still sit on the cards.
+   */
+  route: z
+    .array(z.object({ x: Coord, y: Coord }))
+    .max(40)
+    .optional(),
 })
 
 export const CanvasViewportSchema = z.object({ x: Coord, y: Coord, zoom: Coord })
@@ -249,6 +279,16 @@ export const CanvasBoardCallSchema = z.discriminatedUnion('op', [
     ...BoardAt,
     node: z.string().max(500),
     to: FlowPoint,
+    ms: z.number().min(0).max(3000),
+  }),
+  /**
+   * Glides every card in `to` (id to absolute top left) to its new spot over `ms` as one undo
+   * step (canvas.layout, align, distribute); answers the ms it takes.
+   */
+  z.object({
+    op: z.literal('arrange'),
+    ...BoardAt,
+    to: z.record(z.string().max(500), FlowPoint),
     ms: z.number().min(0).max(3000),
   }),
   /**

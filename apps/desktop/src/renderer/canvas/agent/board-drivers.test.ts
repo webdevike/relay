@@ -12,6 +12,7 @@ function driver(slug: string, page: string, shown = true): BoardDriver {
     select: vi.fn(),
     view: vi.fn(() => Promise.resolve({ x: 5, y: 6, zoom: 1.5 })),
     drag: vi.fn(() => 400),
+    arrange: vi.fn(() => 700),
     reveal: vi.fn(() => 420),
     landed: vi.fn(),
     goTo: vi.fn(),
@@ -71,6 +72,20 @@ describe('canvasBoardCall', () => {
       await canvasBoardCall({ op: 'drag', ...at, node: 'n1', to: { x: 9, y: 9 }, ms: 400 }, [d]),
     ).toEqual({ mounted: true, ms: 400 })
     expect(d.drag).toHaveBeenCalledWith('n1', { x: 9, y: 9 }, 400)
+  })
+
+  it('glides the named cards on the board on screen, and answers not mounted with none', async () => {
+    const d = driver('plan', 'page-1')
+    const to = { n1: { x: 10, y: 20 }, n2: { x: 300, y: 20 } }
+    expect(
+      await canvasBoardCall({ op: 'arrange', slug: 'plan', page: 'page-1', to, ms: 700 }, [d]),
+    ).toEqual({ mounted: true, ms: 700 })
+    expect(d.arrange).toHaveBeenCalledWith(to, 700)
+    const hidden = driver('plan', 'page-1', false)
+    expect(
+      await canvasBoardCall({ op: 'arrange', slug: 'plan', page: 'page-1', to, ms: 700 }, [hidden]),
+    ).toEqual({ mounted: false, ms: 0 })
+    expect(hidden.arrange).not.toHaveBeenCalled()
   })
 
   it('reveals the drawn cards and the box together, with the context cards as the wider ask', async () => {

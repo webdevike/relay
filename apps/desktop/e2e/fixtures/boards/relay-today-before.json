@@ -1,0 +1,152 @@
+{
+  "version": 1,
+  "title": "Relay: what changed today",
+  "layout": "flow",
+  "nodes": [
+    {
+      "id": "topic",
+      "type": "topic",
+      "x": 0.0,
+      "y": -200.0,
+      "w": 520.0,
+      "data": {
+        "title": "Relay: what changed today (11-12)",
+        "body": "Try them in this order. Ask me in chat to demo any card."
+      }
+    },
+    {
+      "id": "note-2",
+      "type": "note",
+      "x": 0.0,
+      "y": 0.0,
+      "w": 340.0,
+      "data": {
+        "title": "1 · One-row cards",
+        "body": "Status cards are one compact row. Hover → X dismisses (stays gone after reload). Click to expand. Canvas, room, sign-in, sessions all use it.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "note-3",
+      "type": "note",
+      "x": 380.0,
+      "y": 0.0,
+      "w": 340.0,
+      "data": {
+        "title": "2 · Live browser + trail",
+        "body": "Agents drive real tabs in your session. Dotted route shows before each move, last 5 moves fade over ~6 s, click ripples. Purchase Allow: still broken.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "note-4",
+      "type": "note",
+      "x": 760.0,
+      "y": 0.0,
+      "w": 340.0,
+      "data": {
+        "title": "3 · Chat-driven canvas",
+        "body": "This board. I edit it live from the chat with my cursor; your comments on cards come into the chat.",
+        "tone": "success"
+      }
+    },
+    {
+      "id": "note-5",
+      "type": "note",
+      "x": 0.0,
+      "y": 300.0,
+      "w": 340.0,
+      "data": {
+        "title": "4 · Design Mode",
+        "body": "Page tab → toggle in address bar. Hover, click/Shift-click, drag a region; tweak styles or draw; Send → chat gets selector, screenshot, source file:line.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "note-6",
+      "type": "note",
+      "x": 380.0,
+      "y": 300.0,
+      "w": 340.0,
+      "data": {
+        "title": "5 · Live meetings",
+        "body": "Teams call → 'Meeting in progress' card in Astra's chat (work) or mine. Click → transcript in side panel; quick asks post to chat. Relay replaced MeetingTranscriber.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "note-7",
+      "type": "note",
+      "x": 760.0,
+      "y": 300.0,
+      "w": 340.0,
+      "data": {
+        "title": "6 · Fullscreen video fix",
+        "body": "Browser tabs hide while a chat video is fullscreen, come back after.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "note-8",
+      "type": "note",
+      "x": 1140.0,
+      "y": 300.0,
+      "w": 340.0,
+      "data": {
+        "title": "7 · Phone",
+        "body": "Reopen Relay: scrollbar reaches the bottom; meeting card opens full-screen view.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "note-9",
+      "type": "note",
+      "x": 1140.0,
+      "y": 0.0,
+      "w": 340.0,
+      "data": {
+        "title": "Next up",
+        "body": "Canvas auto-layout (ELK) + step/explainer cards, then this board gets rebuilt with them.",
+        "tone": "warn"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "note-2-note-3",
+      "source": "note-2",
+      "target": "note-3"
+    },
+    {
+      "id": "note-3-note-4",
+      "source": "note-3",
+      "target": "note-4"
+    },
+    {
+      "id": "note-4-note-5",
+      "source": "note-4",
+      "target": "note-5",
+      "label": "then"
+    },
+    {
+      "id": "note-5-note-6",
+      "source": "note-5",
+      "target": "note-6"
+    },
+    {
+      "id": "note-6-note-7",
+      "source": "note-6",
+      "target": "note-7"
+    },
+    {
+      "id": "note-7-note-8",
+      "source": "note-7",
+      "target": "note-8"
+    }
+  ],
+  "viewport": {
+    "x": 30.0,
+    "y": 333.0,
+    "zoom": 1.0
+  }
+}

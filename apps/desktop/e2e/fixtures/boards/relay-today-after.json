@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "title": "Relay: what changed today",
+  "layout": "flow",
+  "nodes": [
+    {
+      "id": "topic",
+      "type": "topic",
+      "w": 520,
+      "data": {
+        "title": "Relay: what changed today (11-12)",
+        "body": "Try them in this order. Ask me in chat to demo any card."
+      }
+    },
+    {
+      "id": "lane",
+      "type": "frame",
+      "data": {
+        "title": "Try them in this order",
+        "body": "Seven changes. Known gap: purchase Allow in the live browser is still broken.",
+        "variant": "lane",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "note-2",
+      "type": "step",
+      "parent": "lane",
+      "data": {
+        "step": "1",
+        "icon": "layout-dashboard",
+        "title": "One-row cards",
+        "body": "Status cards are one compact row. Hover → X dismisses (stays gone after reload). Click to expand. Canvas, room, sign-in, sessions all use it."
+      }
+    },
+    {
+      "id": "note-3",
+      "type": "step",
+      "parent": "lane",
+      "data": {
+        "step": "2",
+        "icon": "world",
+        "title": "Live browser + trail",
+        "body": "Agents drive real tabs in your session. Dotted route shows before each move, last 5 moves fade over ~6 s, click ripples. Purchase Allow: still broken."
+      }
+    },
+    {
+      "id": "note-4",
+      "type": "step",
+      "parent": "lane",
+      "data": {
+        "step": "3",
+        "icon": "layout",
+        "title": "Chat-driven canvas",
+        "body": "This board. I edit it live from the chat with my cursor; your comments on cards come into the chat.",
+        "tone": "success"
+      }
+    },
+    {
+      "id": "note-5",
+      "type": "step",
+      "parent": "lane",
+      "data": {
+        "step": "4",
+        "icon": "brush",
+        "title": "Design Mode",
+        "body": "Page tab → toggle in address bar. Hover, click/Shift-click, drag a region; tweak styles or draw; Send → chat gets selector, screenshot, source file:line."
+      }
+    },
+    {
+      "id": "note-6",
+      "type": "step",
+      "parent": "lane",
+      "data": {
+        "step": "5",
+        "icon": "video",
+        "title": "Live meetings",
+        "body": "Teams call → 'Meeting in progress' card in Astra's chat (work) or mine. Click → transcript in side panel; quick asks post to chat. Relay replaced MeetingTranscriber."
+      }
+    },
+    {
+      "id": "note-7",
+      "type": "step",
+      "parent": "lane",
+      "data": {
+        "step": "6",
+        "icon": "player-play",
+        "title": "Fullscreen video fix",
+        "body": "Browser tabs hide while a chat video is fullscreen, come back after.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "note-8",
+      "type": "step",
+      "parent": "lane",
+      "data": {
+        "step": "7",
+        "icon": "device-mobile",
+        "title": "Phone",
+        "body": "Reopen Relay: scrollbar reaches the bottom; meeting card opens full-screen view.",
+        "tone": "muted"
+      }
+    },
+    {
+      "id": "note-9",
+      "type": "explainer",
+      "data": {
+        "title": "How this board was made",
+        "body": "Canvas auto-layout (ELK) plus step and explainer cards: the cards were added without coordinates and canvas.layout placed them.",
+        "tone": "warn",
+        "why": "Next: the same layout for every board an assistant builds."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "note-2-note-3",
+      "source": "note-2",
+      "target": "note-3"
+    },
+    {
+      "id": "note-3-note-4",
+      "source": "note-3",
+      "target": "note-4"
+    },
+    {
+      "id": "note-4-note-5",
+      "source": "note-4",
+      "target": "note-5",
+      "label": "then"
+    },
+    {
+      "id": "note-5-note-6",
+      "source": "note-5",
+      "target": "note-6"
+    },
+    {
+      "id": "note-6-note-7",
+      "source": "note-6",
+      "target": "note-7"
+    },
+    {
+      "id": "note-7-note-8",
+      "source": "note-7",
+      "target": "note-8"
+    }
+  ]
+}

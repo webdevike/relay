@@ -4,6 +4,7 @@
   "include": [
     "src/main",
     "src/preload",
+    "src/shared",
     "e2e",
     "electron.vite.config.ts",
     "playwright.config.ts",

@@ -33,7 +33,12 @@ export interface BoardDriver {
   reveal: (need: Box, want: Box | null) => number
   /** Carries card `node` to absolute top left `to` over `ms`; answers the ms it takes. */
   drag: (node: string, to: Point, ms: number) => number
-  /** The carry of card `node` is in the file: it stays where it is. */
+  /**
+   * Glides every card in `to` (id to absolute top left) to its spot over `ms` as one undo step;
+   * answers the ms it takes.
+   */
+  arrange: (to: Readonly<Record<string, Point>>, ms: number) => number
+  /** The carry of card `node` (or the glide it is part of) is in the file: it stays where it is. */
   landed: (node: string) => void
   /** Switches the board to page `page` (saving this one first). */
   goTo: (page: string) => void
@@ -110,6 +115,8 @@ export async function canvasBoardCall(
     }
     case 'drag':
       return { mounted: true, ms: board.drag(call.node, call.to, call.ms) }
+    case 'arrange':
+      return { mounted: true, ms: board.arrange(call.to, call.ms) }
     case 'reveal': {
       const drawn = board.boxes()
       const boxes = (call.nodes ?? []).flatMap((id) => drawn.get(id) ?? [])

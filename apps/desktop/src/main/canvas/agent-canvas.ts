@@ -11,16 +11,24 @@ import type {
 } from '@evaos/contract'
 import { AgentRuns, fail } from '../agent-presence/agent-runs'
 import type { DriveIdentity } from '../browser/agent-drive'
+import { alignNodes, distributeNodes, layoutBoard } from '../../shared/canvas-layout'
+import type { AlignTo, LayoutAlgorithm, LayoutDirection } from '../../shared/canvas-layout/types'
 import {
   addCard,
+  arrangeCards,
   boxesOf,
   connectCards,
+  descendantsOf,
   editCard,
+  grownFrame,
+  layoutGraph,
   moveCard,
   nodeOf,
   placeNew,
   readout,
   removeItems,
+  typicalSize,
+  withFrameChildren,
   type Box,
 } from './board-edit'
 import type { CanvasStore } from './store'
@@ -56,6 +64,10 @@ const MOUNT_WAIT_MS = 4_000
 const LEAD_MS = 260
 /** How long a carried card takes to reach its new spot. */
 const DRAG_MS = 650
+/** How long cards laid out, aligned or distributed take to glide to their new spots. */
+const ARRANGE_MS = 700
+/** canvas.layout's gap between cards when the agent names none (board px). */
+const SPACING = 56
 /** Where the cursor rests on a new card: just inside its top left. */
 const INSET = 28
 /** Board units shown around a comment pin the agent replies at. */
@@ -337,6 +349,8 @@ export class CanvasDrive {
     h?: number | undefined
     near?: string | undefined
     parent?: string | undefined
+    from?: string | undefined
+    label?: string | undefined
     caption?: string | undefined
     scope?: string | undefined
   }): Promise<object> {
@@ -348,21 +362,25 @@ export class CanvasDrive {
         ...(p.title === undefined ? {} : { title: p.title }),
         ...(p.body === undefined ? {} : { body: p.body }),
       }
-      if (p.near !== undefined) nodeOf(at.b, p.near)
+      // Unknown cards fail before the cursor moves.
+      for (const ref of [p.near, p.from, p.parent]) if (ref !== undefined) nodeOf(at.b, ref)
       const label = data.title ?? data.body ?? type
       this.auto(p.slug, `Adding ${quote(label)}`)
       const boxes = await this.boxes(p.slug, at.page, at.b)
-      const size = { w: p.w ?? (type === 'note' ? 220 : 240), h: p.h ?? 120 }
+      const typical = typicalSize(type)
+      const size = { w: p.w ?? typical.w, h: p.h ?? typical.h }
       const spot =
         p.x !== undefined && p.y !== undefined
           ? { x: p.x, y: p.y }
-          : p.parent === undefined
-            ? placeNew(boxes, size, p.near)
-            : undefined
+          : placeNew(at.b, boxes, size, { near: p.near, from: p.from, parent: p.parent })
+      // A card placed in its frame grows the frame around it in the same write.
+      const frame = p.parent === undefined ? undefined : boxes.get(p.parent)
+      const grown = spot && frame ? grownFrame(frame, { ...spot, ...size }) : null
+      const context = [p.from, p.near, p.parent].filter((id) => id !== undefined)
       if (spot) {
         await this.reveal(p.slug, at.page, {
           box: { ...spot, ...size },
-          ...(p.near === undefined ? {} : { context: [p.near] }),
+          ...(context.length ? { context } : {}),
         })
         const tip = { x: spot.x + INSET, y: spot.y + INSET }
         if (await this.cursor(p.slug, at.page, { op: 'move', at: tip })) {
@@ -372,7 +390,7 @@ export class CanvasDrive {
         await this.reveal(p.slug, at.page, { nodes: [p.parent] })
         await this.cursor(p.slug, at.page, { op: 'move', node: p.parent })
       }
-      const id = await this.write(p.slug, at.page, (b) => {
+      const made = await this.write<{ id: string; link?: string }>(p.slug, at.page, (b) => {
         const r = addCard(b, {
           type,
           data,
@@ -381,9 +399,14 @@ export class CanvasDrive {
           ...(p.h === undefined ? {} : { h: p.h }),
           ...(p.parent === undefined ? {} : { parent: p.parent }),
         })
-        return { board: r.board, value: r.id }
+        let board = r.board
+        if (grown && p.parent !== undefined)
+          board = editCard(board, p.parent, { data: {}, ...grown })
+        if (p.from === undefined) return { board, value: { id: r.id } }
+        const c = connectCards(board, p.from, r.id, p.label ? { label: p.label } : {})
+        return { board: c.board, value: { id: r.id, link: c.id } }
       })
-      return { id, ...(spot ? { x: spot.x, y: spot.y } : {}), page: at.page }
+      return { ...made, ...(spot ? { x: spot.x, y: spot.y } : {}), page: at.page }
     })
   }
 
@@ -445,7 +468,7 @@ export class CanvasDrive {
       if (p.near !== undefined) {
         nodeOf(at.b, p.near)
         const others = new Map([...boxes].filter(([id]) => id !== p.node))
-        to = placeNew(others, { w: own.w, h: own.h }, p.near)
+        to = placeNew(at.b, others, { w: own.w, h: own.h }, { near: p.near }) ?? own
       } else {
         to = { x: p.x!, y: p.y! }
       }
@@ -479,7 +502,7 @@ export class CanvasDrive {
     from: string
     to: string
     label?: string | undefined
-    tone?: 'accent' | 'proposed' | undefined
+    tone?: 'accent' | 'proposed' | 'loop' | undefined
     caption?: string | undefined
     scope?: string | undefined
   }): Promise<object> {
@@ -507,6 +530,160 @@ export class CanvasDrive {
         return { board: c.board, value: { id: c.id, existed: c.existed } }
       })
       return r
+    })
+  }
+
+  /**
+   * Glides cards to their new absolute top lefts `to` on the board on screen as one undo step,
+   * with what they leave and where they go (`whole`: the whole board) in view and the cursor on
+   * the first; then writes `edit` and lands them, so a later hide leaves them where they are.
+   */
+  private async glide(
+    slug: string,
+    page: string,
+    boxes: ReadonlyMap<string, Box>,
+    to: ReadonlyMap<string, { x: number; y: number }>,
+    whole: boolean,
+    edit: (b: CanvasBoard) => CanvasBoard,
+  ): Promise<void> {
+    const first = to.keys().next().value
+    const spots = [...to].flatMap(([id, at]) => {
+      const box = boxes.get(id)
+      return box ? [box, { ...box, ...at }] : []
+    })
+    const view = union(whole ? [...boxes.values(), ...spots] : spots)
+    if (view) await this.reveal(slug, page, { box: view })
+    if (
+      first !== undefined &&
+      (await this.cursor(slug, page, { op: 'move', node: first, anchor: 'top' }))
+    ) {
+      await this.cursor(slug, page, { op: 'click', node: first, anchor: 'top' })
+      this.stillMine(slug)
+      const a = await this.call({
+        op: 'arrange',
+        slug,
+        page,
+        to: Object.fromEntries(to),
+        ms: ARRANGE_MS,
+      })
+      if (a.mounted) await this.sleep(a.ms ?? ARRANGE_MS)
+    }
+    await this.write(slug, page, (b) => ({ board: edit(b), value: null }))
+    // Landing one card of the glide lands all of it on every mounted board of the slug.
+    if (first !== undefined) await this.call({ op: 'landed', slug, page, node: first })
+  }
+
+  async layout(p: {
+    slug: string
+    page?: string | undefined
+    algorithm?: LayoutAlgorithm | undefined
+    direction?: LayoutDirection | undefined
+    spacing?: number | undefined
+    columns?: number | undefined
+    keepPinned?: boolean | undefined
+    frame?: string | undefined
+    nodes?: string[] | undefined
+    caption?: string | undefined
+    scope?: string | undefined
+  }): Promise<object> {
+    return this.serial(p.slug, async () => {
+      const at = await this.begin(p.slug, p.page, p.scope, p.caption)
+      let only: Set<string> | null = null
+      if (p.frame !== undefined) {
+        const frame = nodeOf(at.b, p.frame)
+        if (frame.type !== 'frame') {
+          fail('invalid-params', `${p.frame} is not a frame; give its cards as nodes`)
+        }
+        only = descendantsOf(at.b, p.frame)
+        if (only.size === 0) fail('invalid-params', `Frame ${p.frame} has no cards in it`)
+        this.auto(p.slug, `Laying out ${quote(frame.data?.title ?? frame.id)}`)
+      } else if (p.nodes !== undefined) {
+        for (const id of p.nodes) nodeOf(at.b, id)
+        only = new Set(p.nodes)
+        this.auto(
+          p.slug,
+          `Laying out ${p.nodes.length === 1 ? '1 card' : `${p.nodes.length} cards`}`,
+        )
+      } else this.auto(p.slug, 'Laying out the board')
+      const boxes = await this.boxes(p.slug, at.page, at.b)
+      const graph = layoutGraph(at.b, boxes)
+      const algorithm = p.algorithm ?? 'layered'
+      const laid = await layoutBoard(graph.nodes, graph.edges, {
+        algorithm,
+        direction: p.direction ?? 'right',
+        spacing: p.spacing ?? SPACING,
+        ...(p.columns === undefined ? {} : { columns: p.columns }),
+        keepPinned: p.keepPinned ?? true,
+        only,
+      })
+      const to = moves(laid.positions, boxes)
+      await this.glide(p.slug, at.page, boxes, to, only === null, (b) =>
+        arrangeCards(b, laid.positions, laid.frameSizes, laid.edges),
+      )
+      return { moved: to.size, kept: laid.kept, algorithm, routed: laid.edges.size }
+    })
+  }
+
+  async align(p: {
+    slug: string
+    page?: string | undefined
+    nodes: string[]
+    to: AlignTo
+    caption?: string | undefined
+    scope?: string | undefined
+  }): Promise<object> {
+    return this.lineUp(p, `Aligning ${p.nodes.length} cards`, (boxes) =>
+      alignNodes(boxes, p.nodes, p.to),
+    )
+  }
+
+  async distribute(p: {
+    slug: string
+    page?: string | undefined
+    nodes: string[]
+    axis: 'horizontal' | 'vertical'
+    gap?: number | undefined
+    caption?: string | undefined
+    scope?: string | undefined
+  }): Promise<object> {
+    return this.lineUp(p, `Spreading ${p.nodes.length} cards`, (boxes) =>
+      distributeNodes(boxes, p.nodes, p.axis, p.gap),
+    )
+  }
+
+  /**
+   * Align and distribute: cards `nodes` (all on the board itself or all in one frame, each placed)
+   * glide to where `place` puts them from their drawn boxes, a frame's cards along with it.
+   */
+  private lineUp(
+    p: {
+      slug: string
+      page?: string | undefined
+      nodes: string[]
+      caption?: string | undefined
+      scope?: string | undefined
+    },
+    caption: string,
+    place: (boxes: ReadonlyMap<string, Box>) => Map<string, { x: number; y: number }>,
+  ): Promise<object> {
+    return this.serial(p.slug, async () => {
+      const at = await this.begin(p.slug, p.page, p.scope, p.caption)
+      const parents = new Set(p.nodes.map((id) => nodeOf(at.b, id).parent))
+      if (parents.size > 1) {
+        fail('invalid-params', 'Give cards that sit on the board itself, or all in one frame')
+      }
+      this.auto(p.slug, caption)
+      const boxes = await this.boxes(p.slug, at.page, at.b)
+      const unplaced = p.nodes.find((id) => !boxes.has(id))
+      if (unplaced !== undefined) {
+        fail('invalid-params', `Card ${unplaced} has no place yet; canvas.layout places it`)
+      }
+      const to = moves(withFrameChildren(at.b, boxes, place(boxes)), boxes)
+      await this.glide(p.slug, at.page, boxes, to, false, (b) => arrangeCards(b, to))
+      return {
+        moved: to.size,
+        nodes: Object.fromEntries(p.nodes.map((id) => [id, to.get(id) ?? rounded(boxes.get(id)!)])),
+      }
     })
   }
 
@@ -678,4 +855,33 @@ export class CanvasDrive {
 const quote = (s: string): string => {
   const one = s.replace(/\s+/g, ' ').trim()
   return `"${one.length > 40 ? `${one.slice(0, 39)}…` : one}"`
+}
+
+const rounded = (p: { x: number; y: number }): { x: number; y: number } => ({
+  x: Math.round(p.x),
+  y: Math.round(p.y),
+})
+
+/** The cards of `to` (rounded like the file) that land somewhere else than their `boxes`. */
+function moves(
+  to: ReadonlyMap<string, { x: number; y: number }>,
+  boxes: ReadonlyMap<string, Box>,
+): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>()
+  for (const [id, p] of to) {
+    const at = rounded(p)
+    const box = boxes.get(id)
+    if (!box || Math.abs(box.x - at.x) >= 0.5 || Math.abs(box.y - at.y) >= 0.5) out.set(id, at)
+  }
+  return out
+}
+
+/** The smallest box around `boxes`; null for none. */
+function union(boxes: readonly Box[]): Box | null {
+  if (boxes.length === 0) return null
+  const x = Math.min(...boxes.map((b) => b.x))
+  const y = Math.min(...boxes.map((b) => b.y))
+  const r = Math.max(...boxes.map((b) => b.x + b.w))
+  const bottom = Math.max(...boxes.map((b) => b.y + b.h))
+  return { x, y, w: r - x, h: bottom - y }
 }

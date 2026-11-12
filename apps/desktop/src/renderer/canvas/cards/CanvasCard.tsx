@@ -28,10 +28,13 @@ import { useColorScheme } from '../../theme/theme-config'
 import { openLink } from '../../navigation/open-link'
 import { useBoardActions } from '../context'
 import type { CardNode } from '../flow-model'
+import { Markdown } from '../../chat/markdown/Markdown'
 import { useCanvasImage } from './canvas-image'
+import { MermaidBlock } from './MermaidBlock'
+import { stepIcon } from './step-icons'
 import { Wireframe } from './Wireframe'
 
-const TONES = ['accent', 'warn', 'danger', 'success', 'muted'] as const
+const TONES = ['neutral', 'accent', 'warn', 'danger', 'success', 'muted'] as const
 type Tone = (typeof TONES)[number]
 
 /** A color role by name, else `fallback`. */
@@ -197,11 +200,79 @@ function SuggestionButtons({ id }: { id: string }) {
   )
 }
 
+/** A `step` card: number badge and icon, bold title, a short body, an optional status pill. */
+function StepBody({ spec }: { spec: CanvasNode }) {
+  const d = spec.data ?? {}
+  const Icon = stepIcon(d.icon)
+  return (
+    <>
+      <div className="eva-cv-step-head">
+        {d.step !== undefined ? (
+          <span className="eva-cv-step-badge" data-tone={tone(d.tone, 'accent')}>
+            {d.step}
+          </span>
+        ) : null}
+        <Icon className="eva-cv-step-icon" size={16} stroke={1.75} aria-hidden />
+        {d.status !== undefined ? (
+          <span className="eva-cv-status eva-cv-step-status" data-tone={tone(d.tone, 'muted')}>
+            {d.status}
+          </span>
+        ) : null}
+      </div>
+      <div className="eva-cv-step-title">{d.title ?? ''}</div>
+      {d.body !== undefined ? <div className="eva-cv-step-body">{d.body}</div> : null}
+    </>
+  )
+}
+
+/** An `explainer` card: title, markdown body, optional picture and diagram, a "Why it matters" band. */
+function ExplainerBody({ spec }: { spec: CanvasNode }) {
+  const { slug } = useBoardActions()
+  const d = spec.data ?? {}
+  const image = useCanvasImage(slug, d.src)
+  return (
+    <>
+      <div className="eva-cv-explainer-title">{d.title ?? ''}</div>
+      {/* Selectable text: its pointer and wheel stay off the board's drag and pan. */}
+      <div
+        className="eva-cv-explainer-body nodrag nopan nowheel"
+        onPointerDown={stop}
+        onDoubleClick={stop}
+      >
+        {d.body !== undefined ? <Markdown text={d.body} /> : null}
+      </div>
+      {d.src !== undefined && image?.state === 'ready' ? (
+        <img
+          className="eva-cv-explainer-image"
+          src={image.dataUrl}
+          alt={d.title ?? ''}
+          draggable={false}
+        />
+      ) : null}
+      {d.mermaid !== undefined ? <MermaidBlock source={d.mermaid} /> : null}
+      {d.why !== undefined ? (
+        <div
+          className="eva-cv-explainer-why nodrag nopan nowheel"
+          onPointerDown={stop}
+          onDoubleClick={stop}
+        >
+          <div className="eva-cv-explainer-why-label">Why it matters</div>
+          <Markdown text={d.why} />
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 function Body({ id, spec, hasChildren }: { id: string; spec: CanvasNode; hasChildren: boolean }) {
   const d = spec.data ?? {}
   const title = d.title ?? ''
   const link = d.url !== undefined ? <LinkRow id={id} url={d.url} /> : null
   switch (spec.type) {
+    case 'step':
+      return <StepBody spec={spec} />
+    case 'explainer':
+      return <ExplainerBody spec={spec} />
     case 'topic':
       return (
         <>
@@ -267,6 +338,13 @@ function Body({ id, spec, hasChildren }: { id: string; spec: CanvasNode; hasChil
         </>
       )
     case 'frame':
+      if (d.variant === 'lane')
+        return (
+          <div className="eva-cv-lane-head">
+            <span className="eva-cv-lane-title">{title}</span>
+            {d.body !== undefined ? <span className="eva-cv-lane-caption">{d.body}</span> : null}
+          </div>
+        )
       return (
         <>
           <div className="eva-cv-frame-title">
@@ -380,11 +458,15 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
       ? tone(spec.data?.tone, 'warn')
       : kind === 'ticket'
         ? tone(spec.data?.tone, 'accent')
-        : undefined
+        : kind === 'step' || kind === 'explainer' || kind === 'frame'
+          ? tone(spec.data?.tone, 'neutral')
+          : undefined
+  const lane = kind === 'frame' && spec.data?.variant === 'lane' ? 'lane' : undefined
   return (
     <div
       className="eva-cv-card"
       data-kind={kind}
+      data-variant={lane}
       data-tone={t}
       data-selected={selected ? 'true' : undefined}
       data-testid={`canvas-card-${id}`}

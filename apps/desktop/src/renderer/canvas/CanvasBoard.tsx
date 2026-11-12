@@ -1,11 +1,13 @@
 /**
  * One open board on React Flow (native canvas_view.rs): loads the file, places what has no
- * position, autosaves edits a second after they settle, reloads outside edits (never during a
- * drag) and keeps undo history. Pointer and keys: drag empty space or scroll to pan, ⌘-scroll or
- * pinch zooms, ⇧-drag box-selects, ⌘A selects all, Escape clears, Backspace/Delete removes,
- * ⌘Z / ⌘⇧Z undo and redo. Double-clicking an image opens it full window. A chat's agent works the
- * board on screen through its driver (agent/board-drivers.ts) with a visible cursor; Isaac's own
- * edits while it acts take the board over from it.
+ * position (a quick layout first, then the layout engine with the drawn sizes), autosaves edits a
+ * second after they settle, reloads outside edits (never during a drag) and keeps undo history.
+ * Pointer and keys: drag empty space or scroll to pan, ⌘-scroll or pinch zooms, ⇧-drag
+ * box-selects, ⌘A selects all, Escape clears, Backspace/Delete removes, ⌘Z / ⌘⇧Z undo and redo.
+ * Double-clicking an image opens it full window. A card Isaac drags is pinned (canvas.layout
+ * keeps it). A chat's agent works the board on screen through its driver
+ * (agent/board-drivers.ts) with a visible cursor; Isaac's own edits while it acts take the board
+ * over from it.
  */
 import '@xyflow/react/dist/base.css'
 import {
@@ -41,8 +43,9 @@ import { invoke, on } from '../ipc'
 import {
   FIT_PADDING,
   edgeId,
-  edgePairs,
   effectiveLayout,
+  engineGraph,
+  engineOptions,
   layoutItems,
   nextNoteId,
   placeUnplaced,
@@ -74,7 +77,9 @@ import {
   type LinkEdge,
 } from './flow-model'
 import { emptyHistory, record, redo, undo, type History, type Snapshot } from './history'
-import { place, type Point, type Size } from './layout'
+import { type Point, type Size } from './layout'
+import { layoutBoard } from '../../shared/canvas-layout'
+import type { LayoutResult } from '../../shared/canvas-layout/types'
 import { AgentCursorLayer, type CursorLayer } from './agent/AgentCursorLayer'
 import { registerBoardDriver } from './agent/board-drivers'
 import { easeInOut, REVEAL_MS, revealView, viewTarget, type Viewport } from './agent/cursor-model'
@@ -107,7 +112,14 @@ interface AutoPlaced {
    * leaving early keeps the file unplaced and the next open lays it out again.
    */
   quiet: boolean
+  /** The positions came from the layout engine (the first paint's are the quick sync ones). */
+  engine: boolean
+  /** The engine is laying the board out for this round now. */
+  pending: boolean
 }
+
+/** Points a link's route may keep in the file (CanvasEdgeSchema). */
+const ROUTE_MAX = 40
 
 function measuredSizes(nodes: readonly CardNode[]): Map<string, Size> {
   const out = new Map<string, Size>()
@@ -129,6 +141,56 @@ function withFrameSizes(
     return size ? { ...s, w: roundHalfAway(size[0]), h: roundHalfAway(size[1]) } : s
   })
 }
+
+/**
+ * The board as the layout engine laid it out: cards at its positions (the rest where they are),
+ * frames at its sizes, links on its sides along its routes (a return link drawn as a loop-back
+ * unless it has a tone). `unpin` lets every card go (Tidy lays out the whole board afresh).
+ */
+function laidOut(
+  doc: BoardDoc,
+  laid: LayoutResult,
+  unpin: boolean,
+): { nodes: CardNode[]; edges: LinkEdge[]; positions: Map<string, Point> } {
+  const positions = absolutePositions(doc.nodes)
+  for (const [id, p] of laid.positions) positions.set(id, [p.x, p.y])
+  const sizes = new Map<string, Size>()
+  for (const [id, s] of laid.frameSizes) sizes.set(id, [s.w, s.h])
+  const specs = withFrameSizes(specsOf(doc.nodes), sizes).map((s) => {
+    if (!unpin || s.pinned === undefined) return s
+    const { pinned: _pinned, ...rest } = s
+    return rest
+  })
+  const selected = new Set(doc.nodes.filter((n) => n.selected).map((n) => n.id))
+  const nodes = keepMeasured(toFlowNodes(specs, positions, selected), doc.nodes)
+  const edges = doc.edges.map((e): LinkEdge => {
+    const l = laid.edges.get(e.id)
+    if (!l) return e
+    const { route: _route, ...data } = e.data ?? {}
+    const route = l.route.map((p) => ({ x: roundHalfAway(p.x), y: roundHalfAway(p.y) }))
+    return {
+      ...e,
+      sourceHandle: l.sourceHandle,
+      targetHandle: l.targetHandle,
+      data: {
+        ...data,
+        ...(route.length >= 2 && route.length <= ROUTE_MAX ? { route } : {}),
+        ...(l.loop && data.tone === undefined ? { tone: 'loop' } : {}),
+      },
+    }
+  })
+  return { nodes, edges, positions }
+}
+
+/** A board's links as the layout engine takes them. */
+const engineEdges = (edges: readonly LinkEdge[]) =>
+  edges.map((e) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    label: e.data?.label,
+    tone: e.data?.tone,
+  }))
 
 /** Rebuilt nodes keep what React Flow measured, so nothing flashes unmeasured. */
 function keepMeasured(next: CardNode[], prev: readonly CardNode[]): CardNode[] {
@@ -213,12 +275,12 @@ function Board({
   const draggingRef = useRef(false)
   const reloadPendingRef = useRef(false)
   /**
-   * The card the agent carried, where it was and the view before the carry, until main's write of
-   * that move lands (`landed`) or the file reloads. `panned` is the view the carry left on screen.
+   * The cards the agent carried (one dragged card, or every card of a glide) with their React Flow
+   * positions before, and the view before the carry, until main's write of that move lands
+   * (`landed`) or the file reloads. `panned` is the view the carry left on screen.
    */
   const carriedRef = useRef<{
-    node: string
-    from: { x: number; y: number }
+    from: Map<string, { x: number; y: number }>
     view: Viewport
     panned: Viewport | null
   } | null>(null)
@@ -305,14 +367,15 @@ function Board({
         timerRef.current = window.setTimeout(() => void saveNow(), SAVE_DELAY)
       return
     }
-    // A card the agent is carrying saves where it was: only main's guarded write lands the move.
+    // Cards the agent is carrying save where they were: only main's guarded write lands the move.
     const c = carriedRef.current
     const doc = c
       ? {
           ...docRef.current,
-          nodes: docRef.current.nodes.map((n) =>
-            n.id === c.node ? { ...n, position: c.from } : n,
-          ),
+          nodes: docRef.current.nodes.map((n) => {
+            const from = c.from.get(n.id)
+            return from ? { ...n, position: from } : n
+          }),
         }
       : docRef.current
     const board = toBoard(doc, viewToSave())
@@ -381,6 +444,8 @@ function Board({
               positions: result.positions,
               rounds: 0,
               quiet: false,
+              engine: false,
+              pending: false,
             }
           : null
       const nextEdges = toFlowEdges(file.edges)
@@ -694,14 +759,15 @@ function Board({
     void flow.fitView({ padding: FIT_PADDING }).then(() => scheduleSave())
   }, [initialized, flow, scheduleSave])
 
-  // While every node sits where the layout put it, lay out again once drawn sizes differ
-  // from the ones used (images arriving). Stops at the first move.
+  // A board opened with no positions shows the quick sync layout first; once every card is drawn
+  // the layout engine lays it out with the drawn sizes (links routed), and again whenever drawn
+  // sizes differ from the ones used (images arriving). Stops at the first move.
   useEffect(() => {
     const auto = autoRef.current
     if (!auto || !initialized) return
     const t = setTimeout(() => {
       // A move (Isaac's, or the agent taking the view) since this round started ends settling.
-      if (autoRef.current !== auto) return
+      if (autoRef.current !== auto || auto.pending) return
       const doc = docRef.current
       const abs = absolutePositions(doc.nodes)
       const moved = doc.nodes.some((n) => {
@@ -715,12 +781,13 @@ function Board({
       }
       if (doc.nodes.some((n) => n.measured?.width === undefined)) return
       const specs = specsOf(doc.nodes)
-      const items = layoutItems(specs, measuredSizes(doc.nodes))
+      const measured = measuredSizes(doc.nodes)
+      const items = layoutItems(specs, measured)
       const changed = items.some((i) => {
         const s = auto.sizes.get(i.id)
         return !s || Math.abs(s[0] - i.w) > SETTLE_SLACK || Math.abs(s[1] - i.h) > SETTLE_SLACK
       })
-      if (!changed || auto.rounds >= SETTLE_ROUNDS) {
+      if ((auto.engine && !changed) || auto.rounds >= SETTLE_ROUNDS) {
         if (!auto.quiet) {
           auto.quiet = true
           saveIfChanged()
@@ -728,23 +795,41 @@ function Board({
         return
       }
       const fileLayout = effectiveLayout(doc.layout, specs, doc.edges.length > 0)
-      const placement = place(fileLayout, items, edgePairs(doc.edges))
-      const sized = withFrameSizes(specs, placement.frameSizes)
-      const selected = new Set(doc.nodes.filter((n) => n.selected).map((n) => n.id))
-      const next = keepMeasured(toFlowNodes(sized, placement.positions, selected), doc.nodes)
-      autoRef.current = {
-        sizes: new Map(items.map((i) => [i.id, [i.w, i.h] as Size])),
-        positions: placement.positions,
-        rounds: auto.rounds + 1,
-        quiet: false,
-      }
-      setNodes(next)
-      fitPendingRef.current = true
-      requestAnimationFrame(() => {
-        if (!fitPendingRef.current) return
-        fitPendingRef.current = false
-        void flow.fitView({ padding: FIT_PADDING }).then(() => scheduleSave())
-      })
+      const graph = engineGraph(specs, engineEdges(doc.edges), abs, measured)
+      auto.pending = true
+      layoutBoard(graph.nodes, graph.edges, engineOptions(fileLayout, specs, true)).then(
+        (laid) => {
+          auto.pending = false
+          // Stale: the board reloaded, or a move ended settling, while the engine ran.
+          if (autoRef.current !== auto || unmountedRef.current) return
+          const next = laidOut(docRef.current, laid, false)
+          // Frames as the engine grew them, so the next check compares the cards' drawn sizes.
+          const used = layoutItems(specsOf(next.nodes), measured)
+          autoRef.current = {
+            sizes: new Map(used.map((i) => [i.id, [i.w, i.h] as Size])),
+            positions: next.positions,
+            rounds: auto.rounds + 1,
+            quiet: false,
+            engine: true,
+            pending: false,
+          }
+          setNodes(next.nodes)
+          setEdges(next.edges)
+          fitPendingRef.current = true
+          requestAnimationFrame(() => {
+            if (!fitPendingRef.current) return
+            fitPendingRef.current = false
+            void flow.fitView({ padding: FIT_PADDING }).then(() => scheduleSave())
+          })
+        },
+        () => {
+          // The engine failed: the quick layout stays and saves.
+          auto.pending = false
+          if (autoRef.current !== auto || auto.quiet) return
+          auto.quiet = true
+          saveIfChanged()
+        },
+      )
     }, 250)
     return () => clearTimeout(t)
   }, [nodes, initialized, flow, scheduleSave, saveIfChanged])
@@ -755,13 +840,16 @@ function Board({
       const kept = changes.filter((c) => c.type !== 'remove')
       setNodes((ns) => applyNodeChanges(kept, ns))
       // React Flow only moves or resizes nodes for Isaac (the agent's drags set the nodes directly).
-      if (
-        kept.some(
-          (c) =>
-            (c.type === 'position' && !c.dragging) || (c.type === 'dimensions' && c.setAttributes),
-        )
-      ) {
-        isaacEdited()
+      const edit = kept.some(
+        (c) =>
+          (c.type === 'position' && !c.dragging) ||
+          // A resize by Isaac carries `resizing`; React Flow also reports a frame taking the size
+          // the layout gave it (setAttributes without it), which is not his edit.
+          (c.type === 'dimensions' && c.setAttributes && c.resizing !== undefined),
+      )
+      const sized = kept.some((c) => c.type === 'dimensions' && c.setAttributes)
+      if (edit || sized) {
+        if (edit) isaacEdited()
         scheduleSave()
       }
     },
@@ -782,12 +870,26 @@ function Board({
     remember()
   }, [remember])
 
-  const dragStop = useCallback(() => {
-    draggingRef.current = false
-    autoRef.current = null
-    scheduleSave()
-    if (reloadPendingRef.current) void reload()
-  }, [reload, scheduleSave])
+  /** Isaac's drag ends: the cards he moved are pinned (canvas.layout keeps them where they are). */
+  const dragStop = useCallback(
+    (dragged: readonly CardNode[]) => {
+      draggingRef.current = false
+      autoRef.current = null
+      const pins = new Set(dragged.filter((n) => !n.data.spec.pinned).map((n) => n.id))
+      if (pins.size > 0) {
+        setNodes((ns) =>
+          ns.map((n) =>
+            pins.has(n.id)
+              ? { ...n, data: { ...n.data, spec: { ...n.data.spec, pinned: true } } }
+              : n,
+          ),
+        )
+      }
+      scheduleSave()
+      if (reloadPendingRef.current) void reload()
+    },
+    [reload, scheduleSave],
+  )
 
   const onConnect = useCallback(
     (c: Connection) => {
@@ -986,21 +1088,39 @@ function Board({
     restore(r.state)
   }, [restore, snapshot, isaacEdited])
 
+  /** The Tidy in flight; a newer one (or an edit meanwhile) drops its result. */
+  const tidyRef = useRef(0)
+  /** Lays the whole board out afresh with the layout engine (pins let go), as one undo step. */
   const tidy = useCallback(() => {
     remember()
     const doc = docRef.current
+    const before = snapshot().key
+    const run = ++tidyRef.current
     const specs = specsOf(doc.nodes)
-    const items = layoutItems(specs, measuredSizes(doc.nodes))
     const fileLayout = effectiveLayout(doc.layout, specs, doc.edges.length > 0)
-    const placement = place(fileLayout, items, edgePairs(doc.edges))
-    const sized = withFrameSizes(specs, placement.frameSizes)
-    const selected = new Set(doc.nodes.filter((n) => n.selected).map((n) => n.id))
-    setNodes(keepMeasured(toFlowNodes(sized, placement.positions, selected), doc.nodes))
-    autoRef.current = null
-    requestAnimationFrame(
-      () => void flow.fitView({ padding: FIT_PADDING }).then(() => scheduleSave()),
+    const graph = engineGraph(
+      specs,
+      engineEdges(doc.edges),
+      absolutePositions(doc.nodes),
+      measuredSizes(doc.nodes),
     )
-  }, [flow, remember, scheduleSave])
+    autoRef.current = null
+    layoutBoard(graph.nodes, graph.edges, engineOptions(fileLayout, specs, false)).then(
+      (laid) => {
+        if (run !== tidyRef.current || unmountedRef.current || goneRef.current) return
+        if (snapshot().key !== before) return
+        const next = laidOut(docRef.current, laid, true)
+        setNodes(next.nodes)
+        setEdges(next.edges)
+        autoRef.current = null
+        requestAnimationFrame(
+          () => void flow.fitView({ padding: FIT_PADDING }).then(() => scheduleSave()),
+        )
+      },
+      (e: unknown) =>
+        setSave({ error: `not tidied: ${e instanceof Error ? e.message : String(e)}` }),
+    )
+  }, [flow, remember, scheduleSave, snapshot])
 
   const selectAll = useCallback(() => {
     setNodes((ns) => ns.map((n) => (n.selected ? n : { ...n, selected: true })))
@@ -1066,9 +1186,9 @@ function Board({
       slug,
       page,
       shown: () => (wrapRef.current?.getClientRects().length ?? 0) > 0,
-      // Hide comes when Isaac takes over or the run ends: a card the agent carried whose write
-      // has not landed yet goes back, so his next save never keeps a move main refused, and the
-      // board goes back to where it was with it (unless Isaac moved the view himself since).
+      // Hide comes when Isaac takes over or the run ends: cards the agent carried whose write
+      // has not landed yet go back, so his next save never keeps a move main refused, and the
+      // board goes back to where it was with them (unless Isaac moved the view himself since).
       cursor: (op) => {
         if (op.op === 'hide') {
           const c = carriedRef.current
@@ -1077,7 +1197,12 @@ function Board({
             cancelAnimationFrame(carryRef.current ?? 0)
             carryRef.current = undefined
             draggingRef.current = false
-            setNodes((ns) => ns.map((n) => (n.id === c.node ? { ...n, position: c.from } : n)))
+            setNodes((ns) =>
+              ns.map((n) => {
+                const from = c.from.get(n.id)
+                return from ? { ...n, position: from } : n
+              }),
+            )
             // The view is still the one the carry left: Isaac did not move it himself.
             const vp = flow.getViewport()
             const p = c.panned
@@ -1144,7 +1269,7 @@ function Board({
         const view = flow.getViewport()
         const { width, height } = store.getState()
         const end = revealView(view, { w: width, h: height }, { ...box, x: to.x, y: to.y })
-        const carried = { node, from, view, panned: end ? view : null }
+        const carried = { from: new Map([[node, from]]), view, panned: end ? view : null }
         carriedRef.current = carried
         if (end) takeView()
         const dest = { x: from.x + to.x - abs[0], y: from.y + to.y - abs[1] }
@@ -1178,8 +1303,66 @@ function Board({
         carryRef.current = requestAnimationFrame(step)
         return dur
       },
+      // Every named card glides from where it is to its absolute top left in `to` at once (cards
+      // inside a moving frame keep their own spot unless named too), eased, as one undo step
+      // taken before; main's file write that follows lands them where they already are. Saves
+      // and reloads wait until they arrive; a hide before the write lands takes them all back.
+      arrange: (to, ms) => {
+        const doc = docRef.current
+        const abs = absolutePositions(doc.nodes)
+        const byId = new Map(doc.nodes.map((n) => [n.id, n]))
+        const goal = new Map(Object.entries(to).filter(([id]) => byId.has(id)))
+        if (goal.size === 0) return 0
+        const inGlide = (n: CardNode): boolean => {
+          for (let p = n.parentId; p !== undefined; p = byId.get(p)?.parentId) {
+            if (goal.has(p)) return true
+          }
+          return goal.has(n.id)
+        }
+        const moving = doc.nodes.filter(inGlide)
+        const before = snapshot()
+        setHistory((h) => record(h, before))
+        cancelAnimationFrame(carryRef.current ?? 0)
+        carriedRef.current = {
+          from: new Map(moving.map((n) => [n.id, n.position])),
+          view: flow.getViewport(),
+          panned: null,
+        }
+        draggingRef.current = true
+        autoRef.current = null
+        const dur = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : ms
+        const start = new Map(moving.map((n) => [n.id, abs.get(n.id) ?? [0, 0]]))
+        const t0 = performance.now()
+        const step = (now: number): void => {
+          const k = dur === 0 ? 1 : Math.min(1, Math.max(0, now - t0) / dur)
+          const e = easeInOut(k)
+          // Where a card is drawn at this step, absolute: its glide, or where it stays.
+          const at = (id: string): { x: number; y: number } => {
+            const [x0, y0] = start.get(id) ?? abs.get(id) ?? [0, 0]
+            const g = goal.get(id)
+            return g ? { x: x0 + (g.x - x0) * e, y: y0 + (g.y - y0) * e } : { x: x0, y: y0 }
+          }
+          setNodes((ns) =>
+            ns.map((n) => {
+              if (!start.has(n.id)) return n
+              const me = at(n.id)
+              const up = n.parentId === undefined ? { x: 0, y: 0 } : at(n.parentId)
+              return { ...n, position: { x: me.x - up.x, y: me.y - up.y } }
+            }),
+          )
+          if (k < 1) {
+            carryRef.current = requestAnimationFrame(step)
+            return
+          }
+          carryRef.current = undefined
+          draggingRef.current = false
+          if (reloadPendingRef.current) void reload()
+        }
+        carryRef.current = requestAnimationFrame(step)
+        return dur
+      },
       landed: (node) => {
-        if (carriedRef.current?.node === node) carriedRef.current = null
+        if (carriedRef.current?.from.has(node)) carriedRef.current = null
       },
       goTo: (to) => void switchTo(to),
     })
@@ -1187,7 +1370,7 @@ function Board({
       off()
       cancelAnimationFrame(carryRef.current ?? 0)
     }
-  }, [slug, page, flow, flush, store, reload, switchTo])
+  }, [slug, page, flow, flush, store, reload, switchTo, snapshot])
 
   const selectedNodes = nodes.filter((n) => n.selected)
   const single = selectedNodes.length === 1 ? selectedNodes[0]! : null
@@ -1283,13 +1466,13 @@ function Board({
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
             onNodeDragStart={dragStart}
-            onNodeDragStop={dragStop}
+            onNodeDragStop={(_e, _node, dragged) => dragStop(dragged)}
             onNodeDoubleClick={(_e, node) => {
               if (node.data.spec.type === 'image' && node.data.spec.data?.src)
                 setLightboxId(node.id)
             }}
             onSelectionDragStart={dragStart}
-            onSelectionDragStop={dragStop}
+            onSelectionDragStop={(_e, dragged) => dragStop(dragged)}
             // His own pan or zoom (an event; the agent's reveals and fits have none) takes over,
             // as his scroll does in the shared browser, so the next reveal never fights him.
             onMoveStart={(e) => {

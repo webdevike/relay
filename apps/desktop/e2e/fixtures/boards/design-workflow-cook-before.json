@@ -1,0 +1,306 @@
+{
+  "version": 1,
+  "title": "Design workflow (Cook)",
+  "layout": "flow",
+  "nodes": [
+    {
+      "id": "topic",
+      "type": "topic",
+      "x": 0.0,
+      "y": -160.0,
+      "w": 520.0,
+      "data": {
+        "title": "Leon Lin's design workflow (Cook): the implicit loop",
+        "text": "Leon Lin's design workflow (Cook): the implicit loop"
+      }
+    },
+    {
+      "id": "refs",
+      "type": "note",
+      "x": 0.0,
+      "y": 0.0,
+      "w": 320.0,
+      "data": {
+        "title": "1 · References",
+        "body": "9-12 images, short prompt. Dribbble, Inspo MCP, Awwwards MCP, or a similar real app studied with a browser (full-page shots + motion recordings).",
+        "text": "**1 · References**\n9-12 images, short prompt. Dribbble, Inspo MCP, Awwwards MCP, or a similar real app studied with a browser (full-page shots + motion recordings)."
+      }
+    },
+    {
+      "id": "intake",
+      "type": "note",
+      "x": 380.0,
+      "y": 0.0,
+      "w": 320.0,
+      "data": {
+        "title": "2 · Intake",
+        "body": "Ask every question once with defaults: references, quality bar, time limit, usage limit. Then never ask again.",
+        "text": "**2 · Intake**\nAsk every question once with defaults: references, quality bar, time limit, usage limit. Then never ask again."
+      }
+    },
+    {
+      "id": "target",
+      "type": "note",
+      "x": 760.0,
+      "y": 0.0,
+      "w": 320.0,
+      "data": {
+        "title": "3 · Target",
+        "body": "3 quick mockups on one page. Pick one, check mobile. Cheap to change before the real build.",
+        "text": "**3 · Target**\n3 quick mockups on one page. Pick one, check mobile. Cheap to change before the real build."
+      }
+    },
+    {
+      "id": "bar",
+      "type": "note",
+      "x": 1140.0,
+      "y": 0.0,
+      "w": 320.0,
+      "data": {
+        "title": "4 · Bar",
+        "body": "A number per dimension (aim 99.9%, or ≥ 9.2/10). You correct its self-score: says 90, you say 65.",
+        "text": "**4 · Bar**\nA number per dimension (aim 99.9%, or ≥ 9.2/10). You correct its self-score: says 90, you say 65."
+      }
+    },
+    {
+      "id": "rules",
+      "type": "note",
+      "x": 1520.0,
+      "y": 0.0,
+      "w": 320.0,
+      "data": {
+        "title": "5 · Rules",
+        "body": "Slop ban list + detector (beige, random fancy fonts, generic cards). Detect many tells at once, not one.",
+        "text": "**5 · Rules**\nSlop ban list + detector (beige, random fancy fonts, generic cards). Detect many tells at once, not one."
+      }
+    },
+    {
+      "id": "build",
+      "type": "note",
+      "x": 0.0,
+      "y": 320.0,
+      "w": 320.0,
+      "data": {
+        "title": "6 · Build static",
+        "body": "Layout, type, color, spacing. No animation yet.",
+        "text": "**6 · Build static**\nLayout, type, color, spacing. No animation yet."
+      }
+    },
+    {
+      "id": "judge",
+      "type": "note",
+      "x": 380.0,
+      "y": 320.0,
+      "w": 320.0,
+      "data": {
+        "title": "7 · Judge",
+        "body": "Fresh-context critics, ideally another model (Sol judges Opus). Side-by-side: reference left, render right.",
+        "text": "**7 · Judge**\nFresh-context critics, ideally another model (Sol judges Opus). Side-by-side: reference left, render right."
+      }
+    },
+    {
+      "id": "fix",
+      "type": "note",
+      "x": 760.0,
+      "y": 320.0,
+      "w": 320.0,
+      "data": {
+        "title": "8 · Fix weakest",
+        "body": "Specific feedback: exact color/spacing, or a marked-up screenshot. Can't name it? Ask the agent to describe what it built.",
+        "text": "**8 · Fix weakest**\nSpecific feedback: exact color/spacing, or a marked-up screenshot. Can't name it? Ask the agent to describe what it built."
+      }
+    },
+    {
+      "id": "motion",
+      "type": "note",
+      "x": 1140.0,
+      "y": 320.0,
+      "w": 320.0,
+      "data": {
+        "title": "9 · Motion",
+        "body": "Reference videos studied frame by frame; borrow ideas, never copy one part. Same judge loop.",
+        "text": "**9 · Motion**\nReference videos studied frame by frame; borrow ideas, never copy one part. Same judge loop."
+      }
+    },
+    {
+      "id": "gate",
+      "type": "note",
+      "x": 1520.0,
+      "y": 320.0,
+      "w": 320.0,
+      "data": {
+        "title": "10 · Gate",
+        "body": "Stills to you each round. No final render without your OK.",
+        "text": "**10 · Gate**\nStills to you each round. No final render without your OK."
+      }
+    },
+    {
+      "id": "ship",
+      "type": "note",
+      "x": 1900.0,
+      "y": 320.0,
+      "w": 320.0,
+      "data": {
+        "title": "11 · Ship",
+        "body": "Best scene first, honest numbers, credits.",
+        "text": "**11 · Ship**\nBest scene first, honest numbers, credits."
+      }
+    },
+    {
+      "id": "state",
+      "type": "note",
+      "x": 760.0,
+      "y": 620.0,
+      "w": 420.0,
+      "data": {
+        "title": "State lives in cook/",
+        "body": "brief.md · references/ · rounds/ screenshots + side-by-sides · harness/ (screenshot + grading scripts, judge prompts) · ROUNDS.md scores. Resumable after a context reset.",
+        "text": "**State lives in cook/**\nbrief.md · references/ · rounds/ screenshots + side-by-sides · harness/ (screenshot + grading scripts, judge prompts) · ROUNDS.md scores. Resumable after a context reset."
+      }
+    },
+    {
+      "id": "pace",
+      "type": "note",
+      "x": 1520.0,
+      "y": -160.0,
+      "w": 360.0,
+      "data": {
+        "title": "Time + pacing",
+        "body": "Floor ~8h for demos (done in 2h = something's wrong), hard cap for small jobs, spread work across your usage limit.",
+        "text": "**Time + pacing**\nFloor ~8h for demos (done in 2h = something's wrong), hard cap for small jobs, spread work across your usage limit."
+      }
+    },
+    {
+      "id": "us",
+      "type": "suggestion",
+      "x": 0.0,
+      "y": 620.0,
+      "w": 600.0,
+      "data": {
+        "title": "Where we stand",
+        "body": "Already match: separate critics, handoff/rounds file, references as files. Gaps: number bar + your score correction, side-by-side script, per-round stills gate, motion after static.",
+        "text": "Where we already match: separate critics, handoff/rounds file, references as files. Gaps: number bar + your score correction, side-by-side script, per-round stills gate, motion-after-static."
+      }
+    },
+    {
+      "id": "note-16",
+      "type": "note",
+      "x": 1520.0,
+      "y": 620.0,
+      "w": 360.0,
+      "data": {
+        "title": "Relay tie-in",
+        "body": "Annotation + Design Mode put steps 8 and 10 inside Relay: you mark up the page, I fix it."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "refs-intake",
+      "source": "refs",
+      "target": "intake",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": ""
+    },
+    {
+      "id": "intake-target",
+      "source": "intake",
+      "target": "target",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": ""
+    },
+    {
+      "id": "target-bar",
+      "source": "target",
+      "target": "bar",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": ""
+    },
+    {
+      "id": "bar-rules",
+      "source": "bar",
+      "target": "rules",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": ""
+    },
+    {
+      "id": "rules-build",
+      "source": "rules",
+      "target": "build",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "start"
+    },
+    {
+      "id": "build-judge",
+      "source": "build",
+      "target": "judge",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "stills"
+    },
+    {
+      "id": "judge-fix",
+      "source": "judge",
+      "target": "fix",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "scores"
+    },
+    {
+      "id": "fix-judge",
+      "source": "fix",
+      "target": "judge",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "below bar: next round"
+    },
+    {
+      "id": "judge-motion",
+      "source": "judge",
+      "target": "motion",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "static at bar"
+    },
+    {
+      "id": "motion-gate",
+      "source": "motion",
+      "target": "gate",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": ""
+    },
+    {
+      "id": "gate-ship",
+      "source": "gate",
+      "target": "ship",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "approved"
+    },
+    {
+      "id": "gate-fix",
+      "source": "gate",
+      "target": "fix",
+      "sourceHandle": "right",
+      "targetHandle": "left",
+      "label": "your notes"
+    },
+    {
+      "id": "gate-note-16",
+      "source": "gate",
+      "target": "note-16",
+      "label": "in Relay"
+    }
+  ],
+  "viewport": {
+    "x": 133.0,
+    "y": 209.0,
+    "zoom": 0.58
+  }
+}

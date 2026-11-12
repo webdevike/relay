@@ -1,0 +1,271 @@
+{
+  "version": 1,
+  "title": "Design workflow (Cook)",
+  "layout": "flow",
+  "nodes": [
+    {
+      "id": "topic",
+      "type": "topic",
+      "w": 560,
+      "data": {
+        "title": "Leon Lin's design workflow (Cook): the implicit loop",
+        "body": "Set the bar once, then loop build, judge, fix until the stills clear it."
+      }
+    },
+    {
+      "id": "lane-setup",
+      "type": "frame",
+      "data": {
+        "title": "Setup: agree the bar once",
+        "body": "Steps 1 to 5. Every question is asked one time, with defaults.",
+        "variant": "lane",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "refs",
+      "type": "step",
+      "parent": "lane-setup",
+      "data": {
+        "step": "1",
+        "icon": "photo",
+        "title": "References",
+        "body": "9-12 images and a short prompt: Dribbble, Inspo or Awwwards MCP, or a real app studied in a browser."
+      }
+    },
+    {
+      "id": "intake",
+      "type": "step",
+      "parent": "lane-setup",
+      "data": {
+        "step": "2",
+        "icon": "list-check",
+        "title": "Intake",
+        "body": "Ask every question once with defaults: references, quality bar, time limit, usage limit."
+      }
+    },
+    {
+      "id": "target",
+      "type": "step",
+      "parent": "lane-setup",
+      "data": {
+        "step": "3",
+        "icon": "target",
+        "title": "Target",
+        "body": "3 quick mockups on one page. Pick one, check mobile. Cheap to change before the real build."
+      }
+    },
+    {
+      "id": "bar",
+      "type": "step",
+      "parent": "lane-setup",
+      "data": {
+        "step": "4",
+        "icon": "scale",
+        "title": "Bar",
+        "body": "A number per dimension (aim 99.9%, or 9.2/10 and up). You correct its self-score: it says 90, you say 65."
+      }
+    },
+    {
+      "id": "rules",
+      "type": "step",
+      "parent": "lane-setup",
+      "data": {
+        "step": "5",
+        "icon": "shield-check",
+        "title": "Rules",
+        "body": "Slop ban list plus a detector (beige, random fancy fonts, generic cards). Catch many tells at once."
+      }
+    },
+    {
+      "id": "lane-loop",
+      "type": "frame",
+      "data": {
+        "title": "Loop: build, judge, fix",
+        "body": "Steps 6 to 11. Repeat until the static stills clear the bar, then motion.",
+        "variant": "lane",
+        "tone": "success"
+      }
+    },
+    {
+      "id": "build",
+      "type": "step",
+      "parent": "lane-loop",
+      "data": {
+        "step": "6",
+        "icon": "brush",
+        "title": "Build static",
+        "body": "Layout, type, color, spacing. No animation yet."
+      }
+    },
+    {
+      "id": "judge",
+      "type": "step",
+      "parent": "lane-loop",
+      "data": {
+        "step": "7",
+        "icon": "eye",
+        "title": "Judge",
+        "body": "Fresh-context critics, ideally another model (Sol judges Opus). Side by side: reference left, render right.",
+        "status": "each round",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "fix",
+      "type": "step",
+      "parent": "lane-loop",
+      "data": {
+        "step": "8",
+        "icon": "adjustments",
+        "title": "Fix weakest",
+        "body": "Specific feedback: exact color or spacing, or a marked-up screenshot. Cannot name it? Ask the agent to describe what it built."
+      }
+    },
+    {
+      "id": "motion",
+      "type": "step",
+      "parent": "lane-loop",
+      "data": {
+        "step": "9",
+        "icon": "video",
+        "title": "Motion",
+        "body": "Reference videos studied frame by frame; borrow ideas, never copy one part. Same judge loop."
+      }
+    },
+    {
+      "id": "gate",
+      "type": "step",
+      "parent": "lane-loop",
+      "data": {
+        "step": "10",
+        "icon": "hand-stop",
+        "title": "Gate",
+        "body": "Stills to you each round. No final render without your OK.",
+        "status": "your OK",
+        "tone": "warn"
+      }
+    },
+    {
+      "id": "ship",
+      "type": "step",
+      "parent": "lane-loop",
+      "data": {
+        "step": "11",
+        "icon": "rocket",
+        "title": "Ship",
+        "body": "Best scene first, honest numbers, credits.",
+        "tone": "success"
+      }
+    },
+    {
+      "id": "state",
+      "type": "explainer",
+      "data": {
+        "title": "State lives in cook/",
+        "body": "- `brief.md`: the agreed brief\n- `references/`: the images and videos\n- `rounds/`: screenshots and side-by-sides\n- `harness/`: screenshot and grading scripts, judge prompts\n- `ROUNDS.md`: the scores, round by round",
+        "why": "A context reset never loses the thread: the next session reads these files and resumes."
+      }
+    },
+    {
+      "id": "pace",
+      "type": "explainer",
+      "data": {
+        "title": "Time and pacing",
+        "body": "- **Floor ~8h** for demos: done in 2h means something is wrong\n- **Hard cap** for small jobs\n- Spread the work across your **usage limit**",
+        "why": "Time is what buys the rounds. Rushing skips the judge loop.",
+        "tone": "warn"
+      }
+    },
+    {
+      "id": "us",
+      "type": "explainer",
+      "data": {
+        "title": "Where we stand",
+        "body": "**Already match**\n- separate critics\n- handoff and rounds file\n- references as files\n\n**Gaps**\n- a number bar and your score correction\n- a side-by-side script\n- a per-round stills gate\n- motion after static",
+        "why": "Close the four gaps and our loop is Cook's loop.",
+        "tone": "accent"
+      }
+    },
+    {
+      "id": "relay-tie-in",
+      "type": "explainer",
+      "data": {
+        "title": "Relay tie-in",
+        "body": "Annotation and Design Mode put steps 8 and 10 inside Relay: you mark up the page, I fix it.",
+        "why": "Steps 8 (Fix weakest) and 10 (Gate) are the two that happen inside Relay."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "refs-intake",
+      "source": "refs",
+      "target": "intake"
+    },
+    {
+      "id": "intake-target",
+      "source": "intake",
+      "target": "target"
+    },
+    {
+      "id": "target-bar",
+      "source": "target",
+      "target": "bar"
+    },
+    {
+      "id": "bar-rules",
+      "source": "bar",
+      "target": "rules"
+    },
+    {
+      "id": "rules-build",
+      "source": "rules",
+      "target": "build",
+      "label": "start"
+    },
+    {
+      "id": "build-judge",
+      "source": "build",
+      "target": "judge",
+      "label": "stills"
+    },
+    {
+      "id": "judge-fix",
+      "source": "judge",
+      "target": "fix",
+      "label": "below the bar"
+    },
+    {
+      "id": "fix-judge",
+      "source": "fix",
+      "target": "judge",
+      "tone": "loop",
+      "label": "next round"
+    },
+    {
+      "id": "judge-motion",
+      "source": "judge",
+      "target": "motion",
+      "label": "static at bar"
+    },
+    {
+      "id": "motion-gate",
+      "source": "motion",
+      "target": "gate"
+    },
+    {
+      "id": "gate-ship",
+      "source": "gate",
+      "target": "ship",
+      "label": "approved"
+    },
+    {
+      "id": "gate-fix",
+      "source": "gate",
+      "target": "fix",
+      "tone": "loop",
+      "label": "changes requested"
+    }
+  ]
+}

@@ -3,11 +3,15 @@ import {
   EdgeLabelRenderer,
   Position,
   getBezierPath,
+  getSmoothStepPath,
   useInternalNode,
   type EdgeProps,
   type InternalNode,
 } from '@xyflow/react'
+import { IconArrowBackUp } from '@tabler/icons-react'
 import { memo } from 'react'
+import { edgeTone } from './board-model'
+import { arrowHead, longestSegmentMid, roundedPath, routeEndsOnSides } from './cards/edge-route'
 import type { CardNode, LinkEdge } from './flow-model'
 
 type Side = 'left' | 'right' | 'top' | 'bottom'
@@ -77,25 +81,51 @@ export const CanvasEdge = memo(function CanvasEdge({
   const tSide = sideOf(targetHandleId) ?? facingSide(b, a)
   const [sx, sy] = anchor(a, sSide)
   const [tx, ty] = anchor(b, tSide)
-  const [path, labelX, labelY] = getBezierPath({
-    sourceX: sx,
-    sourceY: sy,
-    sourcePosition: POSITION[sSide],
-    targetX: tx,
-    targetY: ty,
-    targetPosition: POSITION[tSide],
-    curvature: 0.25,
-  })
-  const tone = data?.tone ?? 'default'
+  const route = data?.route
+  let path: string
+  let labelX: number
+  let labelY: number
+  // Where the last segment comes from: the arrowhead points along it into the target card.
+  let tip = { x: tx, y: ty }
+  let before = {
+    x: tx + (tSide === 'left' ? -1 : tSide === 'right' ? 1 : 0),
+    y: ty + (tSide === 'top' ? -1 : tSide === 'bottom' ? 1 : 0),
+  }
+  if (route && routeEndsOnSides(route, { ...a, side: sSide }, { ...b, side: tSide })) {
+    path = roundedPath(route)
+    ;[labelX, labelY] = longestSegmentMid(route)
+    tip = route[route.length - 1]!
+    before = [...route].reverse().find((p) => p.x !== tip.x || p.y !== tip.y) ?? before
+  } else if (sourceHandleId && targetHandleId) {
+    ;[path, labelX, labelY] = getSmoothStepPath({
+      sourceX: sx,
+      sourceY: sy,
+      sourcePosition: POSITION[sSide],
+      targetX: tx,
+      targetY: ty,
+      targetPosition: POSITION[tSide],
+      borderRadius: 10,
+    })
+  } else {
+    ;[path, labelX, labelY] = getBezierPath({
+      sourceX: sx,
+      sourceY: sy,
+      sourcePosition: POSITION[sSide],
+      targetX: tx,
+      targetY: ty,
+      targetPosition: POSITION[tSide],
+      curvature: 0.25,
+    })
+  }
+  const tone = edgeTone(data?.tone) ?? 'default'
   const lit = selected || from.selected || to.selected
   return (
     <>
-      <BaseEdge
-        id={id}
-        path={path}
-        className={`eva-cv-edge eva-cv-edge-${tone}${lit ? ' eva-cv-edge-lit' : ''}`}
-      />
-      {data?.label !== undefined ? (
+      <g className="eva-cv-edge-group" data-tone={tone} data-lit={lit ? 'true' : undefined}>
+        <BaseEdge id={id} path={path} className={`eva-cv-edge eva-cv-edge-${tone}`} />
+        <path className="eva-cv-arrow" d={arrowHead(before, tip)} />
+      </g>
+      {data?.label !== undefined || tone === 'loop' ? (
         <EdgeLabelRenderer>
           <div
             className="eva-cv-edge-label nodrag nopan"
@@ -103,7 +133,8 @@ export const CanvasEdge = memo(function CanvasEdge({
             data-lit={lit ? 'true' : undefined}
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
-            {data.label}
+            {tone === 'loop' ? <IconArrowBackUp size={12} stroke={1.75} aria-hidden /> : null}
+            {data?.label}
           </div>
         </EdgeLabelRenderer>
       ) : null}

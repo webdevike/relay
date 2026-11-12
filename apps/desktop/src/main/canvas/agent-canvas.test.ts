@@ -1,12 +1,20 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { CanvasBoardAnswer, CanvasBoardCall, CanvasRun } from '@evaos/contract'
 import { createConfigStore } from '../config-store'
 import type { DriveIdentity } from '../browser/agent-drive'
+import { layoutBoard } from '../../shared/canvas-layout'
+import type * as Engine from '../../shared/canvas-layout'
 import { CanvasDrive } from './agent-canvas'
 import { createCanvasStore } from './store'
+
+// The real engine, with a seam to answer one layout with a fixed result.
+vi.mock('../../shared/canvas-layout', async (actual) => {
+  const real = await actual<typeof Engine>()
+  return { ...real, layoutBoard: vi.fn(real.layoutBoard) }
+})
 
 const repo = path.resolve(__dirname, '../../../../..')
 const roots: string[] = []
@@ -329,5 +337,227 @@ describe('canvas drive', () => {
     expect(log).not.toContain('write mind-map')
     expect(log).not.toContain('landed')
     expect((await store.load('mind-map')).board.nodes[0]).toMatchObject({ x: 900, y: 700 })
+  })
+
+  it('adds cards in a row after the last one, and after the card they follow, linked in one write', async () => {
+    const { drive, store, log } = setup()
+    const { slug } = await store.create()
+    const a = (await drive.add({ slug, title: 'One' })) as { id: string; x: number; y: number }
+    expect(a).toMatchObject({ x: 0, y: 0 })
+    const b = (await drive.add({ slug, title: 'Two' })) as { id: string; x: number; y: number }
+    expect(b).toMatchObject({ x: 300, y: 0 })
+    log.length = 0
+    const c = (await drive.add({
+      slug,
+      type: 'step',
+      title: 'Three',
+      from: a.id,
+      label: 'then',
+    })) as { id: string; link: string; x: number; y: number }
+    // Right of `a` is taken by `b`, which `a` does not link to: under `a`'s row, sliding past it.
+    expect(c.link).toBe(`${a.id}-${c.id}`)
+    expect(log.filter((l) => l.startsWith('write'))).toEqual([`write ${slug}`])
+    const file = (await store.load(slug)).board
+    expect(file.edges).toEqual([{ id: c.link, source: a.id, target: c.id, label: 'then' }])
+    const boxes = file.nodes.map((n) => ({ x: n.x!, y: n.y!, w: n.w ?? 220, h: n.h ?? 120 }))
+    expect(
+      boxes.every((p, i) =>
+        boxes.every(
+          (q, j) =>
+            i === j || p.x + p.w <= q.x || q.x + q.w <= p.x || p.y + p.h <= q.y || q.y + q.h <= p.y,
+        ),
+      ),
+    ).toBe(true)
+    // The next card it follows goes right of it, where nothing is.
+    const d = (await drive.add({ slug, title: 'Four', from: c.id })) as { x: number; y: number }
+    expect(d).toMatchObject({ x: c.x + 300 + 80, y: c.y })
+  })
+
+  it('lays the board out: glides every moved card in one call, then writes spots and routes once and lands them', async () => {
+    const arranged: CanvasBoardCall[] = []
+    const { drive, store, log } = setup(true, (call) => {
+      if (call.op === 'arrange') arranged.push(call)
+    })
+    const { slug } = await store.create()
+    const a = (await drive.add({ slug, title: 'A' })) as { id: string }
+    const b = (await drive.add({ slug, title: 'B', from: a.id })) as { id: string; link: string }
+    const back = (await drive.connect({ slug, from: b.id, to: a.id })) as { id: string }
+    vi.mocked(layoutBoard).mockResolvedValueOnce({
+      positions: new Map([
+        [a.id, { x: 0, y: 100 }],
+        [b.id, { x: 400.4, y: 100 }],
+      ]),
+      frameSizes: new Map(),
+      edges: new Map([
+        [
+          b.link,
+          {
+            sourceHandle: 'right',
+            targetHandle: 'left',
+            route: [
+              { x: 220, y: 160 },
+              { x: 400, y: 160 },
+            ],
+            loop: false,
+          },
+        ],
+        [
+          back.id,
+          {
+            sourceHandle: 'bottom',
+            targetHandle: 'bottom',
+            route: [
+              { x: 510, y: 220 },
+              { x: 510, y: 260 },
+              { x: 110, y: 260 },
+              { x: 110, y: 220 },
+            ],
+            loop: true,
+          },
+        ],
+      ]),
+      kept: [],
+    })
+    log.length = 0
+    expect(await drive.layout({ slug })).toEqual({
+      moved: 2,
+      kept: [],
+      algorithm: 'layered',
+      routed: 2,
+    })
+    expect(vi.mocked(layoutBoard).mock.calls.at(-1)!.slice(1)).toEqual([
+      [
+        { id: b.link, source: a.id, target: b.id },
+        { id: back.id, source: b.id, target: a.id },
+      ],
+      { algorithm: 'layered', direction: 'right', spacing: 56, keepPinned: true, only: null },
+    ])
+    expect(log).toEqual([
+      'boxes',
+      'reveal ',
+      `cursor move ${a.id}`,
+      `cursor click ${a.id}`,
+      'arrange',
+      'flush',
+      `write ${slug}`,
+      'landed',
+    ])
+    expect(arranged).toEqual([
+      expect.objectContaining({
+        to: { [a.id]: { x: 0, y: 100 }, [b.id]: { x: 400, y: 100 } },
+        ms: 700,
+      }),
+    ])
+    const file = (await store.load(slug)).board
+    expect(file.nodes.map((n) => [n.id, n.x, n.y, n.pinned])).toEqual([
+      [a.id, 0, 100, undefined],
+      [b.id, 400, 100, undefined],
+    ])
+    expect(file.edges).toEqual([
+      expect.objectContaining({ id: b.link, sourceHandle: 'right', targetHandle: 'left' }),
+      expect.objectContaining({ id: back.id, tone: 'loop', route: expect.any(Array) }),
+    ])
+  })
+
+  it('lays out just a frame’s cards, and refuses a card that is not a frame', async () => {
+    const { drive, store } = setup()
+    const { slug } = await store.create()
+    const f = (await drive.add({ slug, type: 'frame', title: 'Lane', x: 0, y: 0 })) as {
+      id: string
+    }
+    const a = (await drive.add({ slug, title: 'In', parent: f.id })) as { id: string }
+    const out = (await drive.add({ slug, title: 'Out', x: 900, y: 0 })) as { id: string }
+    vi.mocked(layoutBoard).mockResolvedValueOnce({
+      positions: new Map(),
+      frameSizes: new Map(),
+      edges: new Map(),
+      kept: [],
+    })
+    await drive.layout({ slug, frame: f.id, algorithm: 'grid' })
+    expect(vi.mocked(layoutBoard).mock.calls.at(-1)![2]).toMatchObject({
+      algorithm: 'grid',
+      only: new Set([a.id]),
+    })
+    await expect(drive.layout({ slug, frame: out.id })).rejects.toMatchObject({
+      code: 'invalid-params',
+    })
+  })
+
+  it('writes and lands nothing when Isaac takes over while the cards glide', async () => {
+    let takeOverOn: string | null = null
+    const s = setup(true, (call) => {
+      if (call.op === takeOverOn) {
+        s.drive.op(slug, 'takeOver')
+        takeOverOn = null
+      }
+    })
+    const { slug } = await s.store.create()
+    const a = (await s.drive.add({ slug, title: 'A', x: 0, y: 0 })) as { id: string }
+    await s.drive.add({ slug, title: 'B', x: 300, y: 50 })
+    takeOverOn = 'arrange'
+    s.log.length = 0
+    await expect(s.drive.align({ slug, nodes: [a.id, 'note-2'], to: 'top' })).rejects.toMatchObject(
+      { code: 'paused-by-isaac' },
+    )
+    expect(s.log).not.toContain(`write ${slug}`)
+    expect(s.log).not.toContain('landed')
+    expect((await s.store.load(slug)).board.nodes[1]).toMatchObject({ x: 300, y: 50 })
+  })
+
+  it('aligns and distributes cards with the real engine, refusing cards in different frames', async () => {
+    const { drive, store } = setup()
+    const { slug } = await store.create()
+    const ids: string[] = []
+    for (const [x, y] of [
+      [0, 0],
+      [500, 40],
+      [600, 90],
+    ] as const) {
+      const made = (await drive.add({ slug, title: `${x}`, x, y })) as { id: string }
+      ids.push(made.id)
+    }
+    expect(await drive.align({ slug, nodes: ids, to: 'top' })).toMatchObject({ moved: 2 })
+    expect((await store.load(slug)).board.nodes.map((n) => n.y)).toEqual([0, 0, 0])
+    await drive.distribute({ slug, nodes: ids, axis: 'horizontal' })
+    const xs = (await store.load(slug)).board.nodes.map((n) => n.x!)
+    // The outer two stay; the middle one sits with equal gaps on both sides.
+    expect(xs[0]).toBe(0)
+    expect(xs[2]).toBe(600)
+    expect(xs[1]! - (xs[0]! + 220)).toBe(xs[2]! - (xs[1]! + 220))
+    const f = (await drive.add({ slug, type: 'frame', title: 'F', x: 0, y: 600 })) as {
+      id: string
+    }
+    const inside = (await drive.add({ slug, title: 'In', parent: f.id })) as { id: string }
+    await expect(
+      drive.align({ slug, nodes: [ids[0]!, inside.id], to: 'left' }),
+    ).rejects.toMatchObject({ code: 'invalid-params' })
+  })
+
+  it('lays a board added without coordinates out with the real engine: no overlaps, every link routed', async () => {
+    const { drive, store } = setup(false)
+    const { slug } = await store.create()
+    const first = (await drive.add({ slug, type: 'step', title: 'Upload' })) as { id: string }
+    let prev = first.id
+    for (const title of ['Check', 'Store', 'Notify']) {
+      const next = (await drive.add({ slug, type: 'step', title, from: prev })) as { id: string }
+      prev = next.id
+    }
+    await drive.connect({ slug, from: prev, to: first.id, label: 'retry' })
+    const r = (await drive.layout({ slug })) as { routed: number }
+    expect(r.routed).toBe(4)
+    const file = (await store.load(slug)).board
+    const boxes = file.nodes.map((n) => ({ x: n.x!, y: n.y!, w: n.w ?? 300, h: n.h ?? 96 }))
+    expect(
+      boxes.every((p, i) =>
+        boxes.every(
+          (q, j) =>
+            i === j || p.x + p.w <= q.x || q.x + q.w <= p.x || p.y + p.h <= q.y || q.y + q.h <= p.y,
+        ),
+      ),
+    ).toBe(true)
+    expect(file.edges.every((e) => e.route !== undefined && e.sourceHandle !== undefined)).toBe(
+      true,
+    )
+    expect(file.edges.at(-1)).toMatchObject({ label: 'retry', tone: 'loop' })
   })
 })

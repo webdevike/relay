@@ -286,28 +286,65 @@
   fill: color-mix(in srgb, var(--eva-c-foreground) 14%, transparent);
 }
 
-/* Edges: gray beziers; a selected card's edges turn bright and thicker. */
-.react-flow__edge-path.eva-cv-edge-accent {
-  stroke: var(--eva-c-accent);
-  stroke-width: 2;
+/* Edges: a mid-dark stroke and a filled arrowhead sharing one color; a selected card's edges turn bright. */
+.eva-cv-edge-group {
+  --cv-edge: color-mix(in srgb, var(--eva-c-foreground) 55%, transparent);
+  --cv-edge-width: 1.5px;
 }
-.react-flow__edge-path.eva-cv-edge-proposed {
+.eva-cv-edge-group[data-tone='accent'] {
+  --cv-edge: var(--eva-c-accent);
+  --cv-edge-width: 2px;
+}
+.eva-cv-edge-group[data-tone='loop'] {
+  --cv-edge: var(--eva-c-accent);
+  --cv-edge-width: 1.75px;
+}
+.eva-cv-edge-group[data-tone='success'] {
+  --cv-edge: var(--eva-c-success);
+  --cv-edge-width: 2px;
+}
+.eva-cv-edge-group[data-tone='danger'] {
+  --cv-edge: var(--eva-c-danger);
+  --cv-edge-width: 2px;
+}
+.eva-cv-edge-group[data-tone='muted'] {
+  --cv-edge: color-mix(in srgb, var(--eva-c-muted-foreground) 70%, transparent);
+}
+.eva-cv-edge-group[data-lit='true'] {
+  --cv-edge-width: 2.25px;
+}
+.eva-cv-edge-group[data-lit='true']:not(
+    [data-tone='accent'],
+    [data-tone='loop'],
+    [data-tone='success'],
+    [data-tone='danger']
+  ) {
+  --cv-edge: var(--eva-c-foreground);
+}
+.react-flow__edge-path.eva-cv-edge {
+  stroke: var(--cv-edge);
+  stroke-width: var(--cv-edge-width);
+}
+.react-flow__edge-path.eva-cv-edge-proposed,
+.react-flow__edge-path.eva-cv-edge-loop {
   stroke-dasharray: 6 5;
 }
-.react-flow__edge-path.eva-cv-edge-lit {
-  stroke: var(--eva-c-foreground);
-  stroke-width: 2.25;
-}
-.react-flow__edge-path.eva-cv-edge-accent.eva-cv-edge-lit {
-  stroke: var(--eva-c-accent);
+.eva-cv-arrow {
+  fill: var(--cv-edge);
+  stroke: none;
+  pointer-events: none;
 }
 .eva-cv-edge-label {
   position: absolute;
+  z-index: 10;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
   padding: calc(var(--mantine-spacing-md) * 0.0625) var(--eva-gap);
   border-radius: var(--eva-radius-round);
   border: 1px solid var(--eva-c-border);
   background: var(--cv-panel);
-  color: var(--eva-c-muted-foreground);
+  color: color-mix(in srgb, var(--eva-c-foreground) 78%, transparent);
   font-size: 11px;
   line-height: 16px;
   white-space: nowrap;
@@ -316,6 +353,15 @@
 .eva-cv-edge-label[data-tone='accent'],
 .eva-cv-edge-label[data-lit='true'] {
   color: var(--eva-c-foreground);
+}
+.eva-cv-edge-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eva-gap);
+}
+.eva-cv-edge-label[data-tone='loop'] {
+  color: var(--eva-c-accent);
+  border-color: color-mix(in srgb, var(--eva-c-accent) 45%, var(--eva-c-border));
 }
 
 /* Handles: small round dots on each side. */
@@ -368,6 +414,9 @@
   --cv-tint: var(--eva-c-success);
 }
 .eva-cv-card[data-tone='muted'] {
+  --cv-tint: var(--eva-c-muted-foreground);
+}
+.eva-cv-card[data-tone='neutral'] {
   --cv-tint: var(--eva-c-muted-foreground);
 }
 .eva-cv-heading {
@@ -495,6 +544,9 @@
 .eva-cv-status[data-tone='muted'] {
   --cv-tint: var(--eva-c-muted-foreground);
 }
+.eva-cv-status[data-tone='neutral'] {
+  --cv-tint: var(--eva-c-muted-foreground);
+}
 
 .eva-cv-card[data-kind='image'] {
   padding: var(--mantine-spacing-xs);
@@ -560,6 +612,190 @@
   font-size: 11px;
   line-height: 14px;
   font-weight: var(--eva-fw-semibold);
+}
+
+/* A phase lane: a frame drawn as a tinted band with a heading, children above it. */
+.eva-cv-card[data-kind='frame'][data-variant='lane'] {
+  padding: 0;
+  gap: 0;
+  border-radius: 14px;
+  border: 1px dashed color-mix(in srgb, var(--cv-tint) 32%, transparent);
+  background: color-mix(in srgb, var(--cv-tint) 6%, transparent);
+}
+.eva-cv-lane-head {
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+  min-height: 44px;
+  box-sizing: border-box;
+  align-items: center;
+  padding: 0 var(--mantine-spacing-sm);
+  border-radius: 13px 13px 0 0;
+  background: color-mix(in srgb, var(--cv-tint) 13%, transparent);
+  min-width: 0;
+}
+.eva-cv-lane-title {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: var(--eva-fw-semibold);
+  color: var(--eva-c-foreground);
+  overflow-wrap: anywhere;
+}
+.eva-cv-lane-caption {
+  min-width: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--eva-c-muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+/* A step: number badge and icon on top, a bold title, a short body. */
+.eva-cv-card[data-kind='step'] {
+  gap: calc(var(--mantine-spacing-md) * 0.375);
+}
+.eva-cv-card[data-kind='step'][data-tone]:not([data-tone='neutral']) {
+  border-color: color-mix(in srgb, var(--cv-tint) 45%, var(--eva-c-border));
+}
+.eva-cv-step-head {
+  display: flex;
+  align-items: center;
+  gap: var(--eva-gap);
+  min-width: 0;
+}
+.eva-cv-step-badge {
+  --cv-tint: var(--eva-c-accent);
+  flex: none;
+  box-sizing: border-box;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 var(--mantine-spacing-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  background: var(--cv-tint);
+  color: var(--eva-c-primary-foreground);
+  font-size: 11px;
+  line-height: 22px;
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-cv-step-badge[data-tone='neutral'] {
+  --cv-tint: var(--eva-c-accent);
+}
+.eva-cv-step-badge[data-tone='warn'] {
+  --cv-tint: var(--eva-c-warning);
+}
+.eva-cv-step-badge[data-tone='danger'] {
+  --cv-tint: var(--eva-c-danger);
+}
+.eva-cv-step-badge[data-tone='success'] {
+  --cv-tint: var(--eva-c-success);
+}
+.eva-cv-step-badge[data-tone='muted'] {
+  --cv-tint: var(--eva-c-muted-foreground);
+}
+.eva-cv-step-icon {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-step-status {
+  margin-left: auto;
+}
+.eva-cv-step-title {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: var(--eva-fw-semibold);
+  color: var(--eva-c-foreground);
+  overflow-wrap: anywhere;
+}
+.eva-cv-step-body {
+  font-size: 12px;
+  line-height: 18px;
+  color: color-mix(in srgb, var(--eva-c-foreground) 78%, transparent);
+  overflow-wrap: anywhere;
+}
+
+/* An explainer: title, markdown body, picture, diagram, and a tinted "Why it matters" band. */
+.eva-cv-card[data-kind='explainer'] {
+  gap: var(--eva-gap);
+  padding: var(--mantine-spacing-sm);
+  overflow: hidden;
+}
+.eva-cv-explainer-title {
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: var(--eva-fw-semibold);
+  color: var(--eva-c-foreground);
+  overflow-wrap: anywhere;
+}
+.eva-cv-explainer-body {
+  min-width: 0;
+  font-size: 12px;
+  line-height: 20px;
+  user-select: text;
+  cursor: text;
+}
+.eva-cv-explainer-body .eva-md,
+.eva-cv-explainer-why .eva-md {
+  font-size: 12px;
+  line-height: 20px;
+}
+.eva-cv-explainer-body .eva-md > :first-child,
+.eva-cv-explainer-why .eva-md > :first-child {
+  margin-top: 0;
+}
+.eva-cv-explainer-body .eva-md > :last-child,
+.eva-cv-explainer-why .eva-md > :last-child {
+  margin-bottom: 0;
+}
+.eva-cv-explainer-image {
+  display: block;
+  max-width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  align-self: center;
+  border-radius: 6px;
+}
+.eva-cv-mermaid {
+  min-width: 0;
+  max-height: 220px;
+  overflow: auto;
+}
+.eva-cv-mermaid[data-state='loading'] {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--eva-c-foreground) 4%, transparent);
+  font-size: 11px;
+  color: var(--eva-c-muted-foreground);
+}
+.eva-cv-mermaid-svg {
+  display: flex;
+  justify-content: center;
+}
+.eva-cv-mermaid-svg svg {
+  max-width: 100%;
+  max-height: 216px;
+  height: auto;
+}
+.eva-cv-explainer-why {
+  margin-top: var(--mantine-spacing-xs);
+  border-radius: 8px;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  background: color-mix(in srgb, var(--cv-tint) 12%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--cv-tint) 28%, transparent);
+  user-select: text;
+  cursor: text;
+}
+.eva-cv-explainer-why-label {
+  margin-bottom: 0;
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: var(--eva-fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--cv-tint) 80%, var(--eva-c-foreground));
 }
 
 /* A live OpenUI widget: a quiet title, then the widget, scrolling inside when resized smaller. */

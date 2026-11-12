@@ -983,6 +983,10 @@ export const agentActions = {
         h: z.number().min(20).max(4000).optional(),
         near: CardRef.optional(),
         parent: CardRef.optional(),
+        /** Link from this card to the new one and place the new one after it, by the graph. */
+        from: CardRef.optional(),
+        /** The label of the `from` link. */
+        label: z.string().max(200).optional(),
         caption: Caption,
         scope,
       })
@@ -1050,7 +1054,7 @@ export const agentActions = {
         from: CardRef,
         to: CardRef,
         label: z.string().max(200).optional(),
-        tone: z.enum(['accent', 'proposed']).optional(),
+        tone: z.enum(['accent', 'proposed', 'loop']).optional(),
         caption: Caption,
         scope,
       })
@@ -1137,6 +1141,69 @@ export const agentActions = {
       .refine((v) => (v.node === undefined) !== (v.dx === undefined && v.dy === undefined), {
         message: 'Give dx/dy or node',
       }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.layout': {
+    title: 'Lay a board out',
+    description: `Arranges the cards for you with ELK: measures the cards as drawn, places them, routes every link orthogonally from the right sides (\`direction\` right, the default: handles right/left; down: bottom/top), marks return links as loop-backs, and glides the cards to their new spots as ONE undo step. \`algorithm\`: \`layered\` (flows, default), \`grid\` (moodboards, \`columns\`), \`radial\` or \`mrtree\` (maps, trees). \`spacing\` is the gap between cards in board px (default 56). \`keepPinned\` (default true) leaves cards Isaac moved where they are. Without \`frame\` or \`nodes\` the whole board is laid out; \`frame\` lays out that frame's children, \`nodes\` just those cards (a frame id brings its children). Frames marked \`variant: lane\` are laid out as rows (or columns, with \`direction: down\`) of phases. Add cards and links WITHOUT x/y, then call this once. Answers moved, kept, algorithm. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        algorithm: z.enum(['layered', 'grid', 'radial', 'mrtree']).optional(),
+        direction: z.enum(['right', 'down']).optional(),
+        spacing: z.number().min(8).max(400).optional(),
+        columns: z.number().int().min(1).max(24).optional(),
+        keepPinned: z.boolean().optional(),
+        frame: CardRef.optional(),
+        nodes: z.array(CardRef).min(1).max(500).optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict()
+      .refine((v) => v.frame === undefined || v.nodes === undefined, {
+        message: 'Give frame or nodes, not both',
+      }),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.align': {
+    title: 'Align cards on a board',
+    description: `Lines up cards \`nodes\` (two or more) on one edge or center: \`left\`, \`right\`, \`top\`, \`bottom\`, \`center\` (vertical line through the middles) or \`middle\` (horizontal line). Glides them there as one undo step. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        nodes: z.array(CardRef).min(2).max(500),
+        to: z.enum(['left', 'right', 'top', 'bottom', 'center', 'middle']),
+        caption: Caption,
+        scope,
+      })
+      .strict(),
+    side: 'main',
+    focus: 'none',
+    destructive: false,
+    scoped: true,
+  },
+  'canvas.distribute': {
+    title: 'Distribute cards on a board',
+    description: `Spreads cards \`nodes\` (three or more) along \`axis\` (\`horizontal\` or \`vertical\`) with equal gaps between them, keeping the two outermost where they are, or with \`gap\` board px between them from the first. Glides them there as one undo step. ${CANVAS_RULES}`,
+    params: z
+      .object({
+        slug: CanvasSlugSchema,
+        page: CanvasPageIdSchema.optional(),
+        nodes: z.array(CardRef).min(3).max(500),
+        axis: z.enum(['horizontal', 'vertical']),
+        gap: z.number().min(0).max(1000).optional(),
+        caption: Caption,
+        scope,
+      })
+      .strict(),
     side: 'main',
     focus: 'none',
     destructive: false,

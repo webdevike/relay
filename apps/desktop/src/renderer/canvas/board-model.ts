@@ -5,6 +5,12 @@
  */
 import type { CanvasEdge, CanvasLayout, CanvasNode, CanvasNodeKind } from '@evaos/contract'
 import { FRAME_HEADER, FRAME_PAD, place, type LayoutItem, type Point, type Size } from './layout'
+import type {
+  LayoutAlgorithm,
+  LayoutEdge,
+  LayoutNode,
+  LayoutOptions,
+} from '../../shared/canvas-layout/types'
 
 /** Width when the file gives none, in flow units (board.rs Kind::default_width). */
 export function defaultWidth(kind: CanvasNodeKind): number {
@@ -20,6 +26,10 @@ export function defaultWidth(kind: CanvasNodeKind): number {
     case 'suggestion':
     case 'typography':
       return 260
+    case 'step':
+      return 300
+    case 'explainer':
+      return 380
     default:
       return 240
   }
@@ -48,6 +58,27 @@ export function estimateHeight(node: CanvasNode, width: number): number {
       return width * 0.75 + 28 + lines(d.title, 7) * 18 + lines(d.caption, 6) * 16
     case 'link':
       return 64 + lines(d.caption, 6) * 16
+    case 'step': {
+      const perLine = Math.max(10, (44 * (width - 28)) / 272)
+      const body = (d.body ?? '')
+        .split('\n')
+        .reduce((n, l) => (l.trim() === '' ? n : n + Math.ceil(l.length / perLine)), 0)
+      return 64 + body * 18
+    }
+    case 'explainer': {
+      const perLine = Math.max(10, (52 * (width - 28)) / 352)
+      const wrapped = (text: string | undefined): number =>
+        (text ?? '')
+          .split('\n')
+          .reduce((n, l) => (l.trim() === '' ? n : n + Math.ceil(l.length / perLine)), 0)
+      return (
+        56 +
+        wrapped(d.body) * 20 +
+        (d.src !== undefined ? 168 : 0) +
+        (d.mermaid !== undefined ? 228 : 0) +
+        (d.why !== undefined ? 36 + wrapped(d.why) * 20 : 0)
+      )
+    }
     case 'frame':
       return FRAME_DEFAULT_H
     case 'suggestion':
@@ -207,6 +238,77 @@ export function placeUnplaced(args: {
   return { positions, frameSizes }
 }
 
+/** The gap between cards the layout engine leaves (canvas.layout's default too). */
+export const LAYOUT_SPACING = 56
+
+/**
+ * The layout engine's options for a board laid out whole (opened with no positions, Tidy): flow
+ * boards as layered flows left to right, trees as a tree (radial around a topic), grids as grids.
+ */
+export function engineOptions(
+  layout: CanvasLayout,
+  nodes: readonly CanvasNode[],
+  keepPinned: boolean,
+): LayoutOptions {
+  const algorithm: LayoutAlgorithm =
+    layout === 'flow'
+      ? 'layered'
+      : layout === 'grid'
+        ? 'grid'
+        : nodes.some((n) => n.type === 'topic')
+          ? 'radial'
+          : 'mrtree'
+  return { algorithm, direction: 'right', spacing: LAYOUT_SPACING, keepPinned, only: null }
+}
+
+/**
+ * The board as the layout engine takes it: each card at absolute `at` with its drawn size
+ * (`measured`, else the file's or an estimate), its frame, lanes and pins, and every link
+ * between two of its cards.
+ */
+export function engineGraph(
+  nodes: readonly CanvasNode[],
+  edges: ReadonlyArray<{
+    id: string
+    source: string
+    target: string
+    label?: string | undefined
+    tone?: string | undefined
+  }>,
+  at: ReadonlyMap<string, Point>,
+  measured: ReadonlyMap<string, Size>,
+): { nodes: LayoutNode[]; edges: LayoutEdge[] } {
+  const specs = new Map(nodes.map((n) => [n.id, n]))
+  const items = layoutItems(nodes, measured)
+  return {
+    nodes: items.map((item): LayoutNode => {
+      const spec = specs.get(item.id)!
+      const p = at.get(item.id)
+      const parent = item.parent === null ? undefined : specs.get(item.parent)
+      return {
+        id: item.id,
+        w: item.w,
+        h: item.h,
+        ...(p ? { x: p[0], y: p[1] } : {}),
+        ...(parent?.type === 'frame' && parent.id !== item.id ? { parent: parent.id } : {}),
+        ...(item.frame ? { frame: true } : {}),
+        ...(item.frame && spec.data?.variant === 'lane' ? { lane: true } : {}),
+        ...(spec.pinned ? { pinned: true } : {}),
+        ...(item.topic ? { topic: true } : {}),
+      }
+    }),
+    edges: edges
+      .filter((e) => specs.has(e.source) && specs.has(e.target) && e.source !== e.target)
+      .map((e): LayoutEdge => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        ...(e.label === undefined ? {} : { label: e.label }),
+        ...(e.tone === undefined ? {} : { tone: e.tone }),
+      })),
+  }
+}
+
 /** Rust's f32::round: halves away from zero. */
 export function roundHalfAway(v: number): number {
   const r = Math.sign(v) * Math.round(Math.abs(v))
@@ -237,9 +339,12 @@ export function edgeId(from: string, to: string, ids: readonly string[]): string
   return `${base}-${n}`
 }
 
+export const EDGE_TONES = ['accent', 'proposed', 'loop', 'success', 'danger', 'muted'] as const
+export type EdgeTone = (typeof EDGE_TONES)[number]
+
 /** Edge tones a file can name; anything else draws (and saves) as the default. */
-export function edgeTone(tone: string | undefined): 'accent' | 'proposed' | undefined {
-  return tone === 'accent' || tone === 'proposed' ? tone : undefined
+export function edgeTone(tone: string | undefined): EdgeTone | undefined {
+  return EDGE_TONES.find((t) => t === tone)
 }
 
 /** Space around the board when it fits the view (Tidy, the fit button, opening). */
