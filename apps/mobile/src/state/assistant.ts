@@ -4,7 +4,7 @@
  * and whenever the Assistants screen is focused, and pushed again when an agent's status or last
  * reply changes; each entry carries its scope, status and last reply) and each transcript, which it replays on `assistant.get` (asked while that agent's thread is on
  * screen) and after every turn. `pending` is the phone's optimistic echo of a sent turn, shown
- * until a snapshot carries it.
+ * until a snapshot carries it; `state/turns.ts` runs each echo's `turnMachine` and keeps its state here.
  */
 import { create } from "zustand";
 import { untagged, type AssistantAgent, type AssistantPortrait, type AssistantSnapshot, type AssistantStatus } from "@relay/protocol";
@@ -13,6 +13,9 @@ import { portraitOf } from "@/lib/portrait";
 import type { Photo } from "@/lib/photo";
 import { previewText } from "@/agents/markdown";
 import { backgroundOf } from "@/lib/background";
+
+/** Where an echo's turn is (`state/turnMachine.ts`): "Sending", "Sent", or "Not confirmed" with Try again. */
+export type PendingTurnState = "sending" | "sent" | "unconfirmed";
 
 export interface PendingTurn {
   /** The echo row's id, unique per send (the turn's `clientId`). */
@@ -24,8 +27,11 @@ export interface PendingTurn {
   since: number;
   /** Isaac's rows the thread held when the turn was sent, none of which is the turn. */
   before: ReadonlySet<string>;
-  /** The host acked it: it reached the assistant, which takes it as a turn once it is free (a steer waits for the work under way). */
-  acked: boolean;
+  /**
+   * `sent`: the host acked it, so it reached the assistant, which takes it as a turn once it is free
+   * (a steer waits for the work under way). `unconfirmed`: its ack is overdue; it may still land.
+   */
+  state: PendingTurnState;
 }
 
 export interface AssistantThread {
@@ -54,8 +60,8 @@ export interface AssistantStore {
   set: (agent: string, snapshot: AssistantSnapshot) => void;
   /** Echoes a turn sent to `agent`, after any still waiting. */
   addPending: (agent: string, turn: { id: string; text: string; images: Photo[] }) => void;
-  /** The host acked the turn of echo `id`. */
-  ackPending: (agent: string, id: string) => void;
+  /** The turn of echo `id` moved on (`turnMachine`). */
+  setPendingState: (agent: string, id: string, state: PendingTurnState) => void;
   /** Drops echo `id` (its turn was refused, or never shows as a row). */
   dropPending: (agent: string, id: string) => void;
   /** The host acked the credentials for this message of `agent`'s thread. */
@@ -86,7 +92,7 @@ export function settlePending(snapshot: AssistantSnapshot, pending: readonly Pen
       claimed.add(row.id);
       return false;
     }
-    return !(echo.acked && !snapshot.busy && snapshot.messages.some((message) => message.role !== "user" && message.at > echo.since));
+    return !(echo.state === "sent" && !snapshot.busy && snapshot.messages.some((message) => message.role !== "user" && message.at > echo.since));
   });
   if (kept.length === pending.length) return pending;
   // A row that retired an earlier echo is that turn's, never a later one's, in this snapshot or the next.
@@ -100,7 +106,7 @@ export function pendingTurn(snapshot: AssistantSnapshot | null, turn: { id: stri
     ...turn,
     since: messages.reduce((newest, message) => Math.max(newest, message.at), 0),
     before: new Set(messages.filter((message) => message.role === "user").map((message) => message.id)),
-    acked: false,
+    state: "sending",
   };
 }
 
@@ -209,8 +215,9 @@ export const useAssistantStore = create<AssistantStore>((set, get) => {
     addPending: (agent, turn) => {
       update(agent, (thread) => ({ pending: [...thread.pending, pendingTurn(thread.snapshot, turn)] }));
     },
-    ackPending: (agent, id) => {
-      update(agent, (thread) => ({ pending: thread.pending.map((echo) => (echo.id === id ? { ...echo, acked: true } : echo)) }));
+    setPendingState: (agent, id, state) => {
+      if (!threadOf(get(), agent).pending.some((echo) => echo.id === id && echo.state !== state)) return;
+      update(agent, (thread) => ({ pending: thread.pending.map((echo) => (echo.id === id ? { ...echo, state } : echo)) }));
     },
     dropPending: (agent, id) => {
       update(agent, (thread) => ({ pending: thread.pending.filter((echo) => echo.id !== id) }));

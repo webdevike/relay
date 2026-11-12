@@ -35,6 +35,7 @@ import { Banner } from "@/ui/Banner";
 import { Callout } from "@/ui/Callout";
 import { EmptyState } from "@/ui/EmptyState";
 import { IconButton } from "@/ui/IconButton";
+import { Chip } from "@/ui/Chip";
 import { SignInCard } from "@/ui/SignInCard";
 import { RoomCardRow } from "@/rooms/RoomCardRow";
 import { Text } from "@/ui/Text";
@@ -63,12 +64,12 @@ import { BubbleMenuProvider, ChatBubble } from "@/agents/BubbleMenu";
 import { quoteIntoDraft } from "@/lib/bubbleMenu";
 import { bubbleReactionKey } from "@/lib/reactions";
 import { radii, spacing, useColors, useScheme } from "@/theme";
-import { agentPortrait, agentTitle, threadOf, useAssistantStore } from "@/state/assistant";
+import { agentPortrait, agentTitle, threadOf, useAssistantStore, type PendingTurnState } from "@/state/assistant";
 import { useMotionSignals } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
 import { requestAgentOptions, requestAssistant, sendCommand, stopAssistant, subscribeAgent, unsubscribeAgent, watchArtifacts } from "@/connection";
 import { warn } from "@/connection/log";
-import { CommandError } from "@/connection/commands";
+import { dismissTurn, newClientId, retryTurn, startTurn, type TurnStart } from "@/state/turns";
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
 import { photoOfImage } from "@/lib/clipboard";
@@ -105,6 +106,8 @@ import { useTurnBookmarks } from "@/turns/useTurnBookmarks";
 
 /** Prefix of the rows echoing sent turns before the host's snapshot lists them (then the echo's id). */
 const PENDING_ID = "pending-turn:";
+/** The receipt under an echo, by its turn's state (`state/turn.machine.ts`). */
+const ECHO_RECEIPT: Record<PendingTurnState, string> = { sending: "Sending", sent: "Sent", unconfirmed: "Not confirmed" };
 /** The header's one row: back, identity and buttons, under the status bar. */
 const HEADER_ROW = 44;
 /** The header's round glyph buttons. */
@@ -149,8 +152,6 @@ const PAGE = 40;
 const WINDOW_SCREENS = 5;
 /** Rows of the thread the host sends at a time (`assistant.get` `rows`): the list's held rows rounded up a step, plus one. */
 const ASSISTANT_ROWS_STEP = 200;
-/** How long an acked turn's echo stays while the thread sits idle without a row of Isaac's for it (a slash command leaves none). */
-const ACKED_ECHO_MS = 30_000;
 
 /** Keyed by agent, so moving to another agent's thread (a notification tap) starts with a fresh composer. */
 export default function Eva() {
@@ -286,31 +287,30 @@ function Thread({ agent }: { agent: string }) {
     setPhotos((current) => [...current, photoOfImage(image)].slice(0, MAX_REPLY_IMAGES));
   });
 
-  // `clientId`s of turns whose fate is unknown (sent, then timed out unheard), by their words. Sending
-  // the same words again reuses the id, so the host, which may have delivered it after all, lands it once.
-  const unconfirmed = useRef(new Map<string, string>());
-
   /**
    * Sends a turn: the composer's words and photos, or a tapped reply chip's label. Either shows the
    * pending echo at once; a refusal clears it and says why. Only a composer send empties the draft
-   * and photos, and gets them back on failure; a chip leaves the draft alone and shows again.
+   * and photos, and gets them back on a refusal; a chip leaves the draft alone and shows again.
    * The same turn tapped again while its echo shows sends nothing: while the JS thread is busy taps
-   * queue up and each runs before the screen redraws, so this reads the store (`trackTurn` adds the
-   * echo there synchronously), not the rendered draft.
+   * queue up and each runs before the screen redraws, so this reads the store (`startTurn` adds the
+   * echo there synchronously), not the rendered draft. Its echo Not confirmed, the same words again
+   * are its Try again: the same `clientId`, which the host lands once.
    */
   const sendTurn = (words: string, sent: Photo[], fromComposer: boolean): void => {
-    if (threadOf(useAssistantStore.getState(), agent).pending.some((echo) => echo.text === words && echo.images.length === sent.length)) return;
-    const clientId = unconfirmed.current.get(words) ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-    unconfirmed.current.delete(words);
+    const same = threadOf(useAssistantStore.getState(), agent).pending.find((echo) => echo.text === words && echo.images.length === sent.length);
+    if (same !== undefined && same.state !== "unconfirmed") return;
     if (fromComposer) {
       setDraft("");
       setPhotos([]);
     }
-    const delivery = sendCommand({ kind: "assistant.turn", agent, text: words, clientId, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) });
-    trackTurn(clientId, words, sent, delivery, (error) => {
-      // Only a timeout leaves the turn's fate unknown; an ack or a refusal settles it, so the same words later are a new turn.
-      if (error instanceof CommandError && error.code === "timeout") unconfirmed.current.set(words, clientId);
-      // The words and pictures come back to the composer, so a lost connection never eats a message.
+    if (same !== undefined) {
+      retryTurn(agent, same.id);
+      return;
+    }
+    const clientId = newClientId();
+    const command = { kind: "assistant.turn" as const, agent, text: words, clientId, ...(sent.length > 0 ? { images: sent.map((photo) => photo.image) } : {}) };
+    trackTurn(clientId, words, sent, sendCommand(command), command, (error) => {
+      // Refused, or it never got out: the words and pictures come back to the composer, so a lost connection never eats a message.
       if (fromComposer) {
         setDraft((current) => (current === "" ? words : current));
         setPhotos((current) => (current.length === 0 ? sent : current));
@@ -320,34 +320,33 @@ function Thread({ agent }: { agent: string }) {
   };
 
   /**
-   * Shows a turn in flight as echo `id`, marked sent once acked; a refusal drops it, marks the
-   * portrait and hands the error to `fail`. An acked turn that never shows as a row of Isaac's
-   * (a slash command, one omp drops) goes once the thread has sat idle for `ACKED_ECHO_MS`.
+   * Shows a turn in flight as echo `clientId` (`state/turns.ts`): Sending, Sent once acked, and Not
+   * confirmed with Try again once its ack is overdue (it may still land, so the words stay in the
+   * bubble, never back in the composer). A refusal drops it, marks the portrait and hands the error
+   * to `fail`.
    */
-  const trackTurn = (id: string, words: string, sent: Photo[], delivery: Promise<void>, fail: (error: unknown) => void): void => {
+  const trackTurn = (clientId: string, words: string, sent: Photo[], delivery: Promise<void>, command: TurnStart["command"], fail: (error: unknown) => void): void => {
     setFailure(null);
     setTurnFailed(false);
-    const store = useAssistantStore.getState();
-    store.addPending(agent, { id, text: words, images: sent });
-    delivery.then(
-      () => {
-        store.ackPending(agent, id);
-        setTimeout(() => {
-          if (threadOf(useAssistantStore.getState(), agent).snapshot?.busy !== true) useAssistantStore.getState().dropPending(agent, id);
-        }, ACKED_ECHO_MS);
-      },
-      (error: unknown) => {
+    startTurn({
+      agent,
+      clientId,
+      text: words,
+      images: sent,
+      delivery,
+      command,
+      onRefused: (error) => {
         notifyHaptic("error");
         setTurnFailed(true);
-        store.dropPending(agent, id);
         fail(error);
       },
-    );
+    });
   };
 
-  // Hold-to-talk delivers what was heard as Isaac's next turn, to this thread; a tap dictation
-  // borrows the target for the composer's field and points it back here when it ends. The title is
-  // read when an error shows, so its arrival (`assistant.agents`) never re-points the target mid-dictation.
+  // Hold-to-talk delivers what was heard as Isaac's next turn, to this thread, for as long as the
+  // thread has focus; leaving releases only this thread's entry, so the next screen's focus may land
+  // first. A tap dictation lands in the composer from the dictation machine and never touches it.
+  // The title is read when an error shows, so its arrival (`assistant.agents`) never re-runs this.
   const titleRef = useRef(title);
   titleRef.current = title;
   const trackTurnRef = useRef(trackTurn);
@@ -357,7 +356,7 @@ function Thread({ agent }: { agent: string }) {
       kind: "assistant",
       agent,
       onTurn: (words, delivery) => {
-        trackTurnRef.current(`dictation-${Date.now().toString(36)}`, words, [], delivery, (error) => {
+        trackTurnRef.current(`dictation-${Date.now().toString(36)}`, words, [], delivery, null, (error) => {
           setFailure(error instanceof Error && error.message !== "" ? error.message : `Couldn't reach ${titleRef.current}.`);
         });
       },
@@ -491,10 +490,11 @@ function Thread({ agent }: { agent: string }) {
 
   // Only the newest message Isaac typed carries a receipt: Sending while its echo waits on the host's
   // ack, Sent once the host has it (a turn sent while the assistant works waits there until it is
-  // free), Seen once the host's snapshot lists it.
+  // free), Seen once the host's snapshot lists it. Any echo whose ack is overdue says Not confirmed,
+  // with Try again (the same turn, the same `clientId`) and an x for one that will never land.
   const latestUserId = newestFirst.find((message) => message.role === "user" && backgroundOf(message) === null)?.id ?? null;
   const latestEcho = latestUserId?.startsWith(PENDING_ID) === true ? pending.find((echo) => `${PENDING_ID}${echo.id}` === latestUserId) : undefined;
-  const receipt = latestUserId === null ? null : latestEcho !== undefined ? (latestEcho.acked ? "Sent" : "Sending") : "Seen";
+  const receipt = latestUserId === null ? null : latestEcho !== undefined ? ECHO_RECEIPT[latestEcho.state] : "Seen";
 
   const dark = useScheme() === "dark";
   const bg = dark ? BG_DARK : colors.bg;
@@ -631,6 +631,11 @@ function Thread({ agent }: { agent: string }) {
   const onOpenImages = useCallback((uris: string[], start: number) => {
     setViewing({ uris, start });
   }, []);
+  const onEcho = useCallback((messageId: string, action: "retry" | "dismiss") => {
+    const clientId = messageId.slice(PENDING_ID.length);
+    if (action === "retry") retryTurn(agent, clientId);
+    else dismissTurn(agent, clientId);
+  }, [agent]);
 
   /** Reply from a bubble's menu: its text quoted above the cursor's line, then the composer focused there. */
   const replyWith = (quoted: string): void => {
@@ -669,6 +674,7 @@ function Thread({ agent }: { agent: string }) {
                 extraData={`${latestUserId ?? ""}|${receipt ?? ""}|${String(connected)}|${rung.id}:${String(rung.n)}|${[...waitingIds].join(",")}`}
                 renderItem={({ item, index }) => {
                   const card = cardByRow.get(item.id);
+                  const echo = item.id.startsWith(PENDING_ID) ? pending.find((entry) => `${PENDING_ID}${entry.id}` === item.id) : undefined;
                   return (
                     // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
                     <MessageAppearance animate={enteringMessages.has(item.id)} user={senderOf(item) === "user"} gap={gapAbove(item, newestFirst[index + 1])}>
@@ -692,16 +698,17 @@ function Thread({ agent }: { agent: string }) {
                           <Row
                             agent={agent}
                             message={item}
-                            receipt={item.id === latestUserId ? receipt : null}
+                            receipt={echo?.state === "unconfirmed" ? ECHO_RECEIPT.unconfirmed : item.id === latestUserId ? receipt : null}
                             streaming={busy && item === newestSettled && item.role === "assistant"}
                             sessionId={sessionId}
-                            local={item.id.startsWith(PENDING_ID) ? pending.find((echo) => `${PENDING_ID}${echo.id}` === item.id)?.images : undefined}
+                            local={echo?.images}
                             replies={item === newestSettled ? replies : connected ? (openAsks?.find((entry) => entry.messageId === item.id && waitingIds.has(item.id))?.replies ?? null) : null}
                             waiting={waitingIds.has(item.id)}
                             pulse={rung.id === item.id ? rung.n : 0}
                             onReply={onRowReply}
                             onOpenImages={onOpenImages}
                             onSignIn={openSignIn}
+                            onEcho={echo?.state === "unconfirmed" ? onEcho : null}
                           />
                         </LocalRowFrame>
                       )}
@@ -982,6 +989,8 @@ interface RowProps {
   waiting: boolean;
   /** Rings the bubble when it grows (`WaitingMark`); 0 until a badge was tapped. */
   pulse: number;
+  /** The echo's ack is overdue: Try again or take it away. Null for every other row. */
+  onEcho: ((messageId: string, action: "retry" | "dismiss") => void) | null;
 }
 
 /**
@@ -1002,7 +1011,7 @@ function ThreadRunning({ agent, thread, sessionId, onOpenSession, onOpenWorking 
   );
 }
 
-function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply, waiting, pulse }: RowProps) {
+function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenImages, onSignIn, replies, onReply, waiting, pulse, onEcho }: RowProps) {
   const signedIn = useAssistantStore((state) => threadOf(state, agent).signedIn[message.id] === true);
   const guests = useAssistantStore((state) => state.guests);
   const colors = useColors();
@@ -1065,10 +1074,32 @@ function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenI
               </View>
             </ChatBubble>
           )}
-          {receipt !== null && (
+          {receipt !== null && onEcho === null && (
             <Text variant="label" color="textMuted" style={styles.receipt}>
               {receipt}
             </Text>
+          )}
+          {receipt !== null && onEcho !== null && (
+            <View style={styles.unconfirmed}>
+              <Text variant="label" color="textMuted">
+                {receipt}
+              </Text>
+              <Chip
+                label="Try again"
+                accessibilityHint="Sends the same message again; it lands once"
+                onPress={() => {
+                  onEcho(message.id, "retry");
+                }}
+              />
+              <IconButton
+                symbol="xmark"
+                size={28}
+                accessibilityLabel="Remove unconfirmed message"
+                onPress={() => {
+                  onEcho(message.id, "dismiss");
+                }}
+              />
+            </View>
           )}
         </View>
       );
@@ -1193,6 +1224,7 @@ const styles = StyleSheet.create({
   userBubble: { borderRadius: USER_RADIUS, paddingVertical: 11, paddingHorizontal: 17 },
   userText: { fontSize: 17, lineHeight: 23, color: "#FFFFFF" },
   receipt: { marginTop: spacing.xs, marginRight: spacing.lg, fontSize: 13, lineHeight: 18, fontWeight: "400" },
+  unconfirmed: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.xs, marginRight: spacing.lg },
   evaRow: { paddingHorizontal: spacing.lg },
   tiles: { alignItems: "flex-start" },
   tilesAboveCaption: { marginBottom: GAP_RUN },

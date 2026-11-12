@@ -107,7 +107,7 @@ describe("assistant.snapshot", () => {
     expect(thread("nova").snapshot?.messages.map((m) => m.text)).toEqual(["groceries"]);
 
     useAssistantStore.getState().addPending("nova", { id: "t1", text: "and milk", images: [] });
-    expect(thread("nova").pending).toMatchObject([{ id: "t1", text: "and milk", images: [], since: 1000, acked: false }]);
+    expect(thread("nova").pending).toMatchObject([{ id: "t1", text: "and milk", images: [], since: 1000, state: "sending" }]);
     expect([...(thread("nova").pending[0]?.before ?? [])]).toEqual(["m0"]);
     expect(thread("astra").pending).toEqual([]);
     // Astra moving on does not retire Nova's echo.
@@ -193,8 +193,8 @@ describe("assistant.snapshot", () => {
     // Not acked yet: a newer reply alone does not retire it.
     route({ t: "assistant.snapshot", agent: "astra", snapshot: withReply(2, false) });
     expect(thread("astra").pending.map((echo) => echo.id)).toEqual(["a"]);
-    useAssistantStore.getState().ackPending("astra", "a");
-    expect(thread("astra").pending[0]?.acked).toBe(true);
+    useAssistantStore.getState().setPendingState("astra", "a", "sent");
+    expect(thread("astra").pending[0]?.state).toBe("sent");
     // Acked, but the thread still works: it stays.
     route({ t: "assistant.snapshot", agent: "astra", snapshot: withReply(3, true) });
     expect(thread("astra").pending.map((echo) => echo.id)).toEqual(["a"]);
