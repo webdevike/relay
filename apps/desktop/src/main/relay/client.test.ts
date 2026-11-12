@@ -473,6 +473,36 @@ describe('RelayClient', () => {
     client.stop()
   })
 
+  it('asks a host that keeps dismissed cards for them on connect, keeps its set and sends changes; an older host hears nothing', async () => {
+    const { client, relay } = connected()
+    const heard = vi.fn()
+    client.onCards(heard)
+    client.start()
+    await vi.advanceTimersByTimeAsync(0)
+    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
+    expect(client.cardsUp()).toBe(false)
+    expect(relay.frames().filter((f) => f.t === 'cards.get')).toEqual([])
+    expect(client.dismissCard('a', true)).toBe(false)
+    expect(client.dismissedCards()).toBeNull()
+    relay.handlers.at(-1)!.closed(CLOSED)
+    await vi.advanceTimersByTimeAsync(3000)
+
+    relay.say({
+      t: 'welcome',
+      state: { agents: { rev: 1, sessions: [] } },
+      features: ['cards.dismissed'],
+    })
+    expect(client.cardsUp()).toBe(true)
+    expect(relay.frames().filter((f) => f.t === 'cards.get')).toEqual([{ t: 'cards.get' }])
+    expect(client.dismissedCards()).toBeNull()
+    expect(client.dismissCard('card-1', true)).toBe(true)
+    expect(relay.frames().at(-1)).toEqual({ t: 'card.dismiss', id: 'card-1', on: true })
+    relay.say({ t: 'cards.dismissed', ids: ['card-1', 7, 'x#running'] })
+    expect(client.dismissedCards()).toEqual(['card-1', 'x#running'])
+    expect(heard).toHaveBeenCalledTimes(1)
+    client.stop()
+  })
+
   it('reports a render failure only to a host with "render.report", cut to its limits', async () => {
     const { client, relay } = connected()
     const failure = {

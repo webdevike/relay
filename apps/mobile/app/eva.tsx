@@ -106,6 +106,7 @@ import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
 import { assistantTurnRows } from "@/turns/rows";
 import { useTurnBookmarks } from "@/turns/useTurnBookmarks";
 import { MeetingCards } from "@/meetings/MeetingCardRow";
+import { CardUndoToast } from "@/ui/CardUndoToast";
 
 /** Prefix of the rows echoing sent turns before the host's snapshot lists them (then the echo's id). */
 const PENDING_ID = "pending-turn:";
@@ -797,6 +798,8 @@ function Thread({ agent }: { agent: string }) {
             the desktop rail; `@/pins/PinnedRow` is kept for when it comes back. */}
         {/* Floats over the list at the safe-area bottom and rides on the keyboard; the list pads itself by its height. */}
         <Animated.View pointerEvents="box-none" style={[styles.composer, composerLiftStyle]}>
+          {/* The Undo offer after a status card was dismissed; it outlives the card. */}
+          <CardUndoToast />
           <View onLayout={onStackLayout}>
             {/* A meeting routed to this assistant: one row each, live first; a tap opens the meeting full screen. */}
             <MeetingCards agent={agent} />
@@ -1110,7 +1113,7 @@ function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenI
                 <SignInCard
                   host={signin.host}
                   submitted={signin.submitted === true || signedIn}
-                  fill={bubbleFill}
+                  id={`signin:${agent}:${message.id}`}
                   onPress={() => {
                     onSignIn(message.id, signin);
                   }}
@@ -1174,7 +1177,7 @@ function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenI
       return (
         <View style={styles.evaRow}>
           {message.canvas !== undefined ? (
-            <CanvasEntryRow entry={message.canvas} origin={`/eva?agent=${encodeURIComponent(agent)}`} />
+            <CanvasEntryRow entry={message.canvas} messageId={message.id} origin={`/eva?agent=${encodeURIComponent(agent)}`} />
           ) : (
             <View style={[styles.card, { borderColor: colors.hairline }]}>
               {message.title !== undefined && message.title !== "" && <Text variant="label">{message.title}</Text>}

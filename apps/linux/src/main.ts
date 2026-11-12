@@ -84,6 +84,7 @@ import { defaultFeedDir, FeedService } from "./feed/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService, replyReactionsFromEnv } from "./reactions/service";
 import { defaultRenderFailuresPath, RenderFailureService } from "./render-failures/service";
 import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
+import { DismissedCardService, defaultDismissedCardsPath } from "./cards/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { ActivityService } from "./activity/service";
 import { CalibrationLog } from "./eta/calibration";
@@ -663,6 +664,13 @@ function serve(
     },
     log,
   });
+  const dismissedCards = new DismissedCardService({
+    path: defaultDismissedCardsPath(),
+    broadcast: (message): void => {
+      server.broadcastExcept(message, null);
+    },
+    log,
+  });
   const repos = new Map<string, string | null>();
   let activity: ActivityService | null = null;
   const artifacts = new ArtifactService({
@@ -947,6 +955,7 @@ function serve(
       feed,
       reactions,
       bookmarks,
+      dismissedCards,
       artifacts,
       activity,
       canvas,

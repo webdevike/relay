@@ -11,6 +11,7 @@ import {
   encode,
   parseServerMessage,
   BOOKMARKS_FEATURE,
+  CARDS_DISMISSED_FEATURE,
   ROOMS_CHAT_FEATURE,
   ROOMS_FEATURE,
   reactionExcerpt,
@@ -44,6 +45,7 @@ import { useFeedStore } from "@/state/feed";
 import { useAssistantStore } from "@/state/assistant";
 import { useReactionsStore } from "@/state/reactions";
 import { isTurnKey, useBookmarksStore } from "@/state/bookmarks";
+import { useDismissedCardsStore } from "@/state/dismissedCards";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useCanvasStore } from "@/state/canvas";
 import { useStudioStore } from "@/state/studio";
@@ -70,6 +72,7 @@ import { createFeedFrameRouter } from "./feed";
 import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
 import { createBookmarkFrameRouter } from "./bookmarks";
+import { createDismissedCardFrameRouter } from "./dismissedCards";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import { createStudioFrameRouter, PendingStudio } from "./studio";
 import { createRoomsFrameRouter, PendingRooms, refusedRequest } from "./rooms";
@@ -171,6 +174,9 @@ const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState(
 const routeBookmarkFrame = createBookmarkFrameRouter(useBookmarksStore.getState(), (thread, key) => {
   socket.send(encode({ t: "bookmark.set", thread, message: key, on: true }));
 });
+const routeDismissedCardFrame = createDismissedCardFrameRouter(useDismissedCardsStore.getState(), (id) => {
+  socket.send(encode({ t: "card.dismiss", id, on: true }));
+});
 const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(), pendingActs);
 const routeCanvasFrame = createCanvasFrameRouter(useCanvasStore.getState(), () => hostAuthority);
 const routeStudioFrame = createStudioFrameRouter(useStudioStore.getState(), pendingStudio);
@@ -235,6 +241,8 @@ function connectionLost(epoch: number): void {
   useBoardsStore.getState().setQueries(false);
   // ... and whether it keeps bookmarks; what it last said stays shown, but nothing can be sent.
   useBookmarksStore.getState().setHostUp(false);
+  // ... and whether it keeps dismissed cards; the set it last sent stays in force, but nothing can be sent.
+  useDismissedCardsStore.getState().clearHost();
   pendingQueries.cancelAll();
   // A room command sent on this socket is answered on it or not at all.
   pendingRooms.cancelAll();
@@ -323,6 +331,8 @@ function handleFrame(data: string): void {
       if (message.features?.includes(BOOKMARKS_FEATURE) === true)
         socket.send(encode({ t: "bookmarks.get", thread }));
     }
+    // Cards dismissed on the desktop (or another phone) while away.
+    if (message.features?.includes(CARDS_DISMISSED_FEATURE) === true) socket.send(encode({ t: "cards.get" }));
     for (const thread of artifactThreads.keys())
       socket.send(encode({ t: "artifacts.get", thread }));
     // Live canvas rooms come and go while away, and a restarted host counts revs from zero again and
@@ -358,6 +368,7 @@ function handleFrame(data: string): void {
   routeFeedFrame(message);
   routeReactionFrame(message);
   routeBookmarkFrame(message);
+  routeDismissedCardFrame(message);
   routeArtifactFrame(message);
   routeCanvasFrame(message);
   routeStudioFrame(message);
@@ -559,6 +570,7 @@ async function retarget(id: string | null): Promise<void> {
   useFeedStore.getState().set(null);
   useReactionsStore.getState().clear();
   useBookmarksStore.getState().clearHost();
+  useDismissedCardsStore.getState().clearHost();
   useArtifactsStore.getState().clear();
   useCanvasStore.getState().clear();
   useStudioStore.getState().clear();
@@ -822,6 +834,17 @@ export function toggleTurnBookmark(thread: string, key: string): boolean {
   store.setHostLocal(thread, key, on);
   socket.send(encode({ t: "bookmark.set", thread, message: key, on }));
   return true;
+}
+
+/**
+ * Dismisses (`on`) or restores (the undo) status card entry `key` (`lib/dismissedCards.ts`): shown
+ * at once, and sent to the host when it keeps the set and has answered with it, so Relay desktop
+ * agrees. Otherwise it is kept on this phone and goes up with the host's next set.
+ */
+export function setCardDismissed(key: string, on: boolean): void {
+  const store = useDismissedCardsStore.getState();
+  store.apply(key, on);
+  if (store.synced && useConnectionStore.getState().status === "connected") socket.send(encode({ t: "card.dismiss", id: key, on }));
 }
 
 /**

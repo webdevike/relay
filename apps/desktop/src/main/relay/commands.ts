@@ -207,6 +207,16 @@ export function bookmarkFrame(
   return { t: 'bookmark.set', thread, message, on }
 }
 
+/** Asks for the dismissed status cards; Relay answers with `cards.dismissed`. Only for a host with the "cards.dismissed" feature. */
+export function cardsGetFrame(): Record<string, unknown> {
+  return { t: 'cards.get' }
+}
+
+/** Dismisses (`on`) or brings back status card `id`. */
+export function cardDismissFrame(id: string, on: boolean): Record<string, unknown> {
+  return { t: 'card.dismiss', id, on }
+}
+
 /** A render failure as the renderer reports it (`render.failed` IPC input). */
 export interface RenderFailureReport {
   thread: string

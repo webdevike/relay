@@ -1296,6 +1296,32 @@ export const ThreadBookmarks = z.array(ReactionKey).max(MAX_BOOKMARKS);
 export type ThreadBookmarks = z.infer<typeof ThreadBookmarks>;
 
 // ---------------------------------------------------------------------------------------------
+// Dismissed status cards: the one-row cards above a chat's composer (browser work, canvas Join and
+// wrap-up, meeting, sign-in, room ready, session work) that Isaac closed. A card's id is the
+// client's stable name for it (`canvas:<message id>`, `work:<work id>`, `meeting:<recording id>`,
+// `room:<id>:ready`, `signin:<agent>:<message id>`); an id ending in DISMISSED_RUNNING_SUFFIX hides
+// the card only while its work runs and lapses when it finishes. The host keeps one set for every
+// device (`card.dismiss`), persists it, and pushes the whole `cards.dismissed` set to every device
+// on each change. Only sent to a host whose `welcome.features` has CARDS_DISMISSED_FEATURE; older
+// hosts ignore the frames and clients keep the set on the device.
+// ---------------------------------------------------------------------------------------------
+
+export const CARDS_DISMISSED_FEATURE = "cards.dismissed";
+
+/** Most dismissed card ids kept; the oldest go first. */
+export const MAX_DISMISSED_CARDS = 500;
+
+/** Appended to a card's id when it was dismissed while its work still ran: hidden only until it finishes. */
+export const DISMISSED_RUNNING_SUFFIX = "#running";
+
+export const DismissedCardId = z.string().min(1).max(200);
+export type DismissedCardId = z.infer<typeof DismissedCardId>;
+
+/** Every dismissed card id, oldest first. */
+export const DismissedCards = z.array(DismissedCardId).max(MAX_DISMISSED_CARDS);
+export type DismissedCards = z.infer<typeof DismissedCards>;
+
+// ---------------------------------------------------------------------------------------------
 // Render failures: a chat bubble's media (a markdown image/video/audio, an OpenUI Image, Gallery,
 // Compare, Video, Audio or Model) that failed to load or render on a device. Agents can't see the
 // client, so Relay desktop and the phone report each failure once per bubble and src
@@ -1836,6 +1862,10 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("bookmarks.get"), thread: ReactionThread }),
   /** Bookmark (`on`) or unbookmark the turn that starts at bubble `message` of `thread`. Every device gets the new `bookmarks.snapshot`; no change re-sends it to the sender only. */
   z.object({ t: z.literal("bookmark.set"), thread: ReactionThread, message: ReactionKey, on: z.boolean() }),
+  /** Ask for the dismissed status cards; answered by `cards.dismissed`. Only sent to a host whose `welcome.features` has CARDS_DISMISSED_FEATURE. */
+  z.object({ t: z.literal("cards.get") }),
+  /** Dismiss (`on`) or restore (undo) status card `id`. Every device gets the new `cards.dismissed`; no change re-sends it to the sender only. */
+  z.object({ t: z.literal("card.dismiss"), id: DismissedCardId, on: z.boolean() }),
   /**
    * React `emoji` to bubble `message` (its `reactionKey`) of `thread`, replacing any reaction it had.
    * `excerpt` is `reactionExcerpt` of its text. Every device gets the thread's new `reactions.snapshot`;
@@ -2099,6 +2129,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   }),
   /** A thread's bookmarked turns: the answer to `bookmarks.get`, and pushed to every device when they change. */
   z.object({ t: z.literal("bookmarks.snapshot"), thread: ReactionThread, messages: ThreadBookmarks }),
+  /** Every dismissed status card id: the answer to `cards.get`, and pushed to every device when the set changes. */
+  z.object({ t: z.literal("cards.dismissed"), ids: DismissedCards }),
   /** A thread's artifacts and tab bar: the answer to `artifacts.get`, and pushed to every device when they change. */
   z.object({
     t: z.literal("artifacts.snapshot"),

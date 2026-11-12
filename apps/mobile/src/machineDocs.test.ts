@@ -22,6 +22,7 @@ import { audioOwnerMachine } from "./dictation/audioOwner.machine";
 import { targetStackMachine } from "./dictation/targetStack.machine";
 import { sessionMachine } from "./connection/session.machine";
 import { legacyCallMachine } from "./call/legacyCall.machine";
+import { cardUndoMachine } from "./ui/cardUndo.machine";
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   { file: "dictation", title: "Dictation (hold-to-talk and tap runs)", machine: dictationMachine },
@@ -37,6 +38,7 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
   { file: "dictation-targets", title: "Dictation target owner stack", machine: targetStackMachine },
   { file: "session", title: "Connection session (discovery, pairing, heartbeat, backoff, background)", machine: sessionMachine },
   { file: "legacy-call", title: "Legacy voice call (host speech over the app socket)", machine: legacyCallMachine },
+  { file: "card-undo", title: "Undo toast after dismissing a status card", machine: cardUndoMachine },
 ];
 
 const DOCS = fileURLToPath(new URL("../../../docs/state-machines/", import.meta.url));

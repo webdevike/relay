@@ -133,7 +133,7 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending, thread }:
   if (message.canvas !== undefined) {
     return (
       <View style={{ paddingHorizontal: spacing.lg }}>
-        <CanvasEntryRow entry={message.canvas} origin={`/agents?sessionId=${encodeURIComponent(sessionId)}`} />
+        <CanvasEntryRow entry={message.canvas} messageId={message.id} origin={`/agents?sessionId=${encodeURIComponent(sessionId)}`} />
       </View>
     );
   }

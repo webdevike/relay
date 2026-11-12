@@ -11,6 +11,7 @@ import { startRelay } from '../relay'
 import { awaySignature } from '../relay/away'
 import { registerBoardsIpc } from '../relay/boards-ipc'
 import { registerReactionsIpc } from '../relay/reactions-ipc'
+import { registerCardsIpc } from '../relay/cards-ipc'
 import { registerRenderIpc } from '../relay/render-ipc'
 import { registerAsksIpc } from '../relay/asks-ipc'
 import { registerSigninIpc } from '../relay/signin-ipc'
@@ -198,6 +199,8 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const offBoards = registerBoardsIpc(ctx, relay)
   // Tapbacks on the bubbles of the chats shown, as Relay keeps them for every device.
   const offReactions = registerReactionsIpc(ctx, relay)
+  // The dismissed status cards, one set the phone and this app share through the host.
+  const offCards = registerCardsIpc(ctx, relay)
   // Media that failed to show in a bubble, told to the host so the agent reposts it.
   registerRenderIpc(ctx, relay)
   // The open questions of the assistant threads shown (the phone's badges), as the host keeps them.
@@ -257,6 +260,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     offRelay()
     offBoards()
     offReactions()
+    offCards()
     offAsks()
     offArtifacts()
     offActivity()

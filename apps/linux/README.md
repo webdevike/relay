@@ -336,6 +336,19 @@ device, and a `bookmark.set { thread, message, on }` that changes nothing re-sen
 only. Never a turn, a note or a push. The host lists `"bookmarks"` in `welcome.features`; a client on an
 older host keeps its bookmarks on the device and sends them up (once) when the feature appears.
 
+## Dismissed status cards (`cards.get`, `card.dismiss`)
+
+The one-row status cards above a chat's composer (canvas Join and wrap-up, sign-in, room ready, guest work,
+meeting) that Isaac closed, one set for every device so Relay desktop and the phone agree. A card is named by
+the id its client gives it (`canvas:<message id>`, `work:<work id>`, `meeting:<id>`, `room:<id>:ready`,
+`signin:<agent>:<message id>`); an id ending `#running` was dismissed while its work ran and the phone shows the
+card again once it finishes. `src/cards/service.ts` keeps the set (oldest first, 500 at most) in
+`$XDG_CONFIG_HOME/relay/dismissed-cards.json` (0600) and sends every device the whole `cards.dismissed { ids }`
+on each change; `cards.get` answers the asking device, `card.dismiss { id, on }` adds (`on`) or removes (undo) an
+id, and one that changes nothing re-sends the set to its sender only. Never a turn, a note or a push. The host
+lists `"cards.dismissed"` in `welcome.features`; a client on an older host keeps its set on the device and
+sends it up (once) when the feature appears.
+
 ## Render failures (`render.failed`)
 
 Media in an agent's reply that a client can't show (a broken image, a video the iPhone won't play, a GLB pasted as

@@ -205,6 +205,7 @@ function host(): void {
       feed: null,
       reactions: null,
       bookmarks: null,
+      dismissedCards: null,
       artifacts: null,
       activity: null,
       canvas,

@@ -1,23 +1,21 @@
 import { useState } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Image, StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { Text } from "./Text";
+import { StatusCardRow } from "./StatusCardRow";
 import { faviconUrl } from "@/eva/signin";
-import { radii, spacing, useColors } from "@/theme";
-import { tapHaptic } from "@/lib/haptics";
+import { spacing, useColors } from "@/theme";
 
-/** Side of the site icon's rounded square. */
-const ICON = 32;
-const ON_TINT = "#FFFFFF";
-const ON_TINT_MUTED = "rgba(255,255,255,0.78)";
+/** Side of the site icon's rounded square in the row. */
+const ICON = 22;
 
 export interface SignInCardProps {
+  /** The card's name for dismissal: `signin:<agent>:<message id>`, as on desktop. */
+  id: string;
   /** The site Eva needs Isaac to sign in to; its favicon and name head the card. */
   host: string;
-  /** The host took the credentials: the card tints `bubbleUser` and says so under the title. */
+  /** The host took the credentials: the card says so and no longer opens the sign-in. */
   submitted: boolean;
-  /** Fill while the sign-in is open; the same as Eva's bubbles. */
-  fill: string;
   onPress: () => void;
 }
 
@@ -46,40 +44,34 @@ export function SiteIcon({ host, size = ICON }: { host: string; size?: number })
 }
 
 /** Eva's request to sign in to a site: favicon, `Sign in to <host>`, a plus to open it, a check once submitted. */
-export function SignInCard({ host, submitted, fill, onPress }: SignInCardProps) {
+export function SignInCard({ id, host, submitted, onPress }: SignInCardProps) {
   const colors = useColors();
-  const title = submitted ? ON_TINT : colors.text;
   return (
-    <Pressable
-      accessibilityRole="button"
+    <StatusCardRow
+      // Desktop's id for the same card (`signin:<agent>:<message id>`), so a dismissal on either shows on both.
+      id={id}
+      running={!submitted}
+      line={`Sign in to ${host}`}
       accessibilityLabel={`Sign in to ${host}`}
-      accessibilityState={{ disabled: submitted }}
-      disabled={submitted}
-      onPress={() => {
-        tapHaptic();
-        onPress();
-      }}
-      style={({ pressed }) => ({
-        alignSelf: "flex-start",
-        minWidth: 240,
-        borderRadius: radii.lg,
-        padding: spacing.md,
-        backgroundColor: submitted ? colors.bubbleUser : fill,
-        opacity: pressed ? 0.85 : 1,
-      })}
-    >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
-        <SiteIcon host={host} />
-        <Text variant="title" numberOfLines={1} style={{ flex: 1, color: title }}>
-          {`Sign in to ${host}`}
-        </Text>
-        <SymbolView name={submitted ? "checkmark" : "plus"} size={18} weight="semibold" tintColor={title} />
-      </View>
-      {submitted && (
-        <Text variant="caption" style={{ marginTop: spacing.xs, marginLeft: ICON + spacing.md, color: ON_TINT_MUTED }}>
-          Credentials submitted
-        </Text>
-      )}
-    </Pressable>
+      lead={<SiteIcon host={host} size={ICON} />}
+      meta={
+        submitted ? (
+          <View style={styles.meta}>
+            <SymbolView name="checkmark" size={12} weight="semibold" tintColor={colors.accent} />
+            <Text variant="caption" color="textMuted">
+              Credentials submitted
+            </Text>
+          </View>
+        ) : (
+          <SymbolView name="plus" size={16} weight="semibold" tintColor={colors.textMuted} />
+        )
+      }
+      {...(submitted ? {} : { onOpen: onPress })}
+      testID="signin-card"
+    />
   );
 }
+
+const styles = StyleSheet.create({
+  meta: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+});

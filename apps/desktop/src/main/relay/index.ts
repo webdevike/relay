@@ -15,6 +15,7 @@ import {
   type RelayLink,
   type RelayQueries,
   type RelayReactions,
+  type RelayCards,
   type RelayRender,
   type RelayStudio,
   type RemoteHost,
@@ -36,6 +37,7 @@ export function startRelay(
   ctx: MainContext,
 ): RelayLink &
   RelayReactions &
+  RelayCards &
   RelayArtifacts &
   RelayActivity &
   RelayCanvas &

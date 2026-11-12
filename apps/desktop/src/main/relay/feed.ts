@@ -331,6 +331,10 @@ const BookmarksSnapshotSchema = z.object({
   thread: ReactionThreadSchema,
   messages: z.array(z.unknown()).catch([]),
 })
+const CardsDismissedSchema = z.object({ ids: z.array(z.unknown()).catch([]) })
+/** Most dismissed card ids kept, and the longest id taken. */
+const MAX_DISMISSED_CARDS = 500
+const MAX_CARD_ID = 200
 
 /**
  * A thread's reactions as Relay sends them (by reaction key, then reactor); a bad key, reactor or
@@ -469,6 +473,8 @@ export type FeedEvent =
   | { kind: 'reactions'; thread: string; reactions: ThreadReactions }
   /** Thread `thread`'s bookmarked turns now, by reaction key (a `bookmarks.snapshot`). */
   | { kind: 'bookmarks'; thread: string; messages: string[] }
+  /** Every dismissed status card id now, oldest first (a `cards.dismissed`, answer or push). */
+  | { kind: 'cards'; ids: string[] }
   /** Thread `thread`'s artifacts and tab bar now (an `artifacts.snapshot`, any thread). */
   | { kind: 'artifacts'; thread: string; items: ArtifactItem[]; tabs: ArtifactTabItem[] }
   /** Everything agents are running now (an `activity.snapshot`, answer or push). */
@@ -702,6 +708,16 @@ export class Feed {
             (k): k is string => ReactionKeySchema.safeParse(k).success,
           )
           events.push({ kind: 'bookmarks', thread: s.data.thread, messages })
+        }
+        break
+      }
+      case 'cards.dismissed': {
+        const s = CardsDismissedSchema.safeParse(f)
+        if (s.success) {
+          const ids = s.data.ids
+            .filter((id): id is string => typeof id === 'string' && id.length <= MAX_CARD_ID)
+            .slice(-MAX_DISMISSED_CARDS)
+          events.push({ kind: 'cards', ids })
         }
         break
       }

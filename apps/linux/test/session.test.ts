@@ -35,6 +35,7 @@ import type { CatchUpDeck } from "../src/catchup/service";
 import type { FeedDeck } from "../src/feed/service";
 import type { ReactionRelaying } from "../src/reactions/service";
 import type { BookmarkRelaying } from "../src/bookmarks/service";
+import type { DismissedCardRelaying } from "../src/cards/service";
 import type { RenderFailureReporting } from "../src/render-failures/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
 import type { ActivityRelaying } from "../src/activity/service";
@@ -178,6 +179,7 @@ interface HarnessOptions {
   feed?: FeedDeck;
   reactions?: ReactionRelaying;
   bookmarks?: BookmarkRelaying;
+  dismissedCards?: DismissedCardRelaying;
   artifacts?: ArtifactRelaying;
   activity?: ActivityRelaying;
   canvas?: CanvasRelaying;
@@ -242,6 +244,7 @@ function harness(options: HarnessOptions = {}): Harness {
     feed: options.feed ?? null,
     reactions: options.reactions ?? null,
     bookmarks: options.bookmarks ?? null,
+    dismissedCards: options.dismissedCards ?? null,
     artifacts: options.artifacts ?? null,
     activity: options.activity ?? null,
     canvas: options.canvas ?? null,
@@ -1259,6 +1262,32 @@ describe("bookmarks", () => {
     expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({ features: expect.arrayContaining(["bookmarks"]) });
     bare.session.receive({ t: "bookmark.set", thread: "session:s1", message: "user@1", on: true });
     expect(bare.sink.last()).toEqual({ t: "bookmarks.snapshot", thread: "session:s1", messages: [] });
+  });
+});
+
+describe("dismissed cards", () => {
+  it("offers the feature, answers cards.get with the whole set, hands card.dismiss to the service and re-sends the set to this device on a no-op", () => {
+    const calls: string[] = [];
+    const dismissedCards: DismissedCardRelaying = {
+      snapshot: () => ["canvas:m1", "work:w1#running"],
+      set: (id, on) => (calls.push(`set ${id} ${String(on)}`), id !== "canvas:m1"),
+    };
+    const h = harness({ dismissedCards });
+    pair(h);
+    expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({ features: expect.arrayContaining(["cards.dismissed"]) });
+    h.session.receive({ t: "cards.get" });
+    expect(h.sink.last()).toEqual({ t: "cards.dismissed", ids: ["canvas:m1", "work:w1#running"] });
+    const sent = h.sink.sent.length;
+    h.session.receive({ t: "card.dismiss", id: "meeting:r1", on: true });
+    expect(h.sink.sent.length).toBe(sent); // a change goes out through the service's broadcast
+    h.session.receive({ t: "card.dismiss", id: "canvas:m1", on: true });
+    expect(h.sink.last()).toEqual({ t: "cards.dismissed", ids: ["canvas:m1", "work:w1#running"] });
+    expect(calls).toEqual(["set meeting:r1 true", "set canvas:m1 true"]);
+    const bare = harness();
+    pair(bare);
+    expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({ features: expect.arrayContaining(["cards.dismissed"]) });
+    bare.session.receive({ t: "card.dismiss", id: "canvas:m1", on: true });
+    expect(bare.sink.last()).toEqual({ t: "cards.dismissed", ids: [] });
   });
 });
 

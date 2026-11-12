@@ -14,11 +14,13 @@ import { hostBaseUrl, requestCanvasAccess } from "@/connection";
 
 export interface CanvasEntryRowProps {
   entry: CanvasEntry;
+  /** The chat message the entry is in (names its card for dismissal). */
+  messageId: string;
   /** The chat this row is in, as an href: Back to chat replaces to it when there is nothing to go back to. */
   origin: string;
 }
 
-export function CanvasEntryRow({ entry, origin }: CanvasEntryRowProps) {
+export function CanvasEntryRow({ entry, messageId, origin }: CanvasEntryRowProps) {
   const router = useRouter();
   const state = useCanvasStore((store) => canvasJoinState(store, entry.roomId));
   const connected = useConnectionStore((store) => store.status === "connected");
@@ -41,5 +43,5 @@ export function CanvasEntryRow({ entry, origin }: CanvasEntryRowProps) {
       },
     });
   };
-  return <CanvasCard entry={entry} state={state} avatarUri={avatarUri} canJoin={connected} onJoin={join} summary={summary} />;
+  return <CanvasCard entry={entry} messageId={messageId} state={state} avatarUri={avatarUri} canJoin={connected} onJoin={join} summary={summary} />;
 }

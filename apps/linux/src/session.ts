@@ -9,6 +9,7 @@ import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import {
   CONTROL_FEATURE,
   BOOKMARKS_FEATURE,
+  CARDS_DISMISSED_FEATURE,
   ESCALATOR_DEVICE_ID,
   FILES_PRESENCE_FEATURE,
   MEETINGS_FEATURE,
@@ -43,6 +44,7 @@ import { EMPTY_CATCHUP, type CatchUpDeck } from "./catchup/service";
 import { EMPTY_FEED, type FeedDeck } from "./feed/service";
 import type { ReactionRelaying } from "./reactions/service";
 import type { BookmarkRelaying } from "./bookmarks/service";
+import type { DismissedCardRelaying } from "./cards/service";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
 import type { RenderFailureReporting } from "./render-failures/service";
@@ -119,6 +121,8 @@ export interface SessionDeps {
   readonly reactions: ReactionRelaying | null;
   /** null when the host keeps no bookmarks; `bookmarks.get` then answers empty, set is dropped and `welcome.features` leaves it out. */
   readonly bookmarks: BookmarkRelaying | null;
+  /** null when the host keeps no dismissed cards; `cards.get` then answers empty, `card.dismiss` is dropped and `welcome.features` leaves it out. */
+  readonly dismissedCards: DismissedCardRelaying | null;
   /** null when the host keeps no artifacts; `artifacts.get` then answers the default tabs with no items and every act is refused. */
   readonly artifacts: ArtifactRelaying | null;
   /** null when the host keeps no activity list; `activity.get` then answers an empty one. */
@@ -697,6 +701,15 @@ export class ClientSession {
         // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
         if (bookmarks === null || !bookmarks.set(message.thread, message.message, message.on))
           this.sink.send({ t: "bookmarks.snapshot", thread: message.thread, messages: [...(bookmarks?.snapshot(message.thread) ?? [])] });
+        break;
+      }
+      case "cards.get":
+        this.sink.send({ t: "cards.dismissed", ids: [...(this.deps.dismissedCards?.snapshot() ?? [])] });
+        break;
+      case "card.dismiss": {
+        const cards = this.deps.dismissedCards;
+        // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
+        if (cards?.set(message.id, message.on) !== true) this.sink.send({ t: "cards.dismissed", ids: [...(cards?.snapshot() ?? [])] });
         break;
       }
       case "reaction.set":
@@ -1314,6 +1327,7 @@ export class ClientSession {
       ...(this.deps.meetings === null ? [] : [MEETINGS_FEATURE]),
       ...(this.deps.control === null ? [] : [CONTROL_FEATURE]),
       ...(this.deps.bookmarks === null ? [] : [BOOKMARKS_FEATURE]),
+      ...(this.deps.dismissedCards === null ? [] : [CARDS_DISMISSED_FEATURE]),
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
       ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
       ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE]),

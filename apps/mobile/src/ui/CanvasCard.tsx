@@ -1,7 +1,8 @@
 /**
- * A live canvas row in a chat (`CanvasEntry`): the `start` Join card, a compact `turn` row (what
- * Isaac noted at the canvas and the agent's answer) and the `end` wrap-up. Layout only: the
- * caller says whether the room is live, where the agent's avatar is and what Join does.
+ * A live canvas row in a chat (`CanvasEntry`): the `start` Join card and the `end` wrap-up are
+ * one-row status cards (`StatusCardRow`, so they swipe away like the others); a `turn` is a compact
+ * row (what Isaac noted at the canvas and the agent's answer). Layout only: the caller says whether
+ * the room is live, where the agent's avatar is and what Join does.
  */
 import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
@@ -9,18 +10,18 @@ import { SymbolView } from "expo-symbols";
 import type { CanvasEntry } from "@relay/protocol";
 import { Avatar } from "./Avatar";
 import { Button } from "./Button";
-import { Pill } from "./Pill";
+import { StatusCardRow } from "./StatusCardRow";
 import { Text } from "./Text";
-import { radii, spacing, useColors } from "@/theme";
+import { spacing, useColors } from "@/theme";
 
-const AVATAR = 36;
-/** Join is a full touch target, not the default 36pt button. */
-const JOIN_HEIGHT = 44;
+const AVATAR = 22;
 
 export type CanvasCardState = "live" | "ended" | "unknown";
 
 export interface CanvasCardProps {
   entry: CanvasEntry;
+  /** The chat message the entry came in: the card's name for dismissal is `canvas:<messageId>`, as on desktop. */
+  messageId: string;
   /** The entry's room: live (Join opens it), ended, or unknown before the host has listed rooms. */
   state: CanvasCardState;
   /** The agent's avatar on the connected host; initials in its color stand in without one. */
@@ -32,63 +33,51 @@ export interface CanvasCardProps {
   summary?: ReactNode;
 }
 
-export function CanvasCard({ entry, state, avatarUri, canJoin, onJoin, summary }: CanvasCardProps) {
+export function CanvasCard({ entry, messageId, state, avatarUri, canJoin, onJoin, summary }: CanvasCardProps) {
   switch (entry.kind) {
     case "start":
-      return <JoinCard entry={entry} state={state} avatarUri={avatarUri} canJoin={canJoin} onJoin={onJoin} />;
+      return <JoinCard entry={entry} messageId={messageId} state={state} avatarUri={avatarUri} canJoin={canJoin} onJoin={onJoin} />;
     case "turn":
       return <TurnRow entry={entry} />;
     case "end":
-      return <WrapUpCard entry={entry} summary={summary} />;
+      return <WrapUpCard entry={entry} messageId={messageId} summary={summary} />;
   }
 }
 
-function JoinCard({ entry, state, avatarUri, canJoin, onJoin }: Omit<CanvasCardProps, "summary">) {
-  const colors = useColors();
+function JoinCard({ entry, messageId, state, avatarUri, canJoin, onJoin }: Omit<CanvasCardProps, "summary">) {
   const ended = state === "ended";
-  const title = ended ? `${entry.agent.name} on ${entry.board}` : `Join ${entry.agent.name} on ${entry.board}`;
+  const board = entry.board || entry.slug;
+  const line = ended ? `${entry.agent.name} on ${board}` : `Join ${entry.agent.name} on ${board}`;
   const purpose = entry.text?.trim() ?? "";
   return (
-    <View
+    <StatusCardRow
+      id={`canvas:${messageId}`}
+      running={state === "live"}
+      line={line}
+      lineLines={1}
+      lead={<Avatar name={entry.agent.name} uri={avatarUri} size={AVATAR} tint={entry.agent.color} />}
+      actions={
+        ended ? undefined : (
+          <Button label="Join" disabled={!canJoin} onPress={onJoin} accessibilityLabel={`Join ${entry.agent.name} on ${board}`} testID="canvas-join" />
+        )
+      }
+      meta={
+        ended ? (
+          <Text variant="caption" color="textMuted">
+            Ended
+          </Text>
+        ) : undefined
+      }
+      details={
+        purpose === "" ? undefined : (
+          <Text variant="body" color="textMuted">
+            {purpose}
+          </Text>
+        )
+      }
+      style={styles.card}
       testID="canvas-join-card"
-      style={[styles.card, { borderColor: colors.hairline, backgroundColor: colors.surface }]}
-    >
-      <View style={styles.head}>
-        <Avatar name={entry.agent.name} uri={avatarUri} size={AVATAR} tint={entry.agent.color} />
-        <View style={styles.headText}>
-          <Text variant="title" numberOfLines={2}>
-            {title}
-          </Text>
-          {purpose !== "" && (
-            <Text variant="body" color="textMuted" numberOfLines={3}>
-              {purpose}
-            </Text>
-          )}
-        </View>
-      </View>
-      {ended ? (
-        <View style={styles.footer}>
-          <Pill label="Ended" />
-          <Text variant="caption" color="textMuted" style={styles.footerNote}>
-            This session has ended.
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.footer}>
-          {state === "live" && <Pill label="Live" tone="ok" />}
-          <View style={styles.joinButton}>
-            <Button
-              label="Join"
-              height={JOIN_HEIGHT}
-              disabled={!canJoin}
-              onPress={onJoin}
-              accessibilityLabel={`Join ${entry.agent.name} on ${entry.board}`}
-              testID="canvas-join"
-            />
-          </View>
-        </View>
-      )}
-    </View>
+    />
   );
 }
 
@@ -116,36 +105,26 @@ function TurnRow({ entry }: { entry: CanvasEntry }) {
   );
 }
 
-function WrapUpCard({ entry, summary }: { entry: CanvasEntry; summary: ReactNode }) {
+function WrapUpCard({ entry, messageId, summary }: { entry: CanvasEntry; messageId: string; summary: ReactNode }) {
   const colors = useColors();
   const text = entry.text?.trim() ?? "";
+  const details = summary ?? (text === "" ? undefined : <Text variant="body">{text}</Text>);
   return (
-    <View testID="canvas-wrap-up" style={[styles.card, { borderColor: colors.hairline, backgroundColor: colors.surface }]}>
-      <View>
-        <Text variant="title">Canvas wrap-up</Text>
-        <Text variant="caption" color="textMuted" numberOfLines={1}>
-          {`${entry.agent.name} on ${entry.board}`}
-        </Text>
-      </View>
-      {summary ?? (text !== "" && <Text variant="body">{text}</Text>)}
-    </View>
+    <StatusCardRow
+      id={`canvas:${messageId}`}
+      running={false}
+      line={`Canvas wrap-up · ${entry.board || entry.slug}`}
+      accessibilityLabel={`Canvas wrap-up, ${entry.agent.name} on ${entry.board || entry.slug}`}
+      lead={<SymbolView name="rectangle.3.group" size={16} tintColor={colors.textMuted} />}
+      details={details}
+      style={styles.card}
+      testID="canvas-wrap-up"
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    alignSelf: "stretch",
-    maxWidth: 420,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  head: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
-  headText: { flex: 1, gap: 2 },
-  footer: { flexDirection: "row", alignItems: "center", gap: spacing.md },
-  footerNote: { flex: 1 },
-  joinButton: { marginLeft: "auto", minWidth: 120 },
+  card: { alignSelf: "stretch", maxWidth: 420 },
   turn: { flexDirection: "row", gap: spacing.sm },
   turnGlyph: { marginTop: 3 },
   turnLines: { flex: 1, gap: 2 },

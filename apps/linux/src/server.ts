@@ -42,6 +42,7 @@ import type { CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
 import type { RenderFailureReporting } from "./render-failures/service";
 import type { BookmarkRelaying } from "./bookmarks/service";
+import type { DismissedCardRelaying } from "./cards/service";
 import { handleAgentReaction } from "./reactions/http";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
@@ -134,6 +135,8 @@ export interface ServerDeps {
   readonly reactions: ReactionRelaying | null;
   /** Bookmarks on chat turns; null answers `bookmarks.get` empty, drops set, and leaves "bookmarks" out of `welcome.features`. */
   readonly bookmarks: BookmarkRelaying | null;
+  /** Dismissed status cards; null answers `cards.get` empty, drops `card.dismiss`, and leaves "cards.dismissed" out of `welcome.features`. */
+  readonly dismissedCards: DismissedCardRelaying | null;
   /** Per-thread artifacts; null answers `artifacts.get` with empty default tabs and refuses acts. */
   readonly artifacts: ArtifactRelaying | null;
   /** What agents are running (helpers, sessions, harnesses, canvas rooms); null answers `activity.get` empty. */
@@ -854,6 +857,7 @@ export class RelayServer {
         feed: this.deps.feed,
         reactions: this.deps.reactions,
         bookmarks: this.deps.bookmarks,
+        dismissedCards: this.deps.dismissedCards,
         artifacts: this.deps.artifacts,
         activity: this.deps.activity,
         canvas: this.deps.canvas,

@@ -5,11 +5,11 @@
  * while it runs and her result once done, the time on the right) that opens her thread on a tap.
  */
 import { useEffect, useState } from "react";
-import { Keyboard, Pressable, StyleSheet, View } from "react-native";
+import { Keyboard, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import type { GuestEntry } from "@relay/protocol";
-import { tapHaptic } from "@/lib/haptics";
+import { StatusCardRow } from "@/ui/StatusCardRow";
 import { workTarget, workTime } from "@/lib/guests";
 import { agentPortrait, useAssistantStore } from "@/state/assistant";
 import { radii, spacing, useColors, withAlpha } from "@/theme";
@@ -84,37 +84,36 @@ export function WorkCardRow({ entry }: { entry: GuestEntry }) {
   const line = work.state === "done" ? (entry.text ?? work.title) : work.state === "failed" ? (entry.text ?? `Stopped ${work.title}`) : work.title;
   const time = workTime(work, now);
   return (
-    <Pressable
-      accessibilityRole="link"
+    <StatusCardRow
+      // Desktop's id for the same card, so a dismissal on either shows on both.
+      id={`work:${work.id}`}
+      running={working}
+      line={line}
+      lineColor={work.state === "done" ? "text" : "textMuted"}
       accessibilityLabel={`Open ${entry.agent.title}'s chat: ${line}`}
-      onPress={() => {
-        tapHaptic();
+      lead={<GuestFace entry={entry} size={22} />}
+      meta={
+        time === null ? (
+          <View style={styles.meta}>
+            <SymbolView name="exclamationmark.triangle" size={12} tintColor={colors.danger} />
+            <Text variant="caption" color="textMuted">
+              Stopped
+            </Text>
+          </View>
+        ) : (
+          <Text variant="caption" color="textMuted" tabular>
+            {time}
+          </Text>
+        )
+      }
+      borderColor={working ? withAlpha(color, 0.6) : colors.hairline}
+      onOpen={() => {
         Keyboard.dismiss();
         router.push(workTarget(entry));
       }}
-      style={({ pressed }) => [
-        styles.work,
-        { backgroundColor: colors.surfaceRaised, borderColor: working ? withAlpha(color, 0.6) : colors.hairline, opacity: pressed ? 0.7 : 1 },
-      ]}
+      style={styles.work}
       testID="work-card"
-    >
-      <GuestFace entry={entry} size={22} />
-      <Text variant="body" color={work.state === "done" ? "text" : "textMuted"} numberOfLines={2} style={styles.workLine}>
-        {line}
-      </Text>
-      {time === null ? (
-        <View style={styles.meta}>
-          <SymbolView name="exclamationmark.triangle" size={12} tintColor={colors.danger} />
-          <Text variant="caption" color="textMuted">
-            Stopped
-          </Text>
-        </View>
-      ) : (
-        <Text variant="caption" color="textMuted" tabular>
-          {time}
-        </Text>
-      )}
-    </Pressable>
+    />
   );
 }
 
@@ -134,16 +133,6 @@ const styles = StyleSheet.create({
   sayBody: { flex: 1, minWidth: 0, gap: spacing.xs },
   sayHead: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   pill: { paddingHorizontal: spacing.sm, borderRadius: 999 },
-  work: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    marginHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.sm,
-    borderRadius: radii.md,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  workLine: { flex: 1, minWidth: 0 },
+  work: { marginHorizontal: spacing.lg },
   meta: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
 });

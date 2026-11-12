@@ -17,6 +17,7 @@ import { Banner } from "@/ui/Banner";
 import { EmptyState } from "@/ui/EmptyState";
 import { Cutout, CUTOUT_GAP } from "@/ui/Cutout";
 import { NotchedSurface, type Notch } from "@/ui/NotchedSurface";
+import { CardUndoToast } from "@/ui/CardUndoToast";
 import { IconButton } from "@/ui/IconButton";
 import { motion, spacing, useColors } from "@/theme";
 import { LAUNCH_ECHO, subagentsOf, useAgentsStore } from "@/state/agents";
@@ -885,6 +886,9 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
             )}
           </NotchedSurface>
         )}
+        <View pointerEvents="box-none" style={styles.undoToast}>
+          <CardUndoToast />
+        </View>
       </KeyboardAvoidingView>
       {subagentsOpen && subagents.length > 0 && (
       <SubagentsSheet
@@ -969,6 +973,8 @@ const styles = StyleSheet.create({
   chat: { flex: 1, marginTop: spacing.sm },
   /** Full-width lane the seam pill is centered in; its `top` follows the header as it folds. */
   pillLane: { position: "absolute", left: 0, right: 0 },
+  /** The Undo offer after a canvas card was dismissed, over the transcript's bottom. */
+  undoToast: { position: "absolute", left: 0, right: 0, bottom: 120 },
   notchBody: {
     flex: 1,
     flexDirection: "row",

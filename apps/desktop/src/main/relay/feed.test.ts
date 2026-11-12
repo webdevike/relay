@@ -429,6 +429,17 @@ describe('Relay feed', () => {
     ).toEqual([])
   })
 
+  it('parses the dismissed cards, dropping non-strings and long ids and keeping the newest 500', () => {
+    const feed = authenticated()
+    expect(
+      feed.receive({ t: 'cards.dismissed', ids: ['a', 3, 'b#running', 'x'.repeat(201)] }).events,
+    ).toEqual([{ kind: 'cards', ids: ['a', 'b#running'] }])
+    expect(feed.receive({ t: 'cards.dismissed' }).events).toEqual([{ kind: 'cards', ids: [] }])
+    const many = Array.from({ length: 502 }, (_, i) => `c${i}`)
+    const events = feed.receive({ t: 'cards.dismissed', ids: many }).events
+    expect(events).toEqual([{ kind: 'cards', ids: many.slice(2) }])
+  })
+
   it("reads a hand-started session listed under its folder's name as not named yet", () => {
     const s = (title: string, kind = 'manual') =>
       parseSession(session('a', 'idle', { title, kind, projectPath: '/Users/i/Eva' }))?.title

@@ -48,6 +48,8 @@ import {
   renderFailedFrame,
   type RenderFailureReport,
   bookmarksGetFrame,
+  cardsGetFrame,
+  cardDismissFrame,
   subscribeFrame,
   studioReqFrame,
   STUDIO_LIST_FRAME,
@@ -82,6 +84,8 @@ export const NO_QUERIES = "This Relay Host doesn't run live widget queries; upda
 const QUERY_FEATURE = 'query'
 /** `welcome.features` entry of a host that keeps turn bookmarks. */
 const BOOKMARKS_FEATURE = 'bookmarks'
+/** `welcome.features` entry of a host that keeps the dismissed status cards. */
+const CARDS_FEATURE = 'cards.dismissed'
 /** `welcome.features` entry of a host that takes `render.failed` reports. */
 export const RENDER_REPORT_FEATURE = 'render.report'
 
@@ -120,6 +124,7 @@ export type RelaySessionEvent = Exclude<
       | 'boards'
       | 'reactions'
       | 'bookmarks'
+      | 'cards'
       | 'artifacts'
       | 'activity'
       | 'acted'
@@ -209,6 +214,18 @@ export interface RelayReactions {
 export interface RelayRender {
   /** Sends `failure` when the host takes "render.report"; false (dropped) otherwise. */
   reportRender(failure: RenderFailureReport): boolean
+}
+
+/** Dismissed status cards, one set for the whole app, as the host keeps it for every device. */
+export interface RelayCards {
+  /** Connected to a host that keeps them (`welcome.features` has "cards.dismissed"). */
+  cardsUp(): boolean
+  /** The host's set, oldest first, as last sent; null before its first snapshot. */
+  dismissedCards(): string[] | null
+  /** Dismisses (`on`) or restores a card; false when nothing could be sent. */
+  dismissCard(id: string, on: boolean): boolean
+  /** Called after each snapshot. */
+  onCards(cb: () => void): () => void
 }
 
 /** A thread's artifacts and tab bar, as the host's latest `artifacts.snapshot` has them. */
@@ -377,6 +394,7 @@ export class RelayClient
   implements
     RelayLink,
     RelayReactions,
+    RelayCards,
     RelayArtifacts,
     RelayActivity,
     RelayCanvas,
@@ -405,6 +423,9 @@ export class RelayClient
   private readonly reactionMap = new Map<string, ThreadReactions>()
   /** The last bookmarks snapshot of each watched thread (a host with the "bookmarks" feature). */
   private readonly bookmarkMap = new Map<string, string[]>()
+  /** The last dismissed status cards snapshot (a host with the "cards.dismissed" feature); null before the first. */
+  private cardIds: string[] | null = null
+  private readonly cardListeners = new Set<() => void>()
   private readonly artifactListeners = new Set<(thread: string) => void>()
   /** Threads a panel shows; asked for again on every connection. */
   private readonly artifactWatch = new Set<string>()
@@ -619,6 +640,25 @@ export class RelayClient
     if (!this.bookmarksUp()) return false
     this.send(bookmarkFrame(thread, message, on))
     return true
+  }
+
+  cardsUp(): boolean {
+    return this.hostHas(CARDS_FEATURE)
+  }
+
+  dismissedCards(): string[] | null {
+    return this.cardIds
+  }
+
+  dismissCard(id: string, on: boolean): boolean {
+    if (!this.cardsUp()) return false
+    this.send(cardDismissFrame(id, on))
+    return true
+  }
+
+  onCards(cb: () => void): () => void {
+    this.cardListeners.add(cb)
+    return () => this.cardListeners.delete(cb)
   }
 
   reportRender(failure: RenderFailureReport): boolean {
@@ -893,6 +933,7 @@ export class RelayClient
       for (const thread of this.reactionThreads) {
         if (feed.features.includes(BOOKMARKS_FEATURE)) this.send(bookmarksGetFrame(thread))
       }
+      if (feed.features.includes(CARDS_FEATURE)) this.send(cardsGetFrame())
       for (const thread of this.artifactWatch) this.send(artifactsGetFrame(thread))
       if (this.activityWatched) this.send(ACTIVITY_GET_FRAME)
       if (this.studioWatched) this.send(STUDIO_LIST_FRAME)
@@ -918,6 +959,10 @@ export class RelayClient
           if (!this.reactionThreads.has(event.thread)) break
           this.bookmarkMap.set(event.thread, event.messages)
           for (const cb of [...this.reactionListeners]) cb(event.thread)
+          break
+        case 'cards':
+          this.cardIds = event.ids
+          for (const cb of [...this.cardListeners]) cb()
           break
         case 'artifacts':
           this.artifactMap.set(event.thread, { items: event.items, tabs: event.tabs })
@@ -1111,6 +1156,7 @@ export class StaticRelay
   implements
     RelayLink,
     RelayReactions,
+    RelayCards,
     RelayArtifacts,
     RelayActivity,
     RelayCanvas,
@@ -1257,6 +1303,22 @@ export class StaticRelay
 
   bookmark(): boolean {
     return false
+  }
+
+  cardsUp(): boolean {
+    return false
+  }
+
+  dismissedCards(): string[] | null {
+    return null
+  }
+
+  dismissCard(): boolean {
+    return false
+  }
+
+  onCards(): () => void {
+    return () => undefined
   }
 
   reportRender(): boolean {

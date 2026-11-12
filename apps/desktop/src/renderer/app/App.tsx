@@ -21,6 +21,7 @@ import { startBoards } from '../boards/boards-store'
 import { startCanvasLive } from '../canvas/live/live-store'
 import { startCanvasRuns } from '../canvas/agent/runs-store'
 import { startReactions } from '../chat/reactions/reactions-store'
+import { startDismissedCards } from '../chat/status-card/dismissed-cards'
 import { startRooms } from '../rooms/rooms-store'
 import { Shell } from '../shell/Shell'
 import { RelayPinModal } from '../settings/RelayPinModal'
@@ -54,6 +55,7 @@ export function App() {
     const stopCanvasLive = startCanvasLive()
     const stopCanvasRuns = startCanvasRuns()
     const stopReactions = startReactions()
+    const stopDismissedCards = startDismissedCards()
     const stopRooms = startRooms()
     const stopAgent = startAgentControl()
     const stopUpdate = startUpdate()
@@ -79,6 +81,7 @@ export function App() {
       stopCanvasLive()
       stopCanvasRuns()
       stopReactions()
+      stopDismissedCards()
       stopRooms()
       stopAgent()
       stopUpdate()
