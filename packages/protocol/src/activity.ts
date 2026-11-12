@@ -4,6 +4,7 @@
 // auto-work run, a job), a harness (a non-omp agent in a herdr pane: claude, codex, muse, opencode)
 // and a canvas room. Relay desktop's chat-core/activity.ts mirrors the schema line for line.
 import { z } from "zod";
+import { ActivityEta } from "./eta";
 
 const ms = z.number().finite();
 
@@ -47,6 +48,8 @@ export const ActivityItem = z.object({
   model: z.string().max(120).optional(),
   /** Dollars spent so far, when the source says (a canvas room's agent). */
   cost: z.number().finite().nonnegative().optional(),
+  /** How long a working run has left, when the host can tell (`etaView` reads it). */
+  eta: ActivityEta.optional(),
   open: ActivityOpen,
 });
 export type ActivityItem = z.infer<typeof ActivityItem>;

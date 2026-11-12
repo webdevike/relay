@@ -2259,6 +2259,7 @@ export * from "./surface";
 export * from "./artifacts";
 export * from "./pins";
 export * from "./activity";
+export * from "./eta";
 export * from "./studio";
 export * from "./reviews";
 export * from "./meetings";

@@ -31,6 +31,20 @@ export const ActivityOpen = z.discriminatedUnion('to', [
 ])
 export type ActivityOpen = z.infer<typeof ActivityOpen>
 
+/** How long a working run has left (relay packages/protocol/src/eta.ts; `etaView` there reads it). */
+export const ActivityEta = z.object({
+  from: z.number().finite(),
+  totalMs: z.number().finite().positive(),
+  lowMs: z.number().finite().positive(),
+  highMs: z.number().finite().positive(),
+  typicalMs: z.number().finite().positive(),
+  runs: z.number().int().nonnegative(),
+  confidence: z.enum(['rough', 'confident']),
+  overrunning: z.boolean(),
+  steps: z.object({ done: z.number().int().nonnegative(), total: z.number().int().positive() }).optional(),
+})
+export type ActivityEta = z.infer<typeof ActivityEta>
+
 export const ActivityItem = z.object({
   id: z.string().min(1).max(4200),
   kind: ActivityKind,
@@ -44,6 +58,8 @@ export const ActivityItem = z.object({
   model: z.string().max(120).optional(),
   /** Dollars spent so far, when the source says. */
   cost: z.number().finite().nonnegative().optional(),
+  /** How long a working run has left, when the host can tell. */
+  eta: ActivityEta.optional(),
   open: ActivityOpen,
 })
 export type ActivityItem = z.infer<typeof ActivityItem>
