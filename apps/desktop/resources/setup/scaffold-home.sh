@@ -29,7 +29,7 @@ case "$ROOT" in /*) ;; *) fail "root must be an absolute path, got '$ROOT'" ;; e
 ROOT="${ROOT%/}"
 
 # ---- answers (plutil reads JSON on every Mac; no jq) ----
-ans() { plutil -extract "$1" raw -o - "$ANSWERS" 2>/dev/null || true; }
+ans() { json_get "$1" "$ANSWERS"; }
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 slugify() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-*//' -e 's/-*$//'; }
 

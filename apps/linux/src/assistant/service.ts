@@ -710,21 +710,22 @@ export class AssistantService implements AssistantThread {
     });
     this.waiter = { primed: prime !== null, resolve };
     try {
-      await this.deps.launch({
+      // Observe registration immediately: the launcher may itself wait beyond our deadline.
+      // Awaiting it first leaves the timeout rejection unhandled and can terminate the host.
+      const [session] = await Promise.all([promise, this.deps.launch({
         env: { RELAY_ASSISTANT: this.id, RELAY_ASSISTANT_TITLE: this.title },
         label: this.title,
         ...(this.agent.profile === undefined ? {} : { profile: this.agent.profile }),
         ...(this.agent.model === undefined ? {} : { model: this.agent.model }),
         ...(resume === null ? {} : { resume }),
         ...(prime === null ? {} : { prompt: prime }),
-      });
-    } catch (error) {
+      })]);
+      this.deps.log(resume === null ? `assistant ${this.id}: starting a new thread${prime === null ? "" : " with its prime"}` : `assistant ${this.id}: resuming from ${resume}`);
+      return session;
+    } finally {
       cancel();
       this.waiter = null;
-      throw error;
     }
-    this.deps.log(resume === null ? `assistant ${this.id}: starting a new thread${prime === null ? "" : " with its prime"}` : `assistant ${this.id}: resuming from ${resume}`);
-    return promise.finally(cancel);
   }
 
   /**
