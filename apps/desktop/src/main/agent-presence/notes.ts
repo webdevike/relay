@@ -38,19 +38,30 @@ export function noteOwner(
   return ownerOfWorkspace(run) ?? ownerOfWorkspace(workspace)
 }
 
-function createSendNote(deps: NoteDeps): SendNote {
+export function createSendNote(deps: NoteDeps): SendNote {
   return async (note, workspace) => {
     const isAssistant = (id: string): boolean =>
       deps.chat.assistants().agents.some((a) => a.id === id)
     const owner = noteOwner(note, workspace, deps.runWorkspace(note), isAssistant)
     if (owner === null) return { sent: false, to: null }
-    const images =
-      note.surface === 'browser' && note.image !== undefined && 'file' in owner
-        ? await fs.promises
-            .readFile(note.image)
-            .then((b) => [{ mimeType: 'image/png', data: b.toString('base64') }])
-            .catch(() => [])
+    // One per marked element or region: the note's schema bounds them at 8.
+    const files =
+      note.surface === 'browser' && 'file' in owner
+        ? [note.image, ...(note.also ?? []).map((t) => t.image)].filter(
+            (f): f is string => f !== undefined,
+          )
         : []
+    // A screenshot that went missing drops out; the text still names its path.
+    const images = (
+      await Promise.all(
+        files.map((f) =>
+          fs.promises
+            .readFile(f)
+            .then((b) => ({ mimeType: 'image/png', data: b.toString('base64') }))
+            .catch(() => null),
+        ),
+      )
+    ).filter((i) => i !== null)
     const to = await deps.chat.post(owner, noteText(note), images)
     return { sent: true, to }
   }
