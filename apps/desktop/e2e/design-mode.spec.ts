@@ -297,6 +297,8 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   ])
   expect(await guestEval(app, id, 'window.frameEvents')).toBe(0)
   await guestEval(app, id, "document.getElementById('frame').remove()")
+  // Back over the selected button, where the wheel left it, so later screenshots match.
+  await mouse(app, id, [{ type: 'mouseMove', ...save }])
 
   // A6: a style edit previews in the page.
   await items.first().locator('.eva-design-item-main').click()
