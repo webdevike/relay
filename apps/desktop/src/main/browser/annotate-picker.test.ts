@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { describeElement, PICKER_SCRIPT, type PickOp, type PickResult } from './annotate-picker'
+import { DESIGN_INPUT_EVENT } from '../../preload/guest-channel'
 
 const $ = (sel: string): Element => document.querySelector(sel)!
 
@@ -119,6 +120,7 @@ describe('the picker in Design Mode', () => {
     for (const t of types) {
       document.removeEventListener(t, record, true)
       document.removeEventListener(t, record)
+      window.removeEventListener(t, record, true)
     }
     await pick({ op: 'clear' }, describeElement)
   })
@@ -133,11 +135,40 @@ describe('the picker in Design Mode', () => {
 
   it('keeps every pointer event from the page, before and after it answers', async () => {
     const answer = pick({ op: 'pick', color: '#f00', mode: 'design' }, describeElement)
+    // A page listener on the window, added once the picker is open.
+    for (const t of types) window.addEventListener(t, record, true)
     press()
     expect(await answer).toMatchObject({ cancelled: false, element: { selector: '#buy' } })
     // Between two picks the host stays and still takes the pointer.
     press()
     expect(seen).toEqual([])
+  })
+
+  it("picks from the guest preload gate's input: a Shift-drag and a click", async () => {
+    const input = DESIGN_INPUT_EVENT
+    const send = (type: string, x: number, y: number, shift = false): void => {
+      const detail = JSON.stringify({ type, x, y, button: 0, shift })
+      document.dispatchEvent(new CustomEvent(input, { detail }))
+    }
+    const op: PickOp = { op: 'pick', color: '#f00', mode: 'design', input }
+    const drag = pick(op, describeElement)
+    send('mousedown', 10, 10, true)
+    send('mousemove', 60, 40, true)
+    send('mouseup', 60, 40, true)
+    expect(await drag).toEqual({
+      cancelled: false,
+      box: { x: 10, y: 10, w: 50, h: 30 },
+      viewport: { width: innerWidth, height: innerHeight },
+      shift: true,
+      at: { x: 60, y: 40 },
+    })
+    const click = pick(op, describeElement)
+    // Not JSON, or not a pointer: ignored.
+    document.dispatchEvent(new CustomEvent(input, { detail: '{' }))
+    document.dispatchEvent(new CustomEvent(input, { detail: '{"type":"mousedown"}' }))
+    send('mousedown', 5, 5)
+    send('mouseup', 5, 5)
+    expect(await click).toMatchObject({ element: { selector: '#buy' }, shift: false })
   })
 
   it("never replaces a note's picker, and a note's pick replaces it", async () => {

@@ -16,12 +16,15 @@ import type { NoteElement } from '@evaos/contract'
  * `clear` closes the picker or removes the mark, answering once the page painted without it.
  * Mode `design` (Design Mode, design-mode.ts) shows no hint, finds elements inside open shadow
  * roots, and once it answers draws no mark but keeps the page's pointer until the next `pick`
- * replaces it or `clear` closes it, so a click between two picks never reaches the page. It takes
- * the pointer events on the window in the capture phase, ahead of the page's document listeners
- * (outside-click handlers, hover tracking). A design pick never replaces a note's picker: it
- * answers cancelled, so a note opened while Design Mode works on its last pick wins.
+ * replaces it or `clear` closes it, so a click between two picks never reaches the page. With the
+ * guest preload's pointer gate on (preload/guest.ts), no page listener sees the pointer: the
+ * picker reads it from the gate's `input` events on the document. Without the gate it takes the
+ * pointer on the window in the capture phase, ahead of the page's document listeners. A design
+ * pick never replaces a note's picker: it answers cancelled, so a note opened while Design Mode
+ * works on its last pick wins.
  */
-export type PickOp = { op: 'pick'; color: string; mode?: 'note' | 'design' } | { op: 'clear' }
+export type PickOp =
+  { op: 'pick'; color: string; mode?: 'note' | 'design'; input?: string } | { op: 'clear' }
 
 /** A box in viewport CSS px. */
 export interface PickBox {
@@ -272,40 +275,50 @@ export const PICKER_SCRIPT = String(function (
     w: Math.abs(a.x - b.x),
     h: Math.abs(a.y - b.y),
   })
-  const swallow = (e: Event): void => {
+  // On the window (Design Mode) the page's own window listeners added later are stopped too.
+  const stop = (e: Event): void => (design ? e.stopImmediatePropagation() : e.stopPropagation())
+  /** Keeps a mouse event from the page; the gate's input (null) never reached it. */
+  const swallow = (e: Event | null): void => {
+    if (!e) return
     e.preventDefault()
-    e.stopPropagation()
+    stop(e)
+  }
+  /** Where the pointer is: a mouse event, or the guest preload gate's input (see PickOp). */
+  interface Ptr {
+    clientX: number
+    clientY: number
+    button: number
+    shiftKey: boolean
   }
 
-  const onMove = (e: Event): void => {
-    if (!(e instanceof MouseEvent)) return
+  const onMove = (p: Ptr, e: Event | null): void => {
     // An answered design pick keeps the pointer from the page until the next pick.
     if (picked && !design) return
     swallow(e)
     if (picked) return
     if (down) {
-      if (!dragging && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) dragging = true
-      if (dragging) show(dragBox(down, { x: e.clientX, y: e.clientY }), '', true)
+      if (!dragging && Math.hypot(p.clientX - down.x, p.clientY - down.y) > 4) dragging = true
+      if (dragging) show(dragBox(down, { x: p.clientX, y: p.clientY }), '', true)
       return
     }
-    const el = under(e.clientX, e.clientY)
+    const el = under(p.clientX, p.clientY)
     if (el === hovered) return
     hovered = el
     if (el) show(boxOf(el), el.tagName.toLowerCase(), false)
     else box.classList.remove('on')
   }
-  const onDown = (e: Event): void => {
-    if (!(e instanceof MouseEvent) || (picked && !design)) return
-    if (picked || e.button !== 0) {
+  const onDown = (p: Ptr, e: Event | null): void => {
+    if (picked && !design) return
+    if (picked || p.button !== 0) {
       if (design) swallow(e)
       return
     }
     swallow(e)
-    down = { x: e.clientX, y: e.clientY }
+    down = { x: p.clientX, y: p.clientY }
     dragging = false
   }
-  const onUp = (e: Event): void => {
-    if (!(e instanceof MouseEvent) || (picked && !design)) return
+  const onUp = (p: Ptr, e: Event | null): void => {
+    if (picked && !design) return
     if (picked || !down) {
       if (design) swallow(e)
       return
@@ -313,16 +326,36 @@ export const PICKER_SCRIPT = String(function (
     swallow(e)
     const start = down
     down = null
-    const end = { shift: e.shiftKey, at: { x: e.clientX, y: e.clientY } }
+    const end = { shift: p.shiftKey, at: { x: p.clientX, y: p.clientY } }
     if (dragging) {
       const b = dragBox(start, end.at)
       if (b.w >= 4 && b.h >= 4) return mark({ box: b, ...end })
       dragging = false
       return
     }
-    const el = under(e.clientX, e.clientY)
+    const el = under(p.clientX, p.clientY)
     if (!el) return
     mark({ element: describe(el), box: boxOf(el), ...end })
+  }
+  const fromMouse =
+    (fn: (p: Ptr, e: Event) => void) =>
+    (e: Event): void => {
+      if (e instanceof MouseEvent) fn(e, e)
+    }
+  /** The gate's DesignInput (guest-channel.ts), JSON in a DOM event on the document. */
+  const onInput = (e: Event): void => {
+    if (!(e instanceof CustomEvent) || typeof e.detail !== 'string') return
+    let d: { type?: unknown; x?: unknown; y?: unknown; button?: unknown; shift?: unknown }
+    try {
+      d = JSON.parse(e.detail) ?? {}
+    } catch {
+      return
+    }
+    if (typeof d.x !== 'number' || typeof d.y !== 'number' || typeof d.button !== 'number') return
+    const p = { clientX: d.x, clientY: d.y, button: d.button, shiftKey: d.shift === true }
+    if (d.type === 'mousemove') onMove(p, null)
+    else if (d.type === 'mousedown') onDown(p, null)
+    else if (d.type === 'mouseup') onUp(p, null)
   }
 
   /**
@@ -366,29 +399,43 @@ export const PICKER_SCRIPT = String(function (
   // Pointer events keep their default (it fires the mouse events picking uses); wheels scroll.
   const swallowPicking = (e: Event): void => {
     if (picked && !eatClick && !design) return
-    e.stopPropagation()
+    stop(e)
     if (e.type === 'contextmenu') e.preventDefault()
   }
-  // Design Mode takes the pointer on the window, ahead of the page's own listeners (see PickOp).
+  // Design Mode takes the pointer on the window, ahead of the page's own listeners, and the
+  // guest preload gate's input on the document (see PickOp).
   const target: EventTarget = design ? window : host
   const quiet = ['click', 'dblclick', 'contextmenu', 'pointerdown', 'pointerup']
   if (design) {
-    quiet.push('auxclick', 'pointermove', 'pointerover', 'pointerout', 'mouseover', 'mouseout')
+    quiet.push(
+      'auxclick',
+      'pointermove',
+      'pointerover',
+      'pointerout',
+      'mouseover',
+      'mouseout',
+      'mouseenter',
+      'mouseleave',
+      'pointerenter',
+      'pointerleave',
+    )
   }
-  const listeners: Array<[string, (e: Event) => void]> = [
-    ['mousemove', onMove],
-    ['mousedown', onDown],
-    ['mouseup', onUp],
-    ...quiet.map((type): [string, (e: Event) => void] => [type, swallowPicking]),
+  type Listener = [EventTarget, string, (e: Event) => void]
+  const listeners: Listener[] = [
+    [target, 'mousemove', fromMouse(onMove)],
+    [target, 'mousedown', fromMouse(onDown)],
+    [target, 'mouseup', fromMouse(onUp)],
+    ...quiet.map((type): Listener => [target, type, swallowPicking]),
   ]
-  for (const [type, fn] of listeners) target.addEventListener(type, fn, true)
+  if (design && op.input) listeners.push([document, op.input, onInput])
+  for (const [on, type, fn] of listeners) on.addEventListener(type, fn, true)
   window.addEventListener('keydown', onKey, true)
 
   const close = (): Promise<void> => {
     if (w.__relayNotePicker !== picker) return Promise.resolve()
     delete w.__relayNotePicker
     window.removeEventListener('keydown', onKey, true)
-    for (const [type, fn] of listeners) target.removeEventListener(type, fn, true)
+    for (const [on, type, fn] of listeners) on.removeEventListener(type, fn, true)
     host.remove()
     // Still picking: the pick answers cancelled (after a mark this does nothing).
     resolve({ cancelled: true })

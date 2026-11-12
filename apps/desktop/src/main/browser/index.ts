@@ -4,7 +4,7 @@ import * as path from 'node:path'
 import { ipcMain, session } from 'electron'
 import { DESIGN_STYLE_KEYS } from '@evaos/contract'
 import type { SendNote } from '../agent-presence/notes'
-import { PASSKEY_CHANNEL } from '../../preload/guest-channel'
+import { DESIGN_GATE_QUERY, PASSKEY_CHANNEL } from '../../preload/guest-channel'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
 import { registerTestHook, registerViewProvider } from '../test-hooks'
@@ -95,6 +95,11 @@ export function registerDesignMode(ctx: MainContext, host: BrowserHost, send: Se
       // A request that went nowhere leaves no screenshots behind.
       if (!sent) await Promise.all(saved.map((f) => fs.promises.rm(f, { force: true })))
     }
+  })
+  // A new document in a page tab asks whether Design Mode holds the pointer before it runs scripts.
+  ipcMain.handle(DESIGN_GATE_QUERY, (event) => {
+    const tab = host.tabByWebContents(event.sender.id)
+    return tab ? design.isOn(tab.id) : false
   })
   registerTestHook('design', design)
   ctx.win.on('closed', () => design.dispose())

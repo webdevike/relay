@@ -1,5 +1,10 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import { installDesignGate } from './design-gate'
 import { PASSKEY_CHANNEL, type PasskeyPhase } from './guest-channel'
+
+// Design Mode's pointer gate first, before any page script and before the passkey shim, so its
+// window capture listeners run ahead of the page's (design-gate.ts).
+if (window === window.top) installDesignGate(window, ipcRenderer)
 
 /**
  * Relay's preload for guest pages (persist:browser; the extension host adds its own). It exposes
@@ -11,6 +16,8 @@ import { PASSKEY_CHANNEL, type PasskeyPhase } from './guest-channel'
  */
 contextBridge.executeInMainWorld({
   func: (notify: (phase: PasskeyPhase) => void) => {
+    // Passkeys need a secure context: a plain http page (a LAN dev server) has no credentials API.
+    if (typeof CredentialsContainer === 'undefined') return
     const proto = CredentialsContainer.prototype
     for (const name of ['create', 'get'] as const) {
       const original = proto[name] as (

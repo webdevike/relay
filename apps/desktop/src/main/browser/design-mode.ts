@@ -8,6 +8,7 @@ import {
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
 import { FORWARD_FROM_GUEST, chordOfInput } from '@evaos/shell-core'
 import type { PickResult } from './annotate-picker'
+import { DESIGN_GATE_CHANNEL, DESIGN_INPUT_EVENT } from '../../preload/guest-channel'
 import type { Input } from 'electron'
 import {
   DESIGN_COLOR,
@@ -18,9 +19,10 @@ import {
   type OverlayCommand,
 } from './design-page'
 
-/** The page's webContents events Design Mode follows. */
+/** The page's webContents events Design Mode follows, and the channel to its guest preload. */
 export interface DesignContents {
   getURL(): string
+  send(channel: string, ...args: unknown[]): void
   on(event: 'did-navigate', fn: (event: unknown, url: string) => void): unknown
   on(event: 'dom-ready', fn: () => void): unknown
   off(event: 'did-navigate', fn: (event: unknown, url: string) => void): unknown
@@ -198,12 +200,17 @@ export class DesignMode {
         this.end(tabId)
         this.emit('design.exit', { tabId, reason: 'navigated' })
       },
-      // A reload of the same site: draw again and find the selection in the new document.
-      onReady: () => this.later(s, () => this.revive(s)),
+      // A reload of the same site: gate and draw again, and find the selection in the new
+      // document (its preload starts with the gate off).
+      onReady: () => {
+        this.gate(s, true)
+        this.later(s, () => this.revive(s))
+      },
     }
     this.sessions.set(tabId, s)
     wc.on('did-navigate', s.onNavigate)
     wc.on('dom-ready', s.onReady)
+    this.gate(s, true)
     try {
       // Through the session's queue: skipped when the page closed or left the site first.
       await this.run(s, async () => {
@@ -290,7 +297,7 @@ export class DesignMode {
       let r: PickResult
       try {
         r = await this.page(s).pick(
-          { op: 'pick', color: DESIGN_COLOR, mode: 'design' },
+          { op: 'pick', color: DESIGN_COLOR, mode: 'design', input: DESIGN_INPUT_EVENT },
           PICK_TIMEOUT_MS,
         )
       } catch {
@@ -520,6 +527,19 @@ export class DesignMode {
     clearInterval(s.poll)
     s.wc.off('did-navigate', s.onNavigate)
     s.wc.off('dom-ready', s.onReady)
+    this.gate(s, false)
     this.sessions.delete(tabId)
+  }
+
+  /**
+   * The guest preload's pointer gate (preload/guest.ts) in the page's document: while on, no
+   * listener of the page's sees Isaac's pointer and the picker gets it from the gate.
+   */
+  private gate(s: Session, on: boolean): void {
+    try {
+      s.wc.send(DESIGN_GATE_CHANNEL, on)
+    } catch {
+      // The page closed.
+    }
   }
 }

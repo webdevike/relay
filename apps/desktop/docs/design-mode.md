@@ -53,16 +53,24 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
   `agent-presence.ts` (`BrowserNoteTarget`, `noteText`).
 - Main, `src/main/browser/design-mode.ts`: one session per page tab. Isaac's pointer goes through
   the page note picker (`annotate-picker.ts`) in mode `design`: a loop of picks, each answering a
-  click (with Shift) or a dragged region; the picker outlines what is hovered, reaches into open
-  shadow roots and takes the pointer events on the window in the capture phase, so the page's
-  own listeners (document outside-click handlers too) never see them, between picks as well. A
-  cancelled pick (the page's Note picker took the page; a design pick never replaces it) ends the
-  mode and removes its outlines. Keys are kept from the page by `BrowserHost.interceptInput`
-  (`before-input-event`; Relay's own shortcuts pass; Esc ends the mode). Every change of the
-  selection is read in the page, cropped and sent as `design.selection`; a 700 ms poll of a
-  signature of the selected elements (node identity, attributes, size, key styles, text, and a
-  count of DOM changes inside them) and `dom-ready` catch hot updates and reloads. Regions are
-  cropped once, when dragged. Turning the mode on and off is serialized per tab.
+  click (with Shift) or a dragged region; the picker outlines what is hovered and reaches into
+  open shadow roots. While the mode is on, main turns on the pointer gate of the guest preload
+  (`src/preload/design-gate.ts`, `DESIGN_GATE_CHANNEL`, again on every `dom-ready`); a new
+  document's top frame also asks main as it starts (`DESIGN_GATE_QUERY`), so a reload or
+  navigation is gated as soon as main answers, well before `dom-ready` (a gate message that came
+  first wins over the answer). The gate's window capture listeners, registered before any page
+  script, stop every mouse and pointer event, enter and leave included (not the wheel), cancel
+  presses, clicks and context menus (no focus, link or checkbox reacts), and hand moves, presses
+  and releases to the picker as `relay-design-input` events, so no listener of the page's sees the
+  pointer, between picks as well. Frames get no preload: the picker's shield, over the whole page,
+  keeps the pointer from them. A cancelled pick (the page's Note picker took the page; a design
+  pick never replaces it) ends the mode and removes its outlines. Keys are kept from the page by
+  `BrowserHost.interceptInput` (`before-input-event`; Relay's own shortcuts pass; Esc ends the
+  mode). Every change of the selection is read in the page, cropped and sent as
+  `design.selection`; a 700 ms poll of a signature of the selected elements (node identity,
+  attributes, size, key styles, text, and a count of DOM changes inside them) and `dom-ready`
+  catch hot updates and reloads. Regions are cropped once, when dragged. Turning the mode on and
+  off is serialized per tab.
 - Page, `src/main/browser/design-page.ts`: the selection outlines live in a closed shadow root in
   an isolated world (`relay-design`), so the page's scripts and styles can't reach them; reads that
   need React's fibers run in the page's world, read-only. Crops are taken with the outlines and the
@@ -80,8 +88,15 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 - A region is a screenshot taken when dragged: it is not outlined in the page and is not taken
   again after a reload or scroll.
 - Opening the page's Note picker while the mode is on ends the mode (one picker per page).
-- A page listener on `window` in the capture phase, added before Design Mode's, still sees the
-  pointer (the wheel always reaches the page, so it scrolls).
+- A page with no guest preload (another session's) gets the picker's own window capture
+  listeners only: the page's window listeners added before the pick still see the pointer. The
+  wheel always reaches the page, so it scrolls.
+- `relay-design-input` is a document event: the page can listen to it (it sees where the pointer
+  is and its buttons), stop it before the picker, or send fake ones, so it can change what is
+  selected, nothing more (Isaac still reads the inspector and presses Send).
+- Frames are kept from the pointer by the picker's shield only: after a reload or navigation,
+  until the picker is back (at `dom-ready`, half a second later when a pick failed), a frame's
+  page sees the pointer, as does a frame in a top-layer dialog drawn over the shield.
 - The selection is found again by its selector path; a hot update that changes the element's
   classes or position past what the path names marks it "Not in the page right now".
 - While a refresh crops, the outlines hide for a moment; a selected element whose content changes
@@ -89,7 +104,7 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 
 ## Verify
 
-- Unit: `pnpm vitest run src/main/browser/design-mode.test.ts src/main/browser/design-send.test.ts src/main/browser/annotate-picker.test.ts src/renderer/browser/design`
+- Unit: `pnpm vitest run src/main/browser/design-mode.test.ts src/main/browser/design-send.test.ts src/main/browser/annotate-picker.test.ts src/preload/design-gate.test.ts src/renderer/browser/design`
 - Machine doc: `pnpm machines:docs` (CI fails when the diagram is stale)
 - End to end (hidden window): `pnpm e2e:run e2e/design-mode.spec.ts`; `EVAOS_PROOF=1` writes the
   screenshots to `proof/phase-design-mode/`.

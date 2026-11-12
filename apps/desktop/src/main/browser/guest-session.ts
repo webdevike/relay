@@ -37,7 +37,8 @@ export function setupGuestSession(env: Env): void {
   // refused with "This browser or app may not be secure". Google rejects a browser that claims to
   // be Chrome without being it, not an honest embedded one.
 
-  // Tells the host when a page asks for a passkey, which this browser can't offer (preload/guest.ts).
+  // Tells the host when a page asks for a passkey, which this browser can't offer, and holds
+  // Design Mode's pointer gate in the top frame (preload/guest.ts).
   ses.registerPreloadScript({
     id: 'relay-passkey-watch',
     type: 'frame',

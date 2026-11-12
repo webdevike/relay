@@ -94,8 +94,12 @@ function fakePage() {
 
 function fakeContents(url: string) {
   const handlers: Record<string, Array<(...a: unknown[]) => void>> = {}
+  /** The pointer gate states sent to the guest preload, in order. */
+  const gates: unknown[] = []
   const wc = {
     getURL: () => url,
+    send: (_channel: string, on: unknown) => gates.push(on),
+    gates,
     on: (event: string, fn: (...a: unknown[]) => void) => {
       ;(handlers[event] ??= []).push(fn)
     },
@@ -177,17 +181,22 @@ describe('DesignMode', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }))
   afterEach(() => vi.useRealTimers())
 
-  it('keeps keys from the page only while it is on, Relay shortcuts pass; the picker takes the pointer', async () => {
+  it('keeps keys from the page only while it is on, Relay shortcuts pass; the picker and the gate take the pointer', async () => {
     const t = setup()
     expect(t.key('a')).toBe(false)
     await t.design.set('t1', true)
     await vi.waitFor(() => expect(t.p.isPicking()).toBe(true))
     expect(t.p.calls).toContain('picker:design')
+    expect(t.wc.gates).toEqual([true])
     expect(t.key('a')).toBe(true)
     // Paste never reaches the page; Cmd+L (Relay's address field) goes on to BrowserHost.
     expect(t.key('v', 'keyDown', false, true)).toBe(true)
     expect(t.key('l', 'keyDown', false, true)).toBe(false)
+    // A reload's new document starts with the gate off: it goes on again.
+    t.wc.fire('dom-ready')
+    expect(t.wc.gates).toEqual([true, true])
     await t.design.set('t1', false)
+    expect(t.wc.gates).toEqual([true, true, false])
     expect(t.key('a')).toBe(false)
     expect(t.p.calls).toContain('destroy')
     // The picker closed with it, and no new pick opens.

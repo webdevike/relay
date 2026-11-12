@@ -264,7 +264,8 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect(inspector(shell, id).locator('[data-testid=design-styles]')).toHaveCount(0)
   await expect.poll(() => framesOf(app, id)).toBe(2)
   await proofShot(app, shell, 'region', { phase: PHASE })
-  // A2: none of that pointer work reached the page, not even its document capture listeners.
+  // A2: none of that pointer work reached the page, not even its own window and document capture
+  // listeners added at load (the guest preload's gate runs before them).
   expect(await guestEval(app, id, 'window.docEvents')).toBe(0)
 
   // A2: the wheel still scrolls the page.
@@ -277,6 +278,25 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   expect(await ended).toBeGreaterThan(0)
   await guestEval(app, id, "scrollTo({ top: 0, behavior: 'instant' })")
   await expect.poll(() => guestEval(app, id, 'scrollY')).toBe(0)
+
+  // A2: a frame (no preload there) does not see the pointer either: the picker's shield covers it.
+  const addFrame = `(() => {
+    window.frameEvents = 0
+    const f = document.createElement('iframe')
+    f.id = 'frame'
+    f.style.cssText = 'position: fixed; right: 0; bottom: 0; width: 120px; height: 80px; border: 0'
+    f.srcdoc = '<body style="margin: 0; height: 100vh" onmousemove="parent.frameEvents++"></body>'
+    document.body.append(f)
+    return new Promise((r) => f.addEventListener('load', () => r(true), { once: true }))
+  })()`
+  await guestEval(app, id, addFrame)
+  const frameAt = await centerOf(app, id, '#frame')
+  await mouse(app, id, [
+    { type: 'mouseMove', x: frameAt.x - 10, y: frameAt.y },
+    { type: 'mouseMove', ...frameAt },
+  ])
+  expect(await guestEval(app, id, 'window.frameEvents')).toBe(0)
+  await guestEval(app, id, "document.getElementById('frame').remove()")
 
   // A6: a style edit previews in the page.
   await items.first().locator('.eva-design-item-main').click()
@@ -445,6 +465,9 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await click(app, id, await centerOf(app, id, '#save'))
   await expect.poll(() => guestEval(app, id, 'window.clicks')).toBe(1)
   expect(Number(await guestEval(app, id, 'window.docEvents'))).toBeGreaterThan(0)
+  await guestEval(app, id, addFrame)
+  await mouse(app, id, [{ type: 'mouseMove', ...(await centerOf(app, id, '#frame')) }])
+  await expect.poll(() => guestEval(app, id, 'window.frameEvents')).toBeGreaterThan(0)
 
   // A9: Esc from the inspector exits too.
   await toggle.click()

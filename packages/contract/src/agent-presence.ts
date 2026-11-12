@@ -207,7 +207,8 @@ function targetName(t: BrowserNoteTarget): string {
     `<${el.tag.replace(/[^a-z0-9-]/gi, '')}>`,
     el.role ? `role ${quoted(el.role)}` : null,
     el.label ? `label ${quoted(el.label)}` : el.text ? quoted(el.text) : null,
-    el.selector ? `selector ${quoted(el.selector, 400)}` : null,
+    // Whole and as written, so the agent can query it (a path can be long, end in an escape).
+    el.selector ? `selector ${JSON.stringify(el.selector)}` : null,
   ]
     .filter((p): p is string => p !== null)
     .join(', ')
