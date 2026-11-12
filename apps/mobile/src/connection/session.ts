@@ -1,27 +1,24 @@
 /**
- * Phone-side mirror of the Mac's `ClientSession` state machine (see
- * apps/mac/Sources/RelayCore/Transport/ClientSession.swift), plus discovery/backoff/heartbeat on
- * top. Pure: no sockets, no storage, no timers. `handle` maps one input to the effects the driver
- * (index.ts) must perform; the only ambient inputs are the injected `sha256`/`random` seams and
- * the `now` (monotonic ms) passed into every call, so every transition is deterministic and
- * testable without React Native, real time, or a real connection.
+ * The driver's handle on the session statechart (`session.machine.ts`): one running actor, with
+ * `handle(input, now)` mapping a socket, discovery, app or host input to the effects the driver
+ * (index.ts) must perform, in order. It provides the machine's one async step, the challenge proof
+ * (`authProof` over the injected `sha256`), and waits for it, so `handle` always returns every
+ * effect of its input. Deterministic: the only ambient inputs are `sha256`, `random` and `now`.
  */
-import { authProof, PROTOCOL_VERSION, type ClientMessage, type ErrorCode, type MacState, type PairFailure, type ServerMessage, type Sha256 } from "@relay/protocol";
-import type { ConnectionState } from "@/state/connection";
+import { createActor, fromPromise, waitFor, type ActorRefFrom } from "xstate";
+import { authProof, type ServerMessage, type Sha256 } from "@relay/protocol";
 import type { DiscoveredService } from "./discovery";
+import {
+  sessionEventOf,
+  sessionMachine,
+  type ProofInput,
+  type SessionEffect,
+  type SessionEvent,
+  type SessionState,
+} from "./session.machine";
 
-export type SessionState =
-  | "idle"
-  | "discovering"
-  | "connecting"
-  | "hello"
-  | "needs_pairing"
-  | "pairing_request"
-  | "pairing_pin"
-  | "authenticating"
-  | "connected"
-  | "backoff"
-  | "offline";
+export type { SessionState } from "./session.machine";
+export type Effect = SessionEffect;
 
 export type SessionInput =
   | { readonly type: "server"; readonly message: ServerMessage }
@@ -34,18 +31,6 @@ export type SessionInput =
   | { readonly type: "pinEntered"; readonly pin: string }
   | { readonly type: "timer" };
 
-type StoreUpdate = Partial<Omit<ConnectionState, "set">>;
-
-export type Effect =
-  | { readonly type: "connect"; readonly host: string; readonly port: number }
-  | { readonly type: "send"; readonly message: ClientMessage }
-  | { readonly type: "startDiscovery" }
-  | { readonly type: "stopDiscovery" }
-  | { readonly type: "scheduleRetry"; readonly ms: number }
-  | { readonly type: "storeSecret"; readonly hex: string }
-  | { readonly type: "forgetSecret" }
-  | { readonly type: "storeUpdate"; readonly partial: StoreUpdate };
-
 export interface SessionDeps {
   readonly sha256: Sha256;
   readonly deviceId: string;
@@ -53,369 +38,71 @@ export interface SessionDeps {
   readonly random?: () => number;
 }
 
-const HEARTBEAT_INTERVAL_MS = 5000;
-const BACKOFF_SCHEDULE_MS = [500, 1000, 2000, 4000, 5000] as const;
-
-/** attempt 1 -> 0.5s, 2 -> 1s, 3 -> 2s, 4 -> 4s, 5+ -> capped 5s, all jittered by up to ±20%. */
-function backoffDelay(attempt: number, random: () => number): number {
-  const base = BACKOFF_SCHEDULE_MS[Math.min(attempt - 1, BACKOFF_SCHEDULE_MS.length - 1)] ?? 5000;
-  const jitter = base * 0.2 * (random() * 2 - 1);
-  return Math.round(base + jitter);
+function eventOf(input: SessionInput, now: number): SessionEvent | null {
+  switch (input.type) {
+    case "server":
+      return sessionEventOf(input.message, now);
+    case "socketOpen":
+      return { type: "socket.opened" };
+    case "socketClosed":
+      return { type: "socket.closed" };
+    case "serviceFound":
+      return { type: "discovery.found", service: input.service, pairedSecretHex: input.pairedSecretHex };
+    case "appActive":
+      return { type: "app.active" };
+    case "appBackground":
+      return { type: "app.background" };
+    case "startPairing":
+      return { type: "pairing.start" };
+    case "pinEntered":
+      return { type: "pairing.pin", pin: input.pin };
+    case "timer":
+      return { type: "timer.fired", now };
+  }
 }
 
 export class SessionMachine {
-  private state: SessionState = "idle";
-  private secretHex: string | null;
-  private candidate: { host: string; port: number } | null = null;
-  private attempts = 0;
-  private backgrounded = false;
-  private awaitingPong = false;
-  private missedPongs = 0;
-  private lastRttMs: number | null = null;
-  private lastPingTs: number | null = null;
-  private readonly deps: SessionDeps;
-  private readonly random: () => number;
+  private readonly actor: ActorRefFrom<typeof sessionMachine>;
 
   constructor(deps: SessionDeps) {
-    this.deps = deps;
-    this.secretHex = null;
-    this.random = deps.random ?? Math.random;
+    const machine = sessionMachine.provide({
+      actors: {
+        proof: fromPromise<string, ProofInput>(({ input }) => authProof(input.secretHex, input.nonce, deps.sha256)),
+      },
+    });
+    this.actor = createActor(machine, {
+      input: { deviceId: deps.deviceId, getDeviceName: deps.getDeviceName, random: deps.random },
+    }).start();
   }
 
   get currentState(): SessionState {
-    return this.state;
+    const value = this.actor.getSnapshot().value;
+    return (typeof value === "string" ? value : Object.keys(value)[0]) as SessionState;
   }
 
   get rttMs(): number | null {
-    return this.lastRttMs;
+    return this.actor.getSnapshot().context.lastRttMs;
   }
 
+  /** The effects of `input`, in order. Callers must not overlap calls (index.ts serializes them). */
   async handle(input: SessionInput, now: number): Promise<Effect[]> {
-    switch (input.type) {
-      case "server":
-        return this.onServerMessage(input.message, now);
-      case "socketOpen":
-        return this.onSocketOpen();
-      case "socketClosed":
-        return this.onSocketClosed();
-      case "serviceFound":
-        return this.onServiceFound(input.service, input.pairedSecretHex);
-      case "appActive":
-        return this.onAppActive();
-      case "appBackground":
-        return this.onAppBackground();
-      case "startPairing":
-        return this.onStartPairing();
-      case "pinEntered":
-        return this.onPinEntered(input.pin);
-      case "timer":
-        return this.onTimer(now);
+    const event = eventOf(input, now);
+    if (event === null) return [];
+    const effects: Effect[] = [];
+    const subscription = this.actor.on("effect", (emitted) => {
+      effects.push(emitted.effect);
+    });
+    try {
+      this.actor.send(event);
+      await waitFor(this.actor, (snapshot) => !snapshot.hasTag("proving"));
+    } finally {
+      subscription.unsubscribe();
     }
-  }
-
-  // ---------------------------------------------------------------------------------------------
-  // Local events
-  // ---------------------------------------------------------------------------------------------
-
-  private onSocketOpen(): Effect[] {
-    if (this.state !== "connecting") return [];
-    this.state = "hello";
-    return [
-      {
-        type: "send",
-        message: {
-          t: "hello",
-          v: PROTOCOL_VERSION,
-          deviceId: this.deps.deviceId,
-          deviceName: this.deps.getDeviceName(),
-          platform: "ios",
-        },
-      },
-    ];
-  }
-
-  private onSocketClosed(): Effect[] {
-    this.awaitingPong = false;
-    this.missedPongs = 0;
-    if (this.backgrounded) {
-      this.state = "offline";
-      return [];
-    }
-    if (this.state === "idle" || this.state === "offline" || this.state === "discovering" || this.state === "needs_pairing") return [];
-    return this.enterBackoff();
-  }
-
-  private onServiceFound(service: DiscoveredService, pairedSecretHex: string | null): Effect[] {
-    if (this.state !== "discovering") return [];
-    this.candidate = { host: service.host, port: service.port };
-    this.secretHex = pairedSecretHex;
-    this.state = "connecting";
-    return [
-      { type: "stopDiscovery" },
-      { type: "storeUpdate", partial: { status: "connecting", macName: service.name } },
-      { type: "connect", host: service.host, port: service.port },
-    ];
-  }
-
-  private onAppActive(): Effect[] {
-    const resuming = this.backgrounded;
-    this.backgrounded = false;
-    if (!resuming && this.state !== "idle") return [];
-    return this.beginConnect();
-  }
-
-  private onAppBackground(): Effect[] {
-    this.backgrounded = true;
-    this.awaitingPong = false;
-    this.missedPongs = 0;
-    this.lastPingTs = null;
-    const effects: Effect[] = this.state === "discovering" ? [{ type: "stopDiscovery" }] : [];
-    this.state = "offline";
     return effects;
   }
 
-  private onStartPairing(): Effect[] {
-    if (this.state === "needs_pairing") {
-      return this.beginConnect();
-    }
-    if (this.state !== "hello") return [];
-    this.state = "pairing_request";
-    return [
-      { type: "send", message: { t: "pair.request" } },
-      { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } },
-    ];
-  }
-
-  private onPinEntered(pin: string): Effect[] {
-    if (this.state !== "pairing_pin" || !/^\d{6}$/.test(pin)) return [];
-    return [{ type: "send", message: { t: "pair.confirm", pin } }];
-  }
-
-  private onTimer(now: number): Effect[] {
-    if (this.state === "backoff") return this.beginConnect();
-    if (this.state === "connected") return this.heartbeatTick(now);
-    return [];
-  }
-
-  // ---------------------------------------------------------------------------------------------
-  // Server messages
-  // ---------------------------------------------------------------------------------------------
-
-  private async onServerMessage(message: ServerMessage, now: number): Promise<Effect[]> {
-    switch (message.t) {
-      case "challenge":
-        return this.onChallenge(message.nonce);
-      case "unpaired":
-        return this.onUnpaired();
-      case "pair.pending":
-        return this.onPairPending();
-      case "pair.ok":
-        return this.onPairOk(message.secret);
-      case "pair.failed":
-        return this.onPairFailed(message.reason);
-      case "welcome":
-        return this.onWelcome(message.state.mac);
-      case "error":
-        return this.onErrorMessage(message.code, message.message);
-      case "mac.state":
-        return this.onMacState(message.mac);
-      case "pong":
-        return this.onPong(message.ts, now);
-      case "agents.snapshot":
-      case "agents.delta":
-      case "agent.conversation":
-      case "agent.messages":
-      case "agent.message.update":
-      case "agent.options":
-      case "agent.image":
-      case "sessions.list":
-      case "session.chunk":
-      case "agent.started":
-      case "blob.data":
-      case "agent.ask":
-      case "agent.ask.resolved":
-      case "agent.approval":
-      case "agent.approval.resolved":
-      case "inbox.item":
-      case "inbox.resolve":
-      case "drop.new":
-      case "drop.removed":
-      case "drop.list":
-      case "board.snapshot":
-      case "board.delta":
-      case "gate.status":
-      case "usage.snapshot":
-      case "catchup.snapshot":
-      case "catchup.noted":
-      case "reactions.snapshot":
-      case "bookmarks.snapshot":
-      case "artifacts.snapshot":
-      case "artifacts.acted":
-      case "call.state":
-      case "call.audio":
-      case "call.flush":
-      case "live.answer":
-      case "live.state":
-      case "assistant.snapshot":
-      case "assistant.agents":
-      case "vnc.ticket":
-      case "vnc.unavailable":
-      case "canvas.rooms":
-      case "canvas.access":
-      case "canvas.unavailable":
-      case "studio.state":
-      case "studio.job":
-      case "studio.removed":
-      case "studio.library":
-      case "studio.segments":
-      case "studio.res":
-      case "rooms.state":
-      case "rooms.room":
-      case "rooms.res":
-      case "rooms.cmd":
-      case "reviews.res":
-      case "reviews.queue":
-      case "reviews.astra":
-      case "ack":
-      case "nack":
-        // Agent, drop, board, gate, usage, catch up, reaction, assistant, vnc, canvas and studio frames are routed to their stores and ack/nack to CommandQueue by index.ts. Live calls run on the native module's own socket.
-        return [];
-    }
-  }
-
-  private async onChallenge(nonce: string): Promise<Effect[]> {
-    if (this.state !== "hello" || this.secretHex === null) return [];
-    this.state = "authenticating";
-    const proof = await authProof(this.secretHex, nonce, this.deps.sha256);
-    return [{ type: "send", message: { t: "auth", proof } }];
-  }
-
-  /** Always asks: a tailnet host answers `pair.ok` straight away, any other host shows a PIN. */
-  private onUnpaired(): Effect[] {
-    if (this.state !== "hello") return [];
-    this.state = "pairing_request";
-    return [
-      { type: "send", message: { t: "pair.request" } },
-      { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null } } },
-    ];
-  }
-
-  private onPairPending(): Effect[] {
-    if (this.state !== "pairing_request") return [];
-    this.state = "pairing_pin";
-    return [{ type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: true, failure: null } } }];
-  }
-
-  private onPairOk(secret: string): Effect[] {
-    if (this.state !== "pairing_pin" && this.state !== "pairing_request") return [];
-    this.secretHex = secret;
-    this.state = "authenticating";
-    return [{ type: "storeSecret", hex: secret }];
-  }
-
-  private onPairFailed(reason: PairFailure): Effect[] {
-    if (this.state !== "pairing_pin") return [];
-    if (reason === "wrong_pin") {
-      return [{ type: "storeUpdate", partial: { pairing: { pinRequired: true, failure: "wrong_pin" } } }];
-    }
-    this.state = "hello";
-    return [{ type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: reason } } }];
-  }
-
-  private onWelcome(mac: MacState): Effect[] {
-    if (this.state !== "authenticating") return [];
-    this.state = "connected";
-    this.attempts = 0;
-    this.awaitingPong = false;
-    this.missedPongs = 0;
-    this.lastPingTs = null;
-    return [
-      {
-        type: "storeUpdate",
-        partial: { status: "connected", mac, macName: mac.name, lastError: null, pairing: { pinRequired: false, failure: null } },
-      },
-      { type: "scheduleRetry", ms: HEARTBEAT_INTERVAL_MS },
-    ];
-  }
-
-  private onErrorMessage(code: ErrorCode, message: string): Effect[] {
-    switch (code) {
-      case "unknown_device":
-      case "auth_failed":
-        this.secretHex = null;
-        this.state = "needs_pairing";
-        return [
-          { type: "forgetSecret" },
-          { type: "storeUpdate", partial: { status: "pairing", pairing: { pinRequired: false, failure: null }, mac: null, macName: null } },
-        ];
-      case "busy":
-        return this.enterBackoff();
-      case "version_mismatch":
-      case "protocol":
-        this.state = "offline";
-        return [{ type: "storeUpdate", partial: { status: "offline", lastError: message } }];
-    }
-  }
-
-  private onMacState(mac: MacState): Effect[] {
-    if (this.state !== "connected") return [];
-    return [{ type: "storeUpdate", partial: { mac, macName: mac.name } }];
-  }
-
-  private onPong(ts: number, now: number): Effect[] {
-    if (this.state !== "connected" || ts !== this.lastPingTs) return [];
-    this.awaitingPong = false;
-    this.missedPongs = 0;
-    this.lastRttMs = now - ts;
-    return [];
-  }
-
-  // ---------------------------------------------------------------------------------------------
-  // Shared transitions
-  // ---------------------------------------------------------------------------------------------
-
-  /** Connect to the known candidate, or fall back to discovery when none has been found yet. */
-  private beginConnect(): Effect[] {
-    if (this.candidate === null) {
-      this.state = "discovering";
-      return [{ type: "storeUpdate", partial: { status: "discovering" } }, { type: "startDiscovery" }];
-    }
-    this.state = "connecting";
-    return [
-      { type: "storeUpdate", partial: { status: "connecting" } },
-      { type: "connect", host: this.candidate.host, port: this.candidate.port },
-    ];
-  }
-
-  private enterBackoff(): Effect[] {
-    this.awaitingPong = false;
-    this.missedPongs = 0;
-    this.lastPingTs = null;
-    if (this.candidate === null) {
-      this.state = "discovering";
-      return [{ type: "storeUpdate", partial: { status: "discovering" } }, { type: "startDiscovery" }];
-    }
-    // Idempotent: a redundant socketClosed while already recovering (e.g. the guaranteed close
-    // that follows any `error` frame, when that error already triggered backoff) must not
-    // double-count the attempt.
-    if (this.state !== "backoff") this.attempts += 1;
-    this.state = "backoff";
-    return [
-      { type: "storeUpdate", partial: { status: "reconnecting" } },
-      { type: "scheduleRetry", ms: backoffDelay(this.attempts, this.random) },
-    ];
-  }
-
-  private heartbeatTick(now: number): Effect[] {
-    if (this.awaitingPong) {
-      this.missedPongs += 1;
-      if (this.missedPongs >= 2) return this.enterBackoff();
-    }
-    this.awaitingPong = true;
-    this.lastPingTs = now;
-    return [
-      { type: "send", message: { t: "ping", ts: now } },
-      { type: "scheduleRetry", ms: HEARTBEAT_INTERVAL_MS },
-    ];
+  /** Stops the actor: a proof still computing is dropped. */
+  stop(): void {
+    this.actor.stop();
   }
 }

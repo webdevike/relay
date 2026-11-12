@@ -10,9 +10,11 @@ import { describe, expect, it } from "vitest";
 import type { AnyStateMachine } from "xstate";
 import { machineDiagram, newDoc, withDiagram } from "./lib/machineDiagram";
 import { commandMachine } from "./connection/command.machine";
+import { sessionMachine } from "./connection/session.machine";
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   { file: "command", title: "Reliable command lifecycle (phone to host)", machine: commandMachine },
+  { file: "session", title: "Connection session (discovery, pairing, heartbeat, backoff, background)", machine: sessionMachine },
 ];
 
 const DOCS = fileURLToPath(new URL("../../../docs/state-machines/", import.meta.url));

@@ -196,8 +196,13 @@ describe("SessionMachine app lifecycle", () => {
     await m.handle({ type: "socketClosed" }, 0); // now in backoff, a retry timer is conceptually pending
     expect(m.currentState).toBe("backoff");
 
+    // The socket closes with the app in the background: the store must stop saying it is up.
     const backgroundEffects = await m.handle({ type: "appBackground" }, 0);
-    expect(backgroundEffects).toEqual([]);
+    expect(backgroundEffects).toEqual([{ type: "storeUpdate", partial: { status: "offline" } }]);
+    expect(m.currentState).toBe("offline");
+
+    // The driver's close that follows (now reported for local closes too) changes nothing more.
+    expect(await m.handle({ type: "socketClosed" }, 0)).toEqual([]);
 
     // Even if the driver's stale backoff timer still fires, the machine must not act on it.
     const staleTimerEffects = await m.handle({ type: "timer" }, 100);
@@ -216,6 +221,34 @@ describe("SessionMachine app lifecycle", () => {
     await m.handle({ type: "appBackground" }, 0);
     const resumeEffects = await m.handle({ type: "appActive" }, 0);
     expect(resumeEffects).toEqual([{ type: "storeUpdate", partial: { status: "discovering" } }, { type: "startDiscovery" }]);
+  });
+
+  it("a connected app going to the background reports offline, never a stale connected", async () => {
+    const m = machine();
+    await m.handle({ type: "appActive" }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
+    await m.handle({ type: "socketOpen" }, 0);
+    await m.handle({ type: "server", message: { t: "challenge", nonce: "n" } }, 0);
+    await m.handle({ type: "server", message: { t: "welcome", state: { mac, agents: { rev: 0, sessions: [] } } } }, 0);
+    expect(m.currentState).toBe("connected");
+
+    expect(await m.handle({ type: "appBackground" }, 0)).toEqual([{ type: "storeUpdate", partial: { status: "offline" } }]);
+    expect(await m.handle({ type: "socketClosed" }, 0)).toEqual([]);
+    expect(m.currentState).toBe("offline");
+  });
+
+  it("a socket of a background reconnect closing moves to offline and says so", async () => {
+    const m = machine();
+    await m.handle({ type: "appActive" }, 0);
+    await m.handle({ type: "serviceFound", service, pairedSecretHex: "aabbccdd" }, 0);
+    await m.handle({ type: "appBackground" }, 0);
+    // A busy host while backgrounded still backs off and reconnects (unchanged behaviour) ...
+    await m.handle({ type: "server", message: { t: "error", code: "busy", message: "busy" } }, 0);
+    await m.handle({ type: "timer" }, 0);
+    expect(m.currentState).toBe("connecting");
+    // ... and when that socket goes, the machine lands offline and tells the store.
+    expect(await m.handle({ type: "socketClosed" }, 0)).toEqual([{ type: "storeUpdate", partial: { status: "offline" } }]);
+    expect(m.currentState).toBe("offline");
   });
 });
 

@@ -351,10 +351,23 @@ function handleFrame(data: string): void {
   void dispatch({ type: "server", message });
 }
 
-async function dispatch(input: Parameters<SessionMachine["handle"]>[0]): Promise<void> {
-  if (machine === null) return;
-  const effects = await machine.handle(input, getClientTime());
-  await applyEffects(effects);
+/** Serialized: one input is handled and its effects applied before the next, so none interleave. */
+let dispatching: Promise<void> = Promise.resolve();
+
+function dispatch(input: Parameters<SessionMachine["handle"]>[0]): Promise<void> {
+  // Bound to the machine running now: inputs (and effects) of a machine reset meanwhile are dropped.
+  const target = machine;
+  const now = getClientTime();
+  dispatching = dispatching
+    .then(async () => {
+      if (target === null || target !== machine) return;
+      const effects = await target.handle(input, now);
+      if (target === machine) await applyEffects(effects);
+    })
+    .catch((error: unknown) => {
+      warn("session", "dispatch failed", error);
+    });
+  return dispatching;
 }
 
 async function applyEffects(effects: Effect[]): Promise<void> {
@@ -488,6 +501,9 @@ async function boot(): Promise<void> {
 async function resetSession(): Promise<void> {
   currentCandidate = null;
   discovery.stop();
+  // The old machine goes first, so this close is not news to it (nor to its replacement).
+  machine?.stop();
+  machine = null;
   socket.close();
   clearTimeout(retryTimer);
   retryTimer = undefined;
@@ -1106,10 +1122,11 @@ export const connection = {
     appStateSubscription?.remove();
     appStateSubscription = null;
     discovery.stop();
+    machine?.stop();
+    machine = null;
     socket.close();
     clearTimeout(retryTimer);
     retryTimer = undefined;
-    machine = null;
   },
 };
 
