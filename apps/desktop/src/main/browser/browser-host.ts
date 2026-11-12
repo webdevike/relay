@@ -4,6 +4,8 @@ import {
   clipboard,
   shell,
   type HandlerDetails,
+  type Input,
+  type MouseInputEvent,
   type WebContents,
   type WindowOpenHandlerResponse,
 } from 'electron'
@@ -82,6 +84,9 @@ export const LIVE_SCOPES = 5
 
 type TabListener = (tab: TabState, view: WebContentsView) => void
 
+/** Isaac's input in a page, offered to the interceptor (Design Mode) before the page gets it. */
+export type PageInput = { kind: 'mouse'; mouse: MouseInputEvent } | { kind: 'key'; input: Input }
+
 /** An agent is acting in the tab (or waiting on Isaac there): it keeps its live view. */
 const busy = (a: AgentRun | undefined): boolean =>
   a !== undefined && (a.status === 'working' || a.status === 'paused' || a.status === 'ask')
@@ -124,6 +129,8 @@ export class BrowserHost {
   private actingIn = new Map<string, number>()
   /** The last on-screen page size: a page driven in the background lays out at it. */
   private driveSize = { ...DRIVE_SIZE }
+  /** Takes Isaac's input in a tab away from the page when it answers true (Design Mode). */
+  private interceptor: ((tabId: string, input: PageInput) => boolean) | null = null
 
   readonly history: HistoryStore
   private readonly saved: SavedTabsStore
@@ -208,6 +215,14 @@ export class BrowserHost {
   /** A tab's view is gone (the tab closed, or went dormant). */
   onTabClosed(cb: TabListener): void {
     this.closed.push(cb)
+  }
+
+  /**
+   * One interceptor (Design Mode) sees Isaac's mouse and key input in every tab first; the input
+   * it answers true for never reaches the page, never pauses an agent and never forwards a chord.
+   */
+  interceptInput(fn: (tabId: string, input: PageInput) => boolean): void {
+    this.interceptor = fn
   }
 
   /** Tab state and view by webContents id, for the extension host. */
@@ -420,10 +435,18 @@ export class BrowserHost {
       this.changed()
     })
     // Isaac's own input in a tab (not the drive's CDP input): an agent driving it pauses.
-    wc.on('before-mouse-event', (_e, mouse) => {
+    wc.on('before-mouse-event', (event, mouse) => {
+      if (this.interceptor?.(s.id, { kind: 'mouse', mouse })) {
+        event.preventDefault()
+        return
+      }
       if (mouse.type === 'mouseDown' || mouse.type === 'mouseWheel') this.userInput(tab, view)
     })
     wc.on('before-input-event', (event, input) => {
+      if (this.interceptor?.(s.id, { kind: 'key', input })) {
+        event.preventDefault()
+        return
+      }
       if (input.type === 'keyDown') this.userInput(tab, view)
       if (matchesAppChord(input) === 'devtools') {
         event.preventDefault()

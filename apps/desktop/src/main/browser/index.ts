@@ -1,9 +1,13 @@
 import { ipcMain, session } from 'electron'
+import { DESIGN_STYLE_KEYS } from '@evaos/contract'
 import { PASSKEY_CHANNEL } from '../../preload/guest-channel'
 import type { MainContext } from '../context'
+import { emit, handle } from '../ipc/handle'
 import { registerTestHook, registerViewProvider } from '../test-hooks'
 import { BrowserHost } from './browser-host'
 import { registerBrowserIpc } from './browser-ipc'
+import { DesignMode } from './design-mode'
+import { designPage } from './design-page'
 import { setupExtensions } from './extensions'
 import { GUEST_PARTITION, setupGuestSession } from './guest-session'
 import { installTabAppCookies } from './tab-app-cookies'
@@ -19,6 +23,7 @@ export function registerBrowser(ctx: MainContext): BrowserHost {
   ipcMain.on(PASSKEY_CHANNEL, (event, phase: unknown) => {
     if (phase === 'start' || phase === 'done') host.passkey(event.sender.id, phase)
   })
+  registerDesignMode(ctx, host)
   // Navigation waits for the extension host so the first page already gets content scripts.
   host.ready = setupExtensions(ctx, host).catch((e: unknown) => {
     console.warn('[extensions] setup failed:', e instanceof Error ? e.message : e)
@@ -29,4 +34,31 @@ export function registerBrowser(ctx: MainContext): BrowserHost {
   ctx.win.on('closed', () => host.dispose())
   ctx.onBeforeQuit(async () => host.dispose())
   return host
+}
+
+/** Design Mode in page tabs (design-mode.ts): its IPC and its test hook. */
+function registerDesignMode(ctx: MainContext, host: BrowserHost): void {
+  const design = new DesignMode(
+    {
+      page: (tabId) => designPage(host.pageControl(tabId), DESIGN_STYLE_KEYS),
+      contents: (tabId) => host.tabById(tabId),
+      onTabClosed: (cb) => host.onTabClosed(cb),
+      interceptInput: (fn) => host.interceptInput(fn),
+    },
+    (channel, payload) => emit(ctx, channel, payload),
+  )
+  handle(ctx, 'design.set', async ({ tabId, on }) => {
+    await design.set(tabId, on)
+    return { ok: true as const }
+  })
+  handle(ctx, 'design.select', async ({ tabId, selectors }) => {
+    await design.select(tabId, selectors)
+    return { ok: true as const }
+  })
+  handle(ctx, 'design.style', async ({ tabId, selector, property, value }) => {
+    await design.style(tabId, selector, property, value)
+    return { ok: true as const }
+  })
+  registerTestHook('design', design)
+  ctx.win.on('closed', () => design.dispose())
 }

@@ -19,8 +19,8 @@ import { PICKER_SCRIPT, describeElement, type PickOp, type PickResult } from './
  */
 export class PageControl {
   private enabled = false
-  /** The isolated world the cursor lives in, per document (a navigation drops it). */
-  private world: number | null = null
+  /** Isolated worlds by name (the cursor's, Design Mode's), per document (a navigation drops them). */
+  private worlds = new Map<string, number>()
   /** The viewport a page off screen lays out at (see viewport), null when it follows its view. */
   private emulated: { width: number; height: number } | null = null
 
@@ -30,7 +30,7 @@ export class PageControl {
   ) {
     wc.debugger.on('detach', () => {
       this.enabled = false
-      this.world = null
+      this.worlds.clear()
       this.emulated = null
     })
   }
@@ -278,6 +278,28 @@ export class PageControl {
     }
   }
 
+  /**
+   * PNG of one area of the page (viewport CSS px, which are the view's px at zoom 1), at most
+   * `maxSide` px on its long side; null when the page gives no frame.
+   */
+  async capture(
+    rect: { x: number; y: number; width: number; height: number },
+    maxSide: number,
+  ): Promise<{ png: string; width: number; height: number } | null> {
+    let img = await this.wc.capturePage(rect, { stayHidden: true })
+    if (img.isEmpty()) return null
+    const size = img.getSize()
+    const scale = Math.min(1, maxSide / Math.max(size.width, size.height))
+    if (scale < 1) {
+      img = img.resize({
+        width: Math.max(1, Math.round(size.width * scale)),
+        quality: 'good',
+      })
+    }
+    const { width, height } = img.getSize()
+    return { png: img.toPNG().toString('base64'), width, height }
+  }
+
   // Input ------------------------------------------------------------------------------------
 
   async mouseClick(x: number, y: number): Promise<void> {
@@ -341,22 +363,13 @@ export class PageControl {
    * reach its code, and the page's Trusted Types and inline-script rules don't apply to it.
    */
   async cursor(op: CursorOp): Promise<number> {
-    const expression = `(${CURSOR_SCRIPT})(${JSON.stringify(op)})`
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const contextId = await this.isolatedWorld()
-      try {
-        const r = await this.send<{ result?: { value?: unknown } }>(
-          'Runtime.evaluate',
-          { expression, contextId, returnByValue: true },
-          5000,
-        )
-        return typeof r?.result?.value === 'number' ? r.result.value : 0
-      } catch {
-        // The document changed under the cached world: make a new one once.
-        this.world = null
-      }
-    }
-    return 0
+    // A page the cursor can't be drawn in shows none: never an error for the agent's action.
+    const v = await this.inWorld<unknown>(
+      'relay-agent-cursor',
+      `(${CURSOR_SCRIPT})(${JSON.stringify(op)})`,
+      5000,
+    ).catch(() => 0)
+    return typeof v === 'number' ? v : 0
   }
 
   /**
@@ -366,43 +379,62 @@ export class PageControl {
    */
   async pick(op: PickOp, timeoutMs: number): Promise<PickResult> {
     const expression = `(${PICKER_SCRIPT})(${JSON.stringify(op)}, ${String(describeElement)})`
+    return (
+      (await this.inWorld<PickResult | undefined>('relay-agent-cursor', expression, timeoutMs)) ?? {
+        cancelled: true,
+      }
+    )
+  }
+
+  /**
+   * Runs `expression` in the isolated world `name` of the top frame and answers its value (a
+   * promise is awaited). Page scripts can't reach the world's code, and the page's Trusted Types
+   * and inline-script rules don't apply to it. A world the document dropped (a navigation) is made
+   * again once; any other failure (a timeout, the script throwing) is not retried.
+   */
+  async inWorld<T = unknown>(name: string, expression: string, timeoutMs = 5000): Promise<T> {
     for (let attempt = 0; ; attempt++) {
-      const contextId = await this.isolatedWorld()
+      const contextId = await this.isolatedWorld(name)
       try {
-        const r = await this.send<{
-          result?: { value?: PickResult }
+        const res = await this.send<{
+          result?: { value?: T }
           exceptionDetails?: { text?: string; exception?: { description?: string } }
         }>(
           'Runtime.evaluate',
           { expression, contextId, returnByValue: true, awaitPromise: true },
           timeoutMs,
         )
-        if (r.exceptionDetails) {
+        if (res.exceptionDetails) {
           throw new Error(
-            r.exceptionDetails.exception?.description ?? r.exceptionDetails.text ?? 'pick failed',
+            res.exceptionDetails.exception?.description ??
+              res.exceptionDetails.text ??
+              'evaluate failed',
           )
         }
-        return r.result?.value ?? { cancelled: true }
+        return res.result?.value as T
       } catch (e) {
-        // A world cached for an earlier document: make a new one once.
-        if (attempt > 0 || !/Cannot find context/i.test(e instanceof Error ? e.message : '')) {
-          throw e
-        }
-        this.world = null
+        // Only a world the document dropped is made again: a live one keeps its state (the
+        // design overlay, the cursor) through a script error or a timeout.
+        const stale = /Cannot find context|context was destroyed/i.test(
+          e instanceof Error ? e.message : '',
+        )
+        if (attempt > 0 || !stale) throw e
+        this.worlds.delete(name)
       }
     }
   }
 
-  private async isolatedWorld(): Promise<number> {
-    if (this.world !== null) return this.world
+  private async isolatedWorld(name: string): Promise<number> {
+    const known = this.worlds.get(name)
+    if (known !== undefined) return known
     const tree = await this.send<{ frameTree: { frame: { id: string } } }>('Page.getFrameTree')
     const w = await this.send<{ executionContextId: number }>('Page.createIsolatedWorld', {
       frameId: tree.frameTree.frame.id,
-      worldName: 'relay-agent-cursor',
+      worldName: name,
       grantUniveralAccess: false,
     })
-    this.world = w.executionContextId
-    return this.world
+    this.worlds.set(name, w.executionContextId)
+    return w.executionContextId
   }
 }
 
