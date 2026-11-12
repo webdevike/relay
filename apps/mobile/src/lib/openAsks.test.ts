@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, OpenAsk } from "@relay/protocol";
-import { askCards, askRowTarget, defaultNote, isAskRow, pruneHidden, visibleAsks, waitingMessageIds, withAskRows } from "./openAsks";
+import { askCards, askRowTarget, cardAskKey, defaultNote, hiddenAskIds, isAskRow, openAskKey, visibleAsks, waitingMessageIds, withAskRows } from "./openAsks";
 
 const ask = (id: string, at: number, over: Partial<OpenAsk> = {}): OpenAsk => ({ id, source: "replies", label: id, question: `${id}?`, replies: ["Yes", "No"], at, ...over });
 const NONE: ReadonlySet<string> = new Set();
@@ -26,13 +26,24 @@ describe("visibleAsks", () => {
   });
 });
 
-describe("pruneHidden", () => {
-  it("forgets ids the host dropped and keeps the set when nothing changed", () => {
-    const hidden: ReadonlySet<string> = new Set(["0000000a", "0000000b"]);
-    expect([...pruneHidden(hidden, [ask("0000000a", 1)])]).toEqual(["0000000a"]);
-    expect(pruneHidden(hidden, [ask("0000000a", 1), ask("0000000b", 2)])).toBe(hidden);
-    expect(pruneHidden(hidden, undefined).size).toBe(0);
-    expect(pruneHidden(NONE, undefined)).toBe(NONE);
+describe("ask record keys", () => {
+  it("files an open ask that stands for an ask card under the card's record, any other under the thread's", () => {
+    expect(openAskKey("nova", ask("0000000a", 1, { source: "ask", sessionId: "S", askId: "k1" }))).toBe(cardAskKey("S", "k1"));
+    expect(openAskKey("nova", ask("0000000b", 1))).toBe("open:nova:0000000b");
+  });
+});
+
+describe("hiddenAskIds", () => {
+  it("hides an ask while its answer or dismissal is on its way or reached the host, and shows it again when that failed", () => {
+    const asks = [ask("0000000a", 1), ask("0000000b", 2), ask("0000000c", 3), ask("0000000d", 4, { source: "ask", sessionId: "S", askId: "k1" }), ask("0000000e", 5)];
+    const records = {
+      "open:nova:0000000a": { state: "answering" as const },
+      "open:nova:0000000b": { state: "failed" as const },
+      "open:nova:0000000c": { state: "dismissed" as const },
+      [cardAskKey("S", "k1")]: { state: "answered" as const },
+    };
+    expect([...hiddenAskIds("nova", asks, records)]).toEqual(["0000000a", "0000000c", "0000000d"]);
+    expect(hiddenAskIds("nova", undefined, records).size).toBe(0);
   });
 });
 

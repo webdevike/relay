@@ -6,6 +6,7 @@
  * Native imports.
  */
 import type { AssistantMessage, OpenAsk } from "@relay/protocol";
+import type { AskRecordState } from "@/agents/ask.machine";
 
 /** The ask card showing above the composer: its open ask is not listed twice. */
 export interface ShownAskCard {
@@ -27,12 +28,30 @@ export function visibleAsks(asks: readonly OpenAsk[] | undefined, card: ShownAsk
     .sort((a, b) => b.at - a.at);
 }
 
-/** The ids of `hidden` the host still lists: the rest are gone from its snapshot and need no hiding. Same set when nothing dropped. */
-export function pruneHidden(hidden: ReadonlySet<string>, asks: readonly OpenAsk[] | undefined): ReadonlySet<string> {
-  if (hidden.size === 0) return hidden;
-  const open = new Set((asks ?? []).map((ask) => ask.id));
-  const kept = [...hidden].filter((id) => open.has(id));
-  return kept.length === hidden.size ? hidden : new Set(kept);
+/** The answer record (`agents/ask.machine.ts`) of the ask card session `sessionId` shows for ask `askId`. */
+export function cardAskKey(sessionId: string, askId: string): string {
+  return `ask:${sessionId}:${askId}`;
+}
+
+/**
+ * The answer record of open ask `ask` in `agent`'s thread: its ask card's when it stands for one, so
+ * the card, a chip and the open-questions sheet answer the same question once.
+ */
+export function openAskKey(agent: string, ask: OpenAsk): string {
+  return ask.sessionId !== undefined && ask.askId !== undefined ? cardAskKey(ask.sessionId, ask.askId) : `open:${agent}:${ask.id}`;
+}
+
+/**
+ * The ids of `asks` closed on this phone: their record's answer or dismissal is on its way or reached
+ * the host, which still lists them until its next snapshot. A failed one shows again, to answer again.
+ */
+export function hiddenAskIds(agent: string, asks: readonly OpenAsk[] | undefined, records: Readonly<Record<string, { state: AskRecordState }>>): ReadonlySet<string> {
+  const hidden = new Set<string>();
+  for (const ask of asks ?? []) {
+    const state = records[openAskKey(agent, ask)]?.state;
+    if (state !== undefined && state !== "open" && state !== "failed") hidden.add(ask.id);
+  }
+  return hidden;
 }
 
 /** Row ids of an ask drawn inline in the thread (no bubble of its own) start with this. */

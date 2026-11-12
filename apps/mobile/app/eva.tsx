@@ -68,7 +68,6 @@ import { agentPortrait, agentTitle, threadOf, useAssistantStore, type PendingTur
 import { useMotionSignals } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
 import { requestAgentOptions, requestAssistant, sendCommand, stopAssistant, subscribeAgent, unsubscribeAgent, watchArtifacts } from "@/connection";
-import { warn } from "@/connection/log";
 import { dismissTurn, newClientId, retryTurn, startTurn, type TurnStart } from "@/state/turns";
 import { notifyHaptic } from "@/lib/haptics";
 import { liveReplies } from "@/lib/replyChips";
@@ -98,7 +97,9 @@ import { OpenAsksSheet } from "@/agents/OpenAsksSheet";
 import { RunningChips } from "@/agents/RunningChips";
 import { AskInlineCard } from "@/agents/AskInlineCard";
 import { WaitingMark } from "@/ui/WaitingMark";
-import { askCards, askRowId, askRowTarget, isAskRow, pruneHidden, visibleAsks, waitingMessageIds, withAskRows } from "@/lib/openAsks";
+import { askCards, askRowId, askRowTarget, hiddenAskIds, isAskRow, openAskKey, visibleAsks, waitingMessageIds, withAskRows } from "@/lib/openAsks";
+import { answerAsk, dismissAsk } from "@/agents/asks";
+import type { AskReply } from "@/agents/ask.machine";
 import { WidgetCloseProvider } from "@/agents/WidgetActions";
 import { isLocalRow, localRowsOf, useLocalRowsStore } from "@/state/localRows";
 import { assistantTurnRows } from "@/turns/rows";
@@ -386,26 +387,30 @@ function Thread({ agent }: { agent: string }) {
       };
     }, [sessionId, connected]),
   );
-  const { ask: pendingAsk, answer: answerAsk, cancel: cancelAsk } = usePendingAsk(sessionId ?? undefined);
-
   // Open asks (`snapshot.asks`): questions the assistant is still waiting on. An older host sends
-  // none, so it gets no badges and never an `assistant.ask.resolve`. One closed here hides at once,
-  // until the host's next snapshot drops it (or comes back if the host refused).
+  // none, so it gets no badges and never an `assistant.ask.resolve`. One answered or dismissed here
+  // hides at once (its answer record, `agents/asks.ts`, outlives this screen) until the host's next
+  // snapshot drops it; a failed one shows again with the reason in the banner, to answer again.
   const openAsks = snapshot?.asks;
-  const [hiddenAsks, setHiddenAsks] = useState<ReadonlySet<string>>(() => new Set());
-  useEffect(() => {
-    setHiddenAsks((current) => pruneHidden(current, openAsks));
-  }, [openAsks]);
-  const hideAsk = (id: string): void => {
-    setHiddenAsks((current) => new Set(current).add(id));
-  };
-  /** Closes `ask` on the host (hidden here at once); `answer` is the text Isaac picked or typed, which a session ask's asker gets. */
-  const resolveAsk = (ask: OpenAsk, how: "answered" | "dismissed", answer?: string): void => {
-    hideAsk(ask.id);
-    sendCommand({ kind: "assistant.ask.resolve", agent, id: ask.id, how, ...(answer === undefined ? {} : { answer }) }).catch((error: unknown) => {
-      warn("assistant.ask.resolve failed", error);
-      setHiddenAsks((current) => new Set([...current].filter((id) => id !== ask.id)));
-    });
+  const showAskFailure = useCallback((reason: string) => {
+    setFailure(reason);
+  }, []);
+  const { ask: pendingAsk, answer: answerCard, cancel: cancelCard } = usePendingAsk(sessionId ?? undefined, { thread: { agent, asks: openAsks }, onFailed: showAskFailure });
+  const askRecords = useAgentsStore((state) => state.askRecords);
+  const hiddenAsks = useMemo(() => hiddenAskIds(agent, openAsks, askRecords), [agent, openAsks, askRecords]);
+  /**
+   * Closes `ask` on the host, once: `answer` is the text Isaac picked or typed, which a session ask's
+   * asker gets, and `turn` the words sent as his turn with it. Turn and resolve are one unit: a
+   * second tap meanwhile sends nothing, and answering again after a failure reuses the turn's `clientId`.
+   */
+  const resolveAsk = (ask: OpenAsk, how: "answered" | "dismissed", answer?: string, turn?: string): void => {
+    const reply: AskReply = {
+      turn: turn === undefined ? null : { agent, clientId: newClientId(), text: turn },
+      commands: [{ kind: "assistant.ask.resolve", agent, id: ask.id, how, ...(answer === undefined ? {} : { answer }) }],
+    };
+    const sources = { open: { agent, id: ask.id } };
+    if (how === "answered") answerAsk(openAskKey(agent, ask), reply, sources, showAskFailure);
+    else dismissAsk(openAskKey(agent, ask), reply, sources, showAskFailure);
   };
   /** The row Show in chat last scrolled to: it rings anew each time `n` grows, so the same ask shown again rings again. */
   const [rung, setRung] = useState({ id: "", n: 0 });
@@ -591,11 +596,9 @@ function Thread({ agent }: { agent: string }) {
    * answer only to the host, which hands it to the asking session.
    */
   const answerOpenAsk = (ask: OpenAsk, reply: string): void => {
-    if (ask.source !== "session") {
-      const target = askRowTarget(ask, messageIds);
-      sendTurn(answerText(reply, ask.question, target !== newestSettled?.id && target !== newestFirst[0]?.id), [], false);
-    }
-    resolveAsk(ask, "answered", reply.slice(0, MAX_ASK_ANSWER));
+    const target = askRowTarget(ask, messageIds);
+    const turn = ask.source === "session" ? undefined : answerText(reply, ask.question, target !== newestSettled?.id && target !== newestFirst[0]?.id);
+    resolveAsk(ask, "answered", reply.slice(0, MAX_ASK_ANSWER), turn);
   };
 
   /** Sign-in card tapped: Eva's browser as a sheet, already on the login page, with `Password` for the form. */
@@ -610,8 +613,8 @@ function Thread({ agent }: { agent: string }) {
   /** A reply chip under a bubble: the chips' row is an open ask too, answered, so its badge goes with it. An older bubble's answer carries its question. */
   const replyToRow = (message: AssistantMessage, reply: string): void => {
     const ask = openAsks?.find((entry) => entry.messageId === message.id);
-    sendTurn(ask === undefined ? reply : answerText(reply, ask.question, message !== newestSettled), [], false);
-    if (ask !== undefined) resolveAsk(ask, "answered", reply);
+    if (ask === undefined) sendTurn(reply, [], false);
+    else resolveAsk(ask, "answered", reply, answerText(reply, ask.question, message !== newestSettled));
   };
   // The rows get callbacks that never change (each reads the screen's latest state), so a memoized row
   // redraws only when its own message or marks change, not on every snapshot or keystroke.
@@ -808,17 +811,8 @@ function Thread({ agent }: { agent: string }) {
                   <AskCard
                     key={pendingAsk.id}
                     ask={pendingAsk}
-                    onSubmit={(results) => {
-                      answerAsk(results);
-                      // The host closes its open ask; keep the badge from flashing back until it does.
-                      const ask = openAsks?.find((entry) => entry.askId === pendingAsk.id);
-                      if (ask !== undefined) hideAsk(ask.id);
-                    }}
-                    onCancel={() => {
-                      cancelAsk();
-                      const ask = openAsks?.find((entry) => entry.askId === pendingAsk.id);
-                      if (ask !== undefined) resolveAsk(ask, "dismissed");
-                    }}
+                    onSubmit={answerCard}
+                    onCancel={cancelCard}
                   />
                 </View>
               )

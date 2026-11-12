@@ -12,6 +12,7 @@ import { machineDiagram, newDoc, withDiagram } from "./lib/machineDiagram";
 import { dictationMachine } from "./dictation/machine";
 import { commandMachine } from "./connection/command.machine";
 import { turnMachine } from "./state/turn.machine";
+import { askMachine } from "./agents/ask.machine";
 import { roomsRequestMachine } from "./rooms/roomsRequest.machine";
 import { composerShapeMachine } from "./agents/composerShape.machine";
 import { audioOwnerMachine } from "./dictation/audioOwner.machine";
@@ -23,6 +24,7 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
   { file: "dictation", title: "Dictation (hold-to-talk and tap runs)", machine: dictationMachine },
   { file: "command", title: "Reliable command lifecycle (phone to host)", machine: commandMachine },
   { file: "turn", title: "Sent assistant turn (echo bubble)", machine: turnMachine },
+  { file: "ask", title: "Answering an ask (card, chip, sheet)", machine: askMachine },
   { file: "rooms-request", title: "Rooms request and card busy state", machine: roomsRequestMachine },
   { file: "composer-shape", title: "Composer shape (pill, card, dictation, hold)", machine: composerShapeMachine },
   { file: "audio-owner", title: "Audio session owner (dictation, legacy call, live call)", machine: audioOwnerMachine },

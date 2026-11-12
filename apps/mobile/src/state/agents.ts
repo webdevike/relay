@@ -2,10 +2,21 @@ import { create } from "zustand";
 import type { AgentApproval, AgentAsk, AgentImage, AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
 import { sentCommand, settleOnMessages, settleOnSession, type SentCommand } from "@/lib/sentCommand";
 import { settleEchoes, userEcho, type UserEcho } from "@/lib/userEcho";
+import { cardAskKey } from "@/lib/openAsks";
+import type { AskRecordState } from "@/agents/ask.machine";
 
 export interface ConversationState {
   rev: number;
   messages: AgentMessage[];
+}
+
+/** Where Isaac's answer to one ask stands on this phone (`agents/ask.machine.ts`, run by `agents/asks.ts`). */
+export interface AskRecord {
+  state: AskRecordState;
+  /** Why the last answer or dismissal failed; null unless `failed`. */
+  failure: string | null;
+  /** The host said the session's ask card resolved (`agent.ask.resolved`). */
+  cardResolved: boolean;
 }
 
 export interface AgentsData {
@@ -43,12 +54,18 @@ export interface AgentsData {
    * prompt until the session it started registers.
    */
   echoes: Record<string, readonly UserEcho[]>;
+  /**
+   * Answers to asks sent from this phone, by `lib/openAsks.ts` `cardAskKey`/`openAskKey`: the ask card
+   * and the thread's open-ask rows show from these. Kept across remounts and welcomes; a record goes
+   * once the host drops its ask.
+   */
+  askRecords: Record<string, AskRecord>;
 }
 
 /** Key of a launch's echo while the session it starts has no id yet. */
 export const LAUNCH_ECHO = "pending-launch";
 
-export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {}, approvals: {}, sent: {}, echoes: {} };
+export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {}, approvals: {}, sent: {}, echoes: {}, askRecords: {} };
 
 /** The sent commands once `sessions` arrived: settled ones go, and so do those of sessions that are gone. */
 function settleSent(sent: Record<string, SentCommand>, sessions: Record<string, AgentSession>): Record<string, SentCommand> {
@@ -316,13 +333,26 @@ export function setAsk(data: AgentsData, sessionId: string, ask: AgentAsk): Agen
 
 /**
  * Clears a session's pending ask, but only when `id` matches the one stored: a `resolved` for an
- * ask already replaced by a newer one must not wipe the newer card.
+ * ask already replaced by a newer one must not wipe the newer card. An answer record of that ask
+ * learns the host resolved it, even after a welcome emptied `asks`.
  */
 export function clearAsk(data: AgentsData, sessionId: string, id: string): AgentsData {
-  if (data.asks[sessionId]?.id !== id) return data;
-  const asks = { ...data.asks };
-  delete asks[sessionId];
-  return { ...data, asks };
+  const key = cardAskKey(sessionId, id);
+  const record = data.askRecords[key];
+  const marked = record === undefined || record.cardResolved ? data : { ...data, askRecords: { ...data.askRecords, [key]: { ...record, cardResolved: true } } };
+  if (marked.asks[sessionId]?.id !== id) return marked;
+  return { ...marked, asks: Object.fromEntries(Object.entries(marked.asks).filter(([session]) => session !== sessionId)) };
+}
+
+/** Puts or (null) removes the answer record `key`. */
+export function setAskRecord(data: AgentsData, key: string, record: AskRecord | null): AgentsData {
+  if (record === null) {
+    if (data.askRecords[key] === undefined) return data;
+    return { ...data, askRecords: Object.fromEntries(Object.entries(data.askRecords).filter(([other]) => other !== key)) };
+  }
+  const old = data.askRecords[key];
+  if (old?.state === record.state && old.failure === record.failure && old.cardResolved === record.cardResolved) return data;
+  return { ...data, askRecords: { ...data.askRecords, [key]: record } };
 }
 
 /** Stores the tool approval a session just became blocked on, replacing any earlier one. */
@@ -349,6 +379,7 @@ export interface AgentsStore extends AgentsData {
   setImage: (sessionId: string, id: string, image: AgentImage | null) => void;
   setAsk: (sessionId: string, ask: AgentAsk) => void;
   clearAsk: (sessionId: string, id: string) => void;
+  setAskRecord: (key: string, record: AskRecord | null) => void;
   setApproval: (sessionId: string, approval: AgentApproval) => void;
   clearApproval: (sessionId: string, id: string) => void;
   noteSent: (sessionId: string, text: string, now: number) => void;
@@ -394,6 +425,9 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
   },
   clearAsk: (sessionId, id) => {
     set(clearAsk(get(), sessionId, id));
+  },
+  setAskRecord: (key, record) => {
+    set(setAskRecord(get(), key, record));
   },
   setApproval: (sessionId, approval) => {
     set(setApproval(get(), sessionId, approval));
