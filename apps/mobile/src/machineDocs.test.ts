@@ -16,6 +16,7 @@ import { askMachine } from "./agents/ask.machine";
 import { roomsRequestMachine } from "./rooms/roomsRequest.machine";
 import { otaGateMachine } from "./lib/otaGate.machine";
 import { composerShapeMachine } from "./agents/composerShape.machine";
+import { chatFollowMachine } from "./ui/chatFollow.machine";
 import { audioOwnerMachine } from "./dictation/audioOwner.machine";
 import { targetStackMachine } from "./dictation/targetStack.machine";
 import { sessionMachine } from "./connection/session.machine";
@@ -29,6 +30,7 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
   { file: "rooms-request", title: "Rooms request and card busy state", machine: roomsRequestMachine },
   { file: "ota-gate", title: "OTA reload gate", machine: otaGateMachine },
   { file: "composer-shape", title: "Composer shape (pill, card, dictation, hold)", machine: composerShapeMachine },
+  { file: "chat-follow", title: "Inverted chat follow", machine: chatFollowMachine },
   { file: "audio-owner", title: "Audio session owner (dictation, legacy call, live call)", machine: audioOwnerMachine },
   { file: "dictation-targets", title: "Dictation target owner stack", machine: targetStackMachine },
   { file: "session", title: "Connection session (discovery, pairing, heartbeat, backoff, background)", machine: sessionMachine },
