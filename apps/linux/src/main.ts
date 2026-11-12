@@ -1128,9 +1128,10 @@ function liveCanvas(
 /**
  * Meetings in `$XDG_CONFIG_HOME/relay/meetings`: recordings from every Mac's Relay Meetings helper,
  * transcribed by relay-asr (`apps/linux/asr`, venv from `setup.sh`; without it recordings are kept
- * but not transcribed), notes in `<agent-home>/work/meetings/shadow` while `features.meetingsShadow`
- * is on (the default; MeetingTranscriber still owns the journal) and `work/meetings/protocols` after
- * cutover. Off without an agent home or with `features.meetings: false`.
+ * but not transcribed), notes in `<agent-home>/work/meetings/protocols` (meeting-digest and
+ * meeting-memory read them; Relay is the recorder since the 2026-11-12 cutover), or in
+ * `work/meetings/shadow` with `features.meetingsShadow: true` (MeetingTranscriber owns the journal again).
+ * Off without an agent home or with `features.meetings: false`.
  */
 function meetingsService(o: {
   agentHome: string | null;
@@ -1147,13 +1148,9 @@ function meetingsService(o: {
     return null;
   }
   const store = new RecordingStore(defaultMeetingsDir());
-  const shadow = featureOn(o.config, "meetingsShadow", true);
-  const protocolsDir = join(
-    o.agentHome ?? join(homedir(), "Eva"),
-    "work",
-    "meetings",
-    shadow ? "shadow" : "protocols",
-  );
+  // Shadow only when asked for explicitly: a host without host.json is past the cutover too.
+  const shadow = o.config?.features["meetingsShadow"] === true;
+  const meetingsDir = join(o.agentHome ?? join(homedir(), "Eva"), "work", "meetings");
   let service: MeetingsService | null = null;
   const asr = AsrWorker.available()
     ? new AsrWorker({
@@ -1170,7 +1167,7 @@ function meetingsService(o: {
     store,
     asr,
     agentHome: o.agentHome,
-    protocolsDir,
+    meetingsDir,
     human: o.human,
     claude: resolveClaude(),
     run: bunRun,
@@ -1204,7 +1201,7 @@ function meetingsService(o: {
     },
   });
   log(
-    `meetings in ${defaultMeetingsDir()}, notes in ${protocolsDir}${shadow ? " (shadow)" : ""}, transcription ${asr === null ? `off (no ${existsSync(asrPython()) ? ASR_SCRIPT : asrPython()})` : "by relay-asr"}`,
+    `meetings in ${defaultMeetingsDir()}, notes in ${join(meetingsDir, shadow ? "shadow" : "protocols")}${shadow ? " (shadow)" : ""}, transcription ${asr === null ? `off (no ${existsSync(asrPython()) ? ASR_SCRIPT : asrPython()})` : "by relay-asr"}`,
   );
   return service;
 }

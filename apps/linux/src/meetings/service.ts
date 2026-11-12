@@ -5,9 +5,9 @@
 // The Meetings page's records (work/meetings/<stem>.json, meeting-memory's) are read and written
 // here too, through eva-core, so the phone and a thin client see what the Mini sees.
 //
-// Shadow mode (the default until Isaac's cutover): notes go to work/meetings/shadow/, a folder
-// meeting-digest and meeting-memory do not read, so nothing is journaled twice while
-// MeetingTranscriber still runs.
+// Shadow mode (`features.meetingsShadow: true`, off since the 2026-11-12 cutover): notes go to
+// work/meetings/shadow/, a folder meeting-digest and meeting-memory do not read, so nothing is
+// journaled twice while MeetingTranscriber records too.
 
 import { randomBytes } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";

@@ -11,8 +11,8 @@
 //                 calls keep raw labels.
 //   summarizing   headless Claude (Sonnet, no tools) writes Summary .. Open Questions
 //
-// Output: `<protocols dir>/<YYYYMMDD_HHMM>_<slug>_<id8>.md` plus the `.txt` transcript. In shadow
-// mode the protocols dir is work/meetings/shadow, which digest and memory do not read.
+// Output: `work/meetings/protocols/<YYYYMMDD_HHMM>_<slug>_<id8>.md` plus the `.txt` transcript, or
+// work/meetings/shadow for a recording made in shadow mode (digest and memory do not read it).
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -218,8 +218,9 @@ export interface PipelineDeps {
   readonly store: RecordingStore;
   readonly asr: Asr | null;
   readonly agentHome: string | null;
-  /** Where the notes go (work/meetings/shadow in shadow mode, work/meetings/protocols after cutover). */
-  readonly protocolsDir: string;
+  /** `<agent home>/work/meetings`: a recording's notes go to its `shadow/` (recorded in shadow mode)
+   * or `protocols/` (after the cutover), so notes from before the cutover stay where they were. */
+  readonly meetingsDir: string;
   readonly human: string;
   readonly claude: string;
   readonly run: ToolRun;
@@ -232,8 +233,12 @@ const ClaudeReply = z.object({ result: z.string().optional(), is_error: z.boolea
 export class MeetingPipeline implements AfterCall {
   constructor(private readonly deps: PipelineDeps) {}
 
+  private dirOf(meta: Pick<RecordingMeta, "shadow">): string {
+    return join(this.deps.meetingsDir, meta.shadow ? "shadow" : "protocols");
+  }
+
   private file(meta: RecordingMeta, ext: "md" | "txt"): string {
-    return join(this.deps.protocolsDir, `${meta.stem ?? protocolStem(meta)}.${ext}`);
+    return join(this.dirOf(meta), `${meta.stem ?? protocolStem(meta)}.${ext}`);
   }
 
   notes(meta: RecordingMeta): string | null {
@@ -402,13 +407,12 @@ export class MeetingPipeline implements AfterCall {
       md += `\n## Questions asked during the call\n\n${qa.map((q) => `**Q:** ${q.question}\n\n${q.answer.trim()}`).join("\n\n")}\n`;
     md += `\n---\n\n## Full Transcript\n\n${transcript}\n`;
     const stem = protocolStem({ ...meta, title: named });
-    mkdirSync(this.deps.protocolsDir, { recursive: true });
-    writeFileSync(join(this.deps.protocolsDir, `${stem}.md`), md);
-    writeFileSync(join(this.deps.protocolsDir, `${stem}.txt`), `${transcript}\n`);
+    const out = this.dirOf(meta);
+    mkdirSync(out, { recursive: true });
+    writeFileSync(join(out, `${stem}.md`), md);
+    writeFileSync(join(out, `${stem}.txt`), `${transcript}\n`);
     for (const f of ["app.wav", "mic.wav", "mic-aec.wav"]) rmSync(join(dir, f), { force: true });
-    this.deps.log(
-      `meetings: notes for ${meta.id} in ${join(this.deps.protocolsDir, `${stem}.md`)}`,
-    );
+    this.deps.log(`meetings: notes for ${meta.id} in ${join(out, `${stem}.md`)}`);
     return { stem, title: named, context };
   }
 }

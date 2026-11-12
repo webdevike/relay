@@ -299,7 +299,7 @@ describe("pipeline pieces", () => {
       store,
       asr,
       agentHome: null,
-      protocolsDir: join(root, "shadow"),
+      meetingsDir: root,
       human: "Isaac",
       claude: "claude",
       run: (argv) => {
