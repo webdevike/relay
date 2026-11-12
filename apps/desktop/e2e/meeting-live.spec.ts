@@ -170,6 +170,7 @@ test("a live meeting shows as a card in its assistant's chat and opens beside it
   await expect(tab).toBeVisible()
   await expect(tab.locator(sel('meeting-transcript'))).toContainText('take the dashboard?')
   await expect(tab.locator(sel('meeting-speaker'))).toContainText('Todd is speaking')
+  await expect(tab.locator(sel('meeting-tab-when'))).toHaveText(/^Started \d{1,2}:\d\d [AP]M$/)
   await proofShot(app, shell, 'after-tab', { phase: 'live-meeting' })
 
   // 3. A quick ask lands in Astra's thread as Isaac's words, sent like the composer sends them
@@ -220,5 +221,6 @@ test("a live meeting shows as a card in its assistant's chat and opens beside it
   await expect(ended).toContainText(`Meeting ended · 42 min · ${TITLE}`)
   await expect(ended.locator(sel('meeting-summary'))).toHaveText('Summary')
   await expect(tab.locator(sel('meeting-tab-summary'))).toContainText('failures dashboard')
+  await expect(tab.locator(sel('meeting-tab-when'))).toHaveText(/^\d{1,2}:\d\d [AP]M · 42 min$/)
   await proofShot(app, shell, 'after-ended', { phase: 'live-meeting' })
 })

@@ -15,6 +15,14 @@
 .eva-meeting-cards .eva-status-meta {
   font-variant-numeric: tabular-nums;
 }
+/* The live call's elapsed time is the card's news: full text color, not the quiet meta gray. */
+.eva-meeting-cards [data-testid='meeting-elapsed'] {
+  color: var(--eva-text);
+}
+/* Summary is an action, not metadata: the accent color "Open notes" uses in the Meeting tab. */
+.eva-meeting-cards .eva-meeting-summary {
+  color: var(--eva-accent);
+}
 
 /* The red live dot of a meeting on the call; it breathes unless motion is reduced. */
 .eva-meeting-dot {

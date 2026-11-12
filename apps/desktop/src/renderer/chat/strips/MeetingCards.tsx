@@ -97,7 +97,7 @@ export function MeetingCards({ agent }: { agent: string }) {
               r.stage === 'done' ? (
                 <button
                   type="button"
-                  className="eva-agent-btn eva-agent-btn-quiet"
+                  className="eva-agent-btn eva-agent-btn-quiet eva-meeting-summary"
                   data-testid="meeting-summary"
                   onClick={() => navigateTo(placeOf('meetings', { meeting: r.id }))}
                 >

@@ -11,6 +11,7 @@ import {
 } from '@relay/protocol'
 import { placeOf } from '@evaos/shell-core'
 import { agentOf, useAssistants } from '../assistants/assistants-store'
+import { clockLabel } from '../context/format'
 import { navigateTo } from '../tabs/tabs-store'
 import { askInChat } from './meeting-chat'
 import {
@@ -80,7 +81,11 @@ export function MeetingTab({ id }: { id: string }) {
   }
 
   const title = recordingTitle(r)
-  const elapsed = (live ? now : (r.endedAt ?? r.startedAt)) - r.startedAt
+  // The card beside it ticks the elapsed time; here the call's start, and its length once over.
+  const min = Math.max(1, Math.round(((r.endedAt ?? r.startedAt) - r.startedAt) / 60_000))
+  const when = live
+    ? `Started ${clockLabel(r.startedAt, now)}`
+    : `${clockLabel(r.startedAt, now)} · ${min} min`
   const newest = rows[rows.length - 1]
   const notes = view?.notes ?? null
   const ask = async (q: string): Promise<void> => {
@@ -103,15 +108,9 @@ export function MeetingTab({ id }: { id: string }) {
             {title}
           </div>
           <div className="eva-meeting-tab-sub">
-            <span data-testid="meeting-tab-elapsed">{meetingClock(elapsed)}</span>
+            <span data-testid="meeting-tab-when">{when}</span>
             <span>·</span>
             <span>{r.app}</span>
-            {live ? null : (
-              <>
-                <span>·</span>
-                <span>ended</span>
-              </>
-            )}
           </div>
         </div>
       </div>
@@ -128,7 +127,6 @@ export function MeetingTab({ id }: { id: string }) {
         ) : (
           <span>{MEETING_STAGE_LABEL[r.stage]}</span>
         )}
-        <span className="eva-meeting-tab-dim">{rows.length} lines</span>
       </div>
       {!live && r.stage === 'done' && notes !== null && notes.summary.length > 0 ? (
         <div className="eva-meeting-tab-notes" data-testid="meeting-tab-summary">
