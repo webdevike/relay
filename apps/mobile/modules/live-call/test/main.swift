@@ -1,7 +1,13 @@
-// Tests for LiveCallLiveness, compiled with it by `pnpm test:native` (swiftc on the Mac; no
-// simulator, no WebRTC). Exits non-zero on the first failure.
+// Tests for LiveCallLiveness and LiveCallLifecycle, compiled with them by `pnpm test:native`
+// (swiftc on the Mac; no simulator, no WebRTC). Exits non-zero on the first failure.
 
 import Foundation
+
+// `--mermaid`: print LiveCallLifecycle's diagram for scripts/test-native.sh and stop.
+if CommandLine.arguments.contains("--mermaid") {
+  print(LiveCallLifecycle.mermaid)
+  exit(0)
+}
 
 var failures = 0
 
@@ -87,6 +93,146 @@ do {
   l.heard(at: at(50))
   l.heard(at: at(20))
   expect(l.verdict(at: at(50 + silence - 1)), .live, "an out-of-order heard does not move the clock back")
+}
+
+func same<T: Equatable>(_ actual: T, _ expected: T, _ name: String, line: Int = #line) {
+  if actual == expected {
+    print("ok   \(name)")
+  } else {
+    failures += 1
+    print("FAIL \(name) (line \(line)): got \(actual), want \(expected)")
+  }
+}
+
+// The host's grace (LIVE_RECONNECT_GRACE_MS in packages/protocol), passed in by test-native.sh.
+if let ms = ProcessInfo.processInfo.environment["LIVE_RECONNECT_GRACE_MS"].flatMap(Double.init) {
+  same(grace, ms / 1000, "reconnectGrace matches the protocol's LIVE_RECONNECT_GRACE_MS")
+} else {
+  failures += 1
+  print("FAIL LIVE_RECONNECT_GRACE_MS not given: run through scripts/test-native.sh")
+}
+
+typealias Lifecycle = LiveCallLifecycle
+func call(_ id: String) -> Lifecycle.Start { Lifecycle.Start(id: id, agent: "eva") }
+
+do {
+  var m = Lifecycle()
+  same(m.send(.start(call("a"))), [.beginRun(call("a"))], "idle start begins the run")
+  same(m.send(.connected("a")), [], "connected")
+  same(m.state, .live("a"), "live")
+  same(m.send(.endRequested("a")), [.finishRun("a")], "hang up finishes the run")
+  same(m.send(.finished("a")), [], "finished")
+  same(m.state, .idle, "back to idle")
+}
+
+do {
+  var m = Lifecycle()
+  m.send(.start(call("a")))
+  m.send(.connected("a"))
+  m.send(.endRequested("a"))
+  same(m.send(.start(call("b"))), [], "end then start: the start waits, nothing begins")
+  same(m.state, .ending("a", pending: call("b")), "queued behind the ending run")
+  same(m.send(.connected("b")), [], "the queued run's events do nothing before it begins")
+  same(m.send(.finished("a")), [.beginRun(call("b"))], "it begins once the old run has finished")
+  same(m.state, .starting("b"), "starting the new run")
+}
+
+do {
+  // Three overlapping starts: one run left, every replaced run finished.
+  var m = Lifecycle()
+  var begun: [String] = []
+  var finishing: [String] = []
+  var dropped: [String] = []
+  func run(_ effects: [Lifecycle.Effect]) {
+    for effect in effects {
+      switch effect {
+      case .beginRun(let s): begun.append(s.id)
+      case .finishRun(let id): finishing.append(id)
+      case .dropStart(let id): dropped.append(id)
+      }
+    }
+  }
+  run(m.send(.start(call("a"))))
+  run(m.send(.start(call("b"))))
+  run(m.send(.start(call("c"))))
+  same(finishing, ["a"], "the starting run is finished, not dropped")
+  same(dropped, ["b"], "the older queued start never runs")
+  run(m.send(.finished("a")))
+  same(begun, ["a", "c"], "exactly one new run begins: the newest")
+  same(m.state, .starting("c"), "c is the run")
+  run(m.send(.start(call("d"))))
+  same(finishing, ["a", "c"], "replacing a starting run finishes it")
+  run(m.send(.finished("c")))
+  same(begun, ["a", "c", "d"], "then the next begins")
+  same(Set(finishing + dropped).union(["d"]), Set(["a", "b", "c", "d"]), "every replaced run finished or dropped")
+}
+
+do {
+  var m = Lifecycle()
+  m.send(.start(call("a")))
+  m.send(.start(call("b")))
+  m.send(.finished("a"))
+  same(m.send(.connected("a")), [], "a stale run's connected is ignored")
+  same(m.send(.failed("a", kind: "fallback")), [], "a stale run's failure is ignored")
+  same(m.send(.endRequested("a")), [], "a stale run's hang up is ignored")
+  same(m.send(.finished("a")), [], "a stale run's finish is ignored")
+  same(m.state, .starting("b"), "the current run is untouched")
+}
+
+do {
+  var m = Lifecycle()
+  m.send(.start(call("a")))
+  same(m.send(.failed("a", kind: "fallback")), [.finishRun("a")], "a failed start is finished")
+  m.send(.start(call("b")))
+  same(m.send(.endRequested("a")), [.dropStart("b")], "hanging up while a call waits drops it")
+  same(m.send(.finished("a")), [], "nothing begins")
+  same(m.state, .idle, "idle")
+}
+
+do {
+  // Every row of the transition table (the docs diagram) is what `send` does.
+  func machine(in state: String, waiting: Bool) -> Lifecycle {
+    var m = Lifecycle()
+    if state == "idle" { return m }
+    m.send(.start(call("a")))
+    if state == "live" { m.send(.connected("a")) }
+    if state == "ending" {
+      m.send(.endRequested("a"))
+      if waiting { m.send(.start(call("w"))) }
+    }
+    return m
+  }
+  func event(_ name: String) -> Lifecycle.Event {
+    switch name {
+    case "start": return .start(call("n"))
+    case "connected": return .connected("a")
+    case "failed": return .failed("a", kind: "fallback")
+    case "endRequested": return .endRequested("a")
+    default: return .finished("a")
+    }
+  }
+  for t in Lifecycle.transitions {
+    var m = machine(in: t.from, waiting: t.guarded?.contains("a start waits") == true)
+    same(Lifecycle.name(of: m.state), t.from, "table row starts in \(t.from)")
+    m.send(event(t.event))
+    same(Lifecycle.name(of: m.state), t.to, "table: \(t.from) --\(t.event)--> \(t.to)")
+  }
+  // Anything not in the table leaves the state alone, and a stale run's events always do.
+  let names = ["start", "connected", "failed", "endRequested", "finished"]
+  for from in ["idle", "starting", "live", "ending"] {
+    for name in names where !Lifecycle.transitions.contains(where: { $0.from == from && $0.event == name }) {
+      var m = machine(in: from, waiting: false)
+      let before = m.state
+      m.send(event(name))
+      same(m.state, before, "not in the table: \(from) ignores \(name)")
+    }
+    for stale: Lifecycle.Event in [.connected("x"), .failed("x", kind: "k"), .endRequested("x"), .finished("x")] {
+      var m = machine(in: from, waiting: true)
+      let before = m.state
+      m.send(stale)
+      same(m.state, before, "\(from) ignores a stale run's \(stale)")
+    }
+  }
 }
 
 if failures > 0 {

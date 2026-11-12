@@ -16,9 +16,8 @@ struct LiveCallConfigureOptions: Record {
 }
 
 public class LiveCallModule: Module {
-  /// The engine's snapshot for `current()`, which runs on the JS thread; nil when no call runs.
-  private var latest: [String: Any]?
-  private let lock = NSLock()
+  // `current()` reads LiveCallCurrent, which the engine writes itself: binding the events below
+  // happens in a Task after OnCreate, too late for a JS reload that asks at once.
 
   public func definition() -> ModuleDefinition {
     Name("LiveCall")
@@ -27,9 +26,7 @@ public class LiveCallModule: Module {
     OnCreate { [weak self] in
       Task { @MainActor in
         let engine = LiveCallEngine.shared
-        self?.remember(engine.snapshot)
         engine.onState = { snapshot in
-          self?.remember(snapshot.state == "ended" ? nil : snapshot)
           self?.sendEvent("state", snapshot.dictionary)
         }
         engine.onFallback = { agent, reason in
@@ -65,20 +62,12 @@ public class LiveCallModule: Module {
     }
 
     Function("current") { () -> [String: Any]? in
-      self.lock.lock()
-      defer { self.lock.unlock() }
-      return self.latest
+      LiveCallCurrent.shared.dictionary
     }
 
     Function("consumePendingFallback") { () -> [String: Any]? in
       guard let pending = LiveCallPendingFallback.consume() else { return nil }
       return ["agent": pending.agent, "reason": pending.reason, "at": pending.at.timeIntervalSince1970 * 1000]
     }
-  }
-
-  private func remember(_ snapshot: LiveCallSnapshot?) {
-    lock.lock()
-    latest = snapshot?.dictionary
-    lock.unlock()
   }
 }

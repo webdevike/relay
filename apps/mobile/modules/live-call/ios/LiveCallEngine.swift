@@ -14,7 +14,8 @@
 // frame, data channel event or GPT-Live audio packet) for 45 s ends it too. end(): `session.close`
 // (waiting up to 3 s for `session.closed`), `live.end` to the host, everything closed, audio
 // session handed back, the Live Activity ended; with no call running it ends any leftover Live
-// Activity. One call at a time: starting another ends the current one first.
+// Activity. One call at a time (LiveCallLifecycle): starting another ends the current one and
+// waits until it has finished.
 
 import AVFoundation
 import Foundation
@@ -87,6 +88,26 @@ public struct LiveCallSnapshot: Equatable {
   }
 }
 
+/// The engine's snapshot for readers off the main actor (the JS module's `current()`), written by
+/// the engine on every change, so it is right from launch with no subscription to wait for.
+public final class LiveCallCurrent: @unchecked Sendable {
+  public static let shared = LiveCallCurrent()
+  private let lock = NSLock()
+  private var value: [String: Any]?
+
+  public var dictionary: [String: Any]? {
+    lock.lock()
+    defer { lock.unlock() }
+    return value
+  }
+
+  func set(_ dictionary: [String: Any]?) {
+    lock.lock()
+    value = dictionary
+    lock.unlock()
+  }
+}
+
 private enum Speaker {
   case you
   case assistant
@@ -145,10 +166,15 @@ public final class LiveCallEngine {
   public var onState: ((LiveCallSnapshot) -> Void)?
   /// A call that could not go live: (agent, reason). The pending fallback is already stored.
   public var onFallback: ((String, String) -> Void)?
-  /// The running call; nil when there is none.
-  public private(set) var snapshot: LiveCallSnapshot?
+  /// The running call; nil when there is none. Mirrored into LiveCallCurrent for the JS thread.
+  public private(set) var snapshot: LiveCallSnapshot? {
+    didSet { LiveCallCurrent.shared.set(snapshot?.dictionary) }
+  }
 
   private var run: LiveCallRun?
+  private var lifecycle = LiveCallLifecycle()
+  /// Starts waiting for their turn (the ending run to finish), by run id.
+  private var queued: [String: (run: LiveCallRun, turn: LiveCallWaiter<Bool>)] = [:]
   private let activity = LiveCallActivity()
   private lazy var factory: RTCPeerConnectionFactory = {
     RTCInitializeSSL()
@@ -194,11 +220,17 @@ public final class LiveCallEngine {
 
   /// Starts a call with `agent`; returns once it is live, or why it is not.
   public func start(agent: String) async -> LiveCallOutcome {
-    if let current = run { await finish(current, error: nil, fallback: false) }
+    // One run at a time (LiveCallLifecycle): a running call is ended first, and this start waits
+    // until it has finished, so its audio teardown never lands under this call.
+    let run = LiveCallRun(agent: agent)
+    let turn = LiveCallWaiter<Bool>()
+    queued[run.id] = (run, turn)
+    apply(lifecycle.send(.start(LiveCallLifecycle.Start(id: run.id, agent: agent))))
+    let begun = (try? await turn.wait(seconds: 30, timeoutError: LiveCallFailure.cancelled)) ?? false
+    queued[run.id] = nil
+    if !begun || run.ending { return .ended }
     LiveCallPendingFallback.clear()
     activity.endStale()
-    let run = LiveCallRun(agent: agent)
-    self.run = run
     UIImpactFeedbackGenerator(style: .medium).impactOccurred()
     snapshot = LiveCallSnapshot(
       agent: agent, callId: run.id, state: "connecting", text: nil, you: nil, assistant: nil, line: "",
@@ -210,7 +242,12 @@ public final class LiveCallEngine {
     do {
       try await connect(run)
     } catch {
-      if run.ending || self.run !== run { return .ended }
+      if run.ending { return .ended }
+      if self.run !== run {
+        // Replaced without being ended: close its mic, peer, observers and host link anyway.
+        await finish(run, error: nil, fallback: false)
+        return .ended
+      }
       switch error as? LiveCallFailure ?? .fallback(error.localizedDescription) {
       case .cancelled:
         await finish(run, error: nil, fallback: false)
@@ -223,7 +260,9 @@ public final class LiveCallEngine {
         return .fallback(reason)
       }
     }
-    if run.ending || self.run !== run { return .ended }
+    if !run.ending && self.run !== run { await finish(run, error: nil, fallback: false) }
+    if run.ending { return .ended }
+    lifecycle.send(.connected(run.id))
     run.live = true
     NSLog("[LiveCall] live \(run.id)")
     UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -237,6 +276,8 @@ public final class LiveCallEngine {
   /// Activity still showing a call, so End always clears the card.
   public func end(reason: String? = nil) async {
     guard let run, !run.ending else {
+      // A call waiting for the ending one is hung up too.
+      if let id = lifecycle.currentId { apply(lifecycle.send(.endRequested(id))) }
       activity.endAll()
       return
     }
@@ -671,6 +712,7 @@ public final class LiveCallEngine {
   private func finish(_ run: LiveCallRun, error: String?, fallback: Bool, hostEnded: Bool = false) async {
     guard !run.ending else { return }
     run.ending = true
+    apply(lifecycle.send(.endRequested(run.id)))
     NSLog("[LiveCall] end \(run.id) \(error ?? "hung up")\(fallback ? " (fallback)" : "")")
     run.failWaits(LiveCallFailure.cancelled)
     run.speakingTimer?.cancel()
@@ -716,6 +758,28 @@ public final class LiveCallEngine {
     if fallback, let error {
       LiveCallPendingFallback.store(agent: run.agent, reason: error)
       onFallback?(run.agent, error)
+    }
+    apply(lifecycle.send(.finished(run.id)))
+  }
+
+  /// Carries out what LiveCallLifecycle decided.
+  private func apply(_ effects: [LiveCallLifecycle.Effect]) {
+    for effect in effects {
+      switch effect {
+      case .beginRun(let start):
+        guard let waiting = queued[start.id] else {
+          // Its start gave up waiting: nothing will run it, so it is over at once.
+          apply(lifecycle.send(.finished(start.id)))
+          continue
+        }
+        run = waiting.run
+        waiting.turn.resolve(true)
+      case .finishRun(let id):
+        guard let current = run, current.id == id, !current.ending else { continue }
+        Task { await finish(current, error: nil, fallback: false) }
+      case .dropStart(let id):
+        queued[id]?.turn.resolve(false)
+      }
     }
   }
 
