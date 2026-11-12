@@ -218,7 +218,7 @@ export const DESIGN_OVERLAY = String(function (
         '.s { border: 2px solid var(--c); }',
         '.t, .n { position: absolute; font: 500 11px/16px ui-sans-serif, system-ui, sans-serif; color: #fff; background: var(--c); padding: 0 5px; border-radius: 3px; white-space: nowrap; }',
         '.t { left: -1px; top: -19px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }',
-        '.n { left: -2px; top: -2px; min-width: 16px; text-align: center; border-radius: 2px 0 3px 0; padding: 0 4px; }',
+        '.n { left: -2px; top: -18px; min-width: 16px; text-align: center; border-radius: 3px 3px 0 0; padding: 0 4px; }',
       ].join('\n'),
     )
     root.adoptedStyleSheets = [sheet]
@@ -238,6 +238,11 @@ export const DESIGN_OVERLAY = String(function (
       for (const p of made.picked) {
         if (!p.element || !p.element.isConnected) p.element = resolve(p.selector)
         place(p.frame, p.element)
+        // The number sits above the element, never over its content; inside its top edge when
+        // the element touches the top of the viewport.
+        const badge = p.frame.firstElementChild
+        if (badge instanceof HTMLElement && p.element)
+          badge.style.top = p.element.getBoundingClientRect().y < 18 ? '-2px' : '-18px'
       }
       made.frame = requestAnimationFrame(tick)
     }

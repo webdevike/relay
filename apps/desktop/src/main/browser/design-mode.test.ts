@@ -94,13 +94,14 @@ function setup(url = 'http://127.0.0.1:5173/') {
     (channel, payload) => events.push({ channel, payload: payload as Record<string, unknown> }),
     100,
   )
-  const mouse = (type: string, x = 0, y = 0, modifiers: string[] = []) =>
+  // Electron's before-mouse-event has no modifiers; Shift comes from key events.
+  const mouse = (type: string, x = 0, y = 0) =>
     intercept('t1', {
       kind: 'mouse',
-      mouse: { type, x, y, button: 'left', clickCount: 1, modifiers } as never,
+      mouse: { type, x, y, button: 'left', clickCount: 1 } as never,
     })
-  const key = (k: string) =>
-    intercept('t1', { kind: 'key', input: { type: 'keyDown', key: k } as never })
+  const key = (k: string, type = 'keyDown', shift = false) =>
+    intercept('t1', { kind: 'key', input: { type, key: k, shift } as never })
   const settled = () => vi.waitFor(() => expect(events.length).toBeGreaterThan(0))
   return { design, p, wc, events, mouse, key, close: (id: string) => closed({ id }), settled }
 }
@@ -157,14 +158,18 @@ describe('DesignMode', () => {
     const t = setup()
     await t.design.set('t1', true)
     t.mouse('mouseDown', 1)
-    t.mouse('mouseDown', 2, 0, ['shift'])
-    t.mouse('mouseDown', 3, 0, ['shift'])
-    t.mouse('mouseDown', 2, 0, ['shift'])
+    // Shift held while the shell has the keyboard.
+    t.design.keyState({ shift: true })
+    t.mouse('mouseDown', 2)
+    t.mouse('mouseDown', 3)
+    t.mouse('mouseDown', 2)
     await vi.waitFor(() => expect(t.events).toHaveLength(4))
     const last = (n: number) =>
       (t.events[n]!.payload['items'] as Array<{ selector: string }>).map((i) => i.selector)
     expect(last(2)).toEqual(['#e1', '#e2', '#e3'])
     expect(last(3)).toEqual(['#e1', '#e3'])
+    // Shift let go while the page has the keyboard: the key still reaches the page.
+    expect(t.key('Shift', 'keyUp', false)).toBe(false)
     t.mouse('mouseDown', 4)
     await vi.waitFor(() => expect(t.events).toHaveLength(5))
     expect(last(4)).toEqual(['#e4'])

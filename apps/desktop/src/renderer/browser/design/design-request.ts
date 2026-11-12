@@ -58,6 +58,8 @@ export function buildDesignPrompt(
       lines.push(
         `Screenshot: image ${images.length}${drawn ? ' (the user drew on it: the marks show what to change)' : ''}`,
       )
+    } else {
+      lines.push('Screenshot: none (the element was out of view or had no size)')
     }
   })
   lines.push(

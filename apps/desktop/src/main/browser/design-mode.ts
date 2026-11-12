@@ -89,6 +89,11 @@ function labelOf(selector: string): string {
  */
 export class DesignMode {
   private sessions = new Map<string, Session>()
+  /**
+   * Whether Shift is down, from the last key event in a page or the shell (keyState): Electron's
+   * before-mouse-event carries no modifiers, so a Shift-click reads it here.
+   */
+  private shift = false
 
   constructor(
     private readonly host: DesignHost,
@@ -105,6 +110,11 @@ export class DesignMode {
 
   isOn(tabId: string): boolean {
     return this.sessions.has(tabId)
+  }
+
+  /** A key event in the shell (the page's own arrive through `input`). */
+  keyState(input: { shift?: boolean }): void {
+    this.shift = input.shift === true
   }
 
   async set(tabId: string, on: boolean): Promise<void> {
@@ -195,6 +205,7 @@ export class DesignMode {
 
   /** Isaac's input in tab `tabId`: true keeps it from the page (BrowserHost.interceptInput). */
   private input(tabId: string, input: PageInput): boolean {
+    if (input.kind === 'key') this.keyState(input.input)
     const s = this.sessions.get(tabId)
     if (!s) return false
     if (input.kind === 'key') {
@@ -217,7 +228,7 @@ export class DesignMode {
         return true
       case 'mouseDown':
         if (m.button === 'left') {
-          const add = (m.modifiers ?? []).some((k) => k.toLowerCase().startsWith('shift'))
+          const add = this.shift
           this.later(s, async () => {
             const a = await this.overlay(s, { op: 'pick', x: m.x, y: m.y, add, max: MAX_SELECTION })
             await this.publish(s, a, 'pick')

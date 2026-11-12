@@ -59,6 +59,11 @@ function registerDesignMode(ctx: MainContext, host: BrowserHost): void {
     await design.style(tabId, selector, property, value)
     return { ok: true as const }
   })
+  // A Shift-click into a page while the shell has the keyboard (the usual case): Shift is read
+  // from the shell's key events.
+  ctx.shell.webContents.on('before-input-event', (_event, input) => design.keyState(input))
+  // Shift released in another app never reaches us.
+  ctx.win.on('blur', () => design.keyState({ shift: false }))
   registerTestHook('design', design)
   ctx.win.on('closed', () => design.dispose())
 }

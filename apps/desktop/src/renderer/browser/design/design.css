@@ -1,5 +1,17 @@
 /* Design Mode's inspector: a column beside the page (the native page paints over anything drawn
- * on its slot). */
+ * on its slot), or a panel under it when the pane is too narrow for both side by side. */
+@container eva-browser (max-width: 720px) {
+  .eva-browser-body:has(> .eva-design) {
+    flex-direction: column;
+  }
+  .eva-browser-body > .eva-design {
+    flex: 0 0 45%;
+    width: auto;
+    min-height: 240px;
+    border-left: 0;
+    border-top: 1px solid var(--eva-border);
+  }
+}
 .eva-design {
   flex: none;
   width: 288px;
@@ -87,6 +99,7 @@
 }
 .eva-design-label {
   font-family: var(--eva-font-mono);
+  font-size: var(--eva-fz-label);
 }
 .eva-design-meta {
   font-size: var(--eva-fz-caption);
@@ -178,7 +191,11 @@
   justify-content: space-between;
   gap: var(--mantine-spacing-xs);
 }
+.eva-design-send-row > button {
+  flex: none;
+}
 .eva-design-status {
+  flex: 1;
   min-width: 0;
   display: inline-flex;
   align-items: center;
