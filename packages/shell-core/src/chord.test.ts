@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  FORWARD_FROM_GUEST,
-  actionFor,
-  chordOf,
-  chordOfInput,
-  isNativeEditChord,
-} from './chord'
+import { FORWARD_FROM_GUEST, actionFor, chordOf, chordOfInput, isNativeEditChord } from './chord'
 
 describe('chordOf', () => {
   it('normalises modifiers and keys', () => {
