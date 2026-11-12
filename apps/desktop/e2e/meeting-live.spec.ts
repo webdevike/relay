@@ -8,9 +8,10 @@ import { proofShot } from './helpers/proofShot'
 
 // A meeting lives in the chat of the assistant it is routed to: a one-row card ("Meeting in
 // progress · <title>", live dot, ticking elapsed) above Astra's composer; a click opens it beside
-// the chat as a Meeting tab (speaker, rolling transcript, quick asks that post into the chat as
-// Isaac); when the host routes it elsewhere the card follows; once the notes are written the card
-// reads "Meeting ended" with Summary. A fake Relay host that runs Meetings pushes it all.
+// the chat as a Meeting tab (Now: the speaker and what they said; an Ask menu that posts into the
+// chat as Isaac); when the host routes it elsewhere the card follows; once the notes are written
+// the card reads "Meeting ended" with Summary. A fake Relay host that runs Meetings pushes it all.
+// meeting-panel.spec.ts covers the panel itself.
 
 const ID = '6f1c2a90-4b7e-4d21-9c3a-0e8d5b7a1f42'
 const TITLE = 'Developer Sync: AWS MFA, provisioning failures & release'
@@ -164,27 +165,28 @@ test("a live meeting shows as a card in its assistant's chat and opens beside it
   await expect(elapsed).not.toHaveText(first ?? '', { timeout: 3000 })
   await proofShot(app, shell, 'after-card', { phase: 'live-meeting' })
 
-  // 2. A click opens the Meeting tab beside the chat: speaker and transcript.
+  // 2. A click opens the Meeting tab beside the chat: Now shows who is speaking and what they said.
   await card.click()
   const tab = shell.locator(sel('meeting-tab'))
   await expect(tab).toBeVisible()
-  await expect(tab.locator(sel('meeting-transcript'))).toContainText('take the dashboard?')
-  await expect(tab.locator(sel('meeting-speaker'))).toContainText('Todd is speaking')
-  await expect(tab.locator(sel('meeting-tab-when'))).toHaveText(/^Started \d{1,2}:\d\d [AP]M$/)
+  await expect(tab.locator(sel('meeting-speaker'))).toContainText('Todd')
+  await expect(tab.locator(sel('meeting-speaker'))).toContainText('take the dashboard?')
+  await expect(tab.locator(sel('meeting-tab-when'))).toHaveText(/^1[67] min$/)
   await proofShot(app, shell, 'after-tab', { phase: 'live-meeting' })
 
-  // 3. A quick ask lands in Astra's thread as Isaac's words, sent like the composer sends them
+  // 3. An Ask menu item lands in Astra's thread as Isaac's words, sent like the composer sends them
   // (`agent.reply` to her session; main adds the device surface line in front, as for any prompt).
-  await tab.locator(sel('meeting-quick-ask')).first().click()
+  await tab.locator(sel('meeting-ask')).click()
+  await shell.locator(sel('meeting-ask-item')).filter({ hasText: 'Catch me up' }).click()
   await expect
     .poll(() =>
       host.commands
         .filter((c) => c.cmd.kind === 'agent.reply' && c.cmd.sessionId === 'astra-1')
         .map((c) => String(c.cmd.text).split('\n').at(-1)),
     )
-    .toContain('What did I miss?')
+    .toContain('Catch me up on the meeting')
 
-  // 4. More said: the transcript rolls and the speaker follows.
+  // 4. More said: Now follows the new speaker and what they are saying.
   host.meetingLive(ID, [
     {
       id: 'l9',
@@ -196,7 +198,8 @@ test("a live meeting shows as a card in its assistant's chat and opens beside it
       final: false,
     },
   ])
-  await expect(tab.locator(sel('meeting-speaker'))).toContainText('Chris is speaking')
+  await expect(tab.locator(sel('meeting-speaker'))).toContainText('Chris')
+  await expect(tab.locator(sel('meeting-speaker'))).toContainText('pair on the Flyway script')
 
   // 5. The host routes it to Nova: the card leaves Astra's chat.
   host.meetingRecording({ ...recording, assistant: 'nova' })
@@ -220,7 +223,9 @@ test("a live meeting shows as a card in its assistant's chat and opens beside it
   const ended = shell.locator(sel('meeting-ended'))
   await expect(ended).toContainText(`Meeting ended · 42 min · ${TITLE}`)
   await expect(ended.locator(sel('meeting-summary'))).toHaveText('Summary')
-  await expect(tab.locator(sel('meeting-tab-summary'))).toContainText('failures dashboard')
-  await expect(tab.locator(sel('meeting-tab-when'))).toHaveText(/^\d{1,2}:\d\d [AP]M · 42 min$/)
+  await expect(tab.locator(sel('meeting-recap'))).toContainText('failures dashboard')
+  await expect(tab.locator(sel('meeting-tab-when'))).toHaveText(
+    /^\d{1,2}:\d\d( [AP]M)? – \d{1,2}:\d\d [AP]M · 42 min$/,
+  )
   await proofShot(app, shell, 'after-ended', { phase: 'live-meeting' })
 })

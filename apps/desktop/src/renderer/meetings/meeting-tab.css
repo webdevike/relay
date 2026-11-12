@@ -1,154 +1,301 @@
-/* A meeting beside the chat it is in (a tool tab, ~440px wide): head, speaker, transcript, quick asks. */
+/*
+ * A meeting beside the chat it is in (a tool tab, ~330 to 440px wide). Calm: underlined tabs, no
+ * cards or borders inside the body, no icons, no counts; one accent, and it marks what is Isaac's.
+ */
 .eva-meeting-tab {
+  --eva-meeting-faint: color-mix(in srgb, var(--eva-text-dim) 65%, transparent);
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--eva-surface);
+  background: var(--eva-bg);
   color: var(--eva-text);
-  font-size: var(--mantine-font-size-sm);
+  font-size: var(--eva-fz-body);
 }
 .eva-meeting-tab-dim {
+  margin: 0;
   color: var(--eva-text-dim);
 }
-.eva-meeting-tab > .eva-meeting-tab-dim {
+.eva-meeting-tab-pad {
   padding: var(--mantine-spacing-md);
 }
+
 .eva-meeting-tab-head {
-  display: flex;
-  align-items: center;
-  gap: var(--mantine-spacing-xs);
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
-  border-bottom: 1px solid var(--eva-border);
-}
-.eva-meeting-tab-cal {
   flex: none;
-  color: var(--eva-text-dim);
-}
-.eva-meeting-tab-name {
-  flex: 1;
-  min-width: 0;
+  padding: var(--mantine-spacing-md) var(--mantine-spacing-lg) 0;
 }
 .eva-meeting-tab-title {
-  overflow: hidden;
-  font-weight: var(--eva-fw-medium);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  margin: 0;
+  font-size: calc(var(--eva-font-size) * 15 / 14);
+  font-weight: var(--eva-fw-semibold);
+  line-height: 1.35;
 }
-.eva-meeting-tab-sub {
+.eva-meeting-tab-meta {
   display: flex;
-  gap: calc(var(--mantine-spacing-xs) / 2);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+  margin-top: calc(var(--mantine-spacing-xs) / 3);
   color: var(--eva-text-dim);
-  font-size: var(--mantine-font-size-xs);
+  font-size: var(--eva-fz-label);
   font-variant-numeric: tabular-nums;
 }
-.eva-meeting-tab-state {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--mantine-spacing-xs);
-  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-md);
-  border-bottom: 1px solid var(--eva-border);
-  font-size: var(--mantine-font-size-xs);
+.eva-meeting-tab-live {
+  color: var(--eva-danger);
 }
-.eva-meeting-tab-notes {
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
-  border-bottom: 1px solid var(--eva-border);
-}
-.eva-meeting-tab-notes ul {
-  margin: 0 0 calc(var(--mantine-spacing-xs) / 2);
-  padding-left: var(--mantine-spacing-md);
-}
+.eva-meeting-tab-end,
 .eva-meeting-tab-link {
   padding: 0;
   border: 0;
   background: none;
-  color: var(--eva-accent);
   font: inherit;
   cursor: pointer;
 }
-.eva-meeting-tab-tx {
+.eva-meeting-tab-end {
+  margin-left: calc(var(--mantine-spacing-xs) / 1.25);
+  color: var(--eva-text-dim);
+}
+.eva-meeting-tab-end:hover:not(:disabled) {
+  color: var(--eva-text);
+  text-decoration: underline;
+}
+.eva-meeting-tab-link {
+  color: var(--eva-accent);
+}
+.eva-meeting-tab-link:hover {
+  text-decoration: underline;
+}
+
+/* Underlined tabs on one hairline. */
+.eva-meeting-tabs {
+  display: flex;
+  flex: none;
+  gap: var(--mantine-spacing-lg);
+  margin-top: var(--mantine-spacing-sm);
+  padding: 0 var(--mantine-spacing-lg);
+  box-shadow: inset 0 -1px 0 var(--eva-border);
+}
+.eva-meeting-tabs-tab {
+  padding: calc(var(--mantine-spacing-xs) * 0.8) 0 calc(var(--mantine-spacing-xs) * 0.9);
+  border: 0;
+  background: none;
+  color: var(--eva-text-dim);
+  font: inherit;
+  font-size: calc(var(--eva-font-size) * 13 / 14);
+  cursor: pointer;
+}
+.eva-meeting-tabs-tab:hover {
+  color: var(--eva-text);
+}
+.eva-meeting-tabs-tab[aria-selected='true'] {
+  box-shadow: inset 0 -2px 0 var(--eva-accent);
+  color: var(--eva-text);
+  font-weight: var(--eva-fw-semibold);
+}
+
+.eva-meeting-tab-body {
+  position: relative;
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
 }
-.eva-meeting-tab-line {
+.eva-meeting-tab-view {
+  position: relative;
+  box-sizing: border-box;
+  height: 100%;
+  padding: calc(var(--mantine-spacing-sm) * 2) var(--mantine-spacing-lg) var(--mantine-spacing-sm);
+  overflow-y: auto;
+}
+.eva-meeting-tab-label {
+  margin: 0 0 calc(var(--mantine-spacing-xs) * 0.8);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-meeting-tab-section {
+  margin-top: var(--mantine-spacing-xl);
+}
+.eva-meeting-tab-stamp {
+  padding-top: calc(var(--mantine-spacing-xs) / 5);
+  color: var(--eva-meeting-faint);
+  font-size: var(--eva-fz-label);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Now: who is speaking, what they just said (large, a breathing caret), what came before. */
+.eva-meeting-now-who {
+  margin-bottom: calc(var(--mantine-spacing-xs) / 2.5);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-meeting-now-say {
+  margin: 0;
+  font-size: calc(var(--eva-font-size) * 19 / 14);
+  line-height: 1.45;
+  letter-spacing: -0.005em;
+}
+.eva-meeting-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: calc(var(--mantine-spacing-xs) / 5);
+  background: var(--eva-danger);
+  vertical-align: -0.15em;
+  animation: eva-meeting-breathe 1s ease-in-out infinite;
+}
+@keyframes eva-meeting-breathe {
+  50% {
+    opacity: 0.2;
+  }
+}
+.eva-meeting-now-before {
+  margin: var(--mantine-spacing-sm) 0 0;
+  color: var(--eva-text-dim);
+  font-size: calc(var(--eva-font-size) * 13 / 14);
+  line-height: 1.5;
+}
+
+/* A moment: its minute, the sentence, a quiet line under it. Isaac's (unanswered) in the accent. */
+.eva-meeting-moment {
   display: grid;
   grid-template-columns: 44px 1fr;
+  column-gap: calc(var(--mantine-spacing-xs) * 0.8);
+  box-sizing: border-box;
+  width: calc(100% + var(--mantine-spacing-xs) * 1.6);
+  margin: 0 calc(-1 * var(--mantine-spacing-xs));
+  padding: calc(var(--mantine-spacing-xs) * 0.7) calc(var(--mantine-spacing-xs) * 0.8);
+  border: 0;
+  border-radius: var(--eva-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+.eva-meeting-moment:hover {
+  background: var(--eva-surface);
+}
+.eva-meeting-moment-text,
+.eva-meeting-moment-by {
+  display: block;
+}
+.eva-meeting-moment-by {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+}
+.eva-meeting-moment[data-open='true'] .eva-meeting-moment-text,
+.eva-meeting-moment[data-open='true'] .eva-meeting-moment-by {
+  color: var(--eva-accent);
+}
+.eva-meeting-moment[data-open='true'] .eva-meeting-moment-text {
+  font-weight: var(--eva-fw-medium);
+}
+
+/* Transcript: minute, speaker, words; a jumped-to row lights up for a moment. */
+.eva-meeting-row {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  column-gap: calc(var(--mantine-spacing-xs) * 0.8);
+  margin: 0 calc(-1 * var(--mantine-spacing-xs));
+  padding: calc(var(--mantine-spacing-xs) * 0.7) calc(var(--mantine-spacing-xs) * 0.8);
+  border-radius: var(--eva-radius);
+  line-height: 1.5;
+  transition: background-color 0.6s;
+}
+.eva-meeting-row[data-lit='true'] {
+  background: color-mix(in srgb, var(--eva-accent) 12%, transparent);
+}
+.eva-meeting-row[data-draft='true'] .eva-meeting-row-text {
+  color: var(--eva-text-dim);
+}
+.eva-meeting-row-who {
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-meeting-row-who[data-you='true'] {
+  color: var(--eva-accent);
+}
+
+/* Summary: the gist, then what needs Isaac, actions, what was decided. */
+.eva-meeting-recap-gist {
+  margin: 0;
+  font-size: calc(var(--eva-font-size) * 15 / 14);
+  line-height: 1.55;
+}
+.eva-meeting-recap-you {
+  padding: calc(var(--mantine-spacing-xs) / 2) 0;
+  color: var(--eva-accent);
+  font-weight: var(--eva-fw-medium);
+  line-height: 1.45;
+}
+.eva-meeting-recap-you small {
+  display: block;
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  font-weight: var(--eva-fw-regular);
+}
+.eva-meeting-recap-item {
+  display: flex;
   gap: var(--mantine-spacing-xs);
   padding: calc(var(--mantine-spacing-xs) / 2) 0;
   line-height: 1.45;
 }
-.eva-meeting-tab-line[data-draft='true'] .eva-meeting-tab-text {
+.eva-meeting-recap-who {
+  margin-left: auto;
   color: var(--eva-text-dim);
-  font-style: italic;
-}
-.eva-meeting-tab-time {
-  color: var(--eva-text-dim);
-  font-size: var(--mantine-font-size-xs);
-  font-variant-numeric: tabular-nums;
-}
-.eva-meeting-tab-speaker {
-  color: var(--eva-accent);
-  font-size: var(--mantine-font-size-xs);
-  font-weight: var(--eva-fw-medium);
-}
-.eva-meeting-tab-speaker[data-track='mic'] {
-  color: var(--mantine-color-green-6);
-}
-.eva-meeting-tab-asks {
-  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md) var(--mantine-spacing-sm);
-  border-top: 1px solid var(--eva-border);
-}
-.eva-meeting-tab-asks-head {
-  margin-bottom: calc(var(--mantine-spacing-xs) / 2);
-  color: var(--eva-text-dim);
-  font-size: var(--mantine-font-size-xs);
-}
-/* One row that never wraps: swipe or scroll sideways; an edge fades where more pills hide. */
-.eva-meeting-tab-ask-row {
-  --fade: 24px;
-  display: flex;
-  flex-wrap: nowrap;
-  gap: calc(var(--mantine-spacing-xs) / 2);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-}
-.eva-meeting-tab-ask-row::-webkit-scrollbar {
-  display: none;
-}
-.eva-meeting-tab-ask-row[data-more-end='true'] {
-  mask-image: linear-gradient(to right, #000 calc(100% - var(--fade)), transparent);
-}
-.eva-meeting-tab-ask-row[data-more-start='true'] {
-  mask-image: linear-gradient(to right, transparent, #000 var(--fade));
-}
-.eva-meeting-tab-ask-row[data-more-start='true'][data-more-end='true'] {
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 var(--fade),
-    #000 calc(100% - var(--fade)),
-    transparent
-  );
-}
-.eva-meeting-tab-ask {
-  flex: none;
+  font-size: var(--eva-fz-label);
   white-space: nowrap;
-  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-xs);
-  border: 1px solid var(--eva-border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--eva-text);
+}
+.eva-meeting-recap .eva-meeting-tab-link {
+  margin-top: var(--mantine-spacing-xl);
+}
+
+/* Back to the newest line, floating over the bottom of the view. */
+.eva-meeting-jump {
+  position: absolute;
+  bottom: var(--mantine-spacing-xs);
+  left: 50%;
+  z-index: 3;
+  padding: calc(var(--mantine-spacing-xs) * 0.6) var(--mantine-spacing-sm);
+  border: 0;
+  border-radius: var(--eva-radius-round);
+  background: var(--eva-text);
+  color: var(--eva-bg);
   font: inherit;
-  font-size: var(--mantine-font-size-xs);
+  font-size: var(--eva-fz-label);
+  box-shadow: 0 2px 10px rgb(0 0 0 / 18%);
+  cursor: pointer;
+  transform: translateX(-50%);
+}
+
+/* The one Ask control: reads like a quiet input; its menu opens above it. */
+.eva-meeting-ask {
+  flex: none;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-lg) var(--mantine-spacing-lg);
+}
+.eva-meeting-ask-open {
+  box-sizing: border-box;
+  width: 100%;
+  padding: calc(var(--mantine-spacing-xs) * 0.9) var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-bg);
+  color: var(--eva-text-dim);
+  font: inherit;
+  font-size: calc(var(--eva-font-size) * 13 / 14);
+  text-align: left;
   cursor: pointer;
 }
-.eva-meeting-tab-ask:hover:not(:disabled) {
-  border-color: color-mix(in srgb, var(--eva-accent) 50%, var(--eva-border));
+.eva-meeting-ask-open:hover,
+.eva-meeting-ask-open[aria-expanded='true'] {
+  border-color: color-mix(in srgb, var(--eva-text-dim) 60%, var(--eva-border));
 }
-.eva-meeting-tab-ask:disabled {
-  opacity: 0.6;
-  cursor: default;
+
+@media (prefers-reduced-motion: reduce) {
+  .eva-meeting-caret {
+    animation: none;
+  }
+  .eva-meeting-row {
+    transition: none;
+  }
 }

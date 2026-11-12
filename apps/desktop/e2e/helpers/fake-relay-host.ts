@@ -697,7 +697,8 @@ export class FakeRelayHost {
 
   /**
    * Meetings (relay packages/protocol/src/meetings.ts): the recordings `meetings.list` answers and
-   * each one's live lines, answered to an `open` op. Add 'meetings' to `features` to turn it on.
+   * each one's live lines, answered to an `open` op; a `stop` is acknowledged (the spec pushes the
+   * stages that follow). Add 'meetings' to `features` to turn it on.
    */
   readonly meetings: { recordings: Json[]; lines: Map<string, Json[]>; notes: Map<string, Json> } =
     { recordings: [], lines: new Map(), notes: new Map() }
@@ -723,6 +724,8 @@ export class FakeRelayHost {
     this.meetingOps.push(op)
     const id = String(op.id)
     const recording = this.meetings.recordings.find((r) => r.id === id)
+    if (op.kind === 'stop' && recording !== undefined)
+      return peer.send({ t: 'meetings.res', rid, ok: true })
     if (op.kind !== 'open' || recording === undefined)
       return peer.send({ t: 'meetings.res', rid, ok: false, error: 'Not in this fake' })
     peer.send({
