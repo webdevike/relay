@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { TabIdSchema } from './browser'
+import { NoteOwnerSchema } from './agent-presence'
 
 /**
  * Design Mode in a page tab (apps/desktop/docs/design-mode.md): Isaac points at elements of a
@@ -100,6 +101,19 @@ export const DESIGN_MAX_SELECTION = 8
 
 const okOut = z.object({ ok: z.literal(true) })
 
+/** What one request carries: Isaac's words, the selected elements, his style edits and drawings. */
+const DesignRequestSchema = z
+  .object({
+    tabId: TabIdSchema,
+    instruction: z.string().max(4000),
+    items: z.array(DesignItemSchema).max(DESIGN_MAX_SELECTION),
+    edits: z.array(DesignStyleEditSchema).max(DESIGN_MAX_SELECTION * DESIGN_STYLE_KEYS.length),
+    drawings: z
+      .record(DesignSelectorSchema, z.string().max(8_000_000))
+      .refine((d) => Object.keys(d).length <= DESIGN_MAX_SELECTION, 'too many drawings'),
+  })
+  .strict()
+
 export const designInvoke = {
   /** Turns Design Mode on (a fresh, empty selection) or off for page `tabId`. */
   'design.set': {
@@ -132,18 +146,28 @@ export const designInvoke = {
    * base64 by selector) in place of its crop. `sent` false: no chat owns the page.
    */
   'design.send': {
-    input: z
-      .object({
-        tabId: TabIdSchema,
-        instruction: z.string().max(4000),
-        items: z.array(DesignItemSchema).max(DESIGN_MAX_SELECTION),
-        edits: z.array(DesignStyleEditSchema).max(DESIGN_MAX_SELECTION * DESIGN_STYLE_KEYS.length),
-        drawings: z
-          .record(DesignSelectorSchema, z.string().max(8_000_000))
-          .refine((d) => Object.keys(d).length <= DESIGN_MAX_SELECTION, 'too many drawings'),
-      })
-      .strict(),
+    input: DesignRequestSchema,
     output: z.object({ sent: z.boolean(), to: z.string().max(200).nullable() }),
+  },
+  /**
+   * The same message as `design.send` builds, handed back instead of posted: the composer chips
+   * (Isaac types his request in the chat; `instruction` is what he typed) send it with the chat
+   * message. `text` is the note's text; `images` its screenshots, to attach.
+   */
+  'design.compose': {
+    input: DesignRequestSchema,
+    output: z.object({
+      text: z.string().max(100_000),
+      images: z.array(z.object({ mimeType: z.literal('image/png'), data: z.string() })).max(8),
+    }),
+  },
+  /**
+   * The chat that owns page `tabId` (design.send's rules), whose composer takes the selection as
+   * chips; null: no chat owns it yet.
+   */
+  'design.owner': {
+    input: z.object({ tabId: TabIdSchema }).strict(),
+    output: z.object({ owner: NoteOwnerSchema.nullable() }),
   },
 } as const
 

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ActionIcon, Button, Loader, Textarea, Tooltip, UnstyledButton } from '@mantine/core'
 import { IconArrowBackUp, IconBrush, IconSend, IconX } from '@tabler/icons-react'
 import { useSelector } from '@xstate/react'
@@ -9,6 +9,7 @@ import {
   type DesignStyleKey,
 } from '@evaos/contract'
 import { DISMISS_PRIORITY, useDismissable } from '../../hotkeys/dismiss'
+import { dockAt, dragOver, endDrag, startDrag } from './design-dock'
 import { hasRequest } from './design-mode.machine'
 import { designActorOf, type DesignActor } from './design-runtime'
 import { DesignAnnotate } from './DesignAnnotate'
@@ -90,6 +91,8 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
   const state = useSelector(actor, (s) => s)
   const ctx = state.context
   const exit = (): void => actor.send({ type: 'design.exit' })
+  // The panel going away mid-drag (Esc ends the mode) must not leave the page view parked.
+  useEffect(() => () => endDrag(tabId, false), [tabId])
   const drawing = state.matches({ on: 'drawing' })
   useDismissable(DISMISS_PRIORITY.selection, exit, visible && !drawing)
 
@@ -102,7 +105,28 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
 
   return (
     <aside className="eva-design" data-testid="design-inspector" aria-label="Design mode">
-      <header className="eva-design-head">
+      <header
+        className="eva-design-head"
+        data-testid="design-head"
+        onPointerDown={(e) => {
+          // Buttons keep their clicks; the rest of the header is the grip.
+          if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return
+          e.currentTarget.setPointerCapture(e.pointerId)
+          startDrag(tabId)
+        }}
+        onPointerMove={(e) => {
+          if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
+          const body = e.currentTarget.closest('.eva-browser-body')
+          if (body) dragOver(dockAt(body.getBoundingClientRect(), { x: e.clientX, y: e.clientY }))
+        }}
+        onPointerUp={(e) => {
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId)
+            endDrag(tabId, true)
+          }
+        }}
+        onPointerCancel={() => endDrag(tabId, false)}
+      >
         <span className="eva-design-title">Design mode</span>
         <Tooltip label="Exit (Esc)" openDelay={400}>
           <ActionIcon
@@ -264,7 +288,7 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
             disabled={!canSend}
             onClick={send}
           >
-            Send
+            Submit
           </Button>
         </div>
       </footer>

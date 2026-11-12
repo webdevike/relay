@@ -1,6 +1,7 @@
 import { notifications } from '@mantine/notifications'
 import { createActor, fromPromise, type ActorRefFrom } from 'xstate'
 import { invoke, on } from '../../ipc'
+import { publishChips } from './design-chips'
 import { designModeMachine, type DesignDraft } from './design-mode.machine'
 
 export type DesignActor = ActorRefFrom<typeof designModeMachine>
@@ -82,6 +83,7 @@ export function designActorOf(tabId: string): DesignActor {
   let actor = actors.get(tabId)
   if (!actor) {
     actor = createActor(machine, { input: { tabId } }).start()
+    publishChips(tabId, actor)
     actors.set(tabId, actor)
   }
   return actor

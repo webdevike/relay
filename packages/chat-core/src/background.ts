@@ -4,7 +4,7 @@
  * thread as user turns; the chat shows them as quiet rows instead of a bubble.
  */
 
-export type BackgroundIcon = 'robot' | 'board' | 'hand' | 'chat' | 'reaction'
+export type BackgroundIcon = 'robot' | 'board' | 'hand' | 'chat' | 'reaction' | 'pointer'
 
 /** One `[source] title (link)` line of a heartbeat. */
 export interface HeartbeatItem {
@@ -23,6 +23,10 @@ export type BackgroundMessage =
       summary: string
       /** The whole text, shown in markdown when the row is opened. */
       text: string
+      /** What the message points at (a selection chip: `div.card:nth-of-type(5)`), when it does. */
+      chip?: string
+      /** A comment Isaac left on a page or board: where it was and what he said (an inline row). */
+      comment?: { place: string; note: string }
     }
   | {
       kind: 'heartbeat'
@@ -55,6 +59,12 @@ const HANDOFF = /^\[Relay Assist handoff\]\s*(.*)/s
 const REACTED = /^\[(\S+) reacted (.+?) to your message:\s*"(.*?)"\]/s
 /** Another assistant put the human's question to this one (the Relay host's consult). */
 const ASKED = /^\[Asked by (.+?) in [^\]]+?'s chat\]\s*(.*)/s
+/** A page note or a Design Mode change (noteText's header line, then Isaac's words). */
+const PAGE_NOTE =
+  /^\[(Change request|Note) on web page \S+ "((?:[^"\\]|\\.)*)": ([^\n]*?)(?: \(and (\d+) more below\))?\]\n(.*)/s
+/** A comment on a canvas board (noteText's header line, then Isaac's words). */
+const CANVAS_COMMENT =
+  /^\[(?:Comment|Reply in comment thread) \S+ on board (?:"((?:[^"\\]|\\.)*)"[^\n]*|(\S+),[^\n]*)\]\n(.*)/s
 
 function parseItem(line: string): HeartbeatItem | null {
   const m = ITEM.exec(line.trim())
@@ -91,12 +101,46 @@ function heartbeat(from: string, rest: string, text: string): BackgroundMessage 
   }
 }
 
-const event = (icon: BackgroundIcon, summary: string, text: string): BackgroundMessage => ({
+const event = (
+  icon: BackgroundIcon,
+  summary: string,
+  text: string,
+  chip?: string,
+  comment?: { place: string; note: string },
+): BackgroundMessage => ({
   kind: 'event',
   icon,
   summary,
   text,
+  ...(chip ? { chip } : {}),
+  ...(comment ? { comment } : {}),
 })
+
+/** The text of a JSON string literal the header quoted (a title), as is when it isn't one. */
+function unquote(literal: string): string {
+  try {
+    const v: unknown = JSON.parse(`"${literal}"`)
+    return typeof v === 'string' ? v : literal
+  } catch {
+    return literal
+  }
+}
+
+/** `<div>, selector "#grid > div.card:nth-of-type(5)" (and 2 more below)` as a chip: `div.card:nth-of-type(5) +2`. */
+function targetChip(target: string, more: string | undefined): string {
+  const tag = /^<([a-z0-9-]+)>/i.exec(target)?.[1]
+  let step = tag ?? 'region'
+  const sel = /selector ("(?:[^"\\]|\\.)*")/.exec(target)?.[1]
+  if (sel !== undefined) {
+    try {
+      const path = JSON.parse(sel) as string
+      step = path.split(/\s*>+\s*/).at(-1) || step
+    } catch {
+      /* keep the tag */
+    }
+  }
+  return more ? `${step} +${more}` : step
+}
 
 /** The leading `Source · ` of a summary, when the sentence has anything to say after it. */
 const said = (source: string, sentence: string): string =>
@@ -148,6 +192,28 @@ export function parseBackground(raw: string): BackgroundMessage | null {
       `${reacted[1]} reacted ${reacted[2]} to "${firstSentence(reacted[3]!)}"`,
       text,
     )
+  }
+  const page = PAGE_NOTE.exec(text)
+  if (page) {
+    const change = page[1] === 'Change request'
+    const note = firstSentence(page[5]!)
+    return event(
+      'pointer',
+      said(change ? 'Design Mode' : 'Page note', note),
+      text,
+      targetChip(page[3]!, page[4]),
+      { place: unquote(page[2]!), note },
+    )
+  }
+  const comment = CANVAS_COMMENT.exec(text)
+  if (comment) {
+    const note = firstSentence(comment[3]!)
+    const card = /, card (?:"((?:[^"\\]|\\.)*)" )?\(([^)]*)\)\]$/.exec(text.split('\n', 1)[0]!)
+    const on = card ? unquote(card[1] ?? card[2]!) : undefined
+    return event('board', said('Canvas comment', note), text, on, {
+      place: comment[1] === undefined ? comment[2]! : unquote(comment[1]),
+      note,
+    })
   }
   return null
 }

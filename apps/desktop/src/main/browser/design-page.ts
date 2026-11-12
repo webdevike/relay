@@ -7,9 +7,9 @@ import type { PageControl } from './page-control'
  *
  * - DESIGN_OVERLAY runs in an isolated world, like the agent cursor: it draws the numbered
  *   selection outlines inside the page (a native page paints over anything the shell draws) and
- *   keeps each selected element found by its selector, so a hot update that replaces the node or
- *   a reload that rebuilds the page finds it again. Hover, clicks and drags are the note picker's
- *   (annotate-picker.ts, mode `design`), in the agent cursor's world.
+ *   keeps each selected element found by its selector and fingerprint, so a hot update that
+ *   replaces the node or a reload that rebuilds the page finds it again. Hover, clicks and drags
+ *   are the note picker's (annotate-picker.ts, mode `design`), in the agent cursor's world.
  * - DESIGN_INSPECT runs in the page's own world, read-only: React keeps its fibers (component,
  *   `_debugSource`, `_debugStack`) as properties of the page's DOM objects, which an isolated
  *   world can't see.
@@ -18,10 +18,15 @@ import type { PageControl } from './page-control'
  * helpers are passed in as arguments (a minified build renames module functions, so a reference
  * by name would break only in the packaged app).
  *
- * SELECTOR_PATH and RESOLVE follow TasteCode's browser annotations (browser-annotations.ts,
- * github.com/Leonxlnx/tastecode, Apache-2.0; see THIRD_PARTY_NOTICES.md): id when unique, else tag,
- * two classes an agent can search the source for and `:nth-of-type`, through shadow roots as
- * `host >>> inner`.
+ * SELECTOR_PATH follows TasteCode's browser annotations (browser-annotations.ts,
+ * github.com/Leonxlnx/tastecode, Apache-2.0; see THIRD_PARTY_NOTICES.md): an anchor when unique,
+ * else tag, two classes an agent can search the source for and `:nth-of-type`, through shadow
+ * roots as `host >>> inner`.
+ *
+ * A path names its element alone when it is made, but not after the page changes: one made while
+ * a list showed a single card names the first card once the list is whole again. So each pick
+ * also keeps a FINGERPRINT (tag, text, its parent's text, classes, a few attributes, position,
+ * size), main keeps it across reloads, and RESTORE finds the element by both.
  */
 
 /** The outline color: quiet, readable on light and dark pages. */
@@ -33,6 +38,12 @@ export const MAX_SELECTION = DESIGN_MAX_SELECTION
 /** The note picker's host (annotate-picker.ts): never a pick target, hidden for crops. */
 const PICKER_HOST = 'relay-note-picker'
 
+/**
+ * A path that names `element` alone in its root: from the nearest ancestor (or itself) with a
+ * unique id, test id, aria-label or name, down through tag, two classes and `:nth-of-type`. A path
+ * that names anything else too is replaced by the element's `:nth-child` chain from body. Through
+ * shadow roots as `host >>> inner`, each step checked in its own root.
+ */
 export const SELECTOR_PATH = String(function selectorPath(
   element: Element,
   depth?: number,
@@ -40,16 +51,42 @@ export const SELECTOR_PATH = String(function selectorPath(
 ): string {
   const level = depth ?? 0
   if (level > 20) return '[unavailable-shadow-path]'
+  const root = element.getRootNode() as Document | ShadowRoot
+  /** `e` by a stable attribute of its own, when no other element in the root has it. */
+  const anchor = (e: Element): string | null => {
+    const tries: string[] = []
+    // A generated id (React's useId: `:r1:`, `«r1»`) changes between renders.
+    if (e.id && e.id.length <= 200 && !/^(:.*:|«.*»)$/.test(e.id))
+      tries.push('#' + CSS.escape(e.id))
+    for (const name of [
+      'data-testid',
+      'data-test-id',
+      'data-test',
+      'data-cy',
+      'aria-label',
+      'name',
+    ]) {
+      const v = e.getAttribute(name)
+      if (!v || v.length > 200 || /[\n\r\f]/.test(v)) continue
+      // A label or a field name is only stable on its own kind of element.
+      const tag = name === 'aria-label' || name === 'name' ? CSS.escape(e.localName) : ''
+      tries.push(tag + '[' + name + '="' + v.replace(/[\\"]/g, '\\$&') + '"]')
+    }
+    for (const sel of tries) {
+      try {
+        if (root.querySelectorAll(sel).length === 1) return sel
+      } catch {
+        // Not a selector this engine takes: the next one.
+      }
+    }
+    return null
+  }
   const parts: string[] = []
   for (let current: Element | null = element; current; current = current.parentElement) {
     if (current.localName === 'html' && parts.length > 0) break
-    const root = current.getRootNode() as Document | ShadowRoot
-    if (
-      current.id &&
-      current.id.length <= 512 &&
-      root.querySelectorAll('#' + CSS.escape(current.id)).length === 1
-    ) {
-      parts.unshift('#' + CSS.escape(current.id))
+    const own = anchor(current)
+    if (own) {
+      parts.unshift(own)
       break
     }
     if (parts.length >= 64) break
@@ -61,81 +98,278 @@ export const SELECTOR_PATH = String(function selectorPath(
           .slice(0, 2)
           .map((value) => '.' + CSS.escape(value))
           .join('')
-    const parent = current.parentElement
+    const parent = current.parentNode as ParentNode | null
     const siblings = parent ? Array.from(parent.children).filter((s) => s.localName === name) : []
     const position =
       siblings.length > 1 ? ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')' : ''
     parts.unshift(CSS.escape(name) + classes + position)
   }
-  const root = element.getRootNode()
+  let path = parts.join(' > ')
+  let named: NodeListOf<Element> | null = null
+  try {
+    named = root.querySelectorAll(path)
+  } catch {
+    named = null
+  }
+  if (!named || named.length !== 1 || named[0] !== element) {
+    const chain: string[] = []
+    for (let current: Element | null = element; current; current = current.parentElement) {
+      const name = current.localName
+      if (name === 'body' || name === 'html') {
+        chain.unshift(name)
+        break
+      }
+      const parent = current.parentNode as ParentNode | null
+      const index = parent ? Array.from(parent.children).indexOf(current) + 1 : 1
+      chain.unshift(CSS.escape(name) + ':nth-child(' + index + ')')
+    }
+    path = chain.join(' > ')
+  }
   const host = root instanceof ShadowRoot ? root.host : null
-  const path = (host ? selectorPath(host, level + 1, bare) + ' >>> ' : '') + parts.join(' > ')
+  const full = (host ? selectorPath(host, level + 1, bare) + ' >>> ' : '') + path
   // Over the contract's 2048 (DesignSelectorSchema): once more without classes; a pick still
   // over it is ignored.
-  return path.length > 2048 && !bare && level === 0 ? selectorPath(element, 0, true) : path
+  return full.length > 2048 && !bare && level === 0 ? selectorPath(element, 0, true) : full
 })
 
 /**
- * The element a selector path names now, or null. A path whose `:nth-of-type` went stale (a hot
- * update added a sibling) still finds its element when the path without positions is unique.
+ * The element a selector path names now, only when it names one: never the first of several.
+ * Main-world reads and previews use it with the overlay's paths, which RESTORE keeps unique.
  */
 export const RESOLVE = String(function resolve(selector: string): Element | null {
-  const find = (path: string): Element | null => {
-    let root: Document | ShadowRoot = document
-    let element: Element | null = null
-    const steps = path.split(' >>> ')
-    for (let index = 0; index < steps.length; index++) {
-      try {
-        element = root.querySelector(steps[index]!)
-      } catch {
-        return null
-      }
-      if (!element) return null
-      if (index < steps.length - 1) {
-        if (!element.shadowRoot) return null
-        root = element.shadowRoot
-      }
+  let root: Document | ShadowRoot = document
+  let element: Element | null = null
+  const steps = selector.split(' >>> ')
+  for (let index = 0; index < steps.length; index++) {
+    let all: NodeListOf<Element>
+    try {
+      all = root.querySelectorAll(steps[index]!)
+    } catch {
+      return null
     }
-    return element
+    if (all.length !== 1) return null
+    element = all[0]!
+    if (index < steps.length - 1) {
+      if (!element.shadowRoot) return null
+      root = element.shadowRoot
+    }
   }
-  const exact = find(selector)
-  if (exact) return exact
-  if (selector.includes(' >>> ') || !selector.includes(':nth-of-type(')) return null
-  const loose = selector.replace(/:nth-of-type\(\d+\)/g, '')
-  try {
-    const all = document.querySelectorAll(loose)
-    return all.length === 1 ? all[0]! : null
-  } catch {
-    return null
+  return element
+})
+
+/** How a selected element looked when it was picked or last found (FINGERPRINT). */
+export interface Fingerprint {
+  tag: string
+  /** Its classes in order, space separated. */
+  classes: string
+  /** Its text, whitespace collapsed, lowercased, the first 160 characters. */
+  text: string
+  /** Its parent's text, the same way: tells apart children alike in cards that are not. */
+  context: string
+  /** id, test id, name, aria-label, role, type, href, src, alt and title as `name=value`. */
+  attrs: string
+  /** Its place among its parent's children of its tag (from 1), and how many there are. */
+  index: number
+  siblings: number
+  /** Its size in CSS px, rounded. */
+  w: number
+  h: number
+}
+
+/** `element`'s Fingerprint, in the page. */
+export const FINGERPRINT = String(function fingerprintOf(element: Element): Fingerprint {
+  const text = (e: Node | null): string =>
+    ((e && e.textContent) || '').replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 160)
+  const parent = element.parentNode as ParentNode | null
+  const same = parent
+    ? Array.from(parent.children).filter((s) => s.localName === element.localName)
+    : [element]
+  const attrs: string[] = []
+  for (const name of [
+    'id',
+    'data-testid',
+    'name',
+    'aria-label',
+    'role',
+    'type',
+    'href',
+    'src',
+    'alt',
+    'title',
+  ]) {
+    const v = element.getAttribute(name)
+    if (v !== null) attrs.push(name + '=' + v.slice(0, 100))
+  }
+  const r = element.getBoundingClientRect()
+  return {
+    tag: element.localName,
+    classes: Array.from(element.classList).join(' ').slice(0, 200),
+    text: text(element),
+    context: text(element.parentElement),
+    attrs: attrs.join(' ').slice(0, 600),
+    index: same.indexOf(element) + 1,
+    siblings: same.length,
+    w: Math.round(r.width),
+    h: Math.round(r.height),
   }
 })
+
+/** What RESTORE found: `exact` when the path still names it alone; `strong` when its text agrees. */
+export interface Restored {
+  element: Element
+  exact: boolean
+  strong: boolean
+}
+
+/**
+ * The element `selector` named when `print` was taken, in the page as it is now, or null. The
+ * elements the path names, the path without positions names, and those sharing the print's tag
+ * and first class are weighed: first by text (the same beats close, an edit), then by attributes,
+ * parent's text, classes, position, size and whether the path names it alone; the one best match
+ * wins. Several equally good, or none whose text agrees: null, never the first of them. The path's
+ * own element whose text changed past recognizing (new copy) still binds when its classes,
+ * position and parent's text agree, as a weak match (the overlay looks again for a strong one).
+ * Without a print only a path that names one element finds it.
+ */
+export const RESTORE = String(function restore(
+  selector: string,
+  print: Fingerprint | null,
+  fingerprintOf: (element: Element) => Fingerprint,
+): Restored | null {
+  const all = (root: Document | ShadowRoot, sel: string): Element[] => {
+    try {
+      return Array.from(root.querySelectorAll(sel))
+    } catch {
+      return []
+    }
+  }
+  const strip = (sel: string): string => sel.replace(/:nth-(?:of-type|child)\(\d+\)/g, '')
+  const steps = selector.split(' >>> ')
+  let roots: Array<Document | ShadowRoot> = [document]
+  let single = true
+  for (let i = 0; i < steps.length - 1; i++) {
+    let hosts = roots.flatMap((r) => all(r, steps[i]!))
+    if (hosts.length !== 1) single = false
+    if (hosts.length === 0 && print) hosts = roots.flatMap((r) => all(r, strip(steps[i]!)))
+    const next: ShadowRoot[] = []
+    for (const h of hosts) if (h.shadowRoot && next.length < 50) next.push(h.shadowRoot)
+    if (next.length === 0) return null
+    roots = next
+  }
+  const last = steps[steps.length - 1]!
+  const named = roots.flatMap((r) => all(r, last))
+  const exact = single && named.length === 1 ? named[0]! : null
+  if (!print) return exact ? { element: exact, exact: true, strong: true } : null
+
+  const candidates: Element[] = []
+  const add = (list: Element[]): void => {
+    for (const e of list) {
+      if (candidates.length >= 400) return
+      if (e.localName === print.tag && !candidates.includes(e)) candidates.push(e)
+    }
+  }
+  add(named)
+  for (const r of roots) add(all(r, strip(last)))
+  const first = print.classes.split(' ').find((c) => /^[A-Za-z_-][\w-]*$/.test(c))
+  if (first) for (const r of roots) add(all(r, CSS.escape(print.tag) + '.' + CSS.escape(first)))
+
+  /** The same text, edited a little (most of it kept at its start and end), or appended to. */
+  const near = (a: string, b: string): boolean => {
+    if (!a || !b) return false
+    if ((a.length >= 4 && b.includes(a)) || (b.length >= 4 && a.includes(b))) return true
+    const m = Math.min(a.length, b.length)
+    let p = 0
+    while (p < m && a[p] === b[p]) p++
+    let s = 0
+    while (s < m - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++
+    return (p + s) / Math.max(a.length, b.length) >= 0.6
+  }
+  const sorted = (c: string): string => c.split(' ').filter(Boolean).sort().join(' ')
+  const classes = sorted(print.classes)
+  const scored = candidates.map((e) => {
+    const f = fingerprintOf(e)
+    const tier = f.text === print.text ? 2 : near(print.text, f.text) ? 1 : 0
+    const score =
+      (f.attrs === print.attrs ? 4 : 0) +
+      (f.context === print.context ? 3 : near(print.context, f.context) ? 2 : 0) +
+      (sorted(f.classes) === classes ? 2 : 0) +
+      (f.index === print.index ? 1 : 0) +
+      (f.siblings === print.siblings ? 1 : 0) +
+      (Math.abs(f.w - print.w) <= 2 && Math.abs(f.h - print.h) <= 2 ? 1 : 0)
+    return { e, f, tier, score }
+  })
+  const top = scored.reduce((t, s) => Math.max(t, s.tier), 0)
+  if (top === 0) {
+    const own = exact ? scored.find((s) => s.e === exact) : undefined
+    const same =
+      own &&
+      sorted(own.f.classes) === classes &&
+      own.f.index === print.index &&
+      (own.f.context === print.context || near(print.context, own.f.context))
+    return own && same ? { element: own.e, exact: true, strong: false } : null
+  }
+  // The path's own element counts as evidence too, not as the answer: a card's child alike in
+  // every card is told apart by its card's text when a card was inserted before it.
+  const tier = scored
+    .filter((s) => s.tier === top)
+    .map((s) => ({ e: s.e, score: s.score + (s.e === exact ? 2 : 0) }))
+  const best = tier.reduce((b, s) => Math.max(b, s.score), -1)
+  const winners = tier.filter((s) => s.score === best)
+  if (winners.length !== 1) return null
+  return { element: winners[0]!.e, exact: winners[0]!.e === exact, strong: true }
+})
+
+/** One selected element as main keeps it: its path, and how it looked (null: never seen). */
+export interface OverlayItem {
+  selector: string
+  print: Fingerprint | null
+}
 
 /** One command to the in-page overlay. Coordinates are viewport CSS px. */
 export type OverlayCommand =
   | { op: 'init'; color: string }
   | { op: 'pick'; x: number; y: number; add: boolean; max: number }
-  | { op: 'select'; selectors: string[] }
+  | { op: 'select'; items: OverlayItem[] }
   | { op: 'status' }
   | { op: 'visible'; on: boolean }
   | { op: 'destroy' }
 
-/** What a command answers: the selection's paths, and a signature of how its elements look. */
+/**
+ * What a command answers: the selection's paths, each one's fingerprint (main keeps them for the
+ * next document), whether each one's element is in the page now, and a signature of how its
+ * elements look.
+ */
 export interface OverlayAnswer {
   ready: boolean
   selectors: string[]
+  prints: Array<Fingerprint | null>
+  found: boolean[]
   sig: string
 }
 
-/** `function (cmd, selectorPath, resolve)` run in the isolated world (PageControl.inWorld). */
+/**
+ * `function (cmd, selectorPath, restore, fingerprintOf, pickerHost)` run in the isolated world
+ * (PageControl.inWorld).
+ */
 export const DESIGN_OVERLAY = String(function (
   cmd: OverlayCommand,
   selectorPath: (element: Element) => string,
-  resolve: (selector: string) => Element | null,
+  restore: (
+    selector: string,
+    print: Fingerprint | null,
+    fingerprintOf: (element: Element) => Fingerprint,
+  ) => Restored | null,
+  fingerprintOf: (element: Element) => Fingerprint,
   pickerHost: string,
 ): OverlayAnswer {
-  interface Picked {
+  interface Bound {
     selector: string
+    print: Fingerprint | null
     element: Element | null
+    /** Found by its text too; a weak one (only its path agreed) is looked for again. */
+    strong: boolean
+  }
+  interface Picked extends Bound {
     frame: HTMLElement
   }
   interface Overlay {
@@ -205,8 +439,23 @@ export const DESIGN_OVERLAY = String(function (
       if (shadow) o.watch.observe(shadow, WATCH)
     }
   }
+  /**
+   * Finds `p`'s element in the page as it is now (RESTORE): a strong find takes its look as the
+   * print, and one its path no longer names alone gets a path that does.
+   */
+  const find = (p: Bound): void => {
+    const r = restore(p.selector, p.print, fingerprintOf)
+    p.element = r ? r.element : null
+    p.strong = r ? r.strong : false
+    if (!r) return
+    if (r.strong) p.print = fingerprintOf(r.element)
+    if (!r.exact) {
+      const next = selectorPath(r.element)
+      if (next.length <= 2048) p.selector = next
+    }
+  }
   const answer = (o: Overlay | undefined): OverlayAnswer => {
-    if (!o) return { ready: false, selectors: [], sig: '' }
+    if (!o) return { ready: false, selectors: [], prints: [], found: [], sig: '' }
     const idOf = (e: Element): number => {
       let id = o.ids.get(e)
       if (id === undefined) {
@@ -248,7 +497,13 @@ export const DESIGN_OVERLAY = String(function (
         ].join('|')
       })
       .join('\n')
-    return { ready: true, selectors: o.picked.map((p) => p.selector), sig: o.rev + '\n' + sig }
+    return {
+      ready: true,
+      selectors: o.picked.map((p) => p.selector),
+      prints: o.picked.map((p) => p.print),
+      found: o.picked.map((p) => p.element !== null && p.element.isConnected),
+      sig: o.rev + '\n' + sig,
+    }
   }
 
   let o = g.__relayDesign
@@ -304,12 +559,21 @@ export const DESIGN_OVERLAY = String(function (
       }),
     }
     made.watch.observe(document, WATCH)
+    let ticks = 0
     const tick = (): void => {
       if (!made.host.isConnected) return
+      ticks++
       for (const p of made.picked) {
-        if (!p.element || !p.element.isConnected) {
-          p.element = resolve(p.selector)
-          if (p.element) watchRoots(made, p.element)
+        // Replaced: found again at once. Not in the page yet, or bound weakly: looked for a few
+        // times a second (the page may still be rendering it).
+        if (
+          (p.element && !p.element.isConnected) ||
+          (!p.element && ticks % 10 === 0) ||
+          (p.element && !p.strong && ticks % 30 === 0)
+        ) {
+          const was = p.element
+          find(p)
+          if (p.element && p.element !== was) watchRoots(made, p.element)
         }
         place(p.frame, p.element)
         // The number sits above the element, never over its content; inside its top edge when
@@ -335,7 +599,7 @@ export const DESIGN_OVERLAY = String(function (
     ov.root.appendChild(frame)
     return frame
   }
-  const setPicked = (list: Array<{ selector: string; element: Element | null }>): void => {
+  const setPicked = (list: Bound[]): void => {
     for (const p of ov.picked) p.frame.remove()
     ov.picked = list.map((p, i) => ({ ...p, frame: frameFor(i + 1) }))
     for (const p of ov.picked) if (p.element) watchRoots(ov, p.element)
@@ -349,19 +613,31 @@ export const DESIGN_OVERLAY = String(function (
       if (!element || element === document.documentElement) break
       const selector = selectorPath(element)
       if (selector.length > 2048) break
-      const keep = ov.picked.map((p) => ({ selector: p.selector, element: p.element }))
+      const picked: Bound = { selector, print: fingerprintOf(element), element, strong: true }
+      const keep: Bound[] = ov.picked.map(({ frame: _, ...p }) => p)
       const at = keep.findIndex((p) => p.element === element || p.selector === selector)
       if (cmd.add) {
         if (at >= 0) keep.splice(at, 1)
-        else if (keep.length < cmd.max) keep.push({ selector, element })
+        else if (keep.length < cmd.max) keep.push(picked)
         setPicked(keep)
       } else {
-        setPicked([{ selector, element }])
+        setPicked([picked])
       }
       break
     }
     case 'select':
-      setPicked(cmd.selectors.map((selector) => ({ selector, element: resolve(selector) })))
+      setPicked(
+        cmd.items.map((item) => {
+          const p: Bound = {
+            selector: item.selector,
+            print: item.print,
+            element: null,
+            strong: false,
+          }
+          find(p)
+          return p
+        }),
+      )
       break
     case 'visible':
       ov.host.style.display = cmd.on ? '' : 'none'
@@ -396,9 +672,12 @@ export interface InspectAnswer {
   items: Array<InspectedElement | null>
 }
 
-/** `function (selectors, styleKeys, resolve)` run in the page's own world, read-only. */
+/**
+ * `function (selectors, styleKeys, resolve)` run in the page's own world, read-only. A null
+ * selector (one the overlay did not find) reads as null.
+ */
 export const DESIGN_INSPECT = String(function (
-  selectors: string[],
+  selectors: Array<string | null>,
   styleKeys: string[],
   resolve: (selector: string) => Element | null,
 ): InspectAnswer {
@@ -527,7 +806,7 @@ export const DESIGN_INSPECT = String(function (
     return { source, component }
   }
   const items = selectors.map((selector): InspectedElement | null => {
-    const element = resolve(selector)
+    const element = selector === null ? null : resolve(selector)
     if (!element) return null
     const rect = element.getBoundingClientRect()
     const style = getComputedStyle(element)
@@ -561,7 +840,8 @@ const WORLD = 'relay-design'
 /** What Design Mode does in one page (design-mode.ts); `designPage` runs it over PageControl. */
 export interface DesignPage {
   overlay(cmd: OverlayCommand): Promise<OverlayAnswer>
-  inspect(selectors: string[]): Promise<InspectAnswer>
+  /** Reads each selector's element; null ones (not found by the overlay) read as null. */
+  inspect(selectors: Array<string | null>): Promise<InspectAnswer>
   /**
    * An inline style on the element `selector` names: the edit Isaac previews. `missing`: no such
    * element now; `rejected`: the page's CSS did not take the value (the declaration is invalid).
@@ -585,7 +865,7 @@ export function designPage(
     overlay: (cmd) =>
       pc.inWorld<OverlayAnswer>(
         WORLD,
-        `(${DESIGN_OVERLAY})(${JSON.stringify(cmd)}, ${SELECTOR_PATH}, ${RESOLVE}, ${JSON.stringify(PICKER_HOST)})`,
+        `(${DESIGN_OVERLAY})(${JSON.stringify(cmd)}, ${SELECTOR_PATH}, ${RESTORE}, ${FINGERPRINT}, ${JSON.stringify(PICKER_HOST)})`,
       ),
     inspect: (selectors) =>
       pc.evaluate<InspectAnswer>(

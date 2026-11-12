@@ -65,7 +65,7 @@ export async function designNote(
   req: DesignSend,
   page: { tabId: string; url: string; title: string },
   save: (pngBase64: string) => Promise<string>,
-): Promise<AgentNote | null> {
+): Promise<Extract<AgentNote, { surface: 'browser' }> | null> {
   const targets: BrowserNoteTarget[] = []
   for (const item of req.items) {
     if (item.missing) continue

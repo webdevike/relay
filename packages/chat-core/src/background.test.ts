@@ -89,6 +89,38 @@ describe('parseBackground', () => {
     })
   })
 
+  it('shows a Design Mode change as one quiet row with the selection chip', () => {
+    const text = [
+      '[Change request on web page t3 "Plants: shop": <div>, selector "#grid > div.card:nth-of-type(5)" (and 2 more below)]',
+      'Make the card shadow softer. Then the price bolder.',
+      'http://127.0.0.1:5931/',
+      'DOM: "<div class=\\"card\\"></div>"',
+    ].join('\n')
+    expect(parseBackground(text)).toEqual({
+      kind: 'event',
+      icon: 'pointer',
+      summary: 'Design Mode · Make the card shadow softer',
+      text,
+      chip: 'div.card:nth-of-type(5) +2',
+      comment: { place: 'Plants: shop', note: 'Make the card shadow softer' },
+    })
+    const region = '[Note on web page t1 "x": the region 1,2 30x40]\nLook here'
+    expect(parseBackground(region)).toMatchObject({
+      summary: 'Page note · Look here',
+      chip: 'region',
+    })
+  })
+
+  it('shows a canvas comment as an inline comment line', () => {
+    const text =
+      '[Comment c1 on board "Ideas" (ideas), page 1, the spot 4,5]\nMove this up.\nrelay://x'
+    expect(parseBackground(text)).toMatchObject({
+      icon: 'board',
+      summary: 'Canvas comment · Move this up',
+      comment: { place: 'Ideas', note: 'Move this up' },
+    })
+  })
+
   it('leaves what Isaac typed alone', () => {
     expect(parseBackground('hello Nova')).toBeNull()
     expect(parseBackground('   ')).toBeNull()

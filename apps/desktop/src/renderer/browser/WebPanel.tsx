@@ -11,6 +11,7 @@ import { readPages, useWebPage } from './browser-store'
 import { useWebSlot } from './useSlotSync'
 import { DesignInspector } from './design/DesignInspector'
 import { designActorOf } from './design/design-runtime'
+import { useDock, useDragState } from './design/design-dock'
 
 /**
  * One web page's tab: its address row, the passkey bar, and the slot its native view sits over
@@ -21,7 +22,10 @@ import { designActorOf } from './design/design-runtime'
 export function WebPanel({ tabId, visible }: { tabId: string; visible: boolean }) {
   const slot = useRef<HTMLDivElement>(null)
   const tab = useWebPage(tabId)
-  useWebSlot(slot, tabId, visible)
+  const dock = useDock(tabId)
+  const drag = useDragState(tabId)
+  // The native page view would swallow the pointer while the inspector is dragged: it parks then.
+  useWebSlot(slot, tabId, visible && !drag.dragging)
   // A page of another browser scope (not in the host's list on screen) is read by id.
   useEffect(() => {
     if (visible && !tab) void readPages([tabId])
@@ -36,7 +40,7 @@ export function WebPanel({ tabId, visible }: { tabId: string; visible: boolean }
         {tab && isAppSwitchUrl(tab.url) ? <AppSwitcher key={tab.id} tab={tab} /> : null}
       </AddressRow>
       {tab?.passkey && !showCard ? <PasskeyBar tab={tab} /> : null}
-      <div className="eva-browser-body">
+      <div className="eva-browser-body" data-dock={dock} data-testid="browser-body">
         <div
           className="eva-browser-frame eva-agent-host"
           data-agent={agent?.status}
@@ -51,6 +55,13 @@ export function WebPanel({ tabId, visible }: { tabId: string; visible: boolean }
           ) : null}
         </div>
         {designing ? <DesignInspector tabId={tabId} visible={visible} /> : null}
+        {drag.dragging ? (
+          <div className="eva-design-drop" data-testid="design-drop" aria-hidden>
+            {(['left', 'top', 'bottom', 'right'] as const).map((d) => (
+              <div key={d} className="eva-design-zone" data-dock={d} data-over={drag.over === d} />
+            ))}
+          </div>
+        ) : null}
       </div>
     </section>
   )

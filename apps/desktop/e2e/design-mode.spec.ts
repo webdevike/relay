@@ -538,3 +538,133 @@ test('Design Mode: an element inside a shadow root is picked and refreshed when 
   await sendKey(app, id, 'Escape', [])
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
 })
+
+test('Design Mode: the selection rides the chat composer as chips, and the inspector docks where it is dragged', async ({
+  app,
+  shell,
+}) => {
+  fs.rmSync(LOG, { force: true })
+  await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(2400, 1000))
+  await expect.poll(() => shell.evaluate(() => window.innerWidth)).toBeGreaterThan(2300)
+  await shell.getByTestId('nav-chat').click()
+  await shell
+    .getByTestId('chat-tree')
+    .getByRole('link', { name: /^Fixture chat(?:,|$)/ })
+    .click()
+  await expect(shell.locator('[data-testid=chat-log]')).toContainText(
+    'Please sketch a tiny greeter.',
+  )
+  type Shell = { __evaosShell: { setPanel(open: boolean): void } }
+  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.setPanel(true))
+  await expect(shell.locator('[data-pane-kind=tool]')).toBeVisible()
+  const id = await newPage(shell)
+  const panel = webPanel(shell, id)
+  const toggle = panel.locator('[data-testid=btn-design-mode]')
+  // Isaac widens the page's pane: the chat's divider dragged left.
+  const pageBox = (await panel.boundingBox())!
+  const sash = shell.locator('.dv-sash').filter({ visible: true })
+  const near = await sash.evaluateAll(
+    (els, x) => els.findIndex((e) => Math.abs(e.getBoundingClientRect().x - x) < 12),
+    pageBox.x,
+  )
+  expect(near).toBeGreaterThanOrEqual(0)
+  const s = (await sash.nth(near).boundingBox())!
+  await shell.mouse.move(s.x + s.width / 2, s.y + s.height / 2)
+  await shell.mouse.down()
+  await shell.mouse.move(s.x - 520, s.y + s.height / 2, { steps: 8 })
+  await shell.mouse.up()
+  await expect.poll(async () => (await panel.boundingBox())!.width).toBeGreaterThan(900)
+  await navigate(shell, id, server.url('/design.html'))
+  await expect.poll(() => guestEval(app, id, 'document.readyState')).toBe('complete')
+  await expect(toggle).toBeEnabled()
+  await toggle.click()
+  await expect(inspector(shell, id)).toBeVisible()
+  await expect.poll(() => framesOf(app, id)).toBe(0)
+
+  // Selecting puts a chip in the chat's composer; the panel keeps its comment field and Submit.
+  const chips = shell.locator('[data-testid=composer-design-chip]')
+  await expect(chips).toHaveCount(0)
+  await click(app, id, await centerOf(app, id, '#save'))
+  await expect(chips).toHaveCount(1)
+  await expect(chips.first()).toContainText('button#save')
+  await expect(chips.first().locator('img')).toBeVisible()
+  await expect(inspector(shell, id).locator('[data-testid=design-instruction]')).toBeVisible()
+  await expect(inspector(shell, id).locator('[data-testid=design-send]')).toHaveText('Submit')
+  // A style edit is one more chip.
+  const padding = inspector(shell, id).locator('[data-testid=design-style-padding]')
+  await padding.fill('4px 8px')
+  await padding.press('Enter')
+  await expect(chips).toHaveCount(2)
+  await expect(chips.nth(1)).toContainText('1 style edit')
+  // Removing a chip drops that selection: the edits chip puts the page's value back.
+  await chips.nth(1).locator('[data-testid=composer-design-chip-remove]').click()
+  await expect(chips).toHaveCount(1)
+  await expect
+    .poll(() => guestEval(app, id, "getComputedStyle(document.getElementById('save')).padding"))
+    .toBe('10px 18px')
+  await proofShot(app, shell, 'composer-chip', { phase: PHASE })
+
+  // He types the request in the chat; sending the message sends the selection with it.
+  const input = shell.locator('[data-testid=composer-input]')
+  await input.fill('make this button quieter')
+  await shell.locator('[data-testid=composer-send]').click()
+  await expect
+    .poll(() => readLog().find((e) => e.event === 'prompt-images')?.detail ?? null)
+    .toEqual({ count: 1, mimeTypes: ['image/png'] })
+  const prompt = String(
+    readLog().find(
+      (e) => e.event === 'prompt' && String(e.detail?.['message']).includes('[Change request'),
+    )?.detail?.['message'] ?? '',
+  )
+  const lines = prompt.split('\n')
+  const head = lines.findIndex((l) => l.startsWith('[Change request'))
+  expect(lines[head]).toContain(`[Change request on web page ${id} "Design fixture": <button>`)
+  expect(lines[head]).toContain('selector "#save"')
+  expect(lines[head + 1]).toBe('make this button quieter')
+  // The chips are spent; the chat shows one quiet row with the selection chip and a thumbnail.
+  await expect(chips).toHaveCount(0)
+  const row = shell
+    .locator('[data-testid=background-event]')
+    .filter({ hasText: 'make this button quieter' })
+  await expect(row).toHaveCount(1)
+  await expect(row).toContainText('You commented on')
+  await expect(row.locator('[data-testid=background-chip]')).toHaveText('#save')
+  await expect(row.locator('.eva-bg-thumbs img')).toBeVisible()
+  await row.getByRole('button', { name: 'Show' }).click()
+  await expect(row.locator('[data-testid=background-body]')).toContainText('Change request')
+  await proofShot(app, shell, 'background-row', { phase: PHASE })
+
+  // The inspector docks where its header is dragged: left of the page, remembered.
+  const slot = panel.locator('[data-testid=browser-slot]')
+  await expect
+    .poll(async () => {
+      const ins = (await inspector(shell, id).boundingBox())!
+      const s = (await slot.boundingBox())!
+      return ins.x >= s.x + s.width - 1
+    })
+    .toBe(true)
+  const head2 = (await inspector(shell, id).locator('[data-testid=design-head]').boundingBox())!
+  const body = (await panel.locator('[data-testid=browser-body]').boundingBox())!
+  await shell.mouse.move(head2.x + 40, head2.y + head2.height / 2)
+  await shell.mouse.down()
+  await shell.mouse.move(body.x + body.width * 0.4, body.y + body.height / 2, { steps: 6 })
+  await shell.mouse.move(body.x + 40, body.y + body.height / 2, { steps: 6 })
+  await expect(panel.locator('[data-testid=design-drop]')).toBeVisible()
+  await proofShot(app, shell, 'dock-drag', { phase: PHASE })
+  await shell.mouse.up()
+  await expect(panel.locator('[data-testid=design-drop]')).toHaveCount(0)
+  await expect
+    .poll(async () => {
+      const ins = (await inspector(shell, id).boundingBox())!
+      const s = (await slot.boundingBox())!
+      return ins.x + ins.width <= s.x + 1
+    })
+    .toBe(true)
+  // The page keeps its view and the selection after the move.
+  await expect.poll(() => guestEval(app, id, 'innerWidth')).toBeGreaterThan(400)
+  await expect.poll(() => framesOf(app, id)).toBe(1)
+  // Dragging within the tab: it can dock under the page too, and a click on Exit still works.
+  await proofShot(app, shell, 'docked-left', { phase: PHASE })
+  await inspector(shell, id).locator('[data-testid=design-exit]').click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+})

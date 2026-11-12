@@ -52,7 +52,9 @@ export type PickResult =
 
 /**
  * What an element is, as the note describes it: its tag, role (explicit or implied), accessible
- * label, visible text and a CSS selector that finds it again. Self-contained: it runs in the page.
+ * label, visible text and a CSS selector that names it alone in its document (or shadow root):
+ * from the nearest unique id, test id, aria-label or name down by `:nth-of-type`, else its
+ * `:nth-child` chain from body. Self-contained: it runs in the page.
  */
 export function describeElement(el: Element): NoteElement {
   const clip = (s: string, n: number): string => {
@@ -116,25 +118,25 @@ export function describeElement(el: Element): NoteElement {
   const field = tag === 'input' || tag === 'textarea' || tag === 'select'
   const text = field ? '' : clip(typeof inner === 'string' ? inner : (el.textContent ?? ''), 400)
 
-  const doc = el.ownerDocument
-  const unique = (sel: string): boolean => {
-    try {
-      return doc.querySelectorAll(sel).length === 1
-    } catch {
-      return false
-    }
-  }
+  // Its own root: a document, or the shadow root it lives in.
+  const root = el.getRootNode() as Document | ShadowRoot
   const quoted = (v: string): string => `"${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
   const anchor = (node: Element): string | null => {
+    const tries: string[] = []
     const id = node.getAttribute('id')
-    if (id) {
-      const sel = /^[A-Za-z_][\w-]*$/.test(id) ? `#${id}` : `[id=${quoted(id)}]`
-      if (unique(sel)) return sel
+    if (id) tries.push(/^[A-Za-z_][\w-]*$/.test(id) ? `#${id}` : `[id=${quoted(id)}]`)
+    for (const name of ['data-testid', 'aria-label', 'name']) {
+      const v = node.getAttribute(name)
+      if (!v || v.length > 200 || /[\n\r\f]/.test(v)) continue
+      // A label or a field name is only stable on its own kind of element.
+      tries.push(`${name === 'data-testid' ? '' : node.localName}[${name}=${quoted(v)}]`)
     }
-    const testId = node.getAttribute('data-testid')
-    if (testId) {
-      const sel = `[data-testid=${quoted(testId)}]`
-      if (unique(sel)) return sel
+    for (const sel of tries) {
+      try {
+        if (root.querySelectorAll(sel).length === 1) return sel
+      } catch {
+        // Not a selector this engine takes: the next one.
+      }
     }
     return null
   }
@@ -147,7 +149,8 @@ export function describeElement(el: Element): NoteElement {
         parts.unshift(own)
         break
       }
-      const name = node.tagName.toLowerCase()
+      // localName: an SVG element's camelCase name (clipPath) matches only as written.
+      const name = node.localName
       const parent: Element | null = node.parentElement
       if (!parent || name === 'html' || name === 'body') {
         parts.unshift(name)
@@ -157,8 +160,29 @@ export function describeElement(el: Element): NoteElement {
       parts.unshift(same.length > 1 ? `${name}:nth-of-type(${same.indexOf(node) + 1})` : name)
       node = parent
     }
-    const sel = parts.join(' > ')
-    return sel.length <= 400 ? sel : undefined
+    let sel = parts.join(' > ')
+    let named: NodeListOf<Element> | null = null
+    try {
+      named = root.querySelectorAll(sel)
+    } catch {
+      named = null
+    }
+    // Not the element alone (a step a shadow root repeats deeper in): the position of each step
+    // from body, or from the top of its shadow root.
+    if (!named || named.length !== 1 || named[0] !== el) {
+      const chain: string[] = []
+      for (let n: Element | null = el; n; n = n.parentElement) {
+        const name = n.localName
+        if (name === 'body' || name === 'html') {
+          chain.unshift(name)
+          break
+        }
+        const parent = n.parentNode as ParentNode | null
+        chain.unshift(`${name}:nth-child(${parent ? [...parent.children].indexOf(n) + 1 : 1})`)
+      }
+      sel = chain.join(' > ')
+    }
+    return sel.length <= 2048 ? sel : undefined
   }
   const selector = selectorOf()
   return {

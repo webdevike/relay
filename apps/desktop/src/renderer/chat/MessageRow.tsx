@@ -196,7 +196,19 @@ function MessageRowImpl({
   let body
   const background = m.role === 'user' ? parseBackground(m.text) : null
   if (background) {
-    body = <BackgroundRow m={background} at={m.at} />
+    body = (
+      <BackgroundRow
+        m={background}
+        at={m.at}
+        thumbs={
+          background.kind === 'event' && background.comment && m.images.length > 0 ? (
+            <div className="eva-bg-thumbs">
+              <Images images={m.images} />
+            </div>
+          ) : undefined
+        }
+      />
+    )
   } else if (m.role === 'user') {
     // A direct image link he typed shows as a picture, not a link.
     const linked = userImageUrls(stripAnswerContext(m.text))

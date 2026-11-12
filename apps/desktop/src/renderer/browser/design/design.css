@@ -1,19 +1,92 @@
 /* Design Mode's inspector: a column beside the page (the native page paints over anything drawn
- * on its slot), or a panel under it when the pane is too narrow for both side by side. */
+ * on its slot), docked to an edge of the tab: right by default, moved by dragging its header
+ * (design-dock.ts). A pane too narrow for both side by side puts it under the page. */
+.eva-browser-body {
+  position: relative;
+}
+.eva-browser-body[data-dock='left'] {
+  flex-direction: row-reverse;
+}
+.eva-browser-body[data-dock='top'] {
+  flex-direction: column-reverse;
+}
+.eva-browser-body[data-dock='bottom'] {
+  flex-direction: column;
+}
+.eva-browser-body[data-dock='left'] > .eva-design {
+  border-left: 0;
+  border-right: 1px solid var(--eva-border);
+}
+.eva-browser-body:is([data-dock='top'], [data-dock='bottom']) > .eva-design {
+  flex: 0 0 45%;
+  width: auto;
+  min-height: 200px;
+  border-left: 0;
+}
+.eva-browser-body[data-dock='top'] > .eva-design {
+  border-bottom: 1px solid var(--eva-border);
+}
+.eva-browser-body[data-dock='bottom'] > .eva-design {
+  border-top: 1px solid var(--eva-border);
+}
 @container eva-browser (max-width: 720px) {
-  .eva-browser-body:has(> .eva-design) {
+  .eva-browser-body:is([data-dock='right'], [data-dock='left']):has(> .eva-design) {
     flex-direction: column;
   }
-  .eva-browser-body > .eva-design {
+  .eva-browser-body:is([data-dock='right'], [data-dock='left']) > .eva-design {
     flex: 0 0 55%;
     width: auto;
     min-height: 240px;
     border-left: 0;
+    border-right: 0;
     border-top: 1px solid var(--eva-border);
   }
   .eva-browser-body > .eva-design .eva-design-crop img {
     max-height: 56px;
   }
+}
+
+/* Dragging the inspector: the page view parks and the four docks show where it can land. */
+.eva-design-head {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.eva-design-head:active {
+  cursor: grabbing;
+}
+.eva-design-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.eva-design-zone {
+  position: absolute;
+  border: 2px dashed var(--eva-border);
+  border-radius: 6px;
+  opacity: 0.6;
+}
+.eva-design-zone[data-over='true'] {
+  border-color: var(--mantine-primary-color-filled);
+  background: color-mix(in srgb, var(--mantine-primary-color-filled) 12%, transparent);
+  opacity: 1;
+}
+.eva-design-zone[data-dock='left'] {
+  inset: 8px auto 8px 8px;
+  width: calc(35% - 8px);
+}
+.eva-design-zone[data-dock='right'] {
+  inset: 8px 8px 8px auto;
+  width: calc(35% - 8px);
+}
+.eva-design-zone[data-dock='top'] {
+  inset: 8px 8px auto 8px;
+  height: calc(35% - 8px);
+}
+.eva-design-zone[data-dock='bottom'] {
+  inset: auto 8px 8px 8px;
+  height: calc(35% - 8px);
 }
 
 /* A pane this narrow has no room for the inspector; the address keeps the toggle's width. */

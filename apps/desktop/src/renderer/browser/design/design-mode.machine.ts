@@ -56,6 +56,8 @@ export type DesignEvent =
   | { type: 'draw.done'; png: string }
   | { type: 'draw.cancel' }
   | { type: 'request.send' }
+  /** The composer sent the selection with a chat message. */
+  | { type: 'request.consumed' }
 
 const cleared = {
   items: [],
@@ -240,6 +242,8 @@ export const designModeMachine = setup({
                 }),
               },
             },
+            // The selection went with a chat message (the composer's chips, design-chips.ts).
+            'request.consumed': { target: '.sent', actions: 'clearRequest' },
             'instruction.change': {
               target: '.editing',
               actions: assign({ instruction: ({ event }) => event.text, error: null }),
@@ -322,7 +326,22 @@ export const designModeMachine = setup({
               },
             },
             // The request went to the chat; the selection stays while the page hot-reloads.
-            sent: {},
+            sent: {
+              on: {
+                // Another element picked after the request went: its chips and panel are live again.
+                'page.selection': {
+                  guard: ({ context, event }) =>
+                    event.items.length > 0 &&
+                    (event.items.length !== context.items.length ||
+                      event.items.some((i, n) => i.selector !== context.items[n]?.selector)),
+                  target: 'editing',
+                  actions: {
+                    type: 'takeSelection',
+                    params: ({ event }) => ({ items: event.items }),
+                  },
+                },
+              },
+            },
           },
         },
         drawing: {

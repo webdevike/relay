@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { ipcMain, session } from 'electron'
-import { DESIGN_STYLE_KEYS } from '@evaos/contract'
-import type { SendNote } from '../agent-presence/notes'
+import { DESIGN_STYLE_KEYS, noteText, type AgentNote, type InvokeParsed } from '@evaos/contract'
+import type { AgentNotes } from '../agent-presence/notes'
 import { DESIGN_GATE_QUERY, PASSKEY_CHANNEL } from '../../preload/guest-channel'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
@@ -16,6 +16,8 @@ import { designNote } from './design-send'
 import { setupExtensions } from './extensions'
 import { GUEST_PARTITION, setupGuestSession } from './guest-session'
 import { installTabAppCookies } from './tab-app-cookies'
+
+type BrowserNote = Extract<AgentNote, { surface: 'browser' }>
 
 export function registerBrowser(ctx: MainContext): BrowserHost {
   setupGuestSession(ctx.env)
@@ -45,7 +47,11 @@ export function registerBrowser(ctx: MainContext): BrowserHost {
  * owning the page through `send` (agent-presence/notes.ts), its screenshots as files beside the
  * page notes' (`<configDir>/notes/<id>.png`).
  */
-export function registerDesignMode(ctx: MainContext, host: BrowserHost, send: SendNote): void {
+export function registerDesignMode(
+  ctx: MainContext,
+  host: BrowserHost,
+  notes: Pick<AgentNotes, 'send' | 'ownerOf'>,
+): void {
   const design = new DesignMode(
     {
       page: (tabId) => designPage(host.pageControl(tabId), DESIGN_STYLE_KEYS),
@@ -67,11 +73,19 @@ export function registerDesignMode(ctx: MainContext, host: BrowserHost, send: Se
     await design.style(tabId, selector, property, value)
     return { ok: true as const }
   })
-  handle(ctx, 'design.send', async ({ tabId, ...req }) => {
+  const pageOf = (tabId: string) => {
     const tab = host.allTabs().find((t) => t.state.id === tabId)
     if (!tab) throw Object.assign(new Error(`No page ${tabId}`), { code: 'not-found' })
+    return tab
+  }
+  /** The request as a page note of intent `change`, its screenshots written beside the notes'. */
+  const noteOf = async (
+    tabId: string,
+    req: Omit<InvokeParsed<'design.send'>, 'tabId'>,
+    saved: string[],
+  ): Promise<BrowserNote> => {
+    const tab = pageOf(tabId)
     const dir = path.join(ctx.env.configDir, 'notes')
-    const saved: string[] = []
     const save = async (png: string): Promise<string> => {
       await fs.promises.mkdir(dir, { recursive: true })
       const file = path.join(dir, `${randomUUID()}.png`)
@@ -79,22 +93,56 @@ export function registerDesignMode(ctx: MainContext, host: BrowserHost, send: Se
       saved.push(file)
       return file
     }
-    const page = { tabId, url: tab.state.url, title: tab.state.title }
+    const note = await designNote(req, { tabId, url: tab.state.url, title: tab.state.title }, save)
+    if (!note) {
+      throw Object.assign(new Error('None of the selected elements is in the page right now'), {
+        code: 'nothing-to-send',
+      })
+    }
+    return note
+  }
+  handle(ctx, 'design.send', async ({ tabId, ...req }) => {
+    const saved: string[] = []
     let sent = false
     try {
-      const note = await designNote(req, page, save)
-      if (!note) {
-        throw Object.assign(new Error('None of the selected elements is in the page right now'), {
-          code: 'nothing-to-send',
-        })
-      }
-      const r = await send(note, tab.scope || null)
+      const r = await notes.send(await noteOf(tabId, req, saved), pageOf(tabId).scope || null)
       sent = r.sent
       return r
     } finally {
       // A request that went nowhere leaves no screenshots behind.
       if (!sent) await Promise.all(saved.map((f) => fs.promises.rm(f, { force: true })))
     }
+  })
+  handle(ctx, 'design.compose', async ({ tabId, ...req }) => {
+    const saved: string[] = []
+    const note = await noteOf(tabId, req, saved)
+    const files = [note.image, ...(note.also ?? []).map((t) => t.image)].filter(
+      (f): f is string => f !== undefined,
+    )
+    // The text names each screenshot's path, so one that can't be read drops out of the images only.
+    const images = (
+      await Promise.all(
+        files.map((f) =>
+          fs.promises
+            .readFile(f)
+            .then((b) => ({ mimeType: 'image/png' as const, data: b.toString('base64') }))
+            .catch(() => null),
+        ),
+      )
+    ).filter((i) => i !== null)
+    return { text: noteText(note), images }
+  })
+  handle(ctx, 'design.owner', ({ tabId }) => {
+    const tab = pageOf(tabId)
+    const probe: AgentNote = {
+      surface: 'browser',
+      text: '.',
+      url: tab.state.url,
+      title: tab.state.title,
+      tabId,
+      region: { x: 0, y: 0, w: 0, h: 0 },
+    }
+    return { owner: notes.ownerOf(probe, tab.scope || null) }
   })
   // A new document in a page tab asks whether Design Mode holds the pointer before it runs scripts.
   ipcMain.handle(DESIGN_GATE_QUERY, (event) => {

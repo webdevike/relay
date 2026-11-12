@@ -267,7 +267,7 @@ function bootstrap(): void {
       // that owns them.
       const notes = registerAgentNotes(ctx, chat)
       registerBrowserAnnotate(ctx, browser, notes.send)
-      registerDesignMode(ctx, browser, notes.send)
+      registerDesignMode(ctx, browser, notes)
       const update = registerUpdate(ctx, {
         chatWorking: () => chat.anyWorking(),
         restart: restartForUpdate,

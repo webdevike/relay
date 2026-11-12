@@ -69,6 +69,8 @@ export function createSendNote(deps: NoteDeps): SendNote {
 
 export interface AgentNotes {
   send: SendNote
+  /** The chat a note would go to now (`send`'s owner), null when no chat owns the surface. */
+  ownerOf(note: AgentNote, workspace: string | null): NoteOwner | null
   /** Tells notes which chat's agent runs on a surface (the drives register once they exist). */
   runsFrom(of: (note: AgentNote) => string | null): void
 }
@@ -83,6 +85,10 @@ export function registerAgentNotes(
   handle(ctx, 'agent.note', ({ note, workspace }) => send(note, workspace))
   return {
     send,
+    ownerOf: (note, workspace) =>
+      noteOwner(note, workspace, runs(note), (id) =>
+        chat.assistants().agents.some((a) => a.id === id),
+      ),
     runsFrom: (of) => {
       runs = of
     },

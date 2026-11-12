@@ -85,6 +85,42 @@ describe('describeElement', () => {
     expect(d.text!.endsWith('…')).toBe(true)
   })
 
+  it('names each of six identical cards alone, and items of nested lists', () => {
+    document.body.innerHTML = `<main><div id="grid">${'<div class="card"><h3>Plant</h3><button>Add</button></div>'.repeat(6)}</div>${'<ul><li><span>x</span></li><li><span>x</span></li></ul>'.repeat(2)}</main>`
+    const picks = [...document.querySelectorAll('.card'), ...document.querySelectorAll('span')]
+    for (const el of picks) {
+      const sel = describeElement(el).selector!
+      expect(document.querySelectorAll(sel)).toHaveLength(1)
+      expect(document.querySelector(sel)).toBe(el)
+    }
+    expect(describeElement(document.querySelectorAll('.card')[4]!).selector).toBe(
+      '#grid > div:nth-of-type(5)',
+    )
+  })
+
+  it('never anchors on an id the page repeats; falls back to the nth-child chain when its path names more', () => {
+    document.body.innerHTML =
+      '<section id="dup"><p>a</p></section><section id="dup"><p>a</p></section><span data-testid="t">t</span><svg><clipPath><rect></rect></clipPath><clipPath><rect></rect></clipPath></svg>'
+    const second = document.querySelectorAll('p')[1]!
+    const sel = describeElement(second).selector!
+    expect(sel).toBe('body > section:nth-of-type(2) > p')
+    expect(document.querySelector(sel)).toBe(second)
+    expect(describeElement($('span')).selector).toBe('[data-testid="t"]')
+    // An SVG element's camelCase name is kept as written, so its path finds it.
+    const rect = document.querySelectorAll('rect')[1]!
+    const rectSel = describeElement(rect).selector!
+    expect(document.querySelectorAll(rectSel)).toHaveLength(1)
+    expect(document.querySelector(rectSel)).toBe(rect)
+    // In a shadow root `p > span` names the top one and the one deeper in: positions tell them apart.
+    const root = $('span').attachShadow({ mode: 'open' })
+    root.innerHTML = '<p><span></span></p><div><i></i><p><span></span></p></div>'
+    const top = root.querySelector('span')!
+    const topSel = describeElement(top).selector!
+    expect(topSel).toBe('p:nth-child(1) > span:nth-child(1)')
+    expect(root.querySelectorAll(topSel)).toHaveLength(1)
+    expect(root.querySelector(topSel)).toBe(top)
+  })
+
   it('runs as page code: its source stands alone', () => {
     const fn = new Function(`return (${String(describeElement)})`)() as typeof describeElement
     expect(fn($('#docs')).selector).toBe('#docs')

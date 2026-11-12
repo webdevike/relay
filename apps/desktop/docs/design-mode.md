@@ -22,15 +22,34 @@ Inspired by TasteCode's browser annotations (Apache-2.0, see `THIRD_PARTY_NOTICE
    the page; the undo arrow puts it back; a value CSS does not take is refused with the reason).
    "Draw on it" opens the screenshot to mark it with a pen. A region shows its screenshot and
    "Draw on it" only.
-6. Describe the change ("8px tighter") and press Send (Cmd+Enter in the field). It goes to the chat
-   that owns the page (the chat of its workspace, or the chat whose agent drives it) as your own
-   message, a page note of intent `change` (`docs/agent-presence.md`): every element's selector,
-   DOM, source, component, computed styles, your style edits and its screenshot (a drawn one in
-   place of the plain crop), saved under `<configDir>/notes/` and attached as images. A page of a
-   new chat not started yet has no owner: Send says so.
-7. The page reloads or hot-updates: the selection is found again by selector and the inspector
-   refreshes.
-8. Esc (in the page or in Relay) or the toggle ends the mode. Leaving the site or closing the tab
+6. Say what should change, either way:
+   - In the panel: describe it ("8px tighter") in the comment field and press Submit (Cmd+Enter
+     in the field). It goes to the chat that owns the page (the chat of its workspace, or the chat
+     whose agent drives it) as your own message, a page note of intent `change`
+     (`docs/agent-presence.md`): every element's selector, DOM, source, component, computed
+     styles, your style edits and its screenshot (a drawn one in place of the plain crop), saved
+     under `<configDir>/notes/` and attached as images. A page of a new chat not started yet has
+     no owner: Submit says so.
+   - In the chat: while elements are selected, the owning chat's composer shows a chip per
+     element or region (name and a screenshot thumbnail, the one you drew on when you did) and one
+     chip for style edits ("3 style edits"). Type the request in the chat as usual; sending the
+     message sends the same note text and screenshots with it (`design.compose`), and the chips
+     are spent. Removing a chip drops that selection (the edits chip puts the page's values
+     back).
+
+   Either way it is one message in the one owning chat, shown as a slim inline line like a system
+   line, not a card: the pointer icon, "You commented on `div.card:nth-of-type(5)` · the tab's
+   title", what you said, a tiny screenshot and Show, which opens the whole note (page address,
+   DOM, source, styles). There is never a separate thread. Page notes and canvas comments render
+   the same way (`packages/chat-core/src/background.ts`, `BackgroundRow.tsx`).
+
+7. The page reloads or hot-updates: the selection is found again (see Selectors) and the
+   inspector refreshes.
+8. Drag the panel by its header to dock it to another edge of the page tab (left, right, top,
+   bottom): the page view parks while you drag and the four docks show; it lands on the one the
+   pointer leans to. The dock is remembered per tab while Relay runs. A native page paints over
+   anything the shell draws, so the panel docks beside the page rather than floating over it.
+9. Esc (in the page or in Relay) or the toggle ends the mode. Leaving the site or closing the tab
    ends it too.
 
 ## Source locations
@@ -77,9 +96,27 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
   picker hidden.
 - Renderer: the mode is an XState machine (`src/renderer/browser/design/design-mode.machine.ts`,
   diagram in `docs/state-machines/design-mode.md`), one actor per page tab
-  (`design-runtime.ts`); `DesignToggle`, `DesignInspector`, `DesignAnnotate`. Send calls
+  (`design-runtime.ts`); `DesignToggle`, `DesignInspector`, `DesignAnnotate`. Submit calls
   `design.send`: main (`design-send.ts`) writes the screenshots and builds the note, and the
-  notes' sender (`agent-presence/notes.ts`) posts it.
+  notes' sender (`agent-presence/notes.ts`) posts it. The composer chips (`design-chips.ts`,
+  `composer/DesignChips.tsx`) ask `design.owner` which chat owns the page, show the selection in
+  that chat's composer and, when its message is sent, call `design.compose` for the note text and
+  screenshots to send with it. The inspector's dock (`design-dock.ts`) is a per-tab edge.
+
+## Selectors
+
+Each pick is saved two ways. The first is a CSS path checked to name that element alone when it is
+made: a unique id, test id, aria-label or name when there is one, otherwise tag, classes and
+`:nth-of-type`, falling back to an `:nth-child` chain from body (the change note carries this path;
+`querySelectorAll(path).length` is 1). The second is a fingerprint (tag, text, its parent's text, a
+few stable attributes, position among its siblings, size), which main keeps across reloads. After a
+reload, hot update or re-render, the overlay weighs the element the path names alongside its
+look-alikes (same tag and class, or the path without positions) against the fingerprint. Matching
+text counts first, and a slightly edited text still counts as close. The single best match wins and
+is given a fresh unique path. When several match equally well, or none matches, the element shows as
+missing; it is never the first of several. (A page that shows one card while filtered gives that
+card a path with no position; the fingerprint is what keeps it on the same card after the page
+shows all six again.)
 
 ## Limits
 

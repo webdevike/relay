@@ -14,9 +14,11 @@ import {
   DESIGN_COLOR,
   MAX_SELECTION,
   type DesignPage,
+  type Fingerprint,
   type InspectedElement,
   type OverlayAnswer,
   type OverlayCommand,
+  type OverlayItem,
 } from './design-page'
 
 /** The page's webContents events Design Mode follows, and the channel to its guest preload. */
@@ -63,6 +65,11 @@ interface Session {
   tabId: string
   origin: string
   selectors: string[]
+  /**
+   * How each selected element looked (design-page.ts FINGERPRINT), by selector: a reload drops
+   * the overlay, so the next document finds the selection by these (RESTORE).
+   */
+  prints: Map<string, Fingerprint>
   /** Dragged regions in the selection, after its elements: read once, when dragged. */
   regions: DesignItem[]
   regionSeq: number
@@ -174,10 +181,9 @@ export class DesignMode {
     const existing = this.sessions.get(tabId)
     if (existing) {
       await this.run(existing, async () => {
-        const a = await this.overlay(existing, { op: 'select', selectors: [] })
-        existing.selectors = a.selectors
+        const a = await this.overlay(existing, { op: 'select', items: [] })
+        this.remember(existing, a)
         existing.regions = []
-        existing.sig = a.sig
       })
       return
     }
@@ -187,6 +193,7 @@ export class DesignMode {
       tabId,
       origin: originOf(wc.getURL()),
       selectors: [],
+      prints: new Map(),
       regions: [],
       regionSeq: 0,
       sig: '',
@@ -234,10 +241,10 @@ export class DesignMode {
       const keep = selectors.slice(0, MAX_SELECTION)
       s.regions = s.regions.filter((r) => keep.includes(r.selector))
       const regions = new Set(s.regions.map((r) => r.selector))
-      const a = await this.overlay(s, {
-        op: 'select',
-        selectors: keep.filter((k) => !regions.has(k)),
-      })
+      const items: OverlayItem[] = keep
+        .filter((k) => !regions.has(k))
+        .map((selector) => ({ selector, print: s.prints.get(selector) ?? null }))
+      const a = await this.overlay(s, { op: 'select', items })
       await this.publish(s, a, 'pick')
     })
   }
@@ -341,7 +348,7 @@ export class DesignMode {
       await this.publish(s, a, 'pick')
       return
     }
-    const a = await this.overlay(s, r.shift ? { op: 'status' } : { op: 'select', selectors: [] })
+    const a = await this.overlay(s, r.shift ? { op: 'status' } : { op: 'select', items: [] })
     if (a.selectors.length + s.regions.length < MAX_SELECTION) {
       const box = { x: r.box.x, y: r.box.y, width: r.box.w, height: r.box.h }
       const rect = cropRect(box, r.viewport, 0)
@@ -381,17 +388,35 @@ export class DesignMode {
   private async revive(s: Session): Promise<void> {
     await this.overlay(s, { op: 'init', color: DESIGN_COLOR })
     if (s.selectors.length === 0) return
-    const a = await this.overlay(s, { op: 'select', selectors: s.selectors })
+    const items: OverlayItem[] = s.selectors.map((selector) => ({
+      selector,
+      print: s.prints.get(selector) ?? null,
+    }))
+    const a = await this.overlay(s, { op: 'select', items })
     await this.publish(s, a, 'refresh')
+  }
+
+  /** The selection as the overlay answered it: its paths, their prints and how it looks. */
+  private remember(s: Session, a: OverlayAnswer): void {
+    s.selectors = a.selectors
+    s.prints = new Map()
+    a.selectors.forEach((selector, i) => {
+      const print = a.prints[i]
+      if (print) s.prints.set(selector, print)
+    })
+    s.sig = a.sig
   }
 
   /**
    * Reads the elements `a` names, crops each and sends them, then the regions, to the renderer.
+   * An answer from a document without the overlay (a reload under it) changes nothing: the
+   * selection and its prints wait for the new document's `select`.
    */
   private async publish(s: Session, a: OverlayAnswer, reason: 'pick' | 'refresh'): Promise<void> {
-    s.selectors = a.selectors
-    s.sig = a.sig
-    const read = await this.page(s).inspect(a.selectors)
+    if (!a.ready) return
+    this.remember(s, a)
+    // Only what the overlay found: a path whose element it did not recognize reads as missing.
+    const read = await this.page(s).inspect(a.selectors.map((sel, i) => (a.found[i] ? sel : null)))
     const rects = read.items.map((el) => (el ? cropRect(el.box, read, CROP_PAD) : null))
     const crops = rects.some((r) => r !== null) ? await this.captures(s, rects) : []
     if (s.stopped) return

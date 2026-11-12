@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PickBox, PickResult } from './annotate-picker'
 import { DesignMode, type DesignContents } from './design-mode'
-import type { DesignPage, InspectedElement, OverlayAnswer, OverlayCommand } from './design-page'
+import type {
+  DesignPage,
+  Fingerprint,
+  InspectedElement,
+  OverlayAnswer,
+  OverlayCommand,
+  OverlayItem,
+} from './design-page'
 
 const el = (over: Partial<InspectedElement> = {}): InspectedElement => ({
   label: 'button.primary',
@@ -14,17 +21,43 @@ const el = (over: Partial<InspectedElement> = {}): InspectedElement => ({
   ...over,
 })
 
+/** The fingerprint the fake overlay takes of the element `selector` names. */
+const printOf = (selector: string): Fingerprint => ({
+  tag: 'button',
+  classes: 'primary',
+  text: `text of ${selector}`,
+  context: '',
+  attrs: '',
+  index: 1,
+  siblings: 1,
+  w: 80,
+  h: 30,
+})
+
 /** A page whose overlay keeps a selection the way DESIGN_OVERLAY does. */
 function fakePage() {
   const calls: string[] = []
-  let selectors: string[] = []
+  let selection: OverlayItem[] = []
   let sig = 'a'
   let ready = true
   /** While set, the next init waits for it (and fails when it rejects). */
   let initGate: Promise<void> | null = null
   let previewAnswer: 'ok' | 'missing' | 'rejected' = 'ok'
   const elements = new Map<string, InspectedElement | null>()
-  const answer = (): OverlayAnswer => ({ ready, selectors, sig })
+  /** What each `select` was given, in order. */
+  const selects: OverlayItem[][] = []
+  /** What each inspect was asked to read, in order (null: not found by the overlay). */
+  const reads: Array<Array<string | null>> = []
+  /** Paths the overlay names anew when it finds their element (RESTORE: not `exact`). */
+  const renames = new Map<string, string>()
+  const answer = (): OverlayAnswer => ({
+    ready,
+    selectors: selection.map((p) => p.selector),
+    prints: selection.map((p) => p.print),
+    // An element the page lost (elements: null) is not found.
+    found: selection.map((p) => elements.get(p.selector) !== null),
+    sig,
+  })
   /** The picker's open pick (annotate-picker.ts, mode design), answered by the test. */
   let open: PromiseWithResolvers<PickResult> | null = null
   const page: DesignPage = {
@@ -38,18 +71,29 @@ function fakePage() {
       }
       if (cmd.op === 'pick') {
         const at = `#e${cmd.x}`
-        if (!cmd.add) selectors = [at]
-        else if (selectors.includes(at)) selectors = selectors.filter((s) => s !== at)
-        else selectors = [...selectors, at]
+        const picked = { selector: at, print: printOf(at) }
+        if (!cmd.add) selection = [picked]
+        else if (selection.some((p) => p.selector === at))
+          selection = selection.filter((p) => p.selector !== at)
+        else selection = [...selection, picked]
       }
-      if (cmd.op === 'select') selectors = cmd.selectors
+      if (cmd.op === 'select') {
+        selects.push(cmd.items)
+        selection = cmd.items.map((p) => ({
+          selector: renames.get(p.selector) ?? p.selector,
+          print: p.print ?? printOf(p.selector),
+        }))
+      }
       return answer()
     },
-    inspect: async (list) => ({
-      width: 1000,
-      height: 800,
-      items: list.map((s) => (elements.has(s) ? elements.get(s)! : el())),
-    }),
+    inspect: async (list) => {
+      reads.push(list)
+      return {
+        width: 1000,
+        height: 800,
+        items: list.map((s) => (s === null ? null : elements.has(s) ? elements.get(s)! : el())),
+      }
+    },
     preview: async (selector, property, value) => {
       calls.push(`preview:${selector}:${property}:${value}`)
       return previewAnswer
@@ -83,6 +127,9 @@ function fakePage() {
     page,
     calls,
     elements,
+    selects,
+    reads,
+    renames,
     answerPick,
     isPicking: () => open !== null,
     setSig: (next: string) => (sig = next),
@@ -354,6 +401,44 @@ describe('DesignMode', () => {
     const tail = t.p.calls.slice(t.p.calls.lastIndexOf('init'))
     expect(tail.slice(0, 2)).toEqual(['init', 'select'])
     expect(t.design.isOn('t1')).toBe(true)
+  })
+
+  it('a reload hands the new document how each element looked; a path found anew keeps it', async () => {
+    const t = setup()
+    await t.design.set('t1', true)
+    await t.click(1)
+    await t.click(2, true)
+    await vi.waitFor(() => expect(t.events).toHaveLength(2))
+    // The page reloads: the new document has no overlay yet. A style edit answered meanwhile
+    // keeps the selection and its prints.
+    t.p.dropDocument()
+    await t.design.style('t1', '#e1', 'padding', '8px')
+    expect(t.events).toHaveLength(2)
+    // The new document's overlay finds #e1 elsewhere and names it anew (RESTORE, not exact).
+    t.p.renames.set('#e1', '#grid > div.card:nth-of-type(5)')
+    t.wc.fire('dom-ready')
+    await vi.waitFor(() => expect(t.events).toHaveLength(3))
+    expect(t.p.selects.at(-1)).toEqual([
+      { selector: '#e1', print: printOf('#e1') },
+      { selector: '#e2', print: printOf('#e2') },
+    ])
+    expect(t.selection(2)).toEqual(['#grid > div.card:nth-of-type(5)', '#e2'])
+    // The inspector removes #e2: the new path still carries #e1's print.
+    t.p.renames.clear()
+    await t.design.select('t1', ['#grid > div.card:nth-of-type(5)'])
+    expect(t.p.selects.at(-1)).toEqual([
+      { selector: '#grid > div.card:nth-of-type(5)', print: printOf('#e1') },
+    ])
+  })
+
+  it('an element the overlay did not recognize is sent as missing, never read by its path', async () => {
+    const t = setup()
+    await t.design.set('t1', true)
+    t.p.elements.set('#grid > div.card', null)
+    await t.design.select('t1', ['#grid > div.card'])
+    expect(t.p.reads.at(-1)).toEqual([null])
+    const items = t.events[0]!.payload['items'] as Array<Record<string, unknown>>
+    expect(items[0]).toMatchObject({ selector: '#grid > div.card', missing: true, crop: null })
   })
 
   it('going to another site or closing the tab ends the mode', async () => {

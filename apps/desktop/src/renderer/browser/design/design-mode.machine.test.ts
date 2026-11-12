@@ -144,6 +144,22 @@ describe('designModeMachine', () => {
     expect(t.actor.getSnapshot().context.items[0]!.styles.padding).toBe('8px')
   })
 
+  it('the composer sending the selection with a chat message clears the request and keeps the selection', async () => {
+    const t = await selected([item('#a')])
+    t.actor.send({ type: 'style.edit', selector: '#a', property: 'padding', value: '20px' })
+    expect(t.actor.getSnapshot().context.edits).toHaveLength(1)
+    t.actor.send({ type: 'request.consumed' })
+    const s = t.actor.getSnapshot()
+    expect(s.matches({ on: { selected: 'sent' } })).toBe(true)
+    expect(s.context.edits).toEqual([])
+    expect(s.context.items.map((i) => i.selector)).toEqual(['#a'])
+    // A hot update of the same element stays handed off; picking another one is live again.
+    t.actor.send({ type: 'page.selection', items: [item('#a')] })
+    expect(t.actor.getSnapshot().matches({ on: { selected: 'sent' } })).toBe(true)
+    t.actor.send({ type: 'page.selection', items: [item('#a'), item('#b')] })
+    expect(t.actor.getSnapshot().matches({ on: { selected: 'editing' } })).toBe(true)
+  })
+
   it('a failed send goes back to editing with the error and the request intact', async () => {
     const t = start({ send: () => Promise.reject(new Error('No chat in this workspace')) })
     t.actor.send({ type: 'design.toggle' })

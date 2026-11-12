@@ -22,6 +22,9 @@ import { draftText, saveDraft, useDraftsLoaded } from './drafts'
 import { composerFillStore, takeComposerFill, takeComposerImages } from './composer-fill'
 import { WriterPrompt } from './WriterPrompt'
 import { ImageChips } from './composer/ImageChips'
+import { DesignChips } from './composer/DesignChips'
+import { composeChips, useDesignChips } from '../browser/design/design-chips'
+import { designActorOf } from '../browser/design/design-runtime'
 import { Toolbar } from './composer/Toolbar'
 import { useLaunchState } from './composer/useLaunchState'
 import { SlashMenu, type MenuRow } from './composer/SlashMenu'
@@ -304,6 +307,14 @@ export function Composer({
 
   // Images another surface queued for the chat this pane shows (Studio's Send to chat).
   const paneFile = useChatStore((s) => s.panes[paneId]?.file ?? null)
+  // Design Mode's selection in a page tab of this chat, as chips above the text.
+  const design = useDesignChips(
+    paneFile !== null && paneFile !== ''
+      ? `file:${paneFile}`
+      : agent !== null
+        ? `assistant:${agent}`
+        : null,
+  )
   useEffect(() => {
     if (paneFile === null) return
     const take = (): void => {
@@ -428,15 +439,28 @@ export function Composer({
     })
   }
 
-  const canSend = !disabled && (text.trim() !== '' || images.length > 0)
+  const canSend = !disabled && (text.trim() !== '' || images.length > 0 || design !== null)
 
   /** Sends the draft, or with `reply` a widget's text, leaving the draft as it is. */
   const send = async (force = false, reply?: string): Promise<void> => {
     const draft = reply === undefined
     const typed = draft ? text.trim() : ''
     const sentChip = draft ? computer : null
-    const value = draft ? withChip(sentChip, typed) : reply.trim()
-    if (draft && sentChip !== null && typed === '') return
+    if (draft && sentChip !== null && typed === '' && !design) return
+    // Design Mode's selection: his words go in the note's text, its screenshots ride along.
+    let message = draft ? withChip(sentChip, typed) : reply.trim()
+    let shots: Array<{ mimeType: 'image/png'; data: string }> = []
+    if (draft && design && !disabled) {
+      try {
+        const composed = await composeChips(designActorOf(design.tabId), design.tabId, typed)
+        message = withChip(sentChip, composed.text)
+        shots = composed.images
+      } catch (e) {
+        chatStore.getState().setError(paneId, e instanceof Error ? e.message : String(e))
+        return
+      }
+    }
+    const value = message
     const sending = draft ? images : []
     if ((value === '' && sending.length === 0) || disabled) return
     const sentKey = box.key
@@ -450,8 +474,13 @@ export function Composer({
       paneId,
       text: value,
       ...(force ? { force: true } : {}),
-      ...(sending.length > 0
-        ? { images: sending.map((i) => ({ mimeType: i.mimeType, data: i.data })) }
+      ...(sending.length + shots.length > 0
+        ? {
+            images: [
+              ...shots,
+              ...sending.map((i) => ({ mimeType: i.mimeType, data: i.data })),
+            ].slice(0, MAX_PROMPT_IMAGES),
+          }
         : {}),
     }
     const r = await invoke('chat.send', payload as Parameters<typeof invoke<'chat.send'>>[1])
@@ -459,6 +488,8 @@ export function Composer({
       // A prompt that went through supersedes any earlier failure or unexpected exit.
       chatStore.getState().setError(paneId, null)
       for (const img of sending) URL.revokeObjectURL(img.previewUrl)
+      // The selection went with the message: the page tab's chips are spent.
+      if (draft && design) designActorOf(design.tabId).send({ type: 'request.consumed' })
     } else {
       if (draft) {
         // Give the prompt back unless something new was typed meanwhile. Another chat showing
@@ -546,6 +577,7 @@ export function Composer({
             testid="at-menu"
           />
         ) : null}
+        {design ? <DesignChips tabId={design.tabId} chips={design.chips} /> : null}
         <ImageChips chips={images} onRemove={remove} />
         <div className="eva-composer-line">
           {computer ? (

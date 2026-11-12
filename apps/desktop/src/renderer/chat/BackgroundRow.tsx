@@ -1,5 +1,5 @@
 import './background-row.css'
-import { useId, useState } from 'react'
+import { useId, useState, type ReactNode } from 'react'
 import {
   IconActivityHeartbeat,
   IconBriefcase,
@@ -11,6 +11,7 @@ import {
   IconMessageCircle,
   IconMoodSmile,
   IconPoint,
+  IconPointer,
   IconRobot,
   type Icon,
 } from '@tabler/icons-react'
@@ -30,6 +31,7 @@ const ICONS: Record<BackgroundIcon, Icon> = {
   hand: IconHandClick,
   chat: IconMessageCircle,
   reaction: IconMoodSmile,
+  pointer: IconPointer,
 }
 
 const SOURCE_ICONS: Record<string, Icon> = {
@@ -50,6 +52,57 @@ function Chevron({ open }: { open: boolean }) {
       data-open={open}
       aria-hidden
     />
+  )
+}
+
+/**
+ * A comment Isaac left on a page or board, as a slim inline line like a system line (no card):
+ * icon, "You commented on <element> · <where>", what he said, a tiny thumbnail and Show, which
+ * opens the whole note (the page address and what was read of the element) in place.
+ */
+function CommentRow({
+  m,
+  comment,
+  thumbs,
+}: {
+  m: Extract<BackgroundMessage, { kind: 'event' }>
+  comment: { place: string; note: string }
+  thumbs: ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const bodyId = useId()
+  const Glyph = ICONS[m.icon]
+  return (
+    <div className="eva-bg-comment" data-testid="background-event" data-open={open}>
+      <div className="eva-bg-comment-line">
+        <Glyph size={14} stroke={1.75} className="eva-bg-icon" aria-hidden />
+        <span className="eva-bg-comment-what">
+          You commented on{' '}
+          <b data-testid="background-chip" title={m.chip ?? comment.place}>
+            {m.chip ?? comment.place}
+          </b>
+          {m.chip ? ` · ${comment.place}` : ''}
+        </span>
+        <span className="eva-bg-comment-note" data-testid="background-note">
+          {comment.note}
+        </span>
+        {thumbs}
+        <button
+          type="button"
+          className="eva-bg-show"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {open ? (
+        <div id={bodyId} className="eva-bg-body" data-testid="background-body">
+          <Markdown text={m.text} />
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -75,6 +128,11 @@ function EventRow({
       >
         <Glyph size={14} stroke={1.75} className="eva-bg-icon" aria-hidden />
         <span className="eva-bg-summary">{m.summary}</span>
+        {m.chip ? (
+          <span className="eva-bg-chip" data-testid="background-chip" title={m.chip}>
+            {m.chip}
+          </span>
+        ) : null}
         {at === undefined ? null : <span className="eva-bg-time">{ago(at, Date.now())}</span>}
         <Chevron open={open} />
       </button>
@@ -162,7 +220,20 @@ function HeartbeatRow({
   )
 }
 
-/** A background message in the thread: a one-line row (A) or a heartbeat's chip row (C). */
-export function BackgroundRow({ m, at }: { m: BackgroundMessage; at: number | undefined }) {
-  return m.kind === 'heartbeat' ? <HeartbeatRow m={m} at={at} /> : <EventRow m={m} at={at} />
+/**
+ * A background message in the thread: a one-line row (A), a heartbeat's chip row (C), or Isaac's
+ * comment on a page or board as a slim inline line (`thumbs`: its screenshots, small).
+ */
+export function BackgroundRow({
+  m,
+  at,
+  thumbs,
+}: {
+  m: BackgroundMessage
+  at: number | undefined
+  thumbs?: ReactNode
+}) {
+  if (m.kind === 'heartbeat') return <HeartbeatRow m={m} at={at} />
+  if (m.comment) return <CommentRow m={m} comment={m.comment} thumbs={thumbs} />
+  return <EventRow m={m} at={at} />
 }
