@@ -137,6 +137,18 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   // A desktop-sized window: the chat, and the page with the inspector beside it.
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1800, 1000))
   await expect.poll(() => shell.evaluate(() => window.innerWidth)).toBeGreaterThan(1700)
+  // A saved chat's workspace: a Send goes to the chat that owns the page, as Isaac's message.
+  await shell.getByTestId('nav-chat').click()
+  await shell
+    .getByTestId('chat-tree')
+    .getByRole('link', { name: /^Fixture chat(?:,|$)/ })
+    .click()
+  await expect(shell.locator('[data-testid=chat-log]')).toContainText(
+    'Please sketch a tiny greeter.',
+  )
+  type Shell = { __evaosShell: { setPanel(open: boolean): void } }
+  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.setPanel(true))
+  await expect(shell.locator('[data-pane-kind=tool]')).toBeVisible()
   // A1: no Design Mode on a blank page.
   const id = await newPage(shell)
   const panel = webPanel(shell, id)
@@ -264,7 +276,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   const drawn = await crop.getAttribute('src')
   expect(drawn).not.toBe(plainCrop)
 
-  // A5: the instruction and Send reach the workspace chat's omp as one prompt with images.
+  // A5: the instruction and Send reach the chat owning the page as one message with images.
   const send = inspector(shell, id).locator('[data-testid=design-send]')
   await inspector(shell, id)
     .locator('[data-testid=design-instruction]')
@@ -277,24 +289,31 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
     .poll(() => readLog().find((e) => e.event === 'prompt-images')?.detail ?? null)
     .toEqual({ count: 2, mimeTypes: ['image/png', 'image/png'] })
   const prompt = String(
-    readLog().find((e) => e.event === 'prompt' && String(e.detail?.['message']).includes('[Design'))
-      ?.detail?.['message'] ?? '',
+    readLog().find(
+      (e) => e.event === 'prompt' && String(e.detail?.['message']).includes('[Change request'),
+    )?.detail?.['message'] ?? '',
   )
-  expect(prompt).toContain('Change: "make this button quieter"')
-  expect(prompt).toContain('Selector: "#save"')
+  // After the surface tag Relay puts on what it sends: the header, then Isaac's words.
+  const lines = prompt.split('\n')
+  const head = lines.findIndex((l) => l.startsWith('[Change request'))
+  expect(lines[head]).toContain(`[Change request on web page ${id} "Design fixture": <button>`)
+  expect(lines[head]).toContain('selector #save')
+  expect(lines[head + 1]).toBe('make this button quieter')
   expect(prompt).toContain('Source: "src/components/SaveButton.tsx:12:5"')
   expect(prompt).toContain('Component: "SaveButton"')
   expect(prompt).toContain('DOM: "<button class=\\"primary\\" id=\\"save\\"')
-  expect(prompt).toContain('padding "10px 18px" -> "6px 12px"')
-  expect(prompt).toContain('the user drew on it')
+  expect(prompt).toContain('"padding" "10px 18px" -> "6px 12px"')
+  expect(prompt).toContain('Isaac drew on it')
+  expect(prompt).toContain('Also 2: <h2>')
   expect(prompt).toContain('Source: "src/components/Card.tsx:7"')
+  // The screenshots are files beside the page notes', named in the text.
+  const shots = [...prompt.matchAll(/Screenshot of the marked area: (\S+\.png)/g)].map((m) => m[1]!)
+  expect(shots).toHaveLength(2)
+  for (const f of shots) expect(fs.readFileSync(f).subarray(1, 4).toString()).toBe('PNG')
   // Sent: an empty request can't go again.
   await expect(send).toBeDisabled()
-  // The chat shows the request compactly: the change and the elements; the prompt under Details.
-  const bubble = shell.locator('[data-testid=chat-log] [data-testid=design-request]')
-  await expect(bubble).toContainText('make this button quieter')
-  await expect(bubble).toContainText('src/components/SaveButton.tsx:12:5')
-  await expect(bubble).not.toContainText('Styles now')
+  // The chat shows it as Isaac's own message, the same as a note.
+  await expect(shell.locator('[data-testid=chat-log]')).toContainText('make this button quieter')
 
   // A8: a hot update replaces the card's nodes; the selection follows.
   await guestEval(app, id, "window.hotSwap('28px')")

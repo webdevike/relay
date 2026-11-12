@@ -19,9 +19,12 @@ Inspired by TasteCode's browser annotations (Apache-2.0, see `THIRD_PARTY_NOTICE
    screenshot and computed styles. Edit a style value (Enter or leaving the field previews it in
    the page; the undo arrow puts it back; a value CSS does not take is refused with the reason).
    "Draw on it" opens the screenshot to mark it with a pen.
-6. Describe the change ("8px tighter") and press Send (Cmd+Enter in the field). One prompt goes to
-   the chat in front of this workspace with every element's selector, DOM, source, styles, your
-   style edits and the screenshots (drawn ones replace the plain crop) as images.
+6. Describe the change ("8px tighter") and press Send (Cmd+Enter in the field). It goes to the chat
+   that owns the page (the chat of its workspace, or the chat whose agent drives it) as your own
+   message, a page note of intent `change` (`docs/agent-presence.md`): every element's selector,
+   DOM, source, component, computed styles, your style edits and its screenshot (a drawn one in
+   place of the plain crop), saved under `<configDir>/notes/` and attached as images. A page of a
+   new chat not started yet has no owner: Send says so.
 7. The page reloads or hot-updates: the selection is found again by selector and the inspector
    refreshes.
 8. Esc (in the page or in Relay) or the toggle ends the mode. Leaving the site or closing the tab
@@ -42,8 +45,9 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 
 ## How it works
 
-- Contract: `packages/contract/src/design.ts` (`design.set`, `design.select`, `design.style`;
-  events `design.selection`, `design.exit`).
+- Contract: `packages/contract/src/design.ts` (`design.set`, `design.select`, `design.style`,
+  `design.send`; events `design.selection`, `design.exit`); the note's fields and text in
+  `agent-presence.ts` (`BrowserNoteTarget`, `noteText`).
 - Main, `src/main/browser/design-mode.ts`: one session per page tab. Input from Isaac's mouse is
   taken from the page through `BrowserHost.interceptInput` (`before-mouse-event`, which carries
   no modifiers: Shift comes from the last key event in the page or the shell). Every change of the
@@ -56,8 +60,9 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
   React's fibers run in the page's world, read-only. Crops are taken with the highlight hidden.
 - Renderer: the mode is an XState machine (`src/renderer/browser/design/design-mode.machine.ts`,
   diagram in `docs/state-machines/design-mode.md`), one actor per page tab
-  (`design-runtime.ts`); `DesignToggle`, `DesignInspector`, `DesignAnnotate`. The prompt is built by
-  `design-request.ts` and goes out through `chat.send`.
+  (`design-runtime.ts`); `DesignToggle`, `DesignInspector`, `DesignAnnotate`. Send calls
+  `design.send`: main (`design-send.ts`) writes the screenshots and builds the note, and the
+  notes' sender (`agent-presence/notes.ts`) posts it.
 
 ## Limits
 
@@ -71,7 +76,7 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 
 ## Verify
 
-- Unit: `pnpm vitest run src/main/browser/design-mode.test.ts src/renderer/browser/design`
+- Unit: `pnpm vitest run src/main/browser/design-mode.test.ts src/main/browser/design-send.test.ts src/renderer/browser/design`
 - Machine doc: `pnpm machines:docs` (CI fails when the diagram is stale)
 - End to end (hidden window): `pnpm e2e:run e2e/design-mode.spec.ts`; `EVAOS_PROOF=1` writes the
   screenshots to `proof/phase-design-mode/`.

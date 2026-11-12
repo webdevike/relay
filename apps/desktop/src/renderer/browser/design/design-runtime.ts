@@ -1,17 +1,14 @@
 import { notifications } from '@mantine/notifications'
 import { createActor, fromPromise, type ActorRefFrom } from 'xstate'
 import { invoke, on } from '../../ipc'
-import { frontChatPaneOf } from '../../chat/front-chat'
-import { browserStore } from '../browser-store'
 import { designModeMachine, type DesignDraft } from './design-mode.machine'
-import { buildDesignPrompt } from './design-request'
 
 export type DesignActor = ActorRefFrom<typeof designModeMachine>
 
 /**
  * One design-mode actor per page tab, for the app's lifetime: the mode survives its panel
  * remounting (a pane split, a tab dragged), and main's events reach it whether or not the page
- * is on screen. The machine's effects are IPC to main (design.*) and the chat's `chat.send`.
+ * is on screen. The machine's effects are IPC to main (design.*).
  */
 const actors = new Map<string, DesignActor>()
 let listening = false
@@ -25,18 +22,18 @@ const machine = designModeMachine.provide({
       if (input.on) notifications.show({ color: 'red', message: r.error.message, autoClose: 6000 })
       throw new Error(r.error.message)
     }),
+    // Main sends it to the chat owning the page, as a page note (agent-presence/notes.ts).
     sendRequest: fromPromise<void, DesignDraft & { tabId: string }>(async ({ input }) => {
-      // The chat of the workspace on screen: the page's own, since its tab is the one in front.
-      const paneId = frontChatPaneOf()
-      if (!paneId) throw new Error('Open a chat in this workspace to send the change')
-      const tab = browserStore.getState().byId[input.tabId]
-      const prompt = buildDesignPrompt(input, { url: tab?.url ?? '', title: tab?.title ?? '' })
-      const r = await invoke('chat.send', {
-        paneId,
-        text: prompt.text,
-        ...(prompt.images.length > 0 ? { images: prompt.images } : {}),
+      const r = await invoke('design.send', {
+        tabId: input.tabId,
+        instruction: input.instruction,
+        items: input.items,
+        edits: input.edits,
+        drawings: input.drawings,
       })
       if (!r.ok) throw new Error(r.error.message)
+      // A page of a new chat not started yet: no chat owns it until its first message.
+      if (!r.value.sent) throw new Error('No chat owns this page yet: start the chat, then send')
     }),
   },
   actions: {

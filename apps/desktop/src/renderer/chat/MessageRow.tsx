@@ -29,8 +29,6 @@ import { resolveAsk } from './asks/asks-store'
 import { useAssistants } from '../assistants/assistants-store'
 import { MentionText } from '../rooms/MentionText'
 import type { OpenAsk } from '@evaos/contract'
-import { parseDesignPrompt } from '../browser/design/design-request'
-import { DesignRequestText } from '../browser/design/DesignRequestText'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
 function Images({ images }: { images: ChatMessage['images'] }) {
@@ -203,7 +201,6 @@ function MessageRowImpl({
     // A direct image link he typed shows as a picture, not a link.
     const linked = userImageUrls(stripAnswerContext(m.text))
     const text = linked.rest.trim() !== ''
-    const design = parseDesignPrompt(linked.rest)
     const pictures = linked.urls.map((src) => <MarkdownMedia key={src} src={src} alt="" />)
     // Tapbacks go on the text bubble, or on the images of an image-only prompt.
     body = (
@@ -213,11 +210,7 @@ function MessageRowImpl({
         <BubbleActions m={m} corner="start">
           {text ? (
             <div className="eva-bubble">
-              {design ? (
-                <DesignRequestText summary={design} raw={linked.rest} />
-              ) : (
-                <AssistantMentions text={linked.rest} />
-              )}
+              <AssistantMentions text={linked.rest} />
             </div>
           ) : (
             <>

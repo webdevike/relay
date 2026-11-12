@@ -6,7 +6,7 @@ import { createConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { loadEnv } from './env'
 import { registerAboutIpc, registerAppIpc } from './app-ipc'
-import { registerBrowser } from './browser'
+import { registerBrowser, registerDesignMode } from './browser'
 import { registerChat } from './chat'
 import { registerEvaIpc } from './eva-ipc'
 import { registerCanvasIpc } from './canvas/canvas-ipc'
@@ -263,9 +263,11 @@ function bootstrap(): void {
       files = registerFilesIpc(ctx, chat, presence.noteSave)
       registerTerminalIpc(ctx, chat)
       const browser = registerBrowser(ctx)
-      // Isaac's notes on boards and web pages go into the chat that owns them.
+      // Isaac's notes on boards and web pages, and his Design Mode changes, go into the chat
+      // that owns them.
       const notes = registerAgentNotes(ctx, chat)
       registerBrowserAnnotate(ctx, browser, notes.send)
+      registerDesignMode(ctx, browser, notes.send)
       const update = registerUpdate(ctx, {
         chatWorking: () => chat.anyWorking(),
         restart: restartForUpdate,

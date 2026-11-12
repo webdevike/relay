@@ -2,9 +2,14 @@ import { useState } from 'react'
 import { ActionIcon, Button, Loader, Textarea, Tooltip, UnstyledButton } from '@mantine/core'
 import { IconArrowBackUp, IconBrush, IconSend, IconX } from '@tabler/icons-react'
 import { useSelector } from '@xstate/react'
-import { DESIGN_STYLE_KEYS, type DesignItem, type DesignStyleKey } from '@evaos/contract'
+import {
+  DESIGN_STYLE_KEYS,
+  type DesignItem,
+  type DesignStyleEdit,
+  type DesignStyleKey,
+} from '@evaos/contract'
 import { DISMISS_PRIORITY, useDismissable } from '../../hotkeys/dismiss'
-import { hasRequest, type StyleEdit } from './design-mode.machine'
+import { hasRequest } from './design-mode.machine'
 import { designActorOf, type DesignActor } from './design-runtime'
 import { DesignAnnotate } from './DesignAnnotate'
 import './design.css'
@@ -21,7 +26,7 @@ function StyleRow(props: {
   actor: DesignActor
   item: DesignItem
   property: DesignStyleKey
-  edit: StyleEdit | undefined
+  edit: DesignStyleEdit | undefined
 }) {
   const { actor, item, property, edit } = props
   const value = edit?.to ?? item.styles[property] ?? ''

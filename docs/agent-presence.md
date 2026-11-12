@@ -68,6 +68,10 @@ row (`renderer/browser/NoteComposer.tsx`, `browser.annotateSend`; a field inside
 show the page's own key listeners every key), writes a PNG crop to `<configDir>/notes/` and sends
 it the same way. A mark is bound to its page: a navigation (in-page too) or the page going away
 drops it (`browser.annotateDropped` closes the composer; `annotateSend` fails `page-changed`).
+Design Mode's Send (`apps/desktop/docs/design-mode.md`, `design.send`) is a page note too, of
+intent `change`: the same sender and owner, with what it read of each selected element (source,
+component, DOM, computed styles, Isaac's style edits; more elements under `also`) and one
+screenshot per element.
 The owner is, in order:
 the assistant a comment @mentions, the chat whose agent runs on that surface (its run's
 `workspace`), the chat of the workspace the surface is shown in. `chat:<file>` posts through the

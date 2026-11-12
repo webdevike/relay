@@ -81,6 +81,19 @@ export const DesignItemSchema = z.object({
 })
 export type DesignItem = z.output<typeof DesignItemSchema>
 
+/** A value Isaac changed in the inspector: previewed in the page, sent with the request. */
+export const DesignStyleEditSchema = z.object({
+  selector: DesignSelectorSchema,
+  property: DesignStyleKeySchema,
+  /** The computed value before his first edit of it. */
+  from: z.string().max(400),
+  to: z.string().max(400),
+})
+export type DesignStyleEdit = z.output<typeof DesignStyleEditSchema>
+
+/** Elements one selection holds at most. */
+export const DESIGN_MAX_SELECTION = 8
+
 const okOut = z.object({ ok: z.literal(true) })
 
 export const designInvoke = {
@@ -108,6 +121,26 @@ export const designInvoke = {
       .strict(),
     output: okOut,
   },
+  /**
+   * Sends Isaac's change for the selected elements to the chat that owns the page, as his message
+   * (agent.note's rules: the agent run's chat, else the chat of the page's workspace) with what
+   * was read of each present element and its screenshot, the one he drew on (`drawings`, PNG
+   * base64 by selector) in place of its crop. `sent` false: no chat owns the page.
+   */
+  'design.send': {
+    input: z
+      .object({
+        tabId: TabIdSchema,
+        instruction: z.string().max(4000),
+        items: z.array(DesignItemSchema).max(DESIGN_MAX_SELECTION),
+        edits: z.array(DesignStyleEditSchema).max(DESIGN_MAX_SELECTION * DESIGN_STYLE_KEYS.length),
+        drawings: z
+          .record(DesignSelectorSchema, z.string().max(8_000_000))
+          .refine((d) => Object.keys(d).length <= DESIGN_MAX_SELECTION, 'too many drawings'),
+      })
+      .strict(),
+    output: z.object({ sent: z.boolean(), to: z.string().max(200).nullable() }),
+  },
 } as const
 
 export const designEvents = {
@@ -117,7 +150,7 @@ export const designEvents = {
    */
   'design.selection': z.object({
     tabId: TabIdSchema,
-    items: z.array(DesignItemSchema).max(8),
+    items: z.array(DesignItemSchema).max(DESIGN_MAX_SELECTION),
     reason: z.enum(['pick', 'refresh']),
   }),
   /**

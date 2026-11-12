@@ -1,5 +1,5 @@
 import { assign, fromPromise, setup } from 'xstate'
-import type { DesignItem, DesignStyleKey } from '@evaos/contract'
+import type { DesignItem, DesignStyleEdit, DesignStyleKey } from '@evaos/contract'
 
 /**
  * Design Mode in one page tab (docs/state-machines/design-mode.md): off, turning on, picking
@@ -9,20 +9,11 @@ import type { DesignItem, DesignStyleKey } from '@evaos/contract'
  * arrive here as `page.selection`, `design.exit` (Escape) and `page.left` (another site, closed).
  */
 
-/** A value Isaac changed in the inspector: previewed in the page, sent with the request. */
-export interface StyleEdit {
-  selector: string
-  property: DesignStyleKey
-  /** The computed value before his first edit of it. */
-  from: string
-  to: string
-}
-
-/** What one Send carries; design-request.ts turns it into the chat prompt. */
+/** What one Send carries; main turns it into a page note for the chat (design.send). */
 export interface DesignDraft {
   items: DesignItem[]
   instruction: string
-  edits: StyleEdit[]
+  edits: DesignStyleEdit[]
   /** Crops Isaac drew on, by selector: PNG base64 replacing that item's plain crop. */
   drawings: Record<string, string>
 }
@@ -132,7 +123,12 @@ export const designModeMachine = setup({
         const from = prior?.from ?? item?.styles[p.property] ?? ''
         const rest = context.edits.filter((e) => e !== prior)
         // Typed back to where it started: no edit left to send.
-        const edit: StyleEdit = { selector: p.selector, property: p.property, from, to: p.value }
+        const edit: DesignStyleEdit = {
+          selector: p.selector,
+          property: p.property,
+          from,
+          to: p.value,
+        }
         return { edits: p.value === from ? rest : [...rest, edit], error: null }
       },
     ),
