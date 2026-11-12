@@ -25,17 +25,22 @@ stateDiagram-v2
     state "sending" as on_sending
   }
   off --> starting : design.toggle
+  starting --> stopping : design.toggle
+  starting --> stopping : design.exit
+  starting --> off : page.left
   starting --> on : done setMode
   starting --> off : error setMode
   on --> stopping : design.toggle
   on --> stopping : design.exit
   on --> off : page.left
   on_picking --> on_selected : page.selection [hasItems]
+  on_picking --> on_selected : always [hasSelection]
   on_selected --> on_picking : page.selection
   on_selected --> on_selected_editing : instruction.change
   on_selected --> on_selected_editing : style.edit
   on_selected --> on_drawing : draw.open [hasCrop]
   on_selected_editing --> on_sending : request.send [hasRequest]
+  on_drawing --> on_selected : page.selection [hasItems]
   on_drawing --> on_picking : page.selection
   on_drawing --> on_selected : draw.done
   on_drawing --> on_selected : draw.cancel

@@ -290,6 +290,11 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   expect(prompt).toContain('Source: "src/components/Card.tsx:7"')
   // Sent: an empty request can't go again.
   await expect(send).toBeDisabled()
+  // The chat shows the request compactly: the change and the elements; the prompt under Details.
+  const bubble = shell.locator('[data-testid=chat-log] [data-testid=design-request]')
+  await expect(bubble).toContainText('make this button quieter')
+  await expect(bubble).toContainText('src/components/SaveButton.tsx:12:5')
+  await expect(bubble).not.toContainText('Styles now')
 
   // A8: a hot update replaces the card's nodes; the selection follows.
   await guestEval(app, id, "window.hotSwap('28px')")
@@ -332,6 +337,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect.poll(async () => (await overlayState(app, id))?.frames).toBe(2)
   await proofShot(app, shell, 'after-narrow', { phase: PHASE })
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1800, 1000))
+  await expect.poll(() => shell.evaluate(() => window.innerWidth)).toBeGreaterThan(1700)
 
   // A9: Esc in the page exits and removes the overlay.
   await sendKey(app, id, 'Escape', [])
@@ -354,6 +360,8 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
       ),
     )
     .toBe(false)
+  // The page has its wide bounds again (a click sent mid-resize can miss it).
+  await expect.poll(() => guestEval(app, id, 'innerWidth')).toBeGreaterThan(900)
   await click(app, id, await centerOf(app, id, '#save'))
   await expect.poll(() => guestEval(app, id, 'window.clicks')).toBe(1)
 

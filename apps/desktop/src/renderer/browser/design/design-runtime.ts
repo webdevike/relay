@@ -41,13 +41,18 @@ const machine = designModeMachine.provide({
   },
   actions: {
     previewStyle: (_, p) => {
-      void invoke('design.style', p)
+      void invoke('design.style', p).then(failed)
     },
     selectInPage: (_, p) => {
-      void invoke('design.select', p)
+      void invoke('design.select', p).then(failed)
     },
   },
 })
+
+/** A preview or a removal the page refused: said where Isaac looks, the inspector stays. */
+function failed(r: { ok: true } | { ok: false; error: { message: string } }): void {
+  if (!r.ok) notifications.show({ color: 'red', message: r.error.message, autoClose: 6000 })
+}
 
 function listen(): void {
   if (listening) return
@@ -58,6 +63,15 @@ function listen(): void {
   on('design.exit', (p) =>
     actors.get(p.tabId)?.send({ type: p.reason === 'escape' ? 'design.exit' : 'page.left' }),
   )
+  // A closed page's actor goes with it (main has ended its session already).
+  browserStore.subscribe((s, prev) => {
+    for (const [id, actor] of actors) {
+      if (prev.byId[id] && !s.byId[id]) {
+        actor.stop()
+        actors.delete(id)
+      }
+    }
+  })
 }
 
 /** The design-mode actor of page `tabId`, made on first use. */

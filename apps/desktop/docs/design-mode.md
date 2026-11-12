@@ -11,7 +11,8 @@ Inspired by TasteCode's browser annotations (Apache-2.0, see `THIRD_PARTY_NOTICE
 2. Press the pointer button at the right of the address row (`btn-design-mode`). The inspector
    opens beside the page (under it when the pane is narrower than 720 px).
 3. Hover: the element under the pointer gets a quiet outline and its tag. Clicks, hovers and keys
-   stay out of the page while the mode is on; the wheel still scrolls it.
+   stay out of the page while the mode is on (Cmd and Control chords still reach Relay and the
+   page); the wheel still scrolls it.
 4. Click to select; Shift-click adds or removes one (up to 8). Each selected element keeps a
    numbered outline.
 5. In the inspector: the element (`button#save`), its component and source `file:line`, its

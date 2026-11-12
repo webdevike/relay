@@ -33,6 +33,8 @@ export interface DesignContext extends DesignDraft {
   focus: number
   /** The selector whose crop is open for drawing, while `drawing`. */
   drawingOf: string | null
+  /** The image drawn on, fixed when drawing opens (a refresh can't swap it mid-stroke). */
+  drawingFrom: string | null
   error: string | null
 }
 
@@ -50,13 +52,24 @@ export type DesignEvent =
   | { type: 'draw.cancel' }
   | { type: 'request.send' }
 
-const cleared = { items: [], instruction: '', edits: [], drawings: {}, focus: 0, drawingOf: null }
+const cleared = {
+  items: [],
+  instruction: '',
+  edits: [],
+  drawings: {},
+  focus: 0,
+  drawingOf: null,
+  drawingFrom: null,
+}
 
-/** True when the request says something: words, a style edit or a drawing. */
+/** True when the request says something: words, a style edit or a drawing of a current item. */
 export function hasRequest(c: DesignDraft): boolean {
+  const present = c.items.filter((i) => !i.missing).map((i) => i.selector)
   return (
-    c.items.some((i) => !i.missing) &&
-    (c.instruction.trim() !== '' || c.edits.length > 0 || Object.keys(c.drawings).length > 0)
+    present.length > 0 &&
+    (c.instruction.trim() !== '' ||
+      c.edits.length > 0 ||
+      Object.keys(c.drawings).some((s) => present.includes(s)))
   )
 }
 
@@ -115,6 +128,7 @@ export const designModeMachine = setup({
   },
   guards: {
     hasItems: (_, params: { count: number }) => params.count > 0,
+    hasSelection: ({ context }) => context.items.length > 0,
     hasRequest: ({ context }) => hasRequest(context),
     hasCrop: ({ context }, params: { selector: string }) =>
       context.items.some((i) => i.selector === params.selector && i.crop !== null),
@@ -137,6 +151,16 @@ export const designModeMachine = setup({
           actions: { type: 'recordError', params: ({ event }) => ({ error: event.error }) },
         },
       },
+      on: {
+        // Ended before main answered: stopping turns main's session off again.
+        'design.toggle': 'stopping',
+        'design.exit': 'stopping',
+        'page.left': { target: 'off', actions: 'reset' },
+        // A click that beat the answer: kept, and `picking` moves on to `selected`.
+        'page.selection': {
+          actions: { type: 'takeSelection', params: ({ event }) => ({ items: event.items }) },
+        },
+      },
     },
     on: {
       initial: 'picking',
@@ -147,6 +171,7 @@ export const designModeMachine = setup({
       },
       states: {
         picking: {
+          always: { guard: 'hasSelection', target: 'selected' },
           on: {
             'page.selection': {
               guard: { type: 'hasItems', params: ({ event }) => ({ count: event.items.length }) },
@@ -211,7 +236,13 @@ export const designModeMachine = setup({
             'draw.open': {
               guard: { type: 'hasCrop', params: ({ event }) => ({ selector: event.selector }) },
               target: 'drawing',
-              actions: assign({ drawingOf: ({ event }) => event.selector }),
+              actions: assign({
+                drawingOf: ({ event }) => event.selector,
+                drawingFrom: ({ context, event }) =>
+                  context.drawings[event.selector] ??
+                  context.items.find((i) => i.selector === event.selector)?.crop?.png ??
+                  null,
+              }),
             },
           },
           states: {
@@ -226,8 +257,18 @@ export const designModeMachine = setup({
           on: {
             'page.selection': [
               {
-                guard: { type: 'hasItems', params: ({ event }) => ({ count: event.items.length }) },
+                // The element being drawn on is still selected: keep drawing.
+                guard: ({ context, event }) =>
+                  event.items.some((i) => i.selector === context.drawingOf),
                 actions: { type: 'takeSelection', params: ({ event }) => ({ items: event.items }) },
+              },
+              {
+                guard: { type: 'hasItems', params: ({ event }) => ({ count: event.items.length }) },
+                target: 'selected',
+                actions: [
+                  { type: 'takeSelection', params: ({ event }) => ({ items: event.items }) },
+                  assign({ drawingOf: null, drawingFrom: null }),
+                ],
               },
               { target: 'picking', actions: 'reset' },
             ],
@@ -239,9 +280,13 @@ export const designModeMachine = setup({
                     ? context.drawings
                     : { ...context.drawings, [context.drawingOf]: event.png },
                 drawingOf: null,
+                drawingFrom: null,
               }),
             },
-            'draw.cancel': { target: 'selected', actions: assign({ drawingOf: null }) },
+            'draw.cancel': {
+              target: 'selected',
+              actions: assign({ drawingOf: null, drawingFrom: null }),
+            },
           },
         },
         sending: {

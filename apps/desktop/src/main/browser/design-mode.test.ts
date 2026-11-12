@@ -100,8 +100,8 @@ function setup(url = 'http://127.0.0.1:5173/') {
       kind: 'mouse',
       mouse: { type, x, y, button: 'left', clickCount: 1 } as never,
     })
-  const key = (k: string, type = 'keyDown', shift = false) =>
-    intercept('t1', { kind: 'key', input: { type, key: k, shift } as never })
+  const key = (k: string, type = 'keyDown', shift = false, meta = false) =>
+    intercept('t1', { kind: 'key', input: { type, key: k, shift, meta, control: false } as never })
   const settled = () => vi.waitFor(() => expect(events.length).toBeGreaterThan(0))
   return { design, p, wc, events, mouse, key, close: (id: string) => closed({ id }), settled }
 }
@@ -110,14 +110,16 @@ describe('DesignMode', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }))
   afterEach(() => vi.useRealTimers())
 
-  it('keeps the mouse from the page only while it is on, and lets the wheel scroll', async () => {
+  it('keeps the mouse and plain keys from the page only while it is on; the wheel scrolls and Cmd chords pass', async () => {
     const t = setup()
     expect(t.mouse('mouseDown', 5, 5)).toBe(false)
+    expect(t.key('a')).toBe(false)
     await t.design.set('t1', true)
     expect(t.mouse('mouseMove', 5, 5)).toBe(true)
     expect(t.mouse('mouseUp', 5, 5)).toBe(true)
     expect(t.mouse('mouseWheel', 5, 5)).toBe(false)
-    expect(t.key('a')).toBe(false)
+    expect(t.key('a')).toBe(true)
+    expect(t.key('r', 'keyDown', false, true)).toBe(false)
     await t.design.set('t1', false)
     expect(t.mouse('mouseMove', 5, 5)).toBe(false)
     expect(t.p.calls).toContain('destroy')
@@ -168,8 +170,8 @@ describe('DesignMode', () => {
       (t.events[n]!.payload['items'] as Array<{ selector: string }>).map((i) => i.selector)
     expect(last(2)).toEqual(['#e1', '#e2', '#e3'])
     expect(last(3)).toEqual(['#e1', '#e3'])
-    // Shift let go while the page has the keyboard: the key still reaches the page.
-    expect(t.key('Shift', 'keyUp', false)).toBe(false)
+    // Shift let go while the page has the keyboard: tracked, and kept from the page.
+    expect(t.key('Shift', 'keyUp', false)).toBe(true)
     t.mouse('mouseDown', 4)
     await vi.waitFor(() => expect(t.events).toHaveLength(5))
     expect(last(4)).toEqual(['#e4'])

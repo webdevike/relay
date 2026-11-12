@@ -209,9 +209,14 @@ export class DesignMode {
     const s = this.sessions.get(tabId)
     if (!s) return false
     if (input.kind === 'key') {
-      if (input.input.type !== 'keyDown' || input.input.key !== 'Escape') return false
-      this.emit('design.exit', { tabId, reason: 'escape' })
-      return true
+      const k = input.input
+      if (k.type === 'keyDown' && k.key === 'Escape') {
+        this.emit('design.exit', { tabId, reason: 'escape' })
+        return true
+      }
+      // Keys stay out of the page while the mode is on (a pick must not type into it); chords
+      // with Cmd or Control go on to Relay's shortcuts and the page's own (copy, reload).
+      return !k.meta && !k.control
     }
     const m = input.mouse
     switch (m.type) {

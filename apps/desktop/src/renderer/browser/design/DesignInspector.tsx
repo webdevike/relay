@@ -35,7 +35,7 @@ function StyleRow(props: {
   }
   return (
     <div className="eva-design-style" data-edited={edit ? true : undefined}>
-      <label className="eva-design-style-key" htmlFor={`design-${property}`}>
+      <label className="eva-design-style-key" htmlFor={`design-${property}`} title={property}>
         {property}
       </label>
       <input
@@ -128,6 +128,7 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
               >
                 <UnstyledButton
                   className="eva-design-item-main"
+                  aria-pressed={i === ctx.focus}
                   onClick={() => actor.send({ type: 'item.focus', index: i })}
                 >
                   <span className="eva-design-num">{i + 1}</span>
@@ -252,11 +253,7 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
 
       {drawing && ctx.drawingOf ? (
         <DesignAnnotate
-          png={
-            ctx.drawings[ctx.drawingOf] ??
-            ctx.items.find((i) => i.selector === ctx.drawingOf)?.crop?.png ??
-            ''
-          }
+          png={ctx.drawingFrom ?? ''}
           onDone={(png) => actor.send({ type: 'draw.done', png })}
           onCancel={() => actor.send({ type: 'draw.cancel' })}
         />

@@ -30,6 +30,7 @@ export const MAX_SELECTION = 8
 export const SELECTOR_PATH = String(function selectorPath(
   element: Element,
   depth?: number,
+  bare?: boolean,
 ): string {
   const level = depth ?? 0
   if (level > 20) return '[unavailable-shadow-path]'
@@ -47,11 +48,13 @@ export const SELECTOR_PATH = String(function selectorPath(
     }
     if (parts.length >= 64) break
     const name = current.localName
-    const classes = Array.from(current.classList)
-      .filter((value) => /^[A-Za-z_-][\w-]{0,39}$/.test(value))
-      .slice(0, 2)
-      .map((value) => '.' + CSS.escape(value))
-      .join('')
+    const classes = bare
+      ? ''
+      : Array.from(current.classList)
+          .filter((value) => /^[A-Za-z_-][\w-]{0,39}$/.test(value))
+          .slice(0, 2)
+          .map((value) => '.' + CSS.escape(value))
+          .join('')
     const parent = current.parentElement
     const siblings = parent ? Array.from(parent.children).filter((s) => s.localName === name) : []
     const position =
@@ -60,7 +63,10 @@ export const SELECTOR_PATH = String(function selectorPath(
   }
   const root = element.getRootNode()
   const host = root instanceof ShadowRoot ? root.host : null
-  return (host ? selectorPath(host, level + 1) + ' >>> ' : '') + parts.join(' > ')
+  const path = (host ? selectorPath(host, level + 1, bare) + ' >>> ' : '') + parts.join(' > ')
+  // Over the contract's 2048 (DesignSelectorSchema): once more without classes; a pick still
+  // over it is ignored.
+  return path.length > 2048 && !bare && level === 0 ? selectorPath(element, 0, true) : path
 })
 
 /**
@@ -135,6 +141,9 @@ export const DESIGN_OVERLAY = String(function (
     hovered: Element | null
     picked: Picked[]
     frame: number
+    /** A number per element node seen, so a hot update that swaps the node changes the sig. */
+    ids: WeakMap<Element, number>
+    seq: number
   }
   const g = globalThis as unknown as { __relayDesign?: Overlay }
   const deepAt = (x: number, y: number): Element | null => {
@@ -165,6 +174,14 @@ export const DESIGN_OVERLAY = String(function (
   }
   const answer = (o: Overlay | undefined): OverlayAnswer => {
     if (!o) return { ready: false, selectors: [], sig: '' }
+    const idOf = (e: Element): number => {
+      let id = o.ids.get(e)
+      if (id === undefined) {
+        id = ++o.seq
+        o.ids.set(e, id)
+      }
+      return id
+    }
     const sig = o.picked
       .map((p) => {
         const e = p.element
@@ -172,18 +189,28 @@ export const DESIGN_OVERLAY = String(function (
         const r = e.getBoundingClientRect()
         const s = getComputedStyle(e)
         return [
-          e.className,
-          e.getAttribute('style'),
+          idOf(e),
+          Array.from(e.attributes)
+            .map((a) => a.name + '=' + a.value)
+            .join(' ')
+            .slice(0, 2000),
           Math.round(r.width),
           Math.round(r.height),
           s.color,
           s.backgroundColor,
+          s.fontFamily,
           s.fontSize,
           s.fontWeight,
+          s.lineHeight,
+          s.letterSpacing,
           s.padding,
           s.margin,
+          s.border,
           s.borderRadius,
           s.gap,
+          s.display,
+          s.opacity,
+          s.boxShadow,
           (e.textContent || '').slice(0, 120),
         ].join('|')
       })
@@ -229,7 +256,17 @@ export const DESIGN_OVERLAY = String(function (
     hover.appendChild(tag)
     root.appendChild(hover)
     ;(document.documentElement || document.body).appendChild(host)
-    const made: Overlay = { host, root, hover, tag, hovered: null, picked: [], frame: 0 }
+    const made: Overlay = {
+      host,
+      root,
+      hover,
+      tag,
+      hovered: null,
+      picked: [],
+      frame: 0,
+      ids: new WeakMap(),
+      seq: 0,
+    }
     const tick = (): void => {
       if (!made.host.isConnected) return
       const t = made.hovered
@@ -285,6 +322,7 @@ export const DESIGN_OVERLAY = String(function (
       const element = deepAt(cmd.x, cmd.y)
       if (!element || element === document.documentElement) break
       const selector = selectorPath(element)
+      if (selector.length > 2048) break
       const keep = ov.picked.map((p) => ({ selector: p.selector, element: p.element }))
       const at = keep.findIndex((p) => p.element === element || p.selector === selector)
       if (cmd.add) {

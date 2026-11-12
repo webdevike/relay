@@ -69,3 +69,42 @@ export function buildDesignPrompt(
   )
   return { text: lines.join('\n'), images }
 }
+
+/** What the chat shows of a sent design request; the full prompt stays one click away. */
+export interface DesignRequestSummary {
+  change: string
+  elements: Array<{ label: string; source: string | null }>
+  edits: string[]
+}
+
+const quoted = (s: string): string | null => {
+  try {
+    const v: unknown = JSON.parse(s)
+    return typeof v === 'string' ? v : null
+  } catch {
+    return null
+  }
+}
+
+/** The summary of a prompt buildDesignPrompt made, or null for any other message. */
+export function parseDesignPrompt(text: string): DesignRequestSummary | null {
+  const lines = text.split('\n')
+  if (lines[0] !== '[Design request]' || lines.at(-1) !== '[/Design request]') return null
+  const out: DesignRequestSummary = { change: '', elements: [], edits: [] }
+  for (const line of lines) {
+    const m = /^(Change|Element \d+|Source|Style edit[^:]*): (.*)$/.exec(line)
+    const key = m?.[1]
+    const rest = m?.[2] ?? ''
+    if (key === undefined) continue
+    if (key === 'Change') out.change = quoted(rest) ?? ''
+    else if (key.startsWith('Element'))
+      out.elements.push({ label: quoted(rest) ?? '', source: null })
+    else if (key === 'Source') {
+      // `"file:line" (how exact)`: the quoted part only.
+      const at = /^"(?:[^"\\]|\\.)*"/.exec(rest)
+      const last = out.elements.at(-1)
+      if (last && at) last.source = quoted(at[0])
+    } else out.edits.push(rest.replace(/"/g, ''))
+  }
+  return out
+}

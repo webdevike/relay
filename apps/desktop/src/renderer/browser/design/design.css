@@ -11,6 +11,9 @@
     border-left: 0;
     border-top: 1px solid var(--eva-border);
   }
+  .eva-browser-body > .eva-design .eva-design-crop img {
+    max-height: 56px;
+  }
 }
 .eva-design {
   flex: none;
@@ -62,7 +65,10 @@
   background: var(--eva-hover);
 }
 .eva-design-item[data-active] {
-  background: var(--eva-surface-2);
+  background: var(--eva-c-secondary-active-background);
+}
+.eva-design-item[data-active] .eva-design-label {
+  font-weight: var(--eva-fw-medium);
 }
 .eva-design-item-main {
   flex: 1;
@@ -147,7 +153,7 @@
 }
 .eva-design-style-key {
   flex: none;
-  width: 92px;
+  width: 112px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -217,4 +223,52 @@
   border-radius: var(--eva-radius-sm);
   cursor: crosshair;
   touch-action: none;
+}
+/* A sent request in the chat: the change and the elements; the full prompt under Details. */
+.eva-design-request {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  min-width: 0;
+}
+.eva-design-request-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-text-dim);
+}
+.eva-design-request-list {
+  margin: 0;
+  padding: 0 0 0 var(--mantine-spacing-md);
+  font-size: var(--eva-fz-label);
+}
+.eva-design-request-dim {
+  color: var(--eva-text-dim);
+}
+.eva-design-request-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  align-self: flex-start;
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-text-dim);
+}
+.eva-design-request-toggle:hover {
+  color: var(--eva-text);
+}
+.eva-design-request-toggle svg {
+  transition: transform var(--eva-dur-fast) ease;
+}
+.eva-design-request-toggle svg[data-open] {
+  transform: rotate(90deg);
+}
+.eva-design-request-raw {
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  font-family: var(--eva-font-mono);
+  font-size: var(--eva-fz-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

@@ -204,4 +204,45 @@ describe('designModeMachine', () => {
     await waitFor(t.actor, (s) => s.matches('off'))
     expect(t.calls.setMode).toEqual([true, false])
   })
+
+  it('ending the mode before main answers turns main off again', async () => {
+    const gate = pending<void>()
+    let n = 0
+    const t = start({ setMode: () => (n++ === 0 ? gate.promise : Promise.resolve()) })
+    t.actor.send({ type: 'design.toggle' })
+    t.actor.send({ type: 'design.exit' })
+    gate.resolve()
+    await waitFor(t.actor, (s) => s.matches('off'))
+    expect(t.calls.setMode).toEqual([true, false])
+  })
+
+  it('a click that beats main answering lands in selected once main answers', async () => {
+    const gate = pending<void>()
+    const t = start({ setMode: () => gate.promise })
+    t.actor.send({ type: 'design.toggle' })
+    t.actor.send({ type: 'page.selection', items: [item('#a')] })
+    expect(t.actor.getSnapshot().value).toBe('starting')
+    gate.resolve()
+    const s = await waitFor(t.actor, (x) => x.matches('on'))
+    expect(s.matches({ on: { selected: 'editing' } })).toBe(true)
+    expect(s.context.items.map((i) => i.selector)).toEqual(['#a'])
+  })
+
+  it('drawing keeps the image it opened on, and stops when its element leaves the selection', async () => {
+    const t = await selected([item('#a'), item('#b')])
+    t.actor.send({ type: 'draw.open', selector: '#a' })
+    t.actor.send({
+      type: 'page.selection',
+      items: [item('#a', { crop: { png: 'NEWER', width: 10, height: 10 } }), item('#b')],
+    })
+    expect(t.actor.getSnapshot().matches({ on: 'drawing' })).toBe(true)
+    expect(t.actor.getSnapshot().context.drawingFrom).toBe('iVBOR')
+    t.actor.send({ type: 'page.selection', items: [item('#b')] })
+    const s = t.actor.getSnapshot()
+    expect(s.matches({ on: { selected: 'editing' } })).toBe(true)
+    expect(s.context.drawingOf).toBeNull()
+    expect(s.context.drawingFrom).toBeNull()
+    t.actor.send({ type: 'draw.done', png: 'LATE' })
+    expect(t.actor.getSnapshot().context.drawings).toEqual({})
+  })
 })
