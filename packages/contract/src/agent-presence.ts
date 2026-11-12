@@ -170,7 +170,9 @@ export const agentPresenceInvoke = {
 const short = (s: string, max: number): string =>
   s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s
 
-const quoted = (s: string, max = 80): string => `"${short(s.replace(/\s+/g, ' ').trim(), max)}"`
+/** A page or board string as one JSON string: its quotes and brackets can't end the header. */
+const quoted = (s: string, max = 80): string =>
+  JSON.stringify(short(s.replace(/\s+/g, ' ').trim(), max))
 
 /** The chat a workspace belongs to (`chat:<file>`, `page:agent:<id>`); null for any other page. */
 export function ownerOfWorkspace(workspace: string | null | undefined): NoteOwner | null {
@@ -191,7 +193,10 @@ export function noteLink(note: Extract<AgentNote, { surface: 'canvas' }>): strin
   return `relay://open/canvas?${q.join('&')}`
 }
 
-/** One line naming what a page note marks: the element as the page describes it, or the region. */
+/**
+ * One line naming what a page note marks: the element as the page describes it (its strings
+ * JSON-quoted), or the region.
+ */
 function targetName(t: BrowserNoteTarget): string {
   const r = t.region
   const el = t.element
@@ -199,10 +204,10 @@ function targetName(t: BrowserNoteTarget): string {
     return `the region ${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.w)}x${Math.round(r.h)}`
   }
   return [
-    `<${el.tag}>`,
-    el.role ? `role ${el.role}` : null,
+    `<${el.tag.replace(/[^a-z0-9-]/gi, '')}>`,
+    el.role ? `role ${quoted(el.role)}` : null,
     el.label ? `label ${quoted(el.label)}` : el.text ? quoted(el.text) : null,
-    el.selector ? `selector ${el.selector}` : null,
+    el.selector ? `selector ${quoted(el.selector, 400)}` : null,
   ]
     .filter((p): p is string => p !== null)
     .join(', ')

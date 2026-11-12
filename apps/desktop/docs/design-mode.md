@@ -54,8 +54,10 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 - Main, `src/main/browser/design-mode.ts`: one session per page tab. Isaac's pointer goes through
   the page note picker (`annotate-picker.ts`) in mode `design`: a loop of picks, each answering a
   click (with Shift) or a dragged region; the picker outlines what is hovered, reaches into open
-  shadow roots and keeps the pointer from the page between picks. A cancelled pick (another
-  picker took the page) ends the mode. Keys are kept from the page by `BrowserHost.interceptInput`
+  shadow roots and takes the pointer events on the window in the capture phase, so the page's
+  own listeners (document outside-click handlers too) never see them, between picks as well. A
+  cancelled pick (the page's Note picker took the page; a design pick never replaces it) ends the
+  mode and removes its outlines. Keys are kept from the page by `BrowserHost.interceptInput`
   (`before-input-event`; Relay's own shortcuts pass; Esc ends the mode). Every change of the
   selection is read in the page, cropped and sent as `design.selection`; a 700 ms poll of a
   signature of the selected elements (node identity, attributes, size, key styles, text, and a
@@ -78,6 +80,8 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 - A region is a screenshot taken when dragged: it is not outlined in the page and is not taken
   again after a reload or scroll.
 - Opening the page's Note picker while the mode is on ends the mode (one picker per page).
+- A page listener on `window` in the capture phase, added before Design Mode's, still sees the
+  pointer (the wheel always reaches the page, so it scrolls).
 - The selection is found again by its selector path; a hot update that changes the element's
   classes or position past what the path names marks it "Not in the page right now".
 - While a refresh crops, the outlines hide for a moment; a selected element whose content changes
@@ -85,7 +89,7 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 
 ## Verify
 
-- Unit: `pnpm vitest run src/main/browser/design-mode.test.ts src/main/browser/design-send.test.ts src/renderer/browser/design`
+- Unit: `pnpm vitest run src/main/browser/design-mode.test.ts src/main/browser/design-send.test.ts src/main/browser/annotate-picker.test.ts src/renderer/browser/design`
 - Machine doc: `pnpm machines:docs` (CI fails when the diagram is stale)
 - End to end (hidden window): `pnpm e2e:run e2e/design-mode.spec.ts`; `EVAOS_PROOF=1` writes the
   screenshots to `proof/phase-design-mode/`.

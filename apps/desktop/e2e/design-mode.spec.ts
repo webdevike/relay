@@ -207,6 +207,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
     id,
     `(() => { const r = document.getElementById('save').getBoundingClientRect(); return { x: Math.floor(r.x) - 4, y: Math.floor(r.y) - 4, width: Math.ceil(r.width) + 8, height: Math.ceil(r.height) + 8 } })()`,
   )) as { x: number; y: number; width: number; height: number }
+  await guestEval(app, id, 'window.docEvents = 0')
   await mouse(app, id, [{ type: 'mouseMove', x: 500, y: 700 }])
   const unhovered = await pixels(app, id, saveBox)
   await mouse(app, id, [{ type: 'mouseMove', ...save }])
@@ -221,7 +222,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   // A4: label, React source and component, styles, crop.
   await expect(items.first().locator('[data-testid=design-item-label]')).toHaveText('button#save')
   await expect(items.first().locator('[data-testid=design-item-source]')).toHaveText(
-    'SaveButton · components/SaveButton.tsx:12',
+    'SaveButton · SaveButton.tsx:12',
   )
   await expect(inspector(shell, id).locator('[data-testid=design-source]')).toHaveText(
     'src/components/SaveButton.tsx:12',
@@ -240,7 +241,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await click(app, id, await centerOf(app, id, '.card h2'), ['shift'])
   await expect(items).toHaveCount(2)
   await expect(items.nth(1).locator('[data-testid=design-item-source]')).toHaveText(
-    'Card · components/Card.tsx:7',
+    'Card · Card.tsx:7',
   )
   await expect.poll(() => framesOf(app, id)).toBe(2)
 
@@ -256,13 +257,15 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect(items).toHaveCount(3)
   await expect(items.nth(2).locator('[data-testid=design-item-label]')).toHaveText('Region 160x100')
   await expect(items.nth(2).locator('[data-testid=design-item-source]')).toHaveText(
-    'Screenshot of the area',
+    'Snapshot at 480,60',
   )
   await items.nth(2).locator('.eva-design-item-main').click()
   await expect(inspector(shell, id).locator('[data-testid=design-crop]')).toBeVisible()
   await expect(inspector(shell, id).locator('[data-testid=design-styles]')).toHaveCount(0)
   await expect.poll(() => framesOf(app, id)).toBe(2)
   await proofShot(app, shell, 'region', { phase: PHASE })
+  // A2: none of that pointer work reached the page, not even its document capture listeners.
+  expect(await guestEval(app, id, 'window.docEvents')).toBe(0)
 
   // A2: the wheel still scrolls the page.
   const ended = guestEval(
@@ -300,7 +303,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await proofShot(app, shell, 'annotate', { phase: PHASE })
   await shell.locator('[data-testid=design-annotate-done]').click()
   await expect(canvas).toHaveCount(0)
-  await expect(inspector(shell, id).locator('[data-testid=design-draw]')).toHaveText('Drawn on')
+  await expect(inspector(shell, id).locator('[data-testid=design-draw]')).toHaveText('Edit drawing')
   // The crop may refresh after the style preview; the drawn one must differ from any plain one.
   const drawn = await crop.getAttribute('src')
   expect(drawn).not.toBe(plainCrop)
@@ -313,7 +316,9 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await proofShot(app, shell, 'after-inspector', { phase: PHASE })
   await expect(send).toBeEnabled()
   await send.click()
-  await expect(inspector(shell, id).locator('[data-testid=design-status]')).toContainText('Sent')
+  await expect(inspector(shell, id).locator('[data-testid=design-status]')).toHaveText(
+    'Sent to the chat',
+  )
   await expect
     .poll(() => readLog().find((e) => e.event === 'prompt-images')?.detail ?? null)
     .toEqual({ count: 3, mimeTypes: ['image/png', 'image/png', 'image/png'] })
@@ -326,7 +331,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   const lines = prompt.split('\n')
   const head = lines.findIndex((l) => l.startsWith('[Change request'))
   expect(lines[head]).toContain(`[Change request on web page ${id} "Design fixture": <button>`)
-  expect(lines[head]).toContain('selector #save')
+  expect(lines[head]).toContain('selector "#save"')
   expect(lines[head + 1]).toBe('make this button quieter')
   expect(prompt).toContain('Source: "src/components/SaveButton.tsx:12:5"')
   expect(prompt).toContain('Component: "SaveButton"')
@@ -439,6 +444,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect.poll(() => guestEval(app, id, 'innerWidth')).toBeGreaterThan(900)
   await click(app, id, await centerOf(app, id, '#save'))
   await expect.poll(() => guestEval(app, id, 'window.clicks')).toBe(1)
+  expect(Number(await guestEval(app, id, 'window.docEvents'))).toBeGreaterThan(0)
 
   // A9: Esc from the inspector exits too.
   await toggle.click()

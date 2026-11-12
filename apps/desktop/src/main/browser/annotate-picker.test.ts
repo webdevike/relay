@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
-import { describeElement } from './annotate-picker'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { describeElement, PICKER_SCRIPT, type PickOp, type PickResult } from './annotate-picker'
 
 const $ = (sel: string): Element => document.querySelector(sel)!
 
@@ -87,5 +87,70 @@ describe('describeElement', () => {
   it('runs as page code: its source stands alone', () => {
     const fn = new Function(`return (${String(describeElement)})`)() as typeof describeElement
     expect(fn($('#docs')).selector).toBe('#docs')
+  })
+})
+
+describe('the picker in Design Mode', () => {
+  type Pick = (op: PickOp, describe: typeof describeElement) => PickResult | Promise<PickResult>
+  const pick = new Function(`return (${PICKER_SCRIPT})`)() as Pick
+  const seen: string[] = []
+  const types = ['mousedown', 'mouseup', 'click', 'mousemove', 'mouseover', 'pointermove']
+  const record = (e: Event): void => {
+    seen.push(e.type)
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = '<button id="buy">Buy</button>'
+    // jsdom has no layout: the button is under every point.
+    document.elementsFromPoint = () => [
+      document.getElementById('relay-note-picker')!,
+      $('#buy'),
+      document.body,
+    ]
+    CSSStyleSheet.prototype.replaceSync ??= () => undefined
+    // The page's own listeners, at the document in both phases (outside-click handlers).
+    for (const t of types) {
+      document.addEventListener(t, record, true)
+      document.addEventListener(t, record)
+    }
+    seen.length = 0
+  })
+  afterEach(async () => {
+    for (const t of types) {
+      document.removeEventListener(t, record, true)
+      document.removeEventListener(t, record)
+    }
+    await pick({ op: 'clear' }, describeElement)
+  })
+
+  const host = (): Element => document.getElementById('relay-note-picker')!
+  const at = { clientX: 5, clientY: 5, bubbles: true, cancelable: true }
+  const press = (): void => {
+    for (const t of ['mousemove', 'mouseover', 'mousedown', 'mouseup', 'click'])
+      host().dispatchEvent(new MouseEvent(t, at))
+    host().dispatchEvent(new Event('pointermove', { bubbles: true }))
+  }
+
+  it('keeps every pointer event from the page, before and after it answers', async () => {
+    const answer = pick({ op: 'pick', color: '#f00', mode: 'design' }, describeElement)
+    press()
+    expect(await answer).toMatchObject({ cancelled: false, element: { selector: '#buy' } })
+    // Between two picks the host stays and still takes the pointer.
+    press()
+    expect(seen).toEqual([])
+  })
+
+  it("never replaces a note's picker, and a note's pick replaces it", async () => {
+    const note = pick({ op: 'pick', color: '#f00', mode: 'note' }, describeElement)
+    expect(await pick({ op: 'pick', color: '#00f', mode: 'design' }, describeElement)).toEqual({
+      cancelled: true,
+    })
+    expect(document.querySelectorAll('#relay-note-picker')).toHaveLength(1)
+    await pick({ op: 'clear' }, describeElement)
+    expect(await note).toEqual({ cancelled: true })
+
+    const design = pick({ op: 'pick', color: '#00f', mode: 'design' }, describeElement)
+    void pick({ op: 'pick', color: '#f00', mode: 'note' }, describeElement)
+    expect(await design).toEqual({ cancelled: true })
   })
 })

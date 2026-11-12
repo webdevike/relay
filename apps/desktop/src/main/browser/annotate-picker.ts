@@ -16,7 +16,10 @@ import type { NoteElement } from '@evaos/contract'
  * `clear` closes the picker or removes the mark, answering once the page painted without it.
  * Mode `design` (Design Mode, design-mode.ts) shows no hint, finds elements inside open shadow
  * roots, and once it answers draws no mark but keeps the page's pointer until the next `pick`
- * replaces it or `clear` closes it, so a click between two picks never reaches the page.
+ * replaces it or `clear` closes it, so a click between two picks never reaches the page. It takes
+ * the pointer events on the window in the capture phase, ahead of the page's document listeners
+ * (outside-click handlers, hover tracking). A design pick never replaces a note's picker: it
+ * answers cancelled, so a note opened while Design Mode works on its last pick wins.
  */
 export type PickOp = { op: 'pick'; color: string; mode?: 'note' | 'design' } | { op: 'clear' }
 
@@ -172,12 +175,16 @@ export const PICKER_SCRIPT = String(function (
   interface Picker {
     /** Closes the picker or removes the mark; resolves once the page painted without it. */
     close(): Promise<void>
+    design: boolean
   }
   const w = globalThis as unknown as { __relayNotePicker?: Picker }
   if (op.op === 'clear') {
     const open = w.__relayNotePicker
     return open ? open.close().then(() => ({ cancelled: true })) : { cancelled: true }
   }
+  const design = op.mode === 'design'
+  // A note's picker keeps the page from Design Mode (see PickOp).
+  if (design && w.__relayNotePicker && !w.__relayNotePicker.design) return { cancelled: true }
   // One picker per page: a new one clears the open one, whose pick answers cancelled.
   void w.__relayNotePicker?.close()
 
@@ -220,7 +227,6 @@ export const PICKER_SCRIPT = String(function (
   const hint = document.createElement('div')
   hint.className = 'hint'
   hint.textContent = 'Click something or drag over an area. Esc cancels.'
-  const design = op.mode === 'design'
   // Design Mode says what to do in its inspector.
   root.append(box, ...(design ? [] : [hint]))
   document.documentElement.append(host)
@@ -271,7 +277,8 @@ export const PICKER_SCRIPT = String(function (
     e.stopPropagation()
   }
 
-  const onMove = (e: MouseEvent): void => {
+  const onMove = (e: Event): void => {
+    if (!(e instanceof MouseEvent)) return
     // An answered design pick keeps the pointer from the page until the next pick.
     if (picked && !design) return
     swallow(e)
@@ -287,18 +294,22 @@ export const PICKER_SCRIPT = String(function (
     if (el) show(boxOf(el), el.tagName.toLowerCase(), false)
     else box.classList.remove('on')
   }
-  const onDown = (e: MouseEvent): void => {
-    if (picked && !design) return
-    if (picked) return swallow(e)
-    if (e.button !== 0) return
+  const onDown = (e: Event): void => {
+    if (!(e instanceof MouseEvent) || (picked && !design)) return
+    if (picked || e.button !== 0) {
+      if (design) swallow(e)
+      return
+    }
     swallow(e)
     down = { x: e.clientX, y: e.clientY }
     dragging = false
   }
-  const onUp = (e: MouseEvent): void => {
-    if (picked && !design) return
-    if (picked) return swallow(e)
-    if (!down) return
+  const onUp = (e: Event): void => {
+    if (!(e instanceof MouseEvent) || (picked && !design)) return
+    if (picked || !down) {
+      if (design) swallow(e)
+      return
+    }
     swallow(e)
     const start = down
     down = null
@@ -358,18 +369,26 @@ export const PICKER_SCRIPT = String(function (
     e.stopPropagation()
     if (e.type === 'contextmenu') e.preventDefault()
   }
-  host.addEventListener('mousemove', onMove, true)
-  host.addEventListener('mousedown', onDown, true)
-  host.addEventListener('mouseup', onUp, true)
-  for (const type of ['click', 'dblclick', 'contextmenu', 'pointerdown', 'pointerup']) {
-    host.addEventListener(type, swallowPicking, true)
+  // Design Mode takes the pointer on the window, ahead of the page's own listeners (see PickOp).
+  const target: EventTarget = design ? window : host
+  const quiet = ['click', 'dblclick', 'contextmenu', 'pointerdown', 'pointerup']
+  if (design) {
+    quiet.push('auxclick', 'pointermove', 'pointerover', 'pointerout', 'mouseover', 'mouseout')
   }
+  const listeners: Array<[string, (e: Event) => void]> = [
+    ['mousemove', onMove],
+    ['mousedown', onDown],
+    ['mouseup', onUp],
+    ...quiet.map((type): [string, (e: Event) => void] => [type, swallowPicking]),
+  ]
+  for (const [type, fn] of listeners) target.addEventListener(type, fn, true)
   window.addEventListener('keydown', onKey, true)
 
   const close = (): Promise<void> => {
     if (w.__relayNotePicker !== picker) return Promise.resolve()
     delete w.__relayNotePicker
     window.removeEventListener('keydown', onKey, true)
+    for (const [type, fn] of listeners) target.removeEventListener(type, fn, true)
     host.remove()
     // Still picking: the pick answers cancelled (after a mark this does nothing).
     resolve({ cancelled: true })
@@ -384,7 +403,7 @@ export const PICKER_SCRIPT = String(function (
     setTimeout(painted.resolve, 120)
     return painted.promise
   }
-  const picker: Picker = { close }
+  const picker: Picker = { close, design }
   w.__relayNotePicker = picker
   return done
 })

@@ -140,10 +140,13 @@ export class DesignMode {
   }
 
   /** Turns the mode on or off in page `tabId`, after any change of it still in flight. */
-  async set(tabId: string, on: boolean): Promise<void> {
-    const next = (this.changes.get(tabId) ?? Promise.resolve())
-      .catch(() => undefined)
-      .then(() => this.change(tabId, on))
+  set(tabId: string, on: boolean): Promise<void> {
+    return this.serial(tabId, () => this.change(tabId, on))
+  }
+
+  /** Runs `fn` after tab `tabId`'s mode change in flight, so a start and a stop never overlap. */
+  private async serial(tabId: string, fn: () => Promise<void>): Promise<void> {
+    const next = (this.changes.get(tabId) ?? Promise.resolve()).catch(() => undefined).then(fn)
     this.changes.set(tabId, next)
     try {
       await next
@@ -299,9 +302,17 @@ export class DesignMode {
       }
       if (s.stopped) return
       if (r.cancelled) {
-        // Another picker took the page (a note), or Escape reached the page: the mode ends.
-        this.end(s.tabId)
-        this.emit('design.exit', { tabId: s.tabId, reason: 'escape' })
+        // Another picker took the page (a note): the mode ends and its outlines go, after the
+        // page work in flight; that picker stays.
+        let ended = false
+        await this.serial(s.tabId, async () => {
+          if (this.sessions.get(s.tabId) !== s) return
+          this.end(s.tabId)
+          ended = true
+          await s.queue
+          await this.overlay(s, { op: 'destroy' }).catch(() => undefined)
+        }).catch(() => undefined)
+        if (ended) this.emit('design.exit', { tabId: s.tabId, reason: 'escape' })
         return
       }
       const picked = r

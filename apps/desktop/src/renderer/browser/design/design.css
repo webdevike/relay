@@ -5,7 +5,7 @@
     flex-direction: column;
   }
   .eva-browser-body > .eva-design {
-    flex: 0 0 45%;
+    flex: 0 0 55%;
     width: auto;
     min-height: 240px;
     border-left: 0;
@@ -148,11 +148,17 @@
   max-height: 140px;
   object-fit: contain;
   border-radius: var(--eva-radius-sm);
+  border: 1px solid var(--eva-border);
   background: var(--eva-bg);
 }
 .eva-design-styles {
   display: flex;
   flex-direction: column;
+}
+.eva-design-styles-hint {
+  margin: 0 0 calc(var(--mantine-spacing-xs) / 2);
+  font-size: var(--eva-fz-caption);
+  color: var(--eva-text-dim);
 }
 .eva-design-style {
   display: flex;

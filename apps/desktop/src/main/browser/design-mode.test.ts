@@ -282,13 +282,20 @@ describe('DesignMode', () => {
     await t.p.answerPick(new Error('Execution context was destroyed'))
     await vi.waitFor(() => expect(t.p.isPicking()).toBe(true))
     expect(t.design.isOn('t1')).toBe(true)
-    // A note's picker replaced it.
+    // A note's picker replaced it: the outlines go before the exit, and that picker stays.
     await t.p.answerPick({ cancelled: true })
-    await vi.waitFor(() => expect(t.design.isOn('t1')).toBe(false))
-    expect(t.events.at(-1)).toEqual({
-      channel: 'design.exit',
-      payload: { tabId: 't1', reason: 'escape' },
-    })
+    await vi.waitFor(() =>
+      expect(t.events.at(-1)).toEqual({
+        channel: 'design.exit',
+        payload: { tabId: 't1', reason: 'escape' },
+      }),
+    )
+    expect(t.design.isOn('t1')).toBe(false)
+    expect(t.p.calls.at(-1)).toBe('destroy')
+    // The renderer turns it off in answer: nothing more is sent to the page.
+    await t.design.set('t1', false)
+    expect(t.p.calls.at(-1)).toBe('destroy')
+    expect(t.p.calls).not.toContain('picker:clear')
   })
 
   it('an element that is gone stays in the selection as missing, with no crop', async () => {

@@ -12,6 +12,7 @@ interface WcLike {
   focus(): void
   executeJavaScript(code: string, userGesture?: boolean): Promise<unknown>
   sendInputEvent(e: Record<string, unknown>): void
+  capturePage(rect?: Rect): Promise<{ toPNG(): Buffer }>
   session: unknown
   getLastWebPreferences(): {
     sandbox?: boolean

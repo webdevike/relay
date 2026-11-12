@@ -56,8 +56,13 @@
       <div class="spacer"></div>
     </main>
     <script>
-      // Clicks that reach the page (Design Mode must keep them out).
+      // Clicks that reach the page (Design Mode must keep them out), and pointer events its
+      // document-level listeners see (outside-click handlers listen there, in the capture phase).
       window.clicks = 0
+      window.docEvents = 0
+      for (const t of ['pointerdown', 'mousedown', 'click', 'mouseover', 'pointermove']) {
+        document.addEventListener(t, () => window.docEvents++, true)
+      }
       // A React 18 dev build keeps its fiber on the DOM node: the button's carries the JSX source,
       // its owner is the SaveButton component.
       function SaveButton() {}

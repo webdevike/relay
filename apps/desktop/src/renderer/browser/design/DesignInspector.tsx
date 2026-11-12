@@ -14,10 +14,11 @@ import { designActorOf, type DesignActor } from './design-runtime'
 import { DesignAnnotate } from './DesignAnnotate'
 import './design.css'
 
+/** `File.tsx:12`: the file name and line, short enough for a row (the full path is its title). */
 function sourceText(item: DesignItem): string | null {
   const s = item.source
   if (!s) return null
-  const file = s.file.split('/').slice(-2).join('/')
+  const file = s.file.split('/').pop() ?? s.file
   return s.line === null ? file : `${file}:${s.line}`
 }
 
@@ -142,9 +143,13 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
                     <span className="eva-design-label" data-testid="design-item-label">
                       {it.label}
                     </span>
-                    <span className="eva-design-meta" data-testid="design-item-source">
+                    <span
+                      className="eva-design-meta"
+                      data-testid="design-item-source"
+                      title={it.source?.file}
+                    >
                       {it.kind === 'region'
-                        ? 'Screenshot of the area'
+                        ? `Snapshot at ${Math.round(it.box.x)},${Math.round(it.box.y)}`
                         : it.missing
                           ? 'Not in the page right now'
                           : [it.component, sourceText(it)].filter(Boolean).join(' · ') ||
@@ -192,12 +197,13 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
                     data-testid="design-draw"
                     onClick={() => actor.send({ type: 'draw.open', selector: item.selector })}
                   >
-                    {ctx.drawings[item.selector] ? 'Drawn on' : 'Draw on it'}
+                    {ctx.drawings[item.selector] ? 'Edit drawing' : 'Draw on it'}
                   </Button>
                 </div>
               ) : null}
               {item.kind === 'element' ? (
                 <div className="eva-design-styles" data-testid="design-styles">
+                  <p className="eva-design-styles-hint">Click a value to preview a change.</p>
                   {DESIGN_STYLE_KEYS.filter((k) => item.styles[k] !== undefined).map((k) => (
                     <StyleRow
                       key={`${item.selector}|${k}|${item.styles[k] ?? ''}`}
@@ -221,7 +227,9 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
           minRows={2}
           maxRows={6}
           placeholder={
-            ctx.items.length ? 'Describe the change, like "8px tighter"' : 'Select an element first'
+            ctx.items.length
+              ? 'Describe the change, like "8px tighter"'
+              : 'Select an element or region first'
           }
           aria-label="Change to make"
           data-testid="design-instruction"
@@ -244,7 +252,7 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
             ) : ctx.error ? (
               <span className="eva-design-error">{ctx.error}</span>
             ) : sent ? (
-              'Sent. The selection stays while the page reloads.'
+              'Sent to the chat'
             ) : ctx.edits.length ? (
               `${ctx.edits.length} style ${ctx.edits.length === 1 ? 'edit' : 'edits'}`
             ) : null}
