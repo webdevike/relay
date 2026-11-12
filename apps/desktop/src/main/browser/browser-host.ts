@@ -111,6 +111,8 @@ export class BrowserHost {
   /** The tabs on screen, each at its rect, in stacking order (Map insertion order). */
   private slots = new Map<string, SlotRect>()
   private occluded = false
+  /** The renderer is in HTML fullscreen (a video): every native view sits under it, so all hide. */
+  private fullscreen = false
   private holes: SlotRect[] = []
   private created: TabListener[] = []
   private activated: TabListener[] = []
@@ -828,6 +830,13 @@ export class BrowserHost {
     return this.visible()
   }
 
+  /** Hides every view while the renderer shows an HTML fullscreen element; leaving restores them. */
+  setFullscreen(fullscreen: boolean): void {
+    if (this.fullscreen === fullscreen) return
+    this.fullscreen = fullscreen
+    this.applyBounds()
+  }
+
   /**
    * Shell-drawn overlays (toasts) that sit over a view's rect. A native view paints over the page
    * above it, so each view gives up the band on the cheapest side of every hole instead of
@@ -842,6 +851,7 @@ export class BrowserHost {
     return (
       !!t.view &&
       !this.occluded &&
+      !this.fullscreen &&
       !t.state.blank &&
       !t.state.error &&
       rect.width > 0 &&
