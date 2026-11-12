@@ -1,47 +1,7 @@
 import { z } from 'zod'
+import { AgentIdentitySchema, AgentRunOpSchema, AgentRunSchema } from './agent-presence'
 
 export const TabIdSchema = z.string().regex(/^t[0-9]{1,6}$/)
-
-/**
- * What an agent's tab shows Isaac. `working`: it acts (ring, cursor, caption); `paused`: Isaac
- * took over (his input in the tab, or Take over), the agent waits for Hand back; `ask`: a
- * purchase, send, submit or delete waits for his Allow; `done`/`stopped`: finished (`caption`
- * says how); `idle`: an agent's page nobody drives right now (its face on the tab only).
- */
-export const AgentTabStatusSchema = z.enum(['working', 'paused', 'ask', 'done', 'stopped', 'idle'])
-export type AgentTabStatus = z.output<typeof AgentTabStatusSchema>
-
-/** The agent a tab belongs to and what it is doing there. */
-export const TabAgentSchema = z.object({
-  /** The assistant (`penny`), for its face and color; null for a session that is no assistant's. */
-  id: z.string().max(120).nullable(),
-  name: z.string().max(120),
-  /** Its accent color (`#86efac`). */
-  color: z.string().max(32),
-  status: AgentTabStatusSchema,
-  /** One line: what it is doing (or, done or stopped, how it ended). */
-  caption: z.string().max(200),
-  /** Opened in the background (grouped quietly at the end of the strip). */
-  background: z.boolean(),
-  /** The action waiting for Isaac's Allow while `ask`. */
-  ask: z.object({ id: z.string().max(64), label: z.string().max(200) }).nullable(),
-  /** When it started its current run (ms epoch), for the elapsed time on its work card. */
-  since: z.number(),
-  /** When it ended (done or stopped), else null. */
-  ended: z.number().nullable(),
-})
-export type TabAgent = z.output<typeof TabAgentSchema>
-
-/** Who an agent is, as its tabs show it. */
-export const AgentIdentitySchema = TabAgentSchema.pick({ id: true, name: true, color: true })
-export type AgentIdentity = z.output<typeof AgentIdentitySchema>
-
-/**
- * Isaac's controls on an agent's tab: `takeOver` pauses it, `handBack` resumes it, `allow` and
- * `deny` answer the action waiting in `ask`, `dismiss` clears a finished caption.
- */
-export const AgentTabOpSchema = z.enum(['takeOver', 'handBack', 'allow', 'deny', 'dismiss'])
-export type AgentTabOp = z.output<typeof AgentTabOpSchema>
 
 export const TabStateSchema = z.object({
   id: TabIdSchema,
@@ -65,8 +25,8 @@ export const TabStateSchema = z.object({
    * Isaac or the assistant itself. Tabs a page opens inherit their opener's.
    */
   openedBy: z.string().max(120).nullable().optional(),
-  /** An agent's tab: who drives it and what it is doing (see TabAgentSchema). */
-  agent: TabAgentSchema.optional(),
+  /** An agent's tab: who drives it and what it is doing (AgentRunSchema). */
+  agent: AgentRunSchema.optional(),
 })
 export type TabState = z.output<typeof TabStateSchema>
 
@@ -191,7 +151,7 @@ export const browserInvoke = {
   /**
    * A new tab in `scope` (the scope in front when omitted) without switching scopes: that scope's
    * active tab, unless `background`. `openedBy` labels who asked for it (see TabState.openedBy);
-   * `agent` makes it that agent's tab (idle until it drives it, see TabAgentSchema).
+   * `agent` makes it that agent's tab (idle until it drives it, see AgentRunSchema).
    */
   'browser.createTab': {
     input: z
@@ -205,10 +165,23 @@ export const browserInvoke = {
       .strict(),
     output: TabStateSchema,
   },
-  /** Isaac's controls on an agent's tab (AgentTabOpSchema). */
+  /** Isaac's controls on an agent's tab (AgentRunOpSchema). */
   'browser.agent': {
-    input: z.object({ tabId: TabIdSchema, op: AgentTabOpSchema }).strict(),
+    input: z.object({ tabId: TabIdSchema, op: AgentRunOpSchema }).strict(),
     output: okOut,
+  },
+  /**
+   * Isaac marks something on the page (clicks an element or drags a region) and writes a note:
+   * it goes to the chat that owns the tab, with the element or region, a screenshot of it and the
+   * URL. Resolves once he sends or cancels (Escape); `to` is the chat's name.
+   */
+  'browser.annotate': {
+    input: z.object({ tabId: TabIdSchema }).strict(),
+    output: z.object({
+      sent: z.boolean(),
+      to: z.string().max(200).nullable(),
+      cancelled: z.boolean(),
+    }),
   },
   'browser.closeTab': {
     input: tabOnly,

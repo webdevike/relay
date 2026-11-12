@@ -1,3 +1,4 @@
+import { agentPresenceInvoke } from './agent-presence'
 import type { z } from 'zod'
 import { appEvents, appInvoke } from './app'
 import { shellInvoke } from './shell'
@@ -95,14 +96,10 @@ export {
   type TabState,
   type TabsSnapshot,
   type SwitchApp,
-  type TabAgent,
-  type AgentTabStatus,
-  type AgentIdentity,
-  type AgentTabOp,
   SwitchAppSchema,
   SwitchAppIdSchema,
-  AgentIdentitySchema,
 } from './browser'
+export * from './agent-presence'
 
 export const invokeContract = {
   ...linearInvoke,
@@ -146,6 +143,7 @@ export const invokeContract = {
   ...setupInvoke,
   ...notificationsInvoke,
   ...computerInvoke,
+  ...agentPresenceInvoke,
 }
 export const eventContract = {
   ...linksEvents,

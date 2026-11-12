@@ -11,7 +11,7 @@ import { BLOCKED_URL_CODE, PAGE_GONE_CODE, loadableUrl } from '@evaos/browser-co
 import { isAppSwitchUrl } from '@evaos/browser-core/app-switch'
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
 import { FORWARD_FROM_GUEST, PINNED_SCOPE, chordOfInput } from '@evaos/shell-core'
-import type { AgentIdentity, TabAgent, TabState, TabsSnapshot } from '@evaos/contract'
+import type { AgentIdentity, AgentRun, TabState, TabsSnapshot } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit } from '../ipc/handle'
 import { allowGuestPopup } from './guest-permissions'
@@ -83,7 +83,7 @@ export const LIVE_SCOPES = 5
 type TabListener = (tab: TabState, view: WebContentsView) => void
 
 /** An agent is acting in the tab (or waiting on Isaac there): it keeps its live view. */
-const busy = (a: TabAgent | undefined): boolean =>
+const busy = (a: AgentRun | undefined): boolean =>
   a !== undefined && (a.status === 'working' || a.status === 'paused' || a.status === 'ask')
 
 function hostOf(url: string): string {
@@ -892,12 +892,12 @@ export class BrowserHost {
 
   // Agents ------------------------------------------------------------------------------------
 
-  agentOf(id: string): TabAgent | undefined {
+  agentOf(id: string): AgentRun | undefined {
     return this.tabs.get(id)?.state.agent
   }
 
   /** Sets (or, undefined, clears) the agent of tab `id` and what it is doing there. */
-  setAgent(id: string, agent: TabAgent | undefined): void {
+  setAgent(id: string, agent: AgentRun | undefined): void {
     const t = this.tab(id)
     if (agent) t.state.agent = agent
     else delete t.state.agent

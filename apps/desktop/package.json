@@ -96,6 +96,7 @@
     "virtua": "0.53.5",
     "vite": "8.3.4",
     "vitest": "5.0.4",
+    "xstate": "5.33.0",
     "y-protocols": "1.0.7",
     "y-websocket": "3.1.0",
     "yjs": "13.6.33",

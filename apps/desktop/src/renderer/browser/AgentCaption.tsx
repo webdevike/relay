@@ -1,12 +1,12 @@
 import { IconCheck, IconHandStop, IconPlayerPlay, IconX } from '@tabler/icons-react'
-import type { AgentTabOp, TabAgent } from '@evaos/contract'
+import type { AgentRunOp, AgentRun } from '@evaos/contract'
 import { agentFace } from '../agent/identity'
 import { invoke } from '../ipc'
 import { useAssistants } from '../assistants/assistants-store'
 import './browser.css'
 
 /** Isaac's control on an agent's tab (Take over, Hand back, Allow, Not now, dismiss). */
-export function agentOp(tabId: string, op: AgentTabOp): void {
+export function agentOp(tabId: string, op: AgentRunOp): void {
   void invoke('browser.agent', { tabId, op })
 }
 
@@ -15,7 +15,7 @@ export function AgentFace({
   agent,
   size,
 }: {
-  agent: Pick<TabAgent, 'id' | 'name'>
+  agent: Pick<AgentRun, 'id' | 'name'>
   size: 's' | 'xs'
 }) {
   // Portraits arrive with the assistants list; re-render when it does.
@@ -31,7 +31,7 @@ export function AgentFace({
 }
 
 /** What the caption row says while the agent works, when it gave no caption itself. */
-export const workingLine = (a: TabAgent): string => a.caption || `${a.name} is working`
+export const workingLine = (a: AgentRun): string => a.caption || `${a.name} is working`
 
 /**
  * The one row under a page an agent drives: who, what it is doing, and Isaac's control for that
@@ -39,7 +39,7 @@ export const workingLine = (a: TabAgent): string => a.caption || `${a.name} is w
  * Done or stopped: how it ended, dismissable. The native page paints over anything the shell
  * draws on it, so the row sits below the page, inside the agent's ring.
  */
-export function AgentCaption({ tabId, agent }: { tabId: string; agent: TabAgent }) {
+export function AgentCaption({ tabId, agent }: { tabId: string; agent: AgentRun }) {
   const s = agent.status
   const line =
     s === 'working'

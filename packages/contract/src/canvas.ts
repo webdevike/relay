@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AgentRunOpSchema, AgentRunSchema } from './agent-presence'
 
 /** The board schema version this build reads and writes (native `board::VERSION`). */
 export const CANVAS_VERSION = 1
@@ -166,6 +167,82 @@ export const CanvasThreadOpSchema = z.discriminatedUnion('op', [
 ])
 export type CanvasThreadOp = z.output<typeof CanvasThreadOpSchema>
 
+/**
+ * A chat's agent working a board in front of Isaac (the canvas.* agent actions): its run as the
+ * board's ring, caption row and the chat's work card show it.
+ */
+export const CanvasRunSchema = AgentRunSchema.extend({
+  slug: CanvasSlugSchema,
+  /** The board's title. */
+  board: Text,
+  /** The page it works on. */
+  page: CanvasPageIdSchema,
+  /** The workspace of the chat that drives it (a browser scope: `chat:<file>`, `page:agent:<id>`). */
+  workspace: z.string().max(4000).nullable(),
+})
+export type CanvasRun = z.output<typeof CanvasRunSchema>
+
+const FlowPoint = z.object({ x: Coord, y: Coord })
+
+/**
+ * One step of the agent's cursor on a board, in flow coordinates: aim at card `node` (at its
+ * `anchor`, default center) or at board point `at`. Main sends the agent's face with it.
+ */
+export const CanvasCursorOpSchema = z.object({
+  op: z.enum(['move', 'click', 'hide']),
+  node: z.string().max(500).optional(),
+  anchor: z.enum(['center', 'left', 'right', 'top', 'bottom']).optional(),
+  at: FlowPoint.optional(),
+  /** Ms the dotted route and target show before the cursor travels (move only). */
+  lead: z.number().min(0).max(2000).optional(),
+  color: z.string().max(32).optional(),
+  /** The agent's portrait as SVG text. */
+  avatar: z.string().max(200_000).optional(),
+  initial: z.string().max(4).optional(),
+})
+export type CanvasCursorOp = z.output<typeof CanvasCursorOpSchema>
+
+const BoardAt = { slug: CanvasSlugSchema, page: CanvasPageIdSchema }
+
+/**
+ * What the canvas drive (main) asks of the board on screen (renderer, internal `@canvas` call):
+ * the cursor, saving pending edits first, the cards' drawn boxes, selection, the viewport, and a
+ * card carried along with the cursor. A board that is not mounted on that page answers
+ * `mounted: false` and main only writes the file.
+ */
+export const CanvasBoardCallSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('cursor'), ...BoardAt, cursor: CanvasCursorOpSchema }),
+  z.object({ op: z.literal('flush'), slug: CanvasSlugSchema }),
+  z.object({ op: z.literal('boxes'), ...BoardAt }),
+  z.object({ op: z.literal('select'), ...BoardAt, ids: z.array(z.string().max(500)).max(500) }),
+  z.object({
+    op: z.literal('view'),
+    ...BoardAt,
+    zoom: z.number().min(0.1).max(8).optional(),
+    center: FlowPoint.optional(),
+    fit: z.boolean().optional(),
+    /** Screen px to move the board by. */
+    pan: z.object({ dx: Coord, dy: Coord }).optional(),
+    duration: z.number().min(0).max(3000).optional(),
+  }),
+  z.object({
+    op: z.literal('drag'),
+    ...BoardAt,
+    node: z.string().max(500),
+    to: FlowPoint,
+    ms: z.number().min(0).max(3000),
+  }),
+])
+export type CanvasBoardCall = z.output<typeof CanvasBoardCallSchema>
+
+export interface CanvasBoardAnswer {
+  mounted: boolean
+  /** How long the step takes on screen (cursor lead + glide, a drag), else 0. */
+  ms?: number
+  boxes?: Record<string, { x: number; y: number; w: number; h: number }>
+  viewport?: { x: number; y: number; zoom: number }
+}
+
 export const canvasInvoke = {
   'canvas.list': {
     input: z.object({}).strict(),
@@ -250,9 +327,21 @@ export const canvasInvoke = {
       height: z.number().int().min(0).nullable(),
     }),
   },
+  /** Every board an agent works or worked (its run); `canvas.runs` follows changes. */
+  'canvas.runs': {
+    input: z.object({}).strict(),
+    output: z.object({ runs: z.array(CanvasRunSchema).max(500) }),
+  },
+  /** Isaac's controls on an agent's run on a board (Take over, Hand back, dismiss). */
+  'canvas.agent': {
+    input: z.object({ slug: CanvasSlugSchema, op: AgentRunOpSchema }).strict(),
+    output: z.object({ ok: z.literal(true) }),
+  },
 } as const
 
 export const canvasEvents = {
   /** A board file changed outside Relay (`slug`), or boards were added or removed (`null`). */
   'canvas.changed': z.object({ slug: CanvasSlugSchema.nullable() }),
+  /** The agents' runs on boards changed: the full list. */
+  'canvas.runs': z.object({ runs: z.array(CanvasRunSchema).max(500) }),
 } as const

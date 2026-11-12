@@ -1,7 +1,7 @@
 import './agent-work.css'
 import type { CSSProperties } from 'react'
 import { IconCheck } from '@tabler/icons-react'
-import type { TabAgent, TabState } from '@evaos/contract'
+import type { AgentRun, TabState } from '@evaos/contract'
 import { AgentFace, agentOp, workingLine } from '../../browser/AgentCaption'
 import { useBrowserStore } from '../../browser/browser-store'
 import { elapsedLabel } from '../../context/format'
@@ -12,7 +12,7 @@ import { useDismissedIds } from '../status-card/dismissed-cards'
 import { StatusCard } from '../status-card/StatusCard'
 import { useMinute } from './SubagentChips'
 /** The card's one line for each state of the agent's run. */
-function cardLine(a: TabAgent): string {
+function cardLine(a: AgentRun): string {
   switch (a.status) {
     case 'ask':
       return `Wants to ${a.ask?.label ?? 'go on'}`
@@ -38,7 +38,7 @@ function closeFinished(tab: TabState): void {
   }
 }
 
-function WorkCard({ tab, agent, now }: { tab: TabState; agent: TabAgent; now: number }) {
+function WorkCard({ tab, agent, now }: { tab: TabState; agent: AgentRun; now: number }) {
   const s = agent.status
   const line = cardLine(agent)
   const finished = s === 'done' || s === 'stopped'
@@ -90,7 +90,7 @@ function WorkCard({ tab, agent, now }: { tab: TabState; agent: TabAgent; now: nu
 }
 
 /** A run's card id: a new run on the same page is a new card, so it shows again. */
-const cardId = (tab: TabState, agent: TabAgent): string => `agent-work:${tab.id}@${agent.since}`
+const cardId = (tab: TabState, agent: AgentRun): string => `agent-work:${tab.id}@${agent.since}`
 
 /**
  * One row per page an agent drives in the workspace on screen, above the composer: its face, what

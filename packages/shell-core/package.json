@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "xstate": "5.33.0",
     "zod": "4.6.7"
   },
   "devDependencies": {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { TabAgent } from '@evaos/contract'
+import type { AgentRun } from '@evaos/contract'
 import {
   AgentDrive,
   ASK_WAIT_MS,
@@ -25,7 +25,7 @@ const button = (label: string): ElementInfo => ({
 
 /** One tab `t1` on a checkout page: labels by text, clicks recorded. */
 function setup() {
-  let agent: TabAgent | undefined
+  let agent: AgentRun | undefined
   const input: Array<(id: string) => void> = []
   const clicks: string[] = []
   let target = button('Place your order')
@@ -56,7 +56,7 @@ function setup() {
   } as unknown as DrivePage
   const host = {
     agentOf: () => agent,
-    setAgent: (_id: string, a: TabAgent | undefined) => {
+    setAgent: (_id: string, a: AgentRun | undefined) => {
       agent = a
     },
     allTabs: () => [
