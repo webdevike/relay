@@ -22,7 +22,13 @@ const VIDEO = '[data-testid=chat-pane] [data-testid=chat-log] [data-testid=md-vi
 const session = (id: string) =>
   [
     { type: 'title', v: 1, title: TITLE, source: 'auto', updatedAt: '2026-10-27T09:05:00.000Z' },
-    { type: 'session', version: 3, id, timestamp: '2026-10-27T09:00:00.000Z', cwd: '/fixture/eva-root' },
+    {
+      type: 'session',
+      version: 3,
+      id,
+      timestamp: '2026-10-27T09:00:00.000Z',
+      cwd: '/fixture/eva-root',
+    },
     {
       type: 'message',
       id: 'v001',
@@ -87,7 +93,10 @@ const test = base.extend<{ port: number }>({
   launchEnv: async ({ port: _port }, use) => {
     const sessionsDir = path.join(root, 'agent', 'sessions', '-fixture')
     fs.mkdirSync(sessionsDir, { recursive: true })
-    fs.writeFileSync(path.join(sessionsDir, '2026-10-27T09-00-00-000Z_chat-video.jsonl'), session('chat-video'))
+    fs.writeFileSync(
+      path.join(sessionsDir, '2026-10-27T09-00-00-000Z_chat-video.jsonl'),
+      session('chat-video'),
+    )
     await use({
       EVAOS_AGENT_DIR: path.join(root, 'agent'),
       EVAOS_SESSIONS_DIR: sessionsDir,
