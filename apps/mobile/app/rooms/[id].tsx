@@ -15,14 +15,16 @@ import { FlatList, KeyboardAvoidingView, Platform, Pressable, TextInput, View } 
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import type { RoomWireMessage } from "@relay/protocol";
-import { requestRooms, roomsRequest } from "@/connection";
+import { requestRooms } from "@/connection";
 import { DialSheet } from "@/rooms/DialSheet";
 import type { CardActions } from "@/rooms/Cards";
 import type { DecisionActions } from "@/rooms/DecisionCards";
 import { MessageRow } from "@/rooms/MessageRow";
 import { Bar, TAP } from "@/rooms/primitives";
+import { NOT_CONFIRMED, RequestNote } from "@/rooms/RequestNote";
 import { PhaseStrip, SpendMeter } from "@/rooms/Status";
-import { castOfRoom, commandError, notchLabel, roomLive, roomStatus, routingOf, runControl, seatsOfRoom } from "@/rooms/model";
+import { castOfRoom, notchLabel, roomLive, roomStatus, routingOf, runControl, seatsOfRoom } from "@/rooms/model";
+import { useRoomsAction } from "@/rooms/useRoomsAction";
 import { useRoom, useRoomsStore } from "@/state/rooms";
 import { radii, spacing, useColors, useScheme } from "@/theme";
 import { Button } from "@/ui/Button";
@@ -40,13 +42,14 @@ export default function RoomScreen() {
   const room = useRoom(id);
   const list = useRef<FlatList<RoomWireMessage>>(null);
   const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [dialOpen, setDialOpen] = useState(false);
-  const [raising, setRaising] = useState(false);
-  const [raiseError, setRaiseError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
+  // Each control runs its commands through a request machine, busy until the room frame shows the
+  // change: the post until a message lands, raise until the notch moves, the rest until the phase does.
+  // The composer keeps its text unless the desktop took the post.
+  const post = useRoomsAction(room === undefined ? null : String(room.messages.length), () => { setText(""); });
+  const raising = useRoomsAction(room === undefined ? null : notchLabel(room));
+  const running = useRoomsAction(room?.phase ?? null);
+  const stopping = useRoomsAction(room?.phase ?? null);
   const hostResumes = useRoomsStore((state) => state.resumes);
   const hostDecides = useRoomsStore((state) => state.decides);
 
@@ -58,8 +61,8 @@ export default function RoomScreen() {
 
   const actions = useMemo<CardActions>(
     () => ({
-      budget: async (choice) => commandError(await roomsRequest({ op: "budget", roomId: id, choice })),
-      answer: async (askId, allow) => commandError(await roomsRequest({ op: "answer", roomId: id, askId, allow })),
+      budget: (choice) => ({ op: "budget", roomId: id, choice }),
+      answer: (askId, allow) => ({ op: "answer", roomId: id, askId, allow }),
     }),
     [id],
   );
@@ -67,12 +70,11 @@ export default function RoomScreen() {
     () =>
       hostDecides
         ? {
-            vote: async (cardId, option) => commandError(await roomsRequest({ op: "vote", roomId: id, cardId, option })),
-            callPoll: async (cardId) => commandError(await roomsRequest({ op: "callPoll", roomId: id, cardId })),
-            reopenPoll: async (cardId) => commandError(await roomsRequest({ op: "reopenPoll", roomId: id, cardId })),
-            answer: async (cardId, answer) => commandError(await roomsRequest({ op: "answerAsk", roomId: id, cardId, answer })),
-            decide: async (cardId, action, option) =>
-              commandError(await roomsRequest({ op: "decide", roomId: id, cardId, action, ...(option === undefined ? {} : { option }) })),
+            vote: (cardId, option) => ({ op: "vote", roomId: id, cardId, option }),
+            callPoll: (cardId) => ({ op: "callPoll", roomId: id, cardId }),
+            reopenPoll: (cardId) => ({ op: "reopenPoll", roomId: id, cardId }),
+            answer: (cardId, answer) => ({ op: "answerAsk", roomId: id, cardId, answer }),
+            decide: (cardId, action, option) => ({ op: "decide", roomId: id, cardId, action, ...(option === undefined ? {} : { option }) }),
           }
         : null,
     [id, hostDecides],
@@ -95,28 +97,18 @@ export default function RoomScreen() {
   const canPost = live || room.phase === "paused" || room.chat !== undefined;
   const council = room.council;
   const control = runControl(room, hostResumes);
-  const send = async (): Promise<void> => {
+  const send = (): void => {
     const body = text.trim();
     if (body === "") return;
-    setSending(true);
-    setError(null);
-    const failed = commandError(await roomsRequest({ op: "post", roomId: room.id, text: body }));
-    setSending(false);
-    if (failed === null) setText("");
-    else setError(failed);
+    post.run("post", { op: "post", roomId: room.id, text: body });
   };
-  const raise = async (): Promise<void> => {
-    setRaising(true);
-    setRaiseError(null);
-    setRaiseError(commandError(await roomsRequest({ op: "raise", roomId: room.id })));
-    setRaising(false);
-  };
-  const run = async (op: "pause" | "resume"): Promise<void> => {
-    setRunning(true);
-    setRunError(null);
-    setRunError(commandError(await roomsRequest({ op, roomId: room.id })));
-    setRunning(false);
-  };
+  const runBusy = running.busy !== null || running.unconfirmed !== null;
+  const stop = (
+    <View style={{ gap: spacing.xs, alignItems: "flex-start" }}>
+      <Button label="Resolve now" variant="secondary" height={TAP} loading={stopping.busy !== null} disabled={stopping.unconfirmed !== null} onPress={() => { stopping.run("stop", { op: "stop", roomId: room.id }); }} />
+      <RequestNote action={stopping} />
+    </View>
+  );
   const chip = notchLabel(room);
   const typing = Object.entries(room.presence).map(([agent, p]) => `${room.agents.find((a) => a.id === agent)?.name ?? "Someone"} is ${p.state}`);
 
@@ -150,7 +142,7 @@ export default function RoomScreen() {
               <View style={{ flex: 1 }}>
                 <SpendMeter room={room} />
               </View>
-              {live && <Button label="Resolve now" variant="secondary" height={TAP} onPress={() => void roomsRequest({ op: "stop", roomId: room.id })} />}
+              {live && stop}
             </View>
             {control !== null && (
               <View style={{ paddingHorizontal: spacing.lg, gap: spacing.xs, alignItems: "flex-start" }}>
@@ -158,10 +150,10 @@ export default function RoomScreen() {
                   label={control.label}
                   variant={control.op === "resume" && room.phase === "paused" ? "primary" : "secondary"}
                   height={TAP}
-                  disabled={control.busy || running}
-                  onPress={() => void run(control.op)}
+                  disabled={control.busy || runBusy}
+                  onPress={() => { running.run(control.op, { op: control.op, roomId: room.id }); }}
                 />
-                {runError !== null && <Text variant="label" color="danger">{runError}</Text>}
+                <RequestNote action={running} />
               </View>
             )}
             <PhaseStrip room={room} />
@@ -169,7 +161,7 @@ export default function RoomScreen() {
         )}
         {council === undefined && room.chat === undefined && live && (
           <View style={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.md, alignItems: "flex-start" }}>
-            <Button label="Resolve now" variant="secondary" height={TAP} onPress={() => void roomsRequest({ op: "stop", roomId: room.id })} />
+            {stop}
           </View>
         )}
         {room.chat !== undefined && control !== null && (
@@ -178,10 +170,10 @@ export default function RoomScreen() {
               label={control.label}
               variant={control.op === "resume" ? "primary" : "secondary"}
               height={TAP}
-              disabled={running}
-              onPress={() => void run(control.op)}
+              disabled={runBusy}
+              onPress={() => { running.run(control.op, { op: control.op, roomId: room.id }); }}
             />
-            {runError !== null && <Text variant="label" color="danger">{runError}</Text>}
+            <RequestNote action={running} />
           </View>
         )}
         <Separator />
@@ -201,7 +193,7 @@ export default function RoomScreen() {
         />
         {canPost && (
           <View style={{ borderTopWidth: 1, borderTopColor: colors.hairline, padding: spacing.md, gap: spacing.xs }}>
-            {error !== null && <Text variant="label" color="danger">{error}</Text>}
+            <RequestNote action={post} />
             <View style={{ flexDirection: "row", alignItems: "flex-end", gap: spacing.sm }}>
               <TextInput
                 value={text}
@@ -222,7 +214,7 @@ export default function RoomScreen() {
                 accessibilityLabel="Message the room"
                 style={{ flex: 1, minHeight: TAP, maxHeight: 120, paddingHorizontal: spacing.md, paddingTop: 12, paddingBottom: 12, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.hairline, backgroundColor: colors.surface, color: colors.text, fontSize: 16, lineHeight: 20 }}
               />
-              <IconButton symbol="arrow.up" size={TAP} tintColor={colors.bg} backgroundColor={colors.accent} accessibilityLabel="Send" disabled={sending || text.trim() === ""} onPress={() => void send()} />
+              <IconButton symbol="arrow.up" size={TAP} tintColor={colors.bg} backgroundColor={colors.accent} accessibilityLabel="Send" disabled={post.busy !== null || post.unconfirmed !== null || text.trim() === ""} onPress={send} />
             </View>
           </View>
         )}
@@ -235,7 +227,18 @@ export default function RoomScreen() {
           routing={routingOf(council)}
           seats={seatsOfRoom(room).length > 0 ? seatsOfRoom(room) : undefined}
           parts={council.parts.length > 0 ? council.parts : castOfRoom(council).parts}
-          raise={live ? { busy: raising, error: raiseError, onRaise: () => void raise() } : undefined}
+          raise={
+            live
+              ? {
+                  busy: raising.busy !== null,
+                  error: raising.error ?? (raising.unconfirmed === null ? null : `${NOT_CONFIRMED} Tap to try again.`),
+                  onRaise: () => {
+                    if (raising.unconfirmed === null) raising.run("raise", { op: "raise", roomId: room.id });
+                    else raising.retry();
+                  },
+                }
+              : undefined
+          }
         />
       )}
     </Screen>

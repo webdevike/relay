@@ -6,42 +6,56 @@
  * `rooms.state` replaces the list, `rooms.room` patches one, and `rooms.res` settles the
  * `rooms.cmd` waiting on its rid.
  */
+import { createActor, waitFor } from "xstate";
 import { ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE, ROOMS_FEATURE, ROOMS_RESUME_FEATURE, type RoomsResult, type ServerMessage } from "@relay/protocol";
+import { ROOMS_TIMEOUT_MS, roomsRequestMachine, type RoomsRequest } from "@/rooms/roomsRequest.machine";
 import type { RoomsStore } from "@/state/rooms";
 
 export type RoomsFrameRouter = (message: ServerMessage) => void;
 
-/** How long a room command waits for the desktop's answer before it counts as failed. */
-export const ROOMS_TIMEOUT_MS = 30_000;
-
-/** `rooms.cmd` commands sent and not yet answered, by rid. */
+/**
+ * `rooms.cmd` requests the desktop has not settled, by rid: pending ones and unconfirmed ones (a late
+ * `rooms.res` still settles those). Each is a `roomsRequestMachine` actor; it leaves once answered or failed.
+ */
 export class PendingRooms {
-  private readonly waiting = new Map<string, { resolve: (result: RoomsResult) => void; timer: ReturnType<typeof setTimeout> }>();
+  private readonly open = new Map<string, RoomsRequest>();
 
   constructor(private readonly timeoutMs = ROOMS_TIMEOUT_MS) {}
 
-  /** Resolves with the answer to `rid`, or a failure after the timeout or `cancelAll`. */
-  add(rid: string): Promise<RoomsResult> {
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        this.settle(rid, { ok: false, code: "timeout", message: "Your Mac did not answer." });
-      }, this.timeoutMs);
-      this.waiting.set(rid, { resolve, timer });
+  /** Sends `rid` through `transmit` now, and again with the same rid on every Try again. */
+  start(rid: string, transmit: () => void, view: string | null = null): RoomsRequest {
+    const request = createActor(roomsRequestMachine.provide({ actions: { transmit }, delays: { answerTimeout: this.timeoutMs } }), {
+      input: { rid, view },
     });
+    request.subscribe((snapshot) => {
+      if (snapshot.matches("answered") || snapshot.matches("failed")) this.open.delete(rid);
+    });
+    this.open.set(rid, request);
+    request.start();
+    return request;
   }
 
   settle(rid: string, result: RoomsResult): void {
-    const entry = this.waiting.get(rid);
-    if (entry === undefined) return;
-    clearTimeout(entry.timer);
-    this.waiting.delete(rid);
-    entry.resolve(result);
+    this.open.get(rid)?.send({ type: "request.answered", result });
   }
 
-  /** The connection went to another host: nothing still waiting will be answered. */
-  cancelAll(): void {
-    for (const rid of [...this.waiting.keys()]) this.settle(rid, { ok: false, code: "disconnected", message: "Disconnected." });
+  /** The socket closed or the connection went to another host: nothing still open will be answered. */
+  cancelAll(message = "Disconnected."): void {
+    for (const request of [...this.open.values()]) request.send({ type: "request.cancelled", result: { ok: false, code: "disconnected", message } });
   }
+}
+
+/** A request refused before it was sent (offline, a host without Rooms): it starts failed. */
+export function refusedRequest(result: RoomsResult): RoomsRequest {
+  return createActor(roomsRequestMachine, { input: { rid: "", refused: result } }).start();
+}
+
+/** The first outcome of a request that only wants a value (an image): unconfirmed reads as a timeout. */
+export async function requestOutcome(request: RoomsRequest): Promise<RoomsResult> {
+  const snapshot = await waitFor(request, (s) => !s.matches("sending") && !s.matches("pending"));
+  return snapshot.matches("unconfirmed") || snapshot.context.result === null
+    ? { ok: false, code: "timeout", message: "Your Mac did not answer." }
+    : snapshot.context.result;
 }
 
 type RoutedStore = Pick<RoomsStore, "setSupported" | "setState" | "upsert">;

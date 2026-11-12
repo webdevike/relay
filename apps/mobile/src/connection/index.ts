@@ -72,7 +72,8 @@ import { createReactionFrameRouter } from "./reactions";
 import { createBookmarkFrameRouter } from "./bookmarks";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import { createStudioFrameRouter, PendingStudio } from "./studio";
-import { createRoomsFrameRouter, PendingRooms } from "./rooms";
+import { createRoomsFrameRouter, PendingRooms, refusedRequest } from "./rooms";
+import type { RoomsRequest } from "@/rooms/roomsRequest.machine";
 import { createReviewsFrameRouter, PendingReviews } from "./reviews";
 import { createMeetingsFrameRouter, PendingMeetings } from "./meetings";
 import { createQueryClient, createQueryFrameRouter, PendingQueries } from "./query";
@@ -904,21 +905,23 @@ export function requestRooms(): void {
 }
 
 /**
- * One Rooms command (create, post, raise, budget, answer, stop, pause, resume, image). The desktop's
- * answer resolves it; fails at once while not connected or when the host has no Rooms (an older host
- * would drop the socket on the frame) or, for pause / resume, no ROOMS_RESUME_FEATURE, and after
- * `ROOMS_TIMEOUT_MS` unanswered.
+ * One Rooms command (create, post, raise, budget, answer, stop, pause, resume, image) as its request
+ * machine. Fails at once while not connected or when the host has no Rooms (an older host would drop
+ * the socket on the frame) or, for pause / resume, no ROOMS_RESUME_FEATURE; unanswered it turns
+ * unconfirmed, and Try again re-sends the same rid. `view` is what the room frame shows of the thing
+ * the command changes (see `roomsRequestMachine`).
  */
-export function roomsRequest(cmd: RoomsCmd): Promise<RoomsResult> {
-  if (useConnectionStore.getState().status !== "connected")
-    return Promise.resolve({ ok: false, code: "offline", message: "Not connected to your Mac." });
+export function roomsRequest(cmd: RoomsCmd, view: string | null = null): RoomsRequest {
   const rooms = useRoomsStore.getState();
-  if (rooms.supported !== true || ((cmd.op === "pause" || cmd.op === "resume") && !rooms.resumes))
-    return Promise.resolve({ ok: false, code: "unsupported", message: "Update Relay Host on your Mac to use Rooms." });
+  const refusal: RoomsResult | null =
+    useConnectionStore.getState().status !== "connected"
+      ? { ok: false, code: "offline", message: "Not connected to your Mac." }
+      : rooms.supported !== true || ((cmd.op === "pause" || cmd.op === "resume") && !rooms.resumes)
+        ? { ok: false, code: "unsupported", message: "Update Relay Host on your Mac to use Rooms." }
+        : null;
+  if (refusal !== null) return refusedRequest(refusal);
   const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  const answer = pendingRooms.add(rid);
-  socket.send(encode({ t: "rooms.cmd", rid, cmd }));
-  return answer;
+  return pendingRooms.start(rid, () => { socket.send(encode({ t: "rooms.cmd", rid, cmd })); }, view);
 }
 
 function sendReviews(op: ReviewsOp): Promise<ReviewsResult> {

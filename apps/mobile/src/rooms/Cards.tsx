@@ -10,6 +10,7 @@ import {
   COUNCIL_MODELS,
   COUNCIL_TARGET_SCORE,
   councilMoney,
+  type RoomsCmd,
   type RoomWire,
   type RoomWireCard,
   type RoomWireRoutingEntry,
@@ -23,12 +24,14 @@ import { Separator } from "@/ui/Separator";
 import { Text } from "@/ui/Text";
 import { authorOf, deltaLabel, scoreMet } from "./model";
 import { Block, TAP, Tag } from "./primitives";
+import { RequestNote } from "./RequestNote";
 import { RenderThumb } from "./RoomImage";
+import { useRoomsAction } from "./useRoomsAction";
 
-/** What the buttons on a card do; each resolves to an error to show, or null when it worked. */
+/** The commands a card's buttons send; the card runs them through its request machine. */
 export interface CardActions {
-  budget: (choice: "continue" | "wrap") => Promise<string | null>;
-  answer: (askId: string, allow: boolean) => Promise<string | null>;
+  budget: (choice: "continue" | "wrap") => RoomsCmd;
+  answer: (askId: string, allow: boolean) => RoomsCmd;
 }
 
 type Of<T extends RoomWireCard["type"]> = Extract<RoomWireCard, { type: T }>;
@@ -145,38 +148,30 @@ function ScorecardCard({ room, card }: { room: RoomWire; card: Of<"scorecard"> }
 
 function PauseCard({ card, actions }: { card: Of<"pause">; actions: CardActions }) {
   const colors = useColors();
-  const [busy, setBusy] = useState<"continue" | "wrap" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const go = async (choice: "continue" | "wrap"): Promise<void> => {
-    setBusy(choice);
-    setError(await actions.budget(choice));
-    setBusy(null);
-  };
+  // Busy until the card says it was answered (or the request fails): no second Continue.
+  const action = useRoomsAction(JSON.stringify(card));
+  const blocked = action.busy !== null || action.unconfirmed !== null;
   return (
     <Block style={{ backgroundColor: toneFill(colors, "warn", 0.1), borderColor: colors.warn }}>
       <Text variant="title">Over budget soon</Text>
       <Text variant="body">{`${councilMoney(card.spent)} spent of the ${councilMoney(card.cap)} cap. Continue to ${councilMoney(card.nextCap)} or wrap now?`}</Text>
       {card.answered === undefined ? (
         <View style={{ gap: spacing.sm }}>
-          <Button label={`Continue to ${councilMoney(card.nextCap)}`} height={TAP + 4} loading={busy === "continue"} disabled={busy !== null} onPress={() => void go("continue")} />
-          <Button label="Wrap now" variant="secondary" height={TAP + 4} loading={busy === "wrap"} disabled={busy !== null} onPress={() => void go("wrap")} />
+          <Button label={`Continue to ${councilMoney(card.nextCap)}`} height={TAP + 4} loading={action.busy === "continue"} disabled={blocked} onPress={() => { action.run("continue", actions.budget("continue")); }} />
+          <Button label="Wrap now" variant="secondary" height={TAP + 4} loading={action.busy === "wrap"} disabled={blocked} onPress={() => { action.run("wrap", actions.budget("wrap")); }} />
         </View>
       ) : (
         <Text variant="label" color="textMuted">{card.answered === "continue" ? `You chose to continue to ${councilMoney(card.nextCap)}.` : "You chose to wrap now."}</Text>
       )}
-      {error !== null && <Text variant="label" color="danger">{error}</Text>}
+      {card.answered === undefined && <RequestNote action={action} />}
     </Block>
   );
 }
 
 function AskCard({ room, card, actions }: { room: RoomWire; card: Of<"ask">; actions: CardActions }) {
-  const [busy, setBusy] = useState<boolean | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const go = async (allow: boolean): Promise<void> => {
-    setBusy(allow);
-    setError(await actions.answer(card.askId, allow));
-    setBusy(null);
-  };
+  // Busy until the card says it was answered (or the request fails): no second Allow.
+  const action = useRoomsAction(JSON.stringify(card));
+  const blocked = action.busy !== null || action.unconfirmed !== null;
   return (
     <Block>
       <Text variant="title">{`${authorOf(room, card.agentId).name} wants to act outside the room`}</Text>
@@ -184,16 +179,16 @@ function AskCard({ room, card, actions }: { room: RoomWire; card: Of<"ask">; act
       {card.answered === undefined ? (
         <View style={{ flexDirection: "row", gap: spacing.sm }}>
           <View style={{ flex: 1 }}>
-            <Button label="Allow" height={TAP + 4} loading={busy === true} disabled={busy !== null} onPress={() => void go(true)} />
+            <Button label="Allow" height={TAP + 4} loading={action.busy === "allow"} disabled={blocked} onPress={() => { action.run("allow", actions.answer(card.askId, true)); }} />
           </View>
           <View style={{ flex: 1 }}>
-            <Button label="Deny" variant="secondary" height={TAP + 4} loading={busy === false} disabled={busy !== null} onPress={() => void go(false)} />
+            <Button label="Deny" variant="secondary" height={TAP + 4} loading={action.busy === "deny"} disabled={blocked} onPress={() => { action.run("deny", actions.answer(card.askId, false)); }} />
           </View>
         </View>
       ) : (
         <Tag label={card.answered === "allow" ? "Allowed" : "Denied"} tone={card.answered === "allow" ? "ok" : "danger"} />
       )}
-      {error !== null && <Text variant="label" color="danger">{error}</Text>}
+      {card.answered === undefined && <RequestNote action={action} />}
     </Block>
   );
 }
@@ -306,5 +301,11 @@ export function RoomCard({ room, card, actions }: { room: RoomWire; card: RoomWi
       return <AskCard room={room} card={card} actions={actions} />;
     case "deliverable":
       return <DeliverableCard room={room} card={card} />;
+    case "poll":
+    case "proscons":
+    case "question":
+    case "decision":
+      // A chat room's decision cards ride on a message (DecisionCards.tsx), never as a council card.
+      return null;
   }
 }

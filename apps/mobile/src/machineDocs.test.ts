@@ -10,11 +10,13 @@ import { describe, expect, it } from "vitest";
 import type { AnyStateMachine } from "xstate";
 import { machineDiagram, newDoc, withDiagram } from "./lib/machineDiagram";
 import { commandMachine } from "./connection/command.machine";
+import { roomsRequestMachine } from "./rooms/roomsRequest.machine";
 import { sessionMachine } from "./connection/session.machine";
 import { legacyCallMachine } from "./call/legacyCall.machine";
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   { file: "command", title: "Reliable command lifecycle (phone to host)", machine: commandMachine },
+  { file: "rooms-request", title: "Rooms request and card busy state", machine: roomsRequestMachine },
   { file: "session", title: "Connection session (discovery, pairing, heartbeat, backoff, background)", machine: sessionMachine },
   { file: "legacy-call", title: "Legacy voice call (host speech over the app socket)", machine: legacyCallMachine },
 ];

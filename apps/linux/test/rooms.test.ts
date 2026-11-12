@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_ROOM_BYTES, MAX_ROOMS, ServerMessage, type RoomsCmd } from "@relay/protocol";
-import { RoomsRelay, type HostRoom } from "../src/rooms/relay";
+import { ROOMS_REPLAY_MS, RoomsRelay, type HostRoom } from "../src/rooms/relay";
 import type { FrameSink } from "../src/seams";
 import type { SessionClock } from "../src/session";
 
@@ -163,6 +163,76 @@ describe("rooms relay", () => {
     s.relay.get(s.phone);
     expect(s.phone.last()).toEqual({ t: "rooms.state", rooms: [room("r1", 1)] });
     expect(s.logs.filter((l) => l.includes("ignored"))).toHaveLength(3);
+  });
+
+  describe("a repeated phone rid (Try again), keyed by the phone's socket", () => {
+    const cmds = (sink: Sink) => sink.received.filter((m) => m.t === "rooms.cmd");
+
+    it("while the first is in flight: forwards once and answers both", () => {
+      const s = setup();
+      s.relay.sync(s.mini, [room("r1", 1)]);
+      s.relay.cmd(s.phone, "p1", post);
+      s.relay.cmd(s.phone, "p1", post);
+      expect(cmds(s.mini)).toHaveLength(1);
+      const sent = s.mini.last();
+      if (sent?.t !== "rooms.cmd") throw new Error("no cmd");
+      s.relay.result(s.mini, sent.rid, { ok: true, value: 1 });
+      expect(s.phone.received).toEqual([
+        { t: "rooms.res", rid: "p1", result: { ok: true, value: 1 } },
+        { t: "rooms.res", rid: "p1", result: { ok: true, value: 1 } },
+      ]);
+    });
+
+    it("after the answer: replays it for a few minutes without forwarding, then forgets", () => {
+      const s = setup();
+      s.relay.sync(s.mini, [room("r1", 1)]);
+      s.relay.cmd(s.phone, "p1", post);
+      const sent = s.mini.last();
+      if (sent?.t !== "rooms.cmd") throw new Error("no cmd");
+      s.relay.result(s.mini, sent.rid, { ok: true });
+      s.clock.advance(ROOMS_REPLAY_MS - 1);
+      s.relay.cmd(s.phone, "p1", post);
+      expect(cmds(s.mini)).toHaveLength(1);
+      expect(s.phone.received).toEqual([
+        { t: "rooms.res", rid: "p1", result: { ok: true } },
+        { t: "rooms.res", rid: "p1", result: { ok: true } },
+      ]);
+      s.clock.advance(1);
+      s.relay.cmd(s.phone, "p1", post);
+      expect(cmds(s.mini)).toHaveLength(2);
+    });
+
+    it("a different rid, or the same rid from another phone socket, forwards", () => {
+      const s = setup();
+      const other = new Sink();
+      s.relay.sync(s.mini, [room("r1", 1)]);
+      s.relay.cmd(s.phone, "p1", post);
+      s.relay.cmd(s.phone, "p2", post);
+      s.relay.cmd(other, "p1", post);
+      expect(cmds(s.mini)).toHaveLength(3);
+    });
+
+    it("does not keep an answer that leaves the outcome unknown: a repeat after the host's timeout goes out again", () => {
+      const s = setup();
+      s.relay.sync(s.mini, [room("r1", 1)]);
+      s.relay.cmd(s.phone, "p1", post);
+      s.clock.advance(60_000);
+      expect(s.phone.last()).toMatchObject({ t: "rooms.res", rid: "p1", result: { code: "timeout" } });
+      s.relay.cmd(s.phone, "p1", post);
+      expect(cmds(s.mini)).toHaveLength(2);
+    });
+
+    it("forgets a phone's rids when its socket drops", () => {
+      const s = setup();
+      s.relay.sync(s.mini, [room("r1", 1)]);
+      s.relay.cmd(s.phone, "p1", post);
+      const sent = s.mini.last();
+      if (sent?.t !== "rooms.cmd") throw new Error("no cmd");
+      s.relay.result(s.mini, sent.rid, { ok: true });
+      s.relay.drop(s.phone);
+      s.relay.cmd(s.phone, "p1", post);
+      expect(cmds(s.mini)).toHaveLength(2);
+    });
   });
 
   it("rejects an oversize room and keeps at most MAX_ROOMS per desktop", () => {

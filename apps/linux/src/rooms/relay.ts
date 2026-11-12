@@ -7,6 +7,13 @@
 // frames are dropped with a log. Only phones that asked (`rooms.get`) hear room changes, and only
 // those that asked with `chat: true` (ROOMS_CHAT_FEATURE) see chat rooms: an older phone's schema
 // refuses their `idle` phase.
+//
+// A phone re-sends a `rooms.cmd` with the same rid when its first got no answer in time (Try again).
+// The relay keys rids by the phone's socket (it never sees the device; a reconnect is a new socket
+// and a new key, and the phone fails everything open on a reconnect anyway): a repeat while the
+// first is in flight is not forwarded again and gets the same answer, and a repeat within
+// ROOMS_REPLAY_MS of a definite answer gets that answer replayed. Answers that leave the desktop's
+// outcome unknown (`timeout`, `device-gone`) are not kept, so a repeat of those goes out again.
 
 import { randomBytes } from "node:crypto";
 import { MAX_ROOM_BYTES, MAX_ROOMS, type RoomsCmd, type RoomsResult, type RoomWireSchema } from "@relay/protocol";
@@ -16,6 +23,8 @@ import type { SessionClock } from "../session";
 
 /** Image ops render and encode on the desktop; every op gets this long to answer. */
 export const ROOMS_TIMEOUT_MS = 60_000;
+/** How long a phone's answered rid is remembered, so its Try again replays the answer instead of acting twice. */
+export const ROOMS_REPLAY_MS = 5 * 60_000;
 
 export type HostRoom = z.output<typeof RoomWireSchema>;
 
@@ -29,8 +38,13 @@ interface Pending {
   readonly desktop: FrameSink;
   readonly phone: FrameSink;
   readonly rid: string;
+  /** How many `rooms.cmd` frames carried this rid; each gets the answer. */
+  asks: number;
   readonly cancel: () => void;
 }
+
+/** A phone rid the relay has seen: in flight (its host rid), or answered (replayed to a repeat until forgotten). */
+type Seen = { readonly hostRid: string } | { readonly result: RoomsResult; readonly forget: () => void };
 
 export interface RoomsRelaying {
   sync(sink: FrameSink, rooms: readonly HostRoom[]): void;
@@ -53,6 +67,8 @@ export class RoomsRelay implements RoomsRelaying {
   /** Sockets that sent a phone frame; their desktop frames are refused. */
   private readonly phoneSockets = new WeakSet<FrameSink>();
   private readonly pending = new Map<string, Pending>();
+  /** Each phone socket's rids, so a repeat is answered once (see the header). */
+  private readonly seen = new Map<FrameSink, Map<string, Seen>>();
 
   constructor(
     private readonly clock: SessionClock,
@@ -60,6 +76,7 @@ export class RoomsRelay implements RoomsRelaying {
     /** The desktop remote control calls active (see ControlRelay.pick), if any. */
     private readonly active: () => FrameSink | null = () => null,
     private readonly timeoutMs = ROOMS_TIMEOUT_MS,
+    private readonly replayMs = ROOMS_REPLAY_MS,
   ) {}
 
   sync(sink: FrameSink, rooms: readonly HostRoom[]): void {
@@ -100,6 +117,16 @@ export class RoomsRelay implements RoomsRelaying {
 
   cmd(sink: FrameSink, rid: string, cmd: RoomsCmd): void {
     if (!this.phone(sink, "rooms.cmd")) return;
+    const seen = this.seen.get(sink)?.get(rid);
+    if (seen !== undefined) {
+      if ("result" in seen) sink.send({ t: "rooms.res", rid, result: seen.result });
+      else {
+        const waiting = this.pending.get(seen.hostRid);
+        if (waiting !== undefined) waiting.asks += 1;
+      }
+      this.log(`rooms: repeated rid ${rid} ${"result" in seen ? "answered again" : "already in flight"}; not forwarded`);
+      return;
+    }
     const desktop = cmd.op === "create" ? this.pickActive() : this.owner(cmd.roomId);
     if (desktop === null) {
       const anyDesktop = this.desktops.size > 0;
@@ -114,12 +141,15 @@ export class RoomsRelay implements RoomsRelaying {
     const cancel = this.clock.after(this.timeoutMs, () => {
       this.finish(hostRid, fail("timeout", "Your Mac did not answer in time"));
     });
-    this.pending.set(hostRid, { desktop, phone: sink, rid, cancel });
+    this.pending.set(hostRid, { desktop, phone: sink, rid, asks: 1, cancel });
+    this.rids(sink).set(rid, { hostRid });
     desktop.send({ t: "rooms.cmd", rid: hostRid, cmd });
   }
 
   drop(sink: FrameSink): void {
     this.phones.delete(sink);
+    for (const seen of this.seen.get(sink)?.values() ?? []) if ("forget" in seen) seen.forget();
+    this.seen.delete(sink);
     for (const [hostRid, waiting] of [...this.pending]) {
       if (waiting.phone === sink) {
         waiting.cancel();
@@ -145,7 +175,26 @@ export class RoomsRelay implements RoomsRelaying {
     if (waiting === undefined) return;
     this.pending.delete(hostRid);
     waiting.cancel();
-    waiting.phone.send({ t: "rooms.res", rid: waiting.rid, result });
+    for (let i = 0; i < waiting.asks; i += 1) waiting.phone.send({ t: "rooms.res", rid: waiting.rid, result });
+    const rids = this.rids(waiting.phone);
+    // These answers say nothing about whether the desktop did it: a repeat must go out again.
+    if (!result.ok && (result.code === "timeout" || result.code === "device-gone")) {
+      rids.delete(waiting.rid);
+      return;
+    }
+    const forget = this.clock.after(this.replayMs, () => {
+      rids.delete(waiting.rid);
+    });
+    rids.set(waiting.rid, { result, forget });
+  }
+
+  private rids(phone: FrameSink): Map<string, Seen> {
+    let rids = this.seen.get(phone);
+    if (rids === undefined) {
+      rids = new Map();
+      this.seen.set(phone, rids);
+    }
+    return rids;
   }
 
   private fits(room: HostRoom): boolean {

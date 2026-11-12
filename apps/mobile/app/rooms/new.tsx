@@ -8,10 +8,11 @@ import { Pressable, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { COUNCIL_DEFAULT_EFFORT, councilCast, councilChip, councilTime } from "@relay/protocol";
-import { roomsRequest } from "@/connection";
 import { DialSheet } from "@/rooms/DialSheet";
-import { commandError, createCommand, createdRoomId, EMPTY_ROUTING } from "@/rooms/model";
+import { createCommand, createdRoomId, EMPTY_ROUTING } from "@/rooms/model";
 import { Bar, Field, TAP } from "@/rooms/primitives";
+import { RequestNote } from "@/rooms/RequestNote";
+import { useRoomsAction } from "@/rooms/useRoomsAction";
 import { useRoomsStore } from "@/state/rooms";
 import { radii, spacing, useColors } from "@/theme";
 import { Button } from "@/ui/Button";
@@ -28,28 +29,23 @@ export default function NewRoom() {
   const [renderCmd, setRenderCmd] = useState("");
   const [dial, setDial] = useState({ effort: COUNCIL_DEFAULT_EFFORT, routing: EMPTY_ROUTING });
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const cast = councilCast(dial.effort, dial.routing);
-
-  const start = async (): Promise<void> => {
-    const made = createCommand({ prompt, source, refs, renderCmd, effort: dial.effort, routing: dial.routing });
-    if (!made.ok) {
-      setError(made.error);
-      return;
-    }
-    setError(null);
-    setBusy(true);
-    const result = await roomsRequest(made.cmd);
-    setBusy(false);
-    const failed = commandError(result);
-    if (failed !== null) {
-      setError(failed);
-      return;
-    }
+  const [invalid, setInvalid] = useState<string | null>(null);
+  // One create at a time: a second tap while it is out (or unconfirmed) starts nothing.
+  const create = useRoomsAction(null, (result) => {
     const id = createdRoomId(result.ok ? result.value : undefined);
     if (id === null) router.replace("/rooms");
     else router.replace({ pathname: "/rooms/[id]", params: { id } });
+  });
+  const cast = councilCast(dial.effort, dial.routing);
+
+  const start = (): void => {
+    const made = createCommand({ prompt, source, refs, renderCmd, effort: dial.effort, routing: dial.routing });
+    if (!made.ok) {
+      setInvalid(made.error);
+      return;
+    }
+    setInvalid(null);
+    create.run("create", made.cmd);
   };
 
   return (
@@ -77,8 +73,9 @@ export default function NewRoom() {
           <SymbolView name="slider.horizontal.3" size={22} tintColor={colors.accent} />
         </Pressable>
 
-        {error !== null && <Text variant="body" color="danger">{error}</Text>}
-        <Button label="Start room" height={TAP + 8} loading={busy} disabled={supported !== true} onPress={() => void start()} />
+        {invalid !== null && <Text variant="body" color="danger">{invalid}</Text>}
+        <RequestNote action={create} />
+        <Button label="Start room" height={TAP + 8} loading={create.busy !== null} disabled={supported !== true || create.unconfirmed !== null} onPress={start} />
       </View>
       <DialSheet visible={open} onClose={() => { setOpen(false); }} effort={dial.effort} routing={dial.routing} onChange={setDial} />
     </Screen>
