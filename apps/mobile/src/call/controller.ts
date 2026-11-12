@@ -1,26 +1,96 @@
 /**
- * Starts and ends the phone's side of a call: microphone permission, the native audio engine
- * (`modules/voice-call`), its frames out as `call.audio`, mute and hang-up. The host's answers come
- * back through `src/call/frames.ts`. Whatever ends the call (hang-up, the assistant, the socket,
- * iOS taking the audio session, its screen going away) stops the engine, which lets go of the
- * microphone. A call that ends cleanly is forgotten at once, so its screen closes straight onto
- * the thread; one that ends on an error stays, with the error, until its screen is closed.
+ * Runs the legacy call machine (`legacyCall.machine.ts`) on the phone's native wiring: microphone
+ * permission, the native audio engine (`modules/voice-call`), its frames out as `call.audio`, mute
+ * and hang-up. The machine decides; this file only performs its effects and projects its state
+ * into `useCallStore`, which the screens read. The host's answers come back through
+ * `src/call/frames.ts` (`callHostState`), the socket's end through `connection/index.ts`
+ * (`callSocketEpochEnded`). Whatever ends the call stops the engine, which lets go of the
+ * microphone. A call that ends cleanly is forgotten at once, so its screen closes straight onto the
+ * thread; one that ends on an error stays, with the error, until its screen is closed.
  */
 import { randomUUID } from "expo-crypto";
-import type { EventSubscription } from "expo-modules-core";
-import { sendCall } from "@/connection";
+import { createActor, fromCallback, fromPromise, waitFor } from "xstate";
+import type { CallState } from "@relay/protocol";
+import { sendCall, socketEpoch } from "@/connection";
 import { useCallStore } from "@/state/call";
 import { useConnectionStore } from "@/state/connection";
 import { VoiceCall } from "../../modules/voice-call";
+import { callView, legacyCallMachine, type LegacyCallEvent } from "./legacyCall.machine";
 import { callStats } from "./stats";
 
-let subscriptions: EventSubscription[] = [];
-/** A call whose microphone has produced nothing this long after opening is ended with a reason. */
-const NO_AUDIO_MS = 3_000;
-let unsubscribeStore: (() => void) | null = null;
 /** Microphone and level events that reached JS in the current call, for its report. */
 let micEvents = 0;
 let levelEvents = 0;
+
+/** The native engine's state and what reached JS, read before hanging up stops the engine. */
+function report(): string {
+  return `${VoiceCall?.diagnostics() ?? "no native module"}; js mic events ${String(micEvents)}, level events ${String(levelEvents)}, reply frames ${String(callStats.audioIn)}`;
+}
+
+const legacyCall = createActor(
+  legacyCallMachine.provide({
+    actors: {
+      openMic: fromPromise(async () => {
+        if (VoiceCall === null) throw new Error("Calls need a newer build of Relay on this phone.");
+        await VoiceCall.start();
+        return null;
+      }),
+      engineEvents: fromCallback<LegacyCallEvent, { callId: string }>(({ input, sendBack }) => {
+        const native = VoiceCall;
+        if (native === null) return undefined;
+        const { callId } = input;
+        micEvents = 0;
+        levelEvents = 0;
+        callStats.audioIn = 0;
+        const subscriptions = [
+          native.addListener("audio", ({ pcm }) => {
+            micEvents += 1;
+            if (micEvents === 1) sendBack({ type: "mic.heard" });
+            sendCall({ t: "call.audio", callId, pcm });
+          }),
+          native.addListener("level", ({ value }) => {
+            levelEvents += 1;
+            useCallStore.getState().update(callId, { level: value });
+          }),
+          native.addListener("interrupted", () => {
+            sendBack({ type: "call.interrupted" });
+          }),
+        ];
+        return () => {
+          for (const subscription of subscriptions) subscription.remove();
+        };
+      }),
+    },
+    actions: {
+      sendStart: ({ context }) => {
+        if (context.callId !== null && context.agent !== null)
+          sendCall({ t: "call.start", callId: context.callId, agent: context.agent });
+      },
+      sendEnd: ({ context }) => {
+        if (context.callId !== null) sendCall({ t: "call.end", callId: context.callId, reason: context.endNote });
+      },
+      release: () => {
+        VoiceCall?.stop();
+      },
+    },
+  }),
+  { input: { diagnostics: report } },
+);
+
+// The store is the machine's projection: the screens read it, only this writes the call's state.
+legacyCall.subscribe((snapshot) => {
+  const view = callView(snapshot);
+  const store = useCallStore.getState();
+  if (view === null) {
+    if (store.call !== null) store.clear();
+    return;
+  }
+  if (store.call?.id !== view.id) store.begin(view.id, view.agent);
+  const current = useCallStore.getState().call;
+  if (current?.state !== view.state || current.text !== view.text || current.error !== view.error)
+    store.update(view.id, { state: view.state, text: view.text, error: view.error });
+});
+legacyCall.start();
 
 /** Whether this build has the call audio module (dev clients from before calls do not). */
 export function callsSupported(): boolean {
@@ -29,72 +99,18 @@ export function callsSupported(): boolean {
 
 /**
  * Calls `agent`. Resolves once the microphone is open and `call.start` is sent; the screen then
- * follows `useCallStore().call`. Throws with a message for the person when it cannot start.
+ * follows `useCallStore().call`. Throws with a message for the person when it cannot start. A call
+ * already opening its microphone (a double tap) wins; this one is dropped.
  */
 export async function startCall(agent: string): Promise<void> {
   const native = VoiceCall;
   if (native === null) throw new Error("Calls need a newer build of Relay on this phone.");
   if (useConnectionStore.getState().status !== "connected") throw new Error("Connect to your Mac to call.");
-  hangUp();
   if (!(await native.requestPermission())) throw new Error("Allow microphone access for Relay in Settings to call.");
-  const id = randomUUID();
-  useCallStore.getState().begin(id, agent);
-  micEvents = 0;
-  levelEvents = 0;
-  callStats.audioIn = 0;
-  subscriptions = [
-    native.addListener("audio", ({ pcm }) => {
-      micEvents += 1;
-      sendCall({ t: "call.audio", callId: id, pcm });
-    }),
-    native.addListener("level", ({ value }) => {
-      levelEvents += 1;
-      useCallStore.getState().update(id, { level: value });
-    }),
-    native.addListener("interrupted", () => {
-      endCall("The call was interrupted");
-    }),
-  ];
-  unsubscribeStore = useCallStore.subscribe((store) => {
-    const current = store.call;
-    if (current?.id === id && current.state !== "ended") return;
-    teardown();
-    // Hung up, here or by the assistant: nothing to read, so the screen closes onto the thread.
-    if (current?.id === id && current.error === null) useCallStore.getState().clear();
-  });
-  try {
-    await native.start();
-  } catch (error) {
-    endCall(error instanceof Error && error.message !== "" ? error.message : "Couldn't open the microphone.");
-    return;
-  }
-  // Ended while the microphone was opening (hung up, socket gone): the store watcher's stop, which
-  // the module runs after this start, has closed it again.
-  const call = useCallStore.getState().call;
-  if (call?.id !== id || call.state === "ended") return;
-  sendCall({ t: "call.start", callId: id, agent });
-  // A deaf call looks exactly like one where nobody answers; say so instead.
-  setTimeout(() => {
-    if (micEvents > 0 || useCallStore.getState().call?.id !== id) return;
-    endCall("The microphone sent no audio");
-  }, NO_AUDIO_MS);
-}
-
-/** The native engine's state and what reached JS, read before hanging up stops the engine. */
-function report(): string {
-  return `${VoiceCall?.diagnostics() ?? "no native module"}; js mic events ${String(micEvents)}, level events ${String(levelEvents)}, reply frames ${String(callStats.audioIn)}`;
-}
-
-/**
- * Hangs up (`error` when it ends because something failed); the call screen shows it ended. The
- * host always gets the audio report in `reason`, so its log shows what both directions did.
- */
-export function endCall(error?: string): void {
-  const call = useCallStore.getState().call;
-  if (call === null || call.state === "ended") return;
-  const details = report();
-  sendCall({ t: "call.end", callId: call.id, reason: `${error ?? "hung up"} (${details})`.slice(0, 2000) });
-  useCallStore.getState().update(call.id, { state: "ended", error: error === undefined ? null : `${error} (${details})` });
+  const callId = randomUUID();
+  legacyCall.send({ type: "call.start", callId, agent, epoch: socketEpoch() });
+  if (legacyCall.getSnapshot().context.callId !== callId) return;
+  await waitFor(legacyCall, (snapshot) => snapshot.context.callId !== callId || !snapshot.matches({ active: "opening_mic" }));
 }
 
 export function setCallMuted(muted: boolean): void {
@@ -105,22 +121,22 @@ export function setCallMuted(muted: boolean): void {
   useCallStore.getState().update(call.id, { muted, level: 0 });
 }
 
-/** Ends any call and forgets it: the hang-up button, closing the call screen, a new call. */
+/** Ends any call and forgets it: the hang-up button, closing the call screen. */
 export function hangUp(): void {
-  endCall();
-  teardown();
-  useCallStore.getState().clear();
+  legacyCall.send({ type: "call.hangUp" });
 }
 
 /** Call `id`'s screen went away (its thread unmounted): a call nobody can see or hang up is ended. */
 export function leaveCall(id: string): void {
-  if (useCallStore.getState().call?.id === id) hangUp();
+  if (legacyCall.getSnapshot().context.callId === id) hangUp();
 }
 
-function teardown(): void {
-  for (const subscription of subscriptions) subscription.remove();
-  subscriptions = [];
-  unsubscribeStore?.();
-  unsubscribeStore = null;
-  VoiceCall?.stop();
+/** A host `call.state` for call `callId` (routed by `call/frames.ts`). */
+export function callHostState(callId: string, state: CallState, text: string | null, error: string | null): void {
+  legacyCall.send({ type: "host.state", callId, state, text, error });
+}
+
+/** Socket epoch `epoch` ended: a call on it ends with it (connection/index.ts). */
+export function callSocketEpochEnded(epoch: number): void {
+  legacyCall.send({ type: "socket.epochEnded", epoch });
 }

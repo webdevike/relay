@@ -12,7 +12,16 @@ function setup() {
       flushes += 1;
     },
   };
-  const route = createCallFrameRouter({ update: useCallStore.getState().update, current: () => useCallStore.getState().call }, player);
+  // Stands in for the call machine: a host state lands on the shown call as its projection would.
+  const route = createCallFrameRouter(
+    {
+      current: () => useCallStore.getState().call,
+      hostState: (id, state, text, error) => {
+        useCallStore.getState().update(id, { state, text, error });
+      },
+    },
+    player,
+  );
   return { route, played, flushes: () => flushes };
 }
 

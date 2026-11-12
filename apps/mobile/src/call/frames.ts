@@ -1,11 +1,11 @@
 /**
- * Routes the host's `call.*` frames for the call on this phone: `call.state` into the call store,
+ * Routes the host's `call.*` frames for the call on this phone: `call.state` to the call machine,
  * `call.audio` to the player in order, `call.flush` (barge-in) to the player's flush. Audio of a
  * generation below the last flush is late audio of what Isaac talked over, and is dropped. Frames
  * of any other call are ignored.
  */
-import type { ServerMessage } from "@relay/protocol";
-import type { ActiveCall, CallStore } from "@/state/call";
+import type { CallState, ServerMessage } from "@relay/protocol";
+import type { ActiveCall } from "@/state/call";
 
 export interface CallPlayer {
   /** PCM16 LE mono 24 kHz, base64, after what is queued. */
@@ -14,7 +14,12 @@ export interface CallPlayer {
   flush(): void;
 }
 
-export type CallStoreAccess = Pick<CallStore, "update"> & { readonly current: () => ActiveCall | null };
+export interface CallStoreAccess {
+  /** The call the screen shows (`useCallStore().call`). */
+  readonly current: () => ActiveCall | null;
+  /** A host `call.state` for the current call (`call/controller.ts` `callHostState`). */
+  readonly hostState: (callId: string, state: CallState, text: string | null, error: string | null) => void;
+}
 
 export type CallFrameRouter = (message: ServerMessage) => void;
 
@@ -30,7 +35,7 @@ export function createCallFrameRouter(store: CallStoreAccess, player: CallPlayer
       minGen = 0;
     }
     if (message.t === "call.state") {
-      store.update(call.id, { state: message.state, text: message.text ?? null, error: message.error ?? null });
+      store.hostState(call.id, message.state, message.text ?? null, message.error ?? null);
       return;
     }
     if (message.t === "call.flush") {

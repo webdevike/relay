@@ -55,6 +55,7 @@ vi.mock("@/connection", () => ({
   sendCall: (message: ClientMessage) => {
     sent.push(message);
   },
+  socketEpoch: () => 7,
 }));
 vi.mock("expo-crypto", () => ({
   randomUUID: () => {
@@ -66,10 +67,10 @@ vi.mock("expo-crypto", () => ({
 import { useCallStore } from "@/state/call";
 import { useConnectionStore } from "@/state/connection";
 import { createCallFrameRouter } from "./frames";
-import { hangUp, leaveCall, setCallMuted, startCall } from "./controller";
+import { callHostState, callSocketEpochEnded, hangUp, leaveCall, setCallMuted, startCall } from "./controller";
 
 const route = createCallFrameRouter(
-  { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
+  { current: () => useCallStore.getState().call, hostState: callHostState },
   { play: vi.fn(), flush: vi.fn() },
 );
 
@@ -179,8 +180,8 @@ describe("a call that ends on an error releases the microphone and keeps the err
     ["the host failing", (id) => {
       route({ t: "call.state", callId: id, agent: "astra", state: "ended", error: "speech models unavailable" });
     }],
-    ["the socket dropping", (id) => {
-      useCallStore.getState().update(id, { state: "ended", error: "Lost the connection to your Mac" });
+    ["the socket dropping", () => {
+      callSocketEpochEnded(7);
     }],
     ["iOS taking the audio session", () => {
       native.emit("interrupted");
@@ -222,5 +223,28 @@ describe("a call ended while its microphone is opening", () => {
     expectReleased();
     expect(useCallStore.getState().call).toBeNull();
     expect(sentOf("call.start")).toEqual([]);
+  });
+});
+
+describe("the call and its socket", () => {
+  it("a double tap while the microphone opens starts one call", async () => {
+    native.hold = true;
+    const first = startCall("astra");
+    const second = startCall("astra");
+    await vi.waitFor(() => {
+      expect(native.ops).toContain("start");
+    });
+    native.release?.();
+    await Promise.all([first, second]);
+    expect(native.ops.filter((op) => op === "start")).toHaveLength(1);
+    expect(sentOf("call.start")).toHaveLength(1);
+    expect(listening()).toBe(3);
+  });
+
+  it("the end of another socket epoch leaves the call alone", async () => {
+    const id = await live();
+    callSocketEpochEnded(6);
+    expect(micOpen()).toBe(true);
+    expect(useCallStore.getState().call).toMatchObject({ id, state: "connecting" });
   });
 });

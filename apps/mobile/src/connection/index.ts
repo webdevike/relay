@@ -52,6 +52,7 @@ import { useReviewsStore } from "@/state/reviews";
 import { useMeetingsStore } from "@/state/meetings";
 import { callIsLive, useCallStore } from "@/state/call";
 import { createCallFrameRouter } from "@/call/frames";
+import { callHostState, callSocketEpochEnded } from "@/call/controller";
 import { callStats } from "@/call/stats";
 import { VoiceCall } from "../../modules/voice-call";
 import { configureLiveCall } from "@/call/liveConfig";
@@ -180,7 +181,12 @@ const routeQueryFrame = createQueryFrameRouter(
   pendingQueries,
 );
 const routeCallFrame = createCallFrameRouter(
-  { update: useCallStore.getState().update, current: () => useCallStore.getState().call },
+  {
+    current: () => useCallStore.getState().call,
+    hostState: (callId, state, text, error) => {
+      callHostState(callId, state, text, error);
+    },
+  },
   {
     play: (pcm) => {
       callStats.audioIn += 1;
@@ -206,22 +212,34 @@ const discovery = new Discovery({
 socket.onOpen = () => {
   void dispatch({ type: "socketOpen" });
 };
-socket.onClose = () => {
+socket.onClose = (epoch) => {
+  connectionLost(epoch);
+  // A socket replaced by a newer one (`open` swaps them) is not the session's socket any more: the
+  // machine is already connecting the new one and must not back off for the old one's end.
+  if (epoch === socket.epoch) void dispatch({ type: "socketClosed" });
+};
+
+/**
+ * Everything that belonged to socket epoch `epoch`, run once when it ends, however it ended: the
+ * peer closed it, the phone closed it (background, host switch) or replaced it with a new one
+ * (heartbeat backoff). Without the last two the call screen listened forever and requests waited
+ * for answers that could no longer come.
+ */
+function connectionLost(epoch: number): void {
   // What was held for a socket that is gone: the next welcome asks for everything again.
   latestFrames.clear();
   // The host hangs up a call with its socket; say so here rather than leave the screen listening.
-  const call = useCallStore.getState().call;
-  if (call !== null && call.state !== "ended")
-    useCallStore
-      .getState()
-      .update(call.id, { state: "ended", error: "Lost the connection to your Mac" });
+  callSocketEpochEnded(epoch);
   // The next welcome says again whether this host answers queries; nothing in flight will be.
   useBoardsStore.getState().setQueries(false);
   // ... and whether it keeps bookmarks; what it last said stays shown, but nothing can be sent.
   useBookmarksStore.getState().setHostUp(false);
   pendingQueries.cancelAll();
-  void dispatch({ type: "socketClosed" });
-};
+  // A room command sent on this socket is answered on it or not at all.
+  pendingRooms.cancelAll();
+  // Commands on its wire wait for the next socket, with no ack deadline running.
+  commandQueue.onDisconnect();
+}
 socket.onError = (error) => {
   warn("socket", "error", error);
 };
@@ -600,6 +618,11 @@ useCallStore.subscribe((store, previous) => {
     previous.call.state !== "ended";
   if (ended && AppState.currentState !== "active") onAppStateChange(AppState.currentState);
 });
+
+/** The epoch of the current socket; a legacy call records it so the socket's end ends the call. */
+export function socketEpoch(): number {
+  return socket.epoch;
+}
 
 /** Ephemeral like `sendInput`: a call's frames are never queued; the host ends the call with the socket. */
 export function sendCall(message: Extract<ClientMessage, { t: `call.${string}` }>): void {
