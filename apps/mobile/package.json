@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run --passWithNoTests",
     "test:native": "sh scripts/test-native.sh",
+    "machines:docs": "mkdir -p ../../docs/state-machines && UPDATE_MACHINE_DOCS=1 vitest run src/machineDocs.test.ts",
     "build": "expo export --platform ios --output-dir dist",
     "android": "expo run:android",
     "vnc:build": "bun vnc/build.mjs"

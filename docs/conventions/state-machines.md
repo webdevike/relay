@@ -44,6 +44,12 @@ A docs test regenerates every diagram from its machine and fails when a page is 
 picture always matches the code. Changing a machine means regenerating its page, rereading the
 diagram and updating the prose in the same commit.
 
+Phone (apps/mobile): the generator is `src/lib/machineDiagram.ts` and the test
+`src/machineDocs.test.ts` (add each machine to its `MACHINES` list); `pnpm machines:docs` rewrites
+the diagrams and starts a page for a new machine with a TODO the test refuses until it is replaced.
+Swift machines draw from their transition table: `pnpm test:native` checks
+`live-call-lifecycle.md`, and `UPDATE_MACHINE_DOCS=1 pnpm test:native` rewrites it.
+
 ## Migrating flag soup
 
 1. List every flag, ref and timer the feature uses and where each is set and read.

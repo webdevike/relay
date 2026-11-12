@@ -83,7 +83,7 @@ import { NO_HOSTS, removeHost, upsertHost, type PairedHosts } from "./hosts";
 import { parseManualHost } from "./manual-host";
 import { RelaySocket } from "./socket";
 import { SessionMachine, type Effect } from "./session";
-import { CommandQueue } from "./commands";
+import { CommandQueue, type CommandReport } from "./commands";
 import { debug, warn } from "./log";
 import { withdrawNotification } from "@/inbox/withdraw";
 import { hostTakesRenderReports, renderFailedFrame, type RenderReport } from "@/agents/renderReport";
@@ -1036,7 +1036,10 @@ export function requestAgentImage(sessionId: string, id: string): void {
 }
 
 /**
- * Reliable; resolves on ack, rejects with an `AckError`-shaped `Error` on nack. A reply shows from
+ * Reliable; resolves on ack, rejects with an `AckError`-shaped `Error` on nack, with code
+ * `"timeout"` once the ack is overdue (the command lives on as unconfirmed: a late ack or nack
+ * reaches `onCommandReport`) and `"unsent"` when it never got out. Sending a turn again with the
+ * same `clientId` reuses its command id. A reply shows from
  * this moment (`useAgentsStore()`), every path that sends one alike (typed, dictated, the skill
  * wheel, a widget button): a slash command as running (`sent`), other words as the user's bubble
  * (`echoes`). A refused command stops showing; refused words keep their bubble, marked.
@@ -1057,6 +1060,16 @@ export function sendCommand(cmd: Command): Promise<void> {
     });
   }
   return promise;
+}
+
+/** Commands sent or queued whose outcome is not settled: pending (queued or on the wire) plus unconfirmed. */
+export function commandsOutstanding(): number {
+  return commandQueue.outstanding;
+}
+
+/** Hears every command that turns unconfirmed and every late ack or nack of one. Returns the unsubscribe. */
+export function onCommandReport(listener: (report: CommandReport) => void): () => void {
+  return commandQueue.onReport(listener);
 }
 
 /** Monotonic ms, matching `InputEvent.t`'s unit. */
