@@ -137,6 +137,8 @@ describe('browser.annotate', () => {
     element: { tag: 'button', role: 'button', text: 'Buy', selector: '#buy' },
     box: { x: 10, y: 20, w: 80, h: 30 },
     viewport: VIEW,
+    shift: false,
+    at: { x: 50, y: 35 },
   }
 
   it('refuses the note once the page navigated away from its mark, and tells the shell', async () => {

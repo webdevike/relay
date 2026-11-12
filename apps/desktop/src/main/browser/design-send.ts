@@ -8,7 +8,10 @@ import type {
 
 type DesignSend = Omit<InvokeParsed<'design.send'>, 'tabId'>
 
-/** One selected element as a page note's target, its screenshot saved by `save` (a PNG path). */
+/**
+ * One selected element as a page note's target, its screenshot saved by `save` (a PNG path). A
+ * dragged region is its box and screenshot only.
+ */
 async function targetOf(
   item: DesignItem,
   edits: DesignStyleEdit[],
@@ -16,6 +19,12 @@ async function targetOf(
   save: (pngBase64: string) => Promise<string>,
 ): Promise<BrowserNoteTarget> {
   const png = drawn ?? item.crop?.png
+  const region = { x: item.box.x, y: item.box.y, w: item.box.width, h: item.box.height }
+  const shot = {
+    ...(png ? { image: await save(png) } : {}),
+    ...(drawn ? { drawn: true } : {}),
+  }
+  if (item.kind === 'region') return { region, ...shot }
   const style: NonNullable<BrowserNoteTarget['style']> = {}
   for (const e of edits)
     if (e.selector === item.selector) style[e.property] = { from: e.from, to: e.to }
@@ -27,9 +36,8 @@ async function targetOf(
       ...(item.text ? { text: item.text } : {}),
       selector: item.selector,
     },
-    region: { x: item.box.x, y: item.box.y, w: item.box.width, h: item.box.height },
-    ...(png ? { image: await save(png) } : {}),
-    ...(drawn ? { drawn: true } : {}),
+    region,
+    ...shot,
     ...(s
       ? {
           source: {

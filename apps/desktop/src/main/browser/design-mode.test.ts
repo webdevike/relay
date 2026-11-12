@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PageInput } from './browser-host'
+import type { PickBox, PickResult } from './annotate-picker'
 import { DesignMode, type DesignContents } from './design-mode'
 import type { DesignPage, InspectedElement, OverlayAnswer, OverlayCommand } from './design-page'
 
@@ -25,6 +25,8 @@ function fakePage() {
   let previewAnswer: 'ok' | 'missing' | 'rejected' = 'ok'
   const elements = new Map<string, InspectedElement | null>()
   const answer = (): OverlayAnswer => ({ ready, selectors, sig })
+  /** The picker's open pick (annotate-picker.ts, mode design), answered by the test. */
+  let open: PromiseWithResolvers<PickResult> | null = null
   const page: DesignPage = {
     overlay: async (cmd: OverlayCommand) => {
       calls.push(cmd.op === 'visible' ? `visible:${cmd.on}` : cmd.op)
@@ -59,11 +61,30 @@ function fakePage() {
       calls.push(`capture:${rect.x},${rect.y},${rect.width},${rect.height}`)
       return { png: 'iVBOR', width: rect.width, height: rect.height }
     },
+    pick: async (op) => {
+      calls.push(op.op === 'clear' ? 'picker:clear' : `picker:${op.mode}`)
+      // A new pick or a clear closes the open one, which answers cancelled.
+      open?.resolve({ cancelled: true })
+      open = null
+      if (op.op === 'clear') return { cancelled: true }
+      open = Promise.withResolvers<PickResult>()
+      return open.promise
+    },
+  }
+  /** Answers the open pick once Design Mode has one open. */
+  const answerPick = async (r: PickResult | Error): Promise<void> => {
+    await vi.waitFor(() => expect(open).not.toBeNull())
+    const p = open!
+    open = null
+    if (r instanceof Error) p.reject(r)
+    else p.resolve(r)
   }
   return {
     page,
     calls,
     elements,
+    answerPick,
+    isPicking: () => open !== null,
     setSig: (next: string) => (sig = next),
     dropDocument: () => (ready = false),
     holdInit: (gate: Promise<void>) => (initGate = gate),
@@ -92,7 +113,7 @@ function fakeContents(url: string) {
 function setup(url = 'http://127.0.0.1:5173/') {
   const p = fakePage()
   const wc = fakeContents(url)
-  let intercept: (tabId: string, input: PageInput) => boolean = () => false
+  let intercept: (tabId: string, input: never) => boolean = () => false
   let closed: (tab: { id: string }) => void = () => undefined
   const events: Array<{ channel: string; payload: Record<string, unknown> }> = []
   const design = new DesignMode(
@@ -104,49 +125,74 @@ function setup(url = 'http://127.0.0.1:5173/') {
     },
     (channel, payload) => events.push({ channel, payload: payload as Record<string, unknown> }),
     100,
+    5,
   )
-  // Electron's before-mouse-event has no modifiers; Shift comes from key events.
-  const mouse = (type: string, x = 0, y = 0) =>
-    intercept('t1', {
-      kind: 'mouse',
-      mouse: { type, x, y, button: 'left', clickCount: 1 } as never,
+  const viewport = { width: 1000, height: 800 }
+  /** Isaac's click on element `#e<x>` (the fake overlay names what is at x so). */
+  const click = (x: number, shift = false) =>
+    p.answerPick({
+      cancelled: false,
+      element: { tag: 'button' },
+      box: { x, y: 0, w: 10, h: 10 },
+      viewport,
+      shift,
+      at: { x, y: 0 },
+    })
+  const drag = (box: PickBox, shift = false) =>
+    p.answerPick({
+      cancelled: false,
+      box,
+      viewport,
+      shift,
+      at: { x: box.x + box.w, y: box.y + box.h },
     })
   const key = (k: string, type = 'keyDown', shift = false, meta = false) =>
     intercept('t1', {
-      kind: 'key',
-      input: {
-        type,
-        key: k,
-        code: k.length === 1 ? `Key${k.toUpperCase()}` : k,
-        shift,
-        meta,
-        control: false,
-        alt: false,
-      } as never,
-    })
+      type,
+      key: k,
+      code: k.length === 1 ? `Key${k.toUpperCase()}` : k,
+      shift,
+      meta,
+      control: false,
+      alt: false,
+    } as never)
+  const selection = (n: number) =>
+    (events[n]!.payload['items'] as Array<{ selector: string }>).map((i) => i.selector)
   const settled = () => vi.waitFor(() => expect(events.length).toBeGreaterThan(0))
-  return { design, p, wc, events, mouse, key, close: (id: string) => closed({ id }), settled }
+  return {
+    design,
+    p,
+    wc,
+    events,
+    click,
+    drag,
+    key,
+    selection,
+    close: (id: string) => closed({ id }),
+    settled,
+  }
 }
 
 describe('DesignMode', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] }))
   afterEach(() => vi.useRealTimers())
 
-  it('keeps the mouse and keys from the page only while it is on; the wheel scrolls and Relay shortcuts pass', async () => {
+  it('keeps keys from the page only while it is on, Relay shortcuts pass; the picker takes the pointer', async () => {
     const t = setup()
-    expect(t.mouse('mouseDown', 5, 5)).toBe(false)
     expect(t.key('a')).toBe(false)
     await t.design.set('t1', true)
-    expect(t.mouse('mouseMove', 5, 5)).toBe(true)
-    expect(t.mouse('mouseUp', 5, 5)).toBe(true)
-    expect(t.mouse('mouseWheel', 5, 5)).toBe(false)
+    await vi.waitFor(() => expect(t.p.isPicking()).toBe(true))
+    expect(t.p.calls).toContain('picker:design')
     expect(t.key('a')).toBe(true)
     // Paste never reaches the page; Cmd+L (Relay's address field) goes on to BrowserHost.
     expect(t.key('v', 'keyDown', false, true)).toBe(true)
     expect(t.key('l', 'keyDown', false, true)).toBe(false)
     await t.design.set('t1', false)
-    expect(t.mouse('mouseMove', 5, 5)).toBe(false)
+    expect(t.key('a')).toBe(false)
     expect(t.p.calls).toContain('destroy')
+    // The picker closed with it, and no new pick opens.
+    expect(t.p.calls.at(-1)).toBe('picker:clear')
+    expect(t.p.isPicking()).toBe(false)
   })
 
   it('Escape in the page asks to end the mode and never reaches the page', async () => {
@@ -158,10 +204,10 @@ describe('DesignMode', () => {
     ])
   })
 
-  it('a click picks and sends the element with its crop taken with the highlight hidden', async () => {
+  it('a click picks and sends the element with its crop taken with the outlines hidden', async () => {
     const t = setup()
     await t.design.set('t1', true)
-    t.mouse('mouseDown', 1)
+    await t.click(1)
     await t.settled()
     const [e] = t.events
     expect(e!.channel).toBe('design.selection')
@@ -169,36 +215,80 @@ describe('DesignMode', () => {
     const items = e!.payload['items'] as Array<Record<string, unknown>>
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({
+      kind: 'element',
       selector: '#e1',
       missing: false,
       source: { file: 'src/Button.tsx', line: 12 },
       component: 'Button',
       crop: { png: 'iVBOR' },
     })
-    // Hidden, painted, captured with padding, shown again: the highlight is never in the crop.
+    // Hidden, painted, captured with padding, shown again: the outlines are never in the crop.
     const order = t.p.calls.slice(t.p.calls.indexOf('pick') + 1).slice(0, 4)
     expect(order).toEqual(['visible:false', 'settle', 'capture:4,14,92,42', 'visible:true'])
+    // The picker opens again for the next click.
+    await vi.waitFor(() => expect(t.p.isPicking()).toBe(true))
   })
 
   it('shift-click adds and removes; a plain click replaces the selection', async () => {
     const t = setup()
     await t.design.set('t1', true)
-    t.mouse('mouseDown', 1)
-    // Shift held while the shell has the keyboard.
-    t.design.keyState({ shift: true })
-    t.mouse('mouseDown', 2)
-    t.mouse('mouseDown', 3)
-    t.mouse('mouseDown', 2)
+    await t.click(1)
+    await t.click(2, true)
+    await t.click(3, true)
+    await t.click(2, true)
     await vi.waitFor(() => expect(t.events).toHaveLength(4))
-    const last = (n: number) =>
-      (t.events[n]!.payload['items'] as Array<{ selector: string }>).map((i) => i.selector)
-    expect(last(2)).toEqual(['#e1', '#e2', '#e3'])
-    expect(last(3)).toEqual(['#e1', '#e3'])
-    // Shift let go while the page has the keyboard: tracked, and kept from the page.
-    expect(t.key('Shift', 'keyUp', false)).toBe(true)
-    t.mouse('mouseDown', 4)
+    expect(t.selection(2)).toEqual(['#e1', '#e2', '#e3'])
+    expect(t.selection(3)).toEqual(['#e1', '#e3'])
+    await t.click(4)
     await vi.waitFor(() => expect(t.events).toHaveLength(5))
-    expect(last(4)).toEqual(['#e4'])
+    expect(t.selection(4)).toEqual(['#e4'])
+  })
+
+  it('a drag picks a region with its crop; Shift keeps the rest, a plain drag or click replaces it', async () => {
+    const t = setup()
+    await t.design.set('t1', true)
+    await t.click(1)
+    await t.drag({ x: 10, y: 20, w: 50, h: 40 }, true)
+    await vi.waitFor(() => expect(t.events).toHaveLength(2))
+    expect(t.selection(1)).toEqual(['#e1', 'region-1'])
+    const region = (t.events[1]!.payload['items'] as Array<Record<string, unknown>>)[1]
+    expect(region).toMatchObject({
+      kind: 'region',
+      label: 'Region 50x40',
+      box: { x: 10, y: 20, width: 50, height: 40 },
+      crop: { png: 'iVBOR' },
+    })
+    // The region's own pixels, unpadded.
+    expect(t.p.calls).toContain('capture:10,20,50,40')
+    // A Shift-click adds an element before the regions; the inspector removes the region.
+    await t.click(2, true)
+    await vi.waitFor(() => expect(t.events).toHaveLength(3))
+    expect(t.selection(2)).toEqual(['#e1', '#e2', 'region-1'])
+    await t.design.select('t1', ['#e2'])
+    expect(t.selection(3)).toEqual(['#e2'])
+    await t.drag({ x: 0, y: 0, w: 8, h: 8 }, true)
+    await t.drag({ x: 0, y: 0, w: 9, h: 9 })
+    await vi.waitFor(() => expect(t.events).toHaveLength(6))
+    expect(t.selection(5)).toEqual(['region-3'])
+    await t.click(5)
+    await vi.waitFor(() => expect(t.events).toHaveLength(7))
+    expect(t.selection(6)).toEqual(['#e5'])
+  })
+
+  it('ends when another picker takes the page, and picks again after a pick fails', async () => {
+    const t = setup()
+    await t.design.set('t1', true)
+    // The page reloading under the pick: it fails and opens again.
+    await t.p.answerPick(new Error('Execution context was destroyed'))
+    await vi.waitFor(() => expect(t.p.isPicking()).toBe(true))
+    expect(t.design.isOn('t1')).toBe(true)
+    // A note's picker replaced it.
+    await t.p.answerPick({ cancelled: true })
+    await vi.waitFor(() => expect(t.design.isOn('t1')).toBe(false))
+    expect(t.events.at(-1)).toEqual({
+      channel: 'design.exit',
+      payload: { tabId: 't1', reason: 'escape' },
+    })
   })
 
   it('an element that is gone stays in the selection as missing, with no crop', async () => {
@@ -223,7 +313,7 @@ describe('DesignMode', () => {
   it('reads the selection again when the page changes it (a hot update), not otherwise', async () => {
     const t = setup()
     await t.design.set('t1', true)
-    t.mouse('mouseDown', 1)
+    await t.click(1)
     await t.settled()
     vi.advanceTimersByTime(100)
     await Promise.resolve()
@@ -238,7 +328,7 @@ describe('DesignMode', () => {
   it('a reload of the same site draws again and finds the selection in the new document', async () => {
     const t = setup()
     await t.design.set('t1', true)
-    t.mouse('mouseDown', 1)
+    await t.click(1)
     await t.settled()
     t.p.dropDocument()
     t.wc.fire('did-navigate', {}, 'http://127.0.0.1:5173/')
@@ -285,7 +375,8 @@ describe('DesignMode', () => {
     expect(t.p.calls).not.toContain('destroy')
     gate.resolve()
     await Promise.all([starting, stopping])
-    expect(t.p.calls).toEqual(['init', 'destroy'])
+    // The start's picker opened, then went with the stop.
+    expect(t.p.calls).toEqual(['init', 'picker:design', 'destroy', 'picker:clear'])
     expect(t.design.isOn('t1')).toBe(false)
   })
 

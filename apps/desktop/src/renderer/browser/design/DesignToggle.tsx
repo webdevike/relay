@@ -4,7 +4,10 @@ import { useSelector } from '@xstate/react'
 import type { TabState } from '@evaos/contract'
 import { designActorOf } from './design-runtime'
 
-/** The address row's Design Mode switch for page `tabId` (off on blank and error pages). */
+/**
+ * The address row's Design Mode switch for page `tabId` (off on blank and error pages). A pane too
+ * narrow for the inspector hides it while the mode is off, so the address keeps its room.
+ */
 export function DesignToggle({ tabId, tab }: { tabId: string; tab: TabState | undefined }) {
   const actor = designActorOf(tabId)
   const on = useSelector(actor, (s) => s.matches('on') || s.matches('starting'))
@@ -14,6 +17,7 @@ export function DesignToggle({ tabId, tab }: { tabId: string; tab: TabState | un
   return (
     <Tooltip label={label} openDelay={400}>
       <ActionIcon
+        className="eva-design-toggle"
         variant={on ? 'light' : 'subtle'}
         size={28}
         aria-label={label}

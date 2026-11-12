@@ -3,6 +3,7 @@ import type { DesignItem } from '@evaos/contract'
 import { designNote } from './design-send'
 
 const item = (selector: string, over: Partial<DesignItem> = {}): DesignItem => ({
+  kind: 'element',
   selector,
   label: `button${selector}`,
   missing: false,
@@ -61,6 +62,24 @@ describe('design note', () => {
         drawn: true,
         style: { padding: { from: '10px', to: '4px' } },
       }),
+    ])
+  })
+
+  it('sends a dragged region as its box and screenshot only', async () => {
+    const region = item('region-1', {
+      kind: 'region',
+      label: 'Region 30x40',
+      text: '',
+      html: '',
+      styles: {},
+    })
+    const note = await designNote(
+      { instruction: 'tighter', items: [item('#a'), region], edits: [], drawings: {} },
+      page,
+      save,
+    )
+    expect(note!.surface === 'browser' && note!.also).toEqual([
+      { region: { x: 1, y: 2, w: 30, h: 40 }, image: '/notes/crop-region-1.png' },
     ])
   })
 

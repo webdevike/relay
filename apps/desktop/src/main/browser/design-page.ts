@@ -1,12 +1,15 @@
+import { DESIGN_MAX_SELECTION } from '@evaos/contract'
+import type { PickOp, PickResult } from './annotate-picker'
 import type { PageControl } from './page-control'
 
 /**
  * The page side of Design Mode (design-mode.ts runs these through PageControl):
  *
- * - DESIGN_OVERLAY runs in an isolated world, like the agent cursor: it draws the hover highlight
- *   and the numbered selection outlines inside the page (a native page paints over anything the
- *   shell draws) and keeps each selected element found by its selector, so a hot update that
- *   replaces the node or a reload that rebuilds the page finds it again.
+ * - DESIGN_OVERLAY runs in an isolated world, like the agent cursor: it draws the numbered
+ *   selection outlines inside the page (a native page paints over anything the shell draws) and
+ *   keeps each selected element found by its selector, so a hot update that replaces the node or
+ *   a reload that rebuilds the page finds it again. Hover, clicks and drags are the note picker's
+ *   (annotate-picker.ts, mode `design`), in the agent cursor's world.
  * - DESIGN_INSPECT runs in the page's own world, read-only: React keeps its fibers (component,
  *   `_debugSource`, `_debugStack`) as properties of the page's DOM objects, which an isolated
  *   world can't see.
@@ -24,8 +27,11 @@ import type { PageControl } from './page-control'
 /** The outline color: quiet, readable on light and dark pages. */
 export const DESIGN_COLOR = '#4c6ef5'
 
-/** At most this many elements in one selection (and one request). */
-export const MAX_SELECTION = 8
+/** At most this many elements and regions in one selection (and one request). */
+export const MAX_SELECTION = DESIGN_MAX_SELECTION
+
+/** The note picker's host (annotate-picker.ts): never a pick target, hidden for crops. */
+const PICKER_HOST = 'relay-note-picker'
 
 export const SELECTOR_PATH = String(function selectorPath(
   element: Element,
@@ -107,8 +113,6 @@ export const RESOLVE = String(function resolve(selector: string): Element | null
 /** One command to the in-page overlay. Coordinates are viewport CSS px. */
 export type OverlayCommand =
   | { op: 'init'; color: string }
-  | { op: 'hover'; x: number; y: number }
-  | { op: 'unhover' }
   | { op: 'pick'; x: number; y: number; add: boolean; max: number }
   | { op: 'select'; selectors: string[] }
   | { op: 'status' }
@@ -127,6 +131,7 @@ export const DESIGN_OVERLAY = String(function (
   cmd: OverlayCommand,
   selectorPath: (element: Element) => string,
   resolve: (selector: string) => Element | null,
+  pickerHost: string,
 ): OverlayAnswer {
   interface Picked {
     selector: string
@@ -136,9 +141,6 @@ export const DESIGN_OVERLAY = String(function (
   interface Overlay {
     host: HTMLElement
     root: ShadowRoot
-    hover: HTMLElement
-    tag: HTMLElement
-    hovered: Element | null
     picked: Picked[]
     frame: number
     /** A number per element node seen, so a hot update that swaps the node changes the sig. */
@@ -150,9 +152,12 @@ export const DESIGN_OVERLAY = String(function (
   }
   const g = globalThis as unknown as { __relayDesign?: Overlay }
   const deepAt = (x: number, y: number): Element | null => {
-    let element = document.elementFromPoint(x, y)
+    // Under the note picker's host, which takes the pointer while Design Mode is on (a shadow
+    // root's hit test sees that host too).
+    const below = (els: Element[]): Element | null => els.find((e) => e.id !== pickerHost) ?? null
+    let element = below(document.elementsFromPoint(x, y))
     for (let depth = 0; depth < 20 && element && element.shadowRoot; depth++) {
-      const inner: Element | null = element.shadowRoot.elementFromPoint(x, y)
+      const inner = below(element.shadowRoot.elementsFromPoint(x, y))
       if (!inner || inner === element) break
       element = inner
     }
@@ -168,12 +173,6 @@ export const DESIGN_OVERLAY = String(function (
     frame.style.transform = 'translate(' + rect.x + 'px,' + rect.y + 'px)'
     frame.style.width = rect.width + 'px'
     frame.style.height = rect.height + 'px'
-  }
-  const label = (element: Element): string => {
-    const cls = Array.from(element.classList).slice(0, 2)
-    return (
-      element.localName + (element.id ? '#' + element.id : cls.length ? '.' + cls.join('.') : '')
-    )
   }
   const WATCH: MutationObserverInit = {
     subtree: true,
@@ -281,27 +280,15 @@ export const DESIGN_OVERLAY = String(function (
       [
         ':host { all: initial; }',
         '.f { position: fixed; left: 0; top: 0; display: none; box-sizing: border-box; pointer-events: none; border-radius: 2px; }',
-        '.h { border: 1px solid var(--c); background: color-mix(in srgb, var(--c) 8%, transparent); }',
         '.s { border: 2px solid var(--c); }',
-        '.t, .n { position: absolute; font: 500 11px/16px ui-sans-serif, system-ui, sans-serif; color: #fff; background: var(--c); padding: 0 5px; border-radius: 3px; white-space: nowrap; }',
-        '.t { left: -1px; top: -19px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; }',
-        '.n { left: -2px; top: -18px; min-width: 16px; text-align: center; border-radius: 3px 3px 0 0; padding: 0 4px; }',
+        '.n { position: absolute; left: -2px; top: -18px; min-width: 16px; padding: 0 4px; font: 500 11px/16px ui-sans-serif, system-ui, sans-serif; color: #fff; background: var(--c); text-align: center; border-radius: 3px 3px 0 0; white-space: nowrap; }',
       ].join('\n'),
     )
     root.adoptedStyleSheets = [sheet]
-    const hover = document.createElement('div')
-    hover.className = 'f h'
-    const tag = document.createElement('span')
-    tag.className = 't'
-    hover.appendChild(tag)
-    root.appendChild(hover)
     ;(document.documentElement || document.body).appendChild(host)
     const made: Overlay = {
       host,
       root,
-      hover,
-      tag,
-      hovered: null,
       picked: [],
       frame: 0,
       ids: new WeakMap(),
@@ -319,9 +306,6 @@ export const DESIGN_OVERLAY = String(function (
     made.watch.observe(document, WATCH)
     const tick = (): void => {
       if (!made.host.isConnected) return
-      const t = made.hovered
-      place(made.hover, t)
-      made.tag.style.top = t && t.getBoundingClientRect().y < 20 ? '1px' : '-19px'
       for (const p of made.picked) {
         if (!p.element || !p.element.isConnected) {
           p.element = resolve(p.selector)
@@ -359,18 +343,6 @@ export const DESIGN_OVERLAY = String(function (
   switch (cmd.op) {
     case 'init':
       ov.host.style.setProperty('--c', cmd.color)
-      ov.hover.style.setProperty('--c', cmd.color)
-      break
-    case 'hover': {
-      const element = deepAt(cmd.x, cmd.y)
-      ov.hovered = element === document.documentElement ? null : element
-      ov.tag.textContent = ov.hovered ? label(ov.hovered) : ''
-      place(ov.hover, ov.hovered)
-      break
-    }
-    case 'unhover':
-      ov.hovered = null
-      place(ov.hover, null)
       break
     case 'pick': {
       const element = deepAt(cmd.x, cmd.y)
@@ -393,6 +365,9 @@ export const DESIGN_OVERLAY = String(function (
       break
     case 'visible':
       ov.host.style.display = cmd.on ? '' : 'none'
+      // The picker's hover box stays out of the crops too (the page shares its DOM); opacity,
+      // so the picker still takes the pointer meanwhile.
+      document.getElementById(pickerHost)?.style.setProperty('opacity', cmd.on ? '' : '0')
       break
   }
   return answer(ov)
@@ -598,17 +573,19 @@ export interface DesignPage {
     rect: { x: number; y: number; width: number; height: number },
     maxSide: number,
   ): Promise<{ png: string; width: number; height: number } | null>
+  /** The note picker in mode `design` (annotate-picker.ts): Isaac's next click or drag. */
+  pick(op: PickOp, timeoutMs: number): Promise<PickResult>
 }
 
 export function designPage(
-  pc: Pick<PageControl, 'inWorld' | 'evaluate' | 'capture'>,
+  pc: Pick<PageControl, 'inWorld' | 'evaluate' | 'capture' | 'pick'>,
   styleKeys: readonly string[],
 ): DesignPage {
   return {
     overlay: (cmd) =>
       pc.inWorld<OverlayAnswer>(
         WORLD,
-        `(${DESIGN_OVERLAY})(${JSON.stringify(cmd)}, ${SELECTOR_PATH}, ${RESOLVE})`,
+        `(${DESIGN_OVERLAY})(${JSON.stringify(cmd)}, ${SELECTOR_PATH}, ${RESOLVE}, ${JSON.stringify(PICKER_HOST)})`,
       ),
     inspect: (selectors) =>
       pc.evaluate<InspectAnswer>(
@@ -627,5 +604,6 @@ export function designPage(
       )
     },
     capture: (rect, maxSide) => pc.capture(rect, maxSide),
+    pick: (op, timeoutMs) => pc.pick(op, timeoutMs),
   }
 }

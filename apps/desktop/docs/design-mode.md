@@ -9,16 +9,19 @@ Inspired by TasteCode's browser annotations (Apache-2.0, see `THIRD_PARTY_NOTICE
 
 1. Open a chat, open a page tab beside it (+ in a tool pane, then Browser) and load your dev server.
 2. Press the pointer button at the right of the address row (`btn-design-mode`). The inspector
-   opens beside the page (under it when the pane is narrower than 720 px).
-3. Hover: the element under the pointer gets a quiet outline and its tag. Clicks, hovers and keys
+   opens beside the page (under it when the pane is narrower than 720 px). A pane narrower than
+   420 px hides the button while the mode is off, so the address keeps its room.
+3. Hover: the element under the pointer gets an outline and its tag. Clicks, hovers and keys
    (typing, paste, the page's own shortcuts) stay out of the page while the mode is on; Relay's
    shortcuts still work and the wheel still scrolls the page.
 4. Click to select; Shift-click adds or removes one (up to 8). Each selected element keeps a
-   numbered outline.
+   numbered outline. Drag over an area to select it as a region (Shift-drag adds it): its
+   screenshot only, listed after the elements as `Region WxH`.
 5. In the inspector: the element (`button#save`), its component and source `file:line`, its
    screenshot and computed styles. Edit a style value (Enter or leaving the field previews it in
    the page; the undo arrow puts it back; a value CSS does not take is refused with the reason).
-   "Draw on it" opens the screenshot to mark it with a pen.
+   "Draw on it" opens the screenshot to mark it with a pen. A region shows its screenshot and
+   "Draw on it" only.
 6. Describe the change ("8px tighter") and press Send (Cmd+Enter in the field). It goes to the chat
    that owns the page (the chat of its workspace, or the chat whose agent drives it) as your own
    message, a page note of intent `change` (`docs/agent-presence.md`): every element's selector,
@@ -48,16 +51,20 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 - Contract: `packages/contract/src/design.ts` (`design.set`, `design.select`, `design.style`,
   `design.send`; events `design.selection`, `design.exit`); the note's fields and text in
   `agent-presence.ts` (`BrowserNoteTarget`, `noteText`).
-- Main, `src/main/browser/design-mode.ts`: one session per page tab. Input from Isaac's mouse is
-  taken from the page through `BrowserHost.interceptInput` (`before-mouse-event`, which carries
-  no modifiers: Shift comes from the last key event in the page or the shell). Every change of the
+- Main, `src/main/browser/design-mode.ts`: one session per page tab. Isaac's pointer goes through
+  the page note picker (`annotate-picker.ts`) in mode `design`: a loop of picks, each answering a
+  click (with Shift) or a dragged region; the picker outlines what is hovered, reaches into open
+  shadow roots and keeps the pointer from the page between picks. A cancelled pick (another
+  picker took the page) ends the mode. Keys are kept from the page by `BrowserHost.interceptInput`
+  (`before-input-event`; Relay's own shortcuts pass; Esc ends the mode). Every change of the
   selection is read in the page, cropped and sent as `design.selection`; a 700 ms poll of a
   signature of the selected elements (node identity, attributes, size, key styles, text, and a
-  count of DOM changes inside them) and `dom-ready` catch hot updates and reloads. Turning the
-  mode on and off is serialized per tab.
-- Page, `src/main/browser/design-page.ts`: the highlight lives in a closed shadow root in an
-  isolated world (`relay-design`), so the page's scripts and styles can't reach it; reads that need
-  React's fibers run in the page's world, read-only. Crops are taken with the highlight hidden.
+  count of DOM changes inside them) and `dom-ready` catch hot updates and reloads. Regions are
+  cropped once, when dragged. Turning the mode on and off is serialized per tab.
+- Page, `src/main/browser/design-page.ts`: the selection outlines live in a closed shadow root in
+  an isolated world (`relay-design`), so the page's scripts and styles can't reach them; reads that
+  need React's fibers run in the page's world, read-only. Crops are taken with the outlines and the
+  picker hidden.
 - Renderer: the mode is an XState machine (`src/renderer/browser/design/design-mode.machine.ts`,
   diagram in `docs/state-machines/design-mode.md`), one actor per page tab
   (`design-runtime.ts`); `DesignToggle`, `DesignInspector`, `DesignAnnotate`. Send calls
@@ -68,7 +75,9 @@ The component name comes from the fiber's owner, else `data-component`, `data-se
 
 - The crop is what the page shows: an element scrolled out of view has no screenshot (the prompt
   says so) and a partly visible one is cut at the viewport.
-- Hover costs one CDP call per mouse move (moves arriving meanwhile are coalesced).
+- A region is a screenshot taken when dragged: it is not outlined in the page and is not taken
+  again after a reload or scroll.
+- Opening the page's Note picker while the mode is on ends the mode (one picker per page).
 - The selection is found again by its selector path; a hot update that changes the element's
   classes or position past what the path names marks it "Not in the page right now".
 - While a refresh crops, the outlines hide for a moment; a selected element whose content changes

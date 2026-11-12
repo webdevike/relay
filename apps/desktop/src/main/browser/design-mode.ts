@@ -7,12 +7,12 @@ import {
 } from '@evaos/contract'
 import { matchesAppChord } from '@evaos/browser-core/hotkeys'
 import { FORWARD_FROM_GUEST, chordOfInput } from '@evaos/shell-core'
-import type { PageInput } from './browser-host'
+import type { PickResult } from './annotate-picker'
+import type { Input } from 'electron'
 import {
   DESIGN_COLOR,
   MAX_SELECTION,
   type DesignPage,
-  type InspectAnswer,
   type InspectedElement,
   type OverlayAnswer,
   type OverlayCommand,
@@ -32,7 +32,7 @@ export interface DesignHost {
   page(tabId: string): DesignPage
   contents(tabId: string): DesignContents | undefined
   onTabClosed(cb: (tab: { id: string }) => void): void
-  interceptInput(fn: (tabId: string, input: PageInput) => boolean): void
+  interceptInput(fn: (tabId: string, input: Input) => boolean): void
 }
 
 type DesignEvent = Extract<EventChannel, 'design.selection' | 'design.exit'>
@@ -44,19 +44,31 @@ const POLL_MS = 700
 const CROP_SIDE = 1200
 /** Room around an element in its crop, so its edges read. */
 const CROP_PAD = 6
+/** One pick waits this long for Isaac, then the picker starts again. */
+const PICK_TIMEOUT_MS = 30 * 60_000
+/** A pick that failed (the page reloading under it) is tried again after this. */
+const PICK_RETRY_MS = 500
+
+type Picked = Extract<PickResult, { cancelled: false }>
+interface Rect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
 
 interface Session {
   tabId: string
   origin: string
   selectors: string[]
+  /** Dragged regions in the selection, after its elements: read once, when dragged. */
+  regions: DesignItem[]
+  regionSeq: number
   /** How the selection looked at its last read (OverlayAnswer.sig). */
   sig: string
   /** Page work in order: picks, reads and captures never interleave. */
   queue: Promise<void>
   busy: number
-  /** The latest pointer position not drawn yet, or a pending leave. */
-  hoverAt: { x: number; y: number } | 'leave' | null
-  hovering: boolean
   stopped: boolean
   poll: ReturnType<typeof setInterval>
   wc: DesignContents
@@ -80,29 +92,40 @@ function labelOf(selector: string): string {
   return clip(step.replace(/:nth-[a-z-]+\([^)]*\)/g, ''), 200)
 }
 
+/** `box` padded and kept inside the viewport, or null when nothing of it shows. */
+function cropRect(
+  box: { x: number; y: number; width: number; height: number },
+  viewport: { width: number; height: number },
+  pad: number,
+): Rect | null {
+  const x = Math.max(0, Math.floor(box.x - pad))
+  const y = Math.max(0, Math.floor(box.y - pad))
+  const right = Math.min(viewport.width, Math.ceil(box.x + box.width + pad))
+  const bottom = Math.min(viewport.height, Math.ceil(box.y + box.height + pad))
+  return right - x >= 2 && bottom - y >= 2 ? { x, y, width: right - x, height: bottom - y } : null
+}
+
 /**
  * Design Mode's page side, one session per page tab it is on in (the renderer's design-mode
- * machine turns it on and off): Isaac's mouse in the page moves the in-page highlight instead of
- * reaching the page, a click picks (Shift adds or removes), Escape asks the renderer to end the
- * mode. Each selection change is read in the page (DESIGN_INSPECT), cropped from the page's
- * pixels with the highlight hidden, and sent as a `design.selection` event. While the mode is on
- * it watches the selection: a hot update or a reload of the same site brings a `refresh`; a
- * different site or a closed tab ends the mode (`design.exit`).
+ * machine turns it on and off). While it is on, the note picker (annotate-picker.ts, mode
+ * `design`) takes Isaac's pointer in the page: it highlights what he hovers, a click picks the
+ * element there (Shift adds or removes it) and a drag picks a region (Shift adds it). Keys stay
+ * out of the page; Escape asks the renderer to end the mode. Each selection change is read in the
+ * page (DESIGN_INSPECT), cropped from the page's pixels with the outlines hidden, and sent as a
+ * `design.selection` event. While the mode is on it watches the selection: a hot update or a
+ * reload of the same site brings a `refresh`; a different site or a closed tab ends the mode
+ * (`design.exit`).
  */
 export class DesignMode {
   private sessions = new Map<string, Session>()
   /** Each tab's latest mode change: the next waits for it, so a start and a stop never overlap. */
   private changes = new Map<string, Promise<void>>()
-  /**
-   * Whether Shift is down, from the last key event in a page or the shell (keyState): Electron's
-   * before-mouse-event carries no modifiers, so a Shift-click reads it here.
-   */
-  private shift = false
 
   constructor(
     private readonly host: DesignHost,
     private readonly emit: DesignEmit,
     private readonly pollMs = POLL_MS,
+    private readonly retryMs = PICK_RETRY_MS,
   ) {
     host.interceptInput((tabId, input) => this.input(tabId, input))
     // Every closed page, on or not: the renderer drops that page's design actor on `closed`.
@@ -114,11 +137,6 @@ export class DesignMode {
 
   isOn(tabId: string): boolean {
     return this.sessions.has(tabId)
-  }
-
-  /** A key event in the shell (the page's own arrive through `input`). */
-  keyState(input: { shift?: boolean }): void {
-    this.shift = input.shift === true
   }
 
   /** Turns the mode on or off in page `tabId`, after any change of it still in flight. */
@@ -142,6 +160,10 @@ export class DesignMode {
       // After the page work in flight (an init still drawing), so nothing draws after the destroy.
       await s.queue
       await this.overlay(s, { op: 'destroy' }).catch(() => undefined)
+      // The picker goes too; its open pick answers cancelled to a loop that has stopped.
+      await this.page(s)
+        .pick({ op: 'clear' }, 5000)
+        .catch(() => undefined)
       return
     }
     const existing = this.sessions.get(tabId)
@@ -149,6 +171,7 @@ export class DesignMode {
       await this.run(existing, async () => {
         const a = await this.overlay(existing, { op: 'select', selectors: [] })
         existing.selectors = a.selectors
+        existing.regions = []
         existing.sig = a.sig
       })
       return
@@ -159,11 +182,11 @@ export class DesignMode {
       tabId,
       origin: originOf(wc.getURL()),
       selectors: [],
+      regions: [],
+      regionSeq: 0,
       sig: '',
       queue: Promise.resolve(),
       busy: 0,
-      hoverAt: null,
-      hovering: false,
       stopped: false,
       poll: setInterval(() => this.check(s), this.pollMs),
       wc,
@@ -191,15 +214,19 @@ export class DesignMode {
         cause: e,
       })
     }
+    void this.picking(s)
   }
 
   /** Sets the selection to `selectors` (the inspector removed one) and sends it. */
   async select(tabId: string, selectors: string[]): Promise<void> {
     const s = this.session(tabId)
     await this.run(s, async () => {
+      const keep = selectors.slice(0, MAX_SELECTION)
+      s.regions = s.regions.filter((r) => keep.includes(r.selector))
+      const regions = new Set(s.regions.map((r) => r.selector))
       const a = await this.overlay(s, {
         op: 'select',
-        selectors: selectors.slice(0, MAX_SELECTION),
+        selectors: keep.filter((k) => !regions.has(k)),
       })
       await this.publish(s, a, 'pick')
     })
@@ -237,64 +264,87 @@ export class DesignMode {
 
   // Input ------------------------------------------------------------------------------------
 
-  /** Isaac's input in tab `tabId`: true keeps it from the page (BrowserHost.interceptInput). */
-  private input(tabId: string, input: PageInput): boolean {
-    if (input.kind === 'key') this.keyState(input.input)
-    const s = this.sessions.get(tabId)
-    if (!s) return false
-    if (input.kind === 'key') {
-      const k = input.input
-      if (k.type === 'keyDown' && k.key === 'Escape') {
-        this.emit('design.exit', { tabId, reason: 'escape' })
-        return true
-      }
-      // Keys stay out of the page while the mode is on (no typing, pasting or page shortcuts);
-      // Relay's own shortcuts and DevTools go on to BrowserHost, which never hands them to the page.
-      if (matchesAppChord(k) === 'devtools') return false
-      const chord = chordOfInput(k)
-      return !(chord && FORWARD_FROM_GUEST.has(chord))
+  /**
+   * Isaac's key in tab `tabId`: true keeps it from the page (BrowserHost.interceptInput). Keys stay
+   * out while the mode is on; his pointer goes on to the page, where the picker takes it.
+   */
+  private input(tabId: string, k: Input): boolean {
+    if (!this.sessions.has(tabId)) return false
+    if (k.type === 'keyDown' && k.key === 'Escape') {
+      this.emit('design.exit', { tabId, reason: 'escape' })
+      return true
     }
-    const m = input.mouse
-    switch (m.type) {
-      // The page still scrolls; the highlight follows its element.
-      case 'mouseWheel':
-        return false
-      case 'mouseMove':
-        s.hoverAt = { x: m.x, y: m.y }
-        void this.pumpHover(s)
-        return true
-      case 'mouseLeave':
-        s.hoverAt = 'leave'
-        void this.pumpHover(s)
-        return true
-      case 'mouseDown':
-        if (m.button === 'left') {
-          const add = this.shift
-          this.later(s, async () => {
-            const a = await this.overlay(s, { op: 'pick', x: m.x, y: m.y, add, max: MAX_SELECTION })
-            await this.publish(s, a, 'pick')
-          })
-        }
-        return true
-      default:
-        return true
+    // No typing, pasting or page shortcuts; Relay's own shortcuts and DevTools go on to
+    // BrowserHost, which never hands them to the page.
+    if (matchesAppChord(k) === 'devtools') return false
+    const chord = chordOfInput(k)
+    return !(chord && FORWARD_FROM_GUEST.has(chord))
+  }
+
+  /** Isaac's clicks and drags in the page, one pick after another while the mode is on. */
+  private async picking(s: Session): Promise<void> {
+    while (!s.stopped) {
+      let r: PickResult
+      try {
+        r = await this.page(s).pick(
+          { op: 'pick', color: DESIGN_COLOR, mode: 'design' },
+          PICK_TIMEOUT_MS,
+        )
+      } catch {
+        // The page reloading under it, or a pick that waited too long: pick again.
+        const wait = Promise.withResolvers<void>()
+        setTimeout(wait.resolve, this.retryMs)
+        await wait.promise
+        continue
+      }
+      if (s.stopped) return
+      if (r.cancelled) {
+        // Another picker took the page (a note), or Escape reached the page: the mode ends.
+        this.end(s.tabId)
+        this.emit('design.exit', { tabId: s.tabId, reason: 'escape' })
+        return
+      }
+      const picked = r
+      await this.run(s, () => this.picked(s, picked)).catch(() => undefined)
     }
   }
 
-  /** Draws the newest pointer position only; moves that arrive meanwhile replace it. */
-  private async pumpHover(s: Session): Promise<void> {
-    if (s.hovering) return
-    s.hovering = true
-    try {
-      while (s.hoverAt !== null && !s.stopped) {
-        const at = s.hoverAt
-        s.hoverAt = null
-        const cmd: OverlayCommand = at === 'leave' ? { op: 'unhover' } : { op: 'hover', ...at }
-        await this.overlay(s, cmd).catch(() => undefined)
-      }
-    } finally {
-      s.hovering = false
+  /** A click picks the element there, a drag the region; Shift adds to the selection. */
+  private async picked(s: Session, r: Picked): Promise<void> {
+    if (!r.shift) s.regions = []
+    if (r.element) {
+      const a = await this.overlay(s, {
+        op: 'pick',
+        x: r.at.x,
+        y: r.at.y,
+        add: r.shift,
+        max: MAX_SELECTION - s.regions.length,
+      })
+      await this.publish(s, a, 'pick')
+      return
     }
+    const a = await this.overlay(s, r.shift ? { op: 'status' } : { op: 'select', selectors: [] })
+    if (a.selectors.length + s.regions.length < MAX_SELECTION) {
+      const box = { x: r.box.x, y: r.box.y, width: r.box.w, height: r.box.h }
+      const rect = cropRect(box, r.viewport, 0)
+      const [crop = null] = rect ? await this.captures(s, [rect]) : []
+      const w = Math.round(box.width)
+      const h = Math.round(box.height)
+      s.regions.push({
+        kind: 'region',
+        selector: `region-${++s.regionSeq}`,
+        label: `Region ${w}x${h}`,
+        missing: false,
+        text: '',
+        html: '',
+        box,
+        source: null,
+        component: null,
+        styles: {},
+        crop,
+      })
+    }
+    await this.publish(s, a, 'pick')
   }
 
   // Reading ----------------------------------------------------------------------------------
@@ -317,37 +367,35 @@ export class DesignMode {
     await this.publish(s, a, 'refresh')
   }
 
-  /** Reads the selection `a` names, crops each element and sends it to the renderer. */
+  /**
+   * Reads the elements `a` names, crops each and sends them, then the regions, to the renderer.
+   */
   private async publish(s: Session, a: OverlayAnswer, reason: 'pick' | 'refresh'): Promise<void> {
     s.selectors = a.selectors
     s.sig = a.sig
-    const page = this.page(s)
-    const read = await page.inspect(a.selectors)
-    const crops = await this.crops(s, read)
+    const read = await this.page(s).inspect(a.selectors)
+    const rects = read.items.map((el) => (el ? cropRect(el.box, read, CROP_PAD) : null))
+    const crops = rects.some((r) => r !== null) ? await this.captures(s, rects) : []
     if (s.stopped) return
     const items = a.selectors.map((selector, i) =>
       this.item(selector, read.items[i] ?? null, crops[i] ?? null),
     )
-    this.emit('design.selection', { tabId: s.tabId, items, reason })
+    this.emit('design.selection', {
+      tabId: s.tabId,
+      items: [...items, ...s.regions],
+      reason,
+    })
   }
 
-  /** Each element's pixels as the page paints them: the highlight is hidden for the captures. */
-  private async crops(s: Session, read: InspectAnswer): Promise<Array<DesignItem['crop']>> {
+  /** The page's pixels in each rect as it paints them: the outlines are hidden for the captures. */
+  private async captures(
+    s: Session,
+    rects: Array<Rect | null>,
+  ): Promise<Array<DesignItem['crop']>> {
     const page = this.page(s)
-    const rects = read.items.map((el) => {
-      if (!el) return null
-      const x = Math.max(0, Math.floor(el.box.x - CROP_PAD))
-      const y = Math.max(0, Math.floor(el.box.y - CROP_PAD))
-      const right = Math.min(read.width, Math.ceil(el.box.x + el.box.width + CROP_PAD))
-      const bottom = Math.min(read.height, Math.ceil(el.box.y + el.box.height + CROP_PAD))
-      return right - x >= 2 && bottom - y >= 2
-        ? { x, y, width: right - x, height: bottom - y }
-        : null
-    })
-    if (rects.every((r) => r === null)) return rects.map(() => null)
     await this.overlay(s, { op: 'visible', on: false })
     try {
-      // Two frames so the hidden highlight is off the surface the capture copies.
+      // Two frames so the hidden outlines are off the surface the capture copies.
       await page.settle()
       const out: Array<DesignItem['crop']> = []
       for (const r of rects) out.push(r ? await page.capture(r, CROP_SIDE).catch(() => null) : null)
@@ -365,6 +413,7 @@ export class DesignMode {
   ): DesignItem {
     if (!el) {
       return {
+        kind: 'element',
         selector,
         label: labelOf(selector),
         missing: true,
@@ -387,6 +436,7 @@ export class DesignMode {
       typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null
     const src = el.source
     return {
+      kind: 'element',
       selector,
       label: clip(String(el.label), 200),
       missing: false,
@@ -447,7 +497,7 @@ export class DesignMode {
     return next
   }
 
-  /** `run` for work nobody awaits (input, the poll, a reload): its failure is only logged. */
+  /** `run` for work nobody awaits (the poll, a reload): its failure is only logged. */
   private later(s: Session, fn: () => Promise<void>): void {
     this.run(s, fn).catch(() => undefined)
   }

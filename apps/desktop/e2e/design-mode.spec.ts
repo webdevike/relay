@@ -16,10 +16,11 @@ import {
 } from './helpers/web'
 
 // Design Mode in a page tab (apps/desktop/docs/design-mode.md): the toggle in the address row,
-// hover and pick in the page with Isaac's own (native) input, the inspector beside the page, a
-// style edit previewed live, a drawing on the crop, Send to the workspace's chat (the fake omp
-// logs the prompt), the selection kept through a hot update and a reload, and Esc. Screenshots
-// go to proof/phase-design-mode/ (EVAOS_PROOF=1).
+// hover and pick in the page with Isaac's own (native) input through the note picker in design
+// mode (click, Shift-click, Shift-drag a region), the inspector beside the page, a style edit
+// previewed live, a drawing on the crop, Send to the workspace's chat (a change note in the fake
+// omp's log), the selection kept through a hot update and a reload, and Esc. Screenshots go to
+// proof/phase-design-mode/ (EVAOS_PROOF=1).
 
 const LOG = path.join(os.tmpdir(), `evaos-fake-omp-design-${process.pid}.log`)
 const PHASE = 'phase-design-mode'
@@ -51,29 +52,18 @@ function mouse(
   )
 }
 
-/** Isaac's click in page `id` at `at` (move, press, release). */
-const click = (app: ElectronApplication, id: string, at: { x: number; y: number }) =>
+/** Isaac's click in page `id` at `at` (move, press, release), with keys held (`shift`). */
+const click = (
+  app: ElectronApplication,
+  id: string,
+  at: { x: number; y: number },
+  modifiers: string[] = [],
+) =>
   mouse(app, id, [
-    { type: 'mouseMove', ...at },
-    { type: 'mouseDown', ...at, button: 'left', clickCount: 1 },
-    { type: 'mouseUp', ...at, button: 'left', clickCount: 1 },
+    { type: 'mouseMove', ...at, modifiers },
+    { type: 'mouseDown', ...at, button: 'left', clickCount: 1, modifiers },
+    { type: 'mouseUp', ...at, button: 'left', clickCount: 1, modifiers },
   ])
-
-/** Shift pressed or let go in the shell, as native input (Playwright's keys skip Electron's hooks). */
-const shellKey = (app: ElectronApplication, type: 'keyDown' | 'keyUp') =>
-  app.evaluate(
-    (_e, t) =>
-      (
-        globalThis as unknown as {
-          __evaosTest: { shell: { webContents: { sendInputEvent(e: object): void } } }
-        }
-      ).__evaosTest.shell.webContents.sendInputEvent({
-        type: t,
-        keyCode: 'Shift',
-        modifiers: t === 'keyDown' ? ['shift'] : [],
-      }),
-    type,
-  )
 
 /** The center of the element `selector` names in page `id`, in viewport px. */
 async function centerOf(app: ElectronApplication, id: string, selector: string) {
@@ -84,11 +74,25 @@ async function centerOf(app: ElectronApplication, id: string, selector: string) 
   )) as { x: number; y: number }
 }
 
-/** What the in-page overlay (isolated world) draws: the hover label and the numbered frames. */
-function overlayState(
+/** The page's pixels in `rect` (viewport px), as a PNG in base64. */
+function pixels(
   app: ElectronApplication,
   id: string,
-): Promise<{ hover: string; hoverShown: boolean; frames: number } | null> {
+  rect: { x: number; y: number; width: number; height: number },
+): Promise<string> {
+  return app.evaluate(
+    async (_e, a) => {
+      const h = (globalThis as unknown as BrowserHooks).__evaosTest.hooks.browser.host
+      const wc = h.tabById(a.id)
+      if (!wc) throw new Error(`no page ${a.id}`)
+      return (await wc.capturePage(a.rect)).toPNG().toString('base64')
+    },
+    { id, rect },
+  )
+}
+
+/** How many selection frames the in-page overlay (isolated world) shows; null with no overlay. */
+function framesOf(app: ElectronApplication, id: string): Promise<number | null> {
   return app.evaluate(
     async (_e, a) => {
       const hooks = (
@@ -106,9 +110,9 @@ function overlayState(
       ).__evaosTest.hooks.browser
       return hooks
         .pageControl(a.id)
-        .inWorld<{ hover: string; hoverShown: boolean; frames: number } | null>(
+        .inWorld<number | null>(
           'relay-design',
-          `(() => { const o = globalThis.__relayDesign; if (!o || !o.host.isConnected) return null; return { hover: o.tag.textContent, hoverShown: o.hover.style.display === 'block', frames: o.picked.filter((p) => p.frame.style.display === 'block').length } })()`,
+          `(() => { const o = globalThis.__relayDesign; if (!o || !o.host.isConnected) return null; return o.picked.filter((p) => p.frame.style.display === 'block').length })()`,
         )
     },
     { id },
@@ -181,7 +185,11 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect(inspector(shell, id)).toBeVisible()
   await expect(inspector(shell, id).locator('[data-testid=design-hint]')).toBeVisible()
-  await expect.poll(() => overlayState(app, id)).not.toBeNull()
+  await expect.poll(() => framesOf(app, id)).toBe(0)
+  // The picker takes the pointer in the page (design mode: no hint, Design Mode's inspector says it).
+  await expect
+    .poll(() => guestEval(app, id, `!!document.getElementById('relay-note-picker')`))
+    .toBe(true)
   // A wide pane: the inspector stands beside the page, which keeps the rest.
   await expect
     .poll(async () => {
@@ -192,12 +200,17 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
     .toBe(true)
   await expect.poll(() => guestEval(app, id, 'innerWidth')).toBeGreaterThan(600)
 
-  // A2: hover highlights in the page.
+  // A2: hover highlights in the page: the picker outlines what is under the pointer.
   const save = await centerOf(app, id, '#save')
+  const saveBox = (await guestEval(
+    app,
+    id,
+    `(() => { const r = document.getElementById('save').getBoundingClientRect(); return { x: Math.floor(r.x) - 4, y: Math.floor(r.y) - 4, width: Math.ceil(r.width) + 8, height: Math.ceil(r.height) + 8 } })()`,
+  )) as { x: number; y: number; width: number; height: number }
+  await mouse(app, id, [{ type: 'mouseMove', x: 500, y: 700 }])
+  const unhovered = await pixels(app, id, saveBox)
   await mouse(app, id, [{ type: 'mouseMove', ...save }])
-  await expect
-    .poll(() => overlayState(app, id))
-    .toMatchObject({ hover: 'button#save', hoverShown: true })
+  await expect.poll(() => pixels(app, id, saveBox)).not.toBe(unhovered)
   await proofShot(app, shell, 'hover', { phase: PHASE })
 
   // A2 + A3: a click selects and never reaches the page.
@@ -223,17 +236,33 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect(crop).toBeVisible()
   const plainCrop = await crop.getAttribute('src')
 
-  // A3: shift-click adds a second element; its source comes from data attributes. Shift is held
-  // in the shell, which keeps the keyboard while Isaac points into the page.
-  await inspector(shell, id).locator('[data-testid=design-exit]').focus()
-  await shellKey(app, 'keyDown')
-  await click(app, id, await centerOf(app, id, '.card h2'))
+  // A3: Shift-click adds a second element; its source comes from data attributes.
+  await click(app, id, await centerOf(app, id, '.card h2'), ['shift'])
   await expect(items).toHaveCount(2)
-  await shellKey(app, 'keyUp')
   await expect(items.nth(1).locator('[data-testid=design-item-source]')).toHaveText(
     'Card · components/Card.tsx:7',
   )
-  await expect.poll(async () => (await overlayState(app, id))?.frames).toBe(2)
+  await expect.poll(() => framesOf(app, id)).toBe(2)
+
+  // A3: a Shift-drag over an empty area adds it as a region: its screenshot, no source or styles.
+  const shift = ['shift']
+  await mouse(app, id, [
+    { type: 'mouseMove', x: 480, y: 60, modifiers: shift },
+    { type: 'mouseDown', x: 480, y: 60, button: 'left', clickCount: 1, modifiers: shift },
+    { type: 'mouseMove', x: 560, y: 110, modifiers: [...shift, 'leftButtonDown'] },
+    { type: 'mouseMove', x: 640, y: 160, modifiers: [...shift, 'leftButtonDown'] },
+    { type: 'mouseUp', x: 640, y: 160, button: 'left', clickCount: 1, modifiers: shift },
+  ])
+  await expect(items).toHaveCount(3)
+  await expect(items.nth(2).locator('[data-testid=design-item-label]')).toHaveText('Region 160x100')
+  await expect(items.nth(2).locator('[data-testid=design-item-source]')).toHaveText(
+    'Screenshot of the area',
+  )
+  await items.nth(2).locator('.eva-design-item-main').click()
+  await expect(inspector(shell, id).locator('[data-testid=design-crop]')).toBeVisible()
+  await expect(inspector(shell, id).locator('[data-testid=design-styles]')).toHaveCount(0)
+  await expect.poll(() => framesOf(app, id)).toBe(2)
+  await proofShot(app, shell, 'region', { phase: PHASE })
 
   // A2: the wheel still scrolls the page.
   const ended = guestEval(
@@ -287,7 +316,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect(inspector(shell, id).locator('[data-testid=design-status]')).toContainText('Sent')
   await expect
     .poll(() => readLog().find((e) => e.event === 'prompt-images')?.detail ?? null)
-    .toEqual({ count: 2, mimeTypes: ['image/png', 'image/png'] })
+    .toEqual({ count: 3, mimeTypes: ['image/png', 'image/png', 'image/png'] })
   const prompt = String(
     readLog().find(
       (e) => e.event === 'prompt' && String(e.detail?.['message']).includes('[Change request'),
@@ -306,9 +335,10 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   expect(prompt).toContain('Isaac drew on it')
   expect(prompt).toContain('Also 2: <h2>')
   expect(prompt).toContain('Source: "src/components/Card.tsx:7"')
+  expect(prompt).toContain('Also 3: the region 480,60 160x100')
   // The screenshots are files beside the page notes', named in the text.
   const shots = [...prompt.matchAll(/Screenshot of the marked area: (\S+\.png)/g)].map((m) => m[1]!)
-  expect(shots).toHaveLength(2)
+  expect(shots).toHaveLength(3)
   for (const f of shots) expect(fs.readFileSync(f).subarray(1, 4).toString()).toBe('PNG')
   // Sent: an empty request can't go again.
   await expect(send).toBeDisabled()
@@ -320,8 +350,8 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect
     .poll(() => guestEval(app, id, "getComputedStyle(document.querySelector('.card')).padding"))
     .toBe('28px')
-  await expect.poll(async () => (await overlayState(app, id))?.frames).toBe(2)
-  await expect(items).toHaveCount(2)
+  await expect.poll(() => framesOf(app, id)).toBe(2)
+  await expect(items).toHaveCount(3)
   await expect(items.nth(1)).not.toHaveAttribute('data-missing', 'true')
 
   // A8: a change inside a selected element alone (no new text, size or style of its own) is
@@ -347,8 +377,8 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   // A8: a full reload keeps the selection too.
   await guestEval(app, id, 'location.reload()')
   await expect.poll(() => guestEval(app, id, 'window.clicks')).toBe(0)
-  await expect.poll(async () => (await overlayState(app, id))?.frames, { timeout: 10_000 }).toBe(2)
-  await expect(items).toHaveCount(2)
+  await expect.poll(() => framesOf(app, id), { timeout: 10_000 }).toBe(2)
+  await expect(items).toHaveCount(3)
   await expect(items.first().locator('[data-testid=design-item-label]')).toHaveText('button#save')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await proofShot(app, shell, 'after-reload', { phase: PHASE })
@@ -373,7 +403,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   const sendBox = (await send.boundingBox())!
   expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(paneBody.y + paneBody.height + 1)
   expect(sendBox.y + sendBox.height).toBeLessThanOrEqual(insBox.y + insBox.height)
-  await expect.poll(async () => (await overlayState(app, id))?.frames).toBe(2)
+  await expect.poll(() => framesOf(app, id)).toBe(2)
   await proofShot(app, shell, 'after-narrow', { phase: PHASE })
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1800, 1000))
   await expect.poll(() => shell.evaluate(() => window.innerWidth)).toBeGreaterThan(1700)
@@ -383,7 +413,13 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
   await expect(inspector(shell, id)).toHaveCount(0)
   await expect
-    .poll(() => guestEval(app, id, "document.querySelector('relay-design') === null"))
+    .poll(() =>
+      guestEval(
+        app,
+        id,
+        "document.querySelector('relay-design') === null && document.getElementById('relay-note-picker') === null",
+      ),
+    )
     .toBe(true)
   // Page input reaches the page again once main has ended the session.
   await expect
@@ -407,7 +443,7 @@ test('Design Mode: pick, inspect, edit, draw, send, keep the selection, Esc', as
   // A9: Esc from the inspector exits too.
   await toggle.click()
   await expect(inspector(shell, id)).toBeVisible()
-  await expect.poll(() => overlayState(app, id)).not.toBeNull()
+  await expect.poll(() => framesOf(app, id)).toBe(0)
   await inspector(shell, id).locator('[data-testid=design-exit]').focus()
   await shell.keyboard.press('Escape')
   await expect(toggle).toHaveAttribute('aria-pressed', 'false')
@@ -420,6 +456,8 @@ test('Design Mode: an element inside a shadow root is picked and refreshed when 
   app,
   shell,
 }) => {
+  // A pane wide enough for the inspector (a narrow one hides the toggle).
+  await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(2200, 1000))
   const id = await newPage(shell)
   const panel = webPanel(shell, id)
   const toggle = panel.locator('[data-testid=btn-design-mode]')
@@ -431,9 +469,10 @@ test('Design Mode: an element inside a shadow root is picked and refreshed when 
     id,
     `(() => { const host = document.createElement('x-card'); host.id = 'xcard'; document.body.prepend(host); const root = host.attachShadow({ mode: 'open' }); root.innerHTML = '<div class="inner" style="display:inline-block;width:120px;height:40px;background:#eee"><span class="icon" data-v="1"></span></div>'; return 1 })()`,
   )
+  await expect(toggle).toBeVisible()
   await toggle.click()
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-  await expect.poll(() => overlayState(app, id)).not.toBeNull()
+  await expect.poll(() => framesOf(app, id)).toBe(0)
   const at = (await guestEval(
     app,
     id,

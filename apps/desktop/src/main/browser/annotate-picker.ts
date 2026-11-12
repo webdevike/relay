@@ -14,8 +14,11 @@ import type { NoteElement } from '@evaos/contract'
 /**
  * `pick` opens the picker in `color` (clearing one already open, whose pick answers cancelled);
  * `clear` closes the picker or removes the mark, answering once the page painted without it.
+ * Mode `design` (Design Mode, design-mode.ts) shows no hint, finds elements inside open shadow
+ * roots, and once it answers draws no mark but keeps the page's pointer until the next `pick`
+ * replaces it or `clear` closes it, so a click between two picks never reaches the page.
  */
-export type PickOp = { op: 'pick'; color: string } | { op: 'clear' }
+export type PickOp = { op: 'pick'; color: string; mode?: 'note' | 'design' } | { op: 'clear' }
 
 /** A box in viewport CSS px. */
 export interface PickBox {
@@ -35,6 +38,10 @@ export type PickResult =
       box: PickBox
       /** The viewport's size in CSS px (innerWidth, innerHeight). */
       viewport: { width: number; height: number }
+      /** Shift was down on the click or the drag's release (Design Mode adds to its selection). */
+      shift: boolean
+      /** Where the click or the drag's release was, in viewport CSS px. */
+      at: { x: number; y: number }
     }
 
 /**
@@ -213,7 +220,9 @@ export const PICKER_SCRIPT = String(function (
   const hint = document.createElement('div')
   hint.className = 'hint'
   hint.textContent = 'Click something or drag over an area. Esc cancels.'
-  root.append(box, hint)
+  const design = op.mode === 'design'
+  // Design Mode says what to do in its inspector.
+  root.append(box, ...(design ? [] : [hint]))
   document.documentElement.append(host)
 
   let resolve: (r: PickResult) => void = () => undefined
@@ -234,8 +243,19 @@ export const PICKER_SCRIPT = String(function (
     box.classList.toggle('drag', drag)
     tag.textContent = label
   }
-  const under = (x: number, y: number): Element | null =>
-    document.elementsFromPoint(x, y).find((el) => el !== host && !host.contains(el)) ?? null
+  const under = (x: number, y: number): Element | null => {
+    // A shadow root's hit test sees the host too.
+    const below = (els: Element[]): Element | null =>
+      els.find((e) => e !== host && !host.contains(e)) ?? null
+    let el = below(document.elementsFromPoint(x, y))
+    // Design Mode edits what is inside a web component too (open shadow roots).
+    for (let depth = 0; design && depth < 20 && el?.shadowRoot; depth++) {
+      const inner = below(el.shadowRoot.elementsFromPoint(x, y))
+      if (!inner || inner === el) break
+      el = inner
+    }
+    return el
+  }
   const boxOf = (el: Element): PickBox => {
     const r = el.getBoundingClientRect()
     return { x: r.left, y: r.top, w: r.width, h: r.height }
@@ -252,8 +272,10 @@ export const PICKER_SCRIPT = String(function (
   }
 
   const onMove = (e: MouseEvent): void => {
-    if (picked) return
+    // An answered design pick keeps the pointer from the page until the next pick.
+    if (picked && !design) return
     swallow(e)
+    if (picked) return
     if (down) {
       if (!dragging && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) dragging = true
       if (dragging) show(dragBox(down, { x: e.clientX, y: e.clientY }), '', true)
@@ -266,45 +288,62 @@ export const PICKER_SCRIPT = String(function (
     else box.classList.remove('on')
   }
   const onDown = (e: MouseEvent): void => {
-    if (picked || e.button !== 0) return
+    if (picked && !design) return
+    if (picked) return swallow(e)
+    if (e.button !== 0) return
     swallow(e)
     down = { x: e.clientX, y: e.clientY }
     dragging = false
   }
   const onUp = (e: MouseEvent): void => {
-    if (picked || !down) return
+    if (picked && !design) return
+    if (picked) return swallow(e)
+    if (!down) return
     swallow(e)
     const start = down
     down = null
+    const end = { shift: e.shiftKey, at: { x: e.clientX, y: e.clientY } }
     if (dragging) {
-      const b = dragBox(start, { x: e.clientX, y: e.clientY })
-      if (b.w >= 4 && b.h >= 4) return mark({ box: b })
+      const b = dragBox(start, end.at)
+      if (b.w >= 4 && b.h >= 4) return mark({ box: b, ...end })
       dragging = false
       return
     }
     const el = under(e.clientX, e.clientY)
     if (!el) return
-    mark({ element: describe(el), box: boxOf(el) })
+    mark({ element: describe(el), box: boxOf(el), ...end })
   }
 
   /**
    * Keeps the mark's outline and answers it; the shell takes the note. From here the page gets
-   * its pointer and keys back: the host stays only to draw the mark.
+   * its pointer and keys back: the host stays only to draw the mark. A design pick draws no mark
+   * (Design Mode outlines its selection itself) and keeps the pointer (see PickOp).
    */
-  const mark = (m: { element?: NoteElement; box: PickBox }): void => {
+  const mark = (m: {
+    element?: NoteElement
+    box: PickBox
+    shift: boolean
+    at: { x: number; y: number }
+  }): void => {
     picked = true
     eatClick = true
     setTimeout(() => (eatClick = false), 0)
-    show(m.box, m.element?.tag ?? '', !m.element)
-    hint.remove()
-    host.style.setProperty('pointer-events', 'none')
-    host.style.removeProperty('cursor')
+    if (design) {
+      box.classList.remove('on')
+    } else {
+      show(m.box, m.element?.tag ?? '', !m.element)
+      hint.remove()
+      host.style.setProperty('pointer-events', 'none')
+      host.style.removeProperty('cursor')
+    }
     window.removeEventListener('keydown', onKey, true)
     resolve({
       cancelled: false,
       ...(m.element ? { element: m.element } : {}),
       box: m.box,
       viewport: { width: innerWidth, height: innerHeight },
+      shift: m.shift,
+      at: m.at,
     })
   }
 
@@ -315,7 +354,7 @@ export const PICKER_SCRIPT = String(function (
   }
   // Pointer events keep their default (it fires the mouse events picking uses); wheels scroll.
   const swallowPicking = (e: Event): void => {
-    if (picked && !eatClick) return
+    if (picked && !eatClick && !design) return
     e.stopPropagation()
     if (e.type === 'contextmenu') e.preventDefault()
   }

@@ -5,7 +5,6 @@ import {
   shell,
   type HandlerDetails,
   type Input,
-  type MouseInputEvent,
   type WebContents,
   type WindowOpenHandlerResponse,
 } from 'electron'
@@ -83,10 +82,6 @@ export const MAX_TABS = 32
 export const LIVE_SCOPES = 5
 
 type TabListener = (tab: TabState, view: WebContentsView) => void
-
-/** Isaac's input in a page, offered to the interceptor (Design Mode) before the page gets it. */
-export type PageInput = { kind: 'mouse'; mouse: MouseInputEvent } | { kind: 'key'; input: Input }
-
 /** An agent is acting in the tab (or waiting on Isaac there): it keeps its live view. */
 const busy = (a: AgentRun | undefined): boolean =>
   a !== undefined && (a.status === 'working' || a.status === 'paused' || a.status === 'ask')
@@ -130,7 +125,7 @@ export class BrowserHost {
   /** The last on-screen page size: a page driven in the background lays out at it. */
   private driveSize = { ...DRIVE_SIZE }
   /** Takes Isaac's input in a tab away from the page when it answers true (Design Mode). */
-  private interceptor: ((tabId: string, input: PageInput) => boolean) | null = null
+  private interceptor: ((tabId: string, input: Input) => boolean) | null = null
 
   readonly history: HistoryStore
   private readonly saved: SavedTabsStore
@@ -218,10 +213,10 @@ export class BrowserHost {
   }
 
   /**
-   * One interceptor (Design Mode) sees Isaac's mouse and key input in every tab first; the input
-   * it answers true for never reaches the page, never pauses an agent and never forwards a chord.
+   * One interceptor (Design Mode) sees Isaac's key input in every tab first; the input it answers
+   * true for never reaches the page and never forwards a chord (an agent driving it still pauses).
    */
-  interceptInput(fn: (tabId: string, input: PageInput) => boolean): void {
+  interceptInput(fn: (tabId: string, input: Input) => boolean): void {
     this.interceptor = fn
   }
 
@@ -435,14 +430,13 @@ export class BrowserHost {
       this.changed()
     })
     // Isaac's own input in a tab (not the drive's CDP input): an agent driving it pauses, also
-    // when the interceptor (Design Mode) keeps that input from the page.
-    wc.on('before-mouse-event', (event, mouse) => {
+    // when the interceptor (Design Mode) keeps a key from the page.
+    wc.on('before-mouse-event', (_e, mouse) => {
       if (mouse.type === 'mouseDown' || mouse.type === 'mouseWheel') this.userInput(tab, view)
-      if (this.interceptor?.(s.id, { kind: 'mouse', mouse })) event.preventDefault()
     })
     wc.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown') this.userInput(tab, view)
-      if (this.interceptor?.(s.id, { kind: 'key', input })) {
+      if (this.interceptor?.(s.id, input)) {
         event.preventDefault()
         return
       }

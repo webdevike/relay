@@ -55,8 +55,12 @@ export const DesignBoxSchema = z.object({
   height: z.number().min(0),
 })
 
-/** One selected element as main read it. Every string here comes from the page. */
+/**
+ * One selected element as main read it, or a region Isaac dragged (`kind: region`: its crop and
+ * box only, a `region-<n>` selector as its key). Every string here comes from the page.
+ */
 export const DesignItemSchema = z.object({
+  kind: z.enum(['element', 'region']),
   selector: DesignSelectorSchema,
   /** `button.primary`: tag, id or first two classes. */
   label: z.string().max(200),

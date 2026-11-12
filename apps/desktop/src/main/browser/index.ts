@@ -96,11 +96,6 @@ export function registerDesignMode(ctx: MainContext, host: BrowserHost, send: Se
       if (!sent) await Promise.all(saved.map((f) => fs.promises.rm(f, { force: true })))
     }
   })
-  // A Shift-click into a page while the shell has the keyboard (the usual case): Shift is read
-  // from the shell's key events.
-  ctx.shell.webContents.on('before-input-event', (_event, input) => design.keyState(input))
-  // Shift released in another app never reaches us.
-  ctx.win.on('blur', () => design.keyState({ shift: false }))
   registerTestHook('design', design)
   ctx.win.on('closed', () => design.dispose())
 }

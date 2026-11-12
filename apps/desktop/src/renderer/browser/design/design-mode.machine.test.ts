@@ -4,6 +4,7 @@ import type { DesignItem } from '@evaos/contract'
 import { designModeMachine, type DesignDraft } from './design-mode.machine'
 
 const item = (selector: string, over: Partial<DesignItem> = {}): DesignItem => ({
+  kind: 'element',
   selector,
   label: selector,
   missing: false,

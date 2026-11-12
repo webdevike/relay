@@ -118,7 +118,8 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
 
       {ctx.items.length === 0 ? (
         <p className="eva-design-hint" data-testid="design-hint">
-          Click an element in the page to select it. Shift-click adds or removes one.
+          Click an element in the page to select it. Shift-click adds or removes one. Drag to select
+          a region.
         </p>
       ) : (
         <div className="eva-design-scroll">
@@ -142,10 +143,12 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
                       {it.label}
                     </span>
                     <span className="eva-design-meta" data-testid="design-item-source">
-                      {it.missing
-                        ? 'Not in the page right now'
-                        : [it.component, sourceText(it)].filter(Boolean).join(' · ') ||
-                          'No source found'}
+                      {it.kind === 'region'
+                        ? 'Screenshot of the area'
+                        : it.missing
+                          ? 'Not in the page right now'
+                          : [it.component, sourceText(it)].filter(Boolean).join(' · ') ||
+                            'No source found'}
                     </span>
                   </span>
                 </UnstyledButton>
@@ -193,17 +196,19 @@ export function DesignInspector({ tabId, visible }: { tabId: string; visible: bo
                   </Button>
                 </div>
               ) : null}
-              <div className="eva-design-styles" data-testid="design-styles">
-                {DESIGN_STYLE_KEYS.filter((k) => item.styles[k] !== undefined).map((k) => (
-                  <StyleRow
-                    key={`${item.selector}|${k}|${item.styles[k] ?? ''}`}
-                    actor={actor}
-                    item={item}
-                    property={k}
-                    edit={ctx.edits.find((e) => e.selector === item.selector && e.property === k)}
-                  />
-                ))}
-              </div>
+              {item.kind === 'element' ? (
+                <div className="eva-design-styles" data-testid="design-styles">
+                  {DESIGN_STYLE_KEYS.filter((k) => item.styles[k] !== undefined).map((k) => (
+                    <StyleRow
+                      key={`${item.selector}|${k}|${item.styles[k] ?? ''}`}
+                      actor={actor}
+                      item={item}
+                      property={k}
+                      edit={ctx.edits.find((e) => e.selector === item.selector && e.property === k)}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : null}
         </div>

@@ -15,6 +15,14 @@
     max-height: 56px;
   }
 }
+
+/* A pane this narrow has no room for the inspector; the address keeps the toggle's width. */
+@container eva-browser (max-width: 420px) {
+  .eva-design-toggle:not([aria-pressed='true']) {
+    display: none;
+  }
+}
+
 .eva-design {
   flex: none;
   width: 288px;
