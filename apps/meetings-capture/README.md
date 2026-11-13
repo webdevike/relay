@@ -22,8 +22,10 @@ tap records silence and reports no error.
   the tap is rebuilt on a default output change or 2 s without audio. A gap is filled with silence
   from host times, so both tracks stay on the wall clock.
 - **Speakers**: while recording, the app's windows are read through Accessibility five times a
-  second, read-only (never a click, focus or keystroke; `Sources/Speakers.swift` has the Teams
-  tile rules): who is marked talking, who is muted, captions with names. Each changed sample (and
+  second (never a click, focus or keystroke; `Sources/Speakers.swift` has the Teams tile rules):
+  who is marked talking, who is muted, captions with names. The app's processes get
+  `AXEnhancedUserInterface` set for the recording, as VoiceOver does, since Chromium apps (Teams
+  2, Slack, browsers) expose no web content to Accessibility without it. Each changed sample (and
   one every 5 s) goes to `speakers.jsonl` stamped with its position on the app track. Without
   Relay's Accessibility grant this is off and the host tells voices apart on its own.
 - **Upload**: `/meetings/ingest?ticket=` on the Relay Host (ticket from `meeting.ingest.open` on

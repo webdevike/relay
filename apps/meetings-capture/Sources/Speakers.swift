@@ -1,5 +1,5 @@
-// Who is talking, read from the meeting app's window through Accessibility, in the background and
-// read-only: attributes are only read, never set, and nothing is clicked, focused or typed.
+// Who is talking, read from the meeting app's window through Accessibility, in the background:
+// nothing is clicked, focused or typed, and the one attribute set is AXEnhancedUserInterface (below).
 //
 // Microsoft Teams (seen on 26289.203, 2026-11-05): every participant tile in the call window is an
 // AXMenuItem titled "<Name>, [video is on, ]Has control of production tools, [muted, ]Context menu
@@ -13,6 +13,13 @@
 // A sample is taken five times a second; the full window is walked every few seconds to find the
 // tiles and the captions region, and only those are read in between (a full walk of a Teams call
 // window takes 30 to 500 ms).
+//
+// Chromium apps (Teams 2's web view, Slack, browsers) build their web content's accessibility tree
+// only once an assistive app sets AXEnhancedUserInterface on them, as VoiceOver does. Until then a
+// Teams call window is its native frame alone: on 2026-11-13 it read as 11 nodes with an empty
+// "Web content" group and no AXWebArea, so no tile or caption was ever found; with the attribute set,
+// 685 nodes under an AXWebArea. The watch sets it on every process of the app it reads (the call
+// returns kAXErrorNotImplemented though Chromium acts on it) and puts back the ones it turned on.
 import AppKit
 import ApplicationServices
 import Foundation
@@ -158,6 +165,8 @@ private func axChildren(_ e: AXUIElement) -> [AXUIElement] {
   (axAttr(e, kAXChildrenAttribute) as? [AXUIElement]) ?? []
 }
 
+private let enhancedUI = "AXEnhancedUserInterface"
+
 /// A node with its children to `depth` (0: the node alone).
 private func snapshot(_ e: AXUIElement, depth: Int, budget: inout Int) -> AXNode {
   budget -= 1
@@ -205,6 +214,10 @@ final class SpeakerWatch {
   private var lastWalk = Date.distantPast
   private var last: SpeakerSample?
   private var lastSent = Date.distantPast
+  /// Processes this watch turned AXEnhancedUserInterface on for (only touched on `queue`).
+  private var enhanced = Set<pid_t>()
+  /// Processes already looked at, whether or not they needed it.
+  private var checked = Set<pid_t>()
   static let period = 0.2
   static let walkEvery = 3.0
   static let keepAlive = 5.0
@@ -229,6 +242,13 @@ final class SpeakerWatch {
   func stop() {
     timer?.cancel()
     timer = nil
+    queue.async { [self] in
+      for pid in enhanced {
+        AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), enhancedUI as CFString, kCFBooleanFalse)
+      }
+      enhanced = []
+      checked = []
+    }
   }
 
   private func appElements() -> [AXUIElement] {
@@ -237,8 +257,16 @@ final class SpeakerWatch {
       .map { a -> AXUIElement in
         let e = AXUIElementCreateApplication(a.processIdentifier)
         AXUIElementSetMessagingTimeout(e, 0.25)
+        enhance(e, a.processIdentifier)
         return e
       }
+  }
+
+  /// Turns the app's web content accessibility on (see the top of the file), once per process.
+  private func enhance(_ e: AXUIElement, _ pid: pid_t) {
+    guard checked.insert(pid).inserted, (axAttr(e, enhancedUI) as? Bool) != true else { return }
+    AXUIElementSetAttributeValue(e, enhancedUI as CFString, kCFBooleanTrue)
+    enhanced.insert(pid)
   }
 
   /// Finds the tiles and caption regions in every window of the app.
