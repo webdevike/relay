@@ -407,7 +407,19 @@ test('S4 decision cards: poll, votes, pros/cons, a question, the call; Where we 
   await expect(feed.locator('[data-author="astra"]').last()).toContainText('Postgres still wins', {
     timeout: 20_000,
   })
+  // The hard ordering, forced: the scroll event of his move reaches the app only after the next
+  // feed commit (a post or a presence change). The feed must not pull him back to the bottom.
   await feed.evaluate((el) => {
+    const hold = (e: Event): void => {
+      if (e.target === el) e.stopImmediatePropagation()
+    }
+    window.addEventListener('scroll', hold, true)
+    const commit = new MutationObserver(() => {
+      commit.disconnect()
+      window.removeEventListener('scroll', hold, true)
+      el.dispatchEvent(new Event('scroll'))
+    })
+    commit.observe(el, { childList: true, subtree: true, characterData: true })
     el.scrollTop = 0
   })
   const pill = shell.locator(sel('room-catchup-pill'))

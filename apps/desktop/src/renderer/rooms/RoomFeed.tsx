@@ -7,6 +7,7 @@ import '../chat/composer/composer.css'
 import { getPref, setPref, type Parse } from '../ui-prefs'
 import { TypingDots } from '../ui/TypingDots'
 import { catchUp, sinceIndex } from './decision-view'
+import { FOLLOW_SLACK_PX, leftBottom, type PinnedBox } from './feed-follow'
 import { RoomDecisionCard, SeatAskView } from './DecisionCards'
 import { MemberFace } from './MemberStack'
 import { MentionText } from './MentionText'
@@ -17,9 +18,6 @@ import { CatchUpPill, SinceBlock } from './RoomKeepUp'
 import { ISAAC_PERSON } from './roster'
 import { groupMessages } from './rooms-store'
 import { ISAAC, type Room, type RoomMessage } from './types'
-
-/** Within this many px of the bottom counts as following. */
-const FOLLOW_SLACK_PX = 24
 
 /** The last message Isaac saw in each chat room, by room id: where "Since you left" goes. */
 const SEEN_PREF = 'rooms.seen'
@@ -108,9 +106,26 @@ export function RoomFeed({ room }: { room: Room }) {
   const sinceId = since === null ? null : (room.messages[since]?.id ?? null)
   const fresh = chat && !following ? catchUp(room, seen + 1).fresh : 0
 
+  /** The feed's box when it was last pinned to the bottom of this room; null while he reads back. */
+  const pinned = useRef<(PinnedBox & { room: string }) | null>(null)
+
   useLayoutEffect(() => {
     const el = viewport.current
-    if (el && following) el.scrollTop = el.scrollHeight
+    if (!el) return
+    if (!following) {
+      pinned.current = null
+      return
+    }
+    // He scrolled up after the last pin and a post or presence change committed before that
+    // move's scroll event arrived: `following` is stale, and pinning now would pull him back to
+    // the bottom (the event would then read "at bottom": no catch-up pill, ever).
+    if (pinned.current?.room === room.id && leftBottom(pinned.current, el)) {
+      pinned.current = null
+      setFollowing(false)
+      return
+    }
+    el.scrollTop = el.scrollHeight
+    pinned.current = { room: room.id, height: el.scrollHeight, client: el.clientHeight }
     // room.messages is a new array on every post, reaction or resolve; presence changes the
     // line under the feed.
   }, [room.messages, room.presence, following, room.id])
