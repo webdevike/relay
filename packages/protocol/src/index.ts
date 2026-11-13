@@ -177,6 +177,12 @@ export const AgentSession = z.object({
   handingOff: z.boolean().optional(),
   /** The session's goal while active or paused; absent when it has none and from older hosts. */
   goal: AgentGoal.optional(),
+  /**
+   * The transcript omp writes now (absolute path on the host), once omp reported one. Not always
+   * named after `id`: a resumed omp can write a new file (its header's `parentSession` is the old
+   * id) and keep reporting the old id. Absent from older hosts.
+   */
+  sessionFile: z.string().optional(),
 });
 export type AgentSession = z.infer<typeof AgentSession>;
 

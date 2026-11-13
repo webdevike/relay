@@ -569,6 +569,7 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0 ? {} : { backgroundJobs: frame.backgroundJobs }),
           ...(frame.handingOff === true ? { handingOff: true } : {}),
           ...(frame.goal === undefined ? {} : { goal: frame.goal }),
+          ...(frame.sessionFile === undefined ? {} : { sessionFile: frame.sessionFile }),
         };
         connection.sessionFile = frame.sessionFile ?? null;
         this.log(`agent session ${frame.sessionId} (${frame.title}) ${frame.status}${frame.account === undefined ? "" : ` on ${frame.account.profile}${frame.account.email === undefined ? "" : ` (${frame.account.email})`}`}`);
@@ -601,6 +602,7 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0 ? {} : { backgroundJobs: frame.backgroundJobs }),
           ...(frame.handingOff === true ? { handingOff: true } : {}),
           ...(frame.goal === undefined ? {} : { goal: frame.goal }),
+          ...((frame.sessionFile ?? current.sessionFile) === undefined ? {} : { sessionFile: frame.sessionFile ?? current.sessionFile }),
         };
         if (frame.sessionFile !== undefined) connection.sessionFile = frame.sessionFile;
         this.publish();

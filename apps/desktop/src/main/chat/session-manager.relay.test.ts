@@ -255,6 +255,21 @@ describe('SessionManager with Relay: chats omp runs outside this app', () => {
     expect(shown()).toEqual(['user:hi', 'assistant:Done.'])
   })
 
+  it("a resumed omp's new file, named after another id, still replies through Relay to its session", async () => {
+    const { mgr, relay, transports } = setup()
+    // omp resumed `out` into a new file and keeps reporting the old id.
+    const resumed = '/s/2026_out-fork.jsonl'
+    relay.set([{ id: 'out', kind: 'assistant', file: resumed }])
+    mgr.open('pane-1', resumed, [user('u1', 'hi')], meta)
+    expect([...relay.subs]).toEqual(['out'])
+    await mgr.send('pane-1', 'Yes, he heals on green')
+    expect(relay.commands).toEqual([
+      { kind: 'agent.reply', sessionId: 'out', text: `${TAG}Yes, he heals on green`, submit: true },
+    ])
+    // No local omp was started on the transcript the Mini's omp writes.
+    expect(transports).toEqual([])
+  })
+
   it('a reply is the same agent.reply whether the session works (steer) or idles (prompt)', async () => {
     const { mgr, relay, write, shown, transports } = setup()
     relay.set([{ id: 'out', status: 'working' }])

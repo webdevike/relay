@@ -134,8 +134,11 @@ row to the transcript. A `/handoff` from the phone while a turn is streaming is 
 would refuse it in the terminal only); the transcript gets a system row saying so instead. `goal`
 is omp's goal mode while the goal is active or paused (`objective`, `paused`, `tokensUsed`), read
 from the session's last `mode_change` at start and kept by omp's `goal_updated` event; a goal that
-was met or dropped is gone. Extensions load once per omp process, so a session started before an
-extension change keeps reporting what the old code did until it is restarted.
+was met or dropped is gone. `sessionFile` is the transcript omp writes now, as the extension reports
+it; clients go by it rather than by the id, since an omp resumed onto a transcript can write a new
+file (its header's `parentSession` names the old id) and keep reporting the old id. Extensions load
+once per omp process, so a session started before an extension change keeps reporting what the old
+code did until it is restarted.
 
 A thread's subagents are sessions of their own (`<thread session id>:<name>`, `parentId` set), so the phone
 can open their transcripts. The extension mirrors each one from the task tool's lifecycle events; when no

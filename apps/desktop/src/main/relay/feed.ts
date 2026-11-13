@@ -84,6 +84,11 @@ export interface RelaySession {
   activityAt: number | null
   /** Share of the model's context window in use (0..1) when the host reports it. */
   contextUsed?: number | null
+  /**
+   * The transcript omp writes now, when the host reports it. A resumed omp can keep its id and
+   * write a new file, so this, not `id`, says which file the session is.
+   */
+  file?: string
 }
 
 // Lenient like native Session::parse: only `id` and a known `status` are required; any other field
@@ -101,6 +106,7 @@ const SessionSchema = z.object({
   lastActivity: optText,
   lastActivityAt: z.number().finite().optional().catch(undefined),
   contextUsed: z.number().min(0).max(1).optional().catch(undefined),
+  sessionFile: optText,
 })
 
 /** One session as Relay sends it, or null when it has no id or a status this app does not know. */
@@ -123,6 +129,7 @@ export function parseSession(value: unknown): RelaySession | null {
     activity: s.lastActivity?.trim() || null,
     activityAt: s.lastActivityAt || null,
     ...(s.contextUsed === undefined ? {} : { contextUsed: s.contextUsed }),
+    ...(s.sessionFile ? { file: s.sessionFile } : {}),
   }
 }
 

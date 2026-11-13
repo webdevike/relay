@@ -494,6 +494,12 @@ export class SessionManager {
     const id = pane.file !== null ? sessionId(pane.file) : pane.remote?.session
     if (!id || pane.transport || pane.starting) return null
     if (pane.key !== null && this.owners.has(pane.key)) return null
+    // A resumed omp can keep its id and write a new file: the file the host reports goes first.
+    const file = pane.file
+    if (file !== null) {
+      for (const s of this.deps.relay?.sessions()?.values() ?? [])
+        if (s.file === file && s.status !== 'ended') return s
+    }
     return this.liveSession(id)
   }
 

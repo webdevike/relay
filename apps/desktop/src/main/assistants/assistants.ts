@@ -279,7 +279,13 @@ export class AssistantsService {
     const sessions = this.deps.relay()
     const agents: Assistant[] = this.agents().map((agent) => {
       const session = assistantSession(sessions, agent.id)
-      const file = session ? this.fileOf(session.id) : null
+      // The file the host reports, when it is on this Mac: a resumed omp keeps its id but writes a
+      // new file, so after a reboot the id names the frozen transcript, not the one that grows.
+      const file = !session
+        ? null
+        : session.file !== undefined && fs.existsSync(session.file)
+          ? session.file
+          : this.fileOf(session.id)
       const status = statusOf(session)
       return {
         id: agent.id,

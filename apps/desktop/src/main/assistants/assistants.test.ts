@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { Assistant } from '@evaos/contract'
 import type { RelaySession, RelayStatus } from '../relay/feed'
 import {
   assistantIdFrom,
@@ -165,6 +166,35 @@ describe('assistant status like native', () => {
     expect(s.svc.list().agents[0]!.reply?.text).toBe('Old.')
     fs.appendFileSync(file, reply('New and longer.', '2026-10-23T12:00:00.000Z') + '\n')
     expect(s.svc.list().agents[0]!.reply?.text).toBe('New and longer.')
+  })
+
+  it("shows the file the host reports for the thread, not the frozen one named after its omp's id, once omp resumed into a new file", () => {
+    const s = setup()
+    // Before the reboot: the thread's transcript ends on a question with reply chips.
+    const frozen = s.write('s-nova', [reply('Should he heal on green?\n[[replies: Yes | No]]')])
+    // omp resumed it after the reboot: same session id, new file, the conversation goes on there.
+    const resumed = path.join(s.root, 'sessions', '2026-10-23T17-08-38-522Z_s-nova-fork.jsonl')
+    fs.writeFileSync(
+      resumed,
+      [
+        rec({ type: 'session', id: 's-nova-fork', parentSession: 's-nova' }),
+        reply('Should he heal on green?\n[[replies: Yes | No]]'),
+        user('Yes'),
+        reply('Noted, he heals on green.', '2026-10-23T18:55:00.000Z'),
+      ].join('\n') + '\n',
+    )
+    const nova = (file?: string): Assistant | undefined => {
+      const t = { ...thread('s-nova', 'nova', 'idle'), ...(file === undefined ? {} : { file }) }
+      s.relay.sessions = new Map([['s-nova', t]])
+      return s.svc.list().agents.find((a) => a.id === 'nova')
+    }
+    expect(nova(resumed)).toMatchObject({
+      file: resumed,
+      reply: { text: 'Noted, he heals on green.' },
+    })
+    // A host that predates the field, or a file that is not on this Mac (a thin client): the id.
+    expect(nova()?.file).toBe(frozen)
+    expect(nova('/on/the/mini/s-nova-fork.jsonl')?.file).toBe(frozen)
   })
 
   it('rereads the registry when its file changes', () => {

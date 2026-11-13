@@ -54,6 +54,16 @@ describe("session account", () => {
     expect(provider.sessions[0]?.account?.email).toBe("ikey2244@gmail.com");
   });
 
+  it("lists the transcript omp reports, which a resumed omp keeps under its old id, and keeps it when a status omits it", () => {
+    const provider = new OmpBridgeProvider("/unused.sock", () => undefined, null);
+    const send = connect(provider);
+    send({ ...hello, sessionFile: "/s/2026-11-13T08-30-36-517Z_s1.jsonl" });
+    send({ t: "status", status: "working", lastActivity: "", lastActivityAt: 2, sessionFile: "/s/2026-11-13T17-08-38-522Z_s2.jsonl" });
+    expect(provider.sessions[0]).toMatchObject({ id: "s1", sessionFile: "/s/2026-11-13T17-08-38-522Z_s2.jsonl" });
+    send({ t: "status", status: "idle", lastActivity: "", lastActivityAt: 3 });
+    expect(provider.sessions[0]?.sessionFile).toBe("/s/2026-11-13T17-08-38-522Z_s2.jsonl");
+  });
+
   it("labels the current profile as Work", () => {
     expect(accountLabel({ profile: "current", email: "iweber@ecardsystems.com" })).toBe("Work · iweber@ecardsystems.com");
     expect(accountLabel({ profile: "work" })).toBe("Work");
