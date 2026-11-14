@@ -1,4 +1,4 @@
-import { Effect, Layer, Schema } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import type { JournalError } from "./Event.ts"
 import type { ModelRunner } from "./Model.ts"
@@ -27,6 +27,9 @@ export interface Registered extends Omit<Component, "jobs" | "tools"> {
   readonly jobs: ReadonlyArray<Job<BunServices>>
 }
 
+/** The built-in components with their code defaults, provided once by the host process (CLI, Relay host, tests). `config.json` overrides them per component (`Settings.ts`). */
+export class Components extends Context.Service<Components, ReadonlyArray<Registered>>()("atomic-agents/Components") {}
+
 export const define = <R>(component: Component<R>): Registered => ({
   id: component.id,
   purpose: component.purpose,
@@ -39,7 +42,7 @@ export const define = <R>(component: Component<R>): Registered => ({
 })
 
 export interface Agent {
-  /** Default model (omp id). The Test Bench bake-off picks it from `candidates`. */
+  /** Code default model (omp id); `config.json` `components.<id>.model` overrides it, and `atomic-agents use` writes that after a bake-off. */
   readonly model: string
   readonly candidates: ReadonlyArray<string>
   readonly thinking?: "off" | "minimal" | "low" | "medium" | "high"
@@ -73,8 +76,9 @@ export interface JobContext<E extends EventSchemas> {
   readonly run: string
   /** Private, created per run: artifacts (images, scripts, logs) go here. */
   readonly runDir: string
-  /** The resolved model for this run (override from a bake-off, else `agent.model`). */
+  /** The resolved model for this run (bake-off override, else config.json, else `agent.model`). */
   readonly model: string
+  /** The agent with config.json overrides applied. */
   readonly agent: Agent
   emit<K extends keyof E & string>(name: K, data: E[K]["Type"]): Effect.Effect<void, JournalError | Schema.SchemaError>
 }

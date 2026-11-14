@@ -1,6 +1,8 @@
-import { Config, Context, Duration, Effect, FileSystem, Layer, Option, Redacted, Schema } from "effect"
+import { Config, Context, Duration, Effect, FileSystem, Layer, Option, Path, Redacted, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/process"
+import { Home } from "./Event.ts"
 import { exec } from "./exec.ts"
+import { Settings } from "./Settings.ts"
 
 export interface GenerateRequest {
   /**
@@ -69,9 +71,9 @@ const lastAssistant = (stdout: string) => {
  * with no tools, skills, rules, extensions or session, from an empty temp dir so no repo context
  * (AGENTS.md, Eva identity) leaks into a specialist's prompt. Auth and provider routing stay omp's.
  *
- * OpenRouter: only `openrouter/...` ids get the key (`OPENROUTER_API_KEY_FILE`, else
- * `OPENROUTER_API_KEY`), every other call runs with it removed, and Anthropic or OpenAI models are
- * refused on OpenRouter. The served provider is checked against the requested route.
+ * OpenRouter: only `openrouter/...` ids get the key (read from config.json `openRouterKeyFile` at
+ * call time, else `OPENROUTER_API_KEY`), every other call runs with it removed, and Anthropic or
+ * OpenAI models are refused on OpenRouter. The served provider is checked against the requested route.
  */
 export class ModelRunner extends Context.Service<ModelRunner, {
   generate(request: GenerateRequest): Effect.Effect<Generation, ModelError>
@@ -81,7 +83,9 @@ export class ModelRunner extends Context.Service<ModelRunner, {
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const keyFile = yield* Config.option(Config.String("OPENROUTER_API_KEY_FILE")).pipe(Effect.orDie)
+      const settings = yield* Settings
+      const path = yield* Path.Path
+      const home = yield* Home
       const keyEnv = yield* Config.option(Config.Redacted("OPENROUTER_API_KEY")).pipe(Effect.orDie)
       const generate = Effect.fn("ModelRunner.generate")(function*(request: GenerateRequest) {
         const started = Date.now()
@@ -90,10 +94,11 @@ export class ModelRunner extends Context.Service<ModelRunner, {
         if (NATIVE_ONLY.test(request.model)) return yield* fail("Anthropic and OpenAI models run on omp's native providers, not OpenRouter")
         let key: Redacted.Redacted<string> | undefined
         if (viaOpenRouter) {
-          key = Option.isSome(keyFile)
-            ? Redacted.make((yield* fs.readFileString(keyFile.value).pipe(Effect.mapError(() => fail(`cannot read OPENROUTER_API_KEY_FILE`)))).trim())
+          const keyFile = (yield* settings.current).openRouterKeyFile
+          key = keyFile !== undefined
+            ? Redacted.make((yield* fs.readFileString(path.resolve(home.root, keyFile)).pipe(Effect.mapError(() => fail(`cannot read openRouterKeyFile ${keyFile}`)))).trim())
             : Option.getOrUndefined(keyEnv)
-          if (key === undefined) return yield* fail("openrouter models need OPENROUTER_API_KEY_FILE or OPENROUTER_API_KEY")
+          if (key === undefined) return yield* fail(`openrouter models need openRouterKeyFile in ${settings.file} or OPENROUTER_API_KEY`)
         }
         const result = yield* Effect.scoped(Effect.gen(function*() {
           const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "atomic-agent-" })

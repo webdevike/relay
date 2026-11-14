@@ -2,13 +2,15 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun"
 import { Console, Deferred, Effect, Layer, Option, Schema, Stream } from "effect"
 import { Argument, Command, Flag } from "effect/cli"
+import { Components } from "./Component.ts"
 import { propRender } from "./components/prop-render/component.ts"
 import { type AgentEvent, EventBus, Home, makeEvent } from "./Event.ts"
 import { ModelRunner } from "./Model.ts"
-import { Components, Runner } from "./Runtime.ts"
+import { Runner } from "./Runtime.ts"
 import * as Service from "./Service.ts"
+import { effective, events as runtimeEvents, RUNTIME, Settings } from "./Settings.ts"
 
-const registered = [propRender]
+const builtins = [propRender]
 
 const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
 
@@ -43,16 +45,21 @@ const modelFlag = Flag.String("model").pipe(Flag.withDescription("omp model id o
 const inputFlag = Flag.String("input").pipe(Flag.withDescription("job input as JSON"), Flag.withDefault("{}"))
 
 const list = Command.make("list", {}, () =>
-  Effect.forEach(registered, (component) =>
-    Effect.gen(function*() {
-      yield* Console.log(`${component.id}: ${component.purpose}`)
-      yield* Console.log(`  agent   ${component.agent.model} (candidates: ${component.agent.candidates.join(", ")})`)
+  Effect.gen(function*() {
+    const settings = yield* Settings
+    const current = yield* settings.current
+    yield* Console.log(`config ${settings.file}`)
+    for (const component of yield* Components) {
+      const resolved = effective(component, current)
+      yield* Console.log(`${component.id}${resolved.enabled ? "" : " (disabled)"}: ${component.purpose}`)
+      yield* Console.log(`  agent   ${resolved.agent.model}${resolved.agent.thinking ? ` thinking ${resolved.agent.thinking}` : ""} (candidates: ${resolved.agent.candidates.join(", ")})`)
       for (const job of component.jobs) {
-        const triggers = job.triggers.map((t) => t._tag === "Cron" ? `cron "${t.cron}"` : t._tag === "OnEvent" ? `on ${t.type}` : "manual")
+        const triggers = job.triggers.map((t) => t._tag === "Cron" ? `cron "${resolved.cron(job.id, t.cron)}"` : t._tag === "OnEvent" ? `on ${t.type}` : "manual")
         yield* Console.log(`  job     ${job.id} [${triggers.join(", ")}]: ${job.description}`)
       }
       yield* Console.log(`  events  ${Object.keys(component.events).map((name) => `${component.id}/${name}`).join(", ")}`)
-    })))
+    }
+  }))
 
 const run = Command.make("run", {
   component: Argument.String("component"),
@@ -70,8 +77,9 @@ const bench = Command.make("bench", {
   input: inputFlag,
   models: Flag.String("models").pipe(Flag.withDescription("comma-separated omp model ids; default: the component's candidates"), Flag.optional)
 }, Effect.fnUntraced(function*({ component, job, input, models }) {
-  const spec = registered.find((candidate) => candidate.id === component)
-  const arms = Option.match(models, { onNone: () => spec?.agent.candidates ?? [], onSome: (list) => list.split(",") })
+  const spec = (yield* Components).find((candidate) => candidate.id === component)
+  const candidates = spec === undefined ? [] : effective(spec, yield* (yield* Settings).current).agent.candidates
+  const arms = Option.match(models, { onNone: () => candidates, onSome: (list) => list.split(",") })
   const decoded = yield* parseJson(input)
   const results = yield* Effect.forEach(arms, (model) => runAndFollow(component, job, decoded, model).pipe(Effect.map((result) => ({ model, ...result }))))
   yield* Console.log("\nbake-off (pick with: atomic-agents rate <run-a> <run-b> a|b|tie)")
@@ -111,24 +119,49 @@ const Pick = Schema.Struct({
 const wins = Command.make("wins", {
   component: Flag.String("component").pipe(Flag.withDefault(""))
 }, Effect.fnUntraced(function*({ component }) {
-  const tally = new Map<string, { won: number; lost: number; tied: number }>()
+  const tally = new Map<string, { component: string; model: string; won: number; lost: number; tied: number }>()
   for (const event of (yield* (yield* EventBus).history)) {
     if (!event.type.endsWith("/pair.picked") || (component !== "" && event.component !== component)) continue
     const pick = Schema.decodeUnknownOption(Pick)(event.data)
     if (Option.isNone(pick) || pick.value.a.model === pick.value.b.model) continue
     for (const side of ["a", "b"] as const) {
-      const row = tally.get(`${event.component}  ${pick.value[side].model}`) ?? { won: 0, lost: 0, tied: 0 }
+      const key = `${event.component}  ${pick.value[side].model}`
+      const row = tally.get(key) ?? { component: event.component, model: pick.value[side].model, won: 0, lost: 0, tied: 0 }
       if (pick.value.winner === "tie") row.tied++
       else if (pick.value.winner === side) row.won++
       else row.lost++
-      tally.set(`${event.component}  ${pick.value[side].model}`, row)
+      tally.set(key, row)
     }
   }
-  const rows = [...tally].map(([key, row]) => ({ key, ...row, rate: (row.won + row.tied / 2) / (row.won + row.lost + row.tied) }))
+  const rows = [...tally.values()].map((row) => ({ ...row, rate: (row.won + row.tied / 2) / (row.won + row.lost + row.tied) }))
   if (rows.length === 0) return yield* Console.log("no pairwise picks yet")
-  for (const row of rows.sort((x, y) => y.rate - x.rate)) {
-    yield* Console.log(`${row.key.padEnd(48)} ${(row.rate * 100).toFixed(0).padStart(3)}%  ${row.won}W ${row.lost}L ${row.tied}T`)
+  rows.sort((x, y) => y.rate - x.rate)
+  for (const row of rows) {
+    yield* Console.log(`${`${row.component}  ${row.model}`.padEnd(48)} ${(row.rate * 100).toFixed(0).padStart(3)}%  ${row.won}W ${row.lost}L ${row.tied}T`)
   }
+  // The winner goes into config.json, never into code.
+  const current = yield* (yield* Settings).current
+  for (const spec of yield* Components) {
+    const best = rows.find((row) => row.component === spec.id)
+    if (best === undefined) continue
+    const inForce = effective(spec, current).agent.model
+    yield* Console.log(inForce === best.model
+      ? `\n${spec.id} already uses its winner ${best.model}`
+      : `\n${spec.id} uses ${inForce}; promote the winner with: atomic-agents use ${spec.id} ${best.model}`)
+  }
+}))
+
+/** Set a component's model in config.json (the bake-off winner); a running service applies it to the next run. */
+const use = Command.make("use", {
+  component: Argument.String("component"),
+  model: Argument.String("model"),
+  by: Flag.String("by").pipe(Flag.withDescription("who is changing it (recorded on config.changed)"), Flag.withDefault(Bun.env["USER"] ?? "cli"))
+}, Effect.fnUntraced(function*({ component, model, by }) {
+  const settings = yield* Settings
+  const changes = yield* settings.set({ components: { [component]: { model } } }, by, "use")
+  if (changes.length === 0) return yield* Console.log(`${component} already uses ${model}`)
+  for (const change of changes) yield* Console.log(`${change.path.join(".")}: ${JSON.stringify(change.old)} -> ${JSON.stringify(change.new)}`)
+  yield* Console.log(`written to ${settings.file}; a running service applies it from the next run`)
 }))
 
 const emit = Command.make("emit", {
@@ -136,7 +169,9 @@ const emit = Command.make("emit", {
   data: Flag.String("data").pipe(Flag.withDefault("{}"))
 }, Effect.fnUntraced(function*({ type, data }) {
   const [component = "", name = ""] = type.split("/")
-  const schema = registered.find((candidate) => candidate.id === component)?.events[name]
+  const schema = component === RUNTIME
+    ? (runtimeEvents as Readonly<Record<string, Schema.Encoder<unknown>>>)[name]
+    : builtins.find((candidate) => candidate.id === component)?.events[name]
   if (schema === undefined) return yield* Effect.fail(new Error(`${type} is not a declared event`))
   const encoded = yield* Schema.encodeUnknownEffect(schema)(yield* parseJson(data))
   const bus = yield* EventBus
@@ -157,33 +192,34 @@ const events = Command.make("events", {
 const serve = Command.make("serve", {}, () =>
   Effect.gen(function*() {
     const home = yield* Home
-    yield* Console.log(`atomic-agents serving ${registered.length} component(s); journal ${home.journal}`)
+    yield* Console.log(`atomic-agents serving ${builtins.length} component(s); journal ${home.journal}; config ${(yield* Settings).file} (live)`)
     return yield* (yield* Runner).serve
   }))
 
 const service = Command.make("service").pipe(Command.withSubcommands([
   Command.make("install", {}, () =>
-    Service.install.pipe(Effect.flatMap(({ plist, log }) => Console.log(`installed ${Service.LABEL}\n  plist ${plist}\n  log   ${log}`)))),
+    Service.install.pipe(Effect.flatMap(({ plist, log, app }) => Console.log(`installed ${Service.LABEL}\n  app   ${app}\n  plist ${plist}\n  log   ${log}`)))),
   Command.make("uninstall", {}, () =>
     Service.uninstall.pipe(Effect.flatMap(({ plist }) => Console.log(`uninstalled ${Service.LABEL} (removed ${plist})`)))),
   Command.make("status", {}, () =>
     Effect.gen(function*() {
       const state = yield* Service.status
-      yield* Console.log(`${Service.LABEL}  ${state.state}${state.pid ? `  pid ${state.pid}` : ""}${state.lastExit ? `  last exit ${state.lastExit}` : ""}\n  plist ${state.plist}\n  log   ${state.log}`)
+      yield* Console.log(`${Service.LABEL}  ${state.state}${state.pid ? `  pid ${state.pid}` : ""}${state.lastExit ? `  last exit ${state.lastExit}` : ""}\n  runs  ${state.command ?? "-"}\n  plist ${state.plist}\n  log   ${state.log}`)
       if (state.state !== "running") return yield* Effect.fail(new Error("service is not running"))
     }))
 ]))
 
 const App = Runner.layer.pipe(
+  Layer.provideMerge(ModelRunner.omp),
+  Layer.provideMerge(Settings.layer),
   Layer.provideMerge(EventBus.layer),
   Layer.provideMerge(Home.layer),
-  Layer.provideMerge(ModelRunner.omp),
-  Layer.provideMerge(Layer.succeed(Components, registered)),
+  Layer.provideMerge(Layer.succeed(Components, builtins)),
   Layer.provideMerge(BunServices.layer)
 )
 
 Command.make("atomic-agents").pipe(
-  Command.withSubcommands([list, run, bench, rate, wins, emit, events, serve, service]),
+  Command.withSubcommands([list, run, bench, rate, wins, use, emit, events, serve, service]),
   Command.run({ version: "0.1.0" }),
   Effect.provide(App),
   BunRuntime.runMain

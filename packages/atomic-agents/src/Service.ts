@@ -2,9 +2,12 @@ import { Effect, FileSystem, Path, Schedule, Schema } from "effect"
 import { exec } from "./exec.ts"
 import { Home } from "./Event.ts"
 
-/** `serve` as its own macOS LaunchAgent (Eva's `ai.eva.*` family): KeepAlive, logs under the home dir. */
+/**
+ * `serve` as its own macOS LaunchAgent (Eva's `ai.eva.*` family): KeepAlive, logs under the home dir.
+ * It runs an installed copy in `<home>/app`, never a checkout, so removing a worktree cannot break it.
+ */
 export const LABEL = "ai.eva.atomic-agents"
-const CLI = new URL("./cli.ts", import.meta.url).pathname
+const PACKAGE = new URL("..", import.meta.url).pathname
 const BLENDER_APP = "/Applications/Blender.app/Contents/MacOS/Blender"
 
 export class ServiceError extends Schema.TaggedError<ServiceError>()("ServiceError", {
@@ -20,6 +23,7 @@ const paths = Effect.gen(function*() {
   return {
     plist: path.join(user, "Library", "LaunchAgents", `${LABEL}.plist`),
     log: path.join(home.root, "logs", "serve.log"),
+    app: path.join(home.root, "app"),
     root: home.root,
     user,
     target: `gui/${process.getuid?.() ?? 501}`
@@ -29,19 +33,23 @@ const paths = Effect.gen(function*() {
 const launchctl = (...args: ReadonlyArray<string>) =>
   exec("launchctl", args).pipe(Effect.catchTag("PlatformError", (error) => Effect.fail(new ServiceError({ message: error.message }))))
 
-/** Write the plist and (re)load it. Blender runs `-b` only, so the service never takes focus. */
+/**
+ * Copy this package (src, package.json, bun.lock) into `<home>/app`, install its production
+ * dependencies there, write the plist and (re)load it. Run from the installed copy it only reloads.
+ * Blender runs `-b` only, so the service never takes focus.
+ */
 export const install = Effect.gen(function*() {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const { plist, log, root, user, target } = yield* paths
+  const { plist, log, app, root, user, target } = yield* paths
   const blender = Bun.env["BLENDER"] ?? ((yield* fs.exists(BLENDER_APP).pipe(Effect.orElseSucceed(() => false))) ? BLENDER_APP : "blender")
   const env: Record<string, string> = {
     HOME: user,
     PATH: [path.dirname(process.execPath), path.join(user, ".local", "bin"), "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":"),
     ATOMIC_AGENTS_HOME: root,
-    BLENDER: blender,
-    ...(Bun.env["OPENROUTER_API_KEY_FILE"] ? { OPENROUTER_API_KEY_FILE: Bun.env["OPENROUTER_API_KEY_FILE"] } : {})
+    BLENDER: blender
   }
+  const cli = path.join(app, "src", "cli.ts")
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -50,7 +58,7 @@ export const install = Effect.gen(function*() {
 	<key>ProgramArguments</key>
 	<array>
 		<string>${xml(process.execPath)}</string>
-		<string>${xml(CLI)}</string>
+		<string>${xml(cli)}</string>
 		<string>serve</string>
 	</array>
 	<key>EnvironmentVariables</key>
@@ -68,14 +76,27 @@ ${Object.entries(env).map(([key, value]) => `\t\t<key>${key}</key><string>${xml(
 `
   yield* fs.makeDirectory(path.dirname(log), { recursive: true }).pipe(Effect.orDie)
   yield* fs.makeDirectory(path.dirname(plist), { recursive: true }).pipe(Effect.orDie)
-  yield* fs.writeFileString(plist, body).pipe(Effect.orDie)
+  // Stop the old instance first: it may be running from the copy about to be replaced.
   yield* launchctl("bootout", `${target}/${LABEL}`)
+  const source = yield* fs.realPath(PACKAGE).pipe(Effect.orDie)
+  const installed = (yield* fs.exists(app).pipe(Effect.orDie)) && (yield* fs.realPath(app).pipe(Effect.orDie)) === source
+  if (!installed) {
+    yield* fs.remove(app, { recursive: true, force: true }).pipe(Effect.orDie)
+    yield* fs.makeDirectory(app, { recursive: true }).pipe(Effect.orDie)
+    yield* fs.copy(path.join(source, "src"), path.join(app, "src")).pipe(Effect.orDie)
+    for (const file of ["package.json", "bun.lock"]) yield* fs.copyFile(path.join(source, file), path.join(app, file)).pipe(Effect.orDie)
+    const deps = yield* exec(process.execPath, ["install", "--production", "--frozen-lockfile"], { cwd: app }).pipe(
+      Effect.catchTag("PlatformError", (error) => Effect.fail(new ServiceError({ message: error.message })))
+    )
+    if (deps.exitCode !== 0) return yield* new ServiceError({ message: `bun install in ${app}: ${deps.stderr.trim()}` })
+  }
+  yield* fs.writeFileString(plist, body).pipe(Effect.orDie)
   // bootout is asynchronous; bootstrap fails with EIO until the old instance is gone.
   yield* launchctl("bootstrap", target, plist).pipe(
     Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new ServiceError({ message: result.stderr.trim() }))),
     Effect.retry({ schedule: Schedule.spaced("1 second"), times: 10 })
   )
-  return { plist, log }
+  return { plist, log, app }
 })
 
 export const uninstall = Effect.gen(function*() {
@@ -95,6 +116,8 @@ export const status = Effect.gen(function*() {
     state: field("state") ?? "not loaded",
     pid: field("pid"),
     lastExit: field("last exit code"),
+    /** What launchd actually runs (bun, the installed cli.ts, serve). */
+    command: /^\s*arguments = \{\n([\s\S]*?)\n\s*\}/m.exec(result.stdout)?.[1]?.split("\n").map((line) => line.trim()).join(" "),
     plist,
     log
   }
