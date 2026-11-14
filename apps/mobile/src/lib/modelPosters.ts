@@ -175,7 +175,8 @@ export async function capturePoster({ key, rootTag, locate, clear, windowWidth }
     if (screen === null) return result;
     try {
       const after = await locate();
-      if (after === null || Math.abs(after.x - before.x) > DRIFT || Math.abs(after.y - before.y) > DRIFT) {
+      const drift = after === null ? Infinity : Math.max(Math.abs(after.x - before.x), Math.abs(after.y - before.y), Math.abs(after.width - before.width), Math.abs(after.height - before.height));
+      if (after === null || drift > DRIFT || !clear(after)) {
         result = "later";
         return result;
       }

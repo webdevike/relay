@@ -11,6 +11,7 @@ import { useWindowDimensions } from "react-native";
 import BottomSheet, { BottomSheetBackdrop, BottomSheetScrollView, type BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { radii, spacing, useColors } from "@/theme";
+import { useCoversContent } from "@/ui/covering";
 
 const MAX_SHARE = 0.8;
 
@@ -30,6 +31,7 @@ export function OverlaySheet({ open, onClose, header, children }: OverlaySheetPr
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const ref = useRef<BottomSheet>(null);
+  useCoversContent(open);
   useEffect(() => {
     if (open) ref.current?.snapToIndex(0);
     else ref.current?.close();

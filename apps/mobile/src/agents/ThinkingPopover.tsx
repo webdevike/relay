@@ -7,6 +7,7 @@ import { Text } from "@/ui/Text";
 import { DotSlider } from "@/ui/DotSlider";
 import { popoverLeft, popoverWidth } from "@/ui/sliderMath";
 import { tapHaptic } from "@/lib/haptics";
+import { useCoversContent } from "@/ui/covering";
 
 /** Same opaque fill as the composer pill in dark mode. */
 const FILL_DARK = "#262626";
@@ -57,6 +58,7 @@ export function ThinkingPopover({ anchor, ...rest }: ThinkingPopoverProps) {
 
 function PopoverLayer({ anchor, model, levels, current, onSelect, onClose }: ThinkingPopoverProps & { anchor: PopoverAnchor }) {
   const colors = useColors();
+  useCoversContent(true);
   const dark = useScheme() === "dark";
   const window = useWindowDimensions();
   const known = current === undefined ? -1 : levels.indexOf(current);

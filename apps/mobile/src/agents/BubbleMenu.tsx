@@ -25,6 +25,7 @@ import { portraitOf } from "@/lib/portrait";
 import { bookmarkerOf } from "@/turns/bookmarker";
 import { bubbleReactions } from "@/lib/reactions";
 import { warn } from "@/connection/log";
+import { useCoversContent } from "@/ui/covering";
 import { BubbleContextOverlay } from "@/ui/BubbleContextOverlay";
 import { EmojiPickerSheet } from "@/ui/EmojiPickerSheet";
 import type { MessageMenuAction } from "@/ui/MessageMenu";
@@ -69,6 +70,7 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
   const [open, setOpen] = useState<OpenBubble | null>(null);
   const [picking, setPicking] = useState<{ key: string; text: string } | null>(null);
   const [selecting, setSelecting] = useState<string | null>(null);
+  useCoversContent(open !== null);
   useEffect(() => (thread === null ? undefined : watchReactions(thread)), [thread]);
   const shownKey = open?.key ?? picking?.key ?? null;
   const current = useBubbleReaction(thread, shownKey);

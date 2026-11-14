@@ -2,6 +2,7 @@ import { Pressable, View } from "react-native";
 import { Text } from "@/ui/Text";
 import { radii, spacing } from "@/theme";
 import { tapHaptic } from "@/lib/haptics";
+import { useCoversContent } from "@/ui/covering";
 
 export interface ActionToastProps {
   message: string;
@@ -12,6 +13,7 @@ export interface ActionToastProps {
 
 /** `Toast` with a button: a short dark message and one action over the page; the parent positions it and decides when it goes. */
 export function ActionToast({ message, action, onAction }: ActionToastProps) {
+  useCoversContent(true);
   return (
     <View
       style={{

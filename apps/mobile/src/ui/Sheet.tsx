@@ -15,6 +15,7 @@ import {
   type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
 import { radii, spacing, useColors } from "@/theme";
+import { useCoversContent } from "@/ui/covering";
 
 export { BottomSheetTextInput as SheetTextInput } from "@gorhom/bottom-sheet";
 
@@ -44,6 +45,7 @@ export function Sheet({ visible, onClose, children }: SheetProps) {
   const ref = useRef<BottomSheetModal>(null);
   const presented = useRef(false);
   const { height } = useWindowDimensions();
+  useCoversContent(visible);
   // Dismissing a modal that was never presented (a sheet mounted hidden) leaves gorhom refusing
   // the next present(), so only dismiss what this sheet presented.
   useEffect(() => {

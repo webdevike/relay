@@ -2,7 +2,7 @@ import { NavigationContext } from "@react-navigation/native";
 import { useMachine } from "@xstate/react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { SymbolView } from "expo-symbols";
-import { ActivityIndicator, Dimensions, Image, Pressable, RootTagContext, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Dimensions, Image, Keyboard, Pressable, RootTagContext, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fromPromise } from "xstate";
 import { POSTER_MIN_SHARE, settling, useLiveModel, viewportBand, visibility, type Rect } from "@/lib/liveModel";
@@ -11,6 +11,7 @@ import { radii, spacing, useColors } from "@/theme";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { OverlayTag } from "@/ui/OverlayTag";
 import { Text } from "@/ui/Text";
+import { contentCovered } from "@/ui/covering";
 import { modelViewMachine } from "./modelView.machine";
 import { NativeModelView } from "../../modules/model-view";
 
@@ -99,7 +100,9 @@ export function ModelView({ uri, posterKey, serverPoster, width, height, autoRot
             key: posterKey,
             rootTag,
             locate,
-            clear: (rect) => !settling() && visibility(rect, band.current).share >= POSTER_MIN_SHARE,
+            // The band leaves room for the resting composer; with the keyboard up, an open composer
+            // card or any sheet, menu or popover over the screen, the cut would hold that chrome.
+            clear: (rect) => !settling() && !Keyboard.isVisible() && !contentCovered() && visibility(rect, band.current).share >= POSTER_MIN_SHARE,
             windowWidth: Dimensions.get("window").width,
           }),
         ),

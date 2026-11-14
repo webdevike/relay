@@ -1,6 +1,7 @@
 import { View } from "react-native";
 import { Text } from "@/ui/Text";
 import { radii, spacing } from "@/theme";
+import { useCoversContent } from "@/ui/covering";
 
 export interface ToastProps {
   message: string;
@@ -8,6 +9,7 @@ export interface ToastProps {
 
 /** A short dark message over the page; the parent positions it and decides when it goes. */
 export function Toast({ message }: ToastProps) {
+  useCoversContent(true);
   return (
     <View
       pointerEvents="none"
