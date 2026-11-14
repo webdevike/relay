@@ -132,6 +132,13 @@ function save(key: string, bytes: Uint8Array): void {
   usePosterStore.setState((state) => ({ files: new Map([...state.files].filter(([, uri]) => !gone(uri))) }));
 }
 
+let stopped = false;
+
+/** The app is about to reload (OTA): no snapshot may start after this, the root view goes away. */
+export function stopPosterCaptures(): void {
+  stopped = true;
+}
+
 export interface PosterShot {
   /** The model `src` the poster is kept under. */
   key: string;
@@ -159,6 +166,11 @@ export async function capturePoster({ key, rootTag, locate, clear, windowWidth }
     // Tag 0 is RootTagContext's default outside an app root: no view has it, and Skia would RCTFatal.
     if (skia === null || rootTag <= 0 || windowWidth <= 0) return result;
     const { Skia, ImageFormat, ColorType, AlphaType, FilterMode, MipmapMode } = skia;
+    // Checked in the same tick as the native call: once a reload began, the root view may be detached.
+    if (stopped) {
+      result = "later";
+      return result;
+    }
     const screen = await Skia.Image.MakeImageFromViewTag(rootTag);
     if (screen === null) return result;
     try {

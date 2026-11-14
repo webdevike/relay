@@ -9,6 +9,7 @@ import { dictationActor } from "@/dictation/actor";
 import { phaseOf } from "@/dictation/machine";
 import { composerBusy, subscribeComposerBusy } from "@/agents/composerShape";
 import { otaGateMachine, type AppStateName, type QuietSignals } from "./otaGate.machine";
+import { stopPosterCaptures } from "./modelPosters";
 
 /**
  * Over-the-air JS updates from the self-hosted server on the Mac mini (`apps/ota-server`, URL in
@@ -53,7 +54,11 @@ function startGate() {
           const fetched = await Updates.fetchUpdateAsync();
           return fetched.isNew || fetched.isRollBackToEmbedded;
         }),
-        reload: fromPromise<unknown>(() => Updates.reloadAsync()),
+        // Teardown detaches the root view a poster snapshot looks up; none may start after this.
+        reload: fromPromise<unknown>(() => {
+          stopPosterCaptures();
+          return Updates.reloadAsync();
+        }),
       },
     }),
     { input: { appState: appStateName(AppState.currentState), signals: readSignals() } },
