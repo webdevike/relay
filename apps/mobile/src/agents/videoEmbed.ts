@@ -88,18 +88,21 @@ export interface ModelEmbed {
   src: string;
   /** The type the host serves the drop as, or the one its extension stands for. */
   mimeType: string;
+  /** The drop's own poster image (host drop path, or a full URL through the same origin), when the host has one. */
+  poster?: string;
 }
 
 const MODEL_PATH = /\.(glb|gltf)$/i;
 
 /**
- * A 3D model embedded as a markdown image: a drop with a `model/*` type (or a `.glb`/`.gltf` name,
- * since the host may serve it as octet-stream), or an http(s) URL ending in one. Markdown never
- * draws it (only an openui Model block does, one live model at a time), so `MarkdownImages` shows
- * a notice instead of an image tile that can only fail.
+ * A 3D model embedded as a markdown image or an openui Model `src`: a drop with a `model/*` type (or
+ * a `.glb`/`.gltf` name, since the host may serve it as octet-stream), with the drop's poster when
+ * it has one, or an http(s) URL ending in one. Markdown never draws it (only an openui Model block
+ * does, `ui/ModelView`), so `MarkdownImages` shows a notice instead of an image tile that can only fail.
  */
 export function modelEmbedOf(src: string, drops: readonly Drop[]): ModelEmbed | null {
   let path = src;
+  let origin = "";
   if (imageSrcKind(src) === "remote") {
     try {
       const url = new URL(src);
@@ -108,6 +111,7 @@ export function modelEmbedOf(src: string, drops: readonly Drop[]): ModelEmbed | 
         return { src, mimeType: url.pathname.toLowerCase().endsWith(".gltf") ? "model/gltf+json" : "model/gltf-binary" };
       }
       path = url.pathname;
+      origin = url.origin;
     } catch {
       return null;
     }
@@ -115,5 +119,6 @@ export function modelEmbedOf(src: string, drops: readonly Drop[]): ModelEmbed | 
     return null;
   }
   const file = drops.find((drop) => drop.file?.path === path)?.file;
-  return file !== undefined && (file.mimeType.startsWith("model/") || MODEL_PATH.test(file.name)) ? { src, mimeType: file.mimeType } : null;
+  if (file === undefined || !(file.mimeType.startsWith("model/") || MODEL_PATH.test(file.name))) return null;
+  return { src, mimeType: file.mimeType, ...(file.poster !== undefined && { poster: `${origin}${file.poster}` }) };
 }

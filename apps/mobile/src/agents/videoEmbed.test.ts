@@ -23,6 +23,7 @@ const drops: Drop[] = [
   fileDrop("song", "audio/mp4", { durationMs: 17_100 }),
   fileDrop("zip", "application/zip"),
   fileDrop("glb", "model/gltf-binary"),
+  fileDrop("scan", "model/gltf-binary", { poster: `${path("scan")}/poster` }),
   fileDrop("octet", "application/octet-stream", { name: "robot.glb" }),
 ];
 
@@ -97,6 +98,12 @@ describe("modelEmbedOf", () => {
 
   it("marks a .glb drop the host serves as octet-stream", () => {
     expect(modelEmbedOf(path("octet"), drops)).toEqual({ src: path("octet"), mimeType: "application/octet-stream" });
+  });
+
+  it("carries the drop's own poster, through the same origin for a full URL", () => {
+    expect(modelEmbedOf(path("scan"), drops)?.poster).toBe(`${path("scan")}/poster`);
+    const origin = "https://isaacs-mac-mini.tail80fdb0.ts.net";
+    expect(modelEmbedOf(`${origin}${path("scan")}`, drops)?.poster).toBe(`${origin}${path("scan")}/poster`);
   });
 
   it("marks https URLs by their model extension", () => {

@@ -2,6 +2,7 @@ import { createElement, useCallback, useEffect, useRef, type Ref } from "react";
 import { ScrollView, StyleSheet, View, type FlatList, type NativeScrollEvent, type NativeSyntheticEvent, type ScrollViewProps } from "react-native";
 import { useReducedMotion } from "react-native-reanimated";
 import { useActorRef, useSelector } from "@xstate/react";
+import { requestSettle } from "@/lib/liveModel";
 import { awayFromBottom as selectAway, chatFollowMachine } from "./chatFollow.machine";
 
 /**
@@ -98,8 +99,9 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
     listRef, offsetRef, awayFromBottom, scrollToBottom, scrollToRow, followContent,
     scrollHandlers: {
       onScrollToIndexFailed,
-      onContentSizeChange: followContent,
-      onScroll: (event: ScrollEvent) => { follow.send({ type: "follow.scroll", offset: observe(event) }); },
+      onContentSizeChange: () => { followContent(); requestSettle(); },
+      // Each scroll event pushes the 3D live slot's settle back; it follows the viewport once the list rests.
+      onScroll: (event: ScrollEvent) => { follow.send({ type: "follow.scroll", offset: observe(event) }); requestSettle(); },
       onScrollBeginDrag: () => { follow.send({ type: "follow.dragStart" }); },
       onScrollEndDrag: (event: ScrollEvent) => { follow.send({ type: "follow.dragEnd", offset: observe(event) }); },
       onMomentumScrollBegin: () => { follow.send({ type: "follow.momentumStart" }); },
