@@ -1,0 +1,14 @@
+# atomic-agents: plan
+
+Replace skills with atomic specialist agents. A **component** = one narrow agent (small prompt, inlined knowledge, its tools, best model) + its jobs (manual, cron, on-event) + an output contract of typed events. Assistants and Relay subscribe to events instead of the 30-minute `eva-heartbeat` sweep.
+
+**Built (v0, Effect 4.1.4 LTS, Bun, own install, opt-in):** `Component.ts` contract (`define`, `job`, `Manual`/`Cron`/`OnEvent`), `Event.ts` (`AgentEvent` envelope, `EventBus`: append-only `~/.atomic-agents/events.ndjson` tailed into a `PubSub`; the file is the cross-process bus), `Model.ts` (`ModelRunner.omp`: `omp -p` with no tools, skills, rules or repo context, so swapping models is one string), `Runtime.ts` (`Runner`: one run at a time per component, `job.started|succeeded|failed` around every run, `serve` arms cron and event triggers), `cli.ts` (`list run bench rate emit events serve`). Pilot: **prop-render**, an object description → Blender `build()` script → render on a fixed stage (floor, three lights, auto-framed camera) → `prop-render/render.completed {image, script, model, attempts}`. It retries once with Blender's traceback. Why this pilot: the result can be judged at a glance, it runs locally in about 2 s plus the model call, and since the stage is fixed only the model varies.
+
+**Next, in order:**
+1. **Test Bench:** `bench` already runs one input across `agent.candidates` and `rate <run> <1-5>` writes `run.rated` events. Then add an `exp`-format writer (`work/experiments/<date>-prop-render/`) so the existing read-only Test Bench page lists the arms, add an image grid with 1-5 buttons to the arm panel, and promote the winner to `agent.model`.
+2. **Relay:** the host tails the journal and broadcasts `agents.event` frames (phone and desktop), and assistants get a per-assistant subscription list (`agents.json` `subscribes: ["prop-render/render.completed"]`) delivered through the existing `/assistant/say`.
+3. **Migration:** move one heartbeat source at a time into a component whose cron job emits `<source>.item` events (start with the Gmail and Slack collectors in `jobs/eva-heartbeat/scripts/sweep.ts`). Then delete that source's branch from `SOURCE_AGENT`. Visual skills next (`ui-check`, as a ui-review component), then retire each skill once its component wins its bake-off.
+
+**Open questions for Isaac:** home for run artifacts (`~/.atomic-agents` vs `~/Eva/work/`); should `serve` run under the Relay host or its own LaunchAgent; is 1-5 the right rating scale, or pairwise A/B as in the 2026-10-28 reel bench; second visual pilot (image gen via Studio backends, or ui-review).
+
+**Size:** v0 is about 600 lines. Bench writer + rating UI about 2 days; host bridge + assistant subscriptions about 2 days; each migrated heartbeat source or skill 0.5 to 1 day.
