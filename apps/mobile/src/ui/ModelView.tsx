@@ -1,4 +1,3 @@
-import { NavigationContext } from "@react-navigation/native";
 import { useMachine } from "@xstate/react";
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { SymbolView } from "expo-symbols";
@@ -11,7 +10,7 @@ import { radii, spacing, useColors } from "@/theme";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { OverlayTag } from "@/ui/OverlayTag";
 import { Text } from "@/ui/Text";
-import { contentCovered } from "@/ui/covering";
+import { contentCovered, useScreenFocused } from "@/ui/covering";
 import { modelViewMachine } from "./modelView.machine";
 import { NativeModelView } from "../../modules/model-view";
 
@@ -31,23 +30,6 @@ export interface ModelViewProps {
   autoRotate?: boolean | undefined;
   /** The native view could not load the model; gets its message. */
   onError?: ((message: string) => void) | undefined;
-}
-
-/** Whether the screen holding this view is the focused one; true outside a navigator. */
-function useScreenFocused(): boolean {
-  const navigation = useContext(NavigationContext);
-  const [focused, setFocused] = useState(() => navigation?.isFocused() ?? true);
-  useEffect(() => {
-    if (navigation === undefined) return;
-    setFocused(navigation.isFocused());
-    const offFocus = navigation.addListener("focus", () => { setFocused(true); });
-    const offBlur = navigation.addListener("blur", () => { setFocused(false); });
-    return () => {
-      offFocus();
-      offBlur();
-    };
-  }, [navigation]);
-  return focused;
 }
 
 /**

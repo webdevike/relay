@@ -41,6 +41,7 @@ import { Collapse } from "@/ui/Collapse";
 import { IconButton } from "@/ui/IconButton";
 import { Portrait } from "@/ui/Portrait";
 import { Text } from "@/ui/Text";
+import { useCoversContent } from "@/ui/covering";
 import { radii, spacing, useColors, withAlpha } from "@/theme";
 import {
   countLabel,
@@ -148,6 +149,7 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
   // Open, or still sliding closed: the rows are drawn. Fully closed (the sheet's index -1), they are not.
   const [shown, setShown] = useState(open);
   if (open && !shown) setShown(true);
+  useCoversContent(shown);
 
   useEffect(() => {
     if (open) {

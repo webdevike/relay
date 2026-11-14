@@ -46,6 +46,7 @@ import { TypingDots } from "@/ui/TypingDots";
 import { ScrollToBottom } from "@/ui/ScrollToBottom";
 import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
 import { useMessageEntrances } from "@/ui/useMessageEntrances";
+import { useCoversContent } from "@/ui/covering";
 import { ImageViewer } from "@/agents/ImageViewer";
 import { MessageImageStack } from "@/agents/MessageImageStack";
 import { bubbleSegments, topLevelImages } from "@/agents/markdown";
@@ -425,6 +426,8 @@ function Thread({ agent }: { agent: string }) {
     [],
   );
   const pendingApproval = useAgentsStore((state) => (sessionId === null ? undefined : state.approvals[sessionId]));
+  // The approval or ask card above the composer can stand taller than the band leaves for it.
+  useCoversContent((sessionId !== null && pendingApproval !== undefined) || pendingAsk !== undefined);
   // The model and thinking level of the thread's session, for the composer's chip: primitives, so the
   // screen redraws when they change, not on every status frame of any session the host follows.
   const threadModel = useAgentsStore((state) => (sessionId === null ? undefined : state.sessions[sessionId]?.model));

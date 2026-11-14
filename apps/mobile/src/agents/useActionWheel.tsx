@@ -4,13 +4,14 @@
  * before the hold fails the recogniser so the surface's own gesture (scroll, pointer) runs
  * instead; after opening, the finger picks an entry by direction and the lift selects it.
  */
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 import { Gesture, type PanGesture } from "react-native-gesture-handler";
 import { useSharedValue, type SharedValue } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { ActionWheel, type ActionWheelEntry } from "./ActionWheel";
 import { impactHaptic } from "@/lib/haptics";
+import { useCoversContent } from "@/ui/covering";
 
 /** Holding still this long (ms) opens the wheel; moving sooner is the surface's own gesture. */
 export const WHEEL_HOLD_MS = 350;
@@ -46,6 +47,9 @@ export function useActionWheel({
   const center = useSharedValue({ x: 0, y: 0 });
   const pointer = useSharedValue({ x: 0, y: 0 });
   const origin = useSharedValue({ x: 0, y: 0 });
+  // The wheel lives on the UI thread; this mirror tells a 3D poster snapshot to wait it out.
+  const [open, setOpen] = useState(false);
+  useCoversContent(open);
 
   const gesture = useMemo(
     () =>
@@ -72,18 +76,21 @@ export function useActionWheel({
           visible.value = 1;
           scheduleOnRN(impactHaptic, "heavy");
           if (onOpen !== undefined) scheduleOnRN(onOpen);
+          scheduleOnRN(setOpen, true);
         })
         .onUpdate((event) => {
           pointer.value = { x: event.x, y: (offsetY?.value ?? 0) + event.y };
         })
         .onEnd(() => {
           visible.value = 0;
+          scheduleOnRN(setOpen, false);
         })
         .onFinalize((_event, success) => {
           if (success) return;
           // Cancelled by the system: shut the wheel with nothing picked.
           pointer.value = center.value;
           visible.value = 0;
+          scheduleOnRN(setOpen, false);
         }),
     [offsetY, onOpen, origin, center, pointer, visible],
   );

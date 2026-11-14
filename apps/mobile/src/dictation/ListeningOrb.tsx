@@ -19,6 +19,7 @@ import { motion, useColors } from "@/theme";
 import { micLevel, sendLift } from "./signals";
 import { useDictation } from "./useDictation";
 import { ORB_FADE_MS, ORB_FLIGHT_MS, type OrbState } from "./machine";
+import { useCoversContent } from "@/ui/covering";
 
 const ORB = 140;
 /** iPhone display corner radius (pt), so the glow hugs the glass. */
@@ -34,7 +35,9 @@ const SCREEN_RADIUS = 55;
  */
 export function ListeningOrb() {
   const { orb, phase } = useDictation();
-  if (orb === "hidden" || orb === "gone") return null;
+  const shown = orb !== "hidden" && orb !== "gone";
+  useCoversContent(shown);
+  if (!shown) return null;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <EdgeBody orb={orb} transcribing={phase === "finishing" || phase === "sending"} />

@@ -96,8 +96,9 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
   const open = useSelector(shape, cardOpen);
   const dictating = useSelector(shape, isTapDictating);
   const holding = useSelector(shape, isHolding);
-  // The card, a dictation's words and the hold-to-talk glow all reach over the transcript.
-  useCoversContent(open || dictating || holding);
+  // The card (open, or held tall by a draft or photos), a dictation's words and the hold-to-talk
+  // glow all reach over the transcript.
+  useCoversContent(open || draft !== "" || photos.length > 0 || dictating || holding);
   // A tap on the pill (or the mic) starts the keyboard's rise, opens the card and focuses the field
   // in the same tick, so card, keyboard and the lift on it are one motion from the first frame (the
   // collapsed field takes no touches of its own).

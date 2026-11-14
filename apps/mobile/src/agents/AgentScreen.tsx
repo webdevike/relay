@@ -19,6 +19,7 @@ import { Cutout, CUTOUT_GAP } from "@/ui/Cutout";
 import { NotchedSurface, type Notch } from "@/ui/NotchedSurface";
 import { CardUndoToast } from "@/ui/CardUndoToast";
 import { IconButton } from "@/ui/IconButton";
+import { useCoversContent } from "@/ui/covering";
 import { motion, spacing, useColors } from "@/theme";
 import { LAUNCH_ECHO, subagentsOf, useAgentsStore } from "@/state/agents";
 import { agentTitle, useAssistantStore } from "@/state/assistant";
@@ -239,6 +240,8 @@ export function AgentScreen({ linkedId, pinnedId }: AgentScreenProps) {
     selectedId === undefined ? undefined : state.approvals[selectedId],
   );
   const gateLocked = useGateStore((state) => state.gate?.locked === true);
+  // The approval, ask or habit-gate card floats over the transcript.
+  useCoversContent(session !== undefined && ((selectedId !== undefined && pendingApproval !== undefined) || pendingAsk !== undefined) || gateLocked);
   const pendingAskId = pendingAsk?.id;
 
   // Subscriptions live on the socket: re-subscribe whenever focus or the connection changes.
