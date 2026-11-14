@@ -15,10 +15,14 @@ const events = {
     model: Schema.String,
     /** Absolute path of the 768x768 PNG. */
     image: Schema.String,
+    /** Absolute path of the bare model as GLB (modifiers applied; no floor, lights or camera), next to the PNG. */
+    glb: Schema.String,
     /** The build() script that produced it, for reruns and review. */
     script: Schema.String,
     attempts: Schema.Int,
-    seconds: Schema.Number
+    seconds: Schema.Number,
+    /** USD over all attempts, as omp prices them. */
+    cost: Schema.Number
   })
 }
 
@@ -27,19 +31,19 @@ export class BlenderError extends Schema.TaggedError<BlenderError>()("BlenderErr
   log: Schema.String
 }) {}
 
-/** Tool: render a geometry-only build() script on the fixed stage (floor, three lights, auto-framed camera). */
+/** Tool: run a geometry-only build() script, export the model as GLB, render it on the fixed stage (floor, three lights, auto-framed camera). */
 export class Blender extends Context.Service<Blender, {
-  render(script: string, image: string): Effect.Effect<void, BlenderError>
+  render(script: string, image: string, glb: string): Effect.Effect<void, BlenderError>
 }>()("atomic-agents/prop-render/Blender") {
   static readonly layer = Layer.effect(
     Blender,
     Effect.gen(function*() {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const binary = yield* Config.String("BLENDER").pipe(Config.withDefault("blender"), Effect.orDie)
-      const render = Effect.fn("Blender.render")(function*(script: string, image: string) {
+      const render = Effect.fn("Blender.render")(function*(script: string, image: string, glb: string) {
         const result = yield* exec(binary, [
           "-b", "--factory-startup", "-noaudio", "--python-exit-code", "1",
-          "--python", STAGE, "--", script, image
+          "--python", STAGE, "--", script, image, glb
         ]).pipe(
           Effect.timeoutOrElse({ duration: "3 minutes", orElse: () => Effect.fail(new BlenderError({ message: "render timed out", log: "" })) }),
           Effect.catchTag("PlatformError", (error) => Effect.fail(new BlenderError({ message: error.message, log: "" })))
@@ -86,7 +90,9 @@ const render = job(events, {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const image = path.join(ctx.runDir, "render.png")
+    const glb = path.join(ctx.runDir, "model.glb")
     const started = Date.now()
+    let cost = 0
     let prompt = `Model this object: ${subject}`
     for (let attempt = 1; ; attempt++) {
       const reply = yield* models.generate({
@@ -95,18 +101,21 @@ const render = job(events, {
         prompt,
         ...(ctx.agent.thinking ? { thinking: ctx.agent.thinking } : {})
       })
+      cost += reply.cost
       const code = /```(?:python|py)?\n([\s\S]*?)```/.exec(reply.text)?.[1] ?? reply.text
       const script = path.join(ctx.runDir, `build-${attempt}.py`)
       yield* fs.writeFileString(script, code).pipe(Effect.orDie)
-      const outcome = yield* Effect.result(blender.render(script, image))
+      const outcome = yield* Effect.result(blender.render(script, image, glb))
       if (Result.isSuccess(outcome)) {
         return yield* ctx.emit("render.completed", {
           subject,
           model: ctx.model,
           image,
+          glb,
           script,
           attempts: attempt,
-          seconds: (Date.now() - started) / 1000
+          seconds: (Date.now() - started) / 1000,
+          cost
         })
       }
       if (attempt === MAX_ATTEMPTS) return yield* outcome.failure

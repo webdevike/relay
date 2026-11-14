@@ -1,6 +1,6 @@
-# prop-render stage: runs the model's build() in an empty scene, then owns everything else
-# (floor, lights, camera framing, render settings) so the agent only ever writes geometry.
-# Usage: blender -b --factory-startup -noaudio --python-exit-code 1 --python stage.py -- <script.py> <out.png>
+# prop-render stage: runs the model's build() in an empty scene, exports the bare model as GLB, then
+# owns everything else (floor, lights, camera framing, render settings) so the agent only ever writes geometry.
+# Usage: blender -b --factory-startup -noaudio --python-exit-code 1 --python stage.py -- <script.py> <out.png> <out.glb>
 import math
 import sys
 import traceback
@@ -8,7 +8,7 @@ import traceback
 import bpy
 from mathutils import Vector
 
-script, out = sys.argv[sys.argv.index("--") + 1:]
+script, out, glb = sys.argv[sys.argv.index("--") + 1:]
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
@@ -17,9 +17,11 @@ try:
     namespace = {"__name__": "prop"}
     with open(script) as source:
         exec(compile(source.read(), script, "exec"), namespace)
-    if "build" not in namespace:
-        raise RuntimeError("script must define build()")
-    namespace["build"]()
+    # Some scripts call build() themselves at module level; calling it again would duplicate the model.
+    if not scene.objects:
+        if "build" not in namespace:
+            raise RuntimeError("script must define build()")
+        namespace["build"]()
 except Exception:
     print("STAGE_ERROR")
     traceback.print_exc()
@@ -34,6 +36,9 @@ solids = [o for o in scene.objects if o.type in {"MESH", "CURVE", "SURFACE", "ME
 if not solids:
     print("STAGE_ERROR")
     raise RuntimeError("build() created no visible geometry")
+
+# The bare model, before the stage adds anything: modifiers applied, no floor, lights or camera.
+bpy.ops.export_scene.gltf(filepath=glb, export_format="GLB", export_apply=True, export_cameras=False, export_lights=False)
 
 bpy.context.view_layer.update()
 corners = [o.matrix_world @ Vector(c) for o in solids for c in o.bound_box]
