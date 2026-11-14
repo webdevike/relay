@@ -129,12 +129,13 @@ export const propRender = define({
   id: "prop-render",
   purpose: "Turn a one-line object description into a studio render of a 3D model built in Blender.",
   agent: {
-    model: "anthropic/claude-sonnet-5-5",
+    model: "openrouter/moonshotai/kimi-k3.1-pro",
     candidates: [
-      "anthropic/claude-sonnet-5-5",
-      "anthropic/claude-opus-5-5",
+      "openrouter/moonshotai/kimi-k3.1-pro",
+      "openai-codex/gpt-6-sol",
+      "openrouter/google/gemini-4-carbon",
       "openai-codex/gpt-6-astra",
-      "openai-codex/gpt-6.1-sol"
+      "anthropic/claude-opus-5-5"
     ],
     thinking: "low",
     system: `You are a 3D prop modeller. You write one Blender Python script that builds a single object from primitives, modifiers and materials.\n\n${knowledge}`

@@ -39,7 +39,8 @@ export const install = Effect.gen(function*() {
     HOME: user,
     PATH: [path.dirname(process.execPath), path.join(user, ".local", "bin"), "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":"),
     ATOMIC_AGENTS_HOME: root,
-    BLENDER: blender
+    BLENDER: blender,
+    ...(Bun.env["OPENROUTER_API_KEY_FILE"] ? { OPENROUTER_API_KEY_FILE: Bun.env["OPENROUTER_API_KEY_FILE"] } : {})
   }
   const body = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
