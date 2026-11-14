@@ -184,7 +184,7 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending, thread }:
     }
     case "assistant":
       return (
-        <RenderMessage thread={thread} message={reactionKey}>
+        <RenderMessage thread={thread} message={reactionKey} at={message.at}>
           <View style={{ paddingHorizontal: spacing.lg }}>
             <ChatBubble
               messageKey={reactionKey}

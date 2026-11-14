@@ -9,6 +9,7 @@
 import { createContext, useCallback, useContext, useMemo, type ReactNode } from "react";
 import type { RenderForm, RenderKind } from "@relay/protocol";
 import { reportRenderFailure } from "@/connection";
+import { ModelRank } from "@/lib/liveModel";
 import { createRenderReporter } from "./renderReport";
 
 interface RenderMessageValue {
@@ -29,13 +30,19 @@ export interface RenderMessageProps {
   thread: string | null;
   /** The bubble's reaction key (`bubbleReactionKey`); null for a pending echo, which no agent owns yet. */
   message: string | null;
+  /** The message's time: its 3D models load before older messages' (`ModelRank`). */
+  at: number;
   children: ReactNode;
 }
 
-/** Wraps a whole assistant row (tiles above the bubble included) so its media can report failures. */
-export function RenderMessage({ thread, message, children }: RenderMessageProps) {
+/** Wraps a whole assistant row (tiles above the bubble included) so its media can report failures and rank newest first. */
+export function RenderMessage({ thread, message, at, children }: RenderMessageProps) {
   const value = useMemo(() => (thread === null || message === null ? null : { thread, message }), [thread, message]);
-  return <RenderMessageContext.Provider value={value}>{children}</RenderMessageContext.Provider>;
+  return (
+    <RenderMessageContext.Provider value={value}>
+      <ModelRank.Provider value={at}>{children}</ModelRank.Provider>
+    </RenderMessageContext.Provider>
+  );
 }
 
 /**

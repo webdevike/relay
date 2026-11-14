@@ -1106,7 +1106,7 @@ function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenI
       const wide = segments.some((segment) => segment.kind === "widget");
       // The whole row reports its media's failures, tiles above the bubble included (`RenderMessage`).
       return (
-        <RenderMessage thread={assistantReactionThread(agent)} message={reactionKey}>
+        <RenderMessage thread={assistantReactionThread(agent)} message={reactionKey} at={message.at}>
           <View style={styles.evaRow}>
             {signin !== undefined && (
               <View style={showBubble || imageCount > 0 || tiles.length > 0 ? styles.signinAbove : undefined}>

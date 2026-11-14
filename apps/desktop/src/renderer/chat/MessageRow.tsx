@@ -13,6 +13,7 @@ import { MarkdownMedia } from './markdown/MarkdownMedia'
 import { userImageUrls } from '@evaos/chat-core/image-urls'
 import { WidgetScope } from './widgets/actions'
 import { RenderMessage, type RenderMessageValue } from './widgets/render-report'
+import { MediaRank } from './widgets/media-slot'
 import { ReactionScope } from './reactions/reactions-store'
 import { reactionKeyOf } from '@evaos/chat-core/reactions'
 import { ToolBlock, ToolGroup } from './ToolRows'
@@ -246,9 +247,10 @@ function MessageRowImpl({
   } else {
     body = <div className="eva-notice">{m.text}</div>
   }
+  // The row's media load newest message first; a row omp has not stamped yet is the newest.
   return (
     <Row id={m.id} role={m.role} waiting={waiting !== undefined}>
-      {body}
+      <MediaRank.Provider value={m.at ?? Number.MAX_SAFE_INTEGER}>{body}</MediaRank.Provider>
     </Row>
   )
 }

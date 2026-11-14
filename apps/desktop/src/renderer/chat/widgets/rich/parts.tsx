@@ -10,6 +10,7 @@ import type { Tone } from '@evaos/chat-core/widget'
 import { openLink } from '../../../navigation/open-link'
 import type { RenderKind } from '@evaos/contract'
 import { useRenderFailure } from '../render-report'
+import { useMediaSlot } from '../media-slot'
 import './rich.css'
 
 const TONE_COLORS: Record<Exclude<Tone, 'accent'>, string> = {
@@ -121,7 +122,8 @@ type LoadState = 'loading' | 'ready' | 'error'
 
 /**
  * An image filling its frame: transparent until it loads (the frame's muted surface is the
- * placeholder), and a short error line instead of a broken icon when it fails. `onAspect` reports
+ * placeholder), and a short error line instead of a broken icon when it fails. It only starts
+ * loading at its turn (media-slot.ts: near the viewport, newest message first). `onAspect` reports
  * the natural width over height once known. `origin` is the src as the agent wrote it and the
  * widget kind, so a failure in a chat bubble reaches the agent.
  */
@@ -140,29 +142,36 @@ export function MediaImage({
 }) {
   const [state, setState] = useState<LoadState>('loading')
   const report = useRenderFailure()
+  const { ref, live, settled } = useMediaSlot('media')
   useEffect(() => setState('loading'), [src])
   return (
-    <div className={`eva-w-media ${className ?? ''}`} data-state={state}>
+    <div
+      ref={ref}
+      className={`eva-w-media ${className ?? ''}`}
+      data-state={live ? state : 'waiting'}
+    >
       {state === 'error' ? (
         <Text size="xs" c="dimmed" className="eva-w-media-error">
           Couldn&apos;t load image
         </Text>
-      ) : (
+      ) : live ? (
         <img
           src={src}
           alt={alt}
           draggable={false}
           onLoad={(e) => {
             setState('ready')
+            settled()
             const { naturalWidth: w, naturalHeight: h } = e.currentTarget
             if (w > 0 && h > 0) onAspect?.(w / h)
           }}
           onError={() => {
             setState('error')
+            settled()
             report(origin.kind, origin.src, 'image failed to load')
           }}
         />
-      )}
+      ) : null}
     </div>
   )
 }

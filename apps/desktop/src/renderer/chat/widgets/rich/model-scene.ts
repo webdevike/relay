@@ -138,6 +138,8 @@ export function mountModel(host: HTMLElement, url: string, options: ModelOptions
     environment.dispose()
     pmrem.dispose()
     renderer.dispose()
+    // Give the context back now, not when the canvas is collected: Chromium keeps only 16 live.
+    renderer.forceContextLoss()
     renderer.domElement.remove()
   }
 }

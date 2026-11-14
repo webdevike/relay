@@ -50,7 +50,7 @@ describe('markdown media: image or inline video', () => {
     show('Here it is:\n\n![Demo clip](/drops/vid1/tok1)')
     const video = (await screen.findByLabelText('Demo clip')) as HTMLVideoElement
     expect(video.tagName).toBe('VIDEO')
-    expect(video.getAttribute('src')).toBe(mediaUrl('/drops/vid1/tok1'))
+    await waitFor(() => expect(video.getAttribute('src')).toBe(mediaUrl('/drops/vid1/tok1')))
     expect(video.getAttribute('poster')).toBe(mediaUrl('/drops/vid1/tok1/poster'))
     expect(video.controls).toBe(true)
     expect(video.getAttribute('preload')).toBe('metadata')
@@ -90,11 +90,14 @@ describe('markdown media: image or inline video', () => {
     expect((await screen.findByAltText('Gone')).tagName).toBe('IMG')
   })
 
-  it('plays an https .mp4 inline and keeps an https .png an image, without probing', () => {
+  it('plays an https .mp4 inline and keeps an https .png an image, without probing', async () => {
     show('![Film](https://cdn.example.com/a/film.mp4)\n\n![Pic](https://cdn.example.com/pic.png)')
     const video = screen.getByLabelText('Film')
     expect(video.tagName).toBe('VIDEO')
-    expect(video.getAttribute('src')).toBe(mediaUrl('https://cdn.example.com/a/film.mp4'))
+    // It streams at its turn (media-slot.ts); without an observer that is at once.
+    await waitFor(() =>
+      expect(video.getAttribute('src')).toBe(mediaUrl('https://cdn.example.com/a/film.mp4')),
+    )
     expect(video.hasAttribute('poster')).toBe(false)
     expect(screen.getByAltText('Pic').tagName).toBe('IMG')
     expect(fetchMock).not.toHaveBeenCalled()

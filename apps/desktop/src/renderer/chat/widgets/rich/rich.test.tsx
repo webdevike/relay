@@ -189,11 +189,11 @@ describe('CompareWidget', () => {
     expect(frame.style.getPropertyValue('--eva-w-pos')).toBe('80%')
   })
 
-  it('labels the corners and takes the after image aspect', () => {
+  it('labels the corners and takes the after image aspect', async () => {
     show(<CompareWidget spec={spec} />)
     expect(screen.getByText('Before')).toBeInTheDocument()
     expect(screen.getByText('After · local')).toBeInTheDocument()
-    const after = screen.getByAltText('After · local') as HTMLImageElement
+    const after = (await screen.findByAltText('After · local')) as HTMLImageElement
     expect(after.src).toBe(mediaUrl('https://x.com/after.png'))
     Object.defineProperty(after, 'naturalWidth', { value: 1600 })
     Object.defineProperty(after, 'naturalHeight', { value: 900 })
@@ -215,12 +215,12 @@ describe('GalleryWidget', () => {
   it('pages through images with captions and the source link', async () => {
     const user = userEvent.setup()
     show(<GalleryWidget spec={spec} />)
-    expect(screen.getByAltText('A')).toHaveAttribute('src', mediaUrl('https://cdn.x/a.png'))
+    expect(await screen.findByAltText('A')).toHaveAttribute('src', mediaUrl('https://cdn.x/a.png'))
     expect(screen.getByText('first')).toBeInTheDocument()
     await user.click(screen.getByLabelText('Open source page'))
     expect(openLink).toHaveBeenCalledWith('https://dribbble.com/1')
     await user.click(screen.getByLabelText('Next Image'))
-    expect(screen.getByAltText('B')).toHaveAttribute('src', mediaUrl('/drops/x/y'))
+    expect(await screen.findByAltText('B')).toHaveAttribute('src', mediaUrl('/drops/x/y'))
     expect(screen.queryByLabelText('Open source page')).toBeNull()
   })
 
@@ -232,9 +232,9 @@ describe('GalleryWidget', () => {
     expect(await screen.findByAltText('Image 2 of 2')).toBeInTheDocument()
   })
 
-  it('shows an error line instead of a broken image', () => {
+  it('shows an error line instead of a broken image', async () => {
     show(<GalleryWidget spec={spec} />)
-    fireEvent.error(screen.getByAltText('A'))
+    fireEvent.error(await screen.findByAltText('A'))
     expect(screen.getByText("Couldn't load image")).toBeInTheDocument()
     expect(screen.queryByAltText('A')).toBeNull()
   })
@@ -257,10 +257,10 @@ describe('ImageWidget and DiagramWidget', () => {
     )
   })
 
-  it('titles a diagram and caps tall ones', () => {
+  it('titles a diagram and caps tall ones', async () => {
     show(<DiagramWidget spec={{ widget: 'diagram', src: '/drops/d/e', title: 'Flow' }} />)
     expect(screen.getByText('Flow')).toBeInTheDocument()
-    const img = screen.getByAltText('Flow')
+    const img = await screen.findByAltText('Flow')
     Object.defineProperty(img, 'naturalWidth', { value: 100 })
     Object.defineProperty(img, 'naturalHeight', { value: 400 })
     fireEvent.load(img)
@@ -299,10 +299,11 @@ describe('AudioWidget', () => {
 })
 
 describe('VideoWidget', () => {
-  it('plays from the media protocol at the video aspect', () => {
+  it('plays from the media protocol at the video aspect', async () => {
     show(<VideoWidget spec={{ widget: 'video', src: '/drops/a/b', title: 'Film' }} />)
     const video = screen.getByLabelText('Film') as HTMLVideoElement
-    expect(video.getAttribute('src')).toBe(mediaUrl('/drops/a/b'))
+    // Nothing streams until its turn (media-slot.ts); without an observer that is at once.
+    await vi.waitFor(() => expect(video.getAttribute('src')).toBe(mediaUrl('/drops/a/b')))
     expect(video.controls).toBe(true)
     Object.defineProperty(video, 'videoWidth', { value: 400 })
     Object.defineProperty(video, 'videoHeight', { value: 300 })

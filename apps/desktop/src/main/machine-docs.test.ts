@@ -11,9 +11,11 @@ import { describe, expect, it } from 'vitest'
 import type { AnyStateMachine } from 'xstate'
 import { machineDiagram, newDoc, withDiagram } from '../renderer/lib/machine-diagram'
 import { designModeMachine } from '../renderer/browser/design/design-mode.machine'
+import { mediaSlotMachine } from '../renderer/chat/widgets/media-slot.machine'
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   { file: 'design-mode', title: 'Design Mode in a page tab (desktop)', machine: designModeMachine },
+  { file: 'media-slot', title: 'Chat media load order (desktop)', machine: mediaSlotMachine },
 ]
 
 // Vitest runs in apps/desktop.

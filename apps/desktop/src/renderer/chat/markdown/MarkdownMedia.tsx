@@ -4,6 +4,7 @@ import { ImageViewer } from '../ImageViewer'
 import { collectMessageImages } from './collect-images'
 import { mediaUrl } from '../widgets/media-url'
 import { mediaErrorText, useRenderFailure } from '../widgets/render-report'
+import { useMediaSlot } from '../widgets/media-slot'
 
 /**
  * `![caption](src)` in a reply: an image, an inline video or an audio player when `src` is one.
@@ -16,6 +17,8 @@ import { mediaErrorText, useRenderFailure } from '../widgets/render-report'
  * - an http(s) URL is a video when its path ends .mp4, .webm, .mov or .m4v, audio on .mp3, .m4a,
  *   .aac, .wav, .flac, .ogg or .opus;
  * - everything else stays an image.
+ * Videos stream at their turn (media-slot.ts: near the viewport, newest message first); images are
+ * the browser's lazy ones, since an image of unknown size has no frame to wait in.
  */
 export type MediaKind =
   | { kind: 'image'; probeError?: string }
@@ -141,21 +144,24 @@ function MarkdownVideo({
 }) {
   const [failed, setFailed] = useState(false)
   const report = useRenderFailure()
+  const { ref, live, settled } = useMediaSlot('media')
   // Spans, not a figure: markdown puts the image inside a paragraph.
   return (
-    <span className="eva-md-video" data-testid="md-video">
+    <span ref={ref} className="eva-md-video" data-testid="md-video">
       {failed ? (
         <span className="eva-md-video-error">Couldn&apos;t load video</span>
       ) : (
         <video
-          src={mediaUrl(src)}
+          src={live ? mediaUrl(src) : undefined}
           poster={poster ?? undefined}
           controls
           preload="metadata"
           playsInline
           aria-label={caption || 'Video'}
+          onLoadedMetadata={settled}
           onError={(e) => {
             setFailed(true)
+            settled()
             report('video', src, mediaErrorText('video', e.currentTarget))
           }}
         />
@@ -214,7 +220,7 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         Image failed to load
       </span>
     )
-  if (linked) return <img src={url} alt={alt} draggable={false} onError={onError} />
+  if (linked) return <img src={url} alt={alt} loading="lazy" draggable={false} onError={onError} />
   return (
     <>
       <button
@@ -224,7 +230,7 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         data-testid="md-image"
         onClick={(e) => setViewing(collectMessageImages(e.currentTarget))}
       >
-        <img src={url} alt={alt} draggable={false} onError={onError} />
+        <img src={url} alt={alt} loading="lazy" draggable={false} onError={onError} />
       </button>
       {viewing ? (
         <ImageViewer

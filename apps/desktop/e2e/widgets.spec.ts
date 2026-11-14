@@ -278,12 +278,21 @@ test('every widget kind renders inline, media loads, and replies send the next t
     log.locator('[data-testid=code-block]').filter({ hasText: 'flowchart TD' }),
   ).toHaveCount(1)
 
-  // Media arrives over relay-media: from a local file, an http URL and a Relay drop.
-  const loaded = (selector: string) =>
+  // Media arrives over relay-media: from a local file, an http URL and a Relay drop. It loads at
+  // its turn, near the viewport (media-slot.ts), so each widget is brought into view first.
+  const near = (selector: string) =>
     log
-      .locator(`${selector} img`)
+      .locator(selector)
       .first()
-      .evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)
+      .evaluate((el) => el.scrollIntoView({ block: 'center' }))
+  const loaded = async (selector: string) => {
+    await near(selector)
+    const img = log.locator(`${selector} img`).first()
+    return (
+      (await img.count()) > 0 &&
+      (await img.evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0))
+    )
+  }
   for (const kind of ['compare', 'gallery', 'image', 'diagram']) {
     await expect.poll(() => loaded(`[data-testid=widget-${kind}]`), { message: kind }).toBe(true)
   }
@@ -301,18 +310,23 @@ test('every widget kind renders inline, media loads, and replies send the next t
     )
     .toBe(true)
   await expect
-    .poll(() =>
-      log
+    .poll(async () => {
+      await near('video')
+      return log
         .locator('video')
         .first()
-        .evaluate((v: HTMLVideoElement) => v.readyState),
-    )
+        .evaluate((v: HTMLVideoElement) => v.readyState)
+    })
     .toBeGreaterThan(0)
-  await expect(log.locator('[data-testid=widget-model] [data-state]')).toHaveAttribute(
-    'data-state',
-    'ready',
-    { timeout: 20_000 },
-  )
+  await expect
+    .poll(
+      async () => {
+        await near('[data-testid=widget-model]')
+        return log.locator('[data-testid=widget-model] [data-state]').getAttribute('data-state')
+      },
+      { timeout: 20_000 },
+    )
+    .toBe('ready')
   for (const drop of Object.keys(DROPS)) expect(media.hits, drop).toContain(drop)
 
   const panel = shell.locator('[data-testid=panel-toggle]:visible').first()
