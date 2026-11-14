@@ -22,7 +22,7 @@ export class JournalError extends Schema.TaggedError<JournalError>()("JournalErr
   cause: Schema.Defect()
 }) {}
 
-/** Where events, runs and artifacts live. Opt-in and outside every running Relay/Eva path. */
+/** Where events, runs and artifacts live: Relay's data dir (`~/.config/relay/atomic-agents`) unless overridden. */
 export class Home extends Context.Service<Home, {
   readonly root: string
   readonly journal: string
@@ -35,7 +35,7 @@ export class Home extends Context.Service<Home, {
       const fs = yield* FileSystem.FileSystem
       const home = yield* Config.String("HOME")
       const root = yield* Config.String("ATOMIC_AGENTS_HOME").pipe(
-        Config.withDefault(path.join(home, ".atomic-agents"))
+        Config.withDefault(path.join(home, ".config", "relay", "atomic-agents"))
       )
       yield* fs.makeDirectory(root, { recursive: true })
       return Home.of({
