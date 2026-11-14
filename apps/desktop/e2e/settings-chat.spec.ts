@@ -61,14 +61,25 @@ test('thinking switch applies live to the open chat and persists in chat.json', 
   await expect.poll(() => readChat(configDir)?.['show_thinking']).toBe(true)
 
   // Settings is its own workspace. Leaving the chat (its only tab, no tool tabs) closed its tab,
-  // so the read, done chat fast-settles; reopen it from the Settled fold.
+  // so the read, done chat fast-settles into the Settled fold. The list moves rows between the
+  // list and the fold on its next push, so one isVisible() read can see the row in neither and
+  // then wait on a fold that never comes: retry the whole reveal until the row takes the click.
+  const sidebar = shell.getByTestId('sidebar')
   const out = shell.getByTestId('sidebar-back')
-  if (await out.isVisible()) await out.click()
-  if (!(await shell.getByTestId('chat-tree').isVisible()))
-    await shell.getByTestId('nav-chat').click()
-  const row = shell.getByTestId('sidebar').getByRole('link', { name: /^Fixture chat(?:,|$)/ })
-  if (!(await row.isVisible())) await shell.getByTestId('chat-settled-toggle').click()
-  await row.click()
+  const row = sidebar.getByRole('link', { name: /^Fixture chat(?:,|$)/ })
+  const settled = shell.getByTestId('chat-settled-toggle')
+  await expect(async () => {
+    if ((await sidebar.getAttribute('data-sidebar-level')) !== 'chats') {
+      if (await out.isVisible()) await out.click({ timeout: 1_000 })
+      await shell.getByTestId('nav-chat').click({ timeout: 1_000 })
+    }
+    if (
+      !(await row.isVisible()) &&
+      (await settled.getAttribute('aria-expanded', { timeout: 1_000 })) === 'false'
+    )
+      await settled.click({ timeout: 1_000 })
+    await row.click({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
   await expect(log).toContainText('Please sketch a tiny greeter.')
   await expect(shell.locator('[data-testid=chat-log] [data-role=thinking]').first()).toBeVisible()
   await app.close()
