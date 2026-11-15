@@ -22,6 +22,9 @@ export interface ModelAdapter<R = never> {
   generate(request: GenerateRequest): Effect.Effect<Generation, ModelError, R | ModelRunner | BunServices>
 }
 
+/** Who called a tool: the model in the tool loop, or a script the model wrote (`job.mode: "code"`, `CodeMode.ts`). */
+export type Caller = "model" | "script"
+
 /**
  * A tool the model may call in the recipe's tool loop; the model sees the part after the last dot (`gmail.read_thread` → `read_thread`).
  * `fields` is the item the model is working on (input, source and step fields), for what the model should not have to
@@ -33,9 +36,17 @@ export interface ToolAdapter<R = never> {
   readonly args: Schema.Decoder<unknown>
   /** The args object as the model should write it, e.g. `{"id": "<message id>"}`. */
   readonly example: string
-  /** The result, JSON-serialisable. Failures go back to the model as text. */
-  run(args: unknown, fields: Readonly<Record<string, unknown>>): Effect.Effect<unknown, { readonly message: string }, R | BunServices>
+  /** Code mode: the TypeScript type a script gets back (default `unknown`). */
+  readonly returns?: string
+  /**
+   * The result, JSON-serialisable. Failures go back to the model as text (a script gets them thrown).
+   * `caller` lets a tool answer a script more than the model's window (a whole page, not its passages).
+   */
+  run(args: unknown, fields: Readonly<Record<string, unknown>>, caller: Caller): Effect.Effect<unknown, { readonly message: string }, R | BunServices>
 }
+
+/** The name the model calls a tool by: the part after the last dot (`gmail.read_thread` → `read_thread`). */
+export const shortName = (name: string) => name.slice(name.lastIndexOf(".") + 1)
 
 /** A tool adapter whose `run` takes its args schema's type; the recipe decodes the model's args with `args` before it calls `run`. */
 export const toolAdapter = <S extends Schema.Decoder<unknown>, R>(spec: {
@@ -43,8 +54,9 @@ export const toolAdapter = <S extends Schema.Decoder<unknown>, R>(spec: {
   readonly description: string
   readonly args: S
   readonly example: string
-  readonly run: (args: S["Type"], fields: Readonly<Record<string, unknown>>) => Effect.Effect<unknown, { readonly message: string }, R | BunServices>
-}): ToolAdapter<R> => ({ ...spec, run: (args, fields) => spec.run(args as S["Type"], fields) })
+  readonly returns?: string
+  readonly run: (args: S["Type"], fields: Readonly<Record<string, unknown>>, caller: Caller) => Effect.Effect<unknown, { readonly message: string }, R | BunServices>
+}): ToolAdapter<R> => ({ ...spec, run: (args, fields, caller) => spec.run(args as S["Type"], fields, caller) })
 
 export interface SourceItem<R = never> {
   /** Fields this item adds to the run input (the adapter's `provides`). */
@@ -147,7 +159,7 @@ export const pack = <R>(spec: PackSpec<R>): Pack => ({
     const byName = <A extends { readonly name: string }>(list: ReadonlyArray<A> | undefined) => new Map((list ?? []).map((item) => [item.name, item] as const))
     return {
       models: byName((spec.models ?? []).map((model): ModelAdapter => ({ ...model, generate: (request) => bind(model.generate(request)) }))),
-      tools: byName((spec.tools ?? []).map((tool): ToolAdapter => ({ ...tool, run: (args, fields) => bind(tool.run(args, fields)) }))),
+      tools: byName((spec.tools ?? []).map((tool): ToolAdapter => ({ ...tool, run: (args, fields, caller) => bind(tool.run(args, fields, caller)) }))),
       sources: byName((spec.sources ?? []).map((source): SourceAdapter => ({
         ...source,
         fetch: (input, run) =>

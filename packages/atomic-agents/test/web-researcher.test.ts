@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import { Effect, Layer, Ref } from "effect"
 import type { Pack } from "../src/Adapter.ts"
@@ -52,11 +52,16 @@ const fakes = (web: FakeWeb, reach: FakeWeb & { readonly platform?: ReadonlyArra
   )
 ]
 
-/** Run the shipped web-researcher chef once over a temp home; answer its research.answered data and the model requests. */
-const research = (input: Readonly<Record<string, unknown>>, replies: ReadonlyArray<unknown>, packs: ReadonlyArray<Pack>) =>
+/** Run the shipped web-researcher chef (in `mode`, default as shipped) once over a temp home; answer its research.answered data and the model requests. */
+const research = (input: Readonly<Record<string, unknown>>, replies: ReadonlyArray<unknown>, packs: ReadonlyArray<Pack>, mode?: "code") =>
   Effect.gen(function*() {
     const root = yield* tempHome
     const dir = yield* builtinChefs(root, ["web-researcher"])
+    if (mode !== undefined) {
+      const file = `${dir}/web-researcher.json`
+      const chef = JSON.parse(readFileSync(file, "utf8"))
+      writeFileSync(file, JSON.stringify({ ...chef, job: { ...chef.job, mode } }))
+    }
     const { models, seen } = yield* scripted(replies)
     return yield* Effect.gen(function*() {
       const result = yield* (yield* Runner).run("web-researcher", "answer", input, { model: "test/model" })
@@ -191,6 +196,31 @@ describe("web-researcher", () => {
         { url, quote: "Pictures: http://heliacal.net/~solar/bitcoin/pizza/ Thanks jercos!", verified: true, checked: "page", via: "reach.fallback_read" }
       ])
       expect(data!["attempts"]).toBe(3)
+    }).pipe(Effect.runPromise), 20_000)
+
+  test("code mode: one script runs the tools side by side and filters a whole page in the sandbox; gates, ledger and quote check hold as in tool mode", () =>
+    Effect.gen(function*() {
+      const url = "https://go.dev/doc/go1.2"
+      const quote = "In Go 1.2, the minimum size of the stack when a goroutine is created has been lifted from 4KB to 8KB."
+      const code = [
+        `const [found, page] = await Promise.all([search({ objective: "go 1.2 stack", queries: ["go 1.2 stack size"] }), read({ url: "${url}" })])`,
+        `let gate = ""`,
+        `try { await fallback_read({ url: "${url}" }) } catch (error) { gate = error.message }`,
+        `return { hits: found.results.length, gate, lines: page.text.split("\\n").filter((line) => /minimum size of the stack/.test(line)) }`
+      ].join("\n")
+      const { data, requests } = yield* research(
+        { question: "Which Go release raised the minimum goroutine stack size from 4KB?" },
+        [{ tool: "run_code", args: { code } }, { answer: { answer: "Go 1.2, from 4KB to 8KB.", citations: [{ url, quote }] } }],
+        fakes({ hits: [{ url, title: "Go 1.2 Release Notes", text: "Go 1.2 release notes" }], pages: { [url]: fixture("go1.2.md") } }, {}),
+        "code"
+      )
+      expect(requests[0]!.system).toContain("declare function read(args: { url: string; find?: string }): Promise<{ url: string; text: string; passages?: string }>")
+      // The script got the whole 29k-character page (the model's window is the first 4,500 without find) and returned one line of it.
+      expect(requests[1]!.prompt).toContain(quote)
+      expect(requests[1]!.prompt).toContain("closed: fallback_read opens only for a url read failed on")
+      expect(data!["citations"]).toEqual([{ url, quote, verified: true, checked: "page", via: "web.search" }])
+      expect(data!["toolCalls"]).toEqual({ "web.search": 1, "web.read": 1 })
+      expect(data!["attempts"]).toBe(2)
     }).pipe(Effect.runPromise), 20_000)
 
   test("a read that returns only the site's navigation counts as failed (so fallback_read opens); a short page of real text still reads", () => {

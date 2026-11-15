@@ -113,6 +113,12 @@
       "reach.fallback_read",
       "reach.platform_search"
     ],
+    "codeExample": [
+      "const found = await search({ objective: \"<what you need found>\", queries: [\"<3-6 words>\", \"<another phrasing>\"] })",
+      "const pages = await Promise.all(found.results.slice(0, 3).map((hit) => read({ url: hit.url }).catch((error) => ({ url: hit.url, text: \"\", failed: error.message }))))",
+      "const wanted = /<a word or number the passage you need holds>/i",
+      "return pages.map((page) => ({ url: page.url, failed: page.failed, passages: page.text.split(/\\n\\s*\\n/).filter((part) => wanted.test(part)).slice(0, 4) }))"
+    ],
     "answer": {
       "answer": "nonEmptyString",
       "citations": {

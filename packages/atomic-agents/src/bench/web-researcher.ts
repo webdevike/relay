@@ -2,11 +2,11 @@
 /**
  * web-researcher bake-off against an answer key of research questions with known answers:
  *
- *     bun src/bench/web-researcher.ts <dir with cases.json> [--models a,b] [--judge model] [--out dir]
+ *     bun src/bench/web-researcher.ts <dir with cases.json> [--models a,b] [--judge model] [--mode tools|code] [--out dir]
  *
  * cases.json: `[{id, question, platforms?, depth?, answer, accept, evidence, source}]`. Each model answers every
- * question through the chef as shipped (`Chef.cook`: the tool loop on the research pack, then the
- * `research.citations` check), no bus, nothing in the journal. Per model:
+ * question through the chef as shipped (`Chef.cook`: the tool loop on the research pack, or with `--mode code` one
+ * script per turn against it, `CodeMode.ts`; then the `research.citations` check), no bus, nothing in the journal. Per model:
  * - correct: a judge model compares the answer with the key (`accept` says what counts): yes 1, partial 0.5, no 0;
  * - verified: citations whose quote the check found on the page (or, for a page that would not open, its search excerpt);
  * - supported: verified citations the judge says back the answer; grounded: answers with at least one;
@@ -21,6 +21,7 @@ import { packs } from "../adapters/index.ts"
 import { Chefs } from "../Chef.ts"
 import { EventBus, Home } from "../Event.ts"
 import { ModelRunner } from "../Model.ts"
+import { Mode } from "../Recipe.ts"
 import { effective, Settings } from "../Settings.ts"
 
 const Case = Schema.Struct({
@@ -67,19 +68,20 @@ const program = Effect.gen(function*() {
     return at < 0 ? undefined : args[at + 1]
   }
   const dir = args.find((arg, index) => !arg.startsWith("--") && !args[index - 1]?.startsWith("--"))
-  if (dir === undefined) return yield* Effect.fail(new Error("usage: web-researcher.ts <dir with cases.json> [--models a,b] [--judge model] [--out dir]"))
+  if (dir === undefined) return yield* Effect.fail(new Error("usage: web-researcher.ts <dir with cases.json> [--models a,b] [--judge model] [--mode tools|code] [--out dir]"))
   const chef = (yield* (yield* Chefs).current).find((candidate) => candidate.id === "web-researcher")
   if (chef?.cook === undefined) return yield* Effect.fail(new Error("no web-researcher recipe chef loaded"))
   const cook = chef.cook
   const resolved = effective(chef, yield* (yield* Settings).current).agent
   const models = flag("models")?.split(",") ?? resolved.candidates
   const judge = flag("judge") ?? "anthropic/claude-opus-5-5"
+  const mode = yield* Schema.decodeUnknownEffect(Schema.optional(Mode))(flag("mode"))
   const root = path.resolve(dir)
   const cases = yield* decodeCases(yield* fs.readFileString(path.join(root, "cases.json")))
   const stamp = new Date(yield* Clock.currentTimeMillis).toISOString().slice(0, 16).replace(/[-:]/g, "")
   const out = path.resolve(flag("out") ?? path.join(root, "runs", stamp))
   const runner = yield* ModelRunner
-  yield* Console.log(`${cases.length} questions on ${models.join(", ")}; judge ${judge}; out ${out}\n`)
+  yield* Console.log(`${cases.length} questions on ${models.join(", ")}; mode ${mode ?? "as the chef file"}; judge ${judge}; out ${out}\n`)
 
   const grade = (item: Case, answered: Answered) =>
     runner.generate({
@@ -110,7 +112,7 @@ const program = Effect.gen(function*() {
       yield* fs.makeDirectory(runDir, { recursive: true })
       const context = { component: "web-researcher", job: "answer", run: "bench", runDir, stateDir: runDir, model, agent: { ...resolved, model } }
       const input = { question: item.question, ...(item.platforms ? { platforms: item.platforms } : {}), ...(item.depth ? { depth: item.depth } : {}) }
-      const result = yield* cook.item(input, context)
+      const result = yield* cook.item(input, context, mode)
       const answered = yield* decodeAnswered(result.fields)
       const verdict = yield* grade(item, answered)
       yield* fs.writeFileString(`${runDir}.json`, `${JSON.stringify({ input, ...result, verdict }, null, 2)}\n`)
@@ -154,7 +156,7 @@ const program = Effect.gen(function*() {
   }
   const failures = results.flatMap(({ model, rows }) => rows.flatMap((row) => row.error === undefined ? [] : [`- ${model} ${row.item.id}: ${row.error}`]))
   const report = [
-    `# web-researcher bench ${stamp}`,
+    `# web-researcher bench ${stamp}${mode === undefined ? "" : `, ${mode} mode`}`,
     "",
     `${cases.length} questions from ${path.join(root, "cases.json")}; judge: ${judge}.`,
     "correct: the judge's verdict against the key (yes 1, partial 0.5). verified: citations whose quote the check found on the page (or its search excerpt when the page would not open). supporting: verified and the judge says the quote backs the answer. grounded: answers with at least one verified, supporting citation. routes: which source answered (primary = web search + reader; platform and fallback = agent-reach).",

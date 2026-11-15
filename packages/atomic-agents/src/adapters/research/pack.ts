@@ -1,6 +1,6 @@
 import { Effect, Layer, Option, Schema } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
-import { pack, toolAdapter } from "../../Adapter.ts"
+import { type Caller, pack, toolAdapter } from "../../Adapter.ts"
 import type { ToolsError } from "../../Component.ts"
 import { type Hit, ResearchError } from "./http.ts"
 import { MUSE_PLATFORMS, type MusePlatform, Muse } from "./muse.ts"
@@ -127,11 +127,12 @@ const remember = (ledger: Ledger, via: string, url: string, page: string | undef
 
 const counted = (ledger: Ledger, name: string) => ledger.calls.set(name, (ledger.calls.get(name) ?? 0) + 1)
 
-/** A search's hits as the model sees them; the full excerpts stay in the ledger. */
-const shown = (ledger: Ledger, via: string, hits: ReadonlyArray<Hit>) => {
+/** A search's hits as the caller gets them: the model an excerpt of each, a script (code mode) the whole text; the ledger keeps all of it. */
+const shown = (ledger: Ledger, via: string, hits: ReadonlyArray<Hit>, caller: Caller) => {
   for (const hit of hits) remember(ledger, via, hit.url, undefined, hit.text)
-  return hits.map((hit) => ({ url: hit.url, title: hit.title, ...(hit.date ? { date: hit.date } : {}), excerpt: hit.text.slice(0, EXCERPT) }))
+  return hits.map((hit) => ({ url: hit.url, title: hit.title, ...(hit.date ? { date: hit.date } : {}), ...(caller === "model" ? { excerpt: hit.text.slice(0, EXCERPT) } : { text: hit.text }) }))
 }
+const HITS = "{ results: Array<{ url: string; title: string; date?: string; text: string }>; note?: string }"
 
 /**
  * `find`'s terms: each word of 3+ letters, found inside longer words too ("goroutine" in "goroutines"),
@@ -222,6 +223,11 @@ const passages = (text: string, find: string | undefined) => {
   return { text: joined.map((span) => text.slice(span.start, span.end).trim()).join("\n...\n"), note: `passages matching find, from ${text.length} characters` }
 }
 
+/** A page as the caller gets it: the model its passages; a script (code mode) the whole text, plus the passages when it passed find. */
+const pageFor = (url: string, text: string, find: string | undefined, caller: Caller) =>
+  caller === "model" ? { url, ...passages(text, find) } : { url, text, ...(find === undefined ? {} : { passages: passages(text, find).text }) }
+const PAGE = "{ url: string; text: string; passages?: string }"
+
 const refused = (message: string) => Effect.fail(new ResearchError({ message }))
 
 const ReadArgs = Schema.Struct({ url: Schema.String.check(Schema.isPattern(/^https?:\/\//)), find: Schema.optionalKey(Schema.String) })
@@ -267,7 +273,8 @@ export const researchPack = (
           "PRIMARY web search, always your first search. objective: what you need found, in a sentence; queries: 1 to 3 short keyword queries (3 to 6 words; site:domain allowed). Answers results with url, title, date and an excerpt.",
         args: Schema.Struct({ objective: Schema.NonEmptyString, queries: Schema.Array(Schema.NonEmptyString) }),
         example: `{"objective": "<what you need found>", "queries": ["<3-6 words>", "<another phrasing>"]}`,
-        run: ({ objective, queries }, fields) =>
+        returns: HITS,
+        run: ({ objective, queries }, fields, caller) =>
           Effect.gen(function*() {
             const ledger = ledgerOf(fields)
             counted(ledger, "web.search")
@@ -277,7 +284,7 @@ export const researchPack = (
             )
             if (hits.length < THIN || ledger.primarySearches >= SEARCHES_BEFORE_FALLBACK) ledger.primaryThin = true
             return {
-              results: shown(ledger, "web.search", hits),
+              results: shown(ledger, "web.search", hits, caller),
               ...(ledger.primaryThin ? { note: "fallback_search (agent-reach) is now open if these do not settle it" } : {})
             }
           }).pipe(Effect.mapError((error) => ({ message: `${error.message}; fallback_search (agent-reach) is now open` })))
@@ -288,7 +295,8 @@ export const researchPack = (
           "PRIMARY page reader for any http(s) URL: articles, docs, PDFs, GitHub repos and issues, Hacker News threads, YouTube transcripts. find: words to pull the matching passages from a long page.",
         args: ReadArgs,
         example: `{"url": "<url>", "find": "<words the passage you need contains>"}`,
-        run: ({ url, find }, fields) =>
+        returns: PAGE,
+        run: ({ url, find }, fields, caller) =>
           Effect.gen(function*() {
             const ledger = ledgerOf(fields)
             counted(ledger, "web.read")
@@ -296,7 +304,7 @@ export const researchPack = (
               Effect.tapError(() => Effect.sync(() => ledger.unreadable.add(urlKey(url))))
             )
             remember(ledger, "web.read", url, page.text, undefined)
-            return { url, ...passages(page.text, find) }
+            return pageFor(url, page.text, find, caller)
           }).pipe(Effect.mapError((error) => ({ message: `${error.message}; fallback_read (agent-reach) is now open for this url` })))
       }),
       toolAdapter({
@@ -305,14 +313,15 @@ export const researchPack = (
           "agent-reach FALLBACK web search (Exa). Opens only after search failed, returned fewer than 3 results, or ran twice. query: a description of the ideal page.",
         args: Schema.Struct({ query: Schema.NonEmptyString }),
         example: `{"query": "<the ideal page, described>"}`,
-        run: ({ query }, fields) =>
+        returns: HITS,
+        run: ({ query }, fields, caller) =>
           Effect.gen(function*() {
             const ledger = ledgerOf(fields)
             const unasked = musePlatforms(fields).filter((platform) => !ledger.muse.has(platform))
             if (unasked.length > 0) return yield* refused(`closed: the request names ${unasked.join(", ")}; ask social_search (Muse) first, agent-reach opens after it`)
             if (!ledger.primaryThin) return yield* refused("closed: fallback_search opens only after search fails, returns fewer than 3 results or has run twice; call search first")
             counted(ledger, "reach.fallback_search")
-            return { results: shown(ledger, "reach.fallback_search", yield* (yield* Reach).search(query, query)) }
+            return { results: shown(ledger, "reach.fallback_search", yield* (yield* Reach).search(query, query), caller) }
           })
       }),
       toolAdapter({
@@ -320,14 +329,15 @@ export const researchPack = (
         description: "agent-reach FALLBACK page reader (Jina, then Exa). Opens only for a URL read could not read. find: as for read.",
         args: ReadArgs,
         example: `{"url": "<a url read failed on>", "find": "<words>"}`,
-        run: ({ url, find }, fields) =>
+        returns: PAGE,
+        run: ({ url, find }, fields, caller) =>
           Effect.gen(function*() {
             const ledger = ledgerOf(fields)
             if (!ledger.unreadable.has(urlKey(url))) return yield* refused("closed: fallback_read opens only for a url read failed on; call read first")
             counted(ledger, "reach.fallback_read")
             const page = yield* (yield* Reach).read(url)
             remember(ledger, "reach.fallback_read", url, page.text, undefined)
-            return { url, ...passages(page.text, find) }
+            return pageFor(url, page.text, find, caller)
           })
       }),
       toolAdapter({
@@ -336,7 +346,8 @@ export const researchPack = (
           "agent-reach PLATFORM search, only for a platform the request names: github (gh search; kind repos, issues or code, default repos), youtube, reddit, x, xiaohongshu, and instagram, facebook or marketplace once social_search (Muse) failed or found nothing for it (results from that platform's own pages). Read a result's url with read.",
         args: Schema.Struct({ platform: Schema.Literals(PLATFORMS), query: Schema.NonEmptyString, kind: Schema.optionalKey(Schema.Literals(["repos", "issues", "code"])) }),
         example: `{"platform": "github", "query": "<keywords>", "kind": "repos"}`,
-        run: ({ platform, query, kind }, fields) =>
+        returns: HITS,
+        run: ({ platform, query, kind }, fields, caller) =>
           Effect.gen(function*() {
             const named = Array.isArray(fields["platforms"]) ? (fields["platforms"] as ReadonlyArray<unknown>).filter((entry) => typeof entry === "string") : []
             if (!named.includes(platform)) return yield* refused(`closed: the request names ${named.length === 0 ? "no platforms" : named.join(", ")}; platform_search only searches those`)
@@ -348,7 +359,7 @@ export const researchPack = (
             }
             counted(ledger, "reach.platform_search")
             const hits = yield* (yield* Reach).platform(platform as Platform, query, (kind ?? "repos") as GithubKind)
-            return hits.length === 0 ? { results: [], note: `nothing from ${platform}; try search with site:` } : { results: shown(ledger, "reach.platform_search", hits) }
+            return hits.length === 0 ? { results: [], note: `nothing from ${platform}; try search with site:` } : { results: shown(ledger, "reach.platform_search", hits, caller) }
           })
       }),
       toolAdapter({
@@ -357,6 +368,7 @@ export const researchPack = (
           "Muse (Meta AI, signed in as Isaac) searches Instagram, Facebook (groups, pages) or Facebook Marketplace, which plain search cannot see into, and answers with links to the posts, reels or listings. Only for a platform the request names; one question per platform, slow (about a minute). Muse is a SECONDARY source: read its links to confirm, and cite a link with a quote from that page; when the page will not open, a quote from what Muse said about that link counts, marked as Muse's. question: the full question, with place and time if they matter.",
         args: Schema.Struct({ platform: Schema.Literals(MUSE_PLATFORMS), question: Schema.NonEmptyString }),
         example: `{"platform": "instagram", "question": "<the full question>"}`,
+        returns: "{ answer: string; links: Array<{ url: string; context: string }>; note: string }",
         run: ({ platform, question }, fields) =>
           Effect.gen(function*() {
             const named = musePlatforms(fields)
