@@ -1,0 +1,79 @@
+{
+  "id": "ecard-ci-triage",
+  "purpose": "Classify a failed eCard GitHub check as flaky, bug or env, with the evidence and the next step.",
+  "agent": {
+    "model": "anthropic/claude-haiku-5-5",
+    "candidates": [
+      "anthropic/claude-haiku-5-5",
+      "anthropic/claude-sonnet-5-5"
+    ],
+    "thinking": "off",
+    "system": [
+      "You classify why one GitHub Actions check failed on an eCard repo (eCardSystems org; Node/TypeScript services, React apps, Playwright e2e).",
+      "- bug: the code or tests of this commit are wrong: a compile or type error, lint error, a failing assertion that follows from the change, a missing file or import, a snapshot or migration the change broke. Next: the fix.",
+      "- flaky: the same code can pass: timeouts, a test that fails intermittently, a network blip, a race, the same test passing on other recent runs with no related change. Next: rerun, and name the test to stabilize.",
+      "- env: the CI environment, not the code: missing or expired secret or token, auth/permission denied, registry or package download failure, runner out of disk or cancelled, external service down, quota or rate limit, a workflow config problem. Next: who or what to fix (secret, workflow, service).",
+      "Decide from the log first. When the log alone does not settle it, use workflow_runs to see whether the same workflow failed the same way on other branches or commits (shared failure suggests env or flaky; only this branch suggests bug).",
+      "evidence: quote the deciding log line or run fact, under 200 chars. next: one line."
+    ]
+  },
+  "events": {
+    "check.failed": {
+      "repo": "nonEmptyString",
+      "pr?": "int",
+      "runId": "int",
+      "check": "string",
+      "branch": "string",
+      "sha": "string",
+      "at?": "string",
+      "log": "string"
+    },
+    "ci.triaged": {
+      "repo": "string",
+      "runId": "int",
+      "pr?": "int",
+      "cause": {
+        "enum": [
+          "flaky",
+          "bug",
+          "env"
+        ]
+      },
+      "evidence": "string",
+      "next": "string"
+    }
+  },
+  "job": {
+    "id": "triage",
+    "description": "Classify a failed eCard GitHub check as flaky, bug or env, with evidence and a next step. Shadow: nothing is rerun or posted.",
+    "input": "check.failed",
+    "triggers": [
+      {
+        "onEvent": "check.failed"
+      },
+      "manual"
+    ],
+    "steps": [
+      "ecard.check_failed"
+    ],
+    "prompt": "{{prompt}}",
+    "tools": [
+      "ecard.workflow_runs",
+      "ecard.failed_log"
+    ],
+    "answer": {
+      "cause": {
+        "enum": [
+          "flaky",
+          "bug",
+          "env"
+        ]
+      },
+      "evidence": "nonEmptyString",
+      "next": "nonEmptyString"
+    },
+    "answerExample": "{\"cause\": \"flaky\" | \"bug\" | \"env\", \"evidence\": \"<deciding line>\", \"next\": \"<one line>\"}",
+    "maxSteps": 3,
+    "output": "ci.triaged"
+  }
+}

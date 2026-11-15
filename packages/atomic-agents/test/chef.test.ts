@@ -45,7 +45,7 @@ describe("chef file validation", () => {
       const base = recipe("{{name}}")
       const message = yield* rejection(root, "greeter.json", { ...base, job: { ...base.job, check: "openui.parze", tools: ["gmail.archive"] } })
       expect(message).toContain(`unknown check adapter "openui.parze" (have: openui.parse, blender.render, ui-check.evidence)`)
-      expect(message).toContain(`unknown tool adapter "gmail.archive" (have: gmail.read_thread, gmail.sender_history)`)
+      expect(message).toContain(`unknown tool adapter "gmail.archive" (have: gmail.read_thread, gmail.sender_history, ecard.linear_issue,`)
     }).pipe(Effect.scoped, Effect.runPromise))
 
   test("the recipe's fields are checked end to end: prompt fields, output fields, events, triggers, types", () =>

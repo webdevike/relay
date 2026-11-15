@@ -250,8 +250,6 @@ export const compileRecipe = (file: RecipeFile, env: RecipeEnv): Result.Result<{
 
   const prompt = join(spec.prompt)
   const timeout = spec.timeout === undefined ? undefined : `${spec.timeout} seconds` as const
-  const loopTools = tools.map((candidate) =>
-    tool({ name: shortName(candidate.name), description: candidate.description, args: candidate.args, example: candidate.example, run: candidate.run }))
   const answerExample = spec.answerExample ?? JSON.stringify(Object.fromEntries([...(answer?.fields.keys() ?? [])].map((name) => [name, `<${name}>`])))
 
   const withKnowledge = Effect.gen(function*() {
@@ -289,7 +287,13 @@ export const compileRecipe = (file: RecipeFile, env: RecipeEnv): Result.Result<{
       (answer === undefined
         ? Effect.map(viaAdapter.generate({ ...request, prompt: text }), (reply) => ({ text: reply.text, answer: undefined as unknown, calls: 1, cost: reply.cost }))
         : Effect.map(
-          generateWithTools({ ...request, prompt: text }, { tools: loopTools, answer: answer.schema, answerExample, maxSteps: spec.maxSteps ?? 3 }),
+          generateWithTools({ ...request, prompt: text }, {
+            tools: tools.map((candidate) =>
+              tool({ name: shortName(candidate.name), description: candidate.description, args: candidate.args, example: candidate.example, run: (args) => candidate.run(args, fields) })),
+            answer: answer.schema,
+            answerExample,
+            maxSteps: spec.maxSteps ?? 3
+          }),
           (reply) => ({ text: JSON.stringify(reply.answer), answer: reply.answer, calls: reply.steps, cost: reply.cost })
         )).pipe(Effect.provideService(ModelRunner, viaAdapter))
     const first = yield* call(render(prompt, fields))

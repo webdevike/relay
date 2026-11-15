@@ -1,0 +1,99 @@
+{
+  "id": "ecard-review-drafter",
+  "purpose": "Draft Isaac's answer to one review comment on his eCard PR: a fix plan or a reply, in his voice, by the team's review rules.",
+  "agent": {
+    "model": "anthropic/claude-haiku-5-5",
+    "candidates": [
+      "anthropic/claude-haiku-5-5",
+      "anthropic/claude-sonnet-5-5"
+    ],
+    "thinking": "off",
+    "system": [
+      "You draft Isaac Weber's answer to one reviewer comment on his eCard pull request (node-client-api-service, react-client-reports-app, node-storefront-service).",
+      "Pick kind:",
+      "- fix-plan: the comment is right (a bug, a review rule, a missing test or a clear nit) and Isaac changes the code in this PR. text = the plan: what changes, in which file and symbol, and the test that covers it.",
+      "- reply: no code change for this comment: Isaac explains why the code is right as is (cite the code), or agrees and defers it to a follow-up because it is outside this PR's ticket. text = the reply he posts.",
+      "Isaac's voice: plain, short, specific; name files and symbols in backticks; no greetings, no thanks, no emojis, no hedging. A fix reads like \"Fixed: <what changed>, <test>.\" A reply leads with the answer (\"Kept as is: ...\", \"Agreed, logged as a follow-up: ...\").",
+      "The review rules below are the team's; a comment that cites or matches one is a fix unless it is clearly outside the ticket.",
+      "Read the file around the comment when the hunk alone does not settle it.",
+      "",
+      "## Review rules (references/ecard-platform-repos)"
+    ],
+    "knowledge": [
+      {
+        "heading": "review-rules-contracts.md",
+        "file": "${EVA_ROOT:-~/Eva}/references/ecard-platform-repos/review-rules-contracts.md"
+      },
+      {
+        "heading": "review-rules-data.md",
+        "file": "${EVA_ROOT:-~/Eva}/references/ecard-platform-repos/review-rules-data.md"
+      },
+      {
+        "heading": "review-rules-ui-state.md",
+        "file": "${EVA_ROOT:-~/Eva}/references/ecard-platform-repos/review-rules-ui-state.md"
+      },
+      {
+        "heading": "review-rules-ui.md",
+        "file": "${EVA_ROOT:-~/Eva}/references/ecard-platform-repos/review-rules-ui.md"
+      },
+      {
+        "heading": "review-rules.md",
+        "file": "${EVA_ROOT:-~/Eva}/references/ecard-platform-repos/review-rules.md"
+      }
+    ]
+  },
+  "events": {
+    "comment.received": {
+      "repo": "nonEmptyString",
+      "pr": "int",
+      "commentId": "int",
+      "author": "string",
+      "path": "string",
+      "body": "string",
+      "diffHunk": "string",
+      "commit?": "string"
+    },
+    "draft.ready": {
+      "repo": "string",
+      "pr": "int",
+      "commentId": "int",
+      "kind": {
+        "enum": [
+          "fix-plan",
+          "reply"
+        ]
+      },
+      "text": "string"
+    }
+  },
+  "job": {
+    "id": "draft",
+    "description": "Draft Isaac's answer to a review comment on his eCard PR: a fix plan or a reply. Shadow: nothing is posted.",
+    "input": "comment.received",
+    "triggers": [
+      {
+        "onEvent": "comment.received"
+      },
+      "manual"
+    ],
+    "steps": [
+      "ecard.review_comment"
+    ],
+    "prompt": "{{prompt}}",
+    "tools": [
+      "ecard.read_file"
+    ],
+    "answer": {
+      "kind": {
+        "enum": [
+          "fix-plan",
+          "reply"
+        ]
+      },
+      "text": "nonEmptyString"
+    },
+    "answerExample": "{\"kind\": \"fix-plan\" | \"reply\", \"text\": \"<in Isaac's voice>\"}",
+    "maxSteps": 3,
+    "output": "draft.ready"
+  }
+}

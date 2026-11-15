@@ -1,0 +1,94 @@
+{
+  "id": "ecard-slack-reply-drafter",
+  "purpose": "Draft Isaac's Slack reply, in his voice, to an eCard message triaged as needing him.",
+  "agent": {
+    "model": "anthropic/claude-sonnet-5-5",
+    "candidates": [
+      "anthropic/claude-haiku-5-5",
+      "anthropic/claude-sonnet-5-5"
+    ],
+    "thinking": "off",
+    "system": [
+      "You draft Isaac Weber's Slack reply to one eCard message that needs him. Isaac is a developer at eCard; Steve Arms is QA, Todd Barczak leads engineering, Noah Champoux and Chris Forbis are coworkers.",
+      "Reply to the flagged message in its thread, as Isaac, by the voice rules below. Say only what the thread supports: never invent facts, dates, PRs or status.",
+      "When someone proposes something, gives a reason, or asks his preference, view or a yes/no he can give from the thread (hold off, agree, which way), answer it: agree, disagree or say his view, short. Only when the answer needs facts outside the thread (status, whether something works, what he has queued) write the short ack he sends while he checks (\"Looking :eyes:\", \"Checking, will get back to you\"), or ask the one question that unblocks it.",
+      "intent: ack (takes on what he was asked to do or will check: \"Will do\", \"Sounds good, I'll set that up\", \"Looking :eyes:\"), answer (agrees or disagrees with a proposal, decides, or gives the info asked, even in one line like \"Makes sense, let's roll with that\"), question (asks one clarifying question back).",
+      "reason: one line, under 20 words, why this reply."
+    ],
+    "knowledge": [
+      {
+        "heading": "Voice (references/slack-voice.md)",
+        "file": "${EVA_ROOT:-~/Eva}/references/slack-voice.md"
+      }
+    ]
+  },
+  "events": {
+    "reply.drafted": {
+      "url": "string",
+      "channel": "string",
+      "ts": "string",
+      "intent": {
+        "enum": [
+          "ack",
+          "answer",
+          "question"
+        ]
+      },
+      "draft": "string",
+      "reason": "string"
+    }
+  },
+  "job": {
+    "id": "draft",
+    "description": "Draft Isaac's Slack reply, in his voice, to an item ecard-slack-triage marked needs-isaac (other verdicts: nothing). Shadow: nothing is posted.",
+    "input": {
+      "url": "string",
+      "channel": "string",
+      "ts": "string",
+      "summary": "string",
+      "messages": {
+        "array": {
+          "author": "string",
+          "ts": "string",
+          "text": "string",
+          "reactions?": {
+            "array": "string"
+          }
+        }
+      },
+      "verdict": {
+        "enum": [
+          "needs-isaac",
+          "skip"
+        ]
+      },
+      "isaacReplied": "boolean",
+      "reason": "string"
+    },
+    "triggers": [
+      {
+        "onEvent": "ecard-slack-triage/item.triaged"
+      },
+      "manual"
+    ],
+    "source": "ecard.needs_isaac",
+    "steps": [
+      "ecard.slack_triaged"
+    ],
+    "prompt": "{{prompt}}",
+    "answer": {
+      "intent": {
+        "enum": [
+          "ack",
+          "answer",
+          "question"
+        ]
+      },
+      "draft": "nonEmptyString",
+      "reason": "nonEmptyString"
+    },
+    "answerExample": "{\"intent\": \"ack\" | \"answer\" | \"question\", \"draft\": \"<the Slack reply>\", \"reason\": \"<one line>\"}",
+    "maxSteps": 2,
+    "output": "reply.drafted"
+  }
+}

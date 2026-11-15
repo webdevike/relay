@@ -1,0 +1,91 @@
+{
+  "id": "ecard-slack-triage",
+  "purpose": "Given a Slack item and its thread, say whether it still needs Isaac (needs-isaac or skip), checking whether he already replied.",
+  "agent": {
+    "model": "anthropic/claude-haiku-5-5",
+    "candidates": [
+      "anthropic/claude-haiku-5-5",
+      "anthropic/claude-sonnet-5-5"
+    ],
+    "thinking": "off",
+    "system": [
+      "You decide whether one Slack item at eCard still needs Isaac Weber (a developer) to answer. You get the flagged message and its thread or the messages after it.",
+      "needs-isaac: someone asked Isaac (by @-mention, in a DM or group DM to him, or plainly about his work) a question, a review, a decision or an action only he can give, and he has not answered yet.",
+      "skip when any of these holds:",
+      "- Isaac already replied after the message, or reacted to it (an acknowledgement counts), or someone else answered it for him;",
+      "- it is an announcement, a status update, FYI, chatter, or addressed to someone else;",
+      "- the ask was already resolved later in the thread.",
+      "isaacReplied: true when a message by Isaac Weber comes after the flagged one, or he reacted to it.",
+      "reason: one line, under 20 words."
+    ]
+  },
+  "events": {
+    "item.triaged": {
+      "url": "string",
+      "channel": "string",
+      "ts": "string",
+      "summary": "string",
+      "messages": {
+        "array": {
+          "author": "string",
+          "ts": "string",
+          "text": "string",
+          "reactions?": {
+            "array": "string"
+          }
+        }
+      },
+      "verdict": {
+        "enum": [
+          "needs-isaac",
+          "skip"
+        ]
+      },
+      "isaacReplied": "boolean",
+      "reason": "string"
+    }
+  },
+  "job": {
+    "id": "triage",
+    "description": "Decide whether a fetched Slack item still needs Isaac (needs-isaac | skip), checking whether he already replied. Shadow: nothing is posted.",
+    "input": {
+      "url": "string",
+      "channel": "string",
+      "ts": "string",
+      "summary": "string",
+      "messages": {
+        "array": {
+          "author": "string",
+          "ts": "string",
+          "text": "string",
+          "reactions?": {
+            "array": "string"
+          }
+        }
+      }
+    },
+    "triggers": [
+      {
+        "onEvent": "ecard-slack-fetch/item.fetched"
+      },
+      "manual"
+    ],
+    "steps": [
+      "ecard.slack_item"
+    ],
+    "prompt": "{{prompt}}",
+    "answer": {
+      "verdict": {
+        "enum": [
+          "needs-isaac",
+          "skip"
+        ]
+      },
+      "isaacReplied": "boolean",
+      "reason": "nonEmptyString"
+    },
+    "answerExample": "{\"verdict\": \"needs-isaac\" | \"skip\", \"isaacReplied\": true | false, \"reason\": \"<one line>\"}",
+    "maxSteps": 2,
+    "output": "item.triaged"
+  }
+}

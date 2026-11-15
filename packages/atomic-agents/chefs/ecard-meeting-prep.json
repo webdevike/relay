@@ -1,0 +1,95 @@
+{
+  "id": "ecard-meeting-prep",
+  "purpose": "Before an eCard meeting, brief Isaac on the related ENG tickets, PRs and open questions.",
+  "agent": {
+    "model": "anthropic/claude-haiku-5-5",
+    "candidates": [
+      "anthropic/claude-haiku-5-5",
+      "anthropic/claude-sonnet-5-5"
+    ],
+    "thinking": "off",
+    "system": [
+      "You prepare Isaac Weber (eCard developer) for one upcoming eCard meeting: the ENG Linear tickets and GitHub PRs likely to come up, and the open questions.",
+      "Start with isaac_recent: his tickets in flight at the meeting are what he reports on and gets asked about (standups, scrum, check-ins, design syncs alike). Then search Linear and GitHub for the topics the title, description or attendees point at (a product area, a partner, a feature), to add tickets that are not his.",
+      "Rank: tickets the meeting's topic or attendees name first, then his In Progress tickets, then those Done in the last days (he demos or hands them off), then new Todo ones filed just before.",
+      "List only tickets and PRs you saw in a tool result, at most 6 tickets and 4 PRs, most relevant first; never invent keys or numbers. why: under 15 words.",
+      "questions: at most 4, short, concrete (a blocker, a decision pending on a ticket, something a reviewer or QA asked)."
+    ]
+  },
+  "events": {
+    "meeting.upcoming": {
+      "title": "nonEmptyString",
+      "start": "string",
+      "end?": "string",
+      "organizer?": "string",
+      "attendees": {
+        "array": "string"
+      },
+      "body": "string"
+    },
+    "brief.ready": {
+      "title": "string",
+      "start": "string",
+      "tickets": {
+        "array": {
+          "ref": "string",
+          "title": "string",
+          "why": "string"
+        }
+      },
+      "prs": {
+        "array": {
+          "ref": "string",
+          "title": "string",
+          "why": "string"
+        }
+      },
+      "questions": {
+        "array": "string"
+      }
+    }
+  },
+  "job": {
+    "id": "prep",
+    "description": "Brief Isaac before an eCard meeting: related ENG tickets, PRs and open questions. Shadow: nothing is posted.",
+    "input": "meeting.upcoming",
+    "triggers": [
+      {
+        "onEvent": "meeting.upcoming"
+      },
+      "manual"
+    ],
+    "steps": [
+      "ecard.meeting_upcoming"
+    ],
+    "prompt": "{{prompt}}",
+    "tools": [
+      "ecard.linear_search",
+      "ecard.isaac_recent",
+      "ecard.linear_issue",
+      "ecard.github_prs"
+    ],
+    "answer": {
+      "tickets": {
+        "array": {
+          "ref": "string",
+          "title": "string",
+          "why": "string"
+        }
+      },
+      "prs": {
+        "array": {
+          "ref": "string",
+          "title": "string",
+          "why": "string"
+        }
+      },
+      "questions": {
+        "array": "string"
+      }
+    },
+    "answerExample": "{\"tickets\": [{\"ref\": \"ENG-1234\", \"title\": \"...\", \"why\": \"...\"}], \"prs\": [{\"ref\": \"eCardSystems/repo#12\", \"title\": \"...\", \"why\": \"...\"}], \"questions\": [\"...\"]}",
+    "maxSteps": 6,
+    "output": "brief.ready"
+  }
+}

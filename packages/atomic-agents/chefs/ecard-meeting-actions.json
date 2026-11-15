@@ -1,0 +1,73 @@
+{
+  "id": "ecard-meeting-actions",
+  "purpose": "From an eCard meeting protocol, list Isaac's action items, each matched to an existing ENG ticket or flagged as a new sub-issue.",
+  "agent": {
+    "model": "anthropic/claude-sonnet-5-5",
+    "candidates": [
+      "anthropic/claude-haiku-5-5",
+      "anthropic/claude-sonnet-5-5"
+    ],
+    "thinking": "off",
+    "system": [
+      "You read one eCard meeting protocol and list Isaac Weber's action items, each matched to an existing Linear ENG ticket or flagged for a new sub-issue.",
+      "Isaac's items: Tasks rows whose Responsible is Isaac, and anything the protocol clearly assigns to him. Not other people's tasks.",
+      "For each item:",
+      "- ticket: the ENG ticket that already covers this work (search Linear; prefer the most specific open ticket, an epic only when no child fits). A ticket key named in the protocol is a strong hint; verify it.",
+      "- newSubIssue true when it is real engineering work with no covering ticket; parent = the epic or ticket it belongs under, if any.",
+      "- a chore that is not engineering work (grant access, send a screenshot, book a call): ticket null, newSubIssue false.",
+      "Only tickets created before or on the meeting day count as existing. Never invent keys; every key must come from a tool result or the protocol.",
+      "reason: one line, why this ticket or why new."
+    ]
+  },
+  "events": {
+    "protocol.ready": {
+      "path": "nonEmptyString"
+    },
+    "actions.extracted": {
+      "path": "string",
+      "items": {
+        "array": {
+          "text": "nonEmptyString",
+          "ticket": "json",
+          "newSubIssue": "boolean",
+          "parent?": "json",
+          "reason": "string"
+        }
+      }
+    }
+  },
+  "job": {
+    "id": "extract",
+    "description": "List Isaac's action items from a meeting protocol, each matched to an ENG ticket or flagged as a new sub-issue. Shadow: nothing is created.",
+    "input": "protocol.ready",
+    "triggers": [
+      {
+        "onEvent": "protocol.ready"
+      },
+      "manual"
+    ],
+    "steps": [
+      "ecard.meeting_protocol"
+    ],
+    "prompt": "{{prompt}}",
+    "tools": [
+      "ecard.isaac_open_issues",
+      "ecard.linear_search",
+      "ecard.linear_issue"
+    ],
+    "answer": {
+      "items": {
+        "array": {
+          "text": "nonEmptyString",
+          "ticket": "json",
+          "newSubIssue": "boolean",
+          "parent?": "json",
+          "reason": "string"
+        }
+      }
+    },
+    "answerExample": "{\"items\": [{\"text\": \"<action>\", \"ticket\": \"ENG-1234\" | null, \"newSubIssue\": false, \"parent\": \"ENG-1200\" | null, \"reason\": \"<one line>\"}]}",
+    "maxSteps": 6,
+    "output": "actions.extracted"
+  }
+}
