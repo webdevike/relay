@@ -8,26 +8,34 @@ const EXA_MCP = "https://mcp.exa.ai/mcp"
 /** agent-reach's page reader. */
 const JINA = "https://r.jina.ai/"
 
-export const PLATFORMS = ["github", "youtube", "reddit", "x", "xiaohongshu"] as const
+export const PLATFORMS = ["github", "youtube", "reddit", "x", "xiaohongshu", "instagram", "facebook", "marketplace"] as const
 export type Platform = typeof PLATFORMS[number]
 export type GithubKind = "repos" | "issues" | "code"
 
 /**
- * Hosts per platform. On this Mac only GitHub (gh) has its own agent-reach backend that works:
- * reddit.com and x.com fail TLS on the network, twitter-cli with them, and Reddit and Xiaohongshu
- * have no logged-in backend installed (`agent-reach doctor`). Those platforms go through Exa's
- * index, kept to results on the platform's own hosts.
+ * Hosts per platform (and a path prefix where the platform is part of a site). On this Mac only GitHub (gh)
+ * has its own agent-reach backend that works: reddit.com and x.com fail TLS on the network, twitter-cli with
+ * them, and Reddit and Xiaohongshu have no logged-in backend installed (`agent-reach doctor`). Those
+ * platforms, and Instagram, Facebook and Marketplace when Muse could not answer, go through Exa's index,
+ * kept to results on the platform's own pages.
  */
-const HOSTS: Readonly<Record<Exclude<Platform, "github">, ReadonlyArray<string>>> = {
-  youtube: ["youtube.com", "youtu.be"],
-  reddit: ["reddit.com"],
-  x: ["x.com", "twitter.com"],
-  xiaohongshu: ["xiaohongshu.com", "xhslink.com"]
+const HOSTS: Readonly<Record<Exclude<Platform, "github">, { readonly hosts: ReadonlyArray<string>; readonly path?: string }>> = {
+  youtube: { hosts: ["youtube.com", "youtu.be"] },
+  reddit: { hosts: ["reddit.com"] },
+  x: { hosts: ["x.com", "twitter.com"] },
+  xiaohongshu: { hosts: ["xiaohongshu.com", "xhslink.com"] },
+  instagram: { hosts: ["instagram.com"] },
+  facebook: { hosts: ["facebook.com", "fb.com"] },
+  marketplace: { hosts: ["facebook.com"], path: "/marketplace" }
 }
 
-const onHost = (url: string, hosts: ReadonlyArray<string>) => {
-  const host = URL.canParse(url) ? new URL(url).hostname.replace(/^www\.|^m\.|^old\./, "") : ""
-  return hosts.some((candidate) => host === candidate || host.endsWith(`.${candidate}`))
+const NAMES: Readonly<Partial<Record<Platform, string>>> = { x: "X/Twitter posts", marketplace: "Facebook Marketplace listings" }
+
+const onPlatform = (url: string, { hosts, path }: typeof HOSTS[keyof typeof HOSTS]) => {
+  if (!URL.canParse(url)) return false
+  const parsed = new URL(url)
+  const host = parsed.hostname.replace(/^www\.|^m\.|^old\.|^web\./, "")
+  return hosts.some((candidate) => host === candidate || host.endsWith(`.${candidate}`)) && (path === undefined || parsed.pathname.startsWith(path))
 }
 
 /** Exa's text answer: `Title: / URL: / Published: / Highlights:` blocks between `---` lines. */
@@ -124,9 +132,9 @@ export class Reach extends Context.Service<Reach, {
       })
       const platform = Effect.fn("Reach.platform")(function*(name: Platform, query: string, kind: GithubKind) {
         if (name === "github") return yield* github(query, kind)
-        const hosts = HOSTS[name]
-        const hits = yield* exa(`${query} (${name === "x" ? "X/Twitter" : name} posts)`, `${name} pages about: ${query}`, 15)
-        return hits.filter((hit) => onHost(hit.url, hosts)).slice(0, 6)
+        const label = NAMES[name] ?? `${name} posts`
+        const hits = yield* exa(`${query} (${label})`, `${label} about: ${query}`, 15)
+        return hits.filter((hit) => onPlatform(hit.url, HOSTS[name])).slice(0, 6)
       })
       return Reach.of({ search: (query, objective) => exa(query, objective, 8), read, platform })
     })

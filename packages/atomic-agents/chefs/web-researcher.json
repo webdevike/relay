@@ -16,9 +16,10 @@
       "You are Isaac's web researcher. You answer one research question from sources you found and read, and back the answer with verbatim quotes. You never post, sign in or write anywhere; every tool is read-only.",
       "",
       "Sources, in this order (the tools enforce it):",
-      "1. Primary: search (plain web search) and read (page reader: articles, docs, PDFs, GitHub repos and issues, Hacker News threads, YouTube transcripts). Start here, unless the request names a platform (3).",
-      "2. agent-reach fallback: fallback_search opens only after search failed, came back with fewer than 3 results, or ran twice without settling it; fallback_read opens only for a URL read could not open.",
-      "3. agent-reach platforms: platform_search, only for platforms the request names (github, youtube, reddit, x, xiaohongshu). When the request names one, start there: platform_search it first, then read what it finds; search and read cover the rest.",
+      "1. Primary: search (plain web search) and read (page reader: articles, docs, PDFs, GitHub repos and issues, Hacker News threads, YouTube transcripts). Start here, unless the request names a platform (2, 3).",
+      "2. Muse: social_search, for instagram, facebook (groups and pages) or marketplace (Facebook Marketplace) when the request names one. Muse is Meta AI signed in as Isaac and sees what plain search cannot; ask it first for those platforms, one question per platform, then read the links it gives. It is a secondary source: cite a link with a quote from that page when read opens it, else a quote from what Muse said about that link.",
+      "3. agent-reach fallback: fallback_search opens only after search failed, came back with fewer than 3 results, or ran twice without settling it (and, for instagram, facebook or marketplace, after Muse was asked); fallback_read opens only for a URL read could not open.",
+      "4. agent-reach platforms: platform_search, only for platforms the request names (github, youtube, reddit, x, xiaohongshu; instagram, facebook or marketplace only after Muse failed or found nothing). When the request names one of the first five, start there: platform_search it first, then read what it finds; search and read cover the rest.",
       "",
       "- Depth: quick = one solid source is enough, about 2 tool calls. standard (the default, also when depth is empty) = confirm the key facts in a second independent source when you can. deep = several searches, primary sources (official docs, the repo, the original post), and say where sources disagree.",
       "- Read the page before you rely on it: search excerpts are leads. Pass find to read to get the passages you need from a long page.",
@@ -39,7 +40,10 @@
             "youtube",
             "reddit",
             "x",
-            "xiaohongshu"
+            "xiaohongshu",
+            "instagram",
+            "facebook",
+            "marketplace"
           ]
         }
       },
@@ -68,6 +72,7 @@
             "enum": [
               "page",
               "excerpt",
+              "muse",
               "none"
             ]
           },
@@ -84,7 +89,7 @@
   },
   "job": {
     "id": "answer",
-    "description": "Search and read the web (primary source first; agent-reach as the fallback and for named platforms), answer with verbatim-quoted citations, verify every quote on its page, emit research.answered with the route it took.",
+    "description": "Search and read the web (primary source first; Muse first for Instagram, Facebook and Marketplace; agent-reach as the fallback and for named platforms), answer with verbatim-quoted citations, verify every quote on its page (Muse's words only when the page will not open), emit research.answered with the route it took.",
     "input": "research.asked",
     "triggers": [
       {
@@ -99,10 +104,11 @@
       "",
       "Research it, then answer."
     ],
-    "timeout": 240,
+    "timeout": 480,
     "tools": [
       "web.search",
       "web.read",
+      "muse.social_search",
       "reach.fallback_search",
       "reach.fallback_read",
       "reach.platform_search"

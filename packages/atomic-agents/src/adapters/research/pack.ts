@@ -3,6 +3,7 @@ import type { BunServices } from "@effect/platform-bun/BunServices"
 import { pack, toolAdapter } from "../../Adapter.ts"
 import type { ToolsError } from "../../Component.ts"
 import { type Hit, ResearchError } from "./http.ts"
+import { MUSE_PLATFORMS, type MusePlatform, Muse } from "./muse.ts"
 import { type GithubKind, type Platform, PLATFORMS, Reach } from "./reach.ts"
 import { Web } from "./web.ts"
 
@@ -11,7 +12,11 @@ import { Web } from "./web.ts"
  * - primary: `web.search` (plain web search) and `web.read` (page reader), always first;
  * - agent-reach fallback: `reach.fallback_search` opens once the primary search failed, came back
  *   thin (under 3 results) or ran twice; `reach.fallback_read` opens for a URL `web.read` could not read;
- * - agent-reach platforms: `reach.platform_search`, only for platforms the request names.
+ * - agent-reach platforms: `reach.platform_search`, only for platforms the request names;
+ * - Muse (Meta AI in Muse's desktop app, signed in as Isaac): `muse.social_search`, for Instagram, Facebook
+ *   and Marketplace, the platforms only it sees into. When the request names one, Muse goes first; agent-reach
+ *   (its platform route and its fallback search) opens only after Muse failed or found nothing. Muse is a
+ *   secondary source: a quote is checked on the linked page when that opens, on Muse's own words only when not.
  * The gates are enforced here, not left to the prompt. What each item's tools ran and showed is kept in a
  * ledger, so the `research.citations` check can verify quotes and say which source every answer used.
  */
@@ -31,10 +36,11 @@ const EXCERPT = 600
 /** A quote shorter than this proves nothing ("engine unity", from a press kit, is about the shortest that still does). */
 const MIN_QUOTE = 12
 
-type Route = "primary" | "platform" | "fallback"
+type Route = "primary" | "muse" | "platform" | "fallback"
 const ROUTE: Readonly<Record<string, Route>> = {
   "web.search": "primary",
   "web.read": "primary",
+  "muse.social_search": "muse",
   "reach.platform_search": "platform",
   "reach.fallback_search": "fallback",
   "reach.fallback_read": "fallback"
@@ -47,6 +53,8 @@ interface Source {
   page?: string
   /** Normalized search excerpts of it. */
   readonly excerpts: Array<string>
+  /** Normalized words Muse said about this link (its secondary account of the page). */
+  readonly muse: Array<string>
 }
 
 /** One item's research so far (its first answer and the repair turn included). */
@@ -56,6 +64,8 @@ interface Ledger {
   primaryThin: boolean
   readonly unreadable: Set<string>
   readonly sources: Map<string, Source>
+  /** What Muse did per platform asked: answered with links, answered without any, or failed. */
+  readonly muse: Map<MusePlatform, "answered" | "empty" | "failed">
 }
 
 /**
@@ -66,7 +76,7 @@ const ledgers = new WeakMap<object, Ledger>()
 const ledgerOf = (fields: object) => {
   const found = ledgers.get(fields)
   if (found !== undefined) return found
-  const fresh: Ledger = { calls: new Map(), primarySearches: 0, primaryThin: false, unreadable: new Set(), sources: new Map() }
+  const fresh: Ledger = { calls: new Map(), primarySearches: 0, primaryThin: false, unreadable: new Set(), sources: new Map(), muse: new Map() }
   ledgers.set(fields, fresh)
   return fresh
 }
@@ -109,7 +119,7 @@ const quoteIn = (quote: string, text: string) => {
 
 const remember = (ledger: Ledger, via: string, url: string, page: string | undefined, excerpt: string | undefined) => {
   const key = urlKey(url)
-  const source = ledger.sources.get(key) ?? { via, excerpts: [] }
+  const source = ledger.sources.get(key) ?? { via, excerpts: [], muse: [] }
   if (page !== undefined) source.page = normalize(page)
   if (excerpt !== undefined && excerpt !== "") source.excerpts.push(normalize(excerpt))
   ledger.sources.set(key, source)
@@ -224,21 +234,32 @@ interface Checked {
   readonly url: string
   readonly quote: string
   readonly verified: boolean
-  /** What the quote was checked against: the page, only search excerpts of it (the page would not open), or nothing. */
-  readonly checked: "page" | "excerpt" | "none"
+  /**
+   * What the quote was checked against: the page, only search excerpts of it (the page would not open), only
+   * what Muse said about the link (a secondary account: the page would not open or did not hold it), or nothing.
+   */
+  readonly checked: "page" | "excerpt" | "muse" | "none"
   /** The adapter that first showed the URL, or `unseen` (no tool showed it). */
   readonly via: string
   readonly problem?: string
 }
 
-/** The research adapters over `web` (primary) and `reach` (agent-reach) services, or test fakes. */
+/** The platforms in the request that only Muse sees into. */
+const musePlatforms = (fields: Readonly<Record<string, unknown>>) =>
+  Array.isArray(fields["platforms"]) ? MUSE_PLATFORMS.filter((platform) => (fields["platforms"] as ReadonlyArray<unknown>).includes(platform)) : []
+
+/** Characters of Muse's answer the model sees (its links come as a list besides). */
+const MUSE_SHOWN = 3000
+
+/** The research adapters over `web` (primary), `reach` (agent-reach) and `muse` (Muse's desktop app) services, or test fakes. */
 export const researchPack = (
   web: Layer.Layer<Web, ToolsError, BunServices> = Web.layer,
-  reach: Layer.Layer<Reach, ToolsError, BunServices> = Reach.layer
+  reach: Layer.Layer<Reach, ToolsError, BunServices> = Reach.layer,
+  muse: Layer.Layer<Muse, ToolsError, BunServices> = Muse.layer
 ) =>
-  pack<Web | Reach>({
+  pack<Web | Reach | Muse>({
     name: "research",
-    layer: Layer.merge(web, reach),
+    layer: Layer.mergeAll(web, reach, muse),
     tools: [
       toolAdapter({
         name: "web.search",
@@ -287,6 +308,8 @@ export const researchPack = (
         run: ({ query }, fields) =>
           Effect.gen(function*() {
             const ledger = ledgerOf(fields)
+            const unasked = musePlatforms(fields).filter((platform) => !ledger.muse.has(platform))
+            if (unasked.length > 0) return yield* refused(`closed: the request names ${unasked.join(", ")}; ask social_search (Muse) first, agent-reach opens after it`)
             if (!ledger.primaryThin) return yield* refused("closed: fallback_search opens only after search fails, returns fewer than 3 results or has run twice; call search first")
             counted(ledger, "reach.fallback_search")
             return { results: shown(ledger, "reach.fallback_search", yield* (yield* Reach).search(query, query)) }
@@ -310,7 +333,7 @@ export const researchPack = (
       toolAdapter({
         name: "reach.platform_search",
         description:
-          "agent-reach PLATFORM search, only for a platform the request names: github (gh search; kind repos, issues or code, default repos), youtube, reddit, x, xiaohongshu (results from that platform's own pages). Read a result's url with read.",
+          "agent-reach PLATFORM search, only for a platform the request names: github (gh search; kind repos, issues or code, default repos), youtube, reddit, x, xiaohongshu, and instagram, facebook or marketplace once social_search (Muse) failed or found nothing for it (results from that platform's own pages). Read a result's url with read.",
         args: Schema.Struct({ platform: Schema.Literals(PLATFORMS), query: Schema.NonEmptyString, kind: Schema.optionalKey(Schema.Literals(["repos", "issues", "code"])) }),
         example: `{"platform": "github", "query": "<keywords>", "kind": "repos"}`,
         run: ({ platform, query, kind }, fields) =>
@@ -318,16 +341,54 @@ export const researchPack = (
             const named = Array.isArray(fields["platforms"]) ? (fields["platforms"] as ReadonlyArray<unknown>).filter((entry) => typeof entry === "string") : []
             if (!named.includes(platform)) return yield* refused(`closed: the request names ${named.length === 0 ? "no platforms" : named.join(", ")}; platform_search only searches those`)
             const ledger = ledgerOf(fields)
+            if ((MUSE_PLATFORMS as ReadonlyArray<string>).includes(platform)) {
+              const muse = ledger.muse.get(platform as MusePlatform)
+              if (muse === undefined) return yield* refused(`closed: ask social_search (Muse) about ${platform} first; platform_search opens for it if Muse fails or finds nothing`)
+              if (muse === "answered") return yield* refused(`closed: Muse answered for ${platform} with links; read those links instead`)
+            }
             counted(ledger, "reach.platform_search")
             const hits = yield* (yield* Reach).platform(platform as Platform, query, (kind ?? "repos") as GithubKind)
             return hits.length === 0 ? { results: [], note: `nothing from ${platform}; try search with site:` } : { results: shown(ledger, "reach.platform_search", hits) }
           })
+      }),
+      toolAdapter({
+        name: "muse.social_search",
+        description:
+          "Muse (Meta AI, signed in as Isaac) searches Instagram, Facebook (groups, pages) or Facebook Marketplace, which plain search cannot see into, and answers with links to the posts, reels or listings. Only for a platform the request names; one question per platform, slow (about a minute). Muse is a SECONDARY source: read its links to confirm, and cite a link with a quote from that page; when the page will not open, a quote from what Muse said about that link counts, marked as Muse's. question: the full question, with place and time if they matter.",
+        args: Schema.Struct({ platform: Schema.Literals(MUSE_PLATFORMS), question: Schema.NonEmptyString }),
+        example: `{"platform": "instagram", "question": "<the full question>"}`,
+        run: ({ platform, question }, fields) =>
+          Effect.gen(function*() {
+            const named = musePlatforms(fields)
+            if (!named.includes(platform)) return yield* refused(`closed: the request names ${named.length === 0 ? "none of instagram, facebook, marketplace" : named.join(", ")}; social_search only searches those`)
+            const ledger = ledgerOf(fields)
+            if (ledger.muse.has(platform)) return yield* refused(`closed: Muse was already asked about ${platform} for this request; work from its answer`)
+            counted(ledger, "muse.social_search")
+            const answer = yield* (yield* Muse).ask(question, platform).pipe(
+              Effect.tapError(() => Effect.sync(() => ledger.muse.set(platform, "failed")))
+            )
+            ledger.muse.set(platform, answer.links.length > 0 ? "answered" : "empty")
+            for (const link of answer.links) {
+              remember(ledger, "muse.social_search", link.url, undefined, undefined)
+              ledger.sources.get(urlKey(link.url))?.muse.push(normalize(link.context))
+            }
+            return {
+              answer: answer.text.length > MUSE_SHOWN ? `${answer.text.slice(0, MUSE_SHOWN)} ...` : answer.text,
+              links: answer.links,
+              note: [
+                "Muse is a secondary source: read each link you rely on and quote the page; if it will not open, quote what Muse said about that link.",
+                ...(answer.cards > 0 ? [`${answer.cards} preview card(s) in Muse's answer had no readable URL and are left out.`] : []),
+                ...(answer.listings.length > 0 ? [`Muse showed ${answer.listings.length} listing card(s) without URL or price (titles in the answer as "Listing: ..."); they cannot be cited.`] : []),
+                ...(answer.links.length === 0 ? [`no links from Muse: platform_search (agent-reach) is now open for ${platform}`] : [])
+              ].join(" ")
+            }
+          }).pipe(Effect.mapError((error) => ({ message: `${error.message}; platform_search (agent-reach) is now open for ${platform}` })))
       })
     ],
     checks: [{
       name: "research.citations",
       description:
-        "For an answer {answer, citations[{url, quote}]}: every quote must appear on its page (markdown, quotes, dashes, case and spacing folded; ... joins two spans of one page). The page is the text a reader returned in this item, else it is read now (primary reader, then agent-reach's), else the search excerpts of it count. No citation, or any quote not found, gets one repair turn; still failing, the answer goes out with each citation's verified false. Provides answer, citations[{url, quote, verified, checked page|excerpt|none, via}], route (primary, platform and fallback, those used, joined by +, or none) and toolCalls.",
+        "For an answer {answer, citations[{url, quote}]}: every quote must appear on its page (markdown, quotes, dashes, case and spacing folded; ... joins two spans of one page). The page is the text a reader returned in this item, else it is read now (primary reader, then agent-reach's), else the search excerpts of it count. A link Muse gave is checked on its page first; only when the page will not open or does not hold the quote do Muse's own words about it count (checked muse, a secondary source). No citation, or any quote not found, gets one repair turn; still failing, the answer goes out with each citation's verified false. Provides answer, citations[{url, quote, verified, checked page|excerpt|muse|none, via}], route (primary, muse, platform and fallback, those used, joined by +, or none) and toolCalls.",
       provides: ["answer", "citations", "route", "toolCalls"],
       check: (reply, context) =>
         Effect.gen(function*() {
@@ -349,13 +410,13 @@ export const researchPack = (
                   source = ledger.sources.get(urlKey(citation.url))
                 }
               }
-              if (source?.page !== undefined) {
-                const found = quoteIn(citation.quote, source.page)
-                return { ...base, verified: found, checked: "page", ...(found ? {} : { problem: "quote not found on the page" }) } satisfies Checked
-              }
+              if (source?.page !== undefined && quoteIn(citation.quote, source.page)) return { ...base, verified: true, checked: "page" } satisfies Checked
+              const excerpted = source?.page === undefined && source !== undefined && source.excerpts.some((excerpt) => quoteIn(citation.quote, excerpt))
+              if (excerpted) return { ...base, verified: true, checked: "excerpt" } satisfies Checked
+              if (source !== undefined && source.muse.some((said) => quoteIn(citation.quote, said))) return { ...base, verified: true, checked: "muse" } satisfies Checked
+              if (source?.page !== undefined) return { ...base, verified: false, checked: "page", problem: "quote not found on the page" } satisfies Checked
               if (source !== undefined && source.excerpts.length > 0) {
-                const found = source.excerpts.some((excerpt) => quoteIn(citation.quote, excerpt))
-                return { ...base, verified: found, checked: "excerpt", ...(found ? {} : { problem: "the page would not open and no search excerpt of it holds the quote" }) } satisfies Checked
+                return { ...base, verified: false, checked: "excerpt", problem: "the page would not open and no search excerpt of it holds the quote" } satisfies Checked
               }
               return { ...base, verified: false, checked: "none", problem: "the page would not open and no tool showed it" } satisfies Checked
             })
@@ -364,7 +425,7 @@ export const researchPack = (
           const fields = {
             answer: answer.answer,
             citations: checked.map(({ problem: _, ...citation }) => citation),
-            route: (["primary", "platform", "fallback"] as const).filter((route) => routes.has(route)).join("+") || "none",
+            route: (["primary", "muse", "platform", "fallback"] as const).filter((route) => routes.has(route)).join("+") || "none",
             toolCalls: Object.fromEntries(ledger.calls)
           }
           const problems = [

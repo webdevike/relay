@@ -4,6 +4,7 @@ import { Effect, Layer, Ref } from "effect"
 import type { Pack } from "../src/Adapter.ts"
 import { packs as defaultPacks } from "../src/adapters/index.ts"
 import { type Hit, ResearchError } from "../src/adapters/research/http.ts"
+import { Muse, type MuseAnswer } from "../src/adapters/research/muse.ts"
 import { researchPack } from "../src/adapters/research/pack.ts"
 import { Reach } from "../src/adapters/research/reach.ts"
 import { navOnly, Web } from "../src/adapters/research/web.ts"
@@ -34,11 +35,20 @@ interface FakeWeb {
 const read = (pages: Readonly<Record<string, string>> | undefined) => (url: string) =>
   pages?.[url] === undefined ? Effect.fail(new ResearchError({ message: `read ${url}: certificate error` })) : Effect.succeed({ url, text: pages[url] })
 
-const fakes = (web: FakeWeb, reach: FakeWeb & { readonly platform?: ReadonlyArray<Hit> }): ReadonlyArray<Pack> => [
+/** Muse answers with `answer`, or fails with `failure`; by default it is out of reach (no test drives the real app). */
+interface FakeMuse {
+  readonly answer?: MuseAnswer
+  readonly failure?: string
+}
+
+const fakes = (web: FakeWeb, reach: FakeWeb & { readonly platform?: ReadonlyArray<Hit> }, muse: FakeMuse = {}): ReadonlyArray<Pack> => [
   ...defaultPacks.filter((candidate) => candidate.name !== "research"),
   researchPack(
     Layer.succeed(Web, Web.of({ search: () => Effect.succeed(web.hits ?? []), read: read(web.pages) })),
-    Layer.succeed(Reach, Reach.of({ search: () => Effect.succeed(reach.hits ?? []), read: read(reach.pages), platform: () => Effect.succeed(reach.platform ?? []) }))
+    Layer.succeed(Reach, Reach.of({ search: () => Effect.succeed(reach.hits ?? []), read: read(reach.pages), platform: () => Effect.succeed(reach.platform ?? []) })),
+    Layer.succeed(Muse, Muse.of({
+      ask: () => muse.answer !== undefined ? Effect.succeed(muse.answer) : Effect.fail(new ResearchError({ message: muse.failure ?? "muse unavailable: not in tests" }))
+    }))
   )
 ]
 
@@ -189,4 +199,79 @@ describe("web-researcher", () => {
     expect(navOnly(fixture("bitcoin.pdf.md"))).toBe(false)
     expect(navOnly("---\ntitle: Example Domain\n---\n\nThis domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.")).toBe(false)
   })
+
+  test("Instagram goes to Muse before agent-reach; a Muse link is checked on its page when it opens, on Muse's own words about it when it will not", () =>
+    Effect.gen(function*() {
+      const reel = "https://www.instagram.com/reel/DfOBe5SSVij/"
+      const post = "https://www.instagram.com/p/DfAd_YujpDx/"
+      const { ok, data, requests } = yield* research(
+        { question: "Which Melbourne specialty coffee reels are trending?", platforms: ["instagram"] },
+        [
+          { tool: "platform_search", args: { platform: "instagram", query: "melbourne specialty coffee reels" } },
+          { tool: "fallback_search", args: { query: "melbourne specialty coffee reels" } },
+          { tool: "social_search", args: { platform: "instagram", question: "Which Melbourne specialty coffee reels are trending?" } },
+          { tool: "read", args: { url: reel } },
+          {
+            answer: {
+              answer: "Homebody Union in Fitzroy, the World Barista Champion's cafe, is the most-shared new spot.",
+              citations: [
+                { url: reel, quote: "Melbourne's newest coffee spot by a World Barista Champion" },
+                { url: post, quote: "A carousel / video listicle covering Disciple, Path" }
+              ]
+            }
+          }
+        ],
+        fakes(
+          { pages: { [reel]: "kimmyyliew on Instagram: Melbourne’s newest coffee spot by a World Barista Champion. Champion’s Signature Coffee Set." } },
+          {},
+          {
+            answer: {
+              text: "1. Homebody Union, Fitzroy\nhttps://www.instagram.com/reel/DfOBe5SSVij/\n2. Best specialty coffee shops in Melbourne — @fltr_magazine\nhttps://www.instagram.com/p/DfAd_YujpDx/",
+              links: [
+                { url: reel, context: "8. Homebody Union, Fitzroy — @kimmyyliew\nWaiting an hour at the World Barista Champion Anthony Douglas cafe." },
+                { url: post, context: "2. Best specialty coffee shops in Melbourne — @fltr_magazine\n3.4K likes. A carousel / video listicle covering Disciple, Path, Calēre." }
+              ],
+              cards: 2,
+              listings: [],
+              seconds: 40
+            }
+          }
+        )
+      )
+      expect(ok).toBe(true)
+      expect(requests[1]!.prompt).toContain("closed: ask social_search (Muse) about instagram first")
+      expect(requests[2]!.prompt).toContain("closed: the request names instagram; ask social_search (Muse) first")
+      expect(requests[3]!.prompt).toContain("Muse is a secondary source")
+      expect(requests[3]!.prompt).toContain("2 preview card(s)")
+      expect(data!["citations"]).toEqual([
+        { url: reel, quote: "Melbourne's newest coffee spot by a World Barista Champion", verified: true, checked: "page", via: "muse.social_search" },
+        // The post will not open (Instagram's login wall): Muse's words about it are all there is, marked as Muse's.
+        { url: post, quote: "A carousel / video listicle covering Disciple, Path", verified: true, checked: "muse", via: "muse.social_search" }
+      ])
+      expect(data!["route"]).toBe("primary+muse")
+      expect(data!["toolCalls"]).toEqual({ "muse.social_search": 1, "web.read": 1 })
+    }).pipe(Effect.runPromise), 20_000)
+
+  test("Muse failing (signed out) says so and opens agent-reach's route for that platform; a second Muse ask is refused", () =>
+    Effect.gen(function*() {
+      const group = "https://www.facebook.com/groups/espresso/posts/123/"
+      const { ok, data, requests } = yield* research(
+        { question: "What do espresso groups say about the Lelit Bianca?", platforms: ["facebook"] },
+        [
+          { tool: "social_search", args: { platform: "facebook", question: "Lelit Bianca opinions in espresso groups" } },
+          { tool: "social_search", args: { platform: "facebook", question: "Lelit Bianca again" } },
+          { tool: "platform_search", args: { platform: "facebook", query: "Lelit Bianca espresso group" } },
+          { answer: { answer: "Owners praise its flow paddle.", citations: [{ url: group, quote: "the flow paddle is the reason to buy it" }] } }
+        ],
+        fakes({}, { platform: [{ url: group, title: "Espresso group", text: "Honestly the flow paddle is the reason to buy it." }] }, {
+          failure: "muse signed out: Muse is signed out: Isaac needs to open Muse and log in to Meta"
+        })
+      )
+      expect(ok).toBe(true)
+      expect(requests[1]!.prompt).toContain("muse signed out: Muse is signed out")
+      expect(requests[1]!.prompt).toContain("platform_search (agent-reach) is now open for facebook")
+      expect(requests[2]!.prompt).toContain("closed: Muse was already asked about facebook")
+      expect(data!["citations"]).toEqual([{ url: group, quote: "the flow paddle is the reason to buy it", verified: true, checked: "excerpt", via: "reach.platform_search" }])
+      expect(data!["route"]).toBe("muse+platform")
+    }).pipe(Effect.runPromise), 20_000)
 })
