@@ -1,4 +1,4 @@
-import { Clock, Config, Context, Duration, Effect, FileSystem, Layer, Option, Path, Redacted, Schema } from "effect"
+import { Clock, Config, Context, Duration, Effect, FileSystem, Layer, Option, Path, Redacted, Result, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { Home } from "./Event.ts"
 import { exec } from "./exec.ts"
@@ -127,3 +127,145 @@ export class ModelRunner extends Context.Service<ModelRunner, {
     })
   )
 }
+
+/**
+ * A tool the model may call in `generateWithTools`. The model only proposes the call; the job's own
+ * process runs it, so a component's tool list is its whole allowlist. Build one with `tool()`.
+ */
+export interface Tool<R = never> {
+  readonly name: string
+  readonly description: string
+  /** The args object as the model should write it, e.g. `{"id": "<message id>"}`. */
+  readonly example: string
+  /** Decode the model's args and run; bad args and failures come back as text for the model, never as a run failure. */
+  call(args: unknown): Effect.Effect<string, never, R>
+}
+
+export const tool = <S extends Schema.Decoder<unknown>, E extends { readonly message: string }, R>(spec: {
+  readonly name: string
+  readonly description: string
+  readonly args: S
+  readonly example: string
+  /** The result, JSON-serialisable. */
+  readonly run: (args: S["Type"]) => Effect.Effect<unknown, E, R>
+}): Tool<R> => ({
+  name: spec.name,
+  description: spec.description,
+  example: spec.example,
+  call: (args) =>
+    Schema.decodeUnknownEffect(spec.args)(args ?? {}).pipe(
+      Effect.mapError((error) => ({ message: `bad args for ${spec.name}: ${error.message}` })),
+      Effect.flatMap((decoded) => spec.run(decoded)),
+      Effect.map((result) => JSON.stringify(result)),
+      Effect.catch((error) => Effect.succeed(`error: ${error.message}`))
+    )
+})
+
+export class ToolLoopError extends Schema.TaggedError<ToolLoopError>()("ToolLoopError", {
+  model: Schema.String,
+  steps: Schema.Int,
+  message: Schema.String
+}) {}
+
+export interface ToolCall {
+  readonly tool: string
+  /** False when the model asked for a tool it was not given: nothing ran. */
+  readonly allowed: boolean
+}
+
+export interface ToolGeneration<A> {
+  readonly answer: A
+  /** Model calls made, the final answer included. */
+  readonly steps: number
+  readonly calls: ReadonlyArray<ToolCall>
+  /** USD over all steps. */
+  readonly cost: number
+  readonly seconds: number
+}
+
+const Reply = Schema.Union([
+  Schema.Struct({ tool: Schema.String, args: Schema.optional(Schema.Unknown) }),
+  Schema.Struct({ answer: Schema.Unknown })
+])
+const decodeReply = Schema.decodeUnknownOption(Schema.fromJsonString(Reply))
+
+/** The one JSON object in a reply, fences and chatter around it ignored. */
+const jsonObject = (text: string) => {
+  const start = text.indexOf("{")
+  const end = text.lastIndexOf("}")
+  return start >= 0 && end > start ? text.slice(start, end + 1) : text
+}
+
+/** Cap on one tool result in the transcript, so a long thread cannot crowd out the message. */
+const RESULT_CHARS = 6000
+
+/**
+ * A minimal tool loop over `ModelRunner.generate`, so it works for every model and provider omp runs:
+ * each reply is one JSON object, a tool call (`{"tool", "args"}`) that the loop runs from `tools` and
+ * feeds back, or the final `{"answer"}` decoded with `answer`. A tool not in `tools` never runs; the
+ * model is told so. Bad JSON and bad answers are fed back too. At most `maxSteps` model calls, the last
+ * one told to answer; no valid answer by then is a `ToolLoopError`.
+ */
+export const generateWithTools = <A, R>(
+  request: GenerateRequest,
+  options: {
+    readonly tools: ReadonlyArray<Tool<R>>
+    readonly answer: Schema.Decoder<A>
+    /** The answer object as the model should write it. */
+    readonly answerExample: string
+    readonly maxSteps: number
+  }
+): Effect.Effect<ToolGeneration<A>, ModelError | ToolLoopError, ModelRunner | R> =>
+  Effect.gen(function*() {
+    const models = yield* ModelRunner
+    const started = yield* Clock.currentTimeMillis
+    const decodeAnswer = Schema.decodeUnknownEffect(options.answer)
+    const allowed = options.tools.map((candidate) => candidate.name).join(", ")
+    const system = [
+      request.system,
+      "## Replying",
+      "Every reply is exactly one JSON object and nothing else, either a tool call or your final answer:",
+      `- {"tool": "<name>", "args": {...}}`,
+      `- {"answer": ${options.answerExample}}`,
+      `You have at most ${options.maxSteps} replies in total; call a tool only when the message alone does not settle it.`,
+      "Read-only tools:",
+      ...options.tools.map((candidate) => `- ${candidate.name} ${candidate.example}: ${candidate.description}`)
+    ].join("\n")
+    const transcript: Array<string> = []
+    const calls: Array<ToolCall> = []
+    let cost = 0
+    for (let step = 1; step <= options.maxSteps; step++) {
+      const last = step === options.maxSteps
+      const prompt = [
+        request.prompt,
+        ...(transcript.length === 0 ? [] : ["## Your replies so far and their results", ...transcript]),
+        ...(last ? [`This is your last reply: tools are closed, answer now with {"answer": ...}.`] : [])
+      ].join("\n\n")
+      const reply = yield* models.generate({ ...request, system, prompt })
+      cost += reply.cost
+      const parsed = decodeReply(jsonObject(reply.text))
+      const said = `[${step}] you: ${reply.text.trim().slice(0, 1000)}`
+      if (Option.isNone(parsed)) {
+        transcript.push(said, `[${step}] error: not one JSON object with "tool" or "answer"`)
+        continue
+      }
+      if ("answer" in parsed.value) {
+        const answer = yield* Effect.result(decodeAnswer(parsed.value.answer))
+        if (Result.isSuccess(answer)) {
+          return { answer: answer.success, steps: step, calls, cost, seconds: ((yield* Clock.currentTimeMillis) - started) / 1000 }
+        }
+        transcript.push(said, `[${step}] error: bad answer: ${answer.failure.message}`)
+        continue
+      }
+      const { tool: name, args } = parsed.value
+      const found = options.tools.find((candidate) => candidate.name === name)
+      calls.push({ tool: name, allowed: found !== undefined })
+      const result = last
+        ? "error: tools are closed"
+        : found === undefined
+        ? `error: no tool ${name}; you may only call: ${allowed}`
+        : (yield* found.call(args)).slice(0, RESULT_CHARS)
+      transcript.push(said, `[${step}] result: ${result}`)
+    }
+    return yield* new ToolLoopError({ model: request.model, steps: options.maxSteps, message: `no valid answer in ${options.maxSteps} model calls` })
+  })

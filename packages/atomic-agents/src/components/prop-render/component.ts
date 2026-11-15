@@ -1,15 +1,8 @@
-import { Clock, Config, Context, DateTime, Effect, FileSystem, Layer, Path, PlatformError, Result, Schema } from "effect"
+import { Clock, Config, Context, DateTime, Effect, FileSystem, Layer, Path, Result, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/process"
-import { define, job, OnEvent, Trigger } from "../../Component.ts"
+import { define, job, moduleFile, OnEvent, Trigger } from "../../Component.ts"
 import { exec } from "../../exec.ts"
 import { ModelRunner } from "../../Model.ts"
-
-/** A file next to this module, as a path. */
-const sibling = (name: string) =>
-  Effect.gen(function*() {
-    const path = yield* Path.Path
-    return yield* path.fromFileUrl(new URL(name, import.meta.url)).pipe(Effect.mapError((reason) => new PlatformError.PlatformError(reason)))
-  })
 
 /** Output contract. `render.requested` is the inbound request other agents emit. */
 const events = {
@@ -46,7 +39,7 @@ export class Blender extends Context.Service<Blender, {
     Effect.gen(function*() {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       const binary = yield* Config.String("BLENDER").pipe(Config.withDefault("blender"))
-      const stage = yield* sibling("./stage.py")
+      const stage = yield* moduleFile(import.meta.url, "./stage.py")
       const render = Effect.fn("Blender.render")(function*(script: string, image: string, glb: string) {
         const result = yield* exec(binary, [
           "-b", "--factory-startup", "-noaudio", "--python-exit-code", "1",
@@ -73,7 +66,7 @@ export class Knowledge extends Context.Service<Knowledge, string>()("atomic-agen
     Knowledge,
     Effect.gen(function*() {
       const fs = yield* FileSystem.FileSystem
-      return yield* fs.readFileString(yield* sibling("./knowledge.md"))
+      return yield* fs.readFileString(yield* moduleFile(import.meta.url, "./knowledge.md"))
     })
   )
 }

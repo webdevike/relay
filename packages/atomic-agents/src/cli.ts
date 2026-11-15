@@ -4,6 +4,7 @@ import { Console, Effect, FiberSet, Layer, Option, Schema, Stream, SubscriptionR
 import { Argument, Command, Flag } from "effect/cli"
 import { Background } from "./Background.ts"
 import { Components, type EventSchemas, Trigger } from "./Component.ts"
+import { gmail } from "./components/gmail/component.ts"
 import { propRender } from "./components/prop-render/component.ts"
 import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./Event.ts"
 import { shortId } from "./Id.ts"
@@ -12,7 +13,7 @@ import { Runner } from "./Runtime.ts"
 import * as Service from "./Service.ts"
 import { effective, RUNTIME, runtime, Settings } from "./Settings.ts"
 
-const builtins = [propRender]
+const builtins = [propRender, gmail]
 
 const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
 

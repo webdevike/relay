@@ -55,6 +55,8 @@ export class Home extends Context.Service<Home, {
   readonly root: string
   readonly journal: string
   runDir(component: string, run: string): string
+  /** A component's state that outlives runs (cursors, caches): `<root>/state/<component>`. */
+  stateDir(component: string): string
 }>()("atomic-agents/Home") {
   static readonly layer = Layer.effect(
     Home,
@@ -69,7 +71,8 @@ export class Home extends Context.Service<Home, {
       return Home.of({
         root,
         journal: path.join(root, "events.ndjson"),
-        runDir: (component, run) => path.join(root, "runs", component, run)
+        runDir: (component, run) => path.join(root, "runs", component, run),
+        stateDir: (component) => path.join(root, "state", component)
       })
     })
   )

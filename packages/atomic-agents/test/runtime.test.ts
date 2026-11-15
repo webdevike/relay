@@ -1,13 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { BunServices } from "@effect/platform-bun"
 import { Deferred, Effect, FileSystem, Layer, Option, Schedule, Schema } from "effect"
 import { TestClock } from "effect/testing"
 import { Background } from "../src/Background.ts"
-import { Components, define, job, OnEvent, type Registered, Trigger } from "../src/Component.ts"
-import { AgentEvent, EventBus, Home, Lifecycle, lifecycle } from "../src/Event.ts"
-import { ModelRunner } from "../src/Model.ts"
+import { define, job, OnEvent, type Registered, Trigger } from "../src/Component.ts"
+import { AgentEvent, EventBus, Lifecycle, lifecycle } from "../src/Event.ts"
 import { Runner } from "../src/Runtime.ts"
 import { events as runtimeEvents, Settings } from "../src/Settings.ts"
+import { oneProcess, runtime, tempHome } from "./harness.ts"
 
 class Boom extends Schema.TaggedError<Boom>()("Boom", { message: Schema.String }) {}
 
@@ -46,29 +45,6 @@ const probe = (ticked: Deferred.Deferred<void>): Registered =>
     ],
     tools: Layer.empty
   })
-
-const homeAt = (root: string) =>
-  Layer.succeed(Home, Home.of({ root, journal: `${root}/events.ndjson`, runDir: (component, run) => `${root}/runs/${component}/${run}` }))
-
-/** Settings and EventBus over `root`: what one process (the service, or a CLI command) builds. */
-const oneProcess = (root: string, components: ReadonlyArray<Registered>) =>
-  Settings.layer.pipe(
-    Layer.provideMerge(EventBus.layer),
-    Layer.provideMerge(homeAt(root)),
-    Layer.provideMerge(Layer.succeed(Components, components)),
-    Layer.provideMerge(BunServices.layer)
-  )
-
-const runtime = (root: string, components: ReadonlyArray<Registered>) =>
-  Runner.layer.pipe(
-    Layer.provideMerge(Layer.succeed(ModelRunner, ModelRunner.of({ generate: () => Effect.die("no model calls in tests") }))),
-    Layer.provideMerge(oneProcess(root, components))
-  )
-
-const tempHome = Effect.gen(function*() {
-  const fs = yield* FileSystem.FileSystem
-  return yield* fs.makeTempDirectoryScoped({ prefix: "atomic-agents-test-" })
-}).pipe(Effect.provide(BunServices.layer))
 
 const ofRun = (events: ReadonlyArray<AgentEvent>, run: string) => events.filter((event) => event.run === run)
 

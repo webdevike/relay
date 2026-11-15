@@ -60,6 +60,7 @@ export class Runner extends Context.Service<Runner, {
         if (!resolved.enabled) return yield* new ComponentDisabled({ message: `${component.id} is disabled in ${settings.file}` })
         const run = yield* runId
         const runDir = home.runDir(component.id, run)
+        const stateDir = home.stateDir(component.id)
         const model = options.model ?? resolved.agent.model
         const envelope = { component: component.id, job: job.id, run }
         const publish = (name: string, data: unknown) =>
@@ -72,11 +73,12 @@ export class Runner extends Context.Service<Runner, {
         const body = Effect.gen(function*() {
           const started = yield* Clock.currentTimeMillis
           const seconds = Effect.map(Clock.currentTimeMillis, (now) => (now - started) / 1000)
-          yield* fs.makeDirectory(runDir, { recursive: true }).pipe(
-            Effect.mapError((cause) => new JournalError({ message: `create ${runDir}`, cause }))
-          )
+          yield* Effect.forEach([runDir, stateDir], (dir) =>
+            fs.makeDirectory(dir, { recursive: true }).pipe(
+              Effect.mapError((cause) => new JournalError({ message: `create ${dir}`, cause }))
+            ), { discard: true })
           yield* lifecycle(JobStarted.make({ input, model }))
-          const outcome = yield* job.start(input, { ...envelope, runDir, model, agent: resolved.agent, publish }).pipe(
+          const outcome = yield* job.start(input, { ...envelope, runDir, stateDir, model, agent: resolved.agent, publish }).pipe(
             Effect.provideContext(services),
             Effect.exit
           )

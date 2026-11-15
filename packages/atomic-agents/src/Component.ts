@@ -1,4 +1,4 @@
-import { type Config, Context, Data, Effect, Layer, type PlatformError, Schema, type Scope } from "effect"
+import { type Config, Context, Data, Effect, Layer, Path, PlatformError, Schema, type Scope } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import type { JournalError } from "./Event.ts"
 import type { ModelRunner } from "./Model.ts"
@@ -17,6 +17,13 @@ export const eventType = <C extends string, E extends EventSchemas, K extends ke
 
 /** Building a component's tools may fail on config (`Config`) or files (knowledge, scripts); the runtime layer then fails to build. */
 export type ToolsError = Config.ConfigError | PlatformError.PlatformError
+
+/** A file shipped next to a component module (knowledge, scripts), as a path: `moduleFile(import.meta.url, "./stage.py")`. */
+export const moduleFile = (moduleUrl: string, name: string) =>
+  Effect.gen(function*() {
+    const path = yield* Path.Path
+    return yield* path.fromFileUrl(new URL(name, moduleUrl)).pipe(Effect.mapError((reason) => new PlatformError.PlatformError(reason)))
+  })
 
 /**
  * An atomic agent component: ONE narrow agent (minimal prompt, knowledge, tools, best model),
@@ -96,6 +103,8 @@ export interface RunContext {
   readonly run: string
   /** Private, created per run: artifacts (images, scripts, logs) go here. */
   readonly runDir: string
+  /** Persistent across runs, created before each run: cursors and other state a job carries forward go here. */
+  readonly stateDir: string
   /** The resolved model for this run (bake-off override, else config.json, else `agent.model`). */
   readonly model: string
   /** The agent with config.json overrides applied. */
