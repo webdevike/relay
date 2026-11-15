@@ -17,7 +17,10 @@
       "- the expected behavior is vague or open (new charts, new pages, 'make it better') with no clear acceptance;",
       "- it spans several repos or teams, needs access, infra, data migration or secrets;",
       "- it is an epic or parent of other tickets.",
-      "size, by the diff incl. tests: S = under ~50 lines, one spot; M = up to ~300 lines, one feature area (most UI fixes); L = more, several screens or new behavior end to end.",
+      "size, by the whole diff incl. tests, which runs larger than the ticket reads: every UI change ships with a component or e2e test and often a fixture, so a \"small\" UI fix lands at 60 to 250 lines.",
+      "- S: only a copy, label, config or one-constant change with no new test (under ~40 lines). Rare: when in doubt between S and M, pick M.",
+      "- M: the default for a UI fix or tweak on one screen, a modal, a filter, a dropdown, a bounded API change (up to ~300 lines).",
+      "- L: a layout or screen that is broken or reworked as a whole, several screens, new behavior end to end, or anything in checkout, cart, payment or order flows (state across steps, e2e checkout tests, usually several QA rounds). QA-heavy tickets (many repro steps, several bugs in one, a screen QA keeps bouncing) size up one step.",
       "Read the ticket with linear_issue before answering. reason: one line, under 25 words."
     ]
   },

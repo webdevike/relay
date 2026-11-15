@@ -3,7 +3,7 @@ import type { BunServices } from "@effect/platform-bun/BunServices"
 import { pack, type StepAdapter, toolAdapter } from "../../Adapter.ts"
 import type { ToolsError } from "../../Component.ts"
 import { Email } from "./outlook.ts"
-import { GitHub, Linear } from "./services.ts"
+import { GitHub, Linear, Meetings } from "./services.ts"
 import { Item, Message } from "./slack.ts"
 
 /**
@@ -179,8 +179,10 @@ const steps: ReadonlyArray<StepAdapter<never>> = [
   })
 ]
 
-/** The ecard adapters over `layer` (the real Linear GraphQL and `gh` wrappers, or test fakes). */
-export const ecardPack = (layer: Layer.Layer<Linear | GitHub, ToolsError, BunServices> = Layer.mergeAll(Linear.layer, GitHub.layer)) =>
+/** The ecard adapters over `layer` (the real Linear GraphQL, `gh` and meeting-ledger readers, or test fakes). */
+export const ecardPack = (
+  layer: Layer.Layer<Linear | GitHub | Meetings, ToolsError, BunServices> = Layer.mergeAll(Linear.layer, GitHub.layer, Meetings.layer)
+) =>
   pack({
     name: "ecard",
     layer,
@@ -222,8 +224,15 @@ export const ecardPack = (layer: Layer.Layer<Linear | GitHub, ToolsError, BunSer
         run: (_, fields) => Effect.gen(function*() { return yield* (yield* Linear).isaacRecent(yield* needed(text(fields, "asOf"), "asOf")) })
       }),
       toolAdapter({
+        name: "ecard.meeting_notes",
+        description: "Eva's notes of what happened since this group last met (never this meeting): the last meeting of the same series and the eCard meetings after it, each with series, summary, tasks with who owns them, open questions, ENG keys named; at most 6.",
+        args: Schema.Struct({}),
+        example: "{}",
+        run: (_, fields) => Effect.gen(function*() { return yield* (yield* Meetings).before(yield* needed(text(fields, "asOf"), "asOf"), text(fields, "title") ?? "") })
+      }),
+      toolAdapter({
         name: "ecard.github_prs",
-        description: "eCardSystems PRs whose title or body matches the words (an ENG key works), newest first, at most 8, opened by the item's moment when it has one.",
+        description: "eCardSystems PRs whose title or body matches the words (an ENG key works), newest first, at most 8, opened by the item's moment when it has one; state then: open, merged, or closed (closed without merging, abandoned).",
         args: Schema.Struct({ text: Schema.NonEmptyString }),
         example: `{"text": "ENG-1234"}`,
         run: (args, fields) => Effect.gen(function*() { return yield* (yield* GitHub).searchPrs(args.text, text(fields, "asOf")) })

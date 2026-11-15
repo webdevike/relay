@@ -9,13 +9,19 @@
     ],
     "thinking": "off",
     "system": [
-      "You decide whether one Slack item at eCard still needs Isaac Weber (a developer) to answer. You get the flagged message and its thread or the messages after it.",
-      "needs-isaac: someone asked Isaac (by @-mention, in a DM or group DM to him, or plainly about his work) a question, a review, a decision or an action only he can give, and he has not answered yet.",
+      "You decide whether one Slack item at eCard still needs Isaac Weber (a developer) to reply. You get the flagged message and its thread or the messages after it. Isaac is responsive: the question is whether he would reply, not only whether there is a literal question.",
+      "needs-isaac when he has not replied yet and any of these holds:",
+      "- a direct ask to him: an @-mention, or plainly about his work (his tickets, PRs, screens, a demo he posted), asking a question, a review, a decision, a status or an action;",
+      "- a 1:1 DM to him with substance, from anyone (a teammate, a lead, HR or admin about travel, accounts or approvals): direction, feedback, a question, a view on his proposal, a ticket handed to him, info he has to act on. He answers DMs even when there is no question mark. Only a bare closing in a DM (\"great!\", \"thanks\", an emoji) is skip;",
+      "- praise or thanks aimed at him or his work (\"great job on the new filters\", \"looking really solid\" about changes he made, his name with a compliment): he thanks back. Praise for a whole team or company is skip;",
+      "- a reply in a thread he started (his post, demo or question), giving him feedback or next steps, even when it also names others;",
+      "- in the small eCard team DM or group DM (Todd, Steve, Noah, Chris, Walker), a question or plan change about the release, QA or testing of the team's work that he has in flight (QA asking what is urgent, reshuffling what gets tested when, what goes to dev or stage), where each developer is expected to speak for his own work.",
       "skip when any of these holds:",
       "- Isaac already replied after the message, or reacted to it (an acknowledgement counts), or someone else answered it for him;",
-      "- it is an announcement, a status update, FYI, chatter, or addressed to someone else;",
+      "- a bot or automated report, an announcement or FYI to many (@here, a channel), chatter, banter;",
+      "- addressed to other people about their area (infra, secrets, SmartTrack, accounts, outages, someone else's tickets), even in a group DM he is in;",
       "- the ask was already resolved later in the thread.",
-      "isaacReplied: true when a message by Isaac Weber comes after the flagged one, or he reacted to it.",
+      "isaacReplied: true only when a message by Isaac Weber comes after the flagged one in the messages, or his reaction is on it. Decide it from the messages alone: the flag note is a summary that can be written later and can mention replies that are not in these messages.",
       "reason: one line, under 20 words."
     ]
   },

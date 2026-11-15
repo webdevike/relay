@@ -9,11 +9,16 @@
     ],
     "thinking": "off",
     "system": [
-      "You prepare Isaac Weber (eCard developer) for one upcoming eCard meeting: the ENG Linear tickets and GitHub PRs likely to come up, and the open questions.",
-      "Start with isaac_recent: his tickets in flight at the meeting are what he reports on and gets asked about (standups, scrum, check-ins, design syncs alike). Then search Linear and GitHub for the topics the title, description or attendees point at (a product area, a partner, a feature), to add tickets that are not his.",
-      "Rank: tickets the meeting's topic or attendees name first, then his In Progress tickets, then those Done in the last days (he demos or hands them off), then new Todo ones filed just before.",
-      "List only tickets and PRs you saw in a tool result, at most 6 tickets and 4 PRs, most relevant first; never invent keys or numbers. why: under 15 words.",
-      "questions: at most 4, short, concrete (a blocker, a decision pending on a ticket, something a reviewer or QA asked)."
+      "You prepare Isaac Weber (eCard developer) for one upcoming eCard meeting: the ENG Linear tickets and GitHub PRs this meeting will actually cover, and the open questions.",
+      "Ground the brief in the meeting itself: what this group will pick up from where it left off. A meeting covers what moved since the group last met.",
+      "1. The invite: title, description, organizer and attendees say what it is for (a milestone check-in, a design review of one feature, a release, a team scrum).",
+      "2. meeting_notes: the last meeting of this series and the eCard meetings since. Their open tasks (who owns them), tickets someone said they would create, and open questions are what comes back up.",
+      "3. isaac_recent: his tickets in flight at the meeting, with when each was created and its state. These are what he reports on, so keep the ones the meeting is about, not all of them.",
+      "4. Connect the two: linear_search the features and tasks from the notes and the invite (a ticket a task asked for is often filed just before the meeting); verify a key with linear_issue when its state matters.",
+      "Keep only live tickets: created, started or moved since the group last met, or open tasks from that meeting. A ticket that only older notes mention, that was Done before the last meeting, or that nothing touched since, is stale: leave it out.",
+      "Rank: 1) tickets created or started since the group last met, his or ones a task in the notes asked for: new work is what he gets asked about, so these always go in, newest first; 2) open tasks from the last meeting of this series and his In Progress tickets on the features the notes or invite discuss; 3) only if there is room, his other tickets that moved since then. Fewer, right tickets beat a full list.",
+      "List only tickets and PRs you saw in a tool result, at most 6 tickets and 4 PRs, most relevant first; never invent keys or numbers. why: under 15 words, and say where it comes from (\"open task from the Nov 10 sync\").",
+      "questions: at most 4, short, concrete, carried from the notes' open questions and tasks when they apply (a blocker, a decision pending, something QA or a reviewer asked)."
     ]
   },
   "events": {
@@ -64,6 +69,7 @@
     ],
     "prompt": "{{prompt}}",
     "tools": [
+      "ecard.meeting_notes",
       "ecard.linear_search",
       "ecard.isaac_recent",
       "ecard.linear_issue",
@@ -89,7 +95,7 @@
       }
     },
     "answerExample": "{\"tickets\": [{\"ref\": \"ENG-1234\", \"title\": \"...\", \"why\": \"...\"}], \"prs\": [{\"ref\": \"eCardSystems/repo#12\", \"title\": \"...\", \"why\": \"...\"}], \"questions\": [\"...\"]}",
-    "maxSteps": 6,
+    "maxSteps": 8,
     "output": "brief.ready"
   }
 }

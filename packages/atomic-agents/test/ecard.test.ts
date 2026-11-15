@@ -3,7 +3,7 @@ import { BunServices } from "@effect/platform-bun"
 import { Effect, FileSystem, Layer, Ref } from "effect"
 import { ecardPack } from "../src/adapters/ecard/pack.ts"
 import { type Email, Outlook } from "../src/adapters/ecard/outlook.ts"
-import { GitHub, Linear } from "../src/adapters/ecard/services.ts"
+import { GitHub, Linear, Meetings } from "../src/adapters/ecard/services.ts"
 import { flaggedItems, Flags, Slack } from "../src/adapters/ecard/slack.ts"
 import { omp } from "../src/adapters/omp.ts"
 import { scorers, voiceBreaks } from "../src/bench/ecard-score.ts"
@@ -251,8 +251,61 @@ describe("ecard tools read the item", () => {
         expect(yield* Ref.get(seen)).toEqual(["issue ENG-1 2026-11-10T12:00:00Z", "commit eCardSystems/node-storefront-service b94249d0abc"])
         const proposed = (yield* bus.history).find((event) => event.run === result.run && event.type === "ecard-ticket-mover/move.proposed")
         expect(proposed?.data).toMatchObject({ ticket: "ENG-1", state: "In QA", assignee: "Steve Arms", shas: ["b94249d0abc"] })
-      }).pipe(Effect.provide(runtime(root, { dirs: [dir], packs: [omp, ecardPack(Layer.mergeAll(linear, github))] }, models)))
+      }).pipe(Effect.provide(runtime(root, { dirs: [dir], packs: [omp, ecardPack(Layer.mergeAll(linear, github, Meetings.layer))] }, models)))
     }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+
+  test("meeting-prep's meeting_notes reads the eCard meetings since the series last met, that one first, never the meeting itself", () =>
+    Effect.gen(function*() {
+      const root = yield* tempHome
+      const dir = yield* builtinChefs(root, ["ecard-meeting-prep"])
+      const eva = yield* evaRoot(root)
+      const fs = yield* FileSystem.FileSystem
+      const meetings = `${eva}/work/meetings`
+      yield* fs.makeDirectory(meetings, { recursive: true })
+      const ledger = (stem: string, start: string, extra: Readonly<Record<string, unknown>>) =>
+        fs.writeFileString(`${meetings}/${stem}.json`, JSON.stringify({ stem, title: `Generated ${stem}`, start, workspace: "ecardsystems", ...extra }))
+      yield* fs.writeFileString(
+        `${eva}/series.md`,
+        "# Meeting Protocol\n**Attendees:** Isaac (Outlook: \"UI/UX Standup\")\n\n## Summary\nCard lookup flag talk.\n\n## Tasks\n| Task | Responsible | Deadline | Priority |\n|---|---|---|---|\n| Put card lookup behind ENG-7229 | Isaac | open | high |\n\n## Open Questions\n- Who owns Unleash access?\n\n## Full Transcript\nENG-1111 said in passing\n"
+      )
+      yield* ledger("20261110_1400_calendar_a", "2026-11-10T19:00:00.000Z", { notes: `${eva}/series.md` })
+      yield* ledger("20261111_1129_scrum_b", "2026-11-11T16:29:00.000Z", { proposals: [{ text: "Storefront review", item: "ENG-6827" }] })
+      yield* ledger("20261112_1400_uiux_standup_c", "2026-11-12T19:05:00.000Z", { proposals: [{ text: "This meeting", item: "ENG-9999" }] })
+      yield* ledger("20261112_1300_personal_d", "2026-11-12T17:00:00.000Z", { workspace: "personal", proposals: [{ text: "Not eCard", item: "ENG-8888" }] })
+      yield* ledger("20261108_1000_sync_e", "2026-11-08T15:00:00.000Z", { proposals: [{ text: "Before the group last met", item: "ENG-7777" }] })
+      const linear = Layer.succeed(Linear, Linear.of({
+        issue: () => Effect.die("unused"),
+        search: () => Effect.succeed([]),
+        isaacOpen: () => Effect.succeed([]),
+        isaacRecent: () => Effect.succeed([])
+      }))
+      const github = Layer.succeed(GitHub, GitHub.of({
+        commit: () => Effect.die("unused"),
+        file: () => Effect.succeed(""),
+        thread: () => Effect.succeed([]),
+        searchPrs: () => Effect.succeed([]),
+        workflowRuns: () => Effect.succeed({ workflow: "", branch: "", runs: [] }),
+        failedLog: () => Effect.succeed("")
+      }))
+      const requests = yield* Ref.make<ReadonlyArray<GenerateRequest>>([])
+      const models = answering(requests, (request) =>
+        request.prompt.includes("sameSeries") ? { answer: { tickets: [], prs: [], questions: [] } } : { tool: "meeting_notes", args: {} })
+      yield* Effect.gen(function*() {
+        const result = yield* (yield* Runner).run("ecard-meeting-prep", "prep", {
+          title: "UI/UX Standup",
+          start: "2026-11-12T13:00:00-06:00",
+          attendees: ["Isaac Weber"],
+          body: ""
+        })
+        expect(result.ok).toBe(true)
+        const notes = (yield* Ref.get(requests)).at(-1)!.prompt
+        expect(notes).toContain("Put card lookup behind ENG-7229 — Isaac")
+        expect(notes).toContain("Who owns Unleash access?")
+        expect(notes).toContain("ENG-6827")
+        expect(notes.indexOf("ENG-7229")).toBeLessThan(notes.indexOf("ENG-6827"))
+        for (const hidden of ["ENG-9999", "ENG-8888", "ENG-1111", "ENG-7777"]) expect(notes).not.toContain(hidden)
+      }).pipe(Effect.provide(runtime(root, { dirs: [dir], env: { EVA_ROOT: eva }, packs: [omp, ecardPack(Layer.mergeAll(linear, github, Meetings.layer))] }, models)))
+    }).pipe(Effect.provide(BunServices.layer), Effect.scoped, Effect.runPromise), 20_000)
 })
 
 describe("bench scores", () => {

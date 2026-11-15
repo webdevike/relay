@@ -1,15 +1,16 @@
-import { Context, Effect, FileSystem, Layer, Path, Redacted, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Option, Path, Redacted, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { EvaRoot } from "../eva.ts"
 import { exec } from "../../exec.ts"
 
 /**
- * Read-only eCard services behind the ecard pack's tools: Linear (GraphQL, queries only) and GitHub (`gh api`, GET only).
- * Neither service has a write operation, so a chef cannot move, comment or post through them.
+ * Read-only eCard services behind the ecard pack's tools: Linear (GraphQL, queries only), GitHub (`gh api`, GET only)
+ * and Meetings (Eva's meeting ledger on disk). None has a write operation, so a chef cannot move, comment or post through them.
  */
 
 export class LinearError extends Schema.TaggedError<LinearError>()("LinearError", { message: Schema.String }) {}
 export class GitHubError extends Schema.TaggedError<GitHubError>()("GitHubError", { message: Schema.String }) {}
+export class MeetingsError extends Schema.TaggedError<MeetingsError>()("MeetingsError", { message: Schema.String }) {}
 
 export interface IssueComment {
   readonly at: string
@@ -197,9 +198,11 @@ export interface PullSummary {
   readonly repo: string
   readonly number: number
   readonly title: string
-  readonly state: string
+  /** As of the search's `before` when given, else now: merged, closed without merging (abandoned), or open. */
+  readonly state: "open" | "merged" | "closed"
   readonly author: string
   readonly createdAt: string
+  readonly mergedAt: string | null
 }
 
 export interface WorkflowRun {
@@ -219,7 +222,10 @@ export class GitHub extends Context.Service<GitHub, {
   file(repo: string, ref: string, filePath: string, from: number, to: number): Effect.Effect<string, GitHubError>
   /** The PR's other review comments in that file and the replies to `commentId` (author, body). */
   thread(repo: string, pr: number, commentId: number): Effect.Effect<unknown, GitHubError>
-  /** eCardSystems PRs whose title or body matches `text`, newest first, at most 8; `before` (ISO) drops later ones. */
+  /**
+   * eCardSystems PRs whose title or body matches `text`, newest first, at most 8; `before` (ISO) drops later ones and
+   * replays each PR's state to then (a PR merged or closed after `before` was still open).
+   */
   searchPrs(text: string, before?: string): Effect.Effect<ReadonlyArray<PullSummary>, GitHubError>
   /** The workflow of run `runId` and its other runs (any branch) created before `before` (ISO, else now), newest first, at most 15. */
   workflowRuns(repo: string, runId: number, before?: string): Effect.Effect<{ readonly workflow: string; readonly branch: string; readonly runs: ReadonlyArray<WorkflowRun> }, GitHubError>
@@ -271,8 +277,16 @@ export class GitHub extends Context.Service<GitHub, {
           const query = `${terms} org:eCardSystems is:pr${before === undefined ? "" : ` created:<=${before.slice(0, 10)}`}`
           return json(
             `search/issues?per_page=8&sort=created&order=desc&q=${encodeURIComponent(query)}`,
-            `[.items[] | {repo: (.repository_url | split("/") | .[-2:] | join("/")), number, title, state, author: .user.login, createdAt: .created_at}]`
-          ).pipe(Effect.map((value) => value as ReadonlyArray<PullSummary>))
+            `[.items[] | {repo: (.repository_url | split("/") | .[-2:] | join("/")), number, title, author: .user.login, createdAt: .created_at, closedAt: .closed_at, mergedAt: .pull_request.merged_at}]`
+          ).pipe(Effect.map((value) =>
+            (value as ReadonlyArray<{ repo: string; number: number; title: string; author: string; createdAt: string; closedAt: string | null; mergedAt: string | null }>)
+              // The search API says "closed" for merged PRs too; the merge time tells them apart.
+              .map(({ closedAt, mergedAt, ...pull }): PullSummary => {
+                const cutoff = before ?? "9999"
+                const merged = mergedAt !== null && mergedAt <= cutoff
+                return { ...pull, state: merged ? "merged" : closedAt !== null && closedAt <= cutoff ? "closed" : "open", mergedAt: merged ? mergedAt : null }
+              })
+          ))
         },
         workflowRuns: (repo, runId, before) =>
           !safe(repo)
@@ -296,6 +310,103 @@ export class GitHub extends Context.Service<GitHub, {
           !safe(repo)
             ? Effect.fail(new GitHubError({ message: `bad repo ${repo}` }))
             : gh(["run", "view", String(runId), "-R", repo, "--attempt", String(attempt), "--log-failed"]).pipe(Effect.map((log) => log.slice(-6000)))
+      })
+    })
+  )
+}
+
+export interface PriorMeeting {
+  /** The Outlook series when the protocol names it, else the ledger's generated title. */
+  readonly title: string
+  readonly start: string
+  readonly sameSeries: boolean
+  readonly summary: string
+  /** "<task> — <responsible>" per Tasks row. */
+  readonly tasks: ReadonlyArray<string>
+  readonly openQuestions: ReadonlyArray<string>
+  /** The ledger's takeaways and the actions it proposed (with their ticket when matched). */
+  readonly takeaways: ReadonlyArray<string>
+  /** ENG keys the protocol (without its transcript) or the ledger's actions name. */
+  readonly keys: ReadonlyArray<string>
+}
+
+/** One meeting in Eva's meeting ledger (`<EVA_ROOT>/work/meetings/<stem>.json`, written as each recording is processed). */
+const LedgerEntry = Schema.Struct({
+  stem: Schema.String,
+  title: Schema.String,
+  start: Schema.String,
+  notes: Schema.optionalKey(Schema.String),
+  workspace: Schema.optionalKey(Schema.String),
+  takeaways: Schema.optionalKey(Schema.Array(Schema.String)),
+  proposals: Schema.optionalKey(Schema.Array(Schema.Struct({ text: Schema.String, item: Schema.optionalKey(Schema.NullOr(Schema.String)) })))
+})
+const decodeLedgerEntry = Schema.decodeUnknownEffect(Schema.fromJsonString(LedgerEntry))
+
+/** The recorder starts a few minutes before or after the invite: a recording this close to the start is this meeting. */
+const SAME_MEETING_MS = 20 * 60_000
+/** How far back the last meeting of the same series is looked for; without one, the notes cover `NO_SERIES_WINDOW_MS`. */
+const SERIES_WINDOW_MS = 14 * 24 * 3600_000
+const NO_SERIES_WINDOW_MS = 7 * 24 * 3600_000
+
+export class Meetings extends Context.Service<Meetings, {
+  /**
+   * What happened since this group last met, never the meeting at `asOf` (ISO) itself: the last meeting of the same
+   * series as `title` (up to 14 days back) and every eCard meeting after it (without one, the last 7 days). Per meeting
+   * its series, summary, tasks, open questions and the ENG keys it names; the same series first, then newest, at most 6.
+   */
+  before(asOf: string, title: string): Effect.Effect<ReadonlyArray<PriorMeeting>, MeetingsError>
+}>()("atomic-agents/ecard/Meetings") {
+  static readonly layer = Layer.effect(
+    Meetings,
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const dir = path.join(yield* EvaRoot, "work", "meetings")
+      return Meetings.of({
+        before: (asOf, title) =>
+          Effect.gen(function*() {
+            const end = Date.parse(asOf) - SAME_MEETING_MS
+            const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")
+            const names = (yield* fs.readDirectory(dir).pipe(Effect.mapError((error) => new MeetingsError({ message: `${dir}: ${error.message}` }))))
+              .filter((name) => name.endsWith(".json"))
+              .sort()
+              .reverse()
+            const meetings: Array<PriorMeeting> = []
+            for (const name of names) {
+              const entry = Option.getOrUndefined(yield* fs.readFileString(path.join(dir, name)).pipe(Effect.flatMap(decodeLedgerEntry), Effect.option))
+              const at = entry === undefined ? Number.NaN : Date.parse(entry.start)
+              if (entry === undefined || entry.workspace !== "ecardsystems" || !(at < end && at >= end - SERIES_WINDOW_MS)) continue
+              const protocol = entry.notes === undefined ? "" : yield* fs.readFileString(entry.notes).pipe(Effect.orElseSucceed(() => ""))
+              // Without the transcript: what was said in passing is not what the meeting settled.
+              const head = protocol.split(/\n## Full Transcript/i)[0]!
+              const section = (heading: string) => new RegExp(`\\n## ${heading}[^\\n]*\\n([\\s\\S]*?)(?=\\n## |\\n---|$)`, "i").exec(head)?.[1]?.trim() ?? ""
+              const series = /\(Outlook: "([^"]+)"\)/.exec(head)?.[1]
+              const keys = new Set([
+                ...head.match(/\bENG-\d+\b/g) ?? [],
+                ...[...head.matchAll(/\bticket #?(\d{4,5})\b/gi)].map((match) => `ENG-${match[1]}`),
+                ...(entry.proposals ?? []).flatMap((proposal) => proposal.item != null && /^ENG-\d+$/.test(proposal.item) ? [proposal.item] : [])
+              ])
+              meetings.push({
+                title: series ?? entry.title,
+                start: entry.start,
+                sameSeries: series?.toLowerCase() === title.toLowerCase() || (slug !== "" && entry.stem.includes(slug)),
+                summary: section("Summary").slice(0, 700),
+                tasks: section("Tasks").split("\n").filter((line) => line.startsWith("|") && !/^\|\s*(Task\b|-)/.test(line))
+                  .map((line) => line.split("|").map((cell) => cell.trim()).filter(Boolean).slice(0, 2).join(" — ")).slice(0, 15),
+                openQuestions: section("Open Questions").split("\n").filter((line) => line.startsWith("- ")).map((line) => line.slice(2)).slice(0, 5),
+                takeaways: [
+                  ...(entry.takeaways ?? []),
+                  ...(entry.proposals ?? []).map((proposal) => `action: ${proposal.text}${proposal.item == null ? "" : ` (${proposal.item})`}`)
+                ].slice(0, 6),
+                keys: [...keys]
+              })
+            }
+            // Newest first: the first same-series meeting is the last time this group met.
+            const lastOfSeries = meetings.find((meeting) => meeting.sameSeries)
+            const since = lastOfSeries === undefined ? end - NO_SERIES_WINDOW_MS : Date.parse(lastOfSeries.start)
+            const recent = meetings.filter((meeting) => Date.parse(meeting.start) >= since)
+            return [...recent.filter((meeting) => meeting.sameSeries), ...recent.filter((meeting) => !meeting.sameSeries)].slice(0, 6)
+          })
       })
     })
   )

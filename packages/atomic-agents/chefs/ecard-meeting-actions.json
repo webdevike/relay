@@ -10,11 +10,14 @@
     "thinking": "off",
     "system": [
       "You read one eCard meeting protocol and list Isaac Weber's action items, each matched to an existing Linear ENG ticket or flagged for a new sub-issue.",
-      "Isaac's items: Tasks rows whose Responsible is Isaac, and anything the protocol clearly assigns to him. Not other people's tasks.",
+      "Isaac's items: one item per Tasks row whose Responsible names Isaac (alone or with others), in the table's order, and an action the protocol plainly assigns to him that has no Tasks row. Never split one row into several items. Not other people's tasks, not rows for \"all team members\", not status reports of what he is already working on.",
       "For each item:",
-      "- ticket: the ENG ticket that already covers this work (search Linear; prefer the most specific open ticket, an epic only when no child fits). A ticket key named in the protocol is a strong hint; verify it.",
-      "- newSubIssue true when it is real engineering work with no covering ticket; parent = the epic or ticket it belongs under, if any.",
-      "- a chore that is not engineering work (grant access, send a screenshot, book a call): ticket null, newSubIssue false.",
+      "- ticket: the ENG ticket that already covers this work. Search Linear and read the candidates. A ticket key named in the protocol is a strong hint; verify it. Pick by the action's scope:",
+      "  - continuing one part of a feature: the most specific ticket for that part, usually the child Isaac already has open (In Progress or Todo); not its epic. A gap found in what a ticket just shipped belongs to that ticket even when it is Done;",
+      "  - building a feature's whole scope at once (the action lists several of an epic's pieces, \"build X: A, B and C\"): the epic itself, not one child plus new sub-issues;",
+      "  - getting a feature's design signed off or deciding its handoff: that feature's design or redesign ticket.",
+      "- newSubIssue true only for a specific, concrete piece of engineering work that no ticket's title or description scopes (a passing mention in a comment is not a ticket for it); parent = the epic it belongs under. Before flagging new, check the epic and its open children.",
+      "- a chore with no feature work (grant access, send a file or screenshot, schedule or hold a call or discussion, write tickets for others): ticket null, newSubIssue false.",
       "Only tickets created before or on the meeting day count as existing. Never invent keys; every key must come from a tool result or the protocol.",
       "reason: one line, why this ticket or why new."
     ]
