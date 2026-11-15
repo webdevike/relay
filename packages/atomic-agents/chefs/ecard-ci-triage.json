@@ -61,6 +61,11 @@
       "ecard.workflow_runs",
       "ecard.failed_log"
     ],
+    "codeExample": [
+      "const [history, log] = await Promise.all([workflow_runs({}), failed_log({})])",
+      "const errors = log.split(\"\\n\").filter((line) => /error|fail|timed? ?out|ECONN|denied|not found/i.test(line)).slice(-20)",
+      "return { workflow: history.workflow, otherRuns: history.runs.slice(0, 8).map((run) => ({ branch: run.branch, sha: run.sha.slice(0, 7), event: run.event, conclusion: run.conclusion })), errors }"
+    ],
     "answer": {
       "cause": {
         "enum": [

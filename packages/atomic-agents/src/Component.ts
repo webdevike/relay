@@ -68,11 +68,23 @@ export const define = <R>(component: Component<R>): Registered => ({
     component.jobs.map((job) => ({ ...job, start: (input, context) => job.start(input, context).pipe(Effect.provideContext(tools)) })))
 })
 
+/**
+ * How a chef's model uses its tools: one tool call per model turn (`tools`), or one TypeScript script per turn
+ * against the tools as typed functions, run in a sandbox (`code`, `CodeMode.ts`). When to pick which: `docs/code-mode.md`.
+ */
+export const ToolMode = Schema.Literals(["tools", "code"])
+export type ToolMode = typeof ToolMode.Type
+
 export interface Agent {
   /** Code default model (omp id); `config.json` `components.<id>.model` overrides it, and `atomic-agents use` writes that after a bake-off. */
   readonly model: string
   readonly candidates: ReadonlyArray<string>
   readonly thinking?: "off" | "minimal" | "low" | "medium" | "high"
+  /**
+   * Code default tool mode, present only for a chef whose model calls tools (a recipe with `job.tools`); a chef
+   * without tools has none. `config.json` `components.<id>.toolMode` overrides it, live, like the model.
+   */
+  readonly toolMode?: ToolMode
   /** System prompt. Kept small on purpose; knowledge files load in the component's tools layer. */
   readonly system: string
 }
@@ -110,6 +122,8 @@ export interface RunContext {
   readonly stateDir: string
   /** The resolved model for this run (bake-off override, else config.json, else `agent.model`). */
   readonly model: string
+  /** The resolved tool mode for this run (bake-off override, else config.json, else `agent.toolMode`); absent for a chef without tools. */
+  readonly toolMode?: ToolMode
   /** The agent with config.json overrides applied. */
   readonly agent: Agent
   /** Append `<component>/<name>` with `data` already encoded by the event's schema. */

@@ -70,6 +70,13 @@
       "gmail.read_thread",
       "gmail.sender_history"
     ],
+    "codeExample": [
+      "const [thread, sender] = await Promise.all([read_thread({ id: \"<message id>\" }), sender_history({ address: \"<sender address>\" })])",
+      "return {",
+      "  thread: \"error\" in thread ? thread : { messages: thread.messages_in_thread, shown: thread.shown.map(({ from, date, sent_by_isaac, text }) => ({ from, date, sent_by_isaac, text: text.slice(0, 400) })) },",
+      "  sender",
+      "}"
+    ],
     "answer": {
       "verdict": {
         "enum": [

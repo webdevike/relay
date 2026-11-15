@@ -111,6 +111,27 @@ const describe = (message: Message) =>
 
 const decodeInput = Schema.decodeUnknownEffect(Schema.Struct({ ids: Schema.optionalKey(Schema.Array(Schema.String)) }))
 
+/** What `mail.py thread` and `mail.py sender` print (`returns` of the two tools; mail.py prints `{error}` for an unknown id or address). */
+const Refused = Schema.Struct({ error: Schema.String })
+const Thread = Schema.Union([
+  Schema.Struct({
+    messages_in_thread: Schema.Int,
+    shown: Schema.Array(Schema.Struct({ from: Schema.String, address: Schema.String, date: Schema.String, subject: Schema.String, sent_by_isaac: Schema.Boolean, text: Schema.String }))
+  }),
+  Refused
+])
+const SenderHistory = Schema.Union([
+  Schema.Struct({
+    address: Schema.String,
+    messages_from: Schema.Int,
+    from_last_90_days: Schema.Int,
+    isaac_wrote_to_them: Schema.Int,
+    starred_from: Schema.Int,
+    recent: Schema.Array(Schema.Struct({ date: Schema.String, subject: Schema.String }))
+  }),
+  Refused
+])
+
 /** The gmail adapters over `layer` (the real `mail.py` wrapper, or a test fake). */
 export const gmailPack = (layer: Layer.Layer<Gmail, ToolsError, BunServices> = Gmail.layer) =>
   pack({
@@ -156,6 +177,7 @@ export const gmailPack = (layer: Layer.Layer<Gmail, ToolsError, BunServices> = G
         description: "The conversation this message belongs to: how many messages, and the last few (sender, date, whether Isaac sent it, text excerpt).",
         args: Schema.Struct({ id: Schema.NonEmptyString }),
         example: `{"id": "<message id>"}`,
+        returns: Thread,
         run: ({ id }) => Effect.gen(function*() { return yield* (yield* Gmail).readThread(id) })
       }),
       toolAdapter({
@@ -163,6 +185,7 @@ export const gmailPack = (layer: Layer.Layer<Gmail, ToolsError, BunServices> = G
         description: "How often this address has written to Isaac (all time, last 90 days), how often he wrote to it, how many he starred, its recent subjects.",
         args: Schema.Struct({ address: Schema.NonEmptyString }),
         example: `{"address": "<email address>"}`,
+        returns: SenderHistory,
         run: ({ address }) => Effect.gen(function*() { return yield* (yield* Gmail).senderHistory(address) })
       })
     ]

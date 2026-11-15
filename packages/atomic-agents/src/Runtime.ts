@@ -2,7 +2,7 @@ import { Cause, Clock, Context, Effect, Exit, FiberSet, FileSystem, Layer, Sched
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import { Background } from "./Background.ts"
 import { Chefs } from "./Chef.ts"
-import { Trigger } from "./Component.ts"
+import { type ToolMode, Trigger } from "./Component.ts"
 import { EventBus, Home, JobFailed, JobStarted, JobSucceeded, JournalError, Lifecycle, makeEvent } from "./Event.ts"
 import { runId } from "./Id.ts"
 import type { ModelRunner } from "./Model.ts"
@@ -16,9 +16,16 @@ export class ComponentDisabled extends Schema.TaggedError<ComponentDisabled>()("
   message: Schema.String
 }) {}
 
+/** A tool mode asked of a chef whose model calls no tools. */
+export class NoToolMode extends Schema.TaggedError<NoToolMode>()("NoToolMode", {
+  message: Schema.String
+}) {}
+
 export interface RunOptions {
   /** Bake-off override; defaults to the model in config.json, else the component's `agent.model`. */
   readonly model?: string
+  /** Bake-off override; defaults to the tool mode in config.json, else the chef file's. Only for a chef with tools. */
+  readonly toolMode?: ToolMode
 }
 
 export interface RunResult {
@@ -35,7 +42,7 @@ const encodeLifecycle = Schema.encodeEffect(Lifecycle)
  * config.json edit applies to the next run without a restart.
  */
 export class Runner extends Context.Service<Runner, {
-  run(component: string, job: string, input: unknown, options?: RunOptions): Effect.Effect<RunResult, UnknownJob | ComponentDisabled | JournalError>
+  run(component: string, job: string, input: unknown, options?: RunOptions): Effect.Effect<RunResult, UnknownJob | ComponentDisabled | NoToolMode | JournalError>
 }>()("atomic-agents/Runner") {
   static readonly layer = Layer.effect(
     Runner,
@@ -69,6 +76,11 @@ export class Runner extends Context.Service<Runner, {
         const runDir = home.runDir(component.id, run)
         const stateDir = home.stateDir(component.id)
         const model = options.model ?? resolved.agent.model
+        if (options.toolMode !== undefined && resolved.agent.toolMode === undefined) {
+          return yield* new NoToolMode({ message: `${component.id} calls no tools, so it has no tool mode` })
+        }
+        const toolMode = resolved.agent.toolMode === undefined ? undefined : options.toolMode ?? resolved.agent.toolMode
+        const modes = toolMode === undefined ? {} : { toolMode }
         const envelope = { component: component.id, job: job.id, run }
         const publish = (name: string, data: unknown) =>
           makeEvent({ ...envelope, type: `${component.id}/${name}`, data }).pipe(Effect.flatMap(bus.publish))
@@ -84,8 +96,8 @@ export class Runner extends Context.Service<Runner, {
             fs.makeDirectory(dir, { recursive: true }).pipe(
               Effect.mapError((cause) => new JournalError({ message: `create ${dir}`, cause }))
             ), { discard: true })
-          yield* lifecycle(JobStarted.make({ input, model }))
-          const outcome = yield* job.start(input, { ...envelope, runDir, stateDir, model, agent: resolved.agent, publish }).pipe(
+          yield* lifecycle(JobStarted.make({ input, model, ...modes }))
+          const outcome = yield* job.start(input, { ...envelope, runDir, stateDir, model, ...modes, agent: resolved.agent, publish }).pipe(
             Effect.provideContext(services),
             Effect.exit
           )
@@ -126,7 +138,8 @@ export class Runner extends Context.Service<Runner, {
     const runLogged = (component: string, job: string, input: unknown) =>
       runner.run(component, job, input).pipe(Effect.catchTags({
         UnknownJob: (error) => Effect.logWarning(error.message),
-        ComponentDisabled: (error) => Effect.logInfo(error.message)
+        ComponentDisabled: (error) => Effect.logInfo(error.message),
+        NoToolMode: (error) => Effect.logWarning(error.message)
       }))
 
     // Subscribed before the layer is up: a request emitted right after serve starts is not missed.

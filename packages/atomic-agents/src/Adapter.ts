@@ -22,7 +22,7 @@ export interface ModelAdapter<R = never> {
   generate(request: GenerateRequest): Effect.Effect<Generation, ModelError, R | ModelRunner | BunServices>
 }
 
-/** Who called a tool: the model in the tool loop, or a script the model wrote (`job.mode: "code"`, `CodeMode.ts`). */
+/** Who called a tool: the model in the tool loop, or a script the model wrote (tool mode `code`, `CodeMode.ts`). */
 export type Caller = "model" | "script"
 
 /**
@@ -36,8 +36,11 @@ export interface ToolAdapter<R = never> {
   readonly args: Schema.Decoder<unknown>
   /** The args object as the model should write it, e.g. `{"id": "<message id>"}`. */
   readonly example: string
-  /** Code mode: the TypeScript type a script gets back (default `unknown`). */
-  readonly returns?: string
+  /**
+   * What a script gets back (tool mode `code`): `CodeMode.ts` turns it and `args` into the tool's typed function, so
+   * every tool is a typed API without extra work. It describes, it does not check: keep it next to the code that builds the value.
+   */
+  readonly returns: Schema.Top
   /**
    * The result, JSON-serialisable. Failures go back to the model as text (a script gets them thrown).
    * `caller` lets a tool answer a script more than the model's window (a whole page, not its passages).
@@ -54,7 +57,7 @@ export const toolAdapter = <S extends Schema.Decoder<unknown>, R>(spec: {
   readonly description: string
   readonly args: S
   readonly example: string
-  readonly returns?: string
+  readonly returns: Schema.Top
   readonly run: (args: S["Type"], fields: Readonly<Record<string, unknown>>, caller: Caller) => Effect.Effect<unknown, { readonly message: string }, R | BunServices>
 }): ToolAdapter<R> => ({ ...spec, run: (args, fields, caller) => spec.run(args as S["Type"], fields, caller) })
 

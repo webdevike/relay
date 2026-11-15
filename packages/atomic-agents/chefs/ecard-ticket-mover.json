@@ -68,6 +68,14 @@
       "ecard.git_log",
       "ecard.github_prs"
     ],
+    "codeExample": [
+      "const [issue, commit, prs] = await Promise.all([linear_issue({ key: \"<the ENG key>\" }), git_log({ sha: \"<the merged sha>\" }), github_prs({ text: \"<the ENG key>\" })])",
+      "return {",
+      "  ticket: { state: issue.state, assignee: issue.assignee, description: issue.description.slice(0, 1500), comments: issue.comments.slice(-4) },",
+      "  commit: { message: commit.message, files: commit.files.slice(0, 20) },",
+      "  prs: prs.map(({ number, title, state, mergedAt }) => ({ number, title, state, mergedAt }))",
+      "}"
+    ],
     "answer": {
       "state": {
         "enum": [

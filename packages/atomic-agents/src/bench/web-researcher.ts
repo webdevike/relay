@@ -2,17 +2,18 @@
 /**
  * web-researcher bake-off against an answer key of research questions with known answers:
  *
- *     bun src/bench/web-researcher.ts <dir with cases.json> [--models a,b] [--judge model] [--mode tools|code] [--out dir]
+ *     bun src/bench/web-researcher.ts <dir with cases.json> [--models a,b] [--tool-modes tools,code] [--judge model] [--out dir]
  *
- * cases.json: `[{id, question, platforms?, depth?, answer, accept, evidence, source}]`. Each model answers every
- * question through the chef as shipped (`Chef.cook`: the tool loop on the research pack, or with `--mode code` one
- * script per turn against it, `CodeMode.ts`; then the `research.citations` check), no bus, nothing in the journal. Per model:
+ * cases.json: `[{id, question, platforms?, depth?, answer, accept, evidence, source}]`. Each arm (a model in a tool mode;
+ * the models cross the tool modes, default the mode in force) answers every question through the chef as shipped
+ * (`Chef.cook`: the tool loop on the research pack, or in tool mode `code` one script per turn against it, `CodeMode.ts`;
+ * then the `research.citations` check), no bus, nothing in the journal. Per arm:
  * - correct: a judge model compares the answer with the key (`accept` says what counts): yes 1, partial 0.5, no 0;
  * - verified: citations whose quote the check found on the page (or, for a page that would not open, its search excerpt);
  * - supported: verified citations the judge says back the answer; grounded: answers with at least one;
  * - route: which source answered (primary, platform, fallback; see the research pack);
  * - cost and seconds per answer, model calls per answer, failures.
- * Every answer lands in `<out>/<model>/<case>.json`, the tables in `<out>/results.md` and `results.json`.
+ * Every answer lands in `<out>/<model>/<tool mode>/<case>.json`, the tables in `<out>/results.md` and `results.json` (each arm with its model and toolMode).
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun"
 import { Clock, Console, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
@@ -20,8 +21,8 @@ import { Adapters } from "../Adapter.ts"
 import { packs } from "../adapters/index.ts"
 import { Chefs } from "../Chef.ts"
 import { EventBus, Home } from "../Event.ts"
+import { ToolMode } from "../Component.ts"
 import { ModelRunner } from "../Model.ts"
-import { Mode } from "../Recipe.ts"
 import { effective, Settings } from "../Settings.ts"
 
 const Case = Schema.Struct({
@@ -68,20 +69,21 @@ const program = Effect.gen(function*() {
     return at < 0 ? undefined : args[at + 1]
   }
   const dir = args.find((arg, index) => !arg.startsWith("--") && !args[index - 1]?.startsWith("--"))
-  if (dir === undefined) return yield* Effect.fail(new Error("usage: web-researcher.ts <dir with cases.json> [--models a,b] [--judge model] [--mode tools|code] [--out dir]"))
+  if (dir === undefined) return yield* Effect.fail(new Error("usage: web-researcher.ts <dir with cases.json> [--models a,b] [--tool-modes tools,code] [--judge model] [--out dir]"))
   const chef = (yield* (yield* Chefs).current).find((candidate) => candidate.id === "web-researcher")
   if (chef?.cook === undefined) return yield* Effect.fail(new Error("no web-researcher recipe chef loaded"))
   const cook = chef.cook
   const resolved = effective(chef, yield* (yield* Settings).current).agent
   const models = flag("models")?.split(",") ?? resolved.candidates
   const judge = flag("judge") ?? "anthropic/claude-opus-5-5"
-  const mode = yield* Schema.decodeUnknownEffect(Schema.optional(Mode))(flag("mode"))
+  const toolModes = yield* Schema.decodeUnknownEffect(Schema.Array(ToolMode))(flag("tool-modes")?.split(",") ?? [resolved.toolMode ?? "tools"])
+  const arms = models.flatMap((model) => toolModes.map((toolMode) => ({ model, toolMode, label: `${model} [${toolMode}]` })))
   const root = path.resolve(dir)
   const cases = yield* decodeCases(yield* fs.readFileString(path.join(root, "cases.json")))
   const stamp = new Date(yield* Clock.currentTimeMillis).toISOString().slice(0, 16).replace(/[-:]/g, "")
   const out = path.resolve(flag("out") ?? path.join(root, "runs", stamp))
   const runner = yield* ModelRunner
-  yield* Console.log(`${cases.length} questions on ${models.join(", ")}; mode ${mode ?? "as the chef file"}; judge ${judge}; out ${out}\n`)
+  yield* Console.log(`${cases.length} questions on ${arms.map(({ label }) => label).join(", ")}; judge ${judge}; out ${out}\n`)
 
   const grade = (item: Case, answered: Answered) =>
     runner.generate({
@@ -106,34 +108,34 @@ const program = Effect.gen(function*() {
       Effect.orElseSucceed(() => undefined)
     )
 
-  const answer = (model: string, item: Case) =>
+  const answer = (model: string, toolMode: ToolMode, item: Case) =>
     Effect.gen(function*() {
-      const runDir = path.join(out, model.replaceAll("/", "_"), item.id)
+      const runDir = path.join(out, model.replaceAll("/", "_"), toolMode, item.id)
       yield* fs.makeDirectory(runDir, { recursive: true })
-      const context = { component: "web-researcher", job: "answer", run: "bench", runDir, stateDir: runDir, model, agent: { ...resolved, model } }
+      const context = { component: "web-researcher", job: "answer", run: "bench", runDir, stateDir: runDir, model, toolMode, agent: { ...resolved, model, toolMode } }
       const input = { question: item.question, ...(item.platforms ? { platforms: item.platforms } : {}), ...(item.depth ? { depth: item.depth } : {}) }
-      const result = yield* cook.item(input, context, mode)
+      const result = yield* cook.item(input, context)
       const answered = yield* decodeAnswered(result.fields)
       const verdict = yield* grade(item, answered)
-      yield* fs.writeFileString(`${runDir}.json`, `${JSON.stringify({ input, ...result, verdict }, null, 2)}\n`)
+      yield* fs.writeFileString(`${runDir}.json`, `${JSON.stringify({ input, toolMode, ...result, verdict }, null, 2)}\n`)
       yield* fs.remove(runDir, { recursive: true })
       const outcome: Outcome = { item, answered, verdict, cost: result.cost, seconds: result.seconds, attempts: result.attempts }
       return outcome
     }).pipe(Effect.catch((error) =>
       Effect.succeed<Outcome>({ item, answered: undefined, verdict: undefined, cost: 0, seconds: 0, attempts: 0, error: String("message" in error ? error.message : error) })))
 
-  const results = yield* Effect.forEach(models, (model) =>
+  const results = yield* Effect.forEach(arms, ({ model, toolMode, label }) =>
     Effect.forEach(cases, (item) =>
-      answer(model, item).pipe(Effect.tap((outcome) => {
+      answer(model, toolMode, item).pipe(Effect.tap((outcome) => {
         const cited = outcome.answered?.citations ?? []
-        return Console.log(`${model.padEnd(28)} ${item.id.padEnd(34)} ${outcome.error ? `FAIL ${outcome.error.slice(0, 80)}` : `${outcome.verdict?.correct ?? "?"}  verified ${cited.filter((citation) => citation.verified).length}/${cited.length}  ${outcome.answered?.route}  ${outcome.seconds.toFixed(0)} s`}`)
-      })), { concurrency: 2 }).pipe(Effect.map((rows) => ({ model, rows }))), { concurrency: "unbounded" })
+        return Console.log(`${label.padEnd(36)} ${item.id.padEnd(34)} ${outcome.error ? `FAIL ${outcome.error.slice(0, 80)}` : `${outcome.verdict?.correct ?? "?"}  verified ${cited.filter((citation) => citation.verified).length}/${cited.length}  ${outcome.answered?.route}  ${outcome.seconds.toFixed(0)} s`}`)
+      })), { concurrency: 2 }).pipe(Effect.map((rows) => ({ model, toolMode, label, rows }))), { concurrency: "unbounded" })
 
   const table = [
-    "| model | correct | citations verified | verified and supporting | grounded answers | $/answer | p50 s | p95 s | calls/answer | routes | failures |",
+    "| arm | correct | citations verified | verified and supporting | grounded answers | $/answer | p50 s | p95 s | calls/answer | routes | failures |",
     "|---|---|---|---|---|---|---|---|---|---|---|"
   ]
-  for (const { model, rows } of results) {
+  for (const { label, rows } of results) {
     const done = rows.filter((row) => row.answered !== undefined)
     const graded = done.flatMap((row) => row.verdict === undefined ? [] : [row])
     const citations = done.flatMap((row) => row.answered!.citations.map((citation, index) => ({ citation, supports: row.verdict?.supports[index] === true })))
@@ -143,9 +145,9 @@ const program = Effect.gen(function*() {
     const routes = new Map<string, number>()
     for (const row of done) routes.set(row.answered!.route, (routes.get(row.answered!.route) ?? 0) + 1)
     const correct = graded.reduce((sum, row) => sum + SCORE[row.verdict!.correct], 0)
-    table.push(`| ${model} | ${correct}/${rows.length} | ${verified.length}/${citations.length} | ${supporting.length}/${citations.length} | ${grounded.length}/${rows.length} | ${(done.reduce((sum, row) => sum + row.cost, 0) / Math.max(1, done.length)).toFixed(4)} | ${percentile(done.map((row) => row.seconds), 0.5).toFixed(1)} | ${percentile(done.map((row) => row.seconds), 0.95).toFixed(1)} | ${(done.reduce((sum, row) => sum + row.attempts, 0) / Math.max(1, done.length)).toFixed(1)} | ${[...routes].map(([route, count]) => `${route} ${count}`).join(", ")} | ${rows.length - done.length} |`)
+    table.push(`| ${label} | ${correct}/${rows.length} | ${verified.length}/${citations.length} | ${supporting.length}/${citations.length} | ${grounded.length}/${rows.length} | ${(done.reduce((sum, row) => sum + row.cost, 0) / Math.max(1, done.length)).toFixed(4)} | ${percentile(done.map((row) => row.seconds), 0.5).toFixed(1)} | ${percentile(done.map((row) => row.seconds), 0.95).toFixed(1)} | ${(done.reduce((sum, row) => sum + row.attempts, 0) / Math.max(1, done.length)).toFixed(1)} | ${[...routes].map(([route, count]) => `${route} ${count}`).join(", ")} | ${rows.length - done.length} |`)
   }
-  const perCase = [`| case | ${results.map(({ model }) => model.split("/").at(-1)).join(" | ")} |`, `|---|${results.map(() => "---|").join("")}`]
+  const perCase = [`| case | ${results.map(({ model, toolMode }) => `${model.split("/").at(-1)} ${toolMode}`).join(" | ")} |`, `|---|${results.map(() => "---|").join("")}`]
   for (const item of cases) {
     perCase.push(`| ${item.id} | ${results.map(({ rows }) => {
       const row = rows.find((candidate) => candidate.item.id === item.id)!
@@ -154,9 +156,9 @@ const program = Effect.gen(function*() {
       return `${row.verdict?.correct ?? "?"} ${cited.filter((citation) => citation.verified).length}/${cited.length} ${row.answered.route}`
     }).join(" | ")} |`)
   }
-  const failures = results.flatMap(({ model, rows }) => rows.flatMap((row) => row.error === undefined ? [] : [`- ${model} ${row.item.id}: ${row.error}`]))
+  const failures = results.flatMap(({ label, rows }) => rows.flatMap((row) => row.error === undefined ? [] : [`- ${label} ${row.item.id}: ${row.error}`]))
   const report = [
-    `# web-researcher bench ${stamp}${mode === undefined ? "" : `, ${mode} mode`}`,
+    `# web-researcher bench ${stamp}`,
     "",
     `${cases.length} questions from ${path.join(root, "cases.json")}; judge: ${judge}.`,
     "correct: the judge's verdict against the key (yes 1, partial 0.5). verified: citations whose quote the check found on the page (or its search excerpt when the page would not open). supporting: verified and the judge says the quote backs the answer. grounded: answers with at least one verified, supporting citation. routes: which source answered (primary = web search + reader; platform and fallback = agent-reach).",
@@ -169,7 +171,7 @@ const program = Effect.gen(function*() {
     ...(failures.length === 0 ? [] : ["", "Failures:", ...failures])
   ].join("\n")
   yield* fs.writeFileString(path.join(out, "results.md"), `${report}\n`)
-  yield* fs.writeFileString(path.join(out, "results.json"), `${JSON.stringify(results.map(({ model, rows }) => ({ model, rows: rows.map(({ item, ...row }) => ({ id: item.id, ...row })) })), null, 2)}\n`)
+  yield* fs.writeFileString(path.join(out, "results.json"), `${JSON.stringify(results.map(({ model, toolMode, rows }) => ({ model, toolMode, rows: rows.map(({ item, ...row }) => ({ id: item.id, ...row })) })), null, 2)}\n`)
   yield* Console.log(`\n${table.join("\n")}\n\nwritten ${path.join(out, "results.md")}`)
 })
 

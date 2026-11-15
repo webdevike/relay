@@ -58,6 +58,16 @@
       "ecard.linear_search",
       "ecard.linear_issue"
     ],
+    "codeExample": [
+      "const open = await isaac_open_issues({})",
+      "const found = await Promise.all([\"<words from one of Isaac's tasks>\", \"<words from another>\"].map((text) => linear_search({ text })))",
+      "const keys = [...new Set(found.flat().map((issue) => issue.key))].slice(0, 6)",
+      "const read = await Promise.all(keys.map((key) => linear_issue({ key })))",
+      "return {",
+      "  open: open.map(({ key, title, state, parent }) => ({ key, title, state, parent })),",
+      "  candidates: read.map(({ key, title, state, assignee, parent, description }) => ({ key, title, state, assignee, parent, description: description.slice(0, 400) }))",
+      "}"
+    ],
     "answer": {
       "items": {
         "array": {

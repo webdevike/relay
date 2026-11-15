@@ -2,7 +2,7 @@ import { Clock, Cron, DateTime, Effect, Layer, Option, Result, Schema } from "ef
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import { type AdapterContext, type CheckAdapter, type ModelAdapter, type Registry, shortName, type SourceAdapter, type StepAdapter, type ToolAdapter } from "./Adapter.ts"
 import { codeTool } from "./CodeMode.ts"
-import { define, type EventSchemas, type Failure, job, type JobContext, type Registered, Trigger } from "./Component.ts"
+import { define, type EventSchemas, type Failure, job, type JobContext, type Registered, ToolMode, Trigger } from "./Component.ts"
 import { compileFields, type Fields } from "./Fields.ts"
 import { type GenerateRequest, generateWithTools, ModelRunner, tool } from "./Model.ts"
 
@@ -30,10 +30,6 @@ const TriggerSpec = Schema.Union([
   /** A declared event of this chef (`widget.requested`), or another component's full type (`gmail/message.triaged`). */
   Schema.Struct({ onEvent: Schema.NonEmptyString })
 ])
-
-/** How the model uses a job's tools: one call per model turn, or one script per turn (`CodeMode.ts`). */
-export const Mode = Schema.Literals(["tools", "code"])
-export type Mode = typeof Mode.Type
 
 export const RecipeFile = Schema.Struct({
   id: Schema.String,
@@ -69,11 +65,15 @@ export const RecipeFile = Schema.Struct({
     timeout: Schema.optionalKey(Schema.Number.check(Schema.isGreaterThan(0))),
     tools: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
     /**
-     * How the model uses the tools (default `tools`): one tool call per model turn, or `code`, one script per turn
-     * against the tools as typed functions, run in a sandbox (`CodeMode.ts`).
+     * How the model uses the tools by default (`tools`): one tool call per model turn, or `code`, one script per turn
+     * against the tools as typed functions, run in a sandbox (`CodeMode.ts`). `config.json` `toolMode` overrides it
+     * live; when to pick which: `docs/code-mode.md`.
      */
-    mode: Schema.optionalKey(Mode),
-    /** Code mode: a script showing the model the pattern this chef wants (a list is joined with newlines). */
+    toolMode: Schema.optionalKey(ToolMode),
+    /**
+     * A script showing the model the pattern this chef wants in code mode (a list is joined with newlines); required
+     * with `tools`, so every chef with tools can run either mode. It decides script quality (`docs/code-mode.md`).
+     */
     codeExample: Schema.optionalKey(Lines),
     /** The model answers this JSON object (needed for tools); its fields go into the output. */
     answer: Schema.optionalKey(Shape),
@@ -139,8 +139,8 @@ export interface ItemResult {
 /** The compiled model stage of a recipe: what the bench calls directly, without bus or journal. */
 export interface Cook {
   readonly system: string
-  /** Steps, then the model turn and the check, for one item; `mode` overrides the file's `job.mode` (a bench arm). */
-  item(fields: Readonly<Record<string, unknown>>, context: AdapterContext, mode?: Mode): Effect.Effect<ItemResult, Failure, ModelRunner | BunServices>
+  /** Steps, then the model turn and the check, for one item; `context.toolMode` picks the tool mode (a bench arm), else the file's. */
+  item(fields: Readonly<Record<string, unknown>>, context: AdapterContext): Effect.Effect<ItemResult, Failure, ModelRunner | BunServices>
 }
 
 export class RecipeError extends Schema.TaggedError<RecipeError>()("RecipeError", { message: Schema.String }) {}
@@ -213,8 +213,9 @@ export const compileRecipe = (file: RecipeFile, env: RecipeEnv): Result.Result<{
     return result.ok ? result.fields : undefined
   })()
   if (tools.length > 0 && spec.answer === undefined) errors.push("job.tools: a tool loop needs job.answer (the JSON the model answers with)")
-  if (spec.mode === "code" && tools.length === 0) errors.push("job.mode: code needs job.tools (the functions a script calls)")
+  if (spec.toolMode !== undefined && tools.length === 0) errors.push("job.toolMode: only applies with job.tools")
   if (spec.codeExample !== undefined && tools.length === 0) errors.push("job.codeExample: only applies with job.tools")
+  if (tools.length > 0 && spec.codeExample === undefined) errors.push("job.codeExample: a chef with job.tools needs one, the script code mode shows the model")
   if (spec.maxSteps !== undefined && spec.answer === undefined) errors.push("job.maxSteps: only applies with job.answer")
 
   // Which fields exist where: the prompt reads input, source and step fields; the output adds the answer, check and stats.
@@ -282,7 +283,8 @@ export const compileRecipe = (file: RecipeFile, env: RecipeEnv): Result.Result<{
         : Effect.fail(new RecipeError({ message: `job.attach: ${name} is not a path or a list of paths` }))
     }).pipe(Effect.map((lists) => lists.flat()))
 
-  const item = Effect.fn("Recipe.item")(function*(raw: Readonly<Record<string, unknown>>, context: AdapterContext, agentSystem?: string, mode = spec.mode) {
+  const item = Effect.fn("Recipe.item")(function*(raw: Readonly<Record<string, unknown>>, context: AdapterContext, agentSystem?: string) {
+    const mode = context.toolMode ?? spec.toolMode ?? "tools"
     const started = yield* Clock.currentTimeMillis
     let fields = raw
     for (const step of steps) fields = { ...fields, ...(yield* step.run(fields, context)) }
@@ -368,7 +370,13 @@ export const compileRecipe = (file: RecipeFile, env: RecipeEnv): Result.Result<{
   const chef = define({
     id: file.id,
     purpose: file.purpose,
-    agent: { model: file.agent.model, candidates: file.agent.candidates, ...(file.agent.thinking ? { thinking: file.agent.thinking } : {}), system },
+    agent: {
+      model: file.agent.model,
+      candidates: file.agent.candidates,
+      ...(file.agent.thinking ? { thinking: file.agent.thinking } : {}),
+      ...(tools.length > 0 ? { toolMode: spec.toolMode ?? "tools" } : {}),
+      system
+    },
     events,
     jobs: [recipeJob],
     tools: Layer.empty,
@@ -387,5 +395,5 @@ export const compileRecipe = (file: RecipeFile, env: RecipeEnv): Result.Result<{
       }
     })
   })
-  return Result.succeed({ chef, cook: { system, item: (fields, context, mode) => item(fields, context, undefined, mode) } })
+  return Result.succeed({ chef, cook: { system, item: (fields, context) => item(fields, context) } })
 }

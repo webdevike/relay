@@ -8,7 +8,7 @@ import { type Change, events, publishRuntime, runtime, SettingsFile } from "./Ru
 
 /**
  * The consumer side: `<home>/config.json` (Relay's data dir) says which chefs run and with which model,
- * candidates, thinking and crons, plus where the OpenRouter key file is. Absent keys fall back to the
+ * candidates, thinking, tool mode (`docs/code-mode.md`) and crons, plus where the OpenRouter key file is. Absent keys fall back to the
  * chef's own file (or code), so a bake-off winner changes config, not the chef. The service applies
  * edits live; every applied change is a `atomic-agents/config.changed` event.
  */
@@ -30,30 +30,37 @@ export interface Effective {
 export const effective = (component: Registered, settings: SettingsFile): Effective => {
   const own = settings.components?.[component.id] ?? {}
   const thinking = own.thinking ?? component.agent.thinking
+  // A chef without tools has no tool mode; `check` rejects a config toolMode for one that is loaded.
+  const toolMode = component.agent.toolMode === undefined ? undefined : own.toolMode ?? component.agent.toolMode
   return {
     enabled: own.enabled ?? true,
     agent: {
       system: component.agent.system,
       model: own.model ?? component.agent.model,
       candidates: own.candidates ?? component.agent.candidates,
-      ...(thinking === undefined ? {} : { thinking })
+      ...(thinking === undefined ? {} : { thinking }),
+      ...(toolMode === undefined ? {} : { toolMode })
     },
     cron: (job, fallback) => own.cron?.[job] ?? fallback
   }
 }
 
 /**
- * What the schema cannot know: crons parse, and a loaded chef has the cron job named. An entry for a chef
- * that is not loaded (its file not written yet, or removed) is kept and applies once the chef loads.
+ * What the schema cannot know: crons parse, a loaded chef has the cron job named, and a tool mode is set only for a
+ * chef with tools. An entry for a chef that is not loaded (its file not written yet, or removed) is kept and applies
+ * once the chef loads.
  */
 const check = (settings: SettingsFile, components: ReadonlyArray<Registered>): ReadonlyArray<string> =>
   Object.entries(settings.components ?? {}).flatMap(([id, own]) => {
     const component = components.find((candidate) => candidate.id === id)
-    return Object.entries(own.cron ?? {}).flatMap(([jobId, cron]) => {
+    const toolMode = own.toolMode !== undefined && component !== undefined && component.agent.toolMode === undefined
+      ? [`${id}.toolMode: ${id} calls no tools, so it has no tool mode`]
+      : []
+    return [...toolMode, ...Object.entries(own.cron ?? {}).flatMap(([jobId, cron]) => {
       if (Result.isFailure(Cron.parse(cron))) return [`${id}.cron.${jobId}: bad cron "${cron}"`]
       const job = component?.jobs.find((candidate) => candidate.id === jobId)
       return component !== undefined && (job === undefined || !job.triggers.some(Trigger.$is("Cron"))) ? [`${id} has no cron job ${jobId}`] : []
-    })
+    })]
   })
 
 const isObject = (value: unknown): value is Record<string, unknown> =>

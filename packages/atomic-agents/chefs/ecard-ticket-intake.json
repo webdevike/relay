@@ -66,6 +66,10 @@
     "tools": [
       "ecard.linear_issue"
     ],
+    "codeExample": [
+      "const issue = await linear_issue({ key: \"<the ENG key>\" })",
+      "return { title: issue.title, state: issue.state, parent: issue.parent, description: issue.description.slice(0, 3000), comments: issue.comments.map((comment) => `${comment.by}: ${comment.body.slice(0, 300)}`) }"
+    ],
     "answer": {
       "route": {
         "enum": [

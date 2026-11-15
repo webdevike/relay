@@ -75,6 +75,17 @@
       "ecard.linear_issue",
       "ecard.github_prs"
     ],
+    "codeExample": [
+      "const [notes, recent] = await Promise.all([meeting_notes({}), isaac_recent({})])",
+      "const topics = [\"<a feature or task from the invite or the notes>\", \"<another>\"]",
+      "const [tickets, prs] = await Promise.all([Promise.all(topics.map((text) => linear_search({ text }))), Promise.all(topics.map((text) => github_prs({ text })))])",
+      "return {",
+      "  notes: notes.map(({ title, start, sameSeries, tasks, openQuestions, keys }) => ({ title, start, sameSeries, tasks, openQuestions, keys })),",
+      "  recent: recent.slice(0, 10),",
+      "  tickets: tickets.flat().slice(0, 10),",
+      "  prs: prs.flat().slice(0, 8)",
+      "}"
+    ],
     "answer": {
       "tickets": {
         "array": {

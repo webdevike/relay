@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import { Effect, Layer, Ref } from "effect"
 import type { Pack } from "../src/Adapter.ts"
@@ -52,19 +52,14 @@ const fakes = (web: FakeWeb, reach: FakeWeb & { readonly platform?: ReadonlyArra
   )
 ]
 
-/** Run the shipped web-researcher chef (in `mode`, default as shipped) once over a temp home; answer its research.answered data and the model requests. */
-const research = (input: Readonly<Record<string, unknown>>, replies: ReadonlyArray<unknown>, packs: ReadonlyArray<Pack>, mode?: "code") =>
+/** Run the shipped web-researcher chef (in `toolMode`, default as shipped) once over a temp home; answer its research.answered data and the model requests. */
+const research = (input: Readonly<Record<string, unknown>>, replies: ReadonlyArray<unknown>, packs: ReadonlyArray<Pack>, toolMode?: "code") =>
   Effect.gen(function*() {
     const root = yield* tempHome
     const dir = yield* builtinChefs(root, ["web-researcher"])
-    if (mode !== undefined) {
-      const file = `${dir}/web-researcher.json`
-      const chef = JSON.parse(readFileSync(file, "utf8"))
-      writeFileSync(file, JSON.stringify({ ...chef, job: { ...chef.job, mode } }))
-    }
     const { models, seen } = yield* scripted(replies)
     return yield* Effect.gen(function*() {
-      const result = yield* (yield* Runner).run("web-researcher", "answer", input, { model: "test/model" })
+      const result = yield* (yield* Runner).run("web-researcher", "answer", input, { model: "test/model", ...(toolMode === undefined ? {} : { toolMode }) })
       const events = yield* (yield* EventBus).history
       const output = events.find((event) => event.type === "web-researcher/research.answered" && event.run === result.run)
       return { ok: result.ok, data: output?.data as Record<string, any> | undefined, requests: yield* Ref.get(seen) }

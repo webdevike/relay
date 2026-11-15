@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect"
-import { eventType } from "./Component.ts"
+import { eventType, ToolMode } from "./Component.ts"
 import { type EventBus, JournalError, makeEvent } from "./Event.ts"
 import { shortId } from "./Id.ts"
 
@@ -20,6 +20,12 @@ export const ComponentSettings = Schema.Struct({
   model: Schema.optionalKey(Schema.NonEmptyString),
   candidates: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
   thinking: Schema.optionalKey(Thinking),
+  /**
+   * How the model uses its tools: `tools` (one call per turn) or `code` (one sandboxed script per turn over the tools
+   * as a typed API). Only for a chef with tools; absent means the chef file's `job.toolMode`, else `tools`. Applied
+   * from the next run, like `model`; `atomic-agents use <id> --tool-mode code` writes it. When to pick which: `docs/code-mode.md`.
+   */
+  toolMode: Schema.optionalKey(ToolMode),
   /** Job id → cron expression replacing that job's code cron. */
   cron: Schema.optionalKey(Schema.Record(Schema.String, Schema.NonEmptyString)),
   /**

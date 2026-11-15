@@ -6,14 +6,16 @@ import { shortName, type ToolAdapter } from "./Adapter.ts"
 import { type Tool, tool } from "./Model.ts"
 
 /**
- * Code mode (`job.mode: "code"`, after Cloudflare's Code Mode and Anthropic's code execution with MCP): instead of one
+ * Code mode (tool mode `code`, after Cloudflare's Code Mode and Anthropic's code execution with MCP): instead of one
  * tool call per model turn, the model gets one tool, `run_code`, and writes a TypeScript script against the job's tools
- * as typed async functions. The script can run calls side by side, filter what comes back and return only what the
- * answer needs. Every function call comes back to this process over IPC and runs the real tool adapter on the item's
- * fields (`caller` "script"), so a pack's gates, ledgers and checks hold exactly as in tool mode.
+ * as typed async functions, generated from each tool adapter's `args` and `returns` schemas, so any chef's tools are a
+ * typed API with no per-chef code. The script can run calls side by side, filter what comes back and return only what
+ * the answer needs. Every function call comes back to this process over IPC and runs the real tool adapter on the item's
+ * fields (`caller` "script"), so a pack's gates, ledgers and checks hold exactly as in tool mode `tools`.
  *
  * The script runs in a fresh Bun process under macOS `sandbox-exec`: no network, no other process, no reads under
  * the home directory except Bun's own, writes only in its temp dir, a time and a memory limit.
+ * When to use which mode: `docs/code-mode.md`.
  */
 export const CODE_TOOL = "run_code"
 /** A script's wall time: room for a Muse ask (about a minute, and asks queue one at a time across the service) plus reads. */
@@ -29,6 +31,8 @@ type JsonSchema = { readonly [key: string]: unknown }
 const tsType = (schema: JsonSchema, definitions: JsonSchema): string => {
   if (typeof schema["$ref"] === "string") return tsType((definitions[schema["$ref"].split("/").at(-1)!] ?? {}) as JsonSchema, definitions)
   if (Array.isArray(schema["enum"])) return schema["enum"].map((value) => JSON.stringify(value)).join(" | ")
+  // `Schema.Struct({})`, a tool with no args, is "anything but null".
+  if ((schema["not"] as JsonSchema | undefined)?.["type"] === "null") return "{}"
   if ("const" in schema) return JSON.stringify(schema["const"])
   const union = schema["anyOf"] ?? schema["oneOf"]
   if (Array.isArray(union)) return union.map((member) => tsType(member as JsonSchema, definitions)).join(" | ")
@@ -55,13 +59,17 @@ const tsType = (schema: JsonSchema, definitions: JsonSchema): string => {
   return "unknown"
 }
 
+/** A schema as a TypeScript type, through its JSON Schema document. */
+const typeOf = (schema: Schema.Top) => {
+  const document = Schema.toJsonSchemaDocument(schema)
+  return tsType(document.schema as JsonSchema, document.definitions as JsonSchema)
+}
+
 /** The tools as the script's typed functions, one declaration each under its description. */
 export const declarations = (tools: ReadonlyArray<ToolAdapter>) =>
-  tools.map((candidate) => {
-    const document = Schema.toJsonSchemaDocument(candidate.args as Schema.Top)
-    const args = tsType(document.schema as JsonSchema, document.definitions as JsonSchema)
-    return `/** ${candidate.description} */\ndeclare function ${shortName(candidate.name)}(args: ${args}): Promise<${candidate.returns ?? "unknown"}>`
-  }).join("\n")
+  tools.map((candidate) =>
+    `/** ${candidate.description} */\ndeclare function ${shortName(candidate.name)}(args: ${typeOf(candidate.args as Schema.Top)}): Promise<${typeOf(candidate.returns)}>`
+  ).join("\n")
 
 /** The child's side: the tools as functions over IPC, the script's default export called with them, its value sent back. */
 const RUNNER = `

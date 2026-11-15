@@ -1,4 +1,5 @@
 import { Config, Context, DateTime, Effect, FileSystem, Layer, Option, Path, PubSub, Ref, Schedule, Schema, type Scope, Semaphore, Stream } from "effect"
+import { ToolMode } from "./Component.ts"
 import { uuid } from "./Id.ts"
 
 /**
@@ -24,8 +25,10 @@ const encodeLine = Schema.encodeEffect(JournalLine)
  * The runtime's lifecycle events, declared once. The runtime wraps every run in them, so any subscriber can
  * follow any component without knowing its schemas. On the wire the `_tag` is the event name (the envelope's
  * `type` is `<component>/<_tag>`) and travels in `data` too, so `Schema.decodeUnknownEffect(Lifecycle)(event.data)` works.
+ * `job.started`'s `toolMode` is the mode the run's model used its tools in; absent for a chef without tools (and in lines
+ * written before tool modes).
  */
-export const JobStarted = Schema.TaggedStruct("job.started", { input: Schema.Unknown, model: Schema.String })
+export const JobStarted = Schema.TaggedStruct("job.started", { input: Schema.Unknown, model: Schema.String, toolMode: Schema.optionalKey(ToolMode) })
 export const JobSucceeded = Schema.TaggedStruct("job.succeeded", { model: Schema.String, seconds: Schema.Number })
 export const JobFailed = Schema.TaggedStruct("job.failed", {
   model: Schema.String,

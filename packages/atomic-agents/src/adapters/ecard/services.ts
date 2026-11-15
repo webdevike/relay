@@ -12,33 +12,36 @@ export class LinearError extends Schema.TaggedError<LinearError>()("LinearError"
 export class GitHubError extends Schema.TaggedError<GitHubError>()("GitHubError", { message: Schema.String }) {}
 export class MeetingsError extends Schema.TaggedError<MeetingsError>()("MeetingsError", { message: Schema.String }) {}
 
-export interface IssueComment {
-  readonly at: string
-  readonly by: string
-  readonly body: string
-}
+/*
+ * What the services answer, as schemas: the TypeScript types below come from them, and the ecard tools hand the same
+ * schemas to code mode as their `returns`, so a script's typed API cannot drift from what the tools return.
+ */
+export const IssueComment = Schema.Struct({ at: Schema.String, by: Schema.String, body: Schema.String })
+export type IssueComment = typeof IssueComment.Type
 
-export interface Issue {
-  readonly key: string
-  readonly title: string
-  readonly url: string
+export const Issue = Schema.Struct({
+  key: Schema.String,
+  title: Schema.String,
+  url: Schema.String,
   /** State and assignee as of `asOf` when given (replayed from the issue history), else now. */
-  readonly state: string
-  readonly assignee: string | null
-  readonly parent: string | null
-  readonly description: string
+  state: Schema.String,
+  assignee: Schema.NullOr(Schema.String),
+  parent: Schema.NullOr(Schema.String),
+  description: Schema.String,
   /** Newest last, at most 6, only those made before `asOf`. */
-  readonly comments: ReadonlyArray<IssueComment>
-}
+  comments: Schema.Array(IssueComment)
+})
+export type Issue = typeof Issue.Type
 
-export interface IssueSummary {
-  readonly key: string
-  readonly title: string
-  readonly state: string
-  readonly assignee: string | null
-  readonly parent: string | null
-  readonly createdAt: string
-}
+export const IssueSummary = Schema.Struct({
+  key: Schema.String,
+  title: Schema.String,
+  state: Schema.String,
+  assignee: Schema.NullOr(Schema.String),
+  parent: Schema.NullOr(Schema.String),
+  createdAt: Schema.String
+})
+export type IssueSummary = typeof IssueSummary.Type
 
 export class Linear extends Context.Service<Linear, {
   /** One issue by key (`ENG-1234`); `asOf` (ISO) replays its state, assignee and comments to that moment. */
@@ -186,34 +189,34 @@ export class Linear extends Context.Service<Linear, {
   )
 }
 
-export interface Commit {
-  readonly sha: string
-  readonly message: string
-  readonly author: string
-  readonly date: string
-  readonly files: ReadonlyArray<string>
-}
+export const Commit = Schema.Struct({ sha: Schema.String, message: Schema.String, author: Schema.String, date: Schema.String, files: Schema.Array(Schema.String) })
+export type Commit = typeof Commit.Type
 
-export interface PullSummary {
-  readonly repo: string
-  readonly number: number
-  readonly title: string
+export const PullSummary = Schema.Struct({
+  repo: Schema.String,
+  number: Schema.Int,
+  title: Schema.String,
   /** As of the search's `before` when given, else now: merged, closed without merging (abandoned), or open. */
-  readonly state: "open" | "merged" | "closed"
-  readonly author: string
-  readonly createdAt: string
-  readonly mergedAt: string | null
-}
+  state: Schema.Literals(["open", "merged", "closed"]),
+  author: Schema.String,
+  createdAt: Schema.String,
+  mergedAt: Schema.NullOr(Schema.String)
+})
+export type PullSummary = typeof PullSummary.Type
 
-export interface WorkflowRun {
-  readonly id: number
-  readonly branch: string
-  readonly sha: string
-  readonly event: string
-  readonly conclusion: string | null
-  readonly attempt: number
-  readonly createdAt: string
-}
+export const WorkflowRun = Schema.Struct({
+  id: Schema.Int,
+  branch: Schema.String,
+  sha: Schema.String,
+  event: Schema.String,
+  conclusion: Schema.NullOr(Schema.String),
+  attempt: Schema.Int,
+  createdAt: Schema.String
+})
+export type WorkflowRun = typeof WorkflowRun.Type
+
+export const WorkflowRuns = Schema.Struct({ workflow: Schema.String, branch: Schema.String, runs: Schema.Array(WorkflowRun) })
+export type WorkflowRuns = typeof WorkflowRuns.Type
 
 export class GitHub extends Context.Service<GitHub, {
   /** A commit's message, author, date and changed files (`gh api repos/<repo>/commits/<sha>`). */
@@ -228,7 +231,7 @@ export class GitHub extends Context.Service<GitHub, {
    */
   searchPrs(text: string, before?: string): Effect.Effect<ReadonlyArray<PullSummary>, GitHubError>
   /** The workflow of run `runId` and its other runs (any branch) created before `before` (ISO, else now), newest first, at most 15. */
-  workflowRuns(repo: string, runId: number, before?: string): Effect.Effect<{ readonly workflow: string; readonly branch: string; readonly runs: ReadonlyArray<WorkflowRun> }, GitHubError>
+  workflowRuns(repo: string, runId: number, before?: string): Effect.Effect<WorkflowRuns, GitHubError>
   /** The failed steps' log of one attempt of a run (`gh run view --log-failed`), last 6000 chars. */
   failedLog(repo: string, runId: number, attempt: number): Effect.Effect<string, GitHubError>
 }>()("atomic-agents/ecard/GitHub") {
@@ -315,20 +318,21 @@ export class GitHub extends Context.Service<GitHub, {
   )
 }
 
-export interface PriorMeeting {
+export const PriorMeeting = Schema.Struct({
   /** The Outlook series when the protocol names it, else the ledger's generated title. */
-  readonly title: string
-  readonly start: string
-  readonly sameSeries: boolean
-  readonly summary: string
+  title: Schema.String,
+  start: Schema.String,
+  sameSeries: Schema.Boolean,
+  summary: Schema.String,
   /** "<task> — <responsible>" per Tasks row. */
-  readonly tasks: ReadonlyArray<string>
-  readonly openQuestions: ReadonlyArray<string>
+  tasks: Schema.Array(Schema.String),
+  openQuestions: Schema.Array(Schema.String),
   /** The ledger's takeaways and the actions it proposed (with their ticket when matched). */
-  readonly takeaways: ReadonlyArray<string>
+  takeaways: Schema.Array(Schema.String),
   /** ENG keys the protocol (without its transcript) or the ledger's actions name. */
-  readonly keys: ReadonlyArray<string>
-}
+  keys: Schema.Array(Schema.String)
+})
+export type PriorMeeting = typeof PriorMeeting.Type
 
 /** One meeting in Eva's meeting ledger (`<EVA_ROOT>/work/meetings/<stem>.json`, written as each recording is processed). */
 const LedgerEntry = Schema.Struct({

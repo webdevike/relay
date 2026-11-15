@@ -7,12 +7,12 @@ import { packs } from "./adapters/index.ts"
 import { ask } from "./Ask.ts"
 import { Background } from "./Background.ts"
 import { Chefs, parseChef } from "./Chef.ts"
-import { type EventSchemas, Trigger } from "./Component.ts"
+import { type EventSchemas, ToolMode, Trigger } from "./Component.ts"
 import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./Event.ts"
 import { shortId } from "./Id.ts"
 import { ModelRunner } from "./Model.ts"
 import { Orchestrators, Reporter, Sessions } from "./Orchestrator.ts"
-import { Runner } from "./Runtime.ts"
+import { type RunOptions, Runner } from "./Runtime.ts"
 import { RUNTIME, runtime } from "./RuntimeEvents.ts"
 import * as Service from "./Service.ts"
 import { effective, Settings } from "./Settings.ts"
@@ -22,8 +22,11 @@ const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknow
 const show = (event: AgentEvent) =>
   Console.log(`${event.at.slice(11, 19)}  ${event.type.padEnd(30)} ${event.run.padEnd(24)} ${JSON.stringify(event.data).slice(0, 220)}`)
 
+/** A bake-off arm as people read it: the model, with its tool mode for a chef with tools. */
+const arm = (model: string, toolMode: ToolMode | undefined) => toolMode === undefined ? model : `${model} [${toolMode}]`
+
 /** Run one job and stream its events until the runtime reports it finished. */
-const runAndFollow = Effect.fnUntraced(function*(component: string, job: string, input: unknown, model: string | undefined) {
+const runAndFollow = Effect.fnUntraced(function*(component: string, job: string, input: unknown, options: RunOptions) {
   const bus = yield* EventBus
   const runner = yield* Runner
   // Runs whose job.succeeded / job.failed has arrived; the event can land before or after `run` returns.
@@ -36,7 +39,7 @@ const runAndFollow = Effect.fnUntraced(function*(component: string, job: string,
       })))),
     Effect.forkScoped
   )
-  const result = yield* runner.run(component, job, input, model === undefined ? {} : { model })
+  const result = yield* runner.run(component, job, input, options)
   yield* SubscriptionRef.changes(finished).pipe(
     Stream.filter((runs) => runs.has(result.run)),
     Stream.runHead,
@@ -47,7 +50,12 @@ const runAndFollow = Effect.fnUntraced(function*(component: string, job: string,
 }, Effect.scoped)
 
 const modelFlag = Flag.String("model").pipe(Flag.withDescription("omp model id overriding the component default"), Flag.optional)
+const toolModeFlag = Flag.Literals("tool-mode", ToolMode.literals).pipe(
+  Flag.withDescription("tools (one tool call per model turn) or code (one sandboxed script per turn); only for a chef with tools, see docs/code-mode.md"),
+  Flag.optional
+)
 const inputFlag = Flag.String("input").pipe(Flag.withDescription("job input as JSON"), Flag.withDefault("{}"))
+const byFlag = Flag.String("by").pipe(Flag.withDescription("who is changing it (recorded on config.changed)"), Flag.withDefault(Bun.env["USER"] ?? "cli"))
 
 const list = Command.make("list", {}, () =>
   Effect.gen(function*() {
@@ -58,7 +66,7 @@ const list = Command.make("list", {}, () =>
       const resolved = effective(component, current)
       yield* Console.log(`${component.id}${resolved.enabled ? "" : " (disabled)"}: ${component.purpose}`)
       yield* Console.log(`  file    ${component.file ?? "(code, passed in by the host)"} [${component.kind}]`)
-      yield* Console.log(`  agent   ${resolved.agent.model}${resolved.agent.thinking ? ` thinking ${resolved.agent.thinking}` : ""} (candidates: ${resolved.agent.candidates.join(", ")})`)
+      yield* Console.log(`  agent   ${resolved.agent.model}${resolved.agent.thinking ? ` thinking ${resolved.agent.thinking}` : ""}${resolved.agent.toolMode ? ` tool mode ${resolved.agent.toolMode}` : ""} (candidates: ${resolved.agent.candidates.join(", ")})`)
       for (const job of component.jobs) {
         const triggers = job.triggers.map(Trigger.$match({
           Manual: () => "manual",
@@ -75,28 +83,37 @@ const run = Command.make("run", {
   component: Argument.String("component"),
   job: Argument.String("job"),
   input: inputFlag,
-  model: modelFlag
-}, Effect.fnUntraced(function*({ component, job, input, model }) {
-  const result = yield* runAndFollow(component, job, yield* parseJson(input), Option.getOrUndefined(model))
+  model: modelFlag,
+  toolMode: toolModeFlag
+}, Effect.fnUntraced(function*({ component, job, input, model, toolMode }) {
+  const options = { ...Option.match(model, { onNone: () => ({}), onSome: (value) => ({ model: value }) }), ...Option.match(toolMode, { onNone: () => ({}), onSome: (value) => ({ toolMode: value }) }) }
+  const result = yield* runAndFollow(component, job, yield* parseJson(input), options)
   if (!result.ok) return yield* Effect.fail(new Error(`run ${result.run} failed`))
 }))
 
+/** One input across arms, each a model (by default the candidates) times a tool mode (`--tool-modes tools,code`, for a chef with tools). */
 const bench = Command.make("bench", {
   component: Argument.String("component"),
   job: Argument.String("job"),
   input: inputFlag,
-  models: Flag.String("models").pipe(Flag.withDescription("comma-separated omp model ids; default: the component's candidates"), Flag.optional)
-}, Effect.fnUntraced(function*({ component, job, input, models }) {
+  models: Flag.String("models").pipe(Flag.withDescription("comma-separated omp model ids; default: the component's candidates"), Flag.optional),
+  toolModes: Flag.String("tool-modes").pipe(Flag.withDescription("comma-separated tool modes to cross with the models (tools,code); default: the one in force"), Flag.optional)
+}, Effect.fnUntraced(function*({ component, job, input, models, toolModes }) {
   const spec = (yield* (yield* Chefs).current).find((candidate) => candidate.id === component)
   const candidates = spec === undefined ? [] : effective(spec, yield* (yield* Settings).current).agent.candidates
-  const arms = Option.match(models, { onNone: () => candidates, onSome: (list) => list.split(",") })
+  const modelArms = Option.match(models, { onNone: () => candidates, onSome: (list) => list.split(",") })
+  const modeArms = yield* Option.match(toolModes, {
+    onNone: () => Effect.succeed([undefined]),
+    onSome: (list) => Schema.decodeUnknownEffect(Schema.Array(ToolMode))(list.split(","))
+  })
   const decoded = yield* parseJson(input)
-  const results = yield* Effect.forEach(arms, (model) => runAndFollow(component, job, decoded, model).pipe(Effect.map((result) => ({ model, ...result }))))
+  const arms = modelArms.flatMap((model) => modeArms.map((toolMode) => ({ model, ...(toolMode === undefined ? {} : { toolMode }) })))
+  const results = yield* Effect.forEach(arms, (options) => runAndFollow(component, job, decoded, options).pipe(Effect.map((result) => ({ ...options, ...result }))))
   yield* Console.log("\nbake-off (pick with: atomic-agents rate <run-a> <run-b> a|b|tie)")
-  for (const result of results) yield* Console.log(`  ${result.ok ? "ok  " : "FAIL"} ${result.model.padEnd(32)} ${result.run}`)
+  for (const result of results) yield* Console.log(`  ${result.ok ? "ok  " : "FAIL"} ${arm(result.model, result.toolMode).padEnd(40)} ${result.run}`)
 }))
 
-/** Pairwise A-vs-B pick between two runs of the same job; `wins` turns the picks into a win rate per model. */
+/** Pairwise A-vs-B pick between two runs of the same job; `wins` turns the picks into a win rate per arm (model, and tool mode for a chef with tools). */
 const rate = Command.make("rate", {
   a: Argument.String("run-a"),
   b: Argument.String("run-b"),
@@ -108,7 +125,9 @@ const rate = Command.make("rate", {
   const [left, right] = [a, b].map((run) =>
     history.flatMap((event) => {
       const started = lifecycle(event)
-      return event.run === run && Option.isSome(started) && started.value._tag === "job.started" ? [{ event, model: started.value.model }] : []
+      return event.run === run && Option.isSome(started) && started.value._tag === "job.started"
+        ? [{ event, side: { run, model: started.value.model, ...(started.value.toolMode === undefined ? {} : { toolMode: started.value.toolMode }) } }]
+        : []
     })[0])
   if (left === undefined || right === undefined) {
     // Bench arms run under a scratch ATOMIC_AGENTS_HOME are not in this journal (the design-critic blind pair was).
@@ -120,28 +139,30 @@ const rate = Command.make("rate", {
     component: left.event.component,
     job: left.event.job,
     run: `pick-${yield* shortId}`,
-    data: { a: { run: a, model: left.model }, b: { run: b, model: right.model }, winner, note }
+    data: { a: left.side, b: right.side, winner, note }
   }))
-  yield* Console.log(`picked ${winner === "tie" ? "tie" : `${winner}: ${(winner === "a" ? left : right).model}`}`)
+  const picked = winner === "a" ? left.side : right.side
+  yield* Console.log(`picked ${winner === "tie" ? "tie" : `${winner}: ${arm(picked.model, picked.toolMode)}`}`)
 }))
 
-const Pick = Schema.Struct({
-  a: Schema.Struct({ model: Schema.String }),
-  b: Schema.Struct({ model: Schema.String }),
-  winner: Schema.Literals(["a", "b", "tie"])
-})
+/** A side of a pick; picks written before tool modes have no `toolMode`. */
+const Side = Schema.Struct({ model: Schema.String, toolMode: Schema.optionalKey(ToolMode) })
+const Pick = Schema.Struct({ a: Side, b: Side, winner: Schema.Literals(["a", "b", "tie"]) })
 
 const wins = Command.make("wins", {
   component: Flag.String("component").pipe(Flag.withDefault(""))
 }, Effect.fnUntraced(function*({ component }) {
-  const tally = new Map<string, { component: string; model: string; won: number; lost: number; tied: number }>()
+  const tally = new Map<string, { component: string; model: string; toolMode: ToolMode | undefined; won: number; lost: number; tied: number }>()
   for (const event of (yield* (yield* EventBus).history)) {
     if (!event.type.endsWith("/pair.picked") || (component !== "" && event.component !== component)) continue
     const pick = Schema.decodeUnknownOption(Pick)(event.data)
-    if (Option.isNone(pick) || pick.value.a.model === pick.value.b.model) continue
+    if (Option.isNone(pick)) continue
+    const { a, b } = pick.value
+    if (a.model === b.model && a.toolMode === b.toolMode) continue
     for (const side of ["a", "b"] as const) {
-      const key = `${event.component}  ${pick.value[side].model}`
-      const row = tally.get(key) ?? { component: event.component, model: pick.value[side].model, won: 0, lost: 0, tied: 0 }
+      const { model, toolMode } = pick.value[side]
+      const key = `${event.component}  ${arm(model, toolMode)}`
+      const row = tally.get(key) ?? { component: event.component, model, toolMode, won: 0, lost: 0, tied: 0 }
       if (pick.value.winner === "tie") row.tied++
       else if (pick.value.winner === side) row.won++
       else row.lost++
@@ -152,38 +173,43 @@ const wins = Command.make("wins", {
   if (rows.length === 0) return yield* Console.log("no pairwise picks yet")
   rows.sort((x, y) => y.rate - x.rate)
   for (const row of rows) {
-    yield* Console.log(`${`${row.component}  ${row.model}`.padEnd(48)} ${(row.rate * 100).toFixed(0).padStart(3)}%  ${row.won}W ${row.lost}L ${row.tied}T`)
+    yield* Console.log(`${`${row.component}  ${arm(row.model, row.toolMode)}`.padEnd(56)} ${(row.rate * 100).toFixed(0).padStart(3)}%  ${row.won}W ${row.lost}L ${row.tied}T`)
   }
   // The winner goes into config.json, never into code.
   const current = yield* (yield* Settings).current
   for (const spec of yield* (yield* Chefs).current) {
     const best = rows.find((row) => row.component === spec.id)
     if (best === undefined) continue
-    const inForce = effective(spec, current).agent.model
-    yield* Console.log(inForce === best.model
-      ? `\n${spec.id} already uses its winner ${best.model}`
-      : `\n${spec.id} uses ${inForce}; promote the winner with: atomic-agents use ${spec.id} ${best.model}`)
+    const inForce = effective(spec, current).agent
+    // A pick without a tool mode says nothing about it: keep the mode in force.
+    const sameMode = best.toolMode === undefined || best.toolMode === inForce.toolMode
+    yield* Console.log(inForce.model === best.model && sameMode
+      ? `\n${spec.id} already uses its winner ${arm(best.model, best.toolMode)}`
+      : `\n${spec.id} uses ${arm(inForce.model, inForce.toolMode)}; promote the winner with: atomic-agents use ${spec.id} ${best.model}${sameMode ? "" : ` --tool-mode ${best.toolMode}`}`)
   }
 }))
 
-/** Set a component's model in config.json (the bake-off winner); a running service applies it to the next run. */
+/** Set a component's model and/or tool mode in config.json (the bake-off winner); a running service applies it to the next run. */
 const use = Command.make("use", {
   component: Argument.String("component"),
-  model: Argument.String("model"),
-  by: Flag.String("by").pipe(Flag.withDescription("who is changing it (recorded on config.changed)"), Flag.withDefault(Bun.env["USER"] ?? "cli"))
-}, Effect.fnUntraced(function*({ component, model, by }) {
+  model: Argument.String("model").pipe(Argument.withDescription("omp model id; omit to change only the tool mode"), Argument.optional),
+  toolMode: toolModeFlag,
+  by: byFlag
+}, Effect.fnUntraced(function*({ component, model, toolMode, by }) {
+  if (Option.isNone(model) && Option.isNone(toolMode)) return yield* Effect.fail(new Error("name a model, --tool-mode tools|code, or both"))
   const settings = yield* Settings
-  const changes = yield* settings.set({ components: { [component]: { model } } }, by, "use")
-  if (changes.length === 0) return yield* Console.log(`${component} already uses ${model}`)
+  const own = { ...Option.match(model, { onNone: () => ({}), onSome: (value) => ({ model: value }) }), ...Option.match(toolMode, { onNone: () => ({}), onSome: (value) => ({ toolMode: value }) }) }
+  const changes = yield* settings.set({ components: { [component]: own } }, by, "use")
+  if (changes.length === 0) return yield* Console.log(`${component} already uses ${JSON.stringify(own)}`)
   for (const change of changes) yield* Console.log(`${change.path.join(".")}: ${JSON.stringify(change.old)} -> ${JSON.stringify(change.new)}`)
-  yield* Console.log(`written to ${settings.file}; a running service applies it from the next run`)
+  yield* Console.log(`written to ${settings.file}; a running service applies it from the next run (undo: the config.changed event's undo patch)`)
 }))
 
 /** Set how a consumer uses a component's answers (widget: Relay Host under assistants' replies); it reads config.json on every request. */
 const mode = Command.make("mode", {
   component: Argument.String("component"),
   mode: Argument.Literals("mode", ["shadow", "live", "off"]),
-  by: Flag.String("by").pipe(Flag.withDescription("who is changing it (recorded on config.changed)"), Flag.withDefault(Bun.env["USER"] ?? "cli"))
+  by: byFlag
 }, Effect.fnUntraced(function*({ component, mode, by }) {
   const settings = yield* Settings
   const changes = yield* settings.set({ components: { [component]: { mode } } }, by, "set")

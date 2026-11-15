@@ -132,7 +132,10 @@ const shown = (ledger: Ledger, via: string, hits: ReadonlyArray<Hit>, caller: Ca
   for (const hit of hits) remember(ledger, via, hit.url, undefined, hit.text)
   return hits.map((hit) => ({ url: hit.url, title: hit.title, ...(hit.date ? { date: hit.date } : {}), ...(caller === "model" ? { excerpt: hit.text.slice(0, EXCERPT) } : { text: hit.text }) }))
 }
-const HITS = "{ results: Array<{ url: string; title: string; date?: string; text: string }>; note?: string }"
+const HITS = Schema.Struct({
+  results: Schema.Array(Schema.Struct({ url: Schema.String, title: Schema.String, date: Schema.optionalKey(Schema.String), text: Schema.String })),
+  note: Schema.optionalKey(Schema.String)
+})
 
 /**
  * `find`'s terms: each word of 3+ letters, found inside longer words too ("goroutine" in "goroutines"),
@@ -226,7 +229,7 @@ const passages = (text: string, find: string | undefined) => {
 /** A page as the caller gets it: the model its passages; a script (code mode) the whole text, plus the passages when it passed find. */
 const pageFor = (url: string, text: string, find: string | undefined, caller: Caller) =>
   caller === "model" ? { url, ...passages(text, find) } : { url, text, ...(find === undefined ? {} : { passages: passages(text, find).text }) }
-const PAGE = "{ url: string; text: string; passages?: string }"
+const PAGE = Schema.Struct({ url: Schema.String, text: Schema.String, passages: Schema.optionalKey(Schema.String) })
 
 const refused = (message: string) => Effect.fail(new ResearchError({ message }))
 
@@ -368,7 +371,7 @@ export const researchPack = (
           "Muse (Meta AI, signed in as Isaac) searches Instagram, Facebook (groups, pages) or Facebook Marketplace, which plain search cannot see into, and answers with links to the posts, reels or listings. Only for a platform the request names; one question per platform, slow (about a minute). Muse is a SECONDARY source: read its links to confirm, and cite a link with a quote from that page; when the page will not open, a quote from what Muse said about that link counts, marked as Muse's. question: the full question, with place and time if they matter.",
         args: Schema.Struct({ platform: Schema.Literals(MUSE_PLATFORMS), question: Schema.NonEmptyString }),
         example: `{"platform": "instagram", "question": "<the full question>"}`,
-        returns: "{ answer: string; links: Array<{ url: string; context: string }>; note: string }",
+        returns: Schema.Struct({ answer: Schema.String, links: Schema.Array(Schema.Struct({ url: Schema.String, context: Schema.String })), note: Schema.String }),
         run: ({ platform, question }, fields) =>
           Effect.gen(function*() {
             const named = musePlatforms(fields)

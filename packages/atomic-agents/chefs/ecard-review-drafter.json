@@ -85,6 +85,12 @@
     "tools": [
       "ecard.read_file"
     ],
+    "codeExample": [
+      "const file = await read_file({ path: \"<the commented file>\", from: 1, to: 200 })",
+      "const wanted = /<a symbol the comment or the hunk names>/",
+      "const lines = file.split(\"\\n\")",
+      "return { imports: lines.filter((line) => /\\bimport\\b/.test(line)), uses: lines.filter((line) => wanted.test(line)) }"
+    ],
     "answer": {
       "kind": {
         "enum": [
