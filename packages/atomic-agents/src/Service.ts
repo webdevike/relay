@@ -51,7 +51,9 @@ export const install = Effect.gen(function*() {
     HOME: user,
     PATH: [path.dirname(process.execPath), path.join(user, ".local", "bin"), "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":"),
     ATOMIC_AGENTS_HOME: root,
-    BLENDER: blender
+    BLENDER: blender,
+    // The omp profile model calls run under; launchd has none, and omp's default profile may load unrelated MCP servers.
+    ...(Bun.env["OMP_PROFILE"] ? { OMP_PROFILE: Bun.env["OMP_PROFILE"] } : {})
   }
   const installed = path.join(app, "atomic-agents")
   const cli = path.join(installed, "src", "cli.ts")
