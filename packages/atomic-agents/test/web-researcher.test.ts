@@ -58,7 +58,7 @@ const research = (input: Readonly<Record<string, unknown>>, replies: ReadonlyArr
 
 const PAGE = "# Release notes\n\nThe **1.4** release shipped on “October 22, 2026” with bun fmt.\n\nUnrelated paragraph."
 
-/** Pages as `omp read` returned them on 2026-11-15, when the web-researcher needle test caught each bug. */
+/** Pages as `omp read` (or `.jina.md`: agent-reach's Jina reader) returned them on 2026-11-15, when the web-researcher needle test caught each bug. */
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/research/${name}`, import.meta.url), "utf8")
 
 describe("web-researcher", () => {
@@ -157,6 +157,30 @@ describe("web-researcher", () => {
       )
       expect(requests[1]!.prompt).toContain("passages matching find")
       expect(requests[1]!.prompt).toContain("q=0.30 z=24")
+    }).pipe(Effect.runPromise), 20_000)
+
+  test("find reaches deep into an oversized paragraph: Jina's bitcointalk thread is one 30k-character paragraph, and its posts are the passages shown and quoted", () =>
+    Effect.gen(function*() {
+      const url = "https://bitcointalk.org/index.php?topic=137.0"
+      const quote = "just standard stuff no weird fish topping or anything like that. ... I just want to report that I successfully traded 10,000 bitcoins for pizza."
+      const { data, requests } = yield* research(
+        { question: "In the 2010 bitcointalk pizza thread, what topping did he not want, and whom did he thank?" },
+        [
+          { tool: "read", args: { url } },
+          { tool: "fallback_read", args: { url, find: "weird fish topping thanks jercos" } },
+          { answer: { answer: "No weird fish topping; he thanked jercos.", citations: [{ url, quote }, { url, quote: "Pictures: http://heliacal.net/~solar/bitcoin/pizza/ Thanks jercos!" }] } }
+        ],
+        fakes({}, { pages: { [url]: fixture("bitcointalk-137.jina.md") } })
+      )
+      // Before, the window only took whole paragraphs, so find fell back to the first 4,500 characters: the avatar header.
+      expect(requests[2]!.prompt).toContain("passages matching find")
+      expect(requests[2]!.prompt).toContain("no weird fish topping or anything like that")
+      expect(requests[2]!.prompt).toContain("Thanks jercos!")
+      expect(data!["citations"]).toEqual([
+        { url, quote, verified: true, checked: "page", via: "reach.fallback_read" },
+        { url, quote: "Pictures: http://heliacal.net/~solar/bitcoin/pizza/ Thanks jercos!", verified: true, checked: "page", via: "reach.fallback_read" }
+      ])
+      expect(data!["attempts"]).toBe(3)
     }).pipe(Effect.runPromise), 20_000)
 
   test("a read that returns only the site's navigation counts as failed (so fallback_read opens); a short page of real text still reads", () => {

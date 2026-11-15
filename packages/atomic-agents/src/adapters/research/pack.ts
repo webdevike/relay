@@ -22,6 +22,11 @@ const THIN = 3
 const SEARCHES_BEFORE_FALLBACK = 2
 /** Characters of one tool result the model sees (the tool loop caps a result at 6000, JSON escapes included). */
 const SHOWN = 4500
+/**
+ * Longest passage `find` scores on its own. A longer paragraph is cut into pieces (Jina reads a whole
+ * bitcointalk thread as one 30k-character paragraph), so a match deep in it still fits the window.
+ */
+const PIECE = 1500
 const EXCERPT = 600
 /** A quote shorter than this proves nothing ("engine unity", from a press kit, is about the shortest that still does). */
 const MIN_QUOTE = 12
@@ -135,24 +140,76 @@ const terms = (find: string): ReadonlyArray<(body: string) => boolean> => {
   ]
 }
 
-/** A page as the model sees it: the start, or with `find` the paragraphs that hold the most of its terms. */
+interface Span {
+  readonly start: number
+  readonly end: number
+}
+
+/** The text's paragraphs as [start, end) offsets: blank lines, and line breaks before a heading or list item, part them. */
+const paragraphs = (text: string) => {
+  const spans: Array<Span> = []
+  let start = 0
+  for (const separator of text.matchAll(/\n\s*\n|\n(?=[#*-] )/g)) {
+    spans.push({ start, end: separator.index })
+    start = separator.index + separator[0].length
+  }
+  spans.push({ start, end: text.length })
+  return spans
+}
+
+/** Where the last `boundary` in `window` ends, or -1. */
+const lastEnd = (window: string, boundary: RegExp) => {
+  let at = -1
+  for (const match of window.matchAll(boundary)) at = match.index + match[0].length
+  return at
+}
+
+/**
+ * A paragraph in contiguous pieces of at most PIECE characters, each cut after its last line break, else its
+ * last sentence end, else its last space (any of them past half a piece), else hard at PIECE.
+ */
+const pieces = (text: string, { start, end }: Span) => {
+  const out: Array<Span> = []
+  let from = start
+  while (end - from > PIECE) {
+    const window = text.slice(from, from + PIECE)
+    const cut = [/\n/g, /[.!?]["')\]]*\s/g, /\s/g].map((boundary) => lastEnd(window, boundary)).find((at) => at > PIECE / 2) ?? PIECE
+    out.push({ start: from, end: from + cut })
+    from += cut
+  }
+  out.push({ start: from, end })
+  return out
+}
+
+/**
+ * A page as the model sees it: the start, or with `find` the paragraphs (oversized ones in pieces) that hold
+ * the most of its terms. Picked pieces next to each other join back into the page's own text, so a quote
+ * across a cut still matches; anything else is joined by `...`, which the quote check reads as a gap.
+ */
 const passages = (text: string, find: string | undefined) => {
   if (text.length <= SHOWN) return { text }
   const matchers = terms(find ?? "")
   if (matchers.length === 0) return { text: text.slice(0, SHOWN), note: `first ${SHOWN} of ${text.length} characters; pass find to get the passages about something` }
-  const paragraphs = text.split(/\n\s*\n|\n(?=[#*-] )/).map((body, index) => {
+  const scored = paragraphs(text).flatMap((paragraph) => pieces(text, paragraph)).map((span, index) => {
+    const body = text.slice(span.start, span.end)
     const lower = body.toLowerCase()
-    return { body: body.trim(), index, score: matchers.reduce((sum, matches) => sum + (matches(lower) ? 1 : 0), 0) }
-  }).filter((paragraph) => paragraph.score > 0 && paragraph.body !== "")
-  const picked: Array<typeof paragraphs[number]> = []
+    return { ...span, index, size: body.trim().length, score: matchers.reduce((sum, matches) => sum + (matches(lower) ? 1 : 0), 0) }
+  }).filter((piece) => piece.score > 0 && piece.size > 0)
+  const picked: Array<typeof scored[number]> = []
   let size = 0
-  for (const paragraph of [...paragraphs].sort((a, b) => b.score - a.score || a.index - b.index)) {
-    if (size + paragraph.body.length > SHOWN) continue
-    picked.push(paragraph)
-    size += paragraph.body.length
+  for (const piece of [...scored].sort((a, b) => b.score - a.score || a.index - b.index)) {
+    if (size + piece.size > SHOWN) continue
+    picked.push(piece)
+    size += piece.size
   }
   if (picked.length === 0) return { text: text.slice(0, SHOWN), note: `nothing matched find; first ${SHOWN} of ${text.length} characters` }
-  return { text: picked.sort((a, b) => a.index - b.index).map((paragraph) => paragraph.body).join("\n...\n"), note: `passages matching find, from ${text.length} characters` }
+  const joined: Array<Span> = []
+  for (const piece of picked.sort((a, b) => a.index - b.index)) {
+    const last = joined.at(-1)
+    if (last !== undefined && last.end === piece.start) joined[joined.length - 1] = { start: last.start, end: piece.end }
+    else joined.push(piece)
+  }
+  return { text: joined.map((span) => text.slice(span.start, span.end).trim()).join("\n...\n"), note: `passages matching find, from ${text.length} characters` }
 }
 
 const refused = (message: string) => Effect.fail(new ResearchError({ message }))
