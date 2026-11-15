@@ -1,9 +1,10 @@
-import { Config, Context, Effect, FileSystem, Layer, Path, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Path, Schema } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import { ChildProcessSpawner } from "effect/process"
 import { pack, toolAdapter } from "../../Adapter.ts"
 import { moduleFile, type ToolsError } from "../../Component.ts"
 import { exec } from "../../exec.ts"
+import { EvaRoot } from "../eva.ts"
 
 export class GmailError extends Schema.TaggedError<GmailError>()("GmailError", {
   message: Schema.String
@@ -44,13 +45,6 @@ export type Cursor = typeof Cursor.Type
 
 const decodeBatch = Schema.decodeUnknownEffect(Schema.fromJsonString(Batch))
 const decodeCursor = Schema.decodeUnknownEffect(Schema.fromJsonString(Cursor))
-
-/** Eva's checkout: the heartbeat's Gmail login lives there. */
-const EvaRoot = Effect.gen(function*() {
-  const path = yield* Path.Path
-  const home = yield* Config.String("HOME")
-  return yield* Config.String("EVA_ROOT").pipe(Config.withDefault(path.join(home, "Eva")))
-})
 
 /**
  * Isaac's personal Gmail, read-only. Wraps `mail.py`, which reuses the heartbeat's IMAP login

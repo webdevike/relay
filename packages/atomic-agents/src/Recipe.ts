@@ -58,6 +58,8 @@ export const RecipeFile = Schema.Struct({
     steps: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
     /** The model's prompt per item; `{{field}}` inserts an input, source or step field. */
     prompt: Lines,
+    /** Fields holding image paths (one path or a list) the model sees with the prompt (vision models), repair turn included. */
+    attach: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
     /** Seconds per model call (default 300). */
     timeout: Schema.optionalKey(Schema.Number.check(Schema.isGreaterThan(0))),
     tools: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
@@ -208,6 +210,9 @@ export const compileRecipe = (file: RecipeFile, env: RecipeEnv): Result.Result<{
   for (const name of placeholders(join(spec.prompt))) {
     if (!before.has(name)) errors.push(`job.prompt: {{${name}}} is not an input, source or step field (have: ${[...before].join(", ")})`)
   }
+  for (const name of spec.attach ?? []) {
+    if (!before.has(name)) errors.push(`job.attach: ${name} is not an input, source or step field (have: ${[...before].join(", ")})`)
+  }
   const after = new Set([...before, ...ITEM_STATS, ...(answer?.fields.keys() ?? []), ...(check?.provides ?? []), ...(!answer && !check ? ["text"] : [])])
   const output = declared(spec.output, "job.output")
   const missing = (target: Fields | undefined, have: ReadonlySet<string>) =>
@@ -256,15 +261,27 @@ export const compileRecipe = (file: RecipeFile, env: RecipeEnv): Result.Result<{
     return `${system}${parts.join("")}`
   })
 
+  /** The attached fields' paths: a missing field attaches nothing, anything but a path or a list of paths fails the item. */
+  const attached = (fields: Readonly<Record<string, unknown>>) =>
+    Effect.forEach(spec.attach ?? [], (name) => {
+      const value = fields[name]
+      const paths = value === undefined ? [] : Array.isArray(value) ? value : [value]
+      return paths.every((entry): entry is string => typeof entry === "string" && entry !== "")
+        ? Effect.succeed(paths as ReadonlyArray<string>)
+        : Effect.fail(new RecipeError({ message: `job.attach: ${name} is not a path or a list of paths` }))
+    }).pipe(Effect.map((lists) => lists.flat()))
+
   const item = Effect.fn("Recipe.item")(function*(raw: Readonly<Record<string, unknown>>, context: AdapterContext, agentSystem?: string) {
     const started = yield* Clock.currentTimeMillis
     let fields = raw
     for (const step of steps) fields = { ...fields, ...(yield* step.run(fields, context)) }
+    const files = yield* attached(fields)
     const services = yield* Effect.context<ModelRunner | BunServices>()
     const viaAdapter = ModelRunner.of({ generate: (request) => model.generate(request).pipe(Effect.provideContext(services)) })
     const request: Omit<GenerateRequest, "prompt"> = {
       model: context.model,
       system: agentSystem ?? (yield* withKnowledge),
+      ...(files.length === 0 ? {} : { files }),
       ...(context.agent.thinking ? { thinking: context.agent.thinking } : {}),
       ...(timeout === undefined ? {} : { timeout })
     }
@@ -280,12 +297,15 @@ export const compileRecipe = (file: RecipeFile, env: RecipeEnv): Result.Result<{
       Effect.map(Clock.currentTimeMillis, (now): ItemResult => ({ fields: out, attempts, cost, seconds: (now - started) / 1000 }))
     if (check === undefined) return yield* done(answer === undefined ? { text: first.text } : (first.answer as Record<string, unknown>), first.calls, first.cost)
     const base = { ...context, prompt: render(prompt, fields), fields }
+    // A passing check's fields go over the answer's: the check may annotate or replace answer fields.
+    const passed = (reply: { readonly answer: unknown }, out: Readonly<Record<string, unknown>>) =>
+      answer === undefined ? out : { ...(reply.answer as Record<string, unknown>), ...out }
     const verdict = yield* check.check({ text: first.text, answer: first.answer }, { ...base, attempt: 1 })
-    if (verdict.pass) return yield* done(verdict.fields, first.calls, first.cost)
+    if (verdict.pass) return yield* done(passed(first, verdict.fields), first.calls, first.cost)
     // The one repair turn: the check says what failed.
     const second = yield* call(verdict.repair)
     const retry = yield* check.check({ text: second.text, answer: second.answer }, { ...base, attempt: 2 })
-    return yield* done(retry.pass ? retry.fields : yield* retry.giveUp, first.calls + second.calls, first.cost + second.cost)
+    return yield* done(retry.pass ? passed(second, retry.fields) : yield* retry.giveUp, first.calls + second.calls, first.cost + second.cost)
   })
 
   const run = (decoded: unknown, ctx: JobContext<EventSchemas>) =>

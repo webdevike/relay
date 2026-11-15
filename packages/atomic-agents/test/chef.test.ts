@@ -44,7 +44,7 @@ describe("chef file validation", () => {
       const root = yield* tempHome
       const base = recipe("{{name}}")
       const message = yield* rejection(root, "greeter.json", { ...base, job: { ...base.job, check: "openui.parze", tools: ["gmail.archive"] } })
-      expect(message).toContain(`unknown check adapter "openui.parze" (have: openui.parse, blender.render)`)
+      expect(message).toContain(`unknown check adapter "openui.parze" (have: openui.parse, blender.render, ui-check.evidence)`)
       expect(message).toContain(`unknown tool adapter "gmail.archive" (have: gmail.read_thread, gmail.sender_history)`)
     }).pipe(Effect.scoped, Effect.runPromise))
 
@@ -55,12 +55,13 @@ describe("chef file validation", () => {
       const message = yield* rejection(root, "greeter.json", {
         ...base,
         events: { ...base.events, "greet.ready": { requestId: "string", greeting: "string", mood: "strng" } },
-        job: { ...base.job, triggers: [{ onEvent: "greet.asked" }, { cron: "every day" }], answer: { greet: "string" } }
+        job: { ...base.job, triggers: [{ onEvent: "greet.asked" }, { cron: "every day" }], answer: { greet: "string" }, attach: ["shots"] }
       })
       expect(message).toContain("events.greet.ready.mood: unknown type \"strng\"")
       expect(message).toContain("job.triggers[0]: \"greet.asked\" is not a declared event")
       expect(message).toContain("job.triggers[1]: bad cron \"every day\"")
       expect(message).toContain("job.prompt: {{nam}} is not an input, source or step field (have: requestId, name)")
+      expect(message).toContain("job.attach: shots is not an input, source or step field (have: requestId, name)")
     }).pipe(Effect.scoped, Effect.runPromise))
 
   test("schema errors, unknown keys and a file named for another id are rejected before anything compiles", () =>
