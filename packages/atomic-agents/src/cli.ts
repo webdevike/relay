@@ -110,7 +110,10 @@ const rate = Command.make("rate", {
       const started = lifecycle(event)
       return event.run === run && Option.isSome(started) && started.value._tag === "job.started" ? [{ event, model: started.value.model }] : []
     })[0])
-  if (left === undefined || right === undefined) return yield* Effect.fail(new Error(`no run ${left === undefined ? a : b} in the journal`))
+  if (left === undefined || right === undefined) {
+    // Bench arms run under a scratch ATOMIC_AGENTS_HOME are not in this journal (the design-critic blind pair was).
+    return yield* Effect.fail(new Error(`no run ${left === undefined ? a : b} in the journal ${(yield* Home).journal}; blind arms must run in this home (atomic-agents bench <chef> <job> --models a,b)`))
+  }
   if (left.event.component !== right.event.component || left.event.job !== right.event.job) return yield* Effect.fail(new Error("both runs must come from the same job"))
   yield* bus.publish(yield* makeEvent({
     type: `${left.event.component}/pair.picked`,
