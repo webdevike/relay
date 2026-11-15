@@ -1,7 +1,8 @@
-import { Cause, Clock, Context, Effect, Exit, FiberSet, FileSystem, Layer, Schedule, Schema, Semaphore, Stream } from "effect"
+import { Cause, Clock, Context, Effect, Exit, FiberSet, FileSystem, Layer, Schedule, Schema, Semaphore, Stream, SynchronizedRef } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import { Background } from "./Background.ts"
-import { Components, Trigger } from "./Component.ts"
+import { Chefs } from "./Chef.ts"
+import { Trigger } from "./Component.ts"
 import { EventBus, Home, JobFailed, JobStarted, JobSucceeded, JournalError, Lifecycle, makeEvent } from "./Event.ts"
 import { runId } from "./Id.ts"
 import type { ModelRunner } from "./Model.ts"
@@ -28,10 +29,10 @@ export interface RunResult {
 const encodeLifecycle = Schema.encodeEffect(Lifecycle)
 
 /**
- * Runs component jobs: one at a time per component (a specialist is one worker), every run wrapped
- * in the `Lifecycle` events (`job.started` / `job.succeeded` / `job.failed`) so any subscriber can follow
- * any component without knowing its schemas. Each run reads the config in force, so config.json edits
- * apply to the next run without a restart. Component tools are built once, with this layer.
+ * Runs chef jobs: one at a time per chef (a specialist is one worker), every run wrapped in the
+ * `Lifecycle` events (`job.started` / `job.succeeded` / `job.failed`) so any subscriber can follow any
+ * chef without knowing its schemas. Each run reads the chefs and the config in force, so a chef file or
+ * config.json edit applies to the next run without a restart.
  */
 export class Runner extends Context.Service<Runner, {
   run(component: string, job: string, input: unknown, options?: RunOptions): Effect.Effect<RunResult, UnknownJob | ComponentDisabled | JournalError>
@@ -43,19 +44,25 @@ export class Runner extends Context.Service<Runner, {
       const bus = yield* EventBus
       const home = yield* Home
       const fs = yield* FileSystem.FileSystem
+      const chefs = yield* Chefs
       const services = yield* Effect.context<ModelRunner | BunServices>()
-      const registry = yield* Effect.forEach(yield* Components, (component) =>
-        Effect.gen(function*() {
-          return { component, jobs: yield* component.build, lock: yield* Semaphore.make(1) }
-        }))
+      // By chef id, so a reloaded chef keeps its lock: a run in flight finishes before the new version's first.
+      const locks = yield* SynchronizedRef.make<ReadonlyMap<string, Semaphore.Semaphore>>(new Map())
+      const lockOf = (id: string) =>
+        SynchronizedRef.modifyEffect(locks, (all) => {
+          const found = all.get(id)
+          return found !== undefined
+            ? Effect.succeed([found, all] as const)
+            : Effect.map(Semaphore.make(1), (made) => [made, new Map([...all, [id, made]])] as const)
+        })
 
       const run = Effect.fn("Runner.run")(function*(componentId: string, jobId: string, input: unknown, options: RunOptions = {}) {
-        const entry = registry.find((candidate) => candidate.component.id === componentId)
-        const job = entry?.jobs.find((candidate) => candidate.id === jobId)
-        if (entry === undefined || job === undefined) {
+        const component = (yield* chefs.current).find((candidate) => candidate.id === componentId)
+        const job = component?.runnable.find((candidate) => candidate.id === jobId)
+        if (component === undefined || job === undefined) {
           return yield* new UnknownJob({ message: `no job ${componentId}/${jobId}` })
         }
-        const { component, lock } = entry
+        const lock = yield* lockOf(component.id)
         const resolved = effective(component, yield* settings.current)
         if (!resolved.enabled) return yield* new ComponentDisabled({ message: `${component.id} is disabled in ${settings.file}` })
         const run = yield* runId
@@ -103,14 +110,15 @@ export class Runner extends Context.Service<Runner, {
   )
 
   /**
-   * Background layer: arms every OnEvent and Cron trigger of the components in the `Background` set.
-   * Event triggers stay subscribed and skip events while their component is disabled; crons follow
-   * config.json and are re-armed whenever the enabled set or an expression changes. A trigger that
-   * cannot run is logged; a `JournalError` ends serve.
+   * Background layer: arms every OnEvent and Cron trigger of the chefs in force, in the `Background` set.
+   * One bus subscription serves every event trigger: each event looks up the chefs and config in force,
+   * so a chef loaded or edited later is armed without re-subscribing, and a disabled chef skips it. Crons
+   * are re-armed whenever the chefs, the enabled set or an expression changes. A trigger that cannot run
+   * is logged; a `JournalError` ends serve.
    */
   static readonly layerTriggers = Layer.effectDiscard(Effect.gen(function*() {
     const runner = yield* Runner
-    const components = yield* Components
+    const chefs = yield* Chefs
     const settings = yield* Settings
     const bus = yield* EventBus
     const background = yield* Background
@@ -121,41 +129,45 @@ export class Runner extends Context.Service<Runner, {
         ComponentDisabled: (error) => Effect.logInfo(error.message)
       }))
 
-    for (const component of components) {
-      for (const job of component.jobs) {
-        for (const trigger of job.triggers) {
-          if (!Trigger.$is("OnEvent")(trigger)) continue
-          // Subscribed before the layer is up: a request emitted right after serve starts is not missed.
-          yield* FiberSet.run(background, (yield* bus.listen).pipe(
-            Stream.filter((event) => event.type === trigger.type),
-            Stream.runForEach((event) =>
-              Effect.gen(function*() {
-                if (!effective(component, yield* settings.current).enabled) return yield* Effect.logInfo(`${component.id} is disabled, skipped ${event.type}`)
-                yield* runLogged(component.id, job.id, event.data)
-              }))
-          ))
-          yield* Effect.logInfo(`armed ${component.id}/${job.id} on ${trigger.type}`)
-        }
-      }
-    }
+    // Subscribed before the layer is up: a request emitted right after serve starts is not missed.
+    yield* FiberSet.run(background, (yield* bus.listen).pipe(
+      Stream.runForEach((event) =>
+        Effect.gen(function*() {
+          const current = yield* settings.current
+          for (const chef of yield* chefs.current) {
+            for (const job of chef.jobs) {
+              if (!job.triggers.some((trigger) => Trigger.$is("OnEvent")(trigger) && trigger.type === event.type)) continue
+              if (!effective(chef, current).enabled) yield* Effect.logInfo(`${chef.id} is disabled, skipped ${event.type}`)
+              // Each run in its own fiber: a slow chef never holds up another chef's events (the runner's lock orders a chef's own).
+              else yield* FiberSet.run(background, runLogged(chef.id, job.id, event.data))
+            }
+          }
+        }))
+    ))
+    yield* FiberSet.run(background, chefs.changes.pipe(
+      Stream.map((all) =>
+        all.flatMap((chef) => chef.jobs.flatMap((job) => job.triggers.flatMap((trigger) => Trigger.$is("OnEvent")(trigger) ? [`${chef.id}/${job.id} on ${trigger.type}`] : [])))),
+      Stream.changes,
+      Stream.runForEach((armed) => Effect.forEach(armed, (line) => Effect.logInfo(`armed ${line}`), { discard: true }))
+    ))
 
-    yield* FiberSet.run(background, settings.changes.pipe(
-      Stream.map((current) =>
-        components.flatMap((component) => {
-          const resolved = effective(component, current)
+    yield* FiberSet.run(background, Stream.zipLatest(chefs.changes, settings.changes).pipe(
+      Stream.map(([all, current]) =>
+        all.flatMap((chef) => {
+          const resolved = effective(chef, current)
           if (!resolved.enabled) return []
-          return component.jobs.flatMap((job) =>
+          return chef.jobs.flatMap((job) =>
             job.triggers.flatMap((trigger) =>
-              Trigger.$is("Cron")(trigger) ? [{ component: component.id, job: job.id, cron: resolved.cron(job.id, trigger.cron), input: trigger.input }] : []))
+              Trigger.$is("Cron")(trigger) ? [{ component: chef.id, job: job.id, cron: resolved.cron(job.id, trigger.cron), input: trigger.input }] : []))
         })),
-      // Plans are plain arrays of plain objects: `Equal.equals` compares them structurally.
+      // Plans are plain arrays of plain objects: `Equal.equals` compares them structurally (a reloaded chef's new input effect re-arms it).
       Stream.changes,
       Stream.switchMap((plan) =>
         Stream.fromEffectDrain(Effect.forEach(plan, (entry) =>
           Effect.logInfo(`armed ${entry.component}/${entry.job} cron "${entry.cron}"`).pipe(Effect.andThen(entry.input.pipe(
             Effect.flatMap((input) => runLogged(entry.component, entry.job, input)),
             Effect.schedule(Schedule.cron(entry.cron)),
-            // config.json crons are validated before they apply; this catches a bad code default.
+            // config.json and chef file crons are validated before they apply; this catches a bad code default.
             Effect.catchTag("CronParseError", (error) => Effect.logError(`bad cron "${entry.cron}" for ${entry.component}/${entry.job}: ${error.message}`))
           ))), { concurrency: "unbounded", discard: true }))),
       Stream.runDrain

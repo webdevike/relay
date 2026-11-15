@@ -1,68 +1,19 @@
 import { Context, Cron, Effect, FiberSet, FileSystem, Layer, Option, Path, Ref, Result, Schedule, Schema, Semaphore, Stream, SubscriptionRef } from "effect"
 import { Background } from "./Background.ts"
-import { type Agent, Components, eventType, type Registered, Trigger } from "./Component.ts"
-import { EventBus, Home, JournalError, makeEvent } from "./Event.ts"
+import { Chefs } from "./Chef.ts"
+import { type Agent, eventType, type Registered, Trigger } from "./Component.ts"
+import { EventBus, Home, type JournalError } from "./Event.ts"
 import { shortId } from "./Id.ts"
+import { type Change, events, publishRuntime, runtime, SettingsFile } from "./RuntimeEvents.ts"
 
 /**
- * The consumer side: `<home>/config.json` (Relay's data dir) says which built-in components run and
- * with which model, candidates, thinking and crons, plus where the OpenRouter key file is. Absent
- * keys fall back to the code defaults in `define()`, so a bake-off winner changes config, not code.
- * The service applies edits live; every applied change is a `atomic-agents/config.changed` event.
+ * The consumer side: `<home>/config.json` (Relay's data dir) says which chefs run and with which model,
+ * candidates, thinking and crons, plus where the OpenRouter key file is. Absent keys fall back to the
+ * chef's own file (or code), so a bake-off winner changes config, not the chef. The service applies
+ * edits live; every applied change is a `atomic-agents/config.changed` event.
  */
-const Thinking = Schema.Literals(["off", "minimal", "low", "medium", "high"])
-/** How a consumer uses a component's answers: log them only (`shadow`), use them (`live`), or ask nothing (`off`). */
-export const Mode = Schema.Literals(["shadow", "live", "off"])
-export type Mode = typeof Mode.Type
-
-export const ComponentSettings = Schema.Struct({
-  /** Default true. A disabled component's triggers do not fire and manual runs are refused. */
-  enabled: Schema.optionalKey(Schema.Boolean),
-  model: Schema.optionalKey(Schema.NonEmptyString),
-  candidates: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
-  thinking: Schema.optionalKey(Thinking),
-  /** Job id → cron expression replacing that job's code cron. */
-  cron: Schema.optionalKey(Schema.Record(Schema.String, Schema.NonEmptyString)),
-  /**
-   * For a component a consumer asks (widget: Relay Host under assistants' replies). The runtime ignores it;
-   * the consumer reads it on every request, so a switch needs no restart. Absent means shadow.
-   */
-  mode: Schema.optionalKey(Mode)
-})
-
-export const SettingsFile = Schema.Struct({
-  /** Path of the OpenRouter key (absolute, or relative to the home dir). The key itself never goes in config. */
-  openRouterKeyFile: Schema.optionalKey(Schema.NonEmptyString),
-  components: Schema.optionalKey(Schema.Record(Schema.String, ComponentSettings))
-})
-export type SettingsFile = typeof SettingsFile.Type
-
 const decodeFile = Schema.decodeUnknownEffect(Schema.fromJsonString(SettingsFile), { onExcessProperty: "error" })
 const decodeValue = Schema.decodeUnknownEffect(SettingsFile, { onExcessProperty: "error" })
-
-/** Runtime events (`atomic-agents/<name>`), validated like any component's. */
-export const RUNTIME = "atomic-agents"
-const Source = Schema.Literals(["use", "set", "file"])
-const Change = Schema.Struct({
-  path: Schema.Array(Schema.String),
-  /** `null` when the key was absent. */
-  old: Schema.Json,
-  new: Schema.Json
-})
-export type Change = typeof Change.Type
-const Patch = Schema.Record(Schema.String, Schema.Json)
-
-export const events = {
-  /** Request: apply `patch` (JSON merge patch, RFC 7396: `null` removes a key) to config.json. The service applies it. */
-  "config.set": Schema.Struct({ by: Schema.NonEmptyString, patch: Patch }),
-  /** `undo` is the merge patch that restores the old values: emit it back as `config.set` to revert. */
-  "config.changed": Schema.Struct({ by: Schema.String, source: Source, changes: Schema.Array(Change), undo: Patch, config: SettingsFile }),
-  /** A bad edit or request; the last good config stays in force. */
-  "config.rejected": Schema.Struct({ by: Schema.String, source: Source, error: Schema.String })
-}
-
-/** The runtime's own contract, so its event types are built from the declaration like any component's. */
-export const runtime = { id: RUNTIME, events } as const
 
 export class SettingsError extends Schema.TaggedError<SettingsError>()("SettingsError", {
   message: Schema.String
@@ -91,15 +42,17 @@ export const effective = (component: Registered, settings: SettingsFile): Effect
   }
 }
 
-/** What the schema cannot know: component and job ids exist, and crons parse. */
+/**
+ * What the schema cannot know: crons parse, and a loaded chef has the cron job named. An entry for a chef
+ * that is not loaded (its file not written yet, or removed) is kept and applies once the chef loads.
+ */
 const check = (settings: SettingsFile, components: ReadonlyArray<Registered>): ReadonlyArray<string> =>
   Object.entries(settings.components ?? {}).flatMap(([id, own]) => {
     const component = components.find((candidate) => candidate.id === id)
-    if (component === undefined) return [`unknown component ${id} (have: ${components.map((c) => c.id).join(", ")})`]
     return Object.entries(own.cron ?? {}).flatMap(([jobId, cron]) => {
-      const job = component.jobs.find((candidate) => candidate.id === jobId)
-      if (job === undefined || !job.triggers.some(Trigger.$is("Cron"))) return [`${id} has no cron job ${jobId}`]
-      return Result.isFailure(Cron.parse(cron)) ? [`${id}.cron.${jobId}: bad cron "${cron}"`] : []
+      if (Result.isFailure(Cron.parse(cron))) return [`${id}.cron.${jobId}: bad cron "${cron}"`]
+      const job = component?.jobs.find((candidate) => candidate.id === jobId)
+      return component !== undefined && (job === undefined || !job.triggers.some(Trigger.$is("Cron"))) ? [`${id} has no cron job ${jobId}`] : []
     })
   })
 
@@ -164,7 +117,7 @@ export class Settings extends Context.Service<Settings, {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const bus = yield* EventBus
-      const components = yield* Components
+      const chefs = yield* Chefs
       const file = path.join((yield* Home).root, "config.json")
       const lock = yield* Semaphore.make(1)
 
@@ -172,22 +125,17 @@ export class Settings extends Context.Service<Settings, {
         Effect.flatMap((exists) => exists ? fs.readFileString(file) : Effect.succeed("")),
         Effect.mapError((error) => new SettingsError({ message: `read ${file}: ${error.message}` }))
       )
-      const validate = (settings: SettingsFile) => {
-        const errors = check(settings, components)
-        return errors.length === 0 ? Effect.succeed(settings) : Effect.fail(new SettingsError({ message: errors.join("; ") }))
-      }
+      const validate = (settings: SettingsFile) =>
+        Effect.flatMap(chefs.current, (loaded) => {
+          const errors = check(settings, loaded)
+          return errors.length === 0 ? Effect.succeed(settings) : Effect.fail(new SettingsError({ message: errors.join("; ") }))
+        })
       const parse = (text: string) =>
         text.trim() === ""
           ? Effect.succeed<SettingsFile>({})
           : decodeFile(text).pipe(Effect.mapError((error) => new SettingsError({ message: error.message })), Effect.flatMap(validate))
 
-      const publish = <K extends keyof typeof events>(name: K, data: (typeof events)[K]["Type"]) =>
-        Schema.encodeUnknownEffect(events[name])(data).pipe(
-          Effect.mapError((cause) => new JournalError({ message: `encode ${RUNTIME}/${name}`, cause })),
-          Effect.flatMap((encoded) =>
-            Effect.flatMap(shortId, (id) => makeEvent({ type: eventType(runtime, name), component: RUNTIME, job: "config", run: `config-${id}`, data: encoded }))),
-          Effect.flatMap(bus.publish)
-        )
+      const publish = <K extends keyof typeof events>(name: K, data: (typeof events)[K]["Type"]) => publishRuntime(bus, name, data, "config")
 
       const initial = yield* read.pipe(Effect.flatMap(parse), Effect.catch((error) =>
         Effect.logWarning(`config.json rejected, using code defaults: ${error.message}`).pipe(Effect.as<SettingsFile>({}))))

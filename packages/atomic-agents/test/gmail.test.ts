@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test"
+import { BunServices } from "@effect/platform-bun"
 import { Effect, FileSystem, Layer, Option, Ref, Schema } from "effect"
-import { define } from "../src/Component.ts"
+import { omp } from "../src/adapters/omp.ts"
+import { Cursor, Gmail, gmailPack, type Message } from "../src/adapters/gmail/pack.ts"
 import { EventBus } from "../src/Event.ts"
 import { generateWithTools, ModelError, ModelRunner, tool, ToolLoopError } from "../src/Model.ts"
 import { Runner } from "../src/Runtime.ts"
-import { Cursor, Gmail, type Message, spec, Taste } from "../src/components/gmail/component.ts"
-import { runtime, tempHome } from "./harness.ts"
+import { builtinChefs, runtime, tempHome } from "./harness.ts"
 
 /** A model that answers each call with the next scripted reply (the last one repeats) and records the prompts it saw. */
 const scripted = (replies: ReadonlyArray<string>) =>
@@ -98,15 +99,17 @@ const fakeGmail = (box: Ref.Ref<ReadonlyArray<Message>>) =>
     senderHistory: () => Effect.succeed({})
   }))
 
-/** Answers noise, except it errors on a message whose subject is "poison" while `poisoned` is set. */
-const triageModel = (poisoned: Ref.Ref<boolean>) =>
+/** Answers noise, except it errors on a message whose subject is "poison" while `poisoned` is set; keeps the system prompts it saw. */
+const triageModel = (poisoned: Ref.Ref<boolean>, systems: Ref.Ref<ReadonlyArray<string>>) =>
   ModelRunner.of({
     generate: (request) =>
-      Ref.get(poisoned).pipe(Effect.flatMap((poison) =>
+      Ref.update(systems, (seen) => [...seen, request.system]).pipe(Effect.andThen(Ref.get(poisoned)), Effect.flatMap((poison) =>
         poison && request.prompt.includes("Subject: poison")
           ? Effect.fail(new ModelError({ model: request.model, message: "provider down" }))
           : Effect.succeed({ text: answer, model: request.model, provider: "test", seconds: 0, cost: 0.001 })))
   })
+
+const Triaged = Schema.Struct({ id: Schema.String, from: Schema.String, subject: Schema.String, date: Schema.String, verdict: Schema.String, reason: Schema.String, title: Schema.String })
 
 describe("gmail triage cursor", () => {
   test("each run triages only mail after the cursor; a failed message is retried next run; a replay leaves the cursor alone", () =>
@@ -114,7 +117,16 @@ describe("gmail triage cursor", () => {
       const root = yield* tempHome
       const box = yield* Ref.make<ReadonlyArray<Message>>([message(10), message(11)])
       const poisoned = yield* Ref.make(false)
-      const component = define({ ...spec, tools: Layer.mergeAll(fakeGmail(box), Layer.succeed(Taste, Taste.of({ load: Effect.succeed("taste") }))) })
+      const systems = yield* Ref.make<ReadonlyArray<string>>([])
+      const dir = yield* builtinChefs(root, ["gmail"])
+      // Nova's Catch Up taste, where the chef file's knowledge paths point (${EVA_ROOT}).
+      yield* Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        yield* fs.makeDirectory(`${root}/eva/work/eva/agents/nova`, { recursive: true })
+        yield* fs.writeFileString(`${root}/eva/work/eva/agents/nova/catchup-taste.md`, "Isaac skips promos.\n")
+        yield* fs.writeFileString(`${root}/eva/work/eva/agents/nova/catchup-rules.json`, "{\"rules\": []}\n")
+      }).pipe(Effect.provide(BunServices.layer))
+      const world = { dirs: [dir], packs: [omp, gmailPack(fakeGmail(box))], env: { EVA_ROOT: `${root}/eva` } }
       yield* Effect.gen(function*() {
         const runner = yield* Runner
         const bus = yield* EventBus
@@ -123,11 +135,14 @@ describe("gmail triage cursor", () => {
         const triaged = (run: string) =>
           bus.history.pipe(Effect.flatMap((events) =>
             Effect.forEach(events.filter((event) => event.run === run && event.type === "gmail/message.triaged"), (event) =>
-              Effect.map(Schema.decodeUnknownEffect(spec.events["message.triaged"])(event.data), (data) => data.id))))
+              Effect.map(Schema.decodeUnknownEffect(Triaged, { onExcessProperty: "error" })(event.data), (data) => data.id))))
 
         const first = yield* runner.run("gmail", "triage", {})
         expect(yield* triaged(first.run)).toEqual(["<m10@x>", "<m11@x>"])
         expect(yield* cursor).toEqual({ validity: VALIDITY, uid: 11 })
+        const [system] = yield* Ref.get(systems)
+        expect(system).toContain("## Isaac's taste (Nova's notes from his Catch Up cards)\nIsaac skips promos.\n\n## catchup-rules.json (the same taste as rules Catch Up applies)\n{\"rules\": []}")
+        expect(system).toContain("- read_thread {\"id\": \"<message id>\"}")
 
         yield* Ref.set(box, [message(10), message(11), message(12), message(13, "poison"), message(14)])
         yield* Ref.set(poisoned, true)
@@ -150,6 +165,6 @@ describe("gmail triage cursor", () => {
         expect(yield* triaged(idle.run)).toEqual([])
         const completed = (yield* bus.history).find((event) => event.run === idle.run && event.type === "gmail/triage.completed")
         expect(Option.fromUndefinedOr(completed?.data)).toEqual(Option.some({ messages: 0, modelCalls: 0, cost: 0, replay: false }))
-      }).pipe(Effect.provide(runtime(root, [component], triageModel(poisoned))))
+      }).pipe(Effect.provide(runtime(root, world, triageModel(poisoned, systems))))
     }).pipe(Effect.scoped, Effect.runPromise), 20_000)
 })

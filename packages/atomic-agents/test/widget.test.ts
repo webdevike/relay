@@ -1,14 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Layer, Ref, Schedule, Schema, Stream } from "effect"
 import { ask, AskTimeout } from "../src/Ask.ts"
+import { renderErrors } from "../src/adapters/openui.ts"
 import { Background } from "../src/Background.ts"
-import { define } from "../src/Component.ts"
+import { trainingCases } from "../src/bench/widget-cases.ts"
 import { EventBus, makeEvent } from "../src/Event.ts"
 import { ModelError, ModelRunner } from "../src/Model.ts"
 import { Runner } from "../src/Runtime.ts"
-import { trainingCases } from "../src/components/widget/cases.ts"
-import { decide, renderErrors, spec, widget } from "../src/components/widget/component.ts"
-import { runtime, tempHome } from "./harness.ts"
+import { builtinChefs, chef, runtime, tempHome } from "./harness.ts"
 
 /** A model that answers each call with the next scripted reply and records the prompts it saw. */
 const scripted = (replies: ReadonlyArray<string>) =>
@@ -23,58 +22,79 @@ const scripted = (replies: ReadonlyArray<string>) =>
     return { models, prompts }
   })
 
-const agent = { model: "test/m", system: "s" }
 const request = { draft: "Here is the same helper in TypeScript and Python.", surface: "phone" as const }
-const decodeReady = Schema.decodeUnknownEffect(spec.events["widget.ready"])
 const ONE_TAB = `root = Tabs([Tab("TS", [Code("const a = 1", "ts")])])`
 const TWO_TABS = `root = Tabs([Tab("TS", [Code("const a = 1", "ts")]), Tab("Python", [Code("a = 1", "python")])])`
 const body = (block: string) => block.replace(/^```openui\n/, "").replace(/\n```$/, "")
+const Ready = Schema.Struct({ requestId: Schema.String, kind: Schema.Literals(["openui", "none"]), block: Schema.optionalKey(Schema.String), why: Schema.String })
+const decodeReady = Schema.decodeUnknownEffect(Ready)
 
-describe("parser gate", () => {
+/** The widget chef as shipped (`chefs/widget.json`), loaded over a temp home with `models` answering. */
+const withWidget = <A, E, R>(models: ModelRunner["Service"], body: (root: string) => Effect.Effect<A, E, R>) =>
+  Effect.gen(function*() {
+    const root = yield* tempHome
+    const dir = yield* builtinChefs(root, ["widget"])
+    return yield* body(root).pipe(Effect.provide(runtime(root, { dirs: [dir] }, models)))
+  }).pipe(Effect.scoped)
+
+/** One item through the chef's model stage, as the bench calls it. */
+const decide = (fields: Readonly<Record<string, unknown>>) =>
+  Effect.gen(function*() {
+    const widget = yield* chef("widget")
+    return yield* widget.cook!.item(fields, {
+      component: "widget", job: "pick", run: "test", runDir: "", stateDir: "", model: "test/m", agent: { ...widget.agent, model: "test/m" }
+    })
+  })
+
+describe("parser gate (openui.parse check)", () => {
   test("a block the parser rejects goes back once with the parser's errors; the fixed block is emitted", () =>
     Effect.gen(function*() {
       const { models, prompts } = yield* scripted([`why: two languages\n${ONE_TAB}`, `why: two languages\n${TWO_TABS}`])
-      const decision = yield* decide(agent, request).pipe(Effect.provideService(ModelRunner, models))
+      const decision = yield* withWidget(models, () => decide(request))
       expect(renderErrors(ONE_TAB).length).toBeGreaterThan(0)
-      expect(decision.answer).toEqual({ kind: "openui", block: `\`\`\`openui\n${TWO_TABS}\n\`\`\``, why: "two languages" })
-      expect([decision.calls, decision.repaired]).toEqual([2, true])
+      expect(decision.fields).toEqual({ kind: "openui", block: `\`\`\`openui\n${TWO_TABS}\n\`\`\``, why: "two languages" })
+      expect(decision.attempts).toBe(2)
       expect(decision.cost).toBeCloseTo(0.002)
-      expect((yield* Ref.get(prompts))[1]).toContain("Tabs dropped")
-    }).pipe(Effect.runPromise))
+      const [first, repair] = yield* Ref.get(prompts)
+      expect(first).toBe(`Surface: phone\nDraft reply:\n${request.draft}\nData:\n(none)`)
+      expect(repair).toContain("Tabs dropped")
+      expect(repair).toStartWith(`${first}\n\n## Your last reply`)
+    }).pipe(Effect.runPromise), 20_000)
 
   test("a block still broken after the repair answers none, never the broken block", () =>
     Effect.gen(function*() {
       const { models, prompts } = yield* scripted([`why: tabs\n${ONE_TAB}`, `why: tabs\nroot = Stat("Only a label"`])
-      const decision = yield* decide(agent, request).pipe(Effect.provideService(ModelRunner, models))
-      expect(decision.answer.kind).toBe("none")
-      expect(decision.answer.block).toBeUndefined()
-      expect(decision.answer.why).toStartWith("the block would not render after one repair")
+      const decision = yield* withWidget(models, () => decide(request))
+      expect(decision.fields["kind"]).toBe("none")
+      expect(decision.fields["block"]).toBeUndefined()
+      expect(String(decision.fields["why"])).toStartWith("the block would not render after one repair")
       expect((yield* Ref.get(prompts)).length).toBe(2)
-    }).pipe(Effect.runPromise))
+    }).pipe(Effect.runPromise), 20_000)
 
   test("thinking aloud around the program never reaches the block, and none answers none in one call", () =>
     Effect.gen(function*() {
       const chatty = yield* scripted([`why: two languages\nHmm, Tabs needs two tabs.\n\`\`\`openui\n${TWO_TABS}\n\`\`\`\nDone.`])
-      const block = (yield* decide(agent, request).pipe(Effect.provideService(ModelRunner, chatty.models))).answer.block!
+      const block = String((yield* withWidget(chatty.models, () => decide(request))).fields["block"])
       expect(body(block)).toBe(TWO_TABS)
       expect(renderErrors(body(block))).toEqual([])
 
       const quiet = yield* scripted(["why: plain chat\nnone"])
-      const decision = yield* decide(agent, request).pipe(Effect.provideService(ModelRunner, quiet.models))
-      expect(decision.answer).toEqual({ kind: "none", why: "plain chat" })
-      expect(decision.calls).toBe(1)
-    }).pipe(Effect.runPromise))
+      const decision = yield* withWidget(quiet.models, () => decide({ ...request, context: { channel: "voice", askedForDetail: true }, data: { n: 1 } }))
+      expect(decision.fields).toEqual({ kind: "none", why: "plain chat" })
+      expect(decision.attempts).toBe(1)
+      expect((yield* Ref.get(quiet.prompts))[0]).toBe(`Surface: phone\nIsaac asked on a call, for detail.\nDraft reply:\n${request.draft}\nData:\n{\n "n": 1\n}`)
+    }).pipe(Effect.runPromise), 20_000)
 })
 
-const contract = { id: widget.id, events: widget.events }
 const pair = { request: "widget.requested", reply: "widget.ready" }
+const idle = ModelRunner.of({ generate: () => Effect.die("no model calls") })
 
 describe("ask (request/response over the bus)", () => {
   test("answers the reply carrying its requestId, skipping replies to other requests", () =>
-    Effect.gen(function*() {
-      const root = yield* tempHome
-      yield* Effect.gen(function*() {
+    withWidget(idle, () =>
+      Effect.gen(function*() {
         const bus = yield* EventBus
+        const widget = yield* chef("widget")
         // A responder that first answers someone else, then this request.
         const requests = yield* bus.listen
         yield* requests.pipe(
@@ -82,31 +102,30 @@ describe("ask (request/response over the bus)", () => {
           Stream.take(1),
           Stream.runForEach((event) =>
             Effect.gen(function*() {
-              const { requestId } = yield* Schema.decodeUnknownEffect(spec.events["widget.requested"])(event.data)
+              const { requestId } = yield* Schema.decodeUnknownEffect(Schema.Struct({ requestId: Schema.String }))(event.data)
               for (const [id, why] of [["someone-else", "decoy"], [requestId, "mine"]] as const) {
                 yield* bus.publish(yield* makeEvent({ type: "widget/widget.ready", component: "widget", job: "pick", run: "r", data: { requestId: id, kind: "none", why } }))
               }
             })),
           Effect.forkScoped
         )
-        const reply = yield* ask(contract, pair, request, "5 seconds")
+        const reply = yield* ask(widget, pair, request, "5 seconds")
         expect(yield* decodeReady(reply.data)).toEqual({ requestId: reply.requestId, kind: "none", why: "mine" })
-      }).pipe(Effect.provide(runtime(root, [widget])))
-    }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+        expect(widget.asks?.show(reply.data)).toBe("none")
+      }).pipe(Effect.scoped)).pipe(Effect.runPromise), 20_000)
 
   test("no reply within the timeout is an AskTimeout naming the request", () =>
-    Effect.gen(function*() {
-      const root = yield* tempHome
-      yield* Effect.gen(function*() {
-        const error = yield* ask(contract, pair, request, "300 millis").pipe(Effect.flip)
+    withWidget(idle, () =>
+      Effect.gen(function*() {
+        const error = yield* ask(yield* chef("widget"), pair, request, "300 millis").pipe(Effect.flip)
         if (!(error instanceof AskTimeout)) throw new Error(`expected AskTimeout, got ${error._tag}`)
         expect(error.request).toBe("widget.requested")
-      }).pipe(Effect.provide(runtime(root, [widget])))
-    }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+      })).pipe(Effect.runPromise), 20_000)
 
   test("the service's OnEvent trigger answers an ask end to end; a failed model call still answers none at once", () =>
     Effect.gen(function*() {
       const root = yield* tempHome
+      const dir = yield* builtinChefs(root, ["widget"])
       const { models } = yield* scripted([`why: two languages\n${TWO_TABS}`])
       const flaky = yield* Ref.make(false)
       const service = ModelRunner.of({
@@ -114,12 +133,14 @@ describe("ask (request/response over the bus)", () => {
           Effect.flatMap(Ref.get(flaky), (down) => down ? Effect.fail(new ModelError({ model: call.model, message: "provider down" })) : models.generate(call))
       })
       yield* Effect.gen(function*() {
-        const ok = yield* decodeReady((yield* ask(contract, pair, request, "10 seconds")).data)
+        const widget = yield* chef("widget")
+        const ok = yield* decodeReady((yield* ask(widget, pair, request, "10 seconds")).data)
         expect(ok.kind).toBe("openui")
         expect(renderErrors(body(ok.block!))).toEqual([])
+        expect(widget.asks?.show(ok)).toBe(ok.block)
 
         yield* Ref.set(flaky, true)
-        const down = yield* decodeReady((yield* ask(contract, pair, request, "10 seconds")).data)
+        const down = yield* decodeReady((yield* ask(widget, pair, request, "10 seconds")).data)
         expect(down).toMatchObject({ kind: "none", why: "failed: provider down" })
         // The run itself still fails, after the answer went out.
         yield* (yield* EventBus).history.pipe(
@@ -127,7 +148,7 @@ describe("ask (request/response over the bus)", () => {
           Effect.retry(Schedule.spaced("100 millis")),
           Effect.timeout("5 seconds")
         )
-      }).pipe(Effect.provide(Runner.layerTriggers.pipe(Layer.provideMerge(Background.layer), Layer.provideMerge(runtime(root, [define(spec)], service)))))
+      }).pipe(Effect.provide(Runner.layerTriggers.pipe(Layer.provideMerge(Background.layer), Layer.provideMerge(runtime(root, { dirs: [dir] }, service)))))
     }).pipe(Effect.scoped, Effect.runPromise), 30_000)
 })
 

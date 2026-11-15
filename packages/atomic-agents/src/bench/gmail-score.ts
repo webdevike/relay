@@ -2,7 +2,7 @@
 /**
  * Score gmail triage bench runs (`atomic-agents bench gmail triage --input '{"ids": [...]}' --models a,b,c`):
  *
- *     bun src/components/gmail/score.ts --reference <run> <run>...
+ *     bun src/bench/gmail-score.ts --reference <run> <run>...
  *
  * Per run: model, verdict counts, agreement with Isaac's answer key, agreement with the reference run,
  * cost. The key is Isaac's Catch Up notes on Gmail cards (`catchup-notes.jsonl` under Eva's Nova dir,
@@ -10,13 +10,16 @@
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun"
 import { Config, Console, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
-import { EventBus, Home, lifecycle } from "../../Event.ts"
-import { spec, Verdict } from "./component.ts"
+import { EventBus, Home, lifecycle } from "../Event.ts"
 
+/** The fields of gmail's events this score reads (the chef file, `chefs/gmail.json`, declares them in full). */
+const Verdict = Schema.Literals(["needs_isaac", "fyi", "noise"])
+const Triaged = Schema.Struct({ id: Schema.String, from: Schema.String, subject: Schema.String, verdict: Verdict })
+const Completed = Schema.Struct({ modelCalls: Schema.Int, cost: Schema.Number })
 const Note = Schema.Struct({ source: Schema.String, cardId: Schema.optional(Schema.String), verdict: Schema.optional(Schema.String) })
 const decodeNote = Schema.decodeUnknownOption(Schema.fromJsonString(Note))
-const decodeTriaged = Schema.decodeUnknownOption(spec.events["message.triaged"])
-const decodeCompleted = Schema.decodeUnknownOption(spec.events["triage.completed"])
+const decodeTriaged = Schema.decodeUnknownOption(Triaged)
+const decodeCompleted = Schema.decodeUnknownOption(Completed)
 const isVerdict = Schema.is(Verdict)
 
 const program = Effect.gen(function*() {

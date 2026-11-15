@@ -1,25 +1,29 @@
 #!/usr/bin/env bun
 /**
- * Widget bake-off against the answer key in `cases.json` (real drafts from Isaac's assistant threads) plus his
- * 🎯 answers from Relay (`<home>/bench/widget/training.jsonl`, see `cases.ts`):
+ * Widget bake-off against the answer key in `widget-cases.json` (real drafts from Isaac's assistant threads) plus his
+ * 🎯 answers from Relay (`<home>/bench/widget/training.jsonl`, see `widget-cases.ts`):
  *
- *     bun src/components/widget/bench.ts [--models a,b,c] [--repeat 2]
+ *     bun src/bench/widget.ts [--models a,b,c] [--repeat 2]
  *
- * Calls `decide` directly (no bus, nothing in the journal), every model on every case; models run side by
- * side, cases one after another. Per model: right kind (none, or a block holding every expected
- * component), renders (Relay's parser; first try, and after the one repair), p50/p95 seconds, cost.
+ * Calls the widget chef's model stage (`Chef.cook`: step, model, parser check) directly (no bus, nothing in the
+ * journal), every model on every case; models run side by side, cases one after another. Per model: right kind
+ * (none, or a block holding every expected component), renders (Relay's parser; first try, and after the one
+ * repair), p50/p95 seconds, cost.
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun"
 import { Console, Effect, FileSystem, Layer, Path, Schema } from "effect"
-import { builtins } from "../../builtins.ts"
-import { Components } from "../../Component.ts"
-import { EventBus, Home } from "../../Event.ts"
-import { ModelRunner } from "../../Model.ts"
-import { effective, Settings } from "../../Settings.ts"
-import { Case, trainingCases, widgetKeys } from "./cases.ts"
-import { decide, renderErrors, widget } from "./component.ts"
+import { Adapters } from "../Adapter.ts"
+import { packs } from "../adapters/index.ts"
+import { renderErrors } from "../adapters/openui.ts"
+import { Chefs } from "../Chef.ts"
+import { EventBus, Home } from "../Event.ts"
+import { ModelRunner } from "../Model.ts"
+import { effective, Settings } from "../Settings.ts"
+import { Case, trainingCases, widgetKeys } from "./widget-cases.ts"
 
 const decodeCases = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(Case)))
+const Answer = Schema.Struct({ kind: Schema.Literals(["openui", "none"]), block: Schema.optionalKey(Schema.String), why: Schema.String })
+const decodeAnswer = Schema.decodeUnknownEffect(Answer)
 
 const percentile = (values: ReadonlyArray<number>, p: number) => {
   const sorted = [...values].sort((a, b) => a - b)
@@ -34,10 +38,13 @@ const program = Effect.gen(function*() {
     const at = args.indexOf(`--${name}`)
     return at < 0 ? undefined : args[at + 1]
   }
+  const widget = (yield* (yield* Chefs).current).find((chef) => chef.id === "widget")
+  if (widget?.cook === undefined) return yield* Effect.fail(new Error("no widget recipe chef loaded"))
+  const cook = widget.cook
   const resolved = effective(widget, yield* (yield* Settings).current).agent
   const models = flag("models")?.split(",") ?? resolved.candidates
   const repeat = Number(flag("repeat") ?? "1")
-  const keyed = yield* decodeCases(yield* fs.readFileString(path.join(import.meta.dir, "cases.json")))
+  const keyed = yield* decodeCases(yield* fs.readFileString(path.join(import.meta.dir, "widget-cases.json")))
   const trainingFile = path.join((yield* Home).root, "bench", "widget", "training.jsonl")
   const trained = (yield* fs.exists(trainingFile)) ? trainingCases(yield* fs.readFileString(trainingFile)) : { cases: [], skipped: 0 }
   const cases = [...keyed, ...trained.cases]
@@ -45,18 +52,18 @@ const program = Effect.gen(function*() {
 
   const results = yield* Effect.forEach(models, (model) =>
     Effect.forEach(Array.from({ length: repeat }, (_, round) => round).flatMap((round) => cases.map((item) => ({ round, item }))), ({ item }) =>
-      decide({ model, system: resolved.system, ...(resolved.thinking ? { thinking: resolved.thinking } : {}) }, {
-        draft: item.draft,
-        surface: item.surface,
-        ...(item.data === undefined ? {} : { data: item.data })
+      cook.item({ draft: item.draft, surface: item.surface, ...(item.data === undefined ? {} : { data: item.data }) }, {
+        component: "widget", job: "pick", run: "bench", runDir: "", stateDir: "", model, agent: { ...resolved, model }
       }).pipe(
+        Effect.flatMap((result) =>
+          Effect.map(decodeAnswer(result.fields), (answer) => ({ answer, calls: result.attempts, repaired: result.attempts > 1, cost: result.cost, seconds: result.seconds }))),
         Effect.map((decision) => {
           const body = decision.answer.block
           const found = new Set(body === undefined ? [] : widgetKeys(body))
           const right = item.expect.length === 0 ? decision.answer.kind === "none" : item.expect.every((kind) => found.has(kind))
           return { model, item, decision, found: [...found], right, renders: body === undefined || renderErrors(body.replace(/^```openui\n/, "").replace(/\n```$/, "")).length === 0, error: undefined }
         }),
-        Effect.catchTag("ModelError", (error) => Effect.succeed({ model, item, decision: undefined, found: [], right: false, renders: true, error: error.message }))
+        Effect.catch((error) => Effect.succeed({ model, item, decision: undefined, found: [], right: false, renders: true, error: error.message }))
       )), { concurrency: "unbounded" })
 
   yield* Console.log(["model".padEnd(36), "right", "renders", "1st try", "p50 s", "p95 s", "$/req", "errors"].join("  "))
@@ -92,10 +99,10 @@ const program = Effect.gen(function*() {
 program.pipe(
   Effect.provide(ModelRunner.omp.pipe(
     Layer.provideMerge(Settings.layer),
+    Layer.provideMerge(Chefs.layer),
+    Layer.provideMerge(Adapters.make(packs)),
     Layer.provideMerge(EventBus.layer),
     Layer.provideMerge(Home.layer),
-    // Every built-in, so config.json (which names the others) validates and its openRouterKeyFile applies.
-    Layer.provideMerge(Layer.succeed(Components, builtins)),
     Layer.provideMerge(BunServices.layer)
   )),
   BunRuntime.runMain

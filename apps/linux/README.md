@@ -309,7 +309,7 @@ the atomic-agents home exists; host.json `features.widgets: false` turns it off.
 table, card, other); its `widget.label { thread, message, label, surface, excerpt }` appends `{ at, agent, thread,
 message, surface, label, answer, excerpt, draft, shown: { kind, source?, block? }, suggestion? }` to
 `<home>/bench/widget/training.jsonl` and a `widget/widget.labeled` event, and answers `widget.labeled { thread,
-message, ok, error? }`. The widget bench (`src/components/widget/bench.ts`) loads those lines as cases.
+message, ok, error? }`. The widget bench (`packages/atomic-agents/src/bench/widget.ts`) loads those lines as cases.
 
 ## Open asks (`AssistantSnapshot.asks`, `assistant.ask.resolve`)
 

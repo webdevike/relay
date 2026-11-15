@@ -37,7 +37,7 @@ const launchctl = (...args: ReadonlyArray<string>) =>
   exec("launchctl", args).pipe(step("launchctl"))
 
 /**
- * Copy this package (src, package.json, bun.lock) into `<home>/app/atomic-agents` and the chat-core sources
+ * Copy this package (src, the built-in chefs, package.json, bun.lock) into `<home>/app/atomic-agents` and the chat-core sources
  * it depends on (`file:../chat-core`, Relay's widget parser) into `<home>/app/chat-core`, side by side as in
  * the repo; install production dependencies, write the plist and (re)load it. Run from the installed copy it
  * only reloads. Blender runs `-b` only, so the service never takes focus.
@@ -89,7 +89,7 @@ ${Object.entries(env).map(([key, value]) => `\t\t<key>${key}</key><string>${xml(
   const current = (yield* fs.exists(installed).pipe(step("check app"))) && (yield* fs.realPath(installed).pipe(step("resolve app"))) === source
   if (!current) {
     yield* fs.remove(app, { recursive: true, force: true }).pipe(step(`remove ${app}`))
-    for (const [name, dirs, files] of [["atomic-agents", ["src"], ["package.json", "bun.lock"]], ["chat-core", ["src"], ["package.json"]]] as const) {
+    for (const [name, dirs, files] of [["atomic-agents", ["src", "chefs"], ["package.json", "bun.lock"]], ["chat-core", ["src"], ["package.json"]]] as const) {
       const [from, to] = [path.join(source, "..", name), path.join(app, name)]
       yield* fs.makeDirectory(to, { recursive: true }).pipe(step(`create ${to}`))
       for (const dir of dirs) yield* fs.copy(path.join(from, dir), path.join(to, dir)).pipe(step(`copy ${name}/${dir}`))

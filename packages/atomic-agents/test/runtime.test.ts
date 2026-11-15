@@ -5,7 +5,8 @@ import { Background } from "../src/Background.ts"
 import { define, job, OnEvent, type Registered, Trigger } from "../src/Component.ts"
 import { AgentEvent, EventBus, Lifecycle, lifecycle } from "../src/Event.ts"
 import { Runner } from "../src/Runtime.ts"
-import { events as runtimeEvents, Settings } from "../src/Settings.ts"
+import { events as runtimeEvents } from "../src/RuntimeEvents.ts"
+import { Settings } from "../src/Settings.ts"
 import { oneProcess, runtime, tempHome } from "./harness.ts"
 
 class Boom extends Schema.TaggedError<Boom>()("Boom", { message: Schema.String }) {}
@@ -80,7 +81,7 @@ describe("lifecycle events", () => {
         const failures = (run: string) => ofRun(history, run).flatMap((event) => Option.toArray(lifecycle(event))).filter((event) => event._tag === "job.failed")
         expect(failures(boom.run)).toMatchObject([{ model: "test/default", error: "Boom", message: "nope" }])
         expect(failures(bad.run)).toMatchObject([{ error: "SchemaError" }])
-      }).pipe(Effect.provide(runtime(root, [probe(ticked)])))
+      }).pipe(Effect.provide(runtime(root, { code: [probe(ticked)] })))
     }).pipe(Effect.scoped, Effect.runPromise))
 
   test("journal lines written before data carried _tag still decode, the tag taken from the envelope type", () => {
@@ -97,7 +98,7 @@ describe("config live reload", () => {
     Effect.gen(function*() {
       const root = yield* tempHome
       const ticked = yield* Deferred.make<void>()
-      const components = [probe(ticked)]
+      const world = { code: [probe(ticked)] }
       const file = `${root}/config.json`
       yield* Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
@@ -114,7 +115,7 @@ describe("config live reload", () => {
         yield* eventually(modelIs("a/one"))
         expect((yield* announcements).map((data) => data.by)).toEqual(["file"])
 
-        yield* fs.writeFileString(file, JSON.stringify({ components: { nope: {} } }))
+        yield* fs.writeFileString(file, JSON.stringify({ components: { probe: { cron: { tick: "every day" } } } }))
         yield* eventually(Effect.map(bus.history, (events) => Option.fromUndefinedOr(events.find((event) => event.type === "atomic-agents/config.rejected"))))
         expect(Option.isSome(yield* modelIs("a/one"))).toBe(true)
 
@@ -122,7 +123,7 @@ describe("config live reload", () => {
         yield* fs.writeFileString(file, JSON.stringify({ components: { probe: { model: "a/one" } } }))
         yield* Effect.gen(function*() {
           yield* (yield* Settings).set({ components: { probe: { model: "b/two" } } }, "tester", "use")
-        }).pipe(Effect.provide(Layer.fresh(oneProcess(root, components)))) // fresh: a nested provide would reuse the service's Settings
+        }).pipe(Effect.provide(Layer.fresh(oneProcess(root, world)))) // fresh: a nested provide would reuse the service's Settings
         yield* eventually(modelIs("b/two"))
         yield* Effect.sleep("1500 millis") // more watch ticks: a duplicate announcement would land here
         const forB = (yield* announcements).filter((data) => data.config.components?.["probe"]?.model === "b/two")
@@ -131,7 +132,7 @@ describe("config live reload", () => {
         const next = yield* runner.run("probe", "ok", { n: 1 })
         const [started] = ofRun(yield* bus.history, next.run)
         expect(started?.data).toMatchObject({ _tag: "job.started", model: "b/two" })
-      }).pipe(Effect.provide(Settings.layerWatch.pipe(Layer.provideMerge(Background.layer), Layer.provideMerge(runtime(root, components)))))
+      }).pipe(Effect.provide(Settings.layerWatch.pipe(Layer.provideMerge(Background.layer), Layer.provideMerge(runtime(root, world)))))
     }).pipe(Effect.scoped, Effect.runPromise), 30_000)
 })
 
@@ -154,6 +155,6 @@ describe("cron triggers", () => {
         expect(start!.at).toMatch(/^1970-01-01T00:0[1-5]:00\.000Z$/)
         expect(start!.run).toMatch(/^19700101T000[1-5]00-[0-9a-f]{8}$/)
         expect(Option.getOrUndefined(lifecycle(done!))).toEqual({ _tag: "job.succeeded", model: "test/default", seconds: 0 })
-      }).pipe(Effect.provide(Runner.layerTriggers.pipe(Layer.provideMerge(Background.layer), Layer.provideMerge(runtime(root, [probe(ticked)])))))
+      }).pipe(Effect.provide(Runner.layerTriggers.pipe(Layer.provideMerge(Background.layer), Layer.provideMerge(runtime(root, { code: [probe(ticked)] })))))
     }).pipe(Effect.scoped, Effect.provide(TestClock.layer()), Effect.runPromise), 20_000)
 })

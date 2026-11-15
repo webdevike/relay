@@ -1,4 +1,4 @@
-import { type Config, Context, Data, Effect, Layer, Path, PlatformError, Schema, type Scope } from "effect"
+import { type Config, Data, Effect, Layer, Path, PlatformError, Schema, type Scope } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import type { Asks } from "./Ask.ts"
 import type { JournalError } from "./Event.ts"
@@ -16,7 +16,7 @@ export interface Contract<C extends string = string, E extends EventSchemas = Ev
 export const eventType = <C extends string, E extends EventSchemas, K extends keyof E & string>(contract: Contract<C, E>, name: K): `${C}/${K}` =>
   `${contract.id}/${name}`
 
-/** Building a component's tools may fail on config (`Config`) or files (knowledge, scripts); the runtime layer then fails to build. */
+/** Building a component's tools may fail on config (`Config`) or files (knowledge, scripts); the chef then fails to load. */
 export type ToolsError = Config.ConfigError | PlatformError.PlatformError
 
 /** A file shipped next to a component module (knowledge, scripts), as a path: `moduleFile(import.meta.url, "./stage.py")`. */
@@ -27,10 +27,11 @@ export const moduleFile = (moduleUrl: string, name: string) =>
   })
 
 /**
- * An atomic agent component: ONE narrow agent (minimal prompt, knowledge, tools, best model),
+ * An atomic agent component in code: ONE narrow agent (minimal prompt, knowledge, tools, best model),
  * the jobs that wake it, and the typed events it emits. Nothing else talks to it directly:
  * assistants and Relay subscribe to its events and request work by emitting the events its
- * jobs listen for.
+ * jobs listen for. Code is the escape hatch: a chef file (`Chef.ts`, `kind: "code"`) points at one
+ * when the standard recipe (`Recipe.ts`) does not fit; recipes compile to this same shape.
  */
 export interface Component<R = never> extends Contract {
   /** One sentence. If it needs two, it is two components. */
@@ -55,9 +56,6 @@ export interface Registered extends Contract {
   /** Build the tools once, in the caller's scope, and answer the jobs with them provided. */
   readonly build: Effect.Effect<ReadonlyArray<Job<BunServices>>, ToolsError, BunServices | Scope.Scope>
 }
-
-/** The built-in components with their code defaults, provided once by the host process (CLI, Relay host, tests). `config.json` overrides them per component (`Settings.ts`). */
-export class Components extends Context.Service<Components, ReadonlyArray<Registered>>()("atomic-agents/Components") {}
 
 export const define = <R>(component: Component<R>): Registered => ({
   id: component.id,

@@ -1,17 +1,20 @@
 #!/usr/bin/env bun
 import { BunRuntime, BunServices } from "@effect/platform-bun"
-import { Clock, Console, Effect, FiberSet, Layer, Option, Schema, Stream, SubscriptionRef } from "effect"
+import { Clock, Console, Effect, FiberSet, FileSystem, Layer, Option, Path, Schema, Stream, SubscriptionRef } from "effect"
 import { Argument, Command, Flag } from "effect/cli"
+import { Adapters } from "./Adapter.ts"
+import { packs } from "./adapters/index.ts"
 import { ask } from "./Ask.ts"
 import { Background } from "./Background.ts"
-import { builtins } from "./builtins.ts"
-import { Components, type EventSchemas, Trigger } from "./Component.ts"
+import { Chefs, parseChef } from "./Chef.ts"
+import { type EventSchemas, Trigger } from "./Component.ts"
 import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./Event.ts"
 import { shortId } from "./Id.ts"
 import { ModelRunner } from "./Model.ts"
 import { Runner } from "./Runtime.ts"
+import { RUNTIME, runtime } from "./RuntimeEvents.ts"
 import * as Service from "./Service.ts"
-import { effective, RUNTIME, runtime, Settings } from "./Settings.ts"
+import { effective, Settings } from "./Settings.ts"
 
 const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
 
@@ -50,9 +53,10 @@ const list = Command.make("list", {}, () =>
     const settings = yield* Settings
     const current = yield* settings.current
     yield* Console.log(`config ${settings.file}`)
-    for (const component of yield* Components) {
+    for (const component of yield* (yield* Chefs).current) {
       const resolved = effective(component, current)
       yield* Console.log(`${component.id}${resolved.enabled ? "" : " (disabled)"}: ${component.purpose}`)
+      yield* Console.log(`  file    ${component.file ?? "(code, passed in by the host)"} [${component.kind}]`)
       yield* Console.log(`  agent   ${resolved.agent.model}${resolved.agent.thinking ? ` thinking ${resolved.agent.thinking}` : ""} (candidates: ${resolved.agent.candidates.join(", ")})`)
       for (const job of component.jobs) {
         const triggers = job.triggers.map(Trigger.$match({
@@ -82,7 +86,7 @@ const bench = Command.make("bench", {
   input: inputFlag,
   models: Flag.String("models").pipe(Flag.withDescription("comma-separated omp model ids; default: the component's candidates"), Flag.optional)
 }, Effect.fnUntraced(function*({ component, job, input, models }) {
-  const spec = (yield* Components).find((candidate) => candidate.id === component)
+  const spec = (yield* (yield* Chefs).current).find((candidate) => candidate.id === component)
   const candidates = spec === undefined ? [] : effective(spec, yield* (yield* Settings).current).agent.candidates
   const arms = Option.match(models, { onNone: () => candidates, onSome: (list) => list.split(",") })
   const decoded = yield* parseJson(input)
@@ -148,7 +152,7 @@ const wins = Command.make("wins", {
   }
   // The winner goes into config.json, never into code.
   const current = yield* (yield* Settings).current
-  for (const spec of yield* Components) {
+  for (const spec of yield* (yield* Chefs).current) {
     const best = rows.find((row) => row.component === spec.id)
     if (best === undefined) continue
     const inForce = effective(spec, current).agent.model
@@ -189,7 +193,9 @@ const emit = Command.make("emit", {
   data: Flag.String("data").pipe(Flag.withDefault("{}"))
 }, Effect.fnUntraced(function*({ type, data }) {
   const [component = "", name = ""] = type.split("/")
-  const declared: EventSchemas | undefined = component === RUNTIME ? runtime.events : builtins.find((candidate) => candidate.id === component)?.events
+  const declared: EventSchemas | undefined = component === RUNTIME
+    ? runtime.events
+    : (yield* (yield* Chefs).current).find((candidate) => candidate.id === component)?.events
   const schema = declared?.[name]
   if (schema === undefined) return yield* Effect.fail(new Error(`${type} is not a declared event`))
   const encoded = yield* Schema.encodeUnknownEffect(schema)(yield* parseJson(data))
@@ -206,8 +212,9 @@ const askCommand = Command.make("ask", {
   data: Argument.String("data").pipe(Argument.withDescription("the request as JSON, without requestId")),
   timeout: Flag.String("timeout").pipe(Flag.withDescription("how long to wait for the reply: 2s, 1500ms"), Flag.withDefault("5s"))
 }, Effect.fnUntraced(function*({ component, data, timeout }) {
-  const spec = builtins.find((candidate) => candidate.id === component)
-  if (spec?.asks === undefined) return yield* Effect.fail(new Error(`${component} answers no requests (have: ${builtins.filter((c) => c.asks).map((c) => c.id).join(", ")})`))
+  const chefs = yield* (yield* Chefs).current
+  const spec = chefs.find((candidate) => candidate.id === component)
+  if (spec?.asks === undefined) return yield* Effect.fail(new Error(`${component} answers no requests (have: ${chefs.filter((c) => c.asks).map((c) => c.id).join(", ")})`))
   const [, amount = "", unit] = TIMEOUT.exec(timeout) ?? []
   if (unit === undefined) return yield* Effect.fail(new Error(`--timeout ${timeout}: write it as 2s or 1500ms`))
   const millis = Number(amount) * (unit === "s" ? 1000 : 1)
@@ -231,13 +238,80 @@ const events = Command.make("events", {
   if (follow) yield* bus.subscribe.pipe(Stream.filter((event) => event.type.startsWith(type)), Stream.runForEach(show))
 }))
 
-/** The service: config watch and triggers as background layers; the first fatal error (see `Background`) ends it. */
-const Serve = Layer.mergeAll(Settings.layerWatch, Runner.layerTriggers).pipe(Layer.provideMerge(Background.layer))
+/** A new chef file in `<home>/chefs`: a working request/reply recipe to edit, never an existing id. */
+const scaffold = (id: string) => ({
+  id,
+  purpose: "One sentence: what this chef turns its request into.",
+  agent: {
+    model: "anthropic/claude-haiku-5-5",
+    candidates: ["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5"],
+    thinking: "off",
+    system: ["You are a narrow specialist. Say what you do, what good looks like, and what you never do."]
+  },
+  events: {
+    [`${id}.requested`]: { requestId: "nonEmptyString", text: "string" },
+    [`${id}.ready`]: { requestId: "string", answer: "string" }
+  },
+  job: {
+    id: "answer",
+    description: `Answer a ${id}.requested with ${id}.ready.`,
+    input: `${id}.requested`,
+    triggers: [{ onEvent: `${id}.requested` }, "manual"],
+    prompt: "{{text}}",
+    answer: { answer: "string" },
+    output: `${id}.ready`
+  },
+  asks: { request: `${id}.requested`, reply: `${id}.ready`, show: "answer" }
+})
+
+const chef = Command.make("chef").pipe(Command.withSubcommands([
+  Command.make("new", { id: Argument.String("id") }, Effect.fnUntraced(function*({ id }) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const file = path.join((yield* Home).root, "chefs", `${id}.json`)
+    const taken = (yield* (yield* Chefs).current).find((candidate) => candidate.id === id)
+    if (taken !== undefined) return yield* Effect.fail(new Error(`a chef ${id} exists (${taken.file ?? "code"}); edit or copy that file instead`))
+    if (yield* fs.exists(file)) return yield* Effect.fail(new Error(`${file} exists`))
+    const text = `${JSON.stringify(scaffold(id), null, 2)}\n`
+    yield* parseChef(file, text)
+    yield* fs.makeDirectory(path.dirname(file), { recursive: true })
+    yield* fs.writeFileString(file, text)
+    yield* Console.log(`wrote ${file}\nedit purpose, system, events and prompt; check it with: atomic-agents chef validate ${file}\na running service loads it within a second (chef.loaded)`)
+  })),
+  Command.make("validate", {
+    files: Argument.String("file").pipe(Argument.withDescription("chef files; default: every file in the chef dirs"), Argument.variadic())
+  }, Effect.fnUntraced(function*({ files }) {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const chefs = yield* Chefs
+    const all = files.length > 0
+      ? files.map((file) => path.resolve(file))
+      : (yield* Effect.forEach(chefs.dirs, (dir) =>
+        fs.readDirectory(dir).pipe(
+          Effect.map((names) => names.filter((name) => /\.(json|ya?ml)$/.test(name)).sort().map((name) => path.join(dir, name))),
+          Effect.orElseSucceed((): ReadonlyArray<string> => [])
+        ))).flat()
+    let failed = 0
+    for (const file of all) {
+      const result = yield* Effect.result(fs.readFileString(file).pipe(Effect.flatMap((text) => parseChef(file, text))))
+      if (result._tag === "Success") yield* Console.log(`ok    ${result.success.chef.id.padEnd(20)} ${result.success.kind.padEnd(6)} ${file}`)
+      else {
+        failed++
+        yield* Console.log(`FAIL  ${result.failure.message}`)
+      }
+    }
+    if (failed > 0) return yield* Effect.fail(new Error(`${failed} of ${all.length} chef file(s) failed`))
+  }))
+]))
+
+/** The service: config and chef file watch, and triggers, as background layers; the first fatal error (see `Background`) ends it. */
+const Serve = Layer.mergeAll(Settings.layerWatch, Chefs.layerWatch, Runner.layerTriggers).pipe(Layer.provideMerge(Background.layer))
 
 const serve = Command.make("serve", {}, () =>
   Effect.gen(function*() {
     const home = yield* Home
-    yield* Console.log(`atomic-agents serving ${builtins.length} component(s); journal ${home.journal}; config ${(yield* Settings).file} (live)`)
+    const chefs = yield* Chefs
+    yield* Console.log(`atomic-agents serving ${(yield* chefs.current).length} chef(s) from ${chefs.dirs.join(", ")} (live); journal ${home.journal}; config ${(yield* Settings).file} (live)`)
     return yield* FiberSet.join(yield* Background)
   }).pipe(Effect.provide(Serve)))
 
@@ -257,14 +331,15 @@ const service = Command.make("service").pipe(Command.withSubcommands([
 const App = Runner.layer.pipe(
   Layer.provideMerge(ModelRunner.omp),
   Layer.provideMerge(Settings.layer),
+  Layer.provideMerge(Chefs.layer),
+  Layer.provideMerge(Adapters.make(packs)),
   Layer.provideMerge(EventBus.layer),
   Layer.provideMerge(Home.layer),
-  Layer.provideMerge(Layer.succeed(Components, builtins)),
   Layer.provideMerge(BunServices.layer)
 )
 
 Command.make("atomic-agents").pipe(
-  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, events, serve, service]),
+  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, events, chef, serve, service]),
   Command.run({ version: "0.1.0" }),
   Effect.provide(App),
   BunRuntime.runMain

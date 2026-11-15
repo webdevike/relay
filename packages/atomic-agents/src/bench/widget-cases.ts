@@ -1,10 +1,13 @@
 /**
- * The widget bench's cases: the answer key in `cases.json`, plus Isaac's 🎯 answers that Relay Host saves to
+ * The widget bench's cases: the answer key in `widget-cases.json`, plus Isaac's 🎯 answers that Relay Host saves to
  * `<home>/bench/widget/training.jsonl` (one line per answer: the reply, what was shown under it, his label).
  */
 import { parseOpenUI } from "@evaos/chat-core/openui"
 import { Option, Schema } from "effect"
-import { Kind, Label } from "./component.ts"
+
+/** What the widget chef answered (its `widget.ready` kind), and Isaac's 🎯 answer: keep what was shown, or what it should have been. */
+const Kind = Schema.Literals(["openui", "none"])
+const Label = Schema.Literals(["keep", "plain", "chart", "table", "card", "other"])
 
 const Surface = Schema.Literals(["phone", "desktop"])
 
