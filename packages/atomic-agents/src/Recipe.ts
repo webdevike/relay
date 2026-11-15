@@ -94,7 +94,8 @@ const PLACEHOLDER = /\{\{\s*([A-Za-z_][\w.]*)\s*\}\}/g
 
 const join = (lines: string | ReadonlyArray<string>) => typeof lines === "string" ? lines : lines.join("\n")
 
-const placeholders = (text: string) => [...text.matchAll(PLACEHOLDER)].map((match) => match[1]!)
+/** The `{{name}}` fields a template reads. */
+export const placeholders = (text: string) => [...text.matchAll(PLACEHOLDER)].map((match) => match[1]!)
 
 /** `{{field}}` → the field (strings as is, anything else as JSON; absent → empty). */
 export const render = (template: string, fields: Readonly<Record<string, unknown>>) =>

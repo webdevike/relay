@@ -11,6 +11,7 @@ import { type EventSchemas, Trigger } from "./Component.ts"
 import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./Event.ts"
 import { shortId } from "./Id.ts"
 import { ModelRunner } from "./Model.ts"
+import { Orchestrators, Reporter, Sessions } from "./Orchestrator.ts"
 import { Runner } from "./Runtime.ts"
 import { RUNTIME, runtime } from "./RuntimeEvents.ts"
 import * as Service from "./Service.ts"
@@ -304,14 +305,62 @@ const chef = Command.make("chef").pipe(Command.withSubcommands([
   }))
 ]))
 
+/** Orchestrators: one per goal, files in `<home>/orchestrators`; they plan and dispatch, chefs and sessions do the work. */
+const orch = Command.make("orch").pipe(Command.withSubcommands([
+  Command.make("list", {}, () =>
+    Effect.gen(function*() {
+      const orchestrators = yield* Orchestrators
+      const all = yield* orchestrators.current
+      if (all.length === 0) return yield* Console.log(`no orchestrators in ${orchestrators.dir}`)
+      for (const orchestrator of all) {
+        const { spec } = orchestrator
+        const state = yield* orchestrators.state(orchestrator.id)
+        const status = state.paused !== null ? `paused (${state.paused.rule})` : spec.enabled === false ? "disabled" : "enabled"
+        const cadence = spec.cadence === "loop" ? `loop ${spec.loopSeconds ?? 60}s` : `cron "${spec.cadence.cron}"`
+        yield* Console.log(`${orchestrator.id.padEnd(20)} ${status.padEnd(18)} ${cadence.padEnd(18)} ${spec.goal}\n${"".padEnd(21)}${orchestrator.file}`)
+      }
+    })),
+  Command.make("dry-run", { id: Argument.String("id") }, Effect.fnUntraced(function*({ id }) {
+    const orchestrators = yield* Orchestrators
+    const orchestrator = (yield* orchestrators.current).find((candidate) => candidate.id === id)
+    const state = yield* orchestrators.state(id)
+    const tick = yield* orchestrators.tick(id, "dry")
+    const budget = orchestrator?.spec.budget
+    yield* Console.log(`${id}: dry run (nothing written, emitted or dispatched)`)
+    yield* Console.log(`measure (target ${tick.measure.target}, ${tick.measure.met ? "met" : "not met"}):\n${tick.measure.series.map((point) => `  ${point.label} ${point.value}`).join("\n") || "  (no values)"}`)
+    yield* Console.log(`stop rules hit (a live tick would pause before planning):\n${tick.stops.map((stop) => `  ${stop.rule} -> ${stop.then}: ${stop.why}`).join("\n") || "  none"}`)
+    if (budget !== undefined) {
+      yield* Console.log(`budget: ${state.runs}/${budget.maxRuns} runs, $${state.usd.toFixed(2)}/$${budget.maxUsd}, ${budget.maxHoursPerDay} session hours/day; paused: ${state.paused === null ? "no" : `${state.paused.rule}: ${state.paused.why}`}`)
+    }
+    yield* Console.log(`pending:\n${tick.pending.map((entry) => `  ${entry.step} ${entry.session} ${entry.finished ? "finished" : "running"}`).join("\n") || "  none"}`)
+    yield* Console.log(`plan ($${tick.cost.toFixed(4)}):\n${JSON.stringify(tick.plan, null, 2)}`)
+    yield* Console.log(`would dispatch:\n${tick.dispatches.map((entry) => `  [${entry.step}] ${entry.kind}${entry.error ? ` (SKIPPED: ${entry.error})` : ""}\n    ${entry.what.replaceAll("\n", "\n    ")}`).join("\n") || "  nothing"}`)
+  })),
+  Command.make("pause", {
+    id: Argument.String("id"),
+    why: Flag.String("why").pipe(Flag.withDefault("paused by hand"))
+  }, Effect.fnUntraced(function*({ id, why }) {
+    yield* (yield* Orchestrators).pause(id, why)
+    yield* Console.log(`${id} paused: ${why}`)
+  })),
+  Command.make("resume", {
+    id: Argument.String("id"),
+    by: Flag.String("by").pipe(Flag.withDescription("who resumed it (recorded on orchestrator.resumed)"), Flag.withDefault(Bun.env["USER"] ?? "cli"))
+  }, Effect.fnUntraced(function*({ id, by }) {
+    yield* (yield* Orchestrators).resume(id, by)
+    yield* Console.log(`${id} resumed by ${by}; runs and USD budget count from zero`)
+  }))
+]))
+
 /** The service: config and chef file watch, and triggers, as background layers; the first fatal error (see `Background`) ends it. */
-const Serve = Layer.mergeAll(Settings.layerWatch, Chefs.layerWatch, Runner.layerTriggers).pipe(Layer.provideMerge(Background.layer))
+const Serve = Layer.mergeAll(Settings.layerWatch, Chefs.layerWatch, Runner.layerTriggers, Orchestrators.layerSchedule).pipe(Layer.provideMerge(Background.layer))
 
 const serve = Command.make("serve", {}, () =>
   Effect.gen(function*() {
     const home = yield* Home
     const chefs = yield* Chefs
-    yield* Console.log(`atomic-agents serving ${(yield* chefs.current).length} chef(s) from ${chefs.dirs.join(", ")} (live); journal ${home.journal}; config ${(yield* Settings).file} (live)`)
+    const orchestrators = yield* Orchestrators
+    yield* Console.log(`atomic-agents serving ${(yield* chefs.current).length} chef(s) from ${chefs.dirs.join(", ")} (live); ${(yield* orchestrators.current).length} orchestrator(s) from ${orchestrators.dir} (live); journal ${home.journal}; config ${(yield* Settings).file} (live)`)
     return yield* FiberSet.join(yield* Background)
   }).pipe(Effect.provide(Serve)))
 
@@ -329,6 +378,8 @@ const service = Command.make("service").pipe(Command.withSubcommands([
 ]))
 
 const App = Runner.layer.pipe(
+  Layer.provideMerge(Orchestrators.layer),
+  Layer.provideMerge(Layer.mergeAll(Sessions.layer, Reporter.layer)),
   Layer.provideMerge(ModelRunner.omp),
   Layer.provideMerge(Settings.layer),
   Layer.provideMerge(Chefs.layer),
@@ -339,7 +390,7 @@ const App = Runner.layer.pipe(
 )
 
 Command.make("atomic-agents").pipe(
-  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, events, chef, serve, service]),
+  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, events, chef, orch, serve, service]),
   Command.run({ version: "0.1.0" }),
   Effect.provide(App),
   BunRuntime.runMain

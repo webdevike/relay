@@ -53,7 +53,7 @@ const isRegistered = (value: unknown): value is Registered =>
   "build" in value && Effect.isEffect(value.build)
 
 /** `~/x` and `${VAR}` / `${VAR:-default}` expand (from Config, so tests can set them); a relative path is relative to `dir`. */
-const expandPath = Effect.fnUntraced(function*(raw: string, dir: string) {
+export const expandPath = Effect.fnUntraced(function*(raw: string, dir: string) {
   const path = yield* Path.Path
   let missing: string | undefined
   let out = raw

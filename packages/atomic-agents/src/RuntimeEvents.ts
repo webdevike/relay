@@ -57,7 +57,11 @@ export const events = {
   /** A chef file was loaded (new, or `replaced` an earlier version of the same id); its triggers are armed. */
   "chef.loaded": Schema.Struct({ id: Schema.String, file: Schema.String, kind: ConfigKind, replaced: Schema.Boolean }),
   /** A chef file was deleted: the chef is gone, its triggers with it. */
-  "chef.removed": Schema.Struct({ id: Schema.String, file: Schema.String })
+  "chef.removed": Schema.Struct({ id: Schema.String, file: Schema.String }),
+  /** An orchestrator file was loaded (new or `replaced`); its cadence is armed unless it is disabled. */
+  "orchestrator.loaded": Schema.Struct({ id: Schema.String, file: Schema.String, enabled: Schema.Boolean, replaced: Schema.Boolean }),
+  /** An orchestrator file was deleted. */
+  "orchestrator.removed": Schema.Struct({ id: Schema.String, file: Schema.String })
 }
 
 export const runtime = { id: RUNTIME, events } as const
