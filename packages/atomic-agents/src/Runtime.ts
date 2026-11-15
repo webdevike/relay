@@ -125,7 +125,8 @@ export class Runner extends Context.Service<Runner, {
       for (const job of component.jobs) {
         for (const trigger of job.triggers) {
           if (!Trigger.$is("OnEvent")(trigger)) continue
-          yield* FiberSet.run(background, bus.subscribe.pipe(
+          // Subscribed before the layer is up: a request emitted right after serve starts is not missed.
+          yield* FiberSet.run(background, (yield* bus.listen).pipe(
             Stream.filter((event) => event.type === trigger.type),
             Stream.runForEach((event) =>
               Effect.gen(function*() {

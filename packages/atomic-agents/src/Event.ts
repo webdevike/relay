@@ -1,4 +1,4 @@
-import { Config, Context, DateTime, Effect, FileSystem, Layer, Option, Path, PubSub, Ref, Schedule, Schema, Semaphore, Stream } from "effect"
+import { Config, Context, DateTime, Effect, FileSystem, Layer, Option, Path, PubSub, Ref, Schedule, Schema, type Scope, Semaphore, Stream } from "effect"
 import { uuid } from "./Id.ts"
 
 /**
@@ -85,8 +85,10 @@ export class Home extends Context.Service<Home, {
  */
 export class EventBus extends Context.Service<EventBus, {
   publish(event: AgentEvent): Effect.Effect<void, JournalError>
-  /** Events appended after this subscription opened; use `history` for the past. */
+  /** Events appended after this subscription opened (when the stream starts running); use `history` for the past. */
   readonly subscribe: Stream.Stream<AgentEvent>
+  /** Subscribe now, for the scope: the stream holds every event appended after this returns, so a reply to your own publish cannot slip past it. */
+  readonly listen: Effect.Effect<Stream.Stream<AgentEvent>, never, Scope.Scope>
   /** The whole journal, oldest first. */
   readonly history: Effect.Effect<ReadonlyArray<AgentEvent>, JournalError>
   /** The newest event of `type` appended since this bus started, after reading the journal up to its current end (any process's appends count). */
@@ -143,7 +145,8 @@ export class EventBus extends Context.Service<EventBus, {
       // A failed read leaves the offset where it was, so the next tick retries it and nothing is lost.
       yield* tail.pipe(
         Effect.catch((error) => Effect.logWarning("journal tail", error.message)),
-        Effect.repeat(Schedule.spaced("250 millis")),
+        // 50 ms: a request/response (`Ask.ts`) crosses the journal twice; a stat per tick is all it costs when idle.
+        Effect.repeat(Schedule.spaced("50 millis")),
         Effect.forkScoped
       )
 
@@ -163,7 +166,13 @@ export class EventBus extends Context.Service<EventBus, {
         return Option.fromUndefinedOr((yield* Ref.get(newest)).get(type))
       })
 
-      return EventBus.of({ publish, subscribe: Stream.fromPubSub(pubsub), history, latest })
+      return EventBus.of({
+        publish,
+        subscribe: Stream.fromPubSub(pubsub),
+        listen: Effect.map(PubSub.subscribe(pubsub), Stream.fromSubscription),
+        history,
+        latest
+      })
     })
   )
 }

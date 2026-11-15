@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Atomic specialist agents: one narrow agent + jobs + tools + knowledge + typed events per component. Opt-in, own install.",
-  "bin": { "atomic-agents": "./src/cli.ts" },
+  "bin": {
+    "atomic-agents": "./src/cli.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test",
@@ -12,6 +14,7 @@
   },
   "dependencies": {
     "@effect/platform-bun": "4.1.4",
+    "@evaos/chat-core": "file:../chat-core",
     "effect": "4.1.4"
   },
   "devDependencies": {

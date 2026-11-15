@@ -1,19 +1,17 @@
 #!/usr/bin/env bun
 import { BunRuntime, BunServices } from "@effect/platform-bun"
-import { Console, Effect, FiberSet, Layer, Option, Schema, Stream, SubscriptionRef } from "effect"
+import { Clock, Console, Effect, FiberSet, Layer, Option, Schema, Stream, SubscriptionRef } from "effect"
 import { Argument, Command, Flag } from "effect/cli"
+import { ask } from "./Ask.ts"
 import { Background } from "./Background.ts"
+import { builtins } from "./builtins.ts"
 import { Components, type EventSchemas, Trigger } from "./Component.ts"
-import { gmail } from "./components/gmail/component.ts"
-import { propRender } from "./components/prop-render/component.ts"
 import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./Event.ts"
 import { shortId } from "./Id.ts"
 import { ModelRunner } from "./Model.ts"
 import { Runner } from "./Runtime.ts"
 import * as Service from "./Service.ts"
 import { effective, RUNTIME, runtime, Settings } from "./Settings.ts"
-
-const builtins = [propRender, gmail]
 
 const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
 
@@ -186,6 +184,29 @@ const emit = Command.make("emit", {
   yield* bus.publish(yield* makeEvent({ type, component, job: "external", run: `external-${yield* shortId}`, data: encoded }))
 }))
 
+const TIMEOUT = /^(\d+(?:\.\d+)?)(ms|s)$/
+const decodeRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))
+
+/** Request/response: emit the component's request and print its reply, or `none` (exit 1) when none comes in time. The service answers. */
+const askCommand = Command.make("ask", {
+  component: Argument.String("component"),
+  data: Argument.String("data").pipe(Argument.withDescription("the request as JSON, without requestId")),
+  timeout: Flag.String("timeout").pipe(Flag.withDescription("how long to wait for the reply: 2s, 1500ms"), Flag.withDefault("5s"))
+}, Effect.fnUntraced(function*({ component, data, timeout }) {
+  const spec = builtins.find((candidate) => candidate.id === component)
+  if (spec?.asks === undefined) return yield* Effect.fail(new Error(`${component} answers no requests (have: ${builtins.filter((c) => c.asks).map((c) => c.id).join(", ")})`))
+  const [, amount = "", unit] = TIMEOUT.exec(timeout) ?? []
+  if (unit === undefined) return yield* Effect.fail(new Error(`--timeout ${timeout}: write it as 2s or 1500ms`))
+  const millis = Number(amount) * (unit === "s" ? 1000 : 1)
+  const started = yield* Clock.currentTimeMillis
+  const reply = yield* ask(spec, spec.asks, yield* decodeRequest(data), millis).pipe(
+    Effect.tapError((error) => error._tag === "AskTimeout" ? Console.log("none") : Effect.void)
+  )
+  const seconds = ((yield* Clock.currentTimeMillis) - started) / 1000
+  yield* Console.log(spec.asks.show(reply.data))
+  yield* Console.error(`answered in ${seconds.toFixed(2)}s: ${JSON.stringify(reply.data).slice(0, 300)}`)
+}))
+
 const events = Command.make("events", {
   type: Flag.String("type").pipe(Flag.withDescription("type prefix filter"), Flag.withDefault("")),
   limit: Flag.Int("limit").pipe(Flag.withDefault(30)),
@@ -230,7 +251,7 @@ const App = Runner.layer.pipe(
 )
 
 Command.make("atomic-agents").pipe(
-  Command.withSubcommands([list, run, bench, rate, wins, use, emit, events, serve, service]),
+  Command.withSubcommands([list, run, bench, rate, wins, use, emit, askCommand, events, serve, service]),
   Command.run({ version: "0.1.0" }),
   Effect.provide(App),
   BunRuntime.runMain

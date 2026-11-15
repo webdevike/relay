@@ -1,5 +1,6 @@
 import { type Config, Context, Data, Effect, Layer, Path, PlatformError, Schema, type Scope } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
+import type { Asks } from "./Ask.ts"
 import type { JournalError } from "./Event.ts"
 import type { ModelRunner } from "./Model.ts"
 
@@ -38,6 +39,8 @@ export interface Component<R = never> extends Contract {
   readonly jobs: ReadonlyArray<Job<R | BunServices>>
   /** The component's tools as Effect services, built on platform services only, once per runtime. */
   readonly tools: Layer.Layer<R, ToolsError, BunServices>
+  /** The request/response pair callers `ask` (see `Ask.ts`), when the component answers requests. */
+  readonly asks?: Asks
 }
 
 /** A job as the runtime sees it before its tools exist: schedule and input, no body. */
@@ -48,6 +51,7 @@ export interface Registered extends Contract {
   readonly purpose: string
   readonly agent: Agent
   readonly jobs: ReadonlyArray<JobInfo>
+  readonly asks?: Asks
   /** Build the tools once, in the caller's scope, and answer the jobs with them provided. */
   readonly build: Effect.Effect<ReadonlyArray<Job<BunServices>>, ToolsError, BunServices | Scope.Scope>
 }
@@ -61,6 +65,7 @@ export const define = <R>(component: Component<R>): Registered => ({
   agent: component.agent,
   events: component.events,
   jobs: component.jobs,
+  ...(component.asks === undefined ? {} : { asks: component.asks }),
   build: Effect.map(Layer.build(component.tools), (tools) =>
     component.jobs.map((job) => ({ ...job, start: (input, context) => job.start(input, context).pipe(Effect.provideContext(tools)) })))
 })
