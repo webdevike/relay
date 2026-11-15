@@ -18,6 +18,25 @@ const decodeResults = Schema.decodeUnknownOption(Schema.fromJsonString(Results))
 
 /** Under this many characters a read is a failure: a login wall, a blocked page, an empty shell. */
 const EMPTY_PAGE = 80
+/** A page whose text outside links, images and tables is under this many characters, and under a fifth of the page, is navigation only. */
+const NAV_TEXT = 400
+
+/**
+ * True when the page's text outside front matter, links, images, tables and markup is short, alone and
+ * against the page: a forum thread whose posts did not load (bitcointalk.org topic 137 reads as 5,010
+ * characters, 186 of them text) is navigation only, and its read fails so agent-reach's reader opens.
+ */
+export const navOnly = (page: string) => {
+  const text = page
+    .replace(/^---\n[\s\S]*?\n---\n/, "")
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/!?\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/^\s*\|?[\s:|-]+\|?\s*$/gm, " ")
+    .replace(/[|*_#>`[\]]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+  return text.length < NAV_TEXT && text.length * 5 < page.length
+}
 
 /**
  * The primary source: a plain web search (Parallel, omp's default first engine) and omp's own page
@@ -59,6 +78,7 @@ export class Web extends Context.Service<Web, {
           return yield* new ResearchError({ message: `read ${url}: ${notes}` })
         }
         if (body.length < EMPTY_PAGE) return yield* new ResearchError({ message: `read ${url}: the page came back empty` })
+        if (navOnly(body)) return yield* new ResearchError({ message: `read ${url}: only the site's navigation came back, not its content` })
         return { url, text: body } satisfies Page
       })
       return Web.of({ search, read })

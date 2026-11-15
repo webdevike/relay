@@ -72,11 +72,14 @@ const urlKey = (url: string) =>
 
 const ENTITIES: Readonly<Record<string, string>> = { "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"", "&#39;": "'", "&nbsp;": " " }
 
-/** Text as a quote is compared: markdown and HTML dropped, quotes, dashes, case and whitespace folded. */
+/**
+ * Text as a quote is compared: markdown and HTML dropped, quotes, dashes, case and whitespace folded.
+ * Only a real tag goes (`<` then a tag name, no `<` or `>` inside): code like `1<<24` or `a < b` stays.
+ */
 const normalize = (text: string) =>
   text.normalize("NFKC")
     .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/<[^>]+>/g, " ")
+    .replace(/<!--[\s\S]*?-->|<\/?[a-z][\w:-]*(?:\s[^<>]*)?\/?>/gi, " ")
     .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (entity) => ENTITIES[entity] ?? entity)
     .replace(/\\([^\w\s])/g, "$1")
     .replace(/[\u2018\u2019\u201B\u2032]/g, "'")
@@ -115,14 +118,31 @@ const shown = (ledger: Ledger, via: string, hits: ReadonlyArray<Hit>) => {
   return hits.map((hit) => ({ url: hit.url, title: hit.title, ...(hit.date ? { date: hit.date } : {}), excerpt: hit.text.slice(0, EXCERPT) }))
 }
 
-/** A page as the model sees it: the start, or with `find` the paragraphs that hold the most of its words. */
+/**
+ * `find`'s terms: each word of 3+ letters, found inside longer words too ("goroutine" in "goroutines"),
+ * and each short or symbol-bearing token as typed ("q=0.30", "z=24", "1<<24", "Go"), found only whole.
+ */
+const terms = (find: string): ReadonlyArray<(body: string) => boolean> => {
+  const lower = find.toLowerCase()
+  const words = new Set(lower.split(/\W+/).filter((word) => word.length >= 3))
+  const tokens = new Set(lower.split(/\s+/).map((token) => token.replace(/^["'(\[]+|["'),.;:!?\]]+$/g, "")).filter((token) => token !== "" && (token.length < 3 || /\W/.test(token))))
+  return [
+    ...[...words].map((word) => (body: string) => body.includes(word)),
+    ...[...tokens].map((token) => {
+      const whole = new RegExp(`${/^\w/.test(token) ? "(?<!\\w)" : ""}${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}${/\w$/.test(token) ? "(?!\\w)" : ""}`)
+      return (body: string) => whole.test(body)
+    })
+  ]
+}
+
+/** A page as the model sees it: the start, or with `find` the paragraphs that hold the most of its terms. */
 const passages = (text: string, find: string | undefined) => {
   if (text.length <= SHOWN) return { text }
-  const words = (find ?? "").toLowerCase().split(/\W+/).filter((word) => word.length >= 3)
-  if (words.length === 0) return { text: text.slice(0, SHOWN), note: `first ${SHOWN} of ${text.length} characters; pass find to get the passages about something` }
+  const matchers = terms(find ?? "")
+  if (matchers.length === 0) return { text: text.slice(0, SHOWN), note: `first ${SHOWN} of ${text.length} characters; pass find to get the passages about something` }
   const paragraphs = text.split(/\n\s*\n|\n(?=[#*-] )/).map((body, index) => {
     const lower = body.toLowerCase()
-    return { body: body.trim(), index, score: words.reduce((sum, word) => sum + (lower.includes(word) ? 1 : 0), 0) }
+    return { body: body.trim(), index, score: matchers.reduce((sum, matches) => sum + (matches(lower) ? 1 : 0), 0) }
   }).filter((paragraph) => paragraph.score > 0 && paragraph.body !== "")
   const picked: Array<typeof paragraphs[number]> = []
   let size = 0

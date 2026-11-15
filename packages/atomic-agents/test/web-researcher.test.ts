@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, test } from "bun:test"
 import { Effect, Layer, Ref } from "effect"
 import type { Pack } from "../src/Adapter.ts"
@@ -5,7 +6,7 @@ import { packs as defaultPacks } from "../src/adapters/index.ts"
 import { type Hit, ResearchError } from "../src/adapters/research/http.ts"
 import { researchPack } from "../src/adapters/research/pack.ts"
 import { Reach } from "../src/adapters/research/reach.ts"
-import { Web } from "../src/adapters/research/web.ts"
+import { navOnly, Web } from "../src/adapters/research/web.ts"
 import { EventBus } from "../src/Event.ts"
 import { type GenerateRequest, ModelRunner } from "../src/Model.ts"
 import { Runner } from "../src/Runtime.ts"
@@ -56,6 +57,9 @@ const research = (input: Readonly<Record<string, unknown>>, replies: ReadonlyArr
   }).pipe(Effect.scoped)
 
 const PAGE = "# Release notes\n\nThe **1.4** release shipped on “October 22, 2026” with bun fmt.\n\nUnrelated paragraph."
+
+/** Pages as `omp read` returned them on 2026-11-15, when the web-researcher needle test caught each bug. */
+const fixture = (name: string) => readFileSync(new URL(`./fixtures/research/${name}`, import.meta.url), "utf8")
 
 describe("web-researcher", () => {
   test("agent-reach opens only after the primary source comes up thin or fails; quotes are checked on the page or the excerpt; route says which source answered", () =>
@@ -123,4 +127,42 @@ describe("web-researcher", () => {
       expect(data!["citations"]).toEqual([{ url: "https://github.com/o/r", quote: "licensed under the MIT license", verified: false, checked: "page", via: "reach.platform_search" }])
       expect(data!["route"]).toBe("platform")
     }).pipe(Effect.runPromise), 20_000)
+
+  test("a quote is checked on the page as read: `1<<24` in a code sample is code, not an HTML tag that swallows the page up to the next >", () =>
+    Effect.gen(function*() {
+      const url = "https://go.dev/doc/go1.2"
+      const quote = "In Go 1.2, the minimum size of the stack when a goroutine is created has been lifted from 4KB to 8KB."
+      const { data } = yield* research(
+        { question: "Which Go release raised the minimum goroutine stack size from 4KB?" },
+        [
+          { tool: "read", args: { url, find: "goroutine stack size" } },
+          { answer: { answer: "Go 1.2 raised it from 4KB to 8KB.", citations: [{ url, quote }] } }
+        ],
+        fakes({ pages: { [url]: fixture("go1.2.md") } }, {})
+      )
+      expect(data!["citations"]).toEqual([{ url, quote, verified: true, checked: "page", via: "web.read" }])
+      expect(data!["attempts"]).toBe(2)
+    }).pipe(Effect.runPromise), 20_000)
+
+  test("read's find matches short and symbol-bearing tokens whole: q=0.30 z=24 pulls the whitepaper's table row", () =>
+    Effect.gen(function*() {
+      const url = "https://bitcoin.org/bitcoin.pdf"
+      const { requests } = yield* research(
+        { question: "In the Bitcoin whitepaper, what z keeps an attacker with q=0.30 under 0.1%?" },
+        [
+          { tool: "read", args: { url, find: "q=0.30 z=24" } },
+          { answer: { answer: "z=24.", citations: [{ url, quote: "q=0.25 z=15 q=0.30 z=24" }] } }
+        ],
+        fakes({ pages: { [url]: fixture("bitcoin.pdf.md") } }, {})
+      )
+      expect(requests[1]!.prompt).toContain("passages matching find")
+      expect(requests[1]!.prompt).toContain("q=0.30 z=24")
+    }).pipe(Effect.runPromise), 20_000)
+
+  test("a read that returns only the site's navigation counts as failed (so fallback_read opens); a short page of real text still reads", () => {
+    expect(navOnly(fixture("bitcointalk-137.md"))).toBe(true)
+    expect(navOnly(fixture("go1.2.md"))).toBe(false)
+    expect(navOnly(fixture("bitcoin.pdf.md"))).toBe(false)
+    expect(navOnly("---\ntitle: Example Domain\n---\n\nThis domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.")).toBe(false)
+  })
 })
