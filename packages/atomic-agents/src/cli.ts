@@ -1,14 +1,16 @@
 #!/usr/bin/env bun
 import { BunRuntime, BunServices } from "@effect/platform-bun"
-import { Console, Deferred, Effect, Layer, Option, Schema, Stream } from "effect"
+import { Console, Effect, FiberSet, Layer, Option, Schema, Stream, SubscriptionRef } from "effect"
 import { Argument, Command, Flag } from "effect/cli"
-import { Components } from "./Component.ts"
+import { Background } from "./Background.ts"
+import { Components, type EventSchemas, Trigger } from "./Component.ts"
 import { propRender } from "./components/prop-render/component.ts"
-import { type AgentEvent, EventBus, Home, makeEvent } from "./Event.ts"
+import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./Event.ts"
+import { shortId } from "./Id.ts"
 import { ModelRunner } from "./Model.ts"
 import { Runner } from "./Runtime.ts"
 import * as Service from "./Service.ts"
-import { effective, events as runtimeEvents, RUNTIME, Settings } from "./Settings.ts"
+import { effective, RUNTIME, runtime, Settings } from "./Settings.ts"
 
 const builtins = [propRender]
 
@@ -17,27 +19,27 @@ const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknow
 const show = (event: AgentEvent) =>
   Console.log(`${event.at.slice(11, 19)}  ${event.type.padEnd(30)} ${event.run.padEnd(24)} ${JSON.stringify(event.data).slice(0, 220)}`)
 
-const terminal = (event: AgentEvent) => event.type.endsWith("/job.succeeded") || event.type.endsWith("/job.failed")
-
 /** Run one job and stream its events until the runtime reports it finished. */
 const runAndFollow = Effect.fnUntraced(function*(component: string, job: string, input: unknown, model: string | undefined) {
   const bus = yield* EventBus
   const runner = yield* Runner
-  const finished = new Set<string>()
-  let target: string | undefined
-  const done = yield* Deferred.make<void>()
+  // Runs whose job.succeeded / job.failed has arrived; the event can land before or after `run` returns.
+  const finished = yield* SubscriptionRef.make<ReadonlySet<string>>(new Set())
   yield* bus.subscribe.pipe(
-    Stream.runForEach((event) => Effect.gen(function*() {
-      yield* show(event)
-      if (!terminal(event)) return
-      finished.add(event.run)
-      if (event.run === target) yield* Deferred.succeed(done, undefined)
-    })),
+    Stream.runForEach((event) =>
+      show(event).pipe(Effect.andThen(Option.match(lifecycle(event), {
+        onNone: () => Effect.void,
+        onSome: ({ _tag }) => _tag === "job.started" ? Effect.void : SubscriptionRef.update(finished, (runs) => new Set([...runs, event.run]))
+      })))),
     Effect.forkScoped
   )
   const result = yield* runner.run(component, job, input, model === undefined ? {} : { model })
-  target = result.run
-  if (!finished.has(result.run)) yield* Deferred.await(done).pipe(Effect.timeout("10 seconds"), Effect.ignore)
+  yield* SubscriptionRef.changes(finished).pipe(
+    Stream.filter((runs) => runs.has(result.run)),
+    Stream.runHead,
+    Effect.timeout("10 seconds"),
+    Effect.ignore
+  )
   return result
 }, Effect.scoped)
 
@@ -54,7 +56,11 @@ const list = Command.make("list", {}, () =>
       yield* Console.log(`${component.id}${resolved.enabled ? "" : " (disabled)"}: ${component.purpose}`)
       yield* Console.log(`  agent   ${resolved.agent.model}${resolved.agent.thinking ? ` thinking ${resolved.agent.thinking}` : ""} (candidates: ${resolved.agent.candidates.join(", ")})`)
       for (const job of component.jobs) {
-        const triggers = job.triggers.map((t) => t._tag === "Cron" ? `cron "${resolved.cron(job.id, t.cron)}"` : t._tag === "OnEvent" ? `on ${t.type}` : "manual")
+        const triggers = job.triggers.map(Trigger.$match({
+          Manual: () => "manual",
+          Cron: ({ cron }) => `cron "${resolved.cron(job.id, cron)}"`,
+          OnEvent: ({ type }) => `on ${type}`
+        }))
         yield* Console.log(`  job     ${job.id} [${triggers.join(", ")}]: ${job.description}`)
       }
       yield* Console.log(`  events  ${Object.keys(component.events).map((name) => `${component.id}/${name}`).join(", ")}`)
@@ -95,19 +101,21 @@ const rate = Command.make("rate", {
 }, Effect.fnUntraced(function*({ a, b, winner, note }) {
   const bus = yield* EventBus
   const history = yield* bus.history
-  const [left, right] = [a, b].map((run) => history.find((event) => event.run === run && event.type.endsWith("/job.started")))
+  const [left, right] = [a, b].map((run) =>
+    history.flatMap((event) => {
+      const started = lifecycle(event)
+      return event.run === run && Option.isSome(started) && started.value._tag === "job.started" ? [{ event, model: started.value.model }] : []
+    })[0])
   if (left === undefined || right === undefined) return yield* Effect.fail(new Error(`no run ${left === undefined ? a : b} in the journal`))
-  if (left.component !== right.component || left.job !== right.job) return yield* Effect.fail(new Error("both runs must come from the same job"))
-  const model = (event: AgentEvent) =>
-    Option.getOrElse(Option.map(Schema.decodeUnknownOption(Schema.Struct({ model: Schema.String }))(event.data), (data) => data.model), () => "")
+  if (left.event.component !== right.event.component || left.event.job !== right.event.job) return yield* Effect.fail(new Error("both runs must come from the same job"))
   yield* bus.publish(yield* makeEvent({
-    type: `${left.component}/pair.picked`,
-    component: left.component,
-    job: left.job,
-    run: `pick-${crypto.randomUUID().slice(0, 8)}`,
-    data: { a: { run: a, model: model(left) }, b: { run: b, model: model(right) }, winner, note }
+    type: `${left.event.component}/pair.picked`,
+    component: left.event.component,
+    job: left.event.job,
+    run: `pick-${yield* shortId}`,
+    data: { a: { run: a, model: left.model }, b: { run: b, model: right.model }, winner, note }
   }))
-  yield* Console.log(`picked ${winner === "tie" ? "tie" : `${winner}: ${model(winner === "a" ? left : right)}`}`)
+  yield* Console.log(`picked ${winner === "tie" ? "tie" : `${winner}: ${(winner === "a" ? left : right).model}`}`)
 }))
 
 const Pick = Schema.Struct({
@@ -169,13 +177,12 @@ const emit = Command.make("emit", {
   data: Flag.String("data").pipe(Flag.withDefault("{}"))
 }, Effect.fnUntraced(function*({ type, data }) {
   const [component = "", name = ""] = type.split("/")
-  const schema = component === RUNTIME
-    ? (runtimeEvents as Readonly<Record<string, Schema.Encoder<unknown>>>)[name]
-    : builtins.find((candidate) => candidate.id === component)?.events[name]
+  const declared: EventSchemas | undefined = component === RUNTIME ? runtime.events : builtins.find((candidate) => candidate.id === component)?.events
+  const schema = declared?.[name]
   if (schema === undefined) return yield* Effect.fail(new Error(`${type} is not a declared event`))
   const encoded = yield* Schema.encodeUnknownEffect(schema)(yield* parseJson(data))
   const bus = yield* EventBus
-  yield* bus.publish(yield* makeEvent({ type, component, job: "external", run: `external-${crypto.randomUUID().slice(0, 8)}`, data: encoded }))
+  yield* bus.publish(yield* makeEvent({ type, component, job: "external", run: `external-${yield* shortId}`, data: encoded }))
 }))
 
 const events = Command.make("events", {
@@ -189,12 +196,15 @@ const events = Command.make("events", {
   if (follow) yield* bus.subscribe.pipe(Stream.filter((event) => event.type.startsWith(type)), Stream.runForEach(show))
 }))
 
+/** The service: config watch and triggers as background layers; the first fatal error (see `Background`) ends it. */
+const Serve = Layer.mergeAll(Settings.layerWatch, Runner.layerTriggers).pipe(Layer.provideMerge(Background.layer))
+
 const serve = Command.make("serve", {}, () =>
   Effect.gen(function*() {
     const home = yield* Home
     yield* Console.log(`atomic-agents serving ${builtins.length} component(s); journal ${home.journal}; config ${(yield* Settings).file} (live)`)
-    return yield* (yield* Runner).serve
-  }))
+    return yield* FiberSet.join(yield* Background)
+  }).pipe(Effect.provide(Serve)))
 
 const service = Command.make("service").pipe(Command.withSubcommands([
   Command.make("install", {}, () =>

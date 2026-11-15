@@ -1,7 +1,22 @@
-import { Context, Effect, Layer, Schema } from "effect"
+import { type Config, Context, Data, Effect, Layer, type PlatformError, Schema, type Scope } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import type { JournalError } from "./Event.ts"
 import type { ModelRunner } from "./Model.ts"
+
+/** A component's id and its declared events: enough to name its event types at compile time. */
+export interface Contract<C extends string = string, E extends EventSchemas = EventSchemas> {
+  /** Kebab-case id; prefixes every event type (`<id>/<name>`). */
+  readonly id: C
+  /** Event name → schema of `data`. The component's whole output contract. */
+  readonly events: E
+}
+
+/** `<component>/<event>`, for a name the contract declares. */
+export const eventType = <C extends string, E extends EventSchemas, K extends keyof E & string>(contract: Contract<C, E>, name: K): `${C}/${K}` =>
+  `${contract.id}/${name}`
+
+/** Building a component's tools may fail on config (`Config`) or files (knowledge, scripts); the runtime layer then fails to build. */
+export type ToolsError = Config.ConfigError | PlatformError.PlatformError
 
 /**
  * An atomic agent component: ONE narrow agent (minimal prompt, knowledge, tools, best model),
@@ -9,22 +24,25 @@ import type { ModelRunner } from "./Model.ts"
  * assistants and Relay subscribe to its events and request work by emitting the events its
  * jobs listen for.
  */
-export interface Component<R = never> {
-  /** Kebab-case id; prefixes every event type (`<id>/<name>`). */
-  readonly id: string
+export interface Component<R = never> extends Contract {
   /** One sentence. If it needs two, it is two components. */
   readonly purpose: string
   readonly agent: Agent
-  /** Event name → schema of `data`. The component's whole output contract. */
-  readonly events: EventSchemas
   readonly jobs: ReadonlyArray<Job<R | BunServices>>
-  /** The component's tools as Effect services, built on platform services only. */
-  readonly tools: Layer.Layer<R, never, BunServices>
+  /** The component's tools as Effect services, built on platform services only, once per runtime. */
+  readonly tools: Layer.Layer<R, ToolsError, BunServices>
 }
 
-/** A component with its tools sealed in: what a runtime registers. */
-export interface Registered extends Omit<Component, "jobs" | "tools"> {
-  readonly jobs: ReadonlyArray<Job<BunServices>>
+/** A job as the runtime sees it before its tools exist: schedule and input, no body. */
+export type JobInfo = Omit<Job<never>, "start">
+
+/** A component with its tools hidden: what a runtime registers. */
+export interface Registered extends Contract {
+  readonly purpose: string
+  readonly agent: Agent
+  readonly jobs: ReadonlyArray<JobInfo>
+  /** Build the tools once, in the caller's scope, and answer the jobs with them provided. */
+  readonly build: Effect.Effect<ReadonlyArray<Job<BunServices>>, ToolsError, BunServices | Scope.Scope>
 }
 
 /** The built-in components with their code defaults, provided once by the host process (CLI, Relay host, tests). `config.json` overrides them per component (`Settings.ts`). */
@@ -35,10 +53,9 @@ export const define = <R>(component: Component<R>): Registered => ({
   purpose: component.purpose,
   agent: component.agent,
   events: component.events,
-  jobs: component.jobs.map((job) => ({
-    ...job,
-    start: (input, context) => job.start(input, context).pipe(Effect.provide(component.tools))
-  }))
+  jobs: component.jobs,
+  build: Effect.map(Layer.build(component.tools), (tools) =>
+    component.jobs.map((job) => ({ ...job, start: (input, context) => job.start(input, context).pipe(Effect.provideContext(tools)) })))
 })
 
 export interface Agent {
@@ -46,23 +63,25 @@ export interface Agent {
   readonly model: string
   readonly candidates: ReadonlyArray<string>
   readonly thinking?: "off" | "minimal" | "low" | "medium" | "high"
-  /** System prompt with the component's knowledge inlined. Kept small on purpose. */
+  /** System prompt. Kept small on purpose; knowledge files load in the component's tools layer. */
   readonly system: string
 }
 
 /** Event name → schema of its `data`. Encoders must not need services, so any process can validate. */
 export type EventSchemas = Readonly<Record<string, Schema.Encoder<unknown>>>
 
-export type Trigger =
-  | { readonly _tag: "Manual" }
+export type Trigger = Data.TaggedEnum<{
+  Manual: {}
   /** Cron expression (local time); `input` yields the job input in its encoded (JSON) form. */
-  | { readonly _tag: "Cron"; readonly cron: string; readonly input: Effect.Effect<unknown> }
-  /** Run on every event of this full type; the event's `data` is the job input. */
-  | { readonly _tag: "OnEvent"; readonly type: string }
+  Cron: { readonly cron: string; readonly input: Effect.Effect<unknown> }
+  /** Run on every event of this full type; the event's `data` is the job input. Build it with `OnEvent`. */
+  OnEvent: { readonly type: string }
+}>
+export const Trigger = Data.taggedEnum<Trigger>()
 
-export const Manual: Trigger = { _tag: "Manual" }
-export const Cron = (cron: string, input: Effect.Effect<unknown>): Trigger => ({ _tag: "Cron", cron, input })
-export const OnEvent = (type: string): Trigger => ({ _tag: "OnEvent", type })
+/** Run on every `name` event of `contract`: a name the contract does not declare is a compile error. */
+export const OnEvent = <C extends string, E extends EventSchemas>(contract: Contract<C, E>, name: keyof E & string): Trigger =>
+  Trigger.OnEvent({ type: eventType(contract, name) })
 
 /** A job failure the runtime can report: every tagged error with a message qualifies. */
 export interface Failure {
@@ -70,7 +89,8 @@ export interface Failure {
   readonly message: string
 }
 
-export interface JobContext<E extends EventSchemas> {
+/** What the runtime hands each run; `job()` turns it into the job's typed `JobContext`. */
+export interface RunContext {
   readonly component: string
   readonly job: string
   readonly run: string
@@ -80,6 +100,11 @@ export interface JobContext<E extends EventSchemas> {
   readonly model: string
   /** The agent with config.json overrides applied. */
   readonly agent: Agent
+  /** Append `<component>/<name>` with `data` already encoded by the event's schema. */
+  publish(name: string, data: unknown): Effect.Effect<void, JournalError>
+}
+
+export interface JobContext<E extends EventSchemas> extends Omit<RunContext, "publish"> {
   emit<K extends keyof E & string>(name: K, data: E[K]["Type"]): Effect.Effect<void, JournalError | Schema.SchemaError>
 }
 
@@ -89,12 +114,12 @@ export interface Job<R> {
   readonly description: string
   readonly input: Schema.Top
   readonly triggers: ReadonlyArray<Trigger>
-  start(input: unknown, context: JobContext<EventSchemas>): Effect.Effect<unknown, Failure | Schema.SchemaError, R | ModelRunner>
+  start(input: unknown, context: RunContext): Effect.Effect<unknown, Failure | Schema.SchemaError, R | ModelRunner>
 }
 
-/** Declare a job against a component's event schemas so `ctx.emit` is typed. */
+/** Declare a job against a component's event schemas: `ctx.emit` takes only declared names and encodes with their schemas. */
 export const job = <E extends EventSchemas, I extends Schema.Decoder<unknown>, R>(
-  _events: E,
+  events: E,
   spec: {
     readonly id: string
     readonly description: string
@@ -107,9 +132,17 @@ export const job = <E extends EventSchemas, I extends Schema.Decoder<unknown>, R
   description: spec.description,
   input: spec.input,
   triggers: spec.triggers,
-  start: (input, context) =>
+  start: (input, { publish, ...context }) =>
     Schema.decodeUnknownEffect(spec.input)(input).pipe(
-      // The runtime validates `emit` against `_events`, so the erased context is safe to narrow.
-      Effect.flatMap((decoded) => spec.run(decoded, context as unknown as JobContext<E>))
+      Effect.flatMap((decoded) =>
+        spec.run(decoded, {
+          ...context,
+          emit: (name, data) => {
+            const schema = events[name]
+            // `name` is typed as a declared key; only a cast past `JobContext<E>` reaches this.
+            if (schema === undefined) return Effect.die(new Error(`event ${name} is not declared`))
+            return Schema.encodeUnknownEffect(schema)(data).pipe(Effect.flatMap((encoded) => publish(name, encoded)))
+          }
+        }))
     )
 })

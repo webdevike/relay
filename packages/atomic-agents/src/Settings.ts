@@ -1,6 +1,8 @@
-import { Context, Cron, Effect, FileSystem, Layer, Path, Result, Schedule, Schema, Semaphore, Stream, SubscriptionRef } from "effect"
-import { type Agent, Components, type Registered } from "./Component.ts"
-import { EventBus, Home, type JournalError, makeEvent } from "./Event.ts"
+import { Context, Cron, Effect, FiberSet, FileSystem, Layer, Option, Path, Ref, Result, Schedule, Schema, Semaphore, Stream, SubscriptionRef } from "effect"
+import { Background } from "./Background.ts"
+import { type Agent, Components, eventType, type Registered, Trigger } from "./Component.ts"
+import { EventBus, Home, JournalError, makeEvent } from "./Event.ts"
+import { shortId } from "./Id.ts"
 
 /**
  * The consumer side: `<home>/config.json` (Relay's data dir) says which built-in components run and
@@ -51,6 +53,9 @@ export const events = {
   "config.rejected": Schema.Struct({ by: Schema.String, source: Source, error: Schema.String })
 }
 
+/** The runtime's own contract, so its event types are built from the declaration like any component's. */
+export const runtime = { id: RUNTIME, events } as const
+
 export class SettingsError extends Schema.TaggedError<SettingsError>()("SettingsError", {
   message: Schema.String
 }) {}
@@ -85,7 +90,7 @@ const check = (settings: SettingsFile, components: ReadonlyArray<Registered>): R
     if (component === undefined) return [`unknown component ${id} (have: ${components.map((c) => c.id).join(", ")})`]
     return Object.entries(own.cron ?? {}).flatMap(([jobId, cron]) => {
       const job = component.jobs.find((candidate) => candidate.id === jobId)
-      if (job === undefined || !job.triggers.some((trigger) => trigger._tag === "Cron")) return [`${id} has no cron job ${jobId}`]
+      if (job === undefined || !job.triggers.some(Trigger.$is("Cron"))) return [`${id} has no cron job ${jobId}`]
       return Result.isFailure(Cron.parse(cron)) ? [`${id}.cron.${jobId}: bad cron "${cron}"`] : []
     })
   })
@@ -139,8 +144,11 @@ export class Settings extends Context.Service<Settings, {
   readonly changes: Stream.Stream<SettingsFile>
   /** Merge-patch config.json: validate, publish config.changed, then swap the file in. A bad patch publishes config.rejected and fails. */
   set(patch: Record<string, Schema.Json>, by: string, source: "use" | "set"): Effect.Effect<ReadonlyArray<Change>, SettingsError | JournalError>
-  /** Service only: watch config.json and apply `config.set` requests; runs until interrupted. */
-  readonly serve: Effect.Effect<never>
+  /**
+   * Read config.json once: a valid edit swaps in (config.changed unless its writer already announced it),
+   * a bad one keeps the last good config (config.rejected). An unreadable file is logged and retried on the next call.
+   */
+  readonly reload: Effect.Effect<void, JournalError>
 }>()("atomic-agents/Settings") {
   static readonly layer = Layer.effect(
     Settings,
@@ -167,9 +175,9 @@ export class Settings extends Context.Service<Settings, {
 
       const publish = <K extends keyof typeof events>(name: K, data: (typeof events)[K]["Type"]) =>
         Schema.encodeUnknownEffect(events[name])(data).pipe(
-          Effect.orDie,
+          Effect.mapError((cause) => new JournalError({ message: `encode ${RUNTIME}/${name}`, cause })),
           Effect.flatMap((encoded) =>
-            makeEvent({ type: `${RUNTIME}/${name}`, component: RUNTIME, job: "config", run: `config-${crypto.randomUUID().slice(0, 8)}`, data: encoded })),
+            Effect.flatMap(shortId, (id) => makeEvent({ type: eventType(runtime, name), component: RUNTIME, job: "config", run: `config-${id}`, data: encoded }))),
           Effect.flatMap(bus.publish)
         )
 
@@ -188,52 +196,61 @@ export class Settings extends Context.Service<Settings, {
         )
         const changes = diff(before, after)
         if (changes.length === 0) return changes
-        const temp = `${file}.${crypto.randomUUID().slice(0, 8)}.tmp`
-        yield* fs.writeFileString(temp, `${JSON.stringify(after, null, 2)}\n`).pipe(Effect.orDie)
+        const temp = `${file}.${yield* shortId}.tmp`
+        yield* fs.writeFileString(temp, `${JSON.stringify(after, null, 2)}\n`).pipe(
+          Effect.mapError((error) => new SettingsError({ message: `write ${temp}: ${error.message}` }))
+        )
         // Announce before the rename: a watching service then finds this event and does not report the edit again.
         yield* publish("config.changed", { by, source, changes, undo: undoPatch(changes), config: after })
-        yield* fs.rename(temp, file).pipe(Effect.orDie)
+        yield* fs.rename(temp, file).pipe(Effect.mapError((error) => new SettingsError({ message: `rename ${temp} to ${file}: ${error.message}` })))
         yield* SubscriptionRef.set(ref, after)
         return changes
       }, lock.withPermits(1))
 
-      /** Poll config.json: a valid edit swaps in (config.changed unless a writer announced it), a bad one keeps the last good config (config.rejected). */
-      let seen: string | undefined
-      const poll = Effect.gen(function*() {
-        const text = yield* read
-        if (text === seen) return
-        seen = text
-        const parsed = yield* Effect.result(parse(text))
+      const seen = yield* Ref.make<Option.Option<string>>(Option.none())
+      const reload = Effect.gen(function*() {
+        const text = yield* read.pipe(Effect.option)
+        if (Option.isNone(text)) return yield* Effect.logWarning(`cannot read ${file}; keeping the config in force`)
+        if (Option.contains(yield* Ref.get(seen), text.value)) return
+        yield* Ref.set(seen, text)
+        const parsed = yield* Effect.result(parse(text.value))
         if (Result.isFailure(parsed)) return yield* publish("config.rejected", { by: "file", source: "file", error: parsed.failure.message })
         const changes = diff(yield* SubscriptionRef.get(ref), parsed.success)
         if (changes.length === 0) return
         yield* SubscriptionRef.set(ref, parsed.success)
-        const announced = (yield* bus.history).filter((event) => event.type === `${RUNTIME}/config.changed`).at(-1)
-        const config = Schema.decodeUnknownOption(events["config.changed"])(announced?.data)
-        if (config._tag === "Some" && diff(config.value.config, parsed.success).length === 0) return
+        // A writer (`use`, `set`) announces before it renames, so its config.changed is already in the journal.
+        const announced = Option.flatMap(
+          yield* bus.latest(eventType(runtime, "config.changed")),
+          (event) => Schema.decodeUnknownOption(events["config.changed"])(event.data)
+        )
+        if (Option.isSome(announced) && diff(announced.value.config, parsed.success).length === 0) return
         yield* publish("config.changed", { by: "file", source: "file", changes, undo: undoPatch(changes), config: parsed.success })
       }).pipe(lock.withPermits(1))
 
-      const serve = Effect.gen(function*() {
-        const request = Schema.decodeUnknownEffect(events["config.set"])
-        yield* bus.subscribe.pipe(
-          Stream.filter((event) => event.type === `${RUNTIME}/config.set`),
-          Stream.runForEach((event) =>
-            request(event.data).pipe(
-              Effect.flatMap(({ by, patch }) => set(patch, by, "set")),
-              Effect.catch((error) => Effect.logWarning("config.set", error))
-            )),
-          Effect.forkScoped
-        )
-        yield* poll.pipe(
-          Effect.catch((error) => Effect.logWarning("config watch", error)),
-          Effect.repeat(Schedule.spaced("1 second")),
-          Effect.forkScoped
-        )
-        return yield* Effect.never
-      }).pipe(Effect.scoped)
-
-      return Settings.of({ file, current: SubscriptionRef.get(ref), changes: SubscriptionRef.changes(ref), set, serve })
+      return Settings.of({ file, current: SubscriptionRef.get(ref), changes: SubscriptionRef.changes(ref), set, reload })
     })
   )
+
+  /**
+   * Background layer: watch config.json (every second) and apply `atomic-agents/config.set` requests.
+   * A bad request or patch is logged (`set` already published config.rejected); a `JournalError` ends serve.
+   */
+  static readonly layerWatch = Layer.effectDiscard(Effect.gen(function*() {
+    const settings = yield* Settings
+    const bus = yield* EventBus
+    const background = yield* Background
+    const request = Schema.decodeUnknownEffect(events["config.set"])
+    yield* FiberSet.run(background, bus.subscribe.pipe(
+      Stream.filter((event) => event.type === eventType(runtime, "config.set")),
+      Stream.runForEach((event) =>
+        request(event.data).pipe(
+          Effect.flatMap(({ by, patch }) => settings.set(patch, by, "set")),
+          Effect.catchTags({
+            SchemaError: (error) => Effect.logWarning(`bad config.set request ${event.id}`, error.message),
+            SettingsError: (error) => Effect.logWarning(`config.set rejected: ${error.message}`)
+          })
+        ))
+    ))
+    yield* FiberSet.run(background, settings.reload.pipe(Effect.repeat(Schedule.spaced("1 second"))))
+  }))
 }

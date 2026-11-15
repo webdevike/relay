@@ -1,4 +1,4 @@
-import { Config, Context, Duration, Effect, FileSystem, Layer, Option, Path, Redacted, Schema } from "effect"
+import { Clock, Config, Context, Duration, Effect, FileSystem, Layer, Option, Path, Redacted, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { Home } from "./Event.ts"
 import { exec } from "./exec.ts"
@@ -46,24 +46,16 @@ const AssistantMessage = Schema.Struct({
   content: Schema.Array(Schema.Struct({ type: Schema.String, text: Schema.optional(Schema.String) })),
   usage: Schema.optional(Schema.Struct({ cost: Schema.optional(Schema.Struct({ total: Schema.Number })) }))
 })
-const isMessageEnd = Schema.is(Schema.Struct({ type: Schema.Literal("message_end"), message: AssistantMessage }))
+const decodeMessageEnd = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ type: Schema.Literal("message_end"), message: AssistantMessage }))
+)
 
 const lastAssistant = (stdout: string) => {
-  let last: typeof AssistantMessage.Type | undefined
-  let cost = 0
-  for (const line of stdout.split("\n")) {
-    if (!line.startsWith("{")) continue
-    let event: unknown
-    try {
-      event = JSON.parse(line)
-    } catch {
-      continue
-    }
-    if (!isMessageEnd(event)) continue
-    last = event.message
-    cost += event.message.usage?.cost?.total ?? 0
-  }
-  return last === undefined ? undefined : { message: last, cost }
+  const ends = stdout.split("\n").flatMap((line) => Option.toArray(decodeMessageEnd(line)))
+  const last = ends.at(-1)
+  return last === undefined
+    ? undefined
+    : { message: last.message, cost: ends.reduce((sum, end) => sum + (end.message.usage?.cost?.total ?? 0), 0) }
 }
 
 /**
@@ -86,20 +78,19 @@ export class ModelRunner extends Context.Service<ModelRunner, {
       const settings = yield* Settings
       const path = yield* Path.Path
       const home = yield* Home
-      const keyEnv = yield* Config.option(Config.Redacted("OPENROUTER_API_KEY")).pipe(Effect.orDie)
+      const keyEnv = yield* Config.option(Config.Redacted("OPENROUTER_API_KEY"))
       const generate = Effect.fn("ModelRunner.generate")(function*(request: GenerateRequest) {
-        const started = Date.now()
+        const started = yield* Clock.currentTimeMillis
         const fail = (message: string) => new ModelError({ model: request.model, message })
         const viaOpenRouter = request.model.startsWith(OPENROUTER)
         if (NATIVE_ONLY.test(request.model)) return yield* fail("Anthropic and OpenAI models run on omp's native providers, not OpenRouter")
-        let key: Redacted.Redacted<string> | undefined
-        if (viaOpenRouter) {
-          const keyFile = (yield* settings.current).openRouterKeyFile
-          key = keyFile !== undefined
-            ? Redacted.make((yield* fs.readFileString(path.resolve(home.root, keyFile)).pipe(Effect.mapError(() => fail(`cannot read openRouterKeyFile ${keyFile}`)))).trim())
-            : Option.getOrUndefined(keyEnv)
-          if (key === undefined) return yield* fail(`openrouter models need openRouterKeyFile in ${settings.file} or OPENROUTER_API_KEY`)
-        }
+        const keyFile = viaOpenRouter ? (yield* settings.current).openRouterKeyFile : undefined
+        const key = !viaOpenRouter
+          ? undefined
+          : keyFile !== undefined
+          ? Redacted.make((yield* fs.readFileString(path.resolve(home.root, keyFile)).pipe(Effect.mapError(() => fail(`cannot read openRouterKeyFile ${keyFile}`)))).trim())
+          : Option.getOrUndefined(keyEnv)
+        if (viaOpenRouter && key === undefined) return yield* fail(`openrouter models need openRouterKeyFile in ${settings.file} or OPENROUTER_API_KEY`)
         const result = yield* Effect.scoped(Effect.gen(function*() {
           const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "atomic-agent-" })
           return yield* exec("omp", [
@@ -130,7 +121,7 @@ export class ModelRunner extends Context.Service<ModelRunner, {
         }
         const text = message.content.flatMap((part) => part.type === "text" && part.text ? [part.text] : []).join("")
         if (text.trim() === "") return yield* fail("empty reply")
-        return { text, model: request.model, provider: message.provider, seconds: (Date.now() - started) / 1000, cost }
+        return { text, model: request.model, provider: message.provider, seconds: ((yield* Clock.currentTimeMillis) - started) / 1000, cost }
       }, Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
       return ModelRunner.of({ generate })
     })

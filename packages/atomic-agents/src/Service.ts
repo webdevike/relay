@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Path, Schedule, Schema } from "effect"
+import { Effect, FileSystem, Path, type PlatformError, Schedule, Schema } from "effect"
 import { exec } from "./exec.ts"
 import { Home } from "./Event.ts"
 
@@ -13,6 +13,9 @@ const BLENDER_APP = "/Applications/Blender.app/Contents/MacOS/Blender"
 export class ServiceError extends Schema.TaggedError<ServiceError>()("ServiceError", {
   message: Schema.String
 }) {}
+
+/** File work the installer cannot do is a `ServiceError` naming the step. */
+const step = (what: string) => Effect.mapError((error: PlatformError.PlatformError) => new ServiceError({ message: `${what}: ${error.message}` }))
 
 const xml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 
@@ -31,7 +34,7 @@ const paths = Effect.gen(function*() {
 })
 
 const launchctl = (...args: ReadonlyArray<string>) =>
-  exec("launchctl", args).pipe(Effect.catchTag("PlatformError", (error) => Effect.fail(new ServiceError({ message: error.message }))))
+  exec("launchctl", args).pipe(step("launchctl"))
 
 /**
  * Copy this package (src, package.json, bun.lock) into `<home>/app`, install its production
@@ -74,23 +77,21 @@ ${Object.entries(env).map(([key, value]) => `\t\t<key>${key}</key><string>${xml(
 </dict>
 </plist>
 `
-  yield* fs.makeDirectory(path.dirname(log), { recursive: true }).pipe(Effect.orDie)
-  yield* fs.makeDirectory(path.dirname(plist), { recursive: true }).pipe(Effect.orDie)
+  yield* fs.makeDirectory(path.dirname(log), { recursive: true }).pipe(step("create log dir"))
+  yield* fs.makeDirectory(path.dirname(plist), { recursive: true }).pipe(step("create LaunchAgents dir"))
   // Stop the old instance first: it may be running from the copy about to be replaced.
   yield* launchctl("bootout", `${target}/${LABEL}`)
-  const source = yield* fs.realPath(PACKAGE).pipe(Effect.orDie)
-  const installed = (yield* fs.exists(app).pipe(Effect.orDie)) && (yield* fs.realPath(app).pipe(Effect.orDie)) === source
+  const source = yield* fs.realPath(PACKAGE).pipe(step("resolve package"))
+  const installed = (yield* fs.exists(app).pipe(step("check app"))) && (yield* fs.realPath(app).pipe(step("resolve app"))) === source
   if (!installed) {
-    yield* fs.remove(app, { recursive: true, force: true }).pipe(Effect.orDie)
-    yield* fs.makeDirectory(app, { recursive: true }).pipe(Effect.orDie)
-    yield* fs.copy(path.join(source, "src"), path.join(app, "src")).pipe(Effect.orDie)
-    for (const file of ["package.json", "bun.lock"]) yield* fs.copyFile(path.join(source, file), path.join(app, file)).pipe(Effect.orDie)
-    const deps = yield* exec(process.execPath, ["install", "--production", "--frozen-lockfile"], { cwd: app }).pipe(
-      Effect.catchTag("PlatformError", (error) => Effect.fail(new ServiceError({ message: error.message })))
-    )
+    yield* fs.remove(app, { recursive: true, force: true }).pipe(step(`remove ${app}`))
+    yield* fs.makeDirectory(app, { recursive: true }).pipe(step(`create ${app}`))
+    yield* fs.copy(path.join(source, "src"), path.join(app, "src")).pipe(step("copy src"))
+    for (const file of ["package.json", "bun.lock"]) yield* fs.copyFile(path.join(source, file), path.join(app, file)).pipe(step(`copy ${file}`))
+    const deps = yield* exec(process.execPath, ["install", "--production", "--frozen-lockfile"], { cwd: app }).pipe(step("bun install"))
     if (deps.exitCode !== 0) return yield* new ServiceError({ message: `bun install in ${app}: ${deps.stderr.trim()}` })
   }
-  yield* fs.writeFileString(plist, body).pipe(Effect.orDie)
+  yield* fs.writeFileString(plist, body).pipe(step(`write ${plist}`))
   // bootout is asynchronous; bootstrap fails with EIO until the old instance is gone.
   yield* launchctl("bootstrap", target, plist).pipe(
     Effect.flatMap((result) => result.exitCode === 0 ? Effect.void : Effect.fail(new ServiceError({ message: result.stderr.trim() }))),
@@ -103,7 +104,7 @@ export const uninstall = Effect.gen(function*() {
   const fs = yield* FileSystem.FileSystem
   const { plist, target } = yield* paths
   yield* launchctl("bootout", `${target}/${LABEL}`)
-  yield* fs.remove(plist, { force: true }).pipe(Effect.orDie)
+  yield* fs.remove(plist, { force: true }).pipe(step(`remove ${plist}`))
   return { plist }
 })
 

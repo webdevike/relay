@@ -1,9 +1,10 @@
-import { Config, Context, DateTime, Effect, FileSystem, Layer, Option, Path, PubSub, Schedule, Schema, Stream } from "effect"
+import { Config, Context, DateTime, Effect, FileSystem, Layer, Option, Path, PubSub, Ref, Schedule, Schema, Semaphore, Stream } from "effect"
+import { uuid } from "./Id.ts"
 
 /**
  * The one envelope every component event travels in. `type` is `<component>/<name>`;
  * `data` was validated against the component's declared schema before it was written.
- * Runtime events (`<component>/job.started|job.succeeded|job.failed`) use the same shape.
+ * Runtime lifecycle events (`<component>/job.started|job.succeeded|job.failed`, see `Lifecycle`) use the same shape.
  */
 export class AgentEvent extends Schema.Class<AgentEvent>("atomic-agents/AgentEvent")({
   id: Schema.String,
@@ -15,7 +16,34 @@ export class AgentEvent extends Schema.Class<AgentEvent>("atomic-agents/AgentEve
   data: Schema.Unknown
 }) {}
 
-const decodeLine = Schema.decodeUnknownEffect(Schema.fromJsonString(AgentEvent))
+const JournalLine = Schema.fromJsonString(AgentEvent)
+const decodeLine = Schema.decodeUnknownEffect(JournalLine)
+const encodeLine = Schema.encodeEffect(JournalLine)
+
+/**
+ * The runtime's lifecycle events, declared once. The runtime wraps every run in them, so any subscriber can
+ * follow any component without knowing its schemas. On the wire the `_tag` is the event name (the envelope's
+ * `type` is `<component>/<_tag>`) and travels in `data` too, so `Schema.decodeUnknownEffect(Lifecycle)(event.data)` works.
+ */
+export const JobStarted = Schema.TaggedStruct("job.started", { input: Schema.Unknown, model: Schema.String })
+export const JobSucceeded = Schema.TaggedStruct("job.succeeded", { model: Schema.String, seconds: Schema.Number })
+export const JobFailed = Schema.TaggedStruct("job.failed", {
+  model: Schema.String,
+  seconds: Schema.Number,
+  /** The failure's `_tag`, or `Defect`. */
+  error: Schema.String,
+  message: Schema.String
+})
+export const Lifecycle = Schema.Union([JobStarted, JobSucceeded, JobFailed])
+export type Lifecycle = typeof Lifecycle.Type
+
+const decodeLifecycle = Schema.decodeUnknownOption(Lifecycle)
+
+/** The lifecycle event an envelope carries, if any. The tag comes from the envelope type, so journal lines written before `data` carried `_tag` decode too. */
+export const lifecycle = (event: AgentEvent): Option.Option<Lifecycle> =>
+  typeof event.data === "object" && event.data !== null
+    ? decodeLifecycle({ ...event.data, _tag: event.type.slice(event.type.indexOf("/") + 1) })
+    : Option.none()
 
 export class JournalError extends Schema.TaggedError<JournalError>()("JournalError", {
   message: Schema.String,
@@ -58,6 +86,8 @@ export class EventBus extends Context.Service<EventBus, {
   readonly subscribe: Stream.Stream<AgentEvent>
   /** The whole journal, oldest first. */
   readonly history: Effect.Effect<ReadonlyArray<AgentEvent>, JournalError>
+  /** The newest event of `type` appended since this bus started, after reading the journal up to its current end (any process's appends count). */
+  latest(type: string): Effect.Effect<Option.Option<AgentEvent>, JournalError>
 }>()("atomic-agents/EventBus") {
   static readonly layer = Layer.effect(
     EventBus,
@@ -74,37 +104,49 @@ export class EventBus extends Context.Service<EventBus, {
         Effect.mapError(fail("stat journal"))
       )
 
+      // A torn or hand-edited line is logged and skipped; it must not hide the rest of the journal.
       const parse = (text: string) =>
         Effect.forEach(
           text.split("\n").filter((line) => line.trim() !== ""),
-          (line) => decodeLine(line).pipe(Effect.option)
+          (line) =>
+            decodeLine(line).pipe(
+              Effect.tapError((error) => Effect.logWarning(`skipped bad journal line: ${line.slice(0, 200)}`, error.message)),
+              Effect.option
+            )
         ).pipe(Effect.map((events) => events.flatMap((event) => Option.isSome(event) ? [event.value] : [])))
 
       // Tail from the current end: a new bus never replays old history as live events.
-      let offset: bigint = yield* size
-      const poll = Effect.gen(function*() {
+      const offset = yield* Ref.make(yield* size)
+      const newest = yield* Ref.make<ReadonlyMap<string, AgentEvent>>(new Map())
+      const lock = yield* Semaphore.make(1)
+      /** Read what was appended since the last read, remember the newest event per type, fan it out. */
+      const tail = Effect.gen(function*() {
         const end = yield* size
-        if (end < offset) offset = 0n // journal was rotated
-        if (end === offset) return
+        const last = yield* Ref.get(offset)
+        const from = end < last ? 0n : last // journal was rotated
+        if (end === from) return yield* Ref.set(offset, from)
         const chunk = yield* Effect.scoped(Effect.gen(function*() {
           const file = yield* fs.open(journal, { flag: "r" })
-          return yield* file.readAlloc(Number(end - offset), { position: offset })
+          return yield* file.readAlloc(Number(end - from), { position: from })
         })).pipe(Effect.mapError(fail("read journal")))
         if (Option.isNone(chunk)) return
         const text = new TextDecoder().decode(chunk.value)
-        const complete = text.lastIndexOf("\n") + 1 // a writer may be mid-line
-        offset += BigInt(new TextEncoder().encode(text.slice(0, complete)).length)
-        yield* PubSub.publishAll(pubsub, yield* parse(text.slice(0, complete)))
-      })
-      yield* poll.pipe(
-        Effect.catch((error) => Effect.logWarning("journal tail", error)),
+        const complete = text.slice(0, text.lastIndexOf("\n") + 1) // a writer may be mid-line
+        yield* Ref.set(offset, from + BigInt(new TextEncoder().encode(complete).length))
+        const events = yield* parse(complete)
+        yield* Ref.update(newest, (map) => new Map([...map, ...events.map((event) => [event.type, event] as const)]))
+        yield* PubSub.publishAll(pubsub, events)
+      }).pipe(lock.withPermits(1))
+      // A failed read leaves the offset where it was, so the next tick retries it and nothing is lost.
+      yield* tail.pipe(
+        Effect.catch((error) => Effect.logWarning("journal tail", error.message)),
         Effect.repeat(Schedule.spaced("250 millis")),
         Effect.forkScoped
       )
 
       const publish = Effect.fn("EventBus.publish")(function*(event: AgentEvent) {
-        const line = JSON.stringify(Schema.encodeSync(AgentEvent)(event)) + "\n"
-        yield* fs.writeFileString(journal, line, { flag: "a" }).pipe(Effect.mapError(fail("append journal")))
+        const line = yield* encodeLine(event).pipe(Effect.mapError(fail(`encode ${event.type}`)))
+        yield* fs.writeFileString(journal, `${line}\n`, { flag: "a" }).pipe(Effect.mapError(fail("append journal")))
       })
 
       const history = fs.exists(journal).pipe(
@@ -113,7 +155,12 @@ export class EventBus extends Context.Service<EventBus, {
         Effect.flatMap(parse)
       )
 
-      return EventBus.of({ publish, subscribe: Stream.fromPubSub(pubsub), history })
+      const latest = Effect.fn("EventBus.latest")(function*(type: string) {
+        yield* tail
+        return Option.fromUndefinedOr((yield* Ref.get(newest)).get(type))
+      })
+
+      return EventBus.of({ publish, subscribe: Stream.fromPubSub(pubsub), history, latest })
     })
   )
 }
@@ -121,5 +168,5 @@ export class EventBus extends Context.Service<EventBus, {
 export const makeEvent = (fields: Omit<AgentEvent, "id" | "at">) =>
   Effect.gen(function*() {
     const now = yield* DateTime.now
-    return new AgentEvent({ ...fields, id: crypto.randomUUID(), at: DateTime.formatIso(now) })
+    return new AgentEvent({ ...fields, id: yield* uuid, at: DateTime.formatIso(now) })
   })
