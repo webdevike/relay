@@ -41,6 +41,7 @@ import type { StatsService } from "./stats/service";
 import type { CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
 import type { RenderFailureReporting } from "./render-failures/service";
+import type { ReplyWidgetRelaying } from "./widgets/service";
 import type { BookmarkRelaying } from "./bookmarks/service";
 import type { DismissedCardRelaying } from "./cards/service";
 import { handleAgentReaction } from "./reactions/http";
@@ -159,6 +160,8 @@ export interface ServerDeps {
   readonly control: ControlRelay | null;
   /** Where devices' `render.failed` reports go; absent or null leaves RENDER_REPORT_FEATURE out of `welcome.features`. */
   readonly renderFailures?: RenderFailureReporting | null;
+  /** Reply widgets and 🎯 training; absent or null leaves REPLY_WIDGETS_FEATURE and WIDGET_TRAINING_FEATURE out of `welcome.features`. */
+  readonly replyWidgets?: ReplyWidgetRelaying | null;
   /** The bearer token every state-changing loopback route requires (`controlToken` in serve.json, 0600). */
   readonly hostToken: string;
   /** The Skills page's catalog and live skill rooms; absent or null disables `/skills`. */
@@ -869,6 +872,7 @@ export class RelayServer {
         meetings: this.deps.meetings,
         control: this.deps.control,
         renderFailures: this.deps.renderFailures ?? null,
+        replyWidgets: this.deps.replyWidgets ?? null,
         rooms: this.rooms,
       },
       (closed) => {

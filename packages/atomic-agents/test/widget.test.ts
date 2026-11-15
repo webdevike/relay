@@ -6,6 +6,7 @@ import { define } from "../src/Component.ts"
 import { EventBus, makeEvent } from "../src/Event.ts"
 import { ModelError, ModelRunner } from "../src/Model.ts"
 import { Runner } from "../src/Runtime.ts"
+import { trainingCases } from "../src/components/widget/cases.ts"
 import { decide, renderErrors, spec, widget } from "../src/components/widget/component.ts"
 import { runtime, tempHome } from "./harness.ts"
 
@@ -128,4 +129,40 @@ describe("ask (request/response over the bus)", () => {
         )
       }).pipe(Effect.provide(Runner.layerTriggers.pipe(Layer.provideMerge(Background.layer), Layer.provideMerge(runtime(root, [define(spec)], service)))))
     }).pipe(Effect.scoped, Effect.runPromise), 30_000)
+})
+
+describe("🎯 training cases (Relay Host's training.jsonl)", () => {
+  const line = (fields: Record<string, unknown>) =>
+    JSON.stringify({ at: "2026-11-14T00:00:00.000Z", agent: "nova", surface: "phone", draft: "We sold 12 boards in March and 30 in April.", shown: { kind: "none" }, ...fields })
+  const CHART = "```openui\nroot = Chart(\"bar\", [Series([12, 30], \"Boards\")], [\"Mar\", \"Apr\"])\n```"
+
+  test("each label sets what the agent should answer: keep is what was shown, plain is none, other is not scored", () => {
+    const { cases, skipped } = trainingCases([
+      line({ message: "assistant@1", label: "keep", shown: { kind: "openui", source: "widget", block: CHART } }),
+      line({ message: "assistant@2", label: "keep" }),
+      line({ message: "assistant@3", label: "plain", shown: { kind: "openui", source: "widget", block: CHART } }),
+      line({ message: "assistant@4", label: "table" }),
+      line({ message: "assistant@5", label: "other" }),
+      "{torn"
+    ].join("\n"))
+    expect(cases.map((item) => [item.id, item.expect])).toEqual([
+      ["trained-assistant@1", ["chart"]],
+      ["trained-assistant@2", []],
+      ["trained-assistant@3", []],
+      ["trained-assistant@4", ["table"]]
+    ])
+    expect(skipped).toBe(2)
+  })
+
+  test("Isaac's latest answer on a reply wins, and a reply's own widget is cut from the draft it is benched on", () => {
+    const draft = `Here are the counts.\n\n${CHART}\n\nUp 150%.`
+    const { cases } = trainingCases([
+      line({ message: "assistant@7", label: "plain", draft, shown: { kind: "openui", source: "reply", block: CHART } }),
+      line({ message: "assistant@7", label: "keep", draft, shown: { kind: "openui", source: "reply", block: CHART } })
+    ].join("\n"))
+    expect(cases).toHaveLength(1)
+    expect(cases[0]?.expect).toEqual(["chart"])
+    expect(cases[0]?.draft).toBe("Here are the counts.\n\n\n\nUp 150%.")
+    expect(cases[0]?.source).toBe("training.jsonl:2")
+  })
 })

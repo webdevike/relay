@@ -1195,8 +1195,8 @@ export type FeedSnapshot = z.infer<typeof FeedSnapshot>;
 // (`ISAAC_REACTOR`, the only one the client frames set) and any assistant by its agent id.
 // ---------------------------------------------------------------------------------------------
 
-/** The bar's quick picks, in order: heart, thumbs up, thumbs down, haha, emphasis, question. Any other single emoji comes from "more". */
-export const QUICK_REACTIONS = ["❤️", "👍", "👎", "😂", "‼️", "❓"] as const;
+/** The bar's quick picks, in order: heart, thumbs up, thumbs down, haha, emphasis, question, train (🎯, TRAIN_REACTION). Any other single emoji comes from "more". */
+export const QUICK_REACTIONS = ["❤️", "👍", "👎", "😂", "‼️", "❓", "🎯"] as const;
 /** Reactions on an assistant's reply that are also logged as feedback for it. */
 export const FEEDBACK_REACTIONS: readonly string[] = ["👎", "❓"];
 /** Longest message excerpt a reaction carries (the agent's note quotes its first 80 characters). */
@@ -1300,6 +1300,51 @@ export const MAX_BOOKMARKS = 500;
 /** One thread's bookmarked turns, oldest first. */
 export const ThreadBookmarks = z.array(ReactionKey).max(MAX_BOOKMARKS);
 export type ThreadBookmarks = z.infer<typeof ThreadBookmarks>;
+
+// ---------------------------------------------------------------------------------------------
+// Reply widgets: an ```openui block the widget agent (atomic-agents `widget`) picked for an
+// assistant's finished reply, shown under that reply as a follow-up. The host asks the agent after
+// the reply went out and, in live mode, keeps the block per thread and reply (`ReactionKey`), so
+// every device shows the same one; each new block goes out as the thread's `widgets.snapshot`.
+// Only sent to a host whose `welcome.features` has REPLY_WIDGETS_FEATURE.
+//
+// Widget training: 🎯 (TRAIN_REACTION) on an assistant's reply asks Isaac one question, keep what
+// was shown or what it should have been (`WidgetLabel`); the client sends `widget.label`, the host
+// saves it as a widget bench case and answers `widget.labeled`. Only sent to a host whose
+// `welcome.features` has WIDGET_TRAINING_FEATURE; elsewhere 🎯 is a plain reaction.
+// ---------------------------------------------------------------------------------------------
+
+export const REPLY_WIDGETS_FEATURE = "reply.widgets";
+export const WIDGET_TRAINING_FEATURE = "widget.training";
+
+/** The reaction that means "train on this": it opens the one-question widget sheet on an assistant's reply. */
+export const TRAIN_REACTION = "🎯";
+
+/** Longest reply widget block (the whole fence) a snapshot carries. */
+export const MAX_REPLY_WIDGET = 32_000;
+
+/** One thread's reply widgets by the reply's `ReactionKey`: the whole ```openui fence. */
+export const ThreadWidgets = z.record(ReactionKey, z.string().min(1).max(MAX_REPLY_WIDGET));
+export type ThreadWidgets = z.infer<typeof ThreadWidgets>;
+
+/** Isaac's answer on the 🎯 sheet: keep what was shown, or what it should have been. */
+export const WIDGET_LABELS = ["keep", "plain", "chart", "table", "card", "other"] as const;
+export const WidgetLabel = z.enum(WIDGET_LABELS);
+export type WidgetLabel = z.infer<typeof WidgetLabel>;
+
+/** The 🎯 sheet's words for each label, the same on every client. */
+export const WIDGET_LABEL_TEXT: Readonly<Record<WidgetLabel, string>> = {
+  keep: "Keep it like this",
+  plain: "Plain text",
+  chart: "Chart",
+  table: "Table",
+  card: "Card",
+  other: "Other",
+};
+
+/** Where Isaac read the reply he labeled. */
+export const WidgetSurface = z.enum(["phone", "desktop"]);
+export type WidgetSurface = z.infer<typeof WidgetSurface>;
 
 // ---------------------------------------------------------------------------------------------
 // Dismissed status cards: the one-row cards above a chat's composer (browser work, canvas Join and
@@ -1868,6 +1913,21 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("bookmarks.get"), thread: ReactionThread }),
   /** Bookmark (`on`) or unbookmark the turn that starts at bubble `message` of `thread`. Every device gets the new `bookmarks.snapshot`; no change re-sends it to the sender only. */
   z.object({ t: z.literal("bookmark.set"), thread: ReactionThread, message: ReactionKey, on: z.boolean() }),
+  /** Ask for a thread's reply widgets; answered by `widgets.snapshot`. Only sent to a host whose `welcome.features` has REPLY_WIDGETS_FEATURE. */
+  z.object({ t: z.literal("widgets.get"), thread: ReactionThread }),
+  /**
+   * Isaac's answer on the 🎯 sheet for assistant reply `message` of `thread`, read on `surface`.
+   * `excerpt` is `reactionExcerpt` of its text. The host saves it as a widget bench case and answers
+   * `widget.labeled`. Only sent to a host whose `welcome.features` has WIDGET_TRAINING_FEATURE.
+   */
+  z.object({
+    t: z.literal("widget.label"),
+    thread: ReactionThread,
+    message: ReactionKey,
+    label: WidgetLabel,
+    surface: WidgetSurface,
+    excerpt: z.string().max(MAX_REACTION_EXCERPT),
+  }),
   /** Ask for the dismissed status cards; answered by `cards.dismissed`. Only sent to a host whose `welcome.features` has CARDS_DISMISSED_FEATURE. */
   z.object({ t: z.literal("cards.get") }),
   /** Dismiss (`on`) or restore (undo) status card `id`. Every device gets the new `cards.dismissed`; no change re-sends it to the sender only. */
@@ -2135,6 +2195,16 @@ export const ServerMessage = z.discriminatedUnion("t", [
   }),
   /** A thread's bookmarked turns: the answer to `bookmarks.get`, and pushed to every device when they change. */
   z.object({ t: z.literal("bookmarks.snapshot"), thread: ReactionThread, messages: ThreadBookmarks }),
+  /** A thread's reply widgets: the answer to `widgets.get`, and pushed to every device when one is added. */
+  z.object({ t: z.literal("widgets.snapshot"), thread: ReactionThread, widgets: ThreadWidgets }),
+  /** Answer to `widget.label`: `ok` false when the host could not save it (`error` says why). */
+  z.object({
+    t: z.literal("widget.labeled"),
+    thread: ReactionThread,
+    message: ReactionKey,
+    ok: z.boolean(),
+    error: z.string().optional(),
+  }),
   /** Every dismissed status card id: the answer to `cards.get`, and pushed to every device when the set changes. */
   z.object({ t: z.literal("cards.dismissed"), ids: DismissedCards }),
   /** A thread's artifacts and tab bar: the answer to `artifacts.get`, and pushed to every device when they change. */

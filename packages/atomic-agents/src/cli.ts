@@ -171,6 +171,19 @@ const use = Command.make("use", {
   yield* Console.log(`written to ${settings.file}; a running service applies it from the next run`)
 }))
 
+/** Set how a consumer uses a component's answers (widget: Relay Host under assistants' replies); it reads config.json on every request. */
+const mode = Command.make("mode", {
+  component: Argument.String("component"),
+  mode: Argument.Literals("mode", ["shadow", "live", "off"]),
+  by: Flag.String("by").pipe(Flag.withDescription("who is changing it (recorded on config.changed)"), Flag.withDefault(Bun.env["USER"] ?? "cli"))
+}, Effect.fnUntraced(function*({ component, mode, by }) {
+  const settings = yield* Settings
+  const changes = yield* settings.set({ components: { [component]: { mode } } }, by, "set")
+  if (changes.length === 0) return yield* Console.log(`${component} is already ${mode}`)
+  for (const change of changes) yield* Console.log(`${change.path.join(".")}: ${JSON.stringify(change.old)} -> ${JSON.stringify(change.new)}`)
+  yield* Console.log(`written to ${settings.file}; Relay Host applies it from the next reply`)
+}))
+
 const emit = Command.make("emit", {
   type: Argument.String("type"),
   data: Flag.String("data").pipe(Flag.withDefault("{}"))
@@ -251,7 +264,7 @@ const App = Runner.layer.pipe(
 )
 
 Command.make("atomic-agents").pipe(
-  Command.withSubcommands([list, run, bench, rate, wins, use, emit, askCommand, events, serve, service]),
+  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, events, serve, service]),
   Command.run({ version: "0.1.0" }),
   Effect.provide(App),
   BunRuntime.runMain

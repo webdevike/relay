@@ -21,7 +21,7 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { foldGuestWork, MAX_ASK_QUESTION, OpenAsk, roomCardFallback, signinHost, splitPins, splitRoomCards, splitSignin, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type GuestEntry, type ServerMessage } from "@relay/protocol";
+import { foldGuestWork, MAX_ASK_QUESTION, OpenAsk, reactionKey, roomCardFallback, signinHost, splitPins, splitRoomCards, splitSignin, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type GuestEntry, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { liveSessionId } from "../agents/session-ref";
 import { parseSessionRows } from "../agents/transcript";
@@ -38,6 +38,7 @@ import { splitReplies } from "./replies";
 import { type FillSpawn, runFill } from "./signin";
 import type { AssistantStore } from "./store";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
+import type { FinishedReply } from "../widgets/service";
 
 /** A turn from the host's jobs rather than from Isaac, for agent `title`; the thread shows it as a `status` row (and hides the agent's silent answer to it). */
 export function statusPrefix(title: string): string {
@@ -107,6 +108,11 @@ export interface AssistantServiceDeps {
   readonly aiAccount?: () => Promise<boolean | null>;
   /** The host log a failed start points at, for support. */
   readonly logPath?: string | null;
+  /**
+   * Called once per finished turn (the session went from working to idle) with its last reply, after
+   * that reply was published; the host's widget hook (`widgets/service.ts`). Never awaited.
+   */
+  readonly onReply?: (reply: FinishedReply) => void;
 }
 
 /** "No AI account" as the start fails with it: what failed, what to do, where the log is. */
@@ -227,6 +233,26 @@ export function lastReplyOf(messages: readonly AssistantMessage[]): { text: stri
   return null;
 }
 
+/**
+ * The reply a finished turn ends on, from the thread's settled rows: the last assistant row with
+ * words, its key, and the turn it answers (Isaac's row before it; null for a job line). Null when
+ * Isaac already wrote again after it, or the agent said nothing.
+ */
+export function finishedReply(messages: readonly AssistantMessage[]): Omit<FinishedReply, "agent" | "sessionId"> | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const row = messages[index];
+    if (row === undefined || row.role === "user") return null;
+    if (row.role !== "assistant" || untagged(row.text).trim() === "") continue;
+    const turn = messages.slice(0, index).findLast((earlier) => earlier.role === "user" || earlier.role === "status");
+    return {
+      message: reactionKey("assistant", row.at),
+      text: row.text,
+      turn: turn?.role === "user" ? { text: turn.text, voice: turn.voice === true } : null,
+    };
+  }
+  return null;
+}
+
 /** What a launched agent must report before a turn goes in: just a session, or the prime underway. */
 interface Starting {
   readonly primed: boolean;
@@ -261,6 +287,8 @@ export class AssistantService implements AssistantThread {
   private readonly turns = new Map<string, Promise<void>>();
   /** Open asks the judge is reading now, so a snapshot while it thinks does not ask again. */
   private readonly judging = new Set<string>();
+  /** The reply `onReply` last got, so one reply is handed over once. */
+  private finished: string | null = null;
 
   constructor(private readonly deps: AssistantServiceDeps) {
     this.id = deps.agent.id;
@@ -527,7 +555,9 @@ export class AssistantService implements AssistantThread {
       else this.strayHandled = false;
       const key = session === undefined ? null : `${session.id} ${session.status}`;
       if (key === this.seen) return false;
+      const ended = session !== undefined && session.status === "idle" && this.seen === `${session.id} working`;
       this.seen = key;
+      if (ended) this.turnEnded(session.id);
       if (session !== undefined) {
         const waiter = this.waiter;
         if (waiter !== null && (!waiter.primed || session.status === "working")) {
@@ -559,6 +589,23 @@ export class AssistantService implements AssistantThread {
     if (change.streaming) return false;
     if (change.text.length > 0) this.push(change.text);
     return true;
+  }
+
+  /** Hands the turn's last reply to `onReply` once; the reply itself already went out. */
+  private turnEnded(sessionId: string): void {
+    const onReply = this.deps.onReply;
+    if (onReply === undefined) return;
+    void this.settled().then(
+      (messages) => {
+        const reply = finishedReply(messages);
+        if (reply === null || reply.message === this.finished) return;
+        this.finished = reply.message;
+        onReply({ agent: this.id, sessionId, ...reply });
+      },
+      (error: unknown) => {
+        this.deps.log(`assistant ${this.id}: cannot read the finished reply: ${error instanceof Error ? error.message : String(error)}`);
+      },
+    );
   }
 
   private changed(): void {

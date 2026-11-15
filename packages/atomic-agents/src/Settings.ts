@@ -11,6 +11,9 @@ import { shortId } from "./Id.ts"
  * The service applies edits live; every applied change is a `atomic-agents/config.changed` event.
  */
 const Thinking = Schema.Literals(["off", "minimal", "low", "medium", "high"])
+/** How a consumer uses a component's answers: log them only (`shadow`), use them (`live`), or ask nothing (`off`). */
+export const Mode = Schema.Literals(["shadow", "live", "off"])
+export type Mode = typeof Mode.Type
 
 export const ComponentSettings = Schema.Struct({
   /** Default true. A disabled component's triggers do not fire and manual runs are refused. */
@@ -19,7 +22,12 @@ export const ComponentSettings = Schema.Struct({
   candidates: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
   thinking: Schema.optionalKey(Thinking),
   /** Job id → cron expression replacing that job's code cron. */
-  cron: Schema.optionalKey(Schema.Record(Schema.String, Schema.NonEmptyString))
+  cron: Schema.optionalKey(Schema.Record(Schema.String, Schema.NonEmptyString)),
+  /**
+   * For a component a consumer asks (widget: Relay Host under assistants' replies). The runtime ignores it;
+   * the consumer reads it on every request, so a switch needs no restart. Absent means shadow.
+   */
+  mode: Schema.optionalKey(Mode)
 })
 
 export const SettingsFile = Schema.Struct({

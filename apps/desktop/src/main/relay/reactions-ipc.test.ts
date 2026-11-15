@@ -14,7 +14,7 @@ vi.mock('electron', () => ({
 }))
 vi.mock('../window', () => ({ isAppUrl: () => true }))
 
-import type { ThreadReactions } from '@evaos/chat-core/reactions'
+import type { ThreadReactions, ThreadWidgets } from '@evaos/chat-core/reactions'
 import type { MainContext } from '../context'
 import type { RelayReactions, RelaySource } from './client'
 import type { RelaySession } from './feed'
@@ -83,6 +83,19 @@ class FakeRelay implements RelaySource, RelayReactions {
     this.bookmarkSent.push(args)
     return this.bookmarksUp()
   }
+  /** The host keeps reply widgets ("reply.widgets") and takes 🎯 answers ("widget.training"). */
+  hasWidgets = false
+  hasTraining = false
+  widgetsOf = new Map<string, ThreadWidgets>()
+  labelSent: unknown[][] = []
+  labelAnswer: { ok: true } | { ok: false; error: string } = { ok: true }
+  widgetsUp = () => this.up && this.hasWidgets
+  widgets = (thread: string) => this.widgetsOf.get(thread) ?? null
+  trainingUp = () => this.up && this.hasTraining
+  labelWidget = (...args: unknown[]) => {
+    this.labelSent.push(args)
+    return Promise.resolve(this.labelAnswer)
+  }
   onReactions(cb: (thread: string) => void) {
     this.heard.add(cb)
     return () => this.heard.delete(cb)
@@ -124,6 +137,8 @@ describe('reactions IPC', () => {
         reactions: { 'assistant@2': heart },
         bookmarks: null,
         bookmarksUp: false,
+        widgets: null,
+        training: false,
       },
     })
     // A second view of the same thread keeps it watched until both let go.
@@ -165,7 +180,15 @@ describe('reactions IPC', () => {
     expect(sent).toEqual([
       [
         'reactions.changed',
-        { thread: 'session:s1', up: true, reactions: {}, bookmarks: null, bookmarksUp: false },
+        {
+          thread: 'session:s1',
+          up: true,
+          reactions: {},
+          bookmarks: null,
+          bookmarksUp: false,
+          widgets: null,
+          training: false,
+        },
       ],
       ['reactions.status', { up: false }],
     ])
@@ -178,7 +201,15 @@ describe('reactions IPC', () => {
     registerReactionsIpc(ctx, new FakeRelay())
     expect(await call('reactions.watch', { file: '', agent: null })).toEqual({
       ok: true,
-      value: { thread: null, up: true, reactions: {}, bookmarks: null, bookmarksUp: false },
+      value: {
+        thread: null,
+        up: true,
+        reactions: {},
+        bookmarks: null,
+        bookmarksUp: false,
+        widgets: null,
+        training: false,
+      },
     })
   })
 
@@ -200,6 +231,8 @@ describe('reactions IPC', () => {
         reactions: {},
         bookmarks: ['user@1', 'assistant@4'],
         bookmarksUp: true,
+        widgets: null,
+        training: false,
       },
     ])
     expect(
@@ -231,7 +264,49 @@ describe('reactions IPC', () => {
     relay.snapshot('session:s1', {})
     expect(sent.at(-1)).toEqual([
       'reactions.changed',
-      { thread: 'session:s1', up: true, reactions: {}, bookmarks: null, bookmarksUp: false },
+      {
+        thread: 'session:s1',
+        up: true,
+        reactions: {},
+        bookmarks: null,
+        bookmarksUp: false,
+        widgets: null,
+        training: false,
+      },
     ])
+  })
+
+  it("carries the host's reply widgets in the views and sends a 🎯 label only for a watched thread", async () => {
+    const relay = new FakeRelay()
+    relay.hasWidgets = true
+    relay.hasTraining = true
+    const fence = '```openui\nroot = Card([])\n```'
+    relay.widgetsOf.set('assistant:nova', { 'assistant@4': fence })
+    registerReactionsIpc(ctx, relay)
+    expect(await call('reactions.watch', { file: '', agent: 'nova' })).toMatchObject({
+      value: { widgets: { 'assistant@4': fence }, training: true },
+    })
+    relay.widgetsOf.set('assistant:nova', { 'assistant@4': fence, 'assistant@9': fence })
+    relay.snapshot('assistant:nova', {})
+    expect(sent.at(-1)).toMatchObject([
+      'reactions.changed',
+      { thread: 'assistant:nova', widgets: { 'assistant@9': fence }, training: true },
+    ])
+    const label = { thread: 'assistant:nova', message: 'assistant@4', label: 'chart', excerpt: 'x' }
+    expect(await call('reactions.widgetLabel', label)).toEqual({ ok: true, value: { ok: true } })
+    expect(relay.labelSent).toEqual([['assistant:nova', 'assistant@4', 'chart', 'x']])
+    relay.labelAnswer = { ok: false, error: 'disk full' }
+    expect(await call('reactions.widgetLabel', label)).toEqual({
+      ok: true,
+      value: { ok: false, error: 'disk full' },
+    })
+    expect(
+      await call('reactions.widgetLabel', { ...label, thread: 'assistant:astra' }),
+    ).toMatchObject({ ok: true, value: { ok: false } })
+    expect(relay.labelSent).toHaveLength(2)
+    // A host without the feature: no widgets in the view.
+    relay.hasWidgets = false
+    relay.snapshot('assistant:nova', {})
+    expect(sent.at(-1)).toMatchObject(['reactions.changed', { widgets: null }])
   })
 })

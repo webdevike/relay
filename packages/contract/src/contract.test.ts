@@ -745,6 +745,26 @@ describe('reactions channels', () => {
         .success,
     ).toBe(true)
   })
+
+  it('carries reply widgets in the views and takes a 🎯 label only for a reply key and known label', () => {
+    expect(INVOKE_CHANNELS).toContain('reactions.widgetLabel')
+    const fence = '```openui\nroot = Card([])\n```'
+    const view = { thread: 'assistant:nova', up: true, reactions: {}, training: true }
+    const changed = eventContract['reactions.changed']
+    expect(changed.safeParse({ ...view, widgets: { 'assistant@3': fence } }).success).toBe(true)
+    expect(changed.safeParse({ ...view, widgets: null }).success).toBe(true)
+    expect(changed.safeParse({ ...view, widgets: { 'row-3': fence } }).success).toBe(false)
+    const label = invokeContract['reactions.widgetLabel'].input
+    const ok = { thread: 'assistant:nova', message: 'assistant@3', label: 'chart', excerpt: 'x' }
+    expect(label.safeParse(ok).success).toBe(true)
+    expect(label.safeParse({ ...ok, label: 'graph' }).success).toBe(false)
+    expect(label.safeParse({ ...ok, message: 'row-3' }).success).toBe(false)
+    expect(label.safeParse({ ...ok, surface: 'desktop' }).success).toBe(false)
+    expect(
+      invokeContract['reactions.widgetLabel'].output.safeParse({ ok: false, error: 'nope' })
+        .success,
+    ).toBe(true)
+  })
 })
 
 describe('asks channels', () => {

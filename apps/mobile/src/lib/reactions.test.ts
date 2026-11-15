@@ -15,6 +15,12 @@ describe("MORE_REACTIONS", () => {
   });
 });
 
+describe("QUICK_REACTIONS", () => {
+  it("are iMessage's six tapbacks and 🎯 Train on this, last", () => {
+    expect(QUICK_REACTIONS).toEqual(["❤️", "👍", "👎", "😂", "‼️", "❓", "🎯"]);
+  });
+});
+
 describe("reactableRole", () => {
   it("is only Isaac's and the agent's bubbles", () => {
     expect(reactableRole("user")).toBe("user");

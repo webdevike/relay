@@ -49,7 +49,7 @@ function roam(e: KeyboardEvent<HTMLDivElement>): void {
 }
 
 /**
- * The floating tapback bar: the six quick picks, then "more" for a small emoji grid. The bubble's
+ * The floating tapback bar: the seven quick picks, then "more" for a small emoji grid. The bubble's
  * reaction is highlighted; picking it again takes it off. A reaction from elsewhere that is not a
  * quick pick leads the row so it can be taken off here too.
  */

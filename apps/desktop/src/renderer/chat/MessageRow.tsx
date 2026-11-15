@@ -18,6 +18,7 @@ import { ReactionScope } from './reactions/reactions-store'
 import { reactionKeyOf } from '@evaos/chat-core/reactions'
 import { ToolBlock, ToolGroup } from './ToolRows'
 import { BubbleActions } from './reactions/BubbleActions'
+import { OWN_WIDGET_FENCE, ReplyWidget } from './reactions/ReplyWidget'
 import { CanvasRow } from './CanvasRow'
 import { GuestRow } from './GuestRow'
 import { BackgroundRow } from './BackgroundRow'
@@ -92,7 +93,9 @@ function Row({
  * A reply without its `[[replies: ...]]` line (cut while it streams in, too), so it never shows,
  * copies or quotes; the newest reply (`live`) shows the answers as buttons under it. A
  * `[[signin:<url>]]` line before it becomes the sign-in card above the bubble, as on the phone; a
- * `[[room:<id>]]` line (an assistant set up a room) becomes that room's live card under it.
+ * `[[room:<id>]]` line (an assistant set up a room) becomes that room's live card under it. The
+ * follow-up widget the host's widget agent picked for the finished reply shows under it too,
+ * unless the reply draws its own.
  */
 function AssistantBody({
   m,
@@ -141,6 +144,9 @@ function AssistantBody({
         </BubbleActions>
       ) : null}
       <RoomCards rooms={split.rooms} />
+      {thread !== null && key !== null && !m.streaming && !OWN_WIDGET_FENCE.test(split.text) ? (
+        <ReplyWidget thread={thread} replyKey={key} messageId={m.id} />
+      ) : null}
       {waiting !== undefined ? (
         <div className="eva-waiting-tag">
           <span data-testid="waiting-tag">Waiting on you</span>

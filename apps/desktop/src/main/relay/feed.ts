@@ -38,12 +38,14 @@ import {
   type StudioState,
 } from '@evaos/contract'
 import {
+  MAX_REPLY_WIDGET,
   ReactionKeySchema,
   ReactionSchema,
   ReactionThreadSchema,
   ReactorSchema,
   type BubbleReactions,
   type ThreadReactions,
+  type ThreadWidgets,
 } from '@evaos/chat-core/reactions'
 import {
   Artifact,
@@ -338,6 +340,16 @@ const BookmarksSnapshotSchema = z.object({
   thread: ReactionThreadSchema,
   messages: z.array(z.unknown()).catch([]),
 })
+const WidgetsSnapshotSchema = z.object({
+  thread: ReactionThreadSchema,
+  widgets: z.record(z.string(), z.unknown()).catch({}),
+})
+const WidgetLabeledSchema = z.object({
+  thread: ReactionThreadSchema,
+  message: ReactionKeySchema,
+  ok: z.boolean(),
+  error: z.string().optional().catch(undefined),
+})
 const CardsDismissedSchema = z.object({ ids: z.array(z.unknown()).catch([]) })
 /** Most dismissed card ids kept, and the longest id taken. */
 const MAX_DISMISSED_CARDS = 500
@@ -480,6 +492,10 @@ export type FeedEvent =
   | { kind: 'reactions'; thread: string; reactions: ThreadReactions }
   /** Thread `thread`'s bookmarked turns now, by reaction key (a `bookmarks.snapshot`). */
   | { kind: 'bookmarks'; thread: string; messages: string[] }
+  /** Thread `thread`'s follow-up widgets now, by reply reaction key (a `widgets.snapshot`). */
+  | { kind: 'widgets'; thread: string; widgets: ThreadWidgets }
+  /** The host's answer to `widget.label` for reply `message` of `thread`. */
+  | { kind: 'widgetLabeled'; thread: string; message: string; ok: boolean; error?: string }
   /** Every dismissed status card id now, oldest first (a `cards.dismissed`, answer or push). */
   | { kind: 'cards'; ids: string[] }
   /** Thread `thread`'s artifacts and tab bar now (an `artifacts.snapshot`, any thread). */
@@ -715,6 +731,35 @@ export class Feed {
             (k): k is string => ReactionKeySchema.safeParse(k).success,
           )
           events.push({ kind: 'bookmarks', thread: s.data.thread, messages })
+        }
+        break
+      }
+      case 'widgets.snapshot': {
+        const s = WidgetsSnapshotSchema.safeParse(f)
+        if (s.success) {
+          // Bad entries are dropped one by one; the rest still show.
+          const widgets: ThreadWidgets = {}
+          for (const [key, block] of Object.entries(s.data.widgets)) {
+            if (!ReactionKeySchema.safeParse(key).success) continue
+            if (typeof block !== 'string' || block.length === 0 || block.length > MAX_REPLY_WIDGET)
+              continue
+            widgets[key] = block
+          }
+          events.push({ kind: 'widgets', thread: s.data.thread, widgets })
+        }
+        break
+      }
+      case 'widget.labeled': {
+        const s = WidgetLabeledSchema.safeParse(f)
+        if (s.success) {
+          const { thread, message, ok, error } = s.data
+          events.push({
+            kind: 'widgetLabeled',
+            thread,
+            message,
+            ok,
+            ...(error === undefined ? {} : { error }),
+          })
         }
         break
       }

@@ -63,6 +63,8 @@ import { backgroundOf } from "@/lib/background";
 import { guestRowKind } from "@/lib/guests";
 import { GuestBubble, GuestLine, WorkCardRow } from "@/agents/GuestRows";
 import { BubbleMenuProvider, ChatBubble } from "@/agents/BubbleMenu";
+import { KeepPlaceContext, ReplyFollowUp } from "@/agents/ReplyFollowUp";
+import { useReplyWidget } from "@/state/replyWidgets";
 import { quoteIntoDraft } from "@/lib/bubbleMenu";
 import { bubbleReactionKey } from "@/lib/reactions";
 import { radii, spacing, useColors, useScheme } from "@/theme";
@@ -239,7 +241,7 @@ function Thread({ agent }: { agent: string }) {
   useEffect(() => {
     memory.current.drawn = drawn;
   }, [drawn]);
-  const { listRef, awayFromBottom, scrollToBottom, scrollToRow, followContent, scrollHandlers } = useInvertedChatScroll<AssistantMessage>({
+  const { listRef, awayFromBottom, scrollToBottom, scrollToRow, followContent, keepPlace, scrollHandlers } = useInvertedChatScroll<AssistantMessage>({
     initialOffset: initialOffset.current,
     onOffset: (offset) => {
       memory.current.offset = offset;
@@ -665,6 +667,8 @@ function Thread({ agent }: { agent: string }) {
             </Animated.View>
           ) : (
             // Reply buttons and inputs in the thread's widgets answer as Isaac's turn; offline they stay disabled.
+            // A follow-up widget arriving under a reply keeps the list's place (`ReplyFollowUp`).
+            <KeepPlaceContext.Provider value={keepPlace}>
             <ReplyWidgetActions reply={connected ? widgetReply : null}>
               <FlatList
                 ref={listRef}
@@ -740,6 +744,7 @@ function Thread({ agent }: { agent: string }) {
                 keyboardShouldPersistTaps="handled"
               />
             </ReplyWidgetActions>
+            </KeepPlaceContext.Provider>
           )}
           {/* Pinned to the composer's top edge as it grows and lifts. */}
           <Animated.View pointerEvents="box-none" style={[styles.overComposer, overComposerStyle]}>
@@ -1011,6 +1016,8 @@ function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenI
   const page = dark ? BG_DARK : colors.bg;
   // The echo of a turn still being sent has the phone's clock, not the host's: no reaction yet.
   const reactionKey = bubbleReactionKey(message, message.id.startsWith(PENDING_ID));
+  // The follow-up widget the host picked for this reply, if any (protocol "Reply widgets").
+  const followUp = useReplyWidget(assistantReactionThread(agent), reactionKey);
   const hasText = message.text !== "";
   const imageCount = local !== undefined ? local.length : (message.images?.length ?? 0);
   // Images stack above the text, left or right with the bubble.
@@ -1156,6 +1163,15 @@ function RowView({ agent, message, receipt, streaming, sessionId, local, onOpenI
             {roomed.rooms.map((r) => (
               <RoomCardRow key={r.id} refRoom={r} />
             ))}
+            {/* A reply that already holds a widget of its own takes no follow-up. */}
+            {followUp !== null && reactionKey !== null && !wide && (
+              <ReplyFollowUp
+                thread={assistantReactionThread(agent)}
+                messageKey={reactionKey}
+                block={followUp}
+                style={[styles.widgetCard, styles.followUp, { backgroundColor: bubbleFill }]}
+              />
+            )}
             {replies !== null && (
               <View style={styles.replies}>
                 <ReplyChips
@@ -1243,4 +1259,6 @@ const styles = StyleSheet.create({
   signinAbove: { marginBottom: spacing.sm },
   /** Clear of the reaction badges that overlap the bubble's bottom corner. */
   replies: { marginTop: spacing.sm },
+  /** Under the reply, clear of its reaction badges like the reply chips. */
+  followUp: { marginTop: spacing.sm },
 });

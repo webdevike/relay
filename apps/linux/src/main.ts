@@ -19,7 +19,7 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
-import { ControlResult, Drop, sessionReactionThread, type ServerMessage } from "@relay/protocol";
+import { ControlResult, Drop, reactionKey, sessionReactionThread, type ServerMessage } from "@relay/protocol";
 import type { LaunchOptions } from "./agents/herdr";
 import { ASR_SCRIPT, AsrWorker, asrPython } from "./meetings/asr";
 import { loadAutoname, MeetingPipeline, type Autoname } from "./meetings/pipeline";
@@ -84,6 +84,8 @@ import { defaultFeedDir, FeedService } from "./feed/service";
 import { defaultReactionsPath, reactionFeedbackPath, ReactionService, replyReactionsFromEnv } from "./reactions/service";
 import { defaultRenderFailuresPath, RenderFailureService } from "./render-failures/service";
 import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
+import { defaultReplyWidgetsPath, ReplyWidgetService, surfaceOf } from "./widgets/service";
+import { defaultAtomicAgentsHome } from "./widgets/bus";
 import { DismissedCardService, defaultDismissedCardsPath } from "./cards/service";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { ActivityService } from "./activity/service";
@@ -538,6 +540,9 @@ function serve(
       spawn: spawnFill,
       aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
       logPath: hostLogPath(),
+      onReply: (reply): void => {
+        void replyWidgets?.reply(reply);
+      },
     });
   const assistant = assistantThreads(agentHome, thread, {
     // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
@@ -664,6 +669,26 @@ function serve(
     },
     log,
   });
+  // The atomic-agents widget specialist under assistants' replies (shadow by default) and 🎯 training; needs that service's home.
+  const atomicAgentsHome = defaultAtomicAgentsHome();
+  const replyWidgets = featureOn(config, "widgets", assistant !== null && existsSync(atomicAgentsHome))
+    ? new ReplyWidgetService({
+        home: atomicAgentsHome,
+        path: defaultReplyWidgetsPath(),
+        surface: () => surfaceOf(control?.devices() ?? [], Date.now()),
+        message: async (thread, key) => {
+          const target = assistant?.thread(thread.slice("assistant:".length));
+          if (target === undefined) return null;
+          const { messages } = await target.snapshot();
+          return messages.find((row) => row.role === "assistant" && reactionKey("assistant", row.at) === key)?.text ?? null;
+        },
+        broadcast: (message): void => {
+          server.broadcastExcept(message, null);
+        },
+        now: () => Date.now(),
+        log,
+      })
+    : null;
   const dismissedCards = new DismissedCardService({
     path: defaultDismissedCardsPath(),
     broadcast: (message): void => {
@@ -967,6 +992,7 @@ function serve(
       meetings,
       control,
       renderFailures,
+      replyWidgets,
       hostToken,
       skills,
       canvasPage: () => CANVAS_PAGE,

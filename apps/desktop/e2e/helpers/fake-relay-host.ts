@@ -1081,6 +1081,21 @@ export class FakeRelayHost {
     return { t: 'bookmarks.snapshot', thread, messages: this.bookmarks(thread) }
   }
 
+  /** Each thread's follow-up reply widgets by reply key, as a host with "reply.widgets" keeps them. */
+  private readonly widgetsOf = new Map<string, Record<string, string>>()
+  /** Every `widgets.get` and `widget.label` the app sent, in order. */
+  readonly widgetFrames: Json[] = []
+
+  /** Adds reply `message`'s follow-up widget (a whole ```openui fence) and pushes the thread's snapshot, as the live host does. */
+  addReplyWidget(thread: string, message: string, block: string): void {
+    this.widgetsOf.set(thread, { ...this.widgetsOf.get(thread), [message]: block })
+    this.broadcast(this.widgetsSnapshot(thread))
+  }
+
+  private widgetsSnapshot(thread: string): Json {
+    return { t: 'widgets.snapshot', thread, widgets: this.widgetsOf.get(thread) ?? {} }
+  }
+
   private snapshotOf(thread: string): Json {
     return { t: 'reactions.snapshot', thread, reactions: this.reactionsOf.get(thread) ?? {} }
   }
@@ -1312,6 +1327,13 @@ export class FakeRelayHost {
           f.on === true ? [...have, message] : have.filter((k) => k !== message),
         )
       }
+      case 'widgets.get':
+        this.widgetFrames.push(f)
+        return peer.send(this.widgetsSnapshot(String(f.thread)))
+      case 'widget.label':
+        this.widgetFrames.push(f)
+        // The live host saves it as a widget bench case; this one always manages.
+        return peer.send({ t: 'widget.labeled', thread: f.thread, message: f.message, ok: true })
       case 'board.subscribe':
       case 'board.get':
         return peer.send({ t: 'board.snapshot', rev: 1, boards: this.boards })

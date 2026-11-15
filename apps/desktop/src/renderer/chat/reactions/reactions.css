@@ -205,3 +205,55 @@ html[data-eva-motion='off'] .eva-reaction-pick:hover {
 html[data-eva-motion='off'] .eva-reaction-badge {
   animation: none;
 }
+
+/* A follow-up widget under an assistant reply: still when the thread opens with it, a short fade
+   and rise when it arrives live. Only opacity and transform animate, so nothing around it moves. */
+.eva-reply-widget {
+  margin-top: var(--mantine-spacing-xs);
+}
+.eva-reply-widget[data-arrived='true'] {
+  animation: eva-reply-widget-in 220ms var(--eva-ease-out-cubic) both;
+}
+@keyframes eva-reply-widget-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-reply-widget[data-arrived='true'] {
+    animation: none;
+  }
+}
+html[data-eva-motion='off'] .eva-reply-widget[data-arrived='true'] {
+  animation: none;
+}
+
+/* The 🎯 sheet: one question in the bar's place. */
+.eva-popover-dropdown.eva-reaction-pop:has(.eva-train-sheet) {
+  padding: var(--mantine-spacing-xs);
+  border-radius: var(--eva-radius-xl);
+}
+.eva-train-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  max-width: 320px;
+}
+.eva-train-title {
+  font-weight: 600;
+  font-size: var(--mantine-font-size-sm);
+}
+.eva-train-label {
+  color: var(--eva-text-dim);
+  font-size: var(--mantine-font-size-xs);
+}
+.eva-train-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+}

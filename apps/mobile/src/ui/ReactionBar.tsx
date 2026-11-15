@@ -1,5 +1,5 @@
 /**
- * The tapback bar that floats above a long-pressed chat bubble: the protocol's six quick picks and
+ * The tapback bar that floats above a long-pressed chat bubble: the protocol's quick picks and
  * a "more" button, on a glass capsule. The bubble's current reaction sits in a tinted disc (tapping
  * it again takes it back). An emoji from "more" that is not a quick pick shows in place of the
  * plus, highlighted, so the current reaction is always visible. It pops in from its anchored edge;
@@ -31,6 +31,7 @@ const QUICK_LABEL: Record<(typeof QUICK_REACTIONS)[number], string> = {
   "😂": "Ha ha",
   "‼️": "Exclamation marks",
   "❓": "Question mark",
+  "🎯": "Train on this",
 };
 
 export interface ReactionBarProps {

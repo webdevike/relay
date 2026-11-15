@@ -283,6 +283,34 @@ bubble keeps one reaction per reactor (`isaac` or an agent id), so the snapshot 
 files from before reactors read as Isaac's. An assistant's reaction is only shown: no note, no feedback
 line, no turn, no push.
 
+## Reply widgets and 🎯 training (`widgets.get`, `widget.label`)
+
+When an assistant's turn ends (its session goes from working to idle), `AssistantService` hands the turn's last
+reply to `src/widgets/service.ts`, after the reply already went out, so the text never waits. Voice-call turns
+and replies that already hold a widget fence (```openui, ```ui, ```html-widget, ```mantine-widget) are
+skipped. Otherwise the host asks the atomic-agents `widget` specialist (`packages/atomic-agents`, its own
+service `ai.eva.atomic-agents`) over that service's journal (`$XDG_CONFIG_HOME/relay/atomic-agents/events.ndjson`,
+or `ATOMIC_AGENTS_HOME`; `src/widgets/bus.ts` appends and tails it, no import of the package):
+`widget/widget.requested { requestId, draft, surface, context: { channel, askedForDetail } }`, then waits up
+to 3 s for `widget/widget.ready` with that `requestId`. `surface` is `desktop` when a Relay Desktop had input in
+the last 5 minutes (`control.presence`), else `phone`; `askedForDetail` is a word match on Isaac's turn.
+
+The mode is `components.widget.mode` in the service's `config.json`, read on every reply (no restart; `bun
+src/cli.ts mode widget shadow|live|off` in the package writes it): `shadow` (default) logs the answer only, as a
+line of `<home>/bench/widget/shadow.jsonl` (`{ at, mode, agent, thread, message, surface, context, draftHash,
+excerpt, kind: openui|none|timeout, block?, why?, ms, requestId, shown }`) and a `widget/widget.logged` event;
+`live` logs it the same way and keeps an openui answer for that reply in `$XDG_CONFIG_HOME/relay/reply-widgets.json`,
+sending every device the thread's `widgets.snapshot { thread, widgets: { <reply key>: <fence> } }`, which the
+phone and Relay desktop draw under the reply; `off` (or `enabled: false`) asks nothing. `widgets.get { thread }`
+answers the asking device. The host builds the service (features `reply.widgets`, `widget.training`) only when
+the atomic-agents home exists; host.json `features.widgets: false` turns it off.
+
+🎯 on an assistant's reply opens a one-question sheet on the device (keep it like this, or plain text, chart,
+table, card, other); its `widget.label { thread, message, label, surface, excerpt }` appends `{ at, agent, thread,
+message, surface, label, answer, excerpt, draft, shown: { kind, source?, block? }, suggestion? }` to
+`<home>/bench/widget/training.jsonl` and a `widget/widget.labeled` event, and answers `widget.labeled { thread,
+message, ok, error? }`. The widget bench (`src/components/widget/bench.ts`) loads those lines as cases.
+
 ## Open asks (`AssistantSnapshot.asks`, `assistant.ask.resolve`)
 
 Questions waiting on Isaac in an assistant's thread, which the phone shows as small badges above the

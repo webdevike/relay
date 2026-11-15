@@ -7,7 +7,7 @@ import { z } from "zod";
 import type { LaunchOptions } from "../src/agents/herdr";
 import { liveVoiceFor, loadRegistry, RegistryError } from "../src/assistant/registry";
 import { handleAssistantAsks, handleAssistantSay } from "../src/assistant/http";
-import { assistantStatus, AssistantService, AssistantThreads, lastReplyOf, MAX_LAST_REPLY, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
+import { assistantStatus, AssistantService, AssistantThreads, finishedReply, lastReplyOf, MAX_LAST_REPLY, REGISTER_TIMEOUT_MS, SNAPSHOT_DEBOUNCE_MS, statusPrefix, toAssistantMessages } from "../src/assistant/service";
 import { MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from "../src/assistant/replies";
 import type { FillSpawn } from "../src/assistant/signin";
 import { type AskCase, AskStore } from "../src/assistant/ask-store";
@@ -17,6 +17,7 @@ import { voiceTurn } from "../src/assistant/voice";
 import type { PushMessage } from "../src/push/notifier";
 import { AckFailure, type AgentProvider } from "../src/seams";
 import type { SessionClock } from "../src/session";
+import type { FinishedReply } from "../src/widgets/service";
 
 class FakeClock implements SessionClock {
   private timers: { at: number; fn: () => void; cancelled: boolean }[] = [];
@@ -150,6 +151,8 @@ interface HarnessOptions {
   asks?: AskStore;
   /** Reads Isaac's later turns on an open ask; default none. */
   judgeAsk?: AskJudge;
+  /** Gets each finished turn's last reply (the widget hook). */
+  onReply?: (reply: FinishedReply) => void;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -199,6 +202,7 @@ function harness(options: HarnessOptions = {}) {
     store,
     asks,
     ...(options.judgeAsk === undefined ? {} : { judgeAsk: options.judgeAsk }),
+    ...(options.onReply === undefined ? {} : { onReply: options.onReply }),
     tokens: {
       tokens: () => tokens,
       unregister: (deviceId) => {
@@ -739,6 +743,31 @@ describe("AssistantService changes", () => {
       ["ExponentPushToken[one]", "Astra", "Done: PR #12 is open.", { assistant: true, agent: "astra" }, undefined],
     ]);
     expect(h.pushes[0]).toMatchObject({ threadId: "assistant:astra", mutableContent: true });
+  });
+
+  it("hands each finished turn's last reply to onReply once, with its reaction key and the turn it answers", async () => {
+    const replies: FinishedReply[] = [];
+    const h = harness({ onReply: (reply) => replies.push(reply) });
+    h.register("working");
+    h.agents.transcript = [
+      { id: "u1", role: "user", text: "Show me the sales by month", at: 10 },
+      { id: "a1", role: "assistant", text: "Pulling them now.", at: 11 },
+      { id: "a2", role: "assistant", text: "Jan 12, Feb 30, Mar 41.\n[[replies: Chart it | Fine]]", at: 12 },
+    ];
+    h.register("idle");
+    await flush();
+    h.register("working");
+    h.register("idle");
+    await flush();
+    expect(replies).toEqual([{ agent: "astra", sessionId: "eva-1", message: "assistant@12", text: "Jan 12, Feb 30, Mar 41.", turn: { text: "Show me the sales by month", voice: false } }]);
+  });
+
+  it("finishedReply marks a voice-call turn, keeps a job line's reply turnless, and has nothing once Isaac wrote again", () => {
+    const voice = toAssistantMessages([{ id: "u1", role: "user", text: voiceTurn("how many boards"), at: 1 }, { id: "a1", role: "assistant", text: "Twelve.", at: 2 }], null, statusPrefix("Astra"));
+    expect(finishedReply(voice)).toEqual({ message: "assistant@2", text: "Twelve.", turn: { text: "how many boards", voice: true } });
+    const job = toAssistantMessages([{ id: "u1", role: "user", text: `${statusPrefix("Astra")}build done`, at: 1 }, { id: "a1", role: "assistant", text: "The build passed.", at: 2 }], null, statusPrefix("Astra"));
+    expect(finishedReply(job)?.turn).toBeNull();
+    expect(finishedReply([...voice, { id: "u2", role: "user", text: "and Feb?", at: 3 }])).toBeNull();
   });
 
   it("remembers the session file as soon as a status report carries it, keeping the history", () => {

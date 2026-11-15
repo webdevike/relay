@@ -14,6 +14,8 @@ import {
   FILES_PRESENCE_FEATURE,
   MEETINGS_FEATURE,
   RENDER_REPORT_FEATURE,
+  REPLY_WIDGETS_FEATURE,
+  WIDGET_TRAINING_FEATURE,
   PROTOCOL_VERSION,
   defaultTabs,
   parseClientMessage,
@@ -48,6 +50,7 @@ import type { DismissedCardRelaying } from "./cards/service";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
 import type { RenderFailureReporting } from "./render-failures/service";
+import type { ReplyWidgetRelaying } from "./widgets/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
@@ -147,6 +150,8 @@ export interface SessionDeps {
   readonly renderFailures?: RenderFailureReporting | null;
   /** Rooms of the connected Relay Desktops; absent or null ignores `rooms.*` and leaves the feature out of `welcome.features`. */
   readonly rooms?: RoomsRelaying | null;
+  /** Reply widgets and 🎯 training (`widgets/service.ts`); absent or null answers `widgets.get` empty, refuses `widget.label` and leaves both features out of `welcome.features`. */
+  readonly replyWidgets?: ReplyWidgetRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -701,6 +706,17 @@ export class ClientSession {
         // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
         if (bookmarks === null || !bookmarks.set(message.thread, message.message, message.on))
           this.sink.send({ t: "bookmarks.snapshot", thread: message.thread, messages: [...(bookmarks?.snapshot(message.thread) ?? [])] });
+        break;
+      }
+      case "widgets.get":
+        this.sink.send({ t: "widgets.snapshot", thread: message.thread, widgets: this.deps.replyWidgets?.snapshot(message.thread) ?? {} });
+        break;
+      case "widget.label": {
+        const { thread, message: key, label, surface, excerpt } = message;
+        const widgets = this.deps.replyWidgets ?? null;
+        void (widgets === null ? Promise.resolve({ ok: false, error: "this host saves no widget labels" }) : widgets.label({ thread, message: key, label, surface, excerpt })).then((result) => {
+          this.sink.send({ t: "widget.labeled", thread, message: key, ok: result.ok, ...(result.error === undefined ? {} : { error: result.error }) });
+        });
         break;
       }
       case "cards.get":
@@ -1330,6 +1346,7 @@ export class ClientSession {
       ...(this.deps.dismissedCards === null ? [] : [CARDS_DISMISSED_FEATURE]),
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
       ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
+      ...((this.deps.replyWidgets ?? null) === null ? [] : [REPLY_WIDGETS_FEATURE, WIDGET_TRAINING_FEATURE]),
       ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE]),
       // Snapshots carry guest rows (another assistant popped into a thread) with their entry.
       ...(this.deps.assistant?.consult === undefined ? [] : [ASSISTANT_GUESTS_FEATURE]),

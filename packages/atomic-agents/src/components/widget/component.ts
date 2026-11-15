@@ -6,15 +6,23 @@ import { type GenerateRequest, ModelRunner } from "../../Model.ts"
 
 const Surface = Schema.Literals(["phone", "desktop"])
 export const Kind = Schema.Literals(["openui", "none"])
+/** How Isaac asked: typed or on a call (Relay skips call turns), and whether he asked for detail. */
+const Context = Schema.Struct({
+  channel: Schema.Literals(["text", "voice"]),
+  askedForDetail: Schema.optionalKey(Schema.Boolean)
+})
+/** Isaac's 🎯 answer: keep what was shown, or what it should have been. */
+export const Label = Schema.Literals(["keep", "plain", "chart", "table", "card", "other"])
 
-/** Output contract: request/response, correlated by `requestId` (`Ask.ts`). */
+/** Output contract: request/response, correlated by `requestId` (`Ask.ts`), plus what Relay Host does with it. */
 const events = {
-  /** Request: the assistant's draft reply, the data behind it, and where Isaac reads it. */
+  /** Request: the assistant's draft reply, the data behind it, where Isaac reads it, and how he asked. */
   "widget.requested": Schema.Struct({
     requestId: Schema.NonEmptyString,
     draft: Schema.String,
     data: Schema.optionalKey(Schema.Json),
-    surface: Surface
+    surface: Surface,
+    context: Schema.optionalKey(Context)
   }),
   /** The answer: a ```openui block that Relay's parser renders, or none. Never a block that would not render. */
   "widget.ready": Schema.Struct({
@@ -24,6 +32,29 @@ const events = {
     block: Schema.optionalKey(Schema.String),
     /** One line: why this widget, or why none. */
     why: Schema.String
+  }),
+  /**
+   * Written by Relay Host: what it did with an answer for an assistant's reply (`mode` from config.json; `timeout`
+   * when no answer came in its 3 s). Each one is also a line of `<home>/bench/widget/shadow.jsonl`.
+   */
+  "widget.logged": Schema.Struct({
+    requestId: Schema.String,
+    mode: Schema.Literals(["shadow", "live"]),
+    agent: Schema.String,
+    /** The reply's reaction key (`assistant@<ms>`). */
+    message: Schema.String,
+    surface: Surface,
+    kind: Schema.Literals(["openui", "none", "timeout"]),
+    ms: Schema.Number,
+    shown: Schema.Boolean
+  }),
+  /** Written by Relay Host: Isaac's 🎯 answer on a reply; the case itself is a line of `<home>/bench/widget/training.jsonl`. */
+  "widget.labeled": Schema.Struct({
+    agent: Schema.String,
+    message: Schema.String,
+    surface: Surface,
+    label: Label,
+    shown: Kind
   })
 }
 
@@ -142,8 +173,9 @@ export const decide = Effect.fn("widget.decide")(function*(
   const models = yield* ModelRunner
   const started = yield* Clock.currentTimeMillis
   const call = (text: string) => models.generate({ ...agent, prompt: text, timeout: CALL_TIMEOUT })
-  const { draft, data, surface } = request
-  const prompt = [`Surface: ${surface}`, "Draft reply:", draft, "Data:", data === undefined ? "(none)" : JSON.stringify(data, null, 1)].join("\n")
+  const { draft, data, surface, context } = request
+  const asked = context === undefined ? [] : [`Isaac asked ${context.channel === "voice" ? "on a call" : "in text"}${context.askedForDetail === true ? ", for detail" : ""}.`]
+  const prompt = [`Surface: ${surface}`, ...asked, "Draft reply:", draft, "Data:", data === undefined ? "(none)" : JSON.stringify(data, null, 1)].join("\n")
   const first = yield* call(prompt)
   const done = (answer: Answer, calls: number, repaired: boolean, cost: number) =>
     Effect.map(Clock.currentTimeMillis, (now): Decision => ({ answer, calls, repaired, cost, seconds: (now - started) / 1000 }))

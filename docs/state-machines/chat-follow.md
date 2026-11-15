@@ -4,6 +4,8 @@ Whether a chat transcript (inverted list) keeps the newest row in view (`apps/mo
 
 `returning` is the animated trip home after the scroll-to-bottom button; it ends on the scroll's end event, or after `RETURN_TIMEOUT` when no event comes (the list was already at the bottom). `centring` scrolls a chosen row to the middle and stays a reader until the next gesture.
 
+`follow.keepPlace` is the one exit from `following` without a gesture: a follow-up widget is about to mount under the newest reply (`agents/ReplyFollowUp`), so it goes to `reading.still` away from the bottom; native anchoring then keeps the reply still and the widget lands below it.
+
 <!-- diagram:start (generated from the machine by `pnpm machines:docs`; do not edit) -->
 ```mermaid
 stateDiagram-v2
@@ -21,6 +23,7 @@ stateDiagram-v2
   restoring --> reading : always
   following --> reading_moving : follow.dragStart
   following --> reading_moving : follow.momentumStart
+  following --> reading_still : follow.keepPlace
   reading_moving --> following : follow.dragEnd [nearBottom]
   reading_moving --> reading_still : follow.dragEnd
   reading_moving --> following : follow.momentumEnd [nearBottom]

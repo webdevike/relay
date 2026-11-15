@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Widget bake-off against the answer key in `cases.json` (real drafts from Isaac's assistant threads):
+ * Widget bake-off against the answer key in `cases.json` (real drafts from Isaac's assistant threads) plus his
+ * 🎯 answers from Relay (`<home>/bench/widget/training.jsonl`, see `cases.ts`):
  *
  *     bun src/components/widget/bench.ts [--models a,b,c] [--repeat 2]
  *
@@ -9,39 +10,16 @@
  * component), renders (Relay's parser; first try, and after the one repair), p50/p95 seconds, cost.
  */
 import { BunRuntime, BunServices } from "@effect/platform-bun"
-import { parseOpenUI } from "@evaos/chat-core/openui"
 import { Console, Effect, FileSystem, Layer, Path, Schema } from "effect"
 import { builtins } from "../../builtins.ts"
 import { Components } from "../../Component.ts"
 import { EventBus, Home } from "../../Event.ts"
 import { ModelRunner } from "../../Model.ts"
 import { effective, Settings } from "../../Settings.ts"
+import { Case, trainingCases, widgetKeys } from "./cases.ts"
 import { decide, renderErrors, widget } from "./component.ts"
 
-const Case = Schema.Struct({
-  id: Schema.String,
-  /** Where the draft comes from: `<session file>:<line>`. */
-  source: Schema.String,
-  draft: Schema.String,
-  data: Schema.optionalKey(Schema.Json),
-  surface: Schema.Literals(["phone", "desktop"]),
-  /** Widget keys the block must hold (`recipe`, `tabs`+`code`, ...); empty means the answer is none. */
-  expect: Schema.Array(Schema.String),
-  note: Schema.optionalKey(Schema.String)
-})
 const decodeCases = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(Case)))
-
-/** Every `widget` key in a parsed tree. */
-const widgets = (node: unknown, out = new Set<string>()): Set<string> => {
-  if (Array.isArray(node)) for (const child of node) widgets(child, out)
-  else if (typeof node === "object" && node !== null) {
-    for (const [key, value] of Object.entries(node)) {
-      if (key === "widget" && typeof value === "string") out.add(value)
-      else widgets(value, out)
-    }
-  }
-  return out
-}
 
 const percentile = (values: ReadonlyArray<number>, p: number) => {
   const sorted = [...values].sort((a, b) => a - b)
@@ -59,8 +37,11 @@ const program = Effect.gen(function*() {
   const resolved = effective(widget, yield* (yield* Settings).current).agent
   const models = flag("models")?.split(",") ?? resolved.candidates
   const repeat = Number(flag("repeat") ?? "1")
-  const cases = yield* decodeCases(yield* fs.readFileString(path.join(import.meta.dir, "cases.json")))
-  yield* Console.log(`${cases.length} cases x ${repeat} on ${models.join(", ")}\n`)
+  const keyed = yield* decodeCases(yield* fs.readFileString(path.join(import.meta.dir, "cases.json")))
+  const trainingFile = path.join((yield* Home).root, "bench", "widget", "training.jsonl")
+  const trained = (yield* fs.exists(trainingFile)) ? trainingCases(yield* fs.readFileString(trainingFile)) : { cases: [], skipped: 0 }
+  const cases = [...keyed, ...trained.cases]
+  yield* Console.log(`${cases.length} cases (${trained.cases.length} from 🎯 in ${trainingFile}, ${trained.skipped} skipped) x ${repeat} on ${models.join(", ")}\n`)
 
   const results = yield* Effect.forEach(models, (model) =>
     Effect.forEach(Array.from({ length: repeat }, (_, round) => round).flatMap((round) => cases.map((item) => ({ round, item }))), ({ item }) =>
@@ -70,10 +51,10 @@ const program = Effect.gen(function*() {
         ...(item.data === undefined ? {} : { data: item.data })
       }).pipe(
         Effect.map((decision) => {
-          const body = decision.answer.block?.replace(/^```openui\n/, "").replace(/\n```$/, "")
-          const found = body === undefined ? new Set<string>() : widgets(parseOpenUI(body).node)
+          const body = decision.answer.block
+          const found = new Set(body === undefined ? [] : widgetKeys(body))
           const right = item.expect.length === 0 ? decision.answer.kind === "none" : item.expect.every((kind) => found.has(kind))
-          return { model, item, decision, found: [...found], right, renders: body === undefined || renderErrors(body).length === 0, error: undefined }
+          return { model, item, decision, found: [...found], right, renders: body === undefined || renderErrors(body.replace(/^```openui\n/, "").replace(/\n```$/, "")).length === 0, error: undefined }
         }),
         Effect.catchTag("ModelError", (error) => Effect.succeed({ model, item, decision: undefined, found: [], right: false, renders: true, error: error.message }))
       )), { concurrency: "unbounded" })
