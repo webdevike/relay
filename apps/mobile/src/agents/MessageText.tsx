@@ -43,7 +43,12 @@ export const LARGE_BODY = { fontSize: 17, lineHeight: 26 } as const;
 const LIST_INDENT = 20;
 const BULLET = 6;
 
-export function MessageText({ text, large = false, skipImages = false, streaming = false }: MessageTextProps) {
+export function MessageText({
+  text,
+  large = false,
+  skipImages = false,
+  streaming = false,
+}: MessageTextProps) {
   const body = large ? LARGE_BODY : type.body;
   const reducedMotion = useReducedMotion();
   // Images in a row share one tile stack (and one viewer), so they page together.
@@ -62,7 +67,8 @@ export function MessageText({ text, large = false, skipImages = false, streaming
     return result;
   }, [text, skipImages]);
   const previous = useRef({ text, count: rows.length, streaming });
-  const appending = streaming && previous.current.streaming && text.startsWith(previous.current.text);
+  const appending =
+    streaming && previous.current.streaming && text.startsWith(previous.current.text);
   useLayoutEffect(() => {
     previous.current = { text, count: rows.length, streaming };
   }, [text, rows.length, streaming]);
@@ -71,10 +77,25 @@ export function MessageText({ text, large = false, skipImages = false, streaming
       {rows.map((row, i) => (
         <Animated.View
           key={i}
-          {...(appending && i >= previous.current.count && !reducedMotion ? { entering: FadeIn.duration(motion.duration.base).reduceMotion(ReduceMotion.System) } : {})}
-          style={{ marginTop: i === 0 ? 0 : row.kind === "heading" ? spacing.xl : rows[i - 1]?.kind === "heading" ? spacing.sm : spacing.md }}
+          {...(appending && i >= previous.current.count && !reducedMotion
+            ? { entering: FadeIn.duration(motion.duration.base).reduceMotion(ReduceMotion.System) }
+            : {})}
+          style={{
+            marginTop:
+              i === 0
+                ? 0
+                : row.kind === "heading"
+                  ? spacing.xl
+                  : rows[i - 1]?.kind === "heading"
+                    ? spacing.sm
+                    : spacing.md,
+          }}
         >
-          {row.kind === "images" ? <MarkdownImages images={row.images} /> : <BlockView block={row} body={body} streaming={streaming && !reducedMotion} />}
+          {row.kind === "images" ? (
+            <MarkdownImages images={row.images} />
+          ) : (
+            <BlockView block={row} body={body} streaming={streaming && !reducedMotion} />
+          )}
         </Animated.View>
       ))}
     </View>
@@ -86,24 +107,44 @@ interface BodySize {
   lineHeight: number;
 }
 
-function BlockView({ block, body, streaming = false }: { block: Block; body: BodySize; streaming?: boolean }) {
+function BlockView({
+  block,
+  body,
+  streaming = false,
+}: {
+  block: Block;
+  body: BodySize;
+  streaming?: boolean;
+}) {
   const colors = useColors();
   switch (block.kind) {
     case "code":
       return <CodeBlock code={block.code} lang={block.lang} invalid={block.invalid} />;
     case "hr":
-      return <View style={{ height: 1, backgroundColor: colors.hairline, marginVertical: spacing.xs }} />;
+      return (
+        <View style={{ height: 1, backgroundColor: colors.hairline, marginVertical: spacing.xs }} />
+      );
     case "heading": {
       const size = HEADING_SIZE[block.level - 1] ?? 15;
       return (
-        <RNText accessibilityRole="header" style={{ fontSize: size, lineHeight: Math.round(size * 1.3), fontWeight: "600", color: colors.text }}>
+        <RNText
+          accessibilityRole="header"
+          style={{
+            fontSize: size,
+            lineHeight: Math.round(size * 1.3),
+            fontWeight: "600",
+            color: colors.text,
+          }}
+        >
           <Inlines runs={block.inline} streaming={streaming} fontSize={size} />
         </RNText>
       );
     }
     case "paragraph":
       return (
-        <RNText style={{ fontSize: body.fontSize, lineHeight: body.lineHeight, color: colors.text }}>
+        <RNText
+          style={{ fontSize: body.fontSize, lineHeight: body.lineHeight, color: colors.text }}
+        >
           <Inlines runs={block.inline} streaming={streaming} fontSize={body.fontSize} />
         </RNText>
       );
@@ -128,9 +169,25 @@ function BlockView({ block, body, streaming = false }: { block: Block; body: Bod
     case "openui":
       return <OpenUIBlock code={block.code} partial={block.partial} />;
     case "html":
-      return <HtmlWidget code={block.html} runtime="html" partial={block.partial} fontSize={body.fontSize} lineHeight={body.lineHeight} />;
+      return (
+        <HtmlWidget
+          code={block.html}
+          runtime="html"
+          partial={block.partial}
+          fontSize={body.fontSize}
+          lineHeight={body.lineHeight}
+        />
+      );
     case "mantine":
-      return <HtmlWidget code={block.code} runtime="mantine" partial={block.partial} fontSize={body.fontSize} lineHeight={body.lineHeight} />;
+      return (
+        <HtmlWidget
+          code={block.code}
+          runtime="mantine"
+          partial={block.partial}
+          fontSize={body.fontSize}
+          lineHeight={body.lineHeight}
+        />
+      );
     case "image":
       return <MarkdownImages images={[{ src: block.src, alt: block.alt }]} />;
   }
@@ -147,7 +204,11 @@ function OpenUIBlock({ code, partial }: { code: string; partial: boolean }) {
   const queries = useBoardsStore((state) => state.queries);
   const [{ runtime, subscribe, getSnapshot }] = useState(() => {
     const created = syncOpenUIRuntime(null, code, partial, queries ? liveQuery : null);
-    return { runtime: created, subscribe: (cb: () => void) => created.subscribe(cb), getSnapshot: () => created.snapshot() };
+    return {
+      runtime: created,
+      subscribe: (cb: () => void) => created.subscribe(cb),
+      getSnapshot: () => created.snapshot(),
+    };
   });
   // Before paint, so a streamed chunk never shows a frame of the previous text.
   useLayoutEffect(() => {
@@ -157,7 +218,9 @@ function OpenUIBlock({ code, partial }: { code: string; partial: boolean }) {
   const view = openUIView(snapshot, partial);
   if (view.kind === "code") return <CodeBlock code={code} lang="openui" invalid={view.invalid} />;
   // A Query that could not fetch, or whose last fetch failed: the widget keeps its data and says why.
-  const stale = queries ? (snapshot.errors.find((error) => error.code === "query-error")?.message ?? null) : null;
+  const stale = queries
+    ? (snapshot.errors.find((error) => error.code === "query-error")?.message ?? null)
+    : null;
   return (
     <RenderFormContext.Provider value="openui">
       <OpenUIRuntimeContext.Provider value={runtime}>
@@ -172,7 +235,15 @@ function OpenUIBlock({ code, partial }: { code: string; partial: boolean }) {
   );
 }
 
-function ListView({ block, body, streaming }: { block: Extract<Block, { kind: "list" }>; body: BodySize; streaming: boolean }) {
+function ListView({
+  block,
+  body,
+  streaming,
+}: {
+  block: Extract<Block, { kind: "list" }>;
+  body: BodySize;
+  streaming: boolean;
+}) {
   const colors = useColors();
   return (
     <View style={{ gap: spacing.sm }}>
@@ -182,9 +253,19 @@ function ListView({ block, body, streaming }: { block: Extract<Block, { kind: "l
           markerWidth={LIST_INDENT}
           marker={
             block.ordered ? (
-              <RNText style={{ fontSize: body.fontSize, lineHeight: body.lineHeight, color: colors.text }}>{`${block.start + i}.`}</RNText>
+              <RNText
+                style={{ fontSize: body.fontSize, lineHeight: body.lineHeight, color: colors.text }}
+              >{`${block.start + i}.`}</RNText>
             ) : (
-              <View style={{ width: BULLET, height: BULLET, borderRadius: BULLET / 2, backgroundColor: colors.text, marginTop: (body.lineHeight - BULLET) / 2 }} />
+              <View
+                style={{
+                  width: BULLET,
+                  height: BULLET,
+                  borderRadius: BULLET / 2,
+                  backgroundColor: colors.text,
+                  marginTop: (body.lineHeight - BULLET) / 2,
+                }}
+              />
             )
           }
         >
@@ -209,8 +290,21 @@ function TableView({ block }: { block: Extract<Block, { kind: "table" }> }) {
   const colors = useColors();
   const columns = Math.max(block.header.length, ...block.rows.map((r) => r.length));
   return (
-    <ScrollView horizontal style={{ flexGrow: 0 }} showsHorizontalScrollIndicator={false} contentContainerStyle={{ flexGrow: 1 }}>
-      <View style={{ borderWidth: 1, borderColor: colors.hairline, borderRadius: radii.md, overflow: "hidden", alignSelf: "flex-start" }}>
+    <ScrollView
+      horizontal
+      style={{ flexGrow: 0 }}
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={{ flexGrow: 1 }}
+    >
+      <View
+        style={{
+          borderWidth: 1,
+          borderColor: colors.hairline,
+          borderRadius: radii.md,
+          overflow: "hidden",
+          alignSelf: "flex-start",
+        }}
+      >
         <TableRow cells={block.header} columns={columns} align={block.align} header />
         {block.rows.map((row, i) => (
           <TableRow key={i} cells={row} columns={columns} align={block.align} />
@@ -220,13 +314,47 @@ function TableView({ block }: { block: Extract<Block, { kind: "table" }> }) {
   );
 }
 
-function TableRow({ cells, columns, align, header = false }: { cells: Inline[][]; columns: number; align: Align[]; header?: boolean }) {
+function TableRow({
+  cells,
+  columns,
+  align,
+  header = false,
+}: {
+  cells: Inline[][];
+  columns: number;
+  align: Align[];
+  header?: boolean;
+}) {
   const colors = useColors();
   return (
-    <View style={{ flexDirection: "row", backgroundColor: header ? colors.surfaceRaised : undefined, borderTopWidth: header ? 0 : 1, borderTopColor: colors.hairline }}>
+    <View
+      style={{
+        flexDirection: "row",
+        backgroundColor: header ? colors.surfaceRaised : undefined,
+        borderTopWidth: header ? 0 : 1,
+        borderTopColor: colors.hairline,
+      }}
+    >
       {Array.from({ length: columns }, (_, c) => (
-        <View key={c} style={{ width: COL_WIDTH, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderLeftWidth: c === 0 ? 0 : 1, borderLeftColor: colors.hairline, alignItems: justify[align[c] ?? "left"] }}>
-          <RNText style={{ fontSize: type.caption.fontSize, lineHeight: type.caption.lineHeight, color: colors.text, fontWeight: header ? "600" : "400" }}>
+        <View
+          key={c}
+          style={{
+            width: COL_WIDTH,
+            paddingHorizontal: spacing.sm,
+            paddingVertical: spacing.xs,
+            borderLeftWidth: c === 0 ? 0 : 1,
+            borderLeftColor: colors.hairline,
+            alignItems: justify[align[c] ?? "left"],
+          }}
+        >
+          <RNText
+            style={{
+              fontSize: type.caption.fontSize,
+              lineHeight: type.caption.lineHeight,
+              color: colors.text,
+              fontWeight: header ? "600" : "400",
+            }}
+          >
             <Inlines runs={cells[c] ?? []} />
           </RNText>
         </View>
@@ -235,7 +363,15 @@ function TableRow({ cells, columns, align, header = false }: { cells: Inline[][]
   );
 }
 
-function Inlines({ runs, streaming = false, fontSize = type.body.fontSize }: { runs: Inline[]; streaming?: boolean; fontSize?: number }) {
+function Inlines({
+  runs,
+  streaming = false,
+  fontSize = type.body.fontSize,
+}: {
+  runs: Inline[];
+  streaming?: boolean;
+  fontSize?: number;
+}) {
   const colors = useColors();
   return (
     <Fragment>
@@ -252,11 +388,23 @@ function Inlines({ runs, streaming = false, fontSize = type.body.fontSize }: { r
         }
         if (run.href !== undefined) {
           style.color = colors.accent;
-          if (run.code !== true) style.textDecorationLine = run.strike === true ? "underline line-through" : "underline";
+          if (run.code !== true)
+            style.textDecorationLine = run.strike === true ? "underline line-through" : "underline";
         }
         const href = run.href;
         return (
-          <RNText key={i} style={style} accessibilityRole={href === undefined ? undefined : "link"} onPress={href === undefined ? undefined : () => { openChatLink(href); }}>
+          <RNText
+            key={i}
+            style={style}
+            accessibilityRole={href === undefined ? undefined : "link"}
+            onPress={
+              href === undefined
+                ? undefined
+                : () => {
+                    openChatLink(href);
+                  }
+            }
+          >
             {streaming ? <InlineContent text={run.text} /> : run.text}
           </RNText>
         );
@@ -297,13 +445,18 @@ function InlineContent({ text }: { text: string }) {
   }
   return (
     <Fragment>
-      {content.chunks.map((chunk) => chunk.id === 0 ? (
-        <RNText key={chunk.id}>{chunk.text}</RNText>
-      ) : (
-        <Animated.Text key={chunk.id} entering={FadeIn.duration(motion.duration.base).reduceMotion(ReduceMotion.System)}>
-          {chunk.text}
-        </Animated.Text>
-      ))}
+      {content.chunks.map((chunk) =>
+        chunk.id === 0 ? (
+          <RNText key={chunk.id}>{chunk.text}</RNText>
+        ) : (
+          <Animated.Text
+            key={chunk.id}
+            entering={FadeIn.duration(motion.duration.base).reduceMotion(ReduceMotion.System)}
+          >
+            {chunk.text}
+          </Animated.Text>
+        ),
+      )}
     </Fragment>
   );
 }

@@ -13,7 +13,12 @@ import { useMemo, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import type { ShouldStartLoadRequest } from "react-native-webview/lib/WebViewTypes";
-import { htmlFrameDocument, mantineFrameDocument, parseFrameMessage, type FrameTheme } from "@relay/widget-runtime/frame";
+import {
+  htmlFrameDocument,
+  mantineFrameDocument,
+  parseFrameMessage,
+  type FrameTheme,
+} from "@relay/widget-runtime/frame";
 import { radii, useColors, useScheme } from "@/theme";
 
 export interface HtmlFrameProps {
@@ -45,7 +50,16 @@ const ORIGINS = ["*"];
 const SYSTEM_FONT = "-apple-system, system-ui, sans-serif";
 const MONO_FONT = "ui-monospace, Menlo, monospace";
 
-export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onReply, onOpenLink, maxHeight = MAX_HEIGHT, height: box }: HtmlFrameProps) {
+export function HtmlFrame({
+  code,
+  runtime = "html",
+  fontSize,
+  lineHeight,
+  onReply,
+  onOpenLink,
+  maxHeight = MAX_HEIGHT,
+  height: box,
+}: HtmlFrameProps) {
   const colors = useColors();
   const scheme = useScheme();
   const web = useRef<WebView>(null);
@@ -74,7 +88,12 @@ export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onRepl
       font: { family: SYSTEM_FONT, mono: MONO_FONT, size: fontSize, lineHeight },
       radius: { sm: radii.sm, md: radii.md, lg: radii.lg },
     };
-    return { html: runtime === "mantine" ? mantineFrameDocument(code, theme, undefined, { fill }) : htmlFrameDocument(code, theme) };
+    return {
+      html:
+        runtime === "mantine"
+          ? mantineFrameDocument(code, theme, undefined, { fill })
+          : htmlFrameDocument(code, theme),
+    };
   }, [code, runtime, colors, scheme, fontSize, lineHeight, fill]);
 
   const onMessage = (event: WebViewMessageEvent): void => {
@@ -89,11 +108,16 @@ export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onRepl
   // navigation the script could not intercept) from replacing the page, opening a tapped web link.
   const onShouldStartLoad = (request: ShouldStartLoadRequest): boolean => {
     if (request.url.startsWith("about:")) return true;
-    if (request.navigationType === "click" && /^https?:\/\//i.test(request.url)) onOpenLink(request.url);
+    if (request.navigationType === "click" && /^https?:\/\//i.test(request.url))
+      onOpenLink(request.url);
     return false;
   };
 
-  const shown = fill ? box : height === null ? PLACEHOLDER_HEIGHT : Math.min(Math.max(height, 1), maxHeight);
+  const shown = fill
+    ? box
+    : height === null
+      ? PLACEHOLDER_HEIGHT
+      : Math.min(Math.max(height, 1), maxHeight);
   return (
     <View style={{ height: shown }}>
       {source !== null ? (
@@ -129,7 +153,14 @@ export function HtmlFrame({ code, runtime = "html", fontSize, lineHeight, onRepl
         />
       ) : null}
       {height === null ? (
-        <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.loading, { borderRadius: radii.md, backgroundColor: colors.surface }]}>
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            styles.loading,
+            { borderRadius: radii.md, backgroundColor: colors.surface },
+          ]}
+        >
           <ActivityIndicator color={colors.textMuted} />
         </View>
       ) : null}

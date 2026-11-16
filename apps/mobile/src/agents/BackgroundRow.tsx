@@ -52,10 +52,13 @@ export function BackgroundRow({ message, at, fill }: BackgroundRowProps) {
   // `gmail` reads as `Gmail` on its pill; a heartbeat with no item lines gets one pill for its count.
   const pills = !heartbeat
     ? []
-    : (message.sources.length === 0 ? [{ source: "heartbeat", count: message.count }] : message.sources).map(
-        (s) => `${s.source.charAt(0).toUpperCase()}${s.source.slice(1)} ${String(s.count)}`,
-      );
-  const label = heartbeat ? `Heartbeat from ${message.from}, ${String(message.count)} new: ${pills.join(", ")}` : message.summary;
+    : (message.sources.length === 0
+        ? [{ source: "heartbeat", count: message.count }]
+        : message.sources
+      ).map((s) => `${s.source.charAt(0).toUpperCase()}${s.source.slice(1)} ${String(s.count)}`);
+  const label = heartbeat
+    ? `Heartbeat from ${message.from}, ${String(message.count)} new: ${pills.join(", ")}`
+    : message.summary;
   return (
     <View style={styles.row} testID={heartbeat ? "background-heartbeat" : "background-event"}>
       <Pressable
@@ -70,11 +73,21 @@ export function BackgroundRow({ message, at, fill }: BackgroundRowProps) {
         }}
         style={({ pressed }) => [styles.head, { opacity: pressed ? 0.6 : 1 }]}
       >
-        <SymbolView name={heartbeat ? "waveform.path.ecg" : ICONS[message.icon]} size={ICON} tintColor={colors.textFaint} />
+        <SymbolView
+          name={heartbeat ? "waveform.path.ecg" : ICONS[message.icon]}
+          size={ICON}
+          tintColor={colors.textFaint}
+        />
         {heartbeat ? (
           <View style={styles.pills}>
             {pills.map((pill) => (
-              <View key={pill} style={[styles.pill, { borderColor: colors.hairline, backgroundColor: colors.surfaceRaised }]}>
+              <View
+                key={pill}
+                style={[
+                  styles.pill,
+                  { borderColor: colors.hairline, backgroundColor: colors.surfaceRaised },
+                ]}
+              >
                 <Text variant="caption" color="textMuted" tabular>
                   {pill}
                 </Text>
@@ -89,7 +102,11 @@ export function BackgroundRow({ message, at, fill }: BackgroundRowProps) {
         <Text variant="caption" color="textFaint" tabular>
           {relativeTime(at)}
         </Text>
-        <SymbolView name={open ? "chevron.up" : "chevron.down"} size={9} tintColor={colors.textFaint} />
+        <SymbolView
+          name={open ? "chevron.up" : "chevron.down"}
+          size={9}
+          tintColor={colors.textFaint}
+        />
       </Pressable>
       {open && (
         <Animated.View
@@ -117,10 +134,19 @@ function ItemLine({ item, first }: { item: HeartbeatItem; first: boolean }) {
   const link = item.link;
   const icon: SFSymbol | undefined = SOURCE_ICONS[item.source.toLowerCase()];
   return (
-    <View style={[styles.item, !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.hairline }]}>
+    <View
+      style={[
+        styles.item,
+        !first && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.hairline },
+      ]}
+    >
       <View style={styles.itemIcon}>
         {/* A source with no glyph of its own gets a small dot. */}
-        <SymbolView name={icon ?? "circle.fill"} size={icon === undefined ? 5 : 13} tintColor={colors.textMuted} />
+        <SymbolView
+          name={icon ?? "circle.fill"}
+          size={icon === undefined ? 5 : 13}
+          tintColor={colors.textMuted}
+        />
       </View>
       <Text variant="body" numberOfLines={3} style={styles.itemTitle}>
         {item.title}
@@ -151,11 +177,34 @@ function ItemLine({ item, first }: { item: HeartbeatItem; first: boolean }) {
 
 const styles = StyleSheet.create({
   /** The strip and its opened body share one centered measure, at most `MAX_WIDTH` wide. */
-  row: { width: "100%", maxWidth: MAX_WIDTH + 2 * spacing.xl, alignSelf: "center", paddingHorizontal: spacing.xl, alignItems: "center" },
-  head: { flexDirection: "row", alignItems: "center", gap: spacing.sm, maxWidth: "100%", paddingVertical: spacing.xs },
+  row: {
+    width: "100%",
+    maxWidth: MAX_WIDTH + 2 * spacing.xl,
+    alignSelf: "center",
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+  },
+  head: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    maxWidth: "100%",
+    paddingVertical: spacing.xs,
+  },
   summary: { flexShrink: 1 },
-  pills: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing.xs, flexShrink: 1 },
-  pill: { borderWidth: StyleSheet.hairlineWidth, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 1 },
+  pills: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: spacing.xs,
+    flexShrink: 1,
+  },
+  pill: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 1,
+  },
   body: {
     alignSelf: "stretch",
     marginTop: spacing.xs,
@@ -164,7 +213,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
-  item: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, paddingVertical: spacing.sm },
+  item: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
   itemIcon: { width: 16, height: 20, alignItems: "center", justifyContent: "center" },
   itemTitle: { flex: 1 },
   meta: { maxWidth: 120, paddingTop: 2 },

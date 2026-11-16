@@ -81,7 +81,12 @@ describe("openui fences", () => {
         direction: "horizontal",
         children: [
           { widget: "stat", label: "Open tickets", value: "12" },
-          { widget: "stat", label: "In review", value: "1", delta: { value: "2", direction: "down" } },
+          {
+            widget: "stat",
+            label: "In review",
+            value: "1",
+            delta: { value: "2", direction: "down" },
+          },
         ],
       },
       { widget: "divider" },
@@ -100,12 +105,19 @@ describe("openui fences", () => {
       { kind: "paragraph", inline: [{ text: "text" }] },
       { kind: "openui", code: brief, partial: false },
     ]);
-    expect(parseBlocks("```openui\nroot = Card(")).toEqual([{ kind: "openui", code: "root = Card(", partial: true }]);
+    expect(parseBlocks("```openui\nroot = Card(")).toEqual([
+      { kind: "openui", code: "root = Card(", partial: true },
+    ]);
   });
 
   it("draws a closed fence as the same widget a ```ui fence makes", () => {
-    expect(view(`text\n\`\`\`openui\n${brief}\n\`\`\``)).toEqual({ kind: "widget", spec: briefSpec });
-    expect(parseBlocks(`\`\`\`ui\n${JSON.stringify(briefSpec)}\n\`\`\``)).toEqual([{ kind: "widget", spec: briefSpec }]);
+    expect(view(`text\n\`\`\`openui\n${brief}\n\`\`\``)).toEqual({
+      kind: "widget",
+      spec: briefSpec,
+    });
+    expect(parseBlocks(`\`\`\`ui\n${JSON.stringify(briefSpec)}\n\`\`\``)).toEqual([
+      { kind: "widget", spec: briefSpec },
+    ]);
   });
 
   it("draws the valid prefix of a still-streaming fence", () => {
@@ -132,14 +144,23 @@ describe("openui fences", () => {
   });
 
   it("drops an invalid child of a closed fence and draws the rest", () => {
-    expect(view('```openui\nroot = Card([Stat("Open", "3"), Audio("/tmp/x.wav")], "Mixed")\n```')).toEqual({
+    expect(
+      view('```openui\nroot = Card([Stat("Open", "3"), Audio("/tmp/x.wav")], "Mixed")\n```'),
+    ).toEqual({
       kind: "widget",
-      spec: { widget: "card", title: "Mixed", children: [{ widget: "stat", label: "Open", value: "3" }] },
+      spec: {
+        widget: "card",
+        title: "Mixed",
+        children: [{ widget: "stat", label: "Open", value: "3" }],
+      },
     });
   });
 
   it("marks a closed fence whose root can't render invalid", () => {
-    expect(view('```openui\nroot = Stat("missing value"\n```')).toEqual({ kind: "code", invalid: true });
+    expect(view('```openui\nroot = Stat("missing value"\n```')).toEqual({
+      kind: "code",
+      invalid: true,
+    });
   });
 });
 
@@ -192,14 +213,24 @@ describe("interactive openui widgets", () => {
   });
 
   it("passes a plain button's reply or url straight through", () => {
-    const runtime = syncOpenUIRuntime(null, 'root = Stack([Button("Yes", @ToAssistant("yes")), Button("Docs", @OpenUrl("https://x.test"))])', false);
+    const runtime = syncOpenUIRuntime(
+      null,
+      'root = Stack([Button("Yes", @ToAssistant("yes")), Button("Docs", @OpenUrl("https://x.test"))])',
+      false,
+    );
     expect(tap(runtime, "Yes")).toEqual({ reply: "yes" });
     expect(tap(runtime, "Docs")).toEqual({ url: "https://x.test" });
-    expect(pressButton({ widget: "button", label: "Go", reply: "go", variant: "primary" }, null)).toEqual({ reply: "go" });
+    expect(
+      pressButton({ widget: "button", label: "Go", reply: "go", variant: "primary" }, null),
+    ).toEqual({ reply: "go" });
   });
 
   it("shows a bound input's text from the runtime and lets other widgets read it", () => {
-    const runtime = syncOpenUIRuntime(null, 'root = Stack([field, Text("Hi " + $name)])\n$name = ""\nfield = Input("Name", "Ask", "Tell me about {value}", false, $name)', false);
+    const runtime = syncOpenUIRuntime(
+      null,
+      'root = Stack([field, Text("Hi " + $name)])\n$name = ""\nfield = Input("Name", "Ask", "Tell me about {value}", false, $name)',
+      false,
+    );
     const input = () => nodes(runtime.snapshot().node).find((n) => n.widget === "input");
     expect(input()).toMatchObject({ widget: "input", bind: "field", value: "" });
     runtime.setInput("field", "Ada");
@@ -227,11 +258,15 @@ describe("live Query in a chat fence", () => {
   });
 
   it("keeps its defaults and says why when the fetch fails, and keeps the client across streamed updates", async () => {
-    const runtime = syncOpenUIRuntime(null, code, true, { run: () => Promise.reject(new Error("Not connected to your Mac.")) });
+    const runtime = syncOpenUIRuntime(null, code, true, {
+      run: () => Promise.reject(new Error("Not connected to your Mac.")),
+    });
     syncOpenUIRuntime(runtime, code, false);
     runtime.subscribe(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(runtime.snapshot().node).toEqual({ widget: "text", text: "open: 0" });
-    expect(runtime.snapshot().errors.find((e) => e.code === "query-error")?.message).toMatch(/Not connected to your Mac/);
+    expect(runtime.snapshot().errors.find((e) => e.code === "query-error")?.message).toMatch(
+      /Not connected to your Mac/,
+    );
   });
 });

@@ -31,7 +31,9 @@ beforeAll(() => {
         // the page only needs the call to succeed
       }
     },
-    ReactNativeWebView: { postMessage: (data: string) => posts.push(JSON.parse(data) as (typeof posts)[number]) },
+    ReactNativeWebView: {
+      postMessage: (data: string) => posts.push(JSON.parse(data) as (typeof posts)[number]),
+    },
   });
   window.eval(bridgeScript(THEME, false));
 });

@@ -62,7 +62,9 @@ export function ButtonWidget({ spec }: { spec: ButtonSpec }) {
             ? "textMuted"
             : undefined
       }
-      disabled={spec.action !== undefined ? runtime === null : spec.url === undefined && actions === null}
+      disabled={
+        spec.action !== undefined ? runtime === null : spec.url === undefined && actions === null
+      }
       onPress={() => {
         const { reply, url } = pressButton(spec, runtime);
         if (reply !== undefined) actions?.reply(reply);
@@ -73,26 +75,24 @@ export function ButtonWidget({ spec }: { spec: ButtonSpec }) {
 }
 
 export function TableWidget({ spec }: { spec: TableSpec }) {
-  const columns = spec.columns.map(
-    (column): DataColumn =>
-      typeof column === "string"
-        ? { label: column, align: "left" }
-        : { label: column.label, align: column.align ?? "left" },
+  const columns = spec.columns.map((column): DataColumn =>
+    typeof column === "string"
+      ? { label: column, align: "left" }
+      : { label: column.label, align: column.align ?? "left" },
   );
   const rows = spec.rows.map((row) =>
-    row.map(
-      (cell): DataCell =>
-        typeof cell === "string"
-          ? { text: cell }
-          : typeof cell === "number"
-            ? { text: String(cell) }
-            : {
-                text: cell.text,
-                color: cell.tone === undefined ? undefined : toneColor[cell.tone],
-                bold: cell.bold,
-                url: cell.url,
-                icon: cell.icon,
-              },
+    row.map((cell): DataCell =>
+      typeof cell === "string"
+        ? { text: cell }
+        : typeof cell === "number"
+          ? { text: String(cell) }
+          : {
+              text: cell.text,
+              color: cell.tone === undefined ? undefined : toneColor[cell.tone],
+              bold: cell.bold,
+              url: cell.url,
+              icon: cell.icon,
+            },
     ),
   );
   return (
@@ -198,7 +198,12 @@ export function AvatarWidget({ spec }: { spec: AvatarSpec }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.md }}>
       {assistant !== null ? (
-        <BreathingPortrait name={spec.name} portrait={agentPortrait(agents, assistant)} size={36} working={false} />
+        <BreathingPortrait
+          name={spec.name}
+          portrait={agentPortrait(agents, assistant)}
+          size={36}
+          working={false}
+        />
       ) : (
         <Avatar name={spec.name} uri={uri} />
       )}

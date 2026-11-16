@@ -19,7 +19,7 @@ Relay desktop stream-render it natively while you type; anywhere else it shows a
 root = Stat("Collected", "$7.9k", Delta("12%", "up"))
 ```
 
-- ```` ```ui ```` JSON blocks are **legacy**: Relay still renders them for old history only. Never emit them.
+- ` ```ui ` JSON blocks are **legacy**: Relay still renders them for old history only. Never emit them.
 - EvaOS native (Rust/GPUI) does not parse OpenUI Lang; it shows `openui` blocks as code. Accepted (Isaac, 2026-10-23).
 - Parser/prompt source of truth: `~/Eva/work/relay/packages/protocol/src/openui/` (`library.ts` holds every component). Check a reply: `cd ~/Eva/work/relay && bun packages/protocol/src/openui/check.ts < reply.md` prints `{blocks:[{line,unclosed,ok,widget,complete,errors}]}`. `.omp/hooks/widget-check.ts` runs it after each turn.
 
@@ -41,6 +41,7 @@ root = Stat("Collected", "$7.9k", Delta("12%", "up"))
 `?` = optional. `tone` is `"accent" | "ok" | "warn" | "danger" | "muted"` everywhere. Every widget can be a child of Card, Stack, Grid, Tab, Collapse; sub-components (Series, Delta, Row, Ticket, Column, Cell, ListItem, Tab, Side, ...) only go inside the widget that takes them.
 
 ### Layout
+
 - `Card(children: Component[], title?, width?: "compact"|"full")`: hairline frame with optional heading. Don't nest cards for decoration. `width: "compact"` keeps a small tool (calculator, keypad, short form) phone-sized (~380px) on the desktop chat column; phones always use full width. Default `full`.
 - `Stack(children, direction?: "vertical"|"horizontal", gap?: "xs"|"sm"|"md"|"lg")`: column (default) or row of equal-width columns; gap default `sm`. A Button fills its column.
 - `Grid(children, columns?: 2|3|4, gap?)`: rows of equal cells (default 2); a Button fills its cell at a comfortable tap height (keypads, choice grids); phones may drop columns.
@@ -49,6 +50,7 @@ root = Stat("Collected", "$7.9k", Delta("12%", "up"))
 - Limits: containers nest at most 4 deep, at most 24 children each (per tab); past either the widget falls back to code.
 
 ### Text blocks
+
 - `Text(text, style?: "heading"|"body"|"caption"|"muted"|"display", align?: "left"|"center"|"right")`: `display` is a large tabular readout (calculator screen, counter); align defaults to left.
 - `Rows(rows: Row[])`, `Row(label, value, tone?)`: label left, value right.
 - `Badge(label, tone?)`: put several in `Stack([...], "horizontal", "xs")`.
@@ -58,6 +60,7 @@ root = Stat("Collected", "$7.9k", Delta("12%", "up"))
 - `List(items: (string|ListItem)[], style?: "bullet"|"number"|"check")`, `ListItem(text, caption?, checked?)`: 1-50 items; checks are static, checked items mute and strike through.
 
 ### Rich blocks
+
 - `Progress(value, max?, label?, caption?, tone?)`: max default 100, value clamps, shows rounded percent.
 - `Avatar(name, subtitle?, src?)`: initials without src.
 - `Timeline(items: TimelineEntry[])`, `TimelineEntry(title, time?, text?, tone?)`: 1-30 events.
@@ -65,12 +68,14 @@ root = Stat("Collected", "$7.9k", Delta("12%", "up"))
 - `Diff(patch, file?)`: one file's unified diff (`git diff -- <file>` output as-is, ≤ 50k chars); file extension picks syntax colors. Zed-style: collapsible header, new-file line numbers, gutter bar per change, long diffs show 60 rows then "Show N more". One `Diff` per file inside a `Stack` for multi-file changes.
 
 ### Actions
+
 - `Button(label, action?: @ToAssistant("text") | @OpenUrl("https://..."), url?, variant?: "primary"|"secondary"|"subtle", tone?)`: `@ToAssistant` sends text as Isaac's next turn in this session; `@OpenUrl` (or `url`) opens a link; with neither, tapping sends the label. Several steps: `Action([@OpenUrl(...), @ToAssistant(...)])`. Put several buttons in a horizontal Stack.
 - `Link(label, url)`: http(s).
 - `Input(placeholder?, button?, reply?, multiline?)`: `reply` must contain `{value}` (default `"{value}"`); button default "Send"; shows "Sent" after submit.
 - Buttons and inputs are disabled where there is no session (dashboards).
 
 ### Data
+
 - `Stat(label, value, delta?: Delta)`, `Delta(value, direction?: "up"|"down"|"flat")`: format value yourself (`$7.9k`, `1,357`, `92%`). up green, down red, flat (default) grey.
 - `Chart(kind: "bar"|"line", series: Series[], labels?: string[], title?, stacked?)`, `Series(points: number[], name?, color?)`: labels one per point; several series draw grouped bars / overlaid lines with a legend; `stacked` is bar only; color is hex (omit for default palette).
 - `Table(columns: (string|Column)[], rows: (string|number|Cell)[][], title?)`, `Column(label, align?: "left"|"right"|"center")`, `Cell(text, tone?, bold?, url?, icon?: "github"|"linear")`: 1-8 columns, 1-100 rows, exactly one cell per column per row; scrolls sideways. `url` (http(s) only) makes the cell a link; one link per cell, so two links means two columns. `icon` draws the brand logo; text may be `""` for icon-only.
@@ -80,18 +85,20 @@ root = Stat("Collected", "$7.9k", Delta("12%", "up"))
   - `url`: the issue's canonical link copied verbatim from Linear (`linear issue url ENG-<n>`, or the issue's `url` field). Never build it by hand: a guessed workspace slug or missing title slug lands on Linear's home. Renders "Open in Linear".
 
 ### Records
+
 - `Emails(emails: Email[], title?)`, `Email(from, subject, snippet?, date?, unread?, url?)`: 1-50 inbox rows. Gmail (personal, `secrets/gmail.env`, IMAP app password): fetch with `BODY.PEEK[]` + `X-GM-THRID` so reading never marks mail read; `url` = `https://mail.google.com/mail/u/0/#all/<thrid hex>`. Strip CR/LF folding from subjects.
 - `Pr(repo, number, title, state?: "open"|"draft"|"merged"|"closed", url?, author?, branch?, base?, body?, reviewers?: Reviewer[], checks?: PrCheck[], files?: PrFile[])`: GitHub-mobile style with Overview, Checks, Files tabs. `Reviewer(name, state?: "approved"|"changes"|"pending"|"commented")`, `PrCheck(name, status?: "success"|"failure"|"pending"|"skipped", duration?, url?)`, `PrFile(file, patch, additions?, deletions?)`.
 - `Recipe(title, ingredients: Ingredient[], directions: string[], meta?: string[], source?)`, `Ingredient(item, section?)`: use when the source recipe already has ingredients and directions. 1-50 ingredients (set `section` only where a new group starts), 1-30 steps, 1-4 meta facts (time, servings), source an absolute http(s) URL.
 
 ### Media
+
 - `Image(src, alt?, caption?, url?, aspect?)`: aspect width/height 0.25-4 (default natural); tap for full-screen zoom.
 - `Gallery(images: GalleryImage[], title?)`, `GalleryImage(src, title?, caption?, url?)`: 1-50 references (Dribbble shots, screenshots, mockups); 4:3 frame, tap opens a zoomable pager. Prefer large sources (Dribbble CDN `resize=1600x1200`) so zoom stays sharp. `url` is the source page.
 - `Compare(before: Side, after: Side, title?)`, `Side(src, label?)`: before/after slider for visual proof. Use two images of the same frame and size (e.g. `proof.ts` shots); the frame takes the after image's aspect. Labels default "Before"/"After".
 - `Audio(src, title?)`: play/pause, seek, speed pill (1x-2x, pitch-corrected, remembered), plays on silent. Never render per-speed copies. Formats: wav, m4a/aac, mp3. Speech: `pocket-tts generate --text "…" --voice stuart_bell --output-path /tmp/x.wav` (`stuart_bell` is Isaac's default voice).
 - `Video(src, title?)`: mp4 H.264 only for the phone (webm and HEVC play on desktop but fail on iPhone; re-encode with `ffmpeg -i in -c:v libx264 -pix_fmt yuv420p -movflags +faststart -c:a aac out.mp4`).
 - `Model(src, title?, caption?, autoRotate?)`: GLB (or `.gltf` with buffers/images embedded as data URIs; sidecar files fail). PBR + embedded textures render; Draco meshes and KTX2 textures don't, so export plain GLB: `bpy.ops.export_scene.gltf(filepath=..., export_format="GLB")`. Drag orbits, pinch zooms; `autoRotate` spins until touched. A GLB/GLTF renders ONLY in an openui `Model(...)` block, never as markdown `![..](..)` (that is a broken image on every client). STL/OBJ/FBX/USDZ render nowhere: convert to GLB first.
-- Media `src`: share the file first, `bun ~/Eva/work/relay-runtime/apps/linux/src/main.ts share <file>` (or the relayCli your prime names). It prints `shared image|video|audio|model|file <id> /drops/<id>/<token>`, then the exact embed to paste for that type: `embed ![caption](/drops/...)` for image, video and audio; for `.glb`/`.gltf` a ready ```` ```openui ```` block with `root = Model("/drops/<id>/<token>", "<caption>")`; for anything else (PDF, STL, zip) a `link [name](/drops/...)` with no inline embed. Paste what it prints, and heed its `warning:` lines (webm/HEVC video, ogg/opus audio, non-GLB 3D). Use that `/drops/<id>/<token>` path or an absolute `https://` URL; local file paths are rejected (the hook flags them). Shared files also appear in the phone's Drops list (newest 100; the host keeps up to 1000 drops / 2 GB, so older embeds keep loading). Videos (mp4/mov/webm) are capped at 25 MB and get a poster; audio (mp3, m4a, aac, wav, flac; ogg/opus play on desktop only) prints its duration. The host rewrites an mp4/m4a whose index is at the end (ffmpeg without `-movflags +faststart`) so the phone can stream it. Outside a widget, the plain markdown `![caption](/drops/<id>/<token>)` of an image, video or audio drop shows inline in chats (phone, desktop and assistant threads); `Audio(src)` in a widget is the same player.
+- Media `src`: share the file first, `bun ~/Eva/work/relay-runtime/apps/linux/src/main.ts share <file>` (or the relayCli your prime names). It prints `shared image|video|audio|model|file <id> /drops/<id>/<token>`, then the exact embed to paste for that type: `embed ![caption](/drops/...)` for image, video and audio; for `.glb`/`.gltf` a ready ` ```openui ` block with `root = Model("/drops/<id>/<token>", "<caption>")`; for anything else (PDF, STL, zip) a `link [name](/drops/...)` with no inline embed. Paste what it prints, and heed its `warning:` lines (webm/HEVC video, ogg/opus audio, non-GLB 3D). Use that `/drops/<id>/<token>` path or an absolute `https://` URL; local file paths are rejected (the hook flags them). Shared files also appear in the phone's Drops list (newest 100; the host keeps up to 1000 drops / 2 GB, so older embeds keep loading). Videos (mp4/mov/webm) are capped at 25 MB and get a poster; audio (mp3, m4a, aac, wav, flac; ogg/opus play on desktop only) prints its duration. The host rewrites an mp4/m4a whose index is at the end (ffmpeg without `-movflags +faststart`) so the phone can stream it. Outside a widget, the plain markdown `![caption](/drops/<id>/<token>)` of an image, video or audio drop shows inline in chats (phone, desktop and assistant threads); `Audio(src)` in a widget is the same player.
 - Write drop srcs as the bare `/drops/<id>/<token>` path, never with a host in front (no `http://<host>:7817/...`, no tailnet https URL): the phone loads it from the host it is connected to and Relay desktop through its own local host link, so the same path works on every device.
 - Relay desktop and the phone report media that fails to render back to you as a background line, `[From <Title>'s background jobs] Render failed on phone: model (markdown) /drops/... (...) in your message assistant@... ...` (or `[From Relay's background jobs] ...` in a plain session). Answer it by reposting that media in a working form (the embed share prints for its type), or reply `(nothing to report)` if it was already fixed. Each message is reported once and a thread gets at most 3 such lines per 30 minutes; if the repost fails too, tell Isaac instead of retrying.
 
@@ -232,13 +239,14 @@ asOf = Text("As of " + items.asOf + ", refreshes every 30 s", "caption")
 again = Button("Refresh now", @Run(items), null, "subtle")
 ```
 
-## Custom UI: ```mantine-widget and ```html-widget
+## Custom UI: `mantine-widget and `html-widget
 
 When no OpenUI component fits (a configurator, a mini app, a bespoke chart or form), write the UI yourself. Prefer `openui` whenever it can express the thing: it streams, is checked by the hook, and renders in more places. Both custom fences run in a sandboxed web view on the phone and a sandboxed iframe on Relay desktop: **no network at all** (no fetch, CDN, fonts, images except `data:`), no navigation, sized to their content (up to ~1200px, then scroll inside), transparent over the chat, drawn only once the fence closes. State is local and resets when the message re-renders. Never put data you did not compute or were not given into one.
 
 The same JSX also makes a dashboard tile (`board ops` with `mantine`, skill://dashboards): same sandbox, drawn the tile's width, and its `height` when the tile sets one.
 
 `relay` is in scope in both:
+
 - `relay.reply(text)`: sends `text` as Isaac's next message in this session. Only works inside a tap/click handler (user gesture); calls on load are ignored. Returns `true` when sent.
 - `relay.open(url)`: opens `url` outside the widget (desktop: Relay's link handling; phone: the system handler or in-app link). Only `http(s)://` and `relay://` URLs, only inside a tap/click handler. Returns `true` when sent. Plain `<a href>` / Mantine `<Anchor href>` clicks and `window.open` do the same, so they work as written; a widget frame never navigates, so a link can no longer blank a tile.
 - `relay.colorScheme`: `"light" | "dark"`. `relay.theme`: `{ dark, colors: { fg, muted, faint, border, surface, raised, accent, ok, warn, danger, bg }, font, radius }` (the host palette).
@@ -316,6 +324,7 @@ A question that ends on `[[replies: ...]]` (or an omp `ask` tool card) stays ope
   ```
 
   It is cut from the shown text together with the token, and only counts right before one.
+
 - When Isaac settled a question some other way (he answered it in his own words, or it no longer matters), close it: `relay-linux asks list` shows the open ones (`<id>  <agent>  <age>  <label>: <question>  [answers]`, `--json` for JSON; `--agent` defaults to `$RELAY_ASSISTANT`), and `relay-linux asks resolve <id>...` closes them. If it was another session's ask (it shows `from`), relay his answer with `relay-linux asks resolve <id> --answer '<his answer>'` so it reaches that session.
 - Ask a closed question again later and it opens again as a new ask; asking an open one again refreshes it instead of adding a second.
 
@@ -338,6 +347,7 @@ id=$(relay-linux asks add --thread nova --from 'Golf' --question 'Book the 7:10 
 Isaac's rule (2026-10-06): never build a widget's UI in isolation. Break it into reusable base elements in `apps/mobile/src/ui/` (image frame, pager, page controls, link button, overlay tag, caption, placeholder, ...) and have the widget only compose them. Reuse what exists first; add a missing piece as a primitive. The current list lives in `apps/mobile/AGENTS.md`.
 
 A new widget or field ships on every Relay surface the same day:
+
 - Protocol: zod schema in `apps/mobile/src/agents/widget.ts` / the protocol package, AND its OpenUI component in `packages/protocol/src/openui/library.ts` (signature, positional arg order, description). The converted WidgetSpec must be the same shape the JSON spec produces, so renderers stay unchanged. Regenerate/inspect the prompt (`relayWidgetPrompt()`), add a parser test, and copy the new signature into this skill.
 - Relay desktop (Electron, `~/Eva/work/evaos-electron`, `~/Applications/Relay.app`): zod 4 port in `packages/chat-core/src/widget.ts` (header names the protocol commit it follows) plus the chat-core port of the OpenUI module/library; registry in `apps/desktop/src/renderer/chat/widgets/Widget.tsx`, rich widgets in `chat/widgets/rich/`, media through `relay-media:` (`src/main/chat/widget-media.ts`); a block in `fixtures/agent-widgets` checked by `e2e/widgets.spec.ts`.
 - EvaOS native (`~/Eva/apps/evaos`) only parses legacy ```ui JSON and shows `openui` blocks as code; no EvaOS work is required for OpenUI widgets.

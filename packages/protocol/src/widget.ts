@@ -128,8 +128,14 @@ const EditorPortrait = z.object({
   options: z.record(z.string(), z.union([z.array(z.string()), z.number(), z.boolean()])).optional(),
   colors: z
     .object({
-      paper: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-      accent: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+      paper: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/)
+        .optional(),
+      accent: z
+        .string()
+        .regex(/^#[0-9a-fA-F]{6}$/)
+        .optional(),
     })
     .optional(),
 });
@@ -190,7 +196,8 @@ const PAGE_ALIASES: Readonly<Record<string, string>> = { setting: "settings" };
 const MAX_APP_LINK = 4096;
 const MAX_LINK_VALUE = 2048;
 
-const isLinkParam = (key: string): key is AppLinkParam => (APP_LINK_PARAMS as readonly string[]).includes(key);
+const isLinkParam = (key: string): key is AppLinkParam =>
+  (APP_LINK_PARAMS as readonly string[]).includes(key);
 
 function parseLinkQuery(query: string): Partial<Record<AppLinkParam, string>> | null {
   const out: Partial<Record<AppLinkParam, string>> = {};

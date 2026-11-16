@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildAppLink, parseAppLink, parseAssistantAvatar, parseWidget, type WidgetSpec } from "../src";
+import {
+  buildAppLink,
+  parseAppLink,
+  parseAssistantAvatar,
+  parseWidget,
+  type WidgetSpec,
+} from "../src";
 
 const parse = (spec: object): WidgetSpec | null => parseWidget(JSON.stringify(spec));
 
@@ -43,8 +49,16 @@ describe("relay:// app links", () => {
       expect(link, url).not.toBeNull();
       expect(buildAppLink(link!)).toBe(url);
     }
-    expect(parseAppLink("relay://open/settings/connections")).toEqual({ kind: "open", page: "settings", sub: "connections" });
-    for (const bad of ["relay://open/settings/a/b", "relay://open/settings?nope=1", "relay://open/settings?item="])
+    expect(parseAppLink("relay://open/settings/connections")).toEqual({
+      kind: "open",
+      page: "settings",
+      sub: "connections",
+    });
+    for (const bad of [
+      "relay://open/settings/a/b",
+      "relay://open/settings?nope=1",
+      "relay://open/settings?item=",
+    ])
       expect(parseAppLink(bad), bad).toBeNull();
   });
 
