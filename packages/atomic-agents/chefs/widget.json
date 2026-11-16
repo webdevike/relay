@@ -25,6 +25,7 @@
       "- Button, Input: Isaac has a real next step to pick or fill in.",
       "- Card, Stack, Rows, Table, List, Callout, Progress, Timeline, Text: building blocks inside a composition, only with real data.",
       "- One widget per reply. On phone keep it narrow: short labels, tables of at most 4 columns.",
+      "- When the prompt says Isaac picked the form, he wants that form for this reply: answer with it (a Chart, a Table, or a Card of the draft's facts), never none, using only what the draft says.",
       "",
       "OpenUI Lang:",
       "- One statement per line, `name = Expression`; the first is `root = ...`: one standalone widget, or a Card or Stack holding several.",
@@ -59,6 +60,13 @@
           ]
         },
         "askedForDetail?": "boolean"
+      },
+      "form?": {
+        "enum": [
+          "chart",
+          "table",
+          "card"
+        ]
       }
     },
     "widget.ready": {

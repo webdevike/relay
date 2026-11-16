@@ -258,6 +258,7 @@ describe('🎯 train sheet', () => {
   }
 
   it("on an assistant's reply in its thread, asks one question and sends the answer", async () => {
+    const toast = vi.spyOn(notifications, 'show').mockImplementation(() => '')
     replyWidgetsStore.setState({ training: true })
     invoke.mockImplementation(async (channel: string) =>
       channel === 'reactions.widgetLabel'
@@ -289,6 +290,7 @@ describe('🎯 train sheet', () => {
       excerpt: 'Fixed **the dock**.',
     })
     await waitFor(() => expect(screen.queryByTestId('train-sheet')).toBeNull())
+    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ message: 'Saved' })))
   })
 
   it('says so when the host could not save the answer', async () => {

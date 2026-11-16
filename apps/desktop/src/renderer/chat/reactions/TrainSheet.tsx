@@ -7,6 +7,7 @@ import { invoke } from '../../ipc'
 const SHOULD_HAVE_BEEN: readonly WidgetLabel[] = ['plain', 'chart', 'table', 'card', 'other']
 
 export const TRAIN_FAILED = "Couldn't save that for training."
+export const TRAIN_SAVED = 'Saved'
 
 /**
  * Sends Isaac's 🎯 answer for assistant reply `message` of `thread` to the host (`widget.label`,
@@ -19,7 +20,10 @@ export async function sendWidgetLabel(
   excerpt: string,
 ): Promise<void> {
   const r = await invoke('reactions.widgetLabel', { thread, message, label, excerpt })
-  if (r.ok && r.value.ok) return
+  if (r.ok && r.value.ok) {
+    notifications.show({ message: TRAIN_SAVED, autoClose: 2500 })
+    return
+  }
   const why = r.ok ? r.value.error : r.error.message
   notifications.show({
     color: 'red',

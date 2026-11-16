@@ -5,7 +5,8 @@ const Request = Schema.Struct({
   draft: Schema.String,
   data: Schema.optionalKey(Schema.Json),
   surface: Schema.String,
-  context: Schema.optionalKey(Schema.Struct({ channel: Schema.Literals(["text", "voice"]), askedForDetail: Schema.optionalKey(Schema.Boolean) }))
+  context: Schema.optionalKey(Schema.Struct({ channel: Schema.Literals(["text", "voice"]), askedForDetail: Schema.optionalKey(Schema.Boolean) })),
+  form: Schema.optionalKey(Schema.Literals(["chart", "table", "card"]))
 })
 const decodeRequest = Schema.decodeUnknownEffect(Request)
 
@@ -25,9 +26,10 @@ export const widget = pack({
     run: (fields) =>
       decodeRequest(fields).pipe(
         Effect.mapError((error) => new WidgetPromptError({ message: error.message })),
-        Effect.map(({ draft, data, surface, context }) => {
+        Effect.map(({ draft, data, surface, context, form }) => {
           const asked = context === undefined ? [] : [`Isaac asked ${context.channel === "voice" ? "on a call" : "in text"}${context.askedForDetail === true ? ", for detail" : ""}.`]
-          return { prompt: [`Surface: ${surface}`, ...asked, "Draft reply:", draft, "Data:", data === undefined ? "(none)" : JSON.stringify(data, null, 1)].join("\n") }
+          const picked = form === undefined ? [] : [`Isaac picked the form: ${form}. Answer with a ${form} program built from the draft, never none.`]
+          return { prompt: [`Surface: ${surface}`, ...asked, ...picked, "Draft reply:", draft, "Data:", data === undefined ? "(none)" : JSON.stringify(data, null, 1)].join("\n") }
         })
       )
   }]

@@ -84,6 +84,13 @@ describe("parser gate (openui.parse check)", () => {
       expect(decision.attempts).toBe(1)
       expect((yield* Ref.get(quiet.prompts))[0]).toBe(`Surface: phone\nIsaac asked on a call, for detail.\nDraft reply:\n${request.draft}\nData:\n{\n "n": 1\n}`)
     }).pipe(Effect.runPromise), 20_000)
+
+  test("a form Isaac picked rides the prompt, so the model is told which widget to draw", () =>
+    Effect.gen(function*() {
+      const { models, prompts } = yield* scripted([`why: picked\n${TWO_TABS}`])
+      yield* withWidget(models, () => decide({ ...request, form: "table" }))
+      expect((yield* Ref.get(prompts))[0]).toBe(`Surface: phone\nIsaac picked the form: table. Answer with a table program built from the draft, never none.\nDraft reply:\n${request.draft}\nData:\n(none)`)
+    }).pipe(Effect.runPromise), 20_000)
 })
 
 const pair = { request: "widget.requested", reply: "widget.ready" }

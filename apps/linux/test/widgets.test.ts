@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerMessage } from "@relay/protocol";
 import { ask, type AskAnswer } from "../src/widgets/bus";
 import { ReplyWidgetService, surfaceOf, widgetMode, type FinishedReply } from "../src/widgets/service";
@@ -188,5 +188,35 @@ describe("🎯 widget training", () => {
       ["assistant@5", `Totals:\n\n${BLOCK}`, { kind: "openui", source: "reply", block: BLOCK }],
       ["assistant@6", "Gone reply", { kind: "none" }],
     ]);
+  });
+
+  const TABLE = '```openui\nroot = Table([Column("Month", ["Jan"])])\n```';
+  const table = { thread: "assistant:nova", message: "assistant@1000", label: "table", surface: "desktop", excerpt: "We sold" } as const;
+
+  it("a form pick saves first, then asks the widget agent for exactly that form over the reply and shows it whatever the mode", async () => {
+    const h = setup({ answer: { kind: "openui", block: TABLE, why: "picked" }, messages: { "assistant:nova assistant@1000": "Jan 42, Feb 51." } });
+    expect(await h.service.label(table)).toEqual({ ok: true });
+    await vi.waitFor(() => expect(h.service.snapshot("assistant:nova")).toEqual({ "assistant@1000": TABLE }));
+    expect(h.asked).toEqual([{ draft: "Jan 42, Feb 51.", surface: "desktop", context: { channel: "text", askedForDetail: false }, form: "table" }]);
+    expect(h.sent).toEqual([{ t: "widgets.snapshot", thread: "assistant:nova", widgets: { "assistant@1000": TABLE } }]);
+    expect(jsonl(h.home, "training.jsonl")).toHaveLength(1);
+  });
+
+  it("shows nothing when the agent has no widget for the form or times out, and 'plain' takes a shown widget off", async () => {
+    const none = setup({ answer: { kind: "none", why: "no data" }, messages: { "assistant:nova assistant@1000": "Hello." } });
+    await none.service.label(table);
+    await vi.waitFor(() => expect(none.asked).toHaveLength(1));
+    const late = setup({ answer: null, messages: { "assistant:nova assistant@1000": "Hello." } });
+    await late.service.label(table);
+    await vi.waitFor(() => expect(late.asked).toHaveLength(1));
+    expect([none.sent, late.sent, none.service.snapshot("assistant:nova"), late.service.snapshot("assistant:nova")]).toEqual([[], [], {}, {}]);
+
+    const h = setup({ mode: "live", messages: { "assistant:nova assistant@1000": "We sold 42 boards this month." } });
+    await h.service.reply(reply());
+    expect(h.service.snapshot("assistant:nova")).toEqual({ "assistant@1000": BLOCK });
+    await h.service.label({ ...table, label: "plain" });
+    await vi.waitFor(() => expect(h.service.snapshot("assistant:nova")).toEqual({}));
+    expect(h.asked).toHaveLength(1);
+    expect(h.sent.at(-1)).toEqual({ t: "widgets.snapshot", thread: "assistant:nova", widgets: {} });
   });
 });

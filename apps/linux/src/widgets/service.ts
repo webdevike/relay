@@ -31,6 +31,9 @@ import { ask, emit, readConfig, type AskAnswer } from "./bus";
 export const ASK_TIMEOUT_MS = 3_000;
 /** A desktop with input this recent means Isaac reads on the desktop; otherwise on his phone. */
 export const DESKTOP_RECENT_MS = 5 * 60_000;
+/** A form Isaac picked is a full generation, not the quick yes/no pick: it waits longer. */
+export const FORM_TIMEOUT_MS = 25_000;
+type WidgetForm = "chart" | "table" | "card";
 /** Suggestions kept per thread, newest first. */
 const MAX_PER_THREAD = 200;
 
@@ -233,11 +236,47 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
       });
       emit(this.deps.home, "widget", "widget.labeled", { agent, message: input.message, surface: input.surface, label: input.label, shown: shown.kind });
       this.deps.log(`widgets: ${agent} ${input.message} labeled ${input.label}`);
+      if (input.label !== "keep" && input.label !== "other") void this.rerender(input, input.label, agent, draft);
       return { ok: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.deps.log(`widgets: cannot save the label on ${input.thread} ${input.message}: ${message}`);
       return { ok: false, error: message };
+    }
+  }
+
+  /**
+   * Re-draws the labeled reply's widget in the form Isaac picked, after the label is saved (the
+   * caller never waits on the model): chart, table or card asks the widget agent for exactly that
+   * form over `draft`; plain takes the widget off. The result is shown whatever the mode.
+   */
+  private async rerender(input: WidgetLabelInput, label: WidgetForm | "plain", agent: string, draft: string): Promise<void> {
+    const tag = `widgets: ${agent} ${input.message}`;
+    const { thread, message } = input;
+    if (label === "plain") {
+      const kept = this.state.threads[thread]?.[message];
+      if (kept?.shown !== true) return;
+      this.keep(thread, message, { ...kept, shown: false });
+      this.deps.broadcast({ t: "widgets.snapshot", thread, widgets: this.snapshot(thread) });
+      return;
+    }
+    const form = label;
+    const context = { channel: "text" as const, askedForDetail: false };
+    try {
+      const own = widgetFence(draft);
+      const request = { draft: own === null ? draft : draft.replace(own, "").trim(), surface: input.surface, context, form };
+      const answer = await (this.deps.ask?.(request) ?? ask(this.deps.home, "widget", { request: "widget.requested", reply: "widget.ready" }, request, { timeoutMs: FORM_TIMEOUT_MS }));
+      const ready = answer.reply;
+      const block = typeof ready?.["block"] === "string" && ready["block"].length <= MAX_REPLY_WIDGET ? ready["block"] : undefined;
+      if (ready?.["kind"] !== "openui" || block === undefined) {
+        this.deps.log(`${tag}: no ${form} widget (${ready === null ? "timeout" : typeof ready["why"] === "string" ? ready["why"] : "none"})`);
+        return;
+      }
+      this.keep(thread, message, { kind: "openui", block, ...(typeof ready["why"] === "string" ? { why: ready["why"] } : {}), mode: "live", shown: true, at: this.deps.now() });
+      this.deps.broadcast({ t: "widgets.snapshot", thread, widgets: this.snapshot(thread) });
+      this.deps.log(`${tag}: ${form} widget shown`);
+    } catch (error) {
+      this.deps.log(`${tag}: cannot draw the ${form}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
