@@ -487,6 +487,9 @@ function Node({ spec }: { spec: WidgetSpec }): ReactNode {
   }
 }
 
+/** A widget tree drawn without a live runtime (an action button does nothing), as a shared board page draws it. */
+export const WidgetView = Node;
+
 /** Media, PRs, inboxes and the like: named, not drawn, on the canvas. */
 function Unsupported({ kind }: { kind: string }) {
   return (

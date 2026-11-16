@@ -28,6 +28,8 @@ import {
 import { handleCatchUpBounce } from "./catchup/http";
 import { FEED_MEDIA_PREFIX, handleFeedMedia, type FeedDeck } from "./feed/service";
 import { handleBoardRequest, isLoopback } from "./boards/http";
+import { handleShareRequest, SHARE_PREFIX } from "./boards/share-page";
+import type { BoardShares } from "./boards/shares";
 import { authorizeCanvasSocket, handleCanvasRequest } from "./canvas/http";
 import type { CanvasPeer } from "./canvas/room";
 import type { CanvasRoom, CanvasService } from "./canvas/service";
@@ -35,7 +37,7 @@ import { handleControlRequest } from "./control/http";
 import type { ControlRelay } from "./control/relay";
 import { RoomsRelay } from "./rooms/relay";
 import { systemClock } from "./session";
-import type { FileBoardStore } from "./boards/store";
+import type { FileBoardStore, LiveRender } from "./boards/store";
 import type { UsageService } from "./usage/service";
 import type { StatsService } from "./stats/service";
 import type { CatchUpDeck } from "./catchup/service";
@@ -48,7 +50,7 @@ import { handleAgentReaction } from "./reactions/http";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
 import { CommandDedupStore } from "./dedup";
-import { guardWrite, type WriteBody } from "./http-guard";
+import { guardWrite, requestRemote, type WriteBody } from "./http-guard";
 import { handleMeetingsContext, MEETINGS_CONTEXT_PATH } from "./meetings/http";
 import { serveBlob } from "./drops/serve";
 import { audioMimeOf, isAudioMime } from "./drops/audio";
@@ -114,6 +116,17 @@ export interface ServerDeps {
   readonly drops: DropBox | null;
   /** Live dashboards; null disables `/boards` and leaves `board.subscribe` an empty snapshot. */
   readonly boards: FileBoardStore | null;
+  /**
+   * Read-only share links to boards (`/boards/<slug>/shares`) and their pages (`/share/<token>`):
+   * `origin` is the tailnet https origin share URLs start with (null: paths only), `page` the
+   * share page's HTML template. Absent or null disables both.
+   */
+  readonly boardShares?: {
+    readonly store: BoardShares;
+    readonly origin: () => string | null;
+    readonly page: () => string;
+    readonly live: LiveRender | null;
+  } | null;
   /** The phone-escalation inbox EvaOS feeds; null disables `inbox.*` frames. */
   readonly inbox: InboxRelaying | null;
   /** The host's assistant threads; null disables `assistant.*` frames and `POST /assistant/say`. */
@@ -259,7 +272,11 @@ export class RelayServer {
   ) {
     this.pairing = new PairingCoordinator(deps.pairing);
     this.vncTickets = new VncTickets(config.vncPort);
-    this.rooms = new RoomsRelay(systemClock, deps.log, () => deps.control?.pick("active")?.sink ?? null);
+    this.rooms = new RoomsRelay(
+      systemClock,
+      deps.log,
+      () => deps.control?.pick("active")?.sink ?? null,
+    );
   }
 
   /** Returns the bound port. */
@@ -358,12 +375,13 @@ export class RelayServer {
           });
           return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
         }
-        const skillRoom = authorizeSkillSocket(
-          this.deps.skills ?? null,
-          request,
-          path,
+        // A tailnet request proxied by `tailscale serve` is the tailnet peer's, never a loopback
+        // one, so the loopback-only routes (board reads, queries, skills) stay off the tailnet.
+        const remote = requestRemote(
           srv.requestIP(request)?.address ?? "",
+          request.headers.get("x-forwarded-for"),
         );
+        const skillRoom = authorizeSkillSocket(this.deps.skills ?? null, request, path, remote);
         if (skillRoom instanceof Response) return skillRoom;
         if (skillRoom !== null) {
           const upgraded = srv.upgrade(request, {
@@ -378,8 +396,8 @@ export class RelayServer {
           });
           return upgraded ? undefined : new Response("websocket upgrade required", { status: 426 });
         }
-        const remote = srv.requestIP(request)?.address ?? "";
-        const writeBody = request.method === "GET" || request.method === "HEAD" ? null : loopbackWriteBody(path);
+        const writeBody =
+          request.method === "GET" || request.method === "HEAD" ? null : loopbackWriteBody(path);
         if (writeBody !== null) {
           const refused = guardWrite(request, remote, this.deps.hostToken, writeBody);
           if (refused !== null) return refused;
@@ -407,7 +425,24 @@ export class RelayServer {
         if (path.startsWith("/reviews/media/"))
           return handleReviewsMedia(this.deps.reviews, request, path);
         if (path === "/boards" || path.startsWith("/boards/"))
-          return handleBoardRequest(this.deps.boards, request, path, remote);
+          return handleBoardRequest(
+            this.deps.boards,
+            request,
+            path,
+            remote,
+            this.deps.boardShares ?? null,
+          );
+        if (path.startsWith(SHARE_PREFIX))
+          return handleShareRequest(
+            {
+              shares: this.deps.boardShares?.store ?? null,
+              boards: this.deps.boards,
+              live: this.deps.boardShares?.live ?? null,
+              page: this.deps.boardShares?.page ?? (() => ""),
+            },
+            request,
+            path,
+          );
         if (path === "/skills" || path.startsWith("/skills/"))
           return handleSkillsRequest(this.deps.skills ?? null, request, path, remote);
         if (path === "/canvas" || path.startsWith("/canvas/"))
@@ -605,7 +640,8 @@ export class RelayServer {
   /** Sends `message` to every socket following agent `agent`'s thread, a snapshot cut to the rows each asked for. */
   broadcastAssistant(agent: string, message: ServerMessage): void {
     for (const ws of this.sockets) {
-      if (ws.data.session?.isFollowingAssistant(agent) === true) ws.data.session.sendAssistant(message);
+      if (ws.data.session?.isFollowingAssistant(agent) === true)
+        ws.data.session.sendAssistant(message);
     }
   }
 
@@ -737,7 +773,10 @@ export class RelayServer {
           return Response.json(drops.putText("host", text));
         }
         const name = basename(request.headers.get("x-drop-name") ?? "") || "file";
-        const mimeType = modelMimeOf(name, audioMimeOf(name, videoMimeOf(name, type.split(";")[0] ?? type)));
+        const mimeType = modelMimeOf(
+          name,
+          audioMimeOf(name, videoMimeOf(name, type.split(";")[0] ?? type)),
+        );
         const bytes = new Uint8Array(await request.arrayBuffer());
         const blob = { name, mimeType, bytes };
         return Response.json(

@@ -19,7 +19,13 @@ import { homedir, hostname } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { parseArgs } from "node:util";
-import { ControlResult, Drop, reactionKey, sessionReactionThread, type ServerMessage } from "@relay/protocol";
+import {
+  ControlResult,
+  Drop,
+  reactionKey,
+  sessionReactionThread,
+  type ServerMessage,
+} from "@relay/protocol";
 import type { LaunchOptions } from "./agents/herdr";
 import { ASR_SCRIPT, AsrWorker, asrPython } from "./meetings/asr";
 import { loadAutoname, MeetingPipeline, type Autoname } from "./meetings/pipeline";
@@ -68,8 +74,16 @@ import {
   VideoTooLarge,
 } from "./drops/video";
 import { FileBoardStore } from "./boards/store";
+import { BoardShares, tailnetOrigin } from "./boards/shares";
+import { SHARE_PAGE } from "./boards/page";
 import { createUsageService, ompUsageRunner } from "./usage/service";
-import { STATS_WARMUP_MS, createStatsService, ompStatsRunner, ompStatsSources, openStatsDb } from "./stats/service";
+import {
+  STATS_WARMUP_MS,
+  createStatsService,
+  ompStatsRunner,
+  ompStatsSources,
+  openStatsDb,
+} from "./stats/service";
 import { agentRow } from "./stats/agents";
 import { ompRunner, SkillCatalog } from "./skills/catalog";
 import { SkillsService } from "./skills/service";
@@ -81,7 +95,12 @@ import {
   defaultCatchUpStatePath,
 } from "./catchup/service";
 import { defaultFeedDir, FeedService } from "./feed/service";
-import { defaultReactionsPath, reactionFeedbackPath, ReactionService, replyReactionsFromEnv } from "./reactions/service";
+import {
+  defaultReactionsPath,
+  reactionFeedbackPath,
+  ReactionService,
+  replyReactionsFromEnv,
+} from "./reactions/service";
 import { defaultRenderFailuresPath, RenderFailureService } from "./render-failures/service";
 import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
 import { defaultReplyWidgetsPath, ReplyWidgetService, surfaceOf } from "./widgets/service";
@@ -200,9 +219,12 @@ const USAGE = `relay-linux <command>
                                    iPhone can't play (webm, non-H.264 video, ogg/opus)
   board list                       list the running host's dashboards
   board get <slug>                 print one dashboard
-  board put <slug> [< json]        create/replace from {title, workspace?, icon?, widgets?}
+  board put <slug> [< json]        create/replace from {title, workspace?, icon?, widgets?, tabs?}
   board ops <slug> [< json]        apply a BoardOp[] array, all or nothing
   board rm <slug>                  delete a dashboard
+  board share <slug> [<tab>]       a read-only link to the board, or to one tab of it alone
+  board shares <slug>              list the board's share links
+  board unshare <slug> <token>     revoke one share link
   assistant say --agent <id> <text> ...
                                    hand assistant thread <id> (from <agent-home>/${REGISTRY_FILE})
                                    of the running host a message from a background job; it
@@ -429,7 +451,19 @@ function serve(
     Date.now,
     log,
   );
-  const boards = boardsDir === null ? null : new FileBoardStore(boardsDir, log, liveRender(query));
+  const render = liveRender(query);
+  const boards = boardsDir === null ? null : new FileBoardStore(boardsDir, log, render);
+  let shareOrigin: string | null = null;
+  const boardShares =
+    boards === null
+      ? null
+      : {
+          store: new BoardShares(join(relayConfigDir(), "board-shares.json"), boards, log),
+          // Looked up when first needed and kept once found (Tailscale may start after the host).
+          origin: () => (shareOrigin ??= tailnetOrigin()),
+          page: () => SHARE_PAGE,
+          live: render,
+        };
   // Snapshots only flow once a phone asks (`usage.get`), long after `server` below is initialised.
   const usage = createUsageService({
     profilesDir: join(homedir(), ".omp", "profiles"),
@@ -441,7 +475,9 @@ function serve(
   // The discovery feed `work/discovery-feed/fetch.ts` writes in the Eva hub; a host without that feed (and without features.feed) has none.
   const discoveryDir = defaultFeedDir(agentHome);
   const feed =
-    discoveryDir !== null && featureOn(config, "feed", existsSync(join(discoveryDir, "feed.json"))) ? new FeedService(discoveryDir) : null;
+    discoveryDir !== null && featureOn(config, "feed", existsSync(join(discoveryDir, "feed.json")))
+      ? new FeedService(discoveryDir)
+      : null;
   // Snapshots go out on feed or state changes, and handoffs reach the assistant threads, long after
   // `server` and `assistant` below are initialised.
   // Catch Up reads a feed an Eva job builds; a host without that feed (and without features.catchup) has none.
@@ -557,7 +593,10 @@ function serve(
       : { register: (input: unknown) => registryAdmin.create(input) }),
     ...(agentHome === null ? {} : { file: (req) => handleAssistantFile(agentHome, req) }),
     // One assistant brings another into its chat (`assistant consult`): guest rows go in through its bridge.
-    guests: { post: (sessionId, content, details) => agents.guest(sessionId, content, details), human },
+    guests: {
+      post: (sessionId, content, details) => agents.guest(sessionId, content, details),
+      human,
+    },
   });
   const stopRegistryWatch =
     registryAdmin === null || assistant === null
@@ -646,7 +685,8 @@ function serve(
     log,
     reply: {
       emojis: replyReactionsFromEnv(),
-      busy: (thread) => assistant?.thread(thread.slice("assistant:".length))?.current()?.status === "working",
+      busy: (thread) =>
+        assistant?.thread(thread.slice("assistant:".length))?.current()?.status === "working",
       turn: async (thread, text) => {
         const target = assistant?.thread(thread.slice("assistant:".length));
         if (target === undefined) throw new Error(`no assistant thread ${thread}`);
@@ -671,7 +711,11 @@ function serve(
   });
   // The atomic-agents widget specialist under assistants' replies (shadow by default) and 🎯 training; needs that service's home.
   const atomicAgentsHome = defaultAtomicAgentsHome();
-  const replyWidgets = featureOn(config, "widgets", assistant !== null && existsSync(atomicAgentsHome))
+  const replyWidgets = featureOn(
+    config,
+    "widgets",
+    assistant !== null && existsSync(atomicAgentsHome),
+  )
     ? new ReplyWidgetService({
         home: atomicAgentsHome,
         path: defaultReplyWidgetsPath(),
@@ -680,7 +724,11 @@ function serve(
           const target = assistant?.thread(thread.slice("assistant:".length));
           if (target === undefined) return null;
           const { messages } = await target.snapshot();
-          return messages.find((row) => row.role === "assistant" && reactionKey("assistant", row.at) === key)?.text ?? null;
+          return (
+            messages.find(
+              (row) => row.role === "assistant" && reactionKey("assistant", row.at) === key,
+            )?.text ?? null
+          );
         },
         broadcast: (message): void => {
           server.broadcastExcept(message, null);
@@ -780,7 +828,12 @@ function serve(
   });
   const canvas = liveCanvas(canvasDir, agentHome, agents, () => registry, config);
   const eta = new EtaService({
-    history: new RunHistory(join(relayConfigDir(), "eta-history.json"), sessionRoots(), () => sessionSources(agentHome), log),
+    history: new RunHistory(
+      join(relayConfigDir(), "eta-history.json"),
+      sessionRoots(),
+      () => sessionSources(agentHome),
+      log,
+    ),
     calibration: new CalibrationLog(join(relayConfigDir(), "eta-calibration.jsonl"), log),
     sessionFile: (sessionId) => agents.sessionFile(sessionId),
     isTask: (sessionId) => {
@@ -945,7 +998,9 @@ function serve(
   // Agents on this Mac drive Relay Desktop on whichever Mac Isaac is using; the token is in serve.json.
   // One token: it also gates every state-changing loopback route (server.ts `guardWrite`), so it exists even when remote control is off.
   const hostToken = randomBytes(32).toString("hex");
-  const control = featureOn(config, "control", true) ? new ControlRelay(hostToken, systemClock, log) : null;
+  const control = featureOn(config, "control", true)
+    ? new ControlRelay(hostToken, systemClock, log)
+    : null;
   log(`live view: VNC bridge to 127.0.0.1:${String(vncPort)} (macOS Screen Sharing)`);
   const server: RelayServer = new RelayServer(
     { port, hostName: name, version: bundleVersion() ?? pkg.version, vncPort },
@@ -968,6 +1023,7 @@ function serve(
       push: pushTokens,
       drops,
       boards,
+      boardShares,
       notifier,
       inbox,
       assistant,
@@ -1007,7 +1063,11 @@ function serve(
   if (stats !== null) setTimeout(() => void stats.refresh(), STATS_WARMUP_MS).unref();
   if (canvas !== null) {
     // The server's own hook pushes `canvas.rooms` to the devices; a new live room also invites the phones.
-    const invitations = new CanvasInvitations({ tokens: pushTokens, sender: new ExpoPushSender(), log });
+    const invitations = new CanvasInvitations({
+      tokens: pushTokens,
+      sender: new ExpoPushSender(),
+      log,
+    });
     invitations.seed(canvas.list());
     const broadcast = canvas.onChange;
     canvas.onChange = () => {
@@ -1032,7 +1092,11 @@ function serve(
   });
   const infoPath = serveInfoPath();
   mkdirSync(dirname(infoPath), { recursive: true, mode: 0o700 });
-  writeFileSync(infoPath, JSON.stringify({ port: boundPort, pid: process.pid, controlToken: hostToken }), { mode: 0o600 });
+  writeFileSync(
+    infoPath,
+    JSON.stringify({ port: boundPort, pid: process.pid, controlToken: hostToken }),
+    { mode: 0o600 },
+  );
   chmodSync(infoPath, 0o600);
   log(`listening on ws://0.0.0.0:${boundPort}/relay as "${name}"`);
   log(
@@ -1193,7 +1257,13 @@ function meetingsService(o: {
         onTurns: (turns) => service?.turns(turns),
         onRestart: () => service?.workerRestarted(),
         voices: join(store.root, "voices.json"),
-        mtSpeakers: join(homedir(), "Library", "Application Support", "MeetingTranscriber", "speakers.json"),
+        mtSpeakers: join(
+          homedir(),
+          "Library",
+          "Application Support",
+          "MeetingTranscriber",
+          "speakers.json",
+        ),
         log,
       })
     : null;
@@ -1386,7 +1456,8 @@ function resolveHostToken(): string {
   const env = process.env["RELAY_HOST_TOKEN"]?.trim();
   if (env !== undefined && env !== "") return env;
   const token = readServeInfo()?.controlToken;
-  if (token === undefined) throw new Error("relay-linux serve is not running (no token in serve.json)");
+  if (token === undefined)
+    throw new Error("relay-linux serve is not running (no token in serve.json)");
   return token;
 }
 
@@ -1443,7 +1514,12 @@ async function share(positionals: string[]): Promise<void> {
   // Blob drops also print their fetch path so an agent can reference it (e.g. a Compare widget),
   // then exactly what to paste to show it inline for its type (embedFor): markdown for images,
   // video and audio, an openui Model block for GLB/GLTF, a plain link for anything else.
-  const embed = embedFor({ name: drop.file.name, mimeType: drop.file.mimeType, path: drop.file.path, ...(codec === undefined ? {} : { codec }) });
+  const embed = embedFor({
+    name: drop.file.name,
+    mimeType: drop.file.mimeType,
+    path: drop.file.path,
+    ...(codec === undefined ? {} : { codec }),
+  });
   const video = embed.kind === "video";
   const audio = embed.kind === "audio";
   console.log(`shared ${embed.kind} ${drop.id} ${drop.file.path}`);
@@ -1459,7 +1535,9 @@ async function share(positionals: string[]): Promise<void> {
   }
   if (audio) {
     const facts = [
-      durationMs === undefined ? "duration unknown (ffprobe missing on the host)" : `${(durationMs / 1000).toFixed(1)}s`,
+      durationMs === undefined
+        ? "duration unknown (ffprobe missing on the host)"
+        : `${(durationMs / 1000).toFixed(1)}s`,
       `${(drop.file.size / (1024 * 1024)).toFixed(1)} MB`,
       drop.file.mimeType,
     ];
@@ -1476,11 +1554,14 @@ async function assistantSay(agent: string | undefined, positionals: string[]): P
     positionals.length === 0 || positionals[0] === "-"
       ? await Bun.stdin.text()
       : positionals.join(" ");
-  const response = await hostFetch(`${hostUrl()}/assistant/say?agent=${encodeURIComponent(agent)}`, {
-    method: "POST",
-    headers: { "content-type": "text/plain; charset=utf-8" },
-    body: text,
-  });
+  const response = await hostFetch(
+    `${hostUrl()}/assistant/say?agent=${encodeURIComponent(agent)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "text/plain; charset=utf-8" },
+      body: text,
+    },
+  );
   if (!response.ok) {
     console.error(await response.text());
     process.exit(1);
@@ -1489,16 +1570,33 @@ async function assistantSay(agent: string | undefined, positionals: string[]): P
 }
 
 /** `assistant consult --agent <id> <question>`: brings assistant `id` into the calling assistant's chat (`POST /assistant/consult`). */
-async function assistantConsult(options: { agent: string | undefined; title: string | undefined; work: boolean }, positionals: string[]): Promise<void> {
+async function assistantConsult(
+  options: { agent: string | undefined; title: string | undefined; work: boolean },
+  positionals: string[],
+): Promise<void> {
   const from = process.env["RELAY_ASSISTANT"]?.trim();
-  if (from === undefined || from === "") throw new Error("assistant consult: run this from an assistant's session ($RELAY_ASSISTANT is not set)");
-  if (options.agent === undefined || options.agent === "") throw new Error("assistant consult: missing --agent <id> (the assistant to bring in)");
-  const question = (positionals.length === 0 || positionals[0] === "-" ? await Bun.stdin.text() : positionals.join(" ")).trim();
+  if (from === undefined || from === "")
+    throw new Error(
+      "assistant consult: run this from an assistant's session ($RELAY_ASSISTANT is not set)",
+    );
+  if (options.agent === undefined || options.agent === "")
+    throw new Error("assistant consult: missing --agent <id> (the assistant to bring in)");
+  const question = (
+    positionals.length === 0 || positionals[0] === "-"
+      ? await Bun.stdin.text()
+      : positionals.join(" ")
+  ).trim();
   if (question === "") throw new Error("assistant consult: missing <question>");
   const response = await hostFetch(`${hostUrl()}/assistant/consult`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ from, agent: options.agent, question, ...(options.title === undefined ? {} : { title: options.title }), ...(options.work ? { work: true } : {}) }),
+    body: JSON.stringify({
+      from,
+      agent: options.agent,
+      question,
+      ...(options.title === undefined ? {} : { title: options.title }),
+      ...(options.work ? { work: true } : {}),
+    }),
   });
   if (!response.ok) {
     console.error(await response.text());
@@ -1506,15 +1604,29 @@ async function assistantConsult(options: { agent: string | undefined; title: str
   }
   const result = (await response.json()) as ConsultResult;
   if (result.kind === "answer") {
-    console.log(`${options.agent} answered in the chat (Isaac sees it as their own message, so do not repeat it):\n\n${result.text}`);
+    console.log(
+      `${options.agent} answered in the chat (Isaac sees it as their own message, so do not repeat it):\n\n${result.text}`,
+    );
     return;
   }
-  console.log(`${options.agent} is working on "${result.title}" in their own chat. A work card is in this chat and shows the result when they finish (work ${result.id}).`);
+  console.log(
+    `${options.agent} is working on "${result.title}" in their own chat. A work card is in this chat and shows the result when they finish (work ${result.id}).`,
+  );
 }
 
 /** `rooms create|update|list`: the desktop's rooms.* agent action through `POST /control/run`, as the calling assistant. */
-async function roomsCommand(verb: string | undefined, args: string[], device: string | undefined): Promise<void> {
-  const body = await roomsControlRequest({ verb, args, stdin: () => Bun.stdin.text(), assistant: process.env["RELAY_ASSISTANT"]?.trim() || undefined, device });
+async function roomsCommand(
+  verb: string | undefined,
+  args: string[],
+  device: string | undefined,
+): Promise<void> {
+  const body = await roomsControlRequest({
+    verb,
+    args,
+    stdin: () => Bun.stdin.text(),
+    assistant: process.env["RELAY_ASSISTANT"]?.trim() || undefined,
+    device,
+  });
   const response = await hostFetch(`${hostUrl()}/control/run`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -1522,7 +1634,9 @@ async function roomsCommand(verb: string | undefined, args: string[], device: st
   });
   const parsed = ControlResult.safeParse(await response.json().catch(() => null));
   if (!parsed.success) {
-    console.error(`rooms ${verb}: Relay Host answered ${String(response.status)} ${response.statusText}`);
+    console.error(
+      `rooms ${verb}: Relay Host answered ${String(response.status)} ${response.statusText}`,
+    );
     process.exit(1);
   }
   const out = roomsOutput(body.action, parsed.data);
@@ -1670,19 +1784,29 @@ async function asksList(agent: string | undefined, json: boolean): Promise<void>
   const now = Date.now();
   for (const ask of asks) {
     const replies = ask.replies.length === 0 ? "" : `  [${ask.replies.join(" | ")}]`;
-    console.log(`${ask.id}  ${ask.agent}  ${ago(ask.at, now)}  ${ask.label}: ${ask.question}${replies}`);
+    console.log(
+      `${ask.id}  ${ask.agent}  ${ago(ask.at, now)}  ${ask.label}: ${ask.question}${replies}`,
+    );
   }
 }
 
 /** `asks resolve <id>...`: the running host closes each open ask, as answered with `answer` (delivered to a session's ask) or else as resolved by the assistant. */
-async function asksResolve(agent: string | undefined, ids: string[], answer: string | undefined): Promise<void> {
+async function asksResolve(
+  agent: string | undefined,
+  ids: string[],
+  answer: string | undefined,
+): Promise<void> {
   if (ids.length === 0) throw new Error("asks resolve: expected <id>...");
   let failed = false;
   for (const id of ids) {
     const response = await hostFetch(`${hostUrl()}/assistant/asks/resolve`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id, ...(agent === undefined || agent === "" ? {} : { agent }), ...(answer === undefined ? {} : { answer }) }),
+      body: JSON.stringify({
+        id,
+        ...(agent === undefined || agent === "" ? {} : { agent }),
+        ...(answer === undefined ? {} : { answer }),
+      }),
     });
     if (!response.ok) {
       console.error(await response.text());
@@ -1711,7 +1835,8 @@ async function asksAdd(options: {
   if (options.options === undefined) throw new Error("asks add: missing --options 'a|b|c'");
   // Without --session the answer goes back to the omp session running this, when there is one.
   const session =
-    options.session === "me" || (options.session === undefined && detectCaller(systemCallerDeps) !== null)
+    options.session === "me" ||
+    (options.session === undefined && detectCaller(systemCallerDeps) !== null)
       ? ownSessionRef("asks add --session me")
       : options.session;
   const response = await hostFetch(`${hostUrl()}/assistant/asks`, {
@@ -1748,9 +1873,16 @@ async function asksGet(id: string | undefined, json: boolean): Promise<void> {
     return;
   }
   const replies = ask.replies.length === 0 ? "" : `  [${ask.replies.join(" | ")}]`;
-  console.log(`${ask.id}  ${ask.agent}  ${ask.state}  ${ask.from === undefined ? "" : `${ask.from}: `}${ask.question}${replies}`);
+  console.log(
+    `${ask.id}  ${ask.agent}  ${ask.state}  ${ask.from === undefined ? "" : `${ask.from}: `}${ask.question}${replies}`,
+  );
   if (ask.default !== undefined) console.log(`default: ${ask.default}`);
-  const delivery = ask.source !== "session" || ask.answer === undefined ? "" : ask.delivered ? " (delivered)" : " (not delivered)";
+  const delivery =
+    ask.source !== "session" || ask.answer === undefined
+      ? ""
+      : ask.delivered
+        ? " (delivered)"
+        : " (not delivered)";
   console.log(`answer: ${ask.answer ?? "none"}${delivery}`);
 }
 
@@ -1975,11 +2107,18 @@ async function canvasCommand(
     case "show": {
       if (slug === undefined) throw new Error("canvas show: missing <slug>");
       if (options.history || options.since !== undefined) {
-        const query = options.since === undefined ? "" : `?since=${encodeURIComponent(options.since)}`;
+        const query =
+          options.since === undefined ? "" : `?since=${encodeURIComponent(options.since)}`;
         const reply = CanvasHistoryReply.parse(
-          await hostJson(await hostFetch(`${base}/${encodeURIComponent(slug)}/history${query}`), "canvas show --history"),
+          await hostJson(
+            await hostFetch(`${base}/${encodeURIComponent(slug)}/history${query}`),
+            "canvas show --history",
+          ),
         );
-        if (reply.entries.length === 0) console.log(`no changes recorded on ${slug}${options.since === undefined ? "" : ` since ${options.since}`}`);
+        if (reply.entries.length === 0)
+          console.log(
+            `no changes recorded on ${slug}${options.since === undefined ? "" : ` since ${options.since}`}`,
+          );
         for (const line of reply.summary) console.log(line);
         if (reply.entries.length > 0) console.log("", "entries (oldest first):");
         for (const entry of reply.entries) console.log(describeEntry(entry));
@@ -1996,10 +2135,19 @@ async function canvasCommand(
     }
     case "restore": {
       const id = positionals[2];
-      if (slug === undefined || id === undefined) throw new Error("canvas restore: usage: canvas restore <slug> <id> [--as <Name>]");
+      if (slug === undefined || id === undefined)
+        throw new Error("canvas restore: usage: canvas restore <slug> <id> [--as <Name>]");
       const result = z
         .object({ restored: z.string() })
-        .parse(await hostJson(await post(`${base}/${encodeURIComponent(slug)}/restore`, { id, ...(options.as === undefined ? {} : { as: options.as }) }), "canvas restore"));
+        .parse(
+          await hostJson(
+            await post(`${base}/${encodeURIComponent(slug)}/restore`, {
+              id,
+              ...(options.as === undefined ? {} : { as: options.as }),
+            }),
+            "canvas restore",
+          ),
+        );
       console.log(`restored ${result.restored} on ${slug}`);
       return;
     }
@@ -2072,7 +2220,9 @@ const SkillDetailReply = SkillRowReply.extend({
   stats: z
     .object({
       uses30d: z.number(),
-      byAgent: z.array(z.object({ agent: z.string(), owner: z.string().nullable(), uses: z.number() })),
+      byAgent: z.array(
+        z.object({ agent: z.string(), owner: z.string().nullable(), uses: z.number() }),
+      ),
     })
     .nullable(),
 });
@@ -2118,7 +2268,8 @@ async function skillsCommand(
     at === null ? "never used" : `last used ${new Date(at).toISOString()}`;
   const agent = (): string => {
     const as = options.as?.trim() ?? "";
-    if (as === "") throw new Error(`skills ${verb ?? ""}: missing --as <Name> (the name your caret shows)`);
+    if (as === "")
+      throw new Error(`skills ${verb ?? ""}: missing --as <Name> (the name your caret shows)`);
     return as;
   };
   switch (verb ?? "") {
@@ -2148,15 +2299,25 @@ async function skillsCommand(
       console.log(`file: ${detail.source.file} (${detail.source.label})`);
       for (const copy of detail.also) console.log(`also: ${copy.file} (${copy.label})`);
       console.log(`used by: ${detail.usedBy.join(", ") || "nobody"}`);
-      console.log(`${when(detail.lastUsedAt)}${detail.stats === null ? "" : `, ${String(detail.stats.uses30d)} uses in 30 days`}`);
-      for (const row of detail.stats?.byAgent ?? []) console.log(`  ${row.agent}${row.owner === null ? "" : ` for ${row.owner}`}: ${String(row.uses)}`);
+      console.log(
+        `${when(detail.lastUsedAt)}${detail.stats === null ? "" : `, ${String(detail.stats.uses30d)} uses in 30 days`}`,
+      );
+      for (const row of detail.stats?.byAgent ?? [])
+        console.log(
+          `  ${row.agent}${row.owner === null ? "" : ` for ${row.owner}`}: ${String(row.uses)}`,
+        );
       console.log(`files: ${detail.files.map((file) => file.path).join(", ")}`);
       return;
     }
     case "edit": {
       const url = skill();
       const as = agent();
-      const sources = [options.find !== undefined, options.after !== undefined, options.file !== undefined, options.stdin && options.after === undefined].filter(Boolean).length;
+      const sources = [
+        options.find !== undefined,
+        options.after !== undefined,
+        options.file !== undefined,
+        options.stdin && options.after === undefined,
+      ].filter(Boolean).length;
       if (
         sources !== 1 ||
         (options.find !== undefined) !== (options.replace !== undefined) ||
@@ -2167,7 +2328,11 @@ async function skillsCommand(
         );
       const stdin = options.stdin ? await Bun.stdin.text() : undefined;
       const markdown =
-        options.file !== undefined ? await Bun.file(options.file).text() : options.after === undefined ? stdin : undefined;
+        options.file !== undefined
+          ? await Bun.file(options.file).text()
+          : options.after === undefined
+            ? stdin
+            : undefined;
       const change =
         options.after !== undefined
           ? { after: options.after, insert: options.insert ?? stdin }
@@ -2199,8 +2364,11 @@ async function skillsCommand(
       const [, , thread = options.thread, ...words] = positionals;
       if (thread === undefined || thread === "") throw new Error("skills reply: missing <thread>");
       const given = words.join(" ").trim();
-      const text = (given === "-" || (given === "" && options.stdin) ? await Bun.stdin.text() : given).trim();
-      if (text === "") throw new Error("skills reply: missing the text (or - to read it from stdin)");
+      const text = (
+        given === "-" || (given === "" && options.stdin) ? await Bun.stdin.text() : given
+      ).trim();
+      if (text === "")
+        throw new Error("skills reply: missing the text (or - to read it from stdin)");
       await hostJson(
         await post(`${url}/reply`, {
           as,
@@ -2211,7 +2379,9 @@ async function skillsCommand(
         }),
         "skills reply",
       );
-      console.log(`${as} replied in ${name ?? ""} thread ${thread}${options.resolve ? " and resolved it" : ""}.`);
+      console.log(
+        `${as} replied in ${name ?? ""} thread ${thread}${options.resolve ? " and resolved it" : ""}.`,
+      );
       return;
     }
     case "save": {
@@ -2279,9 +2449,9 @@ function isFile(path: string): boolean {
   }
 }
 
-/** `board <list|get|put|ops|rm>`: prints the host's JSON reply; exits 1 with its error otherwise. */
+/** `board <list|get|put|ops|rm|share|shares|unshare>`: prints the host's JSON reply; exits 1 with its error otherwise. */
 async function board(positionals: string[]): Promise<void> {
-  const [action, slug] = positionals;
+  const [action, slug, extra] = positionals;
   const base = `${hostUrl()}/boards`;
   const target = (): string => {
     if (slug === undefined) throw new Error(`board ${action ?? ""}: missing <slug>`);
@@ -2315,8 +2485,27 @@ async function board(positionals: string[]): Promise<void> {
         headers: { "content-type": "application/json" },
       });
       break;
+    case "share":
+      response = await hostFetch(`${target()}/shares`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(extra === undefined ? {} : { tab: extra }),
+      });
+      break;
+    case "shares":
+      response = await hostFetch(`${target()}/shares`);
+      break;
+    case "unshare":
+      if (extra === undefined) throw new Error("board unshare: missing <token>");
+      response = await hostFetch(`${target()}/shares/${encodeURIComponent(extra)}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+      });
+      break;
     default:
-      throw new Error(`board: expected list, get, put, ops or rm\n\n${USAGE}`);
+      throw new Error(
+        `board: expected list, get, put, ops, rm, share, shares or unshare\n\n${USAGE}`,
+      );
   }
   const text = await response.text();
   if (!response.ok) {
@@ -2442,13 +2631,18 @@ async function main(argv: string[]): Promise<void> {
           options: values.options,
           default: values.default,
         });
-      else throw new Error("asks: try `asks list`, `asks add`, `asks get <id>` or `asks resolve <id>...`");
+      else
+        throw new Error(
+          "asks: try `asks list`, `asks add`, `asks get <id>` or `asks resolve <id>...`",
+        );
       return;
     }
     case "eta": {
       const agentHome = values["agent-home"] ?? appAgentHome();
       const report = await runEtaReport(
-        new RunHistory(join(relayConfigDir(), "eta-history.json"), sessionRoots(), () => sessionSources(agentHome)),
+        new RunHistory(join(relayConfigDir(), "eta-history.json"), sessionRoots(), () =>
+          sessionSources(agentHome),
+        ),
         new CalibrationLog(join(relayConfigDir(), "eta-calibration.jsonl")),
       );
       console.log(values.json ? JSON.stringify(report, null, 2) : formatReport(report));
@@ -2488,10 +2682,14 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       if (verb === "consult") {
-        await assistantConsult({ agent: values.agent, title: values.title, work: values.work }, positionals.slice(2));
+        await assistantConsult(
+          { agent: values.agent, title: values.title, work: values.work },
+          positionals.slice(2),
+        );
         return;
       }
-      if (verb === undefined) throw new Error("assistant: try say, consult, list, create, set or retire");
+      if (verb === undefined)
+        throw new Error("assistant: try say, consult, list, create, set or retire");
       await assistantAdminCommand(verb, {
         agent: values.agent,
         id: values.id,

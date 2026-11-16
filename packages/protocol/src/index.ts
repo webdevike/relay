@@ -30,7 +30,15 @@ import {
   MAX_ARTIFACTS,
   MAX_ARTIFACT_TABS,
 } from "./artifacts";
-import { StudioJob, StudioLibrary, StudioOp, StudioResult, StudioRid, StudioSegments, StudioState } from "./studio";
+import {
+  StudioJob,
+  StudioLibrary,
+  StudioOp,
+  StudioResult,
+  StudioRid,
+  StudioSegments,
+  StudioState,
+} from "./studio";
 import { MeetingsClientFrames, MeetingsServerFrames } from "./meetings";
 import { RoomsClientFrames, RoomsServerFrames } from "./rooms";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
@@ -544,7 +552,9 @@ export const GuestEntry = z.object({
 export type GuestEntry = z.infer<typeof GuestEntry>;
 
 /** `list` with each piece of work as one row: the latest state of a `work.id`, at the place (and under the id) of its first row. */
-export function foldGuestWork<T extends { id: string; guest?: GuestEntry | undefined }>(list: readonly T[]): T[] {
+export function foldGuestWork<T extends { id: string; guest?: GuestEntry | undefined }>(
+  list: readonly T[],
+): T[] {
   const latest = new Map<string, T>();
   for (const m of list) {
     const id = m.guest?.work?.id;
@@ -672,7 +682,11 @@ export const ControlScope = z.string().min(1).max(4096);
 /** What the desktop answers: its control API's result as is. */
 export const ControlResult = z.union([
   z.object({ ok: z.literal(true), value: z.unknown().optional(), queued: z.boolean().optional() }),
-  z.object({ ok: z.literal(false), code: z.string().min(1).max(64), message: z.string().max(4000) }),
+  z.object({
+    ok: z.literal(false),
+    code: z.string().min(1).max(64),
+    message: z.string().max(4000),
+  }),
 ]);
 export type ControlResult = z.infer<typeof ControlResult>;
 
@@ -686,7 +700,9 @@ export const ControlRun = z.object({
 export type ControlRun = z.infer<typeof ControlRun>;
 
 /** An agent's request to the host: `target` is "active" (the desktop Isaac used last), a device id or a device name. */
-export const ControlRequest = ControlRun.extend({ target: z.string().min(1).max(200).default("active") });
+export const ControlRequest = ControlRun.extend({
+  target: z.string().min(1).max(200).default("active"),
+});
 export type ControlRequest = z.infer<typeof ControlRequest>;
 
 export const ControlPresence = z.object({
@@ -1412,7 +1428,11 @@ export type RenderFailure = z.infer<typeof RenderFailure>;
 
 /** A report's text fields cut to the frame's limits. */
 export function renderFailure(failure: RenderFailure): RenderFailure {
-  return { ...failure, src: failure.src.slice(0, MAX_RENDER_SRC), error: failure.error.slice(0, MAX_RENDER_ERROR) };
+  return {
+    ...failure,
+    src: failure.src.slice(0, MAX_RENDER_SRC),
+    error: failure.error.slice(0, MAX_RENDER_ERROR),
+  };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1422,23 +1442,26 @@ export function renderFailure(failure: RenderFailure): RenderFailure {
 // ---------------------------------------------------------------------------------------------
 
 export const MAX_BOARD_WIDGETS = 48;
+export const MAX_BOARD_TABS = 12;
 export const BOARD_COLUMNS = 12;
 
-/** Board slugs and tile ids: lowercase, file-name safe. */
+/** Board slugs, tab ids and tile ids: lowercase, file-name safe. */
 export const BoardSlug = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
 export const BoardWidgetId = BoardSlug;
+export const BoardTabId = BoardSlug;
+export const BoardTabTitle = z.string().min(1).max(60);
 
 const BoardSpan = z.number().int().min(1).max(BOARD_COLUMNS);
 
 /** A board widget's live OpenUI Lang source (`Query(...)` for data, refreshing while on screen). */
 export const BoardOpenUI = z.string().min(1).max(MAX_LIVE_OPENUI);
 
-/** Longest JSX a Mantine tile holds: room for a few inlined `data:` images. */
+/** Longest JSX a Mantine tile holds: room for a few inlined `data:` images (or many https ones). */
 export const MAX_BOARD_MANTINE = 200_000;
 
 /**
  * A board tile's ```mantine-widget JSX: the chat fence's contract (a component body or one
- * element, every Mantine name in scope) in the same sandbox (no network, `data:` images only).
+ * element, every Mantine name in scope) in the same sandbox (no network but https and `data:` images).
  */
 export const BoardMantine = z.string().min(1).max(MAX_BOARD_MANTINE);
 
@@ -1478,6 +1501,18 @@ export type BoardWidgetInput = z.infer<typeof BoardWidgetInput>;
 
 export const BoardTitle = z.string().min(1).max(120);
 
+/** One tab of a board: its own tiles, drawn on their own grid when the tab is picked. */
+export const BoardTab = z.object({
+  id: BoardTabId,
+  title: BoardTabTitle,
+  widgets: z.array(BoardWidget).max(MAX_BOARD_WIDGETS),
+});
+export type BoardTab = z.infer<typeof BoardTab>;
+
+/**
+ * A board's tiles live in `widgets`, or, once it has `tabs`, in its tabs (then `widgets` is empty).
+ * Tile ids are unique across the whole board, so an id names one tile whichever tab holds it.
+ */
 export const Board = z
   .object({
     slug: BoardSlug,
@@ -1485,21 +1520,56 @@ export const Board = z
     workspace: z.string().optional(),
     icon: z.string().optional(),
     widgets: z.array(BoardWidget).max(MAX_BOARD_WIDGETS),
+    tabs: z.array(BoardTab).min(1).max(MAX_BOARD_TABS).optional(),
     updatedAt: z.string().datetime(),
   })
   .superRefine((board, ctx) => {
     const seen = new Set<string>();
-    for (const [index, widget] of board.widgets.entries()) {
-      if (seen.has(widget.id))
+    const check = (widgets: readonly BoardWidget[], path: (string | number)[]): void => {
+      for (const [index, widget] of widgets.entries()) {
+        if (seen.has(widget.id))
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [...path, index, "id"],
+            message: `duplicate widget id ${widget.id}`,
+          });
+        seen.add(widget.id);
+      }
+    };
+    check(board.widgets, ["widgets"]);
+    if (board.tabs === undefined) return;
+    if (board.widgets.length > 0)
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["widgets"],
+        message: "a board with tabs keeps its tiles in its tabs",
+      });
+    const tabs = new Set<string>();
+    for (const [index, tab] of board.tabs.entries()) {
+      if (tabs.has(tab.id))
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ["widgets", index, "id"],
-          message: `duplicate widget id ${widget.id}`,
+          path: ["tabs", index, "id"],
+          message: `duplicate tab id ${tab.id}`,
         });
-      seen.add(widget.id);
+      tabs.add(tab.id);
+      check(tab.widgets, ["tabs", index, "widgets"]);
     }
   });
 export type Board = z.infer<typeof Board>;
+
+/** Every tile of a board, tab by tab (a board without tabs: its `widgets`). */
+export function boardWidgets(board: Pick<Board, "widgets" | "tabs">): BoardWidget[] {
+  return board.tabs === undefined ? board.widgets : board.tabs.flatMap((tab) => tab.widgets);
+}
+
+/** One tab as written in a `BoardPut`. */
+export const BoardTabInput = z.object({
+  id: BoardTabId,
+  title: BoardTabTitle,
+  widgets: z.array(BoardWidgetInput).max(MAX_BOARD_WIDGETS).optional(),
+});
+export type BoardTabInput = z.infer<typeof BoardTabInput>;
 
 /** Body of a create/replace (`PUT /boards/<slug>`); the host fills `slug` and `updatedAt`. */
 export const BoardPut = z.object({
@@ -1507,14 +1577,21 @@ export const BoardPut = z.object({
   workspace: z.string().optional(),
   icon: z.string().optional(),
   widgets: z.array(BoardWidgetInput).max(MAX_BOARD_WIDGETS).optional(),
+  tabs: z.array(BoardTabInput).min(1).max(MAX_BOARD_TABS).optional(),
 });
 export type BoardPut = z.infer<typeof BoardPut>;
 
 /**
- * One edit to an existing board. `upsert.after`: the tile id to place it after, null for first;
- * absent keeps an existing tile where it is and appends a new one. An upsert gives `spec`, a live
- * `openui` source (checked and rendered by the host; it wins over a `spec` beside it) or `mantine`
- * JSX (checked by the host; a `spec` beside it is the fallback older clients draw).
+ * One edit to an existing board. `upsert.after`: the tile id to place it after (in the same list),
+ * null for first; absent keeps an existing tile where it is and appends a new one. An upsert gives
+ * `spec`, a live `openui` source (checked and rendered by the host; it wins over a `spec` beside it)
+ * or `mantine` JSX (checked by the host; a `spec` beside it is the fallback older clients draw).
+ * `upsert.tab` puts the tile in that tab (moving it there from another tab); without it an existing
+ * tile stays in its list, and a new one on a board with tabs is refused.
+ *
+ * `tab` adds a tab (`title` required) or renames (`title`) or moves (`after`: the tab to follow,
+ * null for first) an existing one. The first tab of a board takes the board's tiles with it.
+ * `remove-tab` drops a tab and its tiles; dropping the last leaves a board without tabs.
  */
 export const BoardOp = z.discriminatedUnion("op", [
   z.object({
@@ -1526,6 +1603,7 @@ export const BoardOp = z.discriminatedUnion("op", [
     mantine: BoardMantine.optional(),
     height: BoardTileHeight.optional(),
     after: BoardWidgetId.nullable().optional(),
+    tab: BoardTabId.optional(),
   }),
   z.object({ op: z.literal("remove"), id: BoardWidgetId }),
   z.object({
@@ -1534,8 +1612,49 @@ export const BoardOp = z.discriminatedUnion("op", [
     workspace: z.string().optional(),
     icon: z.string().optional(),
   }),
+  z.object({
+    op: z.literal("tab"),
+    id: BoardTabId,
+    title: BoardTabTitle.optional(),
+    after: BoardTabId.nullable().optional(),
+  }),
+  z.object({ op: z.literal("remove-tab"), id: BoardTabId }),
 ]);
 export type BoardOp = z.infer<typeof BoardOp>;
+
+/**
+ * A read-only link to one board, or one tab of it (`tab`), served by the host at `/share/<token>`
+ * to anyone holding the token: only that board or tab, never its siblings or the board list.
+ */
+export const BoardShare = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{32,64}$/),
+  slug: BoardSlug,
+  tab: BoardTabId.optional(),
+  createdAt: z.string().datetime(),
+});
+export type BoardShare = z.infer<typeof BoardShare>;
+
+/** Body of `POST /boards/<slug>/shares`: share the whole board, or `tab` alone. */
+export const BoardShareCreate = z.object({ tab: BoardTabId.optional() });
+export type BoardShareCreate = z.infer<typeof BoardShareCreate>;
+
+/** One tile as a share page draws it: a live tile's `spec` is rendered with data from the page load. */
+export type SharedTile = Omit<BoardWidget, "openui">;
+
+/**
+ * What `/share/<token>` draws, built by the host on every load. A whole board brings every tab (or
+ * one untitled tab for a board without tabs); a shared tab brings only itself, and `tab` names it.
+ */
+export interface SharedBoard {
+  title: string;
+  /** The shared tab's title; null when the whole board is shared. */
+  tab: string | null;
+  updatedAt: string;
+  renderedAt: string;
+  tabs: { id: string; title: string; widgets: SharedTile[] }[];
+  /** The Mantine theme config (`@relay/widget-runtime/theme`) for Mantine tiles; null without any. */
+  mantineConfig: unknown;
+}
 
 // ---------------------------------------------------------------------------------------------
 // Ephemeral input events (phone -> Mac). Units: phone points; t: phone monotonic ms.
@@ -1860,7 +1979,11 @@ export const ClientMessage = z.discriminatedUnion("t", [
    * `rows`: send this socket only the newest `rows` rows of it, now and on every later change (`older` counts the rest).
    * Absent, the whole thread, as hosts before it always send.
    */
-  z.object({ t: z.literal("assistant.get"), agent: AssistantAgentId.optional(), rows: z.number().int().positive().max(MAX_ASSISTANT_ROWS).optional() }),
+  z.object({
+    t: z.literal("assistant.get"),
+    agent: AssistantAgentId.optional(),
+    rows: z.number().int().positive().max(MAX_ASSISTANT_ROWS).optional(),
+  }),
   /** Ask which assistant threads the host runs; answered by `assistant.agents`. */
   z.object({ t: z.literal("assistant.agents") }),
   /** Ask for the habit gate's current state; answered by `gate.status`. */
@@ -1906,13 +2029,24 @@ export const ClientMessage = z.discriminatedUnion("t", [
   /** Ask for the discovery feed; answered by `feed.snapshot`. */
   z.object({ t: z.literal("feed.list") }),
   /** Isaac liked, saved or skipped a feed card: the host appends it to `signals.jsonl`, which the next fetch ranks with. No answer. */
-  z.object({ t: z.literal("feed.signal"), id: nonEmpty, action: FeedAction, title: z.string().max(400), source: z.string().max(80) }),
+  z.object({
+    t: z.literal("feed.signal"),
+    id: nonEmpty,
+    action: FeedAction,
+    title: z.string().max(400),
+    source: z.string().max(80),
+  }),
   /** Ask for a thread's reactions; answered by `reactions.snapshot`. */
   z.object({ t: z.literal("reactions.get"), thread: ReactionThread }),
   /** Ask for a thread's bookmarks; answered by `bookmarks.snapshot`. Only sent to a host whose `welcome.features` has BOOKMARKS_FEATURE. */
   z.object({ t: z.literal("bookmarks.get"), thread: ReactionThread }),
   /** Bookmark (`on`) or unbookmark the turn that starts at bubble `message` of `thread`. Every device gets the new `bookmarks.snapshot`; no change re-sends it to the sender only. */
-  z.object({ t: z.literal("bookmark.set"), thread: ReactionThread, message: ReactionKey, on: z.boolean() }),
+  z.object({
+    t: z.literal("bookmark.set"),
+    thread: ReactionThread,
+    message: ReactionKey,
+    on: z.boolean(),
+  }),
   /** Ask for a thread's reply widgets; answered by `widgets.snapshot`. Only sent to a host whose `welcome.features` has REPLY_WIDGETS_FEATURE. */
   z.object({ t: z.literal("widgets.get"), thread: ReactionThread }),
   /**
@@ -2194,7 +2328,11 @@ export const ServerMessage = z.discriminatedUnion("t", [
     reactions: ThreadReactions,
   }),
   /** A thread's bookmarked turns: the answer to `bookmarks.get`, and pushed to every device when they change. */
-  z.object({ t: z.literal("bookmarks.snapshot"), thread: ReactionThread, messages: ThreadBookmarks }),
+  z.object({
+    t: z.literal("bookmarks.snapshot"),
+    thread: ReactionThread,
+    messages: ThreadBookmarks,
+  }),
   /** A thread's reply widgets: the answer to `widgets.get`, and pushed to every device when one is added. */
   z.object({ t: z.literal("widgets.snapshot"), thread: ReactionThread, widgets: ThreadWidgets }),
   /** Answer to `widget.label`: `ok` false when the host could not save it (`error` says why). */

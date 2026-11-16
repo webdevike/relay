@@ -12,14 +12,31 @@ export type WriteBody = "json" | "text" | "blob";
 
 const LOOPBACK_HOSTS: Record<string, true> = { "127.0.0.1": true, localhost: true, "[::1]": true };
 
-const refuse = (status: number, message: string): Response => Response.json({ error: message }, { status });
+const refuse = (status: number, message: string): Response =>
+  Response.json({ error: message }, { status });
+
+/**
+ * Who sent a request. `tailscale serve` proxies tailnet requests from 127.0.0.1 and appends the
+ * sender to X-Forwarded-For (earlier entries are whatever the sender claimed), so a loopback peer
+ * with that header speaks for its last entry: a tailnet peer, never a loopback one. Without it, the
+ * peer itself.
+ */
+export function requestRemote(peer: string, forwardedFor: string | null): string {
+  if (forwardedFor === null || !isLoopback(peer)) return peer;
+  return forwardedFor.split(",").at(-1)?.trim() ?? "";
+}
 
 /**
  * Null when `request` may write; else the refusal: 403 for a non-loopback peer or Host, or a
  * browser Origin/Referer that is not the host's own origin; 401 without the bearer token; 415 for a
  * body of the wrong type (a DELETE has no body, so no type).
  */
-export function guardWrite(request: Request, remote: string, token: string, body: WriteBody): Response | null {
+export function guardWrite(
+  request: Request,
+  remote: string,
+  token: string,
+  body: WriteBody,
+): Response | null {
   if (!isLoopback(remote)) return refuse(403, "loopback only");
   const url = new URL(request.url);
   if (LOOPBACK_HOSTS[url.hostname] !== true) return refuse(403, "loopback host only");
@@ -34,12 +51,18 @@ export function guardWrite(request: Request, remote: string, token: string, body
     }
     if (origin !== url.origin) return refuse(403, "browser requests are not allowed");
   }
-  if (!bearerMatches(request.headers.get("authorization"), token)) return refuse(401, "missing or wrong bearer token");
+  if (!bearerMatches(request.headers.get("authorization"), token))
+    return refuse(401, "missing or wrong bearer token");
   if (request.method === "DELETE") return null;
   const type = (request.headers.get("content-type") ?? "").toLowerCase();
-  if (body === "json" && !type.startsWith("application/json")) return refuse(415, "content-type must be application/json");
-  if (body === "text" && !type.startsWith("text/plain")) return refuse(415, "content-type must be text/plain");
-  if (body === "blob" && (type.startsWith("application/x-www-form-urlencoded") || type.startsWith("multipart/")))
+  if (body === "json" && !type.startsWith("application/json"))
+    return refuse(415, "content-type must be application/json");
+  if (body === "text" && !type.startsWith("text/plain"))
+    return refuse(415, "content-type must be text/plain");
+  if (
+    body === "blob" &&
+    (type.startsWith("application/x-www-form-urlencoded") || type.startsWith("multipart/"))
+  )
     return refuse(415, "form posts are not allowed");
   return null;
 }

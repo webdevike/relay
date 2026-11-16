@@ -231,6 +231,7 @@ describe('Relay feed', () => {
       title: 'Ops',
       workspace: 'Relay',
       icon: null,
+      tabs: null,
       updatedAt: 'x',
       widgets: [
         { id: 'a', span: 4, spec: { widget: 'stat', label: 'Up', value: '1' } },
@@ -241,6 +242,40 @@ describe('Relay feed', () => {
       ],
     })
     expect(parseBoard({ slug: 'ops', widgets: [] })).toBeNull()
+  })
+
+  it('reads a tabbed board: drops a tab without an id or title, clamps its tiles, empty tabs read as none', () => {
+    const tile = (id: string, span: number) => ({ id, span, spec: { widget: 'divider' } })
+    expect(
+      parseBoard({
+        slug: 'lists',
+        title: 'Lists',
+        updatedAt: 'x',
+        widgets: [],
+        tabs: [
+          { id: 'a', title: 'Deals', widgets: [tile('t1', 40), { id: 'bad' }, tile('t2', 4)] },
+          { id: '', title: 'No id', widgets: [tile('t3', 4)] },
+          { id: 'c', widgets: [tile('t4', 4)] },
+          { id: 'd', title: 'Empty' },
+          'junk',
+        ],
+      }),
+    ).toEqual({
+      slug: 'lists',
+      title: 'Lists',
+      workspace: null,
+      icon: null,
+      updatedAt: 'x',
+      widgets: [],
+      tabs: [
+        { id: 'a', title: 'Deals', widgets: [tile('t1', 12), tile('t2', 4)] },
+        { id: 'd', title: 'Empty', widgets: [] },
+      ],
+    })
+    expect(
+      parseBoard({ slug: 'x', title: 'X', widgets: [], tabs: [{ title: 'no id', widgets: [] }] })
+        ?.tabs,
+    ).toBeNull()
   })
 
   it('hears a subscribed reply as it streams: the conversation, appends and updates', () => {

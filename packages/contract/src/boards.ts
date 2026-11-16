@@ -20,6 +20,14 @@ export const BoardWidgetSchema = z.object({
 })
 export type BoardWidget = z.infer<typeof BoardWidgetSchema>
 
+/** One tab of a tabbed board: its own tiles. Tile ids are unique across the whole board. */
+export const BoardTabSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  widgets: z.array(BoardWidgetSchema),
+})
+export type BoardTab = z.infer<typeof BoardTabSchema>
+
 /** A Relay host dashboard (`relay-linux board`), as the host streams it. */
 export const BoardSchema = z.object({
   slug: z.string(),
@@ -27,6 +35,8 @@ export const BoardSchema = z.object({
   workspace: z.string().nullable(),
   /** A Tabler icon name the board asks for, else null. */
   icon: z.string().nullable(),
+  /** A tabbed board's tiles live in `tabs` and `widgets` is empty; null for an untabbed board. */
+  tabs: z.array(BoardTabSchema).nullable(),
   widgets: z.array(BoardWidgetSchema),
   /** RFC 3339, as the host stamped the last write. */
   updatedAt: z.string(),

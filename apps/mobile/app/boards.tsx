@@ -1,7 +1,8 @@
 /**
  * Live dashboards from the host. Without a slug: the list of boards. With one: that board's tiles
  * on the host's grid on larger screens and full-width tiles on phones, updated on `board.delta`.
- * A board fed by a host-side sampler (the office Wi-Fi meter) reads as a live view. A live tile
+ * A board fed by a host-side sampler (the office Wi-Fi meter) reads as a live view. A tabbed board
+ * shows its tabs (`SegmentedTabs`) above the grid of the picked tab's tiles. A live tile
  * (an `openui` source) runs its Query statements over `query.req` while the board is open, on a
  * host whose welcome offers "query"; on an older host it draws the spec the host rendered. A
  * Mantine tile (`mantine` JSX) runs in the chat's sandboxed `HtmlFrame`, the tile's width and its
@@ -21,6 +22,8 @@ import { useBoardsStore } from "@/state/boards";
 import { liveQuery } from "@/connection";
 import { openChatLink } from "@/lib/links";
 import { HtmlFrame } from "@/ui/HtmlFrame";
+import { SegmentedTabs } from "@/ui/SegmentedTabs";
+import { boardSubtitle, pickBoardTab, SCROLL_TABS_ABOVE, shownBoardTab } from "@/lib/boardTabs";
 import { Widget } from "@/agents/Widget";
 import { OpenUIRuntimeContext } from "@/agents/OpenUIRuntime";
 
@@ -33,7 +36,11 @@ export default function Boards() {
     return (
       <Screen title={board?.title ?? "Board"} scroll>
         {board === undefined ? (
-          <EmptyState symbol="questionmark.square.dashed" title="Board not found" body="The host doesn't have this board right now." />
+          <EmptyState
+            symbol="questionmark.square.dashed"
+            title="Board not found"
+            body="The host doesn't have this board right now."
+          />
         ) : (
           <BoardGrid board={board} />
         )}
@@ -44,14 +51,18 @@ export default function Boards() {
   return (
     <Screen title="Boards" scroll>
       {boards.length === 0 ? (
-        <EmptyState symbol="chart.xyaxis.line" title="No boards yet" body="Dashboards on the host show up here and update live." />
+        <EmptyState
+          symbol="chart.xyaxis.line"
+          title="No boards yet"
+          body="Dashboards on the host show up here and update live."
+        />
       ) : (
         boards.map((b, i) => (
           <View key={b.slug}>
             {i > 0 && <Separator />}
             <Row
               title={b.title}
-              subtitle={`${b.widgets.length} tiles${b.workspace ? ` · ${b.workspace}` : ""}`}
+              subtitle={boardSubtitle(b)}
               onPress={() => {
                 router.push({ pathname: "/boards", params: { slug: b.slug } });
               }}
@@ -66,28 +77,49 @@ export default function Boards() {
 function BoardGrid({ board }: { board: Board }) {
   const { width } = useWindowDimensions();
   const queries = useBoardsStore((state) => state.queries);
+  const [, setPickedAt] = useState(0);
+  const tab = shownBoardTab(board);
+  const tiles = tab?.widgets ?? board.widgets;
   return (
-    <View style={styles.grid}>
-      {board.widgets.map((w) => (
-        <View key={w.id} style={[styles.cell, { width: width < 600 ? "100%" : `${(w.span / 12) * 100}%` }]}>
-          {w.mantine !== undefined ? (
-            <HtmlFrame
-              code={w.mantine}
-              runtime="mantine"
-              height={w.height}
-              fontSize={type.body.fontSize}
-              lineHeight={type.body.lineHeight}
-              onReply={null}
-              onOpenLink={openChatLink}
-            />
-          ) : queries && w.openui !== undefined ? (
-            <LiveTile widget={w} source={w.openui} />
-          ) : (
-            <Widget spec={w.spec} />
-          )}
+    <>
+      {board.tabs !== undefined && tab !== undefined ? (
+        <View style={styles.tabs}>
+          <SegmentedTabs
+            tabs={board.tabs.map((t) => ({ key: t.id, label: t.title }))}
+            value={tab.id}
+            scrollable={board.tabs.length > SCROLL_TABS_ABOVE}
+            onChange={(id) => {
+              pickBoardTab(board.slug, id);
+              setPickedAt((n) => n + 1);
+            }}
+          />
         </View>
-      ))}
-    </View>
+      ) : null}
+      <View style={styles.grid}>
+        {tiles.map((w) => (
+          <View
+            key={w.id}
+            style={[styles.cell, { width: width < 600 ? "100%" : `${(w.span / 12) * 100}%` }]}
+          >
+            {w.mantine !== undefined ? (
+              <HtmlFrame
+                code={w.mantine}
+                runtime="mantine"
+                height={w.height}
+                fontSize={type.body.fontSize}
+                lineHeight={type.body.lineHeight}
+                onReply={null}
+                onOpenLink={openChatLink}
+              />
+            ) : queries && w.openui !== undefined ? (
+              <LiveTile widget={w} source={w.openui} />
+            ) : (
+              <Widget spec={w.spec} />
+            )}
+          </View>
+        ))}
+      </View>
+    </>
   );
 }
 
@@ -113,6 +145,7 @@ function LiveTile({ widget, source }: { widget: BoardWidget; source: string }) {
 }
 
 const styles = StyleSheet.create({
+  tabs: { paddingHorizontal: spacing.md, paddingBottom: spacing.sm },
   grid: { flexDirection: "row", flexWrap: "wrap", paddingHorizontal: spacing.md - spacing.xs },
   cell: { padding: spacing.xs },
 });

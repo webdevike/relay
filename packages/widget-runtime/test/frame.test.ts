@@ -75,6 +75,19 @@ describe("mantineFrameDocument", () => {
     expect(mount).toContain("\\u003c/script>\\u003cb>x");
     expect(mount.match(/<\/script>/g)).toHaveLength(1);
   });
+
+  it("lets images come from https and data: but nothing else reach the network", () => {
+    const directives = new Map(
+      MANTINE_FRAME_CSP.split(";").map((part) => {
+        const [name = "", ...sources] = part.trim().split(/\s+/);
+        return [name, sources] as const;
+      }),
+    );
+    expect(directives.get("default-src")).toEqual(["'none'"]);
+    expect(directives.get("img-src")).toEqual(["data:", "https:"]);
+    for (const name of ["connect-src", "frame-src", "media-src", "object-src"])
+      expect(directives.has(name)).toBe(false);
+  });
 });
 
 describe("parseFrameMessage", () => {

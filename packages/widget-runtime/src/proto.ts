@@ -14,7 +14,7 @@ import type { DesignSystem } from "./systems";
 import { systemCss } from "./systems/css";
 import { defaultConfig } from "./theme";
 
-/** A prototype page's CSP: the Mantine page's (inline script, eval, data: images and fonts, no network). */
+/** A prototype page's CSP: the Mantine page's (inline script, eval, data: and https images, data: fonts, nothing else from the network). */
 export const PROTO_FRAME_CSP = MANTINE_FRAME_CSP;
 
 /** A prototype's design system and scheme. */

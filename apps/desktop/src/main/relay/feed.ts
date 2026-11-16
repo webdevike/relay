@@ -239,27 +239,25 @@ const BoardWidgetSchema = z.object({
   mantine: z.string().min(1).optional().catch(undefined),
   height: z.number().int().min(40).max(1200).optional().catch(undefined),
 })
+const BoardTabSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  widgets: z.array(z.unknown()).catch([]),
+})
 const BoardSchema = z.object({
   slug: z.string().min(1),
   title: z.string().min(1),
   workspace: optText,
   icon: optText,
+  tabs: z.array(z.unknown()).optional().catch(undefined),
   widgets: z.array(z.unknown()).catch([]),
   updatedAt: z.string().catch(''),
 })
 
-/**
- * A board as Relay sends it, or null without a slug or a title. A tile without an id or a spec is
- * dropped; a span outside the grid is clamped to it (native BoardWidget::columns). A live tile
- * keeps its `openui` source next to the static `spec` the host rendered from it; a Mantine tile
- * keeps its `mantine` JSX (and `height`) next to its fallback `spec`.
- */
-export function parseBoard(value: unknown): Board | null {
-  const r = BoardSchema.safeParse(value)
-  if (!r.success) return null
-  const b = r.data
+/** The tiles of one board (or tab) as Relay sends them; a tile that does not parse is dropped. */
+function parseTiles(raws: readonly unknown[]): Board['widgets'] {
   const widgets: Board['widgets'] = []
-  for (const raw of b.widgets) {
+  for (const raw of raws) {
     const w = BoardWidgetSchema.safeParse(raw).data
     if (!w) continue
     const span = Math.min(BOARD_COLUMNS, Math.max(1, Math.round(w.span)))
@@ -272,12 +270,32 @@ export function parseBoard(value: unknown): Board | null {
       ...(w.height === undefined ? {} : { height: w.height }),
     })
   }
+  return widgets
+}
+
+/**
+ * A board as Relay sends it, or null without a slug or a title. A tile without an id or a spec is
+ * dropped; a span outside the grid is clamped to it (native BoardWidget::columns). A live tile
+ * keeps its `openui` source next to the static `spec` the host rendered from it; a Mantine tile
+ * keeps its `mantine` JSX (and `height`) next to its fallback `spec`. A tab without an id or a
+ * title is dropped with its tiles; a board left with no tab reads as untabbed.
+ */
+export function parseBoard(value: unknown): Board | null {
+  const r = BoardSchema.safeParse(value)
+  if (!r.success) return null
+  const b = r.data
+  const tabs: NonNullable<Board['tabs']> = []
+  for (const raw of b.tabs ?? []) {
+    const t = BoardTabSchema.safeParse(raw).data
+    if (t) tabs.push({ id: t.id, title: t.title, widgets: parseTiles(t.widgets) })
+  }
   return {
     slug: b.slug,
     title: b.title,
     workspace: b.workspace || null,
     icon: b.icon || null,
-    widgets,
+    tabs: tabs.length > 0 ? tabs : null,
+    widgets: parseTiles(b.widgets),
     updatedAt: b.updatedAt,
   }
 }

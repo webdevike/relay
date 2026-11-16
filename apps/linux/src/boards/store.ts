@@ -5,11 +5,19 @@
 // written as Mantine JSX (their `spec` is the older clients' fallback), validate the whole
 // result, persist it (tmp + rename), then commit it in memory, bump the global rev and report the
 // change. A write that fails changes nothing, so a batch of ops lands all together or not at all.
+// A board's tiles sit in its own `widgets` list or, once it has tabs, in one list per tab.
 
 import { mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Board, BoardOp, BoardPut, type BoardWidgetInput, type ServerMessage, type WidgetSpec } from "@relay/protocol";
+import {
+  Board,
+  BoardOp,
+  BoardPut,
+  type BoardWidgetInput,
+  type ServerMessage,
+  type WidgetSpec,
+} from "@relay/protocol";
 import { mantineSourceRefusal } from "../../../../packages/widget-runtime/src/check";
 import { z } from "zod";
 
@@ -29,7 +37,11 @@ export class BoardError extends Error {
 const BoardOps = z.array(BoardOp).min(1);
 
 function issues(error: z.ZodError): string {
-  return error.issues.map((issue) => (issue.path.length === 0 ? issue.message : `${issue.path.join(".")}: ${issue.message}`)).join("; ");
+  return error.issues
+    .map((issue) =>
+      issue.path.length === 0 ? issue.message : `${issue.path.join(".")}: ${issue.message}`,
+    )
+    .join("; ");
 }
 
 function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, value: unknown): T {
@@ -38,8 +50,18 @@ function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, value: unknown): 
   return result.data;
 }
 
+/** A tab being written: its tiles as written. */
+interface TabDraft {
+  id: string;
+  title: string;
+  widgets: BoardWidgetInput[];
+}
+
 /** A board being written: tiles given as a live `openui` source have no `spec` until rendered. */
-type BoardDraft = Omit<Board, "widgets"> & { widgets: BoardWidgetInput[] };
+type BoardDraft = Omit<Board, "widgets" | "tabs"> & {
+  widgets: BoardWidgetInput[];
+  tabs?: TabDraft[];
+};
 
 /** Checks a live source and renders it against real query data into its static `spec`; throws why not. */
 export type LiveRender = (source: string) => Promise<WidgetSpec>;
@@ -57,7 +79,8 @@ export const MANTINE_FALLBACK: WidgetSpec = {
  */
 function inputWidget(widget: BoardWidgetInput): BoardWidgetInput {
   if (widget.mantine !== undefined) {
-    if (widget.openui !== undefined) throw new BoardError(400, `widget ${widget.id} has both openui and mantine; give one`);
+    if (widget.openui !== undefined)
+      throw new BoardError(400, `widget ${widget.id} has both openui and mantine; give one`);
     const refusal = mantineSourceRefusal(widget.mantine);
     if (refusal !== null) throw new BoardError(400, `widget ${widget.id} mantine: ${refusal}`);
     return {
@@ -68,15 +91,58 @@ function inputWidget(widget: BoardWidgetInput): BoardWidgetInput {
       ...(widget.height === undefined ? {} : { height: widget.height }),
     };
   }
-  if (widget.height !== undefined) throw new BoardError(400, `widget ${widget.id}: height is for mantine tiles`);
-  if (widget.openui !== undefined) return { id: widget.id, span: widget.span, openui: widget.openui };
-  if (widget.spec === undefined) throw new BoardError(400, `widget ${widget.id} needs a spec, an openui source or mantine JSX`);
+  if (widget.height !== undefined)
+    throw new BoardError(400, `widget ${widget.id}: height is for mantine tiles`);
+  if (widget.openui !== undefined)
+    return { id: widget.id, span: widget.span, openui: widget.openui };
+  if (widget.spec === undefined)
+    throw new BoardError(400, `widget ${widget.id} needs a spec, an openui source or mantine JSX`);
   return { id: widget.id, span: widget.span, spec: widget.spec };
+}
+
+/** The list holding tile `id`: the board's own, or the tab's that has it. */
+function listOf(draft: BoardDraft, id: string): BoardWidgetInput[] | undefined {
+  if (draft.widgets.some((widget) => widget.id === id)) return draft.widgets;
+  return draft.tabs?.find((tab) => tab.widgets.some((widget) => widget.id === id))?.widgets;
+}
+
+/** Adds, renames or moves a tab; the board's first tab takes the board's tiles. */
+function applyTab(draft: BoardDraft, op: Extract<BoardOp, { op: "tab" }>): BoardDraft {
+  const tabs = draft.tabs ?? [];
+  const current = tabs.find((tab) => tab.id === op.id);
+  const at = current === undefined ? -1 : tabs.indexOf(current);
+  const first = tabs.length === 0;
+  let tab: TabDraft;
+  if (current !== undefined) {
+    tab = { ...current, title: op.title ?? current.title };
+  } else {
+    if (op.title === undefined) throw new BoardError(400, `new tab ${op.id} needs a title`);
+    tab = { id: op.id, title: op.title, widgets: first ? draft.widgets : [] };
+  }
+  const rest = tabs.filter((other) => other.id !== op.id);
+  if (op.after === undefined) {
+    if (at >= 0) rest.splice(at, 0, tab);
+    else rest.push(tab);
+  } else if (op.after === null) rest.unshift(tab);
+  else {
+    if (op.after === op.id) throw new BoardError(400, `tab ${op.id} cannot go after itself`);
+    const anchor = rest.findIndex((other) => other.id === op.after);
+    if (anchor < 0) throw new BoardError(400, `no tab ${op.after} to place ${op.id} after`);
+    rest.splice(anchor + 1, 0, tab);
+  }
+  return { ...draft, widgets: first ? [] : draft.widgets, tabs: rest };
 }
 
 /** Applies `ops` in order to a copy of `board`; throws on an op that cannot apply. */
 export function applyOps(board: Board, ops: readonly BoardOp[]): BoardDraft {
-  let next: BoardDraft = { ...board, widgets: [...board.widgets] };
+  const { tabs: boardTabs, ...fields } = board;
+  let next: BoardDraft = {
+    ...fields,
+    widgets: [...board.widgets],
+    ...(boardTabs === undefined
+      ? {}
+      : { tabs: boardTabs.map((tab) => ({ ...tab, widgets: [...tab.widgets] })) }),
+  };
   for (const op of ops) {
     if (op.op === "meta") {
       next = {
@@ -87,12 +153,34 @@ export function applyOps(board: Board, ops: readonly BoardOp[]): BoardDraft {
       };
       continue;
     }
-    const at = next.widgets.findIndex((widget) => widget.id === op.id);
-    if (op.op === "remove") {
-      if (at >= 0) next.widgets.splice(at, 1);
+    if (op.op === "tab") {
+      next = applyTab(next, op);
       continue;
     }
-    const existing = at >= 0 ? next.widgets[at] : undefined;
+    if (op.op === "remove-tab") {
+      const remaining = (next.tabs ?? []).filter((tab) => tab.id !== op.id);
+      if (remaining.length === (next.tabs ?? []).length)
+        throw new BoardError(400, `no tab ${op.id}`);
+      if (remaining.length > 0) next = { ...next, tabs: remaining };
+      else delete next.tabs;
+      continue;
+    }
+    const from = listOf(next, op.id);
+    const at = from?.findIndex((widget) => widget.id === op.id) ?? -1;
+    if (op.op === "remove") {
+      if (from !== undefined) from.splice(at, 1);
+      continue;
+    }
+    let to: BoardWidgetInput[];
+    if (op.tab !== undefined) {
+      const tab = next.tabs?.find((candidate) => candidate.id === op.tab);
+      if (tab === undefined) throw new BoardError(400, `no tab ${op.tab} for widget ${op.id}`);
+      to = tab.widgets;
+    } else if (from !== undefined) to = from;
+    else if (next.tabs !== undefined)
+      throw new BoardError(400, `board ${board.slug} has tabs: give widget ${op.id} a tab`);
+    else to = next.widgets;
+    const existing = from?.[at];
     const widget = inputWidget({
       id: op.id,
       span: op.span ?? existing?.span ?? 12,
@@ -101,20 +189,19 @@ export function applyOps(board: Board, ops: readonly BoardOp[]): BoardDraft {
       ...(op.mantine === undefined ? {} : { mantine: op.mantine }),
       ...(op.height === undefined ? {} : { height: op.height }),
     });
-    if (op.after === undefined) {
-      if (existing === undefined) next.widgets.push(widget);
-      else next.widgets[at] = widget;
+    if (op.after === undefined && from === to) {
+      to[at] = widget;
       continue;
     }
     if (op.after === op.id) throw new BoardError(400, `widget ${op.id} cannot go after itself`);
-    if (at >= 0) next.widgets.splice(at, 1);
-    if (op.after === null) {
-      next.widgets.unshift(widget);
-      continue;
+    if (from !== undefined) from.splice(at, 1);
+    if (op.after === undefined) to.push(widget);
+    else if (op.after === null) to.unshift(widget);
+    else {
+      const anchor = to.findIndex((other) => other.id === op.after);
+      if (anchor < 0) throw new BoardError(400, `no widget ${op.after} to place ${op.id} after`);
+      to.splice(anchor + 1, 0, widget);
     }
-    const anchor = next.widgets.findIndex((other) => other.id === op.after);
-    if (anchor < 0) throw new BoardError(400, `no widget ${op.after} to place ${op.id} after`);
-    next.widgets.splice(anchor + 1, 0, widget);
   }
   return next;
 }
@@ -133,14 +220,19 @@ export class FileBoardStore {
     private readonly live: LiveRender | null,
   ) {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    for (const name of readdirSync(dir).filter((file) => file.endsWith(".json")).sort()) {
+    for (const name of readdirSync(dir)
+      .filter((file) => file.endsWith(".json"))
+      .sort()) {
       const path = join(dir, name);
       try {
         const board = Board.parse(JSON.parse(readFileSync(path, "utf8")));
-        if (`${board.slug}.json` !== name) throw new Error(`slug ${board.slug} does not match the file name`);
+        if (`${board.slug}.json` !== name)
+          throw new Error(`slug ${board.slug} does not match the file name`);
         this.boards.set(board.slug, board);
       } catch (error) {
-        log(`boards: skipping ${path}: ${error instanceof z.ZodError ? issues(error) : error instanceof Error ? error.message : String(error)}`);
+        log(
+          `boards: skipping ${path}: ${error instanceof z.ZodError ? issues(error) : error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
   }
@@ -172,6 +264,15 @@ export class FileBoardStore {
         ...(put.workspace === undefined ? {} : { workspace: put.workspace }),
         ...(put.icon === undefined ? {} : { icon: put.icon }),
         widgets: (put.widgets ?? []).map(inputWidget),
+        ...(put.tabs === undefined
+          ? {}
+          : {
+              tabs: put.tabs.map((tab) => ({
+                id: tab.id,
+                title: tab.title,
+                widgets: (tab.widgets ?? []).map(inputWidget),
+              })),
+            }),
         updatedAt: "",
       });
     });
@@ -197,19 +298,41 @@ export class FileBoardStore {
 
   /** Renders the tiles written as `openui` (in parallel), then validates and persists the board. */
   private async write(draft: BoardDraft): Promise<Board> {
-    const widgets = await Promise.all(
-      draft.widgets.map(async (widget) => {
-        if (widget.spec !== undefined) return widget;
-        if (widget.openui === undefined) throw new BoardError(400, `widget ${widget.id} needs a spec or an openui source`);
-        if (this.live === null) throw new BoardError(400, "live widgets need the host's query tools, which this host does not run");
-        try {
-          return { ...widget, spec: await this.live(widget.openui) };
-        } catch (error) {
-          throw new BoardError(400, `widget ${widget.id} openui: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }),
-    );
-    const board = parse(Board, { ...draft, widgets, updatedAt: new Date().toISOString() });
+    const render = (widgets: readonly BoardWidgetInput[]) =>
+      Promise.all(
+        widgets.map(async (widget) => {
+          if (widget.spec !== undefined) return widget;
+          if (widget.openui === undefined)
+            throw new BoardError(400, `widget ${widget.id} needs a spec or an openui source`);
+          if (this.live === null)
+            throw new BoardError(
+              400,
+              "live widgets need the host's query tools, which this host does not run",
+            );
+          try {
+            return { ...widget, spec: await this.live(widget.openui) };
+          } catch (error) {
+            throw new BoardError(
+              400,
+              `widget ${widget.id} openui: ${error instanceof Error ? error.message : String(error)}`,
+            );
+          }
+        }),
+      );
+    const [widgets, tabs] = await Promise.all([
+      render(draft.widgets),
+      draft.tabs === undefined
+        ? undefined
+        : Promise.all(
+            draft.tabs.map(async (tab) => ({ ...tab, widgets: await render(tab.widgets) })),
+          ),
+    ]);
+    const board = parse(Board, {
+      ...draft,
+      widgets,
+      ...(tabs === undefined ? {} : { tabs }),
+      updatedAt: new Date().toISOString(),
+    });
     const path = join(this.dir, `${board.slug}.json`);
     const tmp = `${path}.tmp`;
     await writeFile(tmp, `${JSON.stringify(board, null, 2)}\n`, { mode: 0o600 });

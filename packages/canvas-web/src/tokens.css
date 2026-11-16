@@ -1,0 +1,42 @@
+/* The page's colors and type, light and dark (`data-theme` on the root), shared by the live canvas
+   and the shared board pages. */
+:root {
+  --c-bg: #ffffff;
+  --c-fg: #212529;
+  --c-muted: #868e96;
+  --c-border: #dee2e6;
+  --c-border-strong: #ced4da;
+  --c-popover: #ffffff;
+  --c-surface: #f8f9fa;
+  --c-accent: #228be6;
+  --c-accent-fg: #ffffff;
+  --c-warning: #fab005;
+  --c-danger: #fa5252;
+  --c-success: #40c057;
+  --c-panel: color-mix(in srgb, var(--c-fg) 3%, var(--c-bg));
+  --c-overlay-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --gap: 8px;
+  --round: 9999px;
+  color-scheme: light;
+  font-family: var(--font-ui);
+  color: var(--c-fg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+:root[data-theme="dark"] {
+  --c-bg: #1a1b1e;
+  --c-fg: #c1c2c5;
+  --c-muted: #909296;
+  --c-border: #373a40;
+  --c-border-strong: #4a4d55;
+  --c-popover: #25262b;
+  --c-surface: #25262b;
+  --c-accent: #1971c2;
+  --c-warning: #ffd43b;
+  --c-danger: #ff8787;
+  --c-success: #69db7c;
+  --c-overlay-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  color-scheme: dark;
+}

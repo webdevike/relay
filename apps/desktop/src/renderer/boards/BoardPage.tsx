@@ -1,6 +1,6 @@
-import { Badge } from '@mantine/core'
+import { Badge, Tabs } from '@mantine/core'
 import { useElementSize } from '@mantine/hooks'
-import { useMemo, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { BoardWidget } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
 import { OpenUIQuery } from '../chat/widgets/actions'
@@ -8,6 +8,7 @@ import { OpenUIBlock, WidgetBlock } from '../chat/widgets/Widget'
 import { WidgetFrame } from '../chat/widgets/WidgetFrame'
 import { boardOf, boardSlugOf, useBoards } from './boards-store'
 import { liveQuery } from './live-query'
+import { pickTab, shownTab } from './board-tabs'
 import './boards.css'
 
 /** Below this content width every tile takes the full row (native boards::STACK_BELOW). */
@@ -65,8 +66,12 @@ export function BoardPage({ place }: { place: Place }) {
   // Measured from the first render, so the grid stacks the moment the board arrives.
   const { ref, width } = useElementSize<HTMLDivElement>()
   const stacked = width > 0 && width < STACK_BELOW
+  const tab = board === null ? null : shownTab(board)
+  const tiles = tab?.widgets ?? board?.widgets ?? []
   // Live tiles run only on a host that answers queries; an older one's tiles draw their spec.
-  const live = data?.queries === true && board?.widgets.some((w) => w.openui !== undefined) === true
+  const live = data?.queries === true && tiles.some((w) => w.openui !== undefined)
+  // The picked tab lives in `board-tabs.ts`; this redraws the page when it changes.
+  const [, setPickedAt] = useState(0)
 
   let body: ReactNode = null
   if (data !== null && board === null) {
@@ -101,12 +106,33 @@ export function BoardPage({ place }: { place: Place }) {
             ) : null}
           </div>
         </div>
-        {board.widgets.length === 0 ? (
-          <p className="eva-board-dim">This dashboard has no widgets yet.</p>
+        {board.tabs !== null ? (
+          <Tabs
+            value={tab?.id ?? null}
+            onChange={(id) => {
+              if (id === null) return
+              pickTab(slug, id)
+              setPickedAt((n) => n + 1)
+            }}
+            data-testid="board-tabs"
+          >
+            <Tabs.List>
+              {board.tabs.map((t) => (
+                <Tabs.Tab key={t.id} value={t.id} data-testid={`board-tab-${t.id}`}>
+                  {t.title}
+                </Tabs.Tab>
+              ))}
+            </Tabs.List>
+          </Tabs>
+        ) : null}
+        {tiles.length === 0 ? (
+          <p className="eva-board-dim">
+            {tab === null ? 'This dashboard has no widgets yet.' : 'This tab has no widgets yet.'}
+          </p>
         ) : (
           <OpenUIQuery.Provider value={liveQuery}>
             <div className="eva-board-grid" data-testid="board-grid">
-              {board.widgets.map((w) => (
+              {tiles.map((w) => (
                 <Tile key={w.id} widget={w} stacked={stacked} live={live} />
               ))}
             </div>

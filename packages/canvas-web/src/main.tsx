@@ -1,5 +1,7 @@
 import "@xyflow/react/dist/base.css";
+import "./tokens.css";
 import "./style.css";
+import "./widget.css";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { env, loadIdentity } from "./room";

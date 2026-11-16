@@ -136,6 +136,7 @@ describe('MainNav', () => {
       title,
       workspace: null,
       icon: null,
+      tabs: null,
       widgets: [],
       updatedAt: '',
     })

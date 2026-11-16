@@ -2,7 +2,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(join(import.meta.dirname, "..", "src", "style.css"), "utf8");
+const css = ["tokens.css", "style.css", "widget.css"]
+  .map((name) => readFileSync(join(import.meta.dirname, "..", "src", name), "utf8"))
+  .join("\n");
 
 /** Rules whose selector is part of a live `ui` card or its widgets (`.cv-w-*`, `.cv-ui-*`). */
 function widgetRules(): { selector: string; body: string }[] {

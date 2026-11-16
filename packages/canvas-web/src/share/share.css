@@ -1,0 +1,95 @@
+/* A shared board page: the board's head, its tabs (a whole board) and a 12-column grid of tiles
+   that stacks on a phone. Colors come from tokens.css. */
+
+* {
+  box-sizing: border-box;
+}
+html body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-fg);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 20px;
+  -webkit-text-size-adjust: 100%;
+}
+.sh-page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sh-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sh-title {
+  margin: 0;
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 650;
+}
+.sh-caption,
+.sh-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--c-muted);
+}
+.sh-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sh-tabs::-webkit-scrollbar {
+  display: none;
+}
+.sh-tab {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  border: 1px solid var(--c-border);
+  border-radius: var(--round);
+  background: none;
+  color: var(--c-muted);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sh-tab[aria-selected="true"] {
+  border-color: var(--c-accent);
+  background: color-mix(in srgb, var(--c-accent) 12%, transparent);
+  color: var(--c-fg);
+}
+.sh-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.sh-grid[hidden] {
+  display: none;
+}
+.sh-empty {
+  grid-column: span 12;
+}
+.sh-tile {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sh-mantine[data-fixed="true"] {
+  overflow: auto;
+}
+.sh-mantine[data-fixed="true"] .sh-mantine-root {
+  height: 100%;
+}
+@media (max-width: 640px) {
+  .sh-tile {
+    grid-column: span 12 !important;
+  }
+}

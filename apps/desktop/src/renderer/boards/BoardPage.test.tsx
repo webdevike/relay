@@ -1,5 +1,5 @@
 import { MantineProvider } from '@mantine/core'
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../ipc', () => ({ invoke: vi.fn(), on: () => () => {} }))
@@ -15,6 +15,7 @@ const board: Board = {
   title: 'Ops live',
   workspace: 'Relay',
   icon: null,
+  tabs: null,
   updatedAt: '2026-10-23T15:04:00.000Z',
   widgets: [
     { id: 'up', span: 4, spec: { widget: 'stat', label: 'Uptime', value: '99.9%' } },
@@ -115,5 +116,37 @@ describe('BoardPage', () => {
     wrap('ops')
     expect(await screen.findByText('2')).toBeInTheDocument()
     expect(boardsStore.getState().data?.queries).toBe(false)
+  })
+
+  it('shows one tab of tiles at a time and falls back to the first when the picked tab goes', () => {
+    const tile = (id: string, text: string) => ({
+      id,
+      span: 12,
+      spec: { widget: 'text', text },
+    })
+    const tabbed: Board = {
+      ...board,
+      slug: 'lists',
+      tabs: [
+        { id: 'deals', title: 'Deals', widgets: [tile('d1', 'Half price oats')] },
+        { id: 'wife', title: "Wife's list", widgets: [tile('w1', 'Buy tulips')] },
+      ],
+      widgets: [],
+    }
+    const write = (b: Board) =>
+      act(() => boardsStore.setState({ data: { boards: [b], relayUp: true, queries: false } }))
+    write(tabbed)
+    wrap('lists')
+    expect(screen.getByTestId('board-tabs')).toBeInTheDocument()
+    expect(screen.getByText('Half price oats')).toBeInTheDocument()
+    expect(screen.queryByText('Buy tulips')).toBeNull()
+    fireEvent.click(screen.getByTestId('board-tab-wife'))
+    expect(screen.getByText('Buy tulips')).toBeInTheDocument()
+    expect(screen.queryByText('Half price oats')).toBeNull()
+    write({ ...tabbed, tabs: [tabbed.tabs![0]!] })
+    expect(screen.getByText('Half price oats')).toBeInTheDocument()
+    expect(screen.queryByText('Buy tulips')).toBeNull()
+    write({ ...tabbed, tabs: [{ id: 'deals', title: 'Deals', widgets: [] }] })
+    expect(screen.getByText('This tab has no widgets yet.')).toBeInTheDocument()
   })
 })

@@ -1,9 +1,9 @@
 /**
  * The pages agent-made widgets run in, shared by the phone (`react-native-webview`) and the desktop
- * (sandboxed `<iframe srcdoc>`). Both are locked down: no network, no navigation, no zoom, no
- * callouts, transparent so they sit on the chat. Each page gets `window.relay` = `{ theme,
- * colorScheme, reply(text) }` and posts JSON messages to its host: its content height whenever it
- * changes, and `relay.reply` text (only during a user gesture).
+ * (sandboxed `<iframe srcdoc>`). Both are locked down: no network (a Mantine page may show https
+ * images), no navigation, no zoom, no callouts, transparent so they sit on the chat. Each page gets
+ * `window.relay` = `{ theme, colorScheme, reply(text) }` and posts JSON messages to its host: its
+ * content height whenever it changes, and `relay.reply` text (only during a user gesture).
  *
  * - ```html-widget: `htmlFrameDocument`, the agent's HTML fragment with the host palette as CSS
  *   variables (`--fg`, `--muted`, `--accent`, ...).
@@ -51,11 +51,12 @@ export const HTML_FRAME_CSP =
   "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:";
 
 /**
- * The Mantine page also evaluates the agent's compiled JSX (`new Function`), hence `unsafe-eval`;
- * still nothing can load from or send to the network.
+ * The Mantine page also evaluates the agent's compiled JSX (`new Function`), hence `unsafe-eval`.
+ * Images may come from https URLs (a dashboard's product photos) as well as data: URIs; nothing
+ * else loads from the network, and scripts can neither fetch nor connect anywhere.
  */
 export const MANTINE_FRAME_CSP =
-  "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+  "default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; style-src 'unsafe-inline'; img-src data: https:; font-src data:";
 
 /** JSON safe inside a <script> element: `<` and the JS line separators are escaped. */
 export function scriptJson(value: unknown): string {

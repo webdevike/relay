@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { guardWrite } from "../src/http-guard";
+import { guardWrite, requestRemote } from "../src/http-guard";
 import { loopbackWriteBody } from "../src/server";
 
 const TOKEN = "a".repeat(64);
@@ -30,13 +30,27 @@ const ROUTES: readonly Route[] = [
   { method: "POST", path: "/control/run", type: JSON_TYPE },
 ];
 
-function attempt(route: Route, init: { token?: string | null; origin?: string; referer?: string; type?: string; host?: string; remote?: string } = {}): Response | null {
+function attempt(
+  route: Route,
+  init: {
+    token?: string | null;
+    origin?: string;
+    referer?: string;
+    type?: string;
+    host?: string;
+    remote?: string;
+  } = {},
+): Response | null {
   const headers = new Headers({ "content-type": init.type ?? route.type });
   const token = init.token === undefined ? TOKEN : init.token;
   if (token !== null) headers.set("authorization", `Bearer ${token}`);
   if (init.origin !== undefined) headers.set("origin", init.origin);
   if (init.referer !== undefined) headers.set("referer", init.referer);
-  const request = new Request(`http://${init.host ?? "127.0.0.1:7817"}${route.path}`, { method: route.method, headers, body: "x" });
+  const request = new Request(`http://${init.host ?? "127.0.0.1:7817"}${route.path}`, {
+    method: route.method,
+    headers,
+    body: "x",
+  });
   const body = loopbackWriteBody(route.path);
   expect(body).not.toBeNull();
   return guardWrite(request, init.remote ?? "127.0.0.1", TOKEN, body ?? "json");
@@ -64,7 +78,9 @@ describe.each(ROUTES)("$method $path", (route) => {
 
   it("refuses a non-loopback peer or Host: 403", () => {
     expect(attempt(route, { remote: "192.168.1.9" })?.status).toBe(403);
-    expect(attempt(route, { host: "rebind.example:7817", origin: "http://rebind.example:7817" })?.status).toBe(403);
+    expect(
+      attempt(route, { host: "rebind.example:7817", origin: "http://rebind.example:7817" })?.status,
+    ).toBe(403);
   });
 
   it("refuses form posts: 415", () => {
@@ -88,14 +104,33 @@ describe("content types", () => {
   });
 
   it("a DELETE has no body, so no type", () => {
-    const request = new Request("http://127.0.0.1:7817/assistant/registry/nova", { method: "DELETE", headers: { authorization: `Bearer ${TOKEN}` } });
+    const request = new Request("http://127.0.0.1:7817/assistant/registry/nova", {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
     expect(guardWrite(request, "127.0.0.1", TOKEN, "json")).toBeNull();
   });
 });
 
 describe("which routes are guarded", () => {
   it("leaves device sockets, tokened rooms and blobs to their own checks", () => {
-    for (const path of ["/relay", "/canvas/room/end", "/canvas/room/query", "/artifacts/media/abc/tok", "/studio/x", "/meetings/ingest"])
+    for (const path of [
+      "/relay",
+      "/canvas/room/end",
+      "/canvas/room/query",
+      "/artifacts/media/abc/tok",
+      "/studio/x",
+      "/meetings/ingest",
+    ])
       expect(loopbackWriteBody(path)).toBeNull();
+  });
+});
+
+describe("requestRemote", () => {
+  it("reads a tailscale serve request (a loopback peer forwarding) as the tailnet sender, even when it claims loopback", () => {
+    expect(requestRemote("127.0.0.1", "100.79.119.8")).toBe("100.79.119.8");
+    expect(requestRemote("::1", "127.0.0.1, 100.79.119.8")).toBe("100.79.119.8");
+    expect(requestRemote("127.0.0.1", null)).toBe("127.0.0.1");
+    expect(requestRemote("100.79.119.8", "127.0.0.1")).toBe("100.79.119.8");
   });
 });
