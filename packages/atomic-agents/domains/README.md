@@ -15,6 +15,7 @@ One folder per area of work. Each domain holds its agent specs (JSON), the adapt
 
 - Run, bench, or inspect an agent: `cd packages/atomic-agents`, then `bun src/cli.ts list`, `bun src/cli.ts run <agent-id> <job> --input '<json>'`, `bun src/cli.ts bench <agent-id> <job> --input '<json>'`. The exact job ids and inputs are in each domain README.
 - Test: `bun test domains/<name>` from `packages/atomic-agents` (all domains: `bun test`).
+- Ask an agent from any omp session: the `relay` MCP tools `agents_list`, `agents_ask {agent, request}` and `agents_result {run}` (Eva's `.omp/tools/relay-agents.ts`). They call `bun src/cli.ts catalog`, `request <agent-id> '<json>' --wait 40s` and `result <run> --wait 40s` on the installed service, which print JSON (`src/core/Requests.ts`). An agent with an `asks` pair gets its request event; any other agent gets its job run through `atomic-agents/run.requested`. Every enabled agent with a job shows up with its request schema, reply shape, model and typical seconds and cost; nothing to register.
 - Add an agent: put its JSON spec in the domain folder, put its adapters in `adapters/`, and export the pack from the domain's `index.ts`.
 - Register a domain: `src/packs.ts` lists every pack the CLI, the service and the benches assemble agents from.
 

@@ -67,7 +67,14 @@ export const events = {
   /** An orchestrator file was loaded (new or `replaced`); its cadence is armed unless it is disabled. */
   "orchestrator.loaded": Schema.Struct({ id: Schema.String, file: Schema.String, enabled: Schema.Boolean, replaced: Schema.Boolean }),
   /** An orchestrator file was deleted. */
-  "orchestrator.removed": Schema.Struct({ id: Schema.String, file: Schema.String })
+  "orchestrator.removed": Schema.Struct({ id: Schema.String, file: Schema.String }),
+  /**
+   * Request: run `agent`'s `job` on `input` (`Requests.ts`, for an agent without an ask pair). The service runs it;
+   * its `job.started` carries this `requestId`, so a caller finds the run and its events.
+   */
+  "run.requested": Schema.Struct({ requestId: Schema.NonEmptyString, agent: Schema.NonEmptyString, job: Schema.NonEmptyString, input: Schema.Json }),
+  /** The service could not start a `run.requested` (no such agent or job, disabled, ...). */
+  "run.rejected": Schema.Struct({ requestId: Schema.String, agent: Schema.String, error: Schema.String })
 }
 
 export const runtime = { id: RUNTIME, events } as const

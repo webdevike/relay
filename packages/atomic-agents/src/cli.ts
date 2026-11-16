@@ -14,6 +14,7 @@ import { ModelRunner } from "./core/Model.ts"
 import { Orchestrators, Reporter, Sessions } from "./core/Orchestrator.ts"
 import { type RunOptions, Runner } from "./core/Runtime.ts"
 import { RUNTIME, runtime } from "./core/RuntimeEvents.ts"
+import * as Requests from "./core/Requests.ts"
 import * as Service from "./core/Service.ts"
 import { effective, Settings } from "./core/Settings.ts"
 
@@ -236,6 +237,14 @@ const emit = Command.make("emit", {
 const TIMEOUT = /^(\d+(?:\.\d+)?)(ms|s)$/
 const decodeRequest = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))
 
+/** `2s` or `1500ms` as milliseconds; `flag` names it in the error. */
+const durationMillis = (flag: string, value: string) => {
+  const [, amount = "", unit] = TIMEOUT.exec(value) ?? []
+  return unit === undefined
+    ? Effect.fail(new Error(`${flag} ${value}: write it as 2s or 1500ms`))
+    : Effect.succeed(Number(amount) * (unit === "s" ? 1000 : 1))
+}
+
 /** Request/response: emit the component's request and print its reply, or `none` (exit 1) when none comes in time. The service answers. */
 const askCommand = Command.make("ask", {
   component: Argument.String("component"),
@@ -245,9 +254,7 @@ const askCommand = Command.make("ask", {
   const agents = yield* (yield* Agents).current
   const spec = agents.find((candidate) => candidate.id === component)
   if (spec?.asks === undefined) return yield* Effect.fail(new Error(`${component} answers no requests (have: ${agents.filter((c) => c.asks).map((c) => c.id).join(", ")})`))
-  const [, amount = "", unit] = TIMEOUT.exec(timeout) ?? []
-  if (unit === undefined) return yield* Effect.fail(new Error(`--timeout ${timeout}: write it as 2s or 1500ms`))
-  const millis = Number(amount) * (unit === "s" ? 1000 : 1)
+  const millis = yield* durationMillis("--timeout", timeout)
   const started = yield* Clock.currentTimeMillis
   const reply = yield* ask(spec, spec.asks, yield* decodeRequest(data), millis).pipe(
     Effect.tapError((error) => error._tag === "AskTimeout" ? Console.log("none") : Effect.void)
@@ -255,6 +262,39 @@ const askCommand = Command.make("ask", {
   const seconds = ((yield* Clock.currentTimeMillis) - started) / 1000
   yield* Console.log(spec.asks.show(reply.data))
   yield* Console.error(`answered in ${seconds.toFixed(2)}s: ${JSON.stringify(reply.data).slice(0, 300)}`)
+}))
+
+/** JSON on stdout for tools (the `relay` MCP server's agents_*): a refused request prints `{error, schema?}` too, then fails. */
+const printJson = <A, E extends { readonly message: string; readonly schema?: unknown }, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.tap((value) => Console.log(JSON.stringify(value))),
+    Effect.tapError((error) => Console.log(JSON.stringify({ error: error.message, ...(error.schema === undefined ? {} : { schema: error.schema }) })))
+  )
+
+/** Every agent that answers requests, as JSON: id, purpose, request and reply JSON Schema, model, typical seconds and cost. */
+const catalogCommand = Command.make("catalog", {}, () => printJson(Requests.catalog))
+
+const waitFlag = Flag.String("wait").pipe(Flag.withDescription("how long to wait for the answer before printing it as running: 40s, 0s"), Flag.withDefault("40s"))
+
+/** Send a request to any agent (its ask pair, else its job) through the service; prints the run as JSON (`running` with its run id when it outlasts --wait). */
+const requestCommand = Command.make("request", {
+  agent: Argument.String("agent"),
+  data: Argument.String("data").pipe(Argument.withDescription("the request as JSON")),
+  wait: waitFlag
+}, Effect.fnUntraced(function*({ agent, data, wait }) {
+  const millis = yield* durationMillis("--wait", wait)
+  yield* printJson(Effect.flatMap(
+    decodeRequest(data).pipe(Effect.mapError((error) => new Requests.RequestError({ message: `the request is not a JSON object: ${error.message}` }))),
+    (request) => Requests.request(agent, request, millis)
+  ))
+}))
+
+/** A run sent with `request`, as JSON; waits up to --wait for it to finish. */
+const resultCommand = Command.make("result", {
+  run: Argument.String("run"),
+  wait: waitFlag
+}, Effect.fnUntraced(function*({ run, wait }) {
+  yield* printJson(Requests.result(run, yield* durationMillis("--wait", wait)))
 }))
 
 const events = Command.make("events", {
@@ -419,7 +459,7 @@ const App = Runner.layer.pipe(
 )
 
 Command.make("atomic-agents").pipe(
-  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, events, agent, orch, serve, service]),
+  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, catalogCommand, requestCommand, resultCommand, events, agent, orch, serve, service]),
   Command.run({ version: "0.1.0" }),
   Effect.provide(App),
   BunRuntime.runMain

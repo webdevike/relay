@@ -6,7 +6,11 @@ import { type ToolMode, Trigger } from "./Component.ts"
 import { EventBus, Home, JobFailed, JobStarted, JobSucceeded, JournalError, Lifecycle, makeEvent } from "./Event.ts"
 import { runId } from "./Id.ts"
 import type { ModelRunner } from "./Model.ts"
+import { events as runtimeEvents, publishRuntime, RUNTIME } from "./RuntimeEvents.ts"
 import { effective, Settings } from "./Settings.ts"
+
+const RUN_REQUESTED = `${RUNTIME}/run.requested`
+const decodeRunRequested = Schema.decodeUnknownEffect(runtimeEvents["run.requested"])
 
 export class UnknownJob extends Schema.TaggedError<UnknownJob>()("UnknownJob", {
   message: Schema.String
@@ -26,6 +30,8 @@ export interface RunOptions {
   readonly model?: string
   /** Bake-off override; defaults to the tool mode in config.json, else the agent file's. Only for an agent with tools. */
   readonly toolMode?: ToolMode
+  /** The request this run answers (`atomic-agents/run.requested`); recorded on `job.started`. */
+  readonly requestId?: string
 }
 
 export interface RunResult {
@@ -96,7 +102,7 @@ export class Runner extends Context.Service<Runner, {
             fs.makeDirectory(dir, { recursive: true }).pipe(
               Effect.mapError((cause) => new JournalError({ message: `create ${dir}`, cause }))
             ), { discard: true })
-          yield* lifecycle(JobStarted.make({ input, model, ...modes }))
+          yield* lifecycle(JobStarted.make({ input, model, ...modes, ...(options.requestId === undefined ? {} : { requestId: options.requestId }) }))
           const outcome = yield* job.start(input, { ...envelope, runDir, stateDir, model, ...modes, agent: resolved.agent, publish }).pipe(
             Effect.provideContext(services),
             Effect.exit
@@ -135,17 +141,33 @@ export class Runner extends Context.Service<Runner, {
     const bus = yield* EventBus
     const background = yield* Background
 
-    const runLogged = (component: string, job: string, input: unknown) =>
-      runner.run(component, job, input).pipe(Effect.catchTags({
+    const runLogged = (component: string, job: string, input: unknown, options?: RunOptions) =>
+      runner.run(component, job, input, options).pipe(Effect.catchTags({
         UnknownJob: (error) => Effect.logWarning(error.message),
         ComponentDisabled: (error) => Effect.logInfo(error.message),
         NoToolMode: (error) => Effect.logWarning(error.message)
       }))
 
+    /** A caller's `run.requested`: the run carries its `requestId`; one that cannot start is a `run.rejected` the caller sees. */
+    const runRequested = (data: unknown) =>
+      decodeRunRequested(data).pipe(
+        Effect.flatMap((request) =>
+          runner.run(request.agent, request.job, request.input, { requestId: request.requestId }).pipe(
+            Effect.asVoid,
+            // A journal failure ends serve like any other; anything else means the run never started.
+            Effect.catch((error) =>
+              error._tag === "JournalError"
+                ? Effect.fail(error)
+                : publishRuntime(bus, "run.rejected", { requestId: request.requestId, agent: request.agent, error: error.message }, "runner"))
+          )),
+        Effect.catchTag("SchemaError", (error) => Effect.logWarning(`bad ${RUN_REQUESTED}: ${error.message}`))
+      )
+
     // Subscribed before the layer is up: a request emitted right after serve starts is not missed.
     yield* FiberSet.run(background, (yield* bus.listen).pipe(
       Stream.runForEach((event) =>
         Effect.gen(function*() {
+          if (event.type === RUN_REQUESTED) return yield* FiberSet.run(background, runRequested(event.data))
           const current = yield* settings.current
           for (const agent of yield* agents.current) {
             for (const job of agent.jobs) {

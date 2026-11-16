@@ -25,6 +25,32 @@ export class AskTimeout extends Schema.TaggedError<AskTimeout>()("AskTimeout", {
 const decodeCorrelated = Schema.decodeUnknownOption(Schema.Struct({ requestId: Schema.String }))
 
 /**
+ * Append `request` of `contract` with `data` plus a fresh `requestId`; answers that id. `data` must match the
+ * request schema (a `SchemaError` otherwise). The caller listens for the reply first if it waits (`ask`, `Requests.ts`).
+ */
+export const publishRequest = Effect.fn("publishRequest")(function*(
+  contract: Contract,
+  pair: Pick<Asks, "request" | "reply">,
+  data: Readonly<Record<string, unknown>>
+) {
+  const bus = yield* EventBus
+  const schema = contract.events[pair.request]
+  if (schema === undefined || contract.events[pair.reply] === undefined) {
+    return yield* Effect.die(new Error(`${contract.id} does not declare ${pair.request} and ${pair.reply}`))
+  }
+  const requestId = yield* uuid
+  const encoded = yield* Schema.encodeUnknownEffect(schema)({ ...data, requestId })
+  yield* bus.publish(yield* makeEvent({
+    type: eventType(contract, pair.request),
+    component: contract.id,
+    job: "ask",
+    run: `ask-${requestId.slice(0, 8)}`,
+    data: encoded
+  }))
+  return requestId
+})
+
+/**
  * Emit `request` of `contract` with `data` plus a fresh `requestId` and wait up to `timeout` for the `reply`
  * carrying that id. It listens before it publishes, so a fast reply cannot slip past. Answers the reply's
  * data as written in the journal (encoded); decode it with the reply's schema.
@@ -36,21 +62,9 @@ export const ask = Effect.fn("ask")(function*(
   timeout: Duration.Input
 ) {
   const bus = yield* EventBus
-  const schema = contract.events[pair.request]
-  if (schema === undefined || contract.events[pair.reply] === undefined) {
-    return yield* Effect.die(new Error(`${contract.id} does not declare ${pair.request} and ${pair.reply}`))
-  }
-  const requestId = yield* uuid
-  const encoded = yield* Schema.encodeUnknownEffect(schema)({ ...data, requestId })
   const replyType = eventType(contract, pair.reply)
   const replies = yield* bus.listen
-  yield* bus.publish(yield* makeEvent({
-    type: eventType(contract, pair.request),
-    component: contract.id,
-    job: "ask",
-    run: `ask-${requestId.slice(0, 8)}`,
-    data: encoded
-  }))
+  const requestId = yield* publishRequest(contract, pair, data)
   const reply = yield* replies.pipe(
     Stream.filter((event) => event.type === replyType && Option.exists(decodeCorrelated(event.data), (reply) => reply.requestId === requestId)),
     Stream.runHead,

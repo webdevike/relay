@@ -26,9 +26,15 @@ const encodeLine = Schema.encodeEffect(JournalLine)
  * follow any component without knowing its schemas. On the wire the `_tag` is the event name (the envelope's
  * `type` is `<component>/<_tag>`) and travels in `data` too, so `Schema.decodeUnknownEffect(Lifecycle)(event.data)` works.
  * `job.started`'s `toolMode` is the mode the run's model used its tools in; absent for an agent without tools (and in lines
- * written before tool modes).
+ * written before tool modes). Its `requestId` names the request the run answers when a caller asked for it
+ * (`atomic-agents/run.requested`, `Requests.ts`).
  */
-export const JobStarted = Schema.TaggedStruct("job.started", { input: Schema.Unknown, model: Schema.String, toolMode: Schema.optionalKey(ToolMode) })
+export const JobStarted = Schema.TaggedStruct("job.started", {
+  input: Schema.Unknown,
+  model: Schema.String,
+  toolMode: Schema.optionalKey(ToolMode),
+  requestId: Schema.optionalKey(Schema.String)
+})
 export const JobSucceeded = Schema.TaggedStruct("job.succeeded", { model: Schema.String, seconds: Schema.Number })
 export const JobFailed = Schema.TaggedStruct("job.failed", {
   model: Schema.String,
