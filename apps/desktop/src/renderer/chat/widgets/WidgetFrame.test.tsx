@@ -4,7 +4,7 @@ import { DEFAULT_THEME, MantineProvider } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { THEME_PRESETS as RELAY_THEME_PRESETS } from '@relay/widget-runtime/theme'
 import { Markdown } from '../markdown/Markdown'
-import { WidgetActions } from './actions'
+import { AssistantSend, WidgetActions } from './actions'
 import { frameThemeFor, frameUrl } from './frame-theme'
 import { MAX_FRAME_HEIGHT, WidgetFrame } from './WidgetFrame'
 import { openLink } from '../../navigation/open-link'
@@ -175,10 +175,30 @@ describe('WidgetFrame', () => {
   it("opens a page's link through the app's link handling, in a pane that cannot reply too", () => {
     show(<WidgetFrame runtime="mantine" code="<p>link</p>" height={200} />, vi.fn(), false)
     post({ type: 'open', url: 'https://example.com/deal' })
-    expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/deal')
+    expect(openLink).toHaveBeenCalledExactlyOnceWith('https://example.com/deal', { gesture: false })
     post({ type: 'open', url: 'javascript:alert(1)' }, window)
     post({ type: 'open', url: 'file:///etc/passwd' })
     expect(openLink).toHaveBeenCalledTimes(1)
+    // A link the page's own click opened may send (relay://assistant/<id>?send=).
+    post({ type: 'open', url: 'relay://assistant/penny?send=hi', gesture: true })
+    expect(openLink).toHaveBeenLastCalledWith('relay://assistant/penny?send=hi', { gesture: true })
+  })
+
+  it('sends relay.reply(text, {agent}) to that assistant, even where the pane cannot reply', () => {
+    const toAssistant = vi.fn()
+    const reply = show(
+      <AssistantSend.Provider value={toAssistant}>
+        <WidgetFrame runtime="mantine" code="<p>tile</p>" height={200} />
+      </AssistantSend.Provider>,
+      vi.fn(),
+      false,
+    )
+    post({ type: 'reply', text: 'Add lamp', agent: 'penny' })
+    expect(toAssistant).toHaveBeenCalledExactlyOnceWith('penny', 'Add lamp')
+    post({ type: 'reply', text: 'Add lamp', agent: 'Not An Id' })
+    post({ type: 'reply', text: 'to this chat' })
+    expect(toAssistant).toHaveBeenCalledTimes(1)
+    expect(reply).not.toHaveBeenCalled()
   })
 
   it('follows the theme editor and the color scheme live', () => {

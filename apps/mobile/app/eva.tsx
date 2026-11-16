@@ -133,6 +133,7 @@ import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
 import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 import { draftKey, useThreadDraft } from "@/state/drafts";
+import { placeDraft, useThreadHandoff } from "@/state/threadHandoff";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
 import { OpenAsksButton } from "@/agents/OpenAsksButton";
 import { OpenAsksSheet } from "@/agents/OpenAsksSheet";
@@ -514,6 +515,18 @@ function Thread({ agent }: { agent: string }) {
   const widgetReply = useCallback((words: string) => {
     sendTurnRef.current(words, [], false);
   }, []);
+
+  // A `relay://assistant/<id>?send=` or `?draft=` link handed this thread its text
+  // (`state/threadHandoff.ts`), taken once: a tapped `send` goes out as if typed (without touching the
+  // draft), anything else lands in the composer, unsent.
+  const handoff = useThreadHandoff((state) => state.handoffs[agent]);
+  useEffect(() => {
+    if (handoff === undefined) return;
+    const taken = useThreadHandoff.getState().take(agent);
+    if (taken === null) return;
+    if (taken.send) sendTurnRef.current(taken.text, [], false);
+    else setDraft((current) => placeDraft(current, taken.text));
+  }, [handoff, agent, setDraft]);
 
   // Image bytes are fetched against the omp session the thread runs in; empty while the agent is not running.
   const sessionId = snapshot === null || snapshot.sessionId === "" ? null : snapshot.sessionId;

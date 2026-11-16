@@ -153,6 +153,11 @@ describe('parseWidget', () => {
       'relay://assistant/Nova',
       'relay://assistant/a/b',
       'relay://assistant/nova?x=1',
+      'relay://assistant/nova?send=',
+      'relay://assistant/nova?send=%20',
+      'relay://assistant/nova?send=a&draft=b',
+      'relay://assistant/nova?draft=a&draft=b',
+      'relay://assistant/nova/x?send=a',
       'relay://reviews?item=x',
       'relay://other/nova',
       'javascript:alert(1)',
@@ -173,12 +178,24 @@ describe('parseWidget', () => {
       'relay://open/canvas?canvas=artifacts',
       'relay://open/skills?skill=canvas',
       'relay://assistant/nova',
+      `relay://assistant/penny?send=${encodeURIComponent('Add lamp to Wife list & more')}`,
+      'relay://assistant/penny?draft=Hello',
     ]
     for (const url of links) {
       const link = parseAppLink(url)
       expect(link, url).not.toBeNull()
       expect(buildAppLink(link!)).toBe(url)
     }
+    expect(parseAppLink('relay://assistant/penny?send=Add%20lamp')).toEqual({
+      kind: 'assistant',
+      id: 'penny',
+      send: 'Add lamp',
+    })
+    expect(parseAppLink('relay://assistant/penny?draft=Hi')).toEqual({
+      kind: 'assistant',
+      id: 'penny',
+      draft: 'Hi',
+    })
     expect(parseAppLink('relay://open/settings/connections?connect=github')).toEqual({
       kind: 'open',
       page: 'settings',

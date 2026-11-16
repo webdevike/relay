@@ -60,14 +60,16 @@ function widgetElement(node: WidgetSpec, names: Names, named: boolean): ElementN
   const subs = SUB_COMPONENTS[node.widget] ?? {}
   for (const [key, value] of Object.entries(node)) {
     if (key === 'widget' || value === undefined) continue
-    // A button's reply or url goes in its one action slot, below.
-    if (node.widget === 'button' && (key === 'reply' || key === 'url')) continue
+    // A button's reply, agent or url goes in its one action slot, below.
+    if (node.widget === 'button' && (key === 'reply' || key === 'agent' || key === 'url')) continue
     if (key === 'children') el.props[key] = childElements(value as WidgetSpec[], names)
     else el.props[key] = subValue(value, subs[key], names)
   }
   if (node.widget === 'button') {
     el.props['action'] =
-      node.reply !== undefined ? step('ToAssistant', node.reply) : step('OpenUrl', node.url ?? '')
+      node.reply !== undefined
+        ? step('ToAssistant', node.reply, node.agent)
+        : step('OpenUrl', node.url ?? '')
   }
   return el
 }
@@ -88,6 +90,10 @@ function subValue(value: unknown, sub: string | undefined, names: Names): unknow
   return element(sub, props)
 }
 
-function step(name: 'ToAssistant' | 'OpenUrl', arg: string): ASTNode {
-  return { k: 'Comp', name, args: [{ k: 'Str', v: arg }] }
+function step(name: 'ToAssistant' | 'OpenUrl', ...args: (string | undefined)[]): ASTNode {
+  return {
+    k: 'Comp',
+    name,
+    args: args.flatMap((v) => (v === undefined ? [] : [{ k: 'Str' as const, v }])),
+  }
 }

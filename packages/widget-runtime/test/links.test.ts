@@ -22,7 +22,8 @@ const THEME: FrameTheme = {
 };
 
 /** Messages the page posts to the phone web view. */
-const posts: { type: string; url?: string }[] = [];
+const posts: { type: string; url?: string; gesture?: boolean; text?: string; agent?: string }[] =
+  [];
 
 beforeAll(() => {
   Object.assign(window, {
@@ -43,6 +44,7 @@ beforeEach(() => {
 });
 
 const opened = () => posts.filter((p) => p.type === "open");
+const replies = () => posts.filter((p) => p.type === "reply");
 
 function click(html: string, id: string): MouseEvent {
   document.body.innerHTML = html;
@@ -58,7 +60,10 @@ describe("link clicks in a widget page", () => {
       "in",
     );
     expect(event.defaultPrevented).toBe(true);
-    expect(opened()).toEqual([{ type: "open", url: "https://example.com/deal?x=1" }]);
+    // A click a script dispatched is no user gesture.
+    expect(opened()).toEqual([
+      { type: "open", url: "https://example.com/deal?x=1", gesture: false },
+    ]);
   });
 
   it("send relay:// links and drop every other scheme, without navigating", () => {
@@ -66,7 +71,7 @@ describe("link clicks in a widget page", () => {
     for (const href of hrefs) {
       expect(click(`<a id="l" href="${href}">l</a>`, "l").defaultPrevented).toBe(true);
     }
-    expect(opened()).toEqual([{ type: "open", url: "relay://open/boards" }]);
+    expect(opened()).toEqual([{ type: "open", url: "relay://open/boards", gesture: false }]);
   });
 
   it("go through relay.open and window.open, http(s) and relay:// only", () => {
@@ -75,9 +80,26 @@ describe("link clicks in a widget page", () => {
     expect(window.open("http://example.com/b")).toBeNull();
     expect(window.open("data:text/html,x")).toBeNull();
     expect(opened()).toEqual([
-      { type: "open", url: "https://example.com/a" },
-      { type: "open", url: "http://example.com/b" },
+      { type: "open", url: "https://example.com/a", gesture: true },
+      { type: "open", url: "http://example.com/b", gesture: true },
     ]);
+  });
+});
+
+describe("relay.reply", () => {
+  it("sends to this chat, or to the assistant named by agent", () => {
+    expect(relay.reply("add it")).toBe(true);
+    expect(relay.reply("add it", { agent: "penny" })).toBe(true);
+    expect(replies()).toEqual([
+      { type: "reply", text: "add it" },
+      { type: "reply", text: "add it", agent: "penny" },
+    ]);
+  });
+
+  it("refuses a malformed agent instead of sending to this chat", () => {
+    expect(relay.reply("add it", { agent: "Penny!" })).toBe(false);
+    expect(relay.reply("add it", { agent: 7 })).toBe(false);
+    expect(replies()).toEqual([]);
   });
 });
 
@@ -86,6 +108,14 @@ describe("parseFrameMessage open", () => {
     expect(parseFrameMessage('{"type":"open","url":"https://x.test/a"}')).toEqual({
       type: "open",
       url: "https://x.test/a",
+      gesture: false,
+    });
+    expect(
+      parseFrameMessage('{"type":"open","url":"relay://assistant/penny?send=hi","gesture":true}'),
+    ).toEqual({
+      type: "open",
+      url: "relay://assistant/penny?send=hi",
+      gesture: true,
     });
     expect(parseFrameMessage('{"type":"open","url":"relay://open/boards"}')).not.toBeNull();
     expect(parseFrameMessage('{"type":"open","url":"javascript:alert(1)"}')).toBeNull();
@@ -94,4 +124,22 @@ describe("parseFrameMessage open", () => {
   });
 });
 
-declare const relay: { open(url: string): boolean };
+describe("parseFrameMessage reply", () => {
+  it("keeps a valid agent and drops a reply with a malformed one", () => {
+    expect(parseFrameMessage('{"type":"reply","text":"hi","agent":"penny"}')).toEqual({
+      type: "reply",
+      text: "hi",
+      agent: "penny",
+    });
+    expect(parseFrameMessage('{"type":"reply","text":"hi"}')).toEqual({
+      type: "reply",
+      text: "hi",
+    });
+    expect(parseFrameMessage('{"type":"reply","text":"hi","agent":"../x"}')).toBeNull();
+  });
+});
+
+declare const relay: {
+  open(url: string): boolean;
+  reply(text: string, options?: { agent?: unknown }): boolean;
+};

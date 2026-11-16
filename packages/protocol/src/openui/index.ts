@@ -7,7 +7,7 @@
 export { parseOpenUI } from "./parse";
 export type { OpenUIError, OpenUIErrorCode, ParseOpenUIOptions, ParseOpenUIResult } from "./parse";
 export { createOpenUIRuntime } from "./runtime";
-export type { OpenUIRuntime, OpenUIRuntimeOptions } from "./runtime";
+export type { OpenUIDispatch, OpenUIRuntime, OpenUIRuntimeOptions } from "./runtime";
 export { MAX_REFRESH_SEC, MIN_REFRESH_SEC } from "./queries";
 export type { OpenUIQueryClient } from "./queries";
 export { checkLiveOpenUI, MAX_LIVE_OPENUI, renderLiveOpenUI } from "./live";

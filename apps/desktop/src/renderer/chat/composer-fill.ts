@@ -3,7 +3,8 @@ import type { ReadImage } from './composer/image-input'
 
 /**
  * What another surface puts into a composer for Isaac to read and send himself: text for a pane
- * (the context popover's Commit & push), images for a chat by its session file (Studio's Send to
+ * (the context popover's Commit & push) or for an assistant's thread under `assistant:<id>`
+ * (a relay://assistant/<id>?draft= link), images for a chat by its session file (Studio's Send to
  * chat; '' is a new chat). The composer takes each once and clears it; it never sends.
  */
 export const composerFillStore = createStore<{

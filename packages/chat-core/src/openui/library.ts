@@ -274,7 +274,7 @@ const WIDGET_DEFS: Record<WidgetKind, [props: z.ZodObject, description: string]>
       variant: z.enum(['primary', 'secondary', 'subtle']).optional(),
       tone: tone.optional(),
     }),
-    'A tappable action. action: @ToAssistant("text") sends text as Isaac\'s next turn in this session; @OpenUrl("https://...") opens a link (url is the same as @OpenUrl); @Set/@Reset change $variables on the device, no turn sent. With no action, tapping sends the label. variant defaults to secondary. Put several in a horizontal Stack.',
+    'A tappable action. action: @ToAssistant("text") sends text as Isaac\'s next turn in this session; @ToAssistant("text", "<assistant id>") sends it as his turn in that assistant\'s thread instead (works on dashboards too); @OpenUrl("https://...") opens a link (url is the same as @OpenUrl); @Set/@Reset change $variables on the device, no turn sent. With no action, tapping sends the label. variant defaults to secondary. Put several in a horizontal Stack.',
   ],
   link: [
     z.object({ label: z.string(), url: z.string() }),
@@ -474,7 +474,9 @@ export const relayLibrary = createLibrary({
     {
       name: 'Actions',
       components: ['Button', 'Link', 'Input'],
-      notes: ['- Buttons and inputs are disabled where there is no session (dashboards).'],
+      notes: [
+        '- Buttons and inputs are disabled where there is no session (dashboards), except @ToAssistant("text", "<assistant id>") buttons.',
+      ],
     },
     {
       name: 'Data',

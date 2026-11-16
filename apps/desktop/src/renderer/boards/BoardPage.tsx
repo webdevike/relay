@@ -1,9 +1,10 @@
 import { Badge, Tabs } from '@mantine/core'
 import { useElementSize } from '@mantine/hooks'
-import { useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { BoardWidget } from '@evaos/contract'
 import type { Place } from '@evaos/shell-core'
-import { OpenUIQuery } from '../chat/widgets/actions'
+import { assistantTitle, sendToAssistant } from '../assistants/assistant-send'
+import { AssistantSend, OpenUIQuery } from '../chat/widgets/actions'
 import { OpenUIBlock, WidgetBlock } from '../chat/widgets/Widget'
 import { WidgetFrame } from '../chat/widgets/WidgetFrame'
 import { boardOf, boardSlugOf, useBoards } from './boards-store'
@@ -26,16 +27,37 @@ export function updatedLabel(stamp: string): string {
   })
 }
 
+/** How long a tile says it sent (or why not) before the line goes again. */
+const SENT_MS = 3000
+const NOT_SENT_MS = 6000
+
 /**
  * One tile. A Mantine tile runs its JSX in the chat's sandboxed widget page, the tile's width and
  * its `height` (else its content's). A live tile (its `openui` source, on a host that answers
  * queries) runs its Query statements while on screen, refreshing on their own intervals; otherwise
  * the spec draws like a ```ui fence (for a live tile, the host's render of it at write time). A
- * tile that doesn't parse shows its source in place.
+ * tile that doesn't parse shows its source in place. A button with an assistant id (or the page's
+ * `relay.reply(text, {agent})`) sends to that assistant's thread on a click, and the tile says
+ * quietly under itself that it went ("Sent to Penny") or why not.
  */
 function Tile({ widget, stacked, live }: { widget: BoardWidget; stacked: boolean; live: boolean }) {
   const json = useMemo(() => JSON.stringify(widget.spec), [widget.spec])
   const openui = live ? widget.openui : undefined
+  const [sent, setSent] = useState<{ ok: boolean; text: string } | null>(null)
+  const toAssistant = useCallback((agent: string, text: string) => {
+    void sendToAssistant(agent, text).then((failed) =>
+      setSent(
+        failed === null
+          ? { ok: true, text: `Sent to ${assistantTitle(agent)}` }
+          : { ok: false, text: `Not sent: ${failed}` },
+      ),
+    )
+  }, [])
+  useEffect(() => {
+    if (sent === null) return
+    const t = window.setTimeout(() => setSent(null), sent.ok ? SENT_MS : NOT_SENT_MS)
+    return () => window.clearTimeout(t)
+  }, [sent])
   let body: ReactNode
   if (widget.mantine !== undefined)
     body = <WidgetFrame runtime="mantine" code={widget.mantine} height={widget.height} />
@@ -49,7 +71,17 @@ function Tile({ widget, stacked, live }: { widget: BoardWidget; stacked: boolean
       data-mantine={widget.mantine !== undefined || undefined}
       style={{ gridColumn: `span ${stacked ? 12 : widget.span}` }}
     >
-      {body}
+      <AssistantSend.Provider value={toAssistant}>{body}</AssistantSend.Provider>
+      {sent !== null ? (
+        <p
+          className="eva-board-tile-sent"
+          data-testid="board-tile-sent"
+          data-ok={sent.ok}
+          role="status"
+        >
+          {sent.text}
+        </p>
+      ) : null}
     </div>
   )
 }

@@ -1,5 +1,7 @@
 import { createContext, useContext } from 'react'
+import { notifications } from '@mantine/notifications'
 import type { OpenUIQueryClient, OpenUIRuntime } from '@evaos/chat-core/openui'
+import { assistantTitle, sendToAssistant } from '../../assistants/assistant-send'
 
 /** What a widget's reply button or field can do: send text as Isaac's next turn to the chat. */
 export interface WidgetActionsValue {
@@ -17,6 +19,22 @@ export const WidgetActions = createContext<WidgetActionsValue>({
 export function useWidgetActions(): WidgetActionsValue {
   return useContext(WidgetActions)
 }
+
+/**
+ * Sends a widget's text as Isaac's turn in assistant `agent`'s thread: a button with an assistant
+ * id (`@ToAssistant("text", "penny")`, `{reply, agent}`) or a page's `relay.reply(text, {agent})`.
+ * Works with or without a session in the pane. Called only from a click. A dashboard tile shows
+ * the outcome on itself; elsewhere a quiet notification does.
+ */
+export const AssistantSend = createContext<(agent: string, text: string) => void>((agent, text) => {
+  void sendToAssistant(agent, text).then((failed) =>
+    notifications.show(
+      failed === null
+        ? { message: `Sent to ${assistantTitle(agent)}`, autoClose: 2500 }
+        : { message: failed, color: 'red', autoClose: 6000 },
+    ),
+  )
+})
 
 /** The live runtime of the ```openui block a button or field sits in: buttons with an `action` id
  * dispatch to it and fields with a `bind` id write to it. Null outside an OpenUI block. */

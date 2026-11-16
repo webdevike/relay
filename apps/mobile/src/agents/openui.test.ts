@@ -32,7 +32,10 @@ function renderedText(runtime: OpenUIRuntime): string[] {
 }
 
 /** Taps the button labelled `label` in the current tree, as ButtonWidget does. */
-function tap(runtime: OpenUIRuntime, label: string): { reply?: string; url?: string } {
+function tap(
+  runtime: OpenUIRuntime,
+  label: string,
+): { reply?: string; agent?: string; url?: string } {
   const button = nodes(runtime.snapshot().node).find(
     (n): n is ButtonSpec => n.widget === "button" && n.label === label,
   );
@@ -223,6 +226,22 @@ describe("interactive openui widgets", () => {
     expect(
       pressButton({ widget: "button", label: "Go", reply: "go", variant: "primary" }, null),
     ).toEqual({ reply: "go" });
+  });
+
+  it("hands back the assistant a two-argument @ToAssistant names", () => {
+    const runtime = syncOpenUIRuntime(
+      null,
+      'root = Stack([Button("Lamp", @ToAssistant("Add the lamp", "penny")), Button("Yes", @ToAssistant("yes"))])',
+      false,
+    );
+    expect(tap(runtime, "Lamp")).toEqual({ reply: "Add the lamp", agent: "penny" });
+    expect(tap(runtime, "Yes")).toEqual({ reply: "yes" });
+    expect(
+      pressButton(
+        { widget: "button", label: "Go", reply: "go", agent: "penny", variant: "primary" },
+        null,
+      ),
+    ).toEqual({ reply: "go", agent: "penny" });
   });
 
   it("shows a bound input's text from the runtime and lets other widgets read it", () => {

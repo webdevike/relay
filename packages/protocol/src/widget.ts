@@ -180,16 +180,25 @@ export const APP_LINK_PARAMS = [
 ] as const;
 export type AppLinkParam = (typeof APP_LINK_PARAMS)[number];
 
+/** Query keys a `relay://assistant/<id>` link may carry, at most one: `send` posts the text as
+ * Isaac's turn in that thread (only when his tap opened the link; otherwise it lands as a draft),
+ * `draft` puts it in the thread's composer without sending. */
+export const ASSISTANT_LINK_PARAMS = ["send", "draft"] as const;
+export type AssistantLinkParam = (typeof ASSISTANT_LINK_PARAMS)[number];
+
 /** An in-app destination a widget or a chat message can link to: `relay://assistant/<id>` opens
- * that assistant's thread, `relay://open/<page>[/<sub>][?<param>=<value>&...]` a page, its part
+ * that assistant's thread (`?send=<text>` or `?draft=<text>` also hands it Isaac's words),
+ * `relay://open/<page>[/<sub>][?<param>=<value>&...]` a page, its part
  * (`settings/connections`, `workspace/<slug>`) and what to show in it (`?item=<review url>`,
  * `?connect=github`). The app resolves it; nothing leaves the app. Same grammar as
  * @evaos/chat-core's `parseAppLink`. */
 export type AppLink =
-  | { kind: "assistant"; id: string }
+  | { kind: "assistant"; id: string; send?: string; draft?: string }
   | { kind: "open"; page: string; sub?: string; params?: Partial<Record<AppLinkParam, string>> };
 
 const LINK_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+/** An assistant registry id, as the host's `assistant.turn` takes it. */
+const AssistantId = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/);
 const LINK_SUB = /^[a-z0-9][a-z0-9._-]{0,199}$/;
 /** Slips an agent makes in the page name, read as the page it meant (`relay://open/setting`). */
 const PAGE_ALIASES: Readonly<Record<string, string>> = { setting: "settings" };
@@ -217,6 +226,22 @@ function parseLinkQuery(query: string): Partial<Record<AppLinkParam, string>> | 
   return out;
 }
 
+/** The one `send` or `draft` of an assistant link's query; null for anything else. */
+function parseAssistantQuery(query: string): { send: string } | { draft: string } | null {
+  const eq = query.indexOf("=");
+  const key = query.slice(0, eq);
+  const known = (ASSISTANT_LINK_PARAMS as readonly string[]).includes(key);
+  if (eq <= 0 || query.includes("&") || !known) return null;
+  let value: string;
+  try {
+    value = decodeURIComponent(query.slice(eq + 1));
+  } catch {
+    return null;
+  }
+  if (value.trim() === "" || value.length > MAX_LINK_VALUE) return null;
+  return key === "send" ? { send: value } : { draft: value };
+}
+
 /** Parses a `relay://assistant/<id>` or `relay://open/...` URL; null for anything else. */
 export function parseAppLink(url: string): AppLink | null {
   if (url.length > MAX_APP_LINK || !url.startsWith("relay://")) return null;
@@ -225,7 +250,12 @@ export function parseAppLink(url: string): AppLink | null {
   const path = q < 0 ? rest : rest.slice(0, q);
   const [kind, name, sub, ...more] = path.split("/");
   if (more.length > 0 || name === undefined || !LINK_NAME.test(name)) return null;
-  if (kind === "assistant") return sub === undefined && q < 0 ? { kind, id: name } : null;
+  if (kind === "assistant") {
+    if (sub !== undefined) return null;
+    if (q < 0) return { kind, id: name };
+    const words = parseAssistantQuery(rest.slice(q + 1));
+    return words === null ? null : { kind, id: name, ...words };
+  }
   if (kind !== "open" || (sub !== undefined && !LINK_SUB.test(sub))) return null;
   const params = q < 0 ? undefined : parseLinkQuery(rest.slice(q + 1));
   if (params === null) return null;
@@ -239,7 +269,15 @@ export function parseAppLink(url: string): AppLink | null {
 
 /** The canonical URL of `link` (params in APP_LINK_PARAMS order); parseAppLink reads it back. */
 export function buildAppLink(link: AppLink): string {
-  if (link.kind === "assistant") return `relay://assistant/${link.id}`;
+  if (link.kind === "assistant") {
+    const words =
+      link.send !== undefined
+        ? `?send=${encodeURIComponent(link.send)}`
+        : link.draft !== undefined
+          ? `?draft=${encodeURIComponent(link.draft)}`
+          : "";
+    return `relay://assistant/${link.id}${words}`;
+  }
   const query = APP_LINK_PARAMS.flatMap((k) => {
     const v = link.params?.[k];
     return v === undefined ? [] : [`${k}=${encodeURIComponent(v)}`];
@@ -378,15 +416,17 @@ const Pr = z.object({
     .optional(),
 });
 
-/** A tappable action: `url` opens externally, `reply` sends text as the session's next turn, and
- * `action` (OpenUI runtime widgets only) is an opaque id the renderer passes to
- * `OpenUIRuntime.dispatch` instead. Exactly one of the three (enforced in `finish`); an unknown
- * variant degrades to secondary. */
+/** A tappable action: `url` opens externally, `reply` sends text as the session's next turn (or,
+ * with `agent`, as Isaac's turn in that assistant's thread, which also works where there is no
+ * session, like a dashboard), and `action` (OpenUI runtime widgets only) is an opaque id the
+ * renderer passes to `OpenUIRuntime.dispatch` instead. Exactly one of the three (enforced in
+ * `finish`); an unknown variant degrades to secondary. */
 const Button = z.object({
   widget: z.literal("button"),
   label: NonEmpty,
   url: LinkUrl.optional(),
   reply: NonEmpty.optional(),
+  agent: AssistantId.optional(),
   action: NonEmpty.optional(),
   variant: z.enum(["primary", "secondary", "subtle"]).catch("secondary"),
   tone: Tone,
@@ -713,6 +753,8 @@ function finish(node: WidgetSpec, ctx: z.RefinementCtx): WidgetSpec {
     [node.url, node.reply, node.action].filter((v) => v !== undefined).length !== 1
   )
     return reject("a button needs exactly one of url, reply or action");
+  if (node.widget === "button" && node.agent !== undefined && node.reply === undefined)
+    return reject("a button's agent goes with its reply");
   if (node.widget === "table" && node.rows.some((row) => row.length !== node.columns.length))
     return reject("every table row needs one cell per column");
   if (node.widget === "progress")

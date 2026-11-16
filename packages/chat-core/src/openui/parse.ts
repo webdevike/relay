@@ -356,8 +356,9 @@ function uniqueId(id: string, taken: ReadonlyMap<string, unknown>): string {
 }
 
 /** A button's action, evaluated now. With a local step (@Set, @Reset, @Run) it becomes an `action` id
- * the renderer dispatches to the runtime; otherwise its first @ToAssistant is `reply` and @OpenUrl
- * `url`, as static widgets have. A button with no action sends its label, as the prompt promises. */
+ * the renderer dispatches to the runtime; otherwise its first @ToAssistant is `reply` (and its
+ * assistant id `agent`) and @OpenUrl `url`, as static widgets have. A button with no action sends
+ * its label, as the prompt promises. */
 function buttonAction(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: string): void {
   const raw = el.props['action']
   if (raw === null || raw === undefined) {
@@ -393,8 +394,10 @@ function buttonAction(out: Record<string, Json>, el: ElementNode, ctx: Ctx, id: 
   }
   const step = plan.steps.find((s) => s.type === 'continue_conversation' || s.type === 'open_url')
   if (step?.type === 'open_url') out['url'] = step.url
-  else if (step?.type === 'continue_conversation') out['reply'] = step.message
-  else
+  else if (step?.type === 'continue_conversation') {
+    out['reply'] = step.message
+    if (step.agent !== undefined) out['agent'] = step.agent
+  } else
     error(
       'unsupported-expression',
       'Relay buttons run @ToAssistant, @OpenUrl, @Set, @Reset and @Run(query) only',

@@ -293,17 +293,19 @@ export function Composer({
     [],
   )
 
-  // Text another surface queued for this pane (Commit & push): appended for Isaac to send.
+  // Text another surface queued for this pane (Commit & push), or for the assistant thread it shows
+  // (a relay://assistant/<id>?draft= link): appended for Isaac to send.
   useEffect(() => {
     const take = (): void => {
-      const fill = takeComposerFill(paneId)
+      const fill =
+        takeComposerFill(paneId) ?? (agent === null ? null : takeComposerFill(`assistant:${agent}`))
       if (fill === null) return
       setText((cur) => (cur.trim() === '' ? fill : `${cur.trimEnd()}\n\n${fill}`))
       input.current?.focus()
     }
     take()
     return composerFillStore.subscribe(take)
-  }, [paneId])
+  }, [paneId, agent])
 
   // Images another surface queued for the chat this pane shows (Studio's Send to chat).
   const paneFile = useChatStore((s) => s.panes[paneId]?.file ?? null)

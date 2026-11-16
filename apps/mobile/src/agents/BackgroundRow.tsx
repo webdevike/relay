@@ -157,7 +157,7 @@ function ItemLine({ item, first }: { item: HeartbeatItem; first: boolean }) {
           accessibilityLabel={`Open ${item.title}`}
           hitSlop={8}
           onPress={() => {
-            openChatLink(link);
+            openChatLink(link, true);
           }}
         >
           <Text variant="label" color="accent">

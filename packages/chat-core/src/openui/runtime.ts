@@ -18,12 +18,21 @@ export interface OpenUIRuntimeOptions extends ParseOpenUIOptions {
   query?: OpenUIQueryClient | null
 }
 
+/** What a dispatched button hands back for the host to do. */
+export interface OpenUIDispatch {
+  reply?: string
+  /** The assistant whose thread `reply` goes to, instead of this chat. */
+  agent?: string
+  url?: string
+}
+
 export interface OpenUIRuntime {
   /** The tree evaluated against the current state and query data; the same object until either changes. */
   snapshot(): ParseOpenUIResult
   /** Runs a button's `action`: local steps in order, then returns the first external step for the
-   * host to perform (`reply` sends text as the next turn, `url` opens a link). Unknown ids: `{}`. */
-  dispatch(actionId: string, input?: { value?: string }): { reply?: string; url?: string }
+   * host to perform (`reply` sends text as the next turn, to assistant `agent`'s thread when set;
+   * `url` opens a link). Unknown ids: `{}`. */
+  dispatch(actionId: string, input?: { value?: string }): OpenUIDispatch
   /** Writes an Input's typed text to the `$variable` behind its `bind` id. */
   setInput(bindingId: string, value: string): void
   /** Called after every state, data or text change; returns the unsubscribe. Queries fetch and
@@ -88,7 +97,7 @@ export function createOpenUIRuntime(text: string, opts: OpenUIRuntimeOptions = {
     dispatch(actionId, input = {}) {
       const sources = current().actions.get(actionId)
       if (!sources) return {}
-      const out: { reply?: string; url?: string } = {}
+      const out: OpenUIDispatch = {}
       const ctx: EvaluationContext = {
         getState,
         resolveRef: (name) => queries.value(name),
@@ -107,8 +116,12 @@ export function createOpenUIRuntime(text: string, opts: OpenUIRuntimeOptions = {
               for (const target of step.targets)
                 store.set(target, defaults()[target] ?? null, { pristine: true })
             else if (step.type === 'run') queries.refetch(step.statementId)
-            else if (step.type === 'continue_conversation') out.reply ??= step.message
-            else if (step.type === 'open_url') out.url ??= step.url
+            else if (step.type === 'continue_conversation') {
+              if (out.reply === undefined) {
+                out.reply = step.message
+                if (step.agent !== undefined) out.agent = step.agent
+              }
+            } else if (step.type === 'open_url') out.url ??= step.url
           }
         }
       } finally {

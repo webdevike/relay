@@ -401,7 +401,7 @@ function Inlines({
               href === undefined
                 ? undefined
                 : () => {
-                    openChatLink(href);
+                    openChatLink(href, true);
                   }
             }
           >

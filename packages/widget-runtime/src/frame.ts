@@ -2,8 +2,9 @@
  * The pages agent-made widgets run in, shared by the phone (`react-native-webview`) and the desktop
  * (sandboxed `<iframe srcdoc>`). Both are locked down: no network (a Mantine page may show https
  * images), no navigation, no zoom, no callouts, transparent so they sit on the chat. Each page gets
- * `window.relay` = `{ theme, colorScheme, reply(text) }` and posts JSON messages to its host: its
- * content height whenever it changes, and `relay.reply` text (only during a user gesture).
+ * `window.relay` = `{ theme, colorScheme, reply(text, {agent}?), open(url) }` and posts JSON
+ * messages to its host: its content height whenever it changes, and `relay.reply` text (only during
+ * a user gesture), to assistant `agent`'s thread when given.
  *
  * - ```html-widget: `htmlFrameDocument`, the agent's HTML fragment with the host palette as CSS
  *   variables (`--fg`, `--muted`, `--accent`, ...).
@@ -38,10 +39,15 @@ export interface FrameTheme {
 export type FrameMessage =
   /** The content height in CSS pixels, sent on load and whenever it changes. */
   | { type: "height"; height: number }
-  /** `relay.reply(text)` from a user gesture: send `text` as the next message. */
-  | { type: "reply"; text: string }
-  /** A clicked link, `window.open` or `relay.open(url)`: open `url` outside the frame. */
-  | { type: "open"; url: string };
+  /** `relay.reply(text)` from a user gesture: send `text` as the next message; with `agent`
+   * (`relay.reply(text, {agent: "penny"})`), as Isaac's turn in that assistant's thread. */
+  | { type: "reply"; text: string; agent?: string }
+  /** A clicked link, `window.open` or `relay.open(url)`: open `url` outside the frame. `gesture`
+   * is true when a user gesture opened it; a `relay://assistant/<id>?send=` link sends only then. */
+  | { type: "open"; url: string; gesture: boolean };
+
+/** An assistant registry id (`relay.reply`'s `agent`). */
+const AGENT_ID = /^[a-z][a-z0-9-]{0,63}$/;
 
 /** The only links a widget may open: web pages and in-app `relay://` addresses. */
 const OPENABLE_URL = /^(https?|relay):\/\/./i;
@@ -113,8 +119,9 @@ code, pre, kbd, samp { font-family: var(--mono); }`;
 
 /**
  * The bridge runs before the agent's code. `relay.reply` only sends during a user gesture, so a
- * widget that calls it on load cannot send a message every time the transcript is shown. Messages
- * go to `ReactNativeWebView` on the phone and to the parent window (as a JSON string) on desktop.
+ * widget that calls it on load cannot send a message every time the transcript is shown; every
+ * `open` says whether a gesture opened it. Messages go to `ReactNativeWebView` on the phone and to
+ * the parent window (as a JSON string) on desktop.
  */
 export function bridgeScript(theme: FrameTheme | null, dark: boolean): string {
   return `(function () {
@@ -127,23 +134,29 @@ export function bridgeScript(theme: FrameTheme | null, dark: boolean): string {
   window.relay = Object.freeze({
     theme: theme && Object.freeze(theme),
     colorScheme: ${scriptJson(dark ? "dark" : "light")},
-    reply: function (text) {
+    reply: function (text, options) {
       if (typeof text !== "string" || text.trim() === "") return false;
-      if (navigator.userActivation && !navigator.userActivation.isActive) return false;
-      post({ type: "reply", text: text });
+      var agent = options && typeof options === "object" ? options.agent : undefined;
+      if (agent !== undefined && (typeof agent !== "string" || !${AGENT_ID}.test(agent))) return false;
+      if (!gesture()) return false;
+      post(agent === undefined ? { type: "reply", text: text } : { type: "reply", text: text, agent: agent });
       return true;
     },
     open: function (url) {
-      return openUrl(url, true);
+      return openUrl(url, true, true);
     },
   });
-  function openUrl(url, needGesture) {
+  function gesture() {
+    return !navigator.userActivation || navigator.userActivation.isActive;
+  }
+  function openUrl(url, needGesture, trusted) {
     if (typeof url !== "string") return false;
     var abs;
     try { abs = new URL(url, document.baseURI).href; } catch (e) { return false; }
     if (!/^(https?|relay):[/][/]./i.test(abs)) return false;
-    if (needGesture && navigator.userActivation && !navigator.userActivation.isActive) return false;
-    post({ type: "open", url: abs });
+    var active = trusted && gesture();
+    if (needGesture && !active) return false;
+    post({ type: "open", url: abs, gesture: active });
     return true;
   }
   // The frame never navigates: every link click and window.open goes to the host instead.
@@ -156,14 +169,14 @@ export function bridgeScript(theme: FrameTheme | null, dark: boolean): string {
     if (!link) return;
     event.preventDefault();
     var href = link.getAttribute("href");
-    if (href.charAt(0) !== "#") openUrl(href, false);
+    if (href.charAt(0) !== "#") openUrl(href, false, event.isTrusted);
   }, true);
   document.addEventListener("auxclick", function (event) {
     if (linkOf(event)) event.preventDefault();
   }, true);
   document.addEventListener("submit", function (event) { event.preventDefault(); }, true);
   window.open = function (url) {
-    openUrl(String(url), true);
+    openUrl(String(url), true, true);
     return null;
   };
   var last = -1;
@@ -258,11 +271,18 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
   }
   if (message["type"] === "reply") {
     const text = message["text"];
-    return typeof text === "string" && text.trim() !== "" ? { type: "reply", text } : null;
+    const agent = message["agent"];
+    if (typeof text !== "string" || text.trim() === "") return null;
+    if (agent === undefined) return { type: "reply", text };
+    return typeof agent === "string" && AGENT_ID.test(agent)
+      ? { type: "reply", text, agent }
+      : null;
   }
   if (message["type"] === "open") {
     const url = message["url"];
-    return typeof url === "string" && OPENABLE_URL.test(url) ? { type: "open", url } : null;
+    return typeof url === "string" && OPENABLE_URL.test(url)
+      ? { type: "open", url, gesture: message["gesture"] === true }
+      : null;
   }
   return null;
 }

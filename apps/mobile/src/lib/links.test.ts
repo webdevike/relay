@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { openChatLink, openWidgetUrl } from "./links";
 import { useLinkNotice } from "@/state/linkNotice";
+import { useThreadHandoff } from "@/state/threadHandoff";
 
 const { openURL, push, navigate } = vi.hoisted(() => ({
   openURL: vi.fn((_url: string) => Promise.resolve()),
@@ -15,6 +16,7 @@ beforeEach(() => {
   openURL.mockClear();
   push.mockClear();
   navigate.mockClear();
+  useThreadHandoff.setState({ handoffs: {} });
 });
 
 describe("openChatLink", () => {
@@ -24,7 +26,7 @@ describe("openChatLink", () => {
       "https://linear.app/ecard/issue/ENG-6693",
       "https://ecard.slack.com/archives/C0123ABC/p1730000000123456",
     ];
-    for (const url of urls) openChatLink(url);
+    for (const url of urls) openChatLink(url, true);
     expect(push.mock.calls.map((c) => c[0])).toEqual(
       urls.map((url) => `/reviews?item=${encodeURIComponent(url)}`),
     );
@@ -32,13 +34,62 @@ describe("openChatLink", () => {
   });
 
   it("leaves the app for any other link", () => {
-    openChatLink("https://example.com/post");
-    openChatLink("https://github.com/eCardSystems/api/issues/3");
+    openChatLink("https://example.com/post", true);
+    openChatLink("https://github.com/eCardSystems/api/issues/3", true);
     expect(openURL.mock.calls.map((c) => c[0])).toEqual([
       "https://example.com/post",
       "https://github.com/eCardSystems/api/issues/3",
     ]);
     expect(push).not.toHaveBeenCalled();
+  });
+});
+
+describe("assistant links with text", () => {
+  const thread = { pathname: "/eva", params: { agent: "penny" } };
+
+  it("hands a tapped ?send= to the thread to send, never through the route", () => {
+    openChatLink("relay://assistant/penny?send=Add%20the%20lamp", true);
+    expect(navigate).toHaveBeenLastCalledWith(thread);
+    expect(useThreadHandoff.getState().take("penny")).toEqual({
+      agent: "penny",
+      text: "Add the lamp",
+      send: true,
+    });
+    // Taken once.
+    expect(useThreadHandoff.getState().take("penny")).toBeNull();
+    openWidgetUrl("relay://assistant/penny?send=again");
+    expect(useThreadHandoff.getState().take("penny")).toEqual({
+      agent: "penny",
+      text: "again",
+      send: true,
+    });
+  });
+
+  it("makes ?send= a draft when no tap opened it (a widget page opening it on its own)", () => {
+    openChatLink("relay://assistant/penny?send=Add%20the%20lamp", false);
+    expect(navigate).toHaveBeenLastCalledWith(thread);
+    expect(useThreadHandoff.getState().take("penny")).toEqual({
+      agent: "penny",
+      text: "Add the lamp",
+      send: false,
+    });
+  });
+
+  it("never sends a ?draft=, tapped or not", () => {
+    openChatLink("relay://assistant/penny?draft=Add%20the%20lamp", true);
+    expect(useThreadHandoff.getState().take("penny")).toEqual({
+      agent: "penny",
+      text: "Add the lamp",
+      send: false,
+    });
+    openWidgetUrl("relay://assistant/penny?draft=hi");
+    expect(useThreadHandoff.getState().take("penny")?.send).toBe(false);
+  });
+
+  it("hands nothing for a bare assistant link", () => {
+    openChatLink("relay://assistant/penny", true);
+    expect(navigate).toHaveBeenLastCalledWith(thread);
+    expect(useThreadHandoff.getState().handoffs).toEqual({});
   });
 });
 
@@ -48,7 +99,7 @@ describe("openWidgetUrl", () => {
     expect(navigate).toHaveBeenLastCalledWith({ pathname: "/eva", params: { agent: "nova" } });
     openWidgetUrl("relay://open/settings");
     expect(navigate).toHaveBeenLastCalledWith("/settings");
-    openChatLink("relay://assistant/astra");
+    openChatLink("relay://assistant/astra", true);
     expect(navigate).toHaveBeenLastCalledWith({ pathname: "/eva", params: { agent: "astra" } });
     openWidgetUrl("relay://open/jobs");
     expect(navigate).toHaveBeenLastCalledWith("/");
@@ -57,33 +108,33 @@ describe("openWidgetUrl", () => {
   });
 
   it("follows a deep link's section and Reviews item, and opens Home with a notice for pages the phone lacks", () => {
-    openChatLink("relay://open/settings/connections?connect=github");
+    openChatLink("relay://open/settings/connections?connect=github", true);
     expect(navigate).toHaveBeenLastCalledWith("/settings");
     const item = "https://github.com/o/r/pull/12";
-    openChatLink(`relay://open/reviews?item=${encodeURIComponent(item)}`);
+    openChatLink(`relay://open/reviews?item=${encodeURIComponent(item)}`, true);
     expect(push).toHaveBeenLastCalledWith(`/reviews?item=${encodeURIComponent(item)}`);
-    openChatLink("relay://open/test-bench?experiment=x&arm=a");
+    openChatLink("relay://open/test-bench?experiment=x&arm=a", true);
     expect(navigate).toHaveBeenLastCalledWith("/");
     expect(useLinkNotice.getState().notice).toBe("Test Bench is on desktop");
     expect(openURL).not.toHaveBeenCalled();
   });
 
   it("opens the board and the canvas room a link names", () => {
-    openChatLink("relay://open/board/mind-map");
+    openChatLink("relay://open/board/mind-map", true);
     expect(navigate).toHaveBeenLastCalledWith({
       pathname: "/boards",
       params: { slug: "mind-map" },
     });
-    openChatLink("relay://open/board");
+    openChatLink("relay://open/board", true);
     expect(navigate).toHaveBeenLastCalledWith("/boards");
-    openChatLink("relay://open/canvas?canvas=artifacts");
+    openChatLink("relay://open/canvas?canvas=artifacts", true);
     expect(navigate).toHaveBeenLastCalledWith({
       pathname: "/canvas",
       params: { slug: "artifacts" },
     });
-    openChatLink("relay://open/canvas");
+    openChatLink("relay://open/canvas", true);
     expect(navigate).toHaveBeenLastCalledWith("/boards");
-    openChatLink("relay://open/canvas?canvas=Not%20A%20Slug");
+    openChatLink("relay://open/canvas?canvas=Not%20A%20Slug", true);
     expect(navigate).toHaveBeenLastCalledWith("/boards");
     expect(useLinkNotice.getState().notice).toBe("That link names no canvas room");
     expect(openURL).not.toHaveBeenCalled();

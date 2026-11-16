@@ -1,7 +1,8 @@
 import { notifications } from '@mantine/notifications'
 import { resolveLink, settingsSectionOf } from '@evaos/contract'
-import type { AppLink } from '@evaos/chat-core/widget'
+import { parseAppLink, type AppLink } from '@evaos/chat-core/widget'
 import { pageFromKey, placeOf, type Place } from '@evaos/shell-core'
+import { draftToAssistant, sendToAssistant } from '../assistants/assistant-send'
 import { invoke } from '../ipc'
 import { openReviewItem } from '../reviews/reviews-store'
 import { reviewPlaceOf, reviewRefOfId } from '../reviews/review-place'
@@ -25,6 +26,9 @@ export interface OpenLinkOptions {
   target?: OpenTarget
   /** False skips the Reviews rules: Reviews' own "Open in Linear" buttons leave Relay. */
   reviews?: boolean
+  /** Isaac's click opened it (default: a click is live in this window), so a
+   * `relay://assistant/<id>?send=` link may send; without one it only drafts. */
+  gesture?: boolean
 }
 
 const isWeb = (href: string): boolean => /^https?:\/\//i.test(href)
@@ -38,7 +42,8 @@ const isWeb = (href: string): boolean => /^https?:\/\//i.test(href)
 export function openLink(href: string, opts: OpenLinkOptions = {}): void {
   const target = opts.target ?? 'here'
   if (href.startsWith('relay://')) {
-    if (!openAppLink(href, target)) {
+    const gesture = opts.gesture ?? navigator.userActivation?.isActive ?? false
+    if (!openAppLink(href, target, gesture)) {
       notifications.show({ message: 'Relay has no place for that link.', color: 'yellow' })
     }
     return
@@ -107,13 +112,26 @@ function openFileAt(path: string, at: { line?: number; end?: number }, target: O
 /**
  * Opens a `relay://` address per `target`: the tab it names (a chat, a web page, a file, a board,
  * a Studio job, a Reviews item) or the place an older link names, then what it shows there (a
- * Test Bench run and arm, a Skills row, a setting pointed out, a connection's Connect step). False
- * when it names nothing this app opens.
+ * Test Bench run and arm, a Skills row, a setting pointed out, a connection's Connect step). An
+ * assistant link's `send` goes out as Isaac's turn in that thread only when his click opened it
+ * (`gesture`); otherwise it, like `draft`, waits in the thread's composer. Agents, notifications
+ * and links from other apps open without one. False when it names nothing this app opens.
  */
-export function openAppLink(href: string, target: OpenTarget = 'here'): boolean {
+export function openAppLink(href: string, target: OpenTarget = 'here', gesture = false): boolean {
   const address = parseAddress(href)
   if (address === null) return false
-  return openAddress(address, target)
+  const opened = openAddress(address, target)
+  const link = address.kind === 'assistant' ? parseAppLink(href) : null
+  if (link?.kind !== 'assistant') return opened
+  if (link.send !== undefined && gesture) {
+    void sendToAssistant(link.id, link.send).then((failed) => {
+      if (failed !== null) notifications.show({ message: failed, color: 'red', autoClose: 6000 })
+    })
+  } else {
+    const words = link.send ?? link.draft
+    if (words !== undefined) draftToAssistant(link.id, words)
+  }
+  return opened
 }
 
 export function openAddress(a: TabAddress, target: OpenTarget = 'here'): boolean {

@@ -113,6 +113,36 @@ describe("appLinkRoute", () => {
       notice: "Chats open as sessions under Agents",
     });
   });
+
+  it("sends an assistant link's ?send= only when Isaac's tap opened it, and never puts the text in the route", () => {
+    const href = { pathname: "/eva", params: { agent: "penny" } };
+    const compose = (send: boolean) => ({ agent: "penny", text: "Add the lamp", send });
+    expect(
+      appLinkRoute("relay://assistant/penny?send=Add%20the%20lamp", { gesture: true }),
+    ).toEqual({ how: "navigate", href, compose: compose(true) });
+    // Anything else that opens it (a widget page on its own, the default) gets a draft.
+    expect(
+      appLinkRoute("relay://assistant/penny?send=Add%20the%20lamp", { gesture: false })?.compose,
+    ).toEqual(compose(false));
+    expect(appLinkRoute("relay://assistant/penny?send=Add%20the%20lamp")?.compose).toEqual(
+      compose(false),
+    );
+    // A ?draft= never sends, even from a tap.
+    expect(
+      appLinkRoute("relay://assistant/penny?draft=Add%20the%20lamp", { gesture: true })?.compose,
+    ).toEqual(compose(false));
+  });
+
+  it("turns a system URL's ?send= into a draft on the plain thread route", () => {
+    expect(systemPath("relay://assistant/penny?send=Add%20the%20lamp")).toEqual({
+      path: "/eva?agent=penny",
+      compose: { agent: "penny", text: "Add the lamp", send: false },
+    });
+    expect(systemPath("relay://assistant/penny?draft=hi")).toEqual({
+      path: "/eva?agent=penny",
+      compose: { agent: "penny", text: "hi", send: false },
+    });
+  });
 });
 
 describe("hrefPath", () => {

@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
 import { parseFrameMessage } from '@relay/widget-runtime/frame'
 import { themeStore, useColorScheme } from '../../theme/theme-config'
 import { openLink } from '../../navigation/open-link'
-import { useWidgetActions } from './actions'
+import { AssistantSend, useWidgetActions } from './actions'
 import { frameThemeFor, frameUrl, type FrameRuntime } from './frame-theme'
 
 /** Taller pages scroll inside the frame. */
@@ -29,13 +29,18 @@ export function WidgetFramePending() {
   )
 }
 
+/** Whether a user gesture is live in this window. A click inside the frame activates the page
+ * that holds it too, so a message a frame posts on load finds none. */
+const gestureLive = (): boolean => navigator.userActivation?.isActive ?? true
+
 /**
  * An agent-made widget (```html-widget or ```mantine-widget, or a dashboard's Mantine tile): its
  * page from @relay/widget-runtime/frame, served by main on `relay-widget:` and run in a sandboxed
  * iframe (scripts only: opaque origin, no popups, no top navigation). It draws with the Settings >
  * Theme config in the current scheme and reloads when either changes. The page posts its height,
  * which sizes the frame up to MAX_FRAME_HEIGHT, and `relay.reply` text, which goes out as Isaac's
- * next turn exactly like a widget reply button. Messages count only from this frame's own window.
+ * next turn exactly like a widget reply button (with `{agent}`, into that assistant's thread, and
+ * only while a click in the frame is live). Messages count only from this frame's own window.
  * With `height` (a Mantine tile's) the frame is that tall and the page fills it instead.
  */
 export function WidgetFrame({
@@ -58,6 +63,7 @@ export function WidgetFrame({
   }, [runtime, code, config, scheme, fill])
   const frame = useRef<HTMLIFrameElement>(null)
   const actions = useWidgetActions()
+  const toAssistant = useContext(AssistantSend)
   const [measured, setMeasured] = useState<{ url: string; height: number } | null>(null)
   const height = measured?.url === url ? measured.height : heights.get(url)
 
@@ -69,14 +75,16 @@ export function WidgetFrame({
         rememberHeight(url, message.height)
         setMeasured({ url, height: message.height })
       } else if (message?.type === 'open') {
-        openLink(message.url)
+        openLink(message.url, { gesture: message.gesture && gestureLive() })
+      } else if (message?.type === 'reply' && message.agent !== undefined) {
+        if (gestureLive()) toAssistant(message.agent, message.text)
       } else if (message?.type === 'reply' && actions.canReply) {
         actions.reply(message.text)
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [url, actions])
+  }, [url, actions, toAssistant])
 
   return (
     <div className="eva-widget" data-testid="widget-page" data-runtime={runtime}>

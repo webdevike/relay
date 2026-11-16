@@ -39,6 +39,15 @@
 .eva-board-tile {
   min-width: 0;
 }
+/* A tile's quiet "Sent to Penny" (or why not) after a button sent to an assistant. */
+.eva-board-tile-sent {
+  margin: var(--mantine-spacing-xs) 0 0;
+  font-size: var(--eva-fz-label);
+  color: var(--eva-c-muted-foreground);
+}
+.eva-board-tile-sent[data-ok='false'] {
+  color: var(--eva-c-danger);
+}
 .eva-board-empty {
   padding: var(--eva-space-xl) 0;
   display: flex;

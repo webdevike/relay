@@ -149,6 +149,26 @@ ask = Button("Ask", @ToAssistant("why " + $n + "?"))`)
     })
   })
 
+  it("sends @ToAssistant's message to the assistant its second argument names", () => {
+    const runtime = createOpenUIRuntime(`root = Stack([add, local, plain])
+$n = 0
+add = Button("Add", @ToAssistant("Add lamp to Wife list", "penny"))
+local = Button("Count", Action([@Set($n, $n + 1), @ToAssistant("Count is " + $n, "penny")]))
+plain = Button("Ask", @ToAssistant("why?"))`)
+    expect(runtime.snapshot().node).toMatchObject({
+      children: [
+        { reply: 'Add lamp to Wife list', agent: 'penny' },
+        { action: 'local' },
+        { reply: 'why?' },
+      ],
+    })
+    expect(runtime.dispatch('local')).toEqual({ reply: 'Count is 1', agent: 'penny' })
+    // An assistant id that isn't one drops the button rather than sending to this chat.
+    expect(
+      createOpenUIRuntime('root = Button("Add", @ToAssistant("x", "Penny!"))').snapshot().node,
+    ).toBeNull()
+  })
+
   it('binds an Input to a $variable', () => {
     const runtime = createOpenUIRuntime(`root = Stack([field, Text("Hi " + $name)])
 $name = "you"

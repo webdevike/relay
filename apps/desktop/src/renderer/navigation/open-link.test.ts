@@ -38,6 +38,10 @@ const showPath = vi.fn().mockResolvedValue({})
 vi.mock('../files/files-store', () => ({ showPath: (...a: unknown[]) => showPath(...a) }))
 vi.mock('../chat/chat-store', () => ({ chatStore: { getState: () => ({ panes: {} }) } }))
 vi.mock('../chat/front-chat', () => ({ frontChatPaneOf: () => '' }))
+vi.mock('../assistants/assistants-store', () => ({
+  assistantsStore: { getState: () => ({ data: null }) },
+  agentOf: () => null,
+}))
 const requestStudioOpen = vi.fn()
 vi.mock('../studio/studio-store', () => ({
   requestStudioOpen: (...a: unknown[]) => requestStudioOpen(...a),
@@ -45,6 +49,7 @@ vi.mock('../studio/studio-store', () => ({
 const openPlace = vi.fn()
 vi.mock('./navigate', () => ({ openPlace: (...a: unknown[]) => openPlace(...a) }))
 
+import { takeComposerFill } from '../chat/composer-fill'
 import { linkPrefsStore } from './link-prefs'
 import { openAppLink, openLink } from './open-link'
 import { takeSkillRequest } from '../skills/skill-request'
@@ -116,6 +121,22 @@ describe('openAppLink: relay:// addresses', () => {
     expect(tiling.openPlaceBeside).toHaveBeenLastCalledWith(placeOf('agent:nova'))
     expect(openAppLink('relay://open/setting')).toBe(true)
     expect(openAppLink('relay://open/nope')).toBe(false)
+  })
+
+  it("sends an assistant link's words only when a click opened it, else drafts them", async () => {
+    invoke.mockResolvedValue({ ok: true, value: { sent: true } })
+    openLink('relay://assistant/penny?send=Add%20lamp', { gesture: true })
+    expect(tiling.openPlaceBeside).toHaveBeenLastCalledWith(placeOf('agent:penny'))
+    await vi.waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('assistants.turn', { agent: 'penny', text: 'Add lamp' }),
+    )
+    invoke.mockClear()
+    // An agent, a notification or another app opens it without a click: the words wait unsent.
+    expect(openAppLink('relay://assistant/penny?send=Add%20lamp')).toBe(true)
+    openLink('relay://assistant/nova?draft=Hello', { gesture: true })
+    expect(invoke).not.toHaveBeenCalled()
+    expect(takeComposerFill('assistant:penny')).toBe('Add lamp')
+    expect(takeComposerFill('assistant:nova')).toBe('Hello')
   })
 
   it('opens a chat, a web page, a file, a board and a Studio job', () => {

@@ -233,7 +233,7 @@ function named(id: string) {
 
 const openUrlData = () => z.object({ type: z.literal('open_url'), url: z.string() })
 const toAssistantData = () =>
-  z.object({ type: z.literal('continue_conversation'), context: z.string().optional() })
+  z.object({ type: z.literal('continue_conversation'), agent: z.string().optional() })
 
 const actionSchema = z.union([
   openUrlData(),
@@ -287,15 +287,15 @@ const builtinSteps: BuiltinStep[] = [
     ...defineAction({
       name: 'ToAssistant',
       description:
-        'Send a message to the assistant (for conversational buttons like "Tell me more", "Explain this"). The optional context is any value (object, array, string, number) passed to the assistant as hidden data, e.g. @ToAssistant("Show details", {orderId: 42})',
-      params: z.object({ message: z.string(), context: z.any().optional() }),
+        'Send a message as the user\'s next turn (for conversational buttons like "Tell me more", "Explain this"). The optional agent is an assistant id: the message goes to that assistant\'s thread instead of this chat, e.g. @ToAssistant("Add the lamp to my list", "penny")',
+      params: z.object({ message: z.string(), agent: z.string().optional() }),
     }),
     ref: steps.ToAssistant.ref,
-    // The context may be any value and is passed through unchanged; null means none
-    step: ({ message, context }) => ({
+    // Only a non-empty string names an assistant; anything else sends to this chat
+    step: ({ message, agent }) => ({
       type: ACTION_STEPS.ToAssistant,
       message: String(message ?? ''),
-      context: context ?? undefined,
+      ...(typeof agent === 'string' && agent !== '' ? { agent } : {}),
     }),
   },
   {

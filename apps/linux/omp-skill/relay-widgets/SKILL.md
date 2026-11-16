@@ -69,10 +69,10 @@ root = Stat("Collected", "$7.9k", Delta("12%", "up"))
 
 ### Actions
 
-- `Button(label, action?: @ToAssistant("text") | @OpenUrl("https://..."), url?, variant?: "primary"|"secondary"|"subtle", tone?)`: `@ToAssistant` sends text as Isaac's next turn in this session; `@OpenUrl` (or `url`) opens a link; with neither, tapping sends the label. Several steps: `Action([@OpenUrl(...), @ToAssistant(...)])`. Put several buttons in a horizontal Stack.
+- `Button(label, action?: @ToAssistant("text") | @ToAssistant("text", "<assistant id>") | @OpenUrl("https://..."), url?, variant?: "primary"|"secondary"|"subtle", tone?)`: `@ToAssistant("text")` sends text as Isaac's next turn in this session; `@ToAssistant("text", "penny")` sends it as Isaac's turn in that assistant's thread instead (the id from the assistant registry; works on dashboards too); `@OpenUrl` (or `url`) opens a link; with neither, tapping sends the label. Several steps: `Action([@OpenUrl(...), @ToAssistant(...)])`. Put several buttons in a horizontal Stack.
 - `Link(label, url)`: http(s).
 - `Input(placeholder?, button?, reply?, multiline?)`: `reply` must contain `{value}` (default `"{value}"`); button default "Send"; shows "Sent" after submit.
-- Buttons and inputs are disabled where there is no session (dashboards).
+- Buttons and inputs are disabled where there is no session (dashboards), except a `@ToAssistant("text", "<assistant id>")` button: it sends to that assistant's thread from anywhere, only on a tap, and the tile says "Sent to Penny" (or why not).
 
 ### Data
 
@@ -228,7 +228,7 @@ name = Query("tool", {args}, defaults, refreshSec)
 - Args are checked strictly (an unknown key refuses the write). `refreshSec` is 10 to 3600; leave it out to fetch once. The widget shows `defaults` until the first answer, so give them the result's shape with one placeholder row (`{total: 0, byWorkspace: [{name: "Loading", count: 0}], asOf: "-"}`).
 - Read data with member access and the list builtins: `items.total`, `@Each(items.byWorkspace, "w", Row(w.name, "" + w.count))`, `@Count(list)`, `@Sum`, `@Sort(list, "field", "desc")`, `@Filter(list, "field", "==", value)`, `@First`, `@Round`. Missing optional fields read as null: `j.lastRunAgo == null ? "never" : j.lastRunAgo`.
 - `Button("Refresh", @Run(name))` refetches now. A failed fetch keeps the last data and shows the reason under the widget. Clients fetch only while the widget is on screen.
-- No `Mutation`: nothing in a widget writes. `@ToAssistant` stays disabled (there is no chat behind a board).
+- No `Mutation`: nothing in a widget writes. `@ToAssistant("text")` stays disabled (there is no chat behind a board); `@ToAssistant("text", "<assistant id>")` sends to that assistant's thread on a tap (the host refuses an id not in the assistant registry).
 
 ```openui
 root = Card([head, rows, asOf, again], "Work items by workspace")
@@ -247,8 +247,8 @@ The same JSX also makes a dashboard tile (`board ops` with `mantine`, skill://da
 
 `relay` is in scope in both:
 
-- `relay.reply(text)`: sends `text` as Isaac's next message in this session. Only works inside a tap/click handler (user gesture); calls on load are ignored. Returns `true` when sent.
-- `relay.open(url)`: opens `url` outside the widget (desktop: Relay's link handling; phone: the system handler or in-app link). Only `http(s)://` and `relay://` URLs, only inside a tap/click handler. Returns `true` when sent. Plain `<a href>` / Mantine `<Anchor href>` clicks and `window.open` do the same, so they work as written; a widget frame never navigates, so a link can no longer blank a tile.
+- `relay.reply(text)`: sends `text` as Isaac's next message in this session. `relay.reply(text, {agent: "penny"})` sends it as Isaac's turn in that assistant's thread instead (works on a dashboard tile, where plain `relay.reply` does nothing). Only works inside a tap/click handler (user gesture); calls on load are ignored. Returns `true` when sent.
+- `relay.open(url)`: opens `url` outside the widget (desktop: Relay's link handling; phone: the system handler or in-app link). Only `http(s)://` and `relay://` URLs, only inside a tap/click handler. Returns `true` when sent. Plain `<a href>` / Mantine `<Anchor href>` clicks and `window.open` do the same, so they work as written; a widget frame never navigates, so a link can no longer blank a tile. `relay://assistant/<id>?send=<text>` opens that thread and sends the text as Isaac's turn when his tap opened it (anything else only drafts it); `?draft=<text>` opens it with the text in the composer, unsent.
 - `relay.colorScheme`: `"light" | "dark"`. `relay.theme`: `{ dark, colors: { fg, muted, faint, border, surface, raised, accent, ok, warn, danger, bg }, font, radius }` (the host palette).
 
 ### ```mantine-widget (preferred custom fence)

@@ -4,6 +4,8 @@
  */
 import { useContext } from "react";
 import { View } from "react-native";
+import { routeReply } from "@/boards/assistantSend";
+import { useSendToAssistant } from "@/boards/TileSend";
 import { openWidgetUrl } from "@/lib/links";
 import { spacing } from "@/theme";
 import { agentPortrait, useAssistantStore } from "@/state/assistant";
@@ -19,7 +21,7 @@ import { Text } from "@/ui/Text";
 import { TimelineItem } from "@/ui/TimelineItem";
 import { CodeBlock } from "./CodeBlock";
 import { useDropSrc } from "./dropSrc";
-import { pressButton } from "./openui";
+import { buttonEnabled, pressButton } from "./openui";
 import { useOpenUIRuntime } from "./OpenUIRuntime";
 import { toneColor } from "./tone";
 import { useWidgetActions } from "./WidgetActions";
@@ -43,12 +45,14 @@ const buttonVariant: Record<ButtonSpec["variant"], ButtonVariant> = {
 };
 
 /** A `url` opens externally; a `reply` goes to the session as its next turn, so with no session
- * to reply to the button is disabled. An `action` (```openui) runs on the fence's runtime first and
- * then opens or sends whatever its steps hand back. Subtle buttons default to a muted label. In a
- * grid cell the button is a touch-target-tall key that fills the cell. */
+ * to reply to the button is disabled, unless it names an assistant (`agent`): then it goes to that
+ * assistant's thread from anywhere, a board included. An `action` (```openui) runs on the fence's
+ * runtime first and then opens or sends whatever its steps hand back. Subtle buttons default to a
+ * muted label. In a grid cell the button is a touch-target-tall key that fills the cell. */
 export function ButtonWidget({ spec }: { spec: ButtonSpec }) {
   const actions = useWidgetActions();
   const runtime = useOpenUIRuntime();
+  const sendToAssistant = useSendToAssistant();
   const inGrid = useContext(GridCellContext);
   return (
     <Button
@@ -62,12 +66,11 @@ export function ButtonWidget({ spec }: { spec: ButtonSpec }) {
             ? "textMuted"
             : undefined
       }
-      disabled={
-        spec.action !== undefined ? runtime === null : spec.url === undefined && actions === null
-      }
+      disabled={!buttonEnabled(spec, runtime, actions !== null)}
       onPress={() => {
-        const { reply, url } = pressButton(spec, runtime);
-        if (reply !== undefined) actions?.reply(reply);
+        const { reply, agent, url } = pressButton(spec, runtime);
+        if (reply !== undefined)
+          routeReply(reply, agent, { session: actions?.reply ?? null, assistant: sendToAssistant });
         if (url !== undefined) openWidgetUrl(url);
       }}
     />

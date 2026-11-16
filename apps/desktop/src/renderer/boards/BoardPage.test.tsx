@@ -149,4 +149,40 @@ describe('BoardPage', () => {
     write({ ...tabbed, tabs: [{ id: 'deals', title: 'Deals', widgets: [] }] })
     expect(screen.getByText('This tab has no widgets yet.')).toBeInTheDocument()
   })
+
+  it("sends a button's words to the assistant it names and says so on the tile", async () => {
+    const xmas: Board = {
+      ...board,
+      slug: 'xmas',
+      widgets: [
+        {
+          id: 'xmas-add-lamp',
+          span: 6,
+          spec: {
+            widget: 'stack',
+            direction: 'horizontal',
+            children: [
+              { widget: 'button', label: 'Add to Wife list', reply: 'Add lamp', agent: 'penny' },
+              { widget: 'button', label: 'Ask here', reply: 'why?' },
+            ],
+          },
+        },
+      ],
+    }
+    vi.mocked(invoke).mockResolvedValueOnce({ ok: true, value: { sent: true } })
+    boardsStore.setState({ data: { boards: [xmas], relayUp: true, queries: false } })
+    wrap('xmas')
+    // A reply without an assistant still has no chat to go to on a board.
+    expect(screen.getByRole('button', { name: 'Ask here' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Wife list' }))
+    expect(invoke).toHaveBeenCalledWith('assistants.turn', { agent: 'penny', text: 'Add lamp' })
+    expect(await screen.findByTestId('board-tile-sent')).toHaveTextContent('Sent to penny')
+
+    vi.mocked(invoke).mockResolvedValueOnce({
+      ok: false,
+      error: { code: 'agent_not_found', message: 'no assistant penny on this host' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Wife list' }))
+    expect(await screen.findByText('Not sent: no assistant penny on this host')).toBeInTheDocument()
+  })
 })

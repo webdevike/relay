@@ -29,10 +29,11 @@ export interface HtmlFrameProps {
   /** Body text size of the surrounding transcript, so the page matches it. */
   fontSize: number;
   lineHeight: number;
-  /** `relay.reply(text)` from a tap in the page; null leaves it doing nothing. */
-  onReply: ((text: string) => void) | null;
-  /** A link clicked in the page, `window.open` or `relay.open(url)`: an http(s) or relay:// URL. */
-  onOpenLink: (url: string) => void;
+  /** `relay.reply(text)` from a tap in the page, with `agent` when it names an assistant (`relay.reply(text, {agent})`). */
+  onReply: (text: string, agent: string | undefined) => void;
+  /** A link clicked in the page, `window.open` or `relay.open(url)`: an http(s) or relay:// URL;
+   * `gesture` is true only when a user gesture in the page opened it. */
+  onOpenLink: (url: string, gesture: boolean) => void;
   /** Taller content scrolls inside the frame from here. */
   maxHeight?: number;
   /** A fixed box height for a Mantine page that fills it (`mantineFrameDocument` `fill`). */
@@ -100,16 +101,17 @@ export function HtmlFrame({
     const message = parseFrameMessage(event.nativeEvent.data);
     if (message === null || code === null) return;
     if (message.type === "height") setMeasured({ code, height: message.height });
-    else if (message.type === "open") onOpenLink(message.url);
-    else onReply?.(message.text);
+    else if (message.type === "open") onOpenLink(message.url, message.gesture);
+    else onReply(message.text, message.agent);
   };
 
   // The page's own script sends links through `relay.open`; this only stops anything else (a
-  // navigation the script could not intercept) from replacing the page, opening a tapped web link.
+  // navigation the script could not intercept) from replacing the page, opening a tapped web link
+  // (only http(s), so no gesture is claimed for it).
   const onShouldStartLoad = (request: ShouldStartLoadRequest): boolean => {
     if (request.url.startsWith("about:")) return true;
     if (request.navigationType === "click" && /^https?:\/\//i.test(request.url))
-      onOpenLink(request.url);
+      onOpenLink(request.url, false);
     return false;
   };
 

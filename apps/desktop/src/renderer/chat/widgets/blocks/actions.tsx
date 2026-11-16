@@ -4,7 +4,7 @@ import { IconCheck } from '@tabler/icons-react'
 import type { ButtonSpec, InputSpec } from '@evaos/chat-core/widget'
 import { openTargetOf, type OpenTarget } from '../../../navigation/open-target'
 import { openLink } from '../../../navigation/open-link'
-import { OpenUIActions, useWidgetActions } from '../actions'
+import { AssistantSend, OpenUIActions, useWidgetActions } from '../actions'
 import { useToneColor } from '../rich/parts'
 import { WidgetCell } from './cell'
 import { useToneText } from './content'
@@ -15,20 +15,26 @@ const VARIANT: Record<ButtonSpec['variant'], string> = {
   subtle: 'subtle',
 }
 
-/** `url` opens the page in the side browser; `reply` sends its text as Isaac's next turn; `action`
- * runs the OpenUI block's action, then sends or opens what it hands back. In a grid cell or a
- * horizontal stack's column the button fills it; grid keys are taller, with a larger label. */
+/** `url` opens the page in the side browser; `reply` sends its text as Isaac's next turn (to
+ * assistant `agent`'s thread when set, which works without a session, e.g. on a dashboard);
+ * `action` runs the OpenUI block's action, then sends or opens what it hands back. In a grid cell
+ * or a horizontal stack's column the button fills it; grid keys are taller, with a larger label. */
 export function ButtonBlock({ spec }: { spec: ButtonSpec }) {
   const { reply, canReply } = useWidgetActions()
+  const toAssistant = useContext(AssistantSend)
   const openui = useContext(OpenUIActions)
   const cell = useContext(WidgetCell)
   const color = useToneColor()
   const toneText = useToneText()
   const replyText = spec.reply
   const variant = VARIANT[spec.variant]
-  const send = (text: string | undefined, url: string | undefined, target: OpenTarget): void => {
-    if (text !== undefined && canReply) reply(text)
-    if (url !== undefined) openLink(url, { target })
+  const send = (
+    out: { reply?: string | undefined; agent?: string | undefined; url?: string | undefined },
+    target: OpenTarget,
+  ): void => {
+    if (out.reply !== undefined && out.agent !== undefined) toAssistant(out.agent, out.reply)
+    else if (out.reply !== undefined && canReply) reply(out.reply)
+    if (out.url !== undefined) openLink(out.url, { target })
   }
   return (
     <Button
@@ -42,14 +48,14 @@ export function ButtonBlock({ spec }: { spec: ButtonSpec }) {
       className="eva-wb-button"
       data-testid="widget-button"
       data-cell={cell ?? undefined}
-      disabled={(replyText !== undefined && !canReply) || (spec.action !== undefined && !openui)}
+      disabled={
+        (replyText !== undefined && spec.agent === undefined && !canReply) ||
+        (spec.action !== undefined && !openui)
+      }
       onClick={(e) => {
         const target = openTargetOf(e)
-        if (spec.action === undefined) send(replyText, spec.url, target)
-        else if (openui) {
-          const out = openui.dispatch(spec.action)
-          send(out.reply, out.url, target)
-        }
+        if (spec.action === undefined) send(spec, target)
+        else if (openui) send(openui.dispatch(spec.action), target)
       }}
     >
       {spec.label}

@@ -214,7 +214,8 @@ export enum BuiltinActionType {
  */
 export type ActionStep =
   | { type: 'run'; statementId: string; refType: 'query' | 'mutation' }
-  | { type: 'continue_conversation'; message: string; context?: unknown }
+  /** `agent`: an assistant id; the message goes to that assistant's thread instead of this chat. */
+  | { type: 'continue_conversation'; message: string; agent?: string }
   | { type: 'open_url'; url: string }
   | { type: 'set'; target: string; valueAST: ASTNode }
   | { type: 'reset'; targets: string[] }

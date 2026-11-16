@@ -6,7 +6,9 @@
  * (an `openui` source) runs its Query statements over `query.req` while the board is open, on a
  * host whose welcome offers "query"; on an older host it draws the spec the host rendered. A
  * Mantine tile (`mantine` JSX) runs in the chat's sandboxed `HtmlFrame`, the tile's width and its
- * `height` (else its content's).
+ * `height` (else its content's). A board has no session, so a plain reply button stays disabled,
+ * but one that names an assistant (or a Mantine page's `relay.reply(text, {agent})`) sends to that
+ * assistant's thread, with a quiet caption under the tile (`boards/TileSend`).
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { router, useLocalSearchParams } from "expo-router";
@@ -21,6 +23,8 @@ import { spacing, type } from "@/theme";
 import { useBoardsStore } from "@/state/boards";
 import { liveQuery } from "@/connection";
 import { openChatLink } from "@/lib/links";
+import { routeReply } from "@/boards/assistantSend";
+import { TileSend, useSendToAssistant } from "@/boards/TileSend";
 import { HtmlFrame } from "@/ui/HtmlFrame";
 import { SegmentedTabs } from "@/ui/SegmentedTabs";
 import { boardSubtitle, pickBoardTab, SCROLL_TABS_ABOVE, shownBoardTab } from "@/lib/boardTabs";
@@ -101,25 +105,37 @@ function BoardGrid({ board }: { board: Board }) {
             key={w.id}
             style={[styles.cell, { width: width < 600 ? "100%" : `${(w.span / 12) * 100}%` }]}
           >
-            {w.mantine !== undefined ? (
-              <HtmlFrame
-                code={w.mantine}
-                runtime="mantine"
-                height={w.height}
-                fontSize={type.body.fontSize}
-                lineHeight={type.body.lineHeight}
-                onReply={null}
-                onOpenLink={openChatLink}
-              />
-            ) : queries && w.openui !== undefined ? (
-              <LiveTile widget={w} source={w.openui} />
-            ) : (
-              <Widget spec={w.spec} />
-            )}
+            <TileSend>
+              {w.mantine !== undefined ? (
+                <MantineTile code={w.mantine} height={w.height} />
+              ) : queries && w.openui !== undefined ? (
+                <LiveTile widget={w} source={w.openui} />
+              ) : (
+                <Widget spec={w.spec} />
+              )}
+            </TileSend>
           </View>
         ))}
       </View>
     </>
+  );
+}
+
+/** A Mantine tile: no session to answer, so only `relay.reply(text, {agent})` sends (to that assistant). */
+function MantineTile({ code, height }: { code: string; height: number | undefined }) {
+  const sendToAssistant = useSendToAssistant();
+  return (
+    <HtmlFrame
+      code={code}
+      runtime="mantine"
+      height={height}
+      fontSize={type.body.fontSize}
+      lineHeight={type.body.lineHeight}
+      onReply={(text, agent) => {
+        routeReply(text, agent, { session: null, assistant: sendToAssistant });
+      }}
+      onOpenLink={openChatLink}
+    />
   );
 }
 

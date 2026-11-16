@@ -18,6 +18,9 @@ describe("relay:// app links", () => {
       "relay://assistant/Nova",
       "relay://assistant/a/b",
       "relay://assistant/nova?x=1",
+      "relay://assistant/nova?send=",
+      "relay://assistant/nova?send=a&draft=b",
+      "relay://assistant/nova/x?send=a",
       "relay://reviews?item=x",
       "relay://other/nova",
       "javascript:alert(1)",
@@ -44,11 +47,18 @@ describe("relay:// app links", () => {
       `relay://open/reviews?item=${encodeURIComponent("https://github.com/o/r/pull/12")}`,
       "relay://open/workspace/relay-agent-access",
       "relay://assistant/nova",
+      `relay://assistant/penny?send=${encodeURIComponent("Add lamp & more")}`,
+      "relay://assistant/penny?draft=Hello",
     ]) {
       const link = parseAppLink(url);
       expect(link, url).not.toBeNull();
       expect(buildAppLink(link!)).toBe(url);
     }
+    expect(parseAppLink("relay://assistant/penny?send=Add%20lamp")).toEqual({
+      kind: "assistant",
+      id: "penny",
+      send: "Add lamp",
+    });
     expect(parseAppLink("relay://open/settings/connections")).toEqual({
       kind: "open",
       page: "settings",

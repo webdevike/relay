@@ -5,6 +5,7 @@
  */
 import {
   createOpenUIRuntime,
+  type OpenUIDispatch,
   type OpenUIQueryClient,
   type OpenUIRuntime,
   type ParseOpenUIResult,
@@ -36,15 +37,25 @@ export function openUIView(snapshot: ParseOpenUIResult, partial: boolean): OpenU
 }
 
 /** What a button tap asks the host to do. An `action` button first runs its local steps on the
- * fence's runtime (no network, so the widget updates at once), then hands back any reply or url
- * those steps produced; a plain button carries its own. */
-export function pressButton(
-  spec: ButtonSpec,
-  runtime: OpenUIRuntime | null,
-): { reply?: string; url?: string } {
+ * fence's runtime (no network, so the widget updates at once), then hands back any reply (with the
+ * assistant it goes to) or url those steps produced; a plain button carries its own. */
+export function pressButton(spec: ButtonSpec, runtime: OpenUIRuntime | null): OpenUIDispatch {
   if (spec.action !== undefined) return runtime?.dispatch(spec.action) ?? {};
   return {
     ...(spec.reply === undefined ? {} : { reply: spec.reply }),
+    ...(spec.agent === undefined ? {} : { agent: spec.agent }),
     ...(spec.url === undefined ? {} : { url: spec.url }),
   };
+}
+
+/** Whether a tap can do anything where the button is drawn: an `action` needs its fence's runtime; a
+ * `url` or a reply to an assistant (`agent`) works anywhere; a plain reply needs a session to answer
+ * (`canReply`), so on a board it is disabled. */
+export function buttonEnabled(
+  spec: ButtonSpec,
+  runtime: OpenUIRuntime | null,
+  canReply: boolean,
+): boolean {
+  if (spec.action !== undefined) return runtime !== null;
+  return spec.url !== undefined || spec.agent !== undefined || canReply;
 }

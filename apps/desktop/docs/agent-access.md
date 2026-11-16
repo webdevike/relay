@@ -41,9 +41,14 @@ Legend: **R** read, **C** change, **L** relay:// deep link. "before" is main at 
 
 ## Deep link grammar
 
-`relay://assistant/<id>` or `relay://open/<page>[/<sub>][?<param>=<value>&...]`, params from
-`item, setting, connect, canvas, meeting, experiment, arm, job, chat, message, url, path, line,
-node, ws`. `parseAppLink` / `buildAppLink` live in `@evaos/chat-core/widget` and `@relay/protocol`
+`relay://assistant/<id>[?send=<text> | ?draft=<text>]` or
+`relay://open/<page>[/<sub>][?<param>=<value>&...]`, params from `item, setting, connect, canvas,
+meeting, experiment, arm, job, chat, message, url, path, line, end, node, ws, skill`
+(`APP_LINK_PARAMS`); an assistant link takes at most one of `send, draft`
+(`ASSISTANT_LINK_PARAMS`). `send` posts the text as Isaac's turn in that thread only when his click
+opened the link (`openLink` from a click or a widget page's tap); `link.open`, notifications and
+links from other apps open it with the text waiting in the thread's composer, as `draft` always
+does. `parseAppLink` / `buildAppLink` live in `@evaos/chat-core/widget` and `@relay/protocol`
 (same grammar, tested both ways). Every tab kind has an address (renderer
 `navigation/tab-address.ts`): a chat (`relay://open/chat?chat=<file>[&message=<id>]`), a web page
 (`relay://open/web?url=<url>[&ws=<workspace>]`), a file (`relay://open/files?path=<path>[&line=<n>]`),

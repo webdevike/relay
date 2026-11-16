@@ -8,6 +8,11 @@
  * Total on purpose: every `relay://` link lands on a screen, never the router's "page not found".
  * Where the phone has no screen for what the link names it opens the nearest one (the parent list,
  * Home) and says so in `notice`.
+ *
+ * `relay://assistant/<id>?send=<text>` sends `text` as Isaac's turn in that thread only when his tap
+ * opened it (`LinkOpener.gesture`); any other opener (a URL from outside the app, a widget page
+ * opening it on its own) gets it as a draft, as `?draft=` always is. The text rides in `compose`,
+ * never in the route, so no URL can reach a screen that sends.
  */
 import { parseAppLink, type AppLink } from "@relay/protocol";
 
@@ -21,7 +26,25 @@ export interface AppRoute {
   href: AppHref;
   /** Said briefly after landing when the screen is the nearest one, not the one the link names. */
   notice?: string;
+  /** Text an assistant link hands its thread: sent as Isaac's turn when `send`, else put in its composer. */
+  compose?: ThreadCompose;
 }
+
+/** What a `relay://assistant/<id>?send=` or `?draft=` link hands to that assistant's thread. */
+export interface ThreadCompose {
+  agent: string;
+  text: string;
+  /** Send `text` as Isaac's turn; false places it in the composer, unsent. */
+  send: boolean;
+}
+
+/** Who opened a link: `gesture` only when Isaac's own tap did (a chat link, a widget button). */
+export interface LinkOpener {
+  gesture: boolean;
+}
+
+/** A link nobody tapped: a URL the system hands the app. */
+const UNTAPPED: LinkOpener = { gesture: false };
 
 /**
  * Top-level screens of `app/` that `relay://<screen>` reaches without a rewrite (`relay://reviews?item=`,
@@ -164,15 +187,24 @@ function screenOf(url: string): string | null {
 /**
  * The screen `url` opens; null when `url` is not a Relay link the app handles (a web URL, Expo's
  * dev-client link, or a `relay://<screen>` path the router already knows). A `relay://` link the
- * grammar rejects is Home with a notice.
+ * grammar rejects is Home with a notice. An assistant link's `send` sends only when `opener` is
+ * Isaac's tap; otherwise it is a draft.
  */
-export function appLinkRoute(url: string): AppRoute | null {
+export function appLinkRoute(url: string, opener: LinkOpener = UNTAPPED): AppRoute | null {
   if (!url.startsWith("relay://") || url.startsWith(DEV_CLIENT)) return null;
   const link = parseAppLink(url);
   if (link === null) {
     return screenOf(url) !== null ? null : home("That link isn't one Relay can open");
   }
-  if (link.kind === "assistant") return nav({ pathname: "/eva", params: { agent: link.id } });
+  if (link.kind === "assistant") {
+    const route = nav({ pathname: "/eva", params: { agent: link.id } });
+    const text = link.send ?? link.draft;
+    if (text === undefined) return route;
+    return {
+      ...route,
+      compose: { agent: link.id, text, send: link.send !== undefined && opener.gesture },
+    };
+  }
   return openRoute(link);
 }
 
@@ -185,23 +217,26 @@ export function hrefPath(href: AppHref): string {
   return query === "" ? href.pathname : `${href.pathname}?${query}`;
 }
 
-/** What the router should open for a URL the system hands the app, and what to say on landing. */
+/** What the router should open for a URL the system hands the app, what to say on landing, and the draft it hands a thread. */
 export interface SystemPath {
   path: string;
   notice?: string;
+  /** Never `send`: nothing from outside the app sends a message. */
+  compose?: ThreadCompose;
 }
 
 /**
  * What the router should open for a URL the system hands the app (`+native-intent`): an app link's
  * screen, the nearest one (with a notice) for one the phone has no screen for, anything else (an
  * Expo dev-client link, a `relay://reviews?item=` or `relay://agents/<id>` path the router already
- * knows, a plain path) as it came.
+ * knows, a plain path) as it came. No tap opened it, so an assistant link's `send` is a draft.
  */
 export function systemPath(path: string): SystemPath {
-  const route = appLinkRoute(path);
+  const route = appLinkRoute(path, UNTAPPED);
   if (route === null) return { path };
   return {
     path: hrefPath(route.href),
     ...(route.notice === undefined ? {} : { notice: route.notice }),
+    ...(route.compose === undefined ? {} : { compose: route.compose }),
   };
 }

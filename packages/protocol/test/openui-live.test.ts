@@ -231,6 +231,21 @@ describe("renderLiveOpenUI", () => {
     expect(render.node).toBeNull();
     expect(render.errors[0]?.code).toBe("query-error");
   });
+
+  it("keeps a button's assistant id, so a dashboard tile's button sends to that thread", async () => {
+    const render = await renderLiveOpenUI(
+      'root = Stack([Button("Add to Wife list", @ToAssistant("Add lamp to Wife list", "penny")), Button("Ask")])',
+      () => Promise.resolve({}),
+    );
+    expect(render.errors).toEqual([]);
+    expect(render.node).toMatchObject({
+      children: [
+        { widget: "button", reply: "Add lamp to Wife list", agent: "penny" },
+        { widget: "button", reply: "Ask" },
+      ],
+    });
+    expect(render.node).not.toMatchObject({ children: [{}, { agent: expect.anything() }] });
+  });
 });
 
 describe("query contract", () => {
