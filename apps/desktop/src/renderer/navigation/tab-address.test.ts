@@ -18,6 +18,10 @@ describe('relay:// addresses', () => {
       { kind: 'file', path: '/Users/ike/Eva/x.ts', line: 40, ws: 'chat:/s/a.jsonl' },
       'relay://open/files?path=%2FUsers%2Fike%2FEva%2Fx.ts&line=40&ws=chat%3A%2Fs%2Fa.jsonl',
     ],
+    [
+      { kind: 'file', path: '/e/a.ts', line: 12, end: 16 },
+      'relay://open/files?path=%2Fe%2Fa.ts&line=12&end=16',
+    ],
     [{ kind: 'canvas', board: 'mind-map' }, 'relay://open/canvas?canvas=mind-map'],
     [
       { kind: 'canvas', board: 'mind-map', node: 'n1' },

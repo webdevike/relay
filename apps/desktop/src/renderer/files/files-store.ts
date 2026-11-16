@@ -54,12 +54,16 @@ export interface SearchState extends SearchOptions {
   error: string | null
 }
 
-/** Where the editor should put the cursor once the file is open (quick open `:line`, search). */
+/**
+ * Where the editor should put the cursor once the file is open (quick open `:line`, search), or
+ * the whole lines `line`-`endLine` it should select (a link back to a comment's lines).
+ */
 export interface Reveal {
   path: string
   line: number
   column: number
   length: number
+  endLine?: number
   nonce: number
 }
 
@@ -310,13 +314,13 @@ async function locate(
 
 /**
  * Shows `target` in the panel (see locatePath): a folder expands and is selected in the tree, a
- * file opens pinned in the editor (at `line`). A path outside the chat's worktree switches this
- * chat's panel to the Eva root.
+ * file opens pinned in the editor (at `line`, lines `line`-`endLine` selected). A path outside
+ * the chat's worktree switches this chat's panel to the Eva root.
  */
 export async function showPath(
   target: string,
   chatFile: string | null,
-  opts: { line?: number; column?: number } = {},
+  opts: { line?: number; column?: number; endLine?: number } = {},
 ): Promise<ShownPath> {
   const { root, path: rel, kind, evaRoot } = await locate(target, chatFile)
   evaRootFor = root === evaRoot && chatFile !== null ? chatFile : undefined
@@ -332,7 +336,12 @@ export async function showPath(
       setExpanded(root, rel, true)
     }
   } else {
-    openFile(root, rel, { pin: true, line: opts.line, column: opts.column })
+    openFile(root, rel, {
+      pin: true,
+      line: opts.line,
+      column: opts.column,
+      ...(opts.endLine === undefined ? {} : { endLine: opts.endLine }),
+    })
     revealInTree(root, rel)
   }
   return { root, path: rel, kind }
@@ -472,6 +481,8 @@ export interface OpenOptions {
   line?: number
   column?: number
   length?: number
+  /** Select whole lines `line` to this one. */
+  endLine?: number
 }
 
 let revealNonce = 0
@@ -490,6 +501,7 @@ export function openFile(root: string, path: string, opts: OpenOptions = {}): vo
           line: opts.line,
           column: opts.column ?? 1,
           length: opts.length ?? 0,
+          ...(opts.endLine === undefined ? {} : { endLine: opts.endLine }),
           nonce: ++revealNonce,
         }
   const recent = [path, ...w.recent.filter((p) => p !== path)].slice(0, 50)

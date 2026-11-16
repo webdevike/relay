@@ -4,6 +4,7 @@ import { MantineProvider } from '@mantine/core'
 import { makeMessage } from '@evaos/chat-core/message'
 import { MessageRow } from './MessageRow'
 import { parseBackground } from '@evaos/chat-core/background'
+import { noteText } from '@evaos/contract'
 
 const open = vi.hoisted(() => vi.fn())
 vi.mock('../navigation/open-link', () => ({ openLink: open }))
@@ -182,6 +183,38 @@ describe('background rows in a chat', () => {
       expect(screen.getByTestId('background-event')).toBeTruthy()
     },
   )
+
+  it("shows a comment on a file's lines as one inline row with its code and a link back to them", () => {
+    // Code with a ``` fence of its own, and a note that tries to look like a fence: both survive.
+    const code = 'const a = 1\n```ts\nnested()\n```\nreturn a'
+    const text = noteText({
+      surface: 'files',
+      text: 'Rename this.\n```\nAnd explain why.',
+      path: '/Users/ike/Eva/work/x/src/a & b.ts',
+      rel: 'src/a & b.ts',
+      start: 12,
+      end: 16,
+      code,
+      language: 'typescript',
+    })
+    expect(parseBackground(text)).toMatchObject({
+      chip: 'a & b.ts:12-16',
+      file: { rel: 'src/a & b.ts', start: 12, end: 16, code, language: 'typescript' },
+    })
+    const { container } = wrap(text)
+    expect(container.querySelector('.eva-bubble')).toBeNull()
+    const row = screen.getByTestId('background-event')
+    expect(row.textContent).toContain('You commented on')
+    expect(within(row).getByTestId('background-note').textContent).toBe(
+      'Rename this. ``` And explain why.',
+    )
+    expect(within(row).getByTestId('background-code').textContent).toBe(code)
+    fireEvent.click(within(row).getByTestId('background-chip'))
+    expect(open).toHaveBeenLastCalledWith(
+      'relay://open/files?path=%2FUsers%2Fike%2FEva%2Fwork%2Fx%2Fsrc%2Fa%20%26%20b.ts&line=12&end=16',
+      expect.anything(),
+    )
+  })
 
   it('still shows what Isaac types as a bubble', () => {
     wrap('Anything I should know about?')

@@ -6,7 +6,7 @@ import { placeOf, type Place } from '@evaos/shell-core'
  * - chat: `relay://open/chat?chat=<session file>[&message=<id>]`
  * - assistant thread: `relay://assistant/<id>`
  * - web page: `relay://open/web?url=<http(s) url>[&ws=<workspace>]`
- * - file: `relay://open/files?path=<path>[&line=<n>][&ws=<workspace>]`
+ * - file: `relay://open/files?path=<path>[&line=<n>[&end=<last line, selected>]][&ws=<workspace>]`
  * - canvas board: `relay://open/canvas?canvas=<slug>[&node=<id>]`
  * - Studio job: `relay://open/studio?job=<id>`
  * - review item: `relay://open/reviews?item=<review id or item url>`
@@ -16,7 +16,7 @@ export type TabAddress =
   | { kind: 'chat'; file: string; message?: string }
   | { kind: 'assistant'; id: string }
   | { kind: 'web'; url: string; ws?: string }
-  | { kind: 'file'; path: string; line?: number; ws?: string }
+  | { kind: 'file'; path: string; line?: number; end?: number; ws?: string }
   | { kind: 'canvas'; board: string; node?: string }
   | { kind: 'studio'; job: string }
   | { kind: 'review'; item: string }
@@ -37,6 +37,7 @@ export function formatAddress(a: TabAddress): string {
       return open('files', {
         path: a.path,
         line: a.line === undefined ? undefined : String(a.line),
+        end: a.line === undefined || a.end === undefined ? undefined : String(a.end),
         ws: a.ws,
       })
     case 'canvas':
@@ -81,10 +82,15 @@ export function parseAddress(url: string): TabAddress | null {
     if (link.page === 'files') {
       if (p.path === undefined) return null
       const line = p.line === undefined ? undefined : Number(p.line)
+      const end = p.end === undefined ? undefined : Number(p.end)
+      const at = line !== undefined && Number.isInteger(line) && line > 0 ? line : undefined
       return {
         kind: 'file',
         path: p.path,
-        ...(line !== undefined && Number.isInteger(line) && line > 0 ? { line } : {}),
+        ...(at === undefined ? {} : { line: at }),
+        ...(at !== undefined && end !== undefined && Number.isInteger(end) && end > at
+          ? { end }
+          : {}),
         ...ws(p.ws),
       }
     }

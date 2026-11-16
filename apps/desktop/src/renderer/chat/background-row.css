@@ -73,6 +73,28 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A comment on lines of a file: the file and lines link back to Files; the code sits under the line. */
+.eva-bg-file-link {
+  color: var(--eva-text);
+  font-weight: 500;
+  text-decoration: none;
+}
+.eva-bg-file-link:hover {
+  text-decoration: underline;
+}
+.eva-bg-code {
+  max-height: calc(6 * 1.5em + 2 * var(--mantine-spacing-xs));
+  margin: var(--mantine-spacing-xs) 0 0;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  overflow: auto;
+  border-radius: var(--eva-radius);
+  background: var(--eva-hover);
+  color: var(--eva-text);
+  font-family: var(--eva-font-code);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+}
 /* The screenshot a comment carries: a tiny thumbnail on the line. */
 .eva-bg-thumbs {
   flex: none;

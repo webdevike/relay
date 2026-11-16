@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { changedRanges } from '@relay/protocol/text-diff'
 import { useColorScheme, useThemeConfig } from '../theme/theme-config'
 import { registerPageChord } from '../hotkeys/router'
@@ -17,6 +17,7 @@ import { focusHeld } from '../agent/focus-safety'
 import { drawAgentMarks } from './agent-cursors'
 import { lineEdits, rebase } from './buffer-edits'
 import { setLocalFocus, useMarks } from './presence-store'
+import { CodeComment, draftOf, type CodeDraft } from './CodeComment'
 
 type Model = monaco.editor.ITextModel
 
@@ -125,14 +126,15 @@ function surfaceOf(el: HTMLElement): HTMLElement {
 function applyReveal(editor: monaco.editor.IStandaloneCodeEditor, r: Reveal): void {
   const model = editor.getModel()
   if (!model) return
-  const line = Math.min(Math.max(1, r.line), model.getLineCount())
+  const last = model.getLineCount()
+  const line = Math.min(Math.max(1, r.line), last)
   const col = Math.min(Math.max(1, r.column), model.getLineMaxColumn(line))
-  const range = new monaco.Range(
-    line,
-    col,
-    line,
-    Math.min(col + r.length, model.getLineMaxColumn(line)),
-  )
+  // A link back to a comment selects its whole lines; a jump puts the cursor on its match.
+  const end = r.endLine === undefined ? null : Math.min(Math.max(line, r.endLine), last)
+  const range =
+    end === null
+      ? new monaco.Range(line, col, line, Math.min(col + r.length, model.getLineMaxColumn(line)))
+      : new monaco.Range(line, 1, end, model.getLineMaxColumn(end))
   editor.setSelection(range)
   editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Immediate)
   if (!focusHeld()) editor.focus()
@@ -148,6 +150,8 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const current = useRef<string | null>(null)
+  const [editorOn, setEditorOn] = useState<monaco.editor.IStandaloneCodeEditor | null>(null)
+  const [draft, setDraft] = useState<CodeDraft | null>(null)
   const scheme = useColorScheme()
   const config = useThemeConfig()
   const reveal = useSpace((w) => w.reveal, null)
@@ -187,6 +191,16 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       find: { addExtraSpaceOnTop: false, seedSearchStringFromSelection: 'selection' },
     })
     editorRef.current = editor
+    setEditorOn(editor)
+    // Comment on the selected lines (also the button by the selection, CodeComment).
+    const comment = editor.addAction({
+      id: 'eva.files.comment',
+      label: 'Comment',
+      contextMenuGroupId: 'navigation',
+      contextMenuOrder: 0,
+      precondition: 'editorHasSelection',
+      run: () => setDraft(draftOf(editor, current.current)),
+    })
     const offContent = editor.onDidChangeModelContent(() => {
       const model = editor.getModel()
       const key = current.current
@@ -210,12 +224,14 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       offFind()
       offEsc()
       offContent.dispose()
+      comment.dispose()
       offCursor.dispose()
       setLocalFocus(null)
       const key = current.current
       if (key !== null) viewStates.set(key, editor.saveViewState())
       editor.dispose()
       editorRef.current = null
+      setEditorOn(null)
       current.current = null
     }
   }, [])
@@ -248,6 +264,7 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
     if (current.current !== key) {
       if (current.current !== null) viewStates.set(current.current, editor.saveViewState())
       current.current = key
+      setDraft(null)
       editor.setModel(model)
       const view = viewStates.get(key)
       if (view) editor.restoreViewState(view)
@@ -276,5 +293,10 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
 
   // `monaco-component` puts Monaco's theme variables on the host: the context menu renders in a
   // shadow root hung off it (outside `.monaco-editor`), and reads its colors from them.
-  return <div ref={host} className="eva-files-monaco monaco-component" data-testid="files-editor" />
+  return (
+    <div className="eva-files-code">
+      <div ref={host} className="eva-files-monaco monaco-component" data-testid="files-editor" />
+      <CodeComment editor={editorOn} current={current} draft={draft} onDraft={setDraft} />
+    </div>
+  )
 }

@@ -15,6 +15,22 @@ export interface HeartbeatItem {
   link: string | null
 }
 
+/** Isaac's comment on lines of a file (the Files editor's Comment): what the row shows. */
+export interface FileComment {
+  /** The file relative to the Files root it was open under. */
+  rel: string
+  /** The file, absolute on the Mac. */
+  path: string
+  start: number
+  end: number
+  /** The code he selected. */
+  code: string
+  /** The fence's language, '' when none. */
+  language: string
+  /** `relay://open/files?...`: the file open in Files with the lines selected. */
+  link: string
+}
+
 export type BackgroundMessage =
   | {
       kind: 'event'
@@ -27,6 +43,8 @@ export type BackgroundMessage =
       chip?: string
       /** A comment Isaac left on a page or board: where it was and what he said (an inline row). */
       comment?: { place: string; note: string }
+      /** A comment on lines of a file in Files: the file, the lines, the code and the way back. */
+      file?: FileComment
     }
   | {
       kind: 'heartbeat'
@@ -65,6 +83,40 @@ const PAGE_NOTE =
 /** A comment on a canvas board (noteText's header line, then Isaac's words). */
 const CANVAS_COMMENT =
   /^\[(?:Comment|Reply in comment thread) \S+ on board (?:"((?:[^"\\]|\\.)*)"[^\n]*|(\S+),[^\n]*)\]\n(.*)/s
+/** A comment on lines of a file in Files (noteText's header line, then Isaac's words, the code, the link). */
+const FILE_COMMENT =
+  /^\[Comment on file ("(?:[^"\\]|\\.)*") at ("(?:[^"\\]|\\.)*"), lines? (\d+)(?:-(\d+))?\]\n/
+const FILE_LINK = /^relay:\/\/open\/files\?\S+$/
+
+/**
+ * A Files comment's parts. The code fence is longer than any backtick run in the code, so the
+ * opening fence is the nearest line above the closing one that starts with it.
+ */
+function fileComment(text: string): { note: string; file: FileComment } | null {
+  const head = FILE_COMMENT.exec(text)
+  if (!head) return null
+  const lines = text.slice(head[0].length).split('\n')
+  let at = lines.length - 1
+  while (at >= 0 && !FILE_LINK.test(lines[at]!.trim())) at--
+  const close = lines[at - 1]?.trim() ?? ''
+  if (at < 2 || !/^`{3,}$/.test(close)) return null
+  let open = at - 2
+  while (open >= 0 && !lines[open]!.startsWith(close)) open--
+  if (open < 0) return null
+  const start = Number(head[3])
+  return {
+    note: lines.slice(0, open).join('\n').trim(),
+    file: {
+      rel: unquote(head[1]!.slice(1, -1)),
+      path: unquote(head[2]!.slice(1, -1)),
+      start,
+      end: head[4] === undefined ? start : Number(head[4]),
+      code: lines.slice(open + 1, at - 1).join('\n'),
+      language: lines[open]!.slice(close.length).trim(),
+      link: lines[at]!.trim(),
+    },
+  }
+}
 
 function parseItem(line: string): HeartbeatItem | null {
   const m = ITEM.exec(line.trim())
@@ -107,6 +159,7 @@ const event = (
   text: string,
   chip?: string,
   comment?: { place: string; note: string },
+  file?: FileComment,
 ): BackgroundMessage => ({
   kind: 'event',
   icon,
@@ -114,6 +167,7 @@ const event = (
   text,
   ...(chip ? { chip } : {}),
   ...(comment ? { comment } : {}),
+  ...(file ? { file } : {}),
 })
 
 /** The text of a JSON string literal the header quoted (a title), as is when it isn't one. */
@@ -191,6 +245,20 @@ export function parseBackground(raw: string): BackgroundMessage | null {
       'reaction',
       `${reacted[1]} reacted ${reacted[2]} to "${firstSentence(reacted[3]!)}"`,
       text,
+    )
+  }
+  const onFile = fileComment(text)
+  if (onFile) {
+    const { note, file } = onFile
+    const name = file.rel.split('/').at(-1) ?? file.rel
+    const lines = file.end > file.start ? `${file.start}-${file.end}` : String(file.start)
+    return event(
+      'pointer',
+      said('File comment', firstSentence(note)),
+      text,
+      `${name}:${lines}`,
+      { place: file.rel, note: note.replace(/\s+/g, ' ') },
+      file,
     )
   }
   const page = PAGE_NOTE.exec(text)

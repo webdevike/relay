@@ -57,9 +57,10 @@ export const APP_LINK_PARAMS = [
   'message',
   /** `open/web`: the page's http(s) URL. */
   'url',
-  /** `open/files`: a path (absolute or Eva-root relative) and a line. */
+  /** `open/files`: a path (absolute or Eva-root relative), a line, and the last line of a range to select. */
   'path',
   'line',
+  'end',
   /** `open/canvas`: a node on the board. */
   'node',
   /** The workspace key a tool tab (web, files) belongs to. */

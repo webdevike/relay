@@ -72,12 +72,21 @@ Design Mode's Send (`apps/desktop/docs/design-mode.md`, `design.send`) is a page
 intent `change`: the same sender and owner, with what it read of each selected element (source,
 component, DOM, computed styles, Isaac's style edits; more elements under `also`) and one
 screenshot per element.
+A comment on code in Files is a note too, of surface `files`: select lines in the editor, then
+Comment (the editor's context menu, or the small button at the end of the selection), write the
+note in the card under the lines and Send (`renderer/files/CodeComment.tsx`). It carries the file
+(absolute and relative to the Files root), the line span and the selected code as the editor has
+it, unsaved edits included. No agent drives Files, so it goes to the chat of the workspace the
+Files tab is in.
 The owner is, in order:
 the assistant a comment @mentions, the chat whose agent runs on that surface (its run's
 `workspace`), the chat of the workspace the surface is shown in. `chat:<file>` posts through the
 pane showing that chat (or Relay when it runs elsewhere); `page:agent:<id>` posts an
 `assistant.turn`. The text (`noteText`) names the spot and links back
-(`relay://open/canvas?canvas=<slug>&node=<id>`, or the page URL and screenshot path). The agent
+(`relay://open/canvas?canvas=<slug>&node=<id>`, the page URL and screenshot path, or for code
+`relay://open/files?path=<abs>&line=<n>&end=<m>`, which opens Files with those lines selected).
+The chat shows it as one quiet row, never a bubble (`chat-core/background.ts` `parseBackground`;
+a code comment's row shows the code under the line and its file and lines link back). The agent
 answers in the chat and may mirror a short answer under a board comment with `canvas.reply`.
 
 The older live room (`canvas.live`, `relay-linux canvas start`) keeps its own canvas self and its

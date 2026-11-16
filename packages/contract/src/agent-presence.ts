@@ -110,6 +110,9 @@ export const BrowserNoteTargetSchema = z.object({
 })
 export type BrowserNoteTarget = z.output<typeof BrowserNoteTargetSchema>
 
+/** The most of a code selection a Files note carries; the editor cuts a longer one there. */
+export const FILE_NOTE_CODE_MAX = 8000
+
 /**
  * A note Isaac leaves on a surface for the chat that owns it. It goes into that chat as his own
  * message with what it points at, so the chat's assistant answers there and acts with its cursor.
@@ -142,6 +145,21 @@ export const AgentNoteSchema = z.discriminatedUnion('surface', [
     intent: z.enum(['note', 'change']).optional(),
     /** More marked elements or regions (Design Mode's multi-select), after the first. */
     also: z.array(BrowserNoteTargetSchema).max(7).optional(),
+  }),
+  z.object({
+    surface: z.literal('files'),
+    text: z.string().min(1).max(4000),
+    /** The file, absolute on this Mac. */
+    path: z.string().min(2).max(4096).startsWith('/'),
+    /** The same file relative to the Files root it is open under (what the row shows). */
+    rel: z.string().min(1).max(4096),
+    /** The commented lines, 1-based inclusive. */
+    start: z.number().int().min(1),
+    end: z.number().int().min(1),
+    /** The selected code as the editor had it (unsaved edits included). */
+    code: z.string().max(FILE_NOTE_CODE_MAX),
+    /** The editor's language id (`typescript`), for the code fence. */
+    language: z.string().max(40).optional(),
   }),
 ])
 export type AgentNote = z.output<typeof AgentNoteSchema>
@@ -191,6 +209,44 @@ export function noteLink(note: Extract<AgentNote, { surface: 'canvas' }>): strin
   const q = [`canvas=${encodeURIComponent(note.slug)}`]
   if (note.node) q.push(`node=${encodeURIComponent(note.node.id)}`)
   return `relay://open/canvas?${q.join('&')}`
+}
+
+type FileNote = Extract<AgentNote, { surface: 'files' }>
+
+/** `line 12` or `lines 12-18`. */
+export const lineSpan = (start: number, end: number): string =>
+  end > start ? `lines ${start}-${end}` : `line ${start}`
+
+/** The deep link back to a Files note's lines: the file open in Files with them selected. */
+export function fileNoteLink(note: Pick<FileNote, 'path' | 'start' | 'end'>): string {
+  const q = [`path=${encodeURIComponent(note.path)}`, `line=${note.start}`]
+  if (note.end > note.start) q.push(`end=${note.end}`)
+  return `relay://open/files?${q.join('&')}`
+}
+
+/** A code fence longer than any run of backticks in `code`, so the code can't close it. */
+function fenceFor(code: string): string {
+  let longest = 0
+  for (const run of code.match(/`+/g) ?? []) longest = Math.max(longest, run.length)
+  return '`'.repeat(Math.max(3, longest + 1))
+}
+
+/** What a Files note says after its header: the code fence, the link, then how to read it. */
+export const FILE_NOTE_FOOTER =
+  'The code block is the selection Isaac commented on, as his editor had it (unsaved edits included); his words are the text between the header and the code.'
+
+function fileNoteText(note: FileNote): string {
+  const fence = fenceFor(note.code)
+  const lang = (note.language ?? '').replace(/[^\w+#.-]/g, '')
+  return [
+    `[Comment on file ${JSON.stringify(note.rel)} at ${JSON.stringify(note.path)}, ${lineSpan(note.start, note.end)}]`,
+    note.text.trim(),
+    `${fence}${lang}`,
+    note.code.replace(/\n$/, ''),
+    fence,
+    fileNoteLink(note),
+    FILE_NOTE_FOOTER,
+  ].join('\n')
 }
 
 /**
@@ -254,6 +310,7 @@ function targetDetail(t: BrowserNoteTarget): string[] {
  * from Design Mode adds what it read of each marked element, and says which parts are Isaac's.
  */
 export function noteText(note: AgentNote): string {
+  if (note.surface === 'files') return fileNoteText(note)
   if (note.surface === 'canvas') {
     const board = note.board.trim() ? `${quoted(note.board)} (${note.slug})` : note.slug
     const on = note.node

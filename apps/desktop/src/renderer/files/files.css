@@ -522,10 +522,60 @@
   color: var(--eva-c-muted-foreground);
 }
 
+/* The editor and what floats over it (CodeComment.tsx); its own stacking context, so the floats
+   stay under the explorer when that overlays the editor. */
+.eva-files-code {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  isolation: isolate;
+}
+
 .eva-files-monaco {
   flex: 1;
   min-height: 0;
   min-width: 0;
+}
+
+/* Comment on code: the small button at the end of the selection, the note card under the lines
+   and the tint on those lines while the card is open. */
+.eva-code-comment-button {
+  position: absolute;
+  z-index: 6;
+  box-shadow: var(--mantine-shadow-sm);
+}
+.eva-code-comment {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  background: var(--eva-c-popover-background);
+  border-radius: var(--eva-card-radius);
+  box-shadow: var(--mantine-shadow-md);
+}
+.eva-code-comment[data-above='true'] {
+  transform: translateY(-100%);
+}
+.eva-code-comment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xs);
+  color: var(--eva-c-muted-foreground);
+  font-size: var(--eva-fz-label);
+}
+.eva-code-comment-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-code-comment-lines {
+  background: color-mix(in srgb, var(--mantine-primary-color-filled) 14%, transparent);
 }
 
 /* Agents in the editor (agent-cursors.ts): a caret and name tag where an agent's edit landed and

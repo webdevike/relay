@@ -4,6 +4,7 @@ import {
   IconActivityHeartbeat,
   IconBriefcase,
   IconChevronDown,
+  IconCode,
   IconFolder,
   IconHandClick,
   IconLayoutBoard,
@@ -21,6 +22,7 @@ import { ago } from '../reviews/review-model'
 import {
   type BackgroundIcon,
   type BackgroundMessage,
+  type FileComment,
   type HeartbeatItem,
 } from '@evaos/chat-core/background'
 import { Markdown } from './markdown/Markdown'
@@ -101,6 +103,54 @@ function CommentRow({
         <div id={bodyId} className="eva-bg-body" data-testid="background-body">
           <Markdown text={m.text} />
         </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Isaac's comment on lines of a file, as the same slim inline line: "You commented on
+ * <file:lines> · <folder>", what he said, and under it the code he selected (a few lines, then it
+ * scrolls). The file and lines are a link back: Files opens them with the lines selected.
+ */
+function FileCommentRow({
+  m,
+  file,
+  note,
+}: {
+  m: Extract<BackgroundMessage, { kind: 'event' }>
+  file: FileComment
+  note: string
+}) {
+  const folder = file.rel.includes('/') ? file.rel.slice(0, file.rel.lastIndexOf('/')) : ''
+  return (
+    <div className="eva-bg-comment" data-testid="background-event" data-kind="file">
+      <div className="eva-bg-comment-line">
+        <IconCode size={14} stroke={1.75} className="eva-bg-icon" aria-hidden />
+        <span className="eva-bg-comment-what">
+          You commented on{' '}
+          <a
+            href={file.link}
+            className="eva-bg-file-link"
+            data-testid="background-chip"
+            title={`Open ${file.path} at ${m.chip ?? ''}`}
+            onClick={(e) => {
+              e.preventDefault()
+              openLink(file.link, { target: openTargetOf(e) })
+            }}
+          >
+            {m.chip ?? file.rel}
+          </a>
+          {folder ? ` · ${folder}` : ''}
+        </span>
+        <span className="eva-bg-comment-note" data-testid="background-note" title={note}>
+          {note}
+        </span>
+      </div>
+      {file.code.trim() ? (
+        <pre className="eva-bg-code" data-testid="background-code">
+          {file.code}
+        </pre>
       ) : null}
     </div>
   )
@@ -234,6 +284,7 @@ export function BackgroundRow({
   thumbs?: ReactNode
 }) {
   if (m.kind === 'heartbeat') return <HeartbeatRow m={m} at={at} />
+  if (m.file && m.comment) return <FileCommentRow m={m} file={m.file} note={m.comment.note} />
   if (m.comment) return <CommentRow m={m} comment={m.comment} thumbs={thumbs} />
   return <EventRow m={m} at={at} />
 }

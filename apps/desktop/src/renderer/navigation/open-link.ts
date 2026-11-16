@@ -83,8 +83,11 @@ function openWeb(url: string, target: OpenTarget): void {
 const frontChatFile = (): string | null =>
   chatStore.getState().panes[frontChatPaneOf()]?.file || null
 
-/** A file in the Files tab: here, in the background, or in a Files tab split off the focused pane. */
-function openFileAt(path: string, line: number | undefined, target: OpenTarget): void {
+/**
+ * A file in the Files tab (at `line`, lines `line`-`end` selected): here, in the background, or in
+ * a Files tab split off the focused pane.
+ */
+function openFileAt(path: string, at: { line?: number; end?: number }, target: OpenTarget): void {
   const show = (): void => {
     const focus = tilingStore.getState().focus
     if (target === 'split' && focus !== null) splitAt(focus, 'right', { kind: 'files' })
@@ -92,7 +95,11 @@ function openFileAt(path: string, line: number | undefined, target: OpenTarget):
   }
   if (target === 'background') inBackground(show)
   else show()
-  void showPath(path, frontChatFile(), line === undefined ? {} : { line }).catch(() => {
+  const opts =
+    at.line === undefined
+      ? {}
+      : { line: at.line, ...(at.end === undefined ? {} : { endLine: at.end }) }
+  void showPath(path, frontChatFile(), opts).catch(() => {
     notifications.show({ message: `Relay could not open ${path}.`, color: 'yellow' })
   })
 }
@@ -115,7 +122,7 @@ export function openAddress(a: TabAddress, target: OpenTarget = 'here'): boolean
       openWeb(a.url, target)
       return true
     case 'file':
-      openFileAt(a.path, a.line, target)
+      openFileAt(a.path, { line: a.line, end: a.end }, target)
       return true
     case 'review': {
       const ref = reviewRefOfId(a.item)

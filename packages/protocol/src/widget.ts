@@ -167,6 +167,7 @@ export const APP_LINK_PARAMS = [
   "url",
   "path",
   "line",
+  "end",
   "node",
   "ws",
   "skill",

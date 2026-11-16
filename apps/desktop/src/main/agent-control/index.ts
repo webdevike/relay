@@ -147,8 +147,13 @@ export function registerAgentControl(
     return { ok: true as const }
   })
   registerTestHook('canvasDrive', canvasDrive)
+  // No agent drives Files: a Files note goes to the chat of the workspace it was left in.
   notes.runsFrom((note) =>
-    note.surface === 'canvas' ? canvasDrive.workspaceOf(note.slug) : drive.workspaceOf(note.tabId),
+    note.surface === 'canvas'
+      ? canvasDrive.workspaceOf(note.slug)
+      : note.surface === 'browser'
+        ? drive.workspaceOf(note.tabId)
+        : null,
   )
 
   if (!ctx.env.agentControl) return
