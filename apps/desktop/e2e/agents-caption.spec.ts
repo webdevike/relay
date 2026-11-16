@@ -161,6 +161,10 @@ test('a specialist run shows a margin badge and a ticking caption, then the done
   )
   const badgeBox = (await badge.boundingBox())!
   expect(badgeBox.x + badgeBox.width).toBeLessThanOrEqual(inner)
+  // The agents call has no wrench row of its own: the badge row is the only row for it.
+  await expect(log.locator(sel('tool-block'))).toHaveCount(0)
+  await expect(log.locator(sel('tool-group'))).toHaveCount(0)
+  await expect(log.locator('[data-role="tool"]')).toHaveCount(1)
   await shot(shell, 'running.png')
 
   // The research comes back and Nova replies: one caption, now under her reply.
@@ -204,6 +208,8 @@ test('a specialist run shows a margin badge and a ticking caption, then the done
   await expect(log.locator(sel('agents-caption'))).toHaveCount(1)
   await expect(text).toHaveText('Answered with Web researcher · 29s · 2 sources')
   await expect(log.locator(`${sel('msg-ag-a')} ${sel('agents-caption')}`)).toHaveCount(1)
+  await expect(log.locator(sel('tool-block'))).toHaveCount(0)
+  await expect(log.locator('[data-role="tool"]')).toHaveCount(0)
   await shot(shell, 'done.png')
 
   // A click opens what was asked, the answer and its verified sources.

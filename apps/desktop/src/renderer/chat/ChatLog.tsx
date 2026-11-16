@@ -60,7 +60,7 @@ function logItems(list: ChatMessage[], fold: boolean): LogItem[] {
     run = []
   }
   for (const m of list) {
-    if (fold && m.role === 'tool') run.push(m)
+    if (fold && m.role === 'tool' && m.agentCall === undefined) run.push(m)
     else {
       flush()
       out.push({ kind: 'message', m })
@@ -123,7 +123,7 @@ export function ChatLog({
   // Background turns answered "(nothing to report)" never show. Each piece of work another
   // assistant took on is one card (its latest state, where it started); a guest that joined and
   // has not spoken yet shows typing.
-  const items = useMemo(() => {
+  const logged = useMemo(() => {
     const kept = dropQuietTurns(foldGuestWork(all))
     const base = showThinking ? kept : kept.filter((m) => m.role !== 'thinking')
     const out = logItems(base, !showTools)
@@ -133,12 +133,11 @@ export function ChatLog({
     if (who !== null && !streaming) out.push({ kind: 'typing', who })
     return out
   }, [all, showThinking, showTools, typing])
-  const liveId = liveRowId(items, busy)
   // Each turn's specialist runs, on its last reply (or its last agents call before any reply), by
   // row id. A row keeps its runs' array while they are unchanged, so streaming leaves it alone.
   const shownRuns = useRef(new Map<string, { key: string; runs: AgentRun[] }>())
   const agentsAt = useMemo(() => {
-    const rows = items.flatMap((i) =>
+    const rows = logged.flatMap((i) =>
       i.kind === 'message' ? [i.m] : i.kind === 'tools' ? i.tools : [],
     )
     const byRow = agentRunsByRow(rows, (m) =>
@@ -153,7 +152,17 @@ export function ChatLog({
     }
     shownRuns.current = out
     return out
-  }, [items])
+  }, [logged])
+  // An agents call has no tool row of its own: the specialist badge is its row. It stays only where
+  // it carries its turn's badge (no reply yet); a later reply carries the badge otherwise.
+  const items = useMemo(
+    () =>
+      logged.filter(
+        (i) => i.kind !== 'message' || i.m.agentCall === undefined || agentsAt.has(i.m.id),
+      ),
+    [logged, agentsAt],
+  )
+  const liveId = liveRowId(items, busy)
   const ref = useRef<VListHandle>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const railFits = useRailFits(logRef, turnRailFits)

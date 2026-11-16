@@ -511,6 +511,14 @@ export function AgentCard({
     const listed: AgentMessage[] = [];
     let run: AgentMessage[] | null = null;
     for (const message of [...newestFirst].reverse()) {
+      // An agents call is never a tool row: its badge row when it carries its turn's runs, else nothing (a reply carries them).
+      if (message.role === "tool" && message.agentRun !== undefined) {
+        if (agentRuns.has(message.id)) {
+          run = null;
+          listed.push(message);
+        }
+        continue;
+      }
       if (
         message.role === "tool" &&
         (message.images === undefined || message.images.length === 0) &&

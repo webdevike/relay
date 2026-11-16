@@ -256,12 +256,18 @@ function MessageRowImpl({
   } else if (m.role === 'thinking') {
     body = <div className="eva-thinking">{m.text}</div>
   } else if (m.role === 'tool') {
-    body = (
-      <>
-        <ToolBlock m={m} images={imagesOf(m)} />
-        {agents !== undefined ? <AgentsCaption runs={agents} /> : null}
-      </>
-    )
+    // An agents call shows only its specialist badge, never the wrench row.
+    body =
+      m.agentCall !== undefined ? (
+        agents !== undefined ? (
+          <AgentsCaption runs={agents} />
+        ) : null
+      ) : (
+        <>
+          <ToolBlock m={m} images={imagesOf(m)} />
+          {agents !== undefined ? <AgentsCaption runs={agents} /> : null}
+        </>
+      )
   } else if (m.role === 'canvas' && m.canvas) {
     body = <CanvasRow entry={m.canvas} messageId={m.id} />
   } else if (m.role === 'guest' && m.guest) {
