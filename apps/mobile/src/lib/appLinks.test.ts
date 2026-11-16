@@ -1,54 +1,117 @@
+import { existsSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { appLinkRoute, hrefPath, systemPath } from "./appLinks";
+import { buildAppLink } from "@relay/protocol";
+import { appLinkRoute, hrefPath, ROUTER_SCREENS, systemPath } from "./appLinks";
+import { LINK_KINDS } from "./linkKinds.fixture";
+
+const APP_DIR = path.resolve(import.meta.dirname, "../../app");
+
+/** Whether `pathname` (`/rooms/r1`) names a file in app/, dynamic `[param]` segments included. */
+function screenExists(pathname: string): boolean {
+  let dir = APP_DIR;
+  const parts = pathname.split("/").filter((part) => part !== "");
+  for (const [i, part] of parts.entries()) {
+    const entries = readdirSync(dir);
+    const match =
+      entries.find((e) => e === part || e === `${part}.tsx`) ??
+      entries.find((e) => /^\[[^\]]+\](\.tsx)?$/.test(e));
+    if (match === undefined) return false;
+    if (i === parts.length - 1)
+      return match.endsWith(".tsx") || existsSync(path.join(dir, match, "index.tsx"));
+    dir = path.join(dir, match.replace(/\.tsx$/, ""));
+  }
+  return existsSync(path.join(APP_DIR, "index.tsx"));
+}
+
+const pathOf = (url: string): string => systemPath(url).path.split("?")[0] ?? "";
+const ITEM = "https://github.com/o/r/pull/12";
+
+describe("every desktop link kind on the phone", () => {
+  it("has the kinds a link can name", () => {
+    expect(LINK_KINDS.length).toBeGreaterThan(40);
+  });
+
+  it.each(LINK_KINDS.map((k) => [k.what, k] as const))("%s", (_what, kind) => {
+    expect(appLinkRoute(kind.url), kind.url).not.toBeNull();
+    expect(systemPath(kind.url), kind.url).toEqual({
+      path: kind.phone,
+      ...(kind.notice === undefined ? {} : { notice: kind.notice }),
+    });
+  });
+
+  it("opens only screens that exist in app/", () => {
+    for (const { url } of LINK_KINDS) expect(screenExists(pathOf(url)), url).toBe(true);
+  });
+
+  it("opens the older rooms/<id> like desktop's room/<id>", () => {
+    expect(systemPath("relay://open/rooms/r1")).toEqual({ path: "/rooms/r1" });
+  });
+});
 
 describe("appLinkRoute", () => {
-  it("is null for anything that is not a relay:// app link", () => {
+  it("is null for anything that is not a relay:// link the app handles", () => {
     expect(appLinkRoute("https://example.com")).toBeNull();
-    expect(appLinkRoute("relay://agents/abc")).toBeNull();
+    expect(appLinkRoute("/settings")).toBeNull();
     expect(appLinkRoute("relay://expo-development-client/?url=http%3A%2F%2Fx")).toBeNull();
+  });
+
+  it("leaves the older relay://<screen> paths to the router", () => {
+    expect(appLinkRoute("relay://agents/abc")).toBeNull();
+    expect(appLinkRoute("relay://reviews?item=x")).toBeNull();
+    expect(appLinkRoute("relay://rooms/dev?to=%2Frooms")).toBeNull();
+    expect(systemPath("relay://agents/abc")).toEqual({ path: "relay://agents/abc" });
+  });
+
+  it("names exactly the screens in app/ for those paths", () => {
+    const files = readdirSync(APP_DIR)
+      .filter((e) => !e.startsWith("+") && !e.startsWith("_"))
+      .map((e) => e.replace(/\.tsx$/, ""))
+      .filter((f) => f !== "index")
+      .sort();
+    expect([...ROUTER_SCREENS].sort()).toEqual(files);
   });
 
   it("opens the singular relay://open/setting as Settings, like desktop", () => {
     expect(appLinkRoute("relay://open/setting")).toEqual({ how: "navigate", href: "/settings" });
   });
 
-  it("maps pages to screens and a Reviews item to a push", () => {
-    expect(appLinkRoute("relay://assistant/nova")).toEqual({ how: "navigate", href: { pathname: "/eva", params: { agent: "nova" } } });
-    expect(appLinkRoute("relay://open/settings/connections?connect=github")).toEqual({ how: "navigate", href: "/settings" });
-    expect(appLinkRoute("relay://open/board/mind-map")).toEqual({ how: "navigate", href: { pathname: "/boards", params: { slug: "mind-map" } } });
-    expect(appLinkRoute("relay://open/canvas?canvas=artifacts")).toEqual({ how: "navigate", href: { pathname: "/canvas", params: { slug: "artifacts" } } });
-    const item = "https://github.com/o/r/pull/12";
-    expect(appLinkRoute(`relay://open/reviews?item=${encodeURIComponent(item)}`)).toEqual({ how: "push", href: `/reviews?item=${encodeURIComponent(item)}` });
+  it("pushes a Reviews item over the queue and switches to everything else", () => {
+    expect(appLinkRoute(`relay://open/reviews?item=${encodeURIComponent(ITEM)}`)?.how).toBe("push");
+    expect(appLinkRoute("relay://assistant/nova")).toEqual({
+      how: "navigate",
+      href: { pathname: "/eva", params: { agent: "nova" } },
+    });
   });
 
-  it("has no screen for Test Bench, Jobs or a canvas link without a valid room", () => {
-    expect(appLinkRoute("relay://open/test-bench?experiment=x&arm=a")).toBe("none");
-    expect(appLinkRoute("relay://open/jobs")).toBe("none");
-    expect(appLinkRoute("relay://open/canvas")).toBe("none");
-    expect(appLinkRoute("relay://open/canvas?canvas=Not%20A%20Slug")).toBe("none");
-  });
-});
-
-describe("systemPath", () => {
-  it("rewrites app links to the router's paths", () => {
-    expect(systemPath("relay://assistant/astra")).toBe("/eva?agent=astra");
-    expect(systemPath("relay://open/assistants")).toBe("/assistants");
-    expect(systemPath("relay://open/settings")).toBe("/settings");
-    expect(systemPath("relay://open/studio")).toBe("/studio");
-    expect(systemPath("relay://open/rooms")).toBe("/rooms");
-    expect(systemPath("relay://open/rooms/r1")).toBe("/rooms/r1");
-    expect(systemPath("relay://open/board")).toBe("/boards");
-    expect(systemPath("relay://open/board/mind-map")).toBe("/boards?slug=mind-map");
-    expect(systemPath("relay://open/canvas?canvas=artifacts")).toBe("/canvas?slug=artifacts");
-    const item = "https://github.com/o/r/pull/12";
-    expect(systemPath(`relay://open/reviews?item=${encodeURIComponent(item)}`)).toBe(`/reviews?item=${encodeURIComponent(item)}`);
+  it("opens Home with a notice, never a dead route, for links the grammar rejects or pages it does not know", () => {
+    for (const url of [
+      "relay://open/jobs/x/y",
+      "relay://open/workspace/ECard",
+      "relay://open/settings?nope=1",
+      "relay://assistant/Nova",
+      "relay://assistant/nova/avatar",
+      "relay://nonsense",
+      "relay://",
+    ]) {
+      expect(systemPath(url), url).toEqual({
+        path: "/",
+        notice: "That link isn't one Relay can open",
+      });
+    }
+    expect(systemPath("relay://open/brand-new-page")).toEqual({
+      path: "/",
+      notice: "The phone has no screen for that link",
+    });
   });
 
-  it("lands on Home for a page the phone lacks, and leaves other URLs alone", () => {
-    expect(systemPath("relay://open/test-bench")).toBe("/");
-    expect(systemPath("relay://reviews?item=x")).toBe("relay://reviews?item=x");
-    expect(systemPath("relay://agents/abc")).toBe("relay://agents/abc");
-    expect(systemPath("/settings")).toBe("/settings");
+  it("gives a chat link with no readable session id the sessions list", () => {
+    expect(
+      systemPath(buildAppLink({ kind: "open", page: "chat", params: { chat: "/x/.jsonl" } })),
+    ).toEqual({
+      path: "/agents",
+      notice: "Chats open as sessions under Agents",
+    });
   });
 });
 

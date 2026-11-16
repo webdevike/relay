@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { openChatLink, openWidgetUrl } from "./links";
+import { useLinkNotice } from "@/state/linkNotice";
 
 const { openURL, push, navigate } = vi.hoisted(() => ({
   openURL: vi.fn((_url: string) => Promise.resolve()),
@@ -24,14 +25,19 @@ describe("openChatLink", () => {
       "https://ecard.slack.com/archives/C0123ABC/p1730000000123456",
     ];
     for (const url of urls) openChatLink(url);
-    expect(push.mock.calls.map((c) => c[0])).toEqual(urls.map((url) => `/reviews?item=${encodeURIComponent(url)}`));
+    expect(push.mock.calls.map((c) => c[0])).toEqual(
+      urls.map((url) => `/reviews?item=${encodeURIComponent(url)}`),
+    );
     expect(openURL).not.toHaveBeenCalled();
   });
 
   it("leaves the app for any other link", () => {
     openChatLink("https://example.com/post");
     openChatLink("https://github.com/eCardSystems/api/issues/3");
-    expect(openURL.mock.calls.map((c) => c[0])).toEqual(["https://example.com/post", "https://github.com/eCardSystems/api/issues/3"]);
+    expect(openURL.mock.calls.map((c) => c[0])).toEqual([
+      "https://example.com/post",
+      "https://github.com/eCardSystems/api/issues/3",
+    ]);
     expect(push).not.toHaveBeenCalled();
   });
 });
@@ -45,31 +51,41 @@ describe("openWidgetUrl", () => {
     openChatLink("relay://assistant/astra");
     expect(navigate).toHaveBeenLastCalledWith({ pathname: "/eva", params: { agent: "astra" } });
     openWidgetUrl("relay://open/jobs");
-    expect(navigate).toHaveBeenCalledTimes(3);
+    expect(navigate).toHaveBeenLastCalledWith("/");
+    expect(navigate).toHaveBeenCalledTimes(4);
     expect(openURL).not.toHaveBeenCalled();
   });
 
-  it("follows a deep link's section and Reviews item, and swallows pages the phone lacks", () => {
+  it("follows a deep link's section and Reviews item, and opens Home with a notice for pages the phone lacks", () => {
     openChatLink("relay://open/settings/connections?connect=github");
     expect(navigate).toHaveBeenLastCalledWith("/settings");
     const item = "https://github.com/o/r/pull/12";
     openChatLink(`relay://open/reviews?item=${encodeURIComponent(item)}`);
     expect(push).toHaveBeenLastCalledWith(`/reviews?item=${encodeURIComponent(item)}`);
     openChatLink("relay://open/test-bench?experiment=x&arm=a");
+    expect(navigate).toHaveBeenLastCalledWith("/");
+    expect(useLinkNotice.getState().notice).toBe("Test Bench is on desktop");
     expect(openURL).not.toHaveBeenCalled();
   });
 
   it("opens the board and the canvas room a link names", () => {
     openChatLink("relay://open/board/mind-map");
-    expect(navigate).toHaveBeenLastCalledWith({ pathname: "/boards", params: { slug: "mind-map" } });
+    expect(navigate).toHaveBeenLastCalledWith({
+      pathname: "/boards",
+      params: { slug: "mind-map" },
+    });
     openChatLink("relay://open/board");
     expect(navigate).toHaveBeenLastCalledWith("/boards");
     openChatLink("relay://open/canvas?canvas=artifacts");
-    expect(navigate).toHaveBeenLastCalledWith({ pathname: "/canvas", params: { slug: "artifacts" } });
-    const calls = navigate.mock.calls.length;
+    expect(navigate).toHaveBeenLastCalledWith({
+      pathname: "/canvas",
+      params: { slug: "artifacts" },
+    });
     openChatLink("relay://open/canvas");
+    expect(navigate).toHaveBeenLastCalledWith("/boards");
     openChatLink("relay://open/canvas?canvas=Not%20A%20Slug");
-    expect(navigate).toHaveBeenCalledTimes(calls);
+    expect(navigate).toHaveBeenLastCalledWith("/boards");
+    expect(useLinkNotice.getState().notice).toBe("That link names no canvas room");
     expect(openURL).not.toHaveBeenCalled();
   });
 

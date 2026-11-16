@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { parseAppLink } from '@evaos/chat-core/widget'
 import { agentActions, agentCatalog, type AgentActionSpec } from './agent'
@@ -207,6 +208,26 @@ describe('link', () => {
     expect(link({ connection: 'linear', label: 'Connect [Linear]' }).markdown).toBe(
       '[Connect Linear](relay://open/settings/connections?connect=linear)',
     )
+  })
+
+  // The phone opens each kind in this file (apps/mobile/src/lib/appLinks.test.ts reads it too).
+  it('builds every link kind the phone link table lists, and the table lists every page', () => {
+    const { kinds } = JSON.parse(
+      readFileSync(new URL('./app-link-kinds.fixture.json', import.meta.url), 'utf8'),
+    ) as { kinds: Array<{ what: string; params?: object; url: string }> }
+    for (const { what, params, url } of kinds) {
+      // The room link is made by the rooms tools (rooms-agent.ts), not by `link`: it only has to parse.
+      if (params === undefined) expect(parseAppLink(url), what).not.toBeNull()
+      else expect(link(params).url, what).toBe(url)
+    }
+    const urls = kinds.map((k) => k.url)
+    for (const page of AGENT_PAGES) {
+      const base = page.link.includes('<') ? null : page.link.split('?')[0]
+      if (base !== null) expect(urls, page.key).toContain(base)
+    }
+    for (const section of AGENT_SETTINGS_SECTIONS) {
+      expect(urls, section).toContain(`relay://open/settings/${section.toLowerCase()}`)
+    }
   })
 
   it('refuses parts that do not belong together', () => {

@@ -1,0 +1,289 @@
+{
+  "_about": "Every relay:// link kind Relay desktop's `link` tool builds, with the phone screen apps/mobile/src/lib/appLinks.ts opens for it. packages/contract/src/agent-access.test.ts checks params -> url against appLinkFor; apps/mobile/src/lib/appLinks.test.ts checks url -> phone path (and notice) against appLinkRoute. Add a kind here when the desktop gains one.",
+  "kinds": [
+    {
+      "what": "page: dashboard",
+      "params": { "page": "dashboard" },
+      "url": "relay://open/dashboard",
+      "phone": "/"
+    },
+    {
+      "what": "page: assistants",
+      "params": { "page": "assistants" },
+      "url": "relay://open/assistants",
+      "phone": "/assistants"
+    },
+    {
+      "what": "page: agents",
+      "params": { "page": "agents" },
+      "url": "relay://open/agents",
+      "phone": "/agents"
+    },
+    {
+      "what": "assistant thread (agent:<id>)",
+      "params": { "page": "agent:nova" },
+      "url": "relay://assistant/nova",
+      "phone": "/eva?agent=nova"
+    },
+    {
+      "what": "page: chat",
+      "params": { "page": "chat" },
+      "url": "relay://open/chat",
+      "phone": "/agents",
+      "notice": "Chats open as sessions under Agents"
+    },
+    {
+      "what": "chat session file",
+      "params": {
+        "chat": "/Users/ike/.omp/agent/sessions/--Users-ike-Eva--/2026-11-16T10-00-00-000Z_abc123def.jsonl"
+      },
+      "url": "relay://open/chat?chat=%2FUsers%2Fike%2F.omp%2Fagent%2Fsessions%2F--Users-ike-Eva--%2F2026-11-16T10-00-00-000Z_abc123def.jsonl",
+      "phone": "/agents?sessionId=abc123def"
+    },
+    {
+      "what": "chat session file + message",
+      "params": { "chat": "/s/2026-11-16T10-00-00-000Z_abc123def.jsonl", "message": "m1" },
+      "url": "relay://open/chat?chat=%2Fs%2F2026-11-16T10-00-00-000Z_abc123def.jsonl&message=m1",
+      "phone": "/agents?sessionId=abc123def"
+    },
+    {
+      "what": "page: skills",
+      "params": { "page": "skills" },
+      "url": "relay://open/skills",
+      "phone": "/assistants",
+      "notice": "Skills are on desktop"
+    },
+    {
+      "what": "skill",
+      "params": { "page": "skills", "skill": "relay-widgets" },
+      "url": "relay://open/skills?skill=relay-widgets",
+      "phone": "/assistants",
+      "notice": "Skills are on desktop"
+    },
+    {
+      "what": "page: jobs",
+      "params": { "page": "jobs" },
+      "url": "relay://open/jobs",
+      "phone": "/",
+      "notice": "Jobs are on desktop"
+    },
+    {
+      "what": "page: test-bench",
+      "params": { "page": "test-bench" },
+      "url": "relay://open/test-bench",
+      "phone": "/",
+      "notice": "Test Bench is on desktop"
+    },
+    {
+      "what": "Test Bench experiment + arm",
+      "params": { "page": "test-bench", "experiment": "exp-1", "arm": "a" },
+      "url": "relay://open/test-bench?experiment=exp-1&arm=a",
+      "phone": "/",
+      "notice": "Test Bench is on desktop"
+    },
+    {
+      "what": "page: habits",
+      "params": { "page": "habits" },
+      "url": "relay://open/habits",
+      "phone": "/",
+      "notice": "Habits are on desktop"
+    },
+    {
+      "what": "page: meetings",
+      "params": { "page": "meetings" },
+      "url": "relay://open/meetings",
+      "phone": "/meetings"
+    },
+    {
+      "what": "meeting",
+      "params": { "page": "meetings", "meeting": "rec-9" },
+      "url": "relay://open/meetings?meeting=rec-9",
+      "phone": "/meetings/rec-9"
+    },
+    {
+      "what": "page: canvas",
+      "params": { "page": "canvas" },
+      "url": "relay://open/canvas",
+      "phone": "/boards",
+      "notice": "That link names no canvas room"
+    },
+    {
+      "what": "canvas board",
+      "params": { "page": "canvas", "canvas": "artifacts" },
+      "url": "relay://open/canvas?canvas=artifacts",
+      "phone": "/canvas?slug=artifacts"
+    },
+    {
+      "what": "canvas board + node",
+      "params": { "page": "canvas", "canvas": "artifacts", "node": "n1" },
+      "url": "relay://open/canvas?canvas=artifacts&node=n1",
+      "phone": "/canvas?slug=artifacts"
+    },
+    {
+      "what": "board:<slug> (dashboard board)",
+      "params": { "page": "board:mind-map" },
+      "url": "relay://open/board/mind-map",
+      "phone": "/boards?slug=mind-map"
+    },
+    {
+      "what": "page: rooms",
+      "params": { "page": "rooms" },
+      "url": "relay://open/rooms",
+      "phone": "/rooms"
+    },
+    {
+      "what": "room (made by the rooms tools, not the link tool)",
+      "url": "relay://open/room/r1",
+      "phone": "/rooms/r1"
+    },
+    {
+      "what": "page: studio",
+      "params": { "page": "studio" },
+      "url": "relay://open/studio",
+      "phone": "/studio"
+    },
+    {
+      "what": "Studio job",
+      "params": { "page": "studio", "job": "job-7" },
+      "url": "relay://open/studio?job=job-7",
+      "phone": "/studio",
+      "notice": "Studio shows every job; that one opens on desktop"
+    },
+    {
+      "what": "page: feed",
+      "params": { "page": "feed" },
+      "url": "relay://open/feed",
+      "phone": "/feed"
+    },
+    {
+      "what": "page: reviews",
+      "params": { "page": "reviews" },
+      "url": "relay://open/reviews",
+      "phone": "/reviews"
+    },
+    {
+      "what": "Reviews item",
+      "params": { "page": "reviews", "item": "https://github.com/o/r/pull/12" },
+      "url": "relay://open/reviews?item=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Fpull%2F12",
+      "phone": "/reviews?item=https%3A%2F%2Fgithub.com%2Fo%2Fr%2Fpull%2F12"
+    },
+    {
+      "what": "workspace:<slug>",
+      "params": { "page": "workspace:ecard" },
+      "url": "relay://open/workspace/ecard",
+      "phone": "/",
+      "notice": "Workspaces are on desktop"
+    },
+    {
+      "what": "page: settings",
+      "params": { "page": "settings" },
+      "url": "relay://open/settings",
+      "phone": "/settings"
+    },
+    {
+      "what": "setting (theme.mode)",
+      "params": { "setting": "theme.mode" },
+      "url": "relay://open/settings/theme?setting=theme.mode",
+      "phone": "/settings"
+    },
+    {
+      "what": "connection",
+      "params": { "connection": "github" },
+      "url": "relay://open/settings/connections?connect=github",
+      "phone": "/settings"
+    },
+    {
+      "what": "page: setup",
+      "params": { "page": "setup" },
+      "url": "relay://open/setup",
+      "phone": "/settings",
+      "notice": "Setup runs on desktop"
+    },
+    {
+      "what": "web page",
+      "params": { "web": "https://example.com/a" },
+      "url": "relay://open/web?url=https%3A%2F%2Fexample.com%2Fa",
+      "phone": "/",
+      "notice": "Web pages open on desktop"
+    },
+    {
+      "what": "web page + workspace",
+      "params": { "web": "https://example.com/a", "workspace": "/Users/ike/Eva" },
+      "url": "relay://open/web?url=https%3A%2F%2Fexample.com%2Fa&ws=%2FUsers%2Fike%2FEva",
+      "phone": "/",
+      "notice": "Web pages open on desktop"
+    },
+    {
+      "what": "file",
+      "params": { "path": "/Users/ike/Eva/AGENTS.md" },
+      "url": "relay://open/files?path=%2FUsers%2Fike%2FEva%2FAGENTS.md",
+      "phone": "/",
+      "notice": "Files open on desktop"
+    },
+    {
+      "what": "file + line",
+      "params": { "path": "/Users/ike/Eva/AGENTS.md", "line": 12 },
+      "url": "relay://open/files?path=%2FUsers%2Fike%2FEva%2FAGENTS.md&line=12",
+      "phone": "/",
+      "notice": "Files open on desktop"
+    },
+    {
+      "what": "settings section: Theme",
+      "params": { "page": "settings", "section": "Theme" },
+      "url": "relay://open/settings/theme",
+      "phone": "/settings"
+    },
+    {
+      "what": "settings section: Chat",
+      "params": { "page": "settings", "section": "Chat" },
+      "url": "relay://open/settings/chat",
+      "phone": "/settings",
+      "notice": "That settings section is on desktop"
+    },
+    {
+      "what": "settings section: Links",
+      "params": { "page": "settings", "section": "Links" },
+      "url": "relay://open/settings/links",
+      "phone": "/settings",
+      "notice": "That settings section is on desktop"
+    },
+    {
+      "what": "settings section: Notifications",
+      "params": { "page": "settings", "section": "Notifications" },
+      "url": "relay://open/settings/notifications",
+      "phone": "/settings"
+    },
+    {
+      "what": "settings section: Connections",
+      "params": { "page": "settings", "section": "Connections" },
+      "url": "relay://open/settings/connections",
+      "phone": "/settings"
+    },
+    {
+      "what": "settings section: Usage",
+      "params": { "page": "settings", "section": "Usage" },
+      "url": "relay://open/settings/usage",
+      "phone": "/usage"
+    },
+    {
+      "what": "settings section: Setup",
+      "params": { "page": "settings", "section": "Setup" },
+      "url": "relay://open/settings/setup",
+      "phone": "/settings",
+      "notice": "That settings section is on desktop"
+    },
+    {
+      "what": "settings section: About",
+      "params": { "page": "settings", "section": "About" },
+      "url": "relay://open/settings/about",
+      "phone": "/settings"
+    },
+    {
+      "what": "settings section: Changelog",
+      "params": { "page": "settings", "section": "Changelog" },
+      "url": "relay://open/settings/changelog",
+      "phone": "/settings",
+      "notice": "That settings section is on desktop"
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { Linking } from "react-native";
 import { router, type Href } from "expo-router";
 import { appLinkRoute } from "./appLinks";
+import { useLinkNotice } from "@/state/linkNotice";
 import { reviewLinkOf } from "@/reviews/model";
 
 /** Opens a URL in the system handler, ignoring failures (e.g. no app can handle it). */
@@ -12,15 +13,16 @@ export function openExternal(url: string): void {
  * Follows a `relay://assistant/<id>` (that assistant's thread) or `relay://open/<page>[/<sub>]`
  * link inside the app (a Reviews `?item=` opens that item; the table is `lib/appLinks.ts`, shared
  * with links opened from outside the app). Returns false when `url` isn't one, so callers fall
- * through to the web; a page this app has no screen for (Test Bench, Jobs) is swallowed: it never
- * goes to the system handler.
+ * through to the web. A page this app has no screen for opens the nearest one with a short notice;
+ * a Relay link never goes to the system handler.
  */
 function openAppLink(url: string): boolean {
   const route = appLinkRoute(url);
   if (route === null) return false;
   // appLinks.ts stays free of expo-router (the +native-intent hook and its tests use it), so its
   // route table is untyped; every href it builds names a screen in app/.
-  if (route !== "none") router[route.how](route.href as Href);
+  router[route.how](route.href as Href);
+  if (route.notice !== undefined) useLinkNotice.getState().say(route.notice);
   return true;
 }
 
