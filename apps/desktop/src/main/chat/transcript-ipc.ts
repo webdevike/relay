@@ -7,6 +7,7 @@ import type { SessionOwners } from './owners'
 import { handle } from '../ipc/handle'
 import { blobAgentDirs, MediaError, readBlobImage } from './media'
 import type { RemoteSessions } from './remote-sessions'
+import type { ThreadHistory } from './thread-history'
 
 class CodedError extends Error {
   constructor(
@@ -101,12 +102,14 @@ export function registerTranscriptIpc(
   remote?: RemoteSessions | null,
   /** Sessions the assistants registered: their transcripts read like a subagent's, wherever they sit. */
   owned?: SessionOwners | null,
+  /** Reads an assistant's live thread with its earlier contexts first. */
+  thread?: ThreadHistory,
 ): void {
   handle(ctx, 'chat.listSessions', () => ({ sessions: listSessionFiles(ctx.env.sessionsDir) }))
   handle(ctx, 'chat.open', async ({ paneId, file }) => {
     await remote?.open(file)
     const real = resolveInsideSessionsDir(sessionsDirs, file)
-    const parsed = parseSession(fs.readFileSync(real, 'utf8'))
+    const parsed = thread?.read(real) ?? parseSession(fs.readFileSync(real, 'utf8'))
     onOpened?.(paneId, real, parsed)
     return { ...parsed, owner: ownerOf?.(real) ?? null }
   })

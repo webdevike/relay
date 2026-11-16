@@ -969,7 +969,13 @@ export class SessionManager {
   private reread(pane: Pane, r: Remote, parsed: ParsedSession): void {
     // A rename only appends a title record: the name follows without a new message.
     pane.named = parsed.named
-    if (JSON.stringify(parsed.messages) !== JSON.stringify(r.history)) {
+    // Row by row: an assistant thread's earlier contexts are the same rows each time (thread-history).
+    const same =
+      parsed.messages.length === r.history.length &&
+      parsed.messages.every(
+        (m, i) => m === r.history[i] || JSON.stringify(m) === JSON.stringify(r.history[i]),
+      )
+    if (!same) {
       r.history = parsed.messages
       r.notes = []
       // A prompt sent from here shows until the file has one more of it than when it was sent.

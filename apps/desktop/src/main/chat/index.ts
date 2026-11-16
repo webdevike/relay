@@ -42,6 +42,7 @@ import { registerChatListIpc } from './chat-list-ipc'
 import { createSessionManager, registerLiveIpc } from './live-ipc'
 import { SessionOwners } from './owners'
 import { registerTranscriptIpc, resolveInsideSessionsDir } from './transcript-ipc'
+import { ThreadHistory } from './thread-history'
 import type { Place } from '@evaos/chat-core/work'
 import { machineLabel, tagged } from '@evaos/chat-core/tagged'
 import { surfaceDetail, type Assistants, type NoteOwner } from '@evaos/contract'
@@ -104,7 +105,9 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
   const relay = startRelay(ctx)
   // Remote mode: omp runs only on the Mini, asked through Relay.
   const mini = ctx.env.relayRemote ? createMini(relay, () => relay.sessions()) : null
-  const manager = createSessionManager(ctx, relay, mini)
+  // An assistant's thread shows its earlier contexts (the host's record) above the live one.
+  const thread = new ThreadHistory(ctx.env.relayDir)
+  const manager = createSessionManager(ctx, relay, mini, thread)
   // Resolved once at launch: every omp store's sessions dir for the Eva root (fixture dir when not
   // live), or the mirror of a remote host's sessions.
   const sessionsDirs = chatSessionsDirs(ctx.env)
@@ -126,6 +129,7 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     (file) => manager.ownerOf(file),
     remote,
     new SessionOwners(ctx.env.evaRoot),
+    thread,
   )
   // `@computer` (SPEC.md) takes its messages before routing; it asks the assistants list (below)
   // which thread a chat is, only when a run starts. In an assistant's own thread the run talks to

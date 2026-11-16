@@ -171,7 +171,7 @@ export class LiveReducer {
     const dirty = rows
       .filter((r) => {
         const old = before.get(r.id)
-        return !old || moved.has(r.id) || JSON.stringify(old) !== JSON.stringify(r)
+        return !old || moved.has(r.id) || (old !== r && JSON.stringify(old) !== JSON.stringify(r))
       })
       .map((r) => r.id)
     this.msgs = [...rows]

@@ -17,7 +17,7 @@ import type { OmpStdioTransport } from './omp-transport'
 import { loadSettings } from '../settings-ipc'
 import { createChatTransport } from './transport-factory'
 import { SessionManager } from './session-manager'
-import { parseSession } from '@evaos/chat-core/session'
+import type { ThreadHistory } from './thread-history'
 import { machineLabel } from '@evaos/chat-core/tagged'
 import { surfaceDetail, type Batch } from '@evaos/contract'
 import type { RelayHostInfo, RelayLink } from '../relay/client'
@@ -110,12 +110,21 @@ export function createSessionManager(
   ctx: MainContext,
   relay: RelayLink & RelayHostInfo,
   mini: Mini | null,
+  thread: ThreadHistory,
 ): SessionManager {
   const dropNext = new Set<string>()
   let extraEnv: Record<string, string> = {}
   const herdrBin = ctx.env.herdrBin
   const manager: SessionManager = new SessionManager({
     relay,
+    // An assistant's thread rereads with its earlier contexts, as it opened (chat.open).
+    readSession: (file) => {
+      try {
+        return thread.read(file)
+      } catch {
+        return null
+      }
+    },
     log: (line) => console.info(`[chat] ${line}`),
     // New omp chats start in herdr like native EvaOS (herdr.rs), when herdr is installed; in
     // remote mode every chat runs on the Mini instead.
@@ -174,7 +183,7 @@ export function createSessionManager(
       },
       // Phase 6 brings real second panes; until then e2e drives one through these two.
       openInPane: (paneId: string, file: string) => {
-        const parsed = parseSession(fs.readFileSync(file, 'utf8'))
+        const parsed = thread.read(file)
         manager.open(paneId, file, parsed.messages, parsed.meta, parsed.named)
       },
       sendFromPane: (paneId: string, text: string) => manager.send(paneId, text),
