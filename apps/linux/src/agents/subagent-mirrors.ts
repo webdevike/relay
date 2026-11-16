@@ -12,7 +12,13 @@ import { statSync, openSync, readSync, closeSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import type { ActivityItem, AgentSession, Artifact } from "@relay/protocol";
 import { helperItems } from "../activity/sources";
-import { firstLine, parseSessionRows, type Image, type InboxMessage } from "./transcript";
+import {
+  AgentCalls,
+  firstLine,
+  parseSessionRows,
+  type Image,
+  type InboxMessage,
+} from "./transcript";
 import type { OwnedSession } from "./owned-sessions";
 
 /** How often the helpers are looked at, and every mirrored transcript for new lines. */
@@ -76,6 +82,11 @@ function parentOf(file: string, sessionForFile: MirrorDeps["sessionForFile"]): A
 class Mirror {
   private readonly history: InboxMessage[] = [];
   private readonly images = new Map<string, Image>();
+  /** Agents call rows a result read later updated, sent once the read is done. */
+  private readonly updated: InboxMessage[] = [];
+  private readonly agentCalls = new AgentCalls((row) => {
+    this.updated.push(row);
+  });
   private link: MirrorLink | null = null;
   private seq = 0;
   private offset = 0;
@@ -176,6 +187,7 @@ class Mirror {
       this.offset = 0;
       this.partial = "";
       this.history.length = 0;
+      this.agentCalls.clear();
     }
     if (size === this.offset) return false;
     const chunk = Buffer.alloc(size - this.offset);
@@ -188,10 +200,22 @@ class Mirror {
     this.offset = size;
     const lines = (this.partial + chunk.toString("utf8")).split("\n");
     this.partial = lines.pop() ?? "";
-    const appended = parseSessionRows(lines.join("\n"), this.images, this.nextId);
+    const appended = parseSessionRows(lines.join("\n"), this.images, this.nextId, this.agentCalls);
+    // A result read now for a call sent before: the row's run moves (`message.agent`).
+    const fresh = new Set(appended);
+    for (const row of this.updated.splice(0)) {
+      if (!fresh.has(row) && row.agentTool !== undefined)
+        this.link?.send({
+          t: "message.agent",
+          id: row.id,
+          text: row.text,
+          agentTool: row.agentTool,
+        });
+    }
     if (appended.length === 0) return false;
     for (const row of appended) this.history.push(row);
-    if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
+    if (this.history.length > MAX_HISTORY)
+      this.history.splice(0, this.history.length - MAX_HISTORY);
     // Before the link exists the history is what `conversation` answers; afterwards the phone also gets the rows live.
     this.link?.send({ t: "messages", append: appended });
     const said = appended.findLast((row) => row.role === "assistant");
@@ -222,7 +246,9 @@ class Mirror {
       sessionId: id,
       provider: "omp",
       projectPath: adopted?.projectPath ?? parent?.projectPath ?? "",
-      ...(parent === null ? { owner: adopted?.owner, sessionFile: this.file } : { parentId: parent.id }),
+      ...(parent === null
+        ? { owner: adopted?.owner, sessionFile: this.file }
+        : { parentId: parent.id }),
       ...this.base(),
     };
   }
@@ -234,7 +260,12 @@ class Mirror {
   /** Answers one host request the way the extension's mirror does, minus anything that needs a live omp. */
   private answer(frame: HostFrame): void {
     const ok = (value?: unknown): void => {
-      this.link?.send({ t: "result", id: frame.id, ok: true, ...(value === undefined ? {} : { value }) });
+      this.link?.send({
+        t: "result",
+        id: frame.id,
+        ok: true,
+        ...(value === undefined ? {} : { value }),
+      });
     };
     const refuse = (error: string): void => {
       this.link?.send({ t: "result", id: frame.id, ok: false, error });
@@ -260,10 +291,14 @@ class Mirror {
       case "reply":
       case "note":
       case "abort":
-        refuse(`${this.target.item.title} is read from its transcript: it cannot be messaged or stopped from here`);
+        refuse(
+          `${this.target.item.title} is read from its transcript: it cannot be messaged or stopped from here`,
+        );
         return;
       default:
-        refuse(`${this.target.item.title} is read from its transcript: ${frame.t} is not available`);
+        refuse(
+          `${this.target.item.title} is read from its transcript: ${frame.t} is not available`,
+        );
     }
   }
 }
@@ -380,7 +415,10 @@ export class SubagentFileMirrors {
  * an omp extension holds. Frames from the host come back through `onFrame`; `onClose` runs once
  * when the socket ends, whoever ended it (a real mirror of the same session replaces this one).
  */
-export function openBridgeLink(socketPath: string, log: (line: string) => void): MirrorDeps["open"] {
+export function openBridgeLink(
+  socketPath: string,
+  log: (line: string) => void,
+): MirrorDeps["open"] {
   return (onFrame, onClose) => {
     let buffer = "";
     // Bytes the socket has not taken yet (before it opens, or past what the kernel buffer held).

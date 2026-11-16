@@ -30,6 +30,7 @@ import {
   type AgentApproval,
   type AgentAsk,
   type AgentMessage,
+  type AgentRun,
   type AgentOptions,
   type AssistantSnapshot,
   type ClientMessage,
@@ -174,7 +175,10 @@ export const ASSISTANT_FOLLOW_MS = 5 * 60_000;
 const EMPTY_ASSISTANT: AssistantSnapshot = { rev: 0, messages: [], busy: false, sessionId: "" };
 
 /** `snapshot` holding only its newest `rows` rows, `older` counting those left out; the whole of it when `rows` is absent or covers it. */
-export function tailSnapshot(snapshot: AssistantSnapshot, rows: number | undefined): AssistantSnapshot {
+export function tailSnapshot(
+  snapshot: AssistantSnapshot,
+  rows: number | undefined,
+): AssistantSnapshot {
   if (rows === undefined || snapshot.messages.length <= rows) return snapshot;
   const older = snapshot.messages.length - rows;
   return { ...snapshot, messages: snapshot.messages.slice(older), older };
@@ -271,7 +275,10 @@ export class ClientSession {
       this.broadcast(message);
       return;
     }
-    this.broadcast({ ...message, snapshot: tailSnapshot(message.snapshot, this.assistantRows.get(message.agent)) });
+    this.broadcast({
+      ...message,
+      snapshot: tailSnapshot(message.snapshot, this.assistantRows.get(message.agent)),
+    });
   }
 
   /** Whether the phone currently has `sessionId`'s conversation open (subscribed on this socket). */
@@ -303,10 +310,26 @@ export class ClientSession {
     this.sink.send({ t: "agent.messages", sessionId, rev: rev + 1, append: [...messages] });
   }
 
-  /** Forwards a streaming message's text so far iff subscribed; no rev, the frame is idempotent. */
-  agentMessageUpdated(sessionId: string, id: string, text: string, streaming: boolean): void {
+  /**
+   * Forwards a streaming message's text so far iff subscribed; no rev, the frame is idempotent. An agents call's
+   * tool row comes this way too with its new `agentRun` (a phone without runs sets the same text again).
+   */
+  agentMessageUpdated(
+    sessionId: string,
+    id: string,
+    text: string,
+    streaming: boolean,
+    agentRun?: AgentRun,
+  ): void {
     if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
-    this.sink.send({ t: "agent.message.update", sessionId, id, text, streaming });
+    this.sink.send({
+      t: "agent.message.update",
+      sessionId,
+      id,
+      text,
+      streaming,
+      ...(agentRun === undefined ? {} : { agentRun }),
+    });
   }
 
   /** Forwards a board write iff this socket sent `board.subscribe`. */
@@ -653,7 +676,12 @@ export class ClientSession {
         this.statsWanted = true;
         this.sink.send({
           t: "stats.snapshot",
-          stats: this.deps.stats?.get() ?? { updatedAt: null, refreshing: false, profiles: [], ranges: null },
+          stats: this.deps.stats?.get() ?? {
+            updatedAt: null,
+            refreshing: false,
+            profiles: [],
+            ranges: null,
+          },
         });
         this.deps.stats?.refreshIfStale();
         break;
@@ -699,33 +727,59 @@ export class ClientSession {
         });
         break;
       case "bookmarks.get":
-        this.sink.send({ t: "bookmarks.snapshot", thread: message.thread, messages: [...(this.deps.bookmarks?.snapshot(message.thread) ?? [])] });
+        this.sink.send({
+          t: "bookmarks.snapshot",
+          thread: message.thread,
+          messages: [...(this.deps.bookmarks?.snapshot(message.thread) ?? [])],
+        });
         break;
       case "bookmark.set": {
         const bookmarks = this.deps.bookmarks;
         // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
         if (bookmarks === null || !bookmarks.set(message.thread, message.message, message.on))
-          this.sink.send({ t: "bookmarks.snapshot", thread: message.thread, messages: [...(bookmarks?.snapshot(message.thread) ?? [])] });
+          this.sink.send({
+            t: "bookmarks.snapshot",
+            thread: message.thread,
+            messages: [...(bookmarks?.snapshot(message.thread) ?? [])],
+          });
         break;
       }
       case "widgets.get":
-        this.sink.send({ t: "widgets.snapshot", thread: message.thread, widgets: this.deps.replyWidgets?.snapshot(message.thread) ?? {} });
+        this.sink.send({
+          t: "widgets.snapshot",
+          thread: message.thread,
+          widgets: this.deps.replyWidgets?.snapshot(message.thread) ?? {},
+        });
         break;
       case "widget.label": {
         const { thread, message: key, label, surface, excerpt } = message;
         const widgets = this.deps.replyWidgets ?? null;
-        void (widgets === null ? Promise.resolve({ ok: false, error: "this host saves no widget labels" }) : widgets.label({ thread, message: key, label, surface, excerpt })).then((result) => {
-          this.sink.send({ t: "widget.labeled", thread, message: key, ok: result.ok, ...(result.error === undefined ? {} : { error: result.error }) });
+        void (
+          widgets === null
+            ? Promise.resolve({ ok: false, error: "this host saves no widget labels" })
+            : widgets.label({ thread, message: key, label, surface, excerpt })
+        ).then((result) => {
+          this.sink.send({
+            t: "widget.labeled",
+            thread,
+            message: key,
+            ok: result.ok,
+            ...(result.error === undefined ? {} : { error: result.error }),
+          });
         });
         break;
       }
       case "cards.get":
-        this.sink.send({ t: "cards.dismissed", ids: [...(this.deps.dismissedCards?.snapshot() ?? [])] });
+        this.sink.send({
+          t: "cards.dismissed",
+          ids: [...(this.deps.dismissedCards?.snapshot() ?? [])],
+        });
         break;
       case "card.dismiss": {
         const cards = this.deps.dismissedCards;
         // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
-        if (cards?.set(message.id, message.on) !== true) this.sink.send({ t: "cards.dismissed", ids: [...(cards?.snapshot() ?? [])] });
+        if (cards?.set(message.id, message.on) !== true)
+          this.sink.send({ t: "cards.dismissed", ids: [...(cards?.snapshot() ?? [])] });
         break;
       }
       case "reaction.set":
@@ -748,7 +802,10 @@ export class ClientSession {
       case "render.failed": {
         // Fire and forget: the service logs it and tells the bubble's agent; the device gets no answer.
         const { thread, message: key, kind, form, src, error, surface } = message;
-        this.deps.renderFailures?.report({ thread, message: key, kind, form, src, error, surface }, { id: deviceId, name: this.deviceName ?? deviceId });
+        this.deps.renderFailures?.report(
+          { thread, message: key, kind, form, src, error, surface },
+          { id: deviceId, name: this.deviceName ?? deviceId },
+        );
         break;
       }
       case "artifacts.get":
@@ -795,7 +852,11 @@ export class ClientSession {
         void thread.snapshot().then(
           (snapshot) => {
             if (!this.closed)
-              this.sink.send({ t: "assistant.snapshot", agent: thread.id, snapshot: tailSnapshot(snapshot, message.rows) });
+              this.sink.send({
+                t: "assistant.snapshot",
+                agent: thread.id,
+                snapshot: tailSnapshot(snapshot, message.rows),
+              });
           },
           () => {
             if (!this.closed)
@@ -881,7 +942,13 @@ export class ClientSession {
       case "studio.list":
         this.sink.send({
           t: "studio.state",
-          ...(this.deps.studio?.state() ?? { jobs: [], uploads: [], backends: [], projects: [], references: [] }),
+          ...(this.deps.studio?.state() ?? {
+            jobs: [],
+            uploads: [],
+            backends: [],
+            projects: [],
+            references: [],
+          }),
         });
         // A preset or model file dropped in since shows up on Studio's next open, without a Refresh.
         void this.deps.studio?.rescan();
@@ -1008,7 +1075,10 @@ export class ClientSession {
         this.deps.files?.saved(message.path, message.hash);
         break;
       case "control.presence":
-        this.deps.control?.presence({ sink: this.sink, device: deviceId, loopback: isLoopback(this.deps.remoteAddress) }, message);
+        this.deps.control?.presence(
+          { sink: this.sink, device: deviceId, loopback: isLoopback(this.deps.remoteAddress) },
+          message,
+        );
         break;
       case "control.res":
         this.deps.control?.result(this.sink, message.rid, message.result);
@@ -1346,8 +1416,12 @@ export class ClientSession {
       ...(this.deps.dismissedCards === null ? [] : [CARDS_DISMISSED_FEATURE]),
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
       ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
-      ...((this.deps.replyWidgets ?? null) === null ? [] : [REPLY_WIDGETS_FEATURE, WIDGET_TRAINING_FEATURE]),
-      ...((this.deps.rooms ?? null) === null ? [] : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE]),
+      ...((this.deps.replyWidgets ?? null) === null
+        ? []
+        : [REPLY_WIDGETS_FEATURE, WIDGET_TRAINING_FEATURE]),
+      ...((this.deps.rooms ?? null) === null
+        ? []
+        : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE]),
       // Snapshots carry guest rows (another assistant popped into a thread) with their entry.
       ...(this.deps.assistant?.consult === undefined ? [] : [ASSISTANT_GUESTS_FEATURE]),
     ];

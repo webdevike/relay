@@ -1,0 +1,156 @@
+/*
+ * Specialist agents on a reply: a rosette in the left margin beside the reply's first line (teal
+ * while a run is out, muted once done) and one muted caption line under the reply that opens the
+ * runs' requests and replies.
+ */
+.eva-row[data-agents='true'] .eva-row-inner {
+  position: relative;
+}
+.eva-agents {
+  margin-top: calc(var(--mantine-spacing-xs) / 2);
+  color: var(--eva-text-dim);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
+}
+.eva-agents-badge {
+  position: absolute;
+  top: calc((var(--eva-font-size) * 1.55 - 16px) / 2);
+  inset-inline-start: calc(var(--eva-space-native-lg) * -1);
+  display: flex;
+  width: 16px;
+  height: 16px;
+  color: var(--eva-text-dim);
+  transition: color var(--eva-dur-fast);
+}
+.eva-agents[data-state='running'] .eva-agents-badge {
+  color: var(--eva-accent);
+}
+.eva-agents[data-state='failed'] .eva-agents-badge {
+  color: var(--eva-danger);
+}
+.eva-agents-line {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2.5);
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-family: var(--eva-font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--eva-dur-fast);
+}
+.eva-agents-line:hover {
+  color: var(--eva-text);
+}
+.eva-agents-line:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: 2px;
+  border-radius: var(--eva-radius-sm);
+}
+.eva-agents-text {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.eva-agents-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  margin-top: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  color: var(--eva-text);
+}
+.eva-agents-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+}
+.eva-agents-run + .eva-agents-run {
+  padding-top: var(--mantine-spacing-sm);
+  border-top: 1px solid var(--eva-border);
+}
+.eva-agents-run-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--mantine-spacing-xs);
+  color: var(--eva-text-dim);
+}
+.eva-agents-run-name {
+  color: var(--eva-text);
+  font-weight: var(--eva-fw-semibold);
+}
+.eva-agents-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: calc(var(--mantine-spacing-xs) / 2.5) var(--mantine-spacing-md);
+  margin: 0;
+}
+.eva-agents-field {
+  display: contents;
+}
+.eva-agents-field dt {
+  color: var(--eva-text-dim);
+}
+.eva-agents-field dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.eva-agents-answer {
+  min-width: 0;
+  font-size: var(--eva-font-size);
+}
+.eva-agents-error {
+  color: var(--eva-danger);
+  overflow-wrap: anywhere;
+}
+.eva-agents-sources {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  margin: 0;
+  padding-left: var(--mantine-spacing-md);
+}
+.eva-agents-source {
+  min-width: 0;
+}
+.eva-agents-source-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  min-width: 0;
+}
+.eva-agents-source-link {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--eva-text);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-agents-source-link:hover {
+  text-decoration: underline;
+}
+.eva-agents-verified {
+  display: flex;
+  flex: none;
+  color: var(--eva-ok);
+}
+.eva-agents-quote {
+  display: block;
+  color: var(--eva-text-dim);
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-agents-badge,
+  .eva-agents-line {
+    transition: none;
+  }
+}

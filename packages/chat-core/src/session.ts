@@ -1,3 +1,4 @@
+import { agentCallOf, agentRunOf, type AgentRun } from '@relay/protocol/agent-runs'
 import { imageSize } from './image-size'
 import { canvasEntryOf } from './canvas-live'
 import { guestEntryOf } from './guest-entry'
@@ -174,10 +175,14 @@ export function messagesFrom(message: Json, id: string): ChatMessage[] {
     out.push(makeMessage(`${id}-thinking`, 'thinking', thinking.join('\n\n')))
   const text = textOf(message.content)
   if (text.trim() !== '') out.push(makeMessage(id, 'assistant', text, stampOf(message)))
+  const at = stampOf(message).at
   parts
     .filter((p) => p.type === 'toolCall')
     .forEach((call, n) => {
       const name = str(call.name) ?? 'tool'
+      // Read before `toolInput`, which drops the xd device `path` that names an agents call.
+      const agentCall = agentCallOf(name, call.arguments)
+      const agent = agentCall && agentRunOf(agentCall, undefined, at)
       out.push(
         makeMessage(`${id}-tool${n}`, 'tool', name, {
           detail: toolSummary(call.arguments),
@@ -188,6 +193,8 @@ export function messagesFrom(message: Json, id: string): ChatMessage[] {
             isError: false,
             status: 'running',
           },
+          ...(agentCall ? { agentCall } : {}),
+          ...(agent ? { agent } : {}),
         }),
       )
     })
@@ -196,6 +203,16 @@ export function messagesFrom(message: Json, id: string): ChatMessage[] {
     out.push(makeMessage(`${id}-error`, 'notice', `Error: ${oneLine(error, 240)}`))
   }
   return out
+}
+
+/** The run an agents call row shows once its tool result (`text`) is in; the row's run as it was when the result says nothing new. */
+export function agentAnswered(
+  row: ChatMessage,
+  text: string | null,
+  isError: boolean,
+): AgentRun | undefined {
+  if (!row.agentCall) return row.agent
+  return agentRunOf(row.agentCall, { text: text ?? '', isError }, row.agent?.startedAt) ?? row.agent
 }
 
 /** Puts a `toolResult` message's output on the tool row it answers. False when it is not one, or no row shows its call. */
@@ -223,7 +240,19 @@ export function attachResult(messages: ChatMessage[], message: Json): boolean {
     isError,
     status: isError ? 'failed' : 'done',
   }
+  const agent = agentAnswered(row, row.tool.result, isError)
+  if (agent) row.agent = agent
   return true
+}
+
+/** A `tool_execution_start` entry's start time on the agents call row it names, while that call is out. */
+function startAgent(messages: ChatMessage[], data: unknown): void {
+  if (!isObj(data)) return
+  const call = str(data.toolCallId)
+  const at = Date.parse(str(data.startedAt) ?? '')
+  if (call === undefined || Number.isNaN(at)) return
+  const row = messages.findLast((m) => m.tool?.call === call)
+  if (row?.agent?.status === 'running') row.agent = { ...row.agent, startedAt: at }
 }
 
 export interface ParsedSession {
@@ -289,6 +318,11 @@ export function parseSession(text: string): ParsedSession {
     // omp keeps custom messages (extension rows) as their own entry type.
     if (entry.type === 'custom_message') {
       messages.push(...messagesFrom({ ...entry, role: 'custom' }, str(entry.id) ?? ''))
+      continue
+    }
+    // When omp started a tool: an agents call still out ticks from there.
+    if (entry.type === 'custom' && entry.customType === 'tool_execution_start') {
+      startAgent(messages, entry.data)
       continue
     }
     if (entry.type !== 'message' || !isObj(entry.message)) continue

@@ -8,6 +8,7 @@ import type {
   AgentAskAnswer,
   AgentImage,
   AgentMessage,
+  AgentRun,
   AgentOptions,
   AgentSession,
   ApprovalConfirmation,
@@ -252,7 +253,9 @@ export interface ConsultRequest {
 }
 
 /** What a consult answers: B's reply (quick), or the work card that now stands in A's chat. */
-export type ConsultResult = { readonly kind: "answer"; readonly text: string } | { readonly kind: "work"; readonly id: string; readonly title: string };
+export type ConsultResult =
+  | { readonly kind: "answer"; readonly text: string }
+  | { readonly kind: "work"; readonly id: string; readonly title: string };
 
 /** What the session needs of the host's live canvas rooms (`canvas/service.ts`). */
 export interface CanvasRelaying {
@@ -446,10 +449,23 @@ export type AgentProviderChange =
       readonly text: string;
       readonly streaming: boolean;
     }
+  /** An agents call's tool row has a new run (its result came in): `text` is the row's, unchanged. */
+  | {
+      readonly kind: "agentRun";
+      readonly sessionId: string;
+      readonly id: string;
+      readonly text: string;
+      readonly agentRun: AgentRun;
+    }
   /** The session is now blocked on an ask; the transport shows it to subscribed phones. */
   | { readonly kind: "ask"; readonly sessionId: string; readonly ask: AgentAsk }
   /** A pending ask closed (answered in the TUI, cancelled, or answered from a phone); dismiss its card. `answered` is false when it closed without an answer. */
-  | { readonly kind: "ask.resolved"; readonly sessionId: string; readonly id: string; readonly answered: boolean }
+  | {
+      readonly kind: "ask.resolved";
+      readonly sessionId: string;
+      readonly id: string;
+      readonly answered: boolean;
+    }
   /** The session is now blocked on a tool approval; the transport shows it to subscribed phones. */
   | { readonly kind: "approval"; readonly sessionId: string; readonly approval: AgentApproval }
   /** A pending approval closed (approved, denied, or settled in the TUI); dismiss it. */

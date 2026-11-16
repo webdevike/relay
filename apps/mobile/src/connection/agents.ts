@@ -8,11 +8,28 @@
 import type { ClientMessage, ServerMessage } from "@relay/protocol";
 import type { AgentsStore } from "@/state/agents";
 
-export type AgentsStoreActions = Pick<AgentsStore, "applyWelcome" | "applySnapshot" | "applyDelta" | "setConversation" | "appendMessages" | "updateMessage" | "setOptions" | "setImage" | "setAsk" | "clearAsk" | "setApproval" | "clearApproval">;
+export type AgentsStoreActions = Pick<
+  AgentsStore,
+  | "applyWelcome"
+  | "applySnapshot"
+  | "applyDelta"
+  | "setConversation"
+  | "appendMessages"
+  | "updateMessage"
+  | "setOptions"
+  | "setImage"
+  | "setAsk"
+  | "clearAsk"
+  | "setApproval"
+  | "clearApproval"
+>;
 
 export type AgentFrameRouter = (message: ServerMessage) => void;
 
-export function createAgentFrameRouter(store: AgentsStoreActions, send: (message: ClientMessage) => void): AgentFrameRouter {
+export function createAgentFrameRouter(
+  store: AgentsStoreActions,
+  send: (message: ClientMessage) => void,
+): AgentFrameRouter {
   let snapshotRequested = false;
   const resubscribing = new Set<string>();
 
@@ -35,7 +52,8 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
         store.applySnapshot(message.rev, message.sessions);
         return;
       case "agents.delta":
-        if (store.applyDelta(message.rev, message.upsert, message.remove) || snapshotRequested) return;
+        if (store.applyDelta(message.rev, message.upsert, message.remove) || snapshotRequested)
+          return;
         snapshotRequested = true;
         send({ t: "agents.get" });
         return;
@@ -48,7 +66,13 @@ export function createAgentFrameRouter(store: AgentsStoreActions, send: (message
         resubscribe(message.sessionId);
         return;
       case "agent.message.update":
-        store.updateMessage(message.sessionId, message.id, message.text, message.streaming);
+        store.updateMessage(
+          message.sessionId,
+          message.id,
+          message.text,
+          message.streaming,
+          message.agentRun,
+        );
         return;
       case "agent.options":
         store.setOptions(message.sessionId, { models: message.models, skills: message.skills });

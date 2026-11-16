@@ -2,7 +2,8 @@
 // via apps/linux/omp-extension/relay-bridge.ts. One connection == one session; the connection
 // dropping is the session ending. Frames are JSONL both ways.
 //
-//   extension -> host   hello (full session info) | status | messages { append } |
+//   extension -> host   hello (full session info) | status | messages { append } | message.update { id, text, streaming } |
+//                       message.agent { id, text, agentTool } (an agents call's result, read into its row's `agentRun`) |
 //                       result { id, ok, error?, value? } | gate.status { gate } |
 //                       approval.request { id, toolName, command, reason? } | approval.resolved { id }
 //   host -> extension   conversation { id } | reply { id, text, submit, images? } | note { id, text } |
@@ -17,9 +18,37 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import type { Socket, SocketHandler } from "bun";
-import { AgentAccount, AgentAskQuestion, AgentBackgroundJob, AgentGoal, type AgentApproval, type ApprovalConfirmation, AgentImage, AgentMessage, AgentOptions, AgentSession, AgentStatus, GateStatus, type AgentAsk, type AgentAskAnswer, type AgentImage as AgentImageT, type AgentSession as AgentSessionT, type CanvasEntry as CanvasEntryT, type GuestEntry as GuestEntryT, type AgentMessage as AgentMessageT, type AgentOptions as AgentOptionsT, type GateStatus as GateStatusT } from "@relay/protocol";
+import {
+  AgentAccount,
+  AgentAskQuestion,
+  AgentBackgroundJob,
+  AgentGoal,
+  type AgentApproval,
+  type ApprovalConfirmation,
+  AgentImage,
+  AgentOptions,
+  AgentSession,
+  AgentStatus,
+  GateStatus,
+  type AgentAsk,
+  type AgentAskAnswer,
+  type AgentImage as AgentImageT,
+  type AgentSession as AgentSessionT,
+  type CanvasEntry as CanvasEntryT,
+  type GuestEntry as GuestEntryT,
+  type AgentMessage as AgentMessageT,
+  type AgentOptions as AgentOptionsT,
+  type GateStatus as GateStatusT,
+} from "@relay/protocol";
 import { z } from "zod";
-import { AckFailure, type AgentConfigChange, type AgentProvider, type AgentProviderChange, type GateCommand } from "../seams";
+import {
+  AckFailure,
+  type AgentConfigChange,
+  type AgentProvider,
+  type AgentProviderChange,
+  type GateCommand,
+} from "../seams";
+import { AgentToolFrame, agentRunOfTool, BridgeMessage } from "./agent-rows";
 import { destructivePattern } from "./destructive";
 import { closeHerdrPane, launchInHerdr, type LaunchOptions } from "./herdr";
 
@@ -48,31 +77,79 @@ const StatusFrame = z.object({
 });
 
 const Inbound = z.discriminatedUnion("t", [
-  z.object({ t: z.literal("hello") }).merge(AgentSession.omit({ id: true })).extend({
-    sessionId: z.string().min(1),
-    sessionFile: z.string().min(1).optional(),
-    launchId: z.string().min(1).optional(),
-    /** The omp process; absent from extensions that predate it. Two connections for one session with different pids are two omps on one transcript. */
-    pid: z.number().int().positive().optional(),
-    /** The herdr pane omp runs in (`HERDR_PANE_ID`), when it runs in one: closing it ends that omp. */
-    herdrPane: z.string().min(1).optional(),
-  }),
+  z
+    .object({ t: z.literal("hello") })
+    .merge(AgentSession.omit({ id: true }))
+    .extend({
+      sessionId: z.string().min(1),
+      sessionFile: z.string().min(1).optional(),
+      launchId: z.string().min(1).optional(),
+      /** The omp process; absent from extensions that predate it. Two connections for one session with different pids are two omps on one transcript. */
+      pid: z.number().int().positive().optional(),
+      /** The herdr pane omp runs in (`HERDR_PANE_ID`), when it runs in one: closing it ends that omp. */
+      herdrPane: z.string().min(1).optional(),
+    }),
   StatusFrame,
-  z.object({ t: z.literal("messages"), append: z.array(AgentMessage).min(1) }),
-  z.object({ t: z.literal("message.update"), id: z.string().min(1), text: z.string(), streaming: z.boolean() }),
-  z.object({ t: z.literal("result"), id: z.string().min(1), ok: z.boolean(), error: z.string().optional(), value: z.unknown().optional() }),
-  z.object({ t: z.literal("ask.request"), id: z.string().min(1), questions: z.array(AgentAskQuestion).min(1) }),
+  z.object({ t: z.literal("messages"), append: z.array(BridgeMessage).min(1) }),
+  z.object({
+    t: z.literal("message.update"),
+    id: z.string().min(1),
+    text: z.string(),
+    streaming: z.boolean(),
+  }),
+  /** An agents call's result came in: its tool row's id and text, and the call with its result (`AgentToolRaw`). */
+  z.object({
+    t: z.literal("message.agent"),
+    id: z.string().min(1),
+    text: z.string(),
+    agentTool: AgentToolFrame,
+  }),
+  z.object({
+    t: z.literal("result"),
+    id: z.string().min(1),
+    ok: z.boolean(),
+    error: z.string().optional(),
+    value: z.unknown().optional(),
+  }),
+  z.object({
+    t: z.literal("ask.request"),
+    id: z.string().min(1),
+    questions: z.array(AgentAskQuestion).min(1),
+  }),
   /** `answered` is absent from extensions older than the open asks. */
-  z.object({ t: z.literal("ask.resolved"), id: z.string().min(1), answered: z.boolean().optional() }),
+  z.object({
+    t: z.literal("ask.resolved"),
+    id: z.string().min(1),
+    answered: z.boolean().optional(),
+  }),
   /** omp is blocked on a tool approval; `command` is its approval prompt's detail lines, verbatim. */
-  z.object({ t: z.literal("approval.request"), id: z.string().min(1), toolName: z.string().min(1), command: z.string(), reason: z.string().optional() }),
+  z.object({
+    t: z.literal("approval.request"),
+    id: z.string().min(1),
+    toolName: z.string().min(1),
+    command: z.string(),
+    reason: z.string().optional(),
+  }),
   z.object({ t: z.literal("approval.resolved"), id: z.string().min(1) }),
   /** Each top-level session polls the gate CLI and reports what it read; `null` when the CLI is missing or failing. */
   z.object({ t: z.literal("gate.status"), gate: GateStatus.nullable() }),
 ]);
 type Inbound = z.infer<typeof Inbound>;
 
-type RequestKind = "conversation" | "reply" | "note" | "options" | "image" | "configure" | "abort" | "end" | "ask" | "approval" | "gate" | "canvas" | "guest";
+type RequestKind =
+  | "conversation"
+  | "reply"
+  | "note"
+  | "options"
+  | "image"
+  | "configure"
+  | "abort"
+  | "end"
+  | "ask"
+  | "approval"
+  | "gate"
+  | "canvas"
+  | "guest";
 
 /** The error code a rejected request maps to; the extension's message is passed through. */
 const failureCode: Record<RequestKind, AckFailure["error"]["code"]> = {
@@ -149,7 +226,11 @@ export function otherHostServing(path: string): number | null {
   if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return null;
   try {
     process.kill(pid, 0);
-    return /relay-host|\bserve\b/.test(execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" })) ? pid : null;
+    return /relay-host|\bserve\b/.test(
+      execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" }),
+    )
+      ? pid
+      : null;
   } catch {
     return null;
   }
@@ -205,12 +286,26 @@ export class OmpBridgeProvider implements AgentProvider {
     const other = otherHostServing(this.path);
     if (other !== null) {
       // Starting would unlink the live host's socket: every omp (and every subagent mirror) that connects afterwards would reach this process instead.
-      throw new Error(`agent bridge socket ${this.path} is already served by relay host pid ${String(other)}; a second host (a test or proof run) needs its own RELAY_AGENTS_SOCKET`);
+      throw new Error(
+        `agent bridge socket ${this.path} is already served by relay host pid ${String(other)}; a second host (a test or proof run) needs its own RELAY_AGENTS_SOCKET`,
+      );
     }
     if (existsSync(this.path)) unlinkSync(this.path); // stale socket from a previous run
     const handler: SocketHandler<Connection> = {
       open: (socket) => {
-        socket.data = { socket, buffer: "", outbound: null, session: null, sessionFile: null, pending: new Map(), gate: undefined, pid: null, herdrPane: null, retired: false, gone: Promise.withResolvers<void>() };
+        socket.data = {
+          socket,
+          buffer: "",
+          outbound: null,
+          session: null,
+          sessionFile: null,
+          pending: new Map(),
+          gate: undefined,
+          pid: null,
+          herdrPane: null,
+          retired: false,
+          gone: Promise.withResolvers<void>(),
+        };
         this.connections.add(socket.data);
       },
       data: (socket, chunk) => {
@@ -240,12 +335,23 @@ export class OmpBridgeProvider implements AgentProvider {
   async conversation(sessionId: string): Promise<AgentMessageT[] | null> {
     const connection = this.find(sessionId);
     if (connection === undefined) return null;
-    const parsed = z.array(AgentMessage).safeParse(await this.request(connection, "conversation", {}));
+    const parsed = z
+      .array(BridgeMessage)
+      .safeParse(await this.request(connection, "conversation", {}));
     return parsed.success ? parsed.data : [];
   }
 
-  async reply(sessionId: string, text: string, submit: boolean, images?: readonly AgentImageT[]): Promise<void> {
-    await this.request(this.require(sessionId), "reply", { text, submit, ...(images === undefined ? {} : { images }) });
+  async reply(
+    sessionId: string,
+    text: string,
+    submit: boolean,
+    images?: readonly AgentImageT[],
+  ): Promise<void> {
+    await this.request(this.require(sessionId), "reply", {
+      text,
+      submit,
+      ...(images === undefined ? {} : { images }),
+    });
   }
 
   /** True only from an extension that knows notes; older ones answer every unknown request with an empty ok. */
@@ -313,7 +419,9 @@ export class OmpBridgeProvider implements AgentProvider {
   async image(sessionId: string, id: string): Promise<AgentImageT | null> {
     const connection = this.find(sessionId);
     if (connection === undefined) return null;
-    const parsed = AgentImage.nullable().safeParse(await this.request(connection, "image", { imageId: id }));
+    const parsed = AgentImage.nullable().safeParse(
+      await this.request(connection, "image", { imageId: id }),
+    );
     return parsed.success ? parsed.data : null;
   }
 
@@ -330,7 +438,11 @@ export class OmpBridgeProvider implements AgentProvider {
     await this.request(this.require(sessionId), "end", {});
   }
 
-  async answerAsk(sessionId: string, askId: string, results: readonly AgentAskAnswer[]): Promise<void> {
+  async answerAsk(
+    sessionId: string,
+    askId: string,
+    results: readonly AgentAskAnswer[],
+  ): Promise<void> {
     const key = `${sessionId}:${askId}`;
     this.answeredAsks.add(key);
     try {
@@ -349,12 +461,24 @@ export class OmpBridgeProvider implements AgentProvider {
     return this.pendingAsks.get(sessionId) ?? null;
   }
 
-  async decideApproval(sessionId: string, approvalId: string, allow: boolean, confirmed?: ApprovalConfirmation): Promise<void> {
+  async decideApproval(
+    sessionId: string,
+    approvalId: string,
+    allow: boolean,
+    confirmed?: ApprovalConfirmation,
+  ): Promise<void> {
     const connection = this.require(sessionId);
     const pending = this.pendingApprovals.get(sessionId);
-    if (pending?.id !== approvalId) throw new AckFailure({ code: "agent_cannot_respond", message: `approval ${approvalId} already settled` });
+    if (pending?.id !== approvalId)
+      throw new AckFailure({
+        code: "agent_cannot_respond",
+        message: `approval ${approvalId} already settled`,
+      });
     if (allow && pending.requiresBiometric && confirmed === undefined) {
-      throw new AckFailure({ code: "biometric_required", message: `${pending.destructive ?? "this call"} needs Face ID or the desktop to approve` });
+      throw new AckFailure({
+        code: "biometric_required",
+        message: `${pending.destructive ?? "this call"} needs Face ID or the desktop to approve`,
+      });
     }
     await this.request(connection, "approval", { approvalId, allow });
   }
@@ -374,15 +498,24 @@ export class OmpBridgeProvider implements AgentProvider {
       if (connection.gate !== undefined && connection.gate !== null) reporter = connection;
     }
     if (reporter === undefined) {
-      throw new AckFailure({ code: "gate_unavailable", message: "no omp session on the host can reach the habit gate" });
+      throw new AckFailure({
+        code: "gate_unavailable",
+        message: "no omp session on the host can reach the habit gate",
+      });
     }
     const body =
       cmd.kind === "gate.start"
         ? { action: "start", target: cmd.id }
         : cmd.kind === "gate.done"
-          ? { action: "done", target: cmd.id, ...(cmd.photo === undefined ? {} : { photo: cmd.photo }) }
+          ? {
+              action: "done",
+              target: cmd.id,
+              ...(cmd.photo === undefined ? {} : { photo: cmd.photo }),
+            }
           : { action: "override", reason: cmd.reason };
-    const parsed = GateStatus.safeParse(await this.request(reporter, "gate", body, GATE_TIMEOUT_MS));
+    const parsed = GateStatus.safeParse(
+      await this.request(reporter, "gate", body, GATE_TIMEOUT_MS),
+    );
     if (parsed.success) this.setGate(parsed.data);
   }
 
@@ -392,7 +525,12 @@ export class OmpBridgeProvider implements AgentProvider {
    * other. `prompt` rides in the pane's env and the session's bridge submits it once omp is up.
    * The pane's `RELAY_LAUNCH_ID`, echoed in its bridge's `hello`, settles `joined`.
    */
-  async launch(prompt?: string, thinkingLevel?: string, profile?: "personal" | "work", resume?: string): Promise<{ readonly joined: Promise<string> }> {
+  async launch(
+    prompt?: string,
+    thinkingLevel?: string,
+    profile?: "personal" | "work",
+    resume?: string,
+  ): Promise<{ readonly joined: Promise<string> }> {
     return this.launchJoined({
       ...(prompt === undefined ? {} : { prompt }),
       ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
@@ -408,7 +546,12 @@ export class OmpBridgeProvider implements AgentProvider {
     this.launches.set(launchId, resolve);
     const timer = setTimeout(() => {
       this.launches.delete(launchId);
-      reject(new AckFailure({ code: "agent_launch_failed", message: "the launched omp session never registered" }));
+      reject(
+        new AckFailure({
+          code: "agent_launch_failed",
+          message: "the launched omp session never registered",
+        }),
+      );
     }, LAUNCH_JOIN_TIMEOUT_MS);
     try {
       await this.launchWith({ ...options, env: { ...options.env, RELAY_LAUNCH_ID: launchId } });
@@ -417,17 +560,29 @@ export class OmpBridgeProvider implements AgentProvider {
       this.launches.delete(launchId);
       throw error;
     }
-    return { joined: promise.finally(() => { clearTimeout(timer); }) };
+    return {
+      joined: promise.finally(() => {
+        clearTimeout(timer);
+      }),
+    };
   }
 
   /** `launch` with the full option set: extra pane env and a transcript to resume (the assistant thread). */
   async launchWith(options: LaunchOptions): Promise<void> {
     if (this.home === null) {
-      throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
+      throw new AckFailure({
+        code: "agent_launch_failed",
+        message: "host was started without --agent-home",
+      });
     }
     const paneId = await launchInHerdr(this.home, this.log, options);
-    const what = options.resume === undefined ? `omp${options.profile === undefined ? "" : ` (${options.profile})`}` : `omp resuming ${options.resume}`;
-    this.log(`launched ${what} in ${this.home} (herdr pane ${paneId})${options.prompt === undefined ? "" : " with a first prompt"}`);
+    const what =
+      options.resume === undefined
+        ? `omp${options.profile === undefined ? "" : ` (${options.profile})`}`
+        : `omp resuming ${options.resume}`;
+    this.log(
+      `launched ${what} in ${this.home} (herdr pane ${paneId})${options.prompt === undefined ? "" : " with a first prompt"}`,
+    );
   }
 
   /** The transcript file of a live session, when omp reported one; null otherwise. */
@@ -445,7 +600,10 @@ export class OmpBridgeProvider implements AgentProvider {
   private require(sessionId: string): Connection {
     const connection = this.find(sessionId);
     if (connection === undefined) {
-      throw new AckFailure({ code: "agent_not_found", message: "that omp session is no longer running" });
+      throw new AckFailure({
+        code: "agent_not_found",
+        message: "that omp session is no longer running",
+      });
     }
     return connection;
   }
@@ -457,18 +615,30 @@ export class OmpBridgeProvider implements AgentProvider {
    * event loop is free (a busy omp did, after the phone had been told the turn failed and Isaac had
    * sent it again). A disconnect within the wait still rejects it.
    */
-  private request(connection: Connection, t: RequestKind, body: Record<string, unknown>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> {
+  private request(
+    connection: Connection,
+    t: RequestKind,
+    body: Record<string, unknown>,
+    timeoutMs = REQUEST_TIMEOUT_MS,
+  ): Promise<unknown> {
     this.requestSeq += 1;
     const id = `${t}-${this.requestSeq}`;
     const { promise, resolve, reject } = Promise.withResolvers<unknown>();
     const timer = setTimeout(() => {
       connection.pending.delete(id);
       if (t === "reply") {
-        this.log(`agent session ${connection.session?.id ?? "(unregistered)"}: no answer to ${id} within ${String(timeoutMs)} ms; it is queued in the live omp`);
+        this.log(
+          `agent session ${connection.session?.id ?? "(unregistered)"}: no answer to ${id} within ${String(timeoutMs)} ms; it is queued in the live omp`,
+        );
         resolve(undefined);
         return;
       }
-      reject(new AckFailure({ code: "internal", message: `omp session did not answer ${t} within ${timeoutMs} ms` }));
+      reject(
+        new AckFailure({
+          code: "internal",
+          message: `omp session did not answer ${t} within ${timeoutMs} ms`,
+        }),
+      );
     }, timeoutMs);
     connection.pending.set(id, { resolve, reject, timer, kind: t });
     this.write(connection, `${JSON.stringify({ t, id, ...body })}\n`);
@@ -482,7 +652,8 @@ export class OmpBridgeProvider implements AgentProvider {
    */
   private write(connection: Connection, line: string): void {
     const bytes = Buffer.from(line, "utf8");
-    connection.outbound = connection.outbound === null ? bytes : Buffer.concat([connection.outbound, bytes]);
+    connection.outbound =
+      connection.outbound === null ? bytes : Buffer.concat([connection.outbound, bytes]);
     this.flush(connection);
   }
 
@@ -514,7 +685,9 @@ export class OmpBridgeProvider implements AgentProvider {
     }
     const parsed = Inbound.safeParse(json);
     if (!parsed.success) {
-      this.log(`agent bridge: dropping malformed frame: ${parsed.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`).join("; ")}`);
+      this.log(
+        `agent bridge: dropping malformed frame: ${parsed.error.issues.map((issue) => `${issue.path.join(".")} ${issue.message}`).join("; ")}`,
+      );
       return;
     }
     this.handleFrame(connection, parsed.data);
@@ -544,10 +717,18 @@ export class OmpBridgeProvider implements AgentProvider {
           // loser reconnect and win back every few seconds, so one of them is closed instead: an
           // assistant thread over a copy without the thread's identity, else the one already here.
           if (frame.assistant !== undefined && other.session.assistant === undefined) {
-            void this.retire(other, frame.sessionId, `omp ${connection.pid} took over its transcript as assistant ${frame.assistant}`);
+            void this.retire(
+              other,
+              frame.sessionId,
+              `omp ${connection.pid} took over its transcript as assistant ${frame.assistant}`,
+            );
             continue;
           }
-          void this.retire(connection, frame.sessionId, `omp ${other.pid} already runs this transcript`);
+          void this.retire(
+            connection,
+            frame.sessionId,
+            `omp ${other.pid} already runs this transcript`,
+          );
           return;
         }
         connection.session = {
@@ -566,13 +747,17 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.job === undefined ? {} : { job: frame.job }),
           ...(frame.parentId === undefined ? {} : { parentId: frame.parentId }),
           ...(frame.account === undefined ? {} : { account: frame.account }),
-          ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0 ? {} : { backgroundJobs: frame.backgroundJobs }),
+          ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0
+            ? {}
+            : { backgroundJobs: frame.backgroundJobs }),
           ...(frame.handingOff === true ? { handingOff: true } : {}),
           ...(frame.goal === undefined ? {} : { goal: frame.goal }),
           ...(frame.sessionFile === undefined ? {} : { sessionFile: frame.sessionFile }),
         };
         connection.sessionFile = frame.sessionFile ?? null;
-        this.log(`agent session ${frame.sessionId} (${frame.title}) ${frame.status}${frame.account === undefined ? "" : ` on ${frame.account.profile}${frame.account.email === undefined ? "" : ` (${frame.account.email})`}`}`);
+        this.log(
+          `agent session ${frame.sessionId} (${frame.title}) ${frame.status}${frame.account === undefined ? "" : ` on ${frame.account.profile}${frame.account.email === undefined ? "" : ` (${frame.account.email})`}`}`,
+        );
         this.publish();
         return;
       }
@@ -598,11 +783,17 @@ export class OmpBridgeProvider implements AgentProvider {
           ...(frame.modelVendor === undefined ? {} : { modelVendor: frame.modelVendor }),
           ...(frame.thinkingLevel === undefined ? {} : { thinkingLevel: frame.thinkingLevel }),
           ...(frame.contextUsed === undefined ? {} : { contextUsed: frame.contextUsed }),
-          ...((frame.account ?? current.account) === undefined ? {} : { account: frame.account ?? current.account }),
-          ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0 ? {} : { backgroundJobs: frame.backgroundJobs }),
+          ...((frame.account ?? current.account) === undefined
+            ? {}
+            : { account: frame.account ?? current.account }),
+          ...(frame.backgroundJobs === undefined || frame.backgroundJobs.length === 0
+            ? {}
+            : { backgroundJobs: frame.backgroundJobs }),
           ...(frame.handingOff === true ? { handingOff: true } : {}),
           ...(frame.goal === undefined ? {} : { goal: frame.goal }),
-          ...((frame.sessionFile ?? current.sessionFile) === undefined ? {} : { sessionFile: frame.sessionFile ?? current.sessionFile }),
+          ...((frame.sessionFile ?? current.sessionFile) === undefined
+            ? {}
+            : { sessionFile: frame.sessionFile ?? current.sessionFile }),
         };
         if (frame.sessionFile !== undefined) connection.sessionFile = frame.sessionFile;
         this.publish();
@@ -610,23 +801,55 @@ export class OmpBridgeProvider implements AgentProvider {
       }
       case "messages":
         if (connection.session === null) return;
-        this.onChange?.({ kind: "conversation", sessionId: connection.session.id, appended: frame.append });
+        this.onChange?.({
+          kind: "conversation",
+          sessionId: connection.session.id,
+          appended: frame.append,
+        });
         return;
       case "message.update":
         if (connection.session === null) return;
-        this.onChange?.({ kind: "message", sessionId: connection.session.id, id: frame.id, text: frame.text, streaming: frame.streaming });
+        this.onChange?.({
+          kind: "message",
+          sessionId: connection.session.id,
+          id: frame.id,
+          text: frame.text,
+          streaming: frame.streaming,
+        });
         return;
+      case "message.agent": {
+        if (connection.session === null) return;
+        const agentRun = agentRunOfTool(frame.agentTool);
+        if (agentRun !== undefined)
+          this.onChange?.({
+            kind: "agentRun",
+            sessionId: connection.session.id,
+            id: frame.id,
+            text: frame.text,
+            agentRun,
+          });
+        return;
+      }
       case "result": {
         const pending = connection.pending.get(frame.id);
         if (pending === undefined) {
           // Past its wait (a `reply` was acked then): a refusal now is the only trace that the turn did not land.
-          if (!frame.ok) this.log(`agent session ${connection.session?.id ?? "(unregistered)"}: ${frame.id} refused after its wait: ${frame.error ?? "no reason"}`);
+          if (!frame.ok)
+            this.log(
+              `agent session ${connection.session?.id ?? "(unregistered)"}: ${frame.id} refused after its wait: ${frame.error ?? "no reason"}`,
+            );
           return;
         }
         connection.pending.delete(frame.id);
         clearTimeout(pending.timer);
         if (frame.ok) pending.resolve(frame.value);
-        else pending.reject(new AckFailure({ code: failureCode[pending.kind], message: frame.error ?? `${pending.kind} rejected` }));
+        else
+          pending.reject(
+            new AckFailure({
+              code: failureCode[pending.kind],
+              message: frame.error ?? `${pending.kind} rejected`,
+            }),
+          );
         return;
       }
       case "ask.request": {
@@ -665,8 +888,13 @@ export class OmpBridgeProvider implements AgentProvider {
       case "approval.resolved": {
         if (connection.session === null) return;
         // As with asks: a stale resolve never wipes a newer approval.
-        if (this.pendingApprovals.get(connection.session.id)?.id === frame.id) this.pendingApprovals.delete(connection.session.id);
-        this.onChange?.({ kind: "approval.resolved", sessionId: connection.session.id, id: frame.id });
+        if (this.pendingApprovals.get(connection.session.id)?.id === frame.id)
+          this.pendingApprovals.delete(connection.session.id);
+        this.onChange?.({
+          kind: "approval.resolved",
+          sessionId: connection.session.id,
+          id: frame.id,
+        });
         return;
       }
       case "gate.status":
@@ -694,7 +922,9 @@ export class OmpBridgeProvider implements AgentProvider {
     if (connection.retired) return connection.gone.promise;
     connection.retired = true;
     const pane = connection.herdrPane;
-    this.log(`agent session ${sessionId}: closing omp ${connection.pid ?? "(pid unknown)"}${pane === null ? "" : ` in herdr pane ${pane}`}: ${why}`);
+    this.log(
+      `agent session ${sessionId}: closing omp ${connection.pid ?? "(pid unknown)"}${pane === null ? "" : ` in herdr pane ${pane}`}: ${why}`,
+    );
     if (connection.session !== null) {
       connection.session = null;
       // The asks and approvals are this omp's only when no other connection carries the session.
@@ -705,9 +935,13 @@ export class OmpBridgeProvider implements AgentProvider {
       this.publish();
     }
     const viaBridge = (): Promise<unknown> => this.request(connection, "end", {});
-    void (pane === null ? viaBridge() : this.closePane(pane).catch(viaBridge)).catch((error: unknown) => {
-      this.log(`agent session ${sessionId}: omp ${connection.pid ?? "(pid unknown)"} did not close: ${error instanceof Error ? error.message : String(error)}`);
-    });
+    void (pane === null ? viaBridge() : this.closePane(pane).catch(viaBridge)).catch(
+      (error: unknown) => {
+        this.log(
+          `agent session ${sessionId}: omp ${connection.pid ?? "(pid unknown)"} did not close: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    );
     return connection.gone.promise;
   }
 
@@ -716,7 +950,9 @@ export class OmpBridgeProvider implements AgentProvider {
     connection.gone.resolve();
     for (const pending of connection.pending.values()) {
       clearTimeout(pending.timer);
-      pending.reject(new AckFailure({ code: "agent_not_found", message: "omp session disconnected" }));
+      pending.reject(
+        new AckFailure({ code: "agent_not_found", message: "omp session disconnected" }),
+      );
     }
     connection.pending.clear();
     if (connection.session !== null) {
@@ -725,7 +961,11 @@ export class OmpBridgeProvider implements AgentProvider {
     }
     connection.socket.end();
     // With the last reporting session gone nobody can reach the gate any more.
-    if (connection.gate !== undefined && ![...this.connections].some((other) => other.gate !== undefined)) this.setGate(null);
+    if (
+      connection.gate !== undefined &&
+      ![...this.connections].some((other) => other.gate !== undefined)
+    )
+      this.setGate(null);
     if (connection.session !== null) {
       this.log(`agent session ${connection.session.id} ended`);
       this.publish();

@@ -23,7 +23,7 @@ import { CanvasRow } from './CanvasRow'
 import { GuestRow } from './GuestRow'
 import { BackgroundRow } from './BackgroundRow'
 import { parseBackground } from '@evaos/chat-core/background'
-import { splitRoomCards, splitSignin, stripAnswerContext } from '@relay/protocol'
+import { splitRoomCards, splitSignin, stripAnswerContext, type AgentRun } from '@relay/protocol'
 import { RoomCards } from '../rooms/RoomCard'
 import { ReplyChips } from './ReplyChips'
 import { SignInCard } from './SignInCard'
@@ -31,6 +31,7 @@ import { resolveAsk } from './asks/asks-store'
 import { useAssistants } from '../assistants/assistants-store'
 import { MentionText } from '../rooms/MentionText'
 import type { OpenAsk } from '@evaos/contract'
+import { AgentsCaption } from './AgentsCaption'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
 function Images({ images }: { images: ChatMessage['images'] }) {
@@ -69,12 +70,15 @@ function Row({
   id,
   role,
   waiting = false,
+  agents = false,
   children,
 }: {
   id: string
   role: string
   /** The bubble carries an open ask: a thin accent edge until it is answered. */
   waiting?: boolean
+  /** The row shows its turn's specialist agents (the badge sits in its left margin). */
+  agents?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -83,6 +87,7 @@ function Row({
       data-testid={`msg-${id}`}
       data-role={role}
       data-waiting={waiting || undefined}
+      data-agents={agents || undefined}
     >
       <div className="eva-row-inner">{children}</div>
     </div>
@@ -102,11 +107,13 @@ function AssistantBody({
   live,
   waiting,
   agent,
+  agents,
 }: {
   m: ChatMessage
   live: boolean
   waiting: OpenAsk | undefined
   agent: string | undefined
+  agents: AgentRun[] | undefined
 }) {
   // `[[pin: label | value]]` lines are pins (the host makes them), never shown; an `@computer`
   // plan block is the run's, never shown either; then the replies token, the sign-in token and
@@ -143,6 +150,7 @@ function AssistantBody({
           </WidgetScope.Provider>
         </BubbleActions>
       ) : null}
+      {agents !== undefined ? <AgentsCaption runs={agents} /> : null}
       <RoomCards rooms={split.rooms} />
       {thread !== null && key !== null && !m.streaming && !OWN_WIDGET_FENCE.test(split.text) ? (
         <ReplyWidget thread={thread} replyKey={key} messageId={m.id} />
@@ -187,18 +195,21 @@ function AssistantMentions({ text }: { text: string }) {
 /**
  * `live`: the newest row of an idle chat, the one tap-to-answer replies show under. `waiting`: the
  * open ask (of assistant `agent`'s thread) this row carries; it keeps its replies, an accent edge
- * and a tag until the ask closes.
+ * and a tag until the ask closes. `agents`: the specialist runs of the turn this row ends (its
+ * last reply, or its last agents call before any reply).
  */
 function MessageRowImpl({
   m,
   live = false,
   waiting,
   agent,
+  agents,
 }: {
   m: ChatMessage
   live?: boolean
   waiting?: OpenAsk | undefined
   agent?: string | undefined
+  agents?: AgentRun[] | undefined
 }) {
   let body
   const background = m.role === 'user' ? parseBackground(m.text) : null
@@ -241,11 +252,16 @@ function MessageRowImpl({
       </div>
     )
   } else if (m.role === 'assistant') {
-    body = <AssistantBody m={m} live={live} waiting={waiting} agent={agent} />
+    body = <AssistantBody m={m} live={live} waiting={waiting} agent={agent} agents={agents} />
   } else if (m.role === 'thinking') {
     body = <div className="eva-thinking">{m.text}</div>
   } else if (m.role === 'tool') {
-    body = <ToolBlock m={m} images={imagesOf(m)} />
+    body = (
+      <>
+        <ToolBlock m={m} images={imagesOf(m)} />
+        {agents !== undefined ? <AgentsCaption runs={agents} /> : null}
+      </>
+    )
   } else if (m.role === 'canvas' && m.canvas) {
     body = <CanvasRow entry={m.canvas} messageId={m.id} />
   } else if (m.role === 'guest' && m.guest) {
@@ -255,7 +271,12 @@ function MessageRowImpl({
   }
   // The row's media load newest message first; a row omp has not stamped yet is the newest.
   return (
-    <Row id={m.id} role={m.role} waiting={waiting !== undefined}>
+    <Row
+      id={m.id}
+      role={m.role}
+      waiting={waiting !== undefined}
+      agents={agents !== undefined && (m.role === 'assistant' || m.role === 'tool')}
+    >
       <MediaRank.Provider value={m.at ?? Number.MAX_SAFE_INTEGER}>{body}</MediaRank.Provider>
     </Row>
   )
@@ -263,16 +284,31 @@ function MessageRowImpl({
 
 export const MessageRow = memo(MessageRowImpl)
 
-/** A run of tool calls folded to one line (Settings > Chat > Show tool details off). */
-function ToolRunRowImpl({ tools }: { tools: ChatMessage[] }) {
+/**
+ * A run of tool calls folded to one line (Settings > Chat > Show tool details off), with its
+ * turn's specialist agents under it while no reply carries them yet.
+ */
+function ToolRunRowImpl({
+  tools,
+  agents,
+}: {
+  tools: ChatMessage[]
+  agents?: AgentRun[] | undefined
+}) {
   return (
-    <Row id={`${tools[0]!.id}-tools`} role="tools">
+    <Row id={`${tools[0]!.id}-tools`} role="tools" agents={agents !== undefined}>
       <ToolGroup tools={tools} images={imagesOf} />
+      {agents !== undefined ? <AgentsCaption runs={agents} /> : null}
     </Row>
   )
 }
 
-const sameRun = (a: { tools: ChatMessage[] }, b: { tools: ChatMessage[] }): boolean =>
-  a.tools.length === b.tools.length && a.tools.every((t, i) => t === b.tools[i])
+const sameRun = (
+  a: { tools: ChatMessage[]; agents?: AgentRun[] },
+  b: { tools: ChatMessage[]; agents?: AgentRun[] },
+): boolean =>
+  a.agents === b.agents &&
+  a.tools.length === b.tools.length &&
+  a.tools.every((t, i) => t === b.tools[i])
 
 export const ToolRunRow = memo(ToolRunRowImpl, sameRun)

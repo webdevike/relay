@@ -3,7 +3,12 @@ import type { AgentSession, ClientMessage, MacState } from "@relay/protocol";
 import { emptyAgentsData, useAgentsStore } from "@/state/agents";
 import { createAgentFrameRouter, type AgentFrameRouter } from "./agents";
 
-const mac: MacState = { name: "Host", version: "1.0.0", accessibilityGranted: true, agentsAvailable: true };
+const mac: MacState = {
+  name: "Host",
+  version: "1.0.0",
+  accessibilityGranted: true,
+  agentsAvailable: true,
+};
 
 function session(id: string): AgentSession {
   return {
@@ -54,42 +59,131 @@ describe("session list", () => {
 describe("conversation", () => {
   it("appends in-order messages", () => {
     route({ t: "agent.conversation", sessionId: "a", rev: 0, messages: [] });
-    route({ t: "agent.messages", sessionId: "a", rev: 1, append: [{ id: "m1", role: "user", text: "hi", at: 1 }] });
+    route({
+      t: "agent.messages",
+      sessionId: "a",
+      rev: 1,
+      append: [{ id: "m1", role: "user", text: "hi", at: 1 }],
+    });
     expect(useAgentsStore.getState().conversations["a"]?.messages.map((m) => m.id)).toEqual(["m1"]);
     expect(sent).toEqual([]);
   });
 
   it("re-subscribes once on a gap, then accepts the fresh conversation", () => {
     route({ t: "agent.conversation", sessionId: "a", rev: 0, messages: [] });
-    route({ t: "agent.messages", sessionId: "a", rev: 2, append: [{ id: "m2", role: "user", text: "late", at: 2 }] });
-    route({ t: "agent.messages", sessionId: "a", rev: 3, append: [{ id: "m3", role: "user", text: "later", at: 3 }] });
+    route({
+      t: "agent.messages",
+      sessionId: "a",
+      rev: 2,
+      append: [{ id: "m2", role: "user", text: "late", at: 2 }],
+    });
+    route({
+      t: "agent.messages",
+      sessionId: "a",
+      rev: 3,
+      append: [{ id: "m3", role: "user", text: "later", at: 3 }],
+    });
     expect(sent).toEqual([
       { t: "agent.unsubscribe", sessionId: "a" },
       { t: "agent.subscribe", sessionId: "a" },
     ]);
     expect(useAgentsStore.getState().conversations["a"]?.messages).toEqual([]);
 
-    route({ t: "agent.conversation", sessionId: "a", rev: 0, messages: [{ id: "m1", role: "user", text: "hi", at: 1 }] });
-    route({ t: "agent.messages", sessionId: "a", rev: 1, append: [{ id: "m2", role: "assistant", text: "hello", at: 2 }] });
-    expect(useAgentsStore.getState().conversations["a"]?.messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+    route({
+      t: "agent.conversation",
+      sessionId: "a",
+      rev: 0,
+      messages: [{ id: "m1", role: "user", text: "hi", at: 1 }],
+    });
+    route({
+      t: "agent.messages",
+      sessionId: "a",
+      rev: 1,
+      append: [{ id: "m2", role: "assistant", text: "hello", at: 2 }],
+    });
+    expect(useAgentsStore.getState().conversations["a"]?.messages.map((m) => m.id)).toEqual([
+      "m1",
+      "m2",
+    ]);
     expect(sent).toHaveLength(2);
   });
 
   it("grows a streaming message in place, settles it, and ignores updates for ids it does not hold", () => {
-    route({ t: "agent.conversation", sessionId: "a", rev: 0, messages: [{ id: "m1", role: "user", text: "hi", at: 1 }] });
-    route({ t: "agent.messages", sessionId: "a", rev: 1, append: [{ id: "m2", role: "assistant", text: "", at: 2, streaming: true }] });
+    route({
+      t: "agent.conversation",
+      sessionId: "a",
+      rev: 0,
+      messages: [{ id: "m1", role: "user", text: "hi", at: 1 }],
+    });
+    route({
+      t: "agent.messages",
+      sessionId: "a",
+      rev: 1,
+      append: [{ id: "m2", role: "assistant", text: "", at: 2, streaming: true }],
+    });
     route({ t: "agent.message.update", sessionId: "a", id: "m2", text: "hel", streaming: true });
-    expect(useAgentsStore.getState().conversations["a"]?.messages[1]).toEqual({ id: "m2", role: "assistant", text: "hel", at: 2, streaming: true });
+    expect(useAgentsStore.getState().conversations["a"]?.messages[1]).toEqual({
+      id: "m2",
+      role: "assistant",
+      text: "hel",
+      at: 2,
+      streaming: true,
+    });
     route({ t: "agent.message.update", sessionId: "a", id: "m2", text: "hello", streaming: false });
-    expect(useAgentsStore.getState().conversations["a"]?.messages[1]).toEqual({ id: "m2", role: "assistant", text: "hello", at: 2 });
+    expect(useAgentsStore.getState().conversations["a"]?.messages[1]).toEqual({
+      id: "m2",
+      role: "assistant",
+      text: "hello",
+      at: 2,
+    });
     route({ t: "agent.message.update", sessionId: "a", id: "ghost", text: "x", streaming: true });
     expect(useAgentsStore.getState().conversations["a"]?.messages).toHaveLength(2);
     expect(useAgentsStore.getState().conversations["a"]?.rev).toBe(1);
     expect(sent).toHaveLength(0);
   });
 
+  it("takes an agents call row's new run from its update, keeping its text", () => {
+    const tool = { name: "write", summary: "xd://mcp__relay_agents_ask" };
+    route({
+      t: "agent.conversation",
+      sessionId: "a",
+      rev: 0,
+      messages: [
+        {
+          id: "t1",
+          role: "tool",
+          text: "ask",
+          at: 1,
+          tool,
+          agentRun: { agent: "web-researcher", status: "running", startedAt: 1 },
+        },
+      ],
+    });
+    route({
+      t: "agent.message.update",
+      sessionId: "a",
+      id: "t1",
+      text: "ask",
+      streaming: false,
+      agentRun: { run: "r1", agent: "web-researcher", status: "done", seconds: 29 },
+    });
+    expect(useAgentsStore.getState().conversations["a"]?.messages[0]).toEqual({
+      id: "t1",
+      role: "tool",
+      text: "ask",
+      at: 1,
+      tool,
+      agentRun: { run: "r1", agent: "web-researcher", status: "done", seconds: 29 },
+    });
+  });
+
   it("drops every conversation on welcome so a reconnect starts clean", () => {
-    route({ t: "agent.conversation", sessionId: "a", rev: 4, messages: [{ id: "m1", role: "user", text: "hi", at: 1 }] });
+    route({
+      t: "agent.conversation",
+      sessionId: "a",
+      rev: 4,
+      messages: [{ id: "m1", role: "user", text: "hi", at: 1 }],
+    });
     route({ t: "welcome", state: { mac, agents: { rev: 1, sessions: [session("a")] } } });
     expect(useAgentsStore.getState().conversations).toEqual({});
     expect(useAgentsStore.getState().order).toEqual(["a"]);
@@ -98,9 +192,17 @@ describe("conversation", () => {
 
 describe("images", () => {
   it("routes an agent.image answer into the store", () => {
-    route({ t: "agent.image", sessionId: "a", id: "img1", image: { mimeType: "image/png", data: "AAAA" } });
+    route({
+      t: "agent.image",
+      sessionId: "a",
+      id: "img1",
+      image: { mimeType: "image/png", data: "AAAA" },
+    });
     route({ t: "agent.image", sessionId: "a", id: "img2", image: null });
-    expect(useAgentsStore.getState().images["a"]).toEqual({ img1: "data:image/png;base64,AAAA", img2: null });
+    expect(useAgentsStore.getState().images["a"]).toEqual({
+      img1: "data:image/png;base64,AAAA",
+      img2: null,
+    });
     expect(sent).toEqual([]);
   });
 });

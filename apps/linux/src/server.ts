@@ -697,6 +697,17 @@ export class RelayServer {
         );
       return;
     }
+    if (change.kind === "agentRun") {
+      for (const ws of this.sockets)
+        ws.data.session?.agentMessageUpdated(
+          change.sessionId,
+          change.id,
+          change.text,
+          false,
+          change.agentRun,
+        );
+      return;
+    }
     if (change.kind === "ask") {
       for (const ws of this.sockets) ws.data.session?.agentAsk(change.sessionId, change.ask);
       return;

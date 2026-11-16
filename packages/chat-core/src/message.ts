@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { AgentRun as AgentRunShape, type AgentRun } from '@relay/protocol/agent-runs'
 import { CanvasChatEntrySchema } from './canvas-live'
 import { GuestEntrySchema } from './guest-entry'
 
@@ -9,6 +10,17 @@ export const ToolIoSchema = z.object({
   isError: z.boolean(),
   status: z.enum(['running', 'done', 'failed']),
 })
+
+/** An `agents_ask` / `agents_result` call (`@relay/protocol` `AgentCall`), kept so its result can be read. */
+export const AgentCallSchema = z.object({
+  tool: z.enum(['agents_ask', 'agents_result']),
+  agent: z.string().optional(),
+  run: z.string().optional(),
+  request: z.unknown().optional(),
+})
+
+/** A specialist run (`@relay/protocol` `AgentRun`), checked by the protocol's own schema. */
+export const AgentRunSchema = z.custom<AgentRun>((v) => AgentRunShape.safeParse(v).success)
 
 /**
  * `src` is a `data:image/...;base64,...` URL or a `blob:sha256:<64 hex>` token (or, for widget
@@ -43,6 +55,10 @@ export const ChatMessageSchema = z.object({
   at: z.number().optional(),
   canvas: CanvasChatEntrySchema.optional(),
   guest: GuestEntrySchema.optional(),
+  /** A tool row that is an agents call: the call as asked. */
+  agentCall: AgentCallSchema.optional(),
+  /** A tool row that is an agents call: the run it shows (running while the call is out). */
+  agent: AgentRunSchema.optional(),
 })
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
 export type ToolIo = z.infer<typeof ToolIoSchema>

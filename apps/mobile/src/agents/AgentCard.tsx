@@ -1,7 +1,15 @@
 import { useMemo, useEffect, useRef, useState } from "react";
 import { FlatList, Image, Pressable, View } from "react-native";
 import { SymbolView } from "expo-symbols";
-import { accountLabel, untagged, type AgentImageRef, type AgentMessage, type AgentSession, type AgentStatus } from "@relay/protocol";
+import {
+  accountLabel,
+  untagged,
+  type AgentImageRef,
+  type AgentMessage,
+  type AgentRun,
+  type AgentSession,
+  type AgentStatus,
+} from "@relay/protocol";
 import { Text } from "@/ui/Text";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { spacing, useColors, type Colors } from "@/theme";
@@ -13,7 +21,7 @@ import type { SentCommand } from "@/lib/sentCommand";
 import { echoRows, type UserEcho } from "@/lib/userEcho";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
-import { MessageText } from "./MessageText";
+import { LARGE_BODY, MessageText } from "./MessageText";
 import { MarkdownImages } from "./MarkdownImages";
 import { RenderMessage } from "./RenderReportContext";
 import { userImageUrls } from "@evaos/chat-core/image-urls";
@@ -21,6 +29,8 @@ import { ChatBubble } from "./BubbleMenu";
 import { bubbleReactionKey } from "@/lib/reactions";
 import { ActivityRow } from "./ActivityRow";
 import { ToolRow } from "./ToolRow";
+import { AgentsBadge, AgentsCaption, CAPTION_LINE_MIDDLE } from "./AgentsCaption";
+import { sessionAgentRuns } from "@/lib/agentRuns";
 import { ToolStack, ToolTimelineSheet } from "./ToolStack";
 import { MessageAppearance } from "@/ui/MessageAppearance";
 import { ScrollToBottom } from "@/ui/ScrollToBottom";
@@ -50,7 +60,8 @@ const pillFor: Record<AgentStatus, { label: string; tone: NonNullable<PillProps[
 };
 
 function thumbnailSize(ref: AgentImageRef): { width: number; height: number } {
-  if (ref.width === undefined || ref.height === undefined) return { width: THUMB_SQUARE, height: THUMB_SQUARE };
+  if (ref.width === undefined || ref.height === undefined)
+    return { width: THUMB_SQUARE, height: THUMB_SQUARE };
   const scale = Math.min(THUMB_MAX_HEIGHT / ref.height, THUMB_MAX_WIDTH / ref.width, 1);
   return { width: Math.round(ref.width * scale), height: Math.round(ref.height * scale) };
 }
@@ -83,10 +94,26 @@ function MessageImages({ sessionId, refs, onOpen }: MessageImagesProps) {
         const key = `${index}:${ref.id}`;
         const uri = images?.[ref.id];
         const size = thumbnailSize(ref);
-        const frame = { ...size, borderRadius: THUMB_RADIUS, borderWidth: 1, borderColor: colors.hairline, overflow: "hidden" as const };
+        const frame = {
+          ...size,
+          borderRadius: THUMB_RADIUS,
+          borderWidth: 1,
+          borderColor: colors.hairline,
+          overflow: "hidden" as const,
+        };
         if (typeof uri !== "string") {
           return (
-            <View key={key} style={[frame, { backgroundColor: colors.surfaceRaised, alignItems: "center", justifyContent: "center" }]}>
+            <View
+              key={key}
+              style={[
+                frame,
+                {
+                  backgroundColor: colors.surfaceRaised,
+                  alignItems: "center",
+                  justifyContent: "center",
+                },
+              ]}
+            >
               {uri === null && <SymbolView name="photo" size={28} tintColor={colors.textFaint} />}
             </View>
           );
@@ -117,6 +144,8 @@ interface MessageRowProps {
   pending: boolean;
   /** The session's reaction thread, so media in its replies can report render failures; null while there is none. */
   thread: string | null;
+  /** The specialist agents its turn asked, when they show under this row (`sessionAgentRuns`). */
+  agents: readonly AgentRun[] | undefined;
 }
 
 const USER_RADIUS = 24;
@@ -124,16 +153,30 @@ const USER_RADIUS = 24;
 const REPLY_LIFT_RADIUS = 18;
 const REPLY_LIFT_INSET = 10;
 
-function MessageRow({ sessionId, message, onOpenImage, error, pending, thread }: MessageRowProps) {
+function MessageRow({
+  sessionId,
+  message,
+  onOpenImage,
+  error,
+  pending,
+  thread,
+  agents,
+}: MessageRowProps) {
   const colors = useColors();
   const reactionKey = bubbleReactionKey(message, pending);
   const images =
-    message.images === undefined || message.images.length === 0 ? null : <MessageImages sessionId={sessionId} refs={message.images} onOpen={onOpenImage} />;
+    message.images === undefined || message.images.length === 0 ? null : (
+      <MessageImages sessionId={sessionId} refs={message.images} onOpen={onOpenImage} />
+    );
   // A live canvas row (the host sends it as a system row) is a card, whatever its role.
   if (message.canvas !== undefined) {
     return (
       <View style={{ paddingHorizontal: spacing.lg }}>
-        <CanvasEntryRow entry={message.canvas} messageId={message.id} origin={`/agents?sessionId=${encodeURIComponent(sessionId)}`} />
+        <CanvasEntryRow
+          entry={message.canvas}
+          messageId={message.id}
+          origin={`/agents?sessionId=${encodeURIComponent(sessionId)}`}
+        />
       </View>
     );
   }
@@ -169,7 +212,9 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending, thread }:
               }}
             >
               {command !== undefined && <Pill label={command} tone="accent" />}
-              {linked.urls.length > 0 && <MarkdownImages images={linked.urls.map((src) => ({ src, alt: "" }))} />}
+              {linked.urls.length > 0 && (
+                <MarkdownImages images={linked.urls.map((src) => ({ src, alt: "" }))} />
+              )}
               {rest.length > 0 && <MessageText text={rest} large />}
               {images}
             </View>
@@ -186,6 +231,15 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending, thread }:
       return (
         <RenderMessage thread={thread} message={reactionKey} at={message.at}>
           <View style={{ paddingHorizontal: spacing.lg }}>
+            {agents !== undefined && (
+              <AgentsBadge
+                runs={agents}
+                lineMiddle={
+                  message.text.length > 0 ? LARGE_BODY.lineHeight / 2 : CAPTION_LINE_MIDDLE
+                }
+                margin={spacing.lg}
+              />
+            )}
             <ChatBubble
               messageKey={reactionKey}
               side="left"
@@ -195,18 +249,41 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending, thread }:
               ring={colors.surface}
             >
               <View style={{ gap: spacing.sm }}>
-                {message.text.length > 0 && <MessageText text={message.text} large streaming={message.streaming === true} />}
+                {message.text.length > 0 && (
+                  <MessageText text={message.text} large streaming={message.streaming === true} />
+                )}
                 {images}
               </View>
             </ChatBubble>
+            {agents !== undefined && (
+              <AgentsCaption
+                runs={agents}
+                fill={colors.surfaceRaised}
+                style={{ marginTop: spacing.sm }}
+              />
+            )}
           </View>
         </RenderMessage>
       );
     case "tool":
+      // The newest agents call of a turn nothing has answered yet: its specialists' seal and caption, where the reply will go.
+      if (agents !== undefined) {
+        return (
+          <View style={{ paddingHorizontal: spacing.lg }}>
+            <AgentsBadge runs={agents} lineMiddle={CAPTION_LINE_MIDDLE} margin={spacing.lg} />
+            <AgentsCaption runs={agents} fill={colors.surfaceRaised} />
+          </View>
+        );
+      }
       return (
         <View style={{ gap: spacing.sm }}>
           {message.tool === undefined ? (
-            <Text variant="caption" color="textMuted" numberOfLines={1} style={{ paddingHorizontal: spacing.xl }}>
+            <Text
+              variant="caption"
+              color="textMuted"
+              numberOfLines={1}
+              style={{ paddingHorizontal: spacing.xl }}
+            >
               {message.text}
             </Text>
           ) : (
@@ -229,7 +306,9 @@ function MessageRow({ sessionId, message, onOpenImage, error, pending, thread }:
 
 export function CardPlaceholder({ text }: { text: string }) {
   return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxxl }}>
+    <View
+      style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxxl }}
+    >
       <Text variant="body" color="textMuted" style={{ textAlign: "center" }}>
         {text}
       </Text>
@@ -245,8 +324,22 @@ export interface AgentHeaderProps {
 export function AgentHeader({ session }: AgentHeaderProps) {
   const pill = pillFor[session.status];
   return (
-    <View style={{ paddingHorizontal: spacing.xl, paddingTop: spacing.lg, paddingBottom: spacing.lg, gap: spacing.xs }}>
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md }}>
+    <View
+      style={{
+        paddingHorizontal: spacing.xl,
+        paddingTop: spacing.lg,
+        paddingBottom: spacing.lg,
+        gap: spacing.xs,
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: spacing.md,
+        }}
+      >
         <Text variant="title" numberOfLines={1} style={{ flexShrink: 1 }}>
           {session.title}
         </Text>
@@ -262,10 +355,21 @@ export function AgentHeader({ session }: AgentHeaderProps) {
           {accountLabel(session.account)}
         </Text>
       )}
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: spacing.sm,
+        }}
+      >
         {session.model !== undefined ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, flexShrink: 1 }}>
-            {session.modelVendor !== undefined && <VendorLogo vendor={session.modelVendor} size={13} />}
+          <View
+            style={{ flexDirection: "row", alignItems: "center", gap: spacing.sm, flexShrink: 1 }}
+          >
+            {session.modelVendor !== undefined && (
+              <VendorLogo vendor={session.modelVendor} size={13} />
+            )}
             <Text variant="caption" color="textFaint" numberOfLines={1} style={{ flexShrink: 1 }}>
               {modelShortName(session.model, session.modelVendor)}
               {session.thinkingLevel === undefined ? "" : ` · ${session.thinkingLevel}`}
@@ -296,7 +400,17 @@ function ContextRing({ used }: { used: number }) {
   const sk = loadSkia();
   const color = contextColor(colors, used);
   if (sk === null) {
-    return <View style={{ width: RING_SIZE, height: RING_SIZE, borderRadius: RING_SIZE / 2, borderWidth: RING_STROKE, borderColor: color }} />;
+    return (
+      <View
+        style={{
+          width: RING_SIZE,
+          height: RING_SIZE,
+          borderRadius: RING_SIZE / 2,
+          borderWidth: RING_STROKE,
+          borderColor: color,
+        }}
+      />
+    );
   }
   const { Canvas, Path, Skia } = sk;
   const inset = RING_STROKE / 2;
@@ -344,7 +458,17 @@ export interface AgentCardProps {
  * shows the end without a single scroll, a session comes back at the offset it was left at, and
  * a new message only pulls the view when the reader was already near the newest.
  */
-export function AgentCard({ sessionId, messages, connected, status, activity, activityLabel, sent, echoes, thread = null }: AgentCardProps) {
+export function AgentCard({
+  sessionId,
+  messages,
+  connected,
+  status,
+  activity,
+  activityLabel,
+  sent,
+  echoes,
+  thread = null,
+}: AgentCardProps) {
   const [viewing, setViewing] = useState<string | null>(null);
   const viewingImages = useMemo(() => (viewing === null ? null : [{ uri: viewing }]), [viewing]);
   const [timeline, setTimeline] = useState<string | null>(null);
@@ -368,24 +492,41 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
   const newestFirst = useMemo(() => {
     if (rows === undefined) return undefined;
     const reversed = [...rows].reverse();
-    if (sent !== undefined) reversed.unshift({ id: `sent-${String(sent.at)}`, role: "user", text: sent.text, at: sent.at });
+    if (sent !== undefined)
+      reversed.unshift({
+        id: `sent-${String(sent.at)}`,
+        role: "user",
+        text: sent.text,
+        at: sent.at,
+      });
     return reversed;
   }, [rows, sent]);
-  // Consecutive tool calls collapse into one row, keyed by the run's first call so it never remounts.
+  // The specialist agents each turn asked, by the row they show under (its last reply, else its last agents call).
+  const agentRuns = useMemo(() => sessionAgentRuns(rows ?? []), [rows]);
+  // Consecutive tool calls collapse into one row, keyed by the run's first call so it never remounts. An agents
+  // call that carries its turn's runs (no reply yet) stays a row of its own, so the stack never hides them.
   const grouped = useMemo(() => {
     if (newestFirst === undefined) return undefined;
     const runs = new Map<string, AgentMessage[]>();
     const listed: AgentMessage[] = [];
     let run: AgentMessage[] | null = null;
     for (const message of [...newestFirst].reverse()) {
-      if (message.role === "tool" && (message.images === undefined || message.images.length === 0)) {
+      if (
+        message.role === "tool" &&
+        (message.images === undefined || message.images.length === 0) &&
+        !agentRuns.has(message.id)
+      ) {
         if (run === null) {
           run = [];
           runs.set(message.id, run);
           listed.push(message);
         }
         run.push(message);
-      } else if (message.role === "assistant" && message.text.trim().length === 0 && (message.images === undefined || message.images.length === 0)) {
+      } else if (
+        message.role === "assistant" &&
+        message.text.trim().length === 0 &&
+        (message.images === undefined || message.images.length === 0)
+      ) {
         // An empty assistant turn (a tool-only step, or a reply whose words have not come yet) draws
         // nothing, so it is no row: an empty row still took the list's spacing. Nor does it split the run.
         continue;
@@ -395,16 +536,23 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
       }
     }
     return { listed: listed.reverse(), runs };
-  }, [newestFirst]);
+  }, [newestFirst, agentRuns]);
   const newest = messages === undefined ? undefined : messages[messages.length - 1];
   const running = sent !== undefined && !sent.handoff ? `Running ${sent.name}` : undefined;
   const working = status === "working" || running !== undefined;
   // Hold the activity row through the brief idle gaps between tool calls, so it does not blink out and back.
   const [showActivity, setShowActivity] = useState(working);
   useEffect(() => {
-    if (working) { setShowActivity(true); return; }
-    const timer = setTimeout(() => { setShowActivity(false); }, 600);
-    return () => { clearTimeout(timer); };
+    if (working) {
+      setShowActivity(true);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setShowActivity(false);
+    }, 600);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [working]);
   // Mounted from when it shows until its collapse ends, so it closes as smoothly as it opened.
   const [activityMounted, setActivityMounted] = useState(working);
@@ -416,7 +564,10 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
   // until a call or the next turn follows them, and a call is running from the moment its row lands.
   const responding = newest?.role === "assistant" && newest.text.length > 0;
   const tool = (newest?.role === "tool" ? newest.tool?.name : undefined) ?? activity;
-  const liveLabel = activityLabel ?? running ?? (responding ? "Responding" : tool === undefined ? "Working" : `Running ${tool}`);
+  const liveLabel =
+    activityLabel ??
+    running ??
+    (responding ? "Responding" : tool === undefined ? "Working" : `Running ${tool}`);
   // Through the hold after work stops, the row keeps its last words instead of falling back to "Working".
   const [heldLabel, setHeldLabel] = useState(liveLabel);
   useEffect(() => {
@@ -425,21 +576,41 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
   const label = working ? liveLabel : heldLabel;
   // Read once per mount: returning to a session preserves both its position and follow mode.
   const initialOffset = useRef(sessionId === undefined ? 0 : (scrollMemory.get(sessionId) ?? 0));
-  const { listRef, awayFromBottom, scrollToBottom, scrollHandlers } = useInvertedChatScroll<AgentMessage>({
-    initialOffset: initialOffset.current,
-    onOffset: (offset) => { if (sessionId !== undefined) scrollMemory.set(sessionId, offset); },
-  });
+  const { listRef, awayFromBottom, scrollToBottom, scrollHandlers } =
+    useInvertedChatScroll<AgentMessage>({
+      initialOffset: initialOffset.current,
+      onOffset: (offset) => {
+        if (sessionId !== undefined) scrollMemory.set(sessionId, offset);
+      },
+    });
   // Rows, not messages: an empty reply that gains its first words becomes a row then, and enters then.
   const enteringMessages = useMessageEntrances(grouped?.listed, grouped !== undefined);
   // The turns of the rows the list shows, oldest first, minus this phone's own echoes (for bookmarks).
-  const chronological = useMemo(() => (grouped === undefined ? [] : [...grouped.listed].reverse()), [grouped]);
-  const turnRows = useMemo(() => agentTurnRows(chronological, (message) => echoIds.has(message.id) || message.id.startsWith("sent-")), [chronological, echoIds]);
+  const chronological = useMemo(
+    () => (grouped === undefined ? [] : [...grouped.listed].reverse()),
+    [grouped],
+  );
+  const turnRows = useMemo(
+    () =>
+      agentTurnRows(
+        chronological,
+        (message) => echoIds.has(message.id) || message.id.startsWith("sent-"),
+      ),
+    [chronological, echoIds],
+  );
   useTurnBookmarks({ turnRows, thread });
 
   if (rows === undefined || sessionId === undefined) {
-    return <CardPlaceholder text={connected ? "Loading conversation…" : "Connect to your host to load this conversation."} />;
+    return (
+      <CardPlaceholder
+        text={
+          connected ? "Loading conversation…" : "Connect to your host to load this conversation."
+        }
+      />
+    );
   }
-  if (newestFirst?.length === 0 && !showActivity) return <CardPlaceholder text="No messages yet." />;
+  if (newestFirst?.length === 0 && !showActivity)
+    return <CardPlaceholder text="No messages yet." />;
   return (
     <View style={{ flex: 1 }}>
       <FlatList
@@ -454,21 +625,31 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
             <MessageAppearance
               animate={
                 enteringMessages.has(item.id) &&
-                item.role === "user" && !retired.has(untagged(item.text).trim())
+                item.role === "user" &&
+                !retired.has(untagged(item.text).trim())
               }
               user={item.role === "user"}
               gap={spacing.sm}
             >
               {grouped?.runs.has(item.id) === true ? (
-                <ToolStack calls={grouped.runs.get(item.id) ?? []} onOpen={() => { setTimeline(item.id); }} />
+                <ToolStack
+                  calls={grouped.runs.get(item.id) ?? []}
+                  onOpen={() => {
+                    setTimeline(item.id);
+                  }}
+                />
               ) : (
                 <MessageRow
                   sessionId={sessionId}
                   message={item}
                   onOpenImage={setViewing}
                   error={refused[item.id]}
-                  pending={echoIds.has(item.id) || (sent !== undefined && item.id === `sent-${String(sent.at)}`)}
+                  pending={
+                    echoIds.has(item.id) ||
+                    (sent !== undefined && item.id === `sent-${String(sent.at)}`)
+                  }
                   thread={thread}
+                  agents={agentRuns.get(item.id)}
                 />
               )}
             </MessageAppearance>
@@ -479,7 +660,13 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
         contentContainerStyle={{ paddingTop: spacing.lg, paddingBottom: spacing.lg - spacing.sm }}
         ListHeaderComponent={
           activityMounted ? (
-            <GrowIn enabled open={showActivity} onClosed={() => { setActivityMounted(false); }}>
+            <GrowIn
+              enabled
+              open={showActivity}
+              onClosed={() => {
+                setActivityMounted(false);
+              }}
+            >
               <ActivityRow label={label} />
             </GrowIn>
           ) : null
@@ -498,7 +685,12 @@ export function AgentCard({ sessionId, messages, connected, status, activity, ac
       />
       {timeline !== null && (
         // Mounted on open with visible set, the pattern every working Sheet in the app uses.
-        <ToolTimelineSheet calls={grouped?.runs.get(timeline) ?? []} onClose={() => { setTimeline(null); }} />
+        <ToolTimelineSheet
+          calls={grouped?.runs.get(timeline) ?? []}
+          onClose={() => {
+            setTimeline(null);
+          }}
+        />
       )}
     </View>
   );

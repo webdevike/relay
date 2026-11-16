@@ -74,7 +74,8 @@ import { useCoversContent } from "@/ui/covering";
 import { ImageViewer } from "@/agents/ImageViewer";
 import { MessageImageStack } from "@/agents/MessageImageStack";
 import { bubbleSegments, topLevelImages } from "@/agents/markdown";
-import { MessageText } from "@/agents/MessageText";
+import { LARGE_BODY, MessageText } from "@/agents/MessageText";
+import { AgentsBadge, AgentsCaption, CAPTION_LINE_MIDDLE } from "@/agents/AgentsCaption";
 import { BackgroundRow } from "@/agents/BackgroundRow";
 import { AskCard } from "@/agents/AskCard";
 import { SessionApprovalCard } from "@/agents/SessionApprovalCard";
@@ -193,6 +194,11 @@ const SHEET_CLOSE_MS = 250;
 const USER_MAX_WIDTH = "80%";
 const USER_RADIUS = 24;
 const EVA_RADIUS = 22;
+/** The reply bubble's padding: its words start this far in from its edge, and its first line this far down. */
+const EVA_TEXT_INSET = 17;
+const EVA_TEXT_TOP = 11;
+/** From the top of a reply row to the middle of its first line, where the specialists' seal sits in the margin. */
+const BUBBLE_LINE_MIDDLE = EVA_TEXT_TOP + LARGE_BODY.lineHeight / 2;
 /**
  * Where each agent's thread was left: the inverted list's offset (0 = the newest message in view)
  * and how many rows it held, as AgentCard keeps the offset per session: a thread that remounts
@@ -1420,6 +1426,15 @@ function RowView({
     if (guestKind === "say") return <GuestBubble entry={message.guest} />;
     return <WorkCardRow entry={message.guest} />;
   }
+  // A turn whose specialist is still on it and nothing replied yet: the seal and the caption, where the reply will be.
+  if (message.role === "status" && message.agents !== undefined && message.agents.length > 0) {
+    return (
+      <View style={styles.evaRow}>
+        <AgentsBadge runs={message.agents} lineMiddle={CAPTION_LINE_MIDDLE} margin={spacing.lg} />
+        <AgentsCaption runs={message.agents} fill={bubbleFill} />
+      </View>
+    );
+  }
   // A turn Isaac did not type (a job line, heartbeat, canvas notice, handoff, tapback): a quiet centered row.
   const background = backgroundOf(message);
   if (background !== null)
@@ -1500,6 +1515,9 @@ function RowView({
       // each widget sits in a card of its own between them. One reaction target for the whole reply.
       const segments = hasBody ? bubbleSegments(text) : [];
       const wide = segments.some((segment) => segment.kind === "widget");
+      const agents =
+        message.agents !== undefined && message.agents.length > 0 ? message.agents : null;
+      const above = signin !== undefined || imageCount > 0 || tiles.length > 0;
       // The whole row reports its media's failures, tiles above the bubble included (`RenderMessage`).
       return (
         <RenderMessage
@@ -1508,6 +1526,13 @@ function RowView({
           at={message.at}
         >
           <View style={styles.evaRow}>
+            {agents !== null && (
+              <AgentsBadge
+                runs={agents}
+                lineMiddle={showBubble && !above ? BUBBLE_LINE_MIDDLE : CAPTION_LINE_MIDDLE}
+                margin={spacing.lg}
+              />
+            )}
             {signin !== undefined && (
               <View
                 style={
@@ -1571,6 +1596,13 @@ function RowView({
                 )}
                 {waiting && <WaitingMark radius={EVA_RADIUS} pulse={pulse} page={page} />}
               </ChatBubble>
+            )}
+            {agents !== null && (
+              <AgentsCaption
+                runs={agents}
+                fill={bubbleFill}
+                style={showBubble ? styles.agentsUnderBubble : undefined}
+              />
             )}
             {roomed.rooms.map((r) => (
               <RoomCardRow key={r.id} refRoom={r} />
@@ -1672,7 +1704,11 @@ const styles = StyleSheet.create({
   tiles: { alignItems: "flex-start" },
   tilesAboveCaption: { marginBottom: GAP_RUN },
   evaBubbleFrame: { alignSelf: "flex-start", maxWidth: "88%" },
-  evaBubble: { borderRadius: EVA_RADIUS, paddingVertical: 11, paddingHorizontal: 17 },
+  evaBubble: {
+    borderRadius: EVA_RADIUS,
+    paddingVertical: EVA_TEXT_TOP,
+    paddingHorizontal: EVA_TEXT_INSET,
+  },
   /** A reply with widgets: the row's full width, prose bubbles hugging the left at the usual measure. */
   evaWideFrame: { alignSelf: "stretch" },
   segments: { gap: GAP_RUN },
@@ -1702,4 +1738,6 @@ const styles = StyleSheet.create({
   replies: { marginTop: spacing.sm },
   /** Under the reply, clear of its reaction badges like the reply chips. */
   followUp: { marginTop: spacing.sm },
+  /** Under the reply's words, clear of its reaction badges like the reply chips. */
+  agentsUnderBubble: { marginTop: spacing.sm, paddingLeft: EVA_TEXT_INSET },
 });

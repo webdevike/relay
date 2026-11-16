@@ -1,6 +1,19 @@
 import { create } from "zustand";
-import type { AgentApproval, AgentAsk, AgentImage, AgentMessage, AgentOptions, AgentSession } from "@relay/protocol";
-import { sentCommand, settleOnMessages, settleOnSession, type SentCommand } from "@/lib/sentCommand";
+import type {
+  AgentApproval,
+  AgentAsk,
+  AgentImage,
+  AgentMessage,
+  AgentOptions,
+  AgentRun,
+  AgentSession,
+} from "@relay/protocol";
+import {
+  sentCommand,
+  settleOnMessages,
+  settleOnSession,
+  type SentCommand,
+} from "@/lib/sentCommand";
 import { settleEchoes, userEcho, type UserEcho } from "@/lib/userEcho";
 import { cardAskKey } from "@/lib/openAsks";
 import type { AskRecordState } from "@/agents/ask.machine";
@@ -65,10 +78,25 @@ export interface AgentsData {
 /** Key of a launch's echo while the session it starts has no id yet. */
 export const LAUNCH_ECHO = "pending-launch";
 
-export const emptyAgentsData: AgentsData = { rev: 0, sessions: {}, order: [], conversations: {}, options: {}, images: {}, asks: {}, approvals: {}, sent: {}, echoes: {}, askRecords: {} };
+export const emptyAgentsData: AgentsData = {
+  rev: 0,
+  sessions: {},
+  order: [],
+  conversations: {},
+  options: {},
+  images: {},
+  asks: {},
+  approvals: {},
+  sent: {},
+  echoes: {},
+  askRecords: {},
+};
 
 /** The sent commands once `sessions` arrived: settled ones go, and so do those of sessions that are gone. */
-function settleSent(sent: Record<string, SentCommand>, sessions: Record<string, AgentSession>): Record<string, SentCommand> {
+function settleSent(
+  sent: Record<string, SentCommand>,
+  sessions: Record<string, AgentSession>,
+): Record<string, SentCommand> {
   const ids = Object.keys(sent);
   if (ids.length === 0) return sent;
   const next: Record<string, SentCommand> = {};
@@ -130,18 +158,27 @@ export function needsAttention(session: AgentSession): boolean {
  */
 function orderByAttention(sessions: Record<string, AgentSession>): string[] {
   return Object.values(sessions)
-    .filter((session) => session.parentId === undefined && session.kind !== "assistant" && session.owner === undefined)
+    .filter(
+      (session) =>
+        session.parentId === undefined &&
+        session.kind !== "assistant" &&
+        session.owner === undefined,
+    )
     .sort((a, b) => {
       const section = Number(a.kind === "job") - Number(b.kind === "job");
       if (section !== 0) return section;
-      const attention = a.kind === "job" ? 0 : Number(needsAttention(b)) - Number(needsAttention(a));
+      const attention =
+        a.kind === "job" ? 0 : Number(needsAttention(b)) - Number(needsAttention(a));
       return attention !== 0 ? attention : b.lastActivityAt - a.lastActivityAt;
     })
     .map((session) => session.id);
 }
 
 /** A session's subagents, sorted by id so their chips keep their places as statuses change. */
-export function subagentsOf(sessions: Record<string, AgentSession>, parentId: string): AgentSession[] {
+export function subagentsOf(
+  sessions: Record<string, AgentSession>,
+  parentId: string,
+): AgentSession[] {
   return Object.values(sessions)
     .filter((session) => session.parentId === parentId)
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -155,14 +192,17 @@ export function ownedBy(sessions: Record<string, AgentSession>, agent: string): 
 }
 
 /** Replaces the whole session set with a fresh snapshot. Always accepted (snapshots have no gap). */
-export function applySnapshot(
-  data: AgentsData,
-  rev: number,
-  sessions: AgentSession[],
-): AgentsData {
+export function applySnapshot(data: AgentsData, rev: number, sessions: AgentSession[]): AgentsData {
   const byId: Record<string, AgentSession> = {};
   for (const session of sessions) byId[session.id] = session;
-  return { ...data, rev, sessions: byId, order: orderByAttention(byId), sent: settleSent(data.sent, byId), echoes: keepEchoes(data.echoes, byId) };
+  return {
+    ...data,
+    rev,
+    sessions: byId,
+    order: orderByAttention(byId),
+    sent: settleSent(data.sent, byId),
+    echoes: keepEchoes(data.echoes, byId),
+  };
 }
 
 /**
@@ -170,7 +210,14 @@ export function applySnapshot(
  * old socket (subscriptions do not survive a reconnect).
  */
 export function applyWelcome(data: AgentsData, rev: number, sessions: AgentSession[]): AgentsData {
-  return { ...applySnapshot(data, rev, sessions), conversations: {}, options: {}, images: {}, asks: {}, approvals: {} };
+  return {
+    ...applySnapshot(data, rev, sessions),
+    conversations: {},
+    options: {},
+    images: {},
+    asks: {},
+    approvals: {},
+  };
 }
 
 /**
@@ -187,11 +234,19 @@ export function applyDelta(
   const removed = new Set(remove ?? []);
   const sessions = { ...data.sessions };
   for (const session of upsert ?? []) sessions[session.id] = session;
-  const filtered = removed.size === 0 ? sessions : Object.fromEntries(
-    Object.entries(sessions).filter(([id]) => !removed.has(id)),
-  );
+  const filtered =
+    removed.size === 0
+      ? sessions
+      : Object.fromEntries(Object.entries(sessions).filter(([id]) => !removed.has(id)));
   return {
-    data: { ...data, rev, sessions: filtered, order: orderByAttention(filtered), sent: settleSent(data.sent, filtered), echoes: keepEchoes(data.echoes, filtered) },
+    data: {
+      ...data,
+      rev,
+      sessions: filtered,
+      order: orderByAttention(filtered),
+      sent: settleSent(data.sent, filtered),
+      echoes: keepEchoes(data.echoes, filtered),
+    },
     ok: true,
   };
 }
@@ -224,7 +279,8 @@ export function appendMessages(
   if (!existing || rev !== existing.rev + 1) return { data, ok: false };
   const pending = data.sent[sessionId];
   const settled = pending === undefined ? undefined : settleOnMessages(pending, append);
-  const sent = settled === pending ? data.sent : withSent(data.sent, sessionId, settled ?? undefined);
+  const sent =
+    settled === pending ? data.sent : withSent(data.sent, sessionId, settled ?? undefined);
   const messages = [...existing.messages, ...append];
   return {
     data: {
@@ -241,7 +297,11 @@ export function appendMessages(
 }
 
 /** `sent` with the session's command replaced, or removed when `command` is undefined. */
-function withSent(sent: Record<string, SentCommand>, sessionId: string, command: SentCommand | undefined): Record<string, SentCommand> {
+function withSent(
+  sent: Record<string, SentCommand>,
+  sessionId: string,
+  command: SentCommand | undefined,
+): Record<string, SentCommand> {
   if (command !== undefined) return { ...sent, [sessionId]: command };
   return Object.fromEntries(Object.entries(sent).filter(([id]) => id !== sessionId));
 }
@@ -251,13 +311,24 @@ function withSent(sent: Record<string, SentCommand>, sessionId: string, command:
  * and shows as the user's bubble until the transcript carries it. A refused send's bubble goes
  * with the next send.
  */
-export function noteSent(data: AgentsData, sessionId: string, text: string, now: number): AgentsData {
+export function noteSent(
+  data: AgentsData,
+  sessionId: string,
+  text: string,
+  now: number,
+): AgentsData {
   const command = sentCommand(text, data.sessions[sessionId], now);
   const current = data.echoes[sessionId] ?? [];
-  const waiting = current.some((echo) => echo.error !== undefined) ? current.filter((echo) => echo.error === undefined) : current;
-  const echo = command === null ? userEcho(text, data.conversations[sessionId]?.messages, waiting, now) : null;
+  const waiting = current.some((echo) => echo.error !== undefined)
+    ? current.filter((echo) => echo.error === undefined)
+    : current;
+  const echo =
+    command === null ? userEcho(text, data.conversations[sessionId]?.messages, waiting, now) : null;
   const echoes = withEchoes(data.echoes, sessionId, echo === null ? waiting : [...waiting, echo]);
-  const sent = command === null && data.sent[sessionId] === undefined ? data.sent : withSent(data.sent, sessionId, command ?? undefined);
+  const sent =
+    command === null && data.sent[sessionId] === undefined
+      ? data.sent
+      : withSent(data.sent, sessionId, command ?? undefined);
   if (sent === data.sent && echoes === data.echoes) return data;
   return { ...data, sent, echoes };
 }
@@ -269,9 +340,15 @@ export function dropSent(data: AgentsData, sessionId: string, at: number): Agent
 }
 
 /** Marks the echoes sent at `at` (any time, when omitted) as refused with `error`; their bubbles stay. */
-export function failEcho(data: AgentsData, sessionId: string, error: string, at?: number): AgentsData {
+export function failEcho(
+  data: AgentsData,
+  sessionId: string,
+  error: string,
+  at?: number,
+): AgentsData {
   const list = data.echoes[sessionId];
-  const refused = (echo: UserEcho): boolean => echo.error === undefined && (at === undefined || echo.at === at);
+  const refused = (echo: UserEcho): boolean =>
+    echo.error === undefined && (at === undefined || echo.at === at);
   if (!list?.some(refused)) return data;
   const failed = list.map((echo) => (refused(echo) ? { ...echo, error } : echo));
   return { ...data, echoes: withEchoes(data.echoes, sessionId, failed) };
@@ -291,9 +368,15 @@ export function noteLaunch(data: AgentsData, prompt: string, now: number): Agent
 export function adoptLaunch(data: AgentsData, sessionId: string): AgentsData {
   const launch = data.echoes[LAUNCH_ECHO];
   if (launch === undefined) return data;
-  const moved = withEchoes(withEchoes(data.echoes, LAUNCH_ECHO, []), sessionId, [...(data.echoes[sessionId] ?? []), ...launch]);
+  const moved = withEchoes(withEchoes(data.echoes, LAUNCH_ECHO, []), sessionId, [
+    ...(data.echoes[sessionId] ?? []),
+    ...launch,
+  ]);
   const messages = data.conversations[sessionId]?.messages;
-  return { ...data, echoes: messages === undefined ? moved : settledEchoes(moved, sessionId, messages) };
+  return {
+    ...data,
+    echoes: messages === undefined ? moved : settledEchoes(moved, sessionId, messages),
+  };
 }
 
 /** The launch's bubble is dismissed (its failure was seen, or another launch replaced it). */
@@ -303,10 +386,17 @@ export function clearLaunch(data: AgentsData): AgentsData {
 }
 
 /**
- * Replaces a streaming message's text. A no-op when the conversation or `id` is unknown (the
- * phone subscribed mid-stream; the next `agent.conversation` carries the settled text).
+ * Replaces a streaming message's text, and an agents call row's run when the update carries one. A no-op when
+ * the conversation or `id` is unknown (the phone subscribed mid-stream; the next `agent.conversation` carries the settled text).
  */
-export function updateMessage(data: AgentsData, sessionId: string, id: string, text: string, streaming: boolean): AgentsData {
+export function updateMessage(
+  data: AgentsData,
+  sessionId: string,
+  id: string,
+  text: string,
+  streaming: boolean,
+  agentRun?: AgentRun,
+): AgentsData {
   const existing = data.conversations[sessionId];
   if (!existing) return data;
   const index = existing.messages.findIndex((message) => message.id === id);
@@ -314,16 +404,27 @@ export function updateMessage(data: AgentsData, sessionId: string, id: string, t
   const messages = existing.messages.slice();
   const current = messages[index];
   if (current === undefined) return data;
-  const rest = { ...current };
+  const rest = { ...current, ...(agentRun === undefined ? {} : { agentRun }) };
   delete rest.streaming;
   messages[index] = streaming ? { ...rest, text, streaming: true } : { ...rest, text };
-  return { ...data, conversations: { ...data.conversations, [sessionId]: { rev: existing.rev, messages } } };
+  return {
+    ...data,
+    conversations: { ...data.conversations, [sessionId]: { rev: existing.rev, messages } },
+  };
 }
 
 /** Records the host's answer for one image ref: the bytes as a data URI, or `null` when gone. */
-export function setImage(data: AgentsData, sessionId: string, id: string, image: AgentImage | null): AgentsData {
+export function setImage(
+  data: AgentsData,
+  sessionId: string,
+  id: string,
+  image: AgentImage | null,
+): AgentsData {
   const uri = image === null ? null : `data:${image.mimeType};base64,${image.data}`;
-  return { ...data, images: { ...data.images, [sessionId]: { ...data.images[sessionId], [id]: uri } } };
+  return {
+    ...data,
+    images: { ...data.images, [sessionId]: { ...data.images[sessionId], [id]: uri } },
+  };
 }
 
 /** Stores the pending ask a session just became blocked on, replacing any earlier one. */
@@ -339,24 +440,46 @@ export function setAsk(data: AgentsData, sessionId: string, ask: AgentAsk): Agen
 export function clearAsk(data: AgentsData, sessionId: string, id: string): AgentsData {
   const key = cardAskKey(sessionId, id);
   const record = data.askRecords[key];
-  const marked = record === undefined || record.cardResolved ? data : { ...data, askRecords: { ...data.askRecords, [key]: { ...record, cardResolved: true } } };
+  const marked =
+    record === undefined || record.cardResolved
+      ? data
+      : { ...data, askRecords: { ...data.askRecords, [key]: { ...record, cardResolved: true } } };
   if (marked.asks[sessionId]?.id !== id) return marked;
-  return { ...marked, asks: Object.fromEntries(Object.entries(marked.asks).filter(([session]) => session !== sessionId)) };
+  return {
+    ...marked,
+    asks: Object.fromEntries(
+      Object.entries(marked.asks).filter(([session]) => session !== sessionId),
+    ),
+  };
 }
 
 /** Puts or (null) removes the answer record `key`. */
 export function setAskRecord(data: AgentsData, key: string, record: AskRecord | null): AgentsData {
   if (record === null) {
     if (data.askRecords[key] === undefined) return data;
-    return { ...data, askRecords: Object.fromEntries(Object.entries(data.askRecords).filter(([other]) => other !== key)) };
+    return {
+      ...data,
+      askRecords: Object.fromEntries(
+        Object.entries(data.askRecords).filter(([other]) => other !== key),
+      ),
+    };
   }
   const old = data.askRecords[key];
-  if (old?.state === record.state && old.failure === record.failure && old.cardResolved === record.cardResolved) return data;
+  if (
+    old?.state === record.state &&
+    old.failure === record.failure &&
+    old.cardResolved === record.cardResolved
+  )
+    return data;
   return { ...data, askRecords: { ...data.askRecords, [key]: record } };
 }
 
 /** Stores the tool approval a session just became blocked on, replacing any earlier one. */
-export function setApproval(data: AgentsData, sessionId: string, approval: AgentApproval): AgentsData {
+export function setApproval(
+  data: AgentsData,
+  sessionId: string,
+  approval: AgentApproval,
+): AgentsData {
   return { ...data, approvals: { ...data.approvals, [sessionId]: approval } };
 }
 
@@ -375,7 +498,13 @@ export interface AgentsStore extends AgentsData {
   setConversation: (sessionId: string, rev: number, messages: AgentMessage[]) => void;
   appendMessages: (sessionId: string, rev: number, append: AgentMessage[]) => boolean;
   setOptions: (sessionId: string, options: AgentOptions) => void;
-  updateMessage: (sessionId: string, id: string, text: string, streaming: boolean) => void;
+  updateMessage: (
+    sessionId: string,
+    id: string,
+    text: string,
+    streaming: boolean,
+    agentRun?: AgentRun,
+  ) => void;
   setImage: (sessionId: string, id: string, image: AgentImage | null) => void;
   setAsk: (sessionId: string, ask: AgentAsk) => void;
   clearAsk: (sessionId: string, id: string) => void;
@@ -411,8 +540,8 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
     set(result.data);
     return result.ok;
   },
-  updateMessage: (sessionId, id, text, streaming) => {
-    set(updateMessage(get(), sessionId, id, text, streaming));
+  updateMessage: (sessionId, id, text, streaming, agentRun) => {
+    set(updateMessage(get(), sessionId, id, text, streaming, agentRun));
   },
   setOptions: (sessionId, options) => {
     set({ options: { ...get().options, [sessionId]: options } });

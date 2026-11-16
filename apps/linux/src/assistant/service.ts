@@ -21,14 +21,49 @@
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { foldGuestWork, MAX_ASK_QUESTION, OpenAsk, reactionKey, roomCardFallback, signinHost, splitPins, splitRoomCards, splitSignin, untagged, type AgentImage, type AgentMessage, type AgentSession, type AssistantAgent, type AssistantFileReq, type AssistantFileRes, type AssistantMessage, type AssistantSnapshot, type AssistantStatus, type GuestEntry, type ServerMessage } from "@relay/protocol";
+import {
+  agentRunsByRow,
+  agentsCaption,
+  foldGuestWork,
+  MAX_ASK_QUESTION,
+  OpenAsk,
+  reactionKey,
+  roomCardFallback,
+  signinHost,
+  splitPins,
+  splitRoomCards,
+  splitSignin,
+  untagged,
+  type AgentImage,
+  type AgentMessage,
+  type AgentSession,
+  type AssistantAgent,
+  type AssistantFileReq,
+  type AssistantFileRes,
+  type AssistantMessage,
+  type AssistantSnapshot,
+  type AssistantStatus,
+  type GuestEntry,
+  type ServerMessage,
+} from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { liveSessionId } from "../agents/session-ref";
+import { agentMessageOf } from "../agents/agent-rows";
 import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
 import { pushPreview } from "../push/preview";
 import type { PushTokenSource } from "../push/token-store";
-import { AckFailure, type AgentProvider, type AgentProviderChange, type AskInput, type AskStatus, type AssistantRelaying, type AssistantThread, type ConsultRequest, type ConsultResult } from "../seams";
+import {
+  AckFailure,
+  type AgentProvider,
+  type AgentProviderChange,
+  type AskInput,
+  type AskStatus,
+  type AssistantRelaying,
+  type AssistantThread,
+  type ConsultRequest,
+  type ConsultResult,
+} from "../seams";
 import type { SessionClock } from "../session";
 import type { AskJudge } from "./ask-judge";
 import { type AskStore, MAX_ASK_FROM, MAX_ASK_REPLIES, MAX_ASK_REPLY } from "./ask-store";
@@ -46,7 +81,10 @@ export function statusPrefix(title: string): string {
 }
 /** Job-line prefixes and prime openings from before the multi-agent registry; recognized only to hide rows of old transcripts. */
 const LEGACY_STATUS_PREFIXES = ["[From Astra's background jobs] ", "[From Eva's background jobs] "];
-const LEGACY_PRIME_STARTS = ["You are Eva, Isaac's personal assistant", "You are Astra, Isaac's personal assistant"];
+const LEGACY_PRIME_STARTS = [
+  "You are Eva, Isaac's personal assistant",
+  "You are Astra, Isaac's personal assistant",
+];
 /** What an agent answers when a job line needs nothing from Isaac; the host hides the reply. */
 export const SILENCE_MARKER = "(nothing to report)";
 
@@ -141,22 +179,50 @@ function guestCardText(entry: GuestEntry, content: string): string {
  * becomes a paragraph break, and its answers token becomes the row's `replies`. `asking`, when
  * given, collects the settled rows that end on answers, with their `[[ask-label]]` (the open asks'
  * sources); the label never reaches the row. Guest rows keep their entry: join and leave as
- * `status`, say and work as a `card` titled with the guest's name (work rows unfolded).
+ * `status`, say and work as a `card` titled with the guest's name (work rows unfolded). The
+ * specialist agents a turn asked (tool rows with `agentRun`) go on its last shown reply as `agents`,
+ * or, while it has none, on a `status` row in the calls' place whose text is the caption (`agentsCaption`).
  */
-export function toAssistantMessages(messages: readonly AgentMessage[], prime: string | null, prefix: string, asking?: Map<string, string | undefined>): AssistantMessage[] {
+export function toAssistantMessages(
+  messages: readonly AgentMessage[],
+  prime: string | null,
+  prefix: string,
+  asking?: Map<string, string | undefined>,
+): AssistantMessage[] {
   const out: AssistantMessage[] = [];
   let firstUser = true;
-  for (const message of messages) {
-    const images = message.images === undefined || message.images.length === 0 ? {} : { images: message.images };
+  /** Per message, how many rows were out before it: where a row standing in for it goes. */
+  const starts: number[] = [];
+  /** The messages shown as assistant rows: the replies a turn's specialists show under. */
+  const replies = new Set<AgentMessage>();
+  for (const [index, message] of messages.entries()) {
+    starts[index] = out.length;
+    const images =
+      message.images === undefined || message.images.length === 0 ? {} : { images: message.images };
     if (message.canvas !== undefined) {
       // A live canvas row (Join card, canvas turn, wrap-up): a card, whatever role the transcript gave it.
-      out.push({ id: message.id, role: "card", text: message.text, at: message.at, canvas: message.canvas });
+      out.push({
+        id: message.id,
+        role: "card",
+        text: message.text,
+        at: message.at,
+        canvas: message.canvas,
+      });
       continue;
     }
     const guest = message.guest;
     if (guest !== undefined) {
-      if (guest.kind === "join" || guest.kind === "leave") out.push({ id: message.id, role: "status", text: message.text, at: message.at, guest });
-      else out.push({ id: message.id, role: "card", title: guest.agent.title, text: guestCardText(guest, message.text), at: message.at, guest });
+      if (guest.kind === "join" || guest.kind === "leave")
+        out.push({ id: message.id, role: "status", text: message.text, at: message.at, guest });
+      else
+        out.push({
+          id: message.id,
+          role: "card",
+          title: guest.agent.title,
+          text: guestCardText(guest, message.text),
+          at: message.at,
+          guest,
+        });
       continue;
     }
     if (message.role === "user") {
@@ -164,26 +230,44 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
       // Earlier contexts may predate edits of prime.md or the move to per-agent primes.
       const isPrime =
         firstUser &&
-        ((prime !== null && (said.trim() === prime || said.startsWith(prime.split("\n", 1)[0] ?? prime))) ||
+        ((prime !== null &&
+          (said.trim() === prime || said.startsWith(prime.split("\n", 1)[0] ?? prime))) ||
           LEGACY_PRIME_STARTS.some((start) => said.startsWith(start)));
       firstUser = false;
       if (isPrime) continue;
       // A job line (heartbeat, job report, handoff) is not Isaac's: a `status` row, which a phone from
       // before background rows never shows and a newer one draws as a quiet row, not his bubble.
-      if (said.startsWith(prefix) || LEGACY_STATUS_PREFIXES.some((legacy) => said.startsWith(legacy)) || CONSULT_TURN.test(said)) {
+      if (
+        said.startsWith(prefix) ||
+        LEGACY_STATUS_PREFIXES.some((legacy) => said.startsWith(legacy)) ||
+        CONSULT_TURN.test(said)
+      ) {
         out.push({ id: message.id, role: "status", text: said, at: message.at });
         continue;
       }
       const { text, voice } = splitVoiceTurn(said);
-      out.push({ id: message.id, role: "user", text, at: message.at, ...images, ...(voice ? { voice } : {}) });
+      out.push({
+        id: message.id,
+        role: "user",
+        text,
+        at: message.at,
+        ...images,
+        ...(voice ? { voice } : {}),
+      });
     } else if (message.role === "assistant" && (message.text.length > 0 || "images" in images)) {
       const trimmed = message.text.trim();
-      if (trimmed === SILENCE_MARKER || (message.streaming === true && trimmed.length > 0 && SILENCE_MARKER.startsWith(trimmed))) continue;
+      if (
+        trimmed === SILENCE_MARKER ||
+        (message.streaming === true && trimmed.length > 0 && SILENCE_MARKER.startsWith(trimmed))
+      )
+        continue;
       const streaming = message.streaming === true;
       const answered = splitReplies(splitPins(message.text, streaming).text, streaming);
       const { text, signin } = splitSignin(answered.text, streaming);
       if (text.length === 0 && signin === undefined && !("images" in images)) continue;
-      if (asking !== undefined && !streaming && answered.replies !== undefined) asking.set(message.id, answered.label);
+      if (asking !== undefined && !streaming && answered.replies !== undefined)
+        asking.set(message.id, answered.label);
+      replies.add(message);
       out.push({
         id: message.id,
         role: "assistant",
@@ -194,6 +278,27 @@ export function toAssistantMessages(messages: readonly AgentMessage[], prime: st
         ...(answered.replies === undefined ? {} : { replies: answered.replies }),
       });
     }
+  }
+  const runs = agentRunsByRow(messages, (message) =>
+    message.role === "user" ? "user" : replies.has(message) ? "reply" : message.agentRun,
+  );
+  if (runs.size === 0) return out;
+  const shown = new Map(out.map((row, i) => [row.id, i]));
+  // Newest first, so a status row put in does not move the places of the ones still to go.
+  for (const [index, agents] of [...runs].reverse()) {
+    const message = messages[index];
+    if (message === undefined) continue;
+    const reply = replies.has(message) ? shown.get(message.id) : undefined;
+    const row = reply === undefined ? undefined : out[reply];
+    if (row !== undefined) row.agents = agents;
+    else
+      out.splice(starts[index] ?? out.length, 0, {
+        id: message.id,
+        role: "status",
+        text: agentsCaption(agents, Date.now()),
+        at: message.at,
+        agents,
+      });
   }
   return out;
 }
@@ -219,15 +324,21 @@ export function assistantStatus(session: AgentSession | undefined): AssistantSta
  * row without a surface tag, clipped to `MAX_LAST_REPLY`, or `Sign in to <host>` for a sign-in request with no words.
  * A row with only pictures has no text and is passed over. Null when the agent never said anything.
  */
-export function lastReplyOf(messages: readonly AssistantMessage[]): { text: string; at: number } | null {
+export function lastReplyOf(
+  messages: readonly AssistantMessage[],
+): { text: string; at: number } | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role !== "assistant") continue;
     const said = untagged(message.text).trim();
-    const text = said === "" && message.signin !== undefined ? `Sign in to ${message.signin.host}` : said;
+    const text =
+      said === "" && message.signin !== undefined ? `Sign in to ${message.signin.host}` : said;
     if (text === "") continue;
     const head = text.slice(0, MAX_LAST_REPLY - 1);
-    const clipped = text.length <= MAX_LAST_REPLY ? text : `${/[\uD800-\uDBFF]$/.test(head) ? head.slice(0, -1) : head.trimEnd()}…`;
+    const clipped =
+      text.length <= MAX_LAST_REPLY
+        ? text
+        : `${/[\uD800-\uDBFF]$/.test(head) ? head.slice(0, -1) : head.trimEnd()}…`;
     return { text: clipped, at: message.at };
   }
   return null;
@@ -238,12 +349,16 @@ export function lastReplyOf(messages: readonly AssistantMessage[]): { text: stri
  * words, its key, and the turn it answers (Isaac's row before it; null for a job line). Null when
  * Isaac already wrote again after it, or the agent said nothing.
  */
-export function finishedReply(messages: readonly AssistantMessage[]): Omit<FinishedReply, "agent" | "sessionId"> | null {
+export function finishedReply(
+  messages: readonly AssistantMessage[],
+): Omit<FinishedReply, "agent" | "sessionId"> | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const row = messages[index];
     if (row === undefined || row.role === "user") return null;
     if (row.role !== "assistant" || untagged(row.text).trim() === "") continue;
-    const turn = messages.slice(0, index).findLast((earlier) => earlier.role === "user" || earlier.role === "status");
+    const turn = messages
+      .slice(0, index)
+      .findLast((earlier) => earlier.role === "user" || earlier.role === "status");
     return {
       message: reactionKey("assistant", row.at),
       text: row.text,
@@ -276,7 +391,15 @@ export class AssistantService implements AssistantThread {
   private strayHandled = false;
   private primeCache: string | null | undefined;
   /** Parsed, filtered earlier transcripts by file, with their asking rows (`toAssistantMessages`); stale once the file's mtime or size moves. */
-  private readonly transcripts = new Map<string, { mtimeMs: number; size: number; messages: AssistantMessage[]; asking: Map<string, string | undefined> }>();
+  private readonly transcripts = new Map<
+    string,
+    {
+      mtimeMs: number;
+      size: number;
+      messages: AssistantMessage[];
+      asking: Map<string, string | undefined>;
+    }
+  >();
   /** Messages whose sign-in the host has filled. Kept in memory only; a host restart forgets it. */
   private readonly submitted = new Set<string>();
   /**
@@ -321,7 +444,8 @@ export class AssistantService implements AssistantThread {
    * title, profile or model applies from its next start, its listing and calls change at once.
    */
   configure(agent: AssistantAgentConfig): void {
-    if (agent.id !== this.id) throw new Error(`assistant ${this.id} cannot take the entry of ${agent.id}`);
+    if (agent.id !== this.id)
+      throw new Error(`assistant ${this.id} cannot take the entry of ${agent.id}`);
     if (JSON.stringify(agent) === JSON.stringify(this.agent)) return;
     this.agent = agent;
     const prefix = statusPrefix(agent.title);
@@ -342,15 +466,29 @@ export class AssistantService implements AssistantThread {
 
   /** This agent's live session: the assistant session the bridge reports under this registry id, unless it has ended (a dead omp takes no turns). */
   current(): AgentSession | undefined {
-    return this.deps.agents.sessions.find((session) => session.kind === "assistant" && session.assistant === this.id && session.status !== "ended");
+    return this.deps.agents.sessions.find(
+      (session) =>
+        session.kind === "assistant" && session.assistant === this.id && session.status !== "ended",
+    );
   }
 
   async snapshot(): Promise<AssistantSnapshot> {
     const session = this.current();
     const rev = this.rev;
     const asking = new Map<string, string | undefined>();
-    const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id), asking);
-    const live = session === undefined ? [] : toAssistantMessages((await this.deps.agents.conversation(session.id)) ?? [], this.prime(), this.prefix, asking);
+    const earlier = this.earlier(
+      session === undefined ? null : this.deps.sessionFile(session.id),
+      asking,
+    );
+    const live =
+      session === undefined
+        ? []
+        : toAssistantMessages(
+            (await this.deps.agents.conversation(session.id)) ?? [],
+            this.prime(),
+            this.prefix,
+            asking,
+          );
     // One work card per piece of work: its latest state, where it started.
     const messages = this.markSubmitted(foldGuestWork([...earlier, ...live]));
     this.deps.asks.observe(messages, asking);
@@ -364,7 +502,9 @@ export class AssistantService implements AssistantThread {
   async settled(): Promise<AssistantMessage[]> {
     const session = this.current();
     if (session === undefined) return [];
-    const live = ((await this.deps.agents.conversation(session.id)) ?? []).filter((message) => message.streaming !== true);
+    const live = ((await this.deps.agents.conversation(session.id)) ?? []).filter(
+      (message) => message.streaming !== true,
+    );
     return toAssistantMessages(live, this.prime(), this.prefix);
   }
 
@@ -389,7 +529,9 @@ export class AssistantService implements AssistantThread {
           },
           (error: unknown) => {
             this.deps.asks.judged(ask.id, ask.upTo);
-            this.deps.log(`assistant ${this.id}: ask ${ask.id} not judged: ${error instanceof Error ? error.message : String(error)}`);
+            this.deps.log(
+              `assistant ${this.id}: ask ${ask.id} not judged: ${error instanceof Error ? error.message : String(error)}`,
+            );
           },
         )
         .finally(() => this.judging.delete(ask.id));
@@ -408,14 +550,24 @@ export class AssistantService implements AssistantThread {
     this.changed();
     const ask = this.deps.asks.get(id);
     const sessionId = ask?.sessionId;
-    if (ask?.source !== "session" || how !== "answered" || answer === undefined || sessionId === undefined) return true;
+    if (
+      ask?.source !== "session" ||
+      how !== "answered" ||
+      answer === undefined ||
+      sessionId === undefined
+    )
+      return true;
     this.deps.agents.reply(sessionId, `[answer to ask ${id}] ${answer}`, true).then(
       () => {
         this.deps.asks.markDelivered(id);
-        this.deps.log(`assistant ${this.id}: answer to ask ${id} delivered to session ${sessionId}`);
+        this.deps.log(
+          `assistant ${this.id}: answer to ask ${id} delivered to session ${sessionId}`,
+        );
       },
       (error: unknown) => {
-        this.deps.log(`assistant ${this.id}: answer to ask ${id} not delivered to session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`);
+        this.deps.log(
+          `assistant ${this.id}: answer to ask ${id} not delivered to session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       },
     );
     return true;
@@ -427,23 +579,49 @@ export class AssistantService implements AssistantThread {
    * Throws `AckFailure`: `invalid_command` for bad fields, `agent_not_found` for no such live session.
    */
   addAsk(input: AskInput): string {
-    const invalid = (message: string): AckFailure => new AckFailure({ code: "invalid_command", message });
+    const invalid = (message: string): AckFailure =>
+      new AckFailure({ code: "invalid_command", message });
     const from = input.from.trim().replace(/\s+/g, " ");
-    if (from === "" || from.length > MAX_ASK_FROM) throw invalid(`from must be 1 to ${String(MAX_ASK_FROM)} characters`);
+    if (from === "" || from.length > MAX_ASK_FROM)
+      throw invalid(`from must be 1 to ${String(MAX_ASK_FROM)} characters`);
     const question = input.question.trim().replace(/\s+/g, " ");
-    if (question === "" || question.length > MAX_ASK_QUESTION) throw invalid(`question must be 1 to ${String(MAX_ASK_QUESTION)} characters`);
-    const options = input.options.map((option) => option.trim().replace(/\s+/g, " ")).filter((option) => option !== "");
-    if (options.length === 0 || options.length > MAX_ASK_REPLIES) throw invalid(`give 1 to ${String(MAX_ASK_REPLIES)} options`);
+    if (question === "" || question.length > MAX_ASK_QUESTION)
+      throw invalid(`question must be 1 to ${String(MAX_ASK_QUESTION)} characters`);
+    const options = input.options
+      .map((option) => option.trim().replace(/\s+/g, " "))
+      .filter((option) => option !== "");
+    if (options.length === 0 || options.length > MAX_ASK_REPLIES)
+      throw invalid(`give 1 to ${String(MAX_ASK_REPLIES)} options`);
     const long = options.find((option) => option.length > MAX_ASK_REPLY);
-    if (long !== undefined) throw invalid(`option "${long}" is longer than ${String(MAX_ASK_REPLY)} characters`);
+    if (long !== undefined)
+      throw invalid(`option "${long}" is longer than ${String(MAX_ASK_REPLY)} characters`);
     const wanted = input.default?.trim();
-    const fallback = wanted === undefined || wanted === "" ? undefined : options.find((option) => option.toLowerCase() === wanted.toLowerCase());
-    if (wanted !== undefined && wanted !== "" && fallback === undefined) throw invalid(`default "${wanted}" is not one of the options`);
+    const fallback =
+      wanted === undefined || wanted === ""
+        ? undefined
+        : options.find((option) => option.toLowerCase() === wanted.toLowerCase());
+    if (wanted !== undefined && wanted !== "" && fallback === undefined)
+      throw invalid(`default "${wanted}" is not one of the options`);
     const ref = input.session?.trim();
-    const sessionId = ref === undefined || ref === "" ? undefined : (liveSessionId(this.deps.agents.sessions, ref) ?? undefined);
-    if (ref !== undefined && ref !== "" && sessionId === undefined) throw new AckFailure({ code: "agent_not_found", message: `no live omp session ${ref} on this host` });
-    const ask = this.deps.asks.addSession({ from, question, options, ...(sessionId === undefined ? {} : { sessionId }), ...(fallback === undefined ? {} : { default: fallback }) });
-    this.deps.log(`assistant ${this.id}: ask ${ask.id} from ${from}${sessionId === undefined ? "" : ` (session ${sessionId})`}`);
+    const sessionId =
+      ref === undefined || ref === ""
+        ? undefined
+        : (liveSessionId(this.deps.agents.sessions, ref) ?? undefined);
+    if (ref !== undefined && ref !== "" && sessionId === undefined)
+      throw new AckFailure({
+        code: "agent_not_found",
+        message: `no live omp session ${ref} on this host`,
+      });
+    const ask = this.deps.asks.addSession({
+      from,
+      question,
+      options,
+      ...(sessionId === undefined ? {} : { sessionId }),
+      ...(fallback === undefined ? {} : { default: fallback }),
+    });
+    this.deps.log(
+      `assistant ${this.id}: ask ${ask.id} from ${from}${sessionId === undefined ? "" : ` (session ${sessionId})`}`,
+    );
     this.changed();
     return ask.id;
   }
@@ -521,27 +699,40 @@ export class AssistantService implements AssistantThread {
    */
   async signin(messageId: string, url: string, username: string, password: string): Promise<void> {
     const home = this.deps.agentHome;
-    if (home === null) throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
+    if (home === null)
+      throw new AckFailure({
+        code: "agent_launch_failed",
+        message: "host was started without --agent-home",
+      });
     const host = signinHost(url);
-    if (host === null) throw new AckFailure({ code: "invalid_command", message: "sign-in url must be http(s)" });
+    if (host === null)
+      throw new AckFailure({ code: "invalid_command", message: "sign-in url must be http(s)" });
     try {
       await runFill(this.deps.spawn, home, url, { username, password });
     } catch (error) {
-      this.deps.log(`assistant ${this.id}: sign-in to ${host} failed: ${error instanceof AckFailure ? error.error.message : "tool did not run"}`);
+      this.deps.log(
+        `assistant ${this.id}: sign-in to ${host} failed: ${error instanceof AckFailure ? error.error.message : "tool did not run"}`,
+      );
       throw error;
     }
     this.deps.log(`assistant ${this.id}: credentials submitted for ${host}`);
     this.submitted.add(messageId);
     this.changed();
-    this.say(`Credentials submitted for ${host} in your browser tab; continue there.`).catch((error: unknown) => {
-      this.deps.log(`assistant ${this.id}: sign-in follow-up not delivered: ${error instanceof Error ? error.message : String(error)}`);
-    });
+    this.say(`Credentials submitted for ${host} in your browser tab; continue there.`).catch(
+      (error: unknown) => {
+        this.deps.log(
+          `assistant ${this.id}: sign-in follow-up not delivered: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    );
   }
 
   private markSubmitted(messages: AssistantMessage[]): AssistantMessage[] {
     if (this.submitted.size === 0) return messages;
     return messages.map((message) =>
-      message.signin !== undefined && this.submitted.has(message.id) ? { ...message, signin: { ...message.signin, submitted: true } } : message,
+      message.signin !== undefined && this.submitted.has(message.id)
+        ? { ...message, signin: { ...message.signin, submitted: true } }
+        : message,
     );
   }
 
@@ -555,7 +746,8 @@ export class AssistantService implements AssistantThread {
       else this.strayHandled = false;
       const key = session === undefined ? null : `${session.id} ${session.status}`;
       if (key === this.seen) return false;
-      const ended = session !== undefined && session.status === "idle" && this.seen === `${session.id} working`;
+      const ended =
+        session !== undefined && session.status === "idle" && this.seen === `${session.id} working`;
       this.seen = key;
       if (ended) this.turnEnded(session.id);
       if (session !== undefined) {
@@ -570,13 +762,19 @@ export class AssistantService implements AssistantThread {
     }
     if (change.kind === "ask" || change.kind === "ask.resolved") {
       if (change.sessionId !== this.current()?.id) return false;
-      const moved = change.kind === "ask" ? this.deps.asks.addCard(change.sessionId, change.ask) : this.deps.asks.cardResolved(change.sessionId, change.id, change.answered);
+      const moved =
+        change.kind === "ask"
+          ? this.deps.asks.addCard(change.sessionId, change.ask)
+          : this.deps.asks.cardResolved(change.sessionId, change.id, change.answered);
       if (moved) this.changed();
       return false;
     }
-    if (change.kind !== "conversation" && change.kind !== "message") return false;
+    if (change.kind !== "conversation" && change.kind !== "message" && change.kind !== "agentRun")
+      return false;
     if (change.sessionId !== this.current()?.id) return false;
     this.changed();
+    // A specialist's run moved under a reply: the thread redraws, no reply settled.
+    if (change.kind === "agentRun") return false;
     if (change.kind === "conversation") {
       let settled = false;
       for (const message of change.appended) {
@@ -603,7 +801,9 @@ export class AssistantService implements AssistantThread {
         onReply({ agent: this.id, sessionId, ...reply });
       },
       (error: unknown) => {
-        this.deps.log(`assistant ${this.id}: cannot read the finished reply: ${error instanceof Error ? error.message : String(error)}`);
+        this.deps.log(
+          `assistant ${this.id}: cannot read the finished reply: ${error instanceof Error ? error.message : String(error)}`,
+        );
       },
     );
   }
@@ -618,7 +818,9 @@ export class AssistantService implements AssistantThread {
           this.deps.broadcast({ t: "assistant.snapshot", agent: this.id, snapshot });
         },
         (error: unknown) => {
-          this.deps.log(`assistant ${this.id}: snapshot failed: ${error instanceof Error ? error.message : String(error)}`);
+          this.deps.log(
+            `assistant ${this.id}: snapshot failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
         },
       );
     });
@@ -639,12 +841,17 @@ export class AssistantService implements AssistantThread {
    * read once and again only when it changes. Text only: the host holds no bytes to serve the
    * images of a finished context.
    */
-  private earlier(live: string | null, asking?: Map<string, string | undefined>): AssistantMessage[] {
+  private earlier(
+    live: string | null,
+    asking?: Map<string, string | undefined>,
+  ): AssistantMessage[] {
     const record = this.deps.store.load();
     if (record === null) return [];
     const files = record.history.filter((file) => file !== live);
-    if (live === null && record.sessionFile !== undefined && !files.includes(record.sessionFile)) files.push(record.sessionFile);
-    for (const cached of [...this.transcripts.keys()]) if (!files.includes(cached)) this.transcripts.delete(cached);
+    if (live === null && record.sessionFile !== undefined && !files.includes(record.sessionFile))
+      files.push(record.sessionFile);
+    for (const cached of [...this.transcripts.keys()])
+      if (!files.includes(cached)) this.transcripts.delete(cached);
     return files.flatMap((file) => {
       const transcript = this.transcript(file);
       if (transcript === null) return [];
@@ -653,7 +860,9 @@ export class AssistantService implements AssistantThread {
     });
   }
 
-  private transcript(file: string): { messages: AssistantMessage[]; asking: Map<string, string | undefined> } | null {
+  private transcript(
+    file: string,
+  ): { messages: AssistantMessage[]; asking: Map<string, string | undefined> } | null {
     let stat: { mtimeMs: number; size: number };
     try {
       stat = statSync(file);
@@ -672,7 +881,7 @@ export class AssistantService implements AssistantThread {
     let seq = 0;
     const asking = new Map<string, string | undefined>();
     const messages = toAssistantMessages(
-      parseSessionRows(raw, null, () => `${stamp}-${++seq}`),
+      parseSessionRows(raw, null, () => `${stamp}-${++seq}`).map(agentMessageOf),
       this.prime(),
       this.prefix,
       asking,
@@ -707,7 +916,9 @@ export class AssistantService implements AssistantThread {
     if (stray === null || (stray.kind === "assistant" && stray.assistant === this.id)) return;
     this.strayHandled = true;
     this.ensureSession().catch((error: unknown) => {
-      this.deps.log(`assistant ${this.id}: could not resume over the omp on its transcript: ${error instanceof Error ? error.message : String(error)}`);
+      this.deps.log(
+        `assistant ${this.id}: could not resume over the omp on its transcript: ${error instanceof Error ? error.message : String(error)}`,
+      );
     });
   }
 
@@ -725,11 +936,18 @@ export class AssistantService implements AssistantThread {
    */
   private async start(): Promise<AgentSession> {
     const home = this.deps.agentHome;
-    if (home === null) throw new AckFailure({ code: "agent_launch_failed", message: "host was started without --agent-home" });
+    if (home === null)
+      throw new AckFailure({
+        code: "agent_launch_failed",
+        message: "host was started without --agent-home",
+      });
     // A named omp profile holds its own sign-ins the check does not read; only the default is checked.
     if (this.agent.profile === undefined && (await this.deps.aiAccount?.()) === false) {
       this.deps.log(`assistant ${this.id}: not starting: omp has no AI account`);
-      throw new AckFailure({ code: "agent_launch_failed", message: noAccountMessage(this.title, this.deps.logPath ?? null) });
+      throw new AckFailure({
+        code: "agent_launch_failed",
+        message: noAccountMessage(this.title, this.deps.logPath ?? null),
+      });
     }
     const remembered = this.deps.store.load()?.sessionFile ?? null;
     const resume = remembered !== null && existsSync(remembered) ? remembered : null;
@@ -739,7 +957,9 @@ export class AssistantService implements AssistantThread {
       if (live !== undefined) return live;
       const stray = this.deps.holder(resume);
       if (stray !== null) {
-        this.deps.log(`assistant ${this.id}: closing session ${stray.id} (${stray.title}), which runs the thread's transcript without being the thread`);
+        this.deps.log(
+          `assistant ${this.id}: closing session ${stray.id} (${stray.title}), which runs the thread's transcript without being the thread`,
+        );
         await this.deps.close(stray.id);
       }
     }
@@ -753,7 +973,12 @@ export class AssistantService implements AssistantThread {
         ? `omp started but did not take ${this.title}'s first prompt within 30 s (it may be waiting on a sign-in or a model choice)`
         : `omp did not connect to Relay Host within 30 s`;
       this.deps.log(`assistant ${this.id}: start failed: ${what}`);
-      reject(new AckFailure({ code: "agent_launch_failed", message: `${what}. Check Settings > Setup in Relay, then start ${this.title} again.${log === null ? "" : ` Host log: ${log}`}` }));
+      reject(
+        new AckFailure({
+          code: "agent_launch_failed",
+          message: `${what}. Check Settings > Setup in Relay, then start ${this.title} again.${log === null ? "" : ` Host log: ${log}`}`,
+        }),
+      );
     });
     this.waiter = { primed: prime !== null, resolve };
     try {
@@ -770,7 +995,11 @@ export class AssistantService implements AssistantThread {
       this.waiter = null;
       throw error;
     }
-    this.deps.log(resume === null ? `assistant ${this.id}: starting a new thread${prime === null ? "" : " with its prime"}` : `assistant ${this.id}: resuming from ${resume}`);
+    this.deps.log(
+      resume === null
+        ? `assistant ${this.id}: starting a new thread${prime === null ? "" : " with its prime"}`
+        : `assistant ${this.id}: resuming from ${resume}`,
+    );
     return promise.finally(cancel);
   }
 
@@ -799,9 +1028,17 @@ export class AssistantService implements AssistantThread {
     // A push is display: no client's surface tag, even one an agent echoed back.
     // A `[[room:<id>]]` card line reads as `Room: <title>` when it is all the reply says.
     const roomed = splitRoomCards(splitReplies(splitPins(untagged(reply)).text, false).text);
-    const raw = roomed.text.trim() === "" && roomed.rooms[0] !== undefined ? roomCardFallback(roomed.rooms[0]) : roomed.text;
+    const raw =
+      roomed.text.trim() === "" && roomed.rooms[0] !== undefined
+        ? roomCardFallback(roomed.rooms[0])
+        : roomed.text;
     const { text: shown, signin } = splitSignin(raw, false);
-    const text = signin === undefined ? withoutDetailsMarker(raw) : shown.trim().length > 0 ? withoutDetailsMarker(shown.trim()) : `Sign in to ${signin.host}`;
+    const text =
+      signin === undefined
+        ? withoutDetailsMarker(raw)
+        : shown.trim().length > 0
+          ? withoutDetailsMarker(shown.trim())
+          : `Sign in to ${signin.host}`;
     const recipients: { deviceId: string; token: string }[] = [];
     for (const [deviceId, token] of this.deps.tokens.tokens(this.id)) {
       if (this.deps.isViewing(deviceId)) continue;
@@ -811,21 +1048,33 @@ export class AssistantService implements AssistantThread {
     const body = pushPreview(text, MAX_PUSH_BODY);
     // Titled with the assistant's name and stacked per assistant, like a conversation in Messages; the
     // phone's Notification Service Extension (mutableContent) puts the assistant's portrait on it.
-    const message = { title: this.title, body, data: { assistant: true as const, agent: this.id }, threadId: `assistant:${this.id}`, mutableContent: true };
-    void this.deps.sender.send(recipients.map((recipient) => ({ ...message, to: recipient.token }))).then(
-      (outcomes) => {
-        outcomes.forEach((outcome, index) => {
-          if (outcome.ok) return;
-          const recipient = recipients[index];
-          if (recipient === undefined) return;
-          this.deps.log(`assistant ${this.id} push to ${recipient.deviceId} failed: ${outcome.error}`);
-          if (outcome.unregistered) this.deps.tokens.unregister(recipient.deviceId);
-        });
-      },
-      (error: unknown) => {
-        this.deps.log(`assistant ${this.id} push failed: ${error instanceof Error ? error.message : String(error)}`);
-      },
-    );
+    const message = {
+      title: this.title,
+      body,
+      data: { assistant: true as const, agent: this.id },
+      threadId: `assistant:${this.id}`,
+      mutableContent: true,
+    };
+    void this.deps.sender
+      .send(recipients.map((recipient) => ({ ...message, to: recipient.token })))
+      .then(
+        (outcomes) => {
+          outcomes.forEach((outcome, index) => {
+            if (outcome.ok) return;
+            const recipient = recipients[index];
+            if (recipient === undefined) return;
+            this.deps.log(
+              `assistant ${this.id} push to ${recipient.deviceId} failed: ${outcome.error}`,
+            );
+            if (outcome.unregistered) this.deps.tokens.unregister(recipient.deviceId);
+          });
+        },
+        (error: unknown) => {
+          this.deps.log(
+            `assistant ${this.id} push failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        },
+      );
   }
 }
 
@@ -839,7 +1088,9 @@ export interface AssistantThreadsDeps {
   /** Adds an agent to the registry (`AssistantRegistry.create`); without it `create` nacks. */
   readonly register?: (input: unknown) => { readonly id: string; readonly title: string };
   /** Reads or saves an agent's prime.md or thread memory (`handleAssistantFile`); without it `assistant.file.req` answers that the host has no agent home. */
-  readonly file?: (req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">) => Omit<AssistantFileRes, "t" | "rid">;
+  readonly file?: (
+    req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">,
+  ) => Omit<AssistantFileRes, "t" | "rid">;
   /** What `consult` needs: posting a guest row into a session's chat (the bridge's `guest`) and the human's name; without it `consult` nacks. */
   readonly guests?: Pick<ConsultDeps, "post" | "human">;
 }
@@ -865,7 +1116,15 @@ export class AssistantThreads implements AssistantRelaying {
   ) {
     this.current = threads;
     const guests = deps?.guests;
-    this.consults = deps === undefined || guests === undefined ? null : new Consults({ threads: () => this.current, ...guests, clock: deps.clock, log: deps.log });
+    this.consults =
+      deps === undefined || guests === undefined
+        ? null
+        : new Consults({
+            threads: () => this.current,
+            ...guests,
+            clock: deps.clock,
+            log: deps.log,
+          });
   }
 
   get threads(): readonly AssistantService[] {
@@ -882,8 +1141,16 @@ export class AssistantThreads implements AssistantRelaying {
     return this.list();
   }
 
-  file(req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">): Omit<AssistantFileRes, "t" | "rid"> {
-    return this.deps?.file?.(req) ?? { ok: false, code: "invalid", error: "This host has no agent home." };
+  file(
+    req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">,
+  ): Omit<AssistantFileRes, "t" | "rid"> {
+    return (
+      this.deps?.file?.(req) ?? {
+        ok: false,
+        code: "invalid",
+        error: "This host has no agent home.",
+      }
+    );
   }
 
   observe(change: AgentProviderChange): void {
@@ -895,7 +1162,13 @@ export class AssistantThreads implements AssistantRelaying {
 
   /** `relay-linux assistant consult`: assistant `request.from` brings `request.agent` into its chat (`Consults.consult`). Rejects with `AckFailure`. */
   consult(request: ConsultRequest): Promise<ConsultResult> {
-    if (this.consults === null) return Promise.reject(new AckFailure({ code: "invalid_command", message: "this host cannot bring assistants into each other's chats" }));
+    if (this.consults === null)
+      return Promise.reject(
+        new AckFailure({
+          code: "invalid_command",
+          message: "this host cannot bring assistants into each other's chats",
+        }),
+      );
     return this.consults.consult(request);
   }
 
@@ -918,11 +1191,15 @@ export class AssistantThreads implements AssistantRelaying {
     for (const thread of this.current) {
       if (next.includes(thread)) continue;
       thread.retire().catch((error: unknown) => {
-        this.deps?.log(`assistant ${thread.id}: could not close the retired thread: ${error instanceof Error ? error.message : String(error)}`);
+        this.deps?.log(
+          `assistant ${thread.id}: could not close the retired thread: ${error instanceof Error ? error.message : String(error)}`,
+        );
       });
     }
     this.current = next;
-    this.deps?.log(`assistant threads: ${next.map((thread) => `${thread.title} (${thread.id})`).join(", ")}`);
+    this.deps?.log(
+      `assistant threads: ${next.map((thread) => `${thread.title} (${thread.id})`).join(", ")}`,
+    );
     this.lastSent = null;
     this.scheduleBroadcast();
   }
@@ -935,19 +1212,30 @@ export class AssistantThreads implements AssistantRelaying {
    */
   create(input: unknown, start: boolean): Promise<{ readonly id: string; readonly title: string }> {
     const register = this.deps?.register;
-    if (register === undefined) return Promise.reject(new AckFailure({ code: "invalid_command", message: "this host cannot add assistants" }));
+    if (register === undefined)
+      return Promise.reject(
+        new AckFailure({ code: "invalid_command", message: "this host cannot add assistants" }),
+      );
     let added: { readonly id: string; readonly title: string };
     try {
       added = register(input);
     } catch (error) {
-      if (error instanceof RegistryError) return Promise.reject(new AckFailure({ code: "invalid_command", message: error.message }));
-      return Promise.reject(new AckFailure({ code: "internal", message: error instanceof Error ? error.message : String(error) }));
+      if (error instanceof RegistryError)
+        return Promise.reject(new AckFailure({ code: "invalid_command", message: error.message }));
+      return Promise.reject(
+        new AckFailure({
+          code: "internal",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
     }
     if (start) {
       this.thread(added.id)
         ?.turn(`Hi ${added.title}`)
         .catch((error: unknown) => {
-          this.deps?.log(`assistant ${added.id}: first turn failed: ${error instanceof Error ? error.message : String(error)}`);
+          this.deps?.log(
+            `assistant ${added.id}: first turn failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
         });
     }
     return Promise.resolve(added);
@@ -957,7 +1245,9 @@ export class AssistantThreads implements AssistantRelaying {
     return Promise.all(
       this.threads.map((thread) =>
         thread.listing().catch((error: unknown): AssistantAgent => {
-          this.deps?.log(`assistant ${thread.id}: listing failed: ${error instanceof Error ? error.message : String(error)}`);
+          this.deps?.log(
+            `assistant ${thread.id}: listing failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
           return { id: thread.id, title: thread.title };
         }),
       ),

@@ -38,7 +38,27 @@ export interface GuestRow {
   kind: "join" | "leave" | "say" | "work";
   agent: { id: string; title: string; color?: string };
   text?: string;
-  work?: { id: string; title: string; state: "working" | "done" | "failed"; startedAt: number; endedAt?: number; link?: string };
+  work?: {
+    id: string;
+    title: string;
+    state: "working" | "done" | "failed";
+    startedAt: number;
+    endedAt?: number;
+    link?: string;
+  };
+}
+
+/**
+ * A specialist agents call (`agents_ask` / `agents_result` on the relay MCP server) as the transcript holds it:
+ * the call's tool name and arguments, when it started, and its result once in. Raw, because this file cannot read
+ * it (no zod, no @relay/protocol): the host turns it into the row's `AgentMessage.agentRun` with the protocol's
+ * `agentCallOf` / `agentRunOf` (agents/agent-rows.ts) and never passes it on.
+ */
+export interface AgentToolRaw {
+  name: string;
+  args?: unknown;
+  startedAt: number;
+  result?: { text: string; isError: boolean } | undefined;
 }
 
 export interface InboxMessage {
@@ -51,6 +71,7 @@ export interface InboxMessage {
   streaming?: boolean;
   canvas?: CanvasRow;
   guest?: GuestRow;
+  agentTool?: AgentToolRaw;
 }
 
 /** omp custom message type the host's live canvas posts into a chat (relay-bridge `canvas` request). */
@@ -64,24 +85,41 @@ export const GUEST_MESSAGE_TYPE = "relay-guest";
  */
 export const MEETING_CONTEXT_TYPE = "relay-meeting-context";
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
 /**
  * The canvas row of a `relay-canvas` custom message (its `details`), or null for any other custom
  * message or details this build cannot read. The host validates the row again before it reaches a client.
  */
-export function canvasRowOf(message: { customType?: unknown; details?: unknown }): CanvasRow | null {
+export function canvasRowOf(message: {
+  customType?: unknown;
+  details?: unknown;
+}): CanvasRow | null {
   if (message.customType !== CANVAS_MESSAGE_TYPE || !isRecord(message.details)) return null;
   const d = message.details;
   const agent = d["agent"];
   const kind = d["kind"];
   if (kind !== "start" && kind !== "turn" && kind !== "end") return null;
-  if (typeof d["roomId"] !== "string" || typeof d["slug"] !== "string" || typeof d["board"] !== "string") return null;
-  if (!isRecord(agent) || typeof agent["name"] !== "string" || typeof agent["color"] !== "string") return null;
-  const row: CanvasRow = { kind, roomId: d["roomId"], slug: d["slug"], board: d["board"], agent: { name: agent["name"], color: agent["color"] } };
+  if (
+    typeof d["roomId"] !== "string" ||
+    typeof d["slug"] !== "string" ||
+    typeof d["board"] !== "string"
+  )
+    return null;
+  if (!isRecord(agent) || typeof agent["name"] !== "string" || typeof agent["color"] !== "string")
+    return null;
+  const row: CanvasRow = {
+    kind,
+    roomId: d["roomId"],
+    slug: d["slug"],
+    board: d["board"],
+    agent: { name: agent["name"], color: agent["color"] },
+  };
   if (typeof agent["avatar"] === "string") row.agent.avatar = agent["avatar"];
   const human = d["human"];
-  if (isRecord(human) && typeof human["name"] === "string" && typeof human["text"] === "string") row.human = { name: human["name"], text: human["text"] };
+  if (isRecord(human) && typeof human["name"] === "string" && typeof human["text"] === "string")
+    row.human = { name: human["name"], text: human["text"] };
   if (typeof d["text"] === "string") row.text = d["text"];
   return row;
 }
@@ -96,20 +134,72 @@ export function guestRowOf(message: { customType?: unknown; details?: unknown })
   const kind = d["kind"];
   const agent = d["agent"];
   if (kind !== "join" && kind !== "leave" && kind !== "say" && kind !== "work") return null;
-  if (!isRecord(agent) || typeof agent["id"] !== "string" || typeof agent["title"] !== "string") return null;
+  if (!isRecord(agent) || typeof agent["id"] !== "string" || typeof agent["title"] !== "string")
+    return null;
   const row: GuestRow = { kind, agent: { id: agent["id"], title: agent["title"] } };
   if (typeof agent["color"] === "string") row.agent.color = agent["color"];
   if (typeof d["text"] === "string") row.text = d["text"];
   const work = d["work"];
   if (isRecord(work)) {
     const state = work["state"];
-    if (typeof work["id"] !== "string" || typeof work["title"] !== "string" || typeof work["startedAt"] !== "number") return null;
+    if (
+      typeof work["id"] !== "string" ||
+      typeof work["title"] !== "string" ||
+      typeof work["startedAt"] !== "number"
+    )
+      return null;
     if (state !== "working" && state !== "done" && state !== "failed") return null;
     row.work = { id: work["id"], title: work["title"], state, startedAt: work["startedAt"] };
     if (typeof work["endedAt"] === "number") row.work.endedAt = work["endedAt"];
     if (typeof work["link"] === "string") row.work.link = work["link"];
   }
   return kind === "work" && row.work === undefined ? null : row;
+}
+
+/** An agents tool by name, or the xd device path omp writes it through (`xd://mcp__relay_agents_ask`). A loose pre-check: the host's `agentCallOf` decides. */
+const AGENTS_TOOL = /agents_(?:ask|result)$/;
+
+/**
+ * The agents calls of one transcript whose results have not come in yet, by tool call id: a call's row gets its
+ * `agentTool` when written, and the result (a later message, often a later read of the file) fills it in place.
+ * `onResult` hears each row a result updated, for a reader that already sent the row and must send the change.
+ */
+export class AgentCalls {
+  private readonly open = new Map<string, InboxMessage>();
+
+  constructor(private readonly onResult?: (row: InboxMessage) => void) {}
+
+  /** The tool row of call `toolCallId`, carrying `agentTool` (and remembered) when it may be an agents call. */
+  row(id: string, toolCallId: unknown, name: string, args: unknown, at: number): InboxMessage {
+    const tool = toolCallOf(name, args);
+    const row: InboxMessage = { id, role: "tool", text: tool.summary, at, tool };
+    const path =
+      name === "write" && isRecord(args) && typeof args["path"] === "string" ? args["path"] : name;
+    if (!AGENTS_TOOL.test(path)) return row;
+    row.agentTool = { name, args, startedAt: at };
+    if (typeof toolCallId === "string") this.open.set(toolCallId, row);
+    return row;
+  }
+
+  /** Fills in an agents call's result from its `toolResult` message; the row it updated, or null for any other result. */
+  result(message: {
+    toolCallId?: unknown;
+    content?: unknown;
+    isError?: unknown;
+  }): InboxMessage | null {
+    if (typeof message.toolCallId !== "string") return null;
+    const row = this.open.get(message.toolCallId);
+    if (row?.agentTool === undefined) return null;
+    this.open.delete(message.toolCallId);
+    row.agentTool.result = { text: textOf(message.content), isError: message.isError === true };
+    this.onResult?.(row);
+    return row;
+  }
+
+  /** Forgets every open call (the session switched to another transcript). */
+  clear(): void {
+    this.open.clear();
+  }
 }
 
 export const MAX_SUMMARY = 120;
@@ -120,7 +210,11 @@ export const IMAGE_ID_LENGTH = 16;
 export const COMPACTION_NOTICE = "Context refreshed: earlier turns summarized";
 
 export function firstLine(text: string): string {
-  const line = text.trim().split("\n").find((candidate) => candidate.trim().length > 0) ?? "";
+  const line =
+    text
+      .trim()
+      .split("\n")
+      .find((candidate) => candidate.trim().length > 0) ?? "";
   return line.length > MAX_SUMMARY ? `${line.slice(0, MAX_SUMMARY - 1)}…` : line;
 }
 
@@ -130,14 +224,23 @@ function summarizeArguments(args: Record<string, unknown>): string {
   const parts: string[] = [];
   for (const [key, value] of Object.entries(args)) {
     if (typeof value === "string") parts.push(`${key}=${firstLine(value)}`);
-    else if (typeof value === "number" || typeof value === "boolean") parts.push(`${key}=${String(value)}`);
+    else if (typeof value === "number" || typeof value === "boolean")
+      parts.push(`${key}=${String(value)}`);
     if (parts.join(" ").length > MAX_SUMMARY) break;
   }
   return firstLine(parts.join(" "));
 }
 
 /** Tools that write files (omp's and Claude Code's), lowercased. */
-const EDIT_TOOLS: Record<string, true> = { edit: true, write: true, ast_edit: true, apply_patch: true, multiedit: true, notebookedit: true, notebook_edit: true };
+const EDIT_TOOLS: Record<string, true> = {
+  edit: true,
+  write: true,
+  ast_edit: true,
+  apply_patch: true,
+  multiedit: true,
+  notebookedit: true,
+  notebook_edit: true,
+};
 /** A hashline edit's file header (`[path#1A2B]`) and an apply_patch file line (`*** Update File: path`). */
 const EDIT_HEADER = /^\[(.+)#[0-9A-Fa-f]{4}\]\s*$|^\*\*\* (?:Update|Add) File: (.+?)\s*$/gm;
 const MAX_EDIT_PATHS = 20;
@@ -157,7 +260,8 @@ function editedPaths(tool: string, args: Record<string, unknown>): string[] {
   const paths = args["paths"];
   if (Array.isArray(paths)) for (const p of paths) if (typeof p === "string") found.add(p);
   const input = args["input"];
-  if (typeof input === "string") for (const m of input.matchAll(EDIT_HEADER)) found.add((m[1] ?? m[2] ?? "").trim());
+  if (typeof input === "string")
+    for (const m of input.matchAll(EDIT_HEADER)) found.add((m[1] ?? m[2] ?? "").trim());
   return [...found].filter((p) => p !== "" && !p.includes("://")).slice(0, MAX_EDIT_PATHS);
 }
 
@@ -175,7 +279,14 @@ export function textOf(content: unknown): string {
   if (!Array.isArray(content)) return "";
   const parts: string[] = [];
   for (const part of content as unknown[]) {
-    if (typeof part === "object" && part !== null && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string") {
+    if (
+      typeof part === "object" &&
+      part !== null &&
+      "type" in part &&
+      part.type === "text" &&
+      "text" in part &&
+      typeof part.text === "string"
+    ) {
       parts.push(part.text);
     }
   }
@@ -184,9 +295,19 @@ export function textOf(content: unknown): string {
 
 /** PNG by signature, JPEG by SOI, WebP by RIFF header (omp re-encodes attachments to WebP); anything else is skipped. */
 function sniffMimeType(bytes: Buffer): ImageMimeType | null {
-  if (bytes.length >= 8 && bytes.readUInt32BE(0) === 0x89504e47 && bytes.readUInt32BE(4) === 0x0d0a1a0a) return "image/png";
+  if (
+    bytes.length >= 8 &&
+    bytes.readUInt32BE(0) === 0x89504e47 &&
+    bytes.readUInt32BE(4) === 0x0d0a1a0a
+  )
+    return "image/png";
   if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) return "image/jpeg";
-  if (bytes.length >= 12 && bytes.toString("latin1", 0, 4) === "RIFF" && bytes.toString("latin1", 8, 12) === "WEBP") return "image/webp";
+  if (
+    bytes.length >= 12 &&
+    bytes.toString("latin1", 0, 4) === "RIFF" &&
+    bytes.toString("latin1", 8, 12) === "WEBP"
+  )
+    return "image/webp";
   return null;
 }
 
@@ -210,7 +331,10 @@ function webpSize(bytes: Buffer): { width: number; height: number } | null {
 }
 
 /** Pixel size from the PNG IHDR, the WebP header, or the first JPEG SOF marker; null when the header is not there. */
-function imageSize(bytes: Buffer, mimeType: ImageMimeType): { width: number; height: number } | null {
+function imageSize(
+  bytes: Buffer,
+  mimeType: ImageMimeType,
+): { width: number; height: number } | null {
   if (mimeType === "image/png") {
     if (bytes.length < 24 || bytes.toString("latin1", 12, 16) !== "IHDR") return null;
     const width = bytes.readUInt32BE(16);
@@ -296,7 +420,11 @@ const SKILL_PROMPT = "skill-prompt";
  * was typed instead, so a skill reads as the command that started its turn. Skills omp loads on
  * its own (attribution other than "user") are not the user's and show nothing.
  */
-export function skillCommandOf(message: { customType?: unknown; attribution?: unknown; details?: unknown }): string | null {
+export function skillCommandOf(message: {
+  customType?: unknown;
+  attribution?: unknown;
+  details?: unknown;
+}): string | null {
   if (message.customType !== SKILL_PROMPT || message.attribution !== "user") return null;
   const details = message.details as { name?: unknown; args?: unknown } | null | undefined;
   if (typeof details?.name !== "string" || details.name.length === 0) return null;
@@ -304,8 +432,13 @@ export function skillCommandOf(message: { customType?: unknown; attribution?: un
   return args.length === 0 ? `/skill:${details.name}` : `/skill:${details.name} ${args}`;
 }
 
-/** The transcript rows one finished omp message contributes: the same shapes the live session streams. */
-function rowsOf(message: Record<string, unknown>, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
+/** The transcript rows one finished omp message contributes: the same shapes the live session streams. An agents call's result fills in its call's row (`calls`) and adds none. */
+function rowsOf(
+  message: Record<string, unknown>,
+  images: Map<string, Image> | null,
+  nextId: () => string,
+  calls: AgentCalls,
+): InboxMessage[] {
   const at = typeof message["timestamp"] === "number" ? message["timestamp"] : Date.now();
   const content = message["content"];
   const rows: InboxMessage[] = [];
@@ -314,25 +447,43 @@ function rowsOf(message: Record<string, unknown>, images: Map<string, Image> | n
       const text = textOf(content);
       const refs = imageRefsOf(images, content);
       if (text.length === 0 && refs.length === 0) break;
-      const row: InboxMessage = { id: nextId(), role: message["synthetic"] === true ? "system" : "user", text, at };
+      const row: InboxMessage = {
+        id: nextId(),
+        role: message["synthetic"] === true ? "system" : "user",
+        text,
+        at,
+      };
       if (refs.length > 0) row.images = refs;
       rows.push(row);
       break;
     }
     case "toolResult": {
+      calls.result(message);
       const refs = imageRefsOf(images, content);
       const name = typeof message["toolName"] === "string" ? message["toolName"] : "tool";
-      if (refs.length > 0) rows.push({ id: nextId(), role: "tool", text: "", at, tool: { name, summary: "" }, images: refs });
+      if (refs.length > 0)
+        rows.push({
+          id: nextId(),
+          role: "tool",
+          text: "",
+          at,
+          tool: { name, summary: "" },
+          images: refs,
+        });
       break;
     }
     case "assistant": {
       const text = textOf(content);
       if (text.length > 0) rows.push({ id: nextId(), role: "assistant", text, at });
       if (!Array.isArray(content)) break;
-      for (const part of content as { type?: unknown; name?: unknown; arguments?: unknown }[]) {
+      for (const part of content as {
+        type?: unknown;
+        id?: unknown;
+        name?: unknown;
+        arguments?: unknown;
+      }[]) {
         if (part.type !== "toolCall" || typeof part.name !== "string") continue;
-        const tool = toolCallOf(part.name, part.arguments);
-        rows.push({ id: nextId(), role: "tool", text: tool.summary, at, tool });
+        rows.push(calls.row(nextId(), part.id, part.name, part.arguments, at));
       }
       break;
     }
@@ -356,28 +507,59 @@ interface SessionEntryLine {
  * skill the user invoked, a live canvas row or a guest row (`custom_message`s), or the notice a
  * `compaction` entry (a `/handoff`, `/compact`, or omp compacting on its own) leaves.
  */
-function entryRows(entry: SessionEntryLine, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
+function entryRows(
+  entry: SessionEntryLine,
+  images: Map<string, Image> | null,
+  nextId: () => string,
+  calls: AgentCalls,
+): InboxMessage[] {
   const stamp = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
   const at = Number.isFinite(stamp) ? stamp : Date.now();
-  if (entry.type === "compaction") return [{ id: nextId(), role: "system", text: COMPACTION_NOTICE, at }];
+  if (entry.type === "compaction")
+    return [{ id: nextId(), role: "system", text: COMPACTION_NOTICE, at }];
   if (entry.type === "custom_message") {
     const canvas = canvasRowOf(entry);
-    if (canvas !== null) return [{ id: nextId(), role: "system", text: typeof entry.content === "string" ? entry.content : "", at, canvas }];
+    if (canvas !== null)
+      return [
+        {
+          id: nextId(),
+          role: "system",
+          text: typeof entry.content === "string" ? entry.content : "",
+          at,
+          canvas,
+        },
+      ];
     const guest = guestRowOf(entry);
-    if (guest !== null) return [{ id: nextId(), role: "system", text: typeof entry.content === "string" ? entry.content : "", at, guest }];
+    if (guest !== null)
+      return [
+        {
+          id: nextId(),
+          role: "system",
+          text: typeof entry.content === "string" ? entry.content : "",
+          at,
+          guest,
+        },
+      ];
     const command = skillCommandOf(entry);
     return command === null ? [] : [{ id: nextId(), role: "user", text: command, at }];
   }
-  if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null) return [];
-  return rowsOf(entry.message as Record<string, unknown>, images, nextId);
+  if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null)
+    return [];
+  return rowsOf(entry.message as Record<string, unknown>, images, nextId, calls);
 }
 
 /**
  * Every row of a session file's text, in order. The file holds one JSON entry per line; only
  * `message`, user-invoked skill and live canvas `custom_message` and `compaction` entries are rows, and a line
- * that does not parse is skipped (a half-written tail).
+ * that does not parse is skipped (a half-written tail). A reader that parses a growing file piece by piece
+ * passes one `calls` for all of it, so a result read later still finds its call's row.
  */
-export function parseSessionRows(raw: string, images: Map<string, Image> | null, nextId: () => string): InboxMessage[] {
+export function parseSessionRows(
+  raw: string,
+  images: Map<string, Image> | null,
+  nextId: () => string,
+  calls: AgentCalls = new AgentCalls(),
+): InboxMessage[] {
   const rows: InboxMessage[] = [];
   for (const line of raw.split("\n")) {
     if (line.trim().length === 0) continue;
@@ -387,7 +569,7 @@ export function parseSessionRows(raw: string, images: Map<string, Image> | null,
     } catch {
       continue;
     }
-    rows.push(...entryRows(entry, images, nextId));
+    rows.push(...entryRows(entry, images, nextId, calls));
   }
   return rows;
 }

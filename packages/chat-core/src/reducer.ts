@@ -1,4 +1,4 @@
-import { attachResult, messagesFrom, oneLine } from './session'
+import { agentAnswered, attachResult, messagesFrom, oneLine } from './session'
 import { makeMessage, type ChatMessage, type Goal, type SessionMeta } from './message'
 import type { MetaPatch } from './batcher'
 import { answerRowText, parseDialog, UNREADABLE_ASK_NOTICE, type Dialog } from './dialogs'
@@ -478,8 +478,25 @@ export class LiveReducer {
       a.streaming === b.streaming &&
       a.role === b.role &&
       a.at === b.at &&
-      JSON.stringify(a.tool) === JSON.stringify(b.tool)
+      JSON.stringify(a.tool) === JSON.stringify(b.tool) &&
+      JSON.stringify(a.agent) === JSON.stringify(b.agent)
     )
+  }
+
+  /**
+   * A rebuilt tool row against what the row showed: a call that already has its result keeps it
+   * (and its run), and a run still out keeps the time it started (now, when it first shows).
+   */
+  private mergeTool(row: ChatMessage, old: ChatMessage | undefined): ChatMessage {
+    if (old?.tool && old.tool.status !== 'running' && row.tool) {
+      const kept: ChatMessage = { ...row, tool: old.tool }
+      if (old.agent) kept.agent = old.agent
+      else delete kept.agent
+      return kept
+    }
+    if (row.agent?.status !== 'running') return row
+    const startedAt = old?.agent?.startedAt ?? row.agent.startedAt ?? Date.now()
+    return { ...row, agent: { ...row.agent, startedAt } }
   }
 
   /** Rebuilds the rows one assistant message shows from its full content snapshot. */
@@ -498,13 +515,11 @@ export class LiveReducer {
       nextIds.push(row.id)
       const ix = this.indexOf(row.id)
       if (ix < 0) {
-        this.insert([row], dirty)
+        this.insert([this.mergeTool(row, undefined)], dirty)
         continue
       }
       const old = this.msgs[ix]!
-      // A tool row that already has its result keeps it while the call block is rebuilt.
-      const merged =
-        old.tool && old.tool.status !== 'running' && row.tool ? { ...row, tool: old.tool } : row
+      const merged = this.mergeTool(row, old)
       if (!this.sameRow(old, merged)) {
         this.msgs[ix] = merged
         dirty.add(row.id)
@@ -581,10 +596,9 @@ export class LiveReducer {
     const row = this.msgs[ix]!
     const isError = frame.isError === true
     const result = resultText(frame) ?? row.tool!.result
-    this.msgs[ix] = {
-      ...row,
-      tool: { ...row.tool!, result, isError, status: isError ? 'failed' : 'done' },
-    }
+    const tool = { ...row.tool!, result, isError, status: isError ? 'failed' : 'done' } as const
+    const agent = agentAnswered({ ...row, tool }, result, isError)
+    this.msgs[ix] = { ...row, tool, ...(agent ? { agent } : {}) }
     dirty.add(row.id)
   }
 }

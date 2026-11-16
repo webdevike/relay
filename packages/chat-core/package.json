@@ -16,6 +16,7 @@
     "vitest": "5.0.4"
   },
   "dependencies": {
+    "@relay/protocol": "link:../protocol",
     "zod": "4.6.7"
   }
 }

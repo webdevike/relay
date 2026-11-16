@@ -32,7 +32,7 @@ function short(ms: number): string {
 }
 
 /** Now, every second while `on`. */
-function useSecond(on: boolean): number {
+export function useSecond(on: boolean): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     if (!on) return

@@ -18,7 +18,16 @@
 // `gate` request run through the same CLI (a proof photo is handed over as a temp file).
 
 import { execFile } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
@@ -31,11 +40,16 @@ import { AgentLifecycleManager } from "@oh-my-pi/pi-coding-agent/registry/agent-
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
 // The ask tool's blocking dialog is mirrored to the phone: these describe the omp dialog shape this
 // wraps (from omp's own install) and the protocol frames the phone speaks. Both are type-only, erased.
-import type { ExtensionAskDialogQuestion, ExtensionAskDialogResult, ExtensionAskDialogResultItem } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
+import type {
+  ExtensionAskDialogQuestion,
+  ExtensionAskDialogResult,
+  ExtensionAskDialogResultItem,
+} from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import type { AgentAskAnswer, AgentAskQuestion } from "@relay/protocol";
 // Shared with the host's assistant service: omp's session transcript read into inbox rows. Imported
 // by relative path (this file is symlinked into omp's extensions dir, and bun resolves the real path).
 import {
+  AgentCalls,
   COMPACTION_NOTICE,
   firstLine,
   imageRefsOf,
@@ -43,16 +57,20 @@ import {
   skillCommandOf,
   CANVAS_MESSAGE_TYPE,
   MEETING_CONTEXT_TYPE,
+  type AgentToolRaw,
   type CanvasRow,
   GUEST_MESSAGE_TYPE,
   type GuestRow,
-  toolCallOf,
   textOf,
   type Image,
   type InboxMessage,
 } from "../src/agents/transcript";
 // Same constraint: the session's async jobs (`bg_N` bash, eval cells) read from its messages.
-import { BackgroundJobs, ENDED_JOB_LINGER_MS, type BackgroundJob } from "../src/agents/background-jobs";
+import {
+  BackgroundJobs,
+  ENDED_JOB_LINGER_MS,
+  type BackgroundJob,
+} from "../src/agents/background-jobs";
 // And omp's goal mode: what the phone shows of it, and the `/goal` forms it can send.
 import { AskGate } from "../src/agents/ask-hold";
 import { goalFromEntries, goalOf, phoneGoalCommand, sameGoal, type Goal } from "../src/agents/goal";
@@ -151,7 +169,12 @@ function listSkillOptions(commands: readonly SlashCommand[]): SkillOption[] {
   const skills: SkillOption[] = [];
   const others: SkillOption[] = [];
   for (const command of commands) {
-    const option = { name: command.name, description: command.description ?? "", command: `/${command.name}`, takesText: true };
+    const option = {
+      name: command.name,
+      description: command.description ?? "",
+      command: `/${command.name}`,
+      takesText: true,
+    };
     if (command.source === "skill" && command.name.startsWith(SKILL_COMMAND_PREFIX)) {
       skills.push({ ...option, name: command.name.slice(SKILL_COMMAND_PREFIX.length) });
     } else {
@@ -161,7 +184,12 @@ function listSkillOptions(commands: readonly SlashCommand[]): SkillOption[] {
   const builtins: SkillOption[] = [];
   for (const command of BUILTIN_SLASH_COMMAND_DEFS) {
     const takesText = command.allowArgs === true;
-    const hint = "inlineHint" in command && typeof command.inlineHint === "string" && command.inlineHint.length > 0 ? { hint: command.inlineHint } : {};
+    const hint =
+      "inlineHint" in command &&
+      typeof command.inlineHint === "string" &&
+      command.inlineHint.length > 0
+        ? { hint: command.inlineHint }
+        : {};
     if (command.subcommands !== undefined) {
       const choices = command.subcommands.map((sub) => ({
         name: sub.name,
@@ -170,11 +198,24 @@ function listSkillOptions(commands: readonly SlashCommand[]): SkillOption[] {
         takesText: sub.usage !== undefined,
         ...(sub.usage === undefined || sub.usage.length === 0 ? {} : { hint: sub.usage }),
       }));
-      builtins.push({ name: command.name, description: command.description, command: `/${command.name}`, takesText, ...hint, choices });
+      builtins.push({
+        name: command.name,
+        description: command.description,
+        command: `/${command.name}`,
+        takesText,
+        ...hint,
+        choices,
+      });
       continue;
     }
     if (!takesText) continue;
-    builtins.push({ name: command.name, description: command.description, command: `/${command.name}`, takesText, ...hint });
+    builtins.push({
+      name: command.name,
+      description: command.description,
+      command: `/${command.name}`,
+      takesText,
+      ...hint,
+    });
   }
   return [...skills, ...others, ...builtins];
 }
@@ -208,10 +249,18 @@ function routeCandidates(options: readonly SkillOption[]): RouteCandidate[] {
   for (const option of options) {
     if (option.choices !== undefined && option.choices.length > 0) {
       for (const sub of option.choices) {
-        out.push({ command: sub.command, spoken: `${option.name} ${sub.name}`, description: sub.description || `${option.name} ${sub.name}` });
+        out.push({
+          command: sub.command,
+          spoken: `${option.name} ${sub.name}`,
+          description: sub.description || `${option.name} ${sub.name}`,
+        });
       }
     } else {
-      out.push({ command: option.command, spoken: option.name, description: option.description || option.name });
+      out.push({
+        command: option.command,
+        spoken: option.name,
+        description: option.description || option.name,
+      });
     }
   }
   return out;
@@ -255,14 +304,22 @@ function stripSpokenPrefix(text: string, spoken: string): string {
  * text on a confident hit, or null to leave the dictation untouched (no key, no candidates, low
  * confidence, timeout, or any error: routing never blocks a reply from going through).
  */
-async function routeVoiceCommand(commands: readonly SlashCommand[], text: string): Promise<string | null> {
+async function routeVoiceCommand(
+  commands: readonly SlashCommand[],
+  text: string,
+): Promise<string | null> {
   const key = typeSafeKey();
   if (key === null) return null;
   const candidates = routeCandidates(listSkillOptions(commands));
   if (candidates.length === 0) return null;
-  const criteria: Record<string, string> = { [NONE_OPTION]: "Normal dictation that does not invoke any command." };
+  const criteria: Record<string, string> = {
+    [NONE_OPTION]: "Normal dictation that does not invoke any command.",
+  };
   for (const candidate of candidates) {
-    criteria[candidate.command] = `spoken as: ${candidate.spoken}. ${candidate.description}`.slice(0, 300);
+    criteria[candidate.command] = `spoken as: ${candidate.spoken}. ${candidate.description}`.slice(
+      0,
+      300,
+    );
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ROUTE_TIMEOUT_MS);
@@ -285,9 +342,12 @@ async function routeVoiceCommand(commands: readonly SlashCommand[], text: string
       }),
     });
     if (!response.ok) return null;
-    const body = (await response.json()) as { answers?: { command?: { choice?: string; probabilities?: Record<string, number> } } };
+    const body = (await response.json()) as {
+      answers?: { command?: { choice?: string; probabilities?: Record<string, number> } };
+    };
     const answer = body.answers?.command;
-    if (answer === undefined || answer.choice === undefined || answer.choice === NONE_OPTION) return null;
+    if (answer === undefined || answer.choice === undefined || answer.choice === NONE_OPTION)
+      return null;
     const probability = answer.probabilities?.[answer.choice] ?? 0;
     if (probability < ROUTE_MIN_PROB) return null;
     const picked = candidates.find((candidate) => candidate.command === answer.choice);
@@ -332,22 +392,39 @@ function listModelOptions(models: readonly Model[]): ModelOption[] {
     if (existing === undefined || model.id.length < existing.id.length) byProduct.set(key, model);
   }
   return [...byProduct.values()]
-    .sort((a, b) => a.identity.class.localeCompare(b.identity.class) || compareRevision(a.identity.revision, b.identity.revision) || a.name.localeCompare(b.name))
+    .sort(
+      (a, b) =>
+        a.identity.class.localeCompare(b.identity.class) ||
+        compareRevision(a.identity.revision, b.identity.revision) ||
+        a.name.localeCompare(b.name),
+    )
     .map((model) => ({
       provider: model.provider,
       id: model.id,
       name: model.name,
       vendor: model.identity.class,
       thinkingLevels: thinkingLevelsFor(model),
-      ...(typeof model.contextWindow === "number" && model.contextWindow > 0 ? { contextWindow: model.contextWindow } : {}),
+      ...(typeof model.contextWindow === "number" && model.contextWindow > 0
+        ? { contextWindow: model.contextWindow }
+        : {}),
     }));
 }
 
 type Outbound =
   | ({ t: "hello"; launchId?: string; pid?: number; herdrPane?: string } & SessionInfo)
-  | ({ t: "status"; status: Status; statusDetail?: string; lastActivity: string; lastActivityAt: number; canRespond?: boolean } & Settings & Activity)
+  | ({
+      t: "status";
+      status: Status;
+      statusDetail?: string;
+      lastActivity: string;
+      lastActivityAt: number;
+      canRespond?: boolean;
+    } & Settings &
+      Activity)
   | { t: "messages"; append: InboxMessage[] }
   | { t: "message.update"; id: string; text: string; streaming: boolean }
+  // An agents call's result came in: its tool row (sent before) with the result filled in; the host reads the run.
+  | { t: "message.agent"; id: string; text: string; agentTool: AgentToolRaw }
   | { t: "result"; id: string; ok: boolean; error?: string; value?: unknown }
   // The ask tool is now blocking in the TUI: mirror its choices to the phone, and tell the phone
   // when that ask closed (answered in the terminal, cancelled, or answered from the phone itself).
@@ -368,7 +445,13 @@ type Inbound =
   | { t: "note"; id: string; text: string }
   | { t: "options"; id: string }
   | { t: "image"; id: string; imageId: string }
-  | { t: "configure"; id: string; title?: string; model?: { provider: string; id: string }; thinkingLevel?: string }
+  | {
+      t: "configure";
+      id: string;
+      title?: string;
+      model?: { provider: string; id: string };
+      thinkingLevel?: string;
+    }
   | { t: "abort"; id: string }
   | { t: "end"; id: string }
   // The phone answered a pending ask (askId is the ask.request id), or cancelled it (cancel: true).
@@ -376,7 +459,14 @@ type Inbound =
   // A device approved (allow: true) or denied the pending tool approval (approvalId is the approval.request id).
   | { t: "approval"; id: string; approvalId: string; allow: boolean }
   // A phone's habit gate command: start or finish a habit/task (`target`), or override with a reason.
-  | { t: "gate"; id: string; action: "start" | "done" | "override"; target?: string; reason?: string; photo?: Image }
+  | {
+      t: "gate";
+      id: string;
+      action: "start" | "done" | "override";
+      target?: string;
+      reason?: string;
+      photo?: Image;
+    }
   // A live canvas row for this chat (Join card, canvas turn, wrap-up): `content` is the line the model reads.
   | { t: "canvas"; id: string; content: string; details: CanvasRow }
   // Another assistant in this chat (joined, said, left, works on something): `content` is the line the model reads.
@@ -402,7 +492,8 @@ const HANDOFF_TIMEOUT_MS = 5 * 60_000;
 /** A `/handoff` typed in the terminal or fed from the phone, with or without focus instructions. */
 const HANDOFF_COMMAND = /^\/handoff(\s|$)/;
 /** omp's own refusal of a handoff mid-turn, shown in the phone's transcript instead of the terminal's status line. */
-const HANDOFF_BUSY_NOTICE = "Handoff not started: wait for the current response to finish or stop it first.";
+const HANDOFF_BUSY_NOTICE =
+  "Handoff not started: wait for the current response to finish or stop it first.";
 /**
  * omp confirms a goal drop in the terminal ("Drop goal?", Yes first). A drop sent from the phone is
  * its own confirmation, so Enter is fed to take "Yes": once the command has opened the dialog, and
@@ -443,7 +534,11 @@ interface HostLink {
  * Opens a session's connection to the host. `hello` is asked again on every (re)connect so the
  * host always gets the current state; returning null skips the attempt.
  */
-function openHostLink(hello: () => Outbound | null, onFrame: (frame: Inbound) => void, onConnect?: () => void): HostLink {
+function openHostLink(
+  hello: () => Outbound | null,
+  onFrame: (frame: Inbound) => void,
+  onConnect?: () => void,
+): HostLink {
   let socket: Socket | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
@@ -522,7 +617,8 @@ export function socketPath(): string {
 function jobRef(): JobRef | undefined {
   const name = process.env["JOB_NAME"];
   const runId = process.env["JOB_RUN"];
-  if (name === undefined || name.length === 0 || runId === undefined || runId.length === 0) return undefined;
+  if (name === undefined || name.length === 0 || runId === undefined || runId.length === 0)
+    return undefined;
   return { name, runId };
 }
 const JOB = jobRef();
@@ -545,7 +641,11 @@ const LAUNCH_ID = process.env["RELAY_LAUNCH_ID"] || undefined;
 /** Set by an assistant's job on a session it starts for its own work (jobs/astra-auto-work: `RELAY_OWNER=astra`). Read once, like the others. */
 const OWNER = process.env["RELAY_OWNER"] || undefined;
 /** Local wall-clock start, "HH:MM": the job's default title carries it so runs of one job tell apart. */
-const JOB_START = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+const JOB_START = new Date().toLocaleTimeString([], {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
 
 /**
  * The meeting transcript the host has for assistant `agent`'s next turn, or null (no meeting in its
@@ -557,8 +657,14 @@ async function meetingContext(agent: string): Promise<{ id: string; text: string
     let url = process.env["RELAY_HOST_URL"]?.trim().replace(/\/+$/, "") ?? "";
     let token = process.env["RELAY_HOST_TOKEN"]?.trim() ?? "";
     if (url === "" || token === "") {
-      const info = JSON.parse(readFileSync(join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay", "serve.json"), "utf8")) as { port?: unknown; controlToken?: unknown };
-      if (url === "" && typeof info.port === "number") url = `http://127.0.0.1:${String(info.port)}`;
+      const info = JSON.parse(
+        readFileSync(
+          join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay", "serve.json"),
+          "utf8",
+        ),
+      ) as { port?: unknown; controlToken?: unknown };
+      if (url === "" && typeof info.port === "number")
+        url = `http://127.0.0.1:${String(info.port)}`;
       if (token === "" && typeof info.controlToken === "string") token = info.controlToken;
     }
     if (url === "" || token === "") return null;
@@ -570,7 +676,9 @@ async function meetingContext(agent: string): Promise<{ id: string; text: string
     });
     if (!response.ok) return null;
     const body = (await response.json()) as { id?: unknown; text?: unknown };
-    return typeof body.id === "string" && typeof body.text === "string" ? { id: body.id, text: body.text } : null;
+    return typeof body.id === "string" && typeof body.text === "string"
+      ? { id: body.id, text: body.text }
+      : null;
   } catch {
     return null;
   }
@@ -589,7 +697,8 @@ function herdrSlot(): HerdrSlot | undefined {
   const tab = process.env["HERDR_TAB_ID"];
   if (tab === undefined || tab.length === 0) return undefined;
   const workspace = process.env["HERDR_WORKSPACE_ID"];
-  const owned = process.env["RELAY_HERDR_OWNED"] === "1" && workspace !== undefined && workspace.length > 0;
+  const owned =
+    process.env["RELAY_HERDR_OWNED"] === "1" && workspace !== undefined && workspace.length > 0;
   return { tab, workspace: owned ? workspace : undefined };
 }
 const HERDR = herdrSlot();
@@ -599,7 +708,10 @@ const HERDR = herdrSlot();
  * the one it drops through its pane (apps/linux/src/agents/bridge.ts).
  */
 const HERDR_PANE = process.env["HERDR_PANE_ID"] || undefined;
-const PROCESS: { pid: number; herdrPane?: string } = { pid: process.pid, ...(HERDR_PANE === undefined ? {} : { herdrPane: HERDR_PANE }) };
+const PROCESS: { pid: number; herdrPane?: string } = {
+  pid: process.pid,
+  ...(HERDR_PANE === undefined ? {} : { herdrPane: HERDR_PANE }),
+};
 const MAX_HERDR_LABEL = 48;
 
 /** Mirrors omp's session title onto the Herdr tab (and workspace, when it is ours). Fire and forget. */
@@ -616,9 +728,12 @@ function renameInHerdr(title: string): void {
 }
 
 /** The habit gate CLI (Eva's `habit-gate.ts`); every gate read and change goes through it. */
-const GATE_CLI = process.env["RELAY_GATE_CLI"] ?? join(homedir(), "Eva", ".omp", "tools", "habit-gate.ts");
+const GATE_CLI =
+  process.env["RELAY_GATE_CLI"] ?? join(homedir(), "Eva", ".omp", "tools", "habit-gate.ts");
 /** omp runs as its own binary, so the CLI needs a real bun; herdr panes may not have ~/.bun/bin on PATH. */
-const BUN = existsSync(join(homedir(), ".bun", "bin", "bun")) ? join(homedir(), ".bun", "bin", "bun") : "bun";
+const BUN = existsSync(join(homedir(), ".bun", "bin", "bun"))
+  ? join(homedir(), ".bun", "bin", "bun")
+  : "bun";
 /** How often each session re-reads the gate; changes reach the host (and the phone) on the next read. */
 const GATE_POLL_MS = 5000;
 const GATE_CLI_TIMEOUT_MS = 10_000;
@@ -629,20 +744,35 @@ const GATE_CLI_TIMEOUT_MS = 10_000;
  */
 function runGateCli(args: string[]): Promise<unknown> {
   const { promise, resolve, reject } = Promise.withResolvers<unknown>();
-  execFile(BUN, [GATE_CLI, ...args, "--json"], { timeout: GATE_CLI_TIMEOUT_MS }, (error, stdout, stderr) => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(stdout);
-    } catch {
-      parsed = undefined;
-    }
-    if (error === null && parsed !== undefined) {
-      resolve(parsed);
-      return;
-    }
-    const cliError = typeof parsed === "object" && parsed !== null && "error" in parsed && typeof parsed.error === "string" ? parsed.error : undefined;
-    reject(new Error(cliError ?? (stderr.trim() || error?.message || "habit gate CLI printed no JSON")));
-  });
+  execFile(
+    BUN,
+    [GATE_CLI, ...args, "--json"],
+    { timeout: GATE_CLI_TIMEOUT_MS },
+    (error, stdout, stderr) => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(stdout);
+      } catch {
+        parsed = undefined;
+      }
+      if (error === null && parsed !== undefined) {
+        resolve(parsed);
+        return;
+      }
+      const cliError =
+        typeof parsed === "object" &&
+        parsed !== null &&
+        "error" in parsed &&
+        typeof parsed.error === "string"
+          ? parsed.error
+          : undefined;
+      reject(
+        new Error(
+          cliError ?? (stderr.trim() || error?.message || "habit gate CLI printed no JSON"),
+        ),
+      );
+    },
+  );
   return promise;
 }
 
@@ -670,7 +800,10 @@ function probeAccount(): Promise<void> {
       const report = JSON.parse(stdout) as { accounts?: { identityKey?: unknown }[] };
       for (const entry of report.accounts ?? []) {
         if (typeof entry.identityKey !== "string") continue;
-        const email = entry.identityKey.split("|").find((part) => part.startsWith("email:"))?.slice("email:".length);
+        const email = entry.identityKey
+          .split("|")
+          .find((part) => part.startsWith("email:"))
+          ?.slice("email:".length);
         if (email !== undefined && email.length > 0) {
           account = { profile: PROFILE, email };
           break;
@@ -696,7 +829,12 @@ async function performGate(frame: Extract<Inbound, { t: "gate" }>): Promise<unkn
   if (frame.target === undefined) throw new Error(`gate ${frame.action} needs a habit or task id`);
   if (frame.action === "start") return runGateCli(["start", frame.target]);
   if (frame.photo === undefined) return runGateCli(["done", frame.target]);
-  const ext = frame.photo.mimeType === "image/png" ? "png" : frame.photo.mimeType === "image/webp" ? "webp" : "jpg";
+  const ext =
+    frame.photo.mimeType === "image/png"
+      ? "png"
+      : frame.photo.mimeType === "image/webp"
+        ? "webp"
+        : "jpg";
   const path = join(tmpdir(), `relay-gate-${Date.now()}.${ext}`);
   writeFileSync(path, Buffer.from(frame.photo.data, "base64"));
   try {
@@ -740,7 +878,11 @@ async function steerSubagent(id: string, text: string, images: ImageContent[]): 
     if (event.type === "agent_start") accepted.resolve();
   });
   session
-    .prompt(text, { streamingBehavior: "steer", throwOnDrop: true, ...(images.length > 0 ? { images } : {}) })
+    .prompt(text, {
+      streamingBehavior: "steer",
+      throwOnDrop: true,
+      ...(images.length > 0 ? { images } : {}),
+    })
     .then(() => {
       accepted.resolve();
     }, accepted.reject);
@@ -755,10 +897,20 @@ async function steerSubagent(id: string, text: string, images: ImageContent[]): 
  * Registers one subagent with the host as its own session (`parentId` = the parent's id), tails its
  * session file into the transcript, and answers the host's requests for it.
  */
-function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLifecycle, onDismiss: () => void): SubagentMirror {
+function mirrorSubagent(
+  parentId: string,
+  projectPath: string,
+  first: SubagentLifecycle,
+  onDismiss: () => void,
+): SubagentMirror {
   const id = first.id;
   const sessionId = `${parentId}:${id}`;
   const history: InboxMessage[] = [];
+  /** Agents call rows a result read later updated, sent as `message.agent` once the read is done. */
+  const updated: InboxMessage[] = [];
+  const agentCalls = new AgentCalls((row) => {
+    updated.push(row);
+  });
   const images = new Map<string, Image>();
   let seq = 0;
   let state: SubagentLifecycle["status"] = first.status;
@@ -792,7 +944,14 @@ function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLi
       account,
     };
   };
-  const hello = (): Outbound => ({ t: "hello", sessionId, provider: "omp", projectPath, parentId, ...current() });
+  const hello = (): Outbound => ({
+    t: "hello",
+    sessionId,
+    provider: "omp",
+    projectPath,
+    parentId,
+    ...current(),
+  });
   const sendStatus = (): void => {
     link.send({ t: "status", ...current() });
   };
@@ -803,7 +962,11 @@ function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLi
         return history;
       case "reply": {
         if (state !== "started") throw new Error(`${id} has finished; it no longer takes messages`);
-        const attached: ImageContent[] = (frame.images ?? []).map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType }));
+        const attached: ImageContent[] = (frame.images ?? []).map((image) => ({
+          type: "image",
+          data: image.data,
+          mimeType: image.mimeType,
+        }));
         await steerSubagent(id, frame.text, attached);
         return undefined;
       }
@@ -840,7 +1003,12 @@ function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLi
         link.send({ t: "result", id: frame.id, ok: true, value });
       },
       (error: unknown) => {
-        link.send({ t: "result", id: frame.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+        link.send({
+          t: "result",
+          id: frame.id,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
       },
     );
   });
@@ -865,7 +1033,12 @@ function mirrorSubagent(parentId: string, projectPath: string, first: SubagentLi
     offset = size;
     const lines = (partial + chunk.toString("utf8")).split("\n");
     partial = lines.pop() ?? "";
-    const appended = parseSessionRows(lines.join("\n"), images, nextId);
+    const appended = parseSessionRows(lines.join("\n"), images, nextId, agentCalls);
+    const fresh = new Set(appended);
+    for (const row of updated.splice(0)) {
+      if (!fresh.has(row) && row.agentTool !== undefined)
+        link.send({ t: "message.agent", id: row.id, text: row.text, agentTool: row.agentTool });
+    }
     if (appended.length === 0) return;
     for (const row of appended) history.push(row);
     if (history.length > 500) history.splice(0, history.length - 500);
@@ -935,12 +1108,20 @@ export default function relayBridge(pi: ExtensionAPI): void {
   /** Stops the session-name subscription of the current context (auto titles, /rename, replan refresh). */
   let unwatchName: (() => void) | null = null;
   const history: InboxMessage[] = [];
+  /** The agents calls whose results have not come in: a result fills in its call's row (`message.agent`). */
+  const agentCalls = new AgentCalls();
   /** Insertion-ordered so the oldest entry is the first key; capped at MAX_IMAGES. */
   const images = new Map<string, Image>();
   // omp's `ask` tool blocks in the TUI on ctx.ui.askDialog; each in-flight ask keeps the phone's
   // resolve callback here (keyed by the ask.request id) plus the questions, so an answer from the
   // phone can be shaped back into omp's dialog result. Cleared when a session ends or switches.
-  const pendingAsks = new Map<string, { resolve: (result: ExtensionAskDialogResult | undefined) => void; questions: ExtensionAskDialogQuestion[] }>();
+  const pendingAsks = new Map<
+    string,
+    {
+      resolve: (result: ExtensionAskDialogResult | undefined) => void;
+      questions: ExtensionAskDialogQuestion[];
+    }
+  >();
   // omp asks for a tool approval with ctx.ui.select("Allow tool: <name>\n<detail lines>", ["Approve", "Deny"]).
   // The requested events (tool name, call id, reason) wait here for that prompt to arrive; each
   // in-flight prompt keeps the host's answer callback keyed by the call id.
@@ -977,11 +1158,15 @@ export default function relayBridge(pi: ExtensionAPI): void {
     const base: Settings =
       ASSISTANT !== null
         ? { title: ASSISTANT.title, kind: "assistant", assistant: ASSISTANT.id }
-        : { title: pi.getSessionName() ?? fallbackTitle, kind: JOB === undefined ? "manual" : "job" };
+        : {
+            title: pi.getSessionName() ?? fallbackTitle,
+            kind: JOB === undefined ? "manual" : "job",
+          };
     if (ASSISTANT === null && JOB !== undefined) base.job = JOB;
     if (ASSISTANT === null && OWNER !== undefined) base.owner = OWNER;
     // Like the name subscription below: the read-only context type hides the file getter the real manager has.
-    const sessionFile = ctx === null ? undefined : (ctx.sessionManager as SessionManager).getSessionFile();
+    const sessionFile =
+      ctx === null ? undefined : (ctx.sessionManager as SessionManager).getSessionFile();
     if (typeof sessionFile === "string" && sessionFile.length > 0) base.sessionFile = sessionFile;
     const model = ctx?.model;
     if (model !== undefined) {
@@ -991,7 +1176,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     const level = pi.getThinkingLevel();
     if (level !== undefined) base.thinkingLevel = level;
     const usage = ctx?.getContextUsage();
-    if (usage !== undefined && Number.isFinite(usage.percent)) base.contextUsed = Math.min(1, Math.max(0, usage.percent / 100));
+    if (usage !== undefined && Number.isFinite(usage.percent))
+      base.contextUsed = Math.min(1, Math.max(0, usage.percent / 100));
     base.account = account;
     return base;
   };
@@ -1019,7 +1205,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
   };
 
   const sendStatus = (): void => {
-    const frame: Outbound = { t: "status", status, lastActivity, lastActivityAt, ...settings(), ...activity() };
+    const frame: Outbound = {
+      t: "status",
+      status,
+      lastActivity,
+      lastActivityAt,
+      ...settings(),
+      ...activity(),
+    };
     if (statusDetail !== undefined) frame.statusDetail = statusDetail;
     send(frame);
   };
@@ -1045,7 +1238,9 @@ export default function relayBridge(pi: ExtensionAPI): void {
   let gateReading = false;
   let gateTimer: ReturnType<typeof setInterval> | null = null;
   const reportGate = (gate: unknown): void => {
-    const key = JSON.stringify(gate, (field, value: unknown) => (field === "remainingSeconds" ? undefined : value));
+    const key = JSON.stringify(gate, (field, value: unknown) =>
+      field === "remainingSeconds" ? undefined : value,
+    );
     if (key === gateKey) return;
     gateKey = key;
     send({ t: "gate.status", gate });
@@ -1111,7 +1306,12 @@ export default function relayBridge(pi: ExtensionAPI): void {
     try {
       send({ t: "result", id: frame.id, ok: true, value: await perform(frame) });
     } catch (error) {
-      send({ t: "result", id: frame.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+      send({
+        t: "result",
+        id: frame.id,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
@@ -1137,7 +1337,11 @@ export default function relayBridge(pi: ExtensionAPI): void {
           // Images only ever go out as a user turn (the host rejects them without `submit`). A
           // slash command with images is sent the same way: sendUserMessage skips command dispatch,
           // so the model sees the literal text next to the pictures rather than the command running.
-          const parts: (TextContent | ImageContent)[] = frame.images.map((image) => ({ type: "image", data: image.data, mimeType: image.mimeType }));
+          const parts: (TextContent | ImageContent)[] = frame.images.map((image) => ({
+            type: "image",
+            data: image.data,
+            mimeType: image.mimeType,
+          }));
           if (frame.text.length > 0) parts.unshift({ type: "text", text: frame.text });
           pi.sendUserMessage(parts);
         } else if (!frame.submit) {
@@ -1148,7 +1352,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
           // else is offered to Jev, which rewrites it to `/command …` when the speaker named one and
           // otherwise hands it back unchanged (see routeVoiceCommand). Routing never blocks the reply.
           // An assistant thread is conversation, not a command line: what Isaac says there goes in as said.
-          const routed = frame.text.startsWith("/") || ASSISTANT !== null ? frame.text : ((await routeVoiceCommand(pi.getCommands(), frame.text)) ?? frame.text);
+          const routed =
+            frame.text.startsWith("/") || ASSISTANT !== null
+              ? frame.text
+              : ((await routeVoiceCommand(pi.getCommands(), frame.text)) ?? frame.text);
           // `/goal` goes in the form the terminal runs without asking anything back (see phoneGoalCommand).
           const text = phoneGoalCommand(routed) ?? routed;
           if (HANDOFF_COMMAND.test(text) && !ctx.isIdle()) {
@@ -1191,7 +1398,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
         // `nextTurn` without `triggerTurn`: idle, it joins the context without starting a turn; mid-turn,
         // it waits for the next one. `true` tells the host this bridge knows notes (older ones answer
         // unknown requests with an empty ok).
-        pi.sendMessage({ customType: "relay-reactions", content: frame.text, display: false }, { deliverAs: "nextTurn" });
+        pi.sendMessage(
+          { customType: "relay-reactions", content: frame.text, display: false },
+          { deliverAs: "nextTurn" },
+        );
         return true;
       case "canvas": {
         // Shown in the chat and written to the session file, never a turn of its own. Idle, omp appends
@@ -1199,10 +1409,24 @@ export default function relayBridge(pi: ExtensionAPI): void {
         // `canvas start`): it lands as soon as that tool call returns, without interrupting the call the
         // way a steer does (a steer backgrounds a running bash). Turn and wrap-up rows wait for the next
         // turn rather than prolong this one. The phone gets the row now either way.
-        const message = { customType: CANVAS_MESSAGE_TYPE, content: frame.content, display: true, details: frame.details };
+        const message = {
+          customType: CANVAS_MESSAGE_TYPE,
+          content: frame.content,
+          display: true,
+          details: frame.details,
+        };
         if (ctx.isIdle()) pi.sendMessage(message);
-        else pi.sendMessage(message, { deliverAs: frame.details.kind === "start" ? "aside" : "nextTurn" });
-        const row: InboxMessage = { id: nextId(), role: "system", text: frame.content, at: Date.now(), canvas: frame.details };
+        else
+          pi.sendMessage(message, {
+            deliverAs: frame.details.kind === "start" ? "aside" : "nextTurn",
+          });
+        const row: InboxMessage = {
+          id: nextId(),
+          role: "system",
+          text: frame.content,
+          at: Date.now(),
+          canvas: frame.details,
+        };
         record(row);
         send({ t: "messages", append: [row] });
         return true;
@@ -1213,10 +1437,21 @@ export default function relayBridge(pi: ExtensionAPI): void {
         // Mid-turn the row goes in as an aside to the running turn (the one whose `assistant
         // consult` call brought the guest in): it lands when that tool call returns. The phone
         // gets the row now either way.
-        const message = { customType: GUEST_MESSAGE_TYPE, content: frame.content, display: true, details: frame.details };
+        const message = {
+          customType: GUEST_MESSAGE_TYPE,
+          content: frame.content,
+          display: true,
+          details: frame.details,
+        };
         if (ctx.isIdle()) pi.sendMessage(message);
         else pi.sendMessage(message, { deliverAs: "aside" });
-        const row: InboxMessage = { id: nextId(), role: "system", text: frame.content, at: Date.now(), guest: frame.details };
+        const row: InboxMessage = {
+          id: nextId(),
+          role: "system",
+          text: frame.content,
+          at: Date.now(),
+          guest: frame.details,
+        };
         record(row);
         send({ t: "messages", append: [row] });
         return true;
@@ -1224,18 +1459,28 @@ export default function relayBridge(pi: ExtensionAPI): void {
       case "image":
         return images.get(frame.imageId) ?? null;
       case "options":
-        return { models: listModelOptions(ctx.modelRegistry.getAvailable()), skills: listSkillOptions(pi.getCommands()) };
+        return {
+          models: listModelOptions(ctx.modelRegistry.getAvailable()),
+          skills: listSkillOptions(pi.getCommands()),
+        };
       case "configure": {
         if (frame.title !== undefined) await pi.setSessionName(frame.title);
         if (frame.model !== undefined) {
           const model = ctx.modelRegistry.find(frame.model.provider, frame.model.id);
-          if (model === undefined) throw new Error(`unknown model ${frame.model.provider}/${frame.model.id}`);
+          if (model === undefined)
+            throw new Error(`unknown model ${frame.model.provider}/${frame.model.id}`);
           if (!(await pi.setModel(model))) throw new Error(`no API key for ${model.name}`);
         }
         if (frame.thinkingLevel !== undefined) {
           const requested = frame.thinkingLevel;
-          const level = ctx.model === undefined ? undefined : thinkingLevelsFor(ctx.model).find((candidate) => candidate === requested);
-          if (level === undefined) throw new Error(`${requested} is not a thinking level ${ctx.model?.name ?? "this model"} supports`);
+          const level =
+            ctx.model === undefined
+              ? undefined
+              : thinkingLevelsFor(ctx.model).find((candidate) => candidate === requested);
+          if (level === undefined)
+            throw new Error(
+              `${requested} is not a thinking level ${ctx.model?.name ?? "this model"} supports`,
+            );
           pi.setThinkingLevel(level);
         }
         sendStatus();
@@ -1314,7 +1559,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
       const phone = new Promise<ExtensionAskDialogResult | undefined>((resolve) => {
         pendingAsks.set(askId, { resolve, questions });
       });
-      const terminal = original(questions, dialogOptions).then((result) => ({ who: "tui" as const, result }));
+      const terminal = original(questions, dialogOptions).then((result) => ({
+        who: "tui" as const,
+        result,
+      }));
       const answered = phone.then((result) => ({ who: "phone" as const, result }));
       return Promise.race([terminal, answered]).then(({ who, result }) => {
         pendingAsks.delete(askId);
@@ -1333,7 +1581,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
     pendingAsks.clear();
   };
   // What a turn sent while an ask is open does to it: Isaac's cancels it, a background line waits.
-  const askGate = new AskGate({ open: () => pendingAsks.size > 0, cancel: abandonAsks }, ASK_DISMISS_SETTLE_MS);
+  const askGate = new AskGate(
+    { open: () => pendingAsks.size > 0, cancel: abandonAsks },
+    ASK_DISMISS_SETTLE_MS,
+  );
 
   // Wrap ctx.ui.select so omp's tool approval reaches both surfaces: the prompt goes to the host as
   // an approval.request while the ORIGINAL selector still opens in the TUI. Whichever answers first
@@ -1345,11 +1596,22 @@ export default function relayBridge(pi: ExtensionAPI): void {
   // descriptor), not through the proxy, or the proxy's select would call the wrapper again forever.
   const wrapApprovalDialog = (context: ExtensionContext): void => {
     const ui = context.ui;
-    const original = Object.getOwnPropertyDescriptor(ui, "select")?.value as ExtensionContext["ui"]["select"] | undefined;
+    const original = Object.getOwnPropertyDescriptor(ui, "select")?.value as
+      ExtensionContext["ui"]["select"] | undefined;
     if (typeof original !== "function" || original === installedSelect) return;
-    ui.select = installedSelect = (title: string, options: Parameters<typeof original>[1], dialogOptions?: Parameters<typeof original>[2]) => {
+    ui.select = installedSelect = (
+      title: string,
+      options: Parameters<typeof original>[1],
+      dialogOptions?: Parameters<typeof original>[2],
+    ) => {
       const head = "Allow tool: ";
-      if (!title.startsWith(head) || !Array.isArray(options) || options.length !== 2 || options[0] !== "Approve" || options[1] !== "Deny") {
+      if (
+        !title.startsWith(head) ||
+        !Array.isArray(options) ||
+        options.length !== 2 ||
+        options[0] !== "Approve" ||
+        options[1] !== "Deny"
+      ) {
         return original(title, options, dialogOptions);
       }
       const [first = "", ...lines] = title.split("\n");
@@ -1360,17 +1622,29 @@ export default function relayBridge(pi: ExtensionAPI): void {
       if (requested === undefined) return original(title, options, dialogOptions);
       const detail = lines.filter((line) => !line.startsWith("Reason: "));
       // bash shows its command as "Command: <cmd>": the command itself is what is verbatim.
-      if (toolName === "bash" && detail[0]?.startsWith("Command: ")) detail[0] = detail[0].slice("Command: ".length);
-      const frame: Outbound = { t: "approval.request", id: requested.id, toolName, command: detail.join("\n") };
+      if (toolName === "bash" && detail[0]?.startsWith("Command: "))
+        detail[0] = detail[0].slice("Command: ".length);
+      const frame: Outbound = {
+        t: "approval.request",
+        id: requested.id,
+        toolName,
+        command: detail.join("\n"),
+      };
       if (requested.reason !== undefined) frame.reason = requested.reason;
       send(frame);
       const device = new Promise<boolean>((resolve) => {
         pendingApprovals.set(requested.id, { frame, decide: resolve });
       });
       const closeTerminal = new AbortController();
-      const signal = dialogOptions?.signal === undefined ? closeTerminal.signal : AbortSignal.any([dialogOptions.signal, closeTerminal.signal]);
+      const signal =
+        dialogOptions?.signal === undefined
+          ? closeTerminal.signal
+          : AbortSignal.any([dialogOptions.signal, closeTerminal.signal]);
       const terminal = original(title, options, { ...dialogOptions, signal });
-      return Promise.race([terminal.then((choice) => ({ who: "terminal" as const, choice })), device.then((allow) => ({ who: "device" as const, choice: allow ? "Approve" : "Deny" }))]).then(({ who, choice }) => {
+      return Promise.race([
+        terminal.then((choice) => ({ who: "terminal" as const, choice })),
+        device.then((allow) => ({ who: "device" as const, choice: allow ? "Approve" : "Deny" })),
+      ]).then(({ who, choice }) => {
         pendingApprovals.delete(requested.id);
         send({ t: "approval.resolved", id: requested.id });
         if (who === "device") closeTerminal.abort();
@@ -1402,14 +1676,22 @@ export default function relayBridge(pi: ExtensionAPI): void {
     } else if (event.status === "started") {
       subagents.set(
         event.id,
-        mirrorSubagent(ctx.sessionManager.getSessionId(), ctx.sessionManager.getCwd(), event, () => {
-          subagents.get(event.id)?.close();
-          subagents.delete(event.id);
-        }),
+        mirrorSubagent(
+          ctx.sessionManager.getSessionId(),
+          ctx.sessionManager.getCwd(),
+          event,
+          () => {
+            subagents.get(event.id)?.close();
+            subagents.delete(event.id);
+          },
+        ),
       );
     }
     const finished = [...subagents.entries()].filter(([, mirror]) => !mirror.running);
-    for (const [id, mirror] of finished.slice(0, Math.max(0, finished.length - MAX_FINISHED_SUBAGENTS))) {
+    for (const [id, mirror] of finished.slice(
+      0,
+      Math.max(0, finished.length - MAX_FINISHED_SUBAGENTS),
+    )) {
       mirror.close();
       subagents.delete(id);
     }
@@ -1438,7 +1720,15 @@ export default function relayBridge(pi: ExtensionAPI): void {
     buffer = "";
     next.setNoDelay(true);
     next.on("connect", () => {
-      send({ t: "hello", ...current, ...PROCESS, status, lastActivity, lastActivityAt, ...(LAUNCH_ID === undefined ? {} : { launchId: LAUNCH_ID }) });
+      send({
+        t: "hello",
+        ...current,
+        ...PROCESS,
+        status,
+        lastActivity,
+        lastActivityAt,
+        ...(LAUNCH_ID === undefined ? {} : { launchId: LAUNCH_ID }),
+      });
       // A host that restarted while a tool waits for approval learns of it again.
       for (const pending of pendingApprovals.values()) send(pending.frame);
       // ctx.model is still unresolved during session_start; report the settings once it is.
@@ -1490,7 +1780,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
     unwatchName = manager.onSessionNameChanged(() => {
       if (ctx !== context) return;
       const name = pi.getSessionName();
-      if (name !== undefined && name.length > 0) renameInHerdr(ASSISTANT !== null ? ASSISTANT.title : name);
+      if (name !== undefined && name.length > 0)
+        renameInHerdr(ASSISTANT !== null ? ASSISTANT.title : name);
       sendStatus();
     });
   };
@@ -1530,7 +1821,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     } catch {
       return; // a new session has no file yet
     }
-    for (const row of parseSessionRows(raw, images, nextId)) record(row);
+    for (const row of parseSessionRows(raw, images, nextId, agentCalls)) record(row);
   };
 
   pi.on("session_start", (_event, context) => {
@@ -1560,18 +1851,25 @@ export default function relayBridge(pi: ExtensionAPI): void {
     if (initialThinkingLevel !== undefined) {
       setTimeout(() => {
         if (ctx !== context || context.model === undefined) return;
-        const level = thinkingLevelsFor(context.model).find((candidate) => candidate === initialThinkingLevel);
+        const level = thinkingLevelsFor(context.model).find(
+          (candidate) => candidate === initialThinkingLevel,
+        );
         if (level === undefined) return;
         pi.setThinkingLevel(level);
         sendStatus();
       }, SETTINGS_SETTLE_MS).unref();
     }
-    if (initialPrompt === undefined || initialPrompt.trim().length === 0 || initialPromptSent) return;
+    if (initialPrompt === undefined || initialPrompt.trim().length === 0 || initialPromptSent)
+      return;
     initialPromptSent = true;
     let tries = 0;
     initialPromptTimer = setInterval(() => {
       tries += 1;
-      if (ctx !== context || tries > INITIAL_PROMPT_TRIES || (tries > 1 && context.ui.getEditorText() !== initialPrompt)) {
+      if (
+        ctx !== context ||
+        tries > INITIAL_PROMPT_TRIES ||
+        (tries > 1 && context.ui.getEditorText() !== initialPrompt)
+      ) {
         stopInitialPrompt();
         return;
       }
@@ -1597,6 +1895,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     wrapApprovalDialog(context);
     history.length = 0;
     images.clear();
+    agentCalls.clear();
     // Background jobs and a handoff belong to the session that started them; the goal is the new one's.
     backgroundJobs.clear();
     clearTimeout(handoffTimer ?? undefined);
@@ -1625,7 +1924,11 @@ export default function relayBridge(pi: ExtensionAPI): void {
 
   pi.on("tool_approval_requested", (event) => {
     if (ctx === null) return;
-    requestedApprovals.push({ id: event.toolCallId, toolName: event.toolName, ...(event.reason === undefined ? {} : { reason: event.reason }) });
+    requestedApprovals.push({
+      id: event.toolCallId,
+      toolName: event.toolName,
+      ...(event.reason === undefined ? {} : { reason: event.reason }),
+    });
     setStatus("needs_permission", undefined, event.toolName);
   });
 
@@ -1652,7 +1955,14 @@ export default function relayBridge(pi: ExtensionAPI): void {
     pi.on("before_agent_start", async () => {
       const context = await meetingContext(agent);
       if (context === null) return undefined;
-      return { message: { customType: MEETING_CONTEXT_TYPE, content: context.text, display: false, details: { meeting: context.id } } };
+      return {
+        message: {
+          customType: MEETING_CONTEXT_TYPE,
+          content: context.text,
+          display: false,
+          details: { meeting: context.id },
+        },
+      };
     });
   }
 
@@ -1703,7 +2013,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
 
   pi.on("message_start", (event) => {
     if (ctx === null || event.message.role !== "assistant") return;
-    const at = "timestamp" in event.message && typeof event.message.timestamp === "number" ? event.message.timestamp : Date.now();
+    const at =
+      "timestamp" in event.message && typeof event.message.timestamp === "number"
+        ? event.message.timestamp
+        : Date.now();
     streaming = { id: nextId(), role: "assistant", text: "", at, streaming: true };
     record(streaming);
     send({ t: "messages", append: [streaming] });
@@ -1723,13 +2036,21 @@ export default function relayBridge(pi: ExtensionAPI): void {
   pi.on("message_end", (event) => {
     if (ctx === null) return;
     const message = event.message;
-    const at = "timestamp" in message && typeof message.timestamp === "number" ? message.timestamp : Date.now();
+    const at =
+      "timestamp" in message && typeof message.timestamp === "number"
+        ? message.timestamp
+        : Date.now();
     const appended: InboxMessage[] = [];
     if (message.role === "user") {
       const text = textOf(message.content);
       const refs = imageRefsOf(images, message.content);
       if (text.length > 0 || refs.length > 0) {
-        const item: InboxMessage = { id: nextId(), role: message.synthetic === true ? "system" : "user", text, at };
+        const item: InboxMessage = {
+          id: nextId(),
+          role: message.synthetic === true ? "system" : "user",
+          text,
+          at,
+        };
         if (refs.length > 0) item.images = refs;
         appended.push(item);
       }
@@ -1738,9 +2059,21 @@ export default function relayBridge(pi: ExtensionAPI): void {
       const command = skillCommandOf(message);
       if (command !== null) appended.push({ id: nextId(), role: "user", text: command, at });
     } else if (message.role === "toolResult") {
+      // An agents call's result updates its row in place: the phone hears the run's new state.
+      const called = agentCalls.result(message);
+      if (called?.agentTool !== undefined)
+        send({ t: "message.agent", id: called.id, text: called.text, agentTool: called.agentTool });
       // Only a result that carries pictures (a rendered page, a screenshot) is worth a transcript entry.
       const refs = imageRefsOf(images, message.content);
-      if (refs.length > 0) appended.push({ id: nextId(), role: "tool", text: "", at, tool: { name: message.toolName, summary: "" }, images: refs });
+      if (refs.length > 0)
+        appended.push({
+          id: nextId(),
+          role: "tool",
+          text: "",
+          at,
+          tool: { name: message.toolName, summary: "" },
+          images: refs,
+        });
     } else if (message.role === "assistant") {
       const text = textOf(message.content);
       if (streaming !== null) {
@@ -1758,8 +2091,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
       }
       for (const part of message.content) {
         if (part.type === "toolCall") {
-          const tool = toolCallOf(part.name, part.arguments);
-          appended.push({ id: nextId(), role: "tool", text: tool.summary, at, tool });
+          appended.push(agentCalls.row(nextId(), part.id, part.name, part.arguments, at));
           // Its result may start a background job, labelled with what the call runs.
           backgroundJobs.noteToolCall(part.id, part.arguments);
         }

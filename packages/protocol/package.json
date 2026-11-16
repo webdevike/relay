@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./text-diff": "./src/text-diff.ts",
+    "./agent-runs": "./src/agent-runs.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "scripts": {

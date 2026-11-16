@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { VList, type VListHandle } from 'virtua'
 import type { ChatMessage } from '@evaos/chat-core/message'
+import { agentRunsByRow, type AgentRun } from '@relay/protocol'
 import { dropQuietTurns } from '@evaos/chat-core/quiet'
 import { foldGuestWork, guestTyping } from '@evaos/chat-core/guest-entry'
 import { reactionKeyOf } from '@evaos/chat-core/reactions'
@@ -133,6 +134,26 @@ export function ChatLog({
     return out
   }, [all, showThinking, showTools, typing])
   const liveId = liveRowId(items, busy)
+  // Each turn's specialist runs, on its last reply (or its last agents call before any reply), by
+  // row id. A row keeps its runs' array while they are unchanged, so streaming leaves it alone.
+  const shownRuns = useRef(new Map<string, { key: string; runs: AgentRun[] }>())
+  const agentsAt = useMemo(() => {
+    const rows = items.flatMap((i) =>
+      i.kind === 'message' ? [i.m] : i.kind === 'tools' ? i.tools : [],
+    )
+    const byRow = agentRunsByRow(rows, (m) =>
+      m.role === 'user' ? 'user' : m.role === 'assistant' ? 'reply' : m.agent,
+    )
+    const out = new Map<string, { key: string; runs: AgentRun[] }>()
+    for (const [at, runs] of byRow) {
+      const id = rows[at]!.id
+      const key = JSON.stringify(runs)
+      const was = shownRuns.current.get(id)
+      out.set(id, was?.key === key ? was : { key, runs })
+    }
+    shownRuns.current = out
+    return out
+  }, [items])
   const ref = useRef<VListHandle>(null)
   const logRef = useRef<HTMLDivElement>(null)
   const railFits = useRailFits(logRef, turnRailFits)
@@ -297,7 +318,11 @@ export function ChatLog({
         >
           {(item) =>
             item.kind === 'tools' ? (
-              <ToolRunRow key={`${item.tools[0]!.id}-tools`} tools={item.tools} />
+              <ToolRunRow
+                key={`${item.tools[0]!.id}-tools`}
+                tools={item.tools}
+                agents={item.tools.map((t) => agentsAt.get(t.id)?.runs).find((r) => r)}
+              />
             ) : item.kind === 'typing' ? (
               <div key="typing" className="eva-row" data-testid="chat-typing">
                 <div className="eva-row-inner">
@@ -311,6 +336,7 @@ export function ChatLog({
                 live={item.m.id === liveId}
                 waiting={waiting.get(item.m.id)}
                 agent={agent ?? undefined}
+                agents={agentsAt.get(item.m.id)?.runs}
               />
             )
           }

@@ -43,6 +43,7 @@ import { MeetingsClientFrames, MeetingsServerFrames } from "./meetings";
 import { RoomsClientFrames, RoomsServerFrames } from "./rooms";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
+import { AgentRun } from "./agent-runs";
 import { StatsSnapshot } from "./stats";
 
 export const PROTOCOL_VERSION = 1 as const;
@@ -602,6 +603,8 @@ export const AgentMessage = z.object({
   canvas: CanvasEntry.optional().catch(undefined),
   /** A guest row (role "system"): another assistant joined, spoke, left, or works on something; builds without guests show `text`. */
   guest: GuestEntry.optional().catch(undefined),
+  /** A specialist agent call (role "tool": `agents_ask` / `agents_result`) as its run stands; builds without it show the tool row. */
+  agentRun: AgentRun.optional().catch(undefined),
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
 
@@ -812,6 +815,11 @@ export const AssistantMessage = z.object({
    * name (what a phone without guests shows). Work rows are folded by `work.id` (latest state).
    */
   guest: GuestEntry.optional().catch(undefined),
+  /**
+   * Specialist agents the turn used (`agents_ask`), on its last assistant row, else on a `status` row while none
+   * replied yet: a badge beside the reply and one caption line under it (`agentsCaption`). Older phones ignore it.
+   */
+  agents: z.array(AgentRun).max(12).optional().catch(undefined),
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 
@@ -2222,7 +2230,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   /**
    * The full text so far of a message that was appended with `streaming: true`. Idempotent and
    * unsequenced: the last one (`streaming: false`) is the final text. Ignored when the phone does
-   * not hold `id`; the next `agent.conversation` carries the settled message.
+   * not hold `id`; the next `agent.conversation` carries the settled message. An agents call's tool
+   * row comes this way too once its result is in: its unchanged text and its new `agentRun`.
    */
   z.object({
     t: z.literal("agent.message.update"),
@@ -2230,6 +2239,7 @@ export const ServerMessage = z.discriminatedUnion("t", [
     id: nonEmpty,
     text: z.string(),
     streaming: z.boolean(),
+    agentRun: AgentRun.optional().catch(undefined),
   }),
   z.object({
     t: z.literal("agent.options"),
@@ -2517,3 +2527,4 @@ export * from "./stats";
 export * from "./answer-context";
 export * from "./signin";
 export * from "./room-card";
+export * from "./agent-runs";

@@ -432,6 +432,9 @@ importers:
 
   ../../packages/chat-core:
     dependencies:
+      '@relay/protocol':
+        specifier: link:../protocol
+        version: link:../protocol
       zod:
         specifier: 4.6.7
         version: 4.6.7
