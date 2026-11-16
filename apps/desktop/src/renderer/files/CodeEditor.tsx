@@ -274,5 +274,7 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
     pruneModels(root, new Set(openPaths.split('\0')))
   }, [root, openPaths])
 
-  return <div ref={host} className="eva-files-monaco" data-testid="files-editor" />
+  // `monaco-component` puts Monaco's theme variables on the host: the context menu renders in a
+  // shadow root hung off it (outside `.monaco-editor`), and reads its colors from them.
+  return <div ref={host} className="eva-files-monaco monaco-component" data-testid="files-editor" />
 }
