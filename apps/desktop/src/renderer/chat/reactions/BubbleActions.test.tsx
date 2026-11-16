@@ -290,7 +290,9 @@ describe('🎯 train sheet', () => {
       excerpt: 'Fixed **the dock**.',
     })
     await waitFor(() => expect(screen.queryByTestId('train-sheet')).toBeNull())
-    await waitFor(() => expect(toast).toHaveBeenCalledWith(expect.objectContaining({ message: 'Saved' })))
+    await waitFor(() =>
+      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ message: 'Saved' })),
+    )
   })
 
   it('says so when the host could not save the answer', async () => {
