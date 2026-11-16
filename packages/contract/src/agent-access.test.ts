@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import fixture from './app-link-kinds.fixture.json'
 import { describe, expect, it } from 'vitest'
 import { parseAppLink } from '@evaos/chat-core/widget'
 import { agentActions, agentCatalog, type AgentActionSpec } from './agent'
@@ -212,9 +212,7 @@ describe('link', () => {
 
   // The phone opens each kind in this file (apps/mobile/src/lib/appLinks.test.ts reads it too).
   it('builds every link kind the phone link table lists, and the table lists every page', () => {
-    const { kinds } = JSON.parse(
-      readFileSync(new URL('./app-link-kinds.fixture.json', import.meta.url), 'utf8'),
-    ) as { kinds: Array<{ what: string; params?: object; url: string }> }
+    const { kinds } = fixture as { kinds: Array<{ what: string; params?: object; url: string }> }
     for (const { what, params, url } of kinds) {
       // The room link is made by the rooms tools (rooms-agent.ts), not by `link`: it only has to parse.
       if (params === undefined) expect(parseAppLink(url), what).not.toBeNull()
