@@ -63,11 +63,18 @@ test('files.open inside an ignored nested repo expands the ancestors and selects
   await expect(shell.locator('[data-testid=files-editor] .view-lines')).toContainText('class Chef')
   // Beside the chat the panel is narrow: the floating sidebar steps aside once a file opens, so
   // Isaac opens the Explorer to see where the file sits.
-  await shell.locator('[data-testid=files-panel]').getByRole('button', { name: /^Explorer/ }).click()
+  await shell
+    .locator('[data-testid=files-panel]')
+    .getByRole('button', { name: /^Explorer/ })
+    .click()
   const row = shell.locator(`[data-testid=files-row][data-path="${REL}"]`)
   await expect(row).toBeVisible()
   await expect(row).toHaveAttribute('aria-selected', 'true')
-  for (const dir of ['work', 'work/relay-runtime', 'work/relay-runtime/packages/atomic-agents/src']) {
+  for (const dir of [
+    'work',
+    'work/relay-runtime',
+    'work/relay-runtime/packages/atomic-agents/src',
+  ]) {
     await expect(shell.locator(`[data-testid=files-row][data-path="${dir}"]`)).toBeVisible()
   }
   await proofShot(app, shell, 'tree-reveals-ignored-nested-file', { phase: PHASE })
