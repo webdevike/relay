@@ -98,8 +98,8 @@ export function FileTree({ root }: { root: string }) {
   const active = useSpace((w) => w.active, null)
   const decorator = useMemo(() => new Decorator(git), [git])
   const rows = useMemo(
-    () => visibleRows(children, expanded, decorator, showIgnored),
-    [children, expanded, decorator, showIgnored],
+    () => visibleRows(children, expanded, decorator, showIgnored, selected),
+    [children, expanded, decorator, showIgnored, selected],
   )
   const index = rows.findIndex((r) => r.entry.path === selected)
 

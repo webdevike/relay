@@ -70,6 +70,23 @@ describe('visibleRows', () => {
     const rows = visibleRows(children, new Set(), d, true)
     expect(rows.filter((r) => r.ignored).map((r) => r.entry.path)).toEqual(['dist', 'debug.log'])
   })
+
+  it('keeps ignored entries on the way to the revealed path, and nothing else ignored', () => {
+    const nested = {
+      ...children,
+      dist: [e('dist/pkg', 'dir'), e('dist/other.js')],
+      'dist/pkg': [e('dist/pkg/Chef.ts')],
+    }
+    const rows = visibleRows(nested, new Set(['dist', 'dist/pkg']), d, false, 'dist/pkg/Chef.ts')
+    expect(rows.map((r) => r.entry.path)).toEqual([
+      'dist',
+      'dist/pkg',
+      'dist/pkg/Chef.ts',
+      'src',
+      'README.md',
+    ])
+    expect(rows.slice(0, 3).every((r) => r.ignored)).toBe(true)
+  })
 })
 
 describe('ancestorsOf', () => {

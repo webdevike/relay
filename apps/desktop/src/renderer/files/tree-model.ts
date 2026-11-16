@@ -82,18 +82,25 @@ export interface TreeRow {
   decoration: Decoration | null
 }
 
-/** The rows the tree shows, in order: every listed entry under an expanded folder chain. */
+/**
+ * The rows the tree shows, in order: every listed entry under an expanded folder chain. Ignored
+ * entries stay hidden unless `showIgnored`, except the ones on the way to `reveal` (the cursor
+ * row): a file opened inside an ignored or nested-repo folder must still show up in the tree.
+ */
 export function visibleRows(
   children: Readonly<Record<string, readonly FileEntry[]>>,
   expanded: ReadonlySet<string>,
   decorator: Decorator,
   showIgnored: boolean,
+  reveal: string | null = null,
 ): TreeRow[] {
   const rows: TreeRow[] = []
   const walk = (dir: string, depth: number): void => {
     for (const entry of children[dir] ?? []) {
       const ignored = decorator.isIgnored(entry.path, entry.kind)
-      if (ignored && !showIgnored) continue
+      const onRevealPath =
+        reveal !== null && (reveal === entry.path || reveal.startsWith(`${entry.path}/`))
+      if (ignored && !showIgnored && !onRevealPath) continue
       const open = entry.kind === 'dir' && expanded.has(entry.path)
       rows.push({
         entry,
