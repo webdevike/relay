@@ -2,27 +2,27 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun"
 import { Clock, Console, Effect, FiberSet, FileSystem, Layer, Option, Path, Schema, Stream, SubscriptionRef } from "effect"
 import { Argument, Command, Flag } from "effect/cli"
-import { Adapters } from "./Adapter.ts"
-import { packs } from "./adapters/index.ts"
-import { ask } from "./Ask.ts"
-import { Background } from "./Background.ts"
-import { Chefs, parseChef } from "./Chef.ts"
-import { type EventSchemas, ToolMode, Trigger } from "./Component.ts"
-import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./Event.ts"
-import { shortId } from "./Id.ts"
-import { ModelRunner } from "./Model.ts"
-import { Orchestrators, Reporter, Sessions } from "./Orchestrator.ts"
-import { type RunOptions, Runner } from "./Runtime.ts"
-import { RUNTIME, runtime } from "./RuntimeEvents.ts"
-import * as Service from "./Service.ts"
-import { effective, Settings } from "./Settings.ts"
+import { Adapters } from "./core/Adapter.ts"
+import { packs } from "./packs.ts"
+import { ask } from "./core/Ask.ts"
+import { Background } from "./core/Background.ts"
+import { Agents, parseAgent } from "./core/Agent.ts"
+import { type EventSchemas, ToolMode, Trigger } from "./core/Component.ts"
+import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./core/Event.ts"
+import { shortId } from "./core/Id.ts"
+import { ModelRunner } from "./core/Model.ts"
+import { Orchestrators, Reporter, Sessions } from "./core/Orchestrator.ts"
+import { type RunOptions, Runner } from "./core/Runtime.ts"
+import { RUNTIME, runtime } from "./core/RuntimeEvents.ts"
+import * as Service from "./core/Service.ts"
+import { effective, Settings } from "./core/Settings.ts"
 
 const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))
 
 const show = (event: AgentEvent) =>
   Console.log(`${event.at.slice(11, 19)}  ${event.type.padEnd(30)} ${event.run.padEnd(24)} ${JSON.stringify(event.data).slice(0, 220)}`)
 
-/** A bake-off arm as people read it: the model, with its tool mode for a chef with tools. */
+/** A bake-off arm as people read it: the model, with its tool mode for an agent with tools. */
 const arm = (model: string, toolMode: ToolMode | undefined) => toolMode === undefined ? model : `${model} [${toolMode}]`
 
 /** Run one job and stream its events until the runtime reports it finished. */
@@ -51,7 +51,7 @@ const runAndFollow = Effect.fnUntraced(function*(component: string, job: string,
 
 const modelFlag = Flag.String("model").pipe(Flag.withDescription("omp model id overriding the component default"), Flag.optional)
 const toolModeFlag = Flag.Literals("tool-mode", ToolMode.literals).pipe(
-  Flag.withDescription("tools (one tool call per model turn) or code (one sandboxed script per turn); only for a chef with tools, see docs/code-mode.md"),
+  Flag.withDescription("tools (one tool call per model turn) or code (one sandboxed script per turn); only for an agent with tools, see docs/code-mode.md"),
   Flag.optional
 )
 const inputFlag = Flag.String("input").pipe(Flag.withDescription("job input as JSON"), Flag.withDefault("{}"))
@@ -62,7 +62,7 @@ const list = Command.make("list", {}, () =>
     const settings = yield* Settings
     const current = yield* settings.current
     yield* Console.log(`config ${settings.file}`)
-    for (const component of yield* (yield* Chefs).current) {
+    for (const component of yield* (yield* Agents).current) {
       const resolved = effective(component, current)
       yield* Console.log(`${component.id}${resolved.enabled ? "" : " (disabled)"}: ${component.purpose}`)
       yield* Console.log(`  file    ${component.file ?? "(code, passed in by the host)"} [${component.kind}]`)
@@ -91,7 +91,7 @@ const run = Command.make("run", {
   if (!result.ok) return yield* Effect.fail(new Error(`run ${result.run} failed`))
 }))
 
-/** One input across arms, each a model (by default the candidates) times a tool mode (`--tool-modes tools,code`, for a chef with tools). */
+/** One input across arms, each a model (by default the candidates) times a tool mode (`--tool-modes tools,code`, for an agent with tools). */
 const bench = Command.make("bench", {
   component: Argument.String("component"),
   job: Argument.String("job"),
@@ -99,7 +99,7 @@ const bench = Command.make("bench", {
   models: Flag.String("models").pipe(Flag.withDescription("comma-separated omp model ids; default: the component's candidates"), Flag.optional),
   toolModes: Flag.String("tool-modes").pipe(Flag.withDescription("comma-separated tool modes to cross with the models (tools,code); default: the one in force"), Flag.optional)
 }, Effect.fnUntraced(function*({ component, job, input, models, toolModes }) {
-  const spec = (yield* (yield* Chefs).current).find((candidate) => candidate.id === component)
+  const spec = (yield* (yield* Agents).current).find((candidate) => candidate.id === component)
   const candidates = spec === undefined ? [] : effective(spec, yield* (yield* Settings).current).agent.candidates
   const modelArms = Option.match(models, { onNone: () => candidates, onSome: (list) => list.split(",") })
   const modeArms = yield* Option.match(toolModes, {
@@ -113,7 +113,7 @@ const bench = Command.make("bench", {
   for (const result of results) yield* Console.log(`  ${result.ok ? "ok  " : "FAIL"} ${arm(result.model, result.toolMode).padEnd(40)} ${result.run}`)
 }))
 
-/** Pairwise A-vs-B pick between two runs of the same job; `wins` turns the picks into a win rate per arm (model, and tool mode for a chef with tools). */
+/** Pairwise A-vs-B pick between two runs of the same job; `wins` turns the picks into a win rate per arm (model, and tool mode for an agent with tools). */
 const rate = Command.make("rate", {
   a: Argument.String("run-a"),
   b: Argument.String("run-b"),
@@ -131,7 +131,7 @@ const rate = Command.make("rate", {
     })[0])
   if (left === undefined || right === undefined) {
     // Bench arms run under a scratch ATOMIC_AGENTS_HOME are not in this journal (the design-critic blind pair was).
-    return yield* Effect.fail(new Error(`no run ${left === undefined ? a : b} in the journal ${(yield* Home).journal}; blind arms must run in this home (atomic-agents bench <chef> <job> --models a,b)`))
+    return yield* Effect.fail(new Error(`no run ${left === undefined ? a : b} in the journal ${(yield* Home).journal}; blind arms must run in this home (atomic-agents bench <agent> <job> --models a,b)`))
   }
   if (left.event.component !== right.event.component || left.event.job !== right.event.job) return yield* Effect.fail(new Error("both runs must come from the same job"))
   yield* bus.publish(yield* makeEvent({
@@ -177,7 +177,7 @@ const wins = Command.make("wins", {
   }
   // The winner goes into config.json, never into code.
   const current = yield* (yield* Settings).current
-  for (const spec of yield* (yield* Chefs).current) {
+  for (const spec of yield* (yield* Agents).current) {
     const best = rows.find((row) => row.component === spec.id)
     if (best === undefined) continue
     const inForce = effective(spec, current).agent
@@ -225,7 +225,7 @@ const emit = Command.make("emit", {
   const [component = "", name = ""] = type.split("/")
   const declared: EventSchemas | undefined = component === RUNTIME
     ? runtime.events
-    : (yield* (yield* Chefs).current).find((candidate) => candidate.id === component)?.events
+    : (yield* (yield* Agents).current).find((candidate) => candidate.id === component)?.events
   const schema = declared?.[name]
   if (schema === undefined) return yield* Effect.fail(new Error(`${type} is not a declared event`))
   const encoded = yield* Schema.encodeUnknownEffect(schema)(yield* parseJson(data))
@@ -242,9 +242,9 @@ const askCommand = Command.make("ask", {
   data: Argument.String("data").pipe(Argument.withDescription("the request as JSON, without requestId")),
   timeout: Flag.String("timeout").pipe(Flag.withDescription("how long to wait for the reply: 2s, 1500ms"), Flag.withDefault("5s"))
 }, Effect.fnUntraced(function*({ component, data, timeout }) {
-  const chefs = yield* (yield* Chefs).current
-  const spec = chefs.find((candidate) => candidate.id === component)
-  if (spec?.asks === undefined) return yield* Effect.fail(new Error(`${component} answers no requests (have: ${chefs.filter((c) => c.asks).map((c) => c.id).join(", ")})`))
+  const agents = yield* (yield* Agents).current
+  const spec = agents.find((candidate) => candidate.id === component)
+  if (spec?.asks === undefined) return yield* Effect.fail(new Error(`${component} answers no requests (have: ${agents.filter((c) => c.asks).map((c) => c.id).join(", ")})`))
   const [, amount = "", unit] = TIMEOUT.exec(timeout) ?? []
   if (unit === undefined) return yield* Effect.fail(new Error(`--timeout ${timeout}: write it as 2s or 1500ms`))
   const millis = Number(amount) * (unit === "s" ? 1000 : 1)
@@ -268,10 +268,10 @@ const events = Command.make("events", {
   if (follow) yield* bus.subscribe.pipe(Stream.filter((event) => event.type.startsWith(type)), Stream.runForEach(show))
 }))
 
-/** A new chef file in `<home>/chefs`: a working request/reply recipe to edit, never an existing id. */
+/** A new agent file in `<home>/agents`: a working request/reply agent spec to edit, never an existing id. */
 const scaffold = (id: string) => ({
   id,
-  purpose: "One sentence: what this chef turns its request into.",
+  purpose: "One sentence: what this agent turns its request into.",
   agent: {
     model: "anthropic/claude-haiku-5-5",
     candidates: ["anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5"],
@@ -294,47 +294,47 @@ const scaffold = (id: string) => ({
   asks: { request: `${id}.requested`, reply: `${id}.ready`, show: "answer" }
 })
 
-const chef = Command.make("chef").pipe(Command.withSubcommands([
+const agent = Command.make("agent").pipe(Command.withSubcommands([
   Command.make("new", { id: Argument.String("id") }, Effect.fnUntraced(function*({ id }) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const file = path.join((yield* Home).root, "chefs", `${id}.json`)
-    const taken = (yield* (yield* Chefs).current).find((candidate) => candidate.id === id)
-    if (taken !== undefined) return yield* Effect.fail(new Error(`a chef ${id} exists (${taken.file ?? "code"}); edit or copy that file instead`))
+    const file = path.join((yield* Home).root, "agents", `${id}.json`)
+    const taken = (yield* (yield* Agents).current).find((candidate) => candidate.id === id)
+    if (taken !== undefined) return yield* Effect.fail(new Error(`an agent ${id} exists (${taken.file ?? "code"}); edit or copy that file instead`))
     if (yield* fs.exists(file)) return yield* Effect.fail(new Error(`${file} exists`))
     const text = `${JSON.stringify(scaffold(id), null, 2)}\n`
-    yield* parseChef(file, text)
+    yield* parseAgent(file, text)
     yield* fs.makeDirectory(path.dirname(file), { recursive: true })
     yield* fs.writeFileString(file, text)
-    yield* Console.log(`wrote ${file}\nedit purpose, system, events and prompt; check it with: atomic-agents chef validate ${file}\na running service loads it within a second (chef.loaded)`)
+    yield* Console.log(`wrote ${file}\nedit purpose, system, events and prompt; check it with: atomic-agents agent validate ${file}\na running service loads it within a second (agent.loaded)`)
   })),
   Command.make("validate", {
-    files: Argument.String("file").pipe(Argument.withDescription("chef files; default: every file in the chef dirs"), Argument.variadic())
+    files: Argument.String("file").pipe(Argument.withDescription("agent files; default: every file in the agent dirs"), Argument.variadic())
   }, Effect.fnUntraced(function*({ files }) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const chefs = yield* Chefs
+    const agents = yield* Agents
     const all = files.length > 0
       ? files.map((file) => path.resolve(file))
-      : (yield* Effect.forEach(chefs.dirs, (dir) =>
+      : (yield* Effect.forEach(agents.dirs, (dir) =>
         fs.readDirectory(dir).pipe(
           Effect.map((names) => names.filter((name) => /\.(json|ya?ml)$/.test(name)).sort().map((name) => path.join(dir, name))),
           Effect.orElseSucceed((): ReadonlyArray<string> => [])
         ))).flat()
     let failed = 0
     for (const file of all) {
-      const result = yield* Effect.result(fs.readFileString(file).pipe(Effect.flatMap((text) => parseChef(file, text))))
-      if (result._tag === "Success") yield* Console.log(`ok    ${result.success.chef.id.padEnd(20)} ${result.success.kind.padEnd(6)} ${file}`)
+      const result = yield* Effect.result(fs.readFileString(file).pipe(Effect.flatMap((text) => parseAgent(file, text))))
+      if (result._tag === "Success") yield* Console.log(`ok    ${result.success.agent.id.padEnd(20)} ${result.success.kind.padEnd(6)} ${file}`)
       else {
         failed++
         yield* Console.log(`FAIL  ${result.failure.message}`)
       }
     }
-    if (failed > 0) return yield* Effect.fail(new Error(`${failed} of ${all.length} chef file(s) failed`))
+    if (failed > 0) return yield* Effect.fail(new Error(`${failed} of ${all.length} agent file(s) failed`))
   }))
 ]))
 
-/** Orchestrators: one per goal, files in `<home>/orchestrators`; they plan and dispatch, chefs and sessions do the work. */
+/** Orchestrators: one per goal, files in `<home>/orchestrators`; they plan and dispatch, agents and sessions do the work. */
 const orch = Command.make("orch").pipe(Command.withSubcommands([
   Command.make("list", {}, () =>
     Effect.gen(function*() {
@@ -381,15 +381,15 @@ const orch = Command.make("orch").pipe(Command.withSubcommands([
   }))
 ]))
 
-/** The service: config and chef file watch, and triggers, as background layers; the first fatal error (see `Background`) ends it. */
-const Serve = Layer.mergeAll(Settings.layerWatch, Chefs.layerWatch, Runner.layerTriggers, Orchestrators.layerSchedule).pipe(Layer.provideMerge(Background.layer))
+/** The service: config and agent file watch, and triggers, as background layers; the first fatal error (see `Background`) ends it. */
+const Serve = Layer.mergeAll(Settings.layerWatch, Agents.layerWatch, Runner.layerTriggers, Orchestrators.layerSchedule).pipe(Layer.provideMerge(Background.layer))
 
 const serve = Command.make("serve", {}, () =>
   Effect.gen(function*() {
     const home = yield* Home
-    const chefs = yield* Chefs
+    const agents = yield* Agents
     const orchestrators = yield* Orchestrators
-    yield* Console.log(`atomic-agents serving ${(yield* chefs.current).length} chef(s) from ${chefs.dirs.join(", ")} (live); ${(yield* orchestrators.current).length} orchestrator(s) from ${orchestrators.dir} (live); journal ${home.journal}; config ${(yield* Settings).file} (live)`)
+    yield* Console.log(`atomic-agents serving ${(yield* agents.current).length} agent(s) from ${agents.dirs.join(", ")} (live); ${(yield* orchestrators.current).length} orchestrator(s) from ${orchestrators.dir} (live); journal ${home.journal}; config ${(yield* Settings).file} (live)`)
     return yield* FiberSet.join(yield* Background)
   }).pipe(Effect.provide(Serve)))
 
@@ -411,7 +411,7 @@ const App = Runner.layer.pipe(
   Layer.provideMerge(Layer.mergeAll(Sessions.layer, Reporter.layer)),
   Layer.provideMerge(ModelRunner.omp),
   Layer.provideMerge(Settings.layer),
-  Layer.provideMerge(Chefs.layer),
+  Layer.provideMerge(Agents.layer),
   Layer.provideMerge(Adapters.make(packs)),
   Layer.provideMerge(EventBus.layer),
   Layer.provideMerge(Home.layer),
@@ -419,7 +419,7 @@ const App = Runner.layer.pipe(
 )
 
 Command.make("atomic-agents").pipe(
-  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, events, chef, orch, serve, service]),
+  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, events, agent, orch, serve, service]),
   Command.run({ version: "0.1.0" }),
   Effect.provide(App),
   BunRuntime.runMain

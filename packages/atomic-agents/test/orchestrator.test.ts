@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { BunServices } from "@effect/platform-bun"
 import { Deferred, Effect, Fiber, FileSystem, Layer, Ref } from "effect"
-import { Chefs } from "../src/Chef.ts"
-import { EventBus } from "../src/Event.ts"
-import { ModelRunner } from "../src/Model.ts"
-import { Orchestrators, parseOrchestrator, Reporter, Sessions, stopsHit } from "../src/Orchestrator.ts"
-import { builtinChefs, oneProcess, runtime, tempHome } from "./harness.ts"
+import { Agents } from "../src/core/Agent.ts"
+import { EventBus } from "../src/core/Event.ts"
+import { ModelRunner } from "../src/core/Model.ts"
+import { Orchestrators, parseOrchestrator, Reporter, Sessions, stopsHit } from "../src/core/Orchestrator.ts"
+import { builtinAgents, oneProcess, runtime, tempHome } from "./harness.ts"
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`
 
@@ -18,7 +18,7 @@ const spec = (points: ReadonlyArray<number>, extra: Record<string, unknown> = {}
     command: ["printf", points.map((value, index) => `R${index + 1} ${value}\\n`).join("")],
     target: { op: ">=", value: 8 }
   },
-  chefs: [],
+  agents: [],
   model: "test/m",
   cadence: "loop",
   budget: { maxHoursPerDay: 4, maxRuns: 3, maxUsd: 1 },
@@ -46,22 +46,22 @@ const writeOrchestrator = (root: string, value: unknown) =>
   }).pipe(Effect.provide(BunServices.layer))
 
 describe("orchestrator file validation", () => {
-  test("an unknown chef, a step on a chef outside chefs, and a bad cron are load errors naming what is loaded", () =>
+  test("an unknown agent, a step on an agent outside agents, and a bad cron are load errors naming what is loaded", () =>
     Effect.gen(function*() {
       const root = yield* tempHome
-      const dir = yield* builtinChefs(root, ["widget"])
+      const dir = yield* builtinAgents(root, ["widget"])
       const message = yield* Effect.gen(function*() {
         const fs = yield* FileSystem.FileSystem
         yield* fs.makeDirectory(`${root}/orchestrators`)
-        const chefs = yield* (yield* Chefs).current
+        const agents = yield* (yield* Agents).current
         return yield* parseOrchestrator(`${root}/orchestrators/loop.json`, json(spec([5], {
-          chefs: ["ghost"],
+          agents: ["ghost"],
           cadence: { cron: "every tuesday" },
-          steps: { ask: { kind: "chef", description: "Ask.", chef: "widget", request: "widget.requested" } }
-        })), chefs).pipe(Effect.flip, Effect.map((error) => error.message))
+          steps: { ask: { kind: "agent", description: "Ask.", agent: "widget", request: "widget.requested" } }
+        })), agents).pipe(Effect.flip, Effect.map((error) => error.message))
       }).pipe(Effect.provide(oneProcess(root, { dirs: [dir] })))
-      expect(message).toContain("chefs: unknown chef ghost (loaded: widget)")
-      expect(message).toContain("steps.ask: chef widget is not in chefs")
+      expect(message).toContain("agents: unknown agent ghost (loaded: widget)")
+      expect(message).toContain("steps.ask: agent widget is not in agents")
       expect(message).toContain(`cadence: bad cron "every tuesday"`)
     }).pipe(Effect.scoped, Effect.runPromise))
 })

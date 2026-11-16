@@ -1,5 +1,0 @@
-{
-  "id": "ecard-slack-fetch",
-  "kind": "code",
-  "module": "../src/chefs/ecard-slack-fetch.ts"
-}

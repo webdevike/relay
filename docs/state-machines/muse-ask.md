@@ -1,6 +1,6 @@
 # One question to Muse's desktop app (web-researcher's Muse source)
 
-One question from the web-researcher chef to Meta's Muse desktop app, signed in as Isaac (`packages/atomic-agents/src/adapters/research/muse/ask.machine.ts`, driven by `muse/driver.ts` over cua-driver in the background). It ends `done` with Muse's answer and links, or `failed` with a kind (unavailable, signed out, busy, UI changed, rate limited, timeout) the researcher reports before falling back to agent-reach.
+One question from the web-researcher agent to Meta's Muse desktop app, signed in as Isaac (`packages/atomic-agents/domains/research/adapters/muse/ask.machine.ts`, driven by `muse/driver.ts` over cua-driver in the background). It ends `done` with Muse's answer and links, or `failed` with a kind (unavailable, signed out, busy, UI changed, rate limited, timeout) the researcher reports before falling back to agent-reach.
 
 - `attaching`: Muse is launched in the background if needed, must be signed in and not the app in front (Isaac using it), and its window is parked in the screen's bottom-right corner.
 - `opening`: presses New side chat and waits for an empty chat with a composer.

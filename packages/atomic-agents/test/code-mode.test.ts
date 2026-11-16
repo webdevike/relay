@@ -3,14 +3,14 @@ import { describe, expect, test } from "bun:test"
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { Effect, Option, Ref, Schema } from "effect"
-import { toolAdapter } from "../src/Adapter.ts"
-import { parseChef } from "../src/Chef.ts"
-import { codeTool } from "../src/CodeMode.ts"
-import { EventBus, lifecycle } from "../src/Event.ts"
-import { type GenerateRequest, ModelRunner } from "../src/Model.ts"
-import { Runner } from "../src/Runtime.ts"
-import { Settings } from "../src/Settings.ts"
-import { builtinChefs, oneProcess, runtime, tempHome } from "./harness.ts"
+import { toolAdapter } from "../src/core/Adapter.ts"
+import { parseAgent } from "../src/core/Agent.ts"
+import { codeTool } from "../src/core/CodeMode.ts"
+import { EventBus, lifecycle } from "../src/core/Event.ts"
+import { type GenerateRequest, ModelRunner } from "../src/core/Model.ts"
+import { Runner } from "../src/core/Runtime.ts"
+import { Settings } from "../src/core/Settings.ts"
+import { builtinAgents, oneProcess, runtime, tempHome } from "./harness.ts"
 
 const echo = toolAdapter({
   name: "test.echo",
@@ -48,7 +48,7 @@ describe("code mode sandbox", () => {
   }, 20_000)
 })
 
-/** A recipe chef with one tool (gmail's sender_history; the scripted model never calls it) and the widget chef, which has none. */
+/** A spec agent with one tool (gmail's sender_history; the scripted model never calls it) and the widget agent, which has none. */
 const lookup = {
   id: "lookup",
   purpose: "Say whether a sender is known.",
@@ -67,11 +67,11 @@ const lookup = {
   }
 }
 
-describe("tool mode per chef", () => {
-  test("config.json switches a chef's tool mode live: the next run's model gets run_code over typed functions, job.started records the mode, and the change's undo puts tools back", () =>
+describe("tool mode per agent", () => {
+  test("config.json switches an agent's tool mode live: the next run's model gets run_code over typed functions, job.started records the mode, and the change's undo puts tools back", () =>
     Effect.gen(function*() {
       const root = yield* tempHome
-      const dir = yield* builtinChefs(root, ["widget"])
+      const dir = yield* builtinAgents(root, ["widget"])
       yield* Effect.promise(() => Bun.write(`${dir}/lookup.json`, JSON.stringify(lookup)))
       const seen = yield* Ref.make<ReadonlyArray<GenerateRequest>>([])
       const models = ModelRunner.of({
@@ -108,7 +108,7 @@ describe("tool mode per chef", () => {
         const undone = yield* look()
         expect(undone.started).toMatchObject({ toolMode: "tools" })
 
-        // A bake-off arm overrides the mode for one run; a chef without tools has no tool mode, in config or as an override.
+        // A bake-off arm overrides the mode for one run; an agent without tools has no tool mode, in config or as an override.
         const arm = yield* look({ toolMode: "code" })
         expect(arm.started).toMatchObject({ toolMode: "code" })
         expect(arm.system).toContain("run_code")
@@ -118,11 +118,11 @@ describe("tool mode per chef", () => {
       }).pipe(Effect.provide(runtime(root, { dirs: [dir] }, models)))
     }).pipe(Effect.scoped, Effect.runPromise), 30_000)
 
-  test("a chef with tools must ship a code example, so it can run either mode", () =>
+  test("an agent with tools must ship a code example, so it can run either mode", () =>
     Effect.gen(function*() {
       const root = yield* tempHome
       const { codeExample: _, ...job } = lookup.job
-      const error = yield* parseChef(`${root}/lookup.json`, JSON.stringify({ ...lookup, job })).pipe(Effect.flip, Effect.provide(oneProcess(root)))
-      expect(error.message).toContain("job.codeExample: a chef with job.tools needs one")
+      const error = yield* parseAgent(`${root}/lookup.json`, JSON.stringify({ ...lookup, job })).pipe(Effect.flip, Effect.provide(oneProcess(root)))
+      expect(error.message).toContain("job.codeExample: an agent with job.tools needs one")
     }).pipe(Effect.scoped, Effect.runPromise))
 })

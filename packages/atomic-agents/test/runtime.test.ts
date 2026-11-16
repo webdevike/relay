@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import { Deferred, Effect, FileSystem, Layer, Option, Schedule, Schema } from "effect"
 import { TestClock } from "effect/testing"
-import { Background } from "../src/Background.ts"
-import { define, job, OnEvent, type Registered, Trigger } from "../src/Component.ts"
-import { AgentEvent, EventBus, Lifecycle, lifecycle } from "../src/Event.ts"
-import { Runner } from "../src/Runtime.ts"
-import { events as runtimeEvents } from "../src/RuntimeEvents.ts"
-import { Settings } from "../src/Settings.ts"
+import { Background } from "../src/core/Background.ts"
+import { define, job, OnEvent, type Registered, Trigger } from "../src/core/Component.ts"
+import { AgentEvent, EventBus, Lifecycle, lifecycle } from "../src/core/Event.ts"
+import { Runner } from "../src/core/Runtime.ts"
+import { events as runtimeEvents } from "../src/core/RuntimeEvents.ts"
+import { Settings } from "../src/core/Settings.ts"
 import { oneProcess, runtime, tempHome } from "./harness.ts"
 
 class Boom extends Schema.TaggedError<Boom>()("Boom", { message: Schema.String }) {}

@@ -1,7 +1,7 @@
 import { Layer, Schema } from "effect"
-import { define, job, Trigger } from "../../src/Component.ts"
+import { define, job, Trigger } from "../../src/core/Component.ts"
 
-/** A code component a `kind: "code"` chef file points at (the escape hatch). */
+/** A code component a `kind: "code"` agent file points at (the escape hatch). */
 const events = { "echo.done": Schema.Struct({ said: Schema.String }) }
 
 export const echo = define({

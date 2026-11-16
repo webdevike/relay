@@ -12,7 +12,7 @@ import { EVA_FIXTURE_ROOT } from './helpers/paths'
 // (EVAOS_PROOF=1).
 
 const PHASE = 'phase-files-reveal'
-const REL = 'work/relay-runtime/packages/atomic-agents/src/Chef.ts'
+const REL = 'work/relay-runtime/packages/atomic-agents/src/core/Agent.ts'
 
 let root: string
 let file: string
@@ -31,7 +31,7 @@ const test = base.extend({
     fs.writeFileSync(path.join(root, 'work/tracked/notes.md'), '# tracked\n')
     file = path.join(root, REL)
     fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(file, 'export class Chef {\n  cook(): string {\n    return "soup"\n  }\n}\n')
+    fs.writeFileSync(file, 'export class Agent {\n  run(): string {\n    return "done"\n  }\n}\n')
     git(path.join(root, 'work/relay-runtime'), 'init', '-q')
     git(root, 'add', '-A')
     git(root, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'init')
@@ -60,7 +60,7 @@ test('files.open inside an ignored nested repo expands the ancestors and selects
   const opened = (await res.json()) as { ok: boolean; code?: string; message?: string }
   expect(opened.ok, `files.open: ${opened.code} ${opened.message}`).toBe(true)
 
-  await expect(shell.locator('[data-testid=files-editor] .view-lines')).toContainText('class Chef')
+  await expect(shell.locator('[data-testid=files-editor] .view-lines')).toContainText('class Agent')
   // Beside the chat the panel is narrow: the floating sidebar steps aside once a file opens, so
   // Isaac opens the Explorer to see where the file sits.
   await shell
@@ -73,7 +73,7 @@ test('files.open inside an ignored nested repo expands the ancestors and selects
   for (const dir of [
     'work',
     'work/relay-runtime',
-    'work/relay-runtime/packages/atomic-agents/src',
+    'work/relay-runtime/packages/atomic-agents/src/core',
   ]) {
     await expect(shell.locator(`[data-testid=files-row][data-path="${dir}"]`)).toBeVisible()
   }

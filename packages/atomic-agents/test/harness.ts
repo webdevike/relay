@@ -1,13 +1,13 @@
 import { BunServices } from "@effect/platform-bun"
 import { ConfigProvider, Effect, FileSystem, Layer } from "effect"
-import { Adapters, type Pack } from "../src/Adapter.ts"
-import { packs as defaultPacks } from "../src/adapters/index.ts"
-import { BUILTIN_CHEFS, Chefs } from "../src/Chef.ts"
-import type { Registered } from "../src/Component.ts"
-import { EventBus, Home } from "../src/Event.ts"
-import { ModelRunner } from "../src/Model.ts"
-import { Runner } from "../src/Runtime.ts"
-import { Settings } from "../src/Settings.ts"
+import { Adapters, type Pack } from "../src/core/Adapter.ts"
+import { packs as defaultPacks } from "../src/packs.ts"
+import { BUILTIN_AGENTS, Agents } from "../src/core/Agent.ts"
+import type { Registered } from "../src/core/Component.ts"
+import { EventBus, Home } from "../src/core/Event.ts"
+import { ModelRunner } from "../src/core/Model.ts"
+import { Runner } from "../src/core/Runtime.ts"
+import { Settings } from "../src/core/Settings.ts"
 
 const homeAt = (root: string) =>
   Layer.succeed(Home, Home.of({
@@ -20,7 +20,7 @@ const homeAt = (root: string) =>
 export interface World {
   /** Components passed in as code. */
   readonly code?: ReadonlyArray<Registered>
-  /** Chef dirs to load (default none). */
+  /** Agent dirs to load (default none). */
   readonly dirs?: ReadonlyArray<string>
   /** Adapter packs (default: the package's own). */
   readonly packs?: ReadonlyArray<Pack>
@@ -28,10 +28,10 @@ export interface World {
   readonly env?: Readonly<Record<string, string>>
 }
 
-/** Settings, chefs and EventBus over `root`: what one process (the service, or a CLI command) builds. */
+/** Settings, agents and EventBus over `root`: what one process (the service, or a CLI command) builds. */
 export const oneProcess = (root: string, world: World = {}) =>
   Settings.layer.pipe(
-    Layer.provideMerge(Chefs.make({ dirs: () => world.dirs ?? [], code: world.code ?? [] })),
+    Layer.provideMerge(Agents.make({ dirs: () => world.dirs ?? [], code: world.code ?? [] })),
     Layer.provideMerge(Adapters.make(world.packs ?? defaultPacks)),
     Layer.provideMerge(EventBus.layer),
     Layer.provideMerge(homeAt(root)),
@@ -54,22 +54,24 @@ export const tempHome = Effect.gen(function*() {
   return yield* fs.makeTempDirectoryScoped({ prefix: "atomic-agents-test-" })
 }).pipe(Effect.provide(BunServices.layer))
 
-/** A chef dir under `root` holding these built-in chef files (and their knowledge files), as shipped. */
-export const builtinChefs = (root: string, ids: ReadonlyArray<string>) =>
+/** An agent dir under `root` holding these built-in agent files (and their knowledge files), as shipped. */
+export const builtinAgents = (root: string, ids: ReadonlyArray<string>) =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
-    const dir = `${root}/chefs`
+    const dir = `${root}/agents`
     yield* fs.makeDirectory(dir, { recursive: true })
-    for (const name of yield* fs.readDirectory(BUILTIN_CHEFS)) {
-      if (ids.some((id) => name.startsWith(`${id}.`))) yield* fs.copyFile(`${BUILTIN_CHEFS}/${name}`, `${dir}/${name}`)
+    for (const builtin of BUILTIN_AGENTS) {
+      for (const name of yield* fs.readDirectory(builtin)) {
+        if (ids.some((id) => name.startsWith(`${id}.`))) yield* fs.copyFile(`${builtin}/${name}`, `${dir}/${name}`)
+      }
     }
     return dir
   }).pipe(Effect.provide(BunServices.layer))
 
-/** The chef in force with this id. */
-export const chef = (id: string) =>
+/** The agent in force with this id. */
+export const agent = (id: string) =>
   Effect.gen(function*() {
-    const found = (yield* (yield* Chefs).current).find((candidate) => candidate.id === id)
-    if (found === undefined) return yield* Effect.die(new Error(`no chef ${id} loaded`))
+    const found = (yield* (yield* Agents).current).find((candidate) => candidate.id === id)
+    if (found === undefined) return yield* Effect.die(new Error(`no agent ${id} loaded`))
     return found
   })
