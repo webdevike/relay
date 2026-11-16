@@ -161,6 +161,12 @@ describe("agentRunsByRow", () => {
 
   it("each turn's runs land on its last reply, or on its last call while no reply came yet", () => {
     const done: AgentRun = { ...running, status: "done" };
+    const other: AgentRun = {
+      agent: "design-critic",
+      run: "r-2",
+      status: "running",
+      startedAt: 2_000,
+    };
     const rows: Row[] = [
       "user",
       "reply",
@@ -171,11 +177,19 @@ describe("agentRunsByRow", () => {
       "user",
       "reply",
       "user",
-      running,
+      other,
     ];
     const placed = agentRunsByRow(rows, kind);
     expect([...placed.keys()]).toEqual([5, 9]);
     expect(placed.get(5)).toEqual([{ ...done, startedAt: 1_000 }]);
-    expect(placed.get(9)).toEqual([running]);
+    expect(placed.get(9)).toEqual([other]);
+  });
+
+  it("a run finished by agents_result in a later turn reads done on the earlier turn too", () => {
+    const done: AgentRun = { ...running, status: "done", seconds: 90 };
+    const placed = agentRunsByRow<Row>(["user", running, "reply", "user", done, "reply"], kind);
+    expect(placed.get(2)).toEqual([{ ...done, startedAt: 1_000 }]);
+    expect(placed.get(5)).toEqual([{ ...done, startedAt: 1_000 }]);
+    expect(agentsCaption(placed.get(2)!, 500_000)).toBe("Answered with Web researcher · 1m 30s");
   });
 });

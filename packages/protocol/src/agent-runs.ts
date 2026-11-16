@@ -238,25 +238,35 @@ export function agentsCaption(runs: readonly AgentRun[], now: number): string {
 /**
  * Where each turn's specialist runs show. `kind` reads a row: `user` starts a turn, `reply` is an assistant reply,
  * a run is a row carrying one (an agents call). Each turn's runs are folded and keyed by the index of the turn's
- * last reply, else (no reply yet) of its last run row.
+ * last reply, else (no reply yet) of its last run row. A run shows its latest state everywhere: an ask left running
+ * in one turn and finished by `agents_result` in a later one reads done in both.
  */
 export function agentRunsByRow<T>(
   rows: readonly T[],
   kind: (row: T) => "user" | "reply" | AgentRun | undefined,
 ): Map<number, AgentRun[]> {
+  const kinds = rows.map(kind);
+  const latest = new Map<string, AgentRun>();
+  for (const r of foldAgentRuns(kinds.filter((k): k is AgentRun => typeof k === "object"))) {
+    if (r.run !== undefined) latest.set(r.run, r);
+  }
   const out = new Map<number, AgentRun[]>();
   let runs: AgentRun[] = [];
   let reply = -1;
   let lastRun = -1;
   const close = () => {
     const at = reply >= 0 ? reply : lastRun;
-    if (runs.length > 0 && at >= 0) out.set(at, foldAgentRuns(runs));
+    if (runs.length > 0 && at >= 0) {
+      out.set(
+        at,
+        foldAgentRuns(runs).map((r) => (r.run === undefined ? r : (latest.get(r.run) ?? r))),
+      );
+    }
     runs = [];
     reply = -1;
     lastRun = -1;
   };
-  rows.forEach((row, i) => {
-    const k = kind(row);
+  kinds.forEach((k, i) => {
     if (k === "user") close();
     else if (k === "reply") reply = i;
     else if (k !== undefined) {
