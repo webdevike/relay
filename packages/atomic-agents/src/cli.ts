@@ -264,12 +264,20 @@ const askCommand = Command.make("ask", {
   yield* Console.error(`answered in ${seconds.toFixed(2)}s: ${JSON.stringify(reply.data).slice(0, 300)}`)
 }))
 
-/** JSON on stdout for tools (the `relay` MCP server's agents_*): a refused request prints `{error, schema?}` too, then fails. */
+/**
+ * JSON on stdout for tools (the `relay` MCP server's agents_*), and nothing else there: a refused request prints
+ * `{error, schema?}` and exits 2 instead of failing, which would log the error with its trace to stdout.
+ */
 const printJson = <A, E extends { readonly message: string; readonly schema?: unknown }, R>(effect: Effect.Effect<A, E, R>) =>
-  effect.pipe(
-    Effect.tap((value) => Console.log(JSON.stringify(value))),
-    Effect.tapError((error) => Console.log(JSON.stringify({ error: error.message, ...(error.schema === undefined ? {} : { schema: error.schema }) })))
-  )
+  effect.pipe(Effect.matchEffect({
+    onSuccess: (value) => Console.log(JSON.stringify(value)),
+    onFailure: (error) =>
+      Console.log(JSON.stringify({ error: error.message, ...(error.schema === undefined ? {} : { schema: error.schema }) })).pipe(
+        Effect.andThen(Effect.sync(() => {
+          process.exitCode = 2
+        }))
+      )
+  }))
 
 /** Every agent that answers requests, as JSON: id, purpose, request and reply JSON Schema, model, typical seconds and cost. */
 const catalogCommand = Command.make("catalog", {}, () => printJson(Requests.catalog))
