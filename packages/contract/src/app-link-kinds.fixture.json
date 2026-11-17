@@ -254,6 +254,13 @@
       "phone": "/settings"
     },
     {
+      "what": "settings section: Meetings",
+      "params": { "page": "settings", "section": "Meetings" },
+      "url": "relay://open/settings/meetings",
+      "phone": "/settings",
+      "notice": "That settings section is on desktop"
+    },
+    {
       "what": "settings section: Connections",
       "params": { "page": "settings", "section": "Connections" },
       "url": "relay://open/settings/connections",

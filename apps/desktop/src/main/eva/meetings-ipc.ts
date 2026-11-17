@@ -89,13 +89,23 @@ export function registerMeetingsIpc(
   handle(ctx, 'meetings.open', async ({ id }) => {
     if (!remote()) throw noHost()
     const { snapshot } = (await host.req({ kind: 'open', id })) as {
-      snapshot: { recording: never; lines: never; astra: HostAstraItem | null; notes: never }
+      snapshot: {
+        recording: never
+        lines: never
+        astra: HostAstraItem | null
+        notes: never
+        moments?: never[]
+        shots?: never[]
+      }
     }
     return {
       recording: snapshot.recording,
       lines: snapshot.lines,
       astra: snapshot.astra === null ? null : meetingAstra(snapshot.astra),
       notes: snapshot.notes,
+      // Older hosts leave them out.
+      moments: snapshot.moments ?? [],
+      shots: snapshot.shots ?? [],
     }
   })
   handle(ctx, 'meetings.ask', async ({ id, question }) => {
@@ -129,6 +139,10 @@ export function registerMeetingsIpc(
       emit(ctx, 'meetings.changed', { kind: 'recording', recording: f.recording as never })
     } else if (f.t === 'meeting.live' && typeof f.id === 'string')
       emit(ctx, 'meetings.changed', { kind: 'live', id: f.id, upsert: f.upsert as never })
+    else if (f.t === 'meeting.moments' && typeof f.id === 'string')
+      emit(ctx, 'meetings.changed', { kind: 'moments', id: f.id, moments: f.moments as never })
+    else if (f.t === 'meeting.shot' && typeof f.id === 'string')
+      emit(ctx, 'meetings.changed', { kind: 'shot', id: f.id, shot: f.shot as never })
     else if (f.t === 'meeting.astra' && typeof f.id === 'string')
       emit(ctx, 'meetings.changed', {
         kind: 'astra',

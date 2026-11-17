@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { MeetingMoment } from '@relay/protocol'
+import type { KeyMoment, LiveLine } from '@relay/protocol'
 import {
   endedSections,
   jumpTop,
@@ -7,17 +7,28 @@ import {
   meetingWhen,
   momentLabel,
   nearBottom,
+  openAsks,
 } from './meeting-panel'
 
 const at = (h: number, m: number, day = 12): number => new Date(2026, 10, day, h, m).getTime()
-const moment = (over: Partial<MeetingMoment>): MeetingMoment => ({
-  id: 'r:0',
+const moment = (over: Partial<KeyMoment>): KeyMoment => ({
+  id: 'km0',
   kind: 'action',
-  rowId: 'r',
-  startMs: 35 * 60_000,
+  atMs: 35 * 60_000,
+  lineId: 'l0',
   speaker: 'Todd',
   text: 'Ship it.',
-  answered: false,
+  shot: null,
+  ...over,
+})
+const mic = (startMs: number, over: Partial<LiveLine> = {}): LiveLine => ({
+  id: `m${startMs}`,
+  track: 'mic',
+  speaker: 'Isaac',
+  startMs,
+  endMs: startMs + 2000,
+  text: 'Sure.',
+  final: true,
   ...over,
 })
 
@@ -37,38 +48,31 @@ describe('meeting panel wording', () => {
     )
   })
 
-  it('labels moments by kind, and questions to Isaac by who asked and whether he answered', () => {
-    const start = at(14, 0)
-    const now = start + 55 * 60_000
-    expect(momentLabel(moment({ kind: 'action', speaker: 'Priya' }), true, start, now)).toBe(
-      'Action · Priya',
-    )
-    expect(momentLabel(moment({ kind: 'decision' }), false, start, now)).toBe('Decision · Todd')
-    expect(momentLabel(moment({ kind: 'you' }), true, start, now)).toBe(
-      'Todd · 20 min ago, no reply yet',
-    )
-    expect(momentLabel(moment({ kind: 'you', startMs: 54.5 * 60_000 }), true, start, now)).toBe(
-      'Todd · just now, no reply yet',
-    )
-    expect(momentLabel(moment({ kind: 'you' }), false, start, now)).toBe('Todd · no reply yet')
-    expect(momentLabel(moment({ kind: 'you', answered: true }), true, start, now)).toBe(
-      'Todd asked you',
-    )
+  it('labels key moments by kind and speaker, and an open ask as still waiting', () => {
+    expect(momentLabel(moment({ kind: 'action', speaker: 'Priya' }), false)).toBe('Action · Priya')
+    expect(momentLabel(moment({ kind: 'decision' }), false)).toBe('Decision · Todd')
+    expect(momentLabel(moment({ kind: 'claim' }), false)).toBe('Claim · Todd')
+    expect(momentLabel(moment({ kind: 'ask' }), true)).toBe('Asks you · Todd · no reply yet')
+    expect(momentLabel(moment({ kind: 'ask' }), false)).toBe('Asks you · Todd')
   })
 
-  it("leads the ended view with Isaac's open questions, then actions, then decisions", () => {
+  it("leads the ended view with Isaac's open asks, then actions, then decisions", () => {
     const ms = [
       moment({ id: 'a', kind: 'action', text: 'Dry run.' }),
-      moment({ id: 'b', kind: 'you', text: 'Isaac, the dashboard?' }),
-      moment({ id: 'c', kind: 'you', text: 'Isaac, seen it?', answered: true }),
+      moment({ id: 'b', kind: 'ask', text: 'Isaac, the dashboard?', atMs: 40 * 60_000 }),
+      moment({ id: 'c', kind: 'ask', text: 'Isaac, seen it?', atMs: 10 * 60_000 }),
       moment({ id: 'd', kind: 'decision', text: 'Ship Thursday.' }),
     ]
-    const s = endedSections(ms, [])
+    // Isaac spoke at 20 min (answering c); his echoed line at 45 min does not count.
+    const lines = [mic(20 * 60_000), mic(45 * 60_000, { echo: true })]
+    const open = openAsks(ms, lines)
+    expect([...open]).toEqual(['b'])
+    const s = endedSections(ms, open, [])
     expect(s.forYou.map((m) => m.id)).toEqual(['b'])
     expect(s.actions.map((m) => m.id)).toEqual(['a'])
     expect(s.decided).toEqual(['Ship Thursday.'])
-    // The written notes' decisions win over the detected ones.
-    expect(endedSections(ms, ['MFA by month end.']).decided).toEqual(['MFA by month end.'])
+    // The written notes' decisions win over the key moments'.
+    expect(endedSections(ms, open, ['MFA by month end.']).decided).toEqual(['MFA by month end.'])
   })
 
   it('follows within 24px of the end and jumps a row to a third of the view', () => {

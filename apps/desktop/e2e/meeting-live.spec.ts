@@ -3,13 +3,14 @@ import * as path from 'node:path'
 import { test as base, expect } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { FakeRelayHost, type HostSession } from './helpers/fake-relay-host'
+import { MEETING_PROOF_DIR } from './helpers/meeting-proof'
 import { EVA_FIXTURE_ROOT } from './helpers/paths'
 import { proofShot } from './helpers/proofShot'
 
 // A meeting lives in the chat of the assistant it is routed to: a one-row card ("Meeting in
 // progress · <title>", live dot, ticking elapsed) above Astra's composer; a click opens it beside
-// the chat as a Meeting tab (Now: the speaker and what they said; an Ask menu that posts into the
-// chat as Isaac); when the host routes it elsewhere the card follows; once the notes are written
+// the chat as a Meeting tab (Now: the key moments the host found and the shared screen's
+// snapshots as they arrive; an Ask menu that posts into the chat as Isaac); when the host routes it elsewhere the card follows; once the notes are written
 // the card reads "Meeting ended" with Summary. A fake Relay host that runs Meetings pushes it all.
 // meeting-panel.spec.ts covers the panel itself.
 
@@ -47,6 +48,28 @@ const lines = LINES.map(([t, speaker, text], i) => ({
   text,
   final: true,
 }))
+
+const MOMENTS = [
+  {
+    id: 'km1',
+    kind: 'ask',
+    atMs: at('14:09'),
+    lineId: 'l2',
+    speaker: 'Todd',
+    text: 'Todd wants an admin screen that shows every failure',
+    shot: null,
+  },
+  {
+    id: 'km2',
+    kind: 'ask',
+    atMs: at('16:35'),
+    lineId: 'l4',
+    speaker: 'Todd',
+    text: 'Isaac to take the failures dashboard',
+    shot: null,
+  },
+]
+const SHOT_JPEG = fs.readFileSync(path.join(MEETING_PROOF_DIR, 'shots', '0.jpg'))
 
 let fx: ChatFixture
 let host: FakeRelayHost
@@ -132,6 +155,7 @@ const test = base.extend({
     if (withMeeting) {
       host.meetings.recordings = [recording]
       host.meetings.lines.set(ID, lines)
+      host.meetings.moments.set(ID, MOMENTS)
     }
     await use({ ...fx.launchEnv, EVAOS_EVA_ROOT: evaRoot, EVAOS_RELAY_DIR: relayDir })
     await host.close()
@@ -165,12 +189,14 @@ test("a live meeting shows as a card in its assistant's chat and opens beside it
   await expect(elapsed).not.toHaveText(first ?? '', { timeout: 3000 })
   await proofShot(app, shell, 'after-card', { phase: 'live-meeting' })
 
-  // 2. A click opens the Meeting tab beside the chat: Now shows who is speaking and what they said.
+  // 2. A click opens the Meeting tab beside the chat: Now lists the key moments, newest first.
   await card.click()
   const tab = shell.locator(sel('meeting-tab'))
   await expect(tab).toBeVisible()
-  await expect(tab.locator(sel('meeting-speaker'))).toContainText('Todd')
-  await expect(tab.locator(sel('meeting-speaker'))).toContainText('take the dashboard?')
+  const moments = tab.locator(sel('meeting-moment'))
+  await expect(moments).toHaveCount(2)
+  await expect(moments.first()).toContainText('Isaac to take the failures dashboard')
+  await expect(moments.first()).toContainText('Asks you · Todd · no reply yet')
   await expect(tab.locator(sel('meeting-tab-when'))).toHaveText(/^1[67] min$/)
   await proofShot(app, shell, 'after-tab', { phase: 'live-meeting' })
 
@@ -186,20 +212,44 @@ test("a live meeting shows as a card in its assistant's chat and opens beside it
     )
     .toContain('Catch me up on the meeting')
 
-  // 4. More said: Now follows the new speaker and what they are saying.
-  host.meetingLive(ID, [
+  // 4. The host finds another key moment, Chris shares his screen and a snapshot arrives: Now
+  // puts the moment on top and the snapshot in a strip under the moments.
+  host.meetingMoments(ID, [
+    ...MOMENTS,
     {
-      id: 'l9',
-      track: 'app',
+      id: 'km3',
+      kind: 'action',
+      atMs: at('16:50'),
+      lineId: 'l9',
       speaker: 'Chris',
-      startMs: at('16:50'),
-      endMs: at('16:54'),
-      text: 'I can pair on the Flyway script.',
-      final: false,
+      text: 'Chris pairs on the Flyway script',
+      shot: 0,
     },
   ])
-  await expect(tab.locator(sel('meeting-speaker'))).toContainText('Chris')
-  await expect(tab.locator(sel('meeting-speaker'))).toContainText('pair on the Flyway script')
+  await expect(moments.first()).toContainText('Chris pairs on the Flyway script')
+  await expect(moments.first()).toContainText('Action · Chris')
+  host.meetingRecording({ ...recording, share: 'sharing' })
+  host.meetingShot(
+    ID,
+    {
+      n: 0,
+      atMs: at('16:45'),
+      src: `/meetings/shots/${ID}/tok/0`,
+      w: 1600,
+      h: 900,
+      line: 'Chris: I can pair on the Flyway script.',
+      ocr: 'Release 4.12: ship checklist',
+    },
+    SHOT_JPEG,
+  )
+  const thumb = tab.locator(sel('meeting-shot'))
+  await expect(thumb).toHaveCount(1)
+  await expect(thumb).toContainText('16:45')
+  await expect
+    .poll(() => thumb.locator('img').evaluate((i) => (i as HTMLImageElement).naturalWidth))
+    .toBeGreaterThan(0)
+  await expect(tab.locator(sel('meeting-moment-shot'))).toHaveCount(1)
+  await proofShot(app, shell, 'after-tab-shot', { phase: 'live-meeting' })
 
   // 5. The host routes it to Nova: the card leaves Astra's chat.
   host.meetingRecording({ ...recording, assistant: 'nova' })

@@ -5,7 +5,8 @@
 // approvals, hold live canvas rooms (with a tiny room page on the same port, as the host serves
 // its web client), run Studio (its backends and presets, a paid one with models and a balance,
 // projects, references, favorites, trash, SAM 2.1 segments, jobs that finish when a test says so,
-// assets served at `/studio/<id>/<token>` from fixture files), and
+// assets served at `/studio/<id>/<token>` from fixture files), run Meetings (recordings, live
+// lines, key moments, screen snapshots served at `/meetings/shots/<id>/<token>/<n>`), and
 // read every command the app sent. No WebSocket library: the few frame types Relay uses are
 // framed here (RFC 6455, text, ping, close).
 import { createHash, createHmac, randomBytes } from 'node:crypto'
@@ -697,11 +698,17 @@ export class FakeRelayHost {
 
   /**
    * Meetings (relay packages/protocol/src/meetings.ts): the recordings `meetings.list` answers and
-   * each one's live lines, answered to an `open` op; a `stop` is acknowledged (the spec pushes the
-   * stages that follow). Add 'meetings' to `features` to turn it on.
+   * each one's live lines, key moments and screen snapshots, answered to an `open` op; a `stop` is
+   * acknowledged (the spec pushes the stages that follow). Add 'meetings' to `features` to turn it
+   * on.
    */
-  readonly meetings: { recordings: Json[]; lines: Map<string, Json[]>; notes: Map<string, Json> } =
-    { recordings: [], lines: new Map(), notes: new Map() }
+  readonly meetings: {
+    recordings: Json[]
+    lines: Map<string, Json[]>
+    notes: Map<string, Json>
+    moments: Map<string, Json[]>
+    shots: Map<string, Json[]>
+  } = { recordings: [], lines: new Map(), notes: new Map(), moments: new Map(), shots: new Map() }
   /** Every `meetings.req` op the app sent, in order. */
   readonly meetingOps: Json[] = []
 
@@ -718,6 +725,22 @@ export class FakeRelayHost {
     const ids = new Set(upsert.map((l) => l.id))
     this.meetings.lines.set(id, [...have.filter((l) => !ids.has(l.id)), ...upsert])
     this.broadcast({ t: 'meeting.live', id, upsert })
+  }
+
+  /** A recording's key moments changed: the host's `meeting.moments` push (the whole list). */
+  meetingMoments(id: string, moments: Json[]): void {
+    this.meetings.moments.set(id, moments)
+    this.broadcast({ t: 'meeting.moments', id, moments })
+  }
+
+  /**
+   * A screen snapshot: its JPEG served at its `src` like the host's `/meetings/shots/...`, and with
+   * `push` the host's `meeting.shot` (else it only shows in the next `open`).
+   */
+  meetingShot(id: string, shot: Json, jpeg: Buffer, push = true): void {
+    this.studioFiles.set(String(shot.src), { body: jpeg, type: 'image/jpeg' })
+    this.meetings.shots.set(id, [...(this.meetings.shots.get(id) ?? []), shot])
+    if (push) this.broadcast({ t: 'meeting.shot', id, shot })
   }
 
   private meetingsReq(peer: Peer, rid: string, op: Json): void {
@@ -737,6 +760,8 @@ export class FakeRelayHost {
         lines: this.meetings.lines.get(id) ?? [],
         astra: null,
         notes: this.meetings.notes.get(id) ?? null,
+        moments: this.meetings.moments.get(id) ?? [],
+        shots: this.meetings.shots.get(id) ?? [],
       },
     })
   }

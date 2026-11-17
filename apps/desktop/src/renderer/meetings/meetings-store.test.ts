@@ -6,8 +6,10 @@ vi.mock('../ipc', () => ({ invoke: (...a: unknown[]) => invoke(...a), on: () => 
 import { meetingTitle } from '../eva/names-store'
 import { reloadPages } from '../reload/reload'
 import {
+  applyMeetingsChange,
   loadMeeting,
   loadMeetings,
+  loadRecording,
   meetingsStore,
   mountMeetings,
   resetMeetingsForTests,
@@ -82,6 +84,45 @@ describe('meetingsStore', () => {
     invoke.mockClear()
     await reloadPages()
     expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it("keeps a page's key moments and screen snapshots current from the host's pushes", async () => {
+    const id = '6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e11'
+    // An older host's page has neither.
+    invoke.mockResolvedValue({
+      ok: true,
+      value: { recording: { id }, lines: [], astra: null, notes: null },
+    })
+    await loadRecording(id)
+    expect(meetingsStore.getState().views[id]).toMatchObject({ moments: [], shots: [] })
+    const moment = {
+      id: 'km1',
+      kind: 'ask',
+      atMs: 1000,
+      lineId: 'l1',
+      speaker: 'Todd',
+      text: 'Isaac to take the dashboard',
+      shot: null,
+    } as const
+    applyMeetingsChange({ kind: 'moments', id, moments: [moment] })
+    const shot = (n: number) => ({
+      n,
+      atMs: n * 1000,
+      src: `/meetings/shots/${id}/t/${n}`,
+      w: 4,
+      h: 3,
+      line: '',
+      ocr: '',
+    })
+    applyMeetingsChange({ kind: 'shot', id, shot: shot(1) })
+    applyMeetingsChange({ kind: 'shot', id, shot: shot(0) })
+    applyMeetingsChange({ kind: 'shot', id, shot: { ...shot(1), ocr: 'again' } })
+    const v = meetingsStore.getState().views[id]!
+    expect(v.moments).toEqual([moment])
+    expect(v.shots.map((s) => [s.n, s.ocr])).toEqual([
+      [0, ''],
+      [1, 'again'],
+    ])
   })
 })
 

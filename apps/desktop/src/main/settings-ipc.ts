@@ -1,5 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { DEFAULT_SNAPSHOT_CHANGE } from '@evaos/contract'
 import type { ConfigStore } from './config-store'
 import type { MainContext } from './context'
 import { handle } from './ipc/handle'
@@ -16,6 +17,8 @@ export interface ChatSettings {
   harness: 'omp' | 'claude'
   /** Starred models as `provider/id`, in star order; shared with native EvaOS. */
   favorite_models: string[]
+  /** Percent (1-50) of the 256-bit screen hash that must differ before a new screen-share snapshot is saved. */
+  meeting_snapshot_change: number
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -29,6 +32,13 @@ function readFile(config: ConfigStore, name: string): Record<string, unknown> {
 function pickBool(key: string, files: Record<string, unknown>[], dflt: boolean): boolean {
   for (const f of files) if (typeof f[key] === 'boolean') return f[key]
   return dflt
+}
+
+/** The snapshot threshold, rounded and clamped to 1-50; the default when missing or not a number. */
+function pickSnapshotChange(files: Record<string, unknown>[]): number {
+  const v = files.map((f) => f['meeting_snapshot_change']).find((x) => typeof x === 'number')
+  if (v === undefined || !Number.isFinite(v)) return DEFAULT_SNAPSHOT_CHANGE
+  return Math.min(50, Math.max(1, Math.round(v)))
 }
 
 export function loadSettings(config: ConfigStore): ChatSettings {
@@ -46,6 +56,7 @@ export function loadSettings(config: ConfigStore): ChatSettings {
     show_tools: pickBool('show_tools', files, false),
     harness,
     favorite_models: favorites.filter((s): s is string => typeof s === 'string'),
+    meeting_snapshot_change: pickSnapshotChange(files),
   }
 }
 
@@ -83,7 +94,13 @@ function exists(p: string): boolean {
   }
 }
 
-export function registerSettingsIpc(ctx: MainContext, queue: WriteQueue): void {
+export interface SettingsIpc {
+  /** Calls `cb` with the saved settings after every successful settings.save; answers an unsubscribe. */
+  onSaved(cb: (s: ChatSettings) => void): () => void
+}
+
+export function registerSettingsIpc(ctx: MainContext, queue: WriteQueue): SettingsIpc {
+  const listeners = new Set<(s: ChatSettings) => void>()
   // Before any load or save is served, so the first load already sees the seed.
   try {
     seedFavorites(ctx.config, ctx.env.nativeChatSettings)
@@ -91,10 +108,20 @@ export function registerSettingsIpc(ctx: MainContext, queue: WriteQueue): void {
     console.warn('[settings] could not seed starred models', e)
   }
   handle(ctx, 'settings.load', () => loadSettings(ctx.config))
-  handle(ctx, 'settings.save', (patch) => queue.enqueue(() => saveSettings(ctx.config, patch)))
+  handle(ctx, 'settings.save', async (patch) => {
+    const saved = await queue.enqueue(() => saveSettings(ctx.config, patch))
+    for (const cb of listeners) cb(saved)
+    return saved
+  })
   handle(ctx, 'chat.harnessStatus', () => ({
     // A bare command name resolves through PATH at spawn time.
     omp: path.isAbsolute(ctx.env.ompBin) ? exists(ctx.env.ompBin) : true,
     claude: exists(ctx.env.claudeBin) && exists(ctx.env.claudeBridgeBin),
   }))
+  return {
+    onSaved(cb) {
+      listeners.add(cb)
+      return () => listeners.delete(cb)
+    },
+  }
 }

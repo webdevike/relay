@@ -10,11 +10,21 @@
 // Relay connection answers `meeting.ingest.ticket {id, ticket}`, and the helper opens
 // `/meetings/ingest?ticket=`. The helper spools both tracks to disk, so a host that is away gets
 // the whole call when it comes back; tickets are asked again until it does.
+//
+// While a recording runs, the helper also says when someone shares their screen; one
+// share-snapshots runtime per recording decides when it samples and saves a snapshot of it
+// (meetings/share-snapshots.machine.ts) and tells the host whether anyone shares.
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import { MAX_QUICK_CRASHES, RESTART_MS, SHORT_RUN_MS } from './assist'
+import {
+  SHARE_HELPER_EVENTS,
+  createShareSnapshots,
+  type ShareClock,
+  type ShareSnapshots,
+} from './meetings/share-snapshots'
 import type { RelayFrames } from './relay/client'
 
 /** Tickets for recordings the host has not got are asked again this often. */
@@ -59,6 +69,7 @@ const HelperEvent = z.discriminatedUnion('ev', [
   z.object({ ev: z.literal('stop.requested'), id: z.string() }),
   z.object({ ev: z.literal('warning'), message: z.string(), id: z.string().optional() }),
   z.object({ ev: z.literal('error'), message: z.string() }),
+  ...SHARE_HELPER_EVENTS,
 ])
 export type HelperEvent = z.infer<typeof HelperEvent>
 
@@ -101,9 +112,13 @@ export interface MeetingsCaptureDeps {
   log: (msg: string) => void
   /** Extra helper arguments (e2e: `--replay <dir> --no-detect`). */
   args?: string[]
+  /** `meetings.snapshotChange` at start: how much of a shared screen must change for a snapshot. */
+  snapshotChange: number
   spawn?: (cmd: string, args: string[]) => ChildProcess
   setTimer?: (fn: () => void, ms: number) => { cancel(): void }
   now?: () => number
+  /** What the share-snapshot timers run on (tests: a SimulatedClock). */
+  clock?: ShareClock
 }
 
 interface Upload {
@@ -123,6 +138,8 @@ export interface MeetingsCapture {
   stop(id: string): void
   /** Recordings the host does not have yet. */
   pending(): string[]
+  /** The `meetings.snapshotChange` setting changed: every running recording uses it from now. */
+  setSnapshotChange(percent: number): void
   /** Ends the helper (SIGTERM; it marks its spools ended) within 3 s. */
   close(): Promise<void>
 }
@@ -149,9 +166,17 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
   let quickCrashes = 0
   let restart: { cancel(): void } | null = null
   let retry: { cancel(): void } | null = null
+  let snapshotChange = deps.snapshotChange
+  /** Live recordings' share-snapshot runtimes, by recording id. */
+  const shares = new Map<string, ShareSnapshots>()
 
   const send = (cmd: Record<string, unknown>): void => {
     child?.stdin?.write(`${JSON.stringify(cmd)}\n`)
+  }
+
+  const endShare = (id: string): void => {
+    shares.get(id)?.stop()
+    shares.delete(id)
   }
 
   const askTicket = (u: Upload): void => {
@@ -242,6 +267,19 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
         }
         uploads.set(ev.id, u)
         if (ev.ev === 'recording') {
+          // Only a live call can share a screen; a pending spool is a call that already ended.
+          endShare(ev.id)
+          shares.set(
+            ev.id,
+            createShareSnapshots({
+              id: ev.id,
+              percent: snapshotChange,
+              sendHelper: send,
+              sendFrame: (frame) => void deps.frames.sendFrame(frame),
+              log: deps.log,
+              ...(deps.clock === undefined ? {} : { clock: deps.clock }),
+            }),
+          )
           deps.notify(
             {
               title: `Recording ${ev.title ?? `a ${ev.app} call`}`,
@@ -261,6 +299,9 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
       case 'connected': {
         const u = uploads.get(ev.id)
         if (u) u.connected = true
+        // The host takes the share state only from the Mac streaming the recording, so a host that
+        // came back (or restarted) hears it again once the stream is up.
+        shares.get(ev.id)?.resend()
         return
       }
       case 'disconnected': {
@@ -278,8 +319,19 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
             deps.openMeeting(ev.id),
           )
         return
+      case 'stopped':
+        endShare(ev.id)
+        return
       case 'uploaded':
+        endShare(ev.id)
         uploads.delete(ev.id)
+        return
+      case 'share':
+      case 'share.sampled':
+      case 'share.sample.failed':
+      case 'share.saved':
+      case 'share.save.failed':
+        shares.get(ev.id)?.heard(ev)
         return
       case 'warning':
         deps.log(`meetings: ${ev.id === undefined ? '' : `${ev.id}: `}${ev.message}`)
@@ -311,8 +363,9 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
     c.on('error', (e) => deps.log(`meetings: ${e.message}`))
     c.on('exit', (code, signal) => {
       child = null
-      // Its connections died with it; the next run reports its spools as pending again.
+      // Its connections and calls died with it; the next run reports its spools as pending again.
       uploads.clear()
+      for (const id of [...shares.keys()]) endShare(id)
       if (stopped) return
       if (code === 0) {
         deps.log('meetings helper exited cleanly; not restarting')
@@ -341,8 +394,13 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
     pending() {
       return [...uploads.keys()]
     },
+    setSnapshotChange(percent) {
+      snapshotChange = percent
+      for (const s of shares.values()) s.setPercent(percent)
+    },
     close() {
       stopped = true
+      for (const id of [...shares.keys()]) endShare(id)
       offFrames()
       restart?.cancel()
       retry?.cancel()

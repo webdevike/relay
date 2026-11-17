@@ -1,0 +1,95 @@
+{
+  "moments": [
+    {
+      "id": "km1",
+      "kind": "action",
+      "atMs": 860000,
+      "lineId": "l4",
+      "speaker": "Priya",
+      "text": "Priya looks at the staging dry run after lunch",
+      "shot": null
+    },
+    {
+      "id": "km2",
+      "kind": "claim",
+      "atMs": 960000,
+      "lineId": "l5",
+      "speaker": "Chris",
+      "text": "Three tenants hit the provisioning timeout this week",
+      "shot": null
+    },
+    {
+      "id": "km3",
+      "kind": "decision",
+      "atMs": 1322000,
+      "lineId": "l7",
+      "speaker": "Todd",
+      "text": "Ship the release Thursday if QA is clean",
+      "shot": 0
+    },
+    {
+      "id": "km4",
+      "kind": "ask",
+      "atMs": 1322000,
+      "lineId": "l7",
+      "speaker": "Todd",
+      "text": "Todd wants an admin screen that shows every provisioning failure",
+      "shot": 0
+    },
+    {
+      "id": "km5",
+      "kind": "claim",
+      "atMs": 1500000,
+      "lineId": "l8",
+      "speaker": "Priya",
+      "text": "AWS console accounts still have no MFA",
+      "shot": 1
+    },
+    {
+      "id": "km6",
+      "kind": "ask",
+      "atMs": 2140000,
+      "lineId": "l11",
+      "speaker": "Todd",
+      "text": "Isaac to take the failures dashboard",
+      "shot": 2
+    },
+    {
+      "id": "km7",
+      "kind": "claim",
+      "atMs": 2460000,
+      "lineId": "l12",
+      "speaker": "Chris",
+      "text": "All provisioning failures are on the same tenant",
+      "shot": null
+    },
+    {
+      "id": "km8",
+      "kind": "action",
+      "atMs": 3065000,
+      "lineId": "l15",
+      "speaker": "Chris",
+      "text": "Chris pairs on the Flyway script",
+      "shot": null
+    },
+    {
+      "id": "km9",
+      "kind": "action",
+      "atMs": 3240000,
+      "lineId": "l17",
+      "speaker": "Priya",
+      "text": "Priya opens the MFA ticket today",
+      "shot": null
+    },
+    {
+      "id": "km10",
+      "kind": "ask",
+      "atMs": 3360000,
+      "lineId": "l19",
+      "speaker": "Todd",
+      "text": "Did Isaac see the failures in the Flyway log?",
+      "shot": 3
+    }
+  ],
+  "through": 3364000
+}

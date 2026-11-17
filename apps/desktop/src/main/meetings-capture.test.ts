@@ -4,6 +4,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { SimulatedClock } from 'xstate'
 import {
   ingestUrl,
   parseHelperEvent,
@@ -52,6 +53,7 @@ function setup(up = true) {
   const opened: string[] = []
   const timers: Array<{ fn: () => void; ms: number; live: boolean }> = []
   let now = 1_000
+  const clock = new SimulatedClock()
   const capture = startMeetingsCapture({
     executable: exe,
     spoolDir: path.join(dir, 'spool'),
@@ -81,6 +83,8 @@ function setup(up = true) {
       return { cancel: () => (t.live = false) }
     },
     now: () => now,
+    snapshotChange: 6,
+    clock,
   })!
   const hear = (f: Frame) => {
     for (const cb of [...listeners]) cb(f)
@@ -90,6 +94,7 @@ function setup(up = true) {
   }
   return {
     capture,
+    clock,
     children,
     sent,
     hear,
@@ -187,5 +192,61 @@ describe('meetings capture', () => {
     expect(s.children[1]!.killed).toBe(true)
     s.runTimers()
     expect(s.children).toHaveLength(2)
+  })
+
+  it('samples a shared screen of a live recording and saves what changed', () => {
+    const s = setup()
+    const helper = s.children[0]!
+    const zeros = '0'.repeat(64)
+    helper.say({ ev: 'recording', id: 'm1', app: 'Zoom', startedAt: 5 })
+    helper.say({ ev: 'share', id: 'm1', state: 'on', permission: true })
+    expect(s.sent.at(-1)).toEqual({ t: 'meeting.share', id: 'm1', state: 'sharing' })
+    s.clock.increment(3_000)
+    expect(helper.written).toEqual([{ cmd: 'share.sample', id: 'm1', seq: 1 }])
+    helper.say({ ev: 'share.sampled', id: 'm1', seq: 1, hash: zeros })
+    expect(helper.written.at(-1)).toEqual({ cmd: 'share.save', id: 'm1', seq: 1 })
+    helper.say({ ev: 'share.saved', id: 'm1', seq: 1, n: 1 })
+    // The same picture again is not saved; the setting going down to 1% still needs a change.
+    s.capture.setSnapshotChange(1)
+    s.clock.increment(3_000)
+    helper.say({ ev: 'share.sampled', id: 'm1', seq: 2, hash: zeros })
+    expect(helper.written).toHaveLength(3)
+    s.clock.increment(3_000)
+    helper.say({ ev: 'share.sampled', id: 'm1', seq: 3, hash: `f${zeros.slice(1)}` })
+    expect(helper.written.at(-1)).toEqual({ cmd: 'share.save', id: 'm1', seq: 3 })
+    helper.say({ ev: 'share', id: 'm1', state: 'on', permission: false })
+    expect(s.sent.at(-1)).toEqual({ t: 'meeting.share', id: 'm1', state: 'no-permission' })
+    // The stream to a host that came back is up: it hears the state again.
+    const before = s.sent.length
+    helper.say({ ev: 'connected', id: 'm1' })
+    expect(s.sent.slice(before)).toEqual([{ t: 'meeting.share', id: 'm1', state: 'no-permission' }])
+    helper.say({ ev: 'share', id: 'm1', state: 'off', permission: false })
+    expect(s.sent.at(-1)).toEqual({ t: 'meeting.share', id: 'm1', state: 'none' })
+    helper.say({ ev: 'share', id: 'm1', state: 'on', permission: true })
+    helper.say({ ev: 'stopped', id: 'm1' })
+    expect(s.sent.at(-1)).toEqual({ t: 'meeting.share', id: 'm1', state: 'none' })
+    const asked = helper.written.length
+    s.clock.increment(60_000)
+    helper.say({ ev: 'share', id: 'm1', state: 'on', permission: true })
+    s.clock.increment(60_000)
+    expect(helper.written).toHaveLength(asked)
+  })
+
+  it('never samples a pending spool and ends every share when the helper exits', () => {
+    const s = setup()
+    const helper = s.children[0]!
+    helper.say({ ev: 'pending', id: 'old', app: 'Zoom', startedAt: 1 })
+    helper.say({ ev: 'share', id: 'old', state: 'on', permission: true })
+    s.clock.increment(10_000)
+    expect(helper.written).toEqual([])
+    helper.say({ ev: 'recording', id: 'm1', app: 'Zoom', startedAt: 5 })
+    helper.say({ ev: 'share', id: 'm1', state: 'on', permission: true })
+    helper.emit('exit', 1, null)
+    s.clock.increment(10_000)
+    expect(helper.written).toEqual([])
+    expect(s.sent.filter((f) => f.t === 'meeting.share').map((f) => f.state)).toEqual([
+      'sharing',
+      'none',
+    ])
   })
 })

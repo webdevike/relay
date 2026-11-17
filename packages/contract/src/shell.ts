@@ -52,11 +52,20 @@ export const SavedThemeSchema = z.object({
 })
 export type SavedTheme = z.infer<typeof SavedThemeSchema>
 
+/**
+ * `meetings.snapshotChange` when unset: the percent of the 256-bit screen hash that must differ.
+ * Calibrated on the helper's dHash: the same slide differs 1 to 2%, two text slides on one template
+ * 9%, different slides 12 to 15%.
+ */
+export const DEFAULT_SNAPSHOT_CHANGE = 6
+
 export const ChatSettingsSchema = z.object({
   show_thinking: z.boolean(),
   show_tools: z.boolean(),
   harness: z.enum(['omp', 'claude']),
   favorite_models: z.array(z.string().min(1).max(400)).max(500),
+  /** Percent of the screen hash that must differ before a new screen-share snapshot is saved (1-50). */
+  meeting_snapshot_change: z.number().int().min(1).max(50),
 })
 export type ChatSettings = z.infer<typeof ChatSettingsSchema>
 

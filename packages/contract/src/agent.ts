@@ -1407,7 +1407,7 @@ export const agentActions = {
   'settings.set': {
     title: 'Change a setting',
     description:
-      'Changes one setting (keys and value types: settings.get): `theme.mode` light|dark, `theme.preset` a theme\'s value or name, `theme.primaryColor`, `theme.radius`, `theme.scale`, `theme.fontFamily`, `theme.colors.<light|dark>.<slot>` #rrggbb, `chat.showThinking`, `chat.showTools`, `chat.harness`. Ask Isaac first. He sees a toast "<you> changed <setting> to <value>" with Undo. Answers the previous value and a `changeId` for settings.undo.',
+      'Changes one setting (keys and value types: settings.get): `theme.mode` light|dark, `theme.preset` a theme\'s value or name, `theme.primaryColor`, `theme.radius`, `theme.scale`, `theme.fontFamily`, `theme.colors.<light|dark>.<slot>` #rrggbb, `chat.showThinking`, `chat.showTools`, `chat.harness`, `meetings.snapshotChange` 1-50. Ask Isaac first. He sees a toast "<you> changed <setting> to <value>" with Undo. Answers the previous value and a `changeId` for settings.undo.',
     params: z
       .object({ key: AgentSettingKeySchema, value: z.unknown(), scope })
       .strict()

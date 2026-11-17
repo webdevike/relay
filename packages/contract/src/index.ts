@@ -95,6 +95,7 @@ export {
   SavedTabsSchema,
   SavedThemeSchema,
   ChatSettingsSchema,
+  DEFAULT_SNAPSHOT_CHANGE,
 } from './shell'
 export {
   type TabState,

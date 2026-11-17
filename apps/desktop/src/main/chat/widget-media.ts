@@ -136,10 +136,11 @@ async function fetchInto(url: string, hash: string, deps: MediaDeps): Promise<st
 /** A local file for `src`, downloading it first when it is remote. */
 export async function resolveMedia(src: string, deps: MediaDeps): Promise<string> {
   if (/^https?:\/\//.test(src)) return download(src, deps)
-  // Drops, images pasted into a thread (`/artifacts/media/<sha>/<token>`, the Artifacts panel) and
-  // Studio's outputs and uploads (`/studio/<id>/<token>`, `/thumb` a JPEG preview).
+  // Drops, images pasted into a thread (`/artifacts/media/<sha>/<token>`, the Artifacts panel),
+  // Studio's outputs and uploads (`/studio/<id>/<token>`, `/thumb` a JPEG preview) and a meeting's
+  // screen snapshots (`/meetings/shots/<id>/<token>/<n>`).
   if (
-    /^\/(?:drops\/[^/]+\/[^/]+(\/poster)?|artifacts\/media\/[^/]+\/[^/]+|studio\/[^/]+\/[^/]+(\/thumb)?)$/.test(
+    /^\/(?:drops\/[^/]+\/[^/]+(\/poster)?|artifacts\/media\/[^/]+\/[^/]+|studio\/[^/]+\/[^/]+(\/thumb)?|meetings\/shots\/[^/]+\/[^/]+\/\d+)$/.test(
       src,
     )
   ) {

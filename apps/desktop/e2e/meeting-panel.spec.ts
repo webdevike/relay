@@ -3,11 +3,13 @@ import * as path from 'node:path'
 import { test as base, expect } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { FakeRelayHost, type HostSession } from './helpers/fake-relay-host'
+import { loadMeetingProof } from './helpers/meeting-proof'
 import { EVA_FIXTURE_ROOT } from './helpers/paths'
 import { proofShot } from './helpers/proofShot'
 
 // The Meeting panel beside Astra's chat, against a fake Relay host running Meetings: a call long
-// enough to overflow the pane, with decisions, actions and questions put to Isaac.
+// enough to overflow the pane, with the key moments the host found (decisions, actions, asks of
+// Isaac) and, in the proof test, the shared screen's snapshots from e2e/fixtures/meeting-proof.
 
 const ID = '6f1c2a90-4b7e-4d21-9c3a-0e8d5b7a1f43'
 const TITLE = 'Developer Sync: AWS MFA, provisioning failures & release'
@@ -58,6 +60,24 @@ const lines = LINES.map(([t, speaker, text], i) => ({
   text,
   final: true,
 }))
+
+// The key moments the host's model found in those lines (Isaac's only words came at 28:15).
+const moment = (id: string, kind: string, line: number, text: string) => ({
+  id,
+  kind,
+  atMs: lines[line]!.startMs,
+  lineId: lines[line]!.id,
+  speaker: lines[line]!.speaker,
+  text,
+  shot: null,
+})
+const MOMENTS = [
+  moment('km1', 'action', 4, 'Priya looks at the staging dry run after lunch'),
+  moment('km2', 'decision', 7, 'Ship the release Thursday if QA is clean'),
+  moment('km3', 'ask', 11, 'Isaac to take the failures dashboard'),
+  moment('km4', 'action', 17, 'Priya opens the MFA ticket today'),
+  moment('km5', 'ask', 19, 'Did Isaac see the failures in the Flyway log?'),
+]
 
 let fx: ChatFixture
 let host: FakeRelayHost
@@ -133,6 +153,7 @@ const test = base.extend({
     host.upsert(ASTRA)
     host.meetings.recordings = [recording]
     host.meetings.lines.set(ID, lines)
+    host.meetings.moments.set(ID, MOMENTS)
     await use({ ...fx.launchEnv, EVAOS_EVA_ROOT: evaRoot, EVAOS_RELAY_DIR: relayDir })
     await host.close()
     fx.cleanup()
@@ -159,7 +180,7 @@ const shot = (
   name: string,
 ) => proofShot(app, shell, name, { phase: 'meeting-panel' })
 
-test('the Meeting panel: Now, a transcript that follows, moments, one Ask menu, Summary after', async ({
+test('the Meeting panel: Now, a transcript that follows, key moments, one Ask menu, Summary after', async ({
   app,
   shell,
 }) => {
@@ -172,24 +193,24 @@ test('the Meeting panel: Now, a transcript that follows, moments, one Ask menu, 
   const gap = () =>
     view.evaluate((el) => Math.round(el.scrollHeight - el.scrollTop - el.clientHeight))
 
-  // 1. Now: who is speaking and what they just said, what came before, the latest three moments.
+  // 1. Now: the key moments newest first, each with its time, kind and who; the open asks of
+  // Isaac in the accent. No screen was shared, so no snapshot strip.
   await expect(tab.locator(sel('meeting-tabs')).getByRole('tab')).toHaveText([
     'Now',
     'Transcript',
     'Moments',
   ])
   await expect(tab.locator(sel('meeting-tab-now'))).toHaveAttribute('aria-selected', 'true')
-  const speaker = tab.locator(sel('meeting-speaker'))
-  await expect(speaker).toContainText('Todd')
-  await expect(speaker).toContainText('Isaac, did you see the failures in the Flyway log?')
-  await expect(speaker).toContainText(
-    'Before that, Chris: Looks like three accounts failed on the same step.',
-  )
   await expect(tab.locator('.eva-meeting-tab-meta')).toHaveText(/^Teams·Live·5[67] minEnd meeting$/)
   const moments = tab.locator(sel('meeting-moment'))
-  await expect(moments).toHaveCount(3)
-  await expect(moments.first()).toContainText(/Todd · (just now|1 min ago), no reply yet/)
+  await expect(moments).toHaveCount(MOMENTS.length)
+  await expect(moments.first()).toContainText('56:00')
+  await expect(moments.first()).toContainText('Did Isaac see the failures in the Flyway log?')
+  await expect(moments.first()).toContainText('Asks you · Todd · no reply yet')
+  await expect(moments.first()).toHaveAttribute('data-open', 'true')
   await expect(moments.nth(1)).toContainText('Action · Priya')
+  await expect(moments.nth(1)).toHaveAttribute('data-open', 'false')
+  await expect(tab.locator(sel('meeting-shots'))).toHaveCount(0)
   await shot(app, shell, 'after-live-now')
 
   // 2. Transcript: overflows the pane and follows the newest line as it arrives.
@@ -239,10 +260,24 @@ test('the Meeting panel: Now, a transcript that follows, moments, one Ask menu, 
   await view.evaluate((el) => (el.scrollTop = el.scrollHeight))
   await expect(jumpLive).toHaveCount(0)
 
-  // 4. A moment jumps to its row in the transcript, a third of the way down, and lights it up.
+  // 4. The host finds a new key moment; one jumps to its row in the transcript, a third of the
+  // way down, and lights it up.
   await tab.locator(sel('meeting-tab-moments')).click()
-  await expect(moments.first()).toContainText('review the checklist')
-  await moments.filter({ hasText: 'Isaac, can you take the dashboard?' }).click()
+  host.meetingMoments(ID, [
+    ...MOMENTS,
+    {
+      id: 'km6',
+      kind: 'action',
+      atMs: at('57:00'),
+      lineId: 'l20',
+      speaker: 'Chris',
+      text: 'Chris reviews the checklist before it goes out',
+      shot: null,
+    },
+  ])
+  await expect(moments.first()).toContainText('Chris reviews the checklist')
+  await expect(moments).toHaveCount(MOMENTS.length + 1)
+  await moments.filter({ hasText: 'Isaac to take the failures dashboard' }).click()
   await expect(tab.locator(sel('meeting-tab-transcript'))).toHaveAttribute('aria-selected', 'true')
   const row = tab.locator('[data-row-id="l11"]')
   await expect(row).toHaveAttribute('data-lit', 'true')
@@ -300,8 +335,9 @@ test('the Meeting panel: Now, a transcript that follows, moments, one Ask menu, 
     'Decided',
   ])
   await expect(recap.locator(sel('meeting-for-you')).first()).toContainText(
-    'Isaac, can you take the dashboard?',
+    'Isaac to take the failures dashboard',
   )
+  await expect(recap).toContainText('Ship the release Thursday if QA is clean')
   await expect(tab.locator(sel('meeting-tab-when'))).toHaveText(
     /^\d{1,2}:\d\d( [AP]M)? – \d{1,2}:\d\d [AP]M · 58 min$/,
   )
@@ -309,8 +345,87 @@ test('the Meeting panel: Now, a transcript that follows, moments, one Ask menu, 
   await expect(ask).toBeVisible()
   await shot(app, shell, 'after-ended-summary')
   await tab.locator(sel('meeting-tab-moments')).click()
-  await expect(moments.filter({ hasText: 'Isaac, can you take' })).toContainText(
-    'Todd · no reply yet',
+  await expect(moments.filter({ hasText: 'Isaac to take' })).toContainText(
+    'Asks you · Todd · no reply yet',
   )
   await shot(app, shell, 'after-ended-moments')
+})
+
+test('proof: key moments and the shared screen from e2e/fixtures/meeting-proof', async ({
+  app,
+  shell,
+}) => {
+  const proof = loadMeetingProof(ID)
+  const shotsOf = proof.shots
+  expect(shotsOf.length, 'the fixture has no shots').toBeGreaterThan(1)
+  if (proof.lines !== null) host.meetings.lines.set(ID, proof.lines)
+  host.meetings.moments.set(ID, proof.moments)
+  // All but the newest are there when the tab opens; the newest arrives live.
+  for (const s of shotsOf.slice(0, -1))
+    host.meetingShot(ID, s, proof.files.get(String(s.src))!, false)
+  host.meetingRecording({ ...recording, share: 'sharing' })
+
+  await shell.locator(sel('nav-assistants')).click()
+  await shell.locator(sel('sidebar-agent-astra')).click()
+  await shell.locator(sel('meeting-card')).click()
+  const tab = shell.locator(sel('meeting-tab'))
+  const moments = tab.locator(sel('meeting-now')).locator(sel('meeting-moment'))
+  await expect(moments).toHaveCount(Math.min(8, proof.moments.length))
+  await expect(moments.first()).toContainText(String(proof.moments.at(-1)!.text))
+  const thumbs = tab.locator(sel('meeting-shot'))
+  await expect(thumbs).toHaveCount(shotsOf.length - 1)
+  const newest = shotsOf.at(-1)!
+  host.meetingShot(ID, newest, proof.files.get(String(newest.src))!)
+  await expect(thumbs).toHaveCount(shotsOf.length)
+  // Every thumbnail loaded through relay-media from the host's /meetings/shots path.
+  await expect
+    .poll(() =>
+      thumbs
+        .locator('img')
+        .evaluateAll((imgs) => imgs.every((i) => (i as HTMLImageElement).naturalWidth > 0)),
+    )
+    .toBe(true)
+  await expect(tab.locator(sel('meeting-share-off'))).toHaveCount(0)
+  await shot(app, shell, 'proof-now-strip')
+
+  // A thumbnail opens the snapshot larger with its time, the line said then and its text.
+  await thumbs.last().click()
+  const dialog = shell.getByRole('dialog')
+  await expect(dialog).toContainText('Shared screen at')
+  if (String(newest.line) !== '') await expect(dialog).toContainText(String(newest.line))
+  const ocrStart = String(newest.ocr).split('\n')[0]!
+  if (ocrStart !== '') await expect(dialog.locator(sel('meeting-shot-ocr'))).toContainText(ocrStart)
+  await expect
+    .poll(() =>
+      dialog
+        .locator(sel('meeting-shot-image'))
+        .evaluate((i) => (i as HTMLImageElement).naturalWidth),
+    )
+    .toBeGreaterThan(0)
+  await shot(app, shell, 'proof-shot-modal')
+  await dialog.getByRole('button', { name: 'Close' }).click()
+  await expect(dialog).toHaveCount(0)
+
+  // A key moment with a snapshot opens that one.
+  const withShot = tab.locator(sel('meeting-moment-shot'))
+  if ((await withShot.count()) > 0) {
+    await withShot.first().click()
+    await expect(shell.getByRole('dialog')).toContainText('Shared screen at')
+    await shell.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
+    await expect(shell.getByRole('dialog')).toHaveCount(0)
+  }
+
+  // Without Screen Recording, one line says so.
+  host.meetingRecording({ ...recording, share: 'no-permission' })
+  await expect(tab.locator(sel('meeting-share-off'))).toHaveText(
+    'Screen snapshots are off: allow Screen Recording for Relay in System Settings.',
+  )
+  await shot(app, shell, 'proof-no-permission')
+
+  // After the call the Summary keeps the strip.
+  host.meetings.notes.set(ID, NOTES)
+  host.meetingRecording({ ...recording, stage: 'done', endedAt: startedAt + at('58:10') })
+  const recap = tab.locator(sel('meeting-recap'))
+  await expect(recap.locator(sel('meeting-shot'))).toHaveCount(shotsOf.length)
+  await shot(app, shell, 'proof-summary-strip')
 })

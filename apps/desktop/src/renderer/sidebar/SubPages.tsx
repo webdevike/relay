@@ -11,6 +11,7 @@ import {
   IconPalette,
   IconPlugConnected,
   IconPlus,
+  IconScreenShare,
   IconTool,
 } from '@tabler/icons-react'
 import { useState, type MouseEvent } from 'react'
@@ -34,6 +35,7 @@ const SECTION_ICON = {
   Chat: IconMessage,
   Links: IconLink,
   Notifications: IconBell,
+  Meetings: IconScreenShare,
   Connections: IconPlugConnected,
   Usage: IconChartBar,
   Setup: IconTool,

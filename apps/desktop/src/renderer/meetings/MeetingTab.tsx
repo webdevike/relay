@@ -1,24 +1,37 @@
 import './meeting-tab.css'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ActionIcon } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
+import { IconPhoto } from '@tabler/icons-react'
 import {
   MEETING_ASKS,
   MEETING_STAGE_LABEL,
-  detectMoments,
+  meetingClock,
   meetingIsLive,
   meetingRows,
+  momentRowId,
   momentStamp,
-  type MeetingMoment,
+  nowMoments,
+  type KeyMoment,
   type MeetingRow,
 } from '@relay/protocol'
+import type { RecordingView } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
 import { agentOf, useAssistants } from '../assistants/assistants-store'
 import { clockLabel } from '../context/format'
 import { invoke } from '../ipc'
-import { EvaMenu } from '../overlay'
+import { mediaUrl } from '../chat/widgets/media-url'
+import { EvaMenu, EvaModal } from '../overlay'
 import { navigateTo } from '../tabs/tabs-store'
 import { askInChat } from './meeting-chat'
-import { endedSections, jumpTop, meetingWhen, momentLabel, nearBottom } from './meeting-panel'
+import {
+  endedSections,
+  jumpTop,
+  meetingWhen,
+  momentLabel,
+  nearBottom,
+  openAsks,
+} from './meeting-panel'
 import {
   loadRecording,
   recordingTitle,
@@ -36,11 +49,19 @@ const LIT_MS = 2200
 /** Isaac's own track reads "You". */
 const who = (row: MeetingRow): string => (row.track === 'mic' ? 'You' : row.speaker)
 
+const NO_SCREEN_RECORDING =
+  'Screen snapshots are off: allow Screen Recording for Relay in System Settings.'
+
+type MeetingShot = RecordingView['shots'][number]
+
+const EMPTY_MOMENTS: KeyMoment[] = []
+const EMPTY_SHOTS: MeetingShot[] = []
+
 /**
- * A meeting beside the assistant's chat it is in. On the call: Now (who is speaking and what they
- * just said, the latest moments), the transcript that follows the newest line, every moment. After
- * it: Summary first (what needs Isaac, actions, what was decided). One Ask menu posts a question
- * into that chat as Isaac; answers land there, never here.
+ * A meeting beside the assistant's chat it is in. On the call: Now (the host's latest key moments
+ * and the shared screen's snapshots), the transcript that follows the newest line, every key
+ * moment. After it: Summary first (what needs Isaac, actions, what was decided, the snapshots).
+ * One Ask menu posts a question into that chat as Isaac; answers land there, never here.
  */
 export function MeetingTab({ id }: { id: string }) {
   useMeetingsSurface()
@@ -53,6 +74,7 @@ export function MeetingTab({ id }: { id: string }) {
   const [menu, setMenu] = useState(false)
   const [asking, setAsking] = useState(false)
   const [ending, setEnding] = useState(false)
+  const [opened, setOpened] = useState<number | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   // A moment's row to scroll to once the transcript shows, and the scroll event that jump causes.
   const pendingJump = useRef<string | null>(null)
@@ -70,10 +92,19 @@ export function MeetingTab({ id }: { id: string }) {
   const owner = r?.assistant ? (known ?? { id: r.assistant, title: r.assistant }) : null
   const lines = view?.lines
   const rows = useMemo(() => meetingRows(lines ?? []), [lines])
-  const moments = useMemo(() => detectMoments(lines ?? []), [lines])
+  const moments = view?.moments ?? EMPTY_MOMENTS
+  const shots = view?.shots ?? EMPTY_SHOTS
+  const open = useMemo(() => openAsks(moments, lines ?? []), [moments, lines])
+  // Rows that put something to Isaac read in the accent, like his own.
   const youRows = useMemo(
-    () => new Set(moments.filter((m) => m.kind === 'you').map((m) => m.rowId)),
-    [moments],
+    () =>
+      new Set(
+        moments
+          .filter((m) => m.kind === 'ask')
+          .map((m) => momentRowId(rows, m.atMs))
+          .filter((id) => id !== null),
+      ),
+    [moments, rows],
   )
 
   // The call ending puts the Summary in front.
@@ -131,11 +162,13 @@ export function MeetingTab({ id }: { id: string }) {
     setFollow(true)
     setLit(null)
   }
-  const openMoment = (m: MeetingMoment): void => {
-    pendingJump.current = m.rowId
+  const openMoment = (m: KeyMoment): void => {
+    const row = momentRowId(rows, m.atMs)
+    if (row === null) return
+    pendingJump.current = row
     setTab('transcript')
     setFollow(false)
-    setLit({ row: m.rowId })
+    setLit({ row })
   }
   const ask = async (text: string): Promise<void> => {
     if (owner === null) return
@@ -156,56 +189,75 @@ export function MeetingTab({ id }: { id: string }) {
     }
   }
 
-  const moment = (m: MeetingMoment) => (
-    <button
-      key={m.id}
-      type="button"
-      className="eva-meeting-moment"
-      data-testid="meeting-moment"
-      data-kind={m.kind}
-      data-open={m.kind === 'you' && !m.answered}
-      onClick={() => openMoment(m)}
-    >
-      <span className="eva-meeting-tab-stamp">{momentStamp(m.startMs)}</span>
-      <span>
-        <span className="eva-meeting-moment-text">{m.text}</span>
-        <span className="eva-meeting-moment-by">{momentLabel(m, live, r.startedAt, now)}</span>
-      </span>
-    </button>
+  const moment = (m: KeyMoment) => (
+    <div key={m.id} className="eva-meeting-moment-row">
+      <button
+        type="button"
+        className="eva-meeting-moment"
+        data-testid="meeting-moment"
+        data-kind={m.kind}
+        data-open={open.has(m.id)}
+        onClick={() => openMoment(m)}
+      >
+        <span className="eva-meeting-tab-stamp">{meetingClock(m.atMs)}</span>
+        <span>
+          <span className="eva-meeting-moment-text">{m.text}</span>
+          <span className="eva-meeting-moment-by">{momentLabel(m, open.has(m.id))}</span>
+        </span>
+      </button>
+      {m.shot !== null && shots.some((s) => s.n === m.shot) ? (
+        <ActionIcon
+          variant="subtle"
+          color="gray"
+          size="var(--eva-kit-control-sm)"
+          className="eva-meeting-moment-shot"
+          aria-label={`Screen at ${meetingClock(m.atMs)}`}
+          data-testid="meeting-moment-shot"
+          onClick={() => setOpened(m.shot)}
+        >
+          <IconPhoto size="calc(var(--eva-font-size) * .875)" stroke={1.5} />
+        </ActionIcon>
+      ) : null}
+    </div>
   )
 
-  const newest = rows[rows.length - 1]
-  const before = rows[rows.length - 2]
+  const strip =
+    shots.length > 0 ? (
+      <section className="eva-meeting-tab-section">
+        <div className="eva-meeting-tab-label">Shared screen</div>
+        <ShotStrip shots={shots} onOpen={setOpened} />
+      </section>
+    ) : null
+
+  // On the call the shared screen leads (it is what everyone is looking at), the moments follow.
+  const shown = nowMoments(moments)
   const nowView = (
     <>
-      <div className="eva-meeting-now" data-testid="meeting-speaker">
-        {newest === undefined ? (
-          <p className="eva-meeting-tab-dim">Listening</p>
-        ) : (
-          <>
-            <div className="eva-meeting-now-who">{who(newest)}</div>
-            <p className="eva-meeting-now-say">
-              {newest.text}
-              <span className="eva-meeting-caret" aria-hidden />
-            </p>
-            {before === undefined ? null : (
-              <p className="eva-meeting-now-before">
-                Before that, {who(before)}: {before.text}
-              </p>
-            )}
-          </>
-        )}
-      </div>
-      {moments.length > 0 ? (
-        <section className="eva-meeting-tab-section">
-          <div className="eva-meeting-tab-label">Moments</div>
-          {moments.slice(-3).reverse().map(moment)}
+      {r.share === 'no-permission' ? (
+        <p className="eva-meeting-tab-note" data-testid="meeting-share-off">
+          {NO_SCREEN_RECORDING}
+        </p>
+      ) : null}
+      {shots.length > 0 ? (
+        <section className="eva-meeting-now-shots">
+          <div className="eva-meeting-tab-label">Shared screen</div>
+          <ShotStrip shots={shots} onOpen={setOpened} />
         </section>
       ) : null}
+      {shown.length === 0 ? (
+        <p className="eva-meeting-tab-dim" data-testid="meeting-now-empty">
+          Key moments show up here as the call goes.
+        </p>
+      ) : (
+        <section data-testid="meeting-now">
+          {shots.length > 0 ? <div className="eva-meeting-tab-label">Key moments</div> : null}
+          {shown.map(moment)}
+        </section>
+      )}
     </>
   )
 
-  const { forYou, actions, decided } = endedSections(moments, notes?.decisions ?? [])
+  const { forYou, actions, decided } = endedSections(moments, open, notes?.decisions ?? [])
   const gist = notes !== null && notes.summary.length > 0 ? notes.summary.join(' ') : null
   const summaryView = (
     <div className="eva-meeting-recap" data-testid="meeting-recap">
@@ -223,7 +275,7 @@ export function MeetingTab({ id }: { id: string }) {
             <div key={m.id} className="eva-meeting-recap-you" data-testid="meeting-for-you">
               {m.text}
               <small>
-                {m.speaker} asked at {momentStamp(m.startMs)}, no reply yet
+                {m.speaker} asked at {meetingClock(m.atMs)}, no reply yet
               </small>
             </div>
           ))}
@@ -250,6 +302,7 @@ export function MeetingTab({ id }: { id: string }) {
           ))}
         </section>
       ) : null}
+      {strip}
       {r.stage === 'done' ? (
         <button
           type="button"
@@ -402,6 +455,75 @@ export function MeetingTab({ id }: { id: string }) {
           </EvaMenu>
         </div>
       ) : null}
+      <ShotView
+        shot={opened === null ? null : (shots.find((s) => s.n === opened) ?? null)}
+        onClose={() => setOpened(null)}
+      />
     </div>
+  )
+}
+
+/** The shared screen's snapshots as small thumbnails, oldest first, kept scrolled to the newest. */
+function ShotStrip({
+  shots,
+  onOpen,
+}: {
+  shots: readonly MeetingShot[]
+  onOpen: (n: number) => void
+}) {
+  const strip = useRef<HTMLDivElement>(null)
+  const newest = shots[shots.length - 1]?.n
+  useLayoutEffect(() => {
+    const el = strip.current
+    if (el !== null) el.scrollLeft = el.scrollWidth
+  }, [newest])
+  return (
+    <div ref={strip} className="eva-meeting-shots" data-testid="meeting-shots">
+      {shots.map((s) => (
+        <button
+          key={s.n}
+          type="button"
+          className="eva-meeting-shot"
+          data-testid="meeting-shot"
+          data-n={s.n}
+          aria-label={`Screen at ${meetingClock(s.atMs)}`}
+          onClick={() => onOpen(s.n)}
+        >
+          <img src={mediaUrl(s.src)} alt="" loading="lazy" draggable={false} />
+          <span className="eva-meeting-tab-stamp">{meetingClock(s.atMs)}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+/** One snapshot larger: the image, when it was, what was being said, the text on it. */
+function ShotView({ shot, onClose }: { shot: MeetingShot | null; onClose: () => void }) {
+  return (
+    <EvaModal
+      opened={shot !== null}
+      onClose={onClose}
+      title={shot === null ? null : `Shared screen at ${meetingClock(shot.atMs)}`}
+      size={760}
+      testid="meeting-shot-view"
+    >
+      {shot === null ? null : (
+        <div className="eva-meeting-shot-view">
+          <img
+            src={mediaUrl(shot.src)}
+            alt=""
+            width={shot.w}
+            height={shot.h}
+            data-testid="meeting-shot-image"
+          />
+          {shot.line !== '' ? <p className="eva-meeting-shot-line">{shot.line}</p> : null}
+          {shot.ocr !== '' ? (
+            <div className="eva-meeting-shot-ocr" data-testid="meeting-shot-ocr">
+              {shot.ocr}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </EvaModal>
   )
 }

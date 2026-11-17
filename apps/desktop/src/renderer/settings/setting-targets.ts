@@ -8,6 +8,7 @@ export function settingTarget(key: AgentSettingKey): string {
   if (key === 'chat.showThinking') return 'settings-show-thinking'
   if (key === 'chat.showTools') return 'settings-show-tools'
   if (key === 'chat.harness') return 'settings-harness'
+  if (key === 'meetings.snapshotChange') return 'settings-snapshot-change'
   // Colors, fonts, radius and scale live in the theme editor's property column.
   return 'theme-properties'
 }

@@ -1,0 +1,20 @@
+{"id": "l0", "track": "app", "speaker": "Todd", "startMs": 545000, "endMs": 549000, "text": "Why don't you guys talk about the release for a minute while I update this for Walker.", "final": true}
+{"id": "l1", "track": "app", "speaker": "Priya", "startMs": 630000, "endMs": 634000, "text": "Release notes are drafted, they just need the Flyway bit.", "final": true}
+{"id": "l2", "track": "app", "speaker": "Todd", "startMs": 705000, "endMs": 709000, "text": "Walker asked about the AWS bill again.", "final": true}
+{"id": "l3", "track": "app", "speaker": "Chris", "startMs": 790000, "endMs": 794000, "text": "I did the work to move locations around. That's in QA now.", "final": true}
+{"id": "l4", "track": "app", "speaker": "Priya", "startMs": 860000, "endMs": 864000, "text": "I can look at the staging dry run after lunch.", "final": true}
+{"id": "l5", "track": "app", "speaker": "Chris", "startMs": 960000, "endMs": 964000, "text": "Three tenants hit the provisioning timeout this week.", "final": true}
+{"id": "l6", "track": "app", "speaker": "Todd", "startMs": 1110000, "endMs": 1114000, "text": "We need a way to see those without opening every order.", "final": true}
+{"id": "l7", "track": "app", "speaker": "Todd", "startMs": 1322000, "endMs": 1326000, "text": "Can we get an administration screen that shows every failure? We'll ship the release Thursday if QA is clean.", "final": true}
+{"id": "l8", "track": "app", "speaker": "Priya", "startMs": 1500000, "endMs": 1504000, "text": "The console accounts still have no MFA.", "final": true}
+{"id": "l9", "track": "mic", "speaker": "Isaac", "startMs": 1695000, "endMs": 1699000, "text": "Yeah, makes sense.", "final": true}
+{"id": "l10", "track": "app", "speaker": "Chris", "startMs": 1860000, "endMs": 1864000, "text": "Retries help, but they hide the real error.", "final": true}
+{"id": "l11", "track": "app", "speaker": "Todd", "startMs": 2140000, "endMs": 2144000, "text": "So we build the visibility and a secure way to remediate it. Isaac, can you take the dashboard?", "final": true}
+{"id": "l12", "track": "app", "speaker": "Chris", "startMs": 2460000, "endMs": 2464000, "text": "The provisioning failures are all on the same tenant.", "final": true}
+{"id": "l13", "track": "app", "speaker": "Priya", "startMs": 2670000, "endMs": 2674000, "text": "Staging is green apart from the Flyway step.", "final": true}
+{"id": "l14", "track": "app", "speaker": "Todd", "startMs": 2830000, "endMs": 2834000, "text": "Walker wants a date for the admin view.", "final": true}
+{"id": "l15", "track": "app", "speaker": "Chris", "startMs": 3065000, "endMs": 3069000, "text": "I can pair on the Flyway script.", "final": true}
+{"id": "l16", "track": "app", "speaker": "Todd", "startMs": 3180000, "endMs": 3184000, "text": "Good. Priya, where are we on the MFA ticket?", "final": true}
+{"id": "l17", "track": "app", "speaker": "Priya", "startMs": 3240000, "endMs": 3244000, "text": "I will open the MFA ticket today. The console accounts are the blocker.", "final": true}
+{"id": "l18", "track": "app", "speaker": "Chris", "startMs": 3300000, "endMs": 3304000, "text": "Looks like three accounts failed on the same step.", "final": true}
+{"id": "l19", "track": "app", "speaker": "Todd", "startMs": 3360000, "endMs": 3364000, "text": "Isaac, did you see the failures in the Flyway log?", "final": true}

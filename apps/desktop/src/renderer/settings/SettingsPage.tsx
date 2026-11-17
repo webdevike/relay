@@ -5,6 +5,7 @@ import { ChangelogSection } from './ChangelogSection'
 import { ChatSection } from './ChatSection'
 import { ConnectionsSection } from './ConnectionsSection'
 import { LinksSection } from './LinksSection'
+import { MeetingsSection } from './MeetingsSection'
 import { NotificationsSection } from './NotificationsSection'
 import { SetupSection } from '../setup/SetupSection'
 import { ThemeSection } from './ThemeSection'
@@ -19,6 +20,10 @@ const SECTIONS = {
   Notifications: {
     Body: NotificationsSection,
     desc: 'Desktop notifications on this Mac: what shows, and which assistants stay quiet.',
+  },
+  Meetings: {
+    Body: MeetingsSection,
+    desc: 'Live meeting recording on this Mac: when the shared screen is saved.',
   },
   Connections: {
     Body: ConnectionsSection,

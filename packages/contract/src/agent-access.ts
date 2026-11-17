@@ -35,6 +35,7 @@ export const AGENT_SETTINGS_SECTIONS = [
   'Chat',
   'Links',
   'Notifications',
+  'Meetings',
   'Connections',
   'Usage',
   'Setup',
@@ -211,7 +212,7 @@ export const AGENT_PAGES: readonly AgentPageInfo[] = [
     key: 'settings',
     title: 'Settings',
     description:
-      'Theme (presets, colors, light or dark), Chat, Links, Connections, Setup, About, Changelog.',
+      'Theme (presets, colors, light or dark), Chat, Links, Notifications, Meetings, Connections, Setup, About, Changelog.',
     link: 'relay://open/settings/<section>?setting=<key>',
     sections: AGENT_SETTINGS_SECTIONS,
     read: [...PANES, 'settings.get', 'connections.list'],
@@ -334,6 +335,13 @@ const FIXED_SETTINGS = {
     description: 'omp or claude for new chats.',
     section: 'Chat',
     value: z.enum(['omp', 'claude']),
+  },
+  'meetings.snapshotChange': {
+    title: 'Screen snapshot change',
+    description:
+      'How much of a shared screen must change, in percent (1 to 50), before a live meeting saves a new snapshot.',
+    section: 'Meetings',
+    value: z.number().int().min(1).max(50),
   },
 } as const satisfies Record<string, AgentSettingSpec>
 

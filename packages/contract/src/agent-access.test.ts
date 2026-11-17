@@ -128,11 +128,12 @@ describe('settings.set validation', () => {
       ['theme.colors.light.text', '#212529'],
       ['chat.showThinking', false],
       ['chat.harness', 'claude'],
+      ['meetings.snapshotChange', 25],
     ] as const) {
       expect(set.safeParse({ key, value }).success, key).toBe(true)
       expect(parseSettingValue(key, value)).toEqual({ ok: true, value })
     }
-    expect(AGENT_SETTING_KEYS).toHaveLength(9 + 20)
+    expect(AGENT_SETTING_KEYS).toHaveLength(10 + 20)
   })
 
   it('refuses unknown keys, wrong types, bad colors and extra fields, saying why', () => {
@@ -148,6 +149,9 @@ describe('settings.set validation', () => {
       ['theme.fontFamily', 'Inter; color: red'],
       ['theme.preset', ''],
       ['chat.showTools', 'yes'],
+      ['meetings.snapshotChange', 0],
+      ['meetings.snapshotChange', 51],
+      ['meetings.snapshotChange', 12.5],
       ['window.opacity', 0.5],
       ['__proto__', 1],
     ] as const) {

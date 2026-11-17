@@ -132,6 +132,7 @@ describe('settings', () => {
       show_tools: false,
       harness: 'omp',
       favorite_models: [],
+      meeting_snapshot_change: 6,
     })
   })
   it('chat.json wins, settings.json fills missing keys', () => {
@@ -145,6 +146,7 @@ describe('settings', () => {
       show_tools: false,
       harness: 'omp',
       favorite_models: ['a/b'],
+      meeting_snapshot_change: 6,
     })
   })
   it('save writes chat.json, keeps unknown keys, never touches settings.json', () => {
@@ -156,6 +158,7 @@ describe('settings', () => {
       show_tools: false,
       harness: 'claude',
       favorite_models: [],
+      meeting_snapshot_change: 6,
     })
     expect(read('chat.json')).toEqual({ chat_categories: ['X'], zoom: 2, harness: 'claude' })
     expect(fs.readFileSync(path.join(dir, 'settings.json'), 'utf8')).toBe(legacy)
@@ -168,6 +171,7 @@ describe('settings', () => {
       show_tools: false,
       harness: 'omp',
       favorite_models: [],
+      meeting_snapshot_change: 6,
     })
   })
   it('seeds starred models once from native EvaOS when chat.json has no key', () => {
@@ -199,6 +203,38 @@ describe('settings', () => {
     fs.writeFileSync(path.join(dir, 'chat.json'), '{broken')
     expect(saveSettings(config, { harness: 'claude' }).harness).toBe('claude')
     expect(fs.readFileSync(path.join(dir, 'chat.json.bad'), 'utf8')).toBe('{broken')
+  })
+  it('snapshot change rounds, clamps to 1-50 and defaults to 6', () => {
+    const at = (v: string): number => {
+      fs.writeFileSync(path.join(dir, 'chat.json'), `{"meeting_snapshot_change":${v}}`)
+      return loadSettings(config).meeting_snapshot_change
+    }
+    expect(at('25')).toBe(25)
+    expect(at('12.6')).toBe(13)
+    expect(at('0')).toBe(1)
+    expect(at('-4')).toBe(1)
+    expect(at('99')).toBe(50)
+    expect(at('"20"')).toBe(6)
+    expect(at('null')).toBe(6)
+    expect(saveSettings(config, { meeting_snapshot_change: 30 }).meeting_snapshot_change).toBe(30)
+  })
+  it('onSaved hears every successful save until unsubscribed', async () => {
+    const handlers = new Map<string, (input: unknown) => unknown>()
+    vi.doMock('./ipc/handle', () => ({
+      handle: (_c: unknown, name: string, fn: (input: unknown) => unknown) =>
+        handlers.set(name, fn),
+    }))
+    vi.resetModules()
+    const { registerSettingsIpc } = await import('./settings-ipc')
+    const ctx = { config, env: { ompBin: 'omp', claudeBin: '', claudeBridgeBin: '' } } as never
+    const settings = registerSettingsIpc(ctx, createWriteQueue())
+    const heard: number[] = []
+    const off = settings.onSaved((s) => heard.push(s.meeting_snapshot_change))
+    await handlers.get('settings.save')!({ meeting_snapshot_change: 20 })
+    off()
+    await handlers.get('settings.save')!({ meeting_snapshot_change: 30 })
+    expect(heard).toEqual([20])
+    vi.doUnmock('./ipc/handle')
   })
   it('chat.harnessStatus reflects whether the claude files exist', async () => {
     const handlers = new Map<string, () => unknown>()

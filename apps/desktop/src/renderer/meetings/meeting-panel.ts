@@ -1,5 +1,5 @@
 // The Meeting tab's wording and arithmetic, kept out of the component so it is tested on its own.
-import type { MeetingMoment } from '@relay/protocol'
+import { KEY_MOMENT_LABEL, askAnswered, type KeyMoment, type LiveLine } from '@relay/protocol'
 
 /** Within this many px of the end, the transcript counts as at the bottom (following live). */
 export const FOLLOW_SLACK_PX = 24
@@ -51,32 +51,28 @@ export function meetingWhen(
   return `${meetingSpan(r.startedAt, end, now)} · ${min} min`
 }
 
-const KIND: Record<'decision' | 'action', string> = { decision: 'Decision', action: 'Action' }
-
 /**
- * The quiet line under a moment: "Action · Priya", "Decision · Todd"; for a question to Isaac who
- * asked and, while nobody heard back, how long ago ("Todd · 20 min ago, no reply yet").
+ * The quiet line under a key moment: its kind and who said it ("Decision · Todd"); an ask of Isaac
+ * nobody heard him answer adds that ("Asks you · Todd · no reply yet").
  */
-export function momentLabel(
-  m: MeetingMoment,
-  live: boolean,
-  startedAt: number,
-  now: number,
-): string {
-  if (m.kind !== 'you') return `${KIND[m.kind]} · ${m.speaker}`
-  if (m.answered) return `${m.speaker} asked you`
-  if (!live) return `${m.speaker} · no reply yet`
-  const ago = minutesBetween(startedAt + m.startMs, now)
-  return `${m.speaker} · ${ago < 1 ? 'just now' : `${ago} min ago`}, no reply yet`
+export function momentLabel(m: Pick<KeyMoment, 'kind' | 'speaker'>, open: boolean): string {
+  const label = `${KEY_MOMENT_LABEL[m.kind]} · ${m.speaker}`
+  return open ? `${label} · no reply yet` : label
+}
+
+/** The asks of Isaac nobody heard him answer yet, by moment id. */
+export function openAsks(moments: readonly KeyMoment[], lines: readonly LiveLine[]): Set<string> {
+  return new Set(moments.filter((m) => m.kind === 'ask' && !askAnswered(m, lines)).map((m) => m.id))
 }
 
 /** What still needs Isaac once the call is over, then what was taken on and what was settled. */
 export function endedSections(
-  moments: readonly MeetingMoment[],
+  moments: readonly KeyMoment[],
+  open: ReadonlySet<string>,
   noteDecisions: readonly string[],
-): { forYou: MeetingMoment[]; actions: MeetingMoment[]; decided: string[] } {
+): { forYou: KeyMoment[]; actions: KeyMoment[]; decided: string[] } {
   return {
-    forYou: moments.filter((m) => m.kind === 'you' && !m.answered),
+    forYou: moments.filter((m) => open.has(m.id)),
     actions: moments.filter((m) => m.kind === 'action'),
     decided:
       noteDecisions.length > 0

@@ -14,7 +14,7 @@ import { registerLayoutIpc } from './layout-ipc'
 import { registerDraftsIpc } from './drafts-ipc'
 import { installQuitGuard } from './quit-guard'
 import { wireSwipeHistory } from './swipe'
-import { registerSettingsIpc } from './settings-ipc'
+import { loadSettings, registerSettingsIpc } from './settings-ipc'
 import { registerLinksIpc } from './links/links-ipc'
 import { readLastBackground, registerThemeIpc } from './theme-ipc'
 import { createWriteQueue } from './write-queue'
@@ -190,7 +190,7 @@ function bootstrap(): void {
       registerLayoutIpc(ctx, queue)
       registerDraftsIpc(ctx)
       registerThemeIpc(ctx, queue)
-      registerSettingsIpc(ctx, queue)
+      const settings = registerSettingsIpc(ctx, queue)
       registerLinksIpc(ctx, queue)
       registerEvaIpc(ctx)
       const chat = registerChat(ctx, queue)
@@ -306,8 +306,13 @@ function bootstrap(): void {
             openMeeting: (id) =>
               openAppLink(ctx, `relay://open/meetings?meeting=${encodeURIComponent(id)}`),
             log: (m) => console.warn(m),
+            snapshotChange: loadSettings(ctx.config).meeting_snapshot_change,
           })
-          if (meetings) ctx.onBeforeQuit(() => meetings.close())
+          if (meetings) {
+            // A changed threshold applies to calls already being recorded, from their next sample.
+            settings.onSaved((s) => meetings.setSnapshotChange(s.meeting_snapshot_change))
+            ctx.onBeforeQuit(() => meetings.close())
+          }
         }
         // The packaged app opens at login (and starts Assist); registered once, so turning it
         // off in System Settings > General > Login Items stays off.

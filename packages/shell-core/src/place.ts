@@ -37,6 +37,7 @@ export const SETTINGS_SECTIONS = [
   'Chat',
   'Links',
   'Notifications',
+  'Meetings',
   'Connections',
   'Usage',
   'Setup',

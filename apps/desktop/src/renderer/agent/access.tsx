@@ -32,7 +32,13 @@ import {
   themeStore,
   updateConfig,
 } from '../theme/theme-config'
-import { setHarness, setSetting, settingsStore, startSettings } from '../settings/settings-store'
+import {
+  setHarness,
+  setSetting,
+  setSnapshotChange,
+  settingsStore,
+  startSettings,
+} from '../settings/settings-store'
 import { settingTarget } from '../settings/setting-targets'
 import { openAppLink } from '../navigation/open-link'
 import { clearSpotlight, labelOf, showSpotlight } from '../tour/tour-store'
@@ -115,6 +121,8 @@ function currentValue(key: AgentSettingKey): unknown {
       return s.show_tools
     case 'chat.harness':
       return s.harness
+    case 'meetings.snapshotChange':
+      return s.meeting_snapshot_change
     default: {
       const [scheme, slot] = colorSlot(key)
       return c.semantic[scheme][slot as keyof ThemeConfig['semantic']['light']]
@@ -144,6 +152,7 @@ function shown(key: AgentSettingKey, value: unknown): string {
     )
   }
   if (typeof value === 'boolean') return value ? 'on' : 'off'
+  if (key === 'meetings.snapshotChange') return `${String(value)}%`
   return String(value)
 }
 
@@ -175,6 +184,9 @@ async function applyValue(key: AgentSettingKey, value: unknown): Promise<void> {
       return
     case 'chat.harness':
       await setHarness(value as 'omp' | 'claude')
+      return
+    case 'meetings.snapshotChange':
+      await setSnapshotChange(value as number)
       return
     default: {
       const [scheme, slot] = colorSlot(key)

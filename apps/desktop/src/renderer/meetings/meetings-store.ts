@@ -144,7 +144,9 @@ export async function loadRecording(id: string): Promise<string | null> {
   try {
     const r = await invoke('meetings.open', { id })
     if (!r.ok) return r.error.message
-    meetingsStore.setState((s) => ({ views: { ...s.views, [id]: r.value } }))
+    // A page from an older host has no moments or shots.
+    const page = { ...r.value, moments: r.value.moments ?? [], shots: r.value.shots ?? [] }
+    meetingsStore.setState((s) => ({ views: { ...s.views, [id]: page } }))
     return null
   } catch {
     return 'The Relay Host did not answer.'
@@ -161,6 +163,27 @@ export async function askAboutMeeting(id: string, question: string): Promise<str
     return v ? { views: { ...s.views, [id]: { ...v, astra: r.value } } } : {}
   })
   return null
+}
+
+/** A page after one of the host's pushes about it. */
+function viewChange(
+  v: RecordingView,
+  c: Extract<MeetingsChange, { kind: 'live' | 'astra' | 'moments' | 'shot' }>,
+): RecordingView {
+  switch (c.kind) {
+    case 'live':
+      return { ...v, lines: applyLiveLines(v.lines, c.upsert) }
+    case 'astra':
+      return { ...v, astra: c.astra }
+    case 'moments':
+      return { ...v, moments: c.moments }
+    case 'shot':
+      // A repeat (a reconnect replaying it) replaces its copy; shots stay in order.
+      return {
+        ...v,
+        shots: [...v.shots.filter((s) => s.n !== c.shot.n), c.shot].sort((a, b) => a.n - b.n),
+      }
+  }
 }
 
 /** Applies one host push to the list and the open pages. */
@@ -181,11 +204,7 @@ export function applyMeetingsChange(c: MeetingsChange): void {
     }
     const v = s.views[c.id]
     if (!v) return {}
-    const next =
-      c.kind === 'live'
-        ? { ...v, lines: applyLiveLines(v.lines, c.upsert) }
-        : { ...v, astra: c.astra }
-    return { views: { ...s.views, [c.id]: next } }
+    return { views: { ...s.views, [c.id]: viewChange(v, c) } }
   })
   // Notes are written when the recording reaches done: read the page again for them.
   if (c.kind === 'recording' && c.recording.stage === 'done') {

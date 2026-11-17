@@ -1,5 +1,6 @@
 import { createStore, useStore } from 'zustand'
 import { notifications } from '@mantine/notifications'
+import { DEFAULT_SNAPSHOT_CHANGE } from '@evaos/contract'
 import { invoke } from '../ipc'
 
 export interface SettingsState {
@@ -8,6 +9,8 @@ export interface SettingsState {
   harness: Harness
   /** Starred models as `provider/id`, in star order (chat.json `favorite_models`). */
   favorite_models: string[]
+  /** Percent of a shared screen that must change before a new snapshot is saved (1-50). */
+  meeting_snapshot_change: number
   loaded: boolean
 }
 
@@ -23,6 +26,7 @@ export const settingsStore = createStore<SettingsState>(() => ({
   show_tools: false,
   harness: 'omp',
   favorite_models: [],
+  meeting_snapshot_change: DEFAULT_SNAPSHOT_CHANGE,
   loaded: false,
 }))
 
@@ -40,6 +44,10 @@ export function startSettings(): Promise<void> {
           harness: r.value.harness,
           // Older mains (and test mocks) may omit the key.
           favorite_models: Array.isArray(r.value.favorite_models) ? r.value.favorite_models : [],
+          meeting_snapshot_change:
+            typeof r.value.meeting_snapshot_change === 'number'
+              ? r.value.meeting_snapshot_change
+              : DEFAULT_SNAPSHOT_CHANGE,
           loaded: true,
         })
         return
@@ -52,11 +60,14 @@ export function startSettings(): Promise<void> {
   return started
 }
 
-const chains: Record<SettingKey | 'harness' | 'favorite_models', Promise<void>> = {
+type SavedKey = SettingKey | 'harness' | 'favorite_models' | 'meeting_snapshot_change'
+
+const chains: Record<SavedKey, Promise<void>> = {
   show_thinking: Promise.resolve(),
   show_tools: Promise.resolve(),
   harness: Promise.resolve(),
   favorite_models: Promise.resolve(),
+  meeting_snapshot_change: Promise.resolve(),
 }
 
 function fail(): void {
@@ -73,6 +84,11 @@ export function setHarness(value: Harness): Promise<void> {
   return save('harness', value)
 }
 
+/** The screen-share snapshot threshold in percent. Same optimistic save and rollback. */
+export function setSnapshotChange(value: number): Promise<void> {
+  return save('meeting_snapshot_change', Math.min(50, Math.max(1, Math.round(value))))
+}
+
 /** Stars or unstars a `provider/id` model spec; a new star goes last. Same optimistic save. */
 export function toggleFavorite(spec: string): Promise<void> {
   const list = settingsStore.getState().favorite_models
@@ -82,10 +98,7 @@ export function toggleFavorite(spec: string): Promise<void> {
   )
 }
 
-function save<K extends SettingKey | 'harness' | 'favorite_models'>(
-  key: K,
-  value: SettingsState[K],
-): Promise<void> {
+function save<K extends SavedKey>(key: K, value: SettingsState[K]): Promise<void> {
   const previous = settingsStore.getState()[key]
   settingsStore.setState({ [key]: value } as Pick<SettingsState, K>)
   const run = async (): Promise<void> => {
@@ -116,11 +129,13 @@ export function resetSettingsForTest(): void {
   chains.show_tools = Promise.resolve()
   chains.harness = Promise.resolve()
   chains.favorite_models = Promise.resolve()
+  chains.meeting_snapshot_change = Promise.resolve()
   settingsStore.setState({
     show_thinking: false,
     show_tools: false,
     harness: 'omp',
     favorite_models: [],
+    meeting_snapshot_change: DEFAULT_SNAPSHOT_CHANGE,
     loaded: false,
   })
 }

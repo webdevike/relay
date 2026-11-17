@@ -36,6 +36,9 @@ beforeAll(async () => {
     } else if (req.url === '/drops/vid1/tok1/poster') {
       res.writeHead(200, { 'Content-Type': 'image/jpeg' })
       res.end(POSTER)
+    } else if (req.url === '/meetings/shots/m1/tok/3') {
+      res.writeHead(200, { 'Content-Type': 'image/jpeg' })
+      res.end(POSTER)
     } else if (req.url === '/big.bin') {
       res.writeHead(200)
       res.end(Buffer.alloc(64))
@@ -94,6 +97,16 @@ describe('resolveMedia', () => {
       resolveMedia('/drops/d1/t1', { ...deps, servePort: () => null }),
     ).rejects.toMatchObject({
       status: 503,
+    })
+  })
+
+  it("fetches a meeting's screen snapshot from the Relay host", async () => {
+    const file = await resolveMedia('/meetings/shots/m1/tok/3', deps)
+    expect(hits).toEqual(['/meetings/shots/m1/tok/3'])
+    expect(file.endsWith('.jpg')).toBe(true)
+    // Only a numbered shot goes to the host; anything else is treated as a local path.
+    await expect(resolveMedia('/meetings/shots/m1/tok/x', deps)).rejects.toMatchObject({
+      status: 403,
     })
   })
 
