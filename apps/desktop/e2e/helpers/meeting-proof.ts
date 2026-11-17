@@ -16,10 +16,12 @@ const MomentsFile = z.union([
  * out like the Relay Host's recording dir (apps/linux src/meetings/store.ts): `moments.json`
  * (`{moments, through}`), `shots.jsonl` (one row per shot: n, atMs, w, h, hash, ocr, line; a null
  * row is a shot that was not kept), `shots/<n>.jpg`, and optionally `lines.jsonl` (the transcript,
- * the last copy of a line id wins). Copy a real recording dir (a replay's output) over
- * `e2e/fixtures/meeting-proof` and the proof screenshots show it.
+ * the last copy of a line id wins). `MEETING_PROOF_DIR` points it at a real replay's output
+ * (proof/meeting-moments/run.ts writes one outside the repo: real calls never get committed);
+ * without it the synthetic `e2e/fixtures/meeting-proof` is used.
  */
-export const MEETING_PROOF_DIR = path.join(APP_DIR, 'e2e/fixtures/meeting-proof')
+export const MEETING_PROOF_DIR =
+  process.env['MEETING_PROOF_DIR'] ?? path.join(APP_DIR, 'e2e/fixtures/meeting-proof')
 
 export interface MeetingProof {
   /** The transcript, or null when the folder has none. */
