@@ -117,26 +117,36 @@ function Sources({ citations }: { citations: Citation[] }) {
   )
 }
 
-/** One run in the expanded caption: what was asked, the typed reply (its answer, other fields and sources), the error. */
-function RunDetails({ run }: { run: AgentRun }) {
+/** `$0.004`, `$0.12`: two decimals from a cent up, up to four below it. */
+export function costLabel(cost: number): string {
+  return `$${cost < 0.01 ? Number(cost.toFixed(4)) : cost.toFixed(2)}`
+}
+
+/** One run: what was asked, the typed reply (its answer, other fields and sources), the error. The caption's details and the Agents page's run panel show it. */
+export function RunDetails({ run }: { run: AgentRun }) {
   const reply = isObj(run.reply) ? run.reply : undefined
   const answer = run.text ?? (typeof reply?.['answer'] === 'string' ? reply['answer'] : undefined)
   const citations = citationsOf(reply)
+  const request = isObj(run.request) ? run.request : undefined
+  // A reply that echoes a request field (web-researcher's `question`) says it once, under what was asked.
   const rest = reply
-    ? Object.entries(reply).filter(([k]) => k !== 'answer' && k !== 'text' && k !== 'citations')
+    ? Object.entries(reply).filter(
+        ([k, v]) =>
+          k !== 'answer' &&
+          k !== 'text' &&
+          k !== 'citations' &&
+          !(request && k in request && JSON.stringify(request[k]) === JSON.stringify(v)),
+      )
     : []
-  const asked = isObj(run.request)
-    ? Object.entries(run.request)
+  const asked = request
+    ? Object.entries(request)
     : run.request === undefined
       ? []
       : [['request', run.request] as [string, unknown]]
   const stats = [
     run.status === 'running' ? 'Working' : run.status === 'failed' ? 'Failed' : null,
     run.seconds !== undefined ? agentClock(run.seconds * 1000, false) : null,
-    // `$0.004`, `$0.12`: two decimals from a cent up, up to four below it.
-    run.cost === undefined
-      ? null
-      : `$${run.cost < 0.01 ? Number(run.cost.toFixed(4)) : run.cost.toFixed(2)}`,
+    run.cost === undefined ? null : costLabel(run.cost),
   ].filter((s): s is string => s !== null)
   return (
     <section className="eva-agents-run" data-testid="agents-run" data-state={run.status}>

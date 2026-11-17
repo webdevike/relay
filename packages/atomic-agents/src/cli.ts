@@ -288,12 +288,13 @@ const waitFlag = Flag.String("wait").pipe(Flag.withDescription("how long to wait
 const requestCommand = Command.make("request", {
   agent: Argument.String("agent"),
   data: Argument.String("data").pipe(Argument.withDescription("the request as JSON")),
-  wait: waitFlag
-}, Effect.fnUntraced(function*({ agent, data, wait }) {
+  wait: waitFlag,
+  caller: Flag.String("caller").pipe(Flag.withDescription("who asks, recorded on the request: agent:nova, an omp session file"), Flag.optional)
+}, Effect.fnUntraced(function*({ agent, data, wait, caller }) {
   const millis = yield* durationMillis("--wait", wait)
   yield* printJson(Effect.flatMap(
     decodeRequest(data).pipe(Effect.mapError((error) => new Requests.RequestError({ message: `the request is not a JSON object: ${error.message}` }))),
-    (request) => Requests.request(agent, request, millis)
+    (request) => Requests.request(agent, request, millis, Option.getOrUndefined(caller))
   ))
 }))
 
@@ -304,6 +305,13 @@ const resultCommand = Command.make("result", {
 }, Effect.fnUntraced(function*({ run, wait }) {
   yield* printJson(Requests.result(run, yield* durationMillis("--wait", wait)))
 }))
+
+/** Who used which agent, as JSON: the newest runs sent with `request` (no replies; `result` has them) and each agent's calls, cost and callers over --days. */
+const runsCommand = Command.make("runs", {
+  days: Flag.Int("days").pipe(Flag.withDescription("the window the per-agent counts cover"), Flag.withDefault(7)),
+  limit: Flag.Int("limit").pipe(Flag.withDescription("how many runs to list, newest first"), Flag.withDefault(50)),
+  agent: Flag.String("agent").pipe(Flag.withDescription("only this agent's runs"), Flag.optional)
+}, ({ days, limit, agent }) => printJson(Requests.runs({ days, limit, ...Option.match(agent, { onNone: () => ({}), onSome: (id) => ({ agent: id }) }) })))
 
 const events = Command.make("events", {
   type: Flag.String("type").pipe(Flag.withDescription("type prefix filter"), Flag.withDefault("")),
@@ -461,7 +469,7 @@ const App = Runner.layer.pipe(
 )
 
 Command.make("atomic-agents").pipe(
-  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, catalogCommand, requestCommand, resultCommand, events, agent, orch, serve, service]),
+  Command.withSubcommands([list, run, bench, rate, wins, use, mode, emit, askCommand, catalogCommand, requestCommand, resultCommand, runsCommand, events, agent, orch, serve, service]),
   Command.run({ version: "0.1.0" }),
   Effect.provide(App),
   BunRuntime.runMain

@@ -24,14 +24,19 @@ export class AskTimeout extends Schema.TaggedError<AskTimeout>()("AskTimeout", {
 /** Every request and reply carries the correlation id; the rest of the data is the pair's own. */
 const decodeCorrelated = Schema.decodeUnknownOption(Schema.Struct({ requestId: Schema.String }))
 
+/** The run name of a request sent through `publishRequest` (`ask-<first 8 of its requestId>`), which `Requests.runs` lists. */
+export const ASK_RUN_PREFIX = "ask-"
+
 /**
  * Append `request` of `contract` with `data` plus a fresh `requestId`; answers that id. `data` must match the
  * request schema (a `SchemaError` otherwise). The caller listens for the reply first if it waits (`ask`, `Requests.ts`).
+ * `caller` (who asked, `AgentEvent.caller`) goes on the envelope, never in the data.
  */
 export const publishRequest = Effect.fn("publishRequest")(function*(
   contract: Contract,
   pair: Pick<Asks, "request" | "reply">,
-  data: Readonly<Record<string, unknown>>
+  data: Readonly<Record<string, unknown>>,
+  caller?: string
 ) {
   const bus = yield* EventBus
   const schema = contract.events[pair.request]
@@ -44,7 +49,8 @@ export const publishRequest = Effect.fn("publishRequest")(function*(
     type: eventType(contract, pair.request),
     component: contract.id,
     job: "ask",
-    run: `ask-${requestId.slice(0, 8)}`,
+    run: `${ASK_RUN_PREFIX}${requestId.slice(0, 8)}`,
+    ...(caller === undefined ? {} : { caller }),
     data: encoded
   }))
   return requestId

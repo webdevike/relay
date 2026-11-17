@@ -51,6 +51,7 @@ import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
 import { registerAgentsBoard } from './agents-board'
 import { createLinearStates, hostBatch, localBatch } from './agents-board/linear-states'
+import { registerSpecialistRuns } from './agents-board/specialists'
 import { createPackagedUpdater, type PackagedUpdater } from './update/packaged'
 import { assistExecutable, startAssist } from './assist'
 import { registerMeetingsIpc } from './eva/meetings-ipc'
@@ -220,6 +221,8 @@ function bootstrap(): void {
               : localBatch(() => apiKey(ctx.env.evaRoot, ctx.env.configDir)),
         ),
       )
+      // Specialist runs on the same page: the atomic-agents service's own record, through its CLI.
+      registerSpecialistRuns(ctx, chat)
       // Linear and PR status polling is Isaac's eCard workflow; a starter home never starts it.
       if (ctx.env.profile === 'eva') {
         const stopStatuses = startStatusReader({

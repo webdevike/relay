@@ -70,6 +70,13 @@ export interface Env {
    */
   relayRemote: RelayRemote | null
   /**
+   * The atomic-agents service's home (its journal, and its installed CLI in `app/atomic-agents`),
+   * which the Agents page's specialist runs come from. EVAOS_ATOMIC_AGENTS_HOME wins (e2e points
+   * it at a fake CLI); live default ATOMIC_AGENTS_HOME, else `$XDG_CONFIG_HOME/relay/atomic-agents`
+   * or `~/.config/relay/atomic-agents`; null in dev and tests unless set.
+   */
+  atomicAgentsHome: string | null
+  /**
    * Chrome DevTools Protocol port on 127.0.0.1 so Eva can drive the running app with Playwright.
    * Live default 9339 for the stable app and 9340 for Relay Dev (Arc 9222, eva-browser 9292,
    * Slack 9333, Chrome 9444); EVAOS_CDP_PORT overrides, 0 turns it off; null in tests. Relay Dev
@@ -290,6 +297,11 @@ export function resolveEnv(input: ResolveEnvInput): Env {
     : live && stable && !e2e
       ? relayConfigDir(env, homedir)
       : null
+  const atomicAgentsHome = env.EVAOS_ATOMIC_AGENTS_HOME
+    ? env.EVAOS_ATOMIC_AGENTS_HOME
+    : live && !e2e
+      ? env.ATOMIC_AGENTS_HOME || path.join(relayConfigDir(env, homedir), 'atomic-agents')
+      : null
 
   const sessionsDir = env.EVAOS_SESSIONS_DIR
     ? env.EVAOS_SESSIONS_DIR
@@ -394,6 +406,7 @@ export function resolveEnv(input: ResolveEnvInput): Env {
       env.EVAOS_RELAY_REMOTE ||
         readJsonFile<{ host?: unknown }>(path.join(configDir, REMOTE_FILE))?.host,
     ),
+    atomicAgentsHome,
     evaRoot,
     profile,
     setupComplete,

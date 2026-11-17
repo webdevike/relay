@@ -6,6 +6,8 @@ import { uuid } from "./Id.ts"
  * The one envelope every component event travels in. `type` is `<component>/<name>`;
  * `data` was validated against the component's declared schema before it was written.
  * Runtime lifecycle events (`<component>/job.started|job.succeeded|job.failed`, see `Lifecycle`) use the same shape.
+ * `caller` is who sent a request from outside the service (`Requests.request`): the asking assistant's scope
+ * (`agent:nova`) or omp session file, as the `relay` MCP server's `agents_ask` names it. Only request events carry it.
  */
 export class AgentEvent extends Schema.Class<AgentEvent>("atomic-agents/AgentEvent")({
   id: Schema.String,
@@ -14,6 +16,7 @@ export class AgentEvent extends Schema.Class<AgentEvent>("atomic-agents/AgentEve
   job: Schema.String,
   run: Schema.String,
   at: Schema.String,
+  caller: Schema.optionalKey(Schema.String),
   data: Schema.Unknown
 }) {}
 

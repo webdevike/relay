@@ -17,6 +17,8 @@ const done: AgentRun = {
   status: 'done',
   request,
   reply: {
+    // The researcher echoes its question; the details say it once, under what was asked.
+    question: 'Who makes the M5 chip?',
     answer: 'Apple designs the M5.',
     citations: [
       { url: 'https://www.apple.com/newsroom/m5', quote: 'Apple unveils M5', verified: true },
@@ -67,6 +69,7 @@ describe('AgentsCaption on a chat row', () => {
     const details = screen.getByTestId('agents-details')
     expect(line).toHaveAttribute('aria-expanded', 'true')
     expect(details).toHaveTextContent('Who makes the M5 chip?')
+    expect(details.textContent?.split('Who makes the M5 chip?')).toHaveLength(2)
     expect(details).toHaveTextContent('29s · $0.004')
     expect(within(details).getByTestId('agents-answer')).toHaveTextContent('Apple designs the M5.')
     const links = within(details).getAllByRole('link')

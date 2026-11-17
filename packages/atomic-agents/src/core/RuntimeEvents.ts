@@ -79,11 +79,12 @@ export const events = {
 
 export const runtime = { id: RUNTIME, events } as const
 
-/** Append a runtime event, encoded by its schema. */
-export const publishRuntime = <K extends keyof typeof events>(bus: EventBus["Service"], name: K, data: (typeof events)[K]["Type"], job: string) =>
+/** Append a runtime event, encoded by its schema; `caller` (`AgentEvent.caller`) marks a request someone outside sent. */
+export const publishRuntime = <K extends keyof typeof events>(bus: EventBus["Service"], name: K, data: (typeof events)[K]["Type"], job: string, caller?: string) =>
   Schema.encodeUnknownEffect(events[name])(data).pipe(
     Effect.mapError((cause) => new JournalError({ message: `encode ${RUNTIME}/${name}`, cause })),
     Effect.flatMap((encoded) =>
-      Effect.flatMap(shortId, (id) => makeEvent({ type: eventType(runtime, name), component: RUNTIME, job, run: `${job}-${id}`, data: encoded }))),
+      Effect.flatMap(shortId, (id) =>
+        makeEvent({ type: eventType(runtime, name), component: RUNTIME, job, run: `${job}-${id}`, ...(caller === undefined ? {} : { caller }), data: encoded }))),
     Effect.flatMap(bus.publish)
   )

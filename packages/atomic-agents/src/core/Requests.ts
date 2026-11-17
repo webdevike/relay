@@ -1,6 +1,6 @@
-import { Effect, Option, Schema, Stream } from "effect"
+import { DateTime, Effect, Option, Schema, Stream } from "effect"
 import { type Agent, Agents } from "./Agent.ts"
-import { publishRequest } from "./Ask.ts"
+import { ASK_RUN_PREFIX, publishRequest } from "./Ask.ts"
 import { type JobInfo, Trigger } from "./Component.ts"
 import { type AgentEvent, EventBus, lifecycle } from "./Event.ts"
 import { uuid } from "./Id.ts"
@@ -8,11 +8,12 @@ import { events as runtimeEvents, publishRuntime, RUNTIME } from "./RuntimeEvent
 import { effective, Settings } from "./Settings.ts"
 
 /**
- * Asking any agent from outside the service: the `relay` MCP server's `agents_list`, `agents_ask` and
- * `agents_result` (Eva's `.omp/tools/relay-mcp.ts`) call `atomic-agents catalog|request|result`, which land here.
- * An agent with an ask pair gets its request event (`Ask.ts`); any other agent gets `atomic-agents/run.requested`
- * for its job. Either way the service runs it and its `job.started` names the request, so the run's status is read
- * back from the journal by `requestId` (the run id callers hold) and a long run outlives the caller that asked.
+ * Asking any agent from outside the service: the `relay` MCP server's `agents_list`, `agents_ask`,
+ * `agents_result` and `agents_runs` (Eva's `.omp/tools/relay-mcp.ts`) call `atomic-agents catalog|request|result|runs`,
+ * which land here. An agent with an ask pair gets its request event (`Ask.ts`); any other agent gets
+ * `atomic-agents/run.requested` for its job. Either way the service runs it and its `job.started` names the request,
+ * so the run's status is read back from the journal by `requestId` (the run id callers hold) and a long run outlives
+ * the caller that asked. The request's envelope names its `caller`, so `runs` says who used which agent.
  */
 
 /** How a caller reaches an agent: its ask pair, else its job run on request. */
@@ -165,6 +166,8 @@ export interface RunStatus {
   readonly run: string
   readonly agent: string
   readonly status: "running" | "done" | "failed"
+  /** Who asked (`AgentEvent.caller`: `agent:nova`, an omp session file); absent when the request did not say. */
+  readonly caller?: string
   readonly request?: unknown
   readonly reply?: unknown
   /** The reply's one-text answer (an ask pair's `show` field), when it has one. */
@@ -192,6 +195,7 @@ export class UnknownRun extends Schema.TaggedError<UnknownRun>()("UnknownRun", {
 class Tracker {
   private readonly seen = new Set<string>()
   agent: string | undefined
+  caller: string | undefined
   request: unknown
   requestedAt: string | undefined
   rejected: string | undefined
@@ -208,6 +212,7 @@ class Tracker {
       const asked = Option.getOrUndefined(decodeRunRequested(event.data))
       if (asked?.requestId === this.requestId) {
         this.agent = asked.agent
+        this.caller = event.caller
         this.request = asked.input
         this.requestedAt = event.at
       }
@@ -224,6 +229,7 @@ class Tracker {
     if (event.job === "ask") {
       if (carries(event.data, this.requestId)) {
         this.agent = event.component
+        this.caller = event.caller
         this.request = withoutRequestId(event.data)
         this.requestedAt = event.at
       }
@@ -269,6 +275,7 @@ class Tracker {
       run: this.requestId,
       agent: this.agent ?? "",
       status: failed !== undefined ? "failed" : data !== undefined ? "done" : "running",
+      ...(this.caller === undefined ? {} : { caller: this.caller }),
       ...(this.request === undefined ? {} : { request: this.request }),
       ...(data === undefined ? {} : { reply: data }),
       ...(shown === undefined || shown === "none" ? {} : { text: shown }),
@@ -303,9 +310,10 @@ const follow = (requestId: string, live: Stream.Stream<AgentEvent>, waitMillis: 
 
 /**
  * Send `data` to `agentId` and wait up to `waitMillis` for its answer: `done` or `failed`, else `running` with the
- * run id `result` takes. The request is checked against the agent's schema before anything is sent.
+ * run id `result` takes. The request is checked against the agent's schema before anything is sent. `caller` (who
+ * asks, `AgentEvent.caller`) goes on the request's envelope, so `runs` can say who used which agent.
  */
-export const request = Effect.fn("Requests.request")(function*(agentId: string, data: Readonly<Record<string, unknown>>, waitMillis: number) {
+export const request = Effect.fn("Requests.request")(function*(agentId: string, data: Readonly<Record<string, unknown>>, waitMillis: number, caller?: string) {
   const agents = yield* (yield* Agents).current
   const settings = yield* (yield* Settings).current
   const agent = agents.find((candidate) => candidate.id === agentId)
@@ -320,11 +328,11 @@ export const request = Effect.fn("Requests.request")(function*(agentId: string, 
   const live = yield* bus.listen
   let requestId: string
   if (target.how === "ask") {
-    requestId = yield* publishRequest(agent, { request: target.request, reply: target.reply }, data).pipe(Effect.catchTag("SchemaError", invalid))
+    requestId = yield* publishRequest(agent, { request: target.request, reply: target.reply }, data, caller).pipe(Effect.catchTag("SchemaError", invalid))
   } else {
     yield* Schema.decodeUnknownEffect(target.job.input as Schema.Codec<unknown>)(data).pipe(Effect.catchTag("SchemaError", invalid))
     requestId = yield* uuid
-    yield* publishRuntime(bus, "run.requested", { requestId, agent: agent.id, job: target.job.id, input: data as Schema.Json }, "ask")
+    yield* publishRuntime(bus, "run.requested", { requestId, agent: agent.id, job: target.job.id, input: data as Schema.Json }, "ask", caller)
   }
   return yield* follow(requestId, live, waitMillis)
 }, Effect.scoped)
@@ -334,3 +342,128 @@ export const result = Effect.fn("Requests.result")(function*(requestId: string, 
   const live = yield* (yield* EventBus).listen
   return yield* follow(requestId, live, waitMillis)
 }, Effect.scoped)
+
+/**
+ * Every request sent through `request` or `ask`, folded into its run, oldest first: a `run.requested`, or an ask
+ * pair's request in an `ask-` run (`publishRequest`). Consumers' own asks on the bus (the Relay Host's widget asks
+ * under replies, `relay-` runs) are not specialist calls and stay out. One pass over the journal: each request's
+ * events reach its tracker by request id, then by the run its `job.started` names.
+ */
+const foldRuns = (history: ReadonlyArray<AgentEvent>): ReadonlyArray<Tracker> => {
+  const byRequest = new Map<string, Tracker>()
+  const byRun = new Map<string, Tracker>()
+  const open = (requestId: string): Tracker => {
+    const known = byRequest.get(requestId)
+    if (known !== undefined) return known
+    const tracker = new Tracker(requestId)
+    byRequest.set(requestId, tracker)
+    return tracker
+  }
+  for (const event of history) {
+    if (event.type === RUN_REQUESTED) {
+      const asked = Option.getOrUndefined(decodeRunRequested(event.data))
+      if (asked !== undefined) open(asked.requestId).add(event)
+      continue
+    }
+    if (event.type === RUN_REJECTED) {
+      const rejected = Option.getOrUndefined(decodeRunRejected(event.data))
+      if (rejected !== undefined) byRequest.get(rejected.requestId)?.add(event)
+      continue
+    }
+    if (event.job === "ask") {
+      const asked = Option.getOrUndefined(decodeCorrelated(event.data))
+      if (asked !== undefined && event.run.startsWith(ASK_RUN_PREFIX)) open(asked.requestId).add(event)
+      continue
+    }
+    const phase = lifecycle(event)
+    if (Option.isSome(phase) && phase.value._tag === "job.started") {
+      const requestId = phase.value.requestId ?? Option.getOrUndefined(decodeCorrelated(phase.value.input))?.requestId
+      const tracker = requestId === undefined ? undefined : byRequest.get(requestId)
+      if (tracker !== undefined) {
+        tracker.add(event)
+        byRun.set(`${event.component} ${event.run}`, tracker)
+      }
+      continue
+    }
+    byRun.get(`${event.component} ${event.run}`)?.add(event)
+  }
+  return [...byRequest.values()]
+}
+
+/** A run as `runs` lists it: its status without the request and reply (`result` has them), the request on one line. */
+export interface RunSummary extends Omit<RunStatus, "request" | "reply" | "text"> {
+  /** The request's first text field (else its JSON), on one line, at most `SUMMARY_MAX` characters. */
+  readonly summary?: string
+}
+
+/** One agent's use over the window. */
+export interface AgentUsage {
+  readonly agent: string
+  readonly calls: number
+  readonly failed: number
+  /** USD over the runs that report a cost. */
+  readonly cost: number
+  /** Calls per caller, most first; no `caller` for requests that did not say who asked. */
+  readonly callers: ReadonlyArray<{ readonly caller?: string; readonly calls: number }>
+}
+
+/** What `runs` answers: the newest runs, and each agent's use since `since`. */
+export interface RunsReport {
+  readonly since: string
+  readonly days: number
+  /** Newest first, at most `limit`, of any age. */
+  readonly runs: ReadonlyArray<RunSummary>
+  /** Every agent asked since `since`, most calls first. */
+  readonly agents: ReadonlyArray<AgentUsage>
+}
+
+export const SUMMARY_MAX = 160
+
+/** The request in one line: its first non-empty text field (`question`, `url`, ...), else its JSON. */
+export const summaryOf = (request: unknown): string | undefined => {
+  if (request === undefined) return undefined
+  const fields = typeof request === "object" && request !== null && !Array.isArray(request) ? Object.values(request) : []
+  const text = fields.find((value): value is string => typeof value === "string" && value.trim() !== "") ?? JSON.stringify(request)
+  const line = text.replace(/\s+/g, " ").trim()
+  return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line
+}
+
+const DAY_MILLIS = 86_400_000
+
+/** Who used which agent: the newest `limit` runs (of `agent` when given), and per agent its calls, failures, cost and callers over the last `days`. */
+export const runs = Effect.fn("Requests.runs")(function*(options: { readonly days: number; readonly limit: number; readonly agent?: string }) {
+  const agents = yield* (yield* Agents).current
+  const history = yield* (yield* EventBus).history
+  const since = DateTime.toEpochMillis(yield* DateTime.now) - options.days * DAY_MILLIS
+  const all = foldRuns(history)
+    .filter((tracker) => tracker.known && (options.agent === undefined || tracker.agent === options.agent))
+    .map((tracker) => tracker.status(agents))
+  const usage = new Map<string, { calls: number; failed: number; cost: number; callers: Map<string | undefined, number> }>()
+  for (const run of all) {
+    if (run.requestedAt === undefined || Date.parse(run.requestedAt) < since) continue
+    const entry = usage.get(run.agent) ?? { calls: 0, failed: 0, cost: 0, callers: new Map() }
+    usage.set(run.agent, entry)
+    entry.calls += 1
+    if (run.status === "failed") entry.failed += 1
+    entry.cost += run.cost ?? 0
+    entry.callers.set(run.caller, (entry.callers.get(run.caller) ?? 0) + 1)
+  }
+  const report: RunsReport = {
+    since: new Date(since).toISOString(),
+    days: options.days,
+    runs: (options.limit > 0 ? all.slice(-options.limit) : []).reverse().map(({ request, reply: _reply, text: _text, ...rest }) => {
+      const summary = summaryOf(request)
+      return summary === undefined ? rest : { ...rest, summary }
+    }),
+    agents: [...usage].map(([agent, entry]): AgentUsage => ({
+      agent,
+      calls: entry.calls,
+      failed: entry.failed,
+      cost: Math.round(entry.cost * 10000) / 10000,
+      callers: [...entry.callers]
+        .sort((a, b) => b[1] - a[1])
+        .map(([caller, calls]) => caller === undefined ? { calls } : { caller, calls })
+    })).sort((a, b) => b.calls - a.calls)
+  }
+  return report
+})

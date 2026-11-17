@@ -1,11 +1,9 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { Tooltip, UnstyledButton } from '@mantine/core'
 import { IconLayoutSidebarRightExpand } from '@tabler/icons-react'
-import type { AgentCard } from '@evaos/contract'
 import { EvaDrawer } from '../overlay'
 import { useOccludeBrowser } from '../overlay/overlay-store'
 import { parseNumber, usePref } from '../ui-prefs'
-import { TicketView } from './TicketView'
 
 export const PANEL_MIN = 380
 const PANEL_DEFAULT = 560
@@ -14,27 +12,34 @@ export const BOARD_MIN = 480
 const STEP = 16
 const parsePanelWidth = parseNumber(0, 4000)
 
+/** The panel's own controls, for its content's head; absent in the narrow drawer, which has its own close. */
+export interface PanelChrome {
+  onClose?: () => void
+  onCollapse?: () => void
+}
+
 /**
- * The card's side panel. Beside the board (the board shrinks and stays live; drag the edge to
- * resize, double-click it for the default width, collapse it to a strip) or, on a page too narrow
- * for both, an overlay drawer.
+ * The Agents page's side panel (a card's ticket view, a specialist run's reply). Beside the board
+ * or list (which shrinks and stays live; drag the edge to resize, double-click it for the default
+ * width, collapse it to a strip) or, on a page too narrow for both, an overlay drawer. `open`
+ * names what it shows (`label` on the folded strip); `children` draws it.
  */
 export function AgentPanel({
-  card,
-  now,
+  open,
   narrow,
   pageWidth,
   collapsed,
   onCollapse,
   onClose,
+  children,
 }: {
-  card: AgentCard | null
-  now: number
+  open: { key: string; label: string } | null
   narrow: boolean
   pageWidth: number
   collapsed: boolean
   onCollapse: (collapsed: boolean) => void
   onClose: () => void
+  children: (chrome: PanelChrome) => ReactNode
 }) {
   const [width, setWidth] = usePref('agents.panelWidth', PANEL_DEFAULT, parsePanelWidth)
   const [dragging, setDragging] = useState(false)
@@ -45,15 +50,15 @@ export function AgentPanel({
   if (narrow)
     return (
       <EvaDrawer
-        opened={card !== null}
+        opened={open !== null}
         onClose={onClose}
         size={Math.min(PANEL_DEFAULT, pageWidth)}
         testid="agents-drawer"
       >
-        {card ? <TicketView key={card.id} card={card} now={now} /> : null}
+        {open ? children({}) : null}
       </EvaDrawer>
     )
-  if (card === null) return null
+  if (open === null) return null
 
   const max = Math.max(PANEL_MIN, pageWidth - BOARD_MIN)
   const shown = Math.min(Math.max(width, PANEL_MIN), max)
@@ -91,7 +96,7 @@ export function AgentPanel({
             <IconLayoutSidebarRightExpand size={15} stroke={1.5} />
           </UnstyledButton>
         </Tooltip>
-        <span className="eva-ab-side-label">{card.key ?? card.title}</span>
+        <span className="eva-ab-side-label">{open.label}</span>
       </aside>
     )
 
@@ -115,13 +120,7 @@ export function AgentPanel({
           resize(widthRef.current + (e.key === 'ArrowLeft' ? STEP : -STEP))
         }}
       />
-      <TicketView
-        key={card.id}
-        card={card}
-        now={now}
-        onClose={onClose}
-        onCollapse={() => onCollapse(true)}
-      />
+      {children({ onClose, onCollapse: () => onCollapse(true) })}
     </aside>
   )
 }

@@ -3,9 +3,9 @@ import { BunServices } from "@effect/platform-bun"
 import { Deferred, Effect, FileSystem, Layer, Schema } from "effect"
 import { Background } from "../src/core/Background.ts"
 import { define, job, Trigger } from "../src/core/Component.ts"
-import { EventBus } from "../src/core/Event.ts"
+import { EventBus, makeEvent } from "../src/core/Event.ts"
 import { ModelRunner } from "../src/core/Model.ts"
-import { catalog, request, result } from "../src/core/Requests.ts"
+import { catalog, request, result, runs, SUMMARY_MAX, summaryOf } from "../src/core/Requests.ts"
 import { Runner } from "../src/core/Runtime.ts"
 import { publishRuntime } from "../src/core/RuntimeEvents.ts"
 import { runtime, tempHome } from "./harness.ts"
@@ -156,6 +156,44 @@ describe("asking agents from outside the service", () => {
         // Sent, but the service refuses it (the agent changed in between): the run fails with the reason.
         yield* publishRuntime(bus, "run.requested", { requestId: "r-gone", agent: "researcher", job: "nope", input: {} }, "test")
         expect(yield* result("r-gone", 10_000)).toMatchObject({ run: "r-gone", agent: "researcher", status: "failed", error: "no job researcher/nope" })
+      }).pipe(Effect.provide(service(root, gate)))
+    }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+
+  test("runs: the newest runs with who asked and the request on one line, and each agent's calls, cost and callers", () =>
+    Effect.gen(function*() {
+      const root = yield* home()
+      const gate = yield* Deferred.make<void>()
+      yield* Deferred.succeed(gate, undefined)
+      yield* Effect.gen(function*() {
+        const bus = yield* EventBus
+        const first = yield* request("researcher", { question: "tides\n  and moons" }, 10_000, "agent:nova")
+        const second = yield* request("tally", { items: ["a"] }, 10_000, "agent:astra")
+        const third = yield* request("researcher", { question: "winds" }, 10_000)
+        expect([first.caller, second.caller, third.caller]).toEqual(["agent:nova", "agent:astra", undefined])
+        expect((yield* result(first.run, 0)).caller).toBe("agent:nova")
+        // The caller rides on the request's envelope, never in the agent's own data.
+        const asked = (yield* bus.history).find((event) => event.type === "researcher/question.asked" && event.caller === "agent:nova")
+        expect(asked?.data).not.toHaveProperty("caller")
+        // A consumer's own ask on the bus (the Relay Host's widget asks run as `relay-...`) is not a specialist call.
+        yield* bus.publish(yield* makeEvent({ type: "researcher/question.asked", component: "researcher", job: "ask", run: "relay-1", data: { requestId: "host-1", question: "q" } }))
+
+        const report = yield* runs({ days: 7, limit: 3 })
+        expect(report.runs.map((run) => [run.run, run.agent, run.caller, run.summary, run.status])).toEqual([
+          [third.run, "researcher", undefined, "winds", "done"],
+          [second.run, "tally", "agent:astra", '{"items":["a"]}', "done"],
+          [first.run, "researcher", "agent:nova", "tides and moons", "done"]
+        ])
+        expect(report.runs[2]).toMatchObject({ model: "test/m", cost: 0.002 })
+        expect(report.runs[2]).not.toHaveProperty("request")
+        expect(report.runs[2]).not.toHaveProperty("reply")
+        expect(report.agents).toEqual([
+          { agent: "researcher", calls: 2, failed: 0, cost: 0.004, callers: [{ caller: "agent:nova", calls: 1 }, { calls: 1 }] },
+          { agent: "tally", calls: 1, failed: 0, cost: 0.25, callers: [{ caller: "agent:astra", calls: 1 }] }
+        ])
+        expect((yield* runs({ days: 7, limit: 1 })).runs.map((run) => run.run)).toEqual([third.run])
+        expect((yield* runs({ days: 7, limit: 10, agent: "tally" })).runs.map((run) => run.run)).toEqual([second.run])
+        expect((yield* runs({ days: 0, limit: 0 }))).toMatchObject({ runs: [], agents: [] })
+        expect(summaryOf({ question: "x".repeat(400) })).toHaveLength(SUMMARY_MAX)
       }).pipe(Effect.provide(service(root, gate)))
     }).pipe(Effect.scoped, Effect.runPromise), 20_000)
 })
