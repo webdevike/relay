@@ -245,6 +245,23 @@ test('chat models load newest first, two at a time, and far ones wait or unload'
   )
   expect(burstTop[MODELS]).toBe('waiting')
   expect(burstTop[MODELS - 1]).toBe('waiting')
+  // Let the models burst top asked for finish before jumping away. A viewer dropped mid-load gives
+  // its slot back at once while its download goes on in the host (relay-media shares and caches
+  // it), so models loading after the jump would overlap it in the host's log: not a broken limit.
+  // Idle means nothing loading and every request answered, on two looks half a second apart (a
+  // queued model may be about to ask).
+  const idle = async () =>
+    media.hits.every((h) => h.end > 0) && !Object.values(await states(shell)).includes('loading')
+  await expect
+    .poll(
+      async () => {
+        if (!(await idle())) return false
+        await shell.waitForTimeout(500)
+        return idle()
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(true)
 
   // Scroll to the oldest reply: it loads now, and the newest viewers, far below, unload.
   const scroller = shell.locator(LOG).locator(':scope > *').first()
