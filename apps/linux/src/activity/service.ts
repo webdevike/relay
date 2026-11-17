@@ -3,7 +3,7 @@
 // it with what it said before (`mergeActivity`), attaches estimates (`eta`) and pushes
 // `activity.snapshot` to every device when it changes. Every client draws this list, so the Mini and the MacBook always agree.
 import { mergeActivity, type ActivityItem, type ActivityKind, type AgentSession, type Artifact, type CanvasRoomInfo, type ServerMessage } from "@relay/protocol";
-import type { HerdrAgent } from "../agents/herdr";
+import type { HerdrAgent, HerdrAgentList } from "../agents/herdr";
 import type { AgentProviderChange } from "../seams";
 import type { SessionClock } from "../session";
 import { canvasItems, harnessItems, helperItems, sessionItems } from "./sources";
@@ -19,7 +19,7 @@ export interface ActivityServiceDeps {
   readonly question: (sessionId: string) => string | null;
   readonly helpers: () => { thread: string; item: Artifact }[];
   /** `herdr agent list`; rejects when herdr is missing or down. */
-  readonly harnesses: () => Promise<HerdrAgent[]>;
+  readonly harnesses: () => Promise<HerdrAgentList>;
   readonly rooms: () => CanvasRoomInfo[];
   /** What a live room's agent has spent, in dollars. */
   readonly roomCost: (slug: string) => number | undefined;
@@ -48,6 +48,10 @@ export class ActivityService implements ActivityRelaying {
   private again = false;
   private harnesses: HerdrAgent[] | null = null;
   private harnessesAt = 0;
+  /** Panes without an agent already logged, so each is logged once and not on every poll. */
+  private skippedPanes = new Set<string>();
+  /** The last herdr failure logged; the same failure again is not logged. */
+  private herdrFailure = "";
 
   constructor(private readonly deps: ActivityServiceDeps) {}
 
@@ -104,11 +108,18 @@ export class ActivityService implements ActivityRelaying {
       const answered = new Set<ActivityKind>(["helper", "session", "canvas"]);
       if (this.harnesses === null || now - this.harnessesAt >= ACTIVITY_POLL_MS / 2) {
         try {
-          this.harnesses = await this.deps.harnesses();
+          const list = await this.deps.harnesses();
+          this.harnesses = list.agents;
           this.harnessesAt = this.deps.clock.now();
+          this.herdrFailure = "";
+          const fresh = list.skipped.filter((pane) => !this.skippedPanes.has(pane));
+          this.skippedPanes = new Set(list.skipped);
+          if (fresh.length > 0) this.deps.log(`activity: herdr panes with no agent left out: ${fresh.join(", ")}`);
         } catch (error) {
           this.harnesses = null;
-          this.deps.log(`activity: herdr agent list failed: ${error instanceof Error ? error.message : String(error)}`);
+          const failure = error instanceof Error ? error.message : String(error);
+          if (failure !== this.herdrFailure) this.deps.log(`activity: herdr agent list failed: ${failure}`);
+          this.herdrFailure = failure;
         }
       }
       if (this.harnesses !== null) answered.add("harness");

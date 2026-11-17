@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentSession, Artifact, CanvasRoomInfo, ServerMessage } from "@relay/protocol";
 import { ACTIVITY_POLL_MS, ACTIVITY_SETTLE_MS, ActivityService, type ActivityServiceDeps } from "../src/activity/service";
 import { canvasItems, harnessItems, helperItems, sessionItems } from "../src/activity/sources";
-import type { HerdrAgent } from "../src/agents/herdr";
+import { parseAgentList, type HerdrAgent } from "../src/agents/herdr";
 
 const NOW = Date.parse("2026-11-04T14:00:00Z");
 
@@ -73,6 +73,19 @@ describe("sources", () => {
     expect(items[0]?.open).toEqual({ to: "terminal", pane: "w1:p1" });
   });
 
+  it("leaves out herdr panes with no agent (null or absent) instead of rejecting the whole list", () => {
+    const list = parseAgentList({
+      agents: [
+        { agent: "claude", agent_status: "working", pane_id: "w1:p1", cwd: "/Eva" },
+        { agent: null, agent_status: "unknown", pane_id: "wCF:p1", cwd: "/private/tmp/rh/home" },
+        { agent_status: "unknown", pane_id: "wCF:p2", cwd: "/private/tmp/rh/home", agent_session: { agent: "omp" } },
+      ],
+    });
+    expect(list.agents.map((a) => [a.pane_id, a.agent])).toEqual([["w1:p1", "claude"]]);
+    expect(list.skipped).toEqual(["wCF:p1", "wCF:p2"]);
+    expect(() => parseAgentList({ agents: [{ agent: "claude" }] })).toThrow(/unexpected herdr reply/);
+  });
+
   it("lists canvas rooms under the chat they came from, with a live room's spend", () => {
     const room = (over: Partial<CanvasRoomInfo>): CanvasRoomInfo => ({ id: "r", slug: "roadmap", board: "Roadmap", live: true, agent: { name: "Astra", color: "#112233" }, chat: { assistant: "astra" }, humans: ["Isaac"], startedAt: NOW - 5000, ...over });
     const items = canvasItems([room({}), room({ slug: "old", live: false, board: "", chat: { sessionId: "s1" }, humans: [], endedAt: NOW - 100 })], (slug) => (slug === "roadmap" ? 0.42 : undefined));
@@ -87,6 +100,9 @@ interface Rig {
   readonly sent: Extract<ServerMessage, { t: "activity.snapshot" }>[];
   sessions: AgentSession[];
   harnesses: HerdrAgent[] | Error;
+  /** Pane ids herdr reports with no agent. */
+  skipped: string[];
+  readonly logs: string[];
   now: number;
   /** Runs what is due after `ms`, as the clock would. */
   tick(ms: number): Promise<void>;
@@ -98,6 +114,8 @@ function rig(): Rig {
     sent: [],
     sessions: [],
     harnesses: [],
+    skipped: [],
+    logs: [],
     now: NOW,
     service: undefined as unknown as ActivityService,
     async tick(ms) {
@@ -114,7 +132,7 @@ function rig(): Rig {
     sessions: () => r.sessions,
     question: () => null,
     helpers: () => [],
-    harnesses: () => (r.harnesses instanceof Error ? Promise.reject(r.harnesses) : Promise.resolve(r.harnesses)),
+    harnesses: () => (r.harnesses instanceof Error ? Promise.reject(r.harnesses) : Promise.resolve({ agents: r.harnesses, skipped: r.skipped })),
     rooms: () => [],
     roomCost: () => undefined,
     broadcast: (message) => {
@@ -128,7 +146,7 @@ function rig(): Rig {
         return () => timers.splice(timers.indexOf(timer), 1);
       },
     },
-    log: () => undefined,
+    log: (line) => r.logs.push(line),
   };
   Object.assign(r, { service: new ActivityService(deps) });
   return r;
@@ -168,6 +186,23 @@ describe("ActivityService", () => {
     r.harnesses = [];
     await r.tick(ACTIVITY_POLL_MS);
     expect(r.service.snapshot().map((i) => [i.id, i.status])).toEqual([["harness:w1:p3", "done"]]);
+    r.service.stop();
+  });
+
+  it("lists harnesses beside a pane with no agent, logging that pane once and a repeated herdr failure once", async () => {
+    const r = rig();
+    r.harnesses = [{ agent: "claude", agent_status: "working", pane_id: "w1:p3", cwd: "/Eva/work/demo" }];
+    r.skipped = ["wCF:p1"];
+    r.service.start();
+    await r.tick(ACTIVITY_SETTLE_MS);
+    await r.tick(ACTIVITY_POLL_MS);
+    await r.tick(ACTIVITY_POLL_MS);
+    expect(r.service.snapshot().map((i) => [i.id, i.status])).toEqual([["harness:w1:p3", "working"]]);
+    expect(r.logs).toEqual(["activity: herdr panes with no agent left out: wCF:p1"]);
+    r.harnesses = new Error("herdr down");
+    await r.tick(ACTIVITY_POLL_MS);
+    await r.tick(ACTIVITY_POLL_MS);
+    expect(r.logs.slice(1)).toEqual(["activity: herdr agent list failed: herdr down"]);
     r.service.stop();
   });
 

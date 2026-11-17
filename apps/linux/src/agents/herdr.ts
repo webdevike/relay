@@ -257,26 +257,43 @@ export async function closeHerdrPane(paneId: string): Promise<void> {
   }
 }
 
-const AgentList = z.object({
-  agents: z.array(
-    z.object({
-      agent: z.string(),
-      agent_status: z.string().optional(),
-      pane_id: z.string(),
-      workspace_id: z.string().optional(),
-      cwd: z.string().optional(),
-      terminal_title_stripped: z.string().optional(),
-      terminal_title: z.string().optional(),
-    }),
-  ),
+const AgentPane = z.object({
+  agent: z.string(),
+  agent_status: z.string().optional(),
+  pane_id: z.string(),
+  workspace_id: z.string().optional(),
+  cwd: z.string().optional(),
+  terminal_title_stripped: z.string().optional(),
+  terminal_title: z.string().optional(),
 });
 
-/** One pane `herdr agent list` reports: omp's own panes included (the host's sessions already cover those). */
-export type HerdrAgent = z.infer<typeof AgentList>["agents"][number];
+/** herdr lists every pane, plain shells too: one it found no agent in has `agent` null or absent. */
+const AgentList = z.object({ agents: z.array(AgentPane.extend({ agent: z.string().nullish() })) });
 
-/** Every agent pane herdr knows; rejects when herdr is missing, down or answers something else. */
-export async function listHerdrAgents(): Promise<HerdrAgent[]> {
-  return result(AgentList, await herdr(["agent", "list"])).agents;
+/** One pane `herdr agent list` reports: omp's own panes included (the host's sessions already cover those). */
+export type HerdrAgent = z.infer<typeof AgentPane>;
+
+export interface HerdrAgentList {
+  readonly agents: HerdrAgent[];
+  /** Pane ids herdr reports with no agent in them; left out of `agents`. */
+  readonly skipped: string[];
+}
+
+/** `herdr agent list`'s result: the panes that run an agent, and the ids of those that run none. */
+export function parseAgentList(value: Record<string, unknown>): HerdrAgentList {
+  const agents: HerdrAgent[] = [];
+  const skipped: string[] = [];
+  for (const pane of result(AgentList, value).agents) {
+    const { agent } = pane;
+    if (agent === null || agent === undefined) skipped.push(pane.pane_id);
+    else agents.push({ ...pane, agent });
+  }
+  return { agents, skipped };
+}
+
+/** Every pane herdr knows, split by whether it runs an agent; rejects when herdr is missing, down or answers something else. */
+export async function listHerdrAgents(): Promise<HerdrAgentList> {
+  return parseAgentList(await herdr(["agent", "list"]));
 }
 
 function profileIntegrations(): string[] {
