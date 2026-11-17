@@ -62,6 +62,34 @@ export const makeDesktop = (run: Run, fs: FileSystem.FileSystem): Desktop => {
   let overridden: ReadonlyArray<{ readonly key: string; readonly before: string | undefined }> = [];
   /** Where the log ended before the relaunch: only lines after it count. */
   let logStart = 0;
+  /** The app in front when the session quit Soundly: `relaunch` puts the screen back as it was. */
+  let frontBefore: string | undefined;
+
+  const front = Effect.gen(function* () {
+    const id = yield* run("lsappinfo", ["front"]);
+    const info = yield* run("lsappinfo", ["info", "-only", "bundleid", id.stdout.trim()]);
+    return /(?:bundleID|"CFBundleIdentifier")="([^"]+)"/.exec(info.stdout)?.[1];
+  });
+
+  /** An NSRunningApplication call through JXA: no Apple Event, so no Automation prompt, and never `activate` on Soundly. */
+  const appKit = (bundleId: string, call: string) =>
+    run("osascript", [
+      "-l",
+      "JavaScript",
+      "-e",
+      `ObjC.import("AppKit"); const apps = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(${JSON.stringify(bundleId)}); if (apps.count > 0) apps.objectAtIndex(0).${call};`,
+    ]).pipe(Effect.ignore);
+
+  /** Waits until Soundly has its main window (the app finished launching); gives up quietly after `millis`. */
+  const waitForWindow = (app: number, millis: number) =>
+    Effect.gen(function* () {
+      const until = Date.now() + millis;
+      while (Date.now() < until) {
+        const found = yield* windows(app).pipe(Effect.orElseSucceed(() => []));
+        if (found.some((window) => window.title === "Soundly")) return;
+        yield* Effect.sleep("500 millis");
+      }
+    });
 
   const pid = Effect.map(run("pgrep", ["-x", "Soundly"]), (result) =>
     result.exitCode === 0 ? Number(result.stdout.trim().split("\n")[0]) : undefined,
@@ -130,9 +158,7 @@ export const makeDesktop = (run: Run, fs: FileSystem.FileSystem): Desktop => {
   return {
     probe: Effect.gen(function* () {
       if ((yield* pid) === undefined) return { running: false, inUse: undefined };
-      const front = yield* run("lsappinfo", ["front"]);
-      const info = yield* run("lsappinfo", ["info", "-only", "bundleid", front.stdout.trim()]);
-      const frontmost = /(?:bundleID|"CFBundleIdentifier")="([^"]+)"/.exec(info.stdout)?.[1];
+      const frontmost = yield* front;
       if (frontmost !== BUNDLE_ID) return { running: true, inUse: undefined };
       const hid = yield* run("ioreg", ["-c", "IOHIDSystem", "-d", "4", "-r", "-k", "HIDIdleTime"]);
       const nanos = /"HIDIdleTime" = (\d+)/.exec(hid.stdout)?.[1];
@@ -147,6 +173,7 @@ export const makeDesktop = (run: Run, fs: FileSystem.FileSystem): Desktop => {
     quit: Effect.gen(function* () {
       const app = yield* pid;
       if (app === undefined) return;
+      frontBefore = yield* front;
       // A prompt left open blocks the quit; answering it is what Isaac's own click would do.
       yield* answerRestoreTabs(app).pipe(Effect.ignore);
       const main = (yield* windows(app)).find((window) => window.title === "Soundly");
@@ -191,12 +218,28 @@ export const makeDesktop = (run: Run, fs: FileSystem.FileSystem): Desktop => {
         Effect.map((info) => Number(info.size)),
         Effect.orElseSucceed(() => 0),
       );
-      // Hidden (-j) and not activated (-g); EVA_AGENT tells the focus guard an agent launched it.
-      const opened = yield* run("open", ["-g", "-j", "-b", BUNDLE_ID], { env: { EVA_AGENT: "1" } });
-      if (opened.exitCode !== 0 || !(yield* waitFor(true, 30_000)))
+      // Not activated (-g). Hidden (-j) unless Soundly was in front before the run; EVA_AGENT tells the focus guard
+      // an agent launched it.
+      const wasFront = frontBefore === BUNDLE_ID;
+      const opened = yield* run("open", ["-g", ...(wasFront ? [] : ["-j"]), "-b", BUNDLE_ID], {
+        env: { EVA_AGENT: "1" },
+      });
+      const app = opened.exitCode === 0 && (yield* waitFor(true, 30_000)) ? yield* pid : undefined;
+      if (app === undefined)
         return yield* new SoundlyError({
           message: `Soundly did not relaunch: ${opened.stderr.trim() || "not running after 30 s"}`,
         });
+      // Soundly shows itself once its window exists, even under -g -j. Put the screen back as it was: hide it when it
+      // was not in front, and give the focus back only when the app took it from the one Isaac was in.
+      yield* waitForWindow(app, 30_000);
+      if (!wasFront) {
+        const taken = (yield* front) === BUNDLE_ID;
+        yield* appKit(BUNDLE_ID, "hide()");
+        if (taken && frontBefore !== undefined) {
+          yield* Effect.sleep("300 millis");
+          if ((yield* front) !== frontBefore) yield* appKit(frontBefore, "activateWithOptions(0)");
+        }
+      }
     }),
 
     restorePrompt: Effect.suspend(() => {
