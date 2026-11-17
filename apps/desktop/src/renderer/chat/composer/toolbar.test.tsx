@@ -129,6 +129,35 @@ describe('Composer toolbar', () => {
     expect(screen.queryByTestId('composer-account')).toBeNull()
   })
 
+  it('a failed model load is retried, so the picker recovers from raw ids to names', async () => {
+    let calls = 0
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation((channel: string, input?: Record<string, unknown>) =>
+      channel === 'chat.models' && ++calls === 1
+        ? (Promise.resolve({
+            ok: false,
+            error: { code: 'unavailable', message: 'omp failed' },
+          }) as never)
+        : base(channel, input),
+    )
+    try {
+      open(1, 100)
+      wrap()
+      await waitFor(() =>
+        expect(screen.getByTestId('composer-model')).toHaveTextContent('claude-opus-5-5'),
+      )
+      await waitFor(
+        () => expect(screen.getByTestId('composer-model')).toHaveTextContent('Opus 5.5'),
+        {
+          timeout: 4000,
+        },
+      )
+      expect(calls).toBe(2)
+    } finally {
+      invoke.mockImplementation(base)
+    }
+  })
+
   it('picking a model calls chat.setLaunch with provider and model id', async () => {
     open(1, 100)
     wrap()

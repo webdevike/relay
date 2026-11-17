@@ -6,23 +6,28 @@ import {
   parseModels,
   type ModelInfo,
   type SlashCommand,
+  type Profile,
 } from '@evaos/chat-core/launch'
 import type { Command } from '../eva/spawn'
 
 const CATALOG_ID = 'evaos-catalog'
 const DEFAULT_TIMEOUT_MS = 20_000
 
+/** The omp account a catalog process runs as; null is omp's default (no `--profile`). */
+export type CatalogProfile = Profile | null
+
 export interface ModelCatalogOptions {
-  cmd: () => Promise<Command>
+  cmd: (profile: CatalogProfile) => Promise<Command>
   cwd: string
   timeoutMs?: number
 }
 
 /**
- * One answer from a throwaway `omp --mode rpc --no-session` process, cached: the process gets
- * `request`, and is told to finish by closing its stdin. A success is cached for the life of the
- * app; a failure is not, so the next call tries again. The child is this module's own and is
- * never signalled: a hung one gets its stdin closed and is left to exit.
+ * One answer per profile from throwaway `omp --mode rpc --no-session` processes, merged and
+ * cached: each process gets `request`, and is told to finish by closing its stdin. A load where at
+ * least one profile answered is cached for the life of the app; one where none did is not, so the
+ * next call tries again. The children are this module's own and never signalled: a hung one gets
+ * its stdin closed and is left to exit.
  */
 class OmpCatalog<T> {
   private cached: T | null = null
@@ -32,7 +37,9 @@ class OmpCatalog<T> {
     private o: ModelCatalogOptions,
     private request: string,
     private what: string,
+    private profiles: readonly CatalogProfile[],
     private parse: (data: unknown) => T,
+    private merge: (parts: T[]) => T,
   ) {}
 
   /** The catalog when it has already been loaded, else null. Never starts a process. */
@@ -56,7 +63,17 @@ class OmpCatalog<T> {
   }
 
   private async fetch(): Promise<T> {
-    const cmd = await this.o.cmd()
+    const results = await Promise.allSettled(this.profiles.map((p) => this.fetchOne(p)))
+    const parts = results.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []))
+    if (parts.length === 0) {
+      const first = results.find((r): r is PromiseRejectedResult => r.status === 'rejected')
+      throw first?.reason instanceof Error ? first.reason : new Error(`No ${this.what} list.`)
+    }
+    return this.merge(parts)
+  }
+
+  private async fetchOne(profile: CatalogProfile): Promise<T> {
+    const cmd = await this.o.cmd(profile)
     return new Promise<T>((resolve, reject) => {
       const child = spawn(cmd.file, cmd.argv, {
         cwd: this.o.cwd,
@@ -95,16 +112,32 @@ class OmpCatalog<T> {
   }
 }
 
-/** omp's model catalog (`get_available_models`), newest first. */
+/** Every omp account: the default, then each profile (a profile only lists its own providers). */
+const MODEL_PROFILES: readonly CatalogProfile[] = [null, 'personal', 'work']
+
+/**
+ * omp's model catalog (`get_available_models`), newest first. The union over every profile: the
+ * default profile has no Anthropic login, so its list alone would leave a chat on a personal or
+ * work account with a model the picker cannot name.
+ */
 export class ModelCatalog extends OmpCatalog<ModelInfo[]> {
   constructor(o: ModelCatalogOptions) {
-    super(o, 'get_available_models', 'model', (d) => foldModels(parseModels(d)))
+    super(o, 'get_available_models', 'model', MODEL_PROFILES, parseModels, (parts) => {
+      const seen = new Set<string>()
+      const all = parts.flat().filter((m) => {
+        const key = `${m.provider}/${m.id}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      return foldModels(all)
+    })
   }
 }
 
 /** omp's slash commands (`get_available_commands`) for the composer's `/` menu. */
 export class CommandCatalog extends OmpCatalog<SlashCommand[]> {
   constructor(o: ModelCatalogOptions) {
-    super(o, 'get_available_commands', 'command', parseCommands)
+    super(o, 'get_available_commands', 'command', [null], parseCommands, (parts) => parts[0]!)
   }
 }

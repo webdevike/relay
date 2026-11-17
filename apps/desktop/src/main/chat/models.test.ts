@@ -52,7 +52,7 @@ describe('ModelCatalog', () => {
     expect(first.find((m) => m.id === 'text-only')!.images).toBe(false)
     const second = await cat.list()
     expect(second).toBe(first)
-    expect(spawnCount(log)).toBe(1)
+    expect(spawnCount(log)).toBe(3)
   })
 
   it('shares one process between concurrent callers', async () => {
@@ -60,7 +60,7 @@ describe('ModelCatalog', () => {
     const log = path.join(dir, 'log')
     const cat = new ModelCatalog({ cmd: fakeCmd(log), cwd: dir })
     await Promise.all([cat.list(), cat.list(), cat.list()])
-    expect(spawnCount(log)).toBe(1)
+    expect(spawnCount(log)).toBe(3)
   })
 
   it('a failing spawn rejects and the next call retries', async () => {
@@ -77,7 +77,7 @@ describe('ModelCatalog', () => {
     await expect(cat.list()).rejects.toBeInstanceOf(Error)
     broken = false
     expect((await cat.list()).length).toBeGreaterThan(0)
-    expect(spawnCount(log)).toBe(1)
+    expect(spawnCount(log)).toBe(3)
   })
 
   it('a process that never answers times out with its stdin closed', async () => {
@@ -93,5 +93,46 @@ describe('ModelCatalog', () => {
       timeoutMs: 150,
     })
     await expect(cat.list()).rejects.toThrow(/in time/)
+  })
+
+  describe('profiles', () => {
+    const model = (provider: string, id: string): object => ({
+      provider,
+      id,
+      name: id,
+      input: ['text'],
+      reasoning: false,
+    })
+    // Each profile lists only its own providers, like the default account without Anthropic.
+    const profileScript = (dir: string): string => {
+      const script = path.join(dir, 'by-profile.mjs')
+      fs.writeFileSync(
+        script,
+        `const argv = process.argv.slice(2)
+const profile = argv.includes('--profile') ? argv[argv.indexOf('--profile') + 1] : 'default'
+if (profile === 'work') process.exit(3)
+const models = profile === 'personal' ? [${JSON.stringify(model('anthropic', 'claude-opus-5-5'))}] : [${JSON.stringify(model('xai', 'grok-4'))}]
+process.stdin.on('data', () => {
+  process.stdout.write(JSON.stringify({ id: 'evaos-catalog', type: 'response', success: true, data: { models } }) + '\\n')
+})
+process.stdin.on('end', () => process.exit(0))
+`,
+      )
+      return script
+    }
+    const byProfile = (dir: string) => (profile: string | null) =>
+      Promise.resolve({
+        file: process.execPath,
+        argv: [profileScript(dir), ...(profile ? ['--profile', profile] : [])],
+        env: process.env,
+      })
+
+    it('lists the union of every profile, and one failing profile does not hide the others', async () => {
+      const dir = tmp()
+      const cat = new ModelCatalog({ cmd: byProfile(dir), cwd: dir })
+      // default lists xai, personal lists anthropic, work exits before answering.
+      const ids = (await cat.list()).map((m) => `${m.provider}/${m.id}`).sort()
+      expect(ids).toEqual(['anthropic/claude-opus-5-5', 'xai/grok-4'])
+    })
   })
 })

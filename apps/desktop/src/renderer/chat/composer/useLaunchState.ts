@@ -4,6 +4,9 @@ import type { ModelInfo } from '@evaos/chat-core/launch'
 import { invoke } from '../../ipc'
 import { useChatStore } from '../chat-store'
 
+/** Waits before each retry of a failed model-catalog load; the catalog itself never caches a failure. */
+const MODEL_RETRY_MS = [2_000, 5_000, 15_000, 30_000, 60_000] as const
+
 const isLaunchState = (v: unknown): v is LaunchState =>
   typeof v === 'object' &&
   v !== null &&
@@ -64,14 +67,25 @@ export function useLaunchState(paneId: string, enabled: boolean): LaunchControls
   useEffect(() => {
     if (!enabled) return
     let stale = false
-    void invoke('chat.models', {}).then((r) => {
-      if (!stale && alive.current && r.ok && Array.isArray(r.value?.models)) {
-        setModels(r.value.models)
-        setDefaultThinking(typeof r.value.thinking === 'string' ? r.value.thinking : null)
-      }
-    })
+    let timer: number | undefined
+    const load = (attempt: number): void => {
+      void invoke('chat.models', {}).then((r) => {
+        if (stale || !alive.current) return
+        if (r.ok && Array.isArray(r.value?.models)) {
+          setModels(r.value.models)
+          setDefaultThinking(typeof r.value.thinking === 'string' ? r.value.thinking : null)
+          return
+        }
+        // A failed load (omp slow or briefly unavailable) leaves the picker on raw ids: try again.
+        if (attempt < MODEL_RETRY_MS.length) {
+          timer = window.setTimeout(() => load(attempt + 1), MODEL_RETRY_MS[attempt])
+        }
+      })
+    }
+    load(0)
     return () => {
       stale = true
+      clearTimeout(timer)
     }
   }, [enabled])
 

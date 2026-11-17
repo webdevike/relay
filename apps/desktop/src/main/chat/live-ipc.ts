@@ -73,14 +73,18 @@ export function defaultLaunchArgs(ctx: MainContext, harness: 'omp' | 'claude'): 
 
 const ompRpcOptions = (ctx: MainContext) => ({
   cwd: ctx.env.evaRoot,
-  cmd: async () => {
+  cmd: async (profile: 'personal' | 'work' | null) => {
     const home = os.homedir()
-    return buildCommand(ctx.env.ompBin, ['--mode', 'rpc', '--no-session'], {
-      pathEnv: await childPathFor(ctx.env.live, home),
-      homedir: home,
-      execPath: process.execPath,
-      baseEnv: process.env,
-    })
+    return buildCommand(
+      ctx.env.ompBin,
+      [...(profile !== null ? ['--profile', profile] : []), '--mode', 'rpc', '--no-session'],
+      {
+        pathEnv: await childPathFor(ctx.env.live, home),
+        homedir: home,
+        execPath: process.execPath,
+        baseEnv: process.env,
+      },
+    )
   },
 })
 
