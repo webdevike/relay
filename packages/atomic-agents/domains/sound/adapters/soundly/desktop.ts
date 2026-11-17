@@ -71,7 +71,7 @@ export const makeDesktop = (run: Run, fs: FileSystem.FileSystem): Desktop => {
     return /(?:bundleID|"CFBundleIdentifier")="([^"]+)"/.exec(info.stdout)?.[1];
   });
 
-  /** An NSRunningApplication call through JXA: no Apple Event, so no Automation prompt, and never `activate` on Soundly. */
+  /** An NSRunningApplication member through JXA (a no-argument method is a property there: `hide` runs it, `hide()` throws after): no Apple Event, so no Automation prompt, and never `activate` on Soundly. */
   const appKit = (bundleId: string, call: string) =>
     run("osascript", [
       "-l",
@@ -234,7 +234,7 @@ export const makeDesktop = (run: Run, fs: FileSystem.FileSystem): Desktop => {
       yield* waitForWindow(app, 30_000);
       if (!wasFront) {
         const taken = (yield* front) === BUNDLE_ID;
-        yield* appKit(BUNDLE_ID, "hide()");
+        yield* appKit(BUNDLE_ID, "hide");
         if (taken && frontBefore !== undefined) {
           yield* Effect.sleep("300 millis");
           if ((yield* front) !== frontBefore) yield* appKit(frontBefore, "activateWithOptions(0)");

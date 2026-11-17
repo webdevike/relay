@@ -51,7 +51,7 @@ const fakeMac = (start: { front: string; soundlyRunning: boolean }) => {
       }
       if (command === "osascript") {
         const script = args[args.length - 1]!;
-        if (script.includes(`"${BUNDLE_ID}"`) && script.includes(".hide()")) {
+        if (script.includes(`"${BUNDLE_ID}"`) && script.includes(".hide;")) {
           mac.hid = true;
           if (mac.front === BUNDLE_ID) mac.front = mac.behind;
         } else if (script.includes("activateWithOptions")) {
