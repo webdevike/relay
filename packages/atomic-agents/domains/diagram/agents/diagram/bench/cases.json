@@ -1,0 +1,25 @@
+[
+  {
+    "id": "solstice-loop",
+    "input": {
+      "description": "DAY (sunlight burns the Blight): guardian over-the-shoulder smashes Blight growths/salvages wrecks -> releases Lumen (build currency) and heals land; top-down view spends Lumen to place reclaimers, solar, wind, lamps; solar/wind make Power (stored); reclaimers green land and digest Blight into Lumen; land restored % pushes fog back. DUSK gamble: push out for more Lumen or camp and fortify. NIGHT: waves (infected animals, corrupted machines, Bull commanders); defend with lamps (burn power), army, guardian hammer; power running dry -> losses (ruined buildings, units, blighted machines). DAWN: land % unlocks new tiers; repair ruins; loop back to day. Guardian or core falls = game over; survive night 3 = region reclaimed.",
+      "kind": "loop",
+      "title": "Solstice: the day and night loop"
+    }
+  },
+  {
+    "id": "atomic-agents-architecture",
+    "input": {
+      "description": "How a specialist agent answers Isaac in Relay. Eva (the assistant in the Relay desktop app) calls the relay MCP tools agents_list and agents_ask. relay-mcp runs the atomic-agents CLI (catalog, request, result). The CLI appends the request event to the event journal (events.ndjson). The atomic-agents service, a macOS LaunchAgent, watches the journal, loads agent files from the domains folder and the home agents folder, and runs the agent's job: steps, one model call through omp (Anthropic or OpenAI subscription), then a check adapter (for example headless Chromium rendering), with one repair turn. The reply event goes back into the journal, and agents_result reads it for Eva.",
+      "kind": "architecture"
+    }
+  },
+  {
+    "id": "building-lifecycle",
+    "input": {
+      "description": "Lifecycle of a building in Solstice. The player places a blueprint, which costs Lumen. A placed blueprint is under construction until its Lumen is paid, then it is powered while stored Power lasts; with no Power it goes idle and wakes again when Power returns. At night a building can be damaged by a wave; damaged buildings still work at half output. A damaged building hit again is ruined. At dawn the player repairs damaged or ruined buildings for Lumen, which returns them to powered. A ruined building can instead be salvaged for half its Lumen, which removes it.",
+      "kind": "state",
+      "theme": "light"
+    }
+  }
+]

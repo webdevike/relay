@@ -14,11 +14,13 @@ import { type GenerateRequest, generateWithTools, ModelRunner, tool } from "./Mo
  * A source turns the input into items (gmail: new messages); each item goes through the steps, one
  * model turn and the check, then becomes one output event. Everything named is an adapter (`Adapter.ts`).
  */
-const Thinking = Schema.Literals(["off", "minimal", "low", "medium", "high"])
-const Lines = Schema.Union([Schema.String, Schema.Array(Schema.String)])
+export const Thinking = Schema.Literals(["off", "minimal", "low", "medium", "high"])
+export const Lines = Schema.Union([Schema.String, Schema.Array(Schema.String)])
 const Shape = Schema.Record(Schema.String, Schema.Json)
+/** An object of fields (`Fields.ts`), or the name of a schema typed in code that a pack registers (`Registry.schemas`). */
+const ShapeOrRef = Schema.Union([Shape, Schema.NonEmptyString])
 
-const TriggerSpec = Schema.Union([
+export const TriggerSpec = Schema.Union([
   Schema.Literal("manual"),
   Schema.Struct({
     cron: Schema.NonEmptyString,
@@ -47,8 +49,8 @@ export const AgentSpec = Schema.Struct({
     /** Files appended to the system prompt on every run (relative to this file; `~` and `${VAR:-default}` expand). */
     knowledge: Schema.optionalKey(Schema.Array(Schema.Struct({ file: Schema.NonEmptyString, heading: Schema.optionalKey(Schema.NonEmptyString) })))
   }),
-  /** Event name → its fields (`Fields.ts`). The agent's whole output contract. */
-  events: Schema.Record(Schema.String, Shape),
+  /** Event name → its fields (`Fields.ts`) or a registered schema's name. The agent's whole output contract. */
+  events: Schema.Record(Schema.String, ShapeOrRef),
   job: Schema.Struct({
     id: Schema.NonEmptyString,
     description: Schema.NonEmptyString,
@@ -75,8 +77,8 @@ export const AgentSpec = Schema.Struct({
      * with `tools`, so every agent with tools can run either mode. It decides script quality (`docs/code-mode.md`).
      */
     codeExample: Schema.optionalKey(Lines),
-    /** The model answers this JSON object (needed for tools); its fields go into the output. */
-    answer: Schema.optionalKey(Shape),
+    /** The model answers this JSON object (needed for tools), fields or a registered schema's name; its fields go into the output. */
+    answer: Schema.optionalKey(ShapeOrRef),
     answerExample: Schema.optionalKey(Schema.NonEmptyString),
     /** Model calls per item in the tool loop, the answer included (default 3). */
     maxSteps: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
@@ -152,9 +154,17 @@ export const compileAgentSpec = (file: AgentSpec, env: AgentSpecEnv): Result.Res
   const spec = file.job
 
   const compiled = new Map<string, Fields>()
+  /** Fields as written, or the registered schema a name refers to. */
+  const shapeOf = (shape: string | Readonly<Record<string, Schema.Json>>, at: string) => {
+    if (typeof shape !== "string") return compileFields(shape, at)
+    const found = adapters.schemas.get(shape)
+    return found !== undefined
+      ? { ok: true as const, fields: found }
+      : { ok: false as const, errors: [`${at}: no schema ${JSON.stringify(shape)} (have: ${[...adapters.schemas.keys()].join(", ") || "none"})`] }
+  }
   for (const [name, shape] of Object.entries(file.events)) {
     if (!/^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/.test(name)) errors.push(`events.${name}: event names are dotted lowercase (widget.ready)`)
-    const result = compileFields(shape, `events.${name}`)
+    const result = shapeOf(shape, `events.${name}`)
     if (result.ok) compiled.set(name, result.fields)
     else errors.push(...result.errors)
   }
@@ -208,7 +218,7 @@ export const compileAgentSpec = (file: AgentSpec, env: AgentSpecEnv): Result.Res
   }
 
   const answer = spec.answer === undefined ? undefined : (() => {
-    const result = compileFields(spec.answer, "job.answer")
+    const result = shapeOf(spec.answer, "job.answer")
     if (!result.ok) errors.push(...result.errors)
     return result.ok ? result.fields : undefined
   })()

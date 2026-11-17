@@ -1,7 +1,8 @@
 import { Config, Context, Effect, Exit, FiberSet, FileSystem, Layer, Option, Path, Ref, Schedule, Schema, Scope, Semaphore, Stream, SubscriptionRef } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
-import { readdirSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import { join } from "node:path"
+import { AGENT_DOC, AgentDocFront, KNOWLEDGE_NAME, splitAgentDoc, toAgentSpec } from "./AgentDoc.ts"
 import { Adapters } from "./Adapter.ts"
 import { Background } from "./Background.ts"
 import type { Job, Registered } from "./Component.ts"
@@ -11,19 +12,21 @@ import { publishRuntime } from "./RuntimeEvents.ts"
 
 /**
  * Agents: the components a process runs. The default way to make one is a file, `<id>.json` (or
- * `.yaml`): an agent spec (`AgentSpec.ts`) assembled from adapters. `kind: "code"` is the escape hatch: the file
+ * `.yaml`): an agent spec (`AgentSpec.ts`) assembled from adapters; or a folder, `<id>/AGENT.md` with its
+ * `knowledge/` (`AgentDoc.ts`), which compiles to the same spec. `kind: "code"` is the escape hatch: the file
  * points at a module whose export is a `define()`d component. Files load from the package's domains
- * (`domains/<domain>/`, the built-ins) and then `<home>/agents/`, where a file replaces a built-in of the same id.
- * The service re-reads both every second: a valid edit swaps in (`agent.loaded`), a bad one keeps the last
- * good version (`config.rejected`), a deleted file removes its agent (`agent.removed`).
+ * (`domains/<domain>/` and `domains/<domain>/agents/`, the built-ins) and then `<home>/agents/`, where an agent replaces a built-in of the same id.
+ * The service re-reads them every second: a valid edit swaps in (`agent.loaded`), a bad one keeps the last
+ * good version (`config.rejected`), a deleted file removes its agent (`agent.removed`). Knowledge is read on every run.
  */
 const DOMAINS = new URL("../../domains", import.meta.url).pathname
 
-/** The built-in agent dirs: one per domain, `domains/<domain>/`, in name order. */
+/** The built-in agent dirs: per domain, in name order, `domains/<domain>/` and then its `agents/` (agent folders) when it has one. */
 export const BUILTIN_AGENTS: ReadonlyArray<string> = readdirSync(DOMAINS, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => join(DOMAINS, entry.name))
   .sort()
+  .flatMap((domain) => existsSync(join(domain, "agents")) ? [domain, join(domain, "agents")] : [domain])
 
 export const CodeFile = Schema.Struct({
   id: Schema.String,
@@ -53,7 +56,22 @@ export class AgentError extends Schema.TaggedError<AgentError>()("AgentError", {
 const ID = /^[a-z][a-z0-9-]*$/
 const EXTENSIONS = /\.(json|ya?ml)$/
 
+/** Every agent file in `dirs`, in order: each dir's `<id>.json|yaml|yml` by name, then its `<id>/AGENT.md` folders by name. */
+export const agentFiles = (dirs: ReadonlyArray<string>) =>
+  Effect.gen(function*() {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const lists = yield* Effect.forEach(dirs, (dir) =>
+      Effect.gen(function*() {
+        const names = [...yield* fs.readDirectory(dir)].sort()
+        const docs = yield* Effect.filter(names.map((name) => path.join(dir, name, AGENT_DOC)), (doc) => fs.exists(doc).pipe(Effect.orElseSucceed(() => false)))
+        return [...names.filter((name) => EXTENSIONS.test(name)).map((name) => path.join(dir, name)), ...docs]
+      }).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => [])))
+    return lists.flat()
+  })
+
 const decodeAgentSpec = Schema.decodeUnknownEffect(AgentSpec, { onExcessProperty: "error" })
+const decodeAgentDoc = Schema.decodeUnknownEffect(AgentDocFront, { onExcessProperty: "error" })
 const decodeCode = Schema.decodeUnknownEffect(CodeFile, { onExcessProperty: "error" })
 
 const isRegistered = (value: unknown): value is Registered =>
@@ -77,14 +95,30 @@ export const expandPath = Effect.fnUntraced(function*(raw: string, dir: string) 
 })
 
 /**
- * Read, decode and compile one agent file; nothing is built. Every reason it cannot load is in the
+ * Read, decode and compile one agent file (`<id>.json|yaml`, or a folder's `AGENT.md`); nothing is built. Every reason it cannot load is in the
  * `AgentError`'s message, prefixed with the file, so `config.rejected` and `agent validate` say what to fix.
  */
 export const parseAgent = Effect.fn("Agent.parse")(function*(file: string, text: string) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const adapters = yield* Adapters
   const fail = (message: string) => Effect.fail(new AgentError({ file, message: `${file}: ${message}` }))
+  if (path.basename(file) === AGENT_DOC) {
+    const folder = path.dirname(file)
+    const split = splitAgentDoc(text)
+    if (!split.ok) return yield* fail(split.error)
+    const raw = yield* Effect.try({
+      try: (): unknown => Bun.YAML.parse(split.front),
+      catch: (error) => new AgentError({ file, message: `${file}: frontmatter is not valid YAML: ${String(error)}` })
+    })
+    const front = yield* decodeAgentDoc(raw).pipe(Effect.catchTag("SchemaError", (error) => fail(error.message)))
+    if (!ID.test(front.id)) return yield* fail(`id must be kebab-case (got ${JSON.stringify(front.id)})`)
+    if (front.id !== path.basename(folder)) return yield* fail(`id ${front.id} must match the folder name (${path.basename(folder)})`)
+    const shelf = path.join(folder, "knowledge")
+    const names = front.knowledge ?? (yield* fs.readDirectory(shelf).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []))).filter((name) => !name.startsWith(".")).sort()
+    const outside = names.filter((name) => !KNOWLEDGE_NAME.test(name))
+    if (outside.length > 0) return yield* fail(`knowledge: ${outside.join(", ")} is not a file name in ${shelf} (nothing outside the agent's folder loads)`)
+    return yield* compileSpec(file, folder, toAgentSpec(front, split.body, names.map((name) => `knowledge/${name}`)))
+  }
   const raw = yield* Effect.try({
     try: (): unknown => file.endsWith(".json") ? JSON.parse(text) : Bun.YAML.parse(text),
     catch: (error) => new AgentError({ file, message: `${file}: not valid ${file.endsWith(".json") ? "JSON" : "YAML"}: ${String(error)}` })
@@ -116,7 +150,13 @@ export const parseAgent = Effect.fn("Agent.parse")(function*(file: string, text:
   }
   if (kind !== "spec") return yield* fail(`kind must be "spec" (the default) or "code" (got ${JSON.stringify(kind)})`)
 
-  const spec = yield* decodeAgentSpec(raw).pipe(Effect.catchTag("SchemaError", (error) => fail(error.message)))
+  return yield* compileSpec(file, dir, yield* decodeAgentSpec(raw).pipe(Effect.catchTag("SchemaError", (error) => fail(error.message))))
+})
+
+/** Resolve an agent spec's knowledge (relative to `dir`, checked to exist) and compile it against the adapters. */
+const compileSpec = Effect.fnUntraced(function*(file: string, dir: string, spec: AgentSpec) {
+  const fs = yield* FileSystem.FileSystem
+  const adapters = yield* Adapters
   const errors: Array<string> = []
   const knowledge: Array<{ file: string; heading?: string }> = []
   for (const [index, entry] of (spec.agent.knowledge ?? []).entries()) {
@@ -131,7 +171,7 @@ export const parseAgent = Effect.fn("Agent.parse")(function*(file: string, text:
     readFile: (target) => fs.readFileString(target).pipe(Effect.mapError((error) => new AgentError({ file, message: `knowledge ${target}: ${error.message}` })))
   })
   if (compiled._tag === "Failure" || errors.length > 0) {
-    return yield* fail([...errors, ...(compiled._tag === "Failure" ? compiled.failure : [])].join("; "))
+    return yield* Effect.fail(new AgentError({ file, message: `${file}: ${[...errors, ...(compiled._tag === "Failure" ? compiled.failure : [])].join("; ")}` }))
   }
   return { agent: compiled.success.agent, kind: "spec" as const, modelStage: compiled.success.modelStage }
 })
@@ -189,11 +229,9 @@ export class Agents extends Context.Service<Agents, {
             return { agent: { ...parsed.agent, kind: parsed.kind, file, runnable, modelStage: parsed.modelStage } satisfies Agent, scope }
           }).pipe(Effect.provideContext(services))
 
-        const files = Effect.forEach(dirs, (dir) =>
-          fs.readDirectory(dir).pipe(
-            Effect.map((names) => names.filter((name) => EXTENSIONS.test(name)).sort().map((name) => path.join(dir, name))),
-            Effect.orElseSucceed((): ReadonlyArray<string> => [])
-          )).pipe(Effect.map((lists) => lists.flat()))
+        const files = agentFiles(dirs).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provideService(Path.Path, path))
+        /** The scanned dir an agent file came from (an `AGENT.md` sits one folder deeper). */
+        const scanned = (file: string) => path.basename(file) === AGENT_DOC ? path.dirname(path.dirname(file)) : path.dirname(file)
 
         /** One pass over the agent dirs; `announce` publishes what changed (the service), else it only logs (one-shot commands). */
         const scan = (announce: boolean) =>
@@ -237,7 +275,7 @@ export class Agents extends Context.Service<Agents, {
               const agent = entry.agent
               if (agent === undefined) continue
               const taken = byId.get(agent.id)
-              if (taken !== undefined && (taken.file === undefined || path.dirname(taken.file) === path.dirname(agent.file!))) {
+              if (taken !== undefined && (taken.file === undefined || scanned(taken.file) === scanned(agent.file!))) {
                 yield* Effect.logWarning(`${agent.file}: id ${agent.id} is already taken by ${taken.file ?? "a code component"}; ignored`)
                 continue
               }

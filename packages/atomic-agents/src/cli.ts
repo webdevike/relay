@@ -6,7 +6,7 @@ import { Adapters } from "./core/Adapter.ts"
 import { packs } from "./packs.ts"
 import { ask } from "./core/Ask.ts"
 import { Background } from "./core/Background.ts"
-import { Agents, parseAgent } from "./core/Agent.ts"
+import { agentFiles, Agents, parseAgent } from "./core/Agent.ts"
 import { type EventSchemas, ToolMode, Trigger } from "./core/Component.ts"
 import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./core/Event.ts"
 import { shortId } from "./core/Id.ts"
@@ -357,18 +357,12 @@ const agent = Command.make("agent").pipe(Command.withSubcommands([
     yield* Console.log(`wrote ${file}\nedit purpose, system, events and prompt; check it with: atomic-agents agent validate ${file}\na running service loads it within a second (agent.loaded)`)
   })),
   Command.make("validate", {
-    files: Argument.String("file").pipe(Argument.withDescription("agent files; default: every file in the agent dirs"), Argument.variadic())
+    files: Argument.String("file").pipe(Argument.withDescription("agent files (an agent folder's AGENT.md); default: every agent in the agent dirs"), Argument.variadic())
   }, Effect.fnUntraced(function*({ files }) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const agents = yield* Agents
-    const all = files.length > 0
-      ? files.map((file) => path.resolve(file))
-      : (yield* Effect.forEach(agents.dirs, (dir) =>
-        fs.readDirectory(dir).pipe(
-          Effect.map((names) => names.filter((name) => /\.(json|ya?ml)$/.test(name)).sort().map((name) => path.join(dir, name))),
-          Effect.orElseSucceed((): ReadonlyArray<string> => [])
-        ))).flat()
+    const all = files.length > 0 ? files.map((file) => path.resolve(file)) : yield* agentFiles(agents.dirs)
     let failed = 0
     for (const file of all) {
       const result = yield* Effect.result(fs.readFileString(file).pipe(Effect.flatMap((text) => parseAgent(file, text))))

@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, type Schema, type Scope } from "effect"
+import { type Fields, fromStruct } from "./Fields.ts"
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import type { Failure, RunContext, ToolsError } from "./Component.ts"
 import type { GenerateRequest, Generation, ModelError, ModelRunner } from "./Model.ts"
@@ -134,6 +135,8 @@ export interface Registry {
   readonly sources: ReadonlyMap<string, SourceAdapter>
   readonly checks: ReadonlyMap<string, CheckAdapter>
   readonly steps: ReadonlyMap<string, StepAdapter>
+  /** Event and answer schemas typed in code (`Schema.Struct`), by the name an agent file refers to them by (`diagram.requested`). */
+  readonly schemas: ReadonlyMap<string, Fields>
 }
 
 export type AdapterKind = keyof Registry
@@ -146,6 +149,7 @@ export interface PackSpec<R> {
   readonly sources?: ReadonlyArray<SourceAdapter<R>>
   readonly checks?: ReadonlyArray<CheckAdapter<R>>
   readonly steps?: ReadonlyArray<StepAdapter<R>>
+  readonly schemas?: Readonly<Record<string, Schema.Struct<Schema.Struct.Fields>>>
 }
 
 /** A pack with its services hidden, as `define` hides a component's tools. */
@@ -177,7 +181,8 @@ export const pack = <R>(spec: PackSpec<R>): Pack => ({
         check: (reply, run) =>
           bind(check.check(reply, run)).pipe(Effect.map((verdict) => verdict.pass ? verdict : { ...verdict, giveUp: bind(verdict.giveUp) }))
       }))),
-      steps: byName((spec.steps ?? []).map((step): StepAdapter => ({ ...step, run: (fields, run) => bind(step.run(fields, run)) })))
+      steps: byName((spec.steps ?? []).map((step): StepAdapter => ({ ...step, run: (fields, run) => bind(step.run(fields, run)) }))),
+      schemas: new Map(Object.entries(spec.schemas ?? {}).map(([name, struct]) => [name, fromStruct(struct)]))
     }
   })
 })
@@ -191,7 +196,7 @@ export class Adapters extends Context.Service<Adapters, Registry>()("atomic-agen
       Adapters,
       Effect.gen(function*() {
         const built = yield* Effect.forEach(packs, (candidate) => candidate.build)
-        const merged = { models: new Map(), tools: new Map(), sources: new Map(), checks: new Map(), steps: new Map() } as {
+        const merged = { models: new Map(), tools: new Map(), sources: new Map(), checks: new Map(), steps: new Map(), schemas: new Map() } as {
           [K in AdapterKind]: Map<string, Registry[K] extends ReadonlyMap<string, infer V> ? V : never>
         }
         for (const registry of built) {

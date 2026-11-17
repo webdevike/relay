@@ -54,7 +54,7 @@ export const tempHome = Effect.gen(function*() {
   return yield* fs.makeTempDirectoryScoped({ prefix: "atomic-agents-test-" })
 }).pipe(Effect.provide(BunServices.layer))
 
-/** An agent dir under `root` holding these built-in agent files (and their knowledge files), as shipped. */
+/** An agent dir under `root` holding these built-in agents as shipped: their files (and knowledge files), or their `<id>/` folders. */
 export const builtinAgents = (root: string, ids: ReadonlyArray<string>) =>
   Effect.gen(function*() {
     const fs = yield* FileSystem.FileSystem
@@ -62,7 +62,8 @@ export const builtinAgents = (root: string, ids: ReadonlyArray<string>) =>
     yield* fs.makeDirectory(dir, { recursive: true })
     for (const builtin of BUILTIN_AGENTS) {
       for (const name of yield* fs.readDirectory(builtin)) {
-        if (ids.some((id) => name.startsWith(`${id}.`))) yield* fs.copyFile(`${builtin}/${name}`, `${dir}/${name}`)
+        if (ids.includes(name) && (yield* fs.exists(`${builtin}/${name}/AGENT.md`))) yield* fs.copy(`${builtin}/${name}`, `${dir}/${name}`)
+        else if (ids.some((id) => name.startsWith(`${id}.`))) yield* fs.copyFile(`${builtin}/${name}`, `${dir}/${name}`)
       }
     }
     return dir

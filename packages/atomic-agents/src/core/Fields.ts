@@ -80,3 +80,9 @@ const compileStruct = (
 /** An event's (or an input's, or an answer's) data: always an object of fields. */
 export const compileFields = (spec: unknown, at: string) =>
   isObject(spec) ? compileStruct(spec, at) : { ok: false as const, errors: [`${at}: an object of fields (${HINT})`] }
+
+/** A schema typed in code (`Schema.Struct`, a domain's `schema.ts`) as `Fields`: an agent refers to it by its registered name. */
+export const fromStruct = (struct: Schema.Struct<Schema.Struct.Fields>): Fields => ({
+  schema: struct as unknown as Schema.Codec<unknown>,
+  fields: new Map(Object.entries(struct.fields).map(([name, field]) => [name, { required: field.ast.context?.isOptional !== true }]))
+})
