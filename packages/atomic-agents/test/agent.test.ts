@@ -43,7 +43,8 @@ describe("agent file validation", () => {
     Effect.gen(function*() {
       const root = yield* tempHome
       const base = spec("{{name}}")
-      const message = yield* rejection(root, "greeter.json", { ...base, job: { ...base.job, check: "openui.parze", tools: ["gmail.archive"] } })
+      const message = yield* rejection(root, "greeter.json", { ...base, agent: { ...base.agent, harness: "cursor" }, job: { ...base.job, check: "openui.parze", tools: ["gmail.archive"] } })
+      expect(message).toContain(`unknown harness adapter "cursor" (have: omp, codex, claude-code)`)
       expect(message).toContain(`unknown check adapter "openui.parze" (have: openui.parse, blender.render,`)
       expect(message).toContain(`unknown tool adapter "gmail.archive" (have: gmail.read_thread, gmail.sender_history, ecard.linear_issue,`)
     }).pipe(Effect.scoped, Effect.runPromise))

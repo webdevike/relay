@@ -35,8 +35,8 @@ export const AgentDocFront = Schema.Struct({
   model: Schema.NonEmptyString,
   candidates: Schema.Array(Schema.NonEmptyString),
   thinking: Schema.optionalKey(Thinking),
-  /** Model adapter, default `omp`. */
-  adapter: Schema.optionalKey(Schema.NonEmptyString),
+  /** Harness the model runs in (a model adapter: `omp`, `codex`, `claude-code`), default `omp`. */
+  harness: Schema.optionalKey(Schema.NonEmptyString),
   /** The registered schema of the request event (also the event's name). */
   request: Schema.NonEmptyString,
   /** The registered schema of the reply event (also the event's name). */
@@ -97,7 +97,7 @@ export const toAgentSpec = (
   id: front.id,
   purpose: front.purpose,
   agent: {
-    ...(front.adapter === undefined ? {} : { adapter: front.adapter }),
+    ...(front.harness === undefined ? {} : { harness: front.harness }),
     model: front.model,
     candidates: front.candidates,
     ...(front.thinking === undefined ? {} : { thinking: front.thinking }),

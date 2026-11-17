@@ -39,8 +39,11 @@ export const AgentSpec = Schema.Struct({
   /** One sentence. If it needs two, it is two agents. */
   purpose: Schema.NonEmptyString,
   agent: Schema.Struct({
-    /** Model adapter, default `omp`. */
-    adapter: Schema.optionalKey(Schema.NonEmptyString),
+    /**
+     * The harness the model runs in, a model adapter: `omp` (default, `omp -p`), `codex` (Codex CLI) or `claude-code`
+     * (`claude -p`). Same system prompt, knowledge, prompt and check in each; only the harness around the model changes.
+     */
+    harness: Schema.optionalKey(Schema.NonEmptyString),
     model: Schema.NonEmptyString,
     candidates: Schema.Array(Schema.NonEmptyString),
     thinking: Schema.optionalKey(Thinking),
@@ -205,7 +208,7 @@ export const compileAgentSpec = (file: AgentSpec, env: AgentSpecEnv): Result.Res
   })
   if (triggers.length === 0 && spec.triggers.length === 0) errors.push("job.triggers: at least one (\"manual\", {\"cron\"}, {\"onEvent\"})")
 
-  const model: ModelAdapter | undefined = lookup(adapters.models, "model", file.agent.adapter ?? "omp", errors)
+  const model: ModelAdapter | undefined = lookup(adapters.models, "harness", file.agent.harness ?? "omp", errors)
   const source: SourceAdapter | undefined = spec.source === undefined ? undefined : lookup(adapters.sources, "source", spec.source, errors)
   const steps = (spec.steps ?? []).flatMap((name): ReadonlyArray<StepAdapter> => Option.toArray(Option.fromUndefinedOr(lookup(adapters.steps, "step", name, errors))))
   const tools = (spec.tools ?? []).flatMap((name): ReadonlyArray<ToolAdapter> => Option.toArray(Option.fromUndefinedOr(lookup(adapters.tools, "tool", name, errors))))
