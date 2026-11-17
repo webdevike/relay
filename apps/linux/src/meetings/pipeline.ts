@@ -11,13 +11,22 @@
 //                 calls keep raw labels.
 //   summarizing   headless Claude (Sonnet, no tools) writes Summary .. Open Questions
 //
-// Output: `work/meetings/protocols/<YYYYMMDD_HHMM>_<slug>_<id8>.md` plus the `.txt` transcript, or
-// work/meetings/shadow for a recording made in shadow mode (digest and memory do not read it).
+// Output: `work/meetings/protocols/<YYYYMMDD_HHMM>_<slug>_<id8>.md` plus the `.txt` transcript and
+// the screen snapshots as `<stem>.shots/NNN.jpg`, or work/meetings/shadow for a recording made in
+// shadow mode (digest and memory do not read it). The notes list the call's key moments and
+// snapshots in sections of their own (`## Key Moments`, `## Screen Snapshots`), which the readers
+// of the protocol format skip.
 
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { meetingClock, MEETING_SAMPLE_RATE as SR, type LiveLine } from "@relay/protocol";
+import {
+  meetingClock,
+  MEETING_SAMPLE_RATE as SR,
+  type KeyMoment,
+  type KeyMomentKind,
+  type LiveLine,
+} from "@relay/protocol";
 import { z } from "zod";
 import type { ToolRun } from "../reviews/exec";
 import type { Asr, Segment, Turn } from "./asr";
@@ -25,7 +34,7 @@ import { ECHO_WINDOW_MS, ownSpeech, triples } from "./echo";
 import { calendarTitle } from "./route";
 import type { AfterCall } from "./service";
 import { SpeakerTimeline, type PlatformSample } from "./speakers";
-import type { RecordingMeta, RecordingStore } from "./store";
+import type { RecordingMeta, RecordingStore, ShotRow } from "./store";
 
 /** The parts of mt-autoname.ts this uses (it keeps its side effects behind import.meta.main). */
 export interface Autoname {
@@ -196,6 +205,57 @@ export function transcriptLines(
     .join("\n");
 }
 
+/** A snapshot's file next to the notes: `<stem>.shots/003.jpg`. */
+export function shotName(n: number): string {
+  return `${String(n).padStart(3, "0")}.jpg`;
+}
+
+const NOTE_KIND: Record<KeyMomentKind, string> = {
+  decision: "Decision",
+  ask: "Ask",
+  action: "Action",
+  claim: "Claim",
+};
+
+/** `## Key Moments`: `- [mm:ss] Decision (Todd): text`, with its snapshot when it has one saved. */
+export function keyMomentsSection(
+  moments: readonly KeyMoment[],
+  stem: string,
+  shots: readonly Pick<ShotRow, "n">[],
+): string {
+  if (moments.length === 0) return "";
+  const saved = new Set(shots.map((s) => s.n));
+  const rows = moments.map((m) => {
+    const shot =
+      m.shot !== null && saved.has(m.shot)
+        ? ` ([snapshot](${stem}.shots/${shotName(m.shot)}))`
+        : "";
+    return `- [${meetingClock(m.atMs)}] ${NOTE_KIND[m.kind]} (${m.speaker}): ${m.text}${shot}`;
+  });
+  return `## Key Moments\n\n${rows.join("\n")}\n`;
+}
+
+/** At most this much of a snapshot's text goes in the notes (the image has the rest). */
+const OCR_EXCERPT = 200;
+
+/** `## Screen Snapshots`: each one's time and image, the line said then and a bit of its text. */
+export function snapshotsSection(shots: readonly ShotRow[], stem: string): string {
+  if (shots.length === 0) return "";
+  const oneLine = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const rows = shots.map((s) => {
+    const at = meetingClock(s.atMs);
+    const ocr = oneLine(s.ocr);
+    const parts = [`- [${at}] ![Snapshot at ${at}](${stem}.shots/${shotName(s.n)})`];
+    if (oneLine(s.line) !== "") parts.push(`  Said: ${oneLine(s.line)}`);
+    if (ocr !== "")
+      parts.push(
+        `  On screen: ${ocr.length > OCR_EXCERPT ? `${ocr.slice(0, OCR_EXCERPT).trimEnd()}...` : ocr}`,
+      );
+    return parts.join("\n");
+  });
+  return `## Screen Snapshots\n\n${rows.join("\n")}\n`;
+}
+
 export const SUMMARY_PROMPT = `You write meeting notes from a machine transcript. Lines are "[mm:ss] Speaker: text". The speaker named as the host's user is the person these notes are for; labels like R_S2 are voices nobody named.
 Start with one line "Title: <what this meeting was, 2 to 6 words, e.g. UI/UX Standup>", then write these sections in Markdown, in this order, with exactly these headings:
 ## Summary
@@ -252,6 +312,11 @@ export class MeetingPipeline implements AfterCall {
   remove(meta: RecordingMeta): void {
     if (meta.stem === null) return;
     for (const ext of ["md", "txt"] as const) rmSync(this.file(meta, ext), { force: true });
+    rmSync(join(this.dirOf(meta), `${meta.stem}.shots`), { recursive: true, force: true });
+  }
+
+  shotPath(meta: RecordingMeta, n: number): string | null {
+    return meta.stem === null ? null : join(this.dirOf(meta), `${meta.stem}.shots`, shotName(n));
   }
 
   async rename(meta: RecordingMeta, label: string, name: string): Promise<void> {
@@ -402,13 +467,35 @@ export class MeetingPipeline implements AfterCall {
     else if (context !== null) md += `${context.annotation}\n`;
     else if (call.roster.length > 0)
       md += `**Attendees:** ${[this.deps.human, ...call.roster].join(", ")} (from the call)\n`;
-    md += `\n---\n\n${sections}\n`;
-    if (qa.length > 0)
-      md += `\n## Questions asked during the call\n\n${qa.map((q) => `**Q:** ${q.question}\n\n${q.answer.trim()}`).join("\n\n")}\n`;
-    md += `\n---\n\n## Full Transcript\n\n${transcript}\n`;
     const stem = protocolStem({ ...meta, title: named });
     const out = this.dirOf(meta);
     mkdirSync(out, { recursive: true });
+    // The snapshots go next to the notes: the recording's folder is swept after RETENTION_DAYS.
+    const shots = this.deps.store.shots(meta.id).rows;
+    const copied: ShotRow[] = [];
+    if (shots.length > 0) mkdirSync(join(out, `${stem}.shots`), { recursive: true });
+    for (const s of shots) {
+      try {
+        copyFileSync(
+          this.deps.store.shotFile(meta.id, s.n),
+          join(out, `${stem}.shots`, shotName(s.n)),
+        );
+        copied.push(s);
+      } catch (error) {
+        this.deps.log(
+          `meetings: snapshot ${String(s.n)} of ${meta.id} not copied: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    const extra = [
+      keyMomentsSection(this.deps.store.moments(meta.id).moments, stem, copied),
+      snapshotsSection(copied, stem),
+    ].filter((s) => s !== "");
+    md += `\n---\n\n${sections}\n`;
+    for (const s of extra) md += `\n${s}`;
+    if (qa.length > 0)
+      md += `\n## Questions asked during the call\n\n${qa.map((q) => `**Q:** ${q.question}\n\n${q.answer.trim()}`).join("\n\n")}\n`;
+    md += `\n---\n\n## Full Transcript\n\n${transcript}\n`;
     writeFileSync(join(out, `${stem}.md`), md);
     writeFileSync(join(out, `${stem}.txt`), `${transcript}\n`);
     for (const f of ["app.wav", "mic.wav", "mic-aec.wav"]) rmSync(join(dir, f), { force: true });

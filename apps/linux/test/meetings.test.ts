@@ -404,6 +404,8 @@ function baseMeta(extra: Partial<RecordingMeta> = {}): RecordingMeta {
     context: null,
     names: {},
     assistant: null,
+    share: "none",
+    shotToken: null,
     ...extra,
   };
 }
@@ -447,11 +449,16 @@ describe("meetings service", () => {
       run: (meta, lines, _qa, report) => {
         ran.lines = lines;
         report.stage("summarizing");
-        return Promise.resolve({ stem: "20261102_1004_weekly_sync_6f1c2b8e", title: null, context: null });
+        return Promise.resolve({
+          stem: "20261102_1004_weekly_sync_6f1c2b8e",
+          title: null,
+          context: null,
+        });
       },
       notes: () => "# Meeting Protocol - Weekly Sync\n\n## Summary\nDone.\n",
       rename: () => Promise.resolve(),
       remove: () => undefined,
+      shotPath: () => null,
       lookup: () =>
         Promise.resolve({ annotation: "**Attendees:** Todd, Isaac", remoteName: "Todd" }),
     };
@@ -476,6 +483,7 @@ describe("meetings service", () => {
       clock,
       log: () => undefined,
       assistants: () => AGENTS,
+      findMoments: null,
     });
 
     const r = service.openIngest("dev1", "Isaac's Mac mini", {
@@ -512,6 +520,7 @@ describe("meetings service", () => {
       { t: "ack", track: 0, upTo: 0 },
       { t: "ack", track: 1, upTo: 0 },
       { t: "ack.speakers", upTo: 0 },
+      { t: "ack.shots", upTo: 0 },
     ]);
     expect(asr.opened).toEqual([[ID, 0, 0]]);
     // The window's speaker samples: kept in order, a resend skipped, a bad one still counted (the
@@ -533,7 +542,7 @@ describe("meetings service", () => {
       samples: [{ at: 9_600_000 }, { at: 9_700_000 }],
     });
     (conn as Conn).sendAcks();
-    expect(out.at(-1)).toEqual({ t: "ack.speakers", upTo: 3 });
+    expect(out.at(-2)).toEqual({ t: "ack.speakers", upTo: 3 });
 
     conn.binary(frame(0, 0, 1600));
     conn.binary(frame(1, 0, 1600));
@@ -628,6 +637,7 @@ describe("meetings service", () => {
         notes: () => null,
         rename: () => Promise.resolve(),
         remove: () => undefined,
+        shotPath: () => null,
         lookup: () => Promise.resolve(null),
       },
       agents: {
@@ -652,6 +662,7 @@ describe("meetings service", () => {
       clock,
       log: () => undefined,
       assistants: () => AGENTS,
+      findMoments: null,
     });
     const conn = service.connect(
       { id: ID, deviceId: "dev1", deviceName: "Mini" },
@@ -690,7 +701,9 @@ describe("meetings in an assistant's chat", () => {
     });
     expect(routeMeeting(meta("Microsoft Teams", null), AGENTS)).toBe("astra");
     expect(routeMeeting(meta("Zoom", null), AGENTS)).toBe("nova");
-    expect(routeMeeting(meta("Slack", '**Attendees:** Bill (Outlook: "Design Review")'), AGENTS)).toBe("astra");
+    expect(
+      routeMeeting(meta("Slack", '**Attendees:** Bill (Outlook: "Design Review")'), AGENTS),
+    ).toBe("astra");
     expect(routeMeeting(meta("Slack", null, "eCard platform huddle"), AGENTS)).toBe("astra");
     expect(routeMeeting(meta("Zoom", "**Attendees:** Mom, Dad"), AGENTS)).toBe("nova");
     // A registry with only one kind still gets the meeting; none at all routes nowhere.
@@ -702,7 +715,10 @@ describe("meetings in an assistant's chat", () => {
     expect(calendarTitle("**Attendees:** A, B")).toBeNull();
   });
 
-  function service(lookup: AfterCall["lookup"], run: AfterCall["run"] = () => Promise.resolve(null)) {
+  function service(
+    lookup: AfterCall["lookup"],
+    run: AfterCall["run"] = () => Promise.resolve(null),
+  ) {
     const store = new RecordingStore(join(tmp("relay-meet-route-"), "rec"));
     const clock = new FakeClock();
     const sent: ServerMessage[] = [];
@@ -717,6 +733,7 @@ describe("meetings in an assistant's chat", () => {
         notes: () => null,
         rename: () => Promise.resolve(),
         remove: () => undefined,
+        shotPath: () => null,
         lookup,
       },
       agents: {
@@ -733,6 +750,7 @@ describe("meetings in an assistant's chat", () => {
       clock,
       log: () => undefined,
       assistants: () => AGENTS,
+      findMoments: null,
     });
     return { store, clock, sent, svc };
   }
@@ -797,7 +815,9 @@ describe("meetings in an assistant's chat", () => {
     expect(svc.contextFor("nova")).toBeNull();
     const first = svc.contextFor("astra");
     expect(first?.id).toBe(ID);
-    expect(first?.text).toContain('Isaac is in a meeting right now and it is in your chat: "Dev Sync"');
+    expect(first?.text).toContain(
+      'Isaac is in a meeting right now and it is in your chat: "Dev Sync"',
+    );
     expect(first?.text).toContain("New in the transcript since your last turn:");
     expect(first?.text).toContain("[0:00] Remote: Release is Tuesday.");
     expect(first?.text).toContain("[0:03] Isaac: I can take the dashboard (still speaking)");

@@ -51,7 +51,12 @@ import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
 import { CommandDedupStore } from "./dedup";
 import { guardWrite, requestRemote, type WriteBody } from "./http-guard";
-import { handleMeetingsContext, MEETINGS_CONTEXT_PATH } from "./meetings/http";
+import {
+  handleMeetingShot,
+  handleMeetingsContext,
+  MEETINGS_CONTEXT_PATH,
+  MEETINGS_SHOTS_PREFIX,
+} from "./meetings/http";
 import { serveBlob } from "./drops/serve";
 import { audioMimeOf, isAudioMime } from "./drops/audio";
 import { isVideoMime, videoMimeOf, VideoTooLarge } from "./drops/video";
@@ -418,6 +423,8 @@ export class RelayServer {
             ? new Response("not found", { status: 404 })
             : serveBlob(request, blob);
         }
+        if (path.startsWith(MEETINGS_SHOTS_PREFIX))
+          return handleMeetingShot(this.deps.meetings, request, path);
         if (path.startsWith("/studio/"))
           return handleStudioRequest(this.deps.studio, request, path);
         if (path.startsWith(FEED_MEDIA_PREFIX))

@@ -28,6 +28,7 @@
     "@tiptap/starter-kit": "3.32.2",
     "@tiptap/y-tiptap": "3.0.12",
     "lib0": "^0.2.119",
+    "xstate": "5.33.0",
     "y-protocols": "^1.0.7",
     "yaml": "2.9.0",
     "yjs": "^13.6.33",

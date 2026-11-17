@@ -29,6 +29,7 @@ import type {
   InputEvent,
   KeyName,
   MeetingsOp,
+  MeetingShare,
   MeetingsResult,
   MeetingsState,
   OpenAsk,
@@ -411,6 +412,10 @@ export interface MeetingsRelaying {
   /** Spends a ticket; null when unknown, spent or expired. */
   redeem(ticket: string): IngestGrant | null;
   connect(grant: IngestGrant, peer: IngestPeer): IngestConnection;
+  /** A Mac's `meeting.share`: whether someone shares their screen in recording `id` (only its own Mac's counts). */
+  share(deviceId: string, id: string, state: MeetingShare): void;
+  /** The JPEG behind `/meetings/shots/<id>/<token>/<n>`, or null when the token or snapshot is wrong. */
+  openShot(id: string, token: string, n: number): DropBlob | null;
   observe(change: AgentProviderChange): void;
   /** The hidden transcript for assistant `agent`'s next turn (`POST /meetings/context`), or null. */
   contextFor(agent: string): { id: string; text: string } | null;

@@ -1,8 +1,9 @@
 // Relay's recordings on the host: `$XDG_CONFIG_HOME/relay/meetings/<id>/` holds `meta.json`, the
 // two tracks as raw 16 kHz mono s16 (`app.pcm`, `mic.pcm`, written at their sample offsets as the
-// ingest socket delivers them), the live transcript's lines (`lines.jsonl`) and, after the call,
-// the WAVs the worker reads. Audio is kept RETENTION_DAYS, then the whole folder goes; the notes
-// live on in the protocols folder.
+// ingest socket delivers them), the live transcript's lines (`lines.jsonl`), its key moments
+// (`moments.json`), the screen snapshots (`shots/<n>.jpg` with their rows in `shots.jsonl`) and,
+// after the call, the WAVs the worker reads. Audio is kept RETENTION_DAYS, then the whole folder
+// goes; the notes (and their copies of the snapshots) live on in the protocols folder.
 
 import {
   closeSync,
@@ -13,14 +14,17 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
   writeSync,
   appendFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  KeyMoment,
   LiveLine,
   MeetingHealth,
+  MeetingShare,
   MeetingStage,
   MEETING_SAMPLE_RATE,
   type MeetingRecording,
@@ -61,6 +65,10 @@ export const RecordingMeta = z.object({
   names: z.record(z.string(), z.string()),
   /** The assistant whose chat the meeting is in (route.ts); recordings from before routing have none. */
   assistant: z.string().nullable().default(null),
+  /** Whether someone shares their screen in the call (`meeting.share` from the Mac recording it). */
+  share: MeetingShare.default("none"),
+  /** The secret in the snapshots' paths (`/meetings/shots/<id>/<token>/<n>`), made with the first one. */
+  shotToken: z.string().nullable().default(null),
 });
 export type RecordingMeta = z.infer<typeof RecordingMeta>;
 
@@ -80,6 +88,7 @@ export function publicRecording(m: RecordingMeta, seconds: number): MeetingRecor
     stem: m.stem,
     seconds,
     assistant: m.assistant,
+    share: m.share,
   };
 }
 
@@ -91,6 +100,22 @@ export function samplesOf(dir: string, track: TrackName): number {
     return 0;
   }
 }
+
+/** A screen snapshot as `shots.jsonl` keeps it (the public `MeetingShot` adds its path). */
+export const ShotRow = z.object({
+  n: z.number().int().nonnegative(),
+  atMs: z.number(),
+  w: z.number().int().positive(),
+  h: z.number().int().positive(),
+  hash: z.string(),
+  ocr: z.string(),
+  line: z.string(),
+});
+export type ShotRow = z.infer<typeof ShotRow>;
+
+/** `moments.json`: the key moments so far and how far into the transcript they were looked for. */
+const MomentsFile = z.object({ moments: z.array(KeyMoment), through: z.number() });
+export type MomentsFile = z.infer<typeof MomentsFile>;
 
 export class RecordingStore {
   constructor(readonly root: string) {
@@ -202,6 +227,57 @@ export class RecordingStore {
       }
     }
     return { samples, rows };
+  }
+
+  /** The key moments kept for a recording (none before the first). */
+  moments(id: string): MomentsFile {
+    const r = MomentsFile.safeParse(readJson(join(this.dir(id), "moments.json"), null));
+    return r.success ? r.data : { moments: [], through: -1 };
+  }
+
+  saveMoments(id: string, file: MomentsFile): void {
+    writeJson(join(this.dir(id), "moments.json"), file);
+  }
+
+  /**
+   * Keeps a screen snapshot: its JPEG as `shots/<n>.jpg` and its row in `shots.jsonl`. A shot that
+   * failed validation is kept as a `null` row, so the row count stays the Mac's count (its acks).
+   */
+  appendShot(id: string, shot: { row: ShotRow; jpeg: Uint8Array } | null): void {
+    if (shot !== null) {
+      mkdirSync(join(this.dir(id), "shots"), { recursive: true, mode: 0o700 });
+      writeFileSync(this.shotFile(id, shot.row.n), shot.jpeg, { mode: 0o600 });
+    }
+    appendFileSync(join(this.dir(id), "shots.jsonl"), `${JSON.stringify(shot?.row ?? null)}\n`, {
+      mode: 0o600,
+    });
+  }
+
+  /** The snapshots kept so far, in order, and how many rows the Mac has sent. */
+  shots(id: string): { rows: ShotRow[]; count: number } {
+    let text: string;
+    try {
+      text = readFileSync(join(this.dir(id), "shots.jsonl"), "utf8");
+    } catch {
+      return { rows: [], count: 0 };
+    }
+    const rows: ShotRow[] = [];
+    let count = 0;
+    for (const line of text.split("\n")) {
+      if (line.trim() === "") continue;
+      count += 1;
+      try {
+        const r = ShotRow.safeParse(JSON.parse(line));
+        if (r.success) rows.push(r.data);
+      } catch {
+        // a torn last row after a crash
+      }
+    }
+    return { rows, count };
+  }
+
+  shotFile(id: string, n: number): string {
+    return join(this.dir(id), "shots", `${String(n)}.jpg`);
   }
 
   /** `<track>.wav` next to the raw track (a 44-byte header plus the samples, padded to `samples`). */

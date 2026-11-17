@@ -1,7 +1,9 @@
 // Meetings on the host: every Mac's Relay Meetings helper uploads its recordings here over the
 // ticketed ingest socket; the relay-asr worker transcribes them live; every device gets the lines
-// (`meeting.live`), the recordings (`meeting.recording`, `meetings.state`) and Astra's session about
-// a meeting (`meeting.astra`). After a call the after-call pipeline (pipeline.ts) writes the notes.
+// (`meeting.live`), the key moments found in them (`meeting.moments`, key-moments.ts), the screen
+// snapshots the Mac saved (`meeting.shot`, served at `/meetings/shots/<id>/<token>/<n>`), the
+// recordings (`meeting.recording`, `meetings.state`) and Astra's session about a meeting
+// (`meeting.astra`). After a call the after-call pipeline (pipeline.ts) writes the notes.
 // The Meetings page's records (work/meetings/<stem>.json, meeting-memory's) are read and written
 // here too, through eva-core, so the phone and a thin client see what the Mini sees.
 //
@@ -10,23 +12,30 @@
 // journaled twice while MeetingTranscriber records too.
 
 import { randomBytes } from "node:crypto";
-import { watch, type FSWatcher } from "node:fs";
+import { statSync, watch, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  MAX_MEETING_SHOTS,
+  MAX_SHOT_OCR,
   MEETING_SAMPLE_RATE,
   MEETING_TICKET_TTL_MS,
+  MeetingId,
   meetingClock,
   meetingIsLive,
   type AstraItem,
   type LiveLine,
   type MeetingNotes,
   type MeetingRecording,
+  type MeetingShare,
+  type MeetingShot,
   type MeetingsOp,
   type MeetingsResult,
   type MeetingsState,
   type ServerMessage,
 } from "@relay/protocol";
+import { toPromise } from "xstate";
+import { z } from "zod";
 import { createEvaFs, type EvaFs } from "../../../../packages/eva-core/src/fs/eva-fs";
 import {
   meetingsAccept,
@@ -35,12 +44,14 @@ import {
   meetingsList,
 } from "../../../../packages/eva-core/src/model/meetings-ops";
 import { parseProtocol } from "../../../../packages/eva-core/src/model/protocol";
+import { sameToken } from "../drops/serve";
 import type { LaunchOptions } from "../agents/herdr";
 import type { AssistantAgentConfig } from "../assistant/registry";
 import { ASK_MARK, AstraSessions } from "../reviews/astra";
 import type {
   AgentProvider,
   AgentProviderChange,
+  DropBlob,
   IngestConnection,
   IngestGrant,
   IngestPeer,
@@ -48,8 +59,20 @@ import type {
 } from "../seams";
 import type { SessionClock } from "../session";
 import type { Asr, WorkerLine, WorkerTurns } from "./asr";
+import {
+  momentLines,
+  startKeyMoments,
+  type KeyMomentsActor,
+  type MomentFinder,
+} from "./key-moments";
 import { LiveTranscript } from "./live";
-import { calendarTitle, CONTEXT_AFTER_END_MS, meetingContext, routeMeeting, type Given } from "./route";
+import {
+  calendarTitle,
+  CONTEXT_AFTER_END_MS,
+  meetingContext,
+  routeMeeting,
+  type Given,
+} from "./route";
 import { PlatformSampleSchema, type PlatformSample } from "./speakers";
 import {
   publicRecording,
@@ -58,6 +81,7 @@ import {
   TRACKS,
   type RecordingMeta,
   type RecordingStore,
+  type ShotRow,
   type TrackName,
 } from "./store";
 
@@ -70,6 +94,25 @@ export const CONTEXT_AFTER_MS = 60_000;
 /** A voice the meeting app named for this long, at this share of its talk, is learned as that person. */
 const LEARN_MIN_S = 20;
 const LEARN_SHARE = 0.8;
+/** How long the after-call notes wait for the last key moments of a call. */
+export const FINAL_MOMENTS_MS = 90_000;
+/** A snapshot's line is the one said at that moment, or one that ended at most this long before. */
+const SHOT_LINE_GAP_MS = 15_000;
+const SHOT_LINE_MAX = 300;
+
+/** `meeting.shot`: one snapshot the Mac saved (its `shots.jsonl` row) and its JPEG. */
+const ShotFrame = z.object({
+  shot: z.object({
+    n: z.number().int().nonnegative(),
+    /** App-track sample index. */
+    at: z.number().nonnegative(),
+    w: z.number().int().positive(),
+    h: z.number().int().positive(),
+    hash: z.string().max(200).default(""),
+    ocr: z.string().default(""),
+  }),
+  jpeg: z.string().min(1),
+});
 
 /** What happens after a call (pipeline.ts); `stage` moves the page along, `notes` is the file read for the page. */
 export interface AfterCall {
@@ -85,6 +128,8 @@ export interface AfterCall {
   rename(meta: RecordingMeta, label: string, name: string): Promise<void>;
   /** Deletes a recording's notes. */
   remove(meta: RecordingMeta): void;
+  /** Where snapshot `n` is kept next to the written notes; null before there are notes. */
+  shotPath(meta: RecordingMeta, n: number): string | null;
   /** The calendar or Slack context of a recording (mt-autoname's lookup). */
   lookup(meta: RecordingMeta): Promise<RecordingMeta["context"]>;
 }
@@ -112,6 +157,8 @@ export interface MeetingsServiceDeps {
   readonly onLiveChange?: () => void;
   /** The assistants registry as it is now (route.ts picks a meeting's chat from it). */
   readonly assistants: () => readonly Pick<AssistantAgentConfig, "id" | "profile">[];
+  /** Finds a live call's key moments (key-moments.ts, Haiku); null finds none. */
+  readonly findMoments: MomentFinder | null;
 }
 
 interface Ticket {
@@ -127,6 +174,10 @@ interface Live {
   open: boolean;
   /** startMs of the last line Astra was given. */
   sentToAstra: number;
+  /** The call's key moments while it is on; null when the host finds none. */
+  moments: KeyMomentsActor | null;
+  /** Final lines given to `moments` (a line seen again was renamed). */
+  readonly fed: Set<string>;
 }
 
 const OK = { ok: true } as const;
@@ -259,6 +310,7 @@ export class MeetingsService implements MeetingsRelaying {
     this.stateTimer?.();
     clearInterval(this.sweepTimer);
     this.astra.stop();
+    for (const l of this.live.values()) l.moments?.stop();
     for (const c of this.sockets.values()) c.peer.close(1001, "host stopping");
   }
 
@@ -340,6 +392,8 @@ export class MeetingsService implements MeetingsRelaying {
           { app: open.app, title: open.title ?? null, context: null },
           this.deps.assistants(),
         ),
+        share: "none",
+        shotToken: null,
       });
       this.deps.log(`meetings: ${open.app} recording ${open.id} from ${deviceName}`);
       this.deps.push(
@@ -385,6 +439,7 @@ export class MeetingsService implements MeetingsRelaying {
     const dir = this.deps.store.dir(m.id);
     for (const t of TRACKS) conn.have[t] = samplesOf(dir, t);
     conn.haveSpeakers = this.deps.store.speakers(m.id).rows;
+    conn.haveShots = this.deps.store.shots(m.id).count;
     conn.sendAcks();
     if (m.stage === "recording" && this.deps.asr !== null) {
       this.liveOf(m).open = this.openWorker(m.id, conn.have.app, conn.have.mic);
@@ -414,10 +469,91 @@ export class MeetingsService implements MeetingsRelaying {
         flush: null,
         open: false,
         sentToAstra: -1,
+        moments: null,
+        fed: new Set(),
       };
       this.live.set(m.id, l);
+      if (m.stage === "recording") this.startMoments(m.id, l);
     }
     return l;
+  }
+
+  /**
+   * The call's key moments machine (key-moments.machine.ts), on the host's clock: what it finds is
+   * kept in `moments.json` (with how far it has looked, so a restart picks up there) and goes to
+   * every device. Lines kept from before a restart that it had not looked at yet go in first.
+   */
+  private startMoments(id: string, l: Live): void {
+    const find = this.deps.findMoments;
+    if (find === null) return;
+    const saved = this.deps.store.moments(id);
+    const actor = startKeyMoments({
+      find,
+      shots: () => this.deps.store.shots(id).rows,
+      input: { moments: saved.moments, through: saved.through },
+      clock: {
+        setTimeout: (fn: () => void, ms: number) => this.deps.clock.after(ms, fn),
+        clearTimeout: (cancel: () => void) => {
+          cancel();
+        },
+      },
+      log: this.deps.log,
+    });
+    let moments: readonly unknown[] = saved.moments;
+    let through = saved.through;
+    actor.subscribe({
+      next: (s) => {
+        if (s.context.moments === moments && s.context.through === through) return;
+        const changed = s.context.moments !== moments;
+        moments = s.context.moments;
+        through = s.context.through;
+        this.deps.store.saveMoments(id, { moments: [...s.context.moments], through });
+        if (changed)
+          this.deps.broadcast({ t: "meeting.moments", id, moments: [...s.context.moments] });
+      },
+      error: (error: unknown) => {
+        this.deps.log(
+          `meetings: key moments of ${id} stopped: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    });
+    l.moments = actor;
+    const lines = momentLines(l.transcript.all());
+    for (const x of lines) l.fed.add(x.id);
+    const fresh = lines.filter((x) => x.startMs > saved.through);
+    if (fresh.length > 0) actor.send({ type: "transcript.lines", lines: fresh });
+  }
+
+  /** Changed lines to the key moments: new finals to look at, finals seen before renamed. */
+  private feedMoments(l: Live, changed: readonly LiveLine[]): void {
+    if (l.moments === null) return;
+    const lines = momentLines(changed);
+    const fresh = lines.filter((x) => !l.fed.has(x.id));
+    const again = lines.filter((x) => l.fed.has(x.id));
+    for (const x of fresh) l.fed.add(x.id);
+    if (fresh.length > 0) l.moments.send({ type: "transcript.lines", lines: fresh });
+    if (again.length > 0) l.moments.send({ type: "transcript.renamed", lines: again });
+  }
+
+  /** The last key moments of an ended call (one final pass), waited for at most FINAL_MOMENTS_MS. */
+  private async finishMoments(l: Live): Promise<void> {
+    const actor = l.moments;
+    if (actor === null) return;
+    actor.send({ type: "call.ended" });
+    const { promise, resolve } = Promise.withResolvers<void>();
+    const cancel = this.deps.clock.after(FINAL_MOMENTS_MS, resolve);
+    toPromise(actor).then(
+      () => {
+        resolve();
+      },
+      () => {
+        resolve();
+      },
+    );
+    await promise;
+    cancel();
+    actor.stop();
+    l.moments = null;
   }
 
   /** New contiguous audio of a recording: to the worker while the call is on. */
@@ -447,6 +583,7 @@ export class MeetingsService implements MeetingsRelaying {
     if (typeof end["micLeadMs"] === "number") m.micLeadMs = end["micLeadMs"];
     if (end["globalTap"] === true) m.globalTap = true;
     if (m.stage === "recording") m.stage = "uploading";
+    m.share = "none";
     this.update(m);
     this.complete(conn);
   }
@@ -516,6 +653,7 @@ export class MeetingsService implements MeetingsRelaying {
       changed.filter((c) => c.final),
     );
     for (const c of changed) l.pending.set(c.id, c);
+    this.feedMoments(l, changed);
     l.flush ??= this.deps.clock.after(LIVE_EMIT_MS, () => {
       l.flush = null;
       const upsert = [...l.pending.values()];
@@ -555,7 +693,9 @@ export class MeetingsService implements MeetingsRelaying {
           this.update(now);
           const l = this.live.get(id);
           if (context.remoteName !== undefined && l !== undefined) {
-            for (const c of l.transcript.renameApp(context.remoteName)) l.pending.set(c.id, c);
+            const renamed = l.transcript.renameApp(context.remoteName);
+            for (const c of renamed) l.pending.set(c.id, c);
+            this.feedMoments(l, renamed);
             this.deps.broadcast({
               t: "meeting.live",
               id,
@@ -587,6 +727,8 @@ export class MeetingsService implements MeetingsRelaying {
         live.open = false;
         this.deps.onLiveChange?.();
       }
+      // The notes list the key moments: the last window's are found first.
+      if (live !== undefined) await this.finishMoments(live);
       const m = this.deps.store.load(id);
       if (m === null) return;
       const lines = live?.transcript.all() ?? this.deps.store.lines(id);
@@ -657,8 +799,97 @@ export class MeetingsService implements MeetingsRelaying {
         lines: lines.slice(-5000),
         astra,
         notes: this.notesOf(m),
+        moments: [
+          ...(l?.moments?.getSnapshot().context.moments ?? this.deps.store.moments(id).moments),
+        ],
+        shots: this.shotsOf(m),
       },
     };
+  }
+
+  /** A recording's snapshots as devices get them (the newest MAX_MEETING_SHOTS). */
+  private shotsOf(m: RecordingMeta): MeetingShot[] {
+    const token = m.shotToken;
+    if (token === null) return [];
+    return this.deps.store
+      .shots(m.id)
+      .rows.slice(-MAX_MEETING_SHOTS)
+      .map((r) => publicShot(m.id, token, r));
+  }
+
+  /**
+   * `meeting.shot {shot, jpeg}`: a screen snapshot the Mac saved, kept in order (a resend of one
+   * here is skipped, one past a gap waits for the resend from the ack), acked and sent to every
+   * device with the transcript line said at that moment. One that fails validation still counts, so
+   * the acks stay the Mac's numbers.
+   */
+  shotFrame(conn: Conn, msg: Record<string, unknown>): void {
+    const raw = msg["shot"];
+    const n =
+      typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>)["n"] : undefined;
+    if (n !== conn.haveShots) return;
+    const m = this.deps.store.load(conn.grant.id);
+    if (m === null) return;
+    const r = ShotFrame.safeParse(msg);
+    const jpeg = r.success ? Buffer.from(r.data.jpeg, "base64") : null;
+    if (
+      !r.success ||
+      jpeg === null ||
+      jpeg.length < 4 ||
+      jpeg[0] !== 0xff ||
+      jpeg[1] !== 0xd8 ||
+      conn.haveShots >= MAX_MEETING_SHOTS
+    ) {
+      this.deps.log(`meetings: snapshot ${String(conn.haveShots)} of ${m.id} not kept`);
+      this.deps.store.appendShot(m.id, null);
+      conn.haveShots += 1;
+      return;
+    }
+    if (m.shotToken === null) {
+      m.shotToken = randomBytes(16).toString("hex");
+      this.deps.store.save(m);
+    }
+    const s = r.data.shot;
+    const atMs = Math.round((s.at / MEETING_SAMPLE_RATE) * 1000);
+    const lines = this.live.get(m.id)?.transcript.all() ?? this.deps.store.lines(m.id);
+    const row: ShotRow = {
+      n: s.n,
+      atMs,
+      w: s.w,
+      h: s.h,
+      hash: s.hash,
+      ocr: s.ocr.trim().slice(0, MAX_SHOT_OCR),
+      line: lineAt(lines, atMs),
+    };
+    this.deps.store.appendShot(m.id, { row, jpeg });
+    conn.haveShots += 1;
+    this.deps.broadcast({ t: "meeting.shot", id: m.id, shot: publicShot(m.id, m.shotToken, row) });
+  }
+
+  /** `meeting.share`: whether someone shares their screen, from the Mac holding the call only. */
+  share(deviceId: string, id: string, state: MeetingShare): void {
+    const m = this.deps.store.load(id);
+    if (m === null || m.deviceId !== deviceId || m.stage !== "recording" || m.share === state)
+      return;
+    m.share = state;
+    this.update(m);
+  }
+
+  /** Snapshot `n` of a recording for whoever holds its token: next to the notes once written, else in the recording. */
+  openShot(id: string, token: string, n: number): DropBlob | null {
+    if (!MeetingId.safeParse(id).success || !Number.isInteger(n) || n < 0) return null;
+    const m = this.deps.store.load(id);
+    if (m?.shotToken == null || !sameToken(m.shotToken, token)) return null;
+    for (const path of [this.deps.afterCall.shotPath(m, n), this.deps.store.shotFile(id, n)]) {
+      if (path === null) continue;
+      try {
+        const size = statSync(path).size;
+        return { path, mimeType: "image/jpeg", name: `${String(n)}.jpg`, size };
+      } catch {
+        // not there: the next place
+      }
+    }
+    return null;
   }
 
   private async ask(id: string, question: string): Promise<Omit<MeetingsResult, "rid">> {
@@ -759,6 +990,7 @@ export class MeetingsService implements MeetingsRelaying {
           c?.peer.close(1000, "discarded");
           const l = this.live.get(op.id);
           if (l?.open === true) void this.deps.asr?.close(op.id);
+          l?.moments?.stop();
           this.live.delete(op.id);
           this.deps.onLiveChange?.();
           this.deps.afterCall.remove(m);
@@ -838,11 +1070,40 @@ function idOfUrl(url: string): string | null {
   return url.startsWith(prefix) ? url.slice(prefix.length) : null;
 }
 
+/** A kept snapshot as devices get it: its row with the path it is served at. */
+export function publicShot(id: string, token: string, r: ShotRow): MeetingShot {
+  return {
+    n: r.n,
+    atMs: r.atMs,
+    src: `/meetings/shots/${id}/${token}/${String(r.n)}`,
+    w: r.w,
+    h: r.h,
+    line: r.line,
+    ocr: r.ocr,
+  };
+}
+
+/**
+ * The transcript line said when a snapshot was taken ("Todd: so this is the pass"): the latest one
+ * started by then that had not ended more than SHOT_LINE_GAP_MS before; "" for none.
+ */
+export function lineAt(lines: readonly LiveLine[], atMs: number): string {
+  let best: LiveLine | null = null;
+  for (const l of lines) {
+    if (l.echo === true || l.text.trim() === "" || l.startMs > atMs) continue;
+    if (atMs - l.endMs > SHOT_LINE_GAP_MS) continue;
+    if (best === null || l.startMs >= best.startMs) best = l;
+  }
+  return best === null ? "" : `${best.speaker}: ${best.text.trim()}`.slice(0, SHOT_LINE_MAX);
+}
+
 /** One ingest socket: frames to the store and the worker, acks back. */
 export class Conn implements IngestConnection {
   readonly have: Record<TrackName, number> = { app: 0, mic: 0 };
   /** Window speaker lines held (`speakers.jsonl` rows). */
   haveSpeakers = 0;
+  /** Screen snapshots held (`shots.jsonl` rows). */
+  haveShots = 0;
   private helloSeen = false;
   private readonly ackTimer: NodeJS.Timeout;
 
@@ -861,6 +1122,7 @@ export class Conn implements IngestConnection {
       this.peer.sendText({ t: "ack", track: i, upTo: this.have[t] });
     });
     this.peer.sendText({ t: "ack.speakers", upTo: this.haveSpeakers });
+    this.peer.sendText({ t: "ack.shots", upTo: this.haveShots });
   }
 
   text(raw: string): void {
@@ -877,6 +1139,8 @@ export class Conn implements IngestConnection {
       this.service.health(this.grant.id, msg["state"], msg["detail"]);
     } else if (msg["t"] === "meeting.speakers") {
       if (this.helloSeen) this.service.speakerLines(this, msg);
+    } else if (msg["t"] === "meeting.shot") {
+      if (this.helloSeen) this.service.shotFrame(this, msg);
     } else if (msg["t"] === "meeting.end") {
       this.service.ended(this, msg);
     }

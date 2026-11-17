@@ -1034,6 +1034,10 @@ export class ClientSession {
         );
         break;
       }
+      case "meeting.share":
+        // Only the Mac holding the recording may say (the service checks the device).
+        this.deps.meetings?.share(deviceId, message.id, message.state);
+        break;
       case "assistant.file.req": {
         const assistant = this.deps.assistant;
         const result =

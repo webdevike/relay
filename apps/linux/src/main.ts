@@ -28,6 +28,7 @@ import {
 } from "@relay/protocol";
 import type { LaunchOptions } from "./agents/herdr";
 import { ASR_SCRIPT, AsrWorker, asrPython } from "./meetings/asr";
+import { claudeFinder } from "./meetings/key-moments";
 import { loadAutoname, MeetingPipeline, type Autoname } from "./meetings/pipeline";
 import { MeetingsService } from "./meetings/service";
 import { defaultMeetingsDir, RecordingStore } from "./meetings/store";
@@ -1308,6 +1309,7 @@ function meetingsService(o: {
         return [];
       }
     },
+    findMoments: claudeFinder({ claude: resolveClaude(), run: bunRun, human: o.human }),
   });
   log(
     `meetings in ${defaultMeetingsDir()}, notes in ${join(meetingsDir, shadow ? "shadow" : "protocols")}${shadow ? " (shadow)" : ""}, transcription ${asr === null ? `off (no ${existsSync(asrPython()) ? ASR_SCRIPT : asrPython()})` : "by relay-asr"}`,
