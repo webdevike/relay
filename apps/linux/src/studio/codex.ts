@@ -15,7 +15,7 @@ import type { StudioMedia } from "./media";
 import { oneLine, type StudioRunInput, type StudioRunner, type StudioRunOutput } from "./runner";
 
 export const CODEX_IMAGES_URL = "https://chatgpt.com/backend-api/codex/images";
-export const CODEX_IMAGE_MODEL = "gpt-image-2.5-sunburst";
+export const CODEX_IMAGE_MODEL = "gpt-image-2.6-sunburst";
 /** How long an omp token is reused before asking omp again (it refreshes expiring ones). */
 const TOKEN_REUSE_MS = 5 * 60_000;
 
@@ -31,7 +31,9 @@ export function chatgptAccountId(token: string): string | null {
   const payload = token.split(".")[1];
   if (payload === undefined) return null;
   try {
-    const claims = AccessClaims.safeParse(JSON.parse(Buffer.from(payload, "base64url").toString("utf8")));
+    const claims = AccessClaims.safeParse(
+      JSON.parse(Buffer.from(payload, "base64url").toString("utf8")),
+    );
     return claims.success ? claims.data["https://api.openai.com/auth"].chatgpt_account_id : null;
   } catch {
     return null;
@@ -42,16 +44,29 @@ export function chatgptAccountId(token: string): string | null {
  * Isaac's ChatGPT access token from omp, reused for a few minutes; one omp call at a time. Rejects
  * with a one-line reason (omp's stderr, never its stdout).
  */
-export function ompCodexToken(omp: string | null, now: () => number = Date.now): () => Promise<string> {
+export function ompCodexToken(
+  omp: string | null,
+  now: () => number = Date.now,
+): () => Promise<string> {
   let cached: { readonly token: string; readonly at: number } | null = null;
   let inflight: Promise<string> | null = null;
   const fetchToken = (path: string): Promise<string> => {
     const { promise, resolve, reject } = Promise.withResolvers<string>();
-    execFile(path, ["--profile", "personal", "token", "openai-codex"], { cwd: homedir(), timeout: 30_000 }, (error, stdout, stderr) => {
-      const token = stdout.trim();
-      if (error === null && token !== "") resolve(token);
-      else reject(new Error(`omp token openai-codex failed: ${oneLine(stderr, 200) || (error?.message ?? "no token")}`));
-    });
+    execFile(
+      path,
+      ["--profile", "personal", "token", "openai-codex"],
+      { cwd: homedir(), timeout: 30_000 },
+      (error, stdout, stderr) => {
+        const token = stdout.trim();
+        if (error === null && token !== "") resolve(token);
+        else
+          reject(
+            new Error(
+              `omp token openai-codex failed: ${oneLine(stderr, 200) || (error?.message ?? "no token")}`,
+            ),
+          );
+      },
+    );
     return promise;
   };
   return () => {
@@ -91,7 +106,12 @@ export function codexImageRequest(
   const common = { prompt, model: CODEX_IMAGE_MODEL, n: 1, quality: "high", size: spec.resolution };
   const body =
     backend === "codex-edit"
-      ? { images: images.map((bytes) => ({ image_url: `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}` })), ...common }
+      ? {
+          images: images.map((bytes) => ({
+            image_url: `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`,
+          })),
+          ...common,
+        }
       : common;
   return {
     url: `${CODEX_IMAGES_URL}/${backend === "codex-edit" ? "edits" : "generations"}`,
@@ -124,7 +144,10 @@ function codexError(status: number, body: string): string {
     const parsed = ErrorReply.safeParse(JSON.parse(body));
     if (parsed.success) {
       const { error, detail, message } = parsed.data;
-      const text = [error, detail].map((part) => (typeof part === "object" ? part.message : part)).find((part) => part !== undefined) ?? message;
+      const text =
+        [error, detail]
+          .map((part) => (typeof part === "object" ? part.message : part))
+          .find((part) => part !== undefined) ?? message;
       if (text !== undefined) said = text;
     }
   } catch {
@@ -151,7 +174,12 @@ export class CodexRunner implements StudioRunner {
     const base = BACKEND_BASE[this.deps.backend];
     try {
       const token = await this.deps.token();
-      if (chatgptAccountId(token) === null) return { ...base, available: false, reason: "The Codex sign-in in omp has no ChatGPT account" };
+      if (chatgptAccountId(token) === null)
+        return {
+          ...base,
+          available: false,
+          reason: "The Codex sign-in in omp has no ChatGPT account",
+        };
       return { ...base, available: true };
     } catch (error) {
       return { ...base, available: false, reason: oneLine(error, 400) };
@@ -162,8 +190,17 @@ export class CodexRunner implements StudioRunner {
     const token = await this.deps.token();
     const accountId = chatgptAccountId(token);
     if (accountId === null) throw new Error("The Codex sign-in in omp has no ChatGPT account");
-    const images = this.deps.backend === "codex-edit" ? await Promise.all(input.refs.map((path) => this.deps.jpeg(path))) : [];
-    const { url, init } = codexImageRequest(this.deps.backend, input.spec, token, accountId, images);
+    const images =
+      this.deps.backend === "codex-edit"
+        ? await Promise.all(input.refs.map((path) => this.deps.jpeg(path)))
+        : [];
+    const { url, init } = codexImageRequest(
+      this.deps.backend,
+      input.spec,
+      token,
+      accountId,
+      images,
+    );
     const response = await this.deps.fetch(url, { ...init, signal: input.signal });
     const text = await response.text();
     if (!response.ok) throw new Error(codexError(response.status, text));
@@ -185,4 +222,3 @@ export class CodexRunner implements StudioRunner {
     return { path, mimeType: "image/png" };
   }
 }
-
