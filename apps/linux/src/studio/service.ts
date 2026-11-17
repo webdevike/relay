@@ -13,8 +13,9 @@
 // for what came due while the host was down) every copy of it is deleted: the store file and thumb,
 // the backend's own copies the runner reported, its segments. A job left with no outputs goes too.
 //
-// Paid jobs (Higgsfield) only run on Isaac's tap: never from an agent, only with `confirmCredits`,
-// one at a time, and not when the host's fresh quote is above what he confirmed.
+// Paid jobs (Higgsfield, OpenRouter) only run on Isaac's tap: never from an agent, only with `confirmCredits`,
+// one at a time, and not when the host's fresh quote is above what he confirmed. A paid job that says what the
+// provider billed keeps it as the job's `cost`.
 
 import { randomInt, randomUUID } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
@@ -34,6 +35,7 @@ import {
   type StudioResult,
   type StudioSegments,
   type StudioSpec,
+  studioPriceLabel,
   type StudioState,
 } from "@relay/protocol";
 import type { DropBlob, StudioRelaying } from "../seams";
@@ -250,7 +252,7 @@ export class StudioService implements StudioRelaying {
       if (credits > (spec.confirmCredits ?? 0))
         return {
           ok: false,
-          error: `The price changed to ${String(credits)} credits; confirm again`,
+          error: `The price changed to ${studioPriceLabel(credits, backend.unit)}; confirm again`,
         };
     }
     const seed = backend.seed
@@ -691,6 +693,7 @@ export class StudioService implements StudioRelaying {
         progress: 1,
         finishedAt: now,
         outputs: [asset],
+        ...(output.cost === undefined ? {} : { cost: output.cost }),
       });
       this.store.calibrate(spec.backend, (now - slot.startedAt) / baseEstimateMs(spec, this.backends.get(spec.backend)));
     } catch (error) {

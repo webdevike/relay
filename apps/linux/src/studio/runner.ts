@@ -1,6 +1,6 @@
 // The seam between the Studio service and the backends that make things: LTX on the GPU
 // (`ltx.ts`), MOSS-Image (`moss.ts`), Kontext (`kontext.ts`), ComfyUI presets (`comfyui.ts`), Codex
-// images (`codex.ts`), Higgsfield (`higgsfield.ts`), SAM 2.1 cutouts (`sam.ts`), crops (`crop.ts`).
+// images (`codex.ts`), Higgsfield (`higgsfield.ts`), OpenRouter images (`openrouter.ts`), SAM 2.1 cutouts (`sam.ts`), crops (`crop.ts`).
 // Tests swap in fakes.
 
 import type { StudioBackend, StudioFrameSlot, StudioSpec } from "@relay/protocol";
@@ -39,6 +39,8 @@ export interface StudioRunOutput {
    * output in its `output/` dir). The host deletes them with the asset, so nothing of a deleted image stays on disk.
    */
   readonly copies?: readonly string[];
+  /** Paid backends: what the provider says it billed for this output, in the backend's unit. */
+  readonly cost?: number;
 }
 
 export interface StudioRunner {
@@ -46,9 +48,9 @@ export interface StudioRunner {
   describe(): Promise<StudioBackend>;
   /** Makes one output. Rejects with a one-line reason, or once `signal` aborts. */
   run(input: StudioRunInput): Promise<StudioRunOutput>;
-  /** Paid backends: what `spec` costs in credits. Free to ask. Rejects with a one-line reason. */
+  /** Paid backends: what `spec` costs, in the backend's unit (credits, or US dollars). Free to ask. Rejects with a one-line reason. */
   quote?(spec: StudioSpec): Promise<number>;
-  /** Paid backends: credits left, when it can tell. Never rejects. */
+  /** Paid backends: what is left in the backend's unit, when it can tell. Never rejects. */
   balance?(): Promise<number | undefined>;
 }
 

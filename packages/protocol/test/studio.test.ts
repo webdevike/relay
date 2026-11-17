@@ -48,3 +48,16 @@ describe("studio.state from a newer host", () => {
     expect(parseServerMessage(state([{ ...job("j1", "codex-image"), progress: 2 }], [])).ok).toBe(false);
   });
 });
+
+describe("studio.state with a dollar-priced backend", () => {
+  it("keeps the unit, balance and the cost a finished job was really billed", () => {
+    const parsed = parseServerMessage(
+      state([{ ...job("j1", "openrouter-image"), credits: 0.0387, cost: 0.0391 }], [{ ...backend("openrouter-image"), paid: true, unit: "usd", balance: 4.5 }]),
+    );
+    if (!parsed.ok) throw new Error(parsed.error);
+    if (parsed.value.t !== "studio.state") throw new Error(parsed.value.t);
+    expect(parsed.value.backends[0]).toMatchObject({ id: "openrouter-image", unit: "usd", balance: 4.5 });
+    expect(parsed.value.jobs[0]).toMatchObject({ credits: 0.0387, cost: 0.0391 });
+    expect(parseServerMessage(state([], [{ ...backend("openrouter-image"), unit: "eur" }])).ok).toBe(false);
+  });
+});

@@ -118,11 +118,13 @@ export function createChoices(backends: readonly StudioBackend[]): CreateChoice[
     })
   }
   for (const b of backends.filter((x) => x.paid)) {
-    for (const m of b.models?.filter((x) => x.mode === 'image') ?? []) {
+    // A model that only edits (it needs a reference) is not an original.
+    for (const m of b.models?.filter((x) => x.mode === 'image' && studioRefs(b, x.id).min === 0) ??
+      []) {
       out.push({
         key: choiceKey(b.id, m.id),
         label: m.name,
-        note: 'Paid, priced before it runs',
+        note: m.description ?? 'Paid, priced before it runs',
         group: 'Paid',
         backend: b.id,
         model: m.id,
@@ -166,7 +168,12 @@ export const MAX_KLEIN_REFS = 2
 
 /** True when the create bar's refs make FLUX.2 klein do the job (the muted hint). */
 export function refsUseKlein(choice: CreateChoice | undefined, refs: readonly string[]): boolean {
-  return refs.length > 0 && choice !== undefined && choice.backend !== 'codex-image'
+  return (
+    refs.length > 0 &&
+    choice !== undefined &&
+    choice.backend !== 'codex-image' &&
+    choice.backend !== 'openrouter-image'
+  )
 }
 
 /**
@@ -189,7 +196,10 @@ export function routeCreate(
   if (refs.length > 0) {
     const savedOf = (id: string): StudioReference | undefined =>
       references.find((r) => r.asset.id === id)
-    if (input.choice.backend === 'codex-image') {
+    if (input.choice.backend === 'openrouter-image') {
+      // The picked OpenRouter model edits the references itself.
+      how = 'edit'
+    } else if (input.choice.backend === 'codex-image') {
       backendId = 'codex-edit'
       model = undefined
       how = 'edit'
@@ -211,9 +221,15 @@ export function routeCreate(
   }
   const backend = backends.find((b) => b.id === backendId)
   if (!backend) return `This Relay host has no ${backendId} backend`
-  if (!backend.available) return backend.reason ?? `${backend.label} can't run right now`
   if (model !== undefined && !backend.models?.some((m) => m.id === model)) {
     return `${backend.label} has no ${model} preset`
+  }
+  if (backendId === 'openrouter-image') {
+    const limit = studioRefs(backend, model).max
+    if (refs.length > limit)
+      return limit === 0
+        ? `${modelOf(backend, model)?.name ?? backend.label} takes no reference images`
+        : `${modelOf(backend, model)?.name ?? backend.label} takes at most ${limit} reference images`
   }
   const resolution = studioResolutions(backend, input.aspect, model)[0]?.id
   if (resolution === undefined) return `${backend.label} has no ${input.aspect} size`

@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { View } from "react-native";
-import type { StudioBackend } from "@relay/protocol";
+import { studioPriceLabel, type StudioBackend } from "@relay/protocol";
 import { spacing } from "@/theme";
 import { OptionRow } from "@/ui/OptionRow";
 import { Sheet } from "@/ui/Sheet";
@@ -34,7 +34,8 @@ export function ModelSheet({ visible, draft, entries, selected, backends, onPick
     if (!visible) return;
     let live = true;
     for (const entry of entries) {
-      if (!entry.paid || !entry.available) continue;
+      // A model that states its price (OpenRouter's, at its default size) needs no quote.
+      if (!entry.paid || !entry.available || entry.note !== undefined) continue;
       const spec = createSpec(draft, entry, backends);
       if (spec === undefined) continue;
       void fetchQuote(spec).then((quote) => {
@@ -48,7 +49,8 @@ export function ModelSheet({ visible, draft, entries, selected, backends, onPick
   }, [visible, paidKeys]);
 
   const balance = Object.values(quotes).find((quote) => quote.ok && quote.balance !== undefined);
-  const credits = balance?.ok === true ? balance.balance : backends.find((b) => b.paid)?.balance;
+  const paidBackend = backends.find((b) => b.paid);
+  const credits = balance?.ok === true ? balance.balance : paidBackend?.balance;
 
   return (
     <Sheet visible={visible} onClose={onClose}>
@@ -65,7 +67,7 @@ export function ModelSheet({ visible, draft, entries, selected, backends, onPick
                     ? "Paid. Type a prompt to see what each model costs."
                     : credits === undefined
                       ? "Paid. One image per Generate."
-                      : `Paid. One image per Generate, ${credits} credits left.`
+                      : `Paid. One image per Generate, ${studioPriceLabel(credits, paidBackend?.unit)} left.`
                   : group}
               </Text>
               {inGroup.map((entry) => {
@@ -74,10 +76,10 @@ export function ModelSheet({ visible, draft, entries, selected, backends, onPick
                   <OptionRow
                     key={entry.key}
                     label={entry.label}
-                    description={entry.available ? undefined : entry.reason}
+                    description={entry.available ? entry.note : entry.reason}
                     selected={entry.key === selected?.key}
                     disabled={!entry.available}
-                    badge={quote === undefined ? undefined : quote.ok ? `${quote.credits} credits` : "No price"}
+                    badge={quote === undefined ? undefined : quote.ok ? studioPriceLabel(quote.credits, backends.find((b) => b.id === entry.backend)?.unit) : "No price"}
                     onPress={() => {
                       onPick(entry);
                     }}

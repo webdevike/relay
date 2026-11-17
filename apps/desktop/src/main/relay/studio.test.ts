@@ -607,6 +607,10 @@ describe('studio agent actions', () => {
       code: 'paid-backend',
       message: expect.stringContaining('studio.open'),
     })
+    await expect(generate(runners, { backend: 'openrouter-image' })).rejects.toMatchObject({
+      code: 'paid-backend',
+      message: expect.stringContaining('backend openrouter-image'),
+    })
     await expect(
       generate(runners, { backend: 'codex-image', mode: 'video' }),
     ).rejects.toMatchObject({

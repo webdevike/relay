@@ -153,6 +153,7 @@ import { DEFAULT_VNC_PORT } from "./vnc";
 import { ClipboardWatcher, systemPaste, systemWatch } from "./drops/clipboard";
 import { CodexRunner, ompCodexToken } from "./studio/codex";
 import { HiggsfieldRunner, ompHiggsfieldCredentials } from "./studio/higgsfield";
+import { OPENROUTER_KEY_FILE, OpenRouterRunner, readKeyFile } from "./studio/openrouter";
 import { KontextRunner } from "./studio/kontext";
 import { ComfyUIRunner, defaultComfyDeps } from "./studio/comfyui";
 import { CropRunner } from "./studio/crop";
@@ -1361,6 +1362,8 @@ function studioService(
   const comfyui = new ComfyUIRunner(defaultComfyDeps("comfyui", home));
   const comfyuiVideo = new ComfyUIRunner(defaultComfyDeps("comfyui-video", home));
   const sam = new SamRunner();
+  const openrouterKeyFile =
+    process.env["RELAY_STUDIO_OPENROUTER_KEY_FILE"] ?? join(home, "secrets", OPENROUTER_KEY_FILE);
   try {
     const studio = new StudioService({
       dir: defaultStudioDir(),
@@ -1404,6 +1407,13 @@ function studioService(
           fetch,
           now: Date.now,
           sleep: (ms, signal) => delay(ms, undefined, { signal }),
+        }),
+        "openrouter-image": new OpenRouterRunner({
+          key: () => readKeyFile(openrouterKeyFile),
+          keyHint: openrouterKeyFile,
+          fetch,
+          now: Date.now,
+          jpeg: media.jpeg,
         }),
       },
       segmenter: sam,

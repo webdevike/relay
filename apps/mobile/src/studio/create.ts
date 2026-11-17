@@ -44,6 +44,8 @@ export interface CreateEntry {
   /** Why it is unavailable. */
   reason?: string | undefined;
   paid: boolean;
+  /** A line under the model's name in the picker (a paid model's price). */
+  note?: string | undefined;
 }
 
 export interface CreateDraft {
@@ -123,12 +125,13 @@ export function createEntries(backends: readonly StudioBackend[], mode: StudioMo
     }
   }
   for (const b of backends.filter((x) => x.paid)) {
-    const models = b.models?.filter((m) => m.mode === mode);
+    // A model that only edits (it needs a reference) is no original.
+    const models = b.models?.filter((m) => m.mode === mode && (mode === "video" || studioRefs(b, m.id).min === 0));
     // A paid backend that makes none of this mode has nothing for the create bar.
     if (models === undefined ? b.mode !== mode : models.length === 0) continue;
     if (!b.available) out.push(down(b, "Paid"));
     else if (models === undefined) out.push(entry({ backend: b.id, label: b.label, group: "Paid", available: true, paid: true }));
-    else out.push(...models.map((m) => entry({ backend: b.id, model: m.id, label: m.name, group: "Paid", available: true, paid: true })));
+    else out.push(...models.map((m) => entry({ backend: b.id, model: m.id, label: m.name, group: "Paid", available: true, paid: true, note: m.description })));
   }
   return out;
 }
@@ -189,9 +192,13 @@ function imagePlan(draft: CreateDraft, chosen: CreateEntry, backends: readonly S
   let model = chosen.model;
   let how: StudioHow | undefined;
   if (refs.length > 0) {
-    // Edits never switch to a paid engine on their own.
-    if (chosen.paid) return "Paid models take no reference images";
-    if (chosen.backend === "codex-image") {
+    if (chosen.backend === "openrouter-image") {
+      // The picked OpenRouter model edits the references itself.
+      how = "edit";
+    } else if (chosen.paid) {
+      // Edits never switch to another paid engine on their own.
+      return "Paid models take no reference images";
+    } else if (chosen.backend === "codex-image") {
       backendId = "codex-edit";
       model = undefined;
       how = "edit";
@@ -214,6 +221,8 @@ function imagePlan(draft: CreateDraft, chosen: CreateEntry, backends: readonly S
   if (backend === undefined) return `This host has no ${backendId} backend`;
   if (!backend.available) return backend.reason ?? `${backend.label} is unavailable`;
   if (model !== undefined && !(backend.models ?? []).some((m) => m.id === model)) return `${backend.label} has no ${model} preset`;
+  const limit = backendId === "openrouter-image" ? studioRefs(backend, model).max : Number.POSITIVE_INFINITY;
+  if (refs.length > limit) return limit === 0 ? `${chosen.label} takes no reference images` : `${chosen.label} takes at most ${String(limit)} reference images`;
   const resolution = studioResolutions(backend, draft.aspect, model)[0];
   if (resolution === undefined) return refs.length > 0 ? `${backend.label} has no ${draft.aspect} size` : `No ${draft.aspect} size for ${chosen.label}`;
   if (draft.prompt.trim().length === 0) return "Describe what to make";
@@ -297,6 +306,11 @@ export function createOp(spec: StudioSpec, count: number, project: string, paren
 /** How many images the draft can carry: an edit's references (Codex takes 4, FLUX.2 klein 2, a paid model none), or the video model's own count. */
 export function refLimit(draft: CreateDraft, chosen: CreateEntry | undefined, backends: readonly StudioBackend[]): number {
   if (draft.mode === "video") return videoSettings(draft, chosen, backends)?.refs.max ?? 0;
-  if (chosen === undefined || chosen.paid) return 0;
+  if (chosen === undefined) return 0;
+  if (chosen.backend === "openrouter-image") {
+    const backend = backends.find((b) => b.id === chosen.backend);
+    return backend === undefined ? 0 : studioRefs(backend, chosen.model).max;
+  }
+  if (chosen.paid) return 0;
   return chosen.backend === "codex-image" ? MAX_STUDIO_REFS : MAX_KLEIN_REFS;
 }

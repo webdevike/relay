@@ -5,7 +5,7 @@
 import { MAX_STUDIO_REFS, studioRefs, type StudioAsset, type StudioBackend, type StudioBackendId, type StudioModel, type StudioSpec } from "@relay/protocol";
 
 /** Every backend in the order clients list them. */
-export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "moss", "kontext", "comfyui", "comfyui-video", "sam", "crop", "higgsfield"];
+export const STUDIO_BACKENDS: readonly StudioBackendId[] = ["ltx", "codex-image", "codex-edit", "moss", "kontext", "comfyui", "comfyui-video", "sam", "crop", "higgsfield", "openrouter-image"];
 
 /** One size per aspect, close to what Codex really draws (about 1.6 MP), so the exact crop upscales little. */
 const CODEX_RESOLUTIONS: StudioBackend["resolutions"] = [
@@ -161,6 +161,21 @@ export const BACKEND_BASE: Readonly<Record<StudioBackendId, StudioBackend>> = {
     serial: false,
     models: [],
   },
+  "openrouter-image": {
+    id: "openrouter-image",
+    label: "OpenRouter images",
+    mode: "image",
+    paid: true,
+    unit: "usd",
+    available: false,
+    resolutions: [],
+    seconds: [],
+    frames: [],
+    refs: MAX_STUDIO_REFS,
+    seed: false,
+    serial: false,
+    models: [],
+  },
   sam: {
     id: "sam",
     label: "SAM 2.1",
@@ -235,6 +250,7 @@ export const STUDIO_POOLS: Readonly<Record<StudioBackendId, { readonly pool: str
   sam: { pool: "gpu", max: 1 },
   crop: { pool: "crop", max: 4 },
   higgsfield: { pool: "higgsfield", max: 2 },
+  "openrouter-image": { pool: "openrouter", max: 2 },
 };
 
 /** A Kontext job: model load plus 24 steps (about 3 min at 1024x576 on the Mac Mini). */
@@ -312,6 +328,8 @@ export function baseEstimateMs(spec: StudioSpec, backend?: StudioBackend): numbe
       return 2000;
     case "higgsfield":
       return 120_000;
+    case "openrouter-image":
+      return 30_000;
   }
 }
 

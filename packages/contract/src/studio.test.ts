@@ -9,6 +9,7 @@ import {
   studioEtaLabel,
   studioFrameSlots,
   studioInvoke,
+  studioPriceLabel,
   studioJobActive,
   studioRemixSpec,
   studioResolutions,
@@ -131,6 +132,16 @@ describe('studio helpers', () => {
     expect(studioEtaLabel(2000)).toBe('almost done')
     expect(studioEtaLabel(38_000)).toBe('about 40 s left')
     expect(studioEtaLabel(185_000)).toBe('about 3 min left')
+  })
+
+  it("write a paid price in the backend's unit: credits, or dollars without trailing zeros", () => {
+    expect(studioPriceLabel(1240)).toBe('1,240 credits')
+    expect(studioPriceLabel(40, 'credits')).toBe('40 credits')
+    expect(studioPriceLabel(0.0387, 'usd')).toBe('$0.0387')
+    expect(studioPriceLabel(0.04, 'usd')).toBe('$0.04')
+    expect(studioPriceLabel(0.25, 'usd')).toBe('$0.25')
+    expect(studioPriceLabel(1, 'usd')).toBe('$1')
+    expect(studioPriceLabel(2.5, 'usd')).toBe('$2.5')
   })
 
   it('list resolutions, lengths and keyframes of a backend or its model', () => {

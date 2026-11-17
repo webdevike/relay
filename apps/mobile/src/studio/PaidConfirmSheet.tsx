@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import type { StudioSpec } from "@relay/protocol";
+import { studioPriceLabel, type StudioBackend, type StudioSpec } from "@relay/protocol";
 import { spacing, useColors } from "@/theme";
 import { Button } from "@/ui/Button";
 import { Sheet } from "@/ui/Sheet";
@@ -17,6 +17,8 @@ export interface PaidConfirmSheetProps {
   spec: StudioSpec | null;
   /** Who gets paid, e.g. "Higgsfield". */
   provider: string;
+  /** What the price and balance count (the backend's `unit`): credits when absent. */
+  unit?: StudioBackend["unit"];
   /** Balance the backend reported, used when the quote leaves it out. */
   balance: number | undefined;
   sending: boolean;
@@ -26,7 +28,7 @@ export interface PaidConfirmSheetProps {
   onClose: () => void;
 }
 
-export function PaidConfirmSheet({ spec, provider, balance, sending, error, onConfirm, onClose }: PaidConfirmSheetProps) {
+export function PaidConfirmSheet({ spec, provider, unit, balance, sending, error, onConfirm, onClose }: PaidConfirmSheetProps) {
   const colors = useColors();
   const [quote, setQuote] = useState<Quote | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -45,6 +47,7 @@ export function PaidConfirmSheet({ spec, provider, balance, sending, error, onCo
 
   const before = quote?.ok === true ? (quote.balance ?? balance) : balance;
   const credits = quote?.ok === true ? quote.credits : undefined;
+  const price = (amount: number): string => studioPriceLabel(amount, unit);
 
   return (
     <Sheet visible={spec !== null} onClose={onClose}>
@@ -65,10 +68,10 @@ export function PaidConfirmSheet({ spec, provider, balance, sending, error, onCo
           </View>
         ) : (
           <View style={{ gap: spacing.xs }}>
-            <Text variant="title">{`Spend ${credits} credits on ${provider}?`}</Text>
+            <Text variant="title">{`Spend ${price(credits)} on ${provider}?`}</Text>
             {before !== undefined && (
               <Text variant="body" color="textMuted" tabular>
-                {`Balance ${before} credits, ${before - credits} after this job.`}
+                {`Balance ${price(before)}, ${price(before - credits)} after this job.`}
               </Text>
             )}
           </View>
@@ -90,7 +93,7 @@ export function PaidConfirmSheet({ spec, provider, balance, sending, error, onCo
             />
           ) : (
             <Button
-              label={`Spend ${credits} credits`}
+              label={`Spend ${price(credits)}`}
               height={50}
               loading={sending}
               onPress={() => {

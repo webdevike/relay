@@ -49,6 +49,7 @@ export const StudioBackendIdSchema = z.enum([
   'sam',
   'crop',
   'higgsfield',
+  'openrouter-image',
 ])
 export type StudioBackendId = z.infer<typeof StudioBackendIdSchema>
 
@@ -176,8 +177,10 @@ export const StudioJobSchema = z.object({
   error: z.string().max(2000).optional(),
   /** The seed the job ran with (a random one when the spec had none). */
   seed: z.number().int().optional(),
-  /** Credits a paid job was charged (its confirmed quote). */
+  /** What a paid job was charged: its confirmed quote, in the backend's `unit` (credits, or US dollars). */
   credits: z.number().nonnegative().optional(),
+  /** What the provider really billed for a finished paid job (same unit as `credits`), when it says. */
+  cost: z.number().nonnegative().optional(),
   outputs: z.array(StudioAssetSchema).max(8),
   /** A `StudioProject.id`; STUDIO_UNSORTED when absent. */
   project: id.optional(),
@@ -273,8 +276,10 @@ export const StudioBackendSchema = z.object({
   /** Runs one job at a time (the GPU); others wait in line. */
   serial: z.boolean(),
   models: z.array(StudioModelSchema).max(200).optional(),
-  /** Paid backends: credits left, when known. */
+  /** Paid backends: what is left, when known (in `unit`). */
   balance: z.number().optional(),
+  /** What `credits`, `cost` and `balance` count: Higgsfield credits (absent) or US dollars. */
+  unit: z.enum(['credits', 'usd']).optional(),
 })
 export type StudioBackend = z.infer<typeof StudioBackendSchema>
 
@@ -415,7 +420,7 @@ export const StudioStateSchema = z.object({
   jobs: z.array(StudioJobSchema).max(MAX_STUDIO_JOBS),
   /** Newest first. */
   uploads: z.array(StudioAssetSchema).max(MAX_STUDIO_UPLOADS),
-  backends: z.array(StudioBackendSchema).max(12),
+  backends: z.array(StudioBackendSchema).max(16),
   /** Oldest first. Absent from hosts before projects. */
   projects: z.array(StudioProjectSchema).max(MAX_STUDIO_PROJECTS).default([]),
   /** Oldest first. */
@@ -529,6 +534,15 @@ export function studioJobActive(job: StudioJob): boolean {
 export function studioRemixSpec(job: StudioJob): StudioSpec {
   const { confirmCredits: _confirmed, ...spec } = job.spec
   return job.seed !== undefined && spec.seed === undefined ? { ...spec, seed: job.seed } : spec
+}
+
+/** "1,240 credits" or "$0.039": a paid backend's price in its own unit. */
+export function studioPriceLabel(amount: number, unit: StudioBackend['unit'] = 'credits'): string {
+  if (unit === 'usd') {
+    const digits = amount >= 1 ? 2 : amount >= 0.1 ? 3 : 4
+    return `$${amount.toFixed(digits).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1')}`
+  }
+  return `${amount.toLocaleString('en-US')} credits`
 }
 
 /** "about 3 min left", "about 40 s left"; undefined without an estimate. */

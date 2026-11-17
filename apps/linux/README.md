@@ -663,10 +663,25 @@ Backends (`src/studio/`), each a runner behind one seam so the tests use fakes:
   (`~/.omp/profiles/personal/agent/agent.db`, opened read-only and never refreshed; an expired one makes the backend
   unavailable until an omp session renews it). A curated set of models with their own sizes, lengths and keyframe
   slots; audio off; frames go up through `media_upload`, the job is polled with `job_status`, the mp4 downloaded.
+- `openrouter-image` (paid, images and edits, two at once, priced in US dollars: `unit: "usd"`): OpenRouter's Image
+  API (`POST /api/v1/images`) on the key in `<agent-home>/secrets/atomic-agents-openrouter.key`
+  (`$RELAY_STUDIO_OPENROUTER_KEY_FILE`; read on every call, never logged; no key makes the backend unavailable and
+  says where it goes). Its models are every model `GET /api/v1/images/models` lists with an image output, read once
+  with each endpoint's prices (`/images/models/<id>/endpoints`) and kept six hours (a failed re-read keeps the old
+  list; the next read is tried a minute later); a model with no price or a vector-only (SVG) output is left out.
+  `google/gemini-nano-banana-2.1` is listed first, so a draft naming only the backend lands on it. Each model offers
+  its own `resolution` tiers (`1K`, `2K`, ... or `auto` when it has no knob) at all three aspects; the aspect goes as
+  the nearest `aspect_ratio` it lists (a model with none is told the orientation in the prompt); references go as
+  `input_references` JPEG data URLs, up to what the model takes (`minRefs` 1 for edit-only models). A quote is an
+  estimate from model, tier and reference count only (per image, per megapixel, or per token at a typical count,
+  from the dearest endpoint), so the price Isaac confirms is the one the host re-quotes at `create`. The job keeps
+  the confirmed quote in `credits` and what OpenRouter billed (`usage.cost`) in `cost`. No balance (the key has no
+  limit to read).
 
 Paid rule: a `create` on a paid backend needs `spec.confirmCredits`, the quote Isaac confirmed with a tap; the host
-re-quotes and refuses when the price rose ("The price changed to N credits; confirm again"), refuses `origin:
-"agent"` outright, records the charge in `job.credits` and reads the balance again after every paid job.
+re-quotes and refuses when the price rose ("The price changed to N credits" or "$0.0387; confirm again"), refuses
+`origin: "agent"` outright, records the charge in `job.credits` (and the provider's own figure in `job.cost` when it
+says) and reads the balance again after every paid job.
 
 Files live in `$XDG_CONFIG_HOME/relay/studio/` (dir 0700, files 0600): `index.json` (version 2: jobs and uploads
 newest first, projects and references oldest first, segments by image, each file's token and the backend's own
@@ -681,7 +696,7 @@ and any work dir; a job left with no outputs goes too (`studio.removed`). LTX's 
 or failed run leaves beside draft.py are deleted after it; MOSS, Kontext, Codex, SAM and crop runs write only into
 the job's work dir, which is emptied after every run. A job's ETA is its backend's estimate (LTX: 45 s plus a
 per-frame-pixel cost on draft.py's generation grid, about 210 s for 5 s at 480x848; Codex 25 s, edits 45 s;
-Higgsfield 120 s) scaled by how long jobs really took (a moving average). After a restart running jobs read
+Higgsfield 120 s, OpenRouter 30 s) scaled by how long jobs really took (a moving average). After a restart running jobs read
 "Stopped when the host restarted", queued ones and segment runs run again, and trashed images keep their trash time.
 
 ## Assistant instruction files (`assistant.file.req`, `assistant.file.res`)

@@ -427,6 +427,34 @@ describe("studio paid jobs", () => {
     ).toBe(88);
   });
 
+  it("prices OpenRouter images in dollars, charges the confirmed quote and keeps what the provider billed as the job's cost", async () => {
+    const h = harness();
+    const spec = (over: Partial<StudioSpec> = {}): StudioSpec => ({
+      mode: "image",
+      backend: "openrouter-image",
+      model: "google/gemini-nano-banana-2.1",
+      prompt: "a red kite",
+      aspect: "1:1",
+      resolution: "1K",
+      ...over,
+    });
+    h.runners["openrouter-image"].price = 0.0387;
+    expect(await h.service.handle({ kind: "create", spec: spec({ confirmCredits: 0.05 }), origin: "agent" })).toEqual({
+      ok: false,
+      error: "Paid jobs need Isaac's confirm tap in Studio",
+    });
+    expect(await h.service.handle({ kind: "quote", spec: spec() })).toMatchObject({ ok: true, credits: 0.0387 });
+    expect(await h.service.handle({ kind: "create", spec: spec({ confirmCredits: 0.03 }), origin: "desktop" })).toEqual({
+      ok: false,
+      error: "The price changed to $0.0387; confirm again",
+    });
+    const created = await h.service.handle({ kind: "create", spec: spec({ confirmCredits: 0.0387 }), origin: "desktop" });
+    expect(created).toMatchObject({ ok: true, job: { credits: 0.0387, state: "running" } });
+    h.runners["openrouter-image"].runs[0]?.succeed(undefined, 0.0391);
+    await flush();
+    expect(h.service.state().jobs[0]).toMatchObject({ state: "done", credits: 0.0387, cost: 0.0391 });
+  });
+
   it("quotes free backends at zero", async () => {
     const h = harness();
     expect(await h.service.handle({ kind: "quote", spec: ltxSpec() })).toEqual({

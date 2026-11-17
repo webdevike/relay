@@ -8,7 +8,7 @@
  */
 import { useMemo, useState } from "react";
 import { TextInput, View } from "react-native";
-import { STUDIO_UNSORTED, type StudioMode, type StudioSpec } from "@relay/protocol";
+import { STUDIO_UNSORTED, studioPriceLabel, type StudioBackend, type StudioMode, type StudioSpec } from "@relay/protocol";
 import { studioRequest } from "@/connection";
 import { useStudioStore } from "@/state/studio";
 import { spacing, useColors, useScheme, withAlpha } from "@/theme";
@@ -45,12 +45,12 @@ const COUNTS = [
 /** Opaque card fill in dark mode, as the floating composer pills use. */
 const FILL_DARK = "#202020";
 
-/** "12 credits, 488 left" from a quote and the backend's balance. */
-function quoteLine(quote: Quote | undefined, balance: number | undefined): string {
+/** "12 credits, 488 left" (or "$0.039") from a quote and the backend's balance. */
+function quoteLine(quote: Quote | undefined, balance: number | undefined, unit: StudioBackend["unit"]): string {
   if (quote === undefined) return "Pricing";
   if (!quote.ok) return quote.error;
   const left = quote.balance ?? balance;
-  return left === undefined ? `${quote.credits} credits` : `${quote.credits} credits, ${left} left`;
+  return left === undefined ? studioPriceLabel(quote.credits, unit) : `${studioPriceLabel(quote.credits, unit)}, ${studioPriceLabel(left, unit).replace(/ credits$/, "")} left`;
 }
 
 const planProblem = (plan: ReturnType<typeof createPlan>): string | undefined => (typeof plan === "string" ? plan : undefined);
@@ -82,9 +82,10 @@ export function CreateBar() {
   const refMax = refLimit(draft, chosen, backends);
   const paid = chosen?.paid === true;
   const quote = useQuote(spec, paid);
-  const balance = backends.find((b) => b.id === chosen?.backend)?.balance;
+  const chosenBackend = backends.find((b) => b.id === chosen?.backend);
+  const balance = chosenBackend?.balance;
   // An empty prompt needs no words (the placeholder asks); anything else in the way does, and a paid model shows its price.
-  const hint = problem !== undefined ? (draft.prompt.trim().length === 0 ? planProblem(createPlan({ ...draft, prompt: "-" }, chosen, backends, references)) : problem) : paid ? quoteLine(quote, balance) : undefined;
+  const hint = problem !== undefined ? (draft.prompt.trim().length === 0 ? planProblem(createPlan({ ...draft, prompt: "-" }, chosen, backends, references)) : problem) : paid ? quoteLine(quote, balance, chosenBackend?.unit) : undefined;
 
   const send = async (made: Exclude<ReturnType<typeof createPlan>, string>): Promise<string | null> => {
     setSending(true);
@@ -311,7 +312,8 @@ export function CreateBar() {
       />
       <PaidConfirmSheet
         spec={confirm?.spec ?? null}
-        provider={(backends.find((b) => b.id === chosen?.backend)?.label ?? "Higgsfield").replace(/\s*\(.*\)$/, "")}
+        provider={(chosenBackend?.label ?? "Higgsfield").replace(/\s*\(.*\)$/, "")}
+        unit={chosenBackend?.unit}
         balance={balance}
         sending={sending}
         error={confirm?.error ?? null}

@@ -31,7 +31,7 @@ export async function fetchQuote(spec: StudioSpec, { fresh = false }: { fresh?: 
   if (hit !== undefined) return hit;
   const result = await studioRequest({ kind: "quote", spec });
   const quote: Quote =
-    result.ok && result.credits !== undefined ? { ok: true, credits: result.credits, balance: result.balance } : { ok: false, error: result.error ?? "No price from Higgsfield." };
+    result.ok && result.credits !== undefined ? { ok: true, credits: result.credits, balance: result.balance } : { ok: false, error: result.error ?? "No price for this model." };
   if (quote.ok) cache.set(quoteKey(spec), { quote, at: Date.now() });
   return quote;
 }

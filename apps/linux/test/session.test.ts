@@ -2683,6 +2683,7 @@ describe("studio", () => {
         "sam",
         "crop",
         "higgsfield",
+        "openrouter-image",
       ]);
 
       const sent = h.sink.sent.length;

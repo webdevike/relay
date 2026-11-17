@@ -76,7 +76,7 @@ describe("sam and crop backends", () => {
   const crop = { ...BACKEND_BASE.crop, available: true };
 
   it("lists both, SAM in the GPU queue and crops several at once", () => {
-    expect(STUDIO_BACKENDS.slice(-3)).toEqual(["sam", "crop", "higgsfield"]);
+    expect(STUDIO_BACKENDS.slice(-4)).toEqual(["sam", "crop", "higgsfield", "openrouter-image"]);
     expect(BACKEND_BASE.sam).toMatchObject({ label: "SAM 2.1", mode: "image", refs: 1, seed: false, serial: true, paid: false });
     expect(BACKEND_BASE.crop).toMatchObject({ label: "Crop", mode: "image", refs: 1, seed: false, serial: false, paid: false });
     expect(BACKEND_BASE.sam.models?.map((model) => model.id)).toEqual(["cutout"]);

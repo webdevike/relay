@@ -93,8 +93,8 @@ export function fakeMedia(): FakeMedia {
 
 export interface FakeRun {
   readonly input: StudioRunInput;
-  /** Writes an output into the job's work dir and resolves, reporting `copies` as the backend's own copies. */
-  succeed(copies?: readonly string[]): void;
+  /** Writes an output into the job's work dir and resolves, reporting `copies` as the backend's own copies and `cost` as what the provider billed. */
+  succeed(copies?: readonly string[], cost?: number): void;
   fail(message: string): void;
 }
 
@@ -116,10 +116,10 @@ export class FakeRunner implements StudioRunner {
     const video = this.backend.mode === "video";
     this.runs.push({
       input,
-      succeed: (copies) => {
+      succeed: (copies, cost) => {
         const path = join(input.workDir, video ? "out.mp4" : "out.png");
         writeFileSync(path, video ? MP4 : PNG);
-        resolve({ path, mimeType: video ? "video/mp4" : "image/png", ...(copies === undefined ? {} : { copies }) });
+        resolve({ path, mimeType: video ? "video/mp4" : "image/png", ...(copies === undefined ? {} : { copies }), ...(cost === undefined ? {} : { cost }) });
       },
       fail: (message) => {
         reject(new Error(message));
@@ -196,6 +196,22 @@ export function availableBackends(): Record<StudioBackendId, StudioBackend> {
           resolutions: [{ id: "std", label: "Standard", aspect: "9:16" }],
           seconds: [5, 10],
           frames: ["start", "end"],
+        },
+      ],
+    },
+    "openrouter-image": {
+      ...BACKEND_BASE["openrouter-image"],
+      available: true,
+      models: [
+        {
+          id: "google/gemini-nano-banana-2.1",
+          name: "Google: Nano Banana 2.1",
+          mode: "image",
+          resolutions: [{ id: "1K", label: "1K", aspect: "1:1" }],
+          seconds: [],
+          frames: [],
+          refs: 4,
+          minRefs: 0,
         },
       ],
     },
@@ -321,6 +337,7 @@ export function studioHarness(
     sam: new FakeRunner(backends.sam),
     crop: new FakeRunner(backends.crop),
     higgsfield: new FakeRunner(backends.higgsfield),
+    "openrouter-image": new FakeRunner(backends["openrouter-image"]),
   };
   const media = fakeMedia();
   const lock = new FakeGpuLock();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StudioBackend, StudioModel, StudioReference } from '@evaos/contract'
-import { createChoices, routeCreate, type CreateChoice } from './create-models'
+import { createChoices, refsUseKlein, routeCreate, type CreateChoice } from './create-models'
 
 const one = (id: string) => [{ id, label: id, aspect: '1:1' as const }]
 const model = (id: string, name: string, mode: 'image' | 'video' = 'image'): StudioModel => ({
@@ -164,5 +164,54 @@ describe('routeCreate', () => {
     expect(
       routeCreate({ ...base, prompt: '  ', choice: pick('codex-image') }, BACKENDS, REFS),
     ).toBe('Write a prompt first')
+  })
+})
+
+describe('OpenRouter images', () => {
+  const openrouter = backend('openrouter-image', {
+    label: 'OpenRouter images',
+    paid: true,
+    unit: 'usd',
+    refs: 4,
+    resolutions: [],
+    models: [
+      {
+        ...model('google/nano', 'Google: Nano'),
+        refs: 4,
+        minRefs: 0,
+        description: 'About $0.0387 per image',
+      },
+      { ...model('acme/edit-only', 'Acme: Edit only'), refs: 2, minRefs: 1 },
+      { ...model('acme/plain', 'Acme: Plain'), refs: 0 },
+    ],
+  })
+  const list = createChoices([openrouter])
+  const nano = list.find((c) => c.key === 'openrouter-image:google/nano')!
+  const input = { choice: nano, prompt: 'make it night', aspect: '1:1' as const }
+
+  it('lists the models that make an original, with their price line, not the edit-only one', () => {
+    expect(list.map((c) => [c.key, c.note, c.group])).toEqual([
+      ['openrouter-image:google/nano', 'About $0.0387 per image', 'Paid'],
+      ['openrouter-image:acme/plain', 'Paid, priced before it runs', 'Paid'],
+    ])
+  })
+
+  it('edits references with its own model (never FLUX.2 klein) and records them as an edit', () => {
+    const routed = routeCreate({ ...input, refs: ['a1', 'a2'] }, [openrouter], [])
+    expect(routed).toMatchObject({
+      spec: { backend: 'openrouter-image', model: 'google/nano', refs: ['a1', 'a2'] },
+      parent: { asset: 'a1', how: 'edit' },
+    })
+    expect(refsUseKlein(nano, ['a1'])).toBe(false)
+  })
+
+  it('stops at the references the model takes', () => {
+    const plain = list.find((c) => c.model === 'acme/plain')!
+    expect(routeCreate({ ...input, choice: plain, refs: ['a1'] }, [openrouter], [])).toBe(
+      'Acme: Plain takes no reference images',
+    )
+    expect(routeCreate({ ...input, refs: ['a', 'b', 'c', 'd', 'e'] }, [openrouter], [])).toBe(
+      'Google: Nano takes at most 4 reference images',
+    )
   })
 })

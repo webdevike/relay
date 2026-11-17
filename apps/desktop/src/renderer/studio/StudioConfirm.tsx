@@ -1,6 +1,6 @@
 import { Button, Group, Loader } from '@mantine/core'
+import { studioPriceLabel, type StudioBackend } from '@evaos/contract'
 import { EvaModal } from '../overlay'
-import { creditsLabel as credits } from './studio-assets'
 
 /** A paid job's price as the host quoted it just now, or why there is none. */
 export type StudioQuote =
@@ -12,6 +12,8 @@ export interface StudioConfirmProps {
   opened: boolean
   /** The paid model's name ("Higgsfield Soul"). */
   backend: string
+  /** What the quote and balance count (the paid backend's `unit`): credits when absent. */
+  unit?: StudioBackend['unit']
   /** One job's price. */
   quote: StudioQuote
   /** How many jobs go out at that price each. */
@@ -32,6 +34,7 @@ export interface StudioConfirmProps {
 export function StudioConfirm({
   opened,
   backend,
+  unit,
   quote,
   count,
   busy,
@@ -39,6 +42,7 @@ export function StudioConfirm({
   onClose,
   onConfirm,
 }: StudioConfirmProps) {
+  const credits = (n: number): string => studioPriceLabel(n, unit)
   const ready = quote.state === 'ready' ? quote : null
   const total = ready ? ready.credits * count : 0
   return (

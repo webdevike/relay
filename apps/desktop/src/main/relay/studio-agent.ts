@@ -21,8 +21,8 @@ function fail(code: string, message: string): never {
   throw Object.assign(new Error(message), { code })
 }
 
-const PAID_REFUSAL =
-  'Higgsfield is paid, and Studio never runs paid jobs for agents. Call studio.open with a `draft` (backend higgsfield, prompt, model...) so Isaac sees the cost and confirms it himself.'
+const paidRefusal = (label: string, id: string): string =>
+  `${label} is paid, and Studio never runs paid jobs for agents. Call studio.open with a \`draft\` (backend ${id}, prompt, model...) so Isaac sees the cost and confirms it himself.`
 
 /** A job as agents read it: its outputs as links on the host's http origin. */
 export function compactJob(job: StudioJob, origin: string | null) {
@@ -65,7 +65,7 @@ function pickBackend(
     named ?? (mode === 'video' ? 'ltx' : params.refs?.length ? 'codex-edit' : 'codex-image')
   const backend = backends.find((b) => b.id === id)
   if (!backend) fail('not-found', `The Relay host has no ${id} backend`)
-  if (backend.paid) fail('paid-backend', PAID_REFUSAL)
+  if (backend.paid) fail('paid-backend', paidRefusal(backend.label, backend.id))
   if (backend.mode !== mode) fail('invalid-params', `${backend.label} makes ${backend.mode}s`)
   if (!backend.available) {
     fail('backend-unavailable', backend.reason ?? `${backend.label} can't run right now`)
@@ -79,7 +79,14 @@ export function studioRunners(
 ): Pick<AgentRunners<'main'>, 'studio.generate' | 'studio.list'> {
   return {
     'studio.generate': async (params) => {
-      if (params.backend === 'higgsfield') fail('paid-backend', PAID_REFUSAL)
+      if (params.backend === 'higgsfield' || params.backend === 'openrouter-image')
+        fail(
+          'paid-backend',
+          paidRefusal(
+            params.backend === 'higgsfield' ? 'Higgsfield' : 'OpenRouter images',
+            params.backend,
+          ),
+        )
       const state = relay.studio() ?? (await relay.studioList())
       if (state === null) fail('relay-unavailable', "Relay isn't connected, so Studio can't run.")
       const { backend, mode } = pickBackend(state.backends, params)

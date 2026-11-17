@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STUDIO_UNSORTED } from "@relay/protocol";
+import { STUDIO_UNSORTED, type StudioBackend } from "@relay/protocol";
 import { chosenEntry, createCount, createEntries, createOp, createPlan, createProblem, createSpec, createTarget, EMPTY_CREATE, refLimit, videoSettings, type CreateDraft } from "./create";
 import { codexImage, comfy, HOST, higgsfield, ltx, model, moss, project } from "./fixtures";
 import { ALL_VIEW } from "./library";
@@ -169,5 +169,41 @@ describe("images with references become edits", () => {
     expect(refLimit(draft({}), entries[0], HOST)).toBe(2);
     expect(refLimit(draft({ entry: "codex-image:" }), entries.find((e) => e.key === "codex-image:"), HOST)).toBe(4);
     expect(refLimit(draft({}), entries.find((e) => e.paid), HOST)).toBe(0);
+  });
+});
+
+describe("OpenRouter images", () => {
+  const openrouter: StudioBackend = {
+    ...higgsfield,
+    id: "openrouter-image",
+    label: "OpenRouter images",
+    unit: "usd",
+    refs: 4,
+    models: [
+      model("google/nano", "Google: Nano", { refs: 4, minRefs: 0, description: "About $0.0387 per image" }),
+      model("acme/edit-only", "Acme: Edit only", { refs: 2, minRefs: 1 }),
+      model("acme/plain", "Acme: Plain", { refs: 0 }),
+    ],
+  };
+  const host = [moss, openrouter];
+  const list = createEntries(host);
+  const nano = list.find((e) => e.model === "google/nano");
+
+  it("lists its models that make an original, each with its price line, and leaves out the edit-only one", () => {
+    expect(list.filter((e) => e.paid).map((e) => [e.key, e.note])).toEqual([
+      ["openrouter-image:google/nano", "About $0.0387 per image"],
+      ["openrouter-image:acme/plain", undefined],
+    ]);
+  });
+
+  it("edits with its own model and the references (up to what the model takes), unlike other paid models", () => {
+    const d = draft({ prompt: "make it night", entry: "openrouter-image:google/nano", refs: ["a1", "a2"] });
+    expect(createPlan(d, nano, host)).toMatchObject({ spec: { backend: "openrouter-image", model: "google/nano", refs: ["a1", "a2"] }, parent: { asset: "a1", how: "edit" } });
+    expect(refLimit(d, nano, host)).toBe(4);
+    const plain = list.find((e) => e.model === "acme/plain");
+    expect(createProblem({ ...d, entry: "openrouter-image:acme/plain" }, plain, host)).toBe("Acme: Plain takes no reference images");
+    expect(refLimit(d, plain, host)).toBe(0);
+    const many = { ...d, refs: ["a", "b", "c", "d", "e"] };
+    expect(createProblem(many, nano, host)).toBe("Google: Nano takes at most 4 reference images");
   });
 });

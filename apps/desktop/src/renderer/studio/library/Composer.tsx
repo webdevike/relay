@@ -399,6 +399,7 @@ export function Composer() {
       <StudioConfirm
         opened={confirm !== null}
         backend={choice?.label ?? 'Paid'}
+        unit={backend?.unit}
         quote={quote}
         count={c.count}
         busy={busy}
