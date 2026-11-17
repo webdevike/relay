@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { meetingCardsFor, type MeetingRecording, type MeetingSnapshot } from "@relay/protocol";
+import {
+  meetingCardsFor,
+  type KeyMoment,
+  type MeetingRecording,
+  type MeetingShot,
+  type MeetingSnapshot,
+} from "@relay/protocol";
 import { useMeetingsStore } from "@/state/meetings";
 import { createMeetingsFrameRouter, PendingMeetings } from "./meetings";
 
@@ -19,6 +25,7 @@ const rec = (over: Partial<MeetingRecording> = {}): MeetingRecording => ({
   stem: null,
   seconds: 0,
   assistant: null,
+  share: "none",
   ...over,
 });
 const line = (id: string, text: string, final = true) => ({
@@ -56,6 +63,8 @@ describe("meetings frames", () => {
       lines: [line("a", "Hel", false)],
       astra: null,
       notes: null,
+      moments: [],
+      shots: [],
     };
     route({ t: "meetings.res", rid: "r1", ok: true, snapshot });
     expect((await answer).ok).toBe(true);
@@ -79,6 +88,54 @@ describe("meetings frames", () => {
     expect(useMeetingsStore.getState().pages[ID]?.astra?.working).toBe(true);
   });
 
+  it("keeps a page's key moments and screen snapshots, and whether the Mac can capture them", () => {
+    const pending = new PendingMeetings();
+    const route = createMeetingsFrameRouter(useMeetingsStore.getState(), pending);
+    const moment = (id: string): KeyMoment => ({
+      id,
+      kind: "ask",
+      atMs: 5_000,
+      lineId: "a",
+      speaker: "Todd",
+      text: "Can you review it?",
+      shot: null,
+    });
+    const shot = (n: number): MeetingShot => ({
+      n,
+      atMs: n * 1_000,
+      src: `/meetings/shots/${ID}/f00d/${String(n)}`,
+      w: 1600,
+      h: 900,
+      line: "Todd: this pass",
+      ocr: "Q3 plan",
+    });
+    // Frames for a page that is not open change nothing.
+    route({ t: "meeting.moments", id: ID, moments: [moment("km1")] });
+    route({ t: "meeting.shot", id: ID, shot: shot(0) });
+    expect(useMeetingsStore.getState().pages[ID]).toBeUndefined();
+
+    useMeetingsStore
+      .getState()
+      .setPage({
+        recording: rec(),
+        rev: 1,
+        lines: [],
+        astra: null,
+        notes: null,
+        moments: [moment("km1")],
+        shots: [shot(0), shot(1)],
+      });
+    route({ t: "meeting.moments", id: ID, moments: [moment("km1"), moment("km2")] });
+    expect(useMeetingsStore.getState().pages[ID]?.moments.map((m) => m.id)).toEqual(["km1", "km2"]);
+    route({ t: "meeting.shot", id: ID, shot: shot(3) });
+    route({ t: "meeting.shot", id: ID, shot: shot(2) });
+    route({ t: "meeting.shot", id: ID, shot: { ...shot(1), ocr: "again" } });
+    expect(useMeetingsStore.getState().pages[ID]?.shots.map((s) => s.n)).toEqual([0, 1, 2, 3]);
+    expect(useMeetingsStore.getState().pages[ID]?.shots[1]?.ocr).toBe("again");
+    route({ t: "meeting.recording", recording: rec({ share: "no-permission" }) });
+    expect(useMeetingsStore.getState().pages[ID]?.recording.share).toBe("no-permission");
+  });
+
   it("moves a recording to the chat it is routed to, and its card with it", () => {
     const route = createMeetingsFrameRouter(useMeetingsStore.getState(), new PendingMeetings());
     route({
@@ -89,7 +146,9 @@ describe("meetings frames", () => {
       now: 1,
     });
     const cards = (agent: string) =>
-      meetingCardsFor(useMeetingsStore.getState().state?.recordings ?? [], agent, 2).map((c) => c.recording.id);
+      meetingCardsFor(useMeetingsStore.getState().state?.recordings ?? [], agent, 2).map(
+        (c) => c.recording.id,
+      );
     expect(cards("astra")).toEqual([ID]);
     route({ t: "meeting.recording", recording: rec({ assistant: "nova" }) });
     expect(useMeetingsStore.getState().state?.recordings).toHaveLength(1);

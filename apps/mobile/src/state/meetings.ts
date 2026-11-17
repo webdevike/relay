@@ -8,8 +8,10 @@ import { create } from "zustand";
 import {
   applyLiveLines,
   type AstraItem,
+  type KeyMoment,
   type LiveLine,
   type MeetingRecording,
+  type MeetingShot,
   type MeetingSnapshot,
   type MeetingsState,
 } from "@relay/protocol";
@@ -24,6 +26,10 @@ export interface MeetingsStore {
   upsertRecording: (recording: MeetingRecording) => void;
   setPage: (snapshot: MeetingSnapshot) => void;
   applyLive: (id: string, upsert: readonly LiveLine[]) => void;
+  /** The page's key moments: the host always sends the whole list. */
+  setMoments: (id: string, moments: readonly KeyMoment[]) => void;
+  /** One more screen snapshot (or one the page already holds, from its snapshot). */
+  addShot: (id: string, shot: MeetingShot) => void;
   setAstra: (id: string, item: AstraItem) => void;
   clear: () => void;
 }
@@ -32,7 +38,9 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
   loaded: false,
   state: null,
   pages: {},
-  setState: (state) => { set({ loaded: true, state }); },
+  setState: (state) => {
+    set({ loaded: true, state });
+  },
   upsertRecording: (recording) => {
     const { state, pages } = get();
     const page = pages[recording.id];
@@ -53,7 +61,9 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
         : { pages: { ...pages, [recording.id]: { ...page, recording } } }),
     });
   },
-  setPage: (snapshot) => { set({ pages: { ...get().pages, [snapshot.recording.id]: snapshot } }); },
+  setPage: (snapshot) => {
+    set({ pages: { ...get().pages, [snapshot.recording.id]: snapshot } });
+  },
   applyLive: (id, upsert) => {
     const page = get().pages[id];
     if (page !== undefined)
@@ -61,11 +71,25 @@ export const useMeetingsStore = create<MeetingsStore>((set, get) => ({
         pages: { ...get().pages, [id]: { ...page, lines: applyLiveLines(page.lines, upsert) } },
       });
   },
+  setMoments: (id, moments) => {
+    const page = get().pages[id];
+    if (page !== undefined)
+      set({ pages: { ...get().pages, [id]: { ...page, moments: [...moments] } } });
+  },
+  addShot: (id, shot) => {
+    const page = get().pages[id];
+    if (page === undefined) return;
+    // A shot that also came in the snapshot is replaced, so the list stays one per number in order.
+    const shots = [...page.shots.filter((s) => s.n !== shot.n), shot].sort((a, b) => a.n - b.n);
+    set({ pages: { ...get().pages, [id]: { ...page, shots } } });
+  },
   setAstra: (id, item) => {
     const page = get().pages[id];
     if (page !== undefined) set({ pages: { ...get().pages, [id]: { ...page, astra: item } } });
   },
-  clear: () => { set({ loaded: false, state: null, pages: {} }); },
+  clear: () => {
+    set({ loaded: false, state: null, pages: {} });
+  },
 }));
 
 /** "Weekly Engineering Sync", or "Microsoft Teams call" for an untitled one. */

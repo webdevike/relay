@@ -1,9 +1,10 @@
 /**
  * One meeting (`/meetings/<id>`). A recording Relay made, as the desktop Meeting tab shows it: the
  * title, a meta line (app, Live and how long so far, End meeting; the clock span once ended) and
- * underline tabs. Live: Now (who is talking, what they just said, the latest moments), Transcript
- * (follows the newest line until scrolled up; Jump to live resumes) and Moments (decisions,
- * actions and questions to Isaac from `detectMoments`; a tap lights its line in the transcript).
+ * underline tabs. Live: Now (the newest key moments the host found, `nowMoments`), Transcript
+ * (follows the newest line until scrolled up; Jump to live resumes) and Moments (every key moment:
+ * decisions, asks of Isaac, actions, claims; a tap lights its line in the transcript). Screen
+ * snapshots of what someone shared sit in a strip under them; a tap opens one full screen.
  * Ended: Summary leads (what waits on Isaac, actions, what was decided), then the same two.
  *
  * Opened from an assistant's meeting card (`?chat=<agent>`) it is that chat's full-screen meeting
@@ -27,11 +28,14 @@ import {
 } from "react-native";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import {
-  detectMoments,
   meetingIsLive,
   meetingRows,
+  momentRowId,
+  nowMoments,
+  type KeyMoment,
+  type LiveLine,
   type MeetingDetail,
-  type MeetingMoment,
+  type MeetingShot,
 } from "@relay/protocol";
 import { MessageText } from "@/agents/MessageText";
 import { meetingsRequest, sendCommand } from "@/connection";
@@ -42,22 +46,23 @@ import { recordingTitle, useMeetingsStore } from "@/state/meetings";
 import { agentTitle, useAssistantStore } from "@/state/assistant";
 import { newClientId, startTurn } from "@/state/turns";
 import { AskMenu } from "@/meetings/AskMenu";
-import { LiveCaret, MomentRow, TranscriptRow } from "@/meetings/MeetingRows";
+import { MomentRow, ShotStrip, ShotViewer, TranscriptRow } from "@/meetings/MeetingRows";
 import {
   blueRows,
   initialPanel,
   jumpVisible,
   meetingMeta,
   meetingTabs,
+  momentNeedsYou,
   momentScrollY,
+  momentSpeaker,
   momentWho,
   nearBottom,
-  newestFirst,
-  nowView,
   panelReducer,
-  rowSpeaker,
+  shareNotice,
   summarySections,
 } from "@/meetings/panel";
+import { useHostBase } from "@/studio/assets";
 import { radii, spacing, tabularNumbers, useColors, useScheme } from "@/theme";
 import { Button } from "@/ui/Button";
 import { Screen } from "@/ui/Screen";
@@ -70,11 +75,18 @@ const RECORDING_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 const HIGHLIGHT_MS = 2200;
 /** The live meta line counts minutes; this refreshes it (and "20 min ago") often enough. */
 const TICK_MS = 15_000;
+const NO_LINES: readonly LiveLine[] = [];
+const NO_MOMENTS: readonly KeyMoment[] = [];
+const NO_SHOTS: readonly MeetingShot[] = [];
 
 export default function MeetingScreen() {
   const { id, chat } = useLocalSearchParams<{ id: string; chat?: string }>();
   if (!RECORDING_ID.test(id)) return <RecordScreen stem={id} />;
-  return chat === undefined || chat === "" ? <RecordingScreen id={id} /> : <RecordingScreen id={id} chat={chat} />;
+  return chat === undefined || chat === "" ? (
+    <RecordingScreen id={id} />
+  ) : (
+    <RecordingScreen id={id} chat={chat} />
+  );
 }
 
 function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
@@ -87,6 +99,9 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [shown, setShown] = useState<MeetingShot | null>(null);
+  // Snapshots load from the connected host's http origin, like Studio's images.
+  const hostBase = useHostBase();
   const toast = useTransientMessage();
 
   const ask = useCallback(
@@ -147,9 +162,10 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
       clearInterval(timer);
     };
   }, [live]);
-  const lines = page?.lines;
-  const rows = useMemo(() => meetingRows(lines ?? []), [lines]);
-  const moments = useMemo(() => detectMoments(lines ?? []), [lines]);
+  const lines = page?.lines ?? NO_LINES;
+  const moments = page?.moments ?? NO_MOMENTS;
+  const shots = page?.shots ?? NO_SHOTS;
+  const rows = useMemo(() => meetingRows(lines), [lines]);
   const blue = useMemo(() => blueRows(rows, moments), [rows, moments]);
 
   // The transcript: where each row sits, its viewport, and the moment row waiting to be shown
@@ -166,10 +182,15 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
     pendingJump.current = null;
     transcript.current?.scrollTo({ y: momentScrollY(y, viewport.current), animated: false });
   }, []);
-  const openMoment = useCallback((m: MeetingMoment) => {
-    pendingJump.current = m.rowId;
-    dispatch({ type: "moment", rowId: m.rowId });
-  }, []);
+  const openMoment = useCallback(
+    (m: KeyMoment) => {
+      const rowId = momentRowId(rows, m.atMs);
+      if (rowId === null) return;
+      pendingJump.current = rowId;
+      dispatch({ type: "moment", rowId });
+    },
+    [rows],
+  );
   useEffect(() => {
     if (panel.tab === "transcript") return;
     rowY.current.clear();
@@ -202,16 +223,37 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
   const r = page.recording;
   const meta = meetingMeta(r, live, now);
   const turns = page.astra?.turns.filter((t) => t.role !== "tool") ?? [];
-  const momentRow = (m: MeetingMoment) => (
-    <MomentRow
-      key={m.id}
-      moment={m}
-      who={momentWho(m, live, now, r.startedAt)}
-      onPress={() => {
-        openMoment(m);
-      }}
-    />
-  );
+  const momentRow = (m: KeyMoment) => {
+    const shot = m.shot === null ? undefined : shots.find((s) => s.n === m.shot);
+    return (
+      <MomentRow
+        key={m.id}
+        moment={m}
+        who={momentWho(m, lines, live, now, r.startedAt)}
+        yours={momentNeedsYou(m, lines)}
+        onPress={() => {
+          openMoment(m);
+        }}
+        onShot={
+          shot === undefined
+            ? undefined
+            : () => {
+                setShown(shot);
+              }
+        }
+      />
+    );
+  };
+  const shotStrip =
+    shots.length > 0 ? (
+      <View style={styles.section}>
+        <Text variant="caption" color="textMuted" style={styles.label}>
+          Shared screen
+        </Text>
+        <ShotStrip shots={shots} hostBase={hostBase} onOpen={setShown} />
+      </View>
+    ) : null;
+  const notice = shareNotice(r, live);
   // Opened outside a chat, Astra's answers sit under Now or Summary.
   const astra =
     chat === undefined && (turns.length > 0 || page.astra?.working === true) ? (
@@ -235,41 +277,24 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
 
   let body;
   if (panel.tab === "now") {
-    const current = nowView(rows);
-    const latest = newestFirst(moments, 3);
+    const latest = nowMoments(moments);
     body = (
-      <ScrollView key="now" contentContainerStyle={styles.tabBody}>
-        {current === null ? (
-          <Text color="textMuted">Listening. Lines show up a moment after someone speaks.</Text>
+      <ScrollView key="now" contentContainerStyle={styles.tabBody} testID="meeting-now">
+        {latest.length === 0 ? (
+          <Text color="textMuted">
+            {rows.length === 0
+              ? "Listening. Lines show up a moment after someone speaks."
+              : "Listening. Decisions, asks of you, actions and notable claims show up here."}
+          </Text>
         ) : (
-          <>
-            <Text variant="caption" color="textMuted" style={styles.who} testID="meeting-speaker">
-              {rowSpeaker(current.current)}
-            </Text>
-            <Text style={styles.say}>
-              {current.current.text}
-              <LiveCaret />
-            </Text>
-            {current.before !== null ? (
-              <Text color="textMuted" style={styles.before}>
-                Before that, {rowSpeaker(current.before)}: {current.before.text}
-              </Text>
-            ) : null}
-          </>
+          latest.map(momentRow)
         )}
-        {latest.length > 0 ? (
-          <View style={styles.section}>
-            <Text variant="caption" color="textMuted" style={styles.label}>
-              Moments
-            </Text>
-            {latest.map(momentRow)}
-          </View>
-        ) : null}
+        {shotStrip}
         {astra}
       </ScrollView>
     );
   } else if (panel.tab === "summary") {
-    const s = summarySections(r, moments, page.notes);
+    const s = summarySections(r, moments, lines, page.notes);
     body = (
       <ScrollView key="summary" contentContainerStyle={styles.tabBody} testID="meeting-summary">
         {s.paragraphs.map((p, i) => (
@@ -324,7 +349,7 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
               >
                 <Text style={styles.fill}>{m.text}</Text>
                 <Text variant="caption" color="textMuted">
-                  {m.speaker}
+                  {momentSpeaker(m, lines)}
                 </Text>
               </Pressable>
             ))}
@@ -342,19 +367,21 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
             ))}
           </View>
         ) : null}
+        {shotStrip}
         {astra}
       </ScrollView>
     );
   } else if (panel.tab === "moments") {
     body = (
-      <ScrollView key="moments" contentContainerStyle={styles.tabBody}>
+      <ScrollView key="moments" contentContainerStyle={styles.tabBody} testID="meeting-moments">
         {moments.length === 0 ? (
           <Text variant="caption" color="textMuted">
             Nothing yet.
           </Text>
         ) : (
-          newestFirst(moments).map(momentRow)
+          moments.slice().reverse().map(momentRow)
         )}
+        {shotStrip}
       </ScrollView>
     );
   } else {
@@ -379,7 +406,11 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
         }}
         onScroll={(e) => {
           const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-          const atBottom = nearBottom(contentSize.height, contentOffset.y, layoutMeasurement.height);
+          const atBottom = nearBottom(
+            contentSize.height,
+            contentOffset.y,
+            layoutMeasurement.height,
+          );
           // Only Isaac's own drag pauses following; the view's scrolls (to the end, to a moment)
           // never do, and reaching the bottom any way resumes it.
           if (atBottom || dragging.current) dispatch({ type: "scrolled", atBottom });
@@ -388,7 +419,9 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
       >
         {rows.length === 0 ? (
           <Text color="textMuted">
-            {live ? "Listening. Lines show up a moment after someone speaks." : "Nothing was transcribed."}
+            {live
+              ? "Listening. Lines show up a moment after someone speaks."
+              : "Nothing was transcribed."}
           </Text>
         ) : null}
         {rows.map((row) => (
@@ -418,9 +451,21 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
           <View style={styles.head}>
             <Text variant="title">{recordingTitle(r)}</Text>
             <View style={styles.metaLine}>
-              <Text variant="caption" color="textMuted" style={tabularNumbers} testID="meeting-tab-when">
-                {meta.app} · {meta.live ? <Text variant="caption" color="danger">Live</Text> : meta.span} ·{" "}
-                {meta.length}
+              <Text
+                variant="caption"
+                color="textMuted"
+                style={tabularNumbers}
+                testID="meeting-tab-when"
+              >
+                {meta.app} ·{" "}
+                {meta.live ? (
+                  <Text variant="caption" color="danger">
+                    Live
+                  </Text>
+                ) : (
+                  meta.span
+                )}{" "}
+                · {meta.length}
               </Text>
               {live ? (
                 <Pressable
@@ -446,6 +491,11 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
                 {r.healthDetail}
               </Text>
             ) : null}
+            {notice !== null ? (
+              <Text variant="caption" color="textMuted" testID="meeting-share-off">
+                {notice}
+              </Text>
+            ) : null}
           </View>
           <UnderlineTabs
             tabs={meetingTabs(live)}
@@ -468,7 +518,10 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
                     dispatch({ type: "jumpLive" });
                     transcript.current?.scrollToEnd({ animated: true });
                   }}
-                  style={({ pressed }) => [styles.jump, { backgroundColor: colors.text, opacity: pressed ? 0.8 : 1 }]}
+                  style={({ pressed }) => [
+                    styles.jump,
+                    { backgroundColor: colors.text, opacity: pressed ? 0.8 : 1 },
+                  ]}
                 >
                   <Text variant="caption" style={{ color: colors.bg }}>
                     Jump to live
@@ -505,6 +558,13 @@ function RecordingScreen({ id, chat }: { id: string; chat?: string }) {
           <Toast message={toast.message} />
         </View>
       )}
+      <ShotViewer
+        shot={shown}
+        hostBase={hostBase}
+        onClose={() => {
+          setShown(null);
+        }}
+      />
     </Screen>
   );
 }
@@ -623,13 +683,15 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", gap: spacing.sm, paddingTop: spacing.xs },
   block: { gap: spacing.sm, paddingTop: spacing.lg },
   line: { gap: 2 },
-  head: { paddingHorizontal: spacing.xl, paddingTop: spacing.sm, paddingBottom: spacing.md, gap: 3 },
+  head: {
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    gap: 3,
+  },
   metaLine: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   // The tabs' bodies line up with the tab labels.
   tabBody: { paddingHorizontal: spacing.xl, paddingTop: spacing.xxl, paddingBottom: spacing.xxxl },
-  who: { marginBottom: spacing.xs },
-  say: { fontSize: 19, lineHeight: 27 },
-  before: { fontSize: 13, lineHeight: 19, marginTop: 14 },
   section: { marginTop: spacing.xxxl },
   label: { marginBottom: spacing.sm },
   paragraph: { lineHeight: 23, marginBottom: spacing.sm },

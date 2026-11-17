@@ -18,6 +18,7 @@ const rec = (over: Partial<MeetingRecording> = {}): MeetingRecording => ({
   stem: null,
   seconds: 0,
   assistant: "astra",
+  share: "none",
   ...over,
 });
 
@@ -46,7 +47,9 @@ describe("meeting card", () => {
 
   it("shows the notes' stage after the call, then Summary", () => {
     const ended = { endedAt: 1_000_000 + 10 * MIN };
-    expect(meetingCardMeta(rec({ ...ended, stage: "summarizing" }), false, 0)).toBe("Writing notes");
+    expect(meetingCardMeta(rec({ ...ended, stage: "summarizing" }), false, 0)).toBe(
+      "Writing notes",
+    );
     expect(meetingCardMeta(rec({ ...ended, stage: "failed" }), false, 0)).toBe("Failed");
     expect(meetingCardMeta(rec({ ...ended, stage: "done" }), false, 0)).toBe("Summary");
   });

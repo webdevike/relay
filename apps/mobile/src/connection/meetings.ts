@@ -1,6 +1,7 @@
 /**
  * Routes Meetings' server frames into the meetings store: `meetings.state` replaces the list,
- * `meeting.recording` one recording, `meeting.live` a page's lines, `meeting.astra` its Astra
+ * `meeting.recording` one recording, `meeting.live` a page's lines, `meeting.moments` its key
+ * moments (the whole list), `meeting.shot` one more screen snapshot, `meeting.astra` its Astra
  * session; `meetings.res` settles the `meetings.req` waiting on its rid after storing a snapshot
  * or an Astra answer it carried.
  */
@@ -50,7 +51,7 @@ export class PendingMeetings {
 
 type Sink = Pick<
   MeetingsStore,
-  "setState" | "upsertRecording" | "setPage" | "applyLive" | "setAstra"
+  "setState" | "upsertRecording" | "setPage" | "applyLive" | "setMoments" | "addShot" | "setAstra"
 >;
 
 export function createMeetingsFrameRouter(
@@ -68,6 +69,8 @@ export function createMeetingsFrameRouter(
     }
     if (message.t === "meeting.recording") store.upsertRecording(message.recording);
     if (message.t === "meeting.live") store.applyLive(message.id, message.upsert);
+    if (message.t === "meeting.moments") store.setMoments(message.id, message.moments);
+    if (message.t === "meeting.shot") store.addShot(message.id, message.shot);
     if (message.t === "meeting.astra") store.setAstra(message.id, message.item);
     if (message.t === "meetings.res") {
       const op = pending.op(message.rid);
