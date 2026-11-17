@@ -41,7 +41,7 @@ knowledge: [rules.md, style.md] # optional: file names in knowledge/, in load or
 The instructions, in Markdown: the agent's system prompt. `{{check}}` places the check adapter's contract.
 ```
 
-Also accepted, as in a JSON spec: `adapter` (model adapter, default `omp`), `triggers` (default: the request event, and manual runs), `source`, `attach`, `tools`, `mode` (`tools` or `code`, only with `tools`), `codeExample` (required with `tools`), `answer` (a registered schema: the JSON a tool loop answers), `answerExample`, `maxSteps`. Unknown keys are a load error.
+Also accepted, as in a JSON spec: `harness` (`omp` default, `codex` or `claude-code`: the CLI the model runs in, same prompt and check), `triggers` (default: the request event, and manual runs), `source`, `attach`, `tools`, `mode` (`tools` or `code`, only with `tools`), `codeExample` (required with `tools`), `answer` (a registered schema: the JSON a tool loop answers), `answerExample`, `maxSteps`. Unknown keys are a load error.
 
 It compiles to the same agent spec a JSON file does (`src/core/AgentDoc.ts` `toAgentSpec`, then `AgentSpec.ts`): one job, the request in, the reply out, and the `asks` pair, so `agents_list` shows it and `agents_ask` answers it with nothing to register.
 

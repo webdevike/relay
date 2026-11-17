@@ -26,6 +26,14 @@ export interface Generation {
   readonly seconds: number
   /** USD as omp prices the call (catalog rates, so also set for subscription providers). */
   readonly cost: number
+  /** Tokens the call used, as the harness reports them: `input` uncached (cache writes included), `cachedInput` cache reads. */
+  readonly tokens?: Tokens
+}
+
+export interface Tokens {
+  readonly input: number
+  readonly output: number
+  readonly cachedInput: number
 }
 
 export class ModelError extends Schema.TaggedError<ModelError>()("ModelError", {
@@ -44,7 +52,13 @@ const AssistantMessage = Schema.Struct({
   stopReason: Schema.optional(Schema.NullOr(Schema.String)),
   errorMessage: Schema.optional(Schema.NullOr(Schema.String)),
   content: Schema.Array(Schema.Struct({ type: Schema.String, text: Schema.optional(Schema.String) })),
-  usage: Schema.optional(Schema.Struct({ cost: Schema.optional(Schema.Struct({ total: Schema.Number })) }))
+  usage: Schema.optional(Schema.Struct({
+    input: Schema.optional(Schema.Number),
+    output: Schema.optional(Schema.Number),
+    cacheRead: Schema.optional(Schema.Number),
+    cacheWrite: Schema.optional(Schema.Number),
+    cost: Schema.optional(Schema.Struct({ total: Schema.Number }))
+  }))
 })
 const decodeMessageEnd = Schema.decodeUnknownOption(
   Schema.fromJsonString(Schema.Struct({ type: Schema.Literal("message_end"), message: AssistantMessage }))
@@ -53,9 +67,13 @@ const decodeMessageEnd = Schema.decodeUnknownOption(
 const lastAssistant = (stdout: string) => {
   const ends = stdout.split("\n").flatMap((line) => Option.toArray(decodeMessageEnd(line)))
   const last = ends.at(-1)
-  return last === undefined
-    ? undefined
-    : { message: last.message, cost: ends.reduce((sum, end) => sum + (end.message.usage?.cost?.total ?? 0), 0) }
+  const sum = (pick: (usage: NonNullable<(typeof ends)[number]["message"]["usage"]>) => number | undefined) =>
+    ends.reduce((total, end) => total + (end.message.usage === undefined ? 0 : pick(end.message.usage) ?? 0), 0)
+  return last === undefined ? undefined : {
+    message: last.message,
+    cost: sum((usage) => usage.cost?.total),
+    tokens: { input: sum((usage) => (usage.input ?? 0) + (usage.cacheWrite ?? 0)), output: sum((usage) => usage.output), cachedInput: sum((usage) => usage.cacheRead) }
+  }
 }
 
 /**
@@ -115,13 +133,13 @@ export class ModelRunner extends Context.Service<ModelRunner, {
         if (reply?.message.stopReason === "error") return yield* fail(reply.message.errorMessage ?? "provider error")
         if (result.exitCode !== 0) return yield* fail(`omp exited ${result.exitCode}: ${(result.stderr || result.stdout).slice(-800)}`)
         if (reply === undefined) return yield* fail(`no assistant message: ${result.stderr.slice(-800)}`)
-        const { message, cost } = reply
+        const { message, cost, tokens } = reply
         if ((message.provider === "openrouter") !== viaOpenRouter) {
           return yield* fail(`served by ${message.provider}, expected ${viaOpenRouter ? "openrouter" : "a native provider"}`)
         }
         const text = message.content.flatMap((part) => part.type === "text" && part.text ? [part.text] : []).join("")
         if (text.trim() === "") return yield* fail("empty reply")
-        return { text, model: request.model, provider: message.provider, seconds: ((yield* Clock.currentTimeMillis) - started) / 1000, cost }
+        return { text, model: request.model, provider: message.provider, seconds: ((yield* Clock.currentTimeMillis) - started) / 1000, cost, tokens }
       }, Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
       return ModelRunner.of({ generate })
     })

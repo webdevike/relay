@@ -16,7 +16,7 @@ import type { GenerateRequest, Generation, ModelError, ModelRunner } from "./Mod
 /** What a run hands an adapter: the run's ids, dirs, model and agent; no `publish` (only the agent spec emits). */
 export type AdapterContext = Omit<RunContext, "publish">
 
-/** One model call. `omp` today; a direct API adapter later. `ModelRunner` is the process's omp runner (or a test fake). */
+/** One model call in a harness: `omp`, `codex` or `claude-code` (`adapters/`). `ModelRunner` is the process's omp runner (or a test fake). */
 export interface ModelAdapter<R = never> {
   readonly name: string
   readonly description: string

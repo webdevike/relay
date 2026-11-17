@@ -89,8 +89,8 @@ export const OrchestratorFile = Schema.Struct({
   agents: Schema.Array(Schema.NonEmptyString),
   /** Agents it will call once they exist; told to the planner, never called. */
   planned: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
-  /** Model adapter for planning turns, default `omp`. */
-  adapter: Schema.optionalKey(Schema.NonEmptyString),
+  /** Harness for planning turns (a model adapter: `omp`, `codex`, `claude-code`), default `omp`. */
+  harness: Schema.optionalKey(Schema.NonEmptyString),
   model: Schema.NonEmptyString,
   thinking: Schema.optionalKey(Thinking),
   /** Extra planning instructions. */
@@ -261,7 +261,7 @@ export const parseOrchestrator = Effect.fn("Orchestrator.parse")(function*(file:
   if (measure.event !== undefined && measure.field === undefined) errors.push("measure.event needs measure.field")
   if (measure.command !== undefined && measure.command.length === 0) errors.push("measure.command is empty")
   if (typeof spec.cadence === "object" && Result.isFailure(Cron.parse(spec.cadence.cron))) errors.push(`cadence: bad cron ${JSON.stringify(spec.cadence.cron)}`)
-  if (!adapters.models.has(spec.adapter ?? "omp")) errors.push(`unknown model adapter "${spec.adapter}" (have: ${[...adapters.models.keys()].join(", ")})`)
+  if (!adapters.models.has(spec.harness ?? "omp")) errors.push(`unknown harness "${spec.harness}" (have: ${[...adapters.models.keys()].join(", ")})`)
 
   const loaded = new Map(agents.map((agent) => [agent.id, agent] as const))
   for (const id of spec.agents) {
@@ -396,7 +396,7 @@ export class Orchestrators extends Context.Service<Orchestrators, {
         const sessions = yield* Sessions
         const reporter = yield* Reporter
         const services = yield* Effect.context<BunServices | Home | Adapters | EventBus>()
-        // Planning goes through the named model adapter; omp's uses this process's runner.
+        // Planning goes through the named harness; omp's uses this process's runner.
         const runner = yield* ModelRunner
         const dir = options.dir?.(home.root) ?? path.join(home.root, "orchestrators")
         const scanLock = yield* Semaphore.make(1)
@@ -610,7 +610,7 @@ export class Orchestrators extends Context.Service<Orchestrators, {
               recent.length === 0 ? "(none)" : recent.join("\n"),
               ...(yield* readContext(orchestrator))
             ].join("\n\n")
-            const model = adapters.models.get(spec.adapter ?? "omp")!
+            const model = adapters.models.get(spec.harness ?? "omp")!
             const viaAdapter = ModelRunner.of({ generate: (request) => model.generate(request).pipe(Effect.provideService(ModelRunner, runner), Effect.provideContext(services)) })
             const planned = yield* generateWithTools<Plan, never>({
               model: spec.model,
