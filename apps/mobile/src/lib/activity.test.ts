@@ -45,6 +45,13 @@ describe("runningChips", () => {
     expect(chips(items).map((chip) => chip.id)).toEqual(["s5", "s4", "s3", "s2", "s1"]);
   });
 
+  it("lists every running helper, however long it has run (no age cutoff)", () => {
+    const now = Date.now();
+    const helper = (name: string, startedAt: number) => item(`helper:/s/T/${name}.jsonl`, { kind: "helper", title: name, startedAt, open: { to: "subagent", file: `/s/T/${name}.jsonl`, name } });
+    const shown = chips([helper("Solstice", now - 33 * 60_000), helper("Diagram", now - 23 * 60_000), helper("Usage", now - 20 * 60_000)]);
+    expect(shown.map((chip) => chip.label)).toEqual(["Usage", "Diagram", "Solstice"]);
+  });
+
   describe("helper chips", () => {
     const helper = (name: string, dir = "/s/T") => item(`helper:${dir}/${name}.jsonl`, { kind: "helper", open: { to: "subagent", file: `${dir}/${name}.jsonl`, name } });
     const sub = (parent: string, name: string) => ({ id: `${parent}:${name}`, parentId: parent }) as AgentSession;

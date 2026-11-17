@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { defaultTabs, type Artifact, type Drop, type ServerMessage } from "@relay/protocol";
 import { classifyUrl, findInText, scanTranscript, type ScanContext } from "../src/artifacts/extract";
 import { ArtifactService, SUBAGENT_POLL_MS } from "../src/artifacts/service";
+import { helperItems } from "../src/activity/sources";
 
 const T0 = Date.parse("2026-10-27T12:00:00Z");
 const DROP_ID = "6d796135-613d-4bd8-ae3f-d928a50f7535";
@@ -288,6 +289,27 @@ describe("ArtifactService", () => {
     expect(h.sent.length).toBe(before + 1);
     expect(item(h, `subagent:${join(sub, "Builder.jsonl")}`)?.subagent?.state).toBe("done");
     expect(item(h, `subagent:${join(sub, "Builder", "Builder.Scout.jsonl")}`)?.subagent?.state).toBe("done");
+  });
+
+  it("a helper still writing its transcript past 30 minutes stays working in the activity list, beside two newer ones", () => {
+    const h = harness();
+    const file = transcript(h);
+    appendFileSync(file, assistant(T0, [{ type: "toolCall", name: "task", arguments: { tasks: [{ name: "Old" }, { name: "Mid" }, { name: "New" }] } }]));
+    const sub = file.replace(/\.jsonl$/, "");
+    mkdirSync(sub, { recursive: true });
+    const paths = ["Old", "Mid", "New"].map((name) => join(sub, `${name}.jsonl`));
+    for (const path of paths) writeFileSync(path, line({ type: "custom", customType: "tool_execution_start", data: { intent: "Working" } }));
+    h.now = Date.now();
+    h.service.get("assistant:astra");
+    // 33 minutes on, all three keep writing (the oldest began then, waiting on a long run).
+    for (let minute = 0; minute < 33; minute++) {
+      const at = new Date(h.now + 60_000);
+      for (const path of paths) utimesSync(path, at, at);
+      h.tick(60_000);
+      h.tick(SUBAGENT_POLL_MS);
+    }
+    const listed = helperItems(h.service.helpers(), h.now).sort((a, b) => a.title.localeCompare(b.title));
+    expect(listed.map((found) => [found.title, found.status])).toEqual([["Mid", "working"], ["New", "working"], ["Old", "working"]]);
   });
 
   it("a finished helper woken by a follow-up message runs again, and finishes again at its next result", () => {

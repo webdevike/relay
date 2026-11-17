@@ -674,8 +674,11 @@ export class ArtifactService implements ArtifactRelaying {
     const result = path.replace(/\.jsonl$/, ".md");
     let next = { ...sub };
     let changed = false;
+    // A running helper is seen as long as its transcript is written: every client reads "quiet for 30 minutes" from lastSeen.
+    let seen = item.lastSeen;
     if (existsSync(path)) {
       const stat = statSync(path);
+      if (next.state === "running") seen = Math.max(seen, stat.mtimeMs);
       const line = lastIntent(path, stat.size);
       if (line !== null && line !== sub.line) next = { ...next, line };
       if (existsSync(result) && !reopened(path, result, stat.mtimeMs, stat.size)) next = { ...next, state: "done", endedAt: statSync(result).mtimeMs };
@@ -686,8 +689,9 @@ export class ArtifactService implements ArtifactRelaying {
     } else if (now - sub.startedAt > SUBAGENT_STALE_MS) {
       next = { ...next, state: "done", endedAt: now };
     }
-    if (JSON.stringify(next) !== JSON.stringify(sub)) {
-      state.items.set(item.id, { ...item, subagent: next, lastSeen: Math.max(item.lastSeen, next.endedAt ?? item.lastSeen) });
+    seen = Math.max(seen, next.endedAt ?? seen);
+    if (JSON.stringify(next) !== JSON.stringify(sub) || seen !== item.lastSeen) {
+      state.items.set(item.id, { ...item, subagent: next, lastSeen: seen });
       changed = true;
     }
     return changed;
