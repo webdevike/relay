@@ -13,6 +13,8 @@ import { APP, type Run, SoundlyError } from "./run.ts";
  */
 
 const RESOURCES = `${APP}/Contents/Resources`;
+/** Most hits one Soundly search returns (measured: hybrid answers 500). */
+export const FETCH_ALL = 500;
 export const PREFS = `${homedir()}/Library/Preferences/com.soundly.Soundly.plist`;
 
 /** Keys `cloudServer.__formatData__` sends: strings as they are, other values as JSON, `None` left out. */
@@ -51,6 +53,12 @@ export interface Match {
   readonly description: string;
   readonly seconds: number;
   readonly libraryId: string;
+  /**
+   * Needs Soundly Pro. The row's `IsForFreeAccount` is `1` for the sounds a Free account has included; the desktop app
+   * shows every other row to a Free account as Pro-only (`fileListTree.insertSearchResults`), so a row without the flag
+   * counts as Pro here too.
+   */
+  readonly pro: boolean;
 }
 
 export interface Collection {
@@ -84,9 +92,16 @@ export const toMatches = (value: unknown): ReadonlyArray<Match> => {
         description: String(row["Description"] ?? ""),
         seconds: Number(row["Length"] ?? 0) || 0,
         libraryId: String(row["LibraryID"] ?? ""),
+        pro: !(row["IsForFreeAccount"] === 1 || row["IsForFreeAccount"] === true),
       },
     ];
   });
+};
+
+/** The best `wanted` of `found` (best first), Pro sounds dropped unless `includePro`; `proLeftOut` counts the dropped. */
+export const narrow = (found: ReadonlyArray<Match>, wanted: number, includePro: boolean) => {
+  const open = includePro ? found : found.filter((match) => !match.pro);
+  return { matches: open.slice(0, wanted), proLeftOut: found.length - open.length };
 };
 
 export const toCollections = (value: unknown): ReadonlyArray<Collection> =>
@@ -102,12 +117,22 @@ export const toCollections = (value: unknown): ReadonlyArray<Collection> =>
 export interface SoundlyApi {
   /** The cloud libraries the account can search (the Free plan: Soundly Free). */
   readonly libraries: ReadonlyArray<Library>;
-  /** Semantic search (Soundly's HybridSearch), else its keyword search when that fails. */
+  /**
+   * Semantic search (Soundly's HybridSearch), else its keyword search when that fails. Returns at most `wanted` matches,
+   * best first. Pro sounds are left out unless `includePro`: the search call has no filter for them, so it fetches the
+   * most hits Soundly gives (`FETCH_ALL`) and filters here, which still fills `wanted` when Pro rows are most of the hits.
+   */
   search(
     query: string,
-    pageSize: number,
+    wanted: number,
+    includePro: boolean,
   ): Effect.Effect<
-    { readonly mode: "semantic" | "keyword"; readonly matches: ReadonlyArray<Match> },
+    {
+      readonly mode: "semantic" | "keyword";
+      readonly matches: ReadonlyArray<Match>;
+      /** Pro sounds among the hits that were left out. */
+      readonly proLeftOut: number;
+    },
     SoundlyError
   >;
   /** Top-level collections: Soundly's curated folder (Read) and the account's own (Admin). */
@@ -310,18 +335,23 @@ export const cloud = (run: Run, script: string) => {
 
     const api: SoundlyApi = {
       libraries,
-      search: (query, pageSize) =>
-        libraries.length === 0
+      search: (query, wanted, includePro) => {
+        const size = includePro ? wanted : FETCH_ALL;
+        return libraries.length === 0
           ? Effect.fail(new SoundlyError({ message: "the account can search no cloud library" }))
-          : searchOn("HybridSearch", app.semanticServer, query, pageSize).pipe(
-              Effect.map((matches) => ({ mode: "semantic" as const, matches })),
+          : searchOn("HybridSearch", app.semanticServer, query, size).pipe(
+              Effect.map((found) => ({
+                mode: "semantic" as const,
+                ...narrow(found, wanted, includePro),
+              })),
               Effect.catch(() =>
-                Effect.map(searchOn("Search", app.server, query, pageSize), (matches) => ({
+                Effect.map(searchOn("Search", app.server, query, size), (found) => ({
                   mode: "keyword" as const,
-                  matches,
+                  ...narrow(found, wanted, includePro),
                 })),
               ),
-            ),
+            );
+      },
       collections,
       create: (name) =>
         Effect.gen(function* () {

@@ -8,6 +8,7 @@ import { ModelRunner } from "../../../src/core/Model.ts";
 import { Runner } from "../../../src/core/Runtime.ts";
 import { runtime, tempHome } from "../../../test/harness.ts";
 import { readLedger, readSearches, writeLedger } from "../adapters/ledger.ts";
+import { narrow, toMatches } from "../adapters/soundly/api.ts";
 import {
   type Collection,
   type Match,
@@ -178,10 +179,66 @@ describe("soundly session machine", () => {
   });
 });
 
+describe("Pro sounds", () => {
+  const row = (id: string, flag?: unknown) => ({
+    FileID: id,
+    Name: `${id}.wav`,
+    Length: "2.5",
+    LibraryID: "L1",
+    ...(flag === undefined ? {} : { IsForFreeAccount: flag }),
+  });
+
+  test("only a row with IsForFreeAccount 1 is included without Pro, as the app shows it to a Free account", () => {
+    const matches = toMatches([
+      row("SND1", 1),
+      row("SND2"),
+      row("SND3", 0),
+      row("SND4", true),
+      row("SND5", "1"),
+    ]);
+    expect(matches.map((match) => [match.id, match.pro])).toEqual([
+      ["SND1", false],
+      ["SND2", true],
+      ["SND3", true],
+      ["SND4", false],
+      ["SND5", true],
+    ]);
+  });
+
+  test("Pro rows are dropped before the cut, so the count is still filled from further down the hits", () => {
+    const found = toMatches([
+      row("SND1"),
+      row("SND2"),
+      row("SND3", 1),
+      row("SND4"),
+      row("SND5", 1),
+      row("SND6", 1),
+    ]);
+    const open = narrow(found, 2, false);
+    expect(open.matches.map((match) => match.id)).toEqual(["SND3", "SND5"]);
+    expect(open.proLeftOut).toBe(3);
+    expect(narrow(found, 2, true).matches.map((match) => match.id)).toEqual(["SND1", "SND2"]);
+  });
+});
+
 describe("soundly-picks model reply", () => {
   const candidates: ReadonlyArray<Match> = [
-    { id: "SND1", name: "Door Slam 01.wav", description: "", seconds: 2, libraryId: "L1" },
-    { id: "SND2", name: "Door Slam 02.wav", description: "", seconds: 2, libraryId: "L1" },
+    {
+      id: "SND1",
+      name: "Door Slam 01.wav",
+      description: "",
+      seconds: 2,
+      libraryId: "L1",
+      pro: false,
+    },
+    {
+      id: "SND2",
+      name: "Door Slam 02.wav",
+      description: "",
+      seconds: 2,
+      libraryId: "L1",
+      pro: false,
+    },
   ];
 
   test("ids outside the list, repeats and too many picks are rejected", () => {
@@ -213,10 +270,11 @@ const MATCHES: ReadonlyArray<Match> = Array.from({ length: 12 }, (_, index) => (
   description: "Heavy wooden door slams in a large hall",
   seconds: 2 + index / 10,
   libraryId: "LIB1",
+  pro: false,
 }));
 
 /** An account with Isaac's own collection, Soundly's curated folder and whatever Eva picks are passed in. */
-const account = (evaPicks: ReadonlyArray<Collection>) => {
+const account = (evaPicks: ReadonlyArray<Collection>, matches: ReadonlyArray<Match> = MATCHES) => {
   const log: Array<string> = [];
   let collections: Array<Collection> = [
     { key: "K-solstice", name: "Solstice", permissions: "Admin" },
@@ -228,10 +286,10 @@ const account = (evaPicks: ReadonlyArray<Collection>) => {
   let made = 0;
   const api: SoundlyApi = {
     libraries: [{ id: "LIB1", name: "Soundly Free" }],
-    search: (query, pageSize) =>
+    search: (query, wanted, includePro) =>
       Effect.sync(() => {
-        log.push(`search ${query} ${pageSize}`);
-        return { mode: "semantic" as const, matches: MATCHES.slice(0, pageSize) };
+        log.push(`search ${query} ${wanted} ${includePro ? "with" : "without"} pro`);
+        return { mode: "semantic" as const, ...narrow(matches, wanted, includePro) };
       }),
     collections: Effect.sync(() => [...collections]),
     create: (name) =>
@@ -471,6 +529,50 @@ describe("soundly-picks", () => {
         );
         expect(app.log).toEqual(["quit", "relaunch", "restorePrompt"]);
         expect(cloud.names()).not.toContain("Eva picks: door creak");
+      }).pipe(Effect.scoped, Effect.runPromise),
+    20_000,
+  );
+
+  test(
+    "searches without Pro by default, and a result with only Pro sounds fails saying so",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* tempHome;
+        const cloud = account(
+          [],
+          MATCHES.slice(0, 3).map((match) => ({ ...match, pro: true })),
+        );
+        const app = fakeDesktop();
+        const tools = soundlyLayer(app.desktop, cloud.api, { count: 0 });
+        yield* Effect.gen(function* () {
+          const bus = yield* EventBus;
+          const runner = yield* Runner;
+          expect((yield* runner.run("soundly-picks", "pick", { query: "door creak" })).ok).toBe(
+            false,
+          );
+          const failed = (yield* bus.history).find(
+            (event) => event.type === "soundly-picks/job.failed",
+          );
+          expect(JSON.stringify(failed?.data)).toContain("only Pro sounds");
+          const withPro = yield* runner.run("soundly-picks", "pick", {
+            query: "door creak",
+            count: 2,
+            includePro: true,
+          });
+          expect(withPro.ok).toBe(true);
+        }).pipe(
+          Effect.provide(
+            runtime(
+              root,
+              { code: [define({ ...picksSpec, tools })] },
+              picking(["SND100", "SND101"]),
+            ),
+          ),
+        );
+        expect(cloud.log.filter((line) => line.startsWith("search"))).toEqual([
+          "search door creak 32 without pro",
+          "search door creak 30 with pro",
+        ]);
       }).pipe(Effect.scoped, Effect.runPromise),
     20_000,
   );

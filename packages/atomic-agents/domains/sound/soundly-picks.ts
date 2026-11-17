@@ -29,7 +29,10 @@ export const SYSTEM = [
 /** The candidates the model chooses from: more than it keeps, so it can drop near-misses and duplicates. */
 export const candidateCount = (count: number) => Math.min(60, Math.max(30, count * 4));
 
-export const promptFor = (query: string, count: number, candidates: ReadonlyArray<Match>) =>
+/** What the model sees of a search hit (recorded searches predate Pro and libraries are not shown). */
+export type Candidate = Pick<Match, "id" | "name" | "description" | "seconds">;
+
+export const promptFor = (query: string, count: number, candidates: ReadonlyArray<Candidate>) =>
   [
     `Description: ${query}`,
     `Pick: ${count}`,
@@ -52,7 +55,7 @@ const decodeAnswer = Schema.decodeUnknownOption(Schema.fromJsonString(Answer));
  */
 export const readPicks = (
   text: string,
-  candidates: ReadonlyArray<Match>,
+  candidates: ReadonlyArray<Candidate>,
   count: number,
 ): { readonly picks: ReadonlyArray<string>; readonly problems: ReadonlyArray<string> } => {
   const body = /\{[\s\S]*\}/.exec(text)?.[0] ?? "";
@@ -107,9 +110,18 @@ const pick = job(events, {
       Effect.gen(function* () {
         // This session already signed the app out, so expired picks go now rather than in a separate sign-in.
         const swept = yield* sweep(api, dir, { now: yield* Clock.currentTimeMillis });
-        const found = yield* api.search(input.query, candidateCount(count));
+        const found = yield* api.search(
+          input.query,
+          candidateCount(count),
+          input.includePro ?? false,
+        );
         if (found.matches.length === 0)
-          return yield* new SoundlyError({ message: `Soundly found nothing for "${input.query}"` });
+          return yield* new SoundlyError({
+            message:
+              found.proLeftOut > 0
+                ? `Soundly found only Pro sounds for "${input.query}" (${found.proLeftOut} left out); ask with includePro to see them`
+                : `Soundly found nothing for "${input.query}"`,
+          });
         const want = Math.min(count, found.matches.length);
         const prompt = promptFor(input.query, want, found.matches);
         const ask = (text: string) =>
@@ -175,6 +187,7 @@ const pick = job(events, {
             library: library.get(match.libraryId) ?? match.libraryId,
             duration: match.seconds,
             id: match.id,
+            pro: match.pro,
           })),
         };
       }),
@@ -191,6 +204,7 @@ const pick = job(events, {
       model: ctx.model,
       attempts: value.attempts,
       cost: value.cost,
+      proLeftOut: value.found.proLeftOut,
       seconds: ((yield* Clock.currentTimeMillis) - started) / 1000,
     });
     // The bench replays these candidate lists offline (no sign-in).

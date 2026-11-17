@@ -17,6 +17,12 @@ export const SoundRequested = Schema.Struct({
       description: `How many sounds to collect (default ${DEFAULT_COUNT}, at most ${MAX_COUNT}).`,
     }),
   ),
+  includePro: Schema.optionalKey(
+    Schema.Boolean.annotate({
+      description:
+        "Also collect sounds that need Soundly Pro (default false: only sounds included without a Pro subscription).",
+    }),
+  ),
 });
 export type SoundRequested = typeof SoundRequested.Type;
 
@@ -28,6 +34,8 @@ export const Sound = Schema.Struct({
   duration: Schema.Number,
   /** Soundly's file id (`SND…`). */
   id: Schema.String,
+  /** Needs Soundly Pro (`IsForFreeAccount` is not 1); always false unless the request set `includePro`. */
+  pro: Schema.Boolean,
 });
 export type Sound = typeof Sound.Type;
 
@@ -41,6 +49,8 @@ export const SoundCollected = Schema.Struct({
   sounds: Schema.Array(Sound),
   /** Searched with Soundly's semantic search, or its keyword search when that failed. */
   search: Schema.Literals(["semantic", "keyword"]),
+  /** Pro sounds among Soundly's hits that were left out (0 with `includePro`). */
+  proLeftOut: Schema.Int,
   /** Isaac's Soundly app around the run: quit and relaunched hidden when it was open, and seen signed in again. */
   soundly: AppState,
   model: Schema.String,

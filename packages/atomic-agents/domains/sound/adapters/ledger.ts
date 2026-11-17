@@ -35,6 +35,8 @@ export const Search = Schema.Struct({
       description: Schema.String,
       seconds: Schema.Number,
       libraryId: Schema.String,
+      /** Absent in searches recorded before Pro was read. */
+      pro: Schema.optionalKey(Schema.Boolean),
     }),
   ),
 });
