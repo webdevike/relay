@@ -11,9 +11,10 @@
 //
 // Clients: `meetings.list` answers `meetings.state` (Relay's recordings, the records and their
 // digest), which is pushed again whenever a recording starts, ends or changes stage or a record
-// changes. `meeting.recording` carries one recording's change, `meeting.live` the transcript lines
-// it added or replaced (drafts are replaced by id, finals never change), `meeting.astra` Astra's
-// session about that meeting. Everything else is `meetings.req {rid, op}` answered by
+// changes. `meeting.live` carries the transcript lines it added or replaced (drafts are replaced by
+// id, finals never change), `meeting.moments` its key moments, `meeting.shot` a screen snapshot it
+// saved, `meeting.astra` Astra's session about that meeting. The Mac recording a call reports
+// screen sharing with `meeting.share`. Everything else is `meetings.req {rid, op}` answered by
 // `meetings.res` with the same rid.
 import { z } from "zod";
 import { AstraItem } from "./reviews";
@@ -77,6 +78,65 @@ export const LiveLine = z.object({
 });
 export type LiveLine = z.infer<typeof LiveLine>;
 
+/**
+ * Whether someone shares their screen in the call, as the Mac recording it sees the meeting
+ * window: `sharing` (Relay snapshots the shared content), `no-permission` (sharing, but Relay
+ * lacks macOS Screen Recording, so nothing is captured), else `none`.
+ */
+export const MeetingShare = z.enum(["none", "sharing", "no-permission"]);
+export type MeetingShare = z.infer<typeof MeetingShare>;
+
+/**
+ * `decision`: something was settled. `ask`: someone asked Isaac for something. `action`: someone
+ * took something on. `claim`: a notable statement of fact, number or date worth checking later.
+ */
+export const KeyMomentKind = z.enum(["decision", "ask", "action", "claim"]);
+export type KeyMomentKind = z.infer<typeof KeyMomentKind>;
+
+export const KEY_MOMENT_MAX_CHARS = 160;
+export const MAX_KEY_MOMENTS = 200;
+
+/** One key moment the host found in the live transcript (meeting-moments.ts has the helpers). */
+export const KeyMoment = z.object({
+  /** Stable for the recording (`km<n>`). */
+  id: z.string().min(1).max(32),
+  kind: KeyMomentKind,
+  /** Where it was said: its line's start, ms from the start of the recording. */
+  atMs: ms,
+  /** The transcript line it came from. */
+  lineId: z.string().max(64),
+  /** Who said it, as the transcript names them (Isaac's own mic lines carry his name). */
+  speaker: z.string().max(200),
+  /** One short line. */
+  text: z.string().min(1).max(KEY_MOMENT_MAX_CHARS),
+  /** The screen snapshot (`MeetingShot.n`) on screen around then, or null. */
+  shot: z.number().int().nonnegative().nullable(),
+});
+export type KeyMoment = z.infer<typeof KeyMoment>;
+
+export const MAX_MEETING_SHOTS = 500;
+export const MAX_SHOT_OCR = 4_000;
+
+/**
+ * A snapshot of the content someone shared in the call, saved when it changed. The JPEG stays on
+ * the host (next to the notes once written) and is served at `src` to authenticated devices.
+ */
+export const MeetingShot = z.object({
+  /** Its number in the recording, from 0. */
+  n: z.number().int().nonnegative(),
+  /** ms from the start of the recording. */
+  atMs: ms,
+  /** Host path of the JPEG: `/meetings/shots/<id>/<token>/<n>`. */
+  src: z.string().max(500),
+  w: z.number().int().positive(),
+  h: z.number().int().positive(),
+  /** The transcript line being said at that moment ("Todd: so this is the pass"), "" for none. */
+  line: z.string().max(500),
+  /** The text on it (Apple Vision), trimmed to MAX_SHOT_OCR. */
+  ocr: z.string().max(MAX_SHOT_OCR),
+});
+export type MeetingShot = z.infer<typeof MeetingShot>;
+
 /** One of Relay's recordings. */
 export const MeetingRecording = z.object({
   id: MeetingId,
@@ -103,6 +163,8 @@ export const MeetingRecording = z.object({
    * says there while the call runs reaches it with the transcript. Older hosts leave it out.
    */
   assistant: z.string().max(64).nullable().default(null),
+  /** Whether someone shares their screen right now (older hosts leave it out). */
+  share: MeetingShare.default("none"),
 });
 export type MeetingRecording = z.infer<typeof MeetingRecording>;
 
@@ -180,6 +242,10 @@ export const MeetingSnapshot = z.object({
   lines: z.array(LiveLine).max(MAX_LIVE_LINES),
   astra: AstraItem.nullable(),
   notes: MeetingNotes.nullable(),
+  /** Key moments so far, oldest first (older hosts leave them out). */
+  moments: z.array(KeyMoment).max(MAX_KEY_MOMENTS).default([]),
+  /** Screen snapshots so far, oldest first (older hosts leave them out). */
+  shots: z.array(MeetingShot).max(MAX_MEETING_SHOTS).default([]),
 });
 export type MeetingSnapshot = z.infer<typeof MeetingSnapshot>;
 
@@ -259,6 +325,11 @@ export const MeetingsClientFrames = [
     title: z.string().max(500).optional(),
     startedAt: ms,
   }),
+  /**
+   * The Mac recording `id` saw screen sharing start or stop in the call (or found Screen Recording
+   * missing). Only the device holding the recording may set it.
+   */
+  z.object({ t: z.literal("meeting.share"), id: MeetingId, state: MeetingShare }),
 ] as const;
 
 /** Server frames (index.ts adds them to the server union). */
@@ -275,6 +346,14 @@ export const MeetingsServerFrames = [
   }),
   /** Astra's session about a recording changed. */
   z.object({ t: z.literal("meeting.astra"), id: MeetingId, item: AstraItem }),
+  /** A recording's key moments changed: the whole list, oldest first. */
+  z.object({
+    t: z.literal("meeting.moments"),
+    id: MeetingId,
+    moments: z.array(KeyMoment).max(MAX_KEY_MOMENTS),
+  }),
+  /** A recording saved a screen snapshot. */
+  z.object({ t: z.literal("meeting.shot"), id: MeetingId, shot: MeetingShot }),
   MeetingsResult.extend({ t: z.literal("meetings.res") }),
   /** Open `MEETINGS_INGEST_PATH?ticket=<ticket>` within MEETING_TICKET_TTL_MS. Single use. */
   z.object({ t: z.literal("meeting.ingest.ticket"), id: MeetingId, ticket: nonEmpty }),

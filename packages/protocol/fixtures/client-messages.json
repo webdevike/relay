@@ -188,5 +188,6 @@
     "title": "Weekly Engineering Team Sync",
     "startedAt": 1793800000000
   },
+  { "t": "meeting.share", "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10", "state": "no-permission" },
   { "t": "stats.get" }
 ]

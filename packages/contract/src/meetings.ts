@@ -54,6 +54,8 @@ export const RecordingSchema = z.object({
   seconds: z.number().nonnegative(),
   /** The assistant whose chat the meeting is in (a registry id), or null when the host has none. */
   assistant: z.string().max(64).nullable().default(null),
+  /** Whether someone shares their screen right now (`no-permission`: Relay lacks Screen Recording). */
+  share: z.enum(['none', 'sharing', 'no-permission']).default('none'),
 })
 export type Recording = z.output<typeof RecordingSchema>
 
@@ -68,6 +70,30 @@ export const LiveLineSchema = z.object({
   echo: z.boolean().optional(),
 })
 export type LiveLine = z.output<typeof LiveLineSchema>
+
+/** A key moment the host found in the transcript (relay packages/protocol `KeyMoment`). */
+export const KeyMomentSchema = z.object({
+  id: z.string().max(32),
+  kind: z.enum(['decision', 'ask', 'action', 'claim']),
+  atMs: z.number(),
+  lineId: z.string().max(64),
+  speaker: z.string().max(200),
+  text: z.string().max(160),
+  shot: z.number().int().nonnegative().nullable(),
+})
+export type KeyMoment = z.output<typeof KeyMomentSchema>
+
+/** A screen snapshot of shared content (relay packages/protocol `MeetingShot`); `src` is a host path. */
+export const MeetingShotSchema = z.object({
+  n: z.number().int().nonnegative(),
+  atMs: z.number(),
+  src: z.string().max(500),
+  w: z.number().int().positive(),
+  h: z.number().int().positive(),
+  line: z.string().max(500),
+  ocr: z.string().max(4000),
+})
+export type MeetingShot = z.output<typeof MeetingShotSchema>
 
 /** Astra's session about a recording, as its page shows it under the transcript. */
 export const MeetingAstraSchema = z.object({
@@ -101,6 +127,8 @@ export const RecordingViewSchema = z.object({
   lines: z.array(LiveLineSchema).max(5000),
   astra: MeetingAstraSchema.nullable(),
   notes: MeetingNotesSchema.nullable(),
+  moments: z.array(KeyMomentSchema).max(200).default([]),
+  shots: z.array(MeetingShotSchema).max(500).default([]),
 })
 export type RecordingView = z.output<typeof RecordingViewSchema>
 
@@ -176,6 +204,10 @@ export const MeetingsChangeSchema = z.discriminatedUnion('kind', [
   /** Transcript lines a recording added or replaced. */
   z.object({ kind: z.literal('live'), id: z.string(), upsert: z.array(LiveLineSchema) }),
   z.object({ kind: z.literal('astra'), id: z.string(), astra: MeetingAstraSchema }),
+  /** A recording's key moments changed: the whole list. */
+  z.object({ kind: z.literal('moments'), id: z.string(), moments: z.array(KeyMomentSchema) }),
+  /** A recording saved a screen snapshot. */
+  z.object({ kind: z.literal('shot'), id: z.string(), shot: MeetingShotSchema }),
   /** The list changed (a recording came or went, a record changed): read it again. */
   z.object({ kind: z.literal('list') }),
 ])

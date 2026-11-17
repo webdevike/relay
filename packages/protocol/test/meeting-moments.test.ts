@@ -1,53 +1,97 @@
 import { describe, expect, it } from "vitest";
-import { detectMoments, type LiveLine } from "../src";
+import {
+  askAnswered,
+  momentRowId,
+  nowMoments,
+  parseServerMessage,
+  shotNear,
+  type KeyMoment,
+  type LiveLine,
+  type MeetingRow,
+} from "../src";
 
-let n = 0;
-const line = (track: "app" | "mic", speaker: string, min: number, text: string, final = true): LiveLine => ({
-  id: `l${n++}`,
-  track,
-  speaker,
-  startMs: min * 60_000,
-  endMs: min * 60_000 + 3000,
-  text,
-  final,
+const moment = (n: number, over: Partial<KeyMoment> = {}): KeyMoment => ({
+  id: `km${n}`,
+  kind: "decision",
+  atMs: n * 60_000,
+  lineId: `l${n}`,
+  speaker: "Todd",
+  text: `Moment ${n}`,
+  shot: null,
+  ...over,
 });
 
-describe("detectMoments", () => {
-  it("finds decisions, actions and mentions of Isaac, one kind per sentence", () => {
-    const m = detectMoments([
-      line("app", "Chris", 1, "I did the work to move locations around."),
-      line("app", "Priya", 2, "I will open the MFA ticket today."),
-      line("app", "Todd", 3, "Let's settle it: MFA on all console accounts by month end."),
-      line("app", "Todd", 9, "Isaac, can you take the dashboard?"),
-    ]);
-    expect(m.map((x) => [x.kind, x.speaker])).toEqual([
-      ["action", "Priya"],
-      ["decision", "Todd"],
-      ["you", "Todd"],
-    ]);
-    expect(m[2]).toMatchObject({ text: "Isaac, can you take the dashboard?", answered: false });
+const line = (track: "app" | "mic", startMs: number, extra: Partial<LiveLine> = {}): LiveLine => ({
+  id: `${track}${startMs}`,
+  track,
+  speaker: track === "mic" ? "Isaac" : "Todd",
+  startMs,
+  endMs: startMs + 1000,
+  text: "words",
+  final: true,
+  ...extra,
+});
+
+const row = (id: string, startMs: number): MeetingRow => ({
+  id,
+  speaker: "Todd",
+  track: "app",
+  startMs,
+  text: "words",
+  draft: false,
+});
+
+describe("key moments", () => {
+  it("Now shows the newest eight, newest first", () => {
+    const all = Array.from({ length: 11 }, (_, i) => moment(i));
+    expect(nowMoments(all).map((m) => m.id)).toEqual(["km10", "km9", "km8", "km7", "km6", "km5", "km4", "km3"]);
   });
 
-  it("marks a mention answered once Isaac speaks, ignores his own mentions and drafts", () => {
-    const m = detectMoments([
-      line("app", "Todd", 1, "Isaac, did you see the log?"),
-      line("mic", "Isaac", 2, "Isaac here, yes I will check it."),
-      line("app", "Todd", 3, "We decided to ship Thursday.", false),
-    ]);
-    expect(m).toHaveLength(2);
-    expect(m[0]).toMatchObject({ kind: "you", answered: true });
-    expect(m[1]).toMatchObject({ kind: "action", speaker: "You" });
+  it("jumps to the row a moment was said in", () => {
+    const rows = [row("a", 0), row("b", 30_000), row("c", 90_000)];
+    expect(momentRowId(rows, 45_000)).toBe("b");
+    expect(momentRowId(rows, 90_000)).toBe("c");
+    // Before the first row (a moment from a line merged later): the first row.
+    expect(momentRowId(rows, -5)).toBe("a");
+    expect(momentRowId([], 5)).toBeNull();
   });
 
-  it("splits a merged row into sentences and points each moment at its row", () => {
-    const m = detectMoments([
-      line("app", "Todd", 4, "Nice work. We agreed on Thursday. I'll send the notes."),
-    ]);
-    expect(m.map((x) => x.kind)).toEqual(["decision", "action"]);
-    expect(new Set(m.map((x) => x.rowId)).size).toBe(1);
+  it("an ask is answered only by Isaac's own words after it, never by echo", () => {
+    const ask = moment(1, { kind: "ask" });
+    expect(askAnswered(ask, [line("mic", 30_000), line("app", 70_000)])).toBe(false);
+    expect(askAnswered(ask, [line("mic", 70_000, { echo: true })])).toBe(false);
+    expect(askAnswered(ask, [line("mic", 70_000)])).toBe(true);
+    expect(askAnswered({ ...ask, kind: "decision" }, [line("mic", 70_000)])).toBe(false);
   });
 
-  it("does not treat a question as a commitment", () => {
-    expect(detectMoments([line("app", "Todd", 1, "Will I send it today?")])).toEqual([]);
+  it("refers to the newest snapshot shown shortly before the moment", () => {
+    const shots = [
+      { n: 0, atMs: 10_000 },
+      { n: 1, atMs: 200_000 },
+      { n: 2, atMs: 260_000 },
+      { n: 3, atMs: 400_000 },
+    ];
+    expect(shotNear(shots, 265_000)).toBe(2);
+    // A snapshot a few seconds after the words still counts (the share lags the talk).
+    expect(shotNear(shots, 395_000)).toBe(3);
+    // Too long ago: none.
+    expect(shotNear(shots, 150_000)).toBeNull();
+  });
+
+  it("moments and snapshots travel as server frames", () => {
+    expect(
+      parseServerMessage(
+        JSON.stringify({ t: "meeting.moments", id: "abcdef12-0000", moments: [moment(1, { shot: 2 })] }),
+      ),
+    ).toMatchObject({ ok: true, value: { t: "meeting.moments", moments: [{ id: "km1", shot: 2 }] } });
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          t: "meeting.shot",
+          id: "abcdef12-0000",
+          shot: { n: 0, atMs: 1, src: "/meetings/shots/abcdef12-0000/tok/0", w: 10, h: 10, line: "", ocr: "" },
+        }),
+      ),
+    ).toMatchObject({ ok: true, value: { t: "meeting.shot", shot: { n: 0 } } });
   });
 });

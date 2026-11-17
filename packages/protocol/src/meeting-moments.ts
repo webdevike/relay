@@ -1,68 +1,58 @@
-// Moments: the few lines of a call worth jumping back to. Detected from the transcript the host
-// already streams (no host code, no model): sentence patterns over finalized lines, so it is cheap
-// enough to re-run whenever the lines change (clients memoise on the lines array).
-import { meetingRows, type LiveLine, type MeetingRow } from "./meetings";
+// Key moments: the few things in a call worth jumping back to (decisions, asks of Isaac, actions,
+// notable claims). The host finds them in the live transcript with a small model
+// (apps/linux/src/meetings/key-moments.ts) and keeps them on the recording; both clients render
+// them with these helpers and the notes list them.
+import type { KeyMoment, KeyMomentKind, LiveLine, MeetingRow, MeetingShot } from "./meetings";
 
-/** `decision`: something was settled. `action`: someone took something on. `you`: someone else spoke to Isaac. */
-export type MomentKind = "decision" | "action" | "you";
+/** How many key moments the Now view shows (the Moments tab has all of them). */
+export const NOW_MOMENTS = 8;
 
-export interface MeetingMoment {
-  /** Stable while the call runs: `<row id>:<sentence index>`. */
-  readonly id: string;
-  readonly kind: MomentKind;
-  /** The transcript row (`meetingRows` id) it sits in, for jumping to it. */
-  readonly rowId: string;
-  /** Where its row starts, ms from the start of the recording. */
-  readonly startMs: number;
-  /** Who said it ("You" for Isaac's own mic). */
-  readonly speaker: string;
-  /** The sentence itself, trimmed to MOMENT_MAX_CHARS. */
-  readonly text: string;
-  /** `you` only: Isaac has spoken since. */
-  readonly answered: boolean;
+/** A snapshot this long before a moment (or up to SHOT_AFTER_MS after it) is what it refers to. */
+export const SHOT_BEFORE_MS = 120_000;
+export const SHOT_AFTER_MS = 10_000;
+
+export const KEY_MOMENT_LABEL: Record<KeyMomentKind, string> = {
+  decision: "Decision",
+  ask: "Asks you",
+  action: "Action",
+  claim: "Claim",
+};
+
+/** The Now list: newest first, at most `limit`. */
+export function nowMoments(moments: readonly KeyMoment[], limit = NOW_MOMENTS): KeyMoment[] {
+  return moments.slice().reverse().slice(0, limit);
 }
 
-export const MOMENT_MAX_CHARS = 140;
-
-const MENTION = /\bisaac\b/i;
-const DECISION =
-  /\b(we(?:'ll| will| are going to| decided| agreed)|let'?s (?:go with|settle|ship|do|move|use|make)|(?:we |i )?decided|(?:we )?agreed|the decision is|settle (?:it|this)|going with|ship (?:it|the [\w -]+?) (?:on|by|this|next)|by (?:end of|the end of) (?:the )?(?:week|month|day|quarter))\b/i;
-const ACTION =
-  /\b(i(?:'ll| will|'m going to| am going to)|i can (?:take|look|send|open|do|own|handle|follow|check|write|draft|review|get|pair|set)|action item|follow[- ]up|next step)\b/i;
-
-function kindOf(sentence: string, mic: boolean): MomentKind | null {
-  if (!mic && MENTION.test(sentence)) return "you";
-  if (DECISION.test(sentence)) return "decision";
-  // A question is rarely a commitment ("can you open it?" is a request, caught as a mention).
-  if (!sentence.endsWith("?") && ACTION.test(sentence)) return "action";
-  return null;
+/** The transcript row a moment sits in (the last row starting at or before it), for jumping to it. */
+export function momentRowId(rows: readonly MeetingRow[], atMs: number): string | null {
+  let id: string | null = rows[0]?.id ?? null;
+  for (const r of rows) {
+    if (r.startMs > atMs) break;
+    id = r.id;
+  }
+  return id;
 }
 
-/** The moments of `lines` (finalized, non-echo ones only), oldest first. */
-export function detectMoments(lines: readonly LiveLine[]): MeetingMoment[] {
-  const rows: MeetingRow[] = meetingRows(lines.filter((l) => l.final));
-  const out: MeetingMoment[] = [];
-  rows.forEach((row) => {
-    const mic = row.track === "mic";
-    // Sentence ends split the row, the punctuation staying with its sentence.
-    const parts = row.text.match(/[^.!?]+[.!?]*/g)?.map((p) => p.trim()).filter((p) => p !== "") ?? [];
-    parts.forEach((s, i) => {
-      const kind = kindOf(s, mic);
-      if (kind === null) return;
-      const answered =
-        kind === "you" && rows.some((r) => r.track === "mic" && r.startMs > row.startMs);
-      out.push({
-        id: `${row.id}:${i}`,
-        kind,
-        rowId: row.id,
-        startMs: row.startMs,
-        speaker: mic ? "You" : row.speaker,
-        text: s.length <= MOMENT_MAX_CHARS ? s : `${s.slice(0, MOMENT_MAX_CHARS - 1).trimEnd()}…`,
-        answered,
-      });
-    });
-  });
-  return out;
+/** An ask of Isaac he has answered: his mic said something (not echo) after it. */
+export function askAnswered(m: Pick<KeyMoment, "kind" | "atMs">, lines: readonly LiveLine[]): boolean {
+  return (
+    m.kind === "ask" &&
+    lines.some((l) => l.track === "mic" && l.echo !== true && l.text.trim() !== "" && l.startMs > m.atMs)
+  );
+}
+
+/** The snapshot a moment at `atMs` refers to: the newest one shown shortly before (or just after) it. */
+export function shotNear(shots: readonly Pick<MeetingShot, "n" | "atMs">[], atMs: number): number | null {
+  let best: number | null = null;
+  let bestAt = -Infinity;
+  for (const s of shots) {
+    if (s.atMs < atMs - SHOT_BEFORE_MS || s.atMs > atMs + SHOT_AFTER_MS) continue;
+    if (s.atMs > bestAt) {
+      best = s.n;
+      bestAt = s.atMs;
+    }
+  }
+  return best;
 }
 
 /** `ms` as whole minutes since the start ("14m"), the transcript's coarse stamp. */

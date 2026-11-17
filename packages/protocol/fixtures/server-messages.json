@@ -321,7 +321,9 @@
         "error": null,
         "shadow": true,
         "stem": null,
-        "seconds": 312.4
+        "seconds": 312.4,
+        "assistant": "astra",
+        "share": "sharing"
       }
     ],
     "meetings": [
@@ -362,6 +364,34 @@
         "final": false
       }
     ]
+  },
+  {
+    "t": "meeting.moments",
+    "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10",
+    "moments": [
+      {
+        "id": "km1",
+        "kind": "decision",
+        "atMs": 301200,
+        "lineId": "app-17",
+        "speaker": "Todd",
+        "text": "Release moves to Tuesday.",
+        "shot": 0
+      }
+    ]
+  },
+  {
+    "t": "meeting.shot",
+    "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10",
+    "shot": {
+      "n": 0,
+      "atMs": 298000,
+      "src": "/meetings/shots/6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10/9b1f/0",
+      "w": 1600,
+      "h": 900,
+      "line": "Todd: here is the release board",
+      "ocr": "Release board\nTuesday"
+    }
   },
   { "t": "meeting.ingest.ticket", "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10", "ticket": "4f9d" },
   { "t": "meetings.res", "rid": "m-2", "ok": true, "todoId": "T120", "tag": "ecardsystems" },
