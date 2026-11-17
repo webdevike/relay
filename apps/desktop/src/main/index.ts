@@ -233,7 +233,7 @@ function bootstrap(): void {
         })
         ctx.onBeforeQuit(async () => stopStatuses())
       }
-      registerWidgetMedia(ctx)
+      registerWidgetMedia(ctx, () => chat.canvas.canvasOrigin())
       registerWidgetFrames()
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())

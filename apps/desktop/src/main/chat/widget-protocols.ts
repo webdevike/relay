@@ -36,7 +36,7 @@ export function registerWidgetSchemes(): void {
  * dir of the Relay this app connects to (EVAOS_RELAY_DIR, live: Relay's own). Fixtures and e2e
  * without one use `<configDir>/relay` so a test never touches it.
  */
-export function registerWidgetMedia(ctx: MainContext): void {
+export function registerWidgetMedia(ctx: MainContext, hostOrigin?: () => string | null): void {
   const relayDir =
     ctx.env.relayDir ??
     (ctx.env.live
@@ -47,6 +47,7 @@ export function registerWidgetMedia(ctx: MainContext): void {
     servePort: () => servePort(relayDir),
     home: os.homedir(),
     reviewsDir: path.join(ctx.env.configDir, REVIEWS_MEDIA_DIR),
+    ...(hostOrigin === undefined ? {} : { hostOrigin }),
   }
   protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, deps))
 }

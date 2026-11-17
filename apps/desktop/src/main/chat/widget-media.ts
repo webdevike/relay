@@ -18,6 +18,11 @@ export interface MediaDeps {
   cacheDir: string
   /** The local Relay host's port, or null when it isn't running. */
   servePort(): number | null
+  /**
+   * The connected Relay Host's http origin (the Mini, also from a thin client), or null. Meeting
+   * snapshots live only on the host that recorded the call.
+   */
+  hostOrigin?(): string | null
   home: string
   /** Reviews' downloaded images (`<config>/reviews-media`), served as `/reviews/media/<file>`. */
   reviewsDir?: string
@@ -136,11 +141,18 @@ async function fetchInto(url: string, hash: string, deps: MediaDeps): Promise<st
 /** A local file for `src`, downloading it first when it is remote. */
 export async function resolveMedia(src: string, deps: MediaDeps): Promise<string> {
   if (/^https?:\/\//.test(src)) return download(src, deps)
-  // Drops, images pasted into a thread (`/artifacts/media/<sha>/<token>`, the Artifacts panel),
-  // Studio's outputs and uploads (`/studio/<id>/<token>`, `/thumb` a JPEG preview) and a meeting's
-  // screen snapshots (`/meetings/shots/<id>/<token>/<n>`).
+  // A meeting's screen snapshots (`/meetings/shots/<id>/<token>/<n>`): from the connected host.
+  if (/^\/meetings\/shots\/[^/]+\/[^/]+\/\d+$/.test(src)) {
+    const port = deps.servePort()
+    const base = deps.hostOrigin?.() ?? (port === null ? null : `http://127.0.0.1:${port}`)
+    if (base === null)
+      throw new MediaError(503, "Relay Host isn't connected, so the snapshot can't load")
+    return download(new URL(src, base).toString(), deps)
+  }
+  // Drops, images pasted into a thread (`/artifacts/media/<sha>/<token>`, the Artifacts panel) and
+  // Studio's outputs and uploads (`/studio/<id>/<token>`, `/thumb` a JPEG preview).
   if (
-    /^\/(?:drops\/[^/]+\/[^/]+(\/poster)?|artifacts\/media\/[^/]+\/[^/]+|studio\/[^/]+\/[^/]+(\/thumb)?|meetings\/shots\/[^/]+\/[^/]+\/\d+)$/.test(
+    /^\/(?:drops\/[^/]+\/[^/]+(\/poster)?|artifacts\/media\/[^/]+\/[^/]+|studio\/[^/]+\/[^/]+(\/thumb)?)$/.test(
       src,
     )
   ) {
