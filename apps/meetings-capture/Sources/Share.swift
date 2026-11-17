@@ -25,10 +25,12 @@ import UniformTypeIdentifiers
 import Vision
 
 /// Where the shared content is: global points with a top-left origin (Accessibility and
-/// ScreenCaptureKit agree on these), and the process whose window shows it.
+/// ScreenCaptureKit agree on these), and the process whose window shows it. `seen` is false
+/// while the latest look missed it (the share is still on, inside its grace, but not captured).
 struct ShareRegion: Equatable {
   var rect: CGRect
   var pid: pid_t
+  var seen = true
 }
 
 struct ShareError: Error {

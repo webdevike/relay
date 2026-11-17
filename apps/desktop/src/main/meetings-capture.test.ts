@@ -222,6 +222,10 @@ describe('meetings capture', () => {
     expect(s.sent.slice(before)).toEqual([{ t: 'meeting.share', id: 'm1', state: 'no-permission' }])
     helper.say({ ev: 'share', id: 'm1', state: 'off', permission: false })
     expect(s.sent.at(-1)).toEqual({ t: 'meeting.share', id: 'm1', state: 'none' })
+    // A new relay connection hears that nobody shares any more (it may have missed the off).
+    const ended = s.sent.length
+    s.hear({ t: 'welcome' })
+    expect(s.sent.slice(ended)).toContainEqual({ t: 'meeting.share', id: 'm1', state: 'none' })
     helper.say({ ev: 'share', id: 'm1', state: 'on', permission: true })
     helper.say({ ev: 'stopped', id: 'm1' })
     expect(s.sent.at(-1)).toEqual({ t: 'meeting.share', id: 'm1', state: 'none' })

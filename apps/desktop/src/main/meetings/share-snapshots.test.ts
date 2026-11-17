@@ -63,26 +63,32 @@ describe('share snapshots runtime', () => {
     expect(h.frames.at(-1)).toEqual({ t: 'meeting.share', id: 'm1', state: 'no-permission' })
   })
 
-  it('says the share state again when asked (a host that came back), never a bare none', () => {
+  it('says the share state again when asked (a host that came back), none included', () => {
     const h = harness()
     h.shots.resend()
-    expect(h.frames).toEqual([])
+    expect(h.frames).toEqual([{ t: 'meeting.share', id: 'm1', state: 'none' }])
     h.shots.heard({ ev: 'share', id: 'm1', state: 'on', permission: false })
     h.shots.resend()
-    expect(h.frames).toEqual([
+    expect(h.frames.slice(1)).toEqual([
       { t: 'meeting.share', id: 'm1', state: 'no-permission' },
       { t: 'meeting.share', id: 'm1', state: 'no-permission' },
     ])
     h.shots.heard({ ev: 'share', id: 'm1', state: 'on', permission: true })
     h.shots.resend()
-    expect(h.frames.slice(2)).toEqual([
+    expect(h.frames.slice(3)).toEqual([
       { t: 'meeting.share', id: 'm1', state: 'sharing' },
       { t: 'meeting.share', id: 'm1', state: 'sharing' },
     ])
+    h.shots.heard({ ev: 'share', id: 'm1', state: 'off', permission: true })
+    h.shots.resend()
+    expect(h.frames.slice(5)).toEqual([
+      { t: 'meeting.share', id: 'm1', state: 'none' },
+      { t: 'meeting.share', id: 'm1', state: 'none' },
+    ])
+    // Stopped: nothing more, not even on a resend.
     h.shots.stop()
     h.shots.resend()
-    expect(h.frames.at(-1)).toEqual({ t: 'meeting.share', id: 'm1', state: 'none' })
-    expect(h.frames).toHaveLength(5)
+    expect(h.frames).toHaveLength(7)
   })
 
   it('stop tells the host nobody shares and asks nothing more', () => {

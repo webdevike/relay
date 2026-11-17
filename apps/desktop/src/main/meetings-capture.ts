@@ -203,8 +203,10 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
 
   const offFrames = deps.frames.onFrame((f) => {
     if (f.t === 'welcome') {
-      // A fresh connection (maybe another host): every upload asks again.
+      // A fresh connection (maybe another host): every upload asks again, and every live call
+      // says again whether someone shares.
       for (const u of uploads.values()) u.askedAt = 0
+      for (const s of shares.values()) s.resend()
       tick()
       return
     }

@@ -11,7 +11,13 @@ import { handleMeetingShot } from "../src/meetings/http";
 import { claudeFinder, replayKeyMoments, type MomentFinder } from "../src/meetings/key-moments";
 import { KEY_MOMENTS_WINDOW_MS, type ExtractInput } from "../src/meetings/key-moments.machine";
 import { keyMomentsSection, MeetingPipeline, snapshotsSection } from "../src/meetings/pipeline";
-import { lineAt, MeetingsService, type AfterCall, type Conn } from "../src/meetings/service";
+import {
+  lineAt,
+  MeetingsService,
+  notesForModel,
+  type AfterCall,
+  type Conn,
+} from "../src/meetings/service";
 import { RecordingStore, type RecordingMeta, type ShotRow } from "../src/meetings/store";
 import { FakeClock } from "./studio-fakes";
 
@@ -170,7 +176,8 @@ describe("key moments on the host", () => {
     expect((await svc.handle({ kind: "open", id: ID })).snapshot?.moments).toEqual([first]);
     svc.stop();
 
-    // A restart mid-call: what was found stays, what was looked at is not looked at again.
+    // A restart mid-call: what was found stays; the last 20 s looked at are looked at once more
+    // (a line finalized late may start before them) and what is found again is not added twice.
     const runs: KeyMoment[][] = [];
     const svc2 = makeService({
       store,
@@ -187,19 +194,55 @@ describe("key moments on the host", () => {
     const { conn } = connect(svc2, clock);
     clock.advance(KEY_MOMENTS_WINDOW_MS);
     await settle();
-    expect(calls).toHaveLength(1);
+    expect(calls[1]?.lines.map((l) => l.id)).toEqual(["app-0"]);
+    expect(store.moments(ID).moments).toEqual([first]);
     svc2.line(wl("app", 60_000, "Then we decide on Postgres."));
     svc2.line(wl("mic", 63_000, "Sounds good."));
     // The call ends before the window closes: the last pass runs before the notes.
     conn.text(JSON.stringify({ t: "meeting.end", samples: [0, 0], endedAt: clock.now() }));
     await settle();
-    expect(calls[1]?.lines.map((l) => l.id)).toEqual(["app-60000", "mic-63000"]);
-    expect(calls[1]?.context.map((l) => l.id)).toEqual([]);
+    expect(calls[2]?.lines.map((l) => l.id)).toEqual(["app-60000", "mic-63000"]);
+    expect(calls[2]?.context.map((l) => l.id)).toEqual(["app-0"]);
     expect(runs).toHaveLength(1);
     expect(runs[0]?.map((m) => [m.id, m.text])).toEqual([
       ["km0", "We decide to ship Tuesday."],
       ["km1", "Then we decide on Postgres."],
     ]);
+    svc2.stop();
+  });
+
+  it("gives a call the host restarted in its after-call its last pass before the notes", async () => {
+    const store = new RecordingStore(join(tmp("relay-km-"), "rec"));
+    const clock = new FakeClock();
+    const sent: ServerMessage[] = [];
+    const calls: ExtractInput[] = [];
+    const svc = makeService({ store, clock, sent, findMoments: decider(calls) });
+    connect(svc, clock);
+    svc.line(wl("app", 0, "We decide to ship Tuesday."));
+    // The call ended and the host went down before the window closed.
+    const meta = store.load(ID);
+    if (meta === null) throw new Error("no recording");
+    store.save({ ...meta, stage: "transcribing" });
+    svc.stop();
+    expect(calls).toHaveLength(0);
+
+    const runs: KeyMoment[][] = [];
+    const svc2 = makeService({
+      store,
+      clock,
+      sent,
+      findMoments: decider(calls),
+      afterCall: afterCallStub({
+        run: () => {
+          runs.push(store.moments(ID).moments);
+          return Promise.resolve(null);
+        },
+      }),
+    });
+    svc2.start();
+    await settle();
+    expect(calls.map((c) => c.lines.map((l) => l.id))).toEqual([["app-0"]]);
+    expect(runs.map((r) => r.map((m) => m.text))).toEqual([["We decide to ship Tuesday."]]);
     svc2.stop();
   });
 });
@@ -462,6 +505,12 @@ describe("key moments and snapshots in the notes", () => {
     expect(parsed.decisions).toEqual(["Ship Tuesday."]);
     expect(parsed.questions).toEqual(["None."]);
     expect(parsed.transcript.map((l) => l.text)).toEqual(["Release is Tuesday."]);
+    // What a model reads of the notes (Astra's quick asks) has no screen text, the rest stays.
+    const forModel = notesForModel(md);
+    expect(forModel).not.toContain("Q3 plan");
+    expect(forModel).not.toContain("## Screen Snapshots");
+    expect(forModel).toContain("## Key Moments");
+    expect(forModel).toContain("## Questions asked during the call");
     const copy = join(root, "shadow", `${stem}.shots`, "000.jpg");
     expect(readFileSync(copy)).toEqual(JPEG);
     expect(pipeline.shotPath({ ...meta, stem }, 0)).toBe(copy);

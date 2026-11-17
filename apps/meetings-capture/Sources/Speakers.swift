@@ -333,10 +333,19 @@ final class SpeakerWatch {
         share = region
         onShare(region, first ? ShareParse.describe(c.node, frame: c.frame) : nil)
       }
-    } else if share != nil, lastWalk.timeIntervalSince(shareSeen) >= Self.shareGrace {
-      shareElement = nil
-      share = nil
-      onShare(nil, nil)
+    } else if var s = share {
+      if lastWalk.timeIntervalSince(shareSeen) >= Self.shareGrace {
+        shareElement = nil
+        share = nil
+        onShare(nil, nil)
+      } else if s.seen {
+        // Missed by this walk: the share stays on through the grace, but nothing is captured
+        // where it was until a walk finds it again.
+        shareElement = nil
+        s.seen = false
+        share = s
+        onShare(s, nil)
+      }
     }
   }
 
@@ -347,6 +356,9 @@ final class SpeakerWatch {
     guard let f = axFrame(e), ShareParse.bigEnough(f) else {
       shareElement = nil
       lastWalk = .distantPast
+      s.seen = false
+      share = s
+      onShare(s, nil)
       return
     }
     if f != s.rect {

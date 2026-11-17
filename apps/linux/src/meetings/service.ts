@@ -99,6 +99,12 @@ export const FINAL_MOMENTS_MS = 90_000;
 /** A snapshot's line is the one said at that moment, or one that ended at most this long before. */
 const SHOT_LINE_GAP_MS = 15_000;
 const SHOT_LINE_MAX = 300;
+/**
+ * Lines this far before the last one the key moments looked at go in again after a restart: a
+ * line finalized late (the other track's long turn) can start before it and was never looked at.
+ * Moments found twice merge (mergeMoments).
+ */
+const MOMENTS_RESTORE_OVERLAP_MS = 20_000;
 
 /** `meeting.shot`: one snapshot the Mac saved (its `shots.jsonl` row) and its JPEG. */
 const ShotFrame = z.object({
@@ -205,6 +211,14 @@ export function transcriptText(lines: readonly LiveLine[]): string {
         `[${meetingClock(l.startMs)}] ${l.speaker}: ${l.text.trim()}${l.final ? "" : " (still speaking)"}`,
     )
     .join("\n");
+}
+
+/**
+ * The notes without their `## Screen Snapshots` section: what was on the shared screen (its OCR
+ * text) stays on this Mac and never goes to a model.
+ */
+export function notesForModel(md: string): string {
+  return md.replace(/^## Screen Snapshots\n[\s\S]*?(?=^## |(?![\s\S]))/m, "");
 }
 
 /** Astra's first message about a meeting: her prime, what this session is, her memory, the transcript. */
@@ -520,7 +534,7 @@ export class MeetingsService implements MeetingsRelaying {
     l.moments = actor;
     const lines = momentLines(l.transcript.all());
     for (const x of lines) l.fed.add(x.id);
-    const fresh = lines.filter((x) => x.startMs > saved.through);
+    const fresh = lines.filter((x) => x.startMs > saved.through - MOMENTS_RESTORE_OVERLAP_MS);
     if (fresh.length > 0) actor.send({ type: "transcript.lines", lines: fresh });
   }
 
@@ -712,7 +726,16 @@ export class MeetingsService implements MeetingsRelaying {
     if (this.running.has(id)) return;
     this.running.add(id);
     try {
-      const live = this.live.get(id);
+      let live = this.live.get(id);
+      // After a host restart mid after-call the moments machine is gone: back from moments.json,
+      // so the lines it had not looked at yet still get their last pass before the notes.
+      if (live === undefined && this.deps.findMoments !== null) {
+        const meta = this.deps.store.load(id);
+        if (meta !== null) {
+          live = this.liveOf(meta);
+          if (live.moments === null) this.startMoments(id, live);
+        }
+      }
       if (live?.open === true) {
         // Voices the meeting app named for most of their talk teach Relay's voice prints.
         for (const s of live.transcript.timeline.settled(LEARN_MIN_S, LEARN_SHARE))
@@ -906,7 +929,7 @@ export class MeetingsService implements MeetingsRelaying {
       Promise.resolve(
         [
           m.context?.annotation ?? "",
-          notes === null ? "" : `### Notes written after the call\n\n${notes}`,
+          notes === null ? "" : `### Notes written after the call\n\n${notesForModel(notes)}`,
           `### Transcript so far\n\n${transcriptText(lines) || "(nothing said yet)"}`,
         ]
           .filter((s) => s !== "")

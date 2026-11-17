@@ -75,7 +75,10 @@ export interface ShareSnapshots {
   heard(ev: ShareHelperEvent): void
   /** The setting changed. */
   setPercent(percent: number): void
-  /** A fresh host connection: says again that someone shares (a host that restarted forgot). */
+  /**
+   * A fresh host connection: says again whether someone shares (a host that restarted forgot, and
+   * a share that ended while it was away still reads as on there).
+   */
   resend(): void
   /** The recording stopped: no command or frame follows. */
   stop(): void
@@ -124,9 +127,12 @@ export function createShareSnapshots(deps: ShareSnapshotsDeps): ShareSnapshots {
     resend() {
       const s = actor.getSnapshot()
       if (s.status !== 'active') return
-      if (s.matches('sharing')) deps.sendFrame({ t: 'meeting.share', id, state: 'sharing' })
-      else if (s.matches('blocked'))
-        deps.sendFrame({ t: 'meeting.share', id, state: 'no-permission' })
+      const state = s.matches('sharing')
+        ? 'sharing'
+        : s.matches('blocked')
+          ? 'no-permission'
+          : 'none'
+      deps.sendFrame({ t: 'meeting.share', id, state })
     },
     stop() {
       // `share.stop` tells the host nobody shares any more (when it heard otherwise) and lands in

@@ -8,6 +8,7 @@ The key moments of one live recording on the host (`apps/linux/src/meetings/key-
 - `backoff`: the model failed; it is asked again after 10 s, then 20 s. After the third failure those lines are let go.
 - `ending`: the call ended; whatever is still waiting (or was being looked at) gets one last extraction, with the same retries, before `done`.
 - A line the call later names (a voice gets its person) renames the moments said on it, in any state.
+- A host restart (mid-call or mid after-call) starts the machine again from `moments.json`; the last 20 s it had looked at go in once more, since a line finalized late can start before them, and a moment found twice is kept once.
 
 <!-- diagram:start (generated from the machine by `pnpm machines:docs`; do not edit) -->
 ```mermaid

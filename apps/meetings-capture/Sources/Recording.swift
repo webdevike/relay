@@ -76,7 +76,8 @@ final class Recording {
     }
     // The first text recognition in a process loads Vision's models (a fraction of a second once
     // cached; over a minute the first time on a busy Mac), so it happens now, not in the first save.
-    shotQueue.async { ShareShot.warmUp() }
+    // Not on `shotQueue`: stopping drains that queue, and only real saves should hold it up.
+    DispatchQueue.global(qos: .utility).async { ShareShot.warmUp() }
   }
 
   /// Leftover spool from an earlier run (host away, helper restarted): read-only, already ended.
@@ -185,6 +186,7 @@ final class Recording {
   func sampleShare(seq: Int, done: @escaping (Result<String, ShareError>) -> Void) {
     guard !meta.ended else { return done(.failure(ShareError(reason: "the recording has ended"))) }
     guard let region = share else { return done(.failure(ShareError(reason: "nobody is sharing"))) }
+    guard region.seen else { return done(.failure(ShareError(reason: "the shared content is out of sight"))) }
     // The moment of the sample on the app track, like a speaker sample's.
     let host = mach_absolute_time()
     let t = nowMs()
