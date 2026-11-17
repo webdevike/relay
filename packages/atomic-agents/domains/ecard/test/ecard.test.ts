@@ -4,7 +4,7 @@ import { Effect, FileSystem, Layer, Ref } from "effect"
 import { ecardPack } from "../adapters/pack.ts"
 import { type Email, Outlook } from "../adapters/outlook.ts"
 import { GitHub, Linear, Meetings } from "../adapters/services.ts"
-import { flaggedItems, Flags, Slack } from "../adapters/slack.ts"
+import { type Activity, flaggedItems, Flags, type Read, type Reader, Slack, SlackError } from "../adapters/slack.ts"
 import { omp } from "../../../src/core/adapters/omp.ts"
 import { scorers, voiceBreaks } from "../bench/ecard-score.ts"
 import { spec as outlookFetchSpec } from "../ecard-outlook-fetch.ts"
@@ -93,14 +93,19 @@ describe("ecard-slack-fetch", () => {
       const dir = yield* builtinAgents(root, ["ecard-slack-triage"])
       const surface = yield* Ref.make(slackMd([URL_A]))
       const asked = yield* Ref.make<ReadonlyArray<ReadonlyArray<string>>>([])
-      const slack = Layer.succeed(Slack, Slack.of({
-        threads: (urls) =>
-          Ref.update(asked, (all) => [...all, urls]).pipe(Effect.as(urls.map((url) => ({
-            url,
-            channel: "DM with Todd",
-            ts: "1700000000.000001",
-            messages: [{ author: "Todd Barczak", ts: "1700000000.000001", text: "@Isaac can you review this today?" }]
-          }))))
+      const slack = Layer.succeed(Slack, Slack.make({
+        "claude-proxy": (request) =>
+          Ref.update(asked, (all) => [...all, request.urls]).pipe(Effect.as({
+            authedUser: "Isaac Weber",
+            items: [],
+            threads: request.urls.map((url) => ({
+              url,
+              channel: "DM with Todd",
+              ts: "1700000000.000001",
+              messages: [{ author: "Todd Barczak", ts: "1700000000.000001", text: "@Isaac can you review this today?" }]
+            }))
+          })),
+        "slack-desktop": () => Effect.fail(new SlackError({ message: "desktop unused" }))
       }))
       const flags = Layer.succeed(Flags, Flags.of({ read: Ref.get(surface) }))
       const requests = yield* Ref.make<ReadonlyArray<GenerateRequest>>([])
@@ -123,6 +128,68 @@ describe("ecard-slack-fetch", () => {
         yield* runner.run("ecard-slack-fetch", "fetch", {})
         expect(yield* Ref.get(asked)).toEqual([[URL_A], [URL_B]])
       }).pipe(Effect.provide(runtime(root, { dirs: [dir], code: [define({ ...slackFetchSpec, tools: Layer.mergeAll(slack, flags) })] }, models)))
+    }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+
+  const todd: Activity = {
+    url: "https://ecardplatform.slack.com/archives/D1/p1700000100000001",
+    channel: "DM with Todd Barczak",
+    kind: "dm",
+    author: "Todd Barczak",
+    ts: "2023-11-14T22:15:00.000Z",
+    text: "@Isaac Weber can you look at ENG-1?",
+    mentionsIsaac: true,
+    reactions: [{ emoji: "eyes", count: 1, byIsaac: true }]
+  }
+  const read: Read = { authedUser: "Isaac Weber", items: [todd], threads: [] }
+  const failing = (message: string): Reader => () => Effect.fail(new SlackError({ message }))
+
+  test("auto reads through the proxy; a failed proxy falls back to Slack desktop with the same shape", () =>
+    Effect.gen(function*() {
+      const calls = yield* Ref.make<ReadonlyArray<string>>([])
+      const reader = (source: string): Reader => () => Ref.update(calls, (all) => [...all, source]).pipe(Effect.as(read))
+
+      const proxied = yield* Slack.make({ "claude-proxy": reader("proxy"), "slack-desktop": reader("desktop") }).read({ since: "2023-11-14T22:00:00Z", urls: [] })
+      expect(proxied).toEqual({ ...read, source: "claude-proxy" })
+      expect(yield* Ref.get(calls)).toEqual(["proxy"])
+
+      const fellBack = yield* Slack.make({ "claude-proxy": failing("claude proxy timed out after 8 minutes"), "slack-desktop": reader("desktop") }).read({ since: "2023-11-14T22:00:00Z", urls: [] })
+      expect(fellBack).toEqual({ ...read, source: "slack-desktop", fallbackReason: "claude proxy timed out after 8 minutes" })
+
+      const forced = yield* Slack.make({ "claude-proxy": reader("proxy"), "slack-desktop": reader("desktop") }, "slack-desktop").read({ urls: [] })
+      expect(forced.source).toBe("slack-desktop")
+      expect(yield* Ref.get(calls)).toEqual(["proxy", "desktop", "desktop"])
+
+      const neither = yield* Effect.flip(Slack.make({ "claude-proxy": failing("claude-proxy: no authed Slack user"), "slack-desktop": failing("slack desktop: no app.slack.com/client page") }).read({ urls: [] }))
+      expect(neither.message).toBe("claude-proxy: no authed Slack user; then slack desktop: no app.slack.com/client page")
+
+      // A source named on the call wins and never falls back.
+      const only = yield* Effect.flip(Slack.make({ "claude-proxy": failing("proxy down"), "slack-desktop": reader("desktop") }).read({ urls: [] }, "claude-proxy"))
+      expect(only.message).toBe("proxy down")
+    }).pipe(Effect.runPromise))
+
+  test("activity emits one read with its source and the cursor to save", () =>
+    Effect.gen(function*() {
+      const root = yield* tempHome
+      const asked = yield* Ref.make<ReadonlyArray<string | undefined>>([])
+      const slack = Layer.succeed(Slack, Slack.make({
+        "claude-proxy": failing("claude proxy: Slack connector needs auth"),
+        "slack-desktop": (request) => Ref.update(asked, (all) => [...all, request.since]).pipe(Effect.as(read))
+      }))
+      const flags = Layer.succeed(Flags, Flags.of({ read: Effect.succeed("") }))
+      yield* Effect.gen(function*() {
+        const runner = yield* Runner
+        const bus = yield* EventBus
+        expect((yield* runner.run("ecard-slack-fetch", "activity", { since: "2023-11-14T22:00:00.000Z" })).ok).toBe(true)
+        const fetched = (yield* bus.history).find((event) => event.type === "ecard-slack-fetch/activity.fetched")
+        expect(fetched?.data).toEqual({
+          ...read,
+          source: "slack-desktop",
+          fallbackReason: "claude proxy: Slack connector needs auth",
+          since: "2023-11-14T22:00:00.000Z",
+          cursor: todd.ts
+        })
+        expect(yield* Ref.get(asked)).toEqual(["2023-11-14T22:00:00.000Z"])
+      }).pipe(Effect.provide(runtime(root, { dirs: [], code: [define({ ...slackFetchSpec, tools: Layer.mergeAll(slack, flags) })] })))
     }).pipe(Effect.scoped, Effect.runPromise), 20_000)
 })
 
