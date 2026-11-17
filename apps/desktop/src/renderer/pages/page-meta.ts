@@ -33,7 +33,15 @@ export const NAV_PAGES: readonly NavPage[] = [
     slug: 'agents',
     page: 'agents',
     title: 'Agents',
-    description: 'Every task your agents work on, by status, and the specialists they asked.',
+    description:
+      'The specialists your assistants ask: what each does, its model and runs. Open one to edit its instructions.',
+    icon: 'IconRobot',
+  },
+  {
+    slug: 'board',
+    page: 'board',
+    title: 'Board',
+    description: 'Every task your agents work on, by status.',
     icon: 'IconLayoutKanban',
   },
   {

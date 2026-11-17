@@ -59,6 +59,8 @@ export interface SaveInput {
 
 export interface FilesService {
   root(file: string | null): Promise<{ root: string; name: string }>
+  /** Serves `dir` as a root too (a folder main chose itself, like an agent's files). */
+  adopt(dir: string): Promise<{ root: string; name: string }>
   list(root: string, dir: string): Promise<{ entries: FileEntry[] }>
   read(root: string, rel: string): Promise<FileContent>
   save(input: SaveInput): Promise<{ version: FileVersion }>
@@ -112,8 +114,9 @@ async function entryOf(
 
 /**
  * The Files panel's main side, free of electron. Main serves only roots it handed out through
- * `root()`; every other call fails `unknown-root` for anything else, and every path goes through
- * `resolveInRoot` (no `..`, no escaping symlink, no `.git`, no `secrets`).
+ * `root()` or chose itself through `adopt()`; every other call fails `unknown-root` for anything
+ * else, and every path goes through `resolveInRoot` (no `..`, no escaping symlink, no `.git`, no
+ * `secrets`).
  *
  * Own saves: the watcher still reports a file this service just saved. The renderer re-reads it
  * and compares the hash with the version the save returned; equal means nothing changed.
@@ -156,6 +159,18 @@ export function createFilesService(deps: FilesServiceDeps): FilesService {
       } catch {
         throw new CodedError('not-found', 'The folder no longer exists.')
       }
+      roots.add(real)
+      return { root: real, name: path.basename(real) }
+    },
+
+    async adopt(dir) {
+      let real: string
+      try {
+        real = await fs.promises.realpath(dir)
+      } catch {
+        throw new CodedError('not-found', 'The folder no longer exists.')
+      }
+      if (!(await isDir(real))) throw new CodedError('not-a-folder', 'This is not a folder.')
       roots.add(real)
       return { root: real, name: path.basename(real) }
     },

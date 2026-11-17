@@ -1,5 +1,6 @@
-import { DateTime, Effect, Option, Schema, Stream } from "effect"
+import { DateTime, Effect, Option, Path, Schema, Stream } from "effect"
 import { type Agent, Agents } from "./Agent.ts"
+import { AGENT_DOC } from "./AgentDoc.ts"
 import { ASK_RUN_PREFIX, publishRequest } from "./Ask.ts"
 import { type JobInfo, Trigger } from "./Component.ts"
 import { type AgentEvent, EventBus, lifecycle } from "./Event.ts"
@@ -161,10 +162,12 @@ export const catalog = Effect.gen(function*() {
   })
 })
 
-/** A run as `agents_ask` and `agents_result` answer it; `run` is the request id. */
+/** A run as `agents_ask` and `agents_result` answer it; `run` is the request id, or the job run id of a run no request started. */
 export interface RunStatus {
   readonly run: string
   readonly agent: string
+  /** The job it ran (`job.started`'s job); absent until it started. */
+  readonly job?: string
   readonly status: "running" | "done" | "failed"
   /** Who asked (`AgentEvent.caller`: `agent:nova`, an omp session file); absent when the request did not say. */
   readonly caller?: string
@@ -191,7 +194,11 @@ export class UnknownRun extends Schema.TaggedError<UnknownRun>()("UnknownRun", {
   message: Schema.String
 }) {}
 
-/** One request's run, folded from journal events in order (history, then live; an event seen twice counts once). */
+/**
+ * One run, folded from journal events in order (history, then live; an event seen twice counts once): a request's run
+ * (`requestId` is the request id), or with `jobRun` a job run no request started (cron, onEvent, manual, bench), where
+ * `requestId` is the job run id and `request` the job's input.
+ */
 class Tracker {
   private readonly seen = new Set<string>()
   agent: string | undefined
@@ -199,11 +206,11 @@ class Tracker {
   request: unknown
   requestedAt: string | undefined
   rejected: string | undefined
-  started: { readonly component: string; readonly run: string; readonly at: string; readonly model: string } | undefined
+  started: { readonly component: string; readonly job: string; readonly run: string; readonly at: string; readonly model: string } | undefined
   finished: { readonly ok: boolean; readonly at: string; readonly seconds: number; readonly error?: string } | undefined
   readonly outputs: Array<AgentEvent> = []
 
-  constructor(readonly requestId: string) {}
+  constructor(readonly requestId: string, readonly jobRun = false) {}
 
   add(event: AgentEvent): void {
     if (this.seen.has(event.id)) return
@@ -237,9 +244,16 @@ class Tracker {
     }
     const phase = lifecycle(event)
     if (Option.isSome(phase) && phase.value._tag === "job.started") {
-      if (phase.value.requestId === this.requestId || carries(phase.value.input, this.requestId)) {
+      const mine = this.jobRun
+        ? event.run === this.requestId && (this.started === undefined || this.started.component === event.component)
+        : phase.value.requestId === this.requestId || carries(phase.value.input, this.requestId)
+      if (mine) {
         this.agent ??= event.component
-        this.started = { component: event.component, run: event.run, at: event.at, model: phase.value.model }
+        if (this.jobRun && this.request === undefined && typeof phase.value.input === "object" && phase.value.input !== null && !Array.isArray(phase.value.input)) {
+          const input = withoutRequestId(phase.value.input)
+          if (Object.keys(input).length > 0) this.request = input
+        }
+        this.started = { component: event.component, job: event.job, run: event.run, at: event.at, model: phase.value.model }
       }
       return
     }
@@ -280,7 +294,7 @@ class Tracker {
       ...(data === undefined ? {} : { reply: data }),
       ...(shown === undefined || shown === "none" ? {} : { text: shown }),
       ...(failed === undefined ? {} : { error: failed }),
-      ...(this.started === undefined ? {} : { model: this.started.model, startedAt: this.started.at }),
+      ...(this.started === undefined ? {} : { job: this.started.job, model: this.started.model, startedAt: this.started.at }),
       ...(this.requestedAt === undefined ? {} : { requestedAt: this.requestedAt }),
       ...(this.finished === undefined && reply === undefined ? {} : { finishedAt: this.finished?.at ?? reply!.at }),
       ...(seconds === undefined ? {} : { seconds }),
@@ -290,19 +304,25 @@ class Tracker {
 }
 
 /**
- * Fold the journal into `requestId`'s run, then follow live events for up to `waitMillis` until it is done.
+ * Fold the journal into run `run` (a request id, else a job run id), then follow live events for up to `waitMillis` until it is done.
  * `live` must be subscribed before the request was published, so nothing between the two slips past.
  */
-const follow = (requestId: string, live: Stream.Stream<AgentEvent>, waitMillis: number) =>
+const follow = (run: string, live: Stream.Stream<AgentEvent>, waitMillis: number) =>
   Effect.gen(function*() {
     const agents = yield* (yield* Agents).current
-    const tracker = new Tracker(requestId)
-    for (const event of yield* (yield* EventBus).history) tracker.add(event)
-    if (!tracker.known) return yield* new UnknownRun({ message: `no request ${requestId} in the journal` })
+    const history = yield* (yield* EventBus).history
+    let tracker = new Tracker(run)
+    for (const event of history) tracker.add(event)
+    if (!tracker.known) {
+      tracker = new Tracker(run, true)
+      for (const event of history) tracker.add(event)
+    }
+    if (!tracker.known) return yield* new UnknownRun({ message: `no run ${run} in the journal` })
     if (!tracker.done && waitMillis > 0) {
+      const following = tracker
       yield* Stream.runForEachWhile(live, (event) => Effect.sync(() => {
-        tracker.add(event)
-        return !tracker.done
+        following.add(event)
+        return !following.done
       })).pipe(Effect.timeoutOption(waitMillis))
     }
     return tracker.status(agents)
@@ -337,26 +357,29 @@ export const request = Effect.fn("Requests.request")(function*(agentId: string, 
   return yield* follow(requestId, live, waitMillis)
 }, Effect.scoped)
 
-/** `requestId`'s run as it stands, waiting up to `waitMillis` for it to finish. */
-export const result = Effect.fn("Requests.result")(function*(requestId: string, waitMillis: number) {
+/** Run `run` (a request id, or the job run id of any job run) as it stands, waiting up to `waitMillis` for it to finish. */
+export const result = Effect.fn("Requests.result")(function*(run: string, waitMillis: number) {
   const live = yield* (yield* EventBus).listen
-  return yield* follow(requestId, live, waitMillis)
+  return yield* follow(run, live, waitMillis)
 }, Effect.scoped)
 
 /**
  * Every request sent through `request` or `ask`, folded into its run, oldest first: a `run.requested`, or an ask
  * pair's request in an `ask-` run (`publishRequest`). Consumers' own asks on the bus (the Relay Host's widget asks
- * under replies, `relay-` runs) are not specialist calls and stay out. One pass over the journal: each request's
- * events reach its tracker by request id, then by the run its `job.started` names.
+ * under replies, `relay-` runs) are not specialist calls and stay out. With `every`, every job run no request
+ * started (cron, onEvent, manual, bench, a consumer's own ask) is in it too, from its `job.started`. One pass over
+ * the journal: each request's events reach its tracker by request id, then by the run its `job.started` names.
  */
-const foldRuns = (history: ReadonlyArray<AgentEvent>): ReadonlyArray<Tracker> => {
+const foldRuns = (history: ReadonlyArray<AgentEvent>, every: boolean): ReadonlyArray<Tracker> => {
   const byRequest = new Map<string, Tracker>()
   const byRun = new Map<string, Tracker>()
+  const ordered: Array<Tracker> = []
   const open = (requestId: string): Tracker => {
     const known = byRequest.get(requestId)
     if (known !== undefined) return known
     const tracker = new Tracker(requestId)
     byRequest.set(requestId, tracker)
+    ordered.push(tracker)
     return tracker
   }
   for (const event of history) {
@@ -377,17 +400,28 @@ const foldRuns = (history: ReadonlyArray<AgentEvent>): ReadonlyArray<Tracker> =>
     }
     const phase = lifecycle(event)
     if (Option.isSome(phase) && phase.value._tag === "job.started") {
+      const key = `${event.component} ${event.run}`
       const requestId = phase.value.requestId ?? Option.getOrUndefined(decodeCorrelated(phase.value.input))?.requestId
-      const tracker = requestId === undefined ? undefined : byRequest.get(requestId)
+      let tracker = requestId === undefined ? undefined : byRequest.get(requestId)
+      // A trial arm no request started is listed by its trial (blind until Isaac picks), not as a job run.
+      const arm = typeof event.data === "object" && event.data !== null && "trial" in event.data
+      if (tracker === undefined && every && event.component !== RUNTIME && !arm) {
+        // A retry on the fallback model starts the same run again.
+        tracker = byRun.get(key)
+        if (tracker === undefined) {
+          tracker = new Tracker(event.run, true)
+          ordered.push(tracker)
+        }
+      }
       if (tracker !== undefined) {
         tracker.add(event)
-        byRun.set(`${event.component} ${event.run}`, tracker)
+        byRun.set(key, tracker)
       }
       continue
     }
     byRun.get(`${event.component} ${event.run}`)?.add(event)
   }
-  return [...byRequest.values()]
+  return ordered
 }
 
 /** A run as `runs` lists it: its status without the request and reply (`result` has them), the request on one line. */
@@ -430,12 +464,15 @@ export const summaryOf = (request: unknown): string | undefined => {
 
 const DAY_MILLIS = 86_400_000
 
-/** Who used which agent: the newest `limit` runs (of `agent` when given), and per agent its calls, failures, cost and callers over the last `days`. */
-export const runs = Effect.fn("Requests.runs")(function*(options: { readonly days: number; readonly limit: number; readonly agent?: string }) {
+/**
+ * Who used which agent: the newest `limit` runs (of `agent` when given; with `every` job runs no request started too),
+ * and per agent its calls (requests only), failures, cost and callers over the last `days`.
+ */
+export const runs = Effect.fn("Requests.runs")(function*(options: { readonly days: number; readonly limit: number; readonly agent?: string; readonly every?: boolean }) {
   const agents = yield* (yield* Agents).current
   const history = yield* (yield* EventBus).history
   const since = DateTime.toEpochMillis(yield* DateTime.now) - options.days * DAY_MILLIS
-  const all = foldRuns(history)
+  const all = foldRuns(history, options.every ?? false)
     .filter((tracker) => tracker.known && (options.agent === undefined || tracker.agent === options.agent))
     .map((tracker) => tracker.status(agents))
   const usage = new Map<string, { calls: number; failed: number; cost: number; callers: Map<string | undefined, number> }>()
@@ -466,4 +503,134 @@ export const runs = Effect.fn("Requests.runs")(function*(options: { readonly day
     })).sort((a, b) => b.calls - a.calls)
   }
   return report
+})
+
+/** An agent's job runs in the journal, requested or not. */
+export interface RunStats {
+  /** Runs started in the last 7 days. */
+  readonly week: number
+  /** Of those, the ones that ended with `job.failed`. */
+  readonly failed: number
+  /** Runs started in the last hour that have not ended (older unfinished runs are taken as dead). */
+  readonly running: number
+  /** When the newest run started. */
+  readonly lastAt?: string
+}
+
+/** An agent as the Relay Agents page lists it: every agent file and code agent, enabled or not, and files that failed to load. */
+export interface RosterEntry {
+  readonly id: string
+  /** Empty for a file that never loaded. */
+  readonly purpose: string
+  readonly kind: "spec" | "code"
+  /** The agent file (a folder's `AGENT.md`, or `<id>.json|yaml|yml`); absent for code the host passed in. */
+  readonly file?: string
+  /** A JSON/YAML spec's knowledge files, absolute; empty for an `AGENT.md` folder (its `knowledge/` is inside it) and code. */
+  readonly knowledge: ReadonlyArray<string>
+  readonly enabled: boolean
+  /** config.json's `mode`, when set. */
+  readonly mode?: "shadow" | "live" | "off"
+  /** The model in force; empty when the file never loaded. */
+  readonly model: string
+  readonly fallbackModel?: string
+  readonly candidates: ReadonlyArray<string>
+  readonly thinking?: string
+  /** How a request reaches it (as `catalog`); absent when it has no job. */
+  readonly how?: "ask" | "run"
+  readonly job?: string
+  /** Trial mode: on when it runs each caller request on its `arms` (the agent's model first) at once. */
+  readonly trial: { readonly on: boolean; readonly arms: ReadonlyArray<string> }
+  readonly runs: RunStats
+  /** Why the agent file's current text does not load (the last good version, if any, stays in force). */
+  readonly error?: string
+}
+
+const HOUR_MILLIS = 3_600_000
+
+/** Every agent in load order, disabled ones too, then each agent file that failed to load and has no version in force, with its run stats. */
+export const roster = Effect.gen(function*() {
+  const path = yield* Path.Path
+  const settings = yield* (yield* Settings).current
+  const loader = yield* Agents
+  const agents = yield* loader.current
+  const rejected = yield* loader.rejected
+  const history = yield* (yield* EventBus).history
+  const now = DateTime.toEpochMillis(yield* DateTime.now)
+
+  // Every job run by component and run id: when it first started, and how it ended.
+  const started = new Map<string, { readonly component: string; readonly at: string; ended?: "succeeded" | "failed" }>()
+  for (const event of history) {
+    if (event.component === RUNTIME) continue
+    const phase = lifecycle(event)
+    if (Option.isNone(phase)) continue
+    const key = `${event.component} ${event.run}`
+    const run = started.get(key)
+    if (phase.value._tag === "job.started") {
+      if (run === undefined) started.set(key, { component: event.component, at: event.at })
+    } else if (run !== undefined) run.ended = phase.value._tag === "job.failed" ? "failed" : "succeeded"
+  }
+  const stats = new Map<string, { week: number; failed: number; running: number; lastAt?: string; last: number }>()
+  for (const run of started.values()) {
+    const at = Date.parse(run.at)
+    const entry = stats.get(run.component) ?? { week: 0, failed: 0, running: 0, last: Number.NEGATIVE_INFINITY }
+    stats.set(run.component, entry)
+    if (now - at <= 7 * DAY_MILLIS) {
+      entry.week += 1
+      if (run.ended === "failed") entry.failed += 1
+    }
+    if (run.ended === undefined && now - at <= HOUR_MILLIS) entry.running += 1
+    if (at > entry.last) {
+      entry.last = at
+      entry.lastAt = run.at
+    }
+  }
+  const runsOf = (id: string): RunStats => {
+    const { last: _last, ...entry } = stats.get(id) ?? { week: 0, failed: 0, running: 0, last: 0 }
+    return entry
+  }
+
+  const errors = new Map(rejected.map(({ file, message }) => [file, message]))
+  const loaded = agents.map((agent): RosterEntry => {
+    const resolved = effective(agent, settings)
+    const target = targetOf(agent)
+    const mode = settings.components?.[agent.id]?.mode
+    const error = agent.file === undefined ? undefined : errors.get(agent.file)
+    return {
+      id: agent.id,
+      purpose: agent.purpose,
+      kind: agent.kind,
+      ...(agent.file === undefined ? {} : { file: agent.file }),
+      knowledge: agent.knowledge,
+      enabled: resolved.enabled,
+      ...(mode === undefined ? {} : { mode }),
+      model: resolved.agent.model,
+      ...(resolved.fallbackModel === undefined ? {} : { fallbackModel: resolved.fallbackModel }),
+      candidates: resolved.agent.candidates,
+      ...(resolved.agent.thinking === undefined ? {} : { thinking: resolved.agent.thinking }),
+      ...(target === undefined ? {} : { how: target.how, job: target.job.id }),
+      trial: { on: resolved.trial.on, arms: resolved.trial.arms },
+      runs: runsOf(agent.id),
+      ...(error === undefined ? {} : { error })
+    }
+  })
+  const files = new Set(agents.map((agent) => agent.file))
+  const broken = rejected.filter(({ file }) => !files.has(file)).map(({ file, message }): RosterEntry => {
+    const id = path.basename(file) === AGENT_DOC ? path.basename(path.dirname(file)) : path.basename(file).replace(/\.(json|ya?ml)$/, "")
+    const own = settings.components?.[id]
+    return {
+      id,
+      purpose: "",
+      kind: "spec",
+      file,
+      knowledge: [],
+      enabled: own?.enabled ?? true,
+      ...(own?.mode === undefined ? {} : { mode: own.mode }),
+      model: "",
+      candidates: [],
+      trial: { on: false, arms: [] },
+      runs: runsOf(id),
+      error: message
+    }
+  })
+  return [...loaded, ...broken]
 })

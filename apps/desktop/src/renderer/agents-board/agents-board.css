@@ -1,7 +1,8 @@
 /*
- * The Agents board (Linear's board view): status columns with counts, compact bordered cards on
+ * The Board page (Linear's board view): status columns with counts, compact bordered cards on
  * a quiet column wash, no shadows, no accent stripes; a hover only shifts the border. Spacing is
- * Mantine's scale (scripts/lint-spacing.ts).
+ * Mantine's scale (scripts/lint-spacing.ts). The Agents page reuses the page frame, head and side
+ * panel classes (`eva-ab`, `eva-ab-head`, `eva-ab-side`, `eva-ab-tv`).
  */
 .eva-ab {
   --eva-ab-col-min: 232px;
@@ -446,81 +447,4 @@
 }
 [data-pr='closed'] > .eva-ab-tv-prglyph {
   color: var(--mantine-color-red-filled);
-}
-
-/*
- * Specialists view: each specialist's use over the week as one divided table, then the runs as
- * flat rows on hairline dividers (ListView); one scroll for both, the run panel beside it.
- */
-.eva-ab-view {
-  flex: none;
-  align-self: center;
-}
-.eva-sp {
-  flex: 1 1 0;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xl);
-  padding: 0 var(--mantine-spacing-lg) var(--mantine-spacing-lg);
-}
-.eva-sp-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--mantine-spacing-xs);
-  max-width: 1080px;
-}
-.eva-sp-heading {
-  margin: 0;
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-medium);
-  color: var(--eva-c-foreground);
-}
-.eva-sp-num {
-  font-variant-numeric: tabular-nums;
-}
-.eva-sp-cost {
-  min-width: 48px;
-  text-align: right;
-  font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
-}
-.eva-sp-callers {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--mantine-spacing-sm);
-  min-width: 0;
-}
-.eva-sp-caller {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) * 0.6);
-  font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
-}
-.eva-sp-avatar {
-  flex: none;
-}
-.eva-sp-avatar:not([data-caller='assistant']) {
-  background: var(--eva-c-muted-background);
-  color: var(--eva-c-muted-foreground);
-}
-.eva-sp-note {
-  padding: var(--mantine-spacing-sm) 0;
-  font-size: var(--eva-fz-label);
-  color: var(--eva-c-muted-foreground);
-}
-.eva-sp-panel-who {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--eva-fz-body);
-  font-weight: var(--eva-fw-medium);
-  color: var(--eva-c-foreground);
-}
-.eva-sp-panel-body {
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
 }

@@ -124,6 +124,7 @@ describe("a chat's specialist badges", () => {
     caller,
     status,
     summary: null,
+    job: null,
     error: null,
     model: null,
     at: NOW - 12_000,

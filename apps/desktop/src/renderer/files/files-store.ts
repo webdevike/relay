@@ -121,9 +121,10 @@ export function currentSpace(s: FilesState): Workspace | null {
   return s.root === null ? null : (s.spaces[s.root] ?? null)
 }
 
-export function useSpace<T>(selector: (w: Workspace) => T, fallback: T): T {
+/** Reads one root's workspace: the Files tab's (`filesStore.root`) or another view's own root. */
+export function useSpace<T>(root: string | null, selector: (w: Workspace) => T, fallback: T): T {
   return useStore(filesStore, (s) => {
-    const w = currentSpace(s)
+    const w = root === null ? undefined : s.spaces[root]
     return w ? selector(w) : fallback
   })
 }
@@ -257,6 +258,17 @@ export async function followChat(file: string | null): Promise<void> {
   const { root, name } = r.value
   ensureSpace(root, name)
   filesStore.setState({ root })
+  if (space(root)?.children[''] === undefined) void loadDir(root, '')
+  void refreshGit(root)
+  syncWatch(root)
+}
+
+/**
+ * Shows `root` (one main already serves, like an agent's folder) in a view of its own: the tree
+ * and editor read it by root, so the Files tab keeps its own root in front.
+ */
+export function openRoot(root: string, name: string): void {
+  ensureSpace(root, name)
   if (space(root)?.children[''] === undefined) void loadDir(root, '')
   void refreshGit(root)
   syncWatch(root)
@@ -855,15 +867,32 @@ export function revealFinder(root: string, path: string): void {
   void invoke('files.reveal', { root, path })
 }
 
-/** Subscribes to main's change events and the host's presence; returns the unsubscribe. */
+let filesUsers = 0
+let stopFiles: (() => void) | null = null
+
+/**
+ * Subscribes to main's change events and the host's presence while any Files view is mounted
+ * (the Files tab, an agent's files); returns the unsubscribe.
+ */
 export function startFiles(): () => void {
-  const offChanged = on('files.changed', ({ root, paths }) => void onDiskChange(root, paths))
-  const offEdits = on('files.presence.edit', (edit) => void applyAgentEdit(edit))
-  const offPresence = startPresence()
+  if (filesUsers++ === 0) {
+    const offChanged = on('files.changed', ({ root, paths }) => void onDiskChange(root, paths))
+    const offEdits = on('files.presence.edit', (edit) => void applyAgentEdit(edit))
+    const offPresence = startPresence()
+    stopFiles = () => {
+      offChanged()
+      offEdits()
+      offPresence()
+    }
+  }
+  let stopped = false
   return () => {
-    offChanged()
-    offEdits()
-    offPresence()
+    if (stopped) return
+    stopped = true
+    if (--filesUsers === 0) {
+      stopFiles?.()
+      stopFiles = null
+    }
   }
 }
 
@@ -875,6 +904,9 @@ export function resetFilesStoreForTests(): void {
   applied.clear()
   evaRootFor = undefined
   agentRootFor = undefined
+  stopFiles?.()
+  stopFiles = null
+  filesUsers = 0
   filesStore.setState({
     root: null,
     spaces: {},

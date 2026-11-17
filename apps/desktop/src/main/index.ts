@@ -52,7 +52,7 @@ import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
 import { registerAgentsBoard } from './agents-board'
 import { createLinearStates, hostBatch, localBatch } from './agents-board/linear-states'
-import { registerSpecialistRuns } from './agents-board/specialists'
+import { registerSpecialists } from './specialists'
 import { createPackagedUpdater, type PackagedUpdater } from './update/packaged'
 import { assistExecutable, startAssist } from './assist'
 import { registerMeetingsIpc } from './eva/meetings-ipc'
@@ -209,7 +209,7 @@ function bootstrap(): void {
         host ? hostLinearIssue(host) : localLinearIssue(ctx.env.evaRoot, ctx.env.configDir),
       )
       registerContext(ctx, queue, chat, experiments, run, prs)
-      // The Agents board: one Linear request for every ticket on it (a thin client asks its host).
+      // The Board page: one Linear request for every ticket on it (a thin client asks its host).
       registerAgentsBoard(
         ctx,
         chat,
@@ -222,8 +222,6 @@ function bootstrap(): void {
               : localBatch(() => apiKey(ctx.env.evaRoot, ctx.env.configDir)),
         ),
       )
-      // Specialist runs on the same page: the atomic-agents service's own record, through its CLI.
-      registerSpecialistRuns(ctx, chat)
       // Linear and PR status polling is Isaac's eCard workflow; a starter home never starts it.
       if (ctx.env.profile === 'eva') {
         const stopStatuses = startStatusReader({
@@ -266,7 +264,10 @@ function bootstrap(): void {
         () => chat.canvas.canvasOrigin(),
         (root, rel) => files?.hostPathOf(root, rel) ?? null,
       )
-      files = registerFilesIpc(ctx, chat, presence.noteSave)
+      const filesIpc = registerFilesIpc(ctx, chat, presence.noteSave)
+      files = filesIpc
+      // The Agents page: the atomic-agents service's agents, runs and files, through its CLI.
+      registerSpecialists(ctx, chat, filesIpc)
       registerTerminalIpc(ctx, chat)
       const browser = registerBrowser(ctx)
       // The live app (and e2e runs) mirror the window with every other Mac on the same Relay Host.

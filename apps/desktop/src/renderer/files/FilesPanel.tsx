@@ -74,8 +74,8 @@ function RailButton({
 }
 
 function ExplorerHead({ root }: { root: string }) {
-  const name = useSpace((w) => w.name, '')
-  const showIgnored = useSpace((w) => w.showIgnored, false)
+  const name = useSpace(root, (w) => w.name, '')
+  const showIgnored = useSpace(root, (w) => w.showIgnored, false)
   return (
     <div className="eva-files-side-head">
       <Tooltip label={root} openDelay={600}>
@@ -138,8 +138,8 @@ export function FilesPanel({ hidden }: { hidden: boolean }) {
   const sideOpen = useFiles((s) => s.sideOpen)
   const quickOpen = useFiles((s) => s.quickOpen)
   const searchFocus = useFiles((s) => s.searchFocus)
-  const active = useSpace((w) => w.active, null)
-  const error = useSpace((w) => w.error, null)
+  const active = useSpace(root, (w) => w.active, null)
+  const error = useSpace(root, (w) => w.error, null)
   const body = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(sideWidth)
   const [narrow, setNarrow] = useState(false)

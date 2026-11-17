@@ -177,6 +177,7 @@ export const APP_LINK_PARAMS = [
   "node",
   "ws",
   "skill",
+  "agent",
 ] as const;
 export type AppLinkParam = (typeof APP_LINK_PARAMS)[number];
 

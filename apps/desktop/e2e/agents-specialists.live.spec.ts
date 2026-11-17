@@ -5,10 +5,10 @@ import type { Page } from '@playwright/test'
 import { test as base, expect } from './fixtures'
 import { makeEvaFixture, type EvaFixture } from './helpers/eva-fixture'
 
-// Opt-in live spec: the Agents page's Specialists view over the real atomic-agents service on this
-// Mac (its installed CLI and journal, read only: `runs` and `result --wait 0ms`), with the real
-// assistant registry so callers show their portraits. EVAOS_SPECIALISTS_SHOTS=<dir> keeps the
-// screenshots there.
+// Opt-in live spec: the Agents page over the real atomic-agents service on this Mac (its installed
+// CLI and journal, read only: `list --json`, `runs` and `result --wait 0ms`; nothing is saved), with
+// the real assistant registry so callers show their portraits. EVAOS_SPECIALISTS_SHOTS=<dir> keeps
+// the screenshots there.
 const HOME =
   process.env.ATOMIC_AGENTS_HOME ?? path.join(os.homedir(), '.config/relay/atomic-agents')
 const REGISTRY = path.join(os.homedir(), 'Eva/.omp/assistant/agents.json')
@@ -40,22 +40,27 @@ async function shot(shell: Page, name: string): Promise<void> {
   await shell.screenshot({ path: path.join(SHOTS, `${name}.png`) })
 }
 
-test('the real specialist runs: callers, cost and time, and a run opens its reply', async ({
+test("the real agents: the list, one agent's files, its runs and one run with its output", async ({
   app,
   shell,
 }) => {
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1500, 950))
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('agents'))
-  await shell.locator(sel('agents-view')).getByText('Specialists').click()
-  const rows = shell.locator('[data-testid^="specialists-run-"][data-status]')
-  await expect(rows.first()).toBeVisible({ timeout: 30_000 })
-  await expect(shell.locator(sel('specialists-usage-web-researcher'))).toBeVisible()
-  await shot(shell, 'specialists')
+  const row = shell.locator(sel('agent-row-web-researcher'))
+  await expect(row).toBeVisible({ timeout: 30_000 })
+  await shot(shell, 'agents')
 
-  // The newest run Nova asked opens beside the list with its reply.
-  const novas = rows.filter({ hasText: 'for Nova' })
-  await novas.first().click()
+  await row.click()
+  await expect(shell.locator(sel('agent-facts'))).toBeVisible()
+  await expect(shell.locator(sel('files-tab')).first()).toBeVisible({ timeout: 30_000 })
+  await shot(shell, 'agent-files')
+
+  // The newest run Nova asked opens beside the runs with its reply.
+  await shell.locator(sel('agent-tab-runs')).click()
+  const runs = shell.locator('[data-testid^="agent-run-"][data-status]')
+  await expect(runs.first()).toBeVisible({ timeout: 30_000 })
+  await runs.filter({ hasText: 'Asked by Nova' }).first().click()
   const panel = shell.locator(sel('specialists-panel'))
   await expect(panel.locator(sel('agents-answer'))).toBeVisible({ timeout: 30_000 })
-  await shot(shell, 'specialists-run')
+  await shot(shell, 'agent-run')
 })

@@ -48,7 +48,7 @@ async function toast(shell: Page, text: string): Promise<void> {
 
 test('combined ticket view on a real ticket, every write a dry run', async ({ app, shell }) => {
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1800, 1100))
-  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('agents'))
+  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('board'))
   await expect(shell.locator(sel('agents-board'))).toBeVisible()
   await shell.locator(sel(`agents-card-${KEY}`)).click()
 

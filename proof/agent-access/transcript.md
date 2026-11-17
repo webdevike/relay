@@ -3,11 +3,11 @@
 Hidden test instance (temp config), agent RELAY_ASSISTANT=nova.
 
 ```
-tools/list: 54 tools (relay_status, state_read, layout_read, window_screenshot, app_quit, update_offer, page_open, tab_focus, tab_close, tab_open, pane_split, pane_close, pane_move, pane_resize, pane_focus, pane_zoom, chat_open, chat_new, chat_start, files_open, browser_open, browser_focusTab, browser_closeTab, ecard_switch, testbench_open, context_open, context_read, context_pin, context_unpin, toast_show, shortcut_run, artifacts_list, artifacts_add, artifacts_pin, artifacts_unpin, artifacts_tab_add, artifacts_tab_update, artifacts_tab_remove, canvas_live, studio_generate, studio_list, studio_open, describe, pages_list, settings_get, settings_set, settings_undo, connections_list, connections_add, connections_remove, link, link_open, tour_highlight, tour_clear)
+tools/list: 93 tools (relay_status, relay_devices, agents_list, agents_ask, agents_result, agents_runs, state_read, layout_read, window_screenshot, app_quit, update_offer, page_open, tab_focus, tab_close, tab_open, pane_split, pane_close, pane_move, pane_resize, pane_focus, pane_zoom, chat_open, chat_new, chat_start, files_open, browser_open, browser_focusTab, browser_closeTab, browser_tabs, browser_read, browser_screenshot, browser_navigate, browser_click, browser_type, browser_press, browser_scroll, browser_wait, browser_caption, browser_done, ecard_switch, testbench_open, context_open, context_read, context_pin, context_unpin, toast_show, shortcut_run, artifacts_list, artifacts_add, artifacts_pin, artifacts_unpin, artifacts_tab_add, artifacts_tab_update, artifacts_tab_remove, pins_list, pins_add, pins_remove, canvas_live, canvas_open, canvas_read, canvas_add, canvas_edit, canvas_move, canvas_connect, canvas_delete, canvas_select, canvas_zoom, canvas_pan, canvas_layout, canvas_align, canvas_distribute, canvas_reply, canvas_caption, canvas_wait, canvas_done, studio_generate, studio_list, studio_open, rooms_create, rooms_update, rooms_list, describe, pages_list, settings_get, settings_set, settings_undo, connections_list, connections_add, connections_remove, link, link_open, tour_highlight, tour_clear)
 
 > describe {}
 < {
-  "text": "Page: New chat (relay://open/chat)\nTheme: Default, light\nPanes: p1 (focused): New chat; p2: Browser [Browser, Files]\nWindow: in front\nControls: Assistants [nav-assistants], Chat [nav-chat], Canvas [nav-canvas], Rooms [nav-rooms], Studio [nav-studio], Reviews [nav-reviews], Test Bench [nav-test-bench], Jobs 1 [nav-jobs], Habits [nav-habits], Meetings [nav-meetings], Dashboards [sidebar-dashboards-head], Overview [nav-dashboard], Setting [nav-setting], Back [tab-back], Forward [tab-forward], Close tab [tab-close-0], New tab [tab-new], Hide sidebar [sidebar-toggle], Nothing running [context-button], Hide tool panes [panel-toggle], omp account [composer-account], Access mode [composer-access], Model [composer-model], Send message [composer-send], Close Browser [pane-tab-close-browser]",
+  "text": "Page: New chat (relay://open/chat)\nTheme: Default, light\nPanes: p1: New chat; p3 (focused): Files\nWindow: in front\nControls: Main [sidebar-section-main-head], Assistants [nav-assistants], Agents [nav-agents], Board [nav-board], Chat 2 [nav-chat], Skills [nav-skills], Canvas [nav-canvas], Studio [nav-studio], Feed [nav-feed], Reviews [nav-reviews], Test Bench [nav-test-bench], Jobs 1 [nav-jobs], Habits [nav-habits], Meetings [nav-meetings], Dashboards [sidebar-dashboards-head], Overview [nav-dashboard], Settings [nav-setting], Usage [nav-usage], Check for updates [update-button], Back [history-back], Forward [history-forward], Close tab [tab-close-0], Add a tab or split [tab-new], Hide sidebar [sidebar-toggle], Nothing running [context-button]",
   "page": {
     "key": "chat",
     "title": "New chat",
@@ -23,38 +23,39 @@ tools/list: 54 tools (relay_status, state_read, layout_read, window_screenshot, 
       "mode": "light"
     }
   },
+  "editor": null,
   "panes": [
     {
       "pane": "p1",
-      "focused": true,
+      "focused": false,
       "front": "New chat",
       "tabs": [
         "New chat"
       ]
     },
     {
-      "pane": "p2",
-      "focused": false,
-      "front": "Browser",
+      "pane": "p3",
+      "focused": true,
+      "front": "Files",
       "tabs": [
-        "Browser",
         "Files"
       ]
     }
   ],
   "controls": [
     {
+      "target": "sidebar-section-main-head",
+      "label": "Main",
+      "kind": "button"
+    },
+    {
       "target": "nav-assistants",
       "label": "Assistants",
       "kind": "button"
     },
     {
-      "target": "nav-chat",
-      "label": "Chat",
-      "kind": "button"
-    },
-    {
-      "target": "nav-canvas",
+      "target": "nav-agents",
+      "label": "Agents",
   ...
 
 > settings_get {"key":"theme.preset"}
@@ -92,9 +93,9 @@ tools/list: 54 tools (relay_status, state_read, layout_read, window_screenshot, 
   "undo": "settings.undo {\"changeId\":\"c1\"}"
 }
 
-> window_screenshot {"path":"/Users/ike/Eva/work/relay-agent-access/proof/agent-access/1-theme-ocean-toast.png"}
-< [image/png 74878 bytes]
-saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/1-theme-ocean-toast.png
+> window_screenshot {"path":"/Users/ike/Eva/work/relay-agents-page/proof/agent-access/1-theme-ocean-toast.png"}
+< [image/png 77167 bytes]
+saved /Users/ike/Eva/work/relay-agents-page/proof/agent-access/1-theme-ocean-toast.png
 
 > settings_set {"key":"theme.mode","value":"dark"}
 < {
@@ -107,9 +108,9 @@ saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/1-theme-ocean-to
   "undo": "settings.undo {\"changeId\":\"c2\"}"
 }
 
-> window_screenshot {"path":"/Users/ike/Eva/work/relay-agent-access/proof/agent-access/2-dark-toast.png"}
-< [image/png 77702 bytes]
-saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/2-dark-toast.png
+> window_screenshot {"path":"/Users/ike/Eva/work/relay-agents-page/proof/agent-access/2-dark-toast.png"}
+< [image/png 82628 bytes]
+saved /Users/ike/Eva/work/relay-agents-page/proof/agent-access/2-dark-toast.png
 
 > settings_get {"key":"theme.mode"}
 < {
@@ -137,7 +138,7 @@ saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/2-dark-toast.png
 
 > describe {}
 < {
-  "text": "Page: New chat (relay://open/chat)\nTheme: Default, light\nPanes: p1 (focused): New chat; p2: Browser [Browser, Files]\nWindow: in front\nControls: Assistants [nav-assistants], Chat [nav-chat], Canvas [nav-canvas], Rooms [nav-rooms], Studio [nav-studio], Reviews [nav-reviews], Test Bench [nav-test-bench], Jobs 1 [nav-jobs], Habits [nav-habits], Meetings [nav-meetings], Dashboards [sidebar-dashboards-head], Overview [nav-dashboard], Setting [nav-setting], Back [tab-back], Forward [tab-forward], Close tab [tab-close-0], New tab [tab-new], Hide sidebar [sidebar-toggle], Nothing running [context-button], Hide tool panes [panel-toggle], omp account [composer-account], Access mode [composer-access], Model [composer-model], Send message [composer-send], Close Browser [pane-tab-close-browser]",
+  "text": "Page: New chat (relay://open/chat)\nTheme: Default, light\nPanes: p1: New chat; p3 (focused): Files\nWindow: in front\nControls: Main [sidebar-section-main-head], Assistants [nav-assistants], Agents [nav-agents], Board [nav-board], Chat 2 [nav-chat], Skills [nav-skills], Canvas [nav-canvas], Studio [nav-studio], Feed [nav-feed], Reviews [nav-reviews], Test Bench [nav-test-bench], Jobs 1 [nav-jobs], Habits [nav-habits], Meetings [nav-meetings], Dashboards [sidebar-dashboards-head], Overview [nav-dashboard], Settings [nav-setting], Usage [nav-usage], Check for updates [update-button], Back [history-back], Forward [history-forward], Close tab [tab-close-0], Add a tab or split [tab-new], Hide sidebar [sidebar-toggle], Nothing running [context-button]",
   "page": {
     "key": "chat",
     "title": "New chat",
@@ -153,38 +154,39 @@ saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/2-dark-toast.png
       "mode": "light"
     }
   },
+  "editor": null,
   "panes": [
     {
       "pane": "p1",
-      "focused": true,
+      "focused": false,
       "front": "New chat",
       "tabs": [
         "New chat"
       ]
     },
     {
-      "pane": "p2",
-      "focused": false,
-      "front": "Browser",
+      "pane": "p3",
+      "focused": true,
+      "front": "Files",
       "tabs": [
-        "Browser",
         "Files"
       ]
     }
   ],
   "controls": [
     {
+      "target": "sidebar-section-main-head",
+      "label": "Main",
+      "kind": "button"
+    },
+    {
       "target": "nav-assistants",
       "label": "Assistants",
       "kind": "button"
     },
     {
-      "target": "nav-chat",
-      "label": "Chat",
-      "kind": "button"
-    },
-    {
-      "target": "nav-canvas",
+      "target": "nav-agents",
+      "label": "Agents",
   ...
 
 > settings_set {"key":"theme.colors.dark.body","value":"blue"}
@@ -213,15 +215,15 @@ saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/2-dark-toast.png
 
 > describe {}
 < {
-  "text": "Page: Settings: Connections (relay://open/settings/connections)\nTheme: Default, light\nPanes: p1 (focused): Settings: Connections; p2: Browser [Browser, Files]\nWindow: in front\nControls: Assistants [nav-assistants], Chat [nav-chat], Canvas [nav-canvas], Rooms [nav-rooms], Studio [nav-studio], Reviews [nav-reviews], Test Bench [nav-test-bench], Jobs 1 [nav-jobs], Habits [nav-habits], Meetings [nav-meetings], Dashboards [sidebar-dashboards-head], Overview [nav-dashboard], Setting [nav-setting], Back [tab-back], Forward [tab-forward], Close tab [tab-close-0], New tab [tab-new], Hide sidebar [sidebar-toggle], Nothing running [context-button], Hide tool panes [panel-toggle], Relay Host NOT CONNECTED No Relay Host connected Used by Assistants, the iPhone, [connection-relay-host], GitHub NOT CHECKED Not checked outside the live app Used by Reviews, pull reques [connection-github], Connect [connection-github-connect], Linear NOT CONNECTED No Linear API key Used by Reviews, ticket badges and Artifa [connection-linear], Linear API key [connection-linear-key]",
+  "text": "Page: New chat (relay://open/chat)\nTheme: Default, light\nPanes: p1: New chat; p3 (focused): Settings: Connections [Files, Settings: Connections]\nWindow: in front\nControls: Main [sidebar-section-main-head], Assistants [nav-assistants], Agents [nav-agents], Board [nav-board], Chat 2 [nav-chat], Skills [nav-skills], Canvas [nav-canvas], Studio [nav-studio], Feed [nav-feed], Reviews [nav-reviews], Test Bench [nav-test-bench], Jobs 1 [nav-jobs], Habits [nav-habits], Meetings [nav-meetings], Dashboards [sidebar-dashboards-head], Overview [nav-dashboard], Settings [nav-setting], Usage [nav-usage], Check for updates [update-button], Back [history-back], Forward [history-forward], Close tab [tab-close-0], Add a tab or split [tab-new], Hide sidebar [sidebar-toggle], Nothing running [context-button]",
   "page": {
-    "key": "settings",
-    "title": "Settings: Connections",
-    "section": "Connections",
+    "key": "chat",
+    "title": "New chat",
+    "section": null,
     "chat": null,
     "canvas": null,
     "reviewItem": null,
-    "link": "relay://open/settings/connections"
+    "link": "relay://open/chat"
   },
   "selected": {
     "theme": {
@@ -229,23 +231,40 @@ saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/2-dark-toast.png
       "mode": "light"
     }
   },
+  "editor": null,
   "panes": [
     {
       "pane": "p1",
-      "focused": true,
-      "front": "Settings: Connections",
+      "focused": false,
+      "front": "New chat",
       "tabs": [
-        "Settings: Connections"
+        "New chat"
       ]
     },
     {
-      "pane": "p2",
-      "focused": 
+      "pane": "p3",
+      "focused": true,
+      "front": "Settings: Connections",
+      "tabs": [
+        "Files",
+        "Settings: Connections"
+      ]
+    }
+  ],
+  "controls": [
+    {
+      "target": "sidebar-section-main-head",
+      "label": "Main",
+      "kind": "button"
+    },
+    {
+      "target": "nav-assistants",
+      "label": "Assista
   ...
 
-> window_screenshot {"path":"/Users/ike/Eva/work/relay-agent-access/proof/agent-access/3-connections-deep-link.png"}
-< [image/png 137068 bytes]
-saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/3-connections-deep-link.png
+> window_screenshot {"path":"/Users/ike/Eva/work/relay-agents-page/proof/agent-access/3-connections-deep-link.png"}
+< [image/png 115721 bytes]
+saved /Users/ike/Eva/work/relay-agents-page/proof/agent-access/3-connections-deep-link.png
 
 > connections_list {}
 < {
@@ -315,18 +334,18 @@ saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/3-connections-de
 > tour_highlight {"target":"nav-setting","title":"Theme","caption":"Colors, fonts and light or dark live here. Ask me to change them any time.","step":{"n":2,"of":4}}
 < {
   "target": "nav-setting",
-  "label": "Setting",
+  "label": "Settings",
   "rect": {
     "x": 12,
-    "y": 722,
-    "width": 240,
-    "height": 36
+    "y": 756,
+    "width": 28,
+    "height": 28
   }
 }
 
-> window_screenshot {"path":"/Users/ike/Eva/work/relay-agent-access/proof/agent-access/4-tour-highlight.png"}
-< [image/png 147929 bytes]
-saved /Users/ike/Eva/work/relay-agent-access/proof/agent-access/4-tour-highlight.png
+> window_screenshot {"path":"/Users/ike/Eva/work/relay-agents-page/proof/agent-access/4-tour-highlight.png"}
+< [image/png 122969 bytes]
+saved /Users/ike/Eva/work/relay-agents-page/proof/agent-access/4-tour-highlight.png
 
 > tour_clear {}
 < {

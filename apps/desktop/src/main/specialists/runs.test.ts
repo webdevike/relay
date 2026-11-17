@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SpecialistRunsSchema } from '@evaos/contract'
-import { callerOf, specialistRunsOf } from './specialists'
+import { callerOf, specialistRunsOf } from './runs'
 
 const assistants = [
   { id: 'nova', file: '/s/nova.jsonl' },
@@ -35,11 +35,18 @@ describe('specialistRunsOf', () => {
           caller: 'agent:nova',
           summary: 'Which SSD?',
           model: 'anthropic/claude-haiku-5-5',
+          job: 'answer',
           requestedAt: '2026-11-16T10:00:00.000Z',
           seconds: 29.4,
           cost: 0.0061,
         },
-        { run: 'r-1', agent: 'gmail', status: 'failed', error: 'no key' },
+        {
+          run: '20261117T080000-abcd1234',
+          agent: 'gmail',
+          status: 'failed',
+          error: 'no key',
+          startedAt: '2026-11-17T08:00:00.000Z',
+        },
       ],
       agents: [
         {
@@ -63,13 +70,20 @@ describe('specialistRunsOf', () => {
       caller: { kind: 'assistant', id: 'nova' },
       status: 'done',
       summary: 'Which SSD?',
+      job: 'answer',
       error: null,
       model: 'anthropic/claude-haiku-5-5',
       at: Date.parse('2026-11-16T10:00:00.000Z'),
       seconds: 29.4,
       cost: 0.0061,
     })
-    expect(out.runs[1]).toMatchObject({ caller: { kind: 'none' }, at: null, error: 'no key' })
+    // A run nobody asked for (cron) has no request time: it dates from its start.
+    expect(out.runs[1]).toMatchObject({
+      caller: { kind: 'none' },
+      at: Date.parse('2026-11-17T08:00:00.000Z'),
+      job: null,
+      error: 'no key',
+    })
     expect(out.agents[0]!.callers).toEqual([
       { caller: { kind: 'assistant', id: 'nova' }, calls: 1 },
       { caller: { kind: 'none' }, calls: 1 },

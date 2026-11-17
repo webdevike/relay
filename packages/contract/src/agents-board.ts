@@ -1,9 +1,8 @@
 import { z } from 'zod'
 import { ActivityItem } from '@evaos/chat-core/activity'
 import { ContextOpenSchema, ContextToneSchema, ItemKeySchema, RepoSchema } from './context'
-import { TrialLetterSchema } from './trials'
 
-// The Agents page: one Linear-style board of everything Eva's agents work on. Main joins the work
+// The Board page: one Linear-style board of everything Eva's agents work on. Main joins the work
 // item ledgers, Astra's auto-work state, the host's activity list (helpers, sessions, harnesses),
 // PR facts and Linear states into cards, each in the column its facts put it; the renderer only
 // draws, filters and opens them.
@@ -99,99 +98,12 @@ export const AgentBoardSchema = z.object({
 })
 export type AgentBoard = z.infer<typeof AgentBoardSchema>
 
-// Specialist runs: every request an assistant (or any omp session) sent an atomic-agents
-// specialist through the relay MCP server's agents_ask, as the service folds its own journal
-// (`atomic-agents runs`, packages/atomic-agents/src/core/Requests.ts). Main runs that CLI; the
-// Agents page lists the runs and each specialist's use.
-
-/** Who asked: an assistant (its registry id), an omp chat (its session file), another named caller, or nobody said (runs before callers were recorded). */
-export const SpecialistCallerSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('assistant'), id: z.string().max(200) }),
-  z.object({
-    kind: z.literal('chat'),
-    file: z.string().max(4000),
-    title: z.string().max(300).nullable(),
-  }),
-  z.object({ kind: z.literal('other'), label: z.string().max(300) }),
-  z.object({ kind: z.literal('none') }),
-])
-export type SpecialistCaller = z.infer<typeof SpecialistCallerSchema>
-
-export const SpecialistRunSchema = z.object({
-  /** The run id (`agents_result {run}` reads its reply). */
-  run: z.string().max(200),
-  /** The specialist's id, e.g. `web-researcher`. */
-  agent: z.string().max(200),
-  caller: SpecialistCallerSchema,
-  status: z.enum(['running', 'done', 'failed']),
-  /** The request on one line (its first text field, else its JSON). */
-  summary: z.string().max(400).nullable(),
-  error: z.string().max(4000).nullable(),
-  model: z.string().max(200).nullable(),
-  /** When the request went out (epoch ms). */
-  at: z.number().finite().nullable(),
-  seconds: z.number().finite().nullable(),
-  /** USD, when the specialist reports it. */
-  cost: z.number().finite().nullable(),
-  /** A trial arm's letter (trial mode): its badge reads `Diagram B`, and its model stays null until Isaac picks. */
-  trial: TrialLetterSchema.optional(),
-  /** The short name of the model the specialist switched to on its own, for a day after the switch (`Diagram · Sonnet 5.5`). */
-  newModel: z.string().max(200).optional(),
-})
-export type SpecialistRun = z.infer<typeof SpecialistRunSchema>
-
-export const SpecialistUsageSchema = z.object({
-  agent: z.string().max(200),
-  calls: z.number().int().nonnegative(),
-  failed: z.number().int().nonnegative(),
-  /** USD over the runs that report a cost. */
-  cost: z.number().finite(),
-  /** Calls per caller, most first. */
-  callers: z.array(
-    z.object({ caller: SpecialistCallerSchema, calls: z.number().int().nonnegative() }),
-  ),
-})
-export type SpecialistUsage = z.infer<typeof SpecialistUsageSchema>
-
-export const SpecialistRunsSchema = z.object({
-  /** The atomic-agents service is installed where this app reads it; false: nothing to list. */
-  available: z.boolean(),
-  /** Why the runs could not be read (the CLI failed), else null. */
-  error: z.string().max(2000).nullable(),
-  /** The window `agents` covers. */
-  days: z.number().int().nonnegative(),
-  /** Newest first. */
-  runs: z.array(SpecialistRunSchema),
-  /** Each specialist used in the window, most calls first. */
-  agents: z.array(SpecialistUsageSchema),
-  updatedAt: z.number().finite(),
-})
-export type SpecialistRuns = z.infer<typeof SpecialistRunsSchema>
-
-/** How many runs `agents.specialists` lists, newest first: a list this long may not reach back to an older run. */
-export const SPECIALIST_LIMIT = 60
-
 export const agentsBoardInvoke = {
   /** The whole board now; slow facts (gh, Linear) fill in later and push `agents.changed`. */
   'agents.board': { input: z.object({}).strict(), output: AgentBoardSchema },
-  /** Recent specialist runs and each specialist's use over the last week. */
-  'agents.specialists': { input: z.object({}).strict(), output: SpecialistRunsSchema },
-  /**
-   * One run as `agents_result` answers it (`atomic-agents result <run>`): the CLI's JSON line, read
-   * by @relay/protocol `agentRunOf` in the renderer; `ok` false when the CLI failed.
-   */
-  'agents.specialistRun': {
-    input: z.object({ run: z.string().min(1).max(200) }).strict(),
-    output: z.object({ ok: z.boolean(), text: z.string().max(2_000_000) }),
-  },
 } as const
 
 export const agentsBoardEvents = {
   /** A ledger, auto-work state, session, activity item, PR or Linear state the board shows changed. */
   'agents.changed': z.object({}),
-  /**
-   * The atomic-agents journal changed (a run was asked, ran or ended): `agents.specialists` reads
-   * something new. Main watches it once that was first asked for; chats refresh their live badges.
-   */
-  'agents.specialistsChanged': z.object({}),
 } as const

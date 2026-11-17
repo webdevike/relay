@@ -38,6 +38,7 @@ const TrialStarted = z.object({
   requestId: z.string().optional(),
   caller: z.string().optional(),
   request: z.string().optional(),
+  job: z.string().optional(),
   arms: z.array(z.object({ letter: Letter, model: z.string(), default: z.boolean() })).min(1),
 })
 const ArmStarted = z.object({ trial: z.object({ id: z.string().min(1), letter: Letter }) })
@@ -73,6 +74,8 @@ interface TrialState {
   readonly caller: string | undefined
   readonly at: number
   readonly request: string | null
+  /** The job each arm runs (`draw`). */
+  readonly job: string | null
   /** The arms with no request of their own (every arm but the caller's, when the caller's is a request). */
   readonly arms: Arm[]
   picked: boolean
@@ -123,12 +126,14 @@ export class TrialRuns {
         caller: caller(t.caller),
         status: arm.status,
         summary: t.request,
+        job: t.job,
         error: arm.error?.slice(0, 4000) ?? null,
         model: t.picked ? arm.model.slice(0, 200) : null,
         at: t.at,
         seconds: arm.seconds ?? null,
         cost: arm.cost ?? null,
         trial: arm.letter,
+        trialId: t.id.slice(0, 200),
       })),
     )
     if (arms.length === 0 && this.own.size === 0 && this.switches.size === 0) return report
@@ -137,7 +142,12 @@ export class TrialRuns {
       const own = this.own.get(r.run)
       if (own !== undefined) {
         const picked = this.trials.get(own.trialId)?.picked === true
-        out = { ...out, trial: own.letter, model: picked ? out.model : null }
+        out = {
+          ...out,
+          trial: own.letter,
+          trialId: own.trialId.slice(0, 200),
+          model: picked ? out.model : null,
+        }
       }
       // The latest switch of this specialist the run ran after.
       let latest: SwitchState | undefined
@@ -220,6 +230,7 @@ export class TrialRuns {
           caller: s.data.caller ?? env.data.caller,
           at,
           request: s.data.request?.slice(0, 400) ?? null,
+          job: s.data.job?.slice(0, 200) ?? null,
           arms: s.data.arms
             .filter((a) => a !== own)
             .map((a): Arm => ({ letter: a.letter, model: a.model, status: 'running' })),

@@ -20,6 +20,18 @@
       "phone": "/agents"
     },
     {
+      "what": "agents page + one specialist",
+      "params": { "page": "agents", "agent": "diagram" },
+      "url": "relay://open/agents?agent=diagram",
+      "phone": "/agents"
+    },
+    {
+      "what": "page: board (the agents' work board; the phone lists its dashboard boards)",
+      "params": { "page": "board" },
+      "url": "relay://open/board",
+      "phone": "/boards"
+    },
+    {
       "what": "assistant thread (agent:<id>)",
       "params": { "page": "agent:nova" },
       "url": "relay://assistant/nova",

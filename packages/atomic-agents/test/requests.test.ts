@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import { BunServices } from "@effect/platform-bun"
 import { Deferred, Effect, FileSystem, Layer, Schema } from "effect"
+import { Agents } from "../src/core/Agent.ts"
 import { Background } from "../src/core/Background.ts"
 import { define, job, Trigger } from "../src/core/Component.ts"
-import { EventBus, makeEvent } from "../src/core/Event.ts"
+import { AgentEvent, EventBus, makeEvent } from "../src/core/Event.ts"
 import { ModelRunner } from "../src/core/Model.ts"
-import { catalog, request, result, runs, SUMMARY_MAX, summaryOf } from "../src/core/Requests.ts"
+import { catalog, request, result, roster, runs, SUMMARY_MAX, summaryOf } from "../src/core/Requests.ts"
 import { Runner } from "../src/core/Runtime.ts"
 import { publishRuntime } from "../src/core/RuntimeEvents.ts"
 import { runtime, tempHome } from "./harness.ts"
@@ -194,6 +195,122 @@ describe("asking agents from outside the service", () => {
         expect((yield* runs({ days: 7, limit: 10, agent: "tally" })).runs.map((run) => run.run)).toEqual([second.run])
         expect((yield* runs({ days: 0, limit: 0 }))).toMatchObject({ runs: [], agents: [] })
         expect(summaryOf({ question: "x".repeat(400) })).toHaveLength(SUMMARY_MAX)
+      }).pipe(Effect.provide(service(root, gate)))
+    }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+})
+
+describe("the Relay Agents page's data", () => {
+  test("the roster lists every agent in load order, disabled ones and files that fail to load too, with settings, knowledge and run stats", () =>
+    Effect.gen(function*() {
+      const root = yield* home({ components: { tally: { enabled: false, mode: "live", fallbackModel: "test/backup" }, broken: { mode: "off" } } })
+      yield* Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        yield* fs.makeDirectory(`${root}/agents/notes`)
+        yield* fs.writeFileString(`${root}/agents/notes/style.md`, "Be brief.")
+        yield* fs.writeFileString(`${root}/agents/researcher.json`, JSON.stringify({ ...researcher, agent: { ...researcher.agent, knowledge: [{ file: "notes/style.md" }] } }))
+        yield* fs.writeFileString(`${root}/agents/broken.json`, JSON.stringify({ id: "broken", purpose: "No job." }))
+      }).pipe(Effect.provide(BunServices.layer))
+      const gate = yield* Deferred.make<void>()
+      yield* Effect.gen(function*() {
+        const bus = yield* EventBus
+        const now = Date.now()
+        const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString()
+        let seq = 0
+        const seed = (run: string, name: string, minutes: number, data: Record<string, unknown>) =>
+          bus.publish(new AgentEvent({ id: `seed-${seq++}`, type: `tally/${name}`, component: "tally", job: "count", run, at: ago(minutes), data }))
+        // A cron-style run that succeeded, one that failed, one still running, one left unfinished long ago, one older than a week.
+        yield* seed("cron-1", "job.started", 120, { input: {}, model: "test/code" })
+        yield* seed("cron-1", "job.succeeded", 119, { model: "test/code", seconds: 60 })
+        yield* seed("cron-2", "job.started", 180, { input: {}, model: "test/code" })
+        yield* seed("cron-2", "job.failed", 179, { model: "test/code", seconds: 60, error: "Boom", message: "boom" })
+        yield* seed("manual-1", "job.started", 10, { input: { items: [] }, model: "test/code" })
+        yield* seed("manual-2", "job.started", 240, { input: {}, model: "test/code" })
+        yield* seed("old-1", "job.started", 10 * 24 * 60, { input: {}, model: "test/code" })
+        yield* seed("old-1", "job.succeeded", 10 * 24 * 60 - 1, { model: "test/code", seconds: 60 })
+
+        const none = { week: 0, failed: 0, running: 0 }
+        const entries = yield* roster
+        expect(entries.map((entry) => entry.id)).toEqual(["tally", "researcher", "broken"])
+        const [tallyEntry, researcherEntry, brokenEntry] = entries
+        expect(tallyEntry).toEqual({
+          id: "tally",
+          purpose: "Count the items it is given.",
+          kind: "code",
+          knowledge: [],
+          enabled: false,
+          mode: "live",
+          model: "test/code",
+          fallbackModel: "test/backup",
+          candidates: ["test/code"],
+          how: "run",
+          job: "count",
+          trial: { on: false, arms: ["test/code"] },
+          runs: { week: 4, failed: 1, running: 1, lastAt: ago(10) }
+        })
+        expect(researcherEntry).toEqual({
+          id: "researcher",
+          purpose: "Answer one question.",
+          kind: "spec",
+          file: `${root}/agents/researcher.json`,
+          knowledge: [`${root}/agents/notes/style.md`],
+          enabled: true,
+          model: "test/m",
+          candidates: ["test/m"],
+          how: "ask",
+          job: "answer",
+          trial: { on: false, arms: ["test/m"] },
+          runs: none
+        })
+        expect(brokenEntry).toMatchObject({ id: "broken", purpose: "", kind: "spec", file: `${root}/agents/broken.json`, knowledge: [], enabled: true, mode: "off", model: "", candidates: [], trial: { on: false, arms: [] }, runs: none })
+        expect(brokenEntry!.error).toStartWith(`${root}/agents/broken.json: `)
+
+        // A bad edit keeps the last good version in force; its entry says why the file does not load.
+        yield* Effect.gen(function*() {
+          yield* (yield* FileSystem.FileSystem).writeFileString(`${root}/agents/researcher.json`, "{ not json")
+        }).pipe(Effect.provide(BunServices.layer))
+        yield* (yield* Agents).reload
+        const edited = (yield* roster).find((entry) => entry.id === "researcher")
+        expect(edited).toMatchObject({ purpose: "Answer one question.", model: "test/m", knowledge: [`${root}/agents/notes/style.md`] })
+        expect(edited!.error).toContain("not valid JSON")
+      }).pipe(Effect.provide(service(root, gate)))
+    }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+
+  test("runs --every lists job runs no request started, by their job run id, and result reads them; plain runs lists requests only", () =>
+    Effect.gen(function*() {
+      const root = yield* home()
+      const gate = yield* Deferred.make<void>()
+      yield* Deferred.succeed(gate, undefined)
+      yield* Effect.gen(function*() {
+        const asked = yield* request("tally", { items: ["a"] }, 10_000, "agent:nova")
+        expect(asked.job).toBe("count")
+        const manual = yield* (yield* Runner).run("tally", "count", { items: ["x"] })
+        expect(manual.ok).toBe(true)
+
+        const plain = yield* runs({ days: 7, limit: 10 })
+        expect(plain.runs.map((run) => run.run)).toEqual([asked.run])
+        expect(plain.runs[0]).toMatchObject({ agent: "tally", job: "count", caller: "agent:nova", summary: '{"items":["a"]}', status: "done" })
+
+        // A trial arm no request started is its trial's to list (blind until a pick), never a job run here.
+        yield* (yield* EventBus).publish(new AgentEvent({ id: "arm-b", type: "tally/job.started", component: "tally", job: "count", run: "arm-b", at: new Date().toISOString(), data: { input: { items: [] }, model: "test/code", trial: { id: "t1", letter: "B" } } }))
+        const every = yield* runs({ days: 7, limit: 10, every: true })
+        expect(every.runs.map((run) => run.run)).toEqual([manual.run, asked.run])
+        expect(every.runs[0]).toMatchObject({ run: manual.run, agent: "tally", job: "count", status: "done", model: "test/code", summary: '{"items":["x"]}', cost: 0.25 })
+        expect(every.runs[0]).not.toHaveProperty("requestedAt")
+        expect(every.runs[0]).not.toHaveProperty("caller")
+        expect(every.agents).toEqual(plain.agents)
+        expect((yield* runs({ days: 7, limit: 10, every: true, agent: "researcher" })).runs).toEqual([])
+
+        const read = yield* result(manual.run, 0)
+        expect(read).toMatchObject({ run: manual.run, agent: "tally", job: "count", status: "done", model: "test/code", cost: 0.25 })
+        expect(read.reply).toEqual({
+          events: [
+            { type: "item.counted", data: { item: "x" } },
+            { type: "tally.completed", data: { items: 1, modelCalls: 0, cost: 0.25 } }
+          ]
+        })
+        expect(typeof read.startedAt).toBe("string")
+        expect(typeof read.finishedAt).toBe("string")
+        expect(typeof read.seconds).toBe("number")
       }).pipe(Effect.provide(service(root, gate)))
     }).pipe(Effect.scoped, Effect.runPromise), 20_000)
 })

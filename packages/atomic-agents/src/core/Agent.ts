@@ -46,6 +46,8 @@ export interface Agent extends Registered {
   readonly runnable: ReadonlyArray<Job<BunServices>>
   /** An agent spec's model stage, for benches that call it without the bus. */
   readonly modelStage: ModelStage | undefined
+  /** A JSON/YAML spec's knowledge files (`agent.knowledge[].file`, absolute); empty for an `AGENT.md` folder (its `knowledge/` is inside it) and code. */
+  readonly knowledge: ReadonlyArray<string>
 }
 
 export class AgentError extends Schema.TaggedError<AgentError>()("AgentError", {
@@ -117,7 +119,8 @@ export const parseAgent = Effect.fn("Agent.parse")(function*(file: string, text:
     const names = front.knowledge ?? (yield* fs.readDirectory(shelf).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []))).filter((name) => !name.startsWith(".")).sort()
     const outside = names.filter((name) => !KNOWLEDGE_NAME.test(name))
     if (outside.length > 0) return yield* fail(`knowledge: ${outside.join(", ")} is not a file name in ${shelf} (nothing outside the agent's folder loads)`)
-    return yield* compileSpec(file, folder, toAgentSpec(front, split.body, names.map((name) => `knowledge/${name}`)))
+    const compiled = yield* compileSpec(file, folder, toAgentSpec(front, split.body, names.map((name) => `knowledge/${name}`)))
+    return { ...compiled, knowledge: [] }
   }
   const raw = yield* Effect.try({
     try: (): unknown => file.endsWith(".json") ? JSON.parse(text) : Bun.YAML.parse(text),
@@ -146,7 +149,7 @@ export const parseAgent = Effect.fn("Agent.parse")(function*(file: string, text:
     const agent = module[name]
     if (!isRegistered(agent)) return yield* fail(`${target.path} exports no define()d component as ${name} (exports: ${Object.keys(module).join(", ") || "none"})`)
     if (agent.id !== id) return yield* fail(`${target.path} ${name} has id ${agent.id}, not ${id}`)
-    return { agent, kind: "code" as const, modelStage: undefined }
+    return { agent, kind: "code" as const, modelStage: undefined, knowledge: [] }
   }
   if (kind !== "spec") return yield* fail(`kind must be "spec" (the default) or "code" (got ${JSON.stringify(kind)})`)
 
@@ -173,14 +176,15 @@ const compileSpec = Effect.fnUntraced(function*(file: string, dir: string, spec:
   if (compiled._tag === "Failure" || errors.length > 0) {
     return yield* Effect.fail(new AgentError({ file, message: `${file}: ${[...errors, ...(compiled._tag === "Failure" ? compiled.failure : [])].join("; ")}` }))
   }
-  return { agent: compiled.success.agent, kind: "spec" as const, modelStage: compiled.success.modelStage }
+  return { agent: compiled.success.agent, kind: "spec" as const, modelStage: compiled.success.modelStage, knowledge: knowledge.map((entry) => entry.file) }
 })
 
-/** One agent file as the loader last saw it: its text, and the last version that loaded. */
+/** One agent file as the loader last saw it: its text, the last version that loaded, and why its current text did not load. */
 interface Entry {
   readonly text: string
   readonly agent: Agent | undefined
   readonly scope: Scope.Closeable | undefined
+  readonly error: string | undefined
 }
 
 export interface AgentsOptions {
@@ -195,6 +199,8 @@ export class Agents extends Context.Service<Agents, {
   /** The agents in force. */
   readonly current: Effect.Effect<ReadonlyArray<Agent>>
   readonly changes: Stream.Stream<ReadonlyArray<Agent>>
+  /** Agent files whose current text failed to load in the last scan (an earlier version may still be in force), with the `AgentError` message. */
+  readonly rejected: Effect.Effect<ReadonlyArray<{ readonly file: string; readonly message: string }>>
   /** Re-read every agent file once and swap in what changed, announcing it on the bus. */
   readonly reload: Effect.Effect<void, JournalError>
 }>()("atomic-agents/Agents") {
@@ -211,7 +217,7 @@ export class Agents extends Context.Service<Agents, {
         const lock = yield* Semaphore.make(1)
 
         const code = yield* Effect.forEach(options.code ?? [], (component) =>
-          Effect.map(component.build, (runnable): Agent => ({ ...component, kind: "code", file: undefined, runnable, modelStage: undefined })))
+          Effect.map(component.build, (runnable): Agent => ({ ...component, kind: "code", file: undefined, runnable, modelStage: undefined, knowledge: [] })))
         const entries = yield* Ref.make<ReadonlyMap<string, Entry>>(new Map())
         // Every scope still open closes with the layer.
         yield* Effect.addFinalizer(() =>
@@ -226,7 +232,7 @@ export class Agents extends Context.Service<Agents, {
               Effect.tapError(() => Scope.close(scope, Exit.void)),
               Effect.mapError((error) => new AgentError({ file, message: `${file}: build tools: ${error.message}` }))
             )
-            return { agent: { ...parsed.agent, kind: parsed.kind, file, runnable, modelStage: parsed.modelStage } satisfies Agent, scope }
+            return { agent: { ...parsed.agent, kind: parsed.kind, file, runnable, modelStage: parsed.modelStage, knowledge: parsed.knowledge } satisfies Agent, scope }
           }).pipe(Effect.provideContext(services))
 
         const files = agentFiles(dirs).pipe(Effect.provideService(FileSystem.FileSystem, fs), Effect.provideService(Path.Path, path))
@@ -253,13 +259,13 @@ export class Agents extends Context.Service<Agents, {
               }
               const built = yield* Effect.result(build(file, text.value))
               if (built._tag === "Failure") {
-                after.set(file, { text: text.value, agent: previous?.agent, scope: previous?.scope })
+                after.set(file, { text: text.value, agent: previous?.agent, scope: previous?.scope, error: built.failure.message })
                 yield* Effect.logWarning(`agent rejected${previous?.agent ? ", keeping the last good version" : ""}: ${built.failure.message}`)
                 yield* say("config.rejected", { by: "file", source: "file", error: built.failure.message })
                 continue
               }
               if (previous?.scope) yield* Scope.close(previous.scope, Exit.void)
-              after.set(file, { text: text.value, agent: built.success.agent, scope: built.success.scope })
+              after.set(file, { text: text.value, agent: built.success.agent, scope: built.success.scope, error: undefined })
               yield* say("agent.loaded", { id: built.success.agent.id, file, kind: built.success.agent.kind, replaced: previous?.agent !== undefined })
             }
             for (const [file, entry] of before) {
@@ -288,7 +294,9 @@ export class Agents extends Context.Service<Agents, {
 
         const ref = yield* SubscriptionRef.make<ReadonlyArray<Agent>>(code)
         yield* scan(false)
-        return Agents.of({ dirs, current: SubscriptionRef.get(ref), changes: SubscriptionRef.changes(ref), reload: scan(true) })
+        const rejected = Effect.map(Ref.get(entries), (all) =>
+          [...all].flatMap(([file, entry]) => entry.error === undefined ? [] : [{ file, message: entry.error }]))
+        return Agents.of({ dirs, current: SubscriptionRef.get(ref), changes: SubscriptionRef.changes(ref), rejected, reload: scan(true) })
       })
     )
 

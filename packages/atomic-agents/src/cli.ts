@@ -100,8 +100,19 @@ const byFlag = Flag.String("by").pipe(
   Flag.withDefault(Bun.env["USER"] ?? "cli"),
 );
 
-const list = Command.make("list", {}, () =>
-  Effect.gen(function* () {
+/** Every agent and how it is set; with --json, the roster the Relay Agents page shows (disabled agents and files that failed to load too, with run stats). */
+const list = Command.make(
+  "list",
+  {
+    json: Flag.Boolean("json").pipe(
+      Flag.withDescription(
+        "one JSON line: every agent in load order (disabled ones and files that failed to load too) with its file, knowledge, settings and run stats",
+      ),
+      Flag.withDefault(false),
+    ),
+  },
+  Effect.fnUntraced(function* ({ json }) {
+    if (json) return yield* printJson(Requests.roster);
     const settings = yield* Settings;
     const current = yield* settings.current;
     yield* Console.log(`config ${settings.file}`);
@@ -679,7 +690,7 @@ const requestCommand = Command.make(
   }),
 );
 
-/** A run sent with `request`, as JSON; waits up to --wait for it to finish. */
+/** A run as JSON: a request id from `request`, or the job run id of any job run (`runs --every`); waits up to --wait for it to finish. */
 const resultCommand = Command.make(
   "result",
   {
@@ -691,7 +702,10 @@ const resultCommand = Command.make(
   }),
 );
 
-/** Who used which agent, as JSON: the newest runs sent with `request` (no replies; `result` has them) and each agent's calls, cost and callers over --days. */
+/**
+ * Who used which agent, as JSON: the newest runs sent with `request` (with --every, every other job run too: cron, onEvent, manual, bench;
+ * no replies, `result` has them) and each agent's calls, cost and callers over --days.
+ */
 const runsCommand = Command.make(
   "runs",
   {
@@ -704,12 +718,19 @@ const runsCommand = Command.make(
       Flag.withDefault(50),
     ),
     agent: Flag.String("agent").pipe(Flag.withDescription("only this agent's runs"), Flag.optional),
+    every: Flag.Boolean("every").pipe(
+      Flag.withDescription(
+        "also list job runs no request started (cron, onEvent, manual, bench), by their job run id",
+      ),
+      Flag.withDefault(false),
+    ),
   },
-  ({ days, limit, agent }) =>
+  ({ days, limit, agent, every }) =>
     printJson(
       Requests.runs({
         days,
         limit,
+        every,
         ...Option.match(agent, { onNone: () => ({}), onSome: (id) => ({ agent: id }) }),
       }),
     ),

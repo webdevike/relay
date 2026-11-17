@@ -21,6 +21,8 @@ import {
   IconTicket,
   IconBrandSlack,
   IconSparkles,
+  IconRobot,
+  IconLayoutKanban,
   type Icon,
 } from '@tabler/icons-react'
 
@@ -48,4 +50,6 @@ export const PAGE_ICONS: Record<string, Icon> = {
   IconTicket,
   IconBrandSlack,
   IconSparkles,
+  IconRobot,
+  IconLayoutKanban,
 }

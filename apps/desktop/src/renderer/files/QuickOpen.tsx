@@ -58,8 +58,8 @@ function Item({ r, active, onOpen }: { r: Ranked; active: boolean; onOpen: () =>
 
 /** Cmd+P: fuzzy file picker over every non-ignored file of the root. */
 export function QuickOpen({ root }: { root: string }) {
-  const files = useSpace((w) => w.allFiles, null)
-  const recent = useSpace((w) => w.recent, NO_RECENT)
+  const files = useSpace(root, (w) => w.allFiles, null)
+  const recent = useSpace(root, (w) => w.recent, NO_RECENT)
   // Esc reaches the app's dismiss ladder before the input sees it.
   useDismissable(DISMISS_PRIORITY.overlay, () => setQuickOpen(false))
   const [raw, setRaw] = useState('')

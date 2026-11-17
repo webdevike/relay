@@ -32,6 +32,7 @@ const run = (r: Partial<SpecialistRun> & { run: string; agent: string }): Specia
   caller: { kind: 'assistant', id: 'nova' },
   status: 'running',
   summary: null,
+  job: null,
   error: null,
   model: 'claude-opus-5-5',
   at: T0,
@@ -104,7 +105,7 @@ describe('TrialRuns', () => {
     const caller1 = run({ run: 'req-1', agent: 'diagram' })
     let out = trials.apply(report([caller1]), caller, T0 + 20_000, 7)
     expect(out.runs).toEqual([
-      { ...caller1, trial: 'B', model: null },
+      { ...caller1, trial: 'B', trialId: 'trial-1', model: null },
       expect.objectContaining({
         run: 'trial-1:A',
         agent: 'diagram',
@@ -114,6 +115,8 @@ describe('TrialRuns', () => {
         model: null,
         summary: 'A flow chart of the deploy',
         trial: 'A',
+        trialId: 'trial-1',
+        job: 'draw',
       }),
       expect.objectContaining({ run: 'trial-1:C', status: 'running', model: null, trial: 'C' }),
     ])
@@ -145,7 +148,7 @@ describe('TrialRuns', () => {
         ),
     )
     out = trials.apply(report([caller1]), caller, T0 + 50_000, 7)
-    expect(out.runs[0]).toEqual({ ...caller1, trial: 'B' })
+    expect(out.runs[0]).toEqual({ ...caller1, trial: 'B', trialId: 'trial-1' })
     expect(out.runs.find((r) => r.run === 'trial-1:A')?.model).toBe('gpt-6.1')
     expect(out.runs.find((r) => r.run === 'trial-1:C')).toMatchObject({
       status: 'failed',

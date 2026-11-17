@@ -33,6 +33,7 @@ test('nav rows and counts come from the fixture root', { tag: '@smoke' }, async 
   expect(ids).toEqual([
     'nav-assistants',
     'nav-agents',
+    'nav-board',
     'nav-chat',
     'nav-skills',
     'nav-canvas',
@@ -104,8 +105,9 @@ test('chats sub-page slides, Back and Esc return, Cmd+F focuses its search', asy
 test('settings sub-page opens a settings section', async ({ shell }) => {
   await shell.locator(sel('nav-setting')).click()
   await expect.poll(() => level(shell)).toBe('settings')
-  // Theme, Chat, Links, Notifications, Connections, Usage, About, Changelog (Setup is for starter hosts only).
-  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(8)
+  // Theme, Chat, Links, Notifications, Meetings, Connections, Usage, About, Changelog (Setup is for
+  // starter hosts only).
+  await expect(shell.locator('[data-testid^=settings-item-]')).toHaveCount(9)
   await shell.locator(sel('settings-item-chat')).click()
   await expect
     .poll(async () => (await tabs(shell)).list[(await tabs(shell)).active]!.title)

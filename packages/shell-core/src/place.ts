@@ -4,6 +4,7 @@ export type FixedPage =
   | 'dashboard'
   | 'assistants'
   | 'agents'
+  | 'board'
   | 'chat'
   | 'skills'
   | 'jobs'
@@ -18,8 +19,9 @@ export type FixedPage =
   | 'settings'
   | 'setup'
 /**
- * `agent:<id>` is a registry agent's thread (native Page::Agent), `board:<slug>` a Relay host
- * dashboard (native Page::Board); both saved like native tabs.rs. `review:<kind>:<id>` is one
+ * `board` (fixed) is the work board of everything the agents are on; `agent:<id>` is a registry
+ * agent's thread (native Page::Agent), `board:<slug>` a Relay host dashboard (native Page::Board);
+ * both saved like native tabs.rs. `review:<kind>:<id>` is one
  * Reviews item (a pull request, Linear issue or Slack thread) as its own place, so it opens in
  * its own tab or pane; the app defines the id (`review:pr:owner/repo#12`). `room:<id>` is one room
  * under Assistants > Rooms (`rooms` is the New room page).
@@ -60,6 +62,7 @@ const FIXED_PAGES: readonly string[] = [
   'dashboard',
   'assistants',
   'agents',
+  'board',
   'chat',
   'skills',
   'jobs',

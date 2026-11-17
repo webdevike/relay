@@ -40,7 +40,8 @@ const launchctl = (...args: ReadonlyArray<string>) =>
  * Copy this package (src, the domains with the built-in agents, package.json, bun.lock) into `<home>/app/atomic-agents` and the chat-core sources
  * it depends on (`file:../chat-core`, Relay's widget parser) into `<home>/app/chat-core`, side by side as in
  * the repo; install production dependencies, write the plist and (re)load it. Run from the installed copy it
- * only reloads. Blender runs `-b` only, so the service never takes focus.
+ * only reloads. Blender runs `-b` only, so the service never takes focus. A copy from a git checkout also writes
+ * `<home>/app/source.json` (`gitDir`, `package`, `commit`, `installedAt`): where an edit made in the installed copy is committed back.
  */
 export const install = Effect.gen(function*() {
   const fs = yield* FileSystem.FileSystem
@@ -97,6 +98,18 @@ ${Object.entries(env).map(([key, value]) => `\t\t<key>${key}</key><string>${xml(
     }
     const deps = yield* exec(process.execPath, ["install", "--production", "--frozen-lockfile"], { cwd: installed }).pipe(step("bun install"))
     if (deps.exitCode !== 0) return yield* new ServiceError({ message: `bun install in ${installed}: ${deps.stderr.trim()}` })
+    const git = (...args: ReadonlyArray<string>) =>
+      exec("git", args, { cwd: source }).pipe(
+        Effect.map((result) => result.exitCode === 0 ? result.stdout.trim() : undefined),
+        Effect.orElseSucceed(() => undefined)
+      )
+    const gitDir = yield* git("rev-parse", "--path-format=absolute", "--git-common-dir")
+    const prefix = yield* git("rev-parse", "--show-prefix")
+    const commit = yield* git("rev-parse", "HEAD")
+    if (gitDir !== undefined && prefix !== undefined && commit !== undefined) {
+      const origin = { gitDir, package: prefix.replace(/\/$/, ""), commit, installedAt: new Date().toISOString() }
+      yield* fs.writeFileString(path.join(app, "source.json"), `${JSON.stringify(origin, null, 2)}\n`).pipe(step("write source.json"))
+    }
   }
   yield* fs.writeFileString(plist, body).pipe(step(`write ${plist}`))
   // bootout is asynchronous; bootstrap fails with EIO until the old instance is gone.

@@ -146,11 +146,11 @@ function Body({ root, tab, preview }: { root: string; tab: EditorTab; preview: b
 
 const NO_TABS: EditorTab[] = []
 
-/** Open files as tabs over one editor, with the banners and notices around it. */
-export function EditorArea({ root }: { root: string }) {
-  const tabs = useSpace((w) => w.tabs, NO_TABS)
-  const active = useSpace((w) => w.active, null)
-  const closing = useSpace((w) => w.closing, null)
+/** Open files as tabs over one editor, with the banners and notices around it; `empty` shows with no file open. */
+export function EditorArea({ root, empty }: { root: string; empty?: ReactNode }) {
+  const tabs = useSpace(root, (w) => w.tabs, NO_TABS)
+  const active = useSpace(root, (w) => w.active, null)
+  const closing = useSpace(root, (w) => w.closing, null)
   const [menu, setMenu] = useState(false)
   const setClosing = (path: string | null): void => setClosingPath(root, path)
   const [previews, setPreviews] = useState<ReadonlySet<string>>(new Set())
@@ -174,8 +174,12 @@ export function EditorArea({ root }: { root: string }) {
   if (tabs.length === 0)
     return (
       <div className="eva-files-welcome" data-testid="files-welcome">
-        <p>Open a file from the tree, or press ⌘P to find one by name.</p>
-        <p>⌘⇧F searches inside files.</p>
+        {empty ?? (
+          <>
+            <p>Open a file from the tree, or press ⌘P to find one by name.</p>
+            <p>⌘⇧F searches inside files.</p>
+          </>
+        )}
       </div>
     )
 

@@ -154,8 +154,8 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
   const [draft, setDraft] = useState<CodeDraft | null>(null)
   const scheme = useColorScheme()
   const config = useThemeConfig()
-  const reveal = useSpace((w) => w.reveal, null)
-  const openPaths = useSpace((w) => w.tabs.map((t) => t.path).join('\0'), '')
+  const reveal = useSpace(root, (w) => w.reveal, null)
+  const openPaths = useSpace(root, (w) => w.tabs.map((t) => t.path).join('\0'), '')
   const quickOpen = useFiles((s) => s.quickOpen)
   const marks = useMarks(root, tab.path)
 

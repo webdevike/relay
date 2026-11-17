@@ -46,7 +46,7 @@ test('a card opens its ticket view beside the live board; resize, fold, Esc, nar
   shell,
 }) => {
   await app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0]!.setSize(1600, 1000))
-  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('agents'))
+  await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('board'))
   await expect(shell.locator(sel('agents-board'))).toBeVisible()
   const boardBefore = await width(shell, '.eva-ab-main')
 

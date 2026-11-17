@@ -66,6 +66,8 @@ export const APP_LINK_PARAMS = [
   /** The workspace key a tool tab (web, files) belongs to. */
   'ws',
   'skill',
+  /** `open/agents`: an atomic-agents specialist whose files and runs open. */
+  'agent',
 ] as const
 export type AppLinkParam = (typeof APP_LINK_PARAMS)[number]
 

@@ -35,7 +35,7 @@ function Preview({ m }: { m: SearchMatch }) {
 
 /** Cmd+Shift+F: search the root's files (ripgrep, else git grep, else a scan). */
 export function SearchView({ root, focusKey }: { root: string; focusKey: number }) {
-  const search = useSpace((w) => w.search, null)
+  const search = useSpace(root, (w) => w.search, null)
   const input = useRef<HTMLInputElement>(null)
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
 

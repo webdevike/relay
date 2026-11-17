@@ -13,6 +13,7 @@ export const AGENT_FIXED_PAGES = [
   'dashboard',
   'assistants',
   'agents',
+  'board',
   'chat',
   'skills',
   'jobs',
@@ -83,8 +84,17 @@ export const AGENT_PAGES: readonly AgentPageInfo[] = [
     key: 'agents',
     title: 'Agents',
     description:
+      'The atomic-agents specialists (web researcher, diagram, design critic, ...): purpose, model and fallback, trial or live, running now, runs this week. An agent opens its folder (AGENT.md, knowledge/, bench/, or a JSON spec with its rules) in the Files tree and editor; a save is live within a second and committed to the relay repo. Its Runs tab lists every run with who asked and the output.',
+    link: 'relay://open/agents?agent=<id>',
+    read: [...PANES, 'agents_list', 'agents_runs'],
+    change: ['page.open'],
+  },
+  {
+    key: 'board',
+    title: 'Board',
+    description:
       'A board of every task the agents work on (tickets, work items, helpers, sessions), in Queued, Working, Needs Isaac, In review, Merged/QA and Done.',
-    link: 'relay://open/agents',
+    link: 'relay://open/board',
     read: PANES,
     change: ['page.open'],
   },
@@ -154,7 +164,7 @@ export const AGENT_PAGES: readonly AgentPageInfo[] = [
   },
   {
     key: 'board:<slug>',
-    title: 'Board',
+    title: 'Dashboard board',
     description: 'A Relay host dashboard board.',
     link: 'relay://open/board/<slug>',
     read: PANES,
@@ -550,6 +560,12 @@ export const AgentLinkParamsSchema = z
     /** The workspace key a web page or file belongs to. */
     workspace: z.string().min(1).max(1000).optional(),
     skill: z.string().min(1).max(100).optional(),
+    /** An atomic-agents specialist on the Agents page: its files and runs open. */
+    agent: z
+      .string()
+      .regex(/^[a-z][a-z0-9-]*$/)
+      .max(100)
+      .optional(),
     /** The link's text in chat; default: where it goes ("Settings › Connections"). */
     label: z.string().trim().min(1).max(120).optional(),
   })
@@ -612,6 +628,7 @@ export function appLinkFor(p: AgentLinkParams): { url: string; label: string; ma
   only('experiment', ['test-bench'])
   only('arm', ['test-bench'])
   only('skill', ['skills'])
+  only('agent', ['agents'])
   only('job', ['studio'])
   only('message', ['chat'])
   only('line', ['files'])
@@ -638,6 +655,7 @@ export function appLinkFor(p: AgentLinkParams): { url: string; label: string; ma
     if (p.experiment !== undefined) params.experiment = p.experiment
     if (p.arm !== undefined) params.arm = p.arm
     if (p.skill !== undefined) params.skill = p.skill
+    if (p.agent !== undefined) params.agent = p.agent
     if (p.job !== undefined) params.job = p.job
     if (p.chat !== undefined) params.chat = p.chat
     if (p.message !== undefined) params.message = p.message
@@ -662,9 +680,11 @@ export function appLinkFor(p: AgentLinkParams): { url: string; label: string; ma
 /** Where a relay:// link goes, in words: "Settings › Connections › GitHub", "Workspace ecard". */
 export function appLinkLabel(link: AppLink): string {
   if (link.kind === 'assistant') return `Assistant ${link.id}`
-  if (link.page === 'workspace' || link.page === 'board') {
-    return `${link.page === 'board' ? 'Board' : 'Workspace'} ${link.sub ?? ''}`.trim()
+  if (link.page === 'workspace' || (link.page === 'board' && link.sub !== undefined)) {
+    return `${link.page === 'board' ? 'Dashboard board' : 'Workspace'} ${link.sub ?? ''}`.trim()
   }
+  if (link.page === 'agents' && link.params?.agent !== undefined)
+    return `${PAGE_TITLE['agents'] ?? 'Agents'} › ${link.params.agent}`
   const { url, path } = link.params ?? {}
   if (link.page === 'web' && url !== undefined) {
     // The contract has no DOM or Node globals: the authority part of the URL, without user info.

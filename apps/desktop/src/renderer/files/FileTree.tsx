@@ -12,7 +12,7 @@ import {
   useSpace,
   type Workspace,
 } from './files-store'
-import { Decorator, parentOf, visibleRows, type TreeRow } from './tree-model'
+import { Decorator, ancestorsOf, parentOf, visibleRows, type TreeRow } from './tree-model'
 
 const NO_CHILDREN: Workspace['children'] = {}
 const NO_EXPANDED: Set<string> = new Set()
@@ -87,20 +87,27 @@ const Row = memo(function Row({
   )
 })
 
-/** The explorer: lazy folders, Material icons, git colors, arrow-key navigation. */
-export function FileTree({ root }: { root: string }) {
+/**
+ * The explorer: lazy folders, Material icons, git colors, arrow-key navigation. `only` narrows it
+ * to those root-relative files and the folders above them (an agent's own files in a shared folder).
+ */
+export function FileTree({ root, only = null }: { root: string; only?: readonly string[] | null }) {
   const list = useRef<VListHandle>(null)
-  const children = useSpace((w) => w.children, NO_CHILDREN)
-  const expanded = useSpace((w) => w.expanded, NO_EXPANDED)
-  const git = useSpace((w) => w.git, null)
-  const showIgnored = useSpace((w) => w.showIgnored, false)
-  const selected = useSpace((w) => w.selected, null)
-  const active = useSpace((w) => w.active, null)
+  const children = useSpace(root, (w) => w.children, NO_CHILDREN)
+  const expanded = useSpace(root, (w) => w.expanded, NO_EXPANDED)
+  const git = useSpace(root, (w) => w.git, null)
+  const showIgnored = useSpace(root, (w) => w.showIgnored, false)
+  const selected = useSpace(root, (w) => w.selected, null)
+  const active = useSpace(root, (w) => w.active, null)
   const decorator = useMemo(() => new Decorator(git), [git])
-  const rows = useMemo(
-    () => visibleRows(children, expanded, decorator, showIgnored, selected),
-    [children, expanded, decorator, showIgnored, selected],
+  const shown = useMemo(
+    () => (only === null ? null : new Set(only.flatMap((p) => [p, ...ancestorsOf(p)]))),
+    [only],
   )
+  const rows = useMemo(() => {
+    const all = visibleRows(children, expanded, decorator, showIgnored, selected)
+    return shown === null ? all : all.filter((r) => shown.has(r.entry.path))
+  }, [children, expanded, decorator, showIgnored, selected, shown])
   const index = rows.findIndex((r) => r.entry.path === selected)
 
   // Reveal the active file, like VS Code's explorer.autoReveal.

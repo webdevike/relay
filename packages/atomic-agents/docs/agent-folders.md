@@ -17,6 +17,10 @@ domains/<domain>/
 
 The loader (`src/core/Agent.ts`) reads, in every agent dir, the `<id>.json|yaml|yml` files and every `<id>/AGENT.md` one level down. The agent dirs are each domain's `domains/<domain>/` and, when it exists, `domains/<domain>/agents/`, then `<home>/agents/` (Isaac's own; an id there replaces a built-in). Hot reload is the same as for files: an edit to `AGENT.md` swaps the agent in within a second, a bad edit is `config.rejected` and the last good version keeps running. Knowledge files are read on every run, so an edit there applies to the next run without a reload. Existing JSON and YAML agents are unchanged; nothing is migrated.
 
+## Editing from Relay
+
+Relay's Agents page lists `atomic-agents list --json` (every agent in load order, disabled ones and files that failed to load too, with their settings, trial mode (`trial: {on, arms}`) and run stats) and opens an agent's folder, or a JSON or YAML spec and its knowledge files. A save writes the installed copy the service runs (`<home>/app/atomic-agents`), which hot-reloads as above, and the page commits the edit back to the repo named in `<home>/app/source.json` (written by `service install`: `gitDir`, `package`, `commit`, `installedAt`). Its run list is `runs --every --agent <id>`, and `result <run>` opens any of them, request or job run. A trial arm no request started is not a job run there: the page folds trial arms from the journal itself and keeps them blind until Isaac picks.
+
 ## `AGENT.md`
 
 ```markdown
