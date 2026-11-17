@@ -22,6 +22,13 @@ export const SUBS_POLL_MS = 2_000
 /** What a host lists of a subagent folder: transcripts and their result notes. */
 const SUB_FILE = /\.(?:jsonl|md)$/
 const HASH = /^[0-9a-f]{64}$/
+/**
+ * `session.read`s unanswered at once; the rest wait their turn. Relay Host (Bun) silently drops
+ * frames once 16 MB wait to go out on a socket, and a burst of 256 KB chunks got there.
+ */
+export const MAX_READS = 4
+/** A read unanswered this long was dropped on the way: it is asked again from where the mirror is. */
+export const READ_TIMEOUT_MS = 20_000
 
 /** `<userData>/remote-sessions`: one flat sessions dir and the blobs beside it (`<root>/blobs`). */
 export function remoteSessionsDir(configDir: string): string {
@@ -62,6 +69,13 @@ interface Sub {
   waiters: Array<() => void>
 }
 
+/** One `session.read` for an entry's or subagent file's next bytes; `again` re-asks after a loss. */
+interface Read {
+  item: Entry | Sub
+  frame: Record<string, unknown>
+  again: () => void
+}
+
 /**
  * Mirrors the remote Relay Host's omp transcripts into `dir` so the file-based chat stack works
  * unchanged. Every file's head is fetched for the list; recent and opened files in full, then
@@ -80,6 +94,10 @@ export class RemoteSessions {
   private readonly blobsDir: string
   private relistTimer: NodeJS.Timeout | undefined
   private off: (() => void) | undefined
+  /** Reads sent and not yet answered, each with its loss timer (at most MAX_READS). */
+  private readonly asked = new Map<Entry | Sub, NodeJS.Timeout>()
+  /** Reads waiting for one of those to be answered, in order. */
+  private queued: Read[] = []
 
   constructor(
     private readonly link: RelayFrames,
@@ -100,6 +118,54 @@ export class RemoteSessions {
   stop(): void {
     this.off?.()
     clearTimeout(this.relistTimer)
+    this.forgetReads()
+  }
+
+  /** Sends `r` now when fewer than MAX_READS are unanswered, else queues it; false when the link is down. */
+  private ask(r: Read): boolean {
+    if (this.asked.size >= MAX_READS) {
+      this.queued.push(r)
+      return true
+    }
+    // Before sending: the answer may come back inside sendFrame.
+    this.asked.set(
+      r.item,
+      setTimeout(() => this.lost(r), READ_TIMEOUT_MS),
+    )
+    if (this.link.sendFrame(r.frame)) return true
+    this.settle(r.item)
+    return false
+  }
+
+  /** `item`'s read is answered or given up: its place goes to the next queued read. */
+  private settle(item: Entry | Sub): void {
+    const timer = this.asked.get(item)
+    if (timer === undefined) return
+    clearTimeout(timer)
+    this.asked.delete(item)
+    while (this.asked.size < MAX_READS && this.queued.length > 0) {
+      const next = this.queued.shift()!
+      // Forgotten while it waited (a new connection, or the file left the host's list).
+      if (!next.item.reading) continue
+      if (this.ask(next)) continue
+      next.item.reading = false
+      for (const done of [...next.item.waiters]) done()
+    }
+  }
+
+  /** No answer came (the host dropped it): ask again from where the mirror is now. */
+  private lost(r: Read): void {
+    if (!this.asked.has(r.item)) return
+    r.item.reading = false
+    this.settle(r.item)
+    r.again()
+  }
+
+  /** A new connection or stop: nothing sent before is answered any more. */
+  private forgetReads(): void {
+    for (const timer of this.asked.values()) clearTimeout(timer)
+    this.asked.clear()
+    this.queued = []
   }
 
   /**
@@ -166,13 +232,19 @@ export class RemoteSessions {
   private pullSub(s: Sub): boolean {
     if (s.reading) return true
     s.reading = true
-    const sent = this.link.sendFrame({
-      t: 'session.read',
-      dir: s.dir,
-      parent: s.parent,
-      name: s.name,
-      offset: s.have,
-      ...(s.profile !== undefined && { profile: s.profile }),
+    const sent = this.ask({
+      item: s,
+      frame: {
+        t: 'session.read',
+        dir: s.dir,
+        parent: s.parent,
+        name: s.name,
+        offset: s.have,
+        ...(s.profile !== undefined && { profile: s.profile }),
+      },
+      again: () => {
+        if (this.subs.get(`${s.parent}/${s.name}`) === s) this.pullSub(s)
+      },
     })
     if (!sent) s.reading = false
     return sent
@@ -188,11 +260,13 @@ export class RemoteSessions {
     if (!s) return
     if (f.parent === undefined || typeof f.data !== 'string' || typeof f.size !== 'number') {
       s.reading = false
+      this.settle(s)
       for (const done of [...s.waiters]) done()
       return
     }
     if (f.offset !== s.have) return
     s.reading = false
+    this.settle(s)
     const bytes = Buffer.from(f.data, 'base64')
     const created = !fs.existsSync(this.subLocal(s))
     if (bytes.length > 0 || created) {
@@ -249,6 +323,7 @@ export class RemoteSessions {
   private receive(f: Record<string, unknown>): void {
     if (f.t === 'welcome') {
       // A new connection: reads in flight on the old one are gone.
+      this.forgetReads()
       for (const e of this.entries.values()) e.reading = false
       for (const s of this.subs.values()) s.reading = false
       this.link.sendFrame({ t: 'sessions.list' })
@@ -309,10 +384,17 @@ export class RemoteSessions {
     for (const [name, e] of this.entries) {
       if (seen.has(name)) continue
       this.entries.delete(name)
+      e.reading = false
+      this.settle(e)
       fs.rmSync(this.local(e), { force: true })
       const folder = name.replace(/\.jsonl$/, '')
       fs.rmSync(path.join(this.dir, folder), { recursive: true, force: true })
-      for (const [key, s] of this.subs) if (s.parent.split('/')[0] === folder) this.subs.delete(key)
+      for (const [key, s] of this.subs) {
+        if (s.parent.split('/')[0] !== folder) continue
+        this.subs.delete(key)
+        s.reading = false
+        this.settle(s)
+      }
     }
     // Watched subagent transcripts grow with their chat: ask for what they gained.
     for (const s of this.subs.values()) if (!s.listed) this.pullSub(s)
@@ -402,7 +484,10 @@ export class RemoteSessions {
       ...(e.profile !== undefined && { profile: e.profile }),
     }
     e.reading = true
-    if (this.link.sendFrame(ask)) return true
+    const again = (): void => {
+      if (this.entries.get(e.name) === e) this.pull(e)
+    }
+    if (this.ask({ item: e, frame: ask, again })) return true
     e.reading = false
     return false
   }
@@ -411,6 +496,7 @@ export class RemoteSessions {
     const e = typeof f.name === 'string' ? this.entries.get(f.name) : undefined
     if (!e || f.offset !== e.have || typeof f.size !== 'number') return
     e.reading = false
+    this.settle(e)
     if (typeof f.data !== 'string') {
       // Gone on the host since the list; the next list drops it.
       for (const done of [...e.waiters]) done()

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { blobAgentDirs, readBlobImage } from './media'
 import {
   HEAD_BYTES,
+  MAX_READS,
+  READ_TIMEOUT_MS,
   RECENT_MS,
   RemoteSessions,
   SUBS_POLL_MS,
@@ -21,6 +23,10 @@ class FakeHost {
   sent: Frame[] = []
   /** Lists each top-level file's direct subagent files, as a current host does. */
   listSubs = false
+  /** Answers to `session.read` lost on the way (Relay Host drops frames past its send buffer). */
+  dropReads = 0
+  /** While set, `session.read`s wait here unanswered until `release`. */
+  held: Frame[] | null = null
   private cb: ((f: Frame) => void) | null = null
   onFrame(cb: (f: Frame) => void): () => void {
     this.cb = cb
@@ -28,8 +34,16 @@ class FakeHost {
   }
   sendFrame(f: Frame): boolean {
     this.sent.push(f)
-    this.answer(f)
+    if (f.t === 'session.read' && this.dropReads > 0) this.dropReads--
+    else if (f.t === 'session.read' && this.held) this.held.push(f)
+    else this.answer(f)
     return true
+  }
+  /** Answers every held read, and every later one at once. */
+  release(): void {
+    const held = this.held ?? []
+    this.held = null
+    for (const f of held) this.answer(f)
   }
   push(f: Frame): void {
     this.cb?.(f)
@@ -231,5 +245,32 @@ describe('RemoteSessions', () => {
     host.push({ t: 'agents.delta' })
     vi.advanceTimersByTime(1000)
     expect(host.sent.filter((f) => f.t === 'session.read').length).toBe(reads)
+  })
+
+  it('asks again for a read whose answer never came, so the mirror keeps up', () => {
+    host.files.set('nova.jsonl', Buffer.from('{"a":1}\n'))
+    host.dropReads = 1
+    mirror.start()
+    expect(fs.existsSync(local('nova.jsonl'))).toBe(false)
+    // Still waiting on the lost answer: activity does not ask twice before the timeout.
+    host.files.set('nova.jsonl', Buffer.from('{"a":1}\n{"b":2}\n'))
+    host.push({ t: 'agents.delta' })
+    vi.advanceTimersByTime(1000)
+    expect(host.sent.filter((f) => f.t === 'session.read')).toHaveLength(1)
+    vi.advanceTimersByTime(READ_TIMEOUT_MS)
+    expect(fs.readFileSync(local('nova.jsonl'), 'utf8')).toBe('{"a":1}\n{"b":2}\n')
+  })
+
+  it(`keeps at most ${MAX_READS} reads unanswered and asks the rest as answers come`, () => {
+    const names = Array.from({ length: MAX_READS * 3 }, (_, i) => `f${i}.jsonl`)
+    for (const name of names) host.files.set(name, Buffer.from(`{"n":"${name}"}\n`))
+    host.held = []
+    mirror.start()
+    expect(host.held).toHaveLength(MAX_READS)
+    host.release()
+    for (const name of names) {
+      expect(fs.readFileSync(local(name), 'utf8')).toBe(`{"n":"${name}"}\n`)
+    }
+    expect(host.sent.filter((f) => f.t === 'session.read')).toHaveLength(names.length)
   })
 })
