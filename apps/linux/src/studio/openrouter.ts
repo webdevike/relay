@@ -209,7 +209,9 @@ export function estimateUsd(
     if (output.unit === "token") {
       const tokens =
         tier === null
-          ? DEFAULT_TOKENS
+          ? gemini
+            ? (GEMINI_TOKENS["1k"] ?? DEFAULT_TOKENS)
+            : DEFAULT_TOKENS
           : ((gemini ? GEMINI_TOKENS : OTHER_TOKENS)[tier] ?? DEFAULT_TOKENS);
       image = output.cost_usd * tokens;
     } else if (output.unit === "megapixel") {
@@ -248,7 +250,7 @@ export function studioModelOf(model: CatalogModel): StudioModel {
     ...(from === null
       ? {}
       : {
-          description: `About ${studioPriceLabel(from, "usd")} per image${refs > 0 ? `, takes up to ${String(refs)} reference images` : ""}`,
+          description: `About ${studioPriceLabel(from, "usd")} per image${refs > 0 ? `, takes up to ${String(refs)} reference image${refs === 1 ? "" : "s"}` : ""}`,
         }),
     refs,
     minRefs: Math.min(model.refs.min, refs),
