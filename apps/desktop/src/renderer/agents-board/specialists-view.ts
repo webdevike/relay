@@ -1,5 +1,5 @@
 import type { Assistant, SpecialistCaller, SpecialistRuns } from '@evaos/contract'
-import { costLabel } from '../chat/AgentsCaption'
+import { costLabel } from '../chat/RunDetails'
 
 /** The registry assistant a caller is, when it is one. */
 export function callerAssistant(

@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentBadge,
   agentCallOf,
+  agentRunKey,
   agentRunOf,
   agentRunsByRow,
   agentsCaption,
   foldAgentRuns,
+  liveAgentRuns,
+  recentAgentRuns,
   type AgentRun,
 } from "../src/agent-runs";
 
@@ -125,6 +129,77 @@ describe("foldAgentRuns", () => {
     };
     const other: AgentRun = { agent: "design-critic", status: "running" };
     expect(foldAgentRuns([running, other, done])).toEqual([{ ...done, startedAt: 1_000 }, other]);
+  });
+});
+
+describe("liveAgentRuns: a chat's badges from start to finish", () => {
+  const asked: AgentRun = { agent: "web-researcher", status: "running", startedAt: 1_000 };
+
+  it("an ask still out is one running badge; its result turns the same badge done", () => {
+    expect(liveAgentRuns([asked])).toEqual([asked]);
+    const answered: AgentRun = { ...asked, run: "r-1", status: "done", seconds: 29 };
+    expect(liveAgentRuns([answered])).toEqual([answered]);
+  });
+
+  it("an ask that came back running is finished by agents_result in the transcript, one badge per run", () => {
+    const back: AgentRun = { ...asked, run: "r-1" };
+    const result: AgentRun = { agent: "web-researcher", run: "r-1", status: "failed", error: "timed out", startedAt: 50_000 };
+    expect(liveAgentRuns([back, result])).toEqual([{ ...result, startedAt: 1_000 }]);
+  });
+
+  it("the service finishes a run the transcript still shows running, keeping the transcript's reply", () => {
+    const back: AgentRun = { ...asked, run: "r-1", request: { question: "q" } };
+    const service: AgentRun = { agent: "web-researcher", run: "r-1", status: "done", seconds: 64, cost: 0.02, startedAt: 900 };
+    expect(liveAgentRuns([back], [service])).toEqual([{ ...back, status: "done", seconds: 64, cost: 0.02, startedAt: 900 }]);
+  });
+
+  it("a service run joins the ask still waiting for its run id instead of showing twice", () => {
+    const service: AgentRun = { agent: "web-researcher", run: "r-9", status: "running", startedAt: 1_200 };
+    expect(liveAgentRuns([asked], [service])).toEqual([{ ...asked, run: "r-9", startedAt: 1_200 }]);
+  });
+
+  it("a done or failed run never goes back to running when the service snapshot is older", () => {
+    const done: AgentRun = { ...asked, run: "r-1", status: "done", seconds: 12 };
+    const stale: AgentRun = { agent: "web-researcher", run: "r-1", status: "running", startedAt: 1_000 };
+    expect(liveAgentRuns([done], [stale])).toEqual([done]);
+    expect(liveAgentRuns([{ ...done, status: "failed" }], [stale])[0]!.status).toBe("failed");
+  });
+
+  it("runs the transcript never showed are added; newest first, the one just asked (no start) on top", () => {
+    const old: AgentRun = { agent: "diagram", run: "r-0", status: "done", startedAt: 500, seconds: 3 };
+    const fresh: AgentRun = { agent: "design-critic", status: "running" };
+    expect(liveAgentRuns([asked, fresh], [old]).map((r) => r.agent)).toEqual(["design-critic", "web-researcher", "diagram"]);
+  });
+});
+
+describe("agentBadge", () => {
+  it("running ticks from the start, done and failed show how long it took, no clock when unknown", () => {
+    const asked: AgentRun = { agent: "prop-render", status: "running", startedAt: 1_000 };
+    expect(agentBadge(asked, 13_000)).toEqual({ state: "running", label: "Prop render", clock: "0:12" });
+    expect(agentBadge({ agent: "prop-render", status: "running" }, 13_000).clock).toBe("0:00");
+    expect(agentBadge({ ...asked, status: "done", seconds: 29.4 }, 99_000)).toEqual({ state: "done", label: "Prop render", clock: "29s" });
+    expect(agentBadge({ ...asked, status: "failed", seconds: 64 }, 0).clock).toBe("1m 4s");
+    expect(agentBadge({ ...asked, status: "failed", error: "x" }, 0)).toEqual({ state: "failed", label: "Prop render", clock: null });
+  });
+
+  it("a badge is keyed by its run id, else by agent and start", () => {
+    expect(agentRunKey({ agent: "diagram", run: "r-1", status: "done" })).toBe("r-1");
+    expect(agentRunKey({ agent: "diagram", status: "running", startedAt: 5 })).toBe("diagram@5");
+  });
+});
+
+describe("recentAgentRuns", () => {
+  const min = 60_000;
+  it("keeps runs still out and runs that ended in the last 30 minutes; drops older ones and stale runs", () => {
+    const now = 200 * min;
+    const asking: AgentRun = { agent: "a", status: "running" };
+    const out: AgentRun = { agent: "b", status: "running", startedAt: now - 59 * min };
+    const stale: AgentRun = { agent: "c", status: "running", startedAt: now - 61 * min };
+    // Started 40 min ago and ran 15: ended 25 min ago.
+    const endedLately: AgentRun = { agent: "d", status: "done", startedAt: now - 40 * min, seconds: 15 * 60 };
+    const endedLong: AgentRun = { agent: "e", status: "failed", startedAt: now - 31 * min };
+    const noStart: AgentRun = { agent: "f", status: "done", seconds: 3 };
+    expect(recentAgentRuns([asking, out, stale, endedLately, endedLong, noStart], now).map((r) => r.agent)).toEqual(["a", "b", "d"]);
   });
 });
 

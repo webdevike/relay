@@ -205,6 +205,77 @@ export function agentClock(ms: number, running: boolean): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
+const finished = (r: AgentRun): boolean => r.status !== "running";
+
+/** `b` laid over `a` (same run): a finished state never goes back to running (a service snapshot older than the transcript, or the other way round). */
+function overlay(a: AgentRun, b: AgentRun): AgentRun {
+  if (finished(a) && !finished(b)) return { ...b, ...a };
+  const startedAt = b.startedAt ?? a.startedAt;
+  return { ...a, ...b, ...(startedAt === undefined ? {} : { startedAt }) };
+}
+
+/**
+ * A chat's specialist runs as its live badges, newest first. `transcript` is every agents call the
+ * chat's transcript shows (folded per run id); `service` is what the atomic-agents service recorded
+ * for this chat as caller (`atomic-agents runs`), which finishes a run whose `agents_ask` came back
+ * running and lists runs asked outside an agents call. A service run joins its transcript run by run
+ * id, else the transcript's running ask of the same agent still waiting for its id; the rest are added.
+ * Running, then done or failed; never back.
+ */
+export function liveAgentRuns(
+  transcript: readonly AgentRun[],
+  service: readonly AgentRun[] = [],
+): AgentRun[] {
+  const out = foldAgentRuns(transcript);
+  for (const s of service) {
+    let at = s.run === undefined ? -1 : out.findIndex((r) => r.run === s.run);
+    if (at < 0) at = out.findIndex((r) => r.run === undefined && r.agent === s.agent && r.status === "running");
+    if (at < 0) out.push(s);
+    else out[at] = overlay(out[at]!, s);
+  }
+  // Newest first; a run with no start time is the one just asked.
+  const start = (r: AgentRun): number => r.startedAt ?? Number.POSITIVE_INFINITY;
+  return out.map((r, i) => ({ r, i })).sort((a, b) => start(b.r) - start(a.r) || b.i - a.i).map(({ r }) => r);
+}
+
+/** A finished badge stays this long after its run ended; a run still "running" this long after it started is stale (its end never reached the chat). */
+export const AGENT_BADGE_LINGER_MS = 30 * 60_000;
+export const AGENT_BADGE_STALE_MS = 60 * 60_000;
+
+/**
+ * The badges a chat shows now: runs still out (unless stale), and runs that ended in the last
+ * `AGENT_BADGE_LINGER_MS` (end = start + seconds). A run with no start time is one just asked.
+ */
+export function recentAgentRuns(runs: readonly AgentRun[], now: number): AgentRun[] {
+  return runs.filter((r) => {
+    if (r.startedAt === undefined) return r.status === "running";
+    if (r.status === "running") return now - r.startedAt < AGENT_BADGE_STALE_MS;
+    return now - (r.startedAt + (r.seconds ?? 0) * 1000) < AGENT_BADGE_LINGER_MS;
+  });
+}
+
+/** What a run's badge says: its state, the specialist's name, and its clock (`0:12` ticking while it runs, `29s` once it ended; null when unknown). */
+export interface AgentBadge {
+  readonly state: AgentRun["status"];
+  readonly label: string;
+  readonly clock: string | null;
+}
+
+export function agentBadge(run: AgentRun, now: number): AgentBadge {
+  const clock =
+    run.status === "running"
+      ? agentClock(run.startedAt === undefined ? 0 : now - run.startedAt, true)
+      : run.seconds === undefined
+        ? null
+        : agentClock(run.seconds * 1000, false);
+  return { state: run.status, label: agentLabel(run.agent), clock };
+}
+
+/** The key a badge is cleared (Clear done) and listed by: its run id, else its agent and start. */
+export function agentRunKey(run: AgentRun): string {
+  return run.run ?? `${run.agent}@${run.startedAt ?? ""}`;
+}
+
 const list = (names: readonly string[]): string =>
   names.length <= 1
     ? (names[0] ?? "")

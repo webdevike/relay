@@ -14,7 +14,13 @@ import { WidgetActions, type WidgetActionsValue } from './widgets/actions'
 import { PendingDialog } from './cards/PendingDialog'
 import { JobsStrip } from './strips/JobsStrip'
 import { StatusStrip } from './strips/StatusStrip'
-import { SubagentChips } from './strips/SubagentChips'
+import { SubagentChips, useMinute } from './strips/SubagentChips'
+import {
+  chatServiceRuns,
+  chatSpecialists,
+  specialistName,
+  useServiceRuns,
+} from './strips/specialist-runs'
 import { AgentWorkCards } from './strips/AgentWorkCards'
 import { MeetingCards } from './strips/MeetingCards'
 import { useFrontChatPane } from './front-chat'
@@ -262,6 +268,17 @@ function ChatView({
   const agentColor = useAssistants((s) =>
     agent === null ? undefined : agentOf(s, agent)?.avatar.colors?.accent,
   )
+  // Every specialist this chat asked (its agents calls, and the service's record of runs it asked
+  // for), a badge each from its ask to its end; Clear done hides the finished ones.
+  const serviceRuns = useServiceRuns()
+  const minute = useMinute()
+  const specialists = useMemo(() => {
+    if (!pane) return []
+    const service = chatServiceRuns(serviceRuns, pane.file, agent)
+    return chatSpecialists(shownMessages ?? [], service, minute).filter(
+      (r) => !(r.status !== 'running' && hiddenDone.has(hiddenKey(pane.file, specialistName(r)))),
+    )
+  }, [pane, serviceRuns, agent, shownMessages, minute, hiddenDone])
 
   // A tab on this chat names it as the header does, and follows a rename or omp's auto title.
   const shownFile = pane?.file ?? ''
@@ -438,7 +455,15 @@ function ChatView({
             if (split) openSubagentTab({ session: pane.file, file, name: s.name })
             else drillStore.push(paneId, { file, title: s.name })
           }}
-          onClearDone={() => chatStore.getState().clearDone(paneId)}
+          onClearDone={() =>
+            chatStore
+              .getState()
+              .clearDone(
+                paneId,
+                specialists.filter((r) => r.status !== 'running').map(specialistName),
+              )
+          }
+          specialists={specialists}
         />
       ) : null}
       {inFront ? <AgentWorkCards /> : null}

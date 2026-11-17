@@ -1,13 +1,14 @@
 // Specialist agents in a chat: Nova asks the web researcher through the relay MCP server's
-// agents_ask (omp's xd device write to xd://mcp__relay_agents_ask). While the call is out, a teal
-// rosette sits in the left margin and a muted caption under the turn ticks ("Web researcher is on
-// it · 0:12"); once the research is back and Nova replies, the caption moves under her reply
-// ("Answered with Web researcher · 29s · 2 sources") and a click opens the request, the answer
-// and its verified sources. Saves screenshots to proof/agents-caption/ (EVAOS_PROOF=1).
+// agents_ask (omp's xd device write to xd://mcp__relay_agents_ask). From the ask on, a squared badge
+// in the strip above the composer (beside the session badges) shows it running with a ticking
+// clock; once the research is back it reads done with how long it took, and a click opens the
+// request, the answer and its verified sources. A failed ask reads failed. The agents calls have
+// no row of their own in the log, and no caption repeats the run under the reply. Saves
+// screenshots to proof/specialist-badges/<scheme>/ (EVAOS_PROOF=1, or EVAOS_PROOF_DIR).
 //
 //   source scripts/env.sh
 //   pnpm -C apps/desktop exec electron-vite build
-//   EVAOS_PROOF=1 pnpm -C apps/desktop exec playwright test e2e/agents-caption.spec.ts
+//   EVAOS_PROOF=1 [EVAOS_SCHEME=light] pnpm -C apps/desktop exec playwright test e2e/specialist-badges.spec.ts
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { ElectronApplication, Page } from '@playwright/test'
@@ -15,11 +16,16 @@ import { test as base, expect } from './fixtures'
 import { makeChatFixture, type ChatFixture } from './helpers/chat-fixture'
 import { FakeRelayHost } from './helpers/fake-relay-host'
 import { APP_DIR, EVA_FIXTURE_ROOT, REPO_ROOT } from './helpers/paths'
+import { pickScheme } from './helpers/appearance'
 
-const PROOF =
-  process.env.EVAOS_PROOF === '1'
-    ? path.join(REPO_ROOT, 'proof', 'agents-caption')
-    : path.join(APP_DIR, 'test-results/proof/agents-caption')
+const SCHEME = process.env.EVAOS_SCHEME === 'light' ? 'light' : 'dark'
+const PROOF = path.join(
+  process.env.EVAOS_PROOF_DIR ??
+    (process.env.EVAOS_PROOF === '1'
+      ? path.join(REPO_ROOT, 'proof', 'specialist-badges')
+      : path.join(APP_DIR, 'test-results/proof/specialist-badges')),
+  SCHEME,
+)
 const THREAD = 'p4-ecard'
 
 let fx: ChatFixture
@@ -41,7 +47,7 @@ const test = base.extend({
     fx.cleanup()
   },
 })
-test.use({ startOnChat: false, toolPanes: false, colorScheme: 'dark' })
+test.use({ startOnChat: false, toolPanes: false })
 
 const sel = (id: string): string => `[data-testid="${id}"]`
 const LOG = '[data-testid=chat-pane] [data-testid=chat-log]'
@@ -94,7 +100,45 @@ const RESEARCH = {
   cost: 0.004,
 }
 
-test('a specialist run shows a margin badge and a ticking caption, then the done caption under the reply that opens its sources', async ({
+const ask = (id: string, parentId: string, at: number, agent: string, request: unknown) =>
+  line({
+    type: 'message',
+    id,
+    parentId,
+    message: {
+      role: 'assistant',
+      content: [
+        {
+          type: 'toolCall',
+          id: `toolu_${id}`,
+          name: 'write',
+          arguments: {
+            path: 'xd://mcp__relay_agents_ask',
+            i: 'Asking a specialist',
+            content: JSON.stringify({ agent, request }),
+          },
+        },
+      ],
+      stopReason: 'toolUse',
+      timestamp: at,
+    },
+  })
+const result = (id: string, callId: string, at: number, text: string, isError: boolean) =>
+  line({
+    type: 'message',
+    id,
+    parentId: callId,
+    message: {
+      role: 'toolResult',
+      toolCallId: `toolu_${callId}`,
+      toolName: 'write',
+      content: [{ type: 'text', text }],
+      isError,
+      timestamp: at,
+    },
+  })
+
+test('a specialist run is a live badge in the strip: running with a clock, then done, opening its sources; a failed one reads failed', async ({
   app,
   shell,
 }) => {
@@ -108,31 +152,7 @@ test('a specialist run shows a margin badge and a ticking caption, then the done
       message: { role: 'user', content: QUESTION, attribution: 'user', timestamp: asked - 2000 },
     }),
   )
-  await fx.append(
-    THREAD,
-    line({
-      type: 'message',
-      id: 'ag-c',
-      parentId: 'ag-u',
-      message: {
-        role: 'assistant',
-        content: [
-          {
-            type: 'toolCall',
-            id: 'toolu_agents1',
-            name: 'write',
-            arguments: {
-              path: 'xd://mcp__relay_agents_ask',
-              i: 'Asking the web researcher',
-              content: JSON.stringify({ agent: 'web-researcher', request: REQUEST }),
-            },
-          },
-        ],
-        stopReason: 'toolUse',
-        timestamp: asked,
-      },
-    }),
-  )
+  await fx.append(THREAD, ask('ag-c', 'ag-u', asked, 'web-researcher', REQUEST))
   host.upsert({
     id: THREAD,
     status: 'working',
@@ -141,48 +161,31 @@ test('a specialist run shows a margin badge and a ticking caption, then the done
     title: 'Nova',
   })
   await resize(app, 1280, 900)
+  await pickScheme(shell, SCHEME)
   await shell.getByTestId('nav-assistants').click()
   await shell.getByTestId('sidebar-agent-nova').click()
   const log = shell.locator(LOG)
+  const strip = shell.locator(`[data-testid=chat-pane] ${sel('subagent-chips')}`)
+  const badges = strip.locator('[data-kind="specialist"]')
 
-  // While the call is out: the rosette in the margin, tinted, and the clock ticking.
-  const caption = log.locator(sel('agents-caption'))
-  await expect(caption).toHaveCount(1)
-  await expect(caption).toHaveAttribute('data-state', 'running')
-  const text = caption.locator(sel('agents-caption-line'))
-  await expect(text).toHaveText(/^Web researcher is on it · 0:\d\d$/)
-  const first = await text.textContent()
-  await expect(text).not.toHaveText(first ?? '', { timeout: 3000 })
-  const badge = caption.locator(sel('agents-badge'))
-  await expect(badge).toBeVisible()
-  // The badge sits left of the turn's column.
-  const inner = await caption.evaluate(
-    (el) => el.closest('.eva-row-inner')!.getBoundingClientRect().left,
-  )
-  const badgeBox = (await badge.boundingBox())!
-  expect(badgeBox.x + badgeBox.width).toBeLessThanOrEqual(inner)
-  // The agents call has no wrench row of its own: the badge row is the only row for it.
-  await expect(log.locator(sel('tool-block'))).toHaveCount(0)
+  // From the ask on: one running badge in the strip, its clock ticking.
+  await expect(badges).toHaveCount(1)
+  const badge = badges.first()
+  await expect(badge).toHaveAttribute('data-state', 'running')
+  await expect(badge).toHaveText(/^Web researcher0:\d\d$/)
+  const first = await badge.textContent()
+  await expect(badge).not.toHaveText(first ?? '', { timeout: 3000 })
+  // The agents call has no row of its own in the log, and nothing under the turn repeats it.
+  await expect(log.locator('[data-role="tool"]')).toHaveCount(0)
   await expect(log.locator(sel('tool-group'))).toHaveCount(0)
-  await expect(log.locator('[data-role="tool"]')).toHaveCount(1)
+  await expect(shell.locator(sel('agents-caption'))).toHaveCount(0)
   await shot(shell, 'running.png')
+  await strip.screenshot({ path: path.join(PROOF, 'strip-running.png') })
 
-  // The research comes back and Nova replies: one caption, now under her reply.
+  // The research comes back and Nova replies: the same badge reads done with how long it took.
   await fx.append(
     THREAD,
-    line({
-      type: 'message',
-      id: 'ag-r',
-      parentId: 'ag-c',
-      message: {
-        role: 'toolResult',
-        toolCallId: 'toolu_agents1',
-        toolName: 'write',
-        content: [{ type: 'text', text: JSON.stringify(RESEARCH, null, 2) }],
-        isError: false,
-        timestamp: asked + 29_400,
-      },
-    }),
+    result('ag-r', 'ag-c', asked + 29_400, JSON.stringify(RESEARCH, null, 2), false),
   )
   await fx.append(
     THREAD,
@@ -204,17 +207,18 @@ test('a specialist run shows a margin badge and a ticking caption, then the done
     }),
   )
   host.upsert({ id: THREAD, status: 'idle', kind: 'assistant', assistant: 'nova', title: 'Nova' })
-  await expect(caption).toHaveAttribute('data-state', 'done')
-  await expect(log.locator(sel('agents-caption'))).toHaveCount(1)
-  await expect(text).toHaveText('Answered with Web researcher · 29s · 2 sources')
-  await expect(log.locator(`${sel('msg-ag-a')} ${sel('agents-caption')}`)).toHaveCount(1)
-  await expect(log.locator(sel('tool-block'))).toHaveCount(0)
+  await expect(badges).toHaveCount(1)
+  await expect(badge).toHaveAttribute('data-state', 'done')
+  await expect(badge).toHaveText('Web researcher29s')
   await expect(log.locator('[data-role="tool"]')).toHaveCount(0)
+  await expect(shell.locator(sel('agents-caption'))).toHaveCount(0)
+  await expect(strip.locator(sel('subagent-clear-done'))).toBeEnabled()
   await shot(shell, 'done.png')
+  await strip.screenshot({ path: path.join(PROOF, 'strip-done.png') })
 
   // A click opens what was asked, the answer and its verified sources.
-  await text.click()
-  const details = caption.locator(sel('agents-details'))
+  await badge.click()
+  const details = shell.locator(`${sel(`specialist-details-${RESEARCH.run}`)}`)
   await expect(details).toBeVisible()
   await expect(details).toContainText(QUESTION)
   await expect(details.locator(sel('agents-answer'))).toContainText('Acasis 40Gbps enclosure')
@@ -222,8 +226,38 @@ test('a specialist run shows a margin badge and a ticking caption, then the done
   await expect(details.locator(sel('agents-verified'))).toHaveCount(2)
   await expect(details).toContainText('29s · $0.004')
   await shot(shell, 'expanded.png')
-  await caption.screenshot({ path: path.join(PROOF, 'expanded-caption.png') })
-
-  await text.click()
+  await badge.click()
   await expect(details).toHaveCount(0)
+
+  // Nova asks a specialist that refuses: a second badge, newest first, failed.
+  const again = Date.now() - 4000
+  await fx.append(
+    THREAD,
+    line({
+      type: 'message',
+      id: 'ag-u2',
+      parentId: 'ag-a',
+      message: {
+        role: 'user',
+        content: 'Render it too',
+        attribution: 'user',
+        timestamp: again - 1000,
+      },
+    }),
+  )
+  await fx.append(THREAD, ask('ag-c2', 'ag-u2', again, 'prop-render', { prompt: 'the enclosure' }))
+  await expect(badges).toHaveCount(2)
+  await expect(badges.first()).toHaveAttribute('data-state', 'running')
+  await fx.append(
+    THREAD,
+    result('ag-r2', 'ag-c2', again + 2000, 'Error: {"error":"prop-render is busy"}', true),
+  )
+  await expect(badges.first()).toHaveAttribute('data-state', 'failed')
+  await expect(badges.first()).toHaveText('Prop render')
+  await shot(shell, 'failed.png')
+  await strip.screenshot({ path: path.join(PROOF, 'strip-failed.png') })
+
+  // Clear done hides the finished badges.
+  await strip.locator(sel('subagent-clear-done')).click()
+  await expect(badges).toHaveCount(0)
 })

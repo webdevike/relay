@@ -1,21 +1,14 @@
-import './agents-caption.css'
-import { useState, type MouseEvent } from 'react'
+import './run-details.css'
+import type { MouseEvent } from 'react'
 import { Tooltip } from '@mantine/core'
-import { IconChevronRight, IconCircleCheck, IconRosette } from '@tabler/icons-react'
-import { agentClock, agentLabel, agentsCaption, type AgentRun } from '@relay/protocol'
+import { IconCircleCheck } from '@tabler/icons-react'
+import { agentClock, agentLabel, type AgentRun } from '@relay/protocol'
 import { openLink } from '../navigation/open-link'
 import { openTargetOf } from '../navigation/open-target'
 import { Markdown } from './markdown/Markdown'
-import { useSecond } from './WorkCard'
 
 type Json = Record<string, unknown>
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
-
-/** `running` while any run is out, `failed` when none answered, else `done`. */
-export function agentsState(runs: readonly AgentRun[]): AgentRun['status'] {
-  if (runs.some((r) => r.status === 'running')) return 'running'
-  return runs.some((r) => r.status === 'done') ? 'done' : 'failed'
-}
 
 /** A field's value as text, or null when it needs the JSON block. */
 function plain(v: unknown): string | null {
@@ -168,49 +161,5 @@ export function RunDetails({ run }: { run: AgentRun }) {
       {rest.length > 0 ? <Fields entries={rest} /> : null}
       {citations.length > 0 ? <Sources citations={citations} /> : null}
     </section>
-  )
-}
-
-/**
- * The specialist agents a turn used, on its reply (or, before the reply, on the turn's last
- * agents call): a rosette in the left margin and one muted caption line under the reply, its clock
- * ticking while a run is out. A click on the caption shows each run's request and typed reply.
- */
-export function AgentsCaption({ runs }: { runs: readonly AgentRun[] }) {
-  const state = agentsState(runs)
-  const now = useSecond(state === 'running')
-  const [open, setOpen] = useState(false)
-  const names = [...new Set(runs.map((r) => agentLabel(r.agent)))].join(', ')
-  return (
-    <div className="eva-agents" data-testid="agents-caption" data-state={state}>
-      <Tooltip label={`Specialist: ${names}`} openDelay={300}>
-        <span className="eva-agents-badge" data-testid="agents-badge">
-          <IconRosette size={16} stroke={1.5} aria-hidden />
-        </span>
-      </Tooltip>
-      <button
-        type="button"
-        className="eva-agents-line"
-        data-testid="agents-caption-line"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <span className="eva-agents-text">{agentsCaption(runs, now)}</span>
-        <IconChevronRight
-          size={12}
-          stroke={1.75}
-          className="eva-chevron"
-          data-open={open}
-          aria-hidden
-        />
-      </button>
-      {open ? (
-        <div className="eva-agents-details" data-testid="agents-details">
-          {runs.map((r, i) => (
-            <RunDetails key={r.run ?? `${r.agent}-${i}`} run={r} />
-          ))}
-        </div>
-      ) : null}
-    </div>
   )
 }

@@ -181,4 +181,9 @@ export const agentsBoardInvoke = {
 export const agentsBoardEvents = {
   /** A ledger, auto-work state, session, activity item, PR or Linear state the board shows changed. */
   'agents.changed': z.object({}),
+  /**
+   * The atomic-agents journal changed (a run was asked, ran or ended): `agents.specialists` reads
+   * something new. Main watches it once that was first asked for; chats refresh their live badges.
+   */
+  'agents.specialistsChanged': z.object({}),
 } as const

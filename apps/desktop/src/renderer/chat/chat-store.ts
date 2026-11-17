@@ -78,7 +78,8 @@ export interface ChatState {
   /** Extras that arrived before their pane was opened (main emits during `chat.open`). */
   pendingExtras: Record<string, PaneExtras>
   setExtras(e: Extras): void
-  clearDone(paneId: string): void
+  /** Hides the pane's finished subagent chips, and `also` (finished specialist badges' names). */
+  clearDone(paneId: string, also?: readonly string[]): void
   openPane(paneId: string, data: OpenData): void
   /** Forgets a pane that went away (a tool pane's chat tab closed). */
   dropPane(paneId: string): void
@@ -226,7 +227,7 @@ export const chatStore = createStore<ChatState>((set) => ({
         ? patchPane(s, e.paneId, (p) => ({ ...p, extras }))
         : { pendingExtras: { ...s.pendingExtras, [e.paneId]: extras } }
     }),
-  clearDone: (paneId) =>
+  clearDone: (paneId, also = []) =>
     set((s) => {
       const pane = s.panes[paneId]
       if (!pane) return s
@@ -234,6 +235,7 @@ export const chatStore = createStore<ChatState>((set) => ({
       for (const a of pane.extras.subagents) {
         if (subagentFinished(a, Date.now())) next.add(hiddenKey(pane.file, a.name))
       }
+      for (const name of also) next.add(hiddenKey(pane.file, name))
       return { hiddenDone: next }
     }),
   openPane: (paneId, data) =>

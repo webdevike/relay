@@ -1,69 +1,16 @@
 /*
- * Specialist agents on a reply: a rosette in the left margin beside the reply's first line (teal
- * while a run is out, muted once done) and one muted caption line under the reply that opens the
- * runs' requests and replies.
+ * One specialist run's request and typed reply: a specialist badge's popover in the chat strip, and
+ * the Agents page's run panel.
  */
-.eva-row[data-agents='true'] .eva-row-inner {
-  position: relative;
-}
-.eva-agents {
-  margin-top: calc(var(--mantine-spacing-xs) / 2);
-  color: var(--eva-text-dim);
-  font-size: var(--eva-fz-label);
-  line-height: var(--eva-lh-label);
-}
-.eva-agents-badge {
-  position: absolute;
-  top: calc((var(--eva-font-size) * 1.55 - 16px) / 2);
-  inset-inline-start: calc(var(--eva-space-native-lg) * -1);
-  display: flex;
-  width: 16px;
-  height: 16px;
-  color: var(--eva-text-dim);
-  transition: color var(--eva-dur-fast);
-}
-.eva-agents[data-state='running'] .eva-agents-badge {
-  color: var(--eva-accent);
-}
-.eva-agents[data-state='failed'] .eva-agents-badge {
-  color: var(--eva-danger);
-}
-.eva-agents-line {
-  display: inline-flex;
-  align-items: center;
-  gap: calc(var(--mantine-spacing-xs) / 2.5);
-  max-width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-family: var(--eva-font-ui);
-  text-align: left;
-  cursor: pointer;
-  transition: color var(--eva-dur-fast);
-}
-.eva-agents-line:hover {
-  color: var(--eva-text);
-}
-.eva-agents-line:focus-visible {
-  outline: 2px solid var(--eva-c-ring);
-  outline-offset: 2px;
-  border-radius: var(--eva-radius-sm);
-}
-.eva-agents-text {
-  min-width: 0;
-  font-variant-numeric: tabular-nums;
-}
 .eva-agents-details {
   display: flex;
   flex-direction: column;
   gap: var(--mantine-spacing-sm);
-  margin-top: var(--mantine-spacing-xs);
-  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
-  border: 1px solid var(--eva-border);
-  border-radius: var(--eva-radius);
+  max-height: min(480px, 60vh);
+  overflow-y: auto;
   color: var(--eva-text);
+  font-size: var(--eva-fz-label);
+  line-height: var(--eva-lh-label);
 }
 .eva-agents-run {
   display: flex;
@@ -147,10 +94,4 @@
   display: block;
   color: var(--eva-text-dim);
   overflow-wrap: anywhere;
-}
-@media (prefers-reduced-motion: reduce) {
-  .eva-agents-badge,
-  .eva-agents-line {
-    transition: none;
-  }
 }

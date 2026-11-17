@@ -45,8 +45,10 @@ import Animated, {
 import { expectKeyboard, keyboardHeight } from "@/lib/keyboardMotion";
 import { invertedIndicatorInsets } from "@/lib/invertedIndicatorInsets";
 import {
+  agentRunKey,
   answerText,
   assistantReactionThread,
+  liveAgentRuns,
   MAX_ASK_ANSWER,
   MAX_REPLY_IMAGES,
   splitRoomCards,
@@ -74,8 +76,9 @@ import { useCoversContent } from "@/ui/covering";
 import { ImageViewer } from "@/agents/ImageViewer";
 import { MessageImageStack } from "@/agents/MessageImageStack";
 import { bubbleSegments, topLevelImages } from "@/agents/markdown";
-import { LARGE_BODY, MessageText } from "@/agents/MessageText";
-import { AgentsBadge, AgentsCaption, CAPTION_LINE_MIDDLE } from "@/agents/AgentsCaption";
+import { MessageText } from "@/agents/MessageText";
+import { SpecialistRunSheet } from "@/agents/SpecialistRunSheet";
+import { specialistRuns } from "@/lib/specialistChips";
 import { BackgroundRow } from "@/agents/BackgroundRow";
 import { AskCard } from "@/agents/AskCard";
 import { SessionApprovalCard } from "@/agents/SessionApprovalCard";
@@ -194,11 +197,11 @@ const SHEET_CLOSE_MS = 250;
 const USER_MAX_WIDTH = "80%";
 const USER_RADIUS = 24;
 const EVA_RADIUS = 22;
+/** A thread with no snapshot yet: one stable empty list, so the running chips do not recompute on each render. */
+const NO_MESSAGES: readonly AssistantMessage[] = [];
 /** The reply bubble's padding: its words start this far in from its edge, and its first line this far down. */
 const EVA_TEXT_INSET = 17;
 const EVA_TEXT_TOP = 11;
-/** From the top of a reply row to the middle of its first line, where the specialists' seal sits in the margin. */
-const BUBBLE_LINE_MIDDLE = EVA_TEXT_TOP + LARGE_BODY.lineHeight / 2;
 /**
  * Where each agent's thread was left: the inverted list's offset (0 = the newest message in view)
  * and how many rows it held, as AgentCard keeps the offset per session: a thread that remounts
@@ -345,6 +348,8 @@ function Thread({ agent }: { agent: string }) {
   );
   const artifactsThread = assistantReactionThread(agent);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
+  // The specialist chip opened (its `agentRunKey`), shown in `SpecialistRunSheet`.
+  const [openRun, setOpenRun] = useState<string | null>(null);
   // The Artifacts tab the sheet opens on: the Working group when a running chip that is not a session was tapped.
   const [artifactsTab, setArtifactsTab] = useState<string | null>(null);
   const [asksOpen, setAsksOpen] = useState(false);
@@ -653,6 +658,16 @@ function Thread({ agent }: { agent: string }) {
   );
   // What the host's transcript (plus the echo of a turn in flight) says; local rows come after it and never count as its newest reply.
   const settled = useMemo(() => [...messages, ...pendingRow], [messages, pendingRow]);
+  // The opened specialist chip's run as it stands now (it keeps updating while the sheet is open).
+  const openedRun = useMemo(
+    () =>
+      openRun === null
+        ? null
+        : (liveAgentRuns((snapshot?.messages ?? []).flatMap((message) => message.agents ?? [])).find(
+            (run) => agentRunKey(run) === openRun,
+          ) ?? null),
+    [snapshot, openRun],
+  );
   const newestSettled = settled[settled.length - 1];
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending.length > 0) : null;
@@ -1114,6 +1129,11 @@ function Thread({ agent }: { agent: string }) {
             agent={agent}
             thread={artifactsThread}
             sessionId={sessionId}
+            messages={snapshot?.messages ?? NO_MESSAGES}
+            onOpenRun={(key) => {
+              Keyboard.dismiss();
+              setOpenRun(key);
+            }}
             onOpenSession={(id) => {
               router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
             }}
@@ -1205,6 +1225,12 @@ function Thread({ agent }: { agent: string }) {
           onClose={() => {
             setArtifactsOpen(false);
             setArtifactsTab(null);
+          }}
+        />
+        <SpecialistRunSheet
+          run={openedRun}
+          onClose={() => {
+            setOpenRun(null);
           }}
         />
         <OpenAsksSheet
@@ -1343,21 +1369,27 @@ interface RowProps {
 
 /**
  * What runs for the thread now (helpers, sessions, harnesses, rooms, and its own sessions only while
- * they work): chips under the header row. Its own component: the host publishes every session's
- * status frames, and only these chips read them, so the thread and its rows do not redraw on each.
+ * they work), and its specialist runs (`lib/specialistChips`): chips under the header row. Its own
+ * component: the host publishes every session's status frames, and only these chips read them, so the
+ * thread and its rows do not redraw on each.
  */
 function ThreadRunning({
   agent,
   thread,
   sessionId,
+  messages,
   onOpenSession,
   onOpenWorking,
+  onOpenRun,
 }: {
   agent: string;
   thread: string;
   sessionId: string | null;
+  /** The host's transcript rows, status rows included: where the specialist runs ride. */
+  messages: readonly AssistantMessage[];
   onOpenSession: (id: string) => void;
   onOpenWorking: () => void;
+  onOpenRun: (key: string) => void;
 }) {
   const activityItems = useActivityStore((state) => state.items);
   const sessions = useAgentsStore((state) => state.sessions);
@@ -1366,13 +1398,29 @@ function ThreadRunning({
     () => runningChips(activityItems, thread, { threadSession: sessionId, sessions }, owned),
     [activityItems, thread, sessionId, sessions, owned],
   );
+  // Read again each minute too, so a finished specialist chip leaves once its linger is over.
+  const [minute, setMinute] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMinute(Date.now());
+    }, 60_000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
+  const specialists = useMemo(
+    () => specialistRuns(messages, Math.max(minute, Date.now())),
+    [messages, minute],
+  );
   // Stays mounted with nothing running: a finished chip fills up and fades out before the row goes.
   return (
     <RunningChips
       chips={running}
+      specialists={specialists}
       style={styles.running}
       onOpenSession={onOpenSession}
       onOpenWorking={onOpenWorking}
+      onOpenRun={onOpenRun}
     />
   );
 }
@@ -1426,15 +1474,8 @@ function RowView({
     if (guestKind === "say") return <GuestBubble entry={message.guest} />;
     return <WorkCardRow entry={message.guest} />;
   }
-  // A turn whose specialist is still on it and nothing replied yet: the seal and the caption, where the reply will be.
-  if (message.role === "status" && message.agents !== undefined && message.agents.length > 0) {
-    return (
-      <View style={styles.evaRow}>
-        <AgentsBadge runs={message.agents} lineMiddle={CAPTION_LINE_MIDDLE} margin={spacing.lg} />
-        <AgentsCaption runs={message.agents} fill={bubbleFill} />
-      </View>
-    );
-  }
+  // A turn's specialist status row: its runs show as chips in the header (`ThreadRunning`), not in the list.
+  if (message.role === "status" && message.agents !== undefined && message.agents.length > 0) return null;
   // A turn Isaac did not type (a job line, heartbeat, canvas notice, handoff, tapback): a quiet centered row.
   const background = backgroundOf(message);
   if (background !== null)
@@ -1515,9 +1556,6 @@ function RowView({
       // each widget sits in a card of its own between them. One reaction target for the whole reply.
       const segments = hasBody ? bubbleSegments(text) : [];
       const wide = segments.some((segment) => segment.kind === "widget");
-      const agents =
-        message.agents !== undefined && message.agents.length > 0 ? message.agents : null;
-      const above = signin !== undefined || imageCount > 0 || tiles.length > 0;
       // The whole row reports its media's failures, tiles above the bubble included (`RenderMessage`).
       return (
         <RenderMessage
@@ -1526,13 +1564,6 @@ function RowView({
           at={message.at}
         >
           <View style={styles.evaRow}>
-            {agents !== null && (
-              <AgentsBadge
-                runs={agents}
-                lineMiddle={showBubble && !above ? BUBBLE_LINE_MIDDLE : CAPTION_LINE_MIDDLE}
-                margin={spacing.lg}
-              />
-            )}
             {signin !== undefined && (
               <View
                 style={
@@ -1596,13 +1627,6 @@ function RowView({
                 )}
                 {waiting && <WaitingMark radius={EVA_RADIUS} pulse={pulse} page={page} />}
               </ChatBubble>
-            )}
-            {agents !== null && (
-              <AgentsCaption
-                runs={agents}
-                fill={bubbleFill}
-                style={showBubble ? styles.agentsUnderBubble : undefined}
-              />
             )}
             {roomed.rooms.map((r) => (
               <RoomCardRow key={r.id} refRoom={r} />
@@ -1738,6 +1762,4 @@ const styles = StyleSheet.create({
   replies: { marginTop: spacing.sm },
   /** Under the reply, clear of its reaction badges like the reply chips. */
   followUp: { marginTop: spacing.sm },
-  /** Under the reply's words, clear of its reaction badges like the reply chips. */
-  agentsUnderBubble: { marginTop: spacing.sm, paddingLeft: EVA_TEXT_INSET },
 });

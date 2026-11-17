@@ -1,8 +1,9 @@
-// Specialist runs on the Agents page (`agents.specialists`, `agents.specialistRun`): which
-// assistant asked which atomic-agents specialist, when, and what it cost. The record is the
-// service's own journal, folded by its CLI (`atomic-agents runs` and `result <run>`,
-// packages/atomic-agents/src/core/Requests.ts), the same CLI relay-mcp's agents_runs and
-// agents_result call, so the page and the assistants read one record. Main only names callers.
+// Specialist runs on the Agents page and in each chat's strip (`agents.specialists`,
+// `agents.specialistRun`, `agents.specialistsChanged`): which assistant or chat asked which
+// atomic-agents specialist, when, and what it cost. The record is the service's own journal, folded
+// by its CLI (`atomic-agents runs` and `result <run>`, packages/atomic-agents/src/core/Requests.ts),
+// the same CLI relay-mcp's agents_runs and agents_result call, so the app and the assistants read
+// one record. Main names callers and says when the journal changed.
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -12,12 +13,15 @@ import type { ChatHandles } from '../chat'
 import type { MainContext } from '../context'
 import { sessionTitle } from '../context-popover/sessions'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
-import { handle } from '../ipc/handle'
+import { emit, handle } from '../ipc/handle'
 
 /** The week the per-specialist counts cover, and how many runs the list shows. */
 export const SPECIALIST_DAYS = 7
 export const SPECIALIST_LIMIT = 60
 const RUNS_TIMEOUT_MS = 20_000
+/** How often the journal's size and time are read, and how long a burst of appends settles. */
+const JOURNAL_POLL_MS = 1000
+const CHANGED_DEBOUNCE_MS = 250
 
 const RunJson = z.object({
   run: z.string().min(1),
@@ -136,7 +140,21 @@ export function registerSpecialistRuns(
     return titles.get(file) ?? null
   }
 
+  // The journal: watched once runs were first asked for, so chats see a run start and end live.
+  let watching = false
+  let timer: NodeJS.Timeout | undefined
+  const watchJournal = (): void => {
+    if (watching || home === null) return
+    watching = true
+    const journal = path.join(home, 'events.ndjson')
+    fs.watchFile(journal, { interval: JOURNAL_POLL_MS, persistent: false }, (cur, prev) => {
+      if (cur.mtimeMs === prev.mtimeMs && cur.size === prev.size) return
+      clearTimeout(timer)
+      timer = setTimeout(() => emit(ctx, 'agents.specialistsChanged', {}), CHANGED_DEBOUNCE_MS)
+    })
+  }
   handle(ctx, 'agents.specialists', async () => {
+    watchJournal()
     const empty = (available: boolean, error: string | null): SpecialistRuns => ({
       available,
       error,

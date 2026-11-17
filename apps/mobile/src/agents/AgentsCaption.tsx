@@ -111,7 +111,8 @@ export function AgentsCaption({ runs, fill, style }: AgentsCaptionProps) {
   );
 }
 
-function RunDetail({ run, first }: { run: AgentRun; first: boolean }) {
+/** One run opened: what was asked, the answer, its citations, an error. Also the specialist chip's sheet (`SpecialistRunSheet`). */
+export function RunDetail({ run, first }: { run: AgentRun; first: boolean }) {
   const colors = useColors();
   const detail = agentRunDetail(run);
   return (

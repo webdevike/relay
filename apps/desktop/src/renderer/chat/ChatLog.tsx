@@ -10,7 +10,6 @@ import {
 } from 'react'
 import { VList, type VListHandle } from 'virtua'
 import type { ChatMessage } from '@evaos/chat-core/message'
-import { agentRunsByRow, type AgentRun } from '@relay/protocol'
 import { dropQuietTurns } from '@evaos/chat-core/quiet'
 import { foldGuestWork, guestTyping } from '@evaos/chat-core/guest-entry'
 import { reactionKeyOf } from '@evaos/chat-core/reactions'
@@ -51,7 +50,10 @@ export type LogItem =
   | { kind: 'tools'; tools: ChatMessage[] }
   | { kind: 'typing'; who: string }
 
-/** Rows for the log: each message, or with `fold` each run of tool calls as one group. */
+/**
+ * Rows for the log: each message, or with `fold` each run of tool calls as one group. An agents
+ * call has no row: its specialist run is a badge in the strip above the composer.
+ */
 function logItems(list: ChatMessage[], fold: boolean): LogItem[] {
   const out: LogItem[] = []
   let run: ChatMessage[] = []
@@ -60,7 +62,8 @@ function logItems(list: ChatMessage[], fold: boolean): LogItem[] {
     run = []
   }
   for (const m of list) {
-    if (fold && m.role === 'tool' && m.agentCall === undefined) run.push(m)
+    if (m.agentCall !== undefined) continue
+    if (fold && m.role === 'tool') run.push(m)
     else {
       flush()
       out.push({ kind: 'message', m })
@@ -123,7 +126,7 @@ export function ChatLog({
   // Background turns answered "(nothing to report)" never show. Each piece of work another
   // assistant took on is one card (its latest state, where it started); a guest that joined and
   // has not spoken yet shows typing.
-  const logged = useMemo(() => {
+  const items = useMemo(() => {
     const kept = dropQuietTurns(foldGuestWork(all))
     const base = showThinking ? kept : kept.filter((m) => m.role !== 'thinking')
     const out = logItems(base, !showTools)
@@ -133,35 +136,6 @@ export function ChatLog({
     if (who !== null && !streaming) out.push({ kind: 'typing', who })
     return out
   }, [all, showThinking, showTools, typing])
-  // Each turn's specialist runs, on its last reply (or its last agents call before any reply), by
-  // row id. A row keeps its runs' array while they are unchanged, so streaming leaves it alone.
-  const shownRuns = useRef(new Map<string, { key: string; runs: AgentRun[] }>())
-  const agentsAt = useMemo(() => {
-    const rows = logged.flatMap((i) =>
-      i.kind === 'message' ? [i.m] : i.kind === 'tools' ? i.tools : [],
-    )
-    const byRow = agentRunsByRow(rows, (m) =>
-      m.role === 'user' ? 'user' : m.role === 'assistant' ? 'reply' : m.agent,
-    )
-    const out = new Map<string, { key: string; runs: AgentRun[] }>()
-    for (const [at, runs] of byRow) {
-      const id = rows[at]!.id
-      const key = JSON.stringify(runs)
-      const was = shownRuns.current.get(id)
-      out.set(id, was?.key === key ? was : { key, runs })
-    }
-    shownRuns.current = out
-    return out
-  }, [logged])
-  // An agents call has no tool row of its own: the specialist badge is its row. It stays only where
-  // it carries its turn's badge (no reply yet); a later reply carries the badge otherwise.
-  const items = useMemo(
-    () =>
-      logged.filter(
-        (i) => i.kind !== 'message' || i.m.agentCall === undefined || agentsAt.has(i.m.id),
-      ),
-    [logged, agentsAt],
-  )
   const liveId = liveRowId(items, busy)
   const ref = useRef<VListHandle>(null)
   const logRef = useRef<HTMLDivElement>(null)
@@ -327,11 +301,7 @@ export function ChatLog({
         >
           {(item) =>
             item.kind === 'tools' ? (
-              <ToolRunRow
-                key={`${item.tools[0]!.id}-tools`}
-                tools={item.tools}
-                agents={item.tools.map((t) => agentsAt.get(t.id)?.runs).find((r) => r)}
-              />
+              <ToolRunRow key={`${item.tools[0]!.id}-tools`} tools={item.tools} />
             ) : item.kind === 'typing' ? (
               <div key="typing" className="eva-row" data-testid="chat-typing">
                 <div className="eva-row-inner">
@@ -345,7 +315,6 @@ export function ChatLog({
                 live={item.m.id === liveId}
                 waiting={waiting.get(item.m.id)}
                 agent={agent ?? undefined}
-                agents={agentsAt.get(item.m.id)?.runs}
               />
             )
           }

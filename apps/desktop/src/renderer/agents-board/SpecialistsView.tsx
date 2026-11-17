@@ -14,7 +14,7 @@ import type { Assistant, SpecialistCaller, SpecialistRun } from '@evaos/contract
 import { agentLabel, agentRunOf, type AgentRun } from '@relay/protocol'
 import { agoLabel } from '@evaos/eva-core/model/jobs'
 import { invoke } from '../ipc'
-import { costLabel, RunDetails } from '../chat/AgentsCaption'
+import { costLabel, RunDetails } from '../chat/RunDetails'
 import { useAssistants } from '../assistants/assistants-store'
 import { portrait } from '../ui/portrait'
 import {
