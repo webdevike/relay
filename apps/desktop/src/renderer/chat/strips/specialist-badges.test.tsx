@@ -162,7 +162,11 @@ describe("a chat's specialist badges", () => {
       startedAt: NOW - 20_000,
     }
     const messages = [makeMessage('u1', 'user', 'render'), call('c1', left)]
-    const finished = service('r-left', { kind: 'chat', file: '/s/other.jsonl', title: null }, 'done')
+    const finished = service(
+      'r-left',
+      { kind: 'chat', file: '/s/other.jsonl', title: null },
+      'done',
+    )
     expect(chatSpecialists(messages, [], NOW, [finished])[0]).toMatchObject({
       run: 'r-left',
       status: 'done',

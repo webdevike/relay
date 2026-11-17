@@ -103,7 +103,11 @@ export function chatSpecialists(
   const times = all.flatMap((r) => (r.at === null ? [] : [r.at]))
   const since = all.length >= SPECIALIST_LIMIT && times.length > 0 ? Math.min(...times) : undefined
   return recentAgentRuns(
-    settleAgentRuns(joined, { runs: all.map(serviceAgentRun), now, ...(since === undefined ? {} : { since }) }),
+    settleAgentRuns(joined, {
+      runs: all.map(serviceAgentRun),
+      now,
+      ...(since === undefined ? {} : { since }),
+    }),
     now,
   )
 }
