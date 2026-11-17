@@ -1,0 +1,5 @@
+{
+  "id": "soundly-cleanup",
+  "kind": "code",
+  "module": "./soundly-cleanup.ts"
+}

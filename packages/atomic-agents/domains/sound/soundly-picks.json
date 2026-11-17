@@ -1,0 +1,5 @@
+{
+  "id": "soundly-picks",
+  "kind": "code",
+  "module": "./soundly-picks.ts"
+}
