@@ -16,6 +16,7 @@ import {
   RENDER_REPORT_FEATURE,
   REPLY_WIDGETS_FEATURE,
   WIDGET_TRAINING_FEATURE,
+  TRIALS_FEATURE,
   PROTOCOL_VERSION,
   defaultTabs,
   parseClientMessage,
@@ -56,6 +57,7 @@ import type { RenderFailureReporting } from "./render-failures/service";
 import type { WorkspaceRelaying } from "./workspace/service";
 import type { CanvasFilesRelaying } from "./canvas/files";
 import type { ReplyWidgetRelaying } from "./widgets/service";
+import type { TrialRelaying } from "./trials/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
@@ -157,6 +159,8 @@ export interface SessionDeps {
   readonly rooms?: RoomsRelaying | null;
   /** Reply widgets and 🎯 training (`widgets/service.ts`); absent or null answers `widgets.get` empty, refuses `widget.label` and leaves both features out of `welcome.features`. */
   readonly replyWidgets?: ReplyWidgetRelaying | null;
+  /** Trial mode (`trials/service.ts`); absent or null answers `trials.get` empty, refuses `trial.pick` / `trial.undo` and leaves TRIALS_FEATURE out of `welcome.features`. */
+  readonly trials?: TrialRelaying | null;
   /** The window mirror the desktops share (`workspace/service.ts`); absent or null ignores `workspace.*` and leaves WORKSPACE_FEATURE out of `welcome.features`. */
   readonly workspace?: WorkspaceRelaying | null;
   /** Sends a `workspace.changed` to every socket but `from` that sent `workspace.get`. */
@@ -787,6 +791,54 @@ export class ClientSession {
             t: "widget.labeled",
             thread,
             message: key,
+            ok: result.ok,
+            ...(result.error === undefined ? {} : { error: result.error }),
+          });
+        });
+        break;
+      }
+      case "trials.get": {
+        const trials = this.deps.trials ?? null;
+        void (
+          trials === null ? Promise.resolve({ trials: [], switches: [] }) : trials.snapshot()
+        ).then((snapshot) => {
+          this.sink.send({
+            t: "trials.snapshot",
+            trials: snapshot.trials,
+            switches: snapshot.switches,
+          });
+        });
+        break;
+      }
+      case "trial.pick": {
+        const { trial, pick, surface } = message;
+        const trials = this.deps.trials ?? null;
+        // The revealed card reaches every device (this one included) through the service's broadcast; this is the answer.
+        void (
+          trials === null
+            ? Promise.resolve({ ok: false, error: "this host runs no trials" })
+            : trials.pick(trial, pick, surface)
+        ).then((result) => {
+          this.sink.send({
+            t: "trial.picked",
+            trial,
+            ok: result.ok,
+            ...(result.error === undefined ? {} : { error: result.error }),
+          });
+        });
+        break;
+      }
+      case "trial.undo": {
+        const id = message.switch;
+        const trials = this.deps.trials ?? null;
+        void (
+          trials === null
+            ? Promise.resolve({ ok: false, error: "this host runs no trials" })
+            : trials.undo(id)
+        ).then((result) => {
+          this.sink.send({
+            t: "trial.undone",
+            switch: id,
             ok: result.ok,
             ...(result.error === undefined ? {} : { error: result.error }),
           });
@@ -1498,6 +1550,7 @@ export class ClientSession {
       ...((this.deps.replyWidgets ?? null) === null
         ? []
         : [REPLY_WIDGETS_FEATURE, WIDGET_TRAINING_FEATURE]),
+      ...((this.deps.trials ?? null) === null ? [] : [TRIALS_FEATURE]),
       ...((this.deps.rooms ?? null) === null
         ? []
         : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE]),

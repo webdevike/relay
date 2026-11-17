@@ -47,6 +47,7 @@ import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
 import { AgentRun } from "./agent-runs";
 import { StatsSnapshot } from "./stats";
+import { Trial, TrialPick, TrialSwitch } from "./trials";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const BONJOUR_SERVICE_TYPE = "_relay._tcp" as const;
@@ -2072,6 +2073,21 @@ export const ClientMessage = z.discriminatedUnion("t", [
     surface: WidgetSurface,
     excerpt: z.string().max(MAX_REACTION_EXCERPT),
   }),
+  /** Ask for every trial card and switch message; answered by `trials.snapshot`. Only sent to a host whose `welcome.features` has TRIALS_FEATURE. */
+  z.object({ t: z.literal("trials.get") }),
+  /**
+   * Isaac's pick on trial card `trial` (a letter, or `unsure` for "can't tell"), made on `surface`. The host records it
+   * on the agent's bench, answers `trial.picked` and sends every device the revealed card. Only sent to a host whose
+   * `welcome.features` has TRIALS_FEATURE.
+   */
+  z.object({
+    t: z.literal("trial.pick"),
+    trial: z.string().min(1).max(200),
+    pick: TrialPick,
+    surface: WidgetSurface,
+  }),
+  /** Undo an agent's own model switch `switch` (a TrialSwitch id): the old model and the trial come back; answered by `trial.undone`. Only sent to a host whose `welcome.features` has TRIALS_FEATURE. */
+  z.object({ t: z.literal("trial.undo"), switch: z.string().min(1).max(200) }),
   /** Ask for the dismissed status cards; answered by `cards.dismissed`. Only sent to a host whose `welcome.features` has CARDS_DISMISSED_FEATURE. */
   z.object({ t: z.literal("cards.get") }),
   /** Dismiss (`on`) or restore (undo) status card `id`. Every device gets the new `cards.dismissed`; no change re-sends it to the sender only. */
@@ -2357,6 +2373,26 @@ export const ServerMessage = z.discriminatedUnion("t", [
     ok: z.boolean(),
     error: z.string().optional(),
   }),
+  /** Every trial card and switch message: the answer to `trials.get`, and pushed to every device whenever one changes (a result streams in, a pick, a switch, an undo). */
+  z.object({
+    t: z.literal("trials.snapshot"),
+    trials: z.array(Trial).max(300),
+    switches: z.array(TrialSwitch).max(100),
+  }),
+  /** Answer to `trial.pick`: `ok` false when the host could not record it (`error` says why, e.g. already picked). */
+  z.object({
+    t: z.literal("trial.picked"),
+    trial: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+  }),
+  /** Answer to `trial.undo`. */
+  z.object({
+    t: z.literal("trial.undone"),
+    switch: z.string(),
+    ok: z.boolean(),
+    error: z.string().optional(),
+  }),
   /** Every dismissed status card id: the answer to `cards.get`, and pushed to every device when the set changes. */
   z.object({ t: z.literal("cards.dismissed"), ids: DismissedCards }),
   /** A thread's artifacts and tab bar: the answer to `artifacts.get`, and pushed to every device when they change. */
@@ -2536,3 +2572,4 @@ export * from "./answer-context";
 export * from "./signin";
 export * from "./room-card";
 export * from "./agent-runs";
+export * from "./trials";

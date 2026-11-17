@@ -59,7 +59,7 @@ export function useServiceRuns(): readonly SpecialistRun[] | null {
   return useStore(store, (s) => s.runs)
 }
 
-/** A service run as a badge's run. */
+/** A service run as a badge's run: a trial arm's letter, or the model the specialist just switched to. */
 const serviceAgentRun = (r: SpecialistRun): AgentRun => ({
   run: r.run,
   agent: r.agent,
@@ -68,6 +68,8 @@ const serviceAgentRun = (r: SpecialistRun): AgentRun => ({
   ...(r.seconds === null ? {} : { seconds: r.seconds }),
   ...(r.cost === null ? {} : { cost: r.cost }),
   ...(r.error === null ? {} : { error: r.error }),
+  ...(r.trial === undefined ? {} : { trial: r.trial }),
+  ...(r.newModel === undefined ? {} : { newModel: r.newModel }),
 })
 
 /** The service runs this chat asked: its assistant (`agent`) or its own session file. */

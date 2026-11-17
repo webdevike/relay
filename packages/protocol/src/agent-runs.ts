@@ -29,6 +29,10 @@ export const AgentRun = z.object({
   cost: z.number().optional(),
   /** Verified citations in the reply. */
   sources: z.number().int().optional(),
+  /** A trial run's letter (packages/protocol trials.ts): its badge reads `Diagram B`, never the model. */
+  trial: z.enum(["A", "B", "C"]).optional().catch(undefined),
+  /** The short name of the model the agent switched to on its own, for a while after the switch (`TRIAL_SWITCH_BADGE_MS`): its badge reads `Diagram · Sonnet 5.5`. */
+  newModel: z.string().max(200).optional().catch(undefined),
 });
 export type AgentRun = z.infer<typeof AgentRun>;
 
@@ -229,13 +233,19 @@ export function liveAgentRuns(
   const out = foldAgentRuns(transcript);
   for (const s of service) {
     let at = s.run === undefined ? -1 : out.findIndex((r) => r.run === s.run);
-    if (at < 0) at = out.findIndex((r) => r.run === undefined && r.agent === s.agent && r.status === "running");
+    if (at < 0)
+      at = out.findIndex(
+        (r) => r.run === undefined && r.agent === s.agent && r.status === "running",
+      );
     if (at < 0) out.push(s);
     else out[at] = overlay(out[at]!, s);
   }
   // Newest first; a run with no start time is the one just asked.
   const start = (r: AgentRun): number => r.startedAt ?? Number.POSITIVE_INFINITY;
-  return out.map((r, i) => ({ r, i })).sort((a, b) => start(b.r) - start(a.r) || b.i - a.i).map(({ r }) => r);
+  return out
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => start(b.r) - start(a.r) || b.i - a.i)
+    .map(({ r }) => r);
 }
 
 /** An ask that has no run id this long after it started never reached the service (a blocking ask returns well inside it). */
@@ -263,7 +273,10 @@ export function settleAgentRuns(runs: readonly AgentRun[], snapshot: AgentSnapsh
     if (known !== undefined) return overlay(r, known);
     if (r.run === undefined) {
       if (r.startedAt === undefined || snapshot.now - r.startedAt < AGENT_UNRECORDED_MS) return r;
-    } else if (snapshot.since !== undefined && (r.startedAt === undefined || r.startedAt < snapshot.since)) {
+    } else if (
+      snapshot.since !== undefined &&
+      (r.startedAt === undefined || r.startedAt < snapshot.since)
+    ) {
       return r;
     }
     return { ...r, status: "failed", error: "The specialist service has no record of this run" };
@@ -286,7 +299,7 @@ export function recentAgentRuns(runs: readonly AgentRun[], now: number): AgentRu
   });
 }
 
-/** What a run's badge says: its state, the specialist's name, and its clock (`0:12` ticking while it runs, `29s` once it ended; null when unknown). */
+/** What a run's badge says: its state, the specialist's name (with its trial letter, or the model it just switched to), and its clock (`0:12` ticking while it runs, `29s` once it ended; null when unknown). */
 export interface AgentBadge {
   readonly state: AgentRun["status"];
   readonly label: string;
@@ -300,7 +313,14 @@ export function agentBadge(run: AgentRun, now: number): AgentBadge {
       : run.seconds === undefined
         ? null
         : agentClock(run.seconds * 1000, false);
-  return { state: run.status, label: agentLabel(run.agent), clock };
+  const name = agentLabel(run.agent);
+  const label =
+    run.trial !== undefined
+      ? `${name} ${run.trial}`
+      : run.newModel !== undefined
+        ? `${name} · ${run.newModel}`
+        : name;
+  return { state: run.status, label, clock };
 }
 
 /** The key a badge is cleared (Clear done) and listed by: its run id, else its agent and start. */

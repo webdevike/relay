@@ -7,6 +7,8 @@ import {
   FiberSet,
   FileSystem,
   Layer,
+  Option,
+  Random,
   Schedule,
   Schema,
   Semaphore,
@@ -16,7 +18,7 @@ import {
 import type { BunServices } from "@effect/platform-bun/BunServices";
 import { Background } from "./Background.ts";
 import { Agents } from "./Agent.ts";
-import { type ToolMode, Trigger } from "./Component.ts";
+import { type InlineTrial, type Registered, type ToolMode, Trigger } from "./Component.ts";
 import {
   EventBus,
   Home,
@@ -27,10 +29,21 @@ import {
   Lifecycle,
   makeEvent,
 } from "./Event.ts";
-import { runId } from "./Id.ts";
+import { isObject } from "./Fields.ts";
+import { runId, uuid } from "./Id.ts";
 import type { ModelRunner } from "./Model.ts";
 import { events as runtimeEvents, publishRuntime, RUNTIME } from "./RuntimeEvents.ts";
 import { effective, Settings } from "./Settings.ts";
+import {
+  armInput,
+  armsOf,
+  decodeCatalog,
+  modelLabel,
+  previewOf,
+  requestLine,
+  type TrialEvent,
+  trialEvents,
+} from "./Trial.ts";
 
 const RUN_REQUESTED = `${RUNTIME}/run.requested`;
 const decodeRunRequested = Schema.decodeUnknownEffect(runtimeEvents["run.requested"]);
@@ -58,11 +71,30 @@ export interface RunOptions {
   readonly toolMode?: ToolMode;
   /** The request this run answers (`atomic-agents/run.requested`); recorded on `job.started`. */
   readonly requestId?: string;
+  /**
+   * A trial's run (`Trial.ts`), recorded on `job.started`. `default` is the run on the agent's own model: it answers the
+   * caller as usual. An `arm` runs on `model` beside it without waiting on the agent's lock, and its output never goes
+   * on the journal (it would answer the caller or wake other agents): it only comes back in `RunResult.reply`.
+   * `inline` hands an agent with `trialArms: "inline"` the other arms to run itself.
+   */
+  readonly trial?: {
+    readonly id: string;
+    readonly letter: string;
+    readonly role: "default" | "arm";
+    readonly inline?: InlineTrial;
+  };
 }
 
 export interface RunResult {
   readonly run: string;
   readonly ok: boolean;
+  /** The model the result came from (the fallback when the run fell back). */
+  readonly model: string;
+  readonly seconds: number;
+  /** The job's answer: its ask pair's reply, else the last event it emitted. */
+  readonly reply?: unknown;
+  /** Why it failed. */
+  readonly error?: string;
 }
 
 const encodeLifecycle = Schema.encodeEffect(Lifecycle);
@@ -119,7 +151,6 @@ export class Runner extends Context.Service<
         if (component === undefined || job === undefined) {
           return yield* new UnknownJob({ message: `no job ${componentId}/${jobId}` });
         }
-        const lock = yield* lockOf(component.id);
         const resolved = effective(component, yield* settings.current);
         if (!resolved.enabled)
           return yield* new ComponentDisabled({
@@ -129,6 +160,9 @@ export class Runner extends Context.Service<
         const runDir = home.runDir(component.id, run);
         const stateDir = home.stateDir(component.id);
         const model = options.model ?? resolved.agent.model;
+        const arm = options.trial?.role === "arm";
+        // A trial arm waits on nothing: not the agent's lock, not other arms (nine Sol arms in a row took 4.5 minutes).
+        const lock = arm ? undefined : yield* lockOf(component.id);
         if (options.toolMode !== undefined && resolved.agent.toolMode === undefined) {
           return yield* new NoToolMode({
             message: `${component.id} calls no tools, so it has no tool mode`,
@@ -144,6 +178,12 @@ export class Runner extends Context.Service<
           makeEvent({ ...envelope, type: `${component.id}/${name}`, data }).pipe(
             Effect.flatMap(bus.publish),
           );
+        // The job's answer, for the trial card: its ask pair's reply, else the last event it emitted. An arm's never goes on the journal.
+        const answer: { value?: unknown } = {};
+        const jobPublish = (name: string, data: unknown) => {
+          if (component.asks === undefined || name === component.asks.reply) answer.value = data;
+          return arm ? Effect.void : publish(name, data);
+        };
         const lifecycle = (event: Lifecycle) =>
           encodeLifecycle(event).pipe(
             Effect.mapError(
@@ -173,7 +213,8 @@ export class Runner extends Context.Service<
                 model,
                 ...modes,
                 agent: resolved.agent,
-                publish,
+                publish: jobPublish,
+                ...(options.trial?.inline === undefined ? {} : { trial: options.trial.inline }),
               })
               .pipe(Effect.provideContext(services), Effect.exit);
           yield* lifecycle(
@@ -182,6 +223,9 @@ export class Runner extends Context.Service<
               model,
               ...modes,
               ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
+              ...(options.trial === undefined
+                ? {}
+                : { trial: { id: options.trial.id, letter: options.trial.letter } }),
             }),
           );
           let outcome = yield* attempt(model);
@@ -199,6 +243,9 @@ export class Runner extends Context.Service<
                   fellBackFrom: model,
                   reason: `${first.value._tag}: ${first.value.message}`.slice(0, 500),
                   ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
+                  ...(options.trial === undefined
+                    ? {}
+                    : { trial: { id: options.trial.id, letter: options.trial.letter } }),
                 }),
               );
               outcome = yield* attempt(backup);
@@ -207,30 +254,39 @@ export class Runner extends Context.Service<
           }
           const fellBack = ranOn !== model;
           if (Exit.isSuccess(outcome)) {
+            const took = yield* seconds;
             yield* lifecycle(
               JobSucceeded.make({
                 model: ranOn,
-                seconds: yield* seconds,
+                seconds: took,
                 ...(fellBack ? { fellBack } : {}),
               }),
             );
-            return { run, ok: true };
+            return {
+              run,
+              ok: true,
+              model: ranOn,
+              seconds: took,
+              ...("value" in answer ? { reply: answer.value } : {}),
+            };
           }
           const failure = Cause.findErrorOption(outcome.cause);
+          const took = yield* seconds;
+          const message =
+            failure._tag === "Some"
+              ? failure.value.message
+              : Cause.pretty(outcome.cause).slice(0, 2000);
           yield* lifecycle(
             JobFailed.make({
               model: ranOn,
-              seconds: yield* seconds,
+              seconds: took,
               error: failure._tag === "Some" ? failure.value._tag : "Defect",
-              message:
-                failure._tag === "Some"
-                  ? failure.value.message
-                  : Cause.pretty(outcome.cause).slice(0, 2000),
+              message,
             }),
           );
-          return { run, ok: false };
+          return { run, ok: false, model: ranOn, seconds: took, error: message };
         });
-        return yield* lock.withPermits(1)(body);
+        return yield* lock === undefined ? body : lock.withPermits(1)(body);
       });
 
       return Runner.of({ run });
@@ -251,7 +307,158 @@ export class Runner extends Context.Service<
       const settings = yield* Settings;
       const bus = yield* EventBus;
       const background = yield* Background;
+      const home = yield* Home;
+      const fs = yield* FileSystem.FileSystem;
 
+      const publishTrial = <K extends TrialEvent>(
+        agent: string,
+        job: string,
+        trialId: string,
+        name: K,
+        data: (typeof trialEvents)[K]["Type"],
+        caller?: string,
+      ) =>
+        Schema.encodeUnknownEffect(trialEvents[name])(data).pipe(
+          Effect.mapError(
+            (cause) => new JournalError({ message: `encode ${agent}/${name}`, cause }),
+          ),
+          Effect.flatMap((encoded) =>
+            makeEvent({
+              type: `${agent}/${name}`,
+              component: agent,
+              job,
+              run: `trial-${trialId.slice(0, 8)}`,
+              ...(caller === undefined ? {} : { caller }),
+              data: encoded,
+            }),
+          ),
+          Effect.flatMap(bus.publish),
+        );
+
+      /** The provider catalog's names (`TrialService` keeps the file), for the labels revealed after a pick. */
+      const catalogNames = fs.readFileString(`${home.stateDir("trials")}/catalog.json`).pipe(
+        Effect.map((text) => decodeCatalog(text)),
+        Effect.map((file) =>
+          Option.match(file, {
+            onNone: () => new Map<string, string>(),
+            onSome: ({ models }) => new Map(models.map((m) => [m.selector, m.name])),
+          }),
+        ),
+        Effect.orElseSucceed(() => new Map<string, string>()),
+      );
+
+      /**
+       * A caller's request to a trial agent (`Trial.ts`): `trial.started`, every arm at once (the default arm is the
+       * normal run, answering the caller), one `trial.result` per arm as it ends. Answers the default arm's run, so a
+       * request that cannot start fails as before.
+       */
+      const runTrial = Effect.fnUntraced(function* (
+        agent: Registered,
+        jobId: string,
+        input: unknown,
+        request: { readonly requestId?: string; readonly caller: string },
+        trial: { readonly arms: ReadonlyArray<string>; readonly model: string },
+      ) {
+        const trialId = yield* uuid;
+        const draws = yield* Effect.all(trial.arms.map(() => Random.next));
+        const names = yield* catalogNames;
+        const arms = armsOf(
+          trial.arms,
+          trial.model,
+          () => draws.pop() ?? 0,
+          (model) => modelLabel(model, names.get(model)),
+        );
+        yield* publishTrial(
+          agent.id,
+          jobId,
+          trialId,
+          "trial.started",
+          {
+            trialId,
+            ...(request.requestId === undefined ? {} : { requestId: request.requestId }),
+            caller: request.caller,
+            job: jobId,
+            request: requestLine(input),
+            arms,
+          },
+          request.caller,
+        );
+        const report = (letter: string, outcome: Parameters<InlineTrial["report"]>[1]) => {
+          const arm = arms.find((candidate) => candidate.letter === letter);
+          return arm === undefined
+            ? Effect.logWarning(`trial ${trialId}: no arm ${letter}`)
+            : publishTrial(agent.id, jobId, trialId, "trial.result", {
+                trialId,
+                letter: arm.letter,
+                model: arm.model,
+                ...outcome,
+                ...(outcome.error === undefined ? {} : { error: outcome.error.slice(0, 1000) }),
+              });
+        };
+        const reportRun = (letter: string) => (result: RunResult) => {
+          const cost =
+            isObject(result.reply) && typeof result.reply["cost"] === "number"
+              ? result.reply["cost"]
+              : undefined;
+          return report(letter, {
+            ok: result.ok,
+            seconds: result.seconds,
+            ...(result.ok
+              ? { preview: previewOf(result.reply, agent.asks?.show) }
+              : { error: result.error ?? "the run failed" }),
+            ...(cost === undefined ? {} : { cost }),
+          });
+        };
+        const own = arms.find((arm) => arm.default)!;
+        const others = arms.filter((arm) => !arm.default);
+        if (agent.trialArms !== "inline")
+          for (const arm of others)
+            yield* FiberSet.run(
+              background,
+              runner
+                .run(agent.id, jobId, armInput(input, trialId, arm.letter), {
+                  model: arm.model,
+                  trial: { id: trialId, letter: arm.letter, role: "arm" },
+                })
+                .pipe(
+                  Effect.flatMap(reportRun(arm.letter)),
+                  Effect.catch((error) =>
+                    error._tag === "JournalError"
+                      ? Effect.fail(error)
+                      : report(arm.letter, { ok: false, seconds: 0, error: error.message }),
+                  ),
+                ),
+            );
+        const inline: InlineTrial = {
+          id: trialId,
+          letter: own.letter,
+          others: others.map(({ letter, model }) => ({ letter, model })),
+          report,
+        };
+        return yield* runner
+          .run(agent.id, jobId, input, {
+            ...(request.requestId === undefined ? {} : { requestId: request.requestId }),
+            trial: {
+              id: trialId,
+              letter: own.letter,
+              role: "default",
+              ...(agent.trialArms === "inline" ? { inline } : {}),
+            },
+          })
+          .pipe(Effect.tap(reportRun(own.letter)));
+      });
+
+      /** The agent's trial when this request starts one: trial on, and a caller to show the card to. */
+      const trialFor = (agentId: string, caller: string | undefined) =>
+        Effect.gen(function* () {
+          if (caller === undefined) return undefined;
+          const agent = (yield* agents.current).find((candidate) => candidate.id === agentId);
+          if (agent === undefined) return undefined;
+          const resolved = effective(agent, yield* settings.current);
+          return resolved.enabled && resolved.trial.on
+            ? { agent, caller, trial: { arms: resolved.trial.arms, model: resolved.agent.model } }
+            : undefined;
+        });
       const runLogged = (component: string, job: string, input: unknown, options?: RunOptions) =>
         runner.run(component, job, input, options).pipe(
           Effect.catchTags({
@@ -262,29 +469,39 @@ export class Runner extends Context.Service<
         );
 
       /** A caller's `run.requested`: the run carries its `requestId`; one that cannot start is a `run.rejected` the caller sees. */
-      const runRequested = (data: unknown) =>
+      const runRequested = (data: unknown, caller: string | undefined) =>
         decodeRunRequested(data).pipe(
           Effect.flatMap((request) =>
-            runner
-              .run(request.agent, request.job, request.input, { requestId: request.requestId })
-              .pipe(
-                Effect.asVoid,
-                // A journal failure ends serve like any other; anything else means the run never started.
-                Effect.catch((error) =>
-                  error._tag === "JournalError"
-                    ? Effect.fail(error)
-                    : publishRuntime(
-                        bus,
-                        "run.rejected",
-                        {
-                          requestId: request.requestId,
-                          agent: request.agent,
-                          error: error.message,
-                        },
-                        "runner",
-                      ),
-                ),
+            Effect.flatMap(trialFor(request.agent, caller), (trial) =>
+              trial === undefined
+                ? runner.run(request.agent, request.job, request.input, {
+                    requestId: request.requestId,
+                  })
+                : runTrial(
+                    trial.agent,
+                    request.job,
+                    request.input,
+                    { requestId: request.requestId, caller: trial.caller },
+                    trial.trial,
+                  ),
+            ).pipe(
+              Effect.asVoid,
+              // A journal failure ends serve like any other; anything else means the run never started.
+              Effect.catch((error) =>
+                error._tag === "JournalError"
+                  ? Effect.fail(error)
+                  : publishRuntime(
+                      bus,
+                      "run.rejected",
+                      {
+                        requestId: request.requestId,
+                        agent: request.agent,
+                        error: error.message,
+                      },
+                      "runner",
+                    ),
               ),
+            ),
           ),
           Effect.catchTag("SchemaError", (error) =>
             Effect.logWarning(`bad ${RUN_REQUESTED}: ${error.message}`),
@@ -298,7 +515,7 @@ export class Runner extends Context.Service<
           Stream.runForEach((event) =>
             Effect.gen(function* () {
               if (event.type === RUN_REQUESTED)
-                return yield* FiberSet.run(background, runRequested(event.data));
+                return yield* FiberSet.run(background, runRequested(event.data, event.caller));
               const current = yield* settings.current;
               for (const agent of yield* agents.current) {
                 for (const job of agent.jobs) {
@@ -310,8 +527,40 @@ export class Runner extends Context.Service<
                     continue;
                   if (!effective(agent, current).enabled)
                     yield* Effect.logInfo(`${agent.id} is disabled, skipped ${event.type}`);
-                  // Each run in its own fiber: a slow agent never holds up another agent's events (the runner's lock orders an agent's own).
-                  else yield* FiberSet.run(background, runLogged(agent.id, job.id, event.data));
+                  else {
+                    // A caller's ask to a trial agent runs as a trial; anything else (crons, other agents' events) runs once.
+                    const asked =
+                      event.job === "ask" &&
+                      agent.asks !== undefined &&
+                      event.type === `${agent.id}/${agent.asks.request}`;
+                    const trial = asked ? yield* trialFor(agent.id, event.caller) : undefined;
+                    const data = event.data as { readonly requestId?: unknown } | null;
+                    // Each run in its own fiber: a slow agent never holds up another agent's events (the runner's lock orders an agent's own).
+                    yield* FiberSet.run(
+                      background,
+                      trial === undefined
+                        ? runLogged(agent.id, job.id, event.data)
+                        : runTrial(
+                            trial.agent,
+                            job.id,
+                            event.data,
+                            {
+                              caller: trial.caller,
+                              ...(typeof data?.requestId === "string"
+                                ? { requestId: data.requestId }
+                                : {}),
+                            },
+                            trial.trial,
+                          ).pipe(
+                            Effect.asVoid,
+                            Effect.catchTags({
+                              UnknownJob: (error) => Effect.logWarning(error.message),
+                              ComponentDisabled: (error) => Effect.logInfo(error.message),
+                              NoToolMode: (error) => Effect.logWarning(error.message),
+                            }),
+                          ),
+                    );
+                  }
                 }
               }
             }),

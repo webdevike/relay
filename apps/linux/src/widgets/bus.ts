@@ -16,7 +16,11 @@ import { setTimeout as sleep } from "node:timers/promises";
 export function defaultAtomicAgentsHome(): string {
   const set = process.env["ATOMIC_AGENTS_HOME"];
   if (set !== undefined && set !== "") return set;
-  return join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay", "atomic-agents");
+  return join(
+    process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"),
+    "relay",
+    "atomic-agents",
+  );
 }
 
 export interface AgentEvent {
@@ -29,17 +33,38 @@ export interface AgentEvent {
   readonly data: unknown;
 }
 
-/** One journal line for `component/name`, written by the host. */
-function event(component: string, name: string, job: string, data: unknown): AgentEvent {
+/** One journal line for `component/name`, written by the host; its run is `<runPrefix>-<8 hex>`. */
+function event(
+  component: string,
+  name: string,
+  job: string,
+  data: unknown,
+  runPrefix: string,
+): AgentEvent {
   const id = randomUUID();
-  return { id, type: `${component}/${name}`, component, job, run: `relay-${id.slice(0, 8)}`, at: new Date().toISOString(), data };
+  return {
+    id,
+    type: `${component}/${name}`,
+    component,
+    job,
+    run: `${runPrefix}-${id.slice(0, 8)}`,
+    at: new Date().toISOString(),
+    data,
+  };
 }
 
 /** Appends one event line; one `write` per line, as the package's own bus does. */
-export function emit(home: string, component: string, name: string, data: unknown, job = "relay"): void {
+export function emit(
+  home: string,
+  component: string,
+  name: string,
+  data: unknown,
+  job = "relay",
+  runPrefix = "relay",
+): void {
   const journal = join(home, "events.ndjson");
   mkdirSync(dirname(journal), { recursive: true });
-  appendFileSync(journal, `${JSON.stringify(event(component, name, job, data))}\n`);
+  appendFileSync(journal, `${JSON.stringify(event(component, name, job, data, runPrefix))}\n`);
 }
 
 async function size(journal: string): Promise<number> {
@@ -95,7 +120,10 @@ export async function ask(
   const requestId = randomUUID();
   let offset = await size(journal);
   mkdirSync(home, { recursive: true });
-  appendFileSync(journal, `${JSON.stringify(event(component, pair.request, "ask", { ...data, requestId }))}\n`);
+  appendFileSync(
+    journal,
+    `${JSON.stringify(event(component, pair.request, "ask", { ...data, requestId }, "relay"))}\n`,
+  );
   const replyType = `${component}/${pair.reply}`;
   const deadline = Date.now() + options.timeoutMs;
   for (;;) {
@@ -106,7 +134,13 @@ export async function ask(
       try {
         const parsed = JSON.parse(line) as Partial<AgentEvent>;
         const reply = parsed.data as Record<string, unknown> | null | undefined;
-        if (parsed.type === replyType && typeof reply === "object" && reply !== null && reply["requestId"] === requestId) return { requestId, reply };
+        if (
+          parsed.type === replyType &&
+          typeof reply === "object" &&
+          reply !== null &&
+          reply["requestId"] === requestId
+        )
+          return { requestId, reply };
       } catch {
         // A torn or hand-edited line is not the reply.
       }

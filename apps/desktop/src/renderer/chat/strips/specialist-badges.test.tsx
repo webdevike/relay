@@ -175,4 +175,36 @@ describe("a chat's specialist badges", () => {
     expect(chatSpecialists(messages, [], NOW, null)[0]?.status).toBe('running')
     expect(chatSpecialists(messages, [], NOW, [])[0]?.status).toBe('failed')
   })
+
+  it("a trial shows the caller's run and the other arms as lettered badges; a switch names the new model", () => {
+    const nova = { kind: 'assistant', id: 'nova' } as const
+    const own: AgentRun = {
+      agent: 'diagram',
+      run: 'req-1',
+      status: 'running',
+      startedAt: NOW - 5000,
+    }
+    const messages = [makeMessage('u1', 'user', 'draw it'), call('c1', own)]
+    const runs: SpecialistRun[] = [
+      { ...service('req-1', nova, 'running'), agent: 'diagram', trial: 'B' },
+      { ...service('t1:A', nova, 'running'), agent: 'diagram', trial: 'A' },
+      { ...service('t1:C', nova, 'done'), agent: 'diagram', trial: 'C' },
+      { ...service('r9', nova, 'running'), agent: 'web-researcher', newModel: 'Sonnet 5.5' },
+    ]
+    const badges = chatSpecialists(messages, chatServiceRuns(runs, '', 'nova'), NOW, runs)
+    const shown = badges.map((b) => [b.run, b.trial, b.newModel])
+    expect(shown.sort((a, b) => String(a[0]).localeCompare(String(b[0])))).toEqual([
+      ['r9', undefined, 'Sonnet 5.5'],
+      ['req-1', 'B', undefined],
+      ['t1:A', 'A', undefined],
+      ['t1:C', 'C', undefined],
+    ])
+    wrap(strip(badges))
+    expect(screen.getByTestId('specialist-chip-req-1')).toHaveTextContent('Diagram B')
+    expect(screen.getByTestId('specialist-chip-t1:A')).toHaveTextContent('Diagram A')
+    expect(screen.getByTestId('specialist-chip-t1:C')).toHaveTextContent('Diagram C')
+    expect(screen.getByTestId('specialist-chip-r9')).toHaveTextContent(
+      'Web researcher · Sonnet 5.5',
+    )
+  })
 })

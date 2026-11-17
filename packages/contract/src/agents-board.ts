@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { ActivityItem } from '@evaos/chat-core/activity'
 import { ContextOpenSchema, ContextToneSchema, ItemKeySchema, RepoSchema } from './context'
+import { TrialLetterSchema } from './trials'
 
 // The Agents page: one Linear-style board of everything Eva's agents work on. Main joins the work
 // item ledgers, Astra's auto-work state, the host's activity list (helpers, sessions, harnesses),
@@ -132,6 +133,10 @@ export const SpecialistRunSchema = z.object({
   seconds: z.number().finite().nullable(),
   /** USD, when the specialist reports it. */
   cost: z.number().finite().nullable(),
+  /** A trial arm's letter (trial mode): its badge reads `Diagram B`, and its model stays null until Isaac picks. */
+  trial: TrialLetterSchema.optional(),
+  /** The short name of the model the specialist switched to on its own, for a day after the switch (`Diagram · Sonnet 5.5`). */
+  newModel: z.string().max(200).optional(),
 })
 export type SpecialistRun = z.infer<typeof SpecialistRunSchema>
 

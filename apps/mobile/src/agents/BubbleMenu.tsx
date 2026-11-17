@@ -17,13 +17,22 @@
  * sheet; its answer goes up as `widget.label` (`labelReplyWidget`) and the host's answer shows as a
  * toast.
  */
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Keyboard, Share, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { ISAAC_REACTOR, toggleReaction, untagged } from "@relay/protocol";
 import { labelReplyWidget, react, watchReactions } from "@/connection";
 import { useAssistantStore } from "@/state/assistant";
 import { useBubbleReaction, useBubbleReactions, useReactionsStore } from "@/state/reactions";
 import { useReplyWidgetsStore } from "@/state/replyWidgets";
+import { useTrialsStore } from "@/state/trials";
 import { useTransientMessage } from "@/lib/useTransientMessage";
 import { labelAnswerText, opensWidgetTraining } from "@/lib/widgetTraining";
 import { WidgetTrainingSheet } from "@/agents/WidgetTrainingSheet";
@@ -91,7 +100,18 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
     () =>
       useReplyWidgetsStore.subscribe((state, previous) => {
         const answer = state.labelAnswer;
-        if (answer !== null && answer !== previous.labelAnswer && answer.thread === thread) showToast(labelAnswerText(answer));
+        if (answer !== null && answer !== previous.labelAnswer && answer.thread === thread)
+          showToast(labelAnswerText(answer));
+      }),
+    [thread, showToast],
+  );
+  // A trial pick or undo from this thread that did not go through (trial cards live in the thread's list).
+  useEffect(
+    () =>
+      useTrialsStore.subscribe((state, previous) => {
+        const failure = state.failure;
+        if (failure !== null && failure !== previous.failure && failure.thread === thread)
+          showToast(failure.text);
       }),
     [thread, showToast],
   );
@@ -101,14 +121,16 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
   const choose = useCallback(
     (key: string, text: string, emoji: string) => {
       if (thread === null) return;
-      const had = useReactionsStore.getState().threads[thread]?.[key]?.[ISAAC_REACTOR]?.emoji ?? null;
+      const had =
+        useReactionsStore.getState().threads[thread]?.[key]?.[ISAAC_REACTOR]?.emoji ?? null;
       const next = toggleReaction(had, emoji);
       if (!react(thread, key, next, text)) {
         notifyHaptic("warning");
         return;
       }
       selectHaptic();
-      if (opensWidgetTraining(thread, key, next, useReplyWidgetsStore.getState().trainingUp)) setTraining({ key, text });
+      if (opensWidgetTraining(thread, key, next, useReplyWidgetsStore.getState().trainingUp))
+        setTraining({ key, text });
     },
     [thread],
   );
@@ -217,7 +239,11 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
           <WidgetTrainingSheet
             open={training !== null}
             onPick={(label) => {
-              if (thread !== null && training !== null && !labelReplyWidget(thread, training.key, label, training.text))
+              if (
+                thread !== null &&
+                training !== null &&
+                !labelReplyWidget(thread, training.key, label, training.text)
+              )
                 showToast("Not connected: label not sent");
               setTraining(null);
             }}
@@ -274,7 +300,17 @@ export interface ChatBubbleProps {
 }
 
 /** One reactable chat bubble; outside a `BubbleMenuProvider`, or for a null key, a plain view. */
-export function ChatBubble({ messageKey, side, text, style, radius, card, ring, accessibilityLabel, children }: ChatBubbleProps) {
+export function ChatBubble({
+  messageKey,
+  side,
+  text,
+  style,
+  radius,
+  card,
+  ring,
+  accessibilityLabel,
+  children,
+}: ChatBubbleProps) {
   const context = useContext(BubbleMenuContext);
   const thread = context?.thread ?? null;
   const byReactor = useBubbleReactions(thread, messageKey);
@@ -284,7 +320,12 @@ export function ChatBubble({ messageKey, side, text, style, radius, card, ring, 
       bubbleReactions(byReactor).map(({ reactor, emoji }) => {
         if (reactor === ISAAC_REACTOR) return { reactor, emoji, title: null, portrait: null };
         const entry = agents?.find((agent) => agent.id === reactor);
-        return { reactor, emoji, title: entry?.title ?? reactor, portrait: entry === undefined ? null : portraitOf(entry) };
+        return {
+          reactor,
+          emoji,
+          title: entry?.title ?? reactor,
+          portrait: entry === undefined ? null : portraitOf(entry),
+        };
       }),
     [byReactor, agents],
   );

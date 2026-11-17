@@ -143,12 +143,16 @@ import { OpenAsksButton } from "@/agents/OpenAsksButton";
 import { OpenAsksSheet } from "@/agents/OpenAsksSheet";
 import { RunningChips } from "@/agents/RunningChips";
 import { AskInlineCard } from "@/agents/AskInlineCard";
+import { TrialCard, TrialSwitchRow } from "@/agents/TrialCard";
+import { isTrialRow, threadTrialRows } from "@/lib/trials";
+import { useTrialsStore } from "@/state/trials";
 import { WaitingMark } from "@/ui/WaitingMark";
 import {
   askCards,
   askRowId,
   askRowTarget,
   hiddenAskIds,
+  insertByAt,
   isAskRow,
   openAskKey,
   visibleAsks,
@@ -663,9 +667,9 @@ function Thread({ agent }: { agent: string }) {
     () =>
       openRun === null
         ? null
-        : (liveAgentRuns((snapshot?.messages ?? []).flatMap((message) => message.agents ?? [])).find(
-            (run) => agentRunKey(run) === openRun,
-          ) ?? null),
+        : (liveAgentRuns(
+            (snapshot?.messages ?? []).flatMap((message) => message.agents ?? []),
+          ).find((run) => agentRunKey(run) === openRun) ?? null),
     [snapshot, openRun],
   );
   const newestSettled = settled[settled.length - 1];
@@ -693,10 +697,20 @@ function Thread({ agent }: { agent: string }) {
   );
   const cards = useMemo(() => askCards(shownAsks, messageIds), [shownAsks, messageIds]);
   const cardByRow = useMemo(() => new Map(cards.map((ask) => [askRowId(ask), ask])), [cards]);
+  // The thread's trial cards and switch messages: rows of their own, placed by time among the messages.
+  const trialsSnapshot = useTrialsStore((state) => state.snapshot);
+  const trialRows = useMemo(
+    () => threadTrialRows(trialsSnapshot, artifactsThread),
+    [trialsSnapshot, artifactsThread],
+  );
   const { rows, newestFirst } = useMemo(() => {
-    const all = [...withAskRows(messages, cards), ...localRows, ...pendingRow];
+    const all = [
+      ...insertByAt(withAskRows(messages, cards), trialRows.rows),
+      ...localRows,
+      ...pendingRow,
+    ];
     return { rows: all, newestFirst: [...all].reverse() };
-  }, [messages, cards, localRows, pendingRow]);
+  }, [messages, cards, trialRows, localRows, pendingRow]);
   // What the list holds: the newest `drawn` rows. Nearing the oldest of them adds a page.
   const listed = useMemo(() => newestFirst.slice(0, drawn), [newestFirst, drawn]);
   const total = newestFirst.length;
@@ -716,7 +730,10 @@ function Thread({ agent }: { agent: string }) {
       assistantTurnRows(
         rows,
         (message) =>
-          message.id.startsWith(PENDING_ID) || isLocalRow(message.id) || isAskRow(message.id),
+          message.id.startsWith(PENDING_ID) ||
+          isLocalRow(message.id) ||
+          isAskRow(message.id) ||
+          isTrialRow(message.id),
         pendingAsk !== undefined,
       ),
     [rows, pendingAsk],
@@ -968,17 +985,27 @@ function Thread({ agent }: { agent: string }) {
                   extraData={`${latestUserId ?? ""}|${receipt ?? ""}|${String(connected)}|${rung.id}:${String(rung.n)}|${[...waitingIds].join(",")}`}
                   renderItem={({ item, index }) => {
                     const card = cardByRow.get(item.id);
+                    const trialRow = trialRows.byRow.get(item.id);
                     const echo = item.id.startsWith(PENDING_ID)
                       ? pending.find((entry) => `${PENDING_ID}${entry.id}` === item.id)
                       : undefined;
                     return (
                       // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
                       <MessageAppearance
-                        animate={enteringMessages.has(item.id)}
+                        // A trial card or switch keeps the list's place as it arrives, instead of entering.
+                        animate={enteringMessages.has(item.id) && trialRow === undefined}
                         user={senderOf(item) === "user"}
                         gap={gapAbove(item, newestFirst[index + 1])}
                       >
-                        {card !== undefined ? (
+                        {trialRow?.kind === "trial" ? (
+                          <TrialCard
+                            trial={trialRow.trial}
+                            connected={connected}
+                            fill={dark ? BUBBLE_DARK : colors.surface}
+                          />
+                        ) : trialRow?.kind === "switch" ? (
+                          <TrialSwitchRow entry={trialRow.entry} />
+                        ) : card !== undefined ? (
                           <AskInlineCard
                             ask={card}
                             source={card.from ?? title}
@@ -1475,7 +1502,8 @@ function RowView({
     return <WorkCardRow entry={message.guest} />;
   }
   // A turn's specialist status row: its runs show as chips in the header (`ThreadRunning`), not in the list.
-  if (message.role === "status" && message.agents !== undefined && message.agents.length > 0) return null;
+  if (message.role === "status" && message.agents !== undefined && message.agents.length > 0)
+    return null;
   // A turn Isaac did not type (a job line, heartbeat, canvas notice, handoff, tapback): a quiet centered row.
   const background = backgroundOf(message);
   if (background !== null)

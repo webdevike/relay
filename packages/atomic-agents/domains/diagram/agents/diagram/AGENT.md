@@ -7,6 +7,7 @@ candidates:
   - openai-codex/gpt-6-sol
   - anthropic/claude-opus-5-5
 thinking: medium
+trial: true
 request: diagram.requested
 reply: diagram.rendered
 show: image

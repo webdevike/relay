@@ -40,6 +40,7 @@ import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
 import { handleAssistantFile } from "./assistant/files";
 import { SpecialistRunBook } from "./assistant/specialist-runs";
+import { TrialService } from "./trials/service";
 import type { FoundAsk, ListedAsk } from "./assistant/http";
 import type { ConsultResult } from "./seams";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
@@ -745,6 +746,17 @@ function serve(
         log,
       })
     : null;
+  // Trial mode's cards, picks and Undo, folded from the same journal read the threads' badges use; needs that service's home.
+  const trials = featureOn(config, "trials", existsSync(atomicAgentsHome))
+    ? new TrialService({
+        home: atomicAgentsHome,
+        book: specialistRuns,
+        broadcast: (message): void => {
+          server.broadcastExcept(message, null);
+        },
+        log,
+      })
+    : null;
   const dismissedCards = new DismissedCardService({
     path: defaultDismissedCardsPath(),
     broadcast: (message): void => {
@@ -1061,6 +1073,7 @@ function serve(
       control,
       renderFailures,
       replyWidgets,
+      trials,
       workspace,
       canvasFiles,
       hostToken,

@@ -7,6 +7,7 @@ candidates:
   - anthropic/claude-sonnet-5-5
   - openai-codex/gpt-6.1-sol
 thinking: medium
+trial: true
 request: creative.requested
 reply: creative.options
 show: text

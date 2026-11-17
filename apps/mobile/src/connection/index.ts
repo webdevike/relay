@@ -16,6 +16,7 @@ import {
   ROOMS_FEATURE,
   reactionExcerpt,
   REPLY_WIDGETS_FEATURE,
+  TRIALS_FEATURE,
   WS_PATH,
   type ArtifactAction,
   type CatchUpSignal,
@@ -28,6 +29,7 @@ import {
   type MeetingsResult,
   type ReviewsOp,
   type ReviewsResult,
+  type TrialPick,
   type WidgetLabel,
   type RoomsCmd,
   type RoomsResult,
@@ -48,6 +50,7 @@ import { useAssistantStore } from "@/state/assistant";
 import { useReactionsStore } from "@/state/reactions";
 import { isTurnKey, useBookmarksStore } from "@/state/bookmarks";
 import { useReplyWidgetsStore } from "@/state/replyWidgets";
+import { useTrialsStore } from "@/state/trials";
 import { useDismissedCardsStore } from "@/state/dismissedCards";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useCanvasStore } from "@/state/canvas";
@@ -76,6 +79,7 @@ import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
 import { createBookmarkFrameRouter } from "./bookmarks";
 import { createReplyWidgetFrameRouter } from "./replyWidgets";
+import { createTrialFrameRouter } from "./trials";
 import { createDismissedCardFrameRouter } from "./dismissedCards";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import { createStudioFrameRouter, PendingStudio } from "./studio";
@@ -95,8 +99,13 @@ import { SessionMachine, type Effect } from "./session";
 import { CommandQueue, type CommandReport } from "./commands";
 import { debug, warn } from "./log";
 import { withdrawNotification } from "@/inbox/withdraw";
-import { hostTakesRenderReports, renderFailedFrame, type RenderReport } from "@/agents/renderReport";
+import {
+  hostTakesRenderReports,
+  renderFailedFrame,
+  type RenderReport,
+} from "@/agents/renderReport";
 import { widgetLabelFrame } from "@/lib/widgetTraining";
+import { trialPickFrame, trialUndoFrame } from "@/lib/trials";
 
 /** `EXPO_PUBLIC_RELAY_ONLY_HOST` pins a test bundle to one host; unset (every real build) changes nothing. */
 const ONLY_HOST = parseOnlyHost(process.env.EXPO_PUBLIC_RELAY_ONLY_HOST);
@@ -176,13 +185,20 @@ const routeCatchUpFrame = createCatchUpFrameRouter(useCatchUpStore.getState());
 const routeFeedFrame = createFeedFrameRouter(useFeedStore.getState());
 const routeAssistantFrame = createAssistantFrameRouter(useAssistantStore.getState());
 const routeReactionFrame = createReactionFrameRouter(useReactionsStore.getState());
-const routeBookmarkFrame = createBookmarkFrameRouter(useBookmarksStore.getState(), (thread, key) => {
-  socket.send(encode({ t: "bookmark.set", thread, message: key, on: true }));
-});
+const routeBookmarkFrame = createBookmarkFrameRouter(
+  useBookmarksStore.getState(),
+  (thread, key) => {
+    socket.send(encode({ t: "bookmark.set", thread, message: key, on: true }));
+  },
+);
 const routeReplyWidgetFrame = createReplyWidgetFrameRouter(useReplyWidgetsStore.getState());
-const routeDismissedCardFrame = createDismissedCardFrameRouter(useDismissedCardsStore.getState(), (id) => {
-  socket.send(encode({ t: "card.dismiss", id, on: true }));
-});
+const routeTrialFrame = createTrialFrameRouter(useTrialsStore.getState());
+const routeDismissedCardFrame = createDismissedCardFrameRouter(
+  useDismissedCardsStore.getState(),
+  (id) => {
+    socket.send(encode({ t: "card.dismiss", id, on: true }));
+  },
+);
 const routeArtifactFrame = createArtifactFrameRouter(useArtifactsStore.getState(), pendingActs);
 const routeCanvasFrame = createCanvasFrameRouter(useCanvasStore.getState(), () => hostAuthority);
 const routeStudioFrame = createStudioFrameRouter(useStudioStore.getState(), pendingStudio);
@@ -249,6 +265,8 @@ function connectionLost(epoch: number): void {
   useBookmarksStore.getState().setHostUp(false);
   // ... and whether it keeps reply widgets and takes labels; the blocks it sent stay shown.
   useReplyWidgetsStore.getState().clearFeatures();
+  // ... and whether it keeps trials; the cards it sent stay shown, a pick or undo in flight is answered nowhere.
+  useTrialsStore.getState().clearFeatures();
   // ... and whether it keeps dismissed cards; the set it last sent stays in force, but nothing can be sent.
   useDismissedCardsStore.getState().clearHost();
   pendingQueries.cancelAll();
@@ -270,7 +288,8 @@ socket.onError = (error) => {
  * newer one replaces it, keeping arrival order) and decoded once the frames already queued have
  * been taken, so a burst costs one decode. A room frame whose id does not lead is decoded at once.
  */
-const LATEST_ONLY = /^\{"t":"(?:(assistant\.snapshot|artifacts\.snapshot)","(?:agent|thread)":"([^"]*)"|(rooms\.room)","room":\{"id":"([^"]*)"|(rooms\.state)")/;
+const LATEST_ONLY =
+  /^\{"t":"(?:(assistant\.snapshot|artifacts\.snapshot)","(?:agent|thread)":"([^"]*)"|(rooms\.room)","room":\{"id":"([^"]*)"|(rooms\.state)")/;
 const latestFrames = new Map<string, string>();
 let latestTimer: number | null = null;
 
@@ -290,7 +309,9 @@ socket.onMessage = (data) => {
   const kind = latest[1] ?? latest[3] ?? latest[5] ?? "";
   // The host follows a thread for 5 minutes after the screen last asked; only the screen showing it draws it.
   if (kind === "assistant.snapshot" && latest[2] !== watchedAssistant) return;
-  if (kind === "rooms.state") for (const key of [...latestFrames.keys()]) if (key.startsWith("rooms.room:")) latestFrames.delete(key);
+  if (kind === "rooms.state")
+    for (const key of [...latestFrames.keys()])
+      if (key.startsWith("rooms.room:")) latestFrames.delete(key);
   const key = `${kind}:${latest[2] ?? latest[4] ?? ""}`;
   latestFrames.delete(key);
   latestFrames.set(key, data);
@@ -341,7 +362,13 @@ function handleFrame(data: string): void {
       if (message.features?.includes(REPLY_WIDGETS_FEATURE) === true) askReplyWidgets(thread);
     }
     // Cards dismissed on the desktop (or another phone) while away.
-    if (message.features?.includes(CARDS_DISMISSED_FEATURE) === true) socket.send(encode({ t: "cards.get" }));
+    if (message.features?.includes(CARDS_DISMISSED_FEATURE) === true)
+      socket.send(encode({ t: "cards.get" }));
+    // Trial cards filled in, were picked or switched while away (every chat at once).
+    if (message.features?.includes(TRIALS_FEATURE) === true) {
+      useTrialsStore.getState().ask();
+      socket.send(encode({ t: "trials.get" }));
+    }
     for (const thread of artifactThreads.keys())
       socket.send(encode({ t: "artifacts.get", thread }));
     // Live canvas rooms come and go while away, and a restarted host counts revs from zero again and
@@ -353,7 +380,12 @@ function handleFrame(data: string): void {
     socket.send(encode({ t: "studio.list" }));
     // Rooms ran on while away; only a host that relays them is asked (chat rooms too when it relays them).
     if (message.features?.includes(ROOMS_FEATURE) === true)
-      socket.send(encode({ t: "rooms.get", ...(message.features.includes(ROOMS_CHAT_FEATURE) ? { chat: true } : {}) }));
+      socket.send(
+        encode({
+          t: "rooms.get",
+          ...(message.features.includes(ROOMS_CHAT_FEATURE) ? { chat: true } : {}),
+        }),
+      );
     // The Reviews queue moved while away; the host answers with its last read at once.
     void sendReviews({ kind: "queue", refresh: false });
     // Recordings started, ended or moved on while away.
@@ -378,6 +410,7 @@ function handleFrame(data: string): void {
   routeReactionFrame(message);
   routeBookmarkFrame(message);
   routeReplyWidgetFrame(message);
+  routeTrialFrame(message);
   routeDismissedCardFrame(message);
   routeArtifactFrame(message);
   routeCanvasFrame(message);
@@ -581,6 +614,7 @@ async function retarget(id: string | null): Promise<void> {
   useReactionsStore.getState().clear();
   useBookmarksStore.getState().clearHost();
   useReplyWidgetsStore.getState().clear();
+  useTrialsStore.getState().clear();
   useDismissedCardsStore.getState().clearHost();
   useArtifactsStore.getState().clear();
   useCanvasStore.getState().clear();
@@ -738,7 +772,9 @@ export function requestFeed(): void {
 export function signalFeed(item: FeedItem, action: FeedAction): boolean {
   if (useConnectionStore.getState().status !== "connected") return false;
   useFeedStore.getState().actLocal(item.id, action);
-  socket.send(encode({ t: "feed.signal", id: item.id, action, title: item.title, source: item.source }));
+  socket.send(
+    encode({ t: "feed.signal", id: item.id, action, title: item.title, source: item.source }),
+  );
   return true;
 }
 
@@ -844,9 +880,57 @@ function askReplyWidgets(thread: string): void {
  * for the excerpt). The host's `widget.labeled` lands in `useReplyWidgetsStore().labelAnswer`.
  * False (nothing sent) while not connected or on a host that takes no labels.
  */
-export function labelReplyWidget(thread: string, key: string, label: WidgetLabel, text: string): boolean {
-  if (useConnectionStore.getState().status !== "connected" || !useReplyWidgetsStore.getState().trainingUp) return false;
+export function labelReplyWidget(
+  thread: string,
+  key: string,
+  label: WidgetLabel,
+  text: string,
+): boolean {
+  if (
+    useConnectionStore.getState().status !== "connected" ||
+    !useReplyWidgetsStore.getState().trainingUp
+  )
+    return false;
   socket.send(encode(widgetLabelFrame(thread, key, label, text)));
+  return true;
+}
+
+/**
+ * Sends Isaac's pick on trial card `trial` (a letter, or `unsure` for "can't tell"). The host
+ * answers `trial.picked` and pushes the revealed card; a refusal lands in
+ * `useTrialsStore().failure`. False (nothing sent, the failure recorded) while not connected or on
+ * a host that keeps no trials.
+ */
+export function pickTrial(trial: string, pick: TrialPick): boolean {
+  const store = useTrialsStore.getState();
+  if (useConnectionStore.getState().status !== "connected" || !store.up) {
+    store.fail({
+      thread: store.snapshot.trials.find((entry) => entry.id === trial)?.thread,
+      text: "Not connected: pick not sent",
+    });
+    return false;
+  }
+  store.sentPick(trial, pick);
+  socket.send(encode(trialPickFrame(trial, pick)));
+  return true;
+}
+
+/**
+ * Undoes an agent's own model switch `switchId`: its old model and the trial come back. The host
+ * answers `trial.undone` and pushes the switch as undone. False (nothing sent, the failure
+ * recorded) while not connected or on a host that keeps no trials.
+ */
+export function undoTrialSwitch(switchId: string): boolean {
+  const store = useTrialsStore.getState();
+  if (useConnectionStore.getState().status !== "connected" || !store.up) {
+    store.fail({
+      thread: store.snapshot.switches.find((entry) => entry.id === switchId)?.thread,
+      text: "Not connected: undo not sent",
+    });
+    return false;
+  }
+  store.sentUndo(switchId);
+  socket.send(encode(trialUndoFrame(switchId)));
   return true;
 }
 
@@ -862,7 +946,8 @@ export function toggleTurnBookmark(thread: string, key: string): boolean {
     store.toggleLocal(thread, key);
     return true;
   }
-  if (!store.hostUp || !isTurnKey(key) || useConnectionStore.getState().status !== "connected") return false;
+  if (!store.hostUp || !isTurnKey(key) || useConnectionStore.getState().status !== "connected")
+    return false;
   const on = !onHost.includes(key);
   store.setHostLocal(thread, key, on);
   socket.send(encode({ t: "bookmark.set", thread, message: key, on }));
@@ -877,7 +962,8 @@ export function toggleTurnBookmark(thread: string, key: string): boolean {
 export function setCardDismissed(key: string, on: boolean): void {
   const store = useDismissedCardsStore.getState();
   store.apply(key, on);
-  if (store.synced && useConnectionStore.getState().status === "connected") socket.send(encode({ t: "card.dismiss", id: key, on }));
+  if (store.synced && useConnectionStore.getState().status === "connected")
+    socket.send(encode({ t: "card.dismiss", id: key, on }));
 }
 
 /**
@@ -956,8 +1042,14 @@ export function studioRequest(op: StudioOp): Promise<StudioResult> {
 
 /** Ephemeral; the answer lands in `useRoomsStore()`. Also sent on every welcome. Nothing goes to a host without Rooms. */
 export function requestRooms(): void {
-  if (useConnectionStore.getState().status !== "connected" || useRoomsStore.getState().supported !== true) return;
-  socket.send(encode({ t: "rooms.get", ...(useRoomsStore.getState().chats ? { chat: true } : {}) }));
+  if (
+    useConnectionStore.getState().status !== "connected" ||
+    useRoomsStore.getState().supported !== true
+  )
+    return;
+  socket.send(
+    encode({ t: "rooms.get", ...(useRoomsStore.getState().chats ? { chat: true } : {}) }),
+  );
 }
 
 /**
@@ -977,7 +1069,13 @@ export function roomsRequest(cmd: RoomsCmd, view: string | null = null): RoomsRe
         : null;
   if (refusal !== null) return refusedRequest(refusal);
   const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  return pendingRooms.start(rid, () => { socket.send(encode({ t: "rooms.cmd", rid, cmd })); }, view);
+  return pendingRooms.start(
+    rid,
+    () => {
+      socket.send(encode({ t: "rooms.cmd", rid, cmd }));
+    },
+    view,
+  );
 }
 
 function sendReviews(op: ReviewsOp): Promise<ReviewsResult> {

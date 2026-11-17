@@ -26,6 +26,7 @@ purpose: Turn a description of a flow, loop, architecture or structure into one 
 model: anthropic/claude-sonnet-5-5
 candidates: [anthropic/claude-sonnet-5-5, openai-codex/gpt-6-sol]
 thinking: medium # optional: off, minimal, low, medium, high
+trial: true # optional: a taste agent Isaac picks the model of blind (A / B / C cards in Relay); needs 3 models among model + candidates
 request: diagram.requested # a schema a pack registers; also the request event's name
 reply: diagram.rendered # a schema a pack registers; also the reply event's name
 show: image # the reply field `atomic-agents ask` prints

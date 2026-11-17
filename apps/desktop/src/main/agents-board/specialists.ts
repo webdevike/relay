@@ -19,6 +19,7 @@ import type { MainContext } from '../context'
 import { sessionTitle } from '../context-popover/sessions'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { emit, handle } from '../ipc/handle'
+import { TrialRuns } from './trial-runs'
 
 /** The week the per-specialist counts cover. */
 export const SPECIALIST_DAYS = 7
@@ -143,6 +144,8 @@ export function registerSpecialistRuns(
     if (!titles.has(file)) titles.set(file, sessionTitle(file))
     return titles.get(file) ?? null
   }
+  // Trial arms, letters and switches, folded from the journal the CLI reads.
+  const trials = home === null ? null : new TrialRuns(path.join(home, 'events.ndjson'))
 
   // The journal: watched once runs were first asked for, so chats see a run start and end live.
   let watching = false
@@ -176,8 +179,11 @@ export function registerSpecialistRuns(
     ])
     if (out === null) return empty(false, null)
     const agents = chat.assistants().agents
+    const caller = (raw: string | undefined) => callerOf(raw, agents, title)
     try {
-      return specialistRunsOf(out.stdout, (raw) => callerOf(raw, agents, title), Date.now())
+      const now = Date.now()
+      const runs = specialistRunsOf(out.stdout, caller, now)
+      return trials === null ? runs : trials.apply(runs, caller, now, SPECIALIST_DAYS)
     } catch {
       const why = out.timedOut
         ? 'atomic-agents took too long to answer'

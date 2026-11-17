@@ -18,6 +18,33 @@ import { useReplyWidgetsStore } from "@/state/replyWidgets";
 /** The chat list's `keepPlace`; null outside a list that follows its newest row. */
 export const KeepPlaceContext = createContext<(() => void) | null>(null);
 
+/**
+ * Whether content that arrived `live` may show yet: while `live` turns true, it first asks the list
+ * to keep its place (`KeepPlaceContext`) and holds the content back two frames, until the list
+ * anchors what Isaac reads; content that is not live shows at once. A reply's follow-up widget and
+ * a trial card (its arrival and each result filling in) use it.
+ */
+export function useKeptArrival(live: boolean): boolean {
+  const keepPlace = useContext(KeepPlaceContext);
+  const [arrived, setArrived] = useState(false);
+  useEffect(() => {
+    if (!live) return undefined;
+    keepPlace?.();
+    // The list re-renders with anchoring on in the next commit; mount after it so the reply stays put.
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(() => {
+        setArrived(true);
+      });
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [live, keepPlace]);
+  return !live || arrived;
+}
+
 const SLIDE_MS = 240;
 const FADE_MS = 160;
 
@@ -35,29 +62,12 @@ export function ReplyFollowUp({ thread, messageKey, block, style }: ReplyFollowU
   const fresh = useReplyWidgetsStore((state) => state.fresh[thread]?.includes(messageKey) === true);
   // Only a block that was new when this row drew it animates; a later change to it just redraws.
   const [live] = useState(fresh);
-  const [shown, setShown] = useState(!live);
-  const keepPlace = useContext(KeepPlaceContext);
+  const shown = useKeptArrival(live);
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
     if (fresh) useReplyWidgetsStore.getState().settle(thread, messageKey);
   }, [fresh, thread, messageKey]);
-
-  useEffect(() => {
-    if (!live) return undefined;
-    keepPlace?.();
-    // The list re-renders with anchoring on in the next commit; mount after it so the reply stays put.
-    let second = 0;
-    const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => {
-        setShown(true);
-      });
-    });
-    return () => {
-      cancelAnimationFrame(first);
-      cancelAnimationFrame(second);
-    };
-  }, [live, keepPlace]);
 
   if (!shown) return null;
   const body = <MessageText text={block} large />;
@@ -68,7 +78,11 @@ export function ReplyFollowUp({ thread, messageKey, block, style }: ReplyFollowU
       </Animated.View>
     );
   return (
-    <Animated.View entering={reducedMotion ? FadeIn.duration(FADE_MS) : FadeInDown.duration(SLIDE_MS)} style={style} testID="eva-followup-widget">
+    <Animated.View
+      entering={reducedMotion ? FadeIn.duration(FADE_MS) : FadeInDown.duration(SLIDE_MS)}
+      style={style}
+      testID="eva-followup-widget"
+    >
       {body}
     </Animated.View>
   );

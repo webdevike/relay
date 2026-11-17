@@ -29,6 +29,9 @@ import { RUNTIME, runtime } from "./core/RuntimeEvents.ts";
 import * as Requests from "./core/Requests.ts";
 import * as Service from "./core/Service.ts";
 import { effective, Settings } from "./core/Settings.ts";
+import { ModelCatalog } from "./core/Catalog.ts";
+import { clearWinner, LETTERS, PickValue, trialEvents } from "./core/Trial.ts";
+import { benchFile, BenchLine, checkCatalog, layerTrials } from "./core/TrialService.ts";
 
 const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 
@@ -375,6 +378,141 @@ const use = Command.make(
       `written to ${settings.file}; a running service applies it from the next run (undo: the config.changed event's undo patch)`,
     );
   }),
+);
+
+/**
+ * Trial mode (`core/Trial.ts`): where each taste agent's blind trial stands, turn one on or off, record a pick as Relay
+ * Host does (`trial.picked`), or read the provider catalog now (a new model starts a fresh trial).
+ */
+const trial = Command.make("trial").pipe(
+  Command.withSubcommands([
+    Command.make(
+      "status",
+      { component: Argument.String("component").pipe(Argument.optional) },
+      Effect.fnUntraced(function* ({ component }) {
+        const current = yield* (yield* Settings).current;
+        const home = yield* Home;
+        const fs = yield* FileSystem.FileSystem;
+        for (const agent of yield* (yield* Agents).current) {
+          if (Option.isSome(component) && agent.id !== component.value) continue;
+          const resolved = effective(agent, current);
+          if (agent.agent.trial !== true && !resolved.trial.on) continue;
+          const lines = (yield* fs
+            .readFileString(benchFile(home.root, agent.id))
+            .pipe(Effect.orElseSucceed(() => "")))
+            .split("\n")
+            .flatMap((line) =>
+              Option.toArray(Schema.decodeUnknownOption(Schema.fromJsonString(BenchLine))(line)),
+            );
+          const decided = clearWinner(
+            lines.map((line) => ({ at: Date.parse(line.at), winner: line.winner })),
+          );
+          yield* Console.log(
+            `${agent.id}  trial ${resolved.trial.on ? "on" : "off"}  model ${resolved.agent.model}  arms ${resolved.trial.arms.join(", ")}  picks on the bench ${lines.length}${decided === undefined ? "" : `  (all-time leader ${decided.winner}: ${decided.wins} of ${decided.of})`}`,
+          );
+        }
+      }),
+    ),
+    Command.make(
+      "on",
+      {
+        component: Argument.String("component"),
+        models: Flag.String("models").pipe(
+          Flag.withDescription(
+            "comma-separated omp model ids (2 or 3; the agent's model is always one)",
+          ),
+          Flag.optional,
+        ),
+        by: byFlag,
+      },
+      Effect.fnUntraced(function* ({ component, models, by }) {
+        const own = {
+          trial: true,
+          ...Option.match(models, {
+            onNone: () => ({}),
+            onSome: (value) => ({ trialModels: value.split(",").map((model) => model.trim()) }),
+          }),
+        };
+        const changes = yield* (yield* Settings).set(
+          { components: { [component]: own } },
+          by,
+          "set",
+        );
+        yield* Console.log(
+          changes.length === 0 ? `${component}: trial already on` : `${component}: trial on`,
+        );
+      }),
+    ),
+    Command.make(
+      "off",
+      { component: Argument.String("component"), by: byFlag },
+      Effect.fnUntraced(function* ({ component, by }) {
+        const changes = yield* (yield* Settings).set(
+          { components: { [component]: { trial: false } } },
+          by,
+          "set",
+        );
+        yield* Console.log(
+          changes.length === 0 ? `${component}: trial already off` : `${component}: trial off`,
+        );
+      }),
+    ),
+    Command.make(
+      "pick",
+      {
+        trialId: Argument.String("trial"),
+        pick: Argument.Literals("pick", [...LETTERS, "unsure"]),
+        surface: Flag.String("surface").pipe(Flag.withDefault("desktop")),
+        by: byFlag,
+      },
+      Effect.fnUntraced(function* ({ trialId, pick, surface, by }) {
+        const bus = yield* EventBus;
+        const started = (yield* bus.history).find(
+          (event) =>
+            event.type.endsWith("/trial.started") &&
+            Option.isSome(
+              Option.filter(
+                Schema.decodeUnknownOption(trialEvents["trial.started"])(event.data),
+                (data) => data.trialId === trialId,
+              ),
+            ),
+        );
+        if (started === undefined) return yield* Effect.fail(new Error(`no trial ${trialId}`));
+        const data = yield* Schema.encodeUnknownEffect(trialEvents["trial.picked"])({
+          trialId,
+          pick: yield* Schema.decodeUnknownEffect(PickValue)(pick),
+          surface,
+          by,
+        });
+        yield* bus.publish(
+          yield* makeEvent({
+            type: `${started.component}/trial.picked`,
+            component: started.component,
+            job: "trial",
+            run: `pick-${yield* shortId}`,
+            data,
+          }),
+        );
+        yield* Console.log(`${started.component}: picked ${pick} on ${trialId}`);
+      }),
+    ),
+    Command.make("catalog", {}, () =>
+      checkCatalog.pipe(
+        Effect.flatMap((started) =>
+          started.length === 0
+            ? Console.log("no new model fits a trial agent (the catalog is remembered)")
+            : Effect.forEach(
+                started,
+                ({ agent, models, arms }) =>
+                  Console.log(
+                    `${agent}: fresh trial with ${models.join(", ")} (models ${arms.join(", ")})`,
+                  ),
+                { discard: true },
+              ),
+        ),
+      ),
+    ),
+  ]),
 );
 
 /** Set how a consumer uses a component's answers (widget: Relay Host under assistants' replies); it reads config.json on every request. */
@@ -781,12 +919,13 @@ const orch = Command.make("orch").pipe(
   ]),
 );
 
-/** The service: config and agent file watch, and triggers, as background layers; the first fatal error (see `Background`) ends it. */
+/** The service: config and agent file watch, triggers and trials, as background layers; the first fatal error (see `Background`) ends it. */
 const Serve = Layer.mergeAll(
   Settings.layerWatch,
   Agents.layerWatch,
   Runner.layerTriggers,
   Orchestrators.layerSchedule,
+  layerTrials({ catalogEvery: "1 hour" }),
 ).pipe(Layer.provideMerge(Background.layer));
 
 const serve = Command.make("serve", {}, () =>
@@ -835,7 +974,7 @@ const service = Command.make("service").pipe(
 const App = Runner.layer.pipe(
   Layer.provideMerge(Orchestrators.layer),
   Layer.provideMerge(Layer.mergeAll(Sessions.layer, Reporter.layer)),
-  Layer.provideMerge(ModelRunner.omp),
+  Layer.provideMerge(Layer.mergeAll(ModelRunner.omp, ModelCatalog.omp)),
   Layer.provideMerge(Settings.layer),
   Layer.provideMerge(Agents.layer),
   Layer.provideMerge(Adapters.make(packs)),
@@ -853,6 +992,7 @@ Command.make("atomic-agents").pipe(
     wins,
     use,
     mode,
+    trial,
     emit,
     askCommand,
     catalogCommand,

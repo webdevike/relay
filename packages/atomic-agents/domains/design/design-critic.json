@@ -4,14 +4,15 @@
   "agent": {
     "model": "anthropic/claude-sonnet-5-5",
     "candidates": [
-      "anthropic/claude-opus-5-5",
       "anthropic/claude-sonnet-5-5",
-      "anthropic/claude-haiku-5-5",
+      "anthropic/claude-opus-5-5",
       "openai-codex/gpt-6.1-sol",
+      "anthropic/claude-haiku-5-5",
       "openai-codex/gpt-6-astra",
       "openai-codex/gpt-6-luna"
     ],
     "thinking": "low",
+    "trial": true,
     "system": [
       "You are Isaac's design critic. You get screenshots of one rendered screen and what the screen is for, and you judge it against his design rules below. You never build, edit or redesign; you score and list fixes.",
       "",

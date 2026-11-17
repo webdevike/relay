@@ -1,6 +1,7 @@
 import { Clock, Effect, Path, Schema } from "effect";
 import { type Component, define, job, Trigger } from "../../src/core/Component.ts";
 import { ModelRunner } from "../../src/core/Model.ts";
+import { previewOf } from "../../src/core/Trial.ts";
 import { readLedger, recordSearch, soundStateDir, sweep, writeLedger } from "./adapters/ledger.ts";
 import { type Match, PREFIX, Soundly, SoundlyError } from "./adapters/soundly.ts";
 import { DEFAULT_COUNT, SoundCollected, SoundRequested } from "./schema.ts";
@@ -124,33 +125,69 @@ const pick = job(events, {
           });
         const want = Math.min(count, found.matches.length);
         const prompt = promptFor(input.query, want, found.matches);
-        const ask = (text: string) =>
-          models.generate({
-            model: ctx.model,
-            system: ctx.agent.system,
-            prompt: text,
-            timeout: "90 seconds",
-            ...(ctx.agent.thinking === undefined ? {} : { thinking: ctx.agent.thinking }),
+        // One model's picks from the same candidates, with one repair turn: the same task, its reply, and what was wrong with it.
+        const choose = (model: string) =>
+          Effect.gen(function* () {
+            const ask = (text: string) =>
+              models.generate({
+                model,
+                system: ctx.agent.system,
+                prompt: text,
+                timeout: "90 seconds",
+                ...(ctx.agent.thinking === undefined ? {} : { thinking: ctx.agent.thinking }),
+              });
+            const first = yield* ask(prompt);
+            let reply = readPicks(first.text, found.matches, want);
+            let attempts = 1;
+            let cost = first.cost;
+            if (reply.problems.length > 0) {
+              const second = yield* ask(
+                `${prompt}\n\nYour reply was:\n${first.text}\n\nIt was rejected: ${reply.problems.join("; ")}. Reply again with the JSON object only.`,
+              );
+              reply = readPicks(second.text, found.matches, want);
+              attempts = 2;
+              cost += second.cost;
+              if (reply.problems.length > 0)
+                return yield* new SoundlyError({
+                  message: `the model's picks were unusable twice: ${reply.problems.join("; ")}`,
+                });
+            }
+            const byId = new Map(found.matches.map((match) => [match.id, match]));
+            return { chosen: reply.picks.flatMap((id) => byId.get(id) ?? []), attempts, cost };
           });
-        const first = yield* ask(prompt);
-        let reply = readPicks(first.text, found.matches, want);
-        let attempts = 1;
-        let cost = first.cost;
-        if (reply.problems.length > 0) {
-          // The one repair turn: the same task, its reply, and what was wrong with it.
-          const second = yield* ask(
-            `${prompt}\n\nYour reply was:\n${first.text}\n\nIt was rejected: ${reply.problems.join("; ")}. Reply again with the JSON object only.`,
+        const library = new Map(api.libraries.map((entry) => [entry.id, entry.name]));
+        const soundOf = (match: Match) => ({
+          title: match.name.replace(/\.(wav|aiff?|flac|mp3|ogg|m4a|caf)$/i, ""),
+          library: library.get(match.libraryId) ?? match.libraryId,
+          duration: match.seconds,
+          id: match.id,
+          pro: match.pro,
+        });
+        // A trial (`trialArms: "inline"`): the other models pick from the same search, beside this run and never in its
+        // way; each result goes on Isaac's card as a list (no collection: one Soundly session at a time).
+        for (const arm of ctx.trial?.others ?? []) {
+          const report = ctx.trial!.report;
+          yield* Effect.forkDetach(
+            Effect.gen(function* () {
+              const began = yield* Clock.currentTimeMillis;
+              const took = Effect.map(Clock.currentTimeMillis, (now) => (now - began) / 1000);
+              const outcome = yield* Effect.result(choose(arm.model));
+              yield* outcome._tag === "Success"
+                ? report(arm.letter, {
+                    ok: true,
+                    preview: previewOf({ sounds: outcome.success.chosen.map(soundOf) }),
+                    seconds: yield* took,
+                    cost: outcome.success.cost,
+                  })
+                : report(arm.letter, {
+                    ok: false,
+                    error: outcome.failure.message,
+                    seconds: yield* took,
+                  });
+            }),
           );
-          reply = readPicks(second.text, found.matches, want);
-          attempts = 2;
-          cost += second.cost;
-          if (reply.problems.length > 0)
-            return yield* new SoundlyError({
-              message: `the model's picks were unusable twice: ${reply.problems.join("; ")}`,
-            });
         }
-        const byId = new Map(found.matches.map((match) => [match.id, match]));
-        const chosen = reply.picks.flatMap((id) => byId.get(id) ?? []);
+        const { chosen, attempts, cost } = yield* choose(ctx.model);
 
         const name = collectionName(
           input.query,
@@ -175,20 +212,13 @@ const pick = job(events, {
           return yield* new SoundlyError({
             message: `${name} lacks ${missing.map((match) => match.id).join(", ")} after adding`,
           });
-        const library = new Map(api.libraries.map((entry) => [entry.id, entry.name]));
         return {
           name,
           found,
           swept,
           attempts,
           cost,
-          sounds: chosen.map((match) => ({
-            title: match.name.replace(/\.(wav|aiff?|flac|mp3|ogg|m4a|caf)$/i, ""),
-            library: library.get(match.libraryId) ?? match.libraryId,
-            duration: match.seconds,
-            id: match.id,
-            pro: match.pro,
-          })),
+          sounds: chosen.map(soundOf),
         };
       }),
     );
@@ -233,6 +263,8 @@ export const spec = {
       "anthropic/claude-sonnet-5-5",
     ],
     system: SYSTEM,
+    // A taste call (which sounds suit him): Isaac picks its model blind (core/Trial.ts).
+    trial: true,
   },
   jobs: [pick],
   tools: Soundly.layer,
@@ -244,6 +276,8 @@ export const spec = {
       return decoded._tag === "Some" ? decoded.value.collection : "none";
     },
   },
+  // One Soundly session at a time: the other trial models pick from this run's search (see the job).
+  trialArms: "inline",
 } satisfies Component<Soundly>;
 
 export default define(spec);

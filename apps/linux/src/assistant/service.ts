@@ -506,13 +506,22 @@ export class AssistantService implements AssistantThread {
     const busy = session?.status === "working";
     // Judged once the turn settles, so the judge reads the assistant's reply to Isaac's latest turn too.
     if (!busy) this.judgeAsks(messages);
-    // A specialist the transcript still shows running reads what the service recorded of it (done, failed, or unknown).
+    // A specialist the transcript still shows running reads what the service recorded of it (done, failed, or unknown);
+    // trial runs show their letters and a switched agent its new model.
+    const book = this.deps.specialistRuns;
     const settled = settleAssistantMessages(
       messages,
-      (await this.deps.specialistRuns?.current()) ?? null,
+      (await book?.current()) ?? null,
       Date.now(),
+      book?.trials().badges ?? null,
     );
-    return { rev, messages: settled, busy, sessionId: session?.id ?? "", asks: this.deps.asks.open() };
+    return {
+      rev,
+      messages: settled,
+      busy,
+      sessionId: session?.id ?? "",
+      asks: this.deps.asks.open(),
+    };
   }
 
   /** The live session's settled rows as the phone shows them, guest rows unfolded; empty while no session is live. */

@@ -19,6 +19,7 @@ import { assistantsEvents, assistantsInvoke } from './assistants'
 import { boardsEvents, boardsInvoke } from './boards'
 import { reactionsEvents, reactionsInvoke } from './reactions'
 import { cardsEvents, cardsInvoke } from './cards'
+import { trialsEvents, trialsInvoke } from './trials'
 import { renderInvoke } from './render'
 import { asksEvents, asksInvoke } from './asks'
 import { signinInvoke } from './signin'
@@ -56,6 +57,7 @@ export * from './assistants'
 export * from './boards'
 export * from './reactions'
 export * from './cards'
+export * from './trials'
 export * from './render'
 export * from './asks'
 export * from './signin'
@@ -131,6 +133,7 @@ export const invokeContract = {
   ...boardsInvoke,
   ...reactionsInvoke,
   ...cardsInvoke,
+  ...trialsInvoke,
   ...renderInvoke,
   ...asksInvoke,
   ...signinInvoke,
@@ -170,6 +173,7 @@ export const eventContract = {
   ...boardsEvents,
   ...reactionsEvents,
   ...cardsEvents,
+  ...trialsEvents,
   ...asksEvents,
   ...artifactsEvents,
   ...activityEvents,

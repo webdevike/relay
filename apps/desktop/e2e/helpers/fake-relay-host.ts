@@ -1121,6 +1121,17 @@ export class FakeRelayHost {
     return { t: 'widgets.snapshot', thread, widgets: this.widgetsOf.get(thread) ?? {} }
   }
 
+  /** Every trial card and switch message, as a host with "trials" keeps them (`trials.snapshot`). */
+  private trialsHeld: { trials: Json[]; switches: Json[] } = { trials: [], switches: [] }
+  /** Every `trials.get`, `trial.pick` and `trial.undo` the app sent, in order. */
+  readonly trialFrames: Json[] = []
+
+  /** Sets the cards and switch messages and pushes them to every device, as the host does on any change. */
+  setTrials(trials: Json[], switches: Json[] = []): void {
+    this.trialsHeld = { trials, switches }
+    this.broadcast({ t: 'trials.snapshot', ...this.trialsHeld })
+  }
+
   private snapshotOf(thread: string): Json {
     return { t: 'reactions.snapshot', thread, reactions: this.reactionsOf.get(thread) ?? {} }
   }
@@ -1369,6 +1380,16 @@ export class FakeRelayHost {
       case 'stats.get':
         this.statsGets++
         return peer.send({ t: 'stats.snapshot', stats: this.statsSnapshot })
+      case 'trials.get':
+        this.trialFrames.push(f)
+        return peer.send({ t: 'trials.snapshot', ...this.trialsHeld })
+      case 'trial.pick':
+        // The live host records it on the agent's bench and pushes the revealed card; tests push that.
+        this.trialFrames.push(f)
+        return peer.send({ t: 'trial.picked', trial: f.trial, ok: true })
+      case 'trial.undo':
+        this.trialFrames.push(f)
+        return peer.send({ t: 'trial.undone', switch: f.switch, ok: true })
       case 'artifacts.get':
         return peer.send({
           t: 'artifacts.snapshot',

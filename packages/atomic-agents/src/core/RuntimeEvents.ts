@@ -35,6 +35,14 @@ export const ComponentSettings = Schema.Struct({
    * the consumer reads it on every request, so a switch needs no restart. Absent means shadow.
    */
   mode: Schema.optionalKey(Mode),
+  /**
+   * Trial mode (`Trial.ts`): each caller's request also runs on the trial models and Relay shows the results blind as
+   * A / B / C. Absent means the agent file's `trial`. The service turns it off when one model clearly wins and on
+   * again when a new model appears in the provider catalog.
+   */
+  trial: Schema.optionalKey(Schema.Boolean),
+  /** The trial's models (2 or 3; the agent's `model` is always one of them). Absent means `model` plus `candidates`. */
+  trialModels: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
 });
 
 export const SettingsFile = Schema.Struct({
@@ -44,7 +52,8 @@ export const SettingsFile = Schema.Struct({
 });
 export type SettingsFile = typeof SettingsFile.Type;
 
-export const Source = Schema.Literals(["use", "set", "file"]);
+/** Who changed config: `use`/`set` (a person or caller), `file` (an edit on disk), `trial` (the service, on Isaac's picks or a new model). */
+export const Source = Schema.Literals(["use", "set", "file", "trial"]);
 const Change = Schema.Struct({
   path: Schema.Array(Schema.String),
   /** `null` when the key was absent. */

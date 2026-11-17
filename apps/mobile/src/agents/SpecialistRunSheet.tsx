@@ -1,5 +1,5 @@
 import { StyleSheet, View } from "react-native";
-import { agentLabel, type AgentRun } from "@relay/protocol";
+import { agentBadge, type AgentRun } from "@relay/protocol";
 import { IconButton } from "@/ui/IconButton";
 import { OverlaySheet } from "@/ui/OverlaySheet";
 import { Text } from "@/ui/Text";
@@ -10,9 +10,16 @@ import { RunDetail } from "./AgentsCaption";
  * A specialist chip opened (`agents/RunningChips`): that run's details as the agents caption draws them (what was
  * asked, the answer, its sources, an error), live while it runs. `run` null keeps the sheet closed.
  */
-export function SpecialistRunSheet({ run, onClose }: { run: AgentRun | null; onClose: () => void }) {
+export function SpecialistRunSheet({
+  run,
+  onClose,
+}: {
+  run: AgentRun | null;
+  onClose: () => void;
+}) {
   const colors = useColors();
-  const label = run === null ? "" : agentLabel(run.agent);
+  // The chip's own name for it: the trial letter (`Diagram B`) or the model it just switched to.
+  const label = run === null ? "" : agentBadge(run, Date.now()).label;
   return (
     <OverlaySheet
       open={run !== null}
@@ -22,7 +29,12 @@ export function SpecialistRunSheet({ run, onClose }: { run: AgentRun | null; onC
           <Text variant="title" numberOfLines={1} style={styles.title}>
             {label}
           </Text>
-          <IconButton symbol="xmark" size={34} accessibilityLabel={`Close ${label}`} onPress={onClose} />
+          <IconButton
+            symbol="xmark"
+            size={34}
+            accessibilityLabel={`Close ${label}`}
+            onPress={onClose}
+          />
         </View>
       }
     >

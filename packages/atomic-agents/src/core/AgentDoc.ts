@@ -37,6 +37,8 @@ export const AgentDocFront = Schema.Struct({
   thinking: Schema.optionalKey(Thinking),
   /** Harness the model runs in (a model adapter: `omp`, `codex`, `claude-code`), default `omp`. */
   harness: Schema.optionalKey(Schema.NonEmptyString),
+  /** A taste agent Isaac picks blind (`Trial.ts`): requests also run on the other trial models, shown as A / B / C. */
+  trial: Schema.optionalKey(Schema.Boolean),
   /** The registered schema of the request event (also the event's name). */
   request: Schema.NonEmptyString,
   /** The registered schema of the reply event (also the event's name). */
@@ -101,6 +103,7 @@ export const toAgentSpec = (
     model: front.model,
     candidates: front.candidates,
     ...(front.thinking === undefined ? {} : { thinking: front.thinking }),
+    ...(front.trial === undefined ? {} : { trial: front.trial }),
     system: body,
     knowledge: knowledge.map((file) => ({ file })),
   },

@@ -8,7 +8,20 @@
 import { existsSync, statSync, watchFile, unwatchFile } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { agentsCaption, settleAgentRuns, type AgentRun, type AssistantMessage } from "@relay/protocol";
+import {
+  TRIAL_SWITCH_BADGE_MS,
+  agentsCaption,
+  settleAgentRuns,
+  type AgentRun,
+  type AssistantMessage,
+} from "@relay/protocol";
+import {
+  EMPTY_TRIALS_FOLD,
+  trialsOfJournal,
+  trialsSignature,
+  type TrialBadges,
+  type TrialsFold,
+} from "../trials/book";
 
 const RUN_REQUESTED = "atomic-agents/run.requested";
 const RUN_REJECTED = "atomic-agents/run.rejected";
@@ -30,13 +43,22 @@ interface Tracked {
   requestedAt: string | undefined;
   rejected: string | undefined;
   started: { readonly at: string } | undefined;
-  finished: { readonly ok: boolean; readonly seconds: number | undefined; readonly error: string | undefined } | undefined;
+  finished:
+    | {
+        readonly ok: boolean;
+        readonly seconds: number | undefined;
+        readonly error: string | undefined;
+      }
+    | undefined;
   replied: boolean;
 }
 
-const text = (value: unknown): string | undefined => (typeof value === "string" ? value : undefined);
+const text = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
 const record = (value: unknown): Record<string, unknown> | null =>
-  typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 
 const parse = (line: string): JournalEvent | null => {
   try {
@@ -68,13 +90,25 @@ export function specialistRunsOfJournal(lines: readonly string[]): AgentRun[] {
   const open = (requestId: string): Tracked => {
     let tracked = byRequest.get(requestId);
     if (tracked === undefined) {
-      tracked = { agent: undefined, requestedAt: undefined, rejected: undefined, started: undefined, finished: undefined, replied: false };
+      tracked = {
+        agent: undefined,
+        requestedAt: undefined,
+        rejected: undefined,
+        started: undefined,
+        finished: undefined,
+        replied: false,
+      };
       byRequest.set(requestId, tracked);
     }
     return tracked;
   };
   for (const line of lines) {
-    if (!line.includes('"requestId"') && !line.includes("/job.succeeded") && !line.includes("/job.failed")) continue;
+    if (
+      !line.includes('"requestId"') &&
+      !line.includes("/job.succeeded") &&
+      !line.includes("/job.failed")
+    )
+      continue;
     const event = parse(line);
     if (event === null) continue;
     const requestId = text(event.data?.["requestId"]);
@@ -119,7 +153,11 @@ export function specialistRunsOfJournal(lines: readonly string[]): AgentRun[] {
     if (tracked === undefined) continue;
     if (tag === "job.succeeded") {
       const seconds = event.data?.["seconds"];
-      tracked.finished = { ok: true, seconds: typeof seconds === "number" ? seconds : undefined, error: undefined };
+      tracked.finished = {
+        ok: true,
+        seconds: typeof seconds === "number" ? seconds : undefined,
+        error: undefined,
+      };
     } else if (tag === "job.failed") {
       const seconds = event.data?.["seconds"];
       tracked.finished = {
@@ -127,7 +165,11 @@ export function specialistRunsOfJournal(lines: readonly string[]): AgentRun[] {
         seconds: typeof seconds === "number" ? seconds : undefined,
         error: text(event.data?.["message"]),
       };
-    } else if (tag === undefined && requestId !== undefined && byRequest.get(requestId) === tracked) {
+    } else if (
+      tag === undefined &&
+      requestId !== undefined &&
+      byRequest.get(requestId) === tracked
+    ) {
       tracked.replied = true;
     }
   }
@@ -135,7 +177,9 @@ export function specialistRunsOfJournal(lines: readonly string[]): AgentRun[] {
   for (const [run, t] of byRequest) {
     if (t.agent === undefined) continue;
     const at = Date.parse(t.requestedAt ?? t.started?.at ?? "");
-    const failure = t.rejected ?? (!t.replied && t.finished?.ok === false ? (t.finished.error ?? "the run failed") : undefined);
+    const failure =
+      t.rejected ??
+      (!t.replied && t.finished?.ok === false ? (t.finished.error ?? "the run failed") : undefined);
     const done = t.replied || t.finished?.ok === true;
     const seconds = t.finished?.seconds;
     out.push({
@@ -151,25 +195,79 @@ export function specialistRunsOfJournal(lines: readonly string[]): AgentRun[] {
 }
 
 /**
+ * `runs` with their trial badges (trials/book.ts): the default arm's run takes its letter and the trial's other
+ * arms follow it as their own runs (`trial:<trialId>:<letter>`); a run of an agent that switched its model
+ * within TRIAL_SWITCH_BADGE_MS before it started names the new model. Arm runs already there are drawn again.
+ */
+function badgeTrialRuns(runs: readonly AgentRun[], badges: TrialBadges): AgentRun[] {
+  const out: AgentRun[] = [];
+  for (const r of runs) {
+    if (r.run?.startsWith("trial:") === true) continue;
+    const trial = r.run === undefined ? undefined : badges.byRequest.get(r.run);
+    if (trial !== undefined) {
+      out.push(r.trial === trial.letter ? r : { ...r, trial: trial.letter });
+      for (const arm of trial.others) {
+        out.push({
+          run: `trial:${trial.trialId}:${arm.letter}`,
+          agent: r.agent,
+          status: arm.status,
+          trial: arm.letter,
+          ...(arm.startedAt === undefined ? {} : { startedAt: arm.startedAt }),
+          ...(arm.seconds === undefined ? {} : { seconds: arm.seconds }),
+        });
+      }
+      continue;
+    }
+    const switched = badges.switched.get(r.agent);
+    const fresh =
+      switched !== undefined &&
+      r.startedAt !== undefined &&
+      r.startedAt >= switched.at &&
+      r.startedAt - switched.at < TRIAL_SWITCH_BADGE_MS;
+    out.push(!fresh || r.newModel === switched.toLabel ? r : { ...r, newModel: switched.toLabel });
+  }
+  return out;
+}
+
+/**
  * A thread's rows with every running specialist badge settled against the service's `runs` (`settleAgentRuns`):
- * the rows' `agents` take the service's state, and a status row's caption words it. Rows nothing changed on are
- * the same objects. `runs` null (no service here) leaves the thread as the transcript shows it.
+ * the rows' `agents` take the service's state, and a status row's caption words it. `trials` adds the trial
+ * letters and switched models to the badges (`badgeTrialRuns`). Rows nothing changed on are the same objects.
+ * `runs` null (no service here) leaves the thread as the transcript shows it.
  */
 export function settleAssistantMessages(
   messages: readonly AssistantMessage[],
   runs: readonly AgentRun[] | null,
   now: number,
+  trials: TrialBadges | null = null,
 ): AssistantMessage[] {
   if (runs === null) return [...messages];
   return messages.map((message) => {
     const agents = message.agents;
-    if (!agents?.some((r) => r.status === "running")) return message;
-    const settled = settleAgentRuns(agents, { runs, now });
-    if (settled.every((r, i) => r.status === agents[i]?.status)) return message;
+    if (agents === undefined || agents.length === 0) return message;
+    const settled = agents.some((r) => r.status === "running")
+      ? settleAgentRuns(agents, { runs, now })
+      : agents;
+    const moved = settled.some((r, i) => r.status !== agents[i]?.status);
+    const badged = trials === null ? settled : badgeTrialRuns(settled, trials);
+    const same =
+      badged.length === agents.length &&
+      badged.every((r, i) => {
+        const was = agents[i];
+        return (
+          was !== undefined &&
+          r.run === was.run &&
+          r.status === was.status &&
+          r.trial === was.trial &&
+          r.newModel === was.newModel
+        );
+      });
+    if (same) return message;
     return {
       ...message,
-      agents: settled,
-      ...(message.role === "status" ? { text: agentsCaption(settled, now) } : {}),
+      agents: badged,
+      // The caption words the thread's own runs; the trial's other arms only show as badges.
+      ...(message.role === "status" && moved ? { text: agentsCaption(settled, now) } : {}),
     };
   });
 }
@@ -183,6 +281,7 @@ export class SpecialistRunBook {
   private readonly journal: string;
   private stamp = "";
   private runs: AgentRun[] | null = null;
+  private trialsFold: TrialsFold | null = null;
   private signature = "";
   private reading: Promise<AgentRun[] | null> | null = null;
   private readonly listeners = new Set<() => void>();
@@ -214,16 +313,23 @@ export class SpecialistRunBook {
     } catch {
       return null;
     }
-    this.runs = specialistRunsOfJournal(raw.split("\n"));
+    const lines = raw.split("\n");
+    this.runs = specialistRunsOfJournal(lines);
+    this.trialsFold = trialsOfJournal(lines, Date.now());
     this.stamp = stamp;
     return this.runs;
   }
 
-  /** Reads the journal and tells the listeners when a run appeared or changed state since they were last told. */
+  /** The trial cards, switches and badges of the last read (`current`); empty before one or while the service has no journal. */
+  trials(): TrialsFold {
+    return this.trialsFold ?? EMPTY_TRIALS_FOLD;
+  }
+
+  /** Reads the journal and tells the listeners when a run or a trial appeared or changed state since they were last told. */
   async notify(): Promise<void> {
     const runs = await this.current();
     if (runs === null) return;
-    const signature = runs.map((r) => `${r.run ?? ""}=${r.status}`).join(",");
+    const signature = `${runs.map((r) => `${r.run ?? ""}=${r.status}`).join(",")}#${trialsSignature(this.trials())}`;
     if (signature === this.signature) return;
     this.signature = signature;
     for (const heard of this.listeners) heard();

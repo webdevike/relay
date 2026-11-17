@@ -34,6 +34,9 @@ import {
 } from './chat-scroll'
 import { startSettings, useSettings } from '../settings/settings-store'
 import { TypingDots } from '../ui/TypingDots'
+import { placeTrialRows, type TrialRow } from './trials/trials-store'
+import { TrialCard } from './trials/TrialCard'
+import { TrialSwitchRow } from './trials/TrialSwitchRow'
 
 declare global {
   interface Window {
@@ -49,6 +52,9 @@ export type LogItem =
   | { kind: 'message'; m: ChatMessage }
   | { kind: 'tools'; tools: ChatMessage[] }
   | { kind: 'typing'; who: string }
+  | TrialRow
+
+const NO_TRIALS: readonly TrialRow[] = []
 
 /**
  * Rows for the log: each message, or with `fold` each run of tool calls as one group. An agents
@@ -76,11 +82,14 @@ function logItems(list: ChatMessage[], fold: boolean): LogItem[] {
 /**
  * The row tap-to-answer replies may show under: the log's last row when it is a reply done
  * streaming (no typing dots, tool call or prompt, sent or still unconfirmed, after it), while the
- * chat is not `busy` with a turn. Null otherwise.
+ * chat is not `busy` with a turn. A trial card or switch message after it is not a turn: the
+ * replies stay. Null otherwise.
  */
 export function liveRowId(items: LogItem[], busy: boolean): string | null {
   if (busy) return null
-  const last = items.at(-1)
+  let at = items.length - 1
+  while (at >= 0 && (items[at]!.kind === 'trial' || items[at]!.kind === 'trialSwitch')) at--
+  const last = items[at]
   if (last?.kind !== 'message') return null
   return last.m.role === 'assistant' && !last.m.streaming ? last.m.id : null
 }
@@ -102,6 +111,7 @@ export function ChatLog({
   shown = true,
   typing = null,
   busy = false,
+  trials = NO_TRIALS,
 }: {
   paneId: string
   messages: ChatMessage[]
@@ -115,6 +125,8 @@ export function ChatLog({
   typing?: string | null
   /** The chat is in a turn: no tap-to-answer replies show. */
   busy?: boolean
+  /** This chat's trial cards and switch messages, oldest first: rows of their own, placed by `at`. */
+  trials?: readonly TrialRow[]
 }) {
   const showThinking = useSettings((s) => s.show_thinking)
   const showTools = useSettings((s) => s.show_tools)
@@ -129,13 +141,13 @@ export function ChatLog({
   const items = useMemo(() => {
     const kept = dropQuietTurns(foldGuestWork(all))
     const base = showThinking ? kept : kept.filter((m) => m.role !== 'thinking')
-    const out = logItems(base, !showTools)
+    const out = placeTrialRows(logItems(base, !showTools), trials)
     const last = kept.at(-1)
     const streaming = last?.role === 'assistant' && last.streaming === true && last.text !== ''
     const who = guestTyping(kept)?.title ?? typing
     if (who !== null && !streaming) out.push({ kind: 'typing', who })
     return out
-  }, [all, showThinking, showTools, typing])
+  }, [all, showThinking, showTools, typing, trials])
   const liveId = liveRowId(items, busy)
   const ref = useRef<VListHandle>(null)
   const logRef = useRef<HTMLDivElement>(null)
@@ -308,6 +320,10 @@ export function ChatLog({
                   <TypingDots label={`${item.who} is typing`} />
                 </div>
               </div>
+            ) : item.kind === 'trial' ? (
+              <TrialCard key={`trial:${item.item.id}`} trial={item.item} />
+            ) : item.kind === 'trialSwitch' ? (
+              <TrialSwitchRow key={`trial-switch:${item.item.id}`} change={item.item} />
             ) : (
               <MessageRow
                 key={item.m.id}

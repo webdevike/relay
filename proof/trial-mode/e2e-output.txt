@@ -1,0 +1,44 @@
+[   0.4s] scratch home /var/folders/bf/qzxn5z455svdq71_yvw269xr0000gn/T/trial-proof-YvX4QZ
+[   0.9s] atomic-agents service up (real CLI serve, real models through omp)
+[   1.3s] asked anti-average for "a name for a tiny bakery that only sells sourdough" as agent:nova (request 597d83c1-c67e-4953-8d14-c2162fa7d104)
+[   1.5s] trial 0b04872c-e2d9-4a4c-9ac1-082574d8dee7: A=GPT-6.1 Sol, B=Haiku 5.5, C=Sonnet 5.5 (its own model) [journal only, never on the card]
+[   1.5s] ok   three models at once, one of them the agent's own
+[   1.5s] card A:running B:running C:running
+[   9.1s] card A:running B:running C:done
+[  11.6s] card A:running B:done C:done
+[  54.0s] card A:done B:done C:done
+[  54.0s] ok   results arrived one by one (4 distinct card states)
+[  54.0s] ok   the caller got its answer from the agent's own model
+[  54.0s] ok   the answer did not wait for the slowest arm (answer at 22:31:45, last arm at 22:32:30; own arm C)
+[  54.0s] ok   the other arms never answered the caller (one creative.options on the journal)
+[  54.0s] ok   no model id or name anywhere on the card before the pick
+[  54.5s] asked 9 more at once: 9 requests
+[  54.5s] host: trials: anti-average 0b04872c-e2d9-4a4c-9ac1-082574d8dee7 picked C on the phone
+[  54.5s] ok   pick 1: C on card 0b04872c (sonnet)
+[  54.5s] revealed: A=GPT-6.1 Sol, B=Haiku 5.5, C=Sonnet 5.5; picked C
+[ 129.9s] host: trials: anti-average 1cdaf710-7a80-4f63-a195-cdb6caade16f picked unsure on the phone
+[ 129.9s] ok   pick 2: unsure on card 1cdaf710 (unsure)
+[ 129.9s] host: trials: anti-average d2128a0e-3e9c-4ab7-b1d0-5231743b0515 picked C on the phone
+[ 129.9s] ok   pick 3: C on card d2128a0e (haiku)
+[ 129.9s] host: trials: anti-average 6526019a-ac2b-4468-965a-add421b51c84 picked C on the phone
+[ 129.9s] ok   pick 4: C on card 6526019a (haiku)
+[ 175.5s] host: trials: anti-average 39217183-469e-4942-ba0e-e6e1fd15c177 picked A on the phone
+[ 175.5s] ok   pick 5: A on card 39217183 (haiku)
+[ 175.5s] host: trials: anti-average 6d30859c-ab1b-40c1-a9eb-58a9367e3aa9 picked B on the phone
+[ 175.5s] ok   pick 6: B on card 6d30859c (haiku)
+[ 175.5s] host: trials: anti-average d7f983b6-7fda-4d17-9b94-241754acbd81 picked B on the phone
+[ 175.5s] ok   pick 7: B on card d7f983b6 (haiku)
+[ 175.5s] host: trials: anti-average 5f43960e-dab1-46c9-86a5-f11f073770a8 picked B on the phone
+[ 175.5s] ok   pick 8: B on card 5f43960e (haiku)
+[ 175.5s] host: trials: anti-average 8808a5fb-d760-4395-85dc-f5339bfbde2c picked C on the phone
+[ 175.5s] ok   pick 9: C on card 8808a5fb (haiku)
+[ 175.5s] host: trials: anti-average 4373c86d-60ad-4fc8-af24-e94bbaede618 picked B on the phone
+[ 175.5s] ok   pick 10: B on card 4373c86d (haiku)
+[ 175.8s] ok   bench bench/anti-average/trials.jsonl: claude-sonnet-5-5, can't tell, claude-haiku-5-5, claude-haiku-5-5, claude-haiku-5-5, claude-haiku-5-5, claude-haiku-5-5, claude-haiku-5-5, claude-haiku-5-5, claude-haiku-5-5
+[ 175.8s] switch message (thread assistant:nova): "Anti average: switched to Haiku 5.5, won 8 of your last 10 picks over Sonnet 5.5 and GPT-6.1 Sol"
+[ 175.8s] ok   switched to Haiku, shown in Nova's chat
+[ 175.8s] ok   config.json: model Haiku, trial off
+[ 175.8s] host: trials: anti-average switch eb84bc96-da46-46a3-8c8f-290d9d8d0039 undone
+[ 175.8s] ok   Undo accepted
+[ 176.0s] ok   config.json: back on the agent's own model (Sonnet 5.5), trial on again (agent file default)
+[ 176.0s] ok   the switch message shows it was undone

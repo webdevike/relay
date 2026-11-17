@@ -44,6 +44,7 @@ import type { CatchUpDeck } from "./catchup/service";
 import type { ReactionRelaying } from "./reactions/service";
 import type { RenderFailureReporting } from "./render-failures/service";
 import type { ReplyWidgetRelaying } from "./widgets/service";
+import type { TrialRelaying } from "./trials/service";
 import type { BookmarkRelaying } from "./bookmarks/service";
 import type { DismissedCardRelaying } from "./cards/service";
 import type { WorkspaceRelaying } from "./workspace/service";
@@ -182,6 +183,8 @@ export interface ServerDeps {
   readonly renderFailures?: RenderFailureReporting | null;
   /** Reply widgets and 🎯 training; absent or null leaves REPLY_WIDGETS_FEATURE and WIDGET_TRAINING_FEATURE out of `welcome.features`. */
   readonly replyWidgets?: ReplyWidgetRelaying | null;
+  /** Trial mode; absent or null leaves TRIALS_FEATURE out of `welcome.features`. */
+  readonly trials?: TrialRelaying | null;
   /** The window mirror the desktops share; absent or null leaves WORKSPACE_FEATURE out of `welcome.features`. */
   readonly workspace?: WorkspaceRelaying | null;
   /** The boards folder for desktops on other Macs; absent or null leaves CANVAS_FILES_FEATURE out of `welcome.features`. */
@@ -945,6 +948,7 @@ export class RelayServer {
         control: this.deps.control,
         renderFailures: this.deps.renderFailures ?? null,
         replyWidgets: this.deps.replyWidgets ?? null,
+        trials: this.deps.trials ?? null,
         rooms: this.rooms,
         workspace: this.deps.workspace ?? null,
         shareWorkspace: (message, from) => {

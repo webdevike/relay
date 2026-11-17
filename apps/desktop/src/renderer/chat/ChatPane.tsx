@@ -64,6 +64,7 @@ import {
 import { PinsScope, usePinsFor } from '../pins/pins-scope'
 import { PinsButton, PinsRail, useRailFits } from '../pins/PinsRail'
 import { PinHoverLayer } from '../pins/PinHoverLayer'
+import { useThreadTrialRows } from './trials/trials-store'
 
 declare global {
   interface Window {
@@ -264,6 +265,8 @@ function ChatView({
     () => ownedActive(activityItems, ownThread).filter((i) => i.kind !== 'helper'),
     [activityItems, ownThread],
   )
+  // Taste agents' trial cards and model switch messages of this chat, as the host keeps them.
+  const trialRows = useThreadTrialRows(ownThread)
   // The owning assistant's portrait color tints the chips' progress fill; a plain chat uses the accent.
   const agentColor = useAssistants((s) =>
     agent === null ? undefined : agentOf(s, agent)?.avatar.colors?.accent,
@@ -416,6 +419,7 @@ function ChatView({
                   shown
                   typing={typing}
                   busy={pane.running}
+                  trials={trialRows}
                 />
               </ReactionScope.Provider>
             </WidgetActions.Provider>

@@ -11,6 +11,7 @@
       "anthropic/claude-opus-5-5"
     ],
     "thinking": "low",
+    "trial": true,
     "system": "You are a 3D prop modeller. You write one Blender Python script that builds a single object from primitives, modifiers and materials.",
     "knowledge": [
       {

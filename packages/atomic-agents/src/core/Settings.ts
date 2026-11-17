@@ -21,6 +21,7 @@ import { type AgentSettings, eventType, type Registered, Trigger } from "./Compo
 import { EventBus, Home, type JournalError } from "./Event.ts";
 import { shortId } from "./Id.ts";
 import { type Change, events, publishRuntime, runtime, SettingsFile } from "./RuntimeEvents.ts";
+import { isObject } from "./Fields.ts";
 
 /**
  * The consumer side: `<home>/config.json` (Relay's data dir) says which agents run and with which model,
@@ -42,6 +43,11 @@ export interface Effective {
   readonly enabled: boolean;
   readonly fallbackModel?: string;
   readonly agent: AgentSettings;
+  /**
+   * Trial mode (`Trial.ts`): `on` when config.json (else the agent file) turns it on and there are 2+ models; `arms` are
+   * the models a request runs on, the agent's model first, then `trialModels` (else `candidates`), at most 3.
+   */
+  readonly trial: { readonly on: boolean; readonly arms: ReadonlyArray<string> };
   /** The cron expression for a job's Cron trigger: config override, else the code's. */
   cron(job: string, fallback: string): string;
 }
@@ -52,16 +58,21 @@ export const effective = (component: Registered, settings: SettingsFile): Effect
   // An agent without tools has no tool mode; `check` rejects a config toolMode for one that is loaded.
   const toolMode =
     component.agent.toolMode === undefined ? undefined : (own.toolMode ?? component.agent.toolMode);
+  const model = own.model ?? component.agent.model;
+  const candidates = own.candidates ?? component.agent.candidates;
+  const arms = [...new Set([model, ...(own.trialModels ?? candidates)])].slice(0, 3);
   return {
     enabled: own.enabled ?? true,
     ...(own.fallbackModel === undefined ? {} : { fallbackModel: own.fallbackModel }),
     agent: {
       system: component.agent.system,
-      model: own.model ?? component.agent.model,
-      candidates: own.candidates ?? component.agent.candidates,
+      model,
+      candidates,
       ...(thinking === undefined ? {} : { thinking }),
       ...(toolMode === undefined ? {} : { toolMode }),
+      ...(component.agent.trial === undefined ? {} : { trial: component.agent.trial }),
     },
+    trial: { on: (own.trial ?? component.agent.trial ?? false) && arms.length >= 2, arms },
     cron: (job, fallback) => own.cron?.[job] ?? fallback,
   };
 };
@@ -95,9 +106,6 @@ const check = (
       }),
     ];
   });
-
-const isObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** RFC 7396 JSON merge patch. */
 export const mergePatch = (target: unknown, patch: unknown): unknown => {
@@ -137,7 +145,8 @@ export const diff = (before: SettingsFile, after: SettingsFile): ReadonlyArray<C
   });
 };
 
-const undoPatch = (changes: ReadonlyArray<Change>) => {
+/** The merge patch that sets each changed path back to its old value (`config.changed`'s `undo`). */
+export const undoPatch = (changes: ReadonlyArray<Change>) => {
   const patch: Record<string, Schema.Json> = {};
   for (const change of changes) {
     let node: Record<string, Schema.Json> = patch;
@@ -160,7 +169,7 @@ export class Settings extends Context.Service<
     set(
       patch: Record<string, Schema.Json>,
       by: string,
-      source: "use" | "set",
+      source: "use" | "set" | "trial",
     ): Effect.Effect<ReadonlyArray<Change>, SettingsError | JournalError>;
     /**
      * Read config.json once: a valid edit swaps in (config.changed unless its writer already announced it),
@@ -216,7 +225,7 @@ export class Settings extends Context.Service<
       const set = Effect.fn("Settings.set")(function* (
         patch: Record<string, Schema.Json>,
         by: string,
-        source: "use" | "set",
+        source: "use" | "set" | "trial",
       ) {
         const reject = (message: string) =>
           publish("config.rejected", { by, source, error: message }).pipe(
