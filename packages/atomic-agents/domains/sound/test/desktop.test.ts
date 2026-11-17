@@ -22,6 +22,12 @@ const fakeMac = (start: { front: string; soundlyRunning: boolean }) => {
     activated: [] as Array<string>,
     /** Runs once, when the launched Soundly first shows its window. */
     onWindow: (() => {}) as () => void,
+    /** Soundly answers the standard quit request. */
+    acceptsTerminate: true,
+    /** Its menu bar is not reachable (the app is hidden): pressing Quit is refused. */
+    hiddenMenu: false,
+    terminateRequests: 0,
+    menuPresses: 0,
   };
   const done = (stdout = "", exitCode = 0) => Effect.succeed({ stdout, stderr: "", exitCode });
   const run: Run = (command, args) =>
@@ -40,6 +46,8 @@ const fakeMac = (start: { front: string; soundlyRunning: boolean }) => {
         return done(JSON.stringify({ windows: [{ window_id: 1, title: "Soundly" }] }));
       }
       if (command === "cua-driver" && args[1] === "invoke_menu") {
+        mac.menuPresses += 1;
+        if (mac.hiddenMenu) return done('{"refusal":{"code":"menu_path_unavailable"}}', 1);
         mac.running = false;
         if (mac.front === BUNDLE_ID) mac.front = mac.behind;
         return done();
@@ -51,7 +59,10 @@ const fakeMac = (start: { front: string; soundlyRunning: boolean }) => {
       }
       if (command === "osascript") {
         const script = args[args.length - 1]!;
-        if (script.includes(`"${BUNDLE_ID}"`) && script.includes(".hide;")) {
+        if (script.includes(`"${BUNDLE_ID}"`) && script.includes(".terminate;")) {
+          mac.terminateRequests += 1;
+          if (mac.acceptsTerminate) mac.running = false;
+        } else if (script.includes(`"${BUNDLE_ID}"`) && script.includes(".hide;")) {
           mac.hid = true;
           if (mac.front === BUNDLE_ID) mac.front = mac.behind;
         } else if (script.includes("activateWithOptions")) {
@@ -106,4 +117,30 @@ describe("soundly relaunch leaves the screen as it was", () => {
     expect(mac.hid).toBe(false);
     expect(mac.activated).toEqual([]);
   });
+});
+
+describe("soundly quit works while Soundly is hidden", () => {
+  const quit = (options: { acceptsTerminate?: boolean; hiddenMenu?: boolean }) => {
+    const { mac, run } = fakeMac({ front: TERMINAL, soundlyRunning: true });
+    Object.assign(mac, options);
+    return Effect.gen(function* () {
+      yield* makeDesktop(run, yield* FileSystem.FileSystem).quit;
+      return mac;
+    }).pipe(Effect.provide(BunServices.layer), Effect.runPromise);
+  };
+
+  test("a hidden Soundly quits on the terminate request; its menu is never pressed", async () => {
+    const mac = await quit({ hiddenMenu: true });
+    expect(mac.running).toBe(false);
+    expect(mac.terminateRequests).toBe(1);
+    expect(mac.menuPresses).toBe(0);
+    expect(mac.front).toBe(TERMINAL);
+  });
+
+  test("a terminate request the app ignores falls back to the menu", async () => {
+    const mac = await quit({ acceptsTerminate: false });
+    expect(mac.running).toBe(false);
+    expect(mac.terminateRequests).toBe(1);
+    expect(mac.menuPresses).toBe(1);
+  }, 30_000);
 });

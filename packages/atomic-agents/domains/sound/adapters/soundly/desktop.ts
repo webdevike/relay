@@ -6,10 +6,16 @@ import { BUNDLE_ID, type Run, SoundlyError } from "./run.ts";
 
 /**
  * Soundly.app on this Mac, never brought to the front: whether it runs and Isaac is using it, quitting it, relaunching
- * it hidden so it signs back in, and checking that it did. Accessibility goes through cua-driver (`cua-driver call`,
- * its daemon holds the Accessibility grant), which presses in the background. Quitting is its Soundly > Quit Soundly
- * menu item pressed that way: a normal quit (the app saves its tabs), and no Apple Event, so no Automation prompt.
+ * it hidden so it signs back in, and checking that it did. Quitting asks the app to terminate through
+ * NSRunningApplication (the normal quit, so the app saves its tabs; works hidden; no Apple Event, so no Automation
+ * prompt) and only if that does not end it presses Soundly > Quit Soundly through cua-driver (`cua-driver call`, its
+ * daemon holds the Accessibility grant), which needs the main window reachable. Reading windows and the sign-in check
+ * go through cua-driver too. A stuck app is reported, never force-killed.
  */
+
+/** How long the terminate request gets before the menu is tried, and how long the menu press gets. */
+const QUIT_REQUEST_WAIT_MILLIS = 15_000;
+const QUIT_MENU_WAIT_MILLIS = 30_000;
 
 /** Input this recent while Soundly is in front means Isaac is using it. */
 export const IN_USE_IDLE_SECONDS = 120;
@@ -176,15 +182,21 @@ export const makeDesktop = (run: Run, fs: FileSystem.FileSystem): Desktop => {
       frontBefore = yield* front;
       // A prompt left open blocks the quit; answering it is what Isaac's own click would do.
       yield* answerRestoreTabs(app).pipe(Effect.ignore);
-      const main = (yield* windows(app)).find((window) => window.title === "Soundly");
-      if (main === undefined)
-        return yield* new SoundlyError({ message: "Soundly has no main window to quit it from" });
-      yield* cua("invoke_menu", {
-        pid: app,
-        window_id: main.window_id,
-        path: ["Soundly", "Quit Soundly"],
-      });
-      if (!(yield* waitFor(false, 30_000)))
+      // The standard quit request (what Cmd-Q and the Dock's Quit send): works while Soundly is hidden or in the
+      // background, where its menu bar is not reachable. The app saves its tabs on the way out.
+      yield* appKit(BUNDLE_ID, "terminate");
+      if (yield* waitFor(false, QUIT_REQUEST_WAIT_MILLIS)) return;
+      // Refused or ignored: press its menu item, which needs the main window. Never a force kill.
+      const main = (yield* windows(app).pipe(Effect.orElseSucceed(() => []))).find(
+        (window) => window.title === "Soundly",
+      );
+      if (main !== undefined)
+        yield* cua("invoke_menu", {
+          pid: app,
+          window_id: main.window_id,
+          path: ["Soundly", "Quit Soundly"],
+        }).pipe(Effect.ignore);
+      if (!(yield* waitFor(false, QUIT_MENU_WAIT_MILLIS)))
         return yield* new SoundlyError({
           message: "Soundly did not quit within 30 s (a dialog open in it?); left it as it was",
         });
