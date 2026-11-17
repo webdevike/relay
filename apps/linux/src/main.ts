@@ -108,6 +108,8 @@ import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
 import { defaultReplyWidgetsPath, ReplyWidgetService, surfaceOf } from "./widgets/service";
 import { defaultAtomicAgentsHome } from "./widgets/bus";
 import { DismissedCardService, defaultDismissedCardsPath } from "./cards/service";
+import { WorkspaceService, defaultWorkspacePath } from "./workspace/service";
+import { CanvasFilesService } from "./canvas/files";
 import { ArtifactService, defaultArtifactsRoot } from "./artifacts/service";
 import { ActivityService } from "./activity/service";
 import { CalibrationLog } from "./eta/calibration";
@@ -832,6 +834,10 @@ function serve(
           },
   });
   const canvas = liveCanvas(canvasDir, agentHome, agents, () => registry, config);
+  // Desktops on other Macs open the same boards through the host (`canvas.file.req`).
+  const canvasFiles = canvasDir === null ? null : new CanvasFilesService({ dir: canvasDir, log });
+  void canvasFiles?.start();
+  const workspace = new WorkspaceService({ path: defaultWorkspacePath(), log });
   const eta = new EtaService({
     history: new RunHistory(
       join(relayConfigDir(), "eta-history.json"),
@@ -1054,6 +1060,8 @@ function serve(
       control,
       renderFailures,
       replyWidgets,
+      workspace,
+      canvasFiles,
       hostToken,
       skills,
       canvasPage: () => CANVAS_PAGE,
@@ -1151,6 +1159,8 @@ function serve(
     rmSync(pairingPinPath(), { force: true });
     advertiser.stop();
     canvas?.stop();
+    canvasFiles?.stop();
+    workspace.flush();
     activity?.stop();
     subagentMirrors.stop();
     studio?.stop();
@@ -2143,17 +2153,15 @@ async function canvasCommand(
       const id = positionals[2];
       if (slug === undefined || id === undefined)
         throw new Error("canvas restore: usage: canvas restore <slug> <id> [--as <Name>]");
-      const result = z
-        .object({ restored: z.string() })
-        .parse(
-          await hostJson(
-            await post(`${base}/${encodeURIComponent(slug)}/restore`, {
-              id,
-              ...(options.as === undefined ? {} : { as: options.as }),
-            }),
-            "canvas restore",
-          ),
-        );
+      const result = z.object({ restored: z.string() }).parse(
+        await hostJson(
+          await post(`${base}/${encodeURIComponent(slug)}/restore`, {
+            id,
+            ...(options.as === undefined ? {} : { as: options.as }),
+          }),
+          "canvas restore",
+        ),
+      );
       console.log(`restored ${result.restored} on ${slug}`);
       return;
     }

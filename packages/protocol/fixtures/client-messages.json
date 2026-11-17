@@ -189,5 +189,29 @@
     "startedAt": 1793800000000
   },
   { "t": "meeting.share", "id": "6f1c2b8e-0d1a-4c55-9a51-3b2f0c7d9e10", "state": "no-permission" },
-  { "t": "stats.get" }
+  { "t": "stats.get" },
+  { "t": "workspace.get" },
+  {
+    "t": "workspace.put",
+    "rid": "relay-desktop-mini-a1-1",
+    "origin": "relay-desktop-mini-a1",
+    "set": { "tabs": { "active": 0, "list": [] }, "layout:chat:/s/a.jsonl": { "grid": {} } },
+    "del": ["page:t3"],
+    "seed": true
+  },
+  { "t": "canvas.files.watch" },
+  {
+    "t": "canvas.file.req",
+    "rid": "c1",
+    "op": "write",
+    "slug": "storyboard",
+    "text": "{}",
+    "origin": "relay-desktop-book-b2"
+  },
+  {
+    "t": "canvas.file.req",
+    "rid": "c2",
+    "op": "asset.read",
+    "src": "assets/storyboard/0a1b2c3d4e5f6a7b.png"
+  }
 ]

@@ -46,6 +46,8 @@ import type { RenderFailureReporting } from "./render-failures/service";
 import type { ReplyWidgetRelaying } from "./widgets/service";
 import type { BookmarkRelaying } from "./bookmarks/service";
 import type { DismissedCardRelaying } from "./cards/service";
+import type { WorkspaceRelaying } from "./workspace/service";
+import type { CanvasFilesRelaying } from "./canvas/files";
 import { handleAgentReaction } from "./reactions/http";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
@@ -180,6 +182,10 @@ export interface ServerDeps {
   readonly renderFailures?: RenderFailureReporting | null;
   /** Reply widgets and 🎯 training; absent or null leaves REPLY_WIDGETS_FEATURE and WIDGET_TRAINING_FEATURE out of `welcome.features`. */
   readonly replyWidgets?: ReplyWidgetRelaying | null;
+  /** The window mirror the desktops share; absent or null leaves WORKSPACE_FEATURE out of `welcome.features`. */
+  readonly workspace?: WorkspaceRelaying | null;
+  /** The boards folder for desktops on other Macs; absent or null leaves CANVAS_FILES_FEATURE out of `welcome.features`. */
+  readonly canvasFiles?: CanvasFilesRelaying | null;
   /** The bearer token every state-changing loopback route requires (`controlToken` in serve.json, 0600). */
   readonly hostToken: string;
   /** The Skills page's catalog and live skill rooms; absent or null disables `/skills`. */
@@ -305,6 +311,15 @@ export class RelayServer {
     if (boards !== null) {
       boards.onChange = (delta) => {
         for (const ws of this.sockets) ws.data.session?.boardChanged(delta);
+      };
+    }
+    const canvasFiles = this.deps.canvasFiles ?? null;
+    if (canvasFiles !== null) {
+      canvasFiles.onChange = (slug, origin) => {
+        for (const ws of this.sockets) {
+          if (ws.data.session?.wantsCanvasFiles() === true)
+            ws.data.session.broadcast({ t: "canvas.files.changed", slug, origin });
+        }
       };
     }
     const server = Bun.serve<SocketData>({
@@ -931,6 +946,14 @@ export class RelayServer {
         renderFailures: this.deps.renderFailures ?? null,
         replyWidgets: this.deps.replyWidgets ?? null,
         rooms: this.rooms,
+        workspace: this.deps.workspace ?? null,
+        shareWorkspace: (message, from) => {
+          for (const other of this.sockets) {
+            const peer = other.data.session;
+            if (peer !== null && peer !== from && peer.wantsWorkspace()) peer.broadcast(message);
+          }
+        },
+        canvasFiles: this.deps.canvasFiles ?? null,
       },
       (closed) => {
         const reason = closed.closeReason;

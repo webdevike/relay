@@ -1,7 +1,7 @@
 import { agentPresenceInvoke } from './agent-presence'
 import type { z } from 'zod'
 import { appEvents, appInvoke } from './app'
-import { shellInvoke } from './shell'
+import { shellEvents, shellInvoke } from './shell'
 import { evaEvents, evaInvoke } from './eva'
 import { jobsInvoke } from './jobs'
 import { skillsInvoke } from './skills'
@@ -157,6 +157,7 @@ export const invokeContract = {
 export const eventContract = {
   ...linksEvents,
   ...appEvents,
+  ...shellEvents,
   ...chatEvents,
   ...browserEvents,
   ...evaEvents,

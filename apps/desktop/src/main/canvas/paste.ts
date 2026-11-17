@@ -29,17 +29,22 @@ export interface StoredBoardImage {
   height: number | null
 }
 
+/** Where a board's image files go: the boards folder here, or the host's on a thin client. */
+export type BoardImageTarget =
+  { dir: string } | { writeAsset: (src: string, bytes: Buffer) => Promise<void> }
+
 /**
- * Writes a pasted or dropped image into `<dir>/assets/<slug>/`, named by the sha256 of what is
- * stored (so pasting the same picture twice keeps one file). PNG and JPEG above MAX_STORED_EDGE are
- * rescaled; GIF and WebP stay as they are (scaling would drop frames).
+ * Writes a pasted or dropped image into `assets/<slug>/` of the boards folder, named by the
+ * sha256 of what is stored (so pasting the same picture twice keeps one file). PNG and JPEG above
+ * MAX_STORED_EDGE are rescaled; GIF and WebP stay as they are (scaling would drop frames).
  */
-export async function storeBoardImage(opts: {
-  dir: string
-  slug: string
-  bytes: Buffer
-  rescale: Rescale
-}): Promise<StoredBoardImage> {
+export async function storeBoardImage(
+  opts: {
+    slug: string
+    bytes: Buffer
+    rescale: Rescale
+  } & BoardImageTarget,
+): Promise<StoredBoardImage> {
   const { bytes } = opts
   if (bytes.length > MAX_LOCAL_BYTES) throw coded('That image is larger than 40 MB.', 'unsupported')
   const sniffed = sniffImage(bytes)
@@ -59,7 +64,11 @@ export async function storeBoardImage(opts: {
   }
   const name = `${createHash('sha256').update(out).digest('hex').slice(0, 16)}.${EXTENSION[sniffed.mime]}`
   const rel = `assets/${opts.slug}/${name}`
-  const abs = path.join(opts.dir, rel)
-  if (!fs.existsSync(abs)) await atomicWrite(abs, out)
+  if ('writeAsset' in opts) {
+    await opts.writeAsset(rel, out)
+  } else {
+    const abs = path.join(opts.dir, rel)
+    if (!fs.existsSync(abs)) await atomicWrite(abs, out)
+  }
   return { src: rel, width, height }
 }

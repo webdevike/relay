@@ -717,6 +717,21 @@ Both need a loopback peer, a loopback `Host`, no `Origin` and `Authorization: Be
 a malformed frame, and only the socket a request went to can answer its rid. `features.control: false` in host.json
 turns it off.
 
+## Window mirror and host boards (`workspace.*`, `canvas.file.*`, `canvas.files.*`)
+
+Every Relay Desktop on this host shows the same window: app tabs and the one in front, each workspace's panes and
+tool tabs, web pages by URL (`packages/protocol/src/workspace.ts` is the wire spec, `src/workspace/service.ts` the
+store). The host keeps one set of opaque entries (`tabs`, `layout:<workspace>`, `page:<tab id>`, ...) in
+`$XDG_CONFIG_HOME/relay/workspace.json` (0600) and merges `workspace.put` per key, last writer wins; the first desktop
+to `workspace.get` an empty host seeds it, later ones adopt it. Every other subscribed socket gets the change as
+`workspace.changed` with the writer's `origin`, so no desktop echoes its own change back. Window bounds, sidebar and
+UI choices never leave the Mac. Phones never subscribe.
+
+Canvas boards live in this host's boards folder; a desktop on another Mac reads and writes them through
+`canvas.file.req` (`src/canvas/files.ts`: board text, history lines and images, paths kept inside the folder) and hears
+`canvas.files.changed` after `canvas.files.watch`, also for edits made on this Mac (a watch on the folder). The
+desktop moves the boards it kept itself up once and renames its old folder `<dir>.migrated-<date>`.
+
 ## Loopback writes: one guard (`src/http-guard.ts`)
 
 A loopback peer proves nothing (any web page open on this Mac can POST to 127.0.0.1), so every state-changing

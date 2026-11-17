@@ -116,10 +116,19 @@ export function restoreTab(id: number, place: Place): void {
 const SAVE_DELAY = 250
 let started: (() => void) | null = null
 let flushNow: () => void = () => {}
+let adopt: (tabs: Tabs) => void = (tabs) => tabsStore.setState({ tabs })
 
 /** Writes a pending debounced tab save immediately (quit, pagehide). No-op when nothing is queued. */
 export function flushPendingTabs(): void {
   flushNow()
+}
+
+/**
+ * Shows `tabs` from another Mac (the window mirror): main has saved them already, so they are not
+ * saved again.
+ */
+export function adoptTabs(tabs: Tabs): void {
+  adopt(tabs)
 }
 
 /** Idempotent. Loads layout.json tabs, binds the navigator, persists changes. */
@@ -160,6 +169,12 @@ export function startTabs(): () => void {
     clearTimeout(timer)
     flush()
   }
+  adopt = (tabs: Tabs): void => {
+    lastSaved = JSON.stringify(saveTabs(tabs))
+    clearTimeout(timer ?? undefined)
+    timer = null
+    tabsStore.setState({ tabs })
+  }
   const onPageHide = (): void => flushNow()
   if (typeof window !== 'undefined') window.addEventListener('pagehide', onPageHide)
 
@@ -199,6 +214,7 @@ export function startTabs(): () => void {
     unsub()
     if (typeof window !== 'undefined') window.removeEventListener('pagehide', onPageHide)
     flushNow = () => {}
+    adopt = (tabs) => tabsStore.setState({ tabs })
     clearTimeout(timer ?? undefined)
     setNavigator(null)
     started = null

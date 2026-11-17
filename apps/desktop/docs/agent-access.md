@@ -72,6 +72,15 @@ Mini's own app while none has been used, and that desktop runs it exactly like a
 `--device <id or name>` picks one, `--device local` skips the host. Toasts (Undo, approvals,
 "waiting for you to finish typing") show on the Mac that ran the action.
 
+Every Relay Desktop on one host shows the same window (the Relay Host's `workspace.*`, the
+window mirror in src/main/workspace/mirror.ts): app tabs and the tab in front, panes and their
+splits, tool tabs (boards, files, web pages by URL). A change an agent makes on one Mac shows on
+the others within a second, so `layout.read` answers the same tabs everywhere; web page ids
+(`tabId`) are the same on every Mac, but a page's live state (scroll, form input) is not: it
+reloads at the URL. Window size and position, the sidebar and UI choices stay per Mac. Canvas
+boards live on the Mini: a thin client reads and writes them through the host
+(`canvas.file.req`), so `canvas.*` on any Mac acts on the same board.
+
 ## Shared browser: agents drive pages in Isaac's session
 
 Relay's web page tabs are a real browser on Isaac's signed-in profile (the persistent guest

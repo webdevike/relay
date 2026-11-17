@@ -25,6 +25,8 @@ import {
   ROOMS_CHAT_FEATURE,
   ROOMS_DECIDE_FEATURE,
   ASSISTANT_GUESTS_FEATURE,
+  WORKSPACE_FEATURE,
+  CANVAS_FILES_FEATURE,
   STATS_FEATURE,
   toHex,
   type AgentApproval,
@@ -51,6 +53,8 @@ import type { DismissedCardRelaying } from "./cards/service";
 import type { ArtifactRelaying } from "./artifacts/service";
 import type { ActivityRelaying } from "./activity/service";
 import type { RenderFailureReporting } from "./render-failures/service";
+import type { WorkspaceRelaying } from "./workspace/service";
+import type { CanvasFilesRelaying } from "./canvas/files";
 import type { ReplyWidgetRelaying } from "./widgets/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
@@ -153,6 +157,12 @@ export interface SessionDeps {
   readonly rooms?: RoomsRelaying | null;
   /** Reply widgets and 🎯 training (`widgets/service.ts`); absent or null answers `widgets.get` empty, refuses `widget.label` and leaves both features out of `welcome.features`. */
   readonly replyWidgets?: ReplyWidgetRelaying | null;
+  /** The window mirror the desktops share (`workspace/service.ts`); absent or null ignores `workspace.*` and leaves WORKSPACE_FEATURE out of `welcome.features`. */
+  readonly workspace?: WorkspaceRelaying | null;
+  /** Sends a `workspace.changed` to every socket but `from` that sent `workspace.get`. */
+  readonly shareWorkspace?: (message: ServerMessage, from: ClientSession) => void;
+  /** The boards folder for desktops on other Macs (`canvas/files.ts`); absent or null refuses `canvas.file.req` and leaves CANVAS_FILES_FEATURE out of `welcome.features`. */
+  readonly canvasFiles?: CanvasFilesRelaying | null;
 }
 
 /** Clock and scheduling seams so tests drive time deterministically. */
@@ -236,6 +246,10 @@ export class ClientSession {
   private readonly assistantRows = new Map<string, number>();
   /** Set by `stats.get`: this socket shows usage stats and gets every new snapshot. */
   private statsWanted = false;
+  /** Set by `workspace.get`: this desktop mirrors the window and gets every other desktop's change. */
+  private workspaceWanted = false;
+  /** Set by `canvas.files.watch`: this desktop gets `canvas.files.changed`. */
+  private canvasFilesWanted = false;
 
   constructor(
     private readonly sink: FrameSink,
@@ -299,6 +313,16 @@ export class ClientSession {
   /** Whether this socket asked for usage stats (`stats.get`), so it gets the pushed snapshots. */
   wantsStats(): boolean {
     return this.phase.kind === "authenticated" && this.statsWanted;
+  }
+
+  /** Whether this socket mirrors the window (`workspace.get`). */
+  wantsWorkspace(): boolean {
+    return this.phase.kind === "authenticated" && this.workspaceWanted;
+  }
+
+  /** Whether this socket follows the host's boards (`canvas.files.watch`). */
+  wantsCanvasFiles(): boolean {
+    return this.phase.kind === "authenticated" && this.canvasFilesWanted;
   }
 
   /** Forwards appended agent messages iff subscribed to `sessionId`; bumps that subscription's rev. */
@@ -780,6 +804,57 @@ export class ClientSession {
         // A change reaches every device (this one included) through the service; no change still answers this one, so its optimistic state settles.
         if (cards?.set(message.id, message.on) !== true)
           this.sink.send({ t: "cards.dismissed", ids: [...(cards?.snapshot() ?? [])] });
+        break;
+      }
+      case "workspace.get": {
+        const workspace = this.deps.workspace ?? null;
+        if (workspace === null) break;
+        this.workspaceWanted = true;
+        const { rev, entries } = workspace.snapshot();
+        this.sink.send({ t: "workspace.state", rev, entries });
+        break;
+      }
+      case "workspace.put": {
+        const workspace = this.deps.workspace ?? null;
+        if (workspace === null) break;
+        const result = workspace.put({
+          origin: message.origin,
+          set: message.set,
+          del: message.del,
+          seed: message.seed,
+        });
+        this.sink.send({
+          t: "workspace.ack",
+          rid: message.rid,
+          rev: result.rev,
+          applied: result.applied,
+        });
+        if (result.changed !== null) this.deps.shareWorkspace?.(result.changed, this);
+        // A refused seed: the host holds entries already, which this desktop adopts.
+        if (!result.applied && message.seed === true) {
+          const { rev, entries } = workspace.snapshot();
+          this.sink.send({ t: "workspace.state", rev, entries });
+        }
+        break;
+      }
+      case "canvas.files.watch":
+        if ((this.deps.canvasFiles ?? null) !== null) this.canvasFilesWanted = true;
+        break;
+      case "canvas.file.req": {
+        const files = this.deps.canvasFiles ?? null;
+        if (files === null) {
+          this.sink.send({
+            t: "canvas.file.res",
+            rid: message.rid,
+            ok: false,
+            code: "invalid",
+            error: "This host serves no boards.",
+          });
+          break;
+        }
+        void files.handle(message).then((result) => {
+          if (!this.closed) this.sink.send({ t: "canvas.file.res", rid: message.rid, ...result });
+        });
         break;
       }
       case "reaction.set":
@@ -1428,6 +1503,8 @@ export class ClientSession {
         : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE]),
       // Snapshots carry guest rows (another assistant popped into a thread) with their entry.
       ...(this.deps.assistant?.consult === undefined ? [] : [ASSISTANT_GUESTS_FEATURE]),
+      ...((this.deps.workspace ?? null) === null ? [] : [WORKSPACE_FEATURE]),
+      ...((this.deps.canvasFiles ?? null) === null ? [] : [CANVAS_FILES_FEATURE]),
     ];
     this.sink.send({
       t: "welcome",

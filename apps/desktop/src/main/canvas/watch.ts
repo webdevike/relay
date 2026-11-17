@@ -1,7 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { watch } from 'chokidar'
-import { slugOf } from './store'
+import { slugOf } from './board-files'
 
 export interface CanvasWatch {
   close(): Promise<void>

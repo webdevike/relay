@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest'
 import type { AnyStateMachine } from 'xstate'
 import { agentRunMachine } from './agent-run.machine'
 import { navHistoryMachine } from './nav-history.machine'
+import { workspaceMirrorMachine } from './mirror.machine'
 import { machineDiagram, newDoc, withDiagram } from './machine-diagram'
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
@@ -22,6 +23,11 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
     file: 'nav-history',
     title: "The window's Back and Forward history (desktop)",
     machine: navHistoryMachine,
+  },
+  {
+    file: 'workspace-mirror',
+    title: 'The window mirrored across Macs through the Relay Host (desktop)',
+    machine: workspaceMirrorMachine,
   },
 ]
 

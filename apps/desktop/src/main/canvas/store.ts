@@ -1,9 +1,8 @@
 import * as fs from 'node:fs'
-import * as path from 'node:path'
 import { createPathQueue } from '@evaos/eva-core'
 import { historyLine, type HistoryEntry } from '@relay/canvas-live/history'
 import { excerpt } from '@relay/canvas-live/threads'
-import { atomicWrite } from '@evaos/eva-core/fs/atomic-write'
+import { localBoardFiles, type BoardFiles } from './board-files'
 import {
   CANVAS_VERSION,
   type CanvasBoard,
@@ -38,16 +37,6 @@ const PINS = 'canvas.json'
 /** Who a comment written on the Canvas page is from (the host's `HUMAN_COLOR` face). */
 const HUMAN = { name: 'Isaac', color: '#0ea5e9' } as const
 
-/** `<slug>.json` in the boards folder; temp files and other names are not boards. */
-export function slugOf(file: string): string | null {
-  const m = /^([a-z0-9-]{1,80})\.json$/.exec(path.basename(file))
-  return m ? m[1]! : null
-}
-
-function isMissing(e: unknown): boolean {
-  return (e as NodeJS.ErrnoException | null)?.code === 'ENOENT'
-}
-
 function readPins(text: string | null): string[] | null {
   if (text === null) return null
   try {
@@ -59,12 +48,20 @@ function readPins(text: string | null): string[] | null {
   }
 }
 
-export interface CanvasStoreOptions {
-  dir: string
+export type CanvasStoreOptions = {
   config: Pick<ConfigStore, 'readText' | 'writeJson'>
   /** Native EvaOS `canvas.json`, read once when Relay has no pins of its own (live only). */
   nativePins?: string | null
-}
+} & (
+  | {
+      /** The boards folder on this Mac. */
+      dir: string
+    }
+  | {
+      /** Where the boards are when not in a folder here (the Relay Host's, on a thin client). */
+      files: BoardFiles
+    }
+)
 
 /** What `load` hands over: the board as one page shows it, plus the page list. */
 export interface CanvasLoad {
@@ -94,7 +91,6 @@ export interface ThreadAuthor {
 }
 
 export interface CanvasStore {
-  readonly dir: string
   /** Boards newest first, with the pinned flag. */
   list(): Promise<CanvasEntry[]>
   /** `page` is the page to show; a missing or unknown one shows the first. */
@@ -142,34 +138,31 @@ export interface CanvasStore {
 
 /**
  * Board files, mirroring native `board.rs` and the Canvas page: one `<slug>.json` per board,
- * written atomically, pins in Relay's own `canvas.json`. Remembers what it wrote so the watcher
- * can tell Relay's own writes from outside edits.
+ * written atomically (to the boards folder here, or the host's through `files`), pins in Relay's
+ * own `canvas.json`. Remembers what it wrote so the watcher can tell Relay's own writes from
+ * outside edits.
  */
 export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
-  const { dir, config } = opts
+  const { config } = opts
+  const files = 'files' in opts ? opts.files : localBoardFiles(opts.dir)
   const queue = createPathQueue()
   /** The last text Relay wrote per board. */
   const written = new Map<string, string>()
   /** Boards Relay deleted whose removal the watcher has not seen yet. */
   const deleted = new Set<string>()
 
-  const file = (slug: string): string => {
+  const named = (slug: string): string => {
     if (!SLUG.test(slug)) throw coded(`Not a board name: ${slug}`, 'invalid-input')
-    return path.join(dir, `${slug}.json`)
+    return slug
   }
 
-  async function readText(slug: string): Promise<string | null> {
-    try {
-      return await fs.promises.readFile(file(slug), 'utf8')
-    } catch (e) {
-      if (isMissing(e)) return null
-      throw e
-    }
+  function readText(slug: string): Promise<string | null> {
+    return files.read(named(slug))
   }
 
-  /** `guard` throws at the commit (temp file staged, before the rename) to write nothing. */
+  /** `guard` throws at the commit (the new text staged, before it lands) to write nothing. */
   async function writeText(slug: string, text: string, guard?: () => void): Promise<void> {
-    await atomicWrite(file(slug), text, () => {
+    await files.write(named(slug), text, () => {
       guard?.()
       written.set(slug, text)
       deleted.delete(slug)
@@ -192,27 +185,10 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
   }
 
   async function list(): Promise<CanvasEntry[]> {
-    let names: string[]
-    try {
-      names = await fs.promises.readdir(dir)
-    } catch (e) {
-      if (isMissing(e)) return []
-      throw e
-    }
+    const found = await files.list()
     const pinned = new Set(pins())
     const entries: CanvasEntry[] = []
-    for (const name of names) {
-      const slug = slugOf(name)
-      if (!slug) continue
-      let modifiedMs: number
-      let text: string
-      try {
-        const abs = path.join(dir, name)
-        modifiedMs = (await fs.promises.stat(abs)).mtimeMs
-        text = await fs.promises.readFile(abs, 'utf8')
-      } catch {
-        continue
-      }
+    for (const { slug, text, modifiedMs } of found) {
       let board: Board | null = null
       try {
         board = parseBoard(text)
@@ -453,7 +429,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
             label: excerpt(t.messages[0]?.text ?? '', 50),
             page,
           }
-          await fs.promises.appendFile(path.join(dir, `${slug}.history.jsonl`), historyLine(entry))
+          await files.appendHistory(slug, historyLine(entry))
         } else {
           const t = known(op.thread)
           const { resolved: _was, ...rest } = t
@@ -482,7 +458,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
   function create(): Promise<{ slug: string }> {
     return queue.run('\0create', async () => {
       let n = 1
-      while (fs.existsSync(file(`untitled-${n}`))) n++
+      while (await files.exists(`untitled-${n}`)) n++
       const slug = `untitled-${n}`
       const board: Board = {
         version: CANVAS_VERSION,
@@ -511,12 +487,10 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       deleted.add(slug)
       written.delete(slug)
       try {
-        await fs.promises.unlink(file(slug))
+        await files.remove(named(slug))
       } catch (e) {
-        if (!isMissing(e)) {
-          deleted.delete(slug)
-          throw e
-        }
+        deleted.delete(slug)
+        throw e
       }
       const current = pins()
       if (current.includes(slug)) {
@@ -528,7 +502,7 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
 
   /** Native `toggle_pin`: a new pin goes first. */
   function pin(slug: string, pinned: boolean): { pinned: string[] } {
-    file(slug)
+    named(slug)
     const rest = pins().filter((p) => p !== slug)
     const next = pinned ? [slug, ...rest] : rest
     config.writeJson(PINS, { pinned: next })
@@ -536,7 +510,6 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
   }
 
   return {
-    dir,
     list,
     load,
     save,

@@ -35,11 +35,15 @@ import {
   neighbor,
   openNewChat,
   ownLayout,
+  loadTabs,
   pageTab,
   pageTabPlace,
+  placeDock,
   placeToJson,
+  portableDock,
   readWorkspaces,
   reconcileDock,
+  sameValue,
   samePlace,
   saveWorkspaces,
   shapeMinWidth,
@@ -61,12 +65,12 @@ import {
   type ToolKind,
   type ToolTab,
 } from '@evaos/shell-core'
-import { invoke } from '../ipc'
+import { invoke, on } from '../ipc'
 import { draftText } from '../chat/drafts'
 import { registerAction } from '../hotkeys/router'
 import { focusedPane } from '../hotkeys/pane-focus'
 import { tabTitle } from '../tabs/tab-meta'
-import { navigateTo, tabsStore, updateTabs } from '../tabs/tabs-store'
+import { adoptTabs, navigateTo, tabsStore, updateTabs } from '../tabs/tabs-store'
 import { setFrontBareCheck, workspaceOfPlace, workspaceOfTab } from '../tabs/workspace-of'
 import { LAYOUT_EVENT } from './layout-event'
 import { newPageTab } from './web-tabs'
@@ -167,6 +171,8 @@ let quietActive = false
 let pressed: { before: number | null; dragged: boolean } | null = null
 let swapAfterPress = false
 let groupSeq = 0
+/** Another Mac's window (the window mirror) that came while it could not show yet. */
+let pendingRemote: RemoteLayout | null = null
 
 /** Each workspace's own layout (pinned tabs left out), as last saved or shown. */
 let layouts: Record<string, DockJson> = {}
@@ -281,6 +287,11 @@ export function attachDock(dock: DockviewApi, element: HTMLElement): () => void 
     if (!p) return
     // After dockview has finished the click or the drop.
     window.setTimeout(() => {
+      if (pendingRemote) {
+        swapAfterPress = false
+        applyRemoteLayout(pendingRemote)
+        return
+      }
       if (!swapAfterPress) return
       swapAfterPress = false
       // Dragging another workspace's shortcut is not a click on it: the tab in front before the
@@ -383,13 +394,61 @@ function build(): void {
   show(ws, layouts[ws] ?? null)
   if (write) saveNow()
   else lastSaved = savedText()
+  if (pendingRemote) applyRemoteLayout(pendingRemote)
+}
+
+/** `workspace.remote`: another Mac's app tabs and workspace layouts (layout sizes as shares). */
+export interface RemoteLayout {
+  tabs: unknown
+  workspaces: unknown
+}
+
+/**
+ * Shows another Mac's window (the window mirror) as it is: its app tabs and tab in front, and
+ * every workspace's panes laid out in this window. Main saved it already, so nothing here is saved
+ * or sent back. Waits while the panes are not built yet or a press is under way.
+ */
+export function applyRemoteLayout(remote: RemoteLayout): void {
+  if (!api || headless() || pressed || !tilingStore.getState().loaded) {
+    pendingRemote = remote
+    return
+  }
+  pendingRemote = null
+  const record = readWorkspaces(remote.workspaces)
+  if (record) {
+    layouts = record.layouts
+    order = record.order
+    tilingStore.setState({ pinned: record.pinned })
+  }
+  if (remote.tabs !== null && remote.tabs !== undefined) {
+    syncing = true
+    try {
+      adoptTabs(loadTabs(remote.tabs))
+    } finally {
+      syncing = false
+    }
+  }
+  const tabs = tabsStore.getState().tabs
+  const ws = workspaceOfTab(activeTab(tabs))
+  const own = layouts[ws] ?? null
+  const shown = currentOwn()
+  const same =
+    ws === tilingStore.getState().scope &&
+    own !== null &&
+    shown !== null &&
+    sameValue(portableDock(own), portableDock(shown)) &&
+    tabs.list.every((t) => workspaceOfTab(t) !== ws || api?.getPanel(appPanelId(t.id)))
+  if (same) refresh()
+  else show(ws, own)
+  lastSaved = savedText()
+  bump()
 }
 
 /** Puts workspace `ws` on the engine from `own` (its saved layout, or none yet). */
 function show(ws: string, own: DockJson | null): void {
   if (!api) return
   const tabs = tabsStore.getState().tabs
-  const json = composeWorkspace(own, {
+  const json = composeWorkspace(own === null ? null : placeDock(own, box()), {
     tabs,
     ws,
     wsOf: workspaceOfTab,
@@ -1405,7 +1464,8 @@ export function inWorkspace<T>(ws: string, fn: () => T): T {
   }
   const all = tabsStore.getState().tabs
   const size = box()
-  const json = composeWorkspace(layouts[ws] ?? null, {
+  const own = layouts[ws] ?? null
+  const json = composeWorkspace(own === null ? null : placeDock(own, size), {
     tabs: all,
     ws,
     wsOf: workspaceOfTab,
@@ -1748,6 +1808,8 @@ export function startTiling(): () => void {
       if (!tab.pinned) closeAppTab(tab.id)
     }),
   ]
+  // Another Mac changed the window (the Relay Host's window mirror).
+  const offRemote = on('workspace.remote', applyRemoteLayout)
   const unsubTabs = tabsStore.subscribe((s, prev) => {
     if (s.loaded && !prev.loaded) build()
     else if (s.tabs !== prev.tabs) syncFromTabs()
@@ -1757,6 +1819,7 @@ export function startTiling(): () => void {
   return () => {
     offs.forEach((off) => off())
     unsubTabs()
+    offRemote()
     window.removeEventListener('pagehide', flushSave)
     setFrontBareCheck(() => false)
     flushSave()
@@ -1789,6 +1852,7 @@ export function resetTilingForTests(): void {
   quietActive = false
   pressed = null
   swapAfterPress = false
+  pendingRemote = null
   hiddenWs = null
   groupSeq = 0
   layouts = {}

@@ -78,8 +78,11 @@ export interface ChatHandles {
   studio: RelaySource & RelayStudio & Pick<RelayCanvas, 'canvasOrigin'>
   /** The Mini's omp in remote mode (`relayRemote`), else null. */
   mini: Mini | null
-  /** Raw frames of the Relay connection (the remote host's `reviews.req` answers) and its features. */
-  frames: RelayFrames & RelayFeatures
+  /**
+   * Raw frames of the Relay connection (the remote host's `reviews.req` answers), its features,
+   * and a call after every change of the connection.
+   */
+  frames: RelayFrames & RelayFeatures & Pick<RelaySource, 'onChange'>
   /** The connected Relay Host's name and version, null while not connected. */
   hostInfo(): { name: string; version: string } | null
   /** Desktop notifications: the update flow tells it about a build that is ready. */

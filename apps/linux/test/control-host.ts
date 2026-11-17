@@ -5,7 +5,11 @@
 // come from `$XDG_CONFIG_HOME/relay/devices.json`, and serve.json (port, pid, controlToken) goes
 // next to it, where relay-ctl's RELAY_HOST_FILE can point.
 //
-//   bun test/control-host.ts [--port 0]      prints `ready <port>` once listening
+//   bun test/control-host.ts [--port 0] [--mirror] [--canvases DIR]   prints `ready <port>` once listening
+//
+// `--mirror` adds the window mirror (`workspace.*`, kept in `$XDG_CONFIG_HOME/relay/workspace.json`)
+// and `--canvases` serves that boards folder to desktops on other Macs (`canvas.file.req`), for
+// apps/desktop/e2e/workspace-mirror.spec.ts.
 
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -17,13 +21,27 @@ import { FileDeviceStore } from "../src/device-store";
 import { TerminalPairingUI } from "../src/pairing";
 import { RelayServer } from "../src/server";
 import { systemClock } from "../src/session";
+import { WorkspaceService, defaultWorkspacePath } from "../src/workspace/service";
+import { CanvasFilesService } from "../src/canvas/files";
 
-const { values } = parseArgs({ options: { port: { type: "string", default: "0" } } });
+const { values } = parseArgs({
+  options: {
+    port: { type: "string", default: "0" },
+    mirror: { type: "boolean", default: false },
+    canvases: { type: "string" },
+  },
+});
 const log = (line: string): void => {
   console.error(`[control-host] ${line}`);
 };
 const refuse = (): Promise<void> => Promise.reject(new Error("no input on the e2e host"));
 const control = new ControlRelay(randomBytes(32).toString("hex"), systemClock, log);
+const workspace = values.mirror
+  ? new WorkspaceService({ path: defaultWorkspacePath(), log, saveDelayMs: 0 })
+  : null;
+const canvasFiles =
+  values.canvases === undefined ? null : new CanvasFilesService({ dir: values.canvases, log });
+await canvasFiles?.start();
 const server = new RelayServer(
   { port: Number(values.port), hostName: "control-e2e", version: "e2e", vncPort: 1 },
   {
@@ -58,6 +76,8 @@ const server = new RelayServer(
     files: null,
     meetings: null,
     control,
+    workspace,
+    canvasFiles,
     hostToken: control.token,
     canvasPage: () => "",
     pairing: new TerminalPairingUI(),
@@ -67,7 +87,9 @@ const server = new RelayServer(
 const port = server.start();
 const serve = `${relayConfigDir()}/serve.json`;
 mkdirSync(dirname(serve), { recursive: true });
-writeFileSync(serve, JSON.stringify({ port, pid: process.pid, controlToken: control.token }), { mode: 0o600 });
+writeFileSync(serve, JSON.stringify({ port, pid: process.pid, controlToken: control.token }), {
+  mode: 0o600,
+});
 process.stdout.write(`ready ${String(port)}\n`);
 process.on("SIGTERM", () => {
   server.stop();

@@ -1,11 +1,15 @@
 import * as fs from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { CanvasBoard, CanvasNode } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
+import type { RelayFeatures, RelayFrames } from '../relay/client'
+import { createHostBoardFiles, followHostBoards } from './host-board-files'
 import { createDownload, createImageReader } from './images'
-import { storeBoardImage } from './paste'
+import { migrateLocalBoards } from './migrate'
+import { storeBoardImage, type BoardImageTarget } from './paste'
 import { copyImageToClipboard, electronRescale } from './clipboard-image'
 import { createCanvasStore, type CanvasStore } from './store'
 import { startCanvasWatchWith } from './watch'
@@ -20,11 +24,17 @@ export interface BoardImage {
 /** Puts images on a board's first page through the board store; resolves with how many. */
 export type AddBoardImages = (slug: string, images: readonly BoardImage[]) => Promise<number>
 
-const sinks = new WeakMap<MainContext, AddBoardImages>()
+/** How Studio's Add to canvas puts images on a board: their files go to `target`, then `add`. */
+export interface BoardImageSink {
+  add: AddBoardImages
+  target: BoardImageTarget
+}
+
+const sinks = new WeakMap<MainContext, BoardImageSink>()
 const stores = new WeakMap<MainContext, CanvasStore>()
 
-/** The board image adder of this window's Canvas (null before registerCanvasIpc ran). */
-export function boardImagesOf(ctx: MainContext): AddBoardImages | null {
+/** The board image sink of this window's Canvas (null before registerCanvasIpc ran). */
+export function boardImagesOf(ctx: MainContext): BoardImageSink | null {
   return sinks.get(ctx) ?? null
 }
 
@@ -67,16 +77,23 @@ export function imageCards(
  * Canvas boards: list, load, save, create, rename, delete, pin, images, and `canvas.changed` for
  * edits made outside Relay. Outside live mode the folder starts as a copy of the fixture boards.
  * Studio's Add to canvas puts images on a board through the same store (boardImagesOf).
+ *
+ * On a thin client (`relayRemote`) the boards are the Mini's: the store, card images and pasted
+ * images go through the host's `canvas.file.req` on `frames`, its `canvas.files.changed` replaces
+ * the folder watch, and the boards this Mac kept before go up once (migrate.ts). Pins stay per Mac.
  */
-export function registerCanvasIpc(ctx: MainContext): void {
+export function registerCanvasIpc(ctx: MainContext, frames: RelayFrames & RelayFeatures): void {
   const { canvasDir, canvasSeedDir, nativeCanvasPins, configDir, e2e } = ctx.env
-  if (canvasSeedDir && !fs.existsSync(canvasDir) && fs.existsSync(canvasSeedDir)) {
-    fs.cpSync(canvasSeedDir, canvasDir, { recursive: true })
+  const host = ctx.env.relayRemote !== null ? createHostBoardFiles(frames) : null
+  if (host === null) {
+    if (canvasSeedDir && !fs.existsSync(canvasDir) && fs.existsSync(canvasSeedDir)) {
+      fs.cpSync(canvasSeedDir, canvasDir, { recursive: true })
+    }
+    fs.mkdirSync(canvasDir, { recursive: true })
   }
-  fs.mkdirSync(canvasDir, { recursive: true })
 
   const store = createCanvasStore({
-    dir: canvasDir,
+    ...(host === null ? { dir: canvasDir } : { files: host }),
     config: ctx.config,
     nativePins: nativeCanvasPins,
   })
@@ -85,7 +102,10 @@ export function registerCanvasIpc(ctx: MainContext): void {
     dir: canvasDir,
     cacheDir: path.join(configDir, 'canvas-cache'),
     download: createDownload({ offline: e2e && process.env.EVAOS_E2E_NETWORK !== '1' }),
+    ...(host === null ? {} : { readAsset: host.readAsset }),
   })
+  const target: BoardImageTarget =
+    host === null ? { dir: canvasDir } : { writeAsset: host.writeAsset }
 
   handle(ctx, 'canvas.list', async () => ({ entries: await store.list() }))
   handle(ctx, 'canvas.load', ({ slug, page }) => store.load(slug, page))
@@ -102,7 +122,7 @@ export function registerCanvasIpc(ctx: MainContext): void {
   handle(ctx, 'canvas.image', ({ src }) => images.read(src))
   handle(ctx, 'canvas.pasteImage', ({ slug, data }) =>
     storeBoardImage({
-      dir: canvasDir,
+      ...target,
       slug,
       bytes: Buffer.from(data, 'base64'),
       rescale: electronRescale,
@@ -113,20 +133,52 @@ export function registerCanvasIpc(ctx: MainContext): void {
     await copyImageToClipboard(Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64'))
     return { copied: true as const }
   })
-  sinks.set(ctx, async (slug, added) => {
-    const shown = await store.load(slug)
-    const board: CanvasBoard = {
-      ...shown.board,
-      nodes: [...shown.board.nodes, ...imageCards(shown.board.nodes, added)],
-    }
-    await store.save(slug, board, shown.page)
-    // The store's own writes raise no watch event: an open board hears it here and reloads.
-    emit(ctx, 'canvas.changed', { slug })
-    return added.length
+  sinks.set(ctx, {
+    target,
+    add: async (slug, added) => {
+      const shown = await store.load(slug)
+      const board: CanvasBoard = {
+        ...shown.board,
+        nodes: [...shown.board.nodes, ...imageCards(shown.board.nodes, added)],
+      }
+      await store.save(slug, board, shown.page)
+      // The store's own writes raise no watch event: an open board hears it here and reloads.
+      emit(ctx, 'canvas.changed', { slug })
+      return added.length
+    },
   })
 
-  const watcher = startCanvasWatchWith(canvasDir, store.isOwn, (slug) =>
-    emit(ctx, 'canvas.changed', { slug }),
-  )
-  ctx.onBeforeQuit(() => watcher.close())
+  if (host === null) {
+    const watcher = startCanvasWatchWith(canvasDir, store.isOwn, (slug) =>
+      emit(ctx, 'canvas.changed', { slug }),
+    )
+    ctx.onBeforeQuit(() => watcher.close())
+    return
+  }
+  // The boards this Mac kept before it read the host's go up once; the folder is renamed after.
+  let migrating = false
+  const migrate = async (): Promise<void> => {
+    if (migrating) return
+    migrating = true
+    try {
+      const moved = await migrateLocalBoards({
+        dir: canvasDir,
+        host,
+        hostname: os.hostname(),
+        today: new Date(),
+        log: (line) => console.info(line),
+      })
+      // The host does not tell this launch about its own uploads.
+      if (moved.uploaded.length > 0) emit(ctx, 'canvas.changed', { slug: null })
+    } catch (e) {
+      console.error('[canvas-migrate] failed, will try again on the next connect:', e)
+    } finally {
+      migrating = false
+    }
+  }
+  const off = followHostBoards(frames, host.origin, {
+    changed: (slug) => emit(ctx, 'canvas.changed', { slug }),
+    connected: () => void migrate(),
+  })
+  ctx.onBeforeQuit(async () => off())
 }

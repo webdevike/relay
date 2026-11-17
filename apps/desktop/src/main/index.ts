@@ -11,6 +11,7 @@ import { registerChat } from './chat'
 import { registerEvaIpc } from './eva-ipc'
 import { registerCanvasIpc } from './canvas/canvas-ipc'
 import { registerLayoutIpc } from './layout-ipc'
+import { startWorkspaceMirror } from './workspace/mirror'
 import { registerDraftsIpc } from './drafts-ipc'
 import { installQuitGuard } from './quit-guard'
 import { wireSwipeHistory } from './swipe'
@@ -187,7 +188,7 @@ function bootstrap(): void {
       registerAppIpc(ctx)
       deepLinks.attach(ctx)
       registerSetup(ctx)
-      registerLayoutIpc(ctx, queue)
+      const layout = registerLayoutIpc(ctx, queue)
       registerDraftsIpc(ctx)
       registerThemeIpc(ctx, queue)
       const settings = registerSettingsIpc(ctx, queue)
@@ -237,7 +238,7 @@ function bootstrap(): void {
       registerWidgetFrames()
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())
-      registerCanvasIpc(ctx)
+      registerCanvasIpc(ctx, chat.frames)
       registerUsageIpc(ctx, chat.mini)
       registerLinearIpc(ctx, linear)
       registerReviewsIpc(
@@ -268,6 +269,11 @@ function bootstrap(): void {
       files = registerFilesIpc(ctx, chat, presence.noteSave)
       registerTerminalIpc(ctx, chat)
       const browser = registerBrowser(ctx)
+      // The live app (and e2e runs) mirror the window with every other Mac on the same Relay Host.
+      if (env.stable || env.e2e) {
+        const stopMirror = startWorkspaceMirror(ctx, { layout, frames: chat.frames, browser })
+        ctx.onBeforeQuit(async () => stopMirror())
+      }
       // Isaac's notes on boards and web pages, and his Design Mode changes, go into the chat
       // that owns them.
       const notes = registerAgentNotes(ctx, chat)

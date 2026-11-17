@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   defaultTabs,
   RENDER_REPORT_FEATURE,
@@ -40,6 +40,8 @@ import type { RenderFailureReporting } from "../src/render-failures/service";
 import type { ArtifactRelaying } from "../src/artifacts/service";
 import type { ActivityRelaying } from "../src/activity/service";
 import type { QueryRelaying } from "../src/query/service";
+import { WorkspaceService, type WorkspaceRelaying } from "../src/workspace/service";
+import { CanvasFilesService, type CanvasFilesRelaying } from "../src/canvas/files";
 import {
   AckFailure,
   type AgentConfigChange,
@@ -191,6 +193,9 @@ interface HarnessOptions {
   meetings?: MeetingsRelaying;
   control?: ControlRelaying;
   renderFailures?: RenderFailureReporting;
+  workspace?: WorkspaceRelaying;
+  shareWorkspace?: (message: ServerMessage, from: ClientSession) => void;
+  canvasFiles?: CanvasFilesRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -256,6 +261,9 @@ function harness(options: HarnessOptions = {}): Harness {
     meetings: options.meetings ?? null,
     control: options.control ?? null,
     renderFailures: options.renderFailures ?? null,
+    workspace: options.workspace ?? null,
+    ...(options.shareWorkspace ? { shareWorkspace: options.shareWorkspace } : {}),
+    canvasFiles: options.canvasFiles ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -1050,7 +1058,12 @@ describe("usage", () => {
 
 describe("stats", () => {
   it("answers stats.get with the cached snapshot at once, refreshes it in the background, and marks the socket for later snapshots", () => {
-    const snapshot = { updatedAt: 5, refreshing: false, profiles: [{ name: "personal", error: null }], ranges: null };
+    const snapshot = {
+      updatedAt: 5,
+      refreshing: false,
+      profiles: [{ name: "personal", error: null }],
+      ranges: null,
+    };
     const calls: string[] = [];
     const stats: StatsService = {
       get: () => snapshot,
@@ -1086,7 +1099,8 @@ describe("discovery feed", () => {
     const snapshot = { generatedAt: "t", items: [], acted: { a: "like" as const } };
     const feed: FeedDeck = {
       snapshot: () => snapshot,
-      signal: (id, action, title, source) => void signals.push(`${id} ${action} ${title} ${source}`),
+      signal: (id, action, title, source) =>
+        void signals.push(`${id} ${action} ${title} ${source}`),
       openMedia: () => null,
     };
     const h = harness({ feed });
@@ -1098,7 +1112,12 @@ describe("discovery feed", () => {
     const bare = harness();
     pair(bare);
     bare.session.receive({ t: "feed.list" });
-    expect(bare.sink.last()).toEqual({ t: "feed.snapshot", generatedAt: null, items: [], acted: {} });
+    expect(bare.sink.last()).toEqual({
+      t: "feed.snapshot",
+      generatedAt: null,
+      items: [],
+      acted: {},
+    });
     bare.session.receive({ t: "feed.signal", id: "a", action: "like", title: "A", source: "HN" });
   });
 });
@@ -1248,20 +1267,46 @@ describe("bookmarks", () => {
     };
     const h = harness({ bookmarks });
     pair(h);
-    expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({ features: expect.arrayContaining(["bookmarks"]) });
+    expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({
+      features: expect.arrayContaining(["bookmarks"]),
+    });
     h.session.receive({ t: "bookmarks.get", thread: "assistant:astra" });
-    expect(h.sink.last()).toEqual({ t: "bookmarks.snapshot", thread: "assistant:astra", messages: ["user@5", "assistant@9"] });
+    expect(h.sink.last()).toEqual({
+      t: "bookmarks.snapshot",
+      thread: "assistant:astra",
+      messages: ["user@5", "assistant@9"],
+    });
     const sent = h.sink.sent.length;
-    h.session.receive({ t: "bookmark.set", thread: "assistant:astra", message: "user@7", on: true });
+    h.session.receive({
+      t: "bookmark.set",
+      thread: "assistant:astra",
+      message: "user@7",
+      on: true,
+    });
     expect(h.sink.sent.length).toBe(sent); // a change goes out through the service's broadcast
-    h.session.receive({ t: "bookmark.set", thread: "assistant:astra", message: "user@5", on: true });
-    expect(h.sink.last()).toEqual({ t: "bookmarks.snapshot", thread: "assistant:astra", messages: ["user@5", "assistant@9"] });
+    h.session.receive({
+      t: "bookmark.set",
+      thread: "assistant:astra",
+      message: "user@5",
+      on: true,
+    });
+    expect(h.sink.last()).toEqual({
+      t: "bookmarks.snapshot",
+      thread: "assistant:astra",
+      messages: ["user@5", "assistant@9"],
+    });
     expect(calls).toEqual(["set assistant:astra user@7 true", "set assistant:astra user@5 true"]);
     const bare = harness();
     pair(bare);
-    expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({ features: expect.arrayContaining(["bookmarks"]) });
+    expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({
+      features: expect.arrayContaining(["bookmarks"]),
+    });
     bare.session.receive({ t: "bookmark.set", thread: "session:s1", message: "user@1", on: true });
-    expect(bare.sink.last()).toEqual({ t: "bookmarks.snapshot", thread: "session:s1", messages: [] });
+    expect(bare.sink.last()).toEqual({
+      t: "bookmarks.snapshot",
+      thread: "session:s1",
+      messages: [],
+    });
   });
 });
 
@@ -1274,7 +1319,9 @@ describe("dismissed cards", () => {
     };
     const h = harness({ dismissedCards });
     pair(h);
-    expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({ features: expect.arrayContaining(["cards.dismissed"]) });
+    expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({
+      features: expect.arrayContaining(["cards.dismissed"]),
+    });
     h.session.receive({ t: "cards.get" });
     expect(h.sink.last()).toEqual({ t: "cards.dismissed", ids: ["canvas:m1", "work:w1#running"] });
     const sent = h.sink.sent.length;
@@ -1285,18 +1332,113 @@ describe("dismissed cards", () => {
     expect(calls).toEqual(["set meeting:r1 true", "set canvas:m1 true"]);
     const bare = harness();
     pair(bare);
-    expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({ features: expect.arrayContaining(["cards.dismissed"]) });
+    expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({
+      features: expect.arrayContaining(["cards.dismissed"]),
+    });
     bare.session.receive({ t: "card.dismiss", id: "canvas:m1", on: true });
     expect(bare.sink.last()).toEqual({ t: "cards.dismissed", ids: [] });
+  });
+});
+
+describe("window mirror and host boards", () => {
+  it("offers both features, answers workspace.get, acks a put and shares the change with the others", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-ws-"));
+    try {
+      const workspace = new WorkspaceService({
+        path: join(dir, "workspace.json"),
+        log: () => undefined,
+        saveDelayMs: 0,
+      });
+      const shared: [ServerMessage, ClientSession][] = [];
+      const canvasFiles = new CanvasFilesService({
+        dir: join(dir, "boards"),
+        log: () => undefined,
+      });
+      const h = harness({
+        workspace,
+        canvasFiles,
+        shareWorkspace: (m, from) => shared.push([m, from]),
+      });
+      pair(h, "relay-desktop");
+      expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({
+        features: expect.arrayContaining(["workspace", "canvas.files"]),
+      });
+      h.session.receive({ t: "workspace.get" });
+      expect(h.sink.last()).toEqual({ t: "workspace.state", rev: 0, entries: {} });
+      expect(h.session.wantsWorkspace()).toBe(true);
+      h.session.receive({
+        t: "workspace.put",
+        rid: "r1",
+        origin: "mini-1",
+        set: { tabs: { active: 0 } },
+        del: [],
+        seed: true,
+      });
+      expect(h.sink.last()).toEqual({ t: "workspace.ack", rid: "r1", rev: 1, applied: true });
+      expect(shared).toEqual([
+        [
+          {
+            t: "workspace.changed",
+            rev: 1,
+            origin: "mini-1",
+            set: { tabs: { active: 0 } },
+            del: [],
+          },
+          h.session,
+        ],
+      ]);
+      // A second seed is refused and answered with the host's state to adopt.
+      h.session.receive({
+        t: "workspace.put",
+        rid: "r2",
+        origin: "book-1",
+        set: { tabs: { active: 3 } },
+        del: [],
+        seed: true,
+      });
+      expect(h.sink.sent.slice(-2)).toEqual([
+        { t: "workspace.ack", rid: "r2", rev: 1, applied: false },
+        { t: "workspace.state", rev: 1, entries: { tabs: { active: 0 } } },
+      ]);
+      h.session.receive({
+        t: "canvas.file.req",
+        rid: "c1",
+        op: "write",
+        slug: "plan",
+        text: "{}",
+        origin: "book-1",
+      });
+      await vi.waitFor(() =>
+        expect(h.sink.last()).toEqual({ t: "canvas.file.res", rid: "c1", ok: true }),
+      );
+      const bare = harness();
+      pair(bare);
+      expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({
+        features: expect.arrayContaining(["workspace"]),
+      });
+      bare.session.receive({ t: "canvas.file.req", rid: "c2", op: "list" });
+      expect(bare.sink.last()).toMatchObject({
+        t: "canvas.file.res",
+        rid: "c2",
+        ok: false,
+        code: "invalid",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
 describe("render failures", () => {
   it("offers render.report and hands each render.failed frame to the service with this device, answering nothing", () => {
     const reports: [RenderFailure, { id: string; name: string }][] = [];
-    const h = harness({ renderFailures: { report: (failure, device) => reports.push([failure, device]) } });
+    const h = harness({
+      renderFailures: { report: (failure, device) => reports.push([failure, device]) },
+    });
     pair(h);
-    expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({ features: expect.arrayContaining([RENDER_REPORT_FEATURE]) });
+    expect(h.sink.sent.find((m) => m.t === "welcome")).toMatchObject({
+      features: expect.arrayContaining([RENDER_REPORT_FEATURE]),
+    });
     const sent = h.sink.sent.length;
     const failure: RenderFailure = {
       thread: "assistant:astra",
@@ -1312,7 +1454,9 @@ describe("render failures", () => {
     expect(h.sink.sent.length).toBe(sent);
     const bare = harness();
     pair(bare);
-    expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({ features: expect.arrayContaining([RENDER_REPORT_FEATURE]) });
+    expect(bare.sink.sent.find((m) => m.t === "welcome")).not.toMatchObject({
+      features: expect.arrayContaining([RENDER_REPORT_FEATURE]),
+    });
     bare.session.receive({ t: "render.failed", ...failure });
     expect(bare.closed).toEqual([]);
   });
@@ -1580,19 +1724,41 @@ describe("assistant threads", () => {
     pair(h);
     h.session.receive({ t: "assistant.get", agent: "nova", rows: 2 });
     await h.sink.sentCount(5);
-    expect(h.sink.last()).toMatchObject({ t: "assistant.snapshot", agent: "nova", snapshot: { older: 1, messages: [{ id: "nova-u2" }, { id: "nova-a3" }] } });
-    h.session.sendAssistant({ t: "assistant.snapshot", agent: "nova", snapshot: assistant.nova.snapshotValue });
-    expect(h.sink.last()).toMatchObject({ snapshot: { older: 1, messages: [{ id: "nova-u2" }, { id: "nova-a3" }] } });
+    expect(h.sink.last()).toMatchObject({
+      t: "assistant.snapshot",
+      agent: "nova",
+      snapshot: { older: 1, messages: [{ id: "nova-u2" }, { id: "nova-a3" }] },
+    });
+    h.session.sendAssistant({
+      t: "assistant.snapshot",
+      agent: "nova",
+      snapshot: assistant.nova.snapshotValue,
+    });
+    expect(h.sink.last()).toMatchObject({
+      snapshot: { older: 1, messages: [{ id: "nova-u2" }, { id: "nova-a3" }] },
+    });
     // A window that covers the thread sends it as it is.
     h.session.receive({ t: "assistant.get", agent: "nova", rows: 400 });
     await h.sink.sentCount(7);
-    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", agent: "nova", snapshot: assistant.nova.snapshotValue });
+    expect(h.sink.last()).toEqual({
+      t: "assistant.snapshot",
+      agent: "nova",
+      snapshot: assistant.nova.snapshotValue,
+    });
     h.session.receive({ t: "assistant.get", agent: "nova", rows: 1 });
     await h.sink.sentCount(8);
     h.session.receive({ t: "assistant.get", agent: "nova" });
     await h.sink.sentCount(9);
-    h.session.sendAssistant({ t: "assistant.snapshot", agent: "nova", snapshot: assistant.nova.snapshotValue });
-    expect(h.sink.last()).toEqual({ t: "assistant.snapshot", agent: "nova", snapshot: assistant.nova.snapshotValue });
+    h.session.sendAssistant({
+      t: "assistant.snapshot",
+      agent: "nova",
+      snapshot: assistant.nova.snapshotValue,
+    });
+    expect(h.sink.last()).toEqual({
+      t: "assistant.snapshot",
+      agent: "nova",
+      snapshot: assistant.nova.snapshotValue,
+    });
   });
 
   it("answers assistant.get for an unknown agent empty and follows nothing; without an agent on a host with no threads, says nothing", async () => {
@@ -1747,7 +1913,13 @@ describe("assistant threads", () => {
     h.session.receive({
       t: "cmd",
       id: "r1",
-      cmd: { kind: "assistant.ask.resolve", agent: "nova", id: "0a1b2c3d", how: "answered", answer: "Book it" },
+      cmd: {
+        kind: "assistant.ask.resolve",
+        agent: "nova",
+        id: "0a1b2c3d",
+        how: "answered",
+        answer: "Book it",
+      },
     });
     h.session.receive({
       t: "cmd",
@@ -1765,7 +1937,11 @@ describe("assistant threads", () => {
     expect(h.sink.sent.slice(-3)).toEqual([
       { t: "ack", id: "r1" },
       { t: "ack", id: "r2" },
-      { t: "nack", id: "r3", error: { code: "invalid_command", message: "no assistant ghost on this host" } },
+      {
+        t: "nack",
+        id: "r3",
+        error: { code: "invalid_command", message: "no assistant ghost on this host" },
+      },
     ]);
   });
 
@@ -2034,7 +2210,8 @@ describe("remote control", () => {
       harness({
         remoteAddress: address,
         control: {
-          presence: (client, p) => calls.push(["presence", client.device, client.loopback, p.name, p.idleMs]),
+          presence: (client, p) =>
+            calls.push(["presence", client.device, client.loopback, p.name, p.idleMs]),
           result: (_sink, rid, result) => calls.push(["result", rid, result]),
           drop: () => calls.push(["drop"]),
         },
@@ -2042,9 +2219,21 @@ describe("remote control", () => {
     const local = control("127.0.0.1");
     pair(local, "relay-desktop");
     expect(local.sink.last()).toMatchObject({ t: "welcome", features: ["control"] });
-    const presence = { t: "control.presence", name: "Isaacs-Mac-mini", instance: "stable", idleMs: 40, page: "chat", focused: true, remote: false } as const;
+    const presence = {
+      t: "control.presence",
+      name: "Isaacs-Mac-mini",
+      instance: "stable",
+      idleMs: 40,
+      page: "chat",
+      focused: true,
+      remote: false,
+    } as const;
     local.session.receive(presence);
-    local.session.receive({ t: "control.res", rid: "ctl-1", result: { ok: true, value: { text: "hi" } } });
+    local.session.receive({
+      t: "control.res",
+      rid: "ctl-1",
+      result: { ok: true, value: { text: "hi" } },
+    });
     local.session.handleDisconnect();
     const lan = control("192.168.1.20");
     pair(lan, "relay-desktop-book");
@@ -2058,9 +2247,18 @@ describe("remote control", () => {
   });
 
   it("closes a client that sends control.req: only the host asks a desktop to act", () => {
-    const h = harness({ control: { presence: () => undefined, result: () => undefined, drop: () => undefined } });
+    const h = harness({
+      control: { presence: () => undefined, result: () => undefined, drop: () => undefined },
+    });
     pair(h);
-    h.session.receiveRaw(JSON.stringify({ t: "control.req", rid: "r1", action: "settings.set", params: { key: "theme.mode", value: "light" } }));
+    h.session.receiveRaw(
+      JSON.stringify({
+        t: "control.req",
+        rid: "r1",
+        action: "settings.set",
+        params: { key: "theme.mode", value: "light" },
+      }),
+    );
     expect(h.sink.last()).toMatchObject({ t: "error", code: "protocol" });
     expect(h.sink.closed).toBe(true);
   });
@@ -2300,7 +2498,13 @@ describe("live calls", () => {
       fallback: true,
     });
     h.session.receive({ t: "live.resume", callId: "l1", agent: "nova" });
-    expect(h.sink.last()).toEqual({ t: "live.state", callId: "l1", agent: "nova", state: "ended", error: "This host cannot take live calls" });
+    expect(h.sink.last()).toEqual({
+      t: "live.state",
+      callId: "l1",
+      agent: "nova",
+      state: "ended",
+      error: "This host cannot take live calls",
+    });
   });
 });
 
@@ -2520,7 +2724,14 @@ describe("studio", () => {
     const h = harness();
     pair(h);
     h.session.receive({ t: "studio.list" });
-    expect(h.sink.last()).toEqual({ t: "studio.state", jobs: [], uploads: [], backends: [], projects: [], references: [] });
+    expect(h.sink.last()).toEqual({
+      t: "studio.state",
+      jobs: [],
+      uploads: [],
+      backends: [],
+      projects: [],
+      references: [],
+    });
     h.session.receive({ t: "studio.req", rid: "r9", op: { kind: "refresh" } });
     expect(h.sink.last()).toEqual({
       t: "studio.res",

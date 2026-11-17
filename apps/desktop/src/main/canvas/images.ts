@@ -126,12 +126,14 @@ export interface ImageReader {
 
 /**
  * Native `resolve_src`: an http(s) URL is downloaded once into `cacheDir` (named by the sha256 of
- * the URL); anything else is a file path, absolute or relative to the boards folder.
+ * the URL); anything else is a file path, absolute or relative to the boards folder. With
+ * `readAsset` (a thin client) the boards folder is the host's: a relative path is read through it.
  */
 export function createImageReader(opts: {
   dir: string
   cacheDir: string
   download: Download
+  readAsset?: (src: string) => Promise<Buffer>
 }): ImageReader {
   const inflight = new Map<string, Promise<CanvasImage>>()
 
@@ -161,12 +163,33 @@ export function createImageReader(opts: {
     return toImage(await fs.promises.readFile(abs), src)
   }
 
+  async function readHosted(
+    src: string,
+    readAsset: (src: string) => Promise<Buffer>,
+  ): Promise<CanvasImage> {
+    let bytes: Buffer
+    try {
+      bytes = await readAsset(src)
+    } catch (e) {
+      if (e instanceof Error && 'code' in e && e.code === 'not-found') {
+        throw coded(`No image at ${src}.`, 'not-found')
+      }
+      throw e
+    }
+    return toImage(bytes, src)
+  }
+
   return {
     read(src) {
-      if (!/^https?:\/\//i.test(src)) return readLocal(src)
+      const remote = /^https?:\/\//i.test(src)
+      const { readAsset } = opts
+      const hosted = !remote && readAsset !== undefined && !path.isAbsolute(src)
+      if (!remote && !hosted) return readLocal(src)
       let pending = inflight.get(src)
       if (!pending) {
-        pending = fetchCached(src).finally(() => inflight.delete(src))
+        pending = (hosted ? readHosted(src, readAsset) : fetchCached(src)).finally(() =>
+          inflight.delete(src),
+        )
         inflight.set(src, pending)
       }
       return pending

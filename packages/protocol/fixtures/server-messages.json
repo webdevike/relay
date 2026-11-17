@@ -677,5 +677,24 @@
         }
       }
     }
-  }
+  },
+  { "t": "workspace.state", "rev": 3, "entries": { "tabs": { "active": 0, "list": [] } } },
+  {
+    "t": "workspace.changed",
+    "rev": 4,
+    "origin": "relay-desktop-book-b2",
+    "set": {
+      "page:t7": { "url": "https://example.com/", "title": "Example", "scope": "page:agent:nova" }
+    },
+    "del": []
+  },
+  { "t": "workspace.ack", "rid": "relay-desktop-mini-a1-1", "rev": 4, "applied": true },
+  { "t": "canvas.file.res", "rid": "c1", "ok": true },
+  {
+    "t": "canvas.file.res",
+    "rid": "c3",
+    "ok": true,
+    "files": [{ "slug": "storyboard", "text": "{}", "modifiedMs": 1794000000000 }]
+  },
+  { "t": "canvas.files.changed", "slug": "storyboard", "origin": null }
 ]

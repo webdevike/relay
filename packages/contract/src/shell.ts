@@ -121,3 +121,15 @@ export const shellInvoke = {
   'settings.load': { input: z.object({}).strict(), output: ChatSettingsSchema },
   'settings.save': { input: ChatSettingsSchema.partial().strict(), output: ChatSettingsSchema },
 } as const
+
+export const shellEvents = {
+  /**
+   * Another Mac changed the window (the Relay Host's window mirror): the app tabs and every
+   * workspace's layout as they are now, for the window to show. Layout sizes are shares, laid out
+   * in this window (shell-core placeDock).
+   */
+  'workspace.remote': z.object({
+    tabs: SavedTabsSchema.nullable(),
+    workspaces: z.record(z.string(), z.unknown()).nullable(),
+  }),
+} as const

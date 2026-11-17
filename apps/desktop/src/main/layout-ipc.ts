@@ -78,11 +78,28 @@ function toPatch(input: InvokeInput<'layout.save'>): LayoutPatch {
   return input
 }
 
-export function registerLayoutIpc(ctx: MainContext, queue: WriteQueue): void {
+/** layout.json as the window saves it, for the window mirror (main/workspace). */
+export interface LayoutIpc {
+  /** Called after each save the window made, with what it saved. */
+  onSaved(cb: (patch: LayoutPatch) => void): () => void
+  /** Writes a patch that did not come from this window (another Mac's change). */
+  write(patch: LayoutPatch): Promise<void>
+}
+
+export function registerLayoutIpc(ctx: MainContext, queue: WriteQueue): LayoutIpc {
+  const listeners = new Set<(patch: LayoutPatch) => void>()
   handle(ctx, 'layout.load', () => loadLayout(ctx.config))
   handle(ctx, 'layout.save', async (input) => {
     const patch = toPatch(input)
     await queue.enqueue(() => saveLayout(ctx.config, patch))
+    for (const cb of listeners) cb(patch)
     return {}
   })
+  return {
+    onSaved(cb) {
+      listeners.add(cb)
+      return () => listeners.delete(cb)
+    },
+    write: (patch) => queue.enqueue(() => saveLayout(ctx.config, patch)),
+  }
 }

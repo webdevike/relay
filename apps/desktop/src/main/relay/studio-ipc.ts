@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { app, shell } from 'electron'
@@ -18,14 +19,30 @@ export interface StudioIpcDeps {
   reveal?: (file: string) => void
 }
 
+/** A file name without path parts or characters a file name should not carry. */
+function cleanName(name: string): string {
+  return path.basename(name).replace(/[^\w.\- ]+/g, '-') || 'studio'
+}
+
 /** `dir/name`, or `dir/name (2).ext` and up when that file exists. */
 export function freeName(dir: string, name: string): string {
-  const safe = path.basename(name).replace(/[^\w.\- ]+/g, '-') || 'studio'
+  const safe = cleanName(name)
   const ext = path.extname(safe)
   const stem = safe.slice(0, safe.length - ext.length)
   let file = path.join(dir, safe)
   for (let n = 2; fs.existsSync(file); n++) file = path.join(dir, `${stem} (${n})${ext}`)
   return file
+}
+
+/**
+ * `name-<hash>.ext`, for the host's boards folder (which cannot be listed from here): the bytes
+ * pick the name, so a new image never replaces another and the same one keeps one file.
+ */
+function hashedName(name: string, bytes: Buffer): string {
+  const safe = cleanName(name)
+  const ext = path.extname(safe)
+  const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 8)
+  return `${safe.slice(0, safe.length - ext.length)}-${hash}${ext}`
 }
 
 /**
@@ -91,13 +108,14 @@ export function registerStudioIpc(
     if (origin === null) {
       throw Object.assign(new Error("Relay isn't running."), { code: 'relay-unavailable' })
     }
-    const add = boardImagesOf(ctx)
-    if (add === null)
+    const sink = boardImagesOf(ctx)
+    if (sink === null)
       throw Object.assign(new Error('Canvas is not ready.'), { code: 'unavailable' })
     const outputs = (relay.studio()?.jobs ?? []).flatMap((j) => j.outputs)
-    // Image cards read their src relative to the boards folder (canvas/images.ts).
-    const dir = path.join(ctx.env.canvasDir, 'studio')
-    fs.mkdirSync(dir, { recursive: true })
+    // Image cards read their src relative to the boards folder (canvas/images.ts): this Mac's, or
+    // the Mini's on a thin client.
+    const { target } = sink
+    if ('dir' in target) fs.mkdirSync(path.join(target.dir, 'studio'), { recursive: true })
     const images: BoardImage[] = []
     for (const a of assets) {
       const res = await get(`${origin}${a.path}`, {
@@ -108,16 +126,24 @@ export function registerStudioIpc(
           code: 'host-refused',
         })
       }
-      const file = freeName(dir, a.name)
-      fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()))
+      const bytes = Buffer.from(await res.arrayBuffer())
+      let src: string
+      if ('dir' in target) {
+        const file = freeName(path.join(target.dir, 'studio'), a.name)
+        fs.writeFileSync(file, bytes)
+        src = `studio/${path.basename(file)}`
+      } else {
+        src = `studio/${hashedName(a.name, bytes)}`
+        await target.writeAsset(src, bytes)
+      }
       const known = outputs.find((o) => o.path === a.path)
       images.push({
-        src: `studio/${path.basename(file)}`,
+        src,
         width: known?.width ?? 1,
         height: known?.height ?? 1,
       })
     }
-    return { added: await add(slug, images) }
+    return { added: await sink.add(slug, images) }
   })
   const offStudio = relay.onStudio((change) => emit(ctx, 'studio.changed', change))
   let up = relay.studioUp()

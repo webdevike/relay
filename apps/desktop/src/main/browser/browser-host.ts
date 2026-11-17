@@ -46,6 +46,11 @@ interface Tab {
    * the partition cookie.
    */
   switchApp?: string
+  /**
+   * The URL another Mac showed this tab at (the window mirror): what the mirror reports for it
+   * until the page itself navigates on, so a redirect of that load never echoes back.
+   */
+  mirrorUrl?: string
 }
 
 export interface NavigateOptions {
@@ -126,6 +131,8 @@ export class BrowserHost {
   private driveSize = { ...DRIVE_SIZE }
   /** Takes Isaac's input in a tab away from the page when it answers true (Design Mode). */
   private interceptor: ((tabId: string, input: Input) => boolean) | null = null
+  /** Called after any change of a tab (window mirror). */
+  private pageListeners = new Set<() => void>()
 
   readonly history: HistoryStore
   private readonly saved: SavedTabsStore
@@ -210,6 +217,73 @@ export class BrowserHost {
   /** A tab's view is gone (the tab closed, or went dormant). */
   onTabClosed(cb: TabListener): void {
     this.closed.push(cb)
+  }
+
+  /** Called after any change of any tab: the window mirror reads `mirrorPages` then. */
+  onPagesChanged(cb: () => void): () => void {
+    this.pageListeners.add(cb)
+    return () => this.pageListeners.delete(cb)
+  }
+
+  /** Every page with an address, by tab id: its URL, title and workspace (window mirror). */
+  mirrorPages(): Record<string, { url: string; title: string; scope: string }> {
+    const out: Record<string, { url: string; title: string; scope: string }> = {}
+    for (const [id, t] of this.tabs) {
+      const url = t.mirrorUrl ?? t.state.url
+      if (t.state.blank || !url) continue
+      out[id] = { url, title: t.state.title, scope: t.scope }
+    }
+    return out
+  }
+
+  /**
+   * Another Mac's pages: a page this Mac lacks opens dormant under the same id (it loads when its
+   * tab shows), one at another URL goes there (a live view loads it now), and pages in `del`
+   * close. Nothing here is reported back as this Mac's change.
+   */
+  applyMirrorPages(
+    set: Readonly<Record<string, { url: string; title: string; scope: string }>>,
+    del: readonly string[],
+  ): void {
+    for (const [id, page] of Object.entries(set)) {
+      if (!/^t\d+$/.test(id)) continue
+      const pinned = page.scope === PINNED_SCOPE
+      const t = this.tabs.get(id)
+      if (!t) {
+        this.tabs.set(id, {
+          view: null,
+          scope: page.scope,
+          mirrorUrl: page.url,
+          state: {
+            id,
+            url: page.url,
+            title: page.title,
+            loading: false,
+            canGoBack: false,
+            canGoForward: false,
+            blank: false,
+            error: null,
+            favicon: null,
+            pinned,
+          },
+        })
+        this.nextId = Math.max(this.nextId, Number(id.slice(1)) + 1)
+        continue
+      }
+      t.scope = page.scope
+      t.state.pinned = pinned
+      if (page.title) t.state.title = page.title
+      if ((t.mirrorUrl ?? t.state.url) === page.url) continue
+      if (t.view && loadableUrl(page.url, { fromExtension: t.fromExtension })) {
+        this.navigate(id, page.url)
+      } else {
+        t.state.url = page.url
+        t.state.blank = false
+      }
+      t.mirrorUrl = page.url
+    }
+    for (const id of del) if (this.tabs.has(id)) this.closeTab(id)
+    this.changed()
   }
 
   /**
@@ -458,6 +532,11 @@ export class BrowserHost {
     }
     wc.on('will-navigate', (e) => guard(e, e.url))
     wc.on('will-redirect', (e) => guard(e, e.url))
+    // The page navigates on by itself (a link, a script): from here on its own URL is what the
+    // window mirror reports, not the one another Mac sent it to.
+    wc.on('will-navigate', () => {
+      tab.mirrorUrl = undefined
+    })
     wc.on('page-title-updated', (_e, title) => {
       s.title = title
       this.history.title(wc.getURL(), title)
@@ -660,6 +739,7 @@ export class BrowserHost {
    */
   navigate(tabId: string, url: string, opts: NavigateOptions = {}): void {
     const t = this.tab(tabId)
+    t.mirrorUrl = undefined
     if (opts.fromExtension) t.fromExtension = true
     if (!loadableUrl(url, opts)) {
       // The view still shows the previous page, so `url`, `blank` and the history flags keep
@@ -972,6 +1052,7 @@ export class BrowserHost {
     this.applyBounds()
     emit(this.ctx, 'browser.tabs', this.snapshot())
     this.saved.dirty()
+    for (const cb of this.pageListeners) cb()
   }
 
   /** Safe to call twice (window closed, then quit): only the first saves the tabs. */

@@ -41,6 +41,8 @@ import {
 } from "./studio";
 import { MeetingsClientFrames, MeetingsServerFrames } from "./meetings";
 import { RoomsClientFrames, RoomsServerFrames } from "./rooms";
+import { WorkspaceClientFrames, WorkspaceServerFrames } from "./workspace";
+import { CanvasFilesClientFrames, CanvasFilesServerFrames } from "./canvas-files";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
 import { AgentRun } from "./agent-runs";
@@ -2170,6 +2172,8 @@ export const ClientMessage = z.discriminatedUnion("t", [
   ...RoomsClientFrames,
   /** This desktop can be driven by the host's agents (ControlPresence). Only sent to a host whose `welcome.features` has CONTROL_FEATURE. */
   ControlPresence,
+  ...WorkspaceClientFrames,
+  ...CanvasFilesClientFrames,
   /** The answer to `control.req` with the same rid. */
   z.object({ t: z.literal("control.res"), rid: ControlRid, result: ControlResult }),
 ]);
@@ -2473,6 +2477,8 @@ export const ServerMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("pong"), ts: ms, serverTs: ms }),
   ...MeetingsServerFrames,
   ...RoomsServerFrames,
+  ...WorkspaceServerFrames,
+  ...CanvasFilesServerFrames,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
@@ -2524,6 +2530,8 @@ export * from "./rooms";
 export * from "./rooms-council";
 export * from "./query";
 export * from "./stats";
+export * from "./workspace";
+export * from "./canvas-files";
 export * from "./answer-context";
 export * from "./signin";
 export * from "./room-card";
