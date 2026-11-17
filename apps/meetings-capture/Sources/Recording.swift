@@ -1,7 +1,8 @@
 // One recording: the app track (process tap, scoped to the meeting app) and the mic track
 // (AVAudioEngine, no voice processing: VPIO silences a tap in the same process), both into the
-// spool. `--replay DIR` feeds DIR/app.wav and DIR/mic.wav in real time instead, for tests that must
-// not touch the Mac's audio or its privacy prompts.
+// spool, plus the screen-share snapshots Relay asks for. `--replay DIR` feeds DIR/app.wav and
+// DIR/mic.wav in real time instead (and DIR/share.mp4 as the shared screen), for tests that must
+// not touch the Mac's audio, screen or its privacy prompts.
 import AVFoundation
 import CoreAudio
 import Foundation
@@ -42,11 +43,25 @@ final class Recording {
   private var speakerHandle: FileHandle?
   private let speakerLock = NSLock()
   private var _speakerLines = 0
+  /// Screen share: where the shared content is (under `shareLock`), the frame Relay sampled last
+  /// (main queue only) and the saved shots (`shots/<n>.jpg` + `shots.jsonl`, written on `shotQueue`).
+  private let onShare: (Bool) -> Void
+  private let shareLock = NSLock()
+  private var _share: ShareRegion?
+  private var _shotLines = 0
+  private var shareReplay: ShareReplay?
+  private var replayBegin = Date()
+  private let replaying: Bool
+  private var held: (seq: Int, image: CGImage, host: UInt64, t: Double, hash: String)?
+  private let shotQueue = DispatchQueue(label: "share.shots", qos: .utility)
 
-  init(dir: URL, meta: SpoolMeta, app: MeetingApp?, replay: URL?) throws {
+  /// `onShare` runs on the main queue when sharing starts (true) or stops in the call.
+  init(dir: URL, meta: SpoolMeta, app: MeetingApp?, replay: URL?, onShare: @escaping (Bool) -> Void = { _ in }) throws {
     self.dir = dir
     self.meta = meta
     meetingApp = app
+    self.onShare = onShare
+    replaying = replay != nil
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     meta.write(dir)
     self.app = try Track(id: 0, name: "app", url: dir.appendingPathComponent("app.pcm"))
@@ -59,6 +74,9 @@ final class Recording {
       startWatch()
       startSpeakers()
     }
+    // The first text recognition in a process loads Vision's models (a fraction of a second once
+    // cached; over a minute the first time on a busy Mac), so it happens now, not in the first save.
+    shotQueue.async { ShareShot.warmUp() }
   }
 
   /// Leftover spool from an earlier run (host away, helper restarted): read-only, already ended.
@@ -66,9 +84,12 @@ final class Recording {
     self.dir = dir
     self.meta = meta
     meetingApp = nil
+    onShare = { _ in }
+    replaying = false
     app = try Track(id: 0, name: "app", url: dir.appendingPathComponent("app.pcm"))
     mic = try Track(id: 1, name: "mic", url: dir.appendingPathComponent("mic.pcm"))
     _speakerLines = Self.lineCount(speakersURL)
+    _shotLines = Self.lineCount(shotsURL)
   }
 
   var files: [URL] { [app.url, mic.url] }
@@ -80,6 +101,14 @@ final class Recording {
     defer { speakerLock.unlock() }
     return _speakerLines
   }
+  var shotsURL: URL { dir.appendingPathComponent("shots.jsonl") }
+  var shotsDir: URL { dir.appendingPathComponent("shots") }
+  /// Shots written to `shots.jsonl` so far.
+  var shotLines: Int {
+    shareLock.lock()
+    defer { shareLock.unlock() }
+    return _shotLines
+  }
 
   static func lineCount(_ url: URL) -> Int {
     guard let data = try? Data(contentsOf: url) else { return 0 }
@@ -90,7 +119,9 @@ final class Recording {
 
   private func startSpeakers() {
     guard let meetingApp else { return }
-    let watch = SpeakerWatch(app: meetingApp) { [weak self] sample, host in self?.speakerSample(sample, host) }
+    let watch = SpeakerWatch(
+      app: meetingApp, onSample: { [weak self] sample, host in self?.speakerSample(sample, host) },
+      onShare: { [weak self] region, matched in self?.setShare(region, matched: matched) })
     if watch.start() {
       speakerWatch = watch
     } else {
@@ -123,6 +154,99 @@ final class Recording {
       _speakerLines += 1
       speakerLock.unlock()
     }
+  }
+
+  // MARK: Screen share
+
+  /// Whether a sample can be taken while sharing: Relay holds Screen Recording (only checked,
+  /// never asked for). A replay needs none.
+  var canCaptureScreen: Bool { replaying || CGPreflightScreenCaptureAccess() }
+
+  private var share: ShareRegion? {
+    shareLock.lock()
+    defer { shareLock.unlock() }
+    return _share
+  }
+
+  /// Where the shared content is now, or nil when nobody shares (any queue).
+  private func setShare(_ region: ShareRegion?, matched: String?) {
+    shareLock.lock()
+    let was = _share != nil
+    _share = region
+    shareLock.unlock()
+    DispatchQueue.main.async { [self] in
+      if let matched { warn(matched) }
+      if was != (region != nil), !meta.ended { onShare(region != nil) }
+    }
+  }
+
+  /// Captures the shared content now and holds it as `seq` (only the latest is held); answers its
+  /// change hash on the main queue.
+  func sampleShare(seq: Int, done: @escaping (Result<String, ShareError>) -> Void) {
+    guard !meta.ended else { return done(.failure(ShareError(reason: "the recording has ended"))) }
+    guard let region = share else { return done(.failure(ShareError(reason: "nobody is sharing"))) }
+    // The moment of the sample on the app track, like a speaker sample's.
+    let host = mach_absolute_time()
+    let t = nowMs()
+    let got: (Result<CGImage, ShareError>) -> Void = { [weak self] result in
+      let hashed = result.map { image -> (CGImage, String) in
+        let fit = ShareShot.fitted(image)
+        return (fit, ShareHash.dHash(fit))
+      }
+      DispatchQueue.main.async {
+        switch hashed {
+        case .success(let (image, hash)):
+          if let self, (self.held?.seq ?? Int.min) <= seq { self.held = (seq, image, host, t, hash) }
+          done(.success(hash))
+        case .failure(let e):
+          done(.failure(e))
+        }
+      }
+    }
+    if let shareReplay {
+      shareReplay.frame(at: Date().timeIntervalSince(replayBegin), done: got)
+    } else {
+      ShareCapture.capture(region, done: got)
+    }
+  }
+
+  /// Saves the held frame `seq` as the next shot (OCR, JPEG, a `shots.jsonl` line), off the main
+  /// queue; answers its number on the main queue.
+  func saveShare(seq: Int, done: @escaping (Result<Int, ShareError>) -> Void) {
+    guard !meta.ended else { return done(.failure(ShareError(reason: "the recording has ended"))) }
+    guard let h = held, h.seq == seq else { return done(.failure(ShareError(reason: "sample \(seq) is not held"))) }
+    held = nil
+    let at = app.sample(atHostTime: h.host)
+    shotQueue.async { [self] in
+      let result = writeShot(h.image, at: at, t: h.t, hash: h.hash)
+      DispatchQueue.main.async { done(result) }
+    }
+  }
+
+  /// On `shotQueue`: the JPEG first, then its line, so a line always has its image.
+  private func writeShot(_ image: CGImage, at: Int64, t: Double, hash: String) -> Result<Int, ShareError> {
+    let n = shotLines
+    guard let jpeg = ShareShot.jpeg(image) else { return .failure(ShareError(reason: "could not encode the JPEG")) }
+    let ocr = ShareShot.ocr(image)
+    do {
+      try FileManager.default.createDirectory(at: shotsDir, withIntermediateDirectories: true)
+      try jpeg.write(to: shotsDir.appendingPathComponent("\(n).jpg"), options: .atomic)
+      let line: [String: Any] = ["n": n, "at": at, "t": t, "w": image.width, "h": image.height, "hash": hash, "ocr": ocr]
+      let data = try JSONSerialization.data(withJSONObject: line, options: [.sortedKeys])
+      if !FileManager.default.fileExists(atPath: shotsURL.path) {
+        FileManager.default.createFile(atPath: shotsURL.path, contents: nil)
+      }
+      let fh = try FileHandle(forWritingTo: shotsURL)
+      defer { try? fh.close() }
+      try fh.seekToEnd()
+      try fh.write(contentsOf: data + Data([0x0A]))
+    } catch {
+      return .failure(ShareError(reason: "spool: \(error.localizedDescription)"))
+    }
+    shareLock.lock()
+    _shotLines += 1
+    shareLock.unlock()
+    return .success(n)
   }
 
   // MARK: Watchdog
@@ -278,6 +402,8 @@ final class Recording {
   /// DIR/app.wav and DIR/mic.wav (16 kHz mono s16) fed at real time, paced by the wall clock so a
   /// late timer tick catches up instead of slowing the recording down. DIR/speakers.jsonl, when
   /// there, is the window's samples (`at` on app.wav), written to the spool as their time comes.
+  /// DIR/share.mp4 with DIR/share.json is a screen share between its `from` and `to` seconds
+  /// (Share.swift's ShareReplay).
   private func startReplay(_ src: URL) throws {
     let sources = try ["app", "mic"].map { name -> AVAudioFile in
       let f = try AVAudioFile(forReading: src.appendingPathComponent("\(name).wav"), commonFormat: .pcmFormatInt16, interleaved: true)
@@ -298,6 +424,10 @@ final class Recording {
       cues.sort { $0.at < $1.at }
     }
     let begin = Date()
+    replayBegin = begin
+    shareReplay = ShareReplay(dir: src)
+    let shareSpan = shareReplay.map { ($0.from, $0.to) }
+    var sharing = false
     var fed: Int64 = 0
     let t = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "replay"))
     t.schedule(deadline: .now(), repeating: 0.1)
@@ -321,6 +451,14 @@ final class Recording {
         var line = c.line
         line["t"] = nowMs()
         self.writeSpeakerLine(line)
+      }
+      if let (from, to) = shareSpan {
+        let s = Date().timeIntervalSince(begin)
+        let on = s >= from && s < to
+        if on != sharing {
+          sharing = on
+          self.setShare(on ? ShareRegion(rect: .zero, pid: 0) : nil, matched: nil)
+        }
       }
     }
     replayTimer = t
@@ -369,6 +507,13 @@ final class Recording {
       try? speakerHandle?.close()
       speakerHandle = nil
     }
+    // A save Relay asked for before the stop lands in the spool before it is marked ended (the
+    // uplink sends `meeting.end` only after every shot line it counts).
+    shotQueue.sync {}
+    held = nil
+    shareLock.lock()
+    _share = nil
+    shareLock.unlock()
     app.close()
     mic.close()
     var tb = mach_timebase_info_data_t()

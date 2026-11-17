@@ -7,7 +7,7 @@
 set -e
 cd "$(dirname "$0")"
 
-FLAGS="-swift-version 5 -target arm64-apple-macosx14.4 -framework CoreAudio -framework AVFoundation -framework AppKit"
+FLAGS="-swift-version 5 -target arm64-apple-macosx14.4 -framework CoreAudio -framework AVFoundation -framework AppKit -framework CoreMedia -framework ScreenCaptureKit -framework Vision -framework ImageIO -framework UniformTypeIdentifiers"
 
 if [ "$1" = test ]; then
 	mkdir -p build

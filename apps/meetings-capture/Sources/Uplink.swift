@@ -2,12 +2,14 @@
 //
 // Binary frames: u8 track (0 app, 1 mic), i64 LE index of the first sample, s16 LE samples.
 // Text frames out: `meeting.hello` (id, app, title, start, rate), `meeting.speakers` (from, lines:
-// the window's speaker samples from `speakers.jsonl`, line `from` on), `meeting.end` (sample
+// the window's speaker samples from `speakers.jsonl`, line `from` on), `meeting.shot` (shot: one
+// `shots.jsonl` line, jpeg: its image in base64; one per frame, in order), `meeting.end` (sample
 // counts). Text frames in: `ack {track, upTo}` (the host holds every sample before upTo; sent right
-// after the hello and then every second), `ack.speakers {upTo}` (the speaker lines it holds; a host
-// that never sends it gets none), `meeting.done` (it has the whole recording: the spool can go) and
-// `meeting.stop` (Isaac stopped the recording from Relay). Sending starts at the host's ack, so a
-// reconnect resends exactly what the host is missing.
+// after the hello and then every second), `ack.speakers {upTo}` and `ack.shots {upTo}` (the speaker
+// lines and shots it holds; a host that never sends one gets none of that kind), `meeting.done`
+// (it has the whole recording: the spool can go) and `meeting.stop` (Isaac stopped the recording
+// from Relay). Sending starts at the host's ack, so a reconnect resends exactly what the host is
+// missing.
 import Foundation
 
 func ingestFrame(track: UInt8, at: Int64, pcm: Data) -> Data {
@@ -71,6 +73,8 @@ final class LineReader {
 /// Speaker lines per `meeting.speakers` frame, and how many may be unacked.
 let maxSpeakerLinesPerFrame = 200
 let maxSpeakerLinesInFlight = 2_000
+/// Unacked shots allowed in flight (each frame is a JPEG of up to a few hundred KB).
+let maxShotsInFlight = 3
 
 final class Uplink {
   enum Event {
@@ -96,12 +100,18 @@ final class Uplink {
   private let speakers: LineReader?
   private let speakerLines: () -> Int
   private var speakersAcked: Int?
+  private let shots: LineReader?
+  private let shotsDir: URL?
+  private let shotLines: () -> Int
+  private var shotsAcked: Int?
 
   /// `files[i]` is track i's spool file, `written(i)` how many samples it holds, `ended()` the
   /// meta once the recording has ended (then everything is sent and `meeting.end` follows);
-  /// `speakers` the speaker samples file and `speakerLines()` how many lines it holds.
+  /// `speakers` the speaker samples file and `speakerLines()` how many lines it holds; `shots` the
+  /// shots file, `shotsDir` their JPEGs (`<n>.jpg`) and `shotLines()` how many lines it holds.
   init(url: URL, hello: [String: Any], files: [URL], written: @escaping (Int) -> Int64,
        speakers: URL? = nil, speakerLines: @escaping () -> Int = { 0 },
+       shots: URL? = nil, shotsDir: URL? = nil, shotLines: @escaping () -> Int = { 0 },
        ended: @escaping () -> SpoolMeta?, onEvent: @escaping (Event) -> Void) {
     task = URLSession.shared.webSocketTask(with: url)
     self.files = files
@@ -112,6 +122,9 @@ final class Uplink {
     readers = files.map { try? FileHandle(forReadingFrom: $0) }
     self.speakers = speakers.map { LineReader(url: $0) }
     self.speakerLines = speakerLines
+    self.shots = shots.map { LineReader(url: $0) }
+    self.shotsDir = shotsDir
+    self.shotLines = shotLines
     acked = files.map { _ in nil }
     sent = files.map { _ in 0 }
   }
@@ -184,6 +197,10 @@ final class Uplink {
       // Like the audio: the first ack says where to start, later ones only move the window.
       if speakersAcked == nil || speakers.line < upTo { speakers.seek(upTo) }
       speakersAcked = upTo
+    case "ack.shots":
+      guard let upTo = (obj["upTo"] as? NSNumber)?.intValue, upTo >= 0, let shots else { return }
+      if shotsAcked == nil || shots.line < upTo { shots.seek(upTo) }
+      shotsAcked = upTo
     case "meeting.done":
       finish(nil, notify: false)
       onEvent(.done)
@@ -228,8 +245,20 @@ final class Uplink {
         }
       }
     }
+    if let shots, let shotsDir, let acked = shotsAcked {
+      var room = min(shotLines(), acked + maxShotsInFlight) - shots.line
+      while room > 0, let line = shots.next(1).first {
+        room -= 1
+        // The JPEG is written before its line, so it is there unless the spool was tampered with.
+        guard let n = shotNumber(line), let jpeg = try? Data(contentsOf: shotsDir.appendingPathComponent("\(n).jpg")) else { continue }
+        task.send(.string(shotFrame(line: line, jpeg: jpeg))) { [weak self] e in
+          if let e { self?.queue.async { self?.finish(e.localizedDescription, notify: true) } }
+        }
+      }
+    }
     let speakersDone = speakersAcked == nil || (speakers?.line ?? 0) >= speakerLines()
-    if !endSent, let meta = ended(), speakersDone, files.indices.allSatisfy({ sent[$0] >= written($0) }) {
+    let shotsDone = shotsAcked == nil || (shots?.line ?? 0) >= shotLines()
+    if !endSent, let meta = ended(), speakersDone, shotsDone, files.indices.allSatisfy({ sent[$0] >= written($0) }) {
       endSent = true
       var end: [String: Any] = ["t": "meeting.end", "samples": files.indices.map { written($0) }]
       if let at = meta.endedAt { end["endedAt"] = at }
@@ -247,6 +276,7 @@ final class Uplink {
     task.cancel(with: .normalClosure, reason: nil)
     for r in readers { try? r?.close() }
     speakers?.close()
+    shots?.close()
     if notify { onEvent(.closed(error)) }
   }
 }

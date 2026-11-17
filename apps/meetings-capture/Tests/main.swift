@@ -1,4 +1,5 @@
 // Logic tests for the capture helper: `sh build.sh test`.
+import AppKit
 import AVFoundation
 import Foundation
 
@@ -154,6 +155,98 @@ let at = gt.sample(atHostTime: h0 + AVAudioTime.hostTime(forSeconds: 1.25))
 check(abs(at - (before + 16_000 + 800)) <= 40, "host time maps onto the track: \(at) vs \(before + 16_800)")
 gt.close()
 try? FileManager.default.removeItem(at: tmp2)
+
+// Screen share: the shared content is a big element whose words name a share, never a control.
+check(ShareParse.matches(AXNode(role: "AXGroup", desc: "Screen sharing content from David Taylor")), "screen sharing label")
+check(ShareParse.matches(AXNode(role: "AXGroup", classes: ["fui-Flex", "screen-share-video"])), "screen-share class")
+check(ShareParse.matches(AXNode(role: "AXGroup", ident: "screenshare-stage")), "screenshare id")
+check(ShareParse.matches(AXNode(role: "AXGroup", ident: "content-share-container")), "content-share id")
+check(ShareParse.matches(AXNode(role: "AXImage", title: "David Taylor is presenting")), "is presenting")
+check(ShareParse.matches(AXNode(role: "AXGroup", desc: "Shared content")), "shared content")
+check(!ShareParse.matches(AXNode(role: "AXButton", title: "Share content")), "the share button")
+check(!ShareParse.matches(AXNode(role: "AXButton", title: "Stop presenting")), "the stop button")
+check(!ShareParse.matches(AXNode(role: "AXMenuItem", title: "David Taylor, is presenting, Context menu is available")), "a tile")
+check(!ShareParse.matches(AXNode(role: "AXCheckBox", title: "Include computer sound when screen sharing")), "a checkbox")
+check(!ShareParse.matches(AXNode(role: "AXRadioButton", title: "Shared content")), "a tab")
+check(!ShareParse.matches(AXNode(role: "AXStaticText", desc: "David Taylor is presenting", value: "David Taylor is presenting")), "a text")
+check(!ShareParse.matches(AXNode(role: "AXGroup", desc: "Share")), "share alone")
+check(!ShareParse.matches(AXNode(role: "AXGroup", desc: "Presenter mode")), "presenter mode")
+check(!ShareParse.matches(AXNode(role: "AXGroup", desc: "Gallery", classes: ["video-gallery"])), "the gallery")
+check(!ShareParse.bigEnough(CGRect(x: 0, y: 0, width: 300, height: 40)), "a toolbar is too small")
+check(ShareParse.bigEnough(CGRect(x: 0, y: 0, width: 320, height: 180)), "320x180 is enough")
+let stage = CGRect(x: 0, y: 0, width: 1600, height: 900)
+let content = CGRect(x: 160, y: 90, width: 1280, height: 720)
+check(ShareParse.pick([stage, content, CGRect(x: 0, y: 0, width: 300, height: 40)]) == 1, "the content inside the stage")
+check(ShareParse.pick([CGRect(x: 0, y: 0, width: 200, height: 100)]) == nil, "nothing big enough")
+let said = ShareParse.describe(AXNode(role: "AXGroup", desc: "Shared content", classes: ["a", "b"]), frame: content)
+check(said.contains("AXGroup") && said.contains("\"Shared content\"") && said.contains("[a b]") && said.contains("1280x720"), "matched line \(said)")
+
+// Capture geometry: the app's window that holds the region, the region in its own points.
+let shareRegion = ShareRegion(rect: CGRect(x: 300, y: 200, width: 1280, height: 720), pid: 42)
+let shareWindows: [(frame: CGRect, pid: pid_t)] = [
+  (CGRect(x: 0, y: 0, width: 3000, height: 2000), 7),
+  (CGRect(x: 250, y: 150, width: 400, height: 300), 42),
+  (CGRect(x: 100, y: 50, width: 1600, height: 1000), 42),
+]
+check(ShareCapture.window(for: shareRegion, in: shareWindows) == 2, "the call window, not a popup or another app")
+check(ShareCapture.window(for: ShareRegion(rect: shareRegion.rect, pid: 9), in: shareWindows) == nil, "no window of the app")
+check(ShareCapture.sourceRect(shareRegion.rect, window: shareWindows[2].frame) == CGRect(x: 200, y: 150, width: 1280, height: 720), "window-local rect")
+check(ShareCapture.sourceRect(shareRegion.rect, window: CGRect(x: 100, y: 50, width: 800, height: 600)) == CGRect(x: 200, y: 150, width: 600, height: 450), "clipped to the window")
+check(ShareCapture.sourceRect(shareRegion.rect, window: CGRect(x: 5000, y: 0, width: 100, height: 100)) == nil, "outside the window")
+check(ShareCapture.pixels(CGRect(x: 0, y: 0, width: 1280, height: 720), scale: 2) == (1920, 1080), "capped at 1920 wide")
+check(ShareCapture.pixels(CGRect(x: 0, y: 0, width: 640, height: 360), scale: 2) == (1280, 720), "backing scale")
+
+// Change hash: the same slide hashes the same, a small change moves a few bits, a new slide many.
+func slide(_ lines: [String], box: CGRect? = nil, width: Int = 1280, height: Int = 720) -> CGImage {
+  let ctx = CGContext(
+    data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+    space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+  ctx.setFillColor(CGColor(red: 0.96, green: 0.96, blue: 0.94, alpha: 1))
+  ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+  NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+  for (i, l) in lines.enumerated() {
+    let font = i == 0 ? NSFont.boldSystemFont(ofSize: 64) : NSFont.systemFont(ofSize: 40)
+    (l as NSString).draw(at: NSPoint(x: 80, y: height - 140 - i * 90), withAttributes: [.font: font, .foregroundColor: NSColor.black])
+  }
+  NSGraphicsContext.current = nil
+  if let box {
+    ctx.setFillColor(CGColor(red: 0.8, green: 0.1, blue: 0.1, alpha: 1))
+    ctx.fill(box)
+  }
+  return ctx.makeImage()!
+}
+let slideA = slide(["Quarterly revenue", "Sales grew in every region", "Hiring plan for next year", "Budget review on Friday"])
+let slideB = slide(["Product roadmap", "Launch the mobile app", "Retire the old billing system"])
+let hashA = ShareHash.dHash(slideA)
+check(hashA.count == 64 && hashA.allSatisfy(\.isHexDigit), "64 hex chars")
+check(ShareHash.dHash(slide(["Quarterly revenue", "Sales grew in every region", "Hiring plan for next year", "Budget review on Friday"])) == hashA, "same slide, same hash")
+let smallMove = ShareHash.distance(hashA, ShareHash.dHash(slide(["Quarterly revenue", "Sales grew in every region", "Hiring plan for next year", "Budget review on Friday"], box: CGRect(x: 1150, y: 40, width: 40, height: 40))))!
+let newSlide = ShareHash.distance(hashA, ShareHash.dHash(slideB))!
+check(smallMove > 0 && smallMove <= 16, "a small box moves a few bits: \(smallMove)")
+// Two text slides on one template differ less than a new layout would: 23 bits of 256 here, 30 to
+// 38 between the replay fixture's slides, against 0 to 5 for the same slide with a moving box.
+check(newSlide >= 20 && newSlide >= 3 * smallMove, "a new slide moves many: \(newSlide) vs \(smallMove)")
+check(ShareHash.distance("ff", "0f") == 4 && ShareHash.distance("ab", "abc") == nil && ShareHash.distance("zz", "00") == nil, "hamming distance")
+var ramp = [UInt8](repeating: 0, count: 17 * 16)
+for y in 0..<16 { for x in 0..<17 { ramp[y * 17 + x] = UInt8(255 - x * 15) } }
+check(ShareHash.dHash(gray: ramp) == String(repeating: "f", count: 64), "left brighter everywhere: every bit set")
+
+// Saving: at most 1920 wide, a JPEG of that size, the text read back.
+let wide = slide(["Wide"], width: 2560, height: 1440)
+let fit = ShareShot.fitted(wide)
+check(fit.width == 1920 && fit.height == 1080, "fitted \(fit.width)x\(fit.height)")
+check(ShareShot.fitted(slideA).width == 1280, "small enough already")
+let jpegData = ShareShot.jpeg(slideA)!
+let jsrc = CGImageSourceCreateWithData(jpegData as CFData, nil)!
+check(CGImageSourceGetType(jsrc) as String? == "public.jpeg" && CGImageSourceCreateImageAtIndex(jsrc, 0, nil)?.width == 1280, "jpeg round trip")
+let read = ShareShot.ocr(slideA)
+check(read.contains("Quarterly revenue") && read.contains("Budget review on Friday"), "ocr: \(read)")
+
+// Upload: a `shots.jsonl` line goes verbatim under `shot`, with its JPEG in base64.
+let shotLine = "{\"at\":16000,\"h\":720,\"hash\":\"00\",\"n\":3,\"ocr\":\"Hi\",\"t\":1700000000000,\"w\":1280}"
+check(shotNumber(shotLine) == 3 && shotNumber("nope") == nil, "shot number")
+let sf = try! JSONSerialization.jsonObject(with: Data(shotFrame(line: shotLine, jpeg: Data([1, 2, 3])).utf8)) as! [String: Any]
+check(sf["t"] as? String == "meeting.shot" && (sf["shot"] as? [String: Any])?["n"] as? Int == 3 && (sf["shot"] as? [String: Any])?["t"] as? Int == 1_700_000_000_000 && sf["jpeg"] as? String == "AQID", "shot frame \(sf)")
 
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

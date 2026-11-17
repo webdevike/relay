@@ -1,0 +1,77 @@
+[  -  ] {"ev":"ready","version":1}
+[1794945113.4] > {"cmd":"record","app":"Microsoft Teams","title":"Share smoke"}
+[  -  ] {"app":"Microsoft Teams","ev":"recording","id":"c162db95-cf21-4223-89d3-405001eadf1d","startedAt":1794945113417,"title":"Share smoke"}
+[  1.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":0}
+[  1.0] {"ev":"share.sample.failed","id":"c162db95-cf21-4223-89d3-405001eadf1d","reason":"nobody is sharing","seq":0}
+[  2.0] {"ev":"share","id":"c162db95-cf21-4223-89d3-405001eadf1d","permission":true,"state":"on"}
+[  4.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":1}
+[  4.1] {"ev":"share.sampled","hash":"0000b000ec0010009480ca80d000c8008c00d400000000000000200000000000","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":1}
+[  4.1] > {"cmd":"share.save","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":1}
+[  4.2] {"ev":"share.saved","id":"c162db95-cf21-4223-89d3-405001eadf1d","n":0,"seq":1}
+[  8.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":2}
+[  8.1] {"ev":"share.sampled","hash":"0000b000ec0010009480ca80d000c8008c00d400000000000000100000000000","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":2}
+[ 12.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":3}
+[ 12.0] {"ev":"share.sampled","hash":"0000b000ec0010009480ca80d000c8008c00d400000000000c000c0000000000","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":3}
+[ 16.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":4}
+[ 16.0] {"ev":"share.sampled","hash":"00009400ce000200ea00dd009a00dc00b000d800000000000600000000000000","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":4}
+[ 16.0] > {"cmd":"share.save","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":4}
+[ 16.1] {"ev":"share.saved","id":"c162db95-cf21-4223-89d3-405001eadf1d","n":1,"seq":4}
+[ 20.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":5}
+[ 20.0] {"ev":"share.sampled","hash":"00009400ce000200ea00dd009a00dc00b000d800000002000300000000000000","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":5}
+[ 25.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":6}
+[ 25.0] {"ev":"share.sampled","hash":"00009400ce000200ea00dd009a00dc00b000d800000000800080000000000000","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":6}
+[ 30.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":7}
+[ 30.0] {"ev":"share.sampled","hash":"80008800d800a0009700ea00b600e0009000e800000000400000000000000000","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":7}
+[ 30.0] > {"cmd":"share.save","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":7}
+[ 30.1] {"ev":"share.saved","id":"c162db95-cf21-4223-89d3-405001eadf1d","n":2,"seq":7}
+[ 35.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":8}
+[ 35.0] {"ev":"share.sampled","hash":"80008800d800a0009700ea00b600e0009000e800003000300000000000000000","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":8}
+[ 38.0] {"ev":"share","id":"c162db95-cf21-4223-89d3-405001eadf1d","permission":true,"state":"off"}
+[ 39.0] > {"cmd":"share.sample","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":9}
+[ 39.0] {"ev":"share.sample.failed","id":"c162db95-cf21-4223-89d3-405001eadf1d","reason":"nobody is sharing","seq":9}
+[ 39.0] > {"cmd":"share.save","id":"c162db95-cf21-4223-89d3-405001eadf1d","seq":99}
+[ 39.0] {"ev":"share.save.failed","id":"c162db95-cf21-4223-89d3-405001eadf1d","reason":"sample 99 is not held","seq":99}
+[ 39.0] > {"cmd":"stop","id":"c162db95-cf21-4223-89d3-405001eadf1d"}
+[ 39.0] {"ev":"stopped","id":"c162db95-cf21-4223-89d3-405001eadf1d","seconds":38.858812499999999}
+[ 39.0] > {"cmd":"quit"}
+
+Hash distances (bits of 256, percent):
+  4s(A) vs 8s(A): 2 bits = 0.8%
+  4s(A) vs 12s(A): 5 bits = 2.0%
+  4s(A) vs 16s(B): 32 bits = 12.5%
+  4s(A) vs 20s(B): 33 bits = 12.9%
+  4s(A) vs 25s(B): 32 bits = 12.5%
+  4s(A) vs 30s(C): 30 bits = 11.7%
+  4s(A) vs 35s(C): 33 bits = 12.9%
+  8s(A) vs 12s(A): 5 bits = 2.0%
+  8s(A) vs 16s(B): 32 bits = 12.5%
+  8s(A) vs 20s(B): 33 bits = 12.9%
+  8s(A) vs 25s(B): 32 bits = 12.5%
+  8s(A) vs 30s(C): 30 bits = 11.7%
+  8s(A) vs 35s(C): 33 bits = 12.9%
+  12s(A) vs 16s(B): 33 bits = 12.9%
+  12s(A) vs 20s(B): 36 bits = 14.1%
+  12s(A) vs 25s(B): 35 bits = 13.7%
+  12s(A) vs 30s(C): 33 bits = 12.9%
+  12s(A) vs 35s(C): 36 bits = 14.1%
+  16s(B) vs 20s(B): 3 bits = 1.2%
+  16s(B) vs 25s(B): 4 bits = 1.6%
+  16s(B) vs 30s(C): 34 bits = 13.3%
+  16s(B) vs 35s(C): 37 bits = 14.5%
+  20s(B) vs 25s(B): 5 bits = 2.0%
+  20s(B) vs 30s(C): 35 bits = 13.7%
+  20s(B) vs 35s(C): 38 bits = 14.8%
+  25s(B) vs 30s(C): 34 bits = 13.3%
+  25s(B) vs 35s(C): 37 bits = 14.5%
+  30s(C) vs 35s(C): 5 bits = 2.0%
+same slide: max 5 bits (2.0%); different slides: min 30 bits (11.7%)
+
+shots.jsonl:
+  #0 at=64266 (4.0 s) 1280x720 hash=0000b000ec0010009480ca80d000c8008c00d400000000000000200000000000
+    ocr: "Quarterly revenue\n• Sales grew 12 percent in every region\n• Hiring plan for next year\n• Budget review on Friday"
+  #1 at=256556 (16.0 s) 1280x720 hash=00009400ce000200ea00dd009a00dc00b000d800000000000600000000000000
+    ocr: "Product roadmap\n• Launch the mobile app in March\n• Retire the old billing system\n• Owner: Ted Plaisted"
+  #2 at=480497 (30.0 s) 1280x720 hash=80008800d800a0009700ea00b600e0009000e800000000400000000000000000
+    ocr: "Open questions\n• Who signs the vendor contract?\n• Do we keep the Austin office?\n• Next sync: November 24"
+
+spool: /var/folders/bf/qzxn5z455svdq71_yvw269xr0000gn/T/relay-share-smoke-aiyrtp/c162db95-cf21-4223-89d3-405001eadf1d

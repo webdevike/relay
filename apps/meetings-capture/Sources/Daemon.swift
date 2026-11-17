@@ -5,8 +5,15 @@
 // Events: ready, call.start {app, browser, title}, call.end {app}, recording {id, app, title,
 // startedAt}, pending {id, app, title, startedAt} (a spool from an earlier run that the host has
 // not got yet), connected {id}, disconnected {id, error}, health {id, state, detail}, stopped {id,
-// seconds}, uploaded {id}, stop.requested {id}, warning {id?, message}, error {message}.
-// Commands: record {app, title?}, connect {id, url}, stop {id}, discard {id}, quit.
+// seconds}, uploaded {id}, stop.requested {id}, warning {id?, message}, error {message},
+// share {id, state: on|off, permission} (someone started or stopped sharing their screen in the
+// call, and again while on when the Screen Recording grant changes; permission is only checked,
+// never asked for), share.sampled {id, seq, hash} / share.sample.failed {id, seq, reason},
+// share.saved {id, seq, n} / share.save.failed {id, seq, reason}.
+// Commands: record {app, title?}, connect {id, url}, stop {id}, discard {id}, quit,
+// share.sample {id, seq} (capture the shared content now and hold it as seq: only the latest is
+// held; answers its 256-bit change hash), share.save {id, seq} (OCR and JPEG the held frame seq
+// into the spool as the next shot n, uploaded as `meeting.shot`).
 import Foundation
 
 func emit(_ obj: [String: Any]) {
@@ -26,6 +33,8 @@ final class Daemon {
   private var appOf: [String: String] = [:]
   private var uplinks: [String: Uplink] = [:]
   private var warned: [String: Int] = [:]
+  /// Recordings whose call shows a screen share, with the permission last reported for it.
+  private var sharePermission: [String: Bool] = [:]
   private var timers: [DispatchSourceTimer] = []
 
   init(spool: URL, replay: URL?, detect: Bool, startAfter: TimeInterval, endAfter: TimeInterval) {
@@ -110,6 +119,9 @@ final class Daemon {
       uplinks.removeValue(forKey: id)?.close()
       recordings[id] = nil
       try? FileManager.default.removeItem(at: spool.appendingPathComponent(id))
+    case "share.sample", "share.save":
+      guard let id = obj["id"] as? String, let seq = (obj["seq"] as? NSNumber)?.intValue else { return }
+      shareCommand(cmd, id, seq)
     case "quit":
       shutdown()
     default:
@@ -124,7 +136,7 @@ final class Daemon {
     let app = meetingApp(named: name)
     let meta = SpoolMeta(id: id, app: name, title: title ?? app.flatMap(windowTitle), startedAt: nowMs(), ended: false)
     do {
-      let rec = try Recording(dir: dir, meta: meta, app: app, replay: replay)
+      let rec = try Recording(dir: dir, meta: meta, app: app, replay: replay) { [weak self] on in self?.shareChanged(id, on) }
       recordings[id] = rec
       appOf[id] = name
       var ev: [String: Any] = ["ev": "recording", "id": id, "app": name, "startedAt": meta.startedAt]
@@ -139,7 +151,41 @@ final class Daemon {
     guard let rec = recordings[id], !rec.meta.ended else { return }
     rec.stop()
     appOf[id] = nil
+    // The share is no longer watched once the recording stops.
+    if let permission = sharePermission.removeValue(forKey: id) {
+      emit(["ev": "share", "id": id, "state": "off", "permission": permission])
+    }
     emit(["ev": "stopped", "id": id, "seconds": rec.seconds])
+  }
+
+  private func shareChanged(_ id: String, _ on: Bool) {
+    guard let rec = recordings[id], !rec.meta.ended else { return }
+    let permission = rec.canCaptureScreen
+    sharePermission[id] = on ? permission : nil
+    emit(["ev": "share", "id": id, "state": on ? "on" : "off", "permission": permission])
+  }
+
+  private func shareCommand(_ cmd: String, _ id: String, _ seq: Int) {
+    let sampling = cmd == "share.sample"
+    let failed = { (reason: String) in
+      emit(["ev": sampling ? "share.sample.failed" : "share.save.failed", "id": id, "seq": seq, "reason": reason])
+    }
+    guard let rec = recordings[id] else { return failed("no recording \(id)") }
+    if sampling {
+      rec.sampleShare(seq: seq) { result in
+        switch result {
+        case .success(let hash): emit(["ev": "share.sampled", "id": id, "seq": seq, "hash": hash])
+        case .failure(let e): failed(e.reason)
+        }
+      }
+    } else {
+      rec.saveShare(seq: seq) { result in
+        switch result {
+        case .success(let n): emit(["ev": "share.saved", "id": id, "seq": seq, "n": n])
+        case .failure(let e): failed(e.reason)
+        }
+      }
+    }
   }
 
   private func connect(_ id: String, _ url: URL) {
@@ -156,6 +202,7 @@ final class Daemon {
     let uplink = Uplink(
       url: url, hello: hello, files: rec.files, written: { rec.written($0) },
       speakers: rec.speakersURL, speakerLines: { rec.speakerLines },
+      shots: rec.shotsURL, shotsDir: rec.shotsDir, shotLines: { rec.shotLines },
       ended: { rec.meta.ended ? rec.meta : nil },
       onEvent: { [weak self] event in DispatchQueue.main.async { self?.uplinkEvent(id, event) } })
     uplinks[id] = uplink
@@ -205,6 +252,11 @@ final class Daemon {
       let shown = warned[id] ?? 0
       for w in rec.warnings.dropFirst(shown) { emit(["ev": "warning", "id": id, "message": w]) }
       warned[id] = rec.warnings.count
+      // Screen Recording granted or taken away while someone shares.
+      if let was = sharePermission[id], rec.canCaptureScreen != was {
+        sharePermission[id] = !was
+        emit(["ev": "share", "id": id, "state": "on", "permission": !was])
+      }
       if rec.checkHealth() {
         let detail: String
         switch rec.health {

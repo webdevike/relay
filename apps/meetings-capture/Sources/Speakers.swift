@@ -181,17 +181,33 @@ private func snapshot(_ e: AXUIElement, depth: Int, budget: inout Int) -> AXNode
   return n
 }
 
-/// What the walk needs to tell a tile or a captions region (fewer reads than a snapshot).
+/// What the walk needs to tell a tile, a captions region or shared content (fewer reads than a
+/// snapshot).
 private func probe(_ e: AXUIElement) -> AXNode {
   var n = AXNode(role: axString(e, kAXRoleAttribute), title: axString(e, kAXTitleAttribute))
   if n.title.isEmpty { n.desc = axString(e, kAXDescriptionAttribute) }
-  if n.role == "AXGroup" || n.role == "AXList" || n.role == "AXScrollArea" {
+  // Controls and text are never captions or shared content, so their DOM names are not read.
+  if !ShareParse.skippedRoles.contains(n.role) {
+    if !n.title.isEmpty { n.desc = axString(e, kAXDescriptionAttribute) }
     n.ident = axString(e, "AXDOMIdentifier")
     n.classes = axAttr(e, "AXDOMClassList") as? [String] ?? []
+  }
+  if n.role == "AXGroup" || n.role == "AXList" || n.role == "AXScrollArea" {
     // isCaptions wants children; the walk only needs to know the label says captions.
     n.children = [AXNode()]
   }
   return n
+}
+
+/// An element's frame in global top-left points.
+private func axFrame(_ e: AXUIElement) -> CGRect? {
+  guard let p = axAttr(e, kAXPositionAttribute), let s = axAttr(e, kAXSizeAttribute),
+    CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID()
+  else { return nil }
+  var origin = CGPoint.zero
+  var size = CGSize.zero
+  guard AXValueGetValue(p as! AXValue, .cgPoint, &origin), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
+  return CGRect(origin: origin, size: size)
 }
 
 /// A tile's label and its children's classes (where Teams marks the talker).
@@ -203,10 +219,13 @@ private func tileNode(_ e: AXUIElement) -> AXNode {
 }
 
 /// Samples the meeting app's windows on its own queue. `onSample` gets every changed sample and the
-/// host time it was read at, plus the unchanged one every `keepAlive` seconds.
+/// host time it was read at, plus the unchanged one every `keepAlive` seconds. `onShare` gets the
+/// shared content's region whenever it appears, moves or goes (nil), with what matched the first
+/// time of each share (Share.swift has the rule).
 final class SpeakerWatch {
   private let app: MeetingApp
   private let onSample: (SpeakerSample, UInt64) -> Void
+  private let onShare: (ShareRegion?, String?) -> Void
   private let queue = DispatchQueue(label: "speakers", qos: .utility)
   private var timer: DispatchSourceTimer?
   private var tiles: [AXUIElement] = []
@@ -214,6 +233,9 @@ final class SpeakerWatch {
   private var lastWalk = Date.distantPast
   private var last: SpeakerSample?
   private var lastSent = Date.distantPast
+  private var shareElement: AXUIElement?
+  private var share: ShareRegion?
+  private var shareSeen = Date.distantPast
   /// Processes this watch turned AXEnhancedUserInterface on for (only touched on `queue`).
   private var enhanced = Set<pid_t>()
   /// Processes already looked at, whether or not they needed it.
@@ -221,10 +243,14 @@ final class SpeakerWatch {
   static let period = 0.2
   static let walkEvery = 3.0
   static let keepAlive = 5.0
+  /// A share ends once no walk has found it for this long (two walks), not on one missed read.
+  static let shareGrace = 4.0
 
-  init(app: MeetingApp, onSample: @escaping (SpeakerSample, UInt64) -> Void) {
+  init(app: MeetingApp, onSample: @escaping (SpeakerSample, UInt64) -> Void,
+       onShare: @escaping (ShareRegion?, String?) -> Void = { _, _ in }) {
     self.app = app
     self.onSample = onSample
+    self.onShare = onShare
   }
 
   /// False (and nothing runs) without the Accessibility grant; never prompts for it.
@@ -269,10 +295,11 @@ final class SpeakerWatch {
     enhanced.insert(pid)
   }
 
-  /// Finds the tiles and caption regions in every window of the app.
+  /// Finds the tiles, caption regions and shared content in every window of the app.
   private func walk() {
     tiles = []
     regions = []
+    var shares: [(e: AXUIElement, node: AXNode, frame: CGRect)] = []
     var budget = 6_000
     func visit(_ e: AXUIElement, _ depth: Int) {
       guard depth < 60, budget > 0 else { return }
@@ -286,16 +313,52 @@ final class SpeakerWatch {
         regions.append(e)
         return
       }
+      // The walk goes on below a match: the content may sit inside a stage that also matches.
+      if ShareParse.matches(n), let f = axFrame(e), ShareParse.bigEnough(f) { shares.append((e, n, f)) }
       for k in axChildren(e) { visit(k, depth + 1) }
     }
     for appEl in appElements() {
       for w in (axAttr(appEl, kAXWindowsAttribute) as? [AXUIElement]) ?? [] { visit(w, 0) }
     }
     lastWalk = Date()
+    if let i = ShareParse.pick(shares.map(\.frame)) {
+      let c = shares[i]
+      var pid: pid_t = 0
+      AXUIElementGetPid(c.e, &pid)
+      shareElement = c.e
+      shareSeen = lastWalk
+      let region = ShareRegion(rect: c.frame, pid: pid)
+      if region != share {
+        let first = share == nil
+        share = region
+        onShare(region, first ? ShareParse.describe(c.node, frame: c.frame) : nil)
+      }
+    } else if share != nil, lastWalk.timeIntervalSince(shareSeen) >= Self.shareGrace {
+      shareElement = nil
+      share = nil
+      onShare(nil, nil)
+    }
+  }
+
+  /// Follows the shared content when the window moves or resizes; a lost element is looked for
+  /// again at once.
+  private func trackShare() {
+    guard let e = shareElement, var s = share else { return }
+    guard let f = axFrame(e), ShareParse.bigEnough(f) else {
+      shareElement = nil
+      lastWalk = .distantPast
+      return
+    }
+    if f != s.rect {
+      s.rect = f
+      share = s
+      onShare(s, nil)
+    }
   }
 
   private func tick() {
     if Date().timeIntervalSince(lastWalk) >= Self.walkEvery { walk() }
+    trackShare()
     let host = mach_absolute_time()
     var found: [Tile] = []
     for e in tiles {
