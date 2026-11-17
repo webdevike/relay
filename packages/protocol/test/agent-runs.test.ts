@@ -9,6 +9,7 @@ import {
   foldAgentRuns,
   liveAgentRuns,
   recentAgentRuns,
+  settleAgentRuns,
   type AgentRun,
 } from "../src/agent-runs";
 
@@ -169,6 +170,50 @@ describe("liveAgentRuns: a chat's badges from start to finish", () => {
     const old: AgentRun = { agent: "diagram", run: "r-0", status: "done", startedAt: 500, seconds: 3 };
     const fresh: AgentRun = { agent: "design-critic", status: "running" };
     expect(liveAgentRuns([asked, fresh], [old]).map((r) => r.agent)).toEqual(["design-critic", "web-researcher", "diagram"]);
+  });
+});
+
+describe("settleAgentRuns: a running badge against the service's whole record", () => {
+  const min = 60_000;
+  const now = 100 * min;
+  const out: AgentRun = { agent: "prop-render", run: "r-1", status: "running", startedAt: now - 54 * min };
+
+  it("a run the service finished while nobody polled reads done, keeping the transcript's request", () => {
+    const withRequest: AgentRun = { ...out, request: { subject: "turbine" } };
+    const service: AgentRun = { agent: "prop-render", run: "r-1", status: "done", seconds: 98, startedAt: now - 54 * min };
+    expect(settleAgentRuns([withRequest], { runs: [service], now })).toEqual([
+      { ...withRequest, status: "done", seconds: 98 },
+    ]);
+    expect(settleAgentRuns([out], { runs: [{ ...service, status: "failed", error: "crashed" }], now })[0]).toMatchObject({
+      status: "failed",
+      error: "crashed",
+    });
+  });
+
+  it("a run still out on the service stays running; finished badges are left alone", () => {
+    const service: AgentRun = { agent: "prop-render", run: "r-1", status: "running", startedAt: now - 54 * min };
+    expect(settleAgentRuns([out], { runs: [service], now })[0]!.status).toBe("running");
+    const done: AgentRun = { ...out, status: "done" };
+    expect(settleAgentRuns([done], { runs: [], now })).toEqual([done]);
+  });
+
+  it("a run id the service never recorded fails; one older than a cut-off list is not judged", () => {
+    expect(settleAgentRuns([out], { runs: [], now })[0]).toMatchObject({ status: "failed", error: expect.any(String) });
+    expect(settleAgentRuns([out], { runs: [], now, since: now - 10 * min })[0]!.status).toBe("running");
+    expect(settleAgentRuns([out], { runs: [], now, since: now - 60 * min })[0]!.status).toBe("failed");
+  });
+
+  it("an ask that never got a run id fails once it is old, not while it may still be answering", () => {
+    const asking: AgentRun = { agent: "prop-render", status: "running", startedAt: now - 2 * min };
+    expect(settleAgentRuns([asking], { runs: [], now })[0]!.status).toBe("running");
+    expect(settleAgentRuns([{ ...asking, startedAt: now - 11 * min }], { runs: [], now })[0]!.status).toBe("failed");
+  });
+
+  it("after settling, the badge strip drops what finished long ago and shows the rest done", () => {
+    const service: AgentRun = { agent: "prop-render", run: "r-1", status: "done", seconds: 98, startedAt: now - 54 * min };
+    const fresh: AgentRun = { agent: "prop-render", run: "r-2", status: "running", startedAt: now - 2 * min };
+    const strip = recentAgentRuns(settleAgentRuns([out, fresh], { runs: [service, { ...fresh }], now }), now);
+    expect(strip.map((r) => [r.run, r.status])).toEqual([["r-2", "running"]]);
   });
 });
 

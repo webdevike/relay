@@ -38,6 +38,7 @@ import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
 import { handleAssistantFile } from "./assistant/files";
+import { SpecialistRunBook } from "./assistant/specialist-runs";
 import type { FoundAsk, ListedAsk } from "./assistant/http";
 import type { ConsultResult } from "./seams";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
@@ -552,6 +553,8 @@ function serve(
         });
   // One judge for every thread: did Isaac's later turns already answer an open ask?
   const askJudge = claudeAskJudge(bunRun, resolveClaude());
+  // What the atomic-agents service recorded of specialist runs: every thread settles its running badges against it.
+  const specialistRuns = new SpecialistRunBook(defaultAtomicAgentsHome());
   const thread = (agent: AssistantAgentConfig): AssistantService =>
     new AssistantService({
       agent,
@@ -576,6 +579,7 @@ function serve(
       spawn: spawnFill,
       aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
       logPath: hostLogPath(),
+      specialistRuns,
       onReply: (reply): void => {
         void replyWidgets?.reply(reply);
       },

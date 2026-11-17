@@ -274,8 +274,8 @@ function ChatView({
   const minute = useMinute()
   const specialists = useMemo(() => {
     if (!pane) return []
-    const service = chatServiceRuns(serviceRuns, pane.file, agent)
-    return chatSpecialists(shownMessages ?? [], service, minute).filter(
+    const service = chatServiceRuns(serviceRuns ?? [], pane.file, agent)
+    return chatSpecialists(shownMessages ?? [], service, minute, serviceRuns).filter(
       (r) => !(r.status !== 'running' && hiddenDone.has(hiddenKey(pane.file, specialistName(r)))),
     )
   }, [pane, serviceRuns, agent, shownMessages, minute, hiddenDone])

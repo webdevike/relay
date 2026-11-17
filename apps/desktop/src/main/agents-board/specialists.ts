@@ -8,16 +8,20 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { z } from 'zod'
-import type { Assistant, SpecialistCaller, SpecialistRuns } from '@evaos/contract'
+import {
+  SPECIALIST_LIMIT,
+  type Assistant,
+  type SpecialistCaller,
+  type SpecialistRuns,
+} from '@evaos/contract'
 import type { ChatHandles } from '../chat'
 import type { MainContext } from '../context'
 import { sessionTitle } from '../context-popover/sessions'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { emit, handle } from '../ipc/handle'
 
-/** The week the per-specialist counts cover, and how many runs the list shows. */
+/** The week the per-specialist counts cover. */
 export const SPECIALIST_DAYS = 7
-export const SPECIALIST_LIMIT = 60
 const RUNS_TIMEOUT_MS = 20_000
 /** How often the journal's size and time are read, and how long a burst of appends settles. */
 const JOURNAL_POLL_MS = 1000

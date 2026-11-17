@@ -31,6 +31,7 @@ import {
 import { MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from "../src/assistant/replies";
 import type { FillSpawn } from "../src/assistant/signin";
 import { type AskCase, AskStore } from "../src/assistant/ask-store";
+import { SpecialistRunBook } from "../src/assistant/specialist-runs";
 import type { AskJudge } from "../src/assistant/ask-judge";
 import {
   defaultAssistantPath,
@@ -233,6 +234,8 @@ interface HarnessOptions {
   judgeAsk?: AskJudge;
   /** Gets each finished turn's last reply (the widget hook). */
   onReply?: (reply: FinishedReply) => void;
+  /** The atomic-agents service's runs the thread settles its specialist badges against; default none. */
+  specialistRuns?: SpecialistRunBook;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -293,6 +296,7 @@ function harness(options: HarnessOptions = {}) {
     asks,
     ...(options.judgeAsk === undefined ? {} : { judgeAsk: options.judgeAsk }),
     ...(options.onReply === undefined ? {} : { onReply: options.onReply }),
+    ...(options.specialistRuns === undefined ? {} : { specialistRuns: options.specialistRuns }),
     tokens: {
       tokens: () => tokens,
       unregister: (deviceId) => {
@@ -1492,6 +1496,48 @@ describe("AssistantService earlier contexts", () => {
         sources: 1,
       },
     ]);
+  });
+
+  it("settles a specialist the transcript left running against the service: done, failed, or unknown", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-journal-"));
+    dirs.push(dir);
+    const at = "2026-11-17T15:07:01.000Z";
+    const requested = (id: string) =>
+      JSON.stringify({ id: `q-${id}`, type: "atomic-agents/run.requested", component: "atomic-agents", job: "ask", run: `ask-${id}`, at, caller: "agent:nova", data: { requestId: id, agent: "prop-render", job: "render", input: {} } });
+    const started = (id: string) =>
+      JSON.stringify({ id: `s-${id}`, type: "prop-render/job.started", component: "prop-render", job: "render", run: id, at, data: { _tag: "job.started", requestId: id, input: {}, model: "m" } });
+    const ended = (id: string, tag: "job.succeeded" | "job.failed") =>
+      JSON.stringify({ id: `e-${id}`, type: `prop-render/${tag}`, component: "prop-render", job: "render", run: id, at, data: { _tag: tag, seconds: 98, message: "crashed" } });
+    writeFileSync(
+      join(dir, "events.ndjson"),
+      [requested("r-done"), started("r-done"), ended("r-done", "job.succeeded"), requested("r-bad"), started("r-bad"), ended("r-bad", "job.failed"), requested("r-live"), started("r-live")].join("\n") + "\n",
+    );
+    const h = harness({ specialistRuns: new SpecialistRunBook(dir) });
+    const file = join(h.home, "2026-11-17T0400_iiii.jsonl");
+    const ask = (id: string, run: string) => [
+      JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", id, name: "write", arguments: { path: "xd://mcp__relay_agents_ask", content: JSON.stringify({ agent: "prop-render", request: { subject: id } }) } }], timestamp: 2 } }),
+      JSON.stringify({ type: "message", message: { role: "toolResult", toolCallId: id, toolName: "write", content: [{ type: "text", text: JSON.stringify({ run, agent: "prop-render", status: "running" }) }], isError: false, timestamp: 3 } }),
+    ];
+    writeFileSync(
+      file,
+      [
+        JSON.stringify({ type: "message", message: { role: "user", content: "render turbines", timestamp: 1 } }),
+        ...ask("t1", "r-done"),
+        ...ask("t2", "r-bad"),
+        ...ask("t3", "r-live"),
+        ...ask("t4", "r-gone"),
+      ].join("\n"),
+    );
+    new FileAssistantStore(h.storePath).save({ history: [file] });
+    const messages = (await h.service.snapshot()).messages;
+    const runs = messages.flatMap((m) => m.agents ?? []);
+    expect(runs.map((r) => [r.run, r.status])).toEqual([
+      ["r-done", "done"],
+      ["r-bad", "failed"],
+      ["r-live", "running"],
+      ["r-gone", "failed"],
+    ]);
+    expect(runs[1]?.error).toBe("crashed");
   });
 
   it("starts a new primed session after a rollover and keeps the history in the agent's store", async () => {

@@ -163,6 +163,9 @@ export const SpecialistRunsSchema = z.object({
 })
 export type SpecialistRuns = z.infer<typeof SpecialistRunsSchema>
 
+/** How many runs `agents.specialists` lists, newest first: a list this long may not reach back to an older run. */
+export const SPECIALIST_LIMIT = 60
+
 export const agentsBoardInvoke = {
   /** The whole board now; slow facts (gh, Linear) fill in later and push `agents.changed`. */
   'agents.board': { input: z.object({}).strict(), output: AgentBoardSchema },

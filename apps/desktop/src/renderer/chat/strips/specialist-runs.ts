@@ -1,16 +1,22 @@
 import { useEffect } from 'react'
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
-import type { SpecialistRun } from '@evaos/contract'
+import { SPECIALIST_LIMIT, type SpecialistRun } from '@evaos/contract'
 import type { ChatMessage } from '@evaos/chat-core/message'
-import { agentRunKey, liveAgentRuns, recentAgentRuns, type AgentRun } from '@relay/protocol'
+import {
+  agentRunKey,
+  liveAgentRuns,
+  recentAgentRuns,
+  settleAgentRuns,
+  type AgentRun,
+} from '@relay/protocol'
 import { invoke, on } from '../../ipc'
 
 // A chat's specialist badges: the agents calls its transcript shows, joined with what the
 // atomic-agents service recorded for this chat as caller (`agents.specialists`, re-read on every
 // journal change while any chat strip is mounted), so a run shows from its ask to its end.
 
-const store = createStore<{ runs: readonly SpecialistRun[] }>(() => ({ runs: [] }))
+const store = createStore<{ runs: readonly SpecialistRun[] | null }>(() => ({ runs: null }))
 
 let watchers = 0
 let stop: (() => void) | null = null
@@ -35,8 +41,8 @@ async function refresh(): Promise<void> {
   }
 }
 
-/** The service's recent runs, followed while the calling component is mounted. */
-export function useServiceRuns(): readonly SpecialistRun[] {
+/** The service's recent runs, followed while the calling component is mounted; null until they were first read. */
+export function useServiceRuns(): readonly SpecialistRun[] | null {
   useEffect(() => {
     if (watchers++ === 0) {
       const off = on('agents.specialistsChanged', () => void refresh())
@@ -53,6 +59,17 @@ export function useServiceRuns(): readonly SpecialistRun[] {
   return useStore(store, (s) => s.runs)
 }
 
+/** A service run as a badge's run. */
+const serviceAgentRun = (r: SpecialistRun): AgentRun => ({
+  run: r.run,
+  agent: r.agent,
+  status: r.status,
+  ...(r.at === null ? {} : { startedAt: r.at }),
+  ...(r.seconds === null ? {} : { seconds: r.seconds }),
+  ...(r.cost === null ? {} : { cost: r.cost }),
+  ...(r.error === null ? {} : { error: r.error }),
+})
+
 /** The service runs this chat asked: its assistant (`agent`) or its own session file. */
 export function chatServiceRuns(
   runs: readonly SpecialistRun[],
@@ -65,25 +82,30 @@ export function chatServiceRuns(
         ? agent !== null && r.caller.id === agent
         : r.caller.kind === 'chat' && file !== '' && r.caller.file === file,
     )
-    .map((r) => ({
-      run: r.run,
-      agent: r.agent,
-      status: r.status,
-      ...(r.at === null ? {} : { startedAt: r.at }),
-      ...(r.seconds === null ? {} : { seconds: r.seconds }),
-      ...(r.cost === null ? {} : { cost: r.cost }),
-      ...(r.error === null ? {} : { error: r.error }),
-    }))
+    .map(serviceAgentRun)
 }
 
-/** The badges a chat shows now: transcript and service runs joined, newest first, recent only. */
+/**
+ * The badges a chat shows now: transcript and service runs joined, newest first, recent only. `all` is every run
+ * the service listed (any caller), once it has been read: a badge still running against it settles to what the
+ * service says of the run (`settleAgentRuns`), so a run that ended while nobody polled it reads done or failed.
+ */
 export function chatSpecialists(
   messages: readonly ChatMessage[],
   service: readonly AgentRun[],
   now: number,
+  all: readonly SpecialistRun[] | null = null,
 ): AgentRun[] {
   const transcript = messages.flatMap((m) => (m.agent === undefined ? [] : [m.agent]))
-  return recentAgentRuns(liveAgentRuns(transcript, service), now)
+  const joined = liveAgentRuns(transcript, service)
+  if (all === null) return recentAgentRuns(joined, now)
+  // A list cut at its limit reaches back only to its oldest run; older ones it cannot judge.
+  const times = all.flatMap((r) => (r.at === null ? [] : [r.at]))
+  const since = all.length >= SPECIALIST_LIMIT && times.length > 0 ? Math.min(...times) : undefined
+  return recentAgentRuns(
+    settleAgentRuns(joined, { runs: all.map(serviceAgentRun), now, ...(since === undefined ? {} : { since }) }),
+    now,
+  )
 }
 
 /** The name Clear done hides a finished badge under (beside the subagents' names). */

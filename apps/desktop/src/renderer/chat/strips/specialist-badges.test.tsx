@@ -153,4 +153,22 @@ describe("a chat's specialist badges", () => {
     expect(chatServiceRuns(runs, '/s/nova.jsonl', 'nova').map((r) => r.run)).toEqual(['r3'])
     expect(chatServiceRuns(runs, '/s/nova.jsonl', null)).toEqual([])
   })
+
+  it('a badge the transcript left running reads what the service recorded, whoever asked it', () => {
+    const left: AgentRun = {
+      agent: 'prop-render',
+      run: 'r-left',
+      status: 'running',
+      startedAt: NOW - 20_000,
+    }
+    const messages = [makeMessage('u1', 'user', 'render'), call('c1', left)]
+    const finished = service('r-left', { kind: 'chat', file: '/s/other.jsonl', title: null }, 'done')
+    expect(chatSpecialists(messages, [], NOW, [finished])[0]).toMatchObject({
+      run: 'r-left',
+      status: 'done',
+    })
+    // Before the service was read at all, the transcript stands; a service that lacks the run fails it.
+    expect(chatSpecialists(messages, [], NOW, null)[0]?.status).toBe('running')
+    expect(chatSpecialists(messages, [], NOW, [])[0]?.status).toBe('failed')
+  })
 })

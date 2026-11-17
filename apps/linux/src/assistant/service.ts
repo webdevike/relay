@@ -71,6 +71,7 @@ import { type AssistantAgentConfig, RegistryError } from "./registry";
 import { CONSULT_TURN, type ConsultDeps, Consults } from "./consult";
 import { splitReplies } from "./replies";
 import { type FillSpawn, runFill } from "./signin";
+import { type SpecialistRunBook, settleAssistantMessages } from "./specialist-runs";
 import type { AssistantStore } from "./store";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
 import type { FinishedReply } from "../widgets/service";
@@ -151,6 +152,8 @@ export interface AssistantServiceDeps {
    * that reply was published; the host's widget hook (`widgets/service.ts`). Never awaited.
    */
   readonly onReply?: (reply: FinishedReply) => void;
+  /** The atomic-agents service's runs: the thread settles its running specialist badges against it and redraws when a run changes. */
+  readonly specialistRuns?: SpecialistRunBook;
 }
 
 /** "No AI account" as the start fails with it: what failed, what to do, where the log is. */
@@ -412,11 +415,17 @@ export class AssistantService implements AssistantThread {
   private readonly judging = new Set<string>();
   /** The reply `onReply` last got, so one reply is handed over once. */
   private finished: string | null = null;
+  /** Stops listening to the service's runs (`retire`). */
+  private stopRuns: (() => void) | undefined;
 
   constructor(private readonly deps: AssistantServiceDeps) {
     this.id = deps.agent.id;
     this.agent = deps.agent;
     this.prefix = statusPrefix(deps.agent.title);
+    // A run that finished or appeared on the service redraws the thread's badges.
+    this.stopRuns = deps.specialistRuns?.onChange(() => {
+      this.changed();
+    });
   }
 
   get title(): string {
@@ -458,6 +467,8 @@ export class AssistantService implements AssistantThread {
 
   /** Taken out of the registry: closes its live session, if any. Its transcript and store stay. */
   async retire(): Promise<void> {
+    this.stopRuns?.();
+    this.stopRuns = undefined;
     const session = this.current();
     if (session === undefined) return;
     this.deps.log(`assistant ${this.id}: retired; closing session ${session.id}`);
@@ -495,7 +506,13 @@ export class AssistantService implements AssistantThread {
     const busy = session?.status === "working";
     // Judged once the turn settles, so the judge reads the assistant's reply to Isaac's latest turn too.
     if (!busy) this.judgeAsks(messages);
-    return { rev, messages, busy, sessionId: session?.id ?? "", asks: this.deps.asks.open() };
+    // A specialist the transcript still shows running reads what the service recorded of it (done, failed, or unknown).
+    const settled = settleAssistantMessages(
+      messages,
+      (await this.deps.specialistRuns?.current()) ?? null,
+      Date.now(),
+    );
+    return { rev, messages: settled, busy, sessionId: session?.id ?? "", asks: this.deps.asks.open() };
   }
 
   /** The live session's settled rows as the phone shows them, guest rows unfolded; empty while no session is live. */

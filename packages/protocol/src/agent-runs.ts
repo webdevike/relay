@@ -238,6 +238,38 @@ export function liveAgentRuns(
   return out.map((r, i) => ({ r, i })).sort((a, b) => start(b.r) - start(a.r) || b.i - a.i).map(({ r }) => r);
 }
 
+/** An ask that has no run id this long after it started never reached the service (a blocking ask returns well inside it). */
+export const AGENT_UNRECORDED_MS = 10 * 60_000;
+
+/** What the atomic-agents service recorded, as a whole (every caller's runs), to settle a chat's running badges against. */
+export interface AgentSnapshot {
+  readonly runs: readonly AgentRun[];
+  readonly now: number;
+  /** The snapshot holds every run asked at or after this (ms); an older run it cannot judge. Absent: it holds them all. */
+  readonly since?: number;
+}
+
+/**
+ * A badge still `running` against the service's record: the service's state when it knows the run (so a run that finished while
+ * nobody polled `agents_result` reads done or failed), failed when it does not (a run id the service never recorded, or an ask that
+ * got no id within `AGENT_UNRECORDED_MS`). Finished badges stay as they are; a run older than the snapshot reaches stays running.
+ */
+export function settleAgentRuns(runs: readonly AgentRun[], snapshot: AgentSnapshot): AgentRun[] {
+  const byId = new Map<string, AgentRun>();
+  for (const s of snapshot.runs) if (s.run !== undefined) byId.set(s.run, s);
+  return runs.map((r) => {
+    if (finished(r)) return r;
+    const known = r.run === undefined ? undefined : byId.get(r.run);
+    if (known !== undefined) return overlay(r, known);
+    if (r.run === undefined) {
+      if (r.startedAt === undefined || snapshot.now - r.startedAt < AGENT_UNRECORDED_MS) return r;
+    } else if (snapshot.since !== undefined && (r.startedAt === undefined || r.startedAt < snapshot.since)) {
+      return r;
+    }
+    return { ...r, status: "failed", error: "The specialist service has no record of this run" };
+  });
+}
+
 /** A finished badge stays this long after its run ended; a run still "running" this long after it started is stale (its end never reached the chat). */
 export const AGENT_BADGE_LINGER_MS = 30 * 60_000;
 export const AGENT_BADGE_STALE_MS = 60 * 60_000;
