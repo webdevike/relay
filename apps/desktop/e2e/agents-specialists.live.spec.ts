@@ -53,6 +53,10 @@ test("the real agents: the list, one agent's files, its runs and one run with it
   await row.click()
   await expect(shell.locator(sel('agent-facts'))).toBeVisible()
   await expect(shell.locator(sel('files-tab')).first()).toBeVisible({ timeout: 30_000 })
+  await expect(shell.locator(`${sel('agent-files')} ${sel('files-editor')}`)).toContainText(
+    'web-researcher',
+    { timeout: 30_000 },
+  )
   await shot(shell, 'agent-files')
 
   // The newest run Nova asked opens beside the runs with its reply.
