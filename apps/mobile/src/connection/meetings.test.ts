@@ -114,17 +114,15 @@ describe("meetings frames", () => {
     route({ t: "meeting.shot", id: ID, shot: shot(0) });
     expect(useMeetingsStore.getState().pages[ID]).toBeUndefined();
 
-    useMeetingsStore
-      .getState()
-      .setPage({
-        recording: rec(),
-        rev: 1,
-        lines: [],
-        astra: null,
-        notes: null,
-        moments: [moment("km1")],
-        shots: [shot(0), shot(1)],
-      });
+    useMeetingsStore.getState().setPage({
+      recording: rec(),
+      rev: 1,
+      lines: [],
+      astra: null,
+      notes: null,
+      moments: [moment("km1")],
+      shots: [shot(0), shot(1)],
+    });
     route({ t: "meeting.moments", id: ID, moments: [moment("km1"), moment("km2")] });
     expect(useMeetingsStore.getState().pages[ID]?.moments.map((m) => m.id)).toEqual(["km1", "km2"]);
     route({ t: "meeting.shot", id: ID, shot: shot(3) });

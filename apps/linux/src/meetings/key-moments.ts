@@ -246,8 +246,10 @@ export async function replayKeyMoments(
   for (const line of ordered) {
     const wait = (line.startMs - at) * scale;
     if (wait > 0) {
-      const { promise, resolve } = Promise.withResolvers<void>();
-      setTimeout(resolve, wait);
+      const { promise, resolve } = Promise.withResolvers<undefined>();
+      setTimeout(() => {
+        resolve(undefined);
+      }, wait);
       await promise;
     }
     at = line.startMs;

@@ -34,15 +34,23 @@ export function momentRowId(rows: readonly MeetingRow[], atMs: number): string |
 }
 
 /** An ask of Isaac he has answered: his mic said something (not echo) after it. */
-export function askAnswered(m: Pick<KeyMoment, "kind" | "atMs">, lines: readonly LiveLine[]): boolean {
+export function askAnswered(
+  m: Pick<KeyMoment, "kind" | "atMs">,
+  lines: readonly LiveLine[],
+): boolean {
   return (
     m.kind === "ask" &&
-    lines.some((l) => l.track === "mic" && l.echo !== true && l.text.trim() !== "" && l.startMs > m.atMs)
+    lines.some(
+      (l) => l.track === "mic" && l.echo !== true && l.text.trim() !== "" && l.startMs > m.atMs,
+    )
   );
 }
 
 /** The snapshot a moment at `atMs` refers to: the newest one shown shortly before (or just after) it. */
-export function shotNear(shots: readonly Pick<MeetingShot, "n" | "atMs">[], atMs: number): number | null {
+export function shotNear(
+  shots: readonly Pick<MeetingShot, "n" | "atMs">[],
+  atMs: number,
+): number | null {
   let best: number | null = null;
   let bestAt = -Infinity;
   for (const s of shots) {

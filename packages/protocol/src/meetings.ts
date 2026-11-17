@@ -459,10 +459,11 @@ export function meetingCardsFor(
     .map((recording) => ({ recording, live: meetingIsLive(recording) }))
     .filter(
       ({ recording, live }) =>
-        live ||
-        now - (recording.endedAt ?? recording.startedAt) < MEETING_ENDED_CARD_MS,
+        live || now - (recording.endedAt ?? recording.startedAt) < MEETING_ENDED_CARD_MS,
     )
-    .sort((a, b) => Number(b.live) - Number(a.live) || b.recording.startedAt - a.recording.startedAt);
+    .sort(
+      (a, b) => Number(b.live) - Number(a.live) || b.recording.startedAt - a.recording.startedAt,
+    );
 }
 
 /**

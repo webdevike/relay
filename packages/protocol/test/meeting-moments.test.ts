@@ -44,7 +44,16 @@ const row = (id: string, startMs: number): MeetingRow => ({
 describe("key moments", () => {
   it("Now shows the newest eight, newest first", () => {
     const all = Array.from({ length: 11 }, (_, i) => moment(i));
-    expect(nowMoments(all).map((m) => m.id)).toEqual(["km10", "km9", "km8", "km7", "km6", "km5", "km4", "km3"]);
+    expect(nowMoments(all).map((m) => m.id)).toEqual([
+      "km10",
+      "km9",
+      "km8",
+      "km7",
+      "km6",
+      "km5",
+      "km4",
+      "km3",
+    ]);
   });
 
   it("jumps to the row a moment was said in", () => {
@@ -81,15 +90,30 @@ describe("key moments", () => {
   it("moments and snapshots travel as server frames", () => {
     expect(
       parseServerMessage(
-        JSON.stringify({ t: "meeting.moments", id: "abcdef12-0000", moments: [moment(1, { shot: 2 })] }),
+        JSON.stringify({
+          t: "meeting.moments",
+          id: "abcdef12-0000",
+          moments: [moment(1, { shot: 2 })],
+        }),
       ),
-    ).toMatchObject({ ok: true, value: { t: "meeting.moments", moments: [{ id: "km1", shot: 2 }] } });
+    ).toMatchObject({
+      ok: true,
+      value: { t: "meeting.moments", moments: [{ id: "km1", shot: 2 }] },
+    });
     expect(
       parseServerMessage(
         JSON.stringify({
           t: "meeting.shot",
           id: "abcdef12-0000",
-          shot: { n: 0, atMs: 1, src: "/meetings/shots/abcdef12-0000/tok/0", w: 10, h: 10, line: "", ocr: "" },
+          shot: {
+            n: 0,
+            atMs: 1,
+            src: "/meetings/shots/abcdef12-0000/tok/0",
+            w: 10,
+            h: 10,
+            line: "",
+            ocr: "",
+          },
         }),
       ),
     ).toMatchObject({ ok: true, value: { t: "meeting.shot", shot: { n: 0 } } });

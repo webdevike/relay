@@ -540,17 +540,11 @@ export class MeetingsService implements MeetingsRelaying {
     const actor = l.moments;
     if (actor === null) return;
     actor.send({ type: "call.ended" });
-    const { promise, resolve } = Promise.withResolvers<void>();
-    const cancel = this.deps.clock.after(FINAL_MOMENTS_MS, resolve);
-    toPromise(actor).then(
-      () => {
-        resolve();
-      },
-      () => {
-        resolve();
-      },
-    );
-    await promise;
+    const { promise: late, resolve } = Promise.withResolvers<undefined>();
+    const cancel = this.deps.clock.after(FINAL_MOMENTS_MS, () => {
+      resolve(undefined);
+    });
+    await Promise.race([toPromise(actor).catch(() => undefined), late]);
     cancel();
     actor.stop();
     l.moments = null;
@@ -869,8 +863,7 @@ export class MeetingsService implements MeetingsRelaying {
   /** `meeting.share`: whether someone shares their screen, from the Mac holding the call only. */
   share(deviceId: string, id: string, state: MeetingShare): void {
     const m = this.deps.store.load(id);
-    if (m === null || m.deviceId !== deviceId || m.stage !== "recording" || m.share === state)
-      return;
+    if (m?.deviceId !== deviceId || m.stage !== "recording" || m.share === state) return;
     m.share = state;
     this.update(m);
   }

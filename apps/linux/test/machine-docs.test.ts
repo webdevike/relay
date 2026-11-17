@@ -26,8 +26,7 @@ describe("docs/state-machines (host)", () => {
   for (const { file, title, machine } of MACHINES) {
     it(`${file}.md matches the ${machine.id} machine`, () => {
       const path = `${DOCS}${file}.md`;
-      // shell-core resolves its own copy of xstate's types; the machine is the same shape.
-      const diagram = machineDiagram(machine as unknown as Parameters<typeof machineDiagram>[0]);
+      const diagram = machineDiagram(machine);
       if (!existsSync(path) && update) writeFileSync(path, newDoc(title, diagram));
       expect(existsSync(path), `${path} is missing: run with UPDATE_MACHINE_DOCS=1`).toBe(true);
       const doc = readFileSync(path, "utf8");

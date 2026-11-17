@@ -74,7 +74,10 @@ export function meetingContext(
       ? "Below is the machine transcript so far: lines from his mic carry his name, the rest is the call audio (R_S2 and the like are unnamed voices). When he asks about the meeting (what did I miss, what was decided, draft my answer, action items), answer from it, briefly while the call runs. Later turns bring only the lines said since."
       : "New in the transcript since your last turn:";
   let body = fresh
-    .map((l) => `[${meetingClock(l.startMs)}] ${l.speaker}: ${l.text.trim()}${l.final ? "" : " (still speaking)"}`)
+    .map(
+      (l) =>
+        `[${meetingClock(l.startMs)}] ${l.speaker}: ${l.text.trim()}${l.final ? "" : " (still speaking)"}`,
+    )
     .join("\n");
   if (body.length > MAX_CONTEXT_CHARS) {
     const cut = body.indexOf("\n", body.length - MAX_CONTEXT_CHARS);

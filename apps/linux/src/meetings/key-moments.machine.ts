@@ -8,12 +8,7 @@
 //
 // Pure: xstate and types only. The runtime (key-moments.ts) provides `extract`; tests stub it.
 
-import {
-  KEY_MOMENT_MAX_CHARS,
-  MAX_KEY_MOMENTS,
-  type KeyMoment,
-  type KeyMomentKind,
-} from "@relay/protocol";
+import { KEY_MOMENT_MAX_CHARS, MAX_KEY_MOMENTS, type KeyMoment } from "@relay/protocol";
 import { assign, fromPromise, setup } from "xstate";
 
 /** How long a window gathers lines after its first one. */
@@ -161,11 +156,12 @@ function settled(context: KeyMomentsContext): Partial<KeyMomentsContext> {
 }
 
 export const keyMomentsMachine = setup({
-  types: {} as {
-    context: KeyMomentsContext;
-    events: KeyMomentsEvent;
-    input: KeyMomentsInput;
-    output: { moments: readonly KeyMoment[] };
+  types: {
+    context: {} as KeyMomentsContext,
+    events: {} as KeyMomentsEvent,
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- xstate reads the input type from this value
+    input: {} as KeyMomentsInput,
+    output: {} as { moments: readonly KeyMoment[] },
   },
   actors: {
     extract: fromPromise<readonly MomentDraft[], ExtractInput>(() =>

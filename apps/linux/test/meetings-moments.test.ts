@@ -13,7 +13,6 @@ import { KEY_MOMENTS_WINDOW_MS, type ExtractInput } from "../src/meetings/key-mo
 import { keyMomentsSection, MeetingPipeline, snapshotsSection } from "../src/meetings/pipeline";
 import { lineAt, MeetingsService, type AfterCall, type Conn } from "../src/meetings/service";
 import { RecordingStore, type RecordingMeta, type ShotRow } from "../src/meetings/store";
-import type { IngestGrant } from "../src/seams";
 import { FakeClock } from "./studio-fakes";
 
 const dirs: string[] = [];
@@ -42,8 +41,10 @@ const wl = (track: "app" | "mic", start: number, text: string): WorkerLine => ({
 
 /** Every pending promise callback runs (nothing here waits on real timers). */
 async function settle(): Promise<void> {
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setImmediate(resolve);
+  const { promise, resolve } = Promise.withResolvers<undefined>();
+  setImmediate(() => {
+    resolve(undefined);
+  });
   await promise;
 }
 
@@ -119,7 +120,8 @@ function connect(
     startedAt: clock.now(),
   });
   if (!("ticket" in r)) throw new Error("refused");
-  const grant = svc.redeem(r.ticket) as IngestGrant;
+  const grant = svc.redeem(r.ticket);
+  if (grant === null) throw new Error("no grant");
   const out: Record<string, unknown>[] = [];
   const conn = svc.connect(grant, { sendText: (f) => out.push(f), close: () => undefined }) as Conn;
   conn.text(JSON.stringify({ t: "meeting.hello", id: ID }));
@@ -271,7 +273,8 @@ describe("screen snapshots on the host", () => {
     expect(get(`/meetings/shots/${ID}/${token}/1`).status).toBe(404);
     expect(get(`/meetings/shots/..%2F/${token}/0`).status).toBe(404);
     expect(get(`/meetings/shots/${ID}/${token}/0`, "POST").status).toBe(405);
-    const meta = store.load(ID) as RecordingMeta;
+    const meta = store.load(ID);
+    if (meta === null) throw new Error("no recording");
     store.save({ ...meta, stem: "20261102_1004_weekly_sync_6f1c2b8e" });
     mkdirSync(join(root, "notes"));
     writeFileSync(join(root, "notes", "0.jpg"), Buffer.from([0xff, 0xd8, 9]));
@@ -528,19 +531,20 @@ describe("the key moments model", () => {
   });
 
   it("replays a recorded call through the runtime with a fast clock", async () => {
-    const lines: LiveLine[] = [0, 20_000, 70_000, 75_000, 150_000].map((startMs, i) => ({
+    const said: [number, string][] = [
+      [0, "We decide on Postgres."],
+      [20_000, "Okay."],
+      [70_000, "We decide to ship Tuesday."],
+      [75_000, "Okay."],
+      [150_000, "We decide Bill owns the release."],
+    ];
+    const lines: LiveLine[] = said.map(([startMs, text], i) => ({
       id: `l${String(i)}`,
       track: "app",
       speaker: "Todd",
       startMs,
       endMs: startMs + 2_000,
-      text: [
-        "We decide on Postgres.",
-        "Okay.",
-        "We decide to ship Tuesday.",
-        "Okay.",
-        "We decide Bill owns the release.",
-      ][i] as string,
+      text,
       final: true,
     }));
     const windows: string[][] = [];
