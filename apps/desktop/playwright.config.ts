@@ -46,6 +46,8 @@ const SERIAL_SPECS = [
   '**/browser-auth.spec.ts',
   // The agent's cursor glides sampled frame by frame, with glide-time floors.
   '**/canvas-drive.spec.ts',
+  // Cmd+V and Cmd+C go through the one system clipboard, shared by every Electron launched at once.
+  '**/canvas-paste.spec.ts',
 ]
 
 // packaged.spec.ts launches the built .app: opt in with EVAOS_PACKAGED=1, never in the project runs.

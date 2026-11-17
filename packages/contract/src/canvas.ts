@@ -396,6 +396,23 @@ export const canvasInvoke = {
       height: z.number().int().min(0).nullable(),
     }),
   },
+  /**
+   * An image Isaac pasted or dropped on a board (base64 bytes): stored in the boards folder under
+   * `assets/<slug>/` named by its content, large ones scaled down. `src` is what an image card keeps.
+   */
+  'canvas.pasteImage': {
+    input: z.object({ slug: CanvasSlugSchema, data: z.string().min(1).max(60_000_000) }).strict(),
+    output: z.object({
+      src: z.string().min(1).max(500),
+      width: z.number().int().min(1).nullable(),
+      height: z.number().int().min(1).nullable(),
+    }),
+  },
+  /** Puts an image card's picture on the system clipboard. */
+  'canvas.copyImage': {
+    input: z.object({ slug: CanvasSlugSchema, src: z.string().min(1).max(10_000) }).strict(),
+    output: z.object({ copied: z.literal(true) }),
+  },
   /** Every board an agent works or worked (its run); `canvas.runs` follows changes. */
   'canvas.runs': {
     input: z.object({}).strict(),

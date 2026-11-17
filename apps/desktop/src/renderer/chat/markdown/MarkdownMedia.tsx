@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ChatImage } from '@evaos/chat-core/message'
+import { IMAGE_DRAG_TYPE } from '../../canvas/image-drop'
 import { ImageViewer } from '../ImageViewer'
 import { collectMessageImages } from './collect-images'
 import { mediaUrl } from '../widgets/media-url'
@@ -230,7 +231,14 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         data-testid="md-image"
         onClick={(e) => setViewing(collectMessageImages(e.currentTarget))}
       >
-        <img src={url} alt={alt} loading="lazy" draggable={false} onError={onError} />
+        <img
+          src={url}
+          alt={alt}
+          loading="lazy"
+          draggable
+          onDragStart={(e) => e.dataTransfer.setData(IMAGE_DRAG_TYPE, url)}
+          onError={onError}
+        />
       </button>
       {viewing ? (
         <ImageViewer

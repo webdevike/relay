@@ -5,6 +5,8 @@ import type { CanvasBoard, CanvasNode } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
 import { createDownload, createImageReader } from './images'
+import { storeBoardImage } from './paste'
+import { copyImageToClipboard, electronRescale } from './clipboard-image'
 import { createCanvasStore, type CanvasStore } from './store'
 import { startCanvasWatchWith } from './watch'
 
@@ -98,6 +100,19 @@ export function registerCanvasIpc(ctx: MainContext): void {
   handle(ctx, 'canvas.delete', ({ slug }) => store.remove(slug))
   handle(ctx, 'canvas.pin', ({ slug, pinned }) => store.pin(slug, pinned))
   handle(ctx, 'canvas.image', ({ src }) => images.read(src))
+  handle(ctx, 'canvas.pasteImage', ({ slug, data }) =>
+    storeBoardImage({
+      dir: canvasDir,
+      slug,
+      bytes: Buffer.from(data, 'base64'),
+      rescale: electronRescale,
+    }),
+  )
+  handle(ctx, 'canvas.copyImage', async ({ src }) => {
+    const { dataUrl } = await images.read(src)
+    await copyImageToClipboard(Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64'))
+    return { copied: true as const }
+  })
   sinks.set(ctx, async (slug, added) => {
     const shown = await store.load(slug)
     const board: CanvasBoard = {

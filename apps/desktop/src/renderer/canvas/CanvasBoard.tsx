@@ -4,7 +4,9 @@
  * second after they settle, reloads outside edits (never during a drag) and keeps undo history.
  * Pointer and keys: drag empty space or scroll to pan, ⌘-scroll or pinch zooms, ⇧-drag
  * box-selects, ⌘A selects all, Escape clears, Backspace/Delete removes, ⌘Z / ⌘⇧Z undo and redo.
- * Double-clicking an image opens it full window. A card Isaac drags is pinned (canvas.layout
+ * Double-clicking an image opens it full window. Images paste (⌘V) or drop onto the board as a
+ * row of image cards stored under the boards folder's assets/ (image-drop.ts, main/canvas/paste.ts),
+ * and ⌘C on a selected image card copies its picture. A card Isaac drags is pinned (canvas.layout
  * keeps it). A chat's agent works the board on screen through its driver
  * (agent/board-drivers.ts) with a visible cursor; Isaac's own edits while it acts take the board
  * over from it.
@@ -28,7 +30,15 @@ import {
 } from '@xyflow/react'
 import { Button } from '@mantine/core'
 import { IconSparkles } from '@tabler/icons-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+} from 'react'
 import type {
   CanvasBoard as BoardFile,
   CanvasNode,
@@ -63,6 +73,7 @@ import { BoardControls, NodeActions, ToolBar, type Tool } from './chrome'
 import { CanvasCard } from './cards/CanvasCard'
 import { PagePanel } from './PagePanel'
 import { Lightbox } from './Lightbox'
+import { fitImage, mayHoldImage, readTransferImages, rowPositions } from './image-drop'
 import { boardImages } from './lightbox-model'
 import { Comments, type NoteState } from './Comments'
 import { anchorFor, nodeAt, pinPoint, routeOf, type Anchor, type Box } from './comment-model'
@@ -1004,6 +1015,101 @@ function Board({
     addNote([center.x - NOTE_SIZE[0] / 2, center.y - NOTE_SIZE[1] / 2], 'New note', null)
   }, [addNote, flow])
 
+  /**
+   * Stores images that came from outside (paste or drop) in the board's assets and adds them as
+   * image cards in one row, selected, as one undo step. `at` is client pixels (the pointer or the
+   * drop); null puts the row in the middle of the view.
+   */
+  const takeImages = useCallback(
+    async (dt: DataTransfer, at: { x: number; y: number } | null) => {
+      const r = wrapRef.current?.getBoundingClientRect()
+      const spot = at
+        ? flow.screenToFlowPosition(at)
+        : r
+          ? flow.screenToFlowPosition({ x: r.left + r.width / 2, y: r.top + r.height / 2 })
+          : { x: 0, y: 0 }
+      let datas: string[]
+      try {
+        datas = await readTransferImages(dt)
+      } catch (e) {
+        setSave({ error: e instanceof Error ? e.message : String(e) })
+        return
+      }
+      const stored: Array<{ src: string; width: number | null; height: number | null }> = []
+      for (const data of datas) {
+        const res = await invoke('canvas.pasteImage', { slug, data })
+        if (!res.ok) {
+          setSave({ error: res.error.message })
+          break
+        }
+        stored.push(res.value)
+      }
+      if (stored.length === 0 || unmountedRef.current) return
+      remember()
+      const sizes = stored.map((s) => fitImage(s.width, s.height))
+      const spots = rowPositions(sizes, spot, at === null)
+      const doc = docRef.current
+      let rank = doc.nodes.reduce((m, n) => Math.max(m, n.data.rank), -1) + 1
+      const added = stored.map((s, i): CardNode => {
+        const id = `image-${crypto.randomUUID().slice(0, 8)}`
+        return {
+          id,
+          type: 'card',
+          position: { x: spots[i]![0], y: spots[i]![1] },
+          data: {
+            spec: { id, type: 'image', data: { src: s.src } },
+            rank: rank++,
+            hasChildren: false,
+          },
+          width: sizes[i]!.w,
+          selected: true,
+          zIndex: 0,
+        }
+      })
+      setNodes((ns) => [...ns.map((n) => (n.selected ? { ...n, selected: false } : n)), ...added])
+      autoRef.current = null
+      scheduleSave()
+      // Keys (undo, copy) act on the new cards at once, whatever held focus before.
+      wrapRef.current?.focus({ preventScroll: true })
+    },
+    [flow, slug, remember, scheduleSave],
+  )
+
+  // Cmd+V of an image and Cmd+C of an image card work from anywhere on the page, like `/`: focus
+  // may sit on the sidebar row that opened the board. Never in a field or while the board is hidden.
+  useEffect(() => {
+    const mine = (e: globalThis.ClipboardEvent): boolean => {
+      if (e.defaultPrevented || !wrapRef.current) return false
+      if (wrapRef.current.getClientRects().length === 0) return false
+      const t = e.target as HTMLElement | null
+      return !t?.closest('input, textarea, select, [contenteditable]:not([contenteditable=false])')
+    }
+    const onPaste = (e: globalThis.ClipboardEvent): void => {
+      const dt = e.clipboardData
+      if (!dt || locked || !mine(e)) return
+      if (!Array.from(dt.items).some((i) => i.kind === 'file' && i.type.startsWith('image/')))
+        return
+      e.preventDefault()
+      void takeImages(dt, pointerRef.current)
+    }
+    const onCopy = (e: globalThis.ClipboardEvent): void => {
+      if (!mine(e) || window.getSelection()?.toString()) return
+      const src = docRef.current.nodes.find((n) => n.selected && n.data.spec.type === 'image')?.data
+        .spec.data?.src
+      if (typeof src !== 'string' || src === '') return
+      e.preventDefault()
+      void invoke('canvas.copyImage', { slug, src }).then((res) => {
+        if (!res.ok) setSave({ error: res.error.message })
+      })
+    }
+    window.addEventListener('paste', onPaste)
+    window.addEventListener('copy', onCopy)
+    return () => {
+      window.removeEventListener('paste', onPaste)
+      window.removeEventListener('copy', onCopy)
+    }
+  }, [slug, locked, takeImages])
+
   const addLinkedNote = useCallback(
     (id: string) => {
       const doc = docRef.current
@@ -1424,6 +1530,16 @@ function Board({
           data-tool={tool}
           tabIndex={-1}
           onKeyDown={onKeyDown}
+          onDragOver={(e: DragEvent<HTMLElement>) => {
+            if (locked || !mayHoldImage(e.dataTransfer)) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'copy'
+          }}
+          onDrop={(e: DragEvent<HTMLElement>) => {
+            if (locked || !mayHoldImage(e.dataTransfer)) return
+            e.preventDefault()
+            void takeImages(e.dataTransfer, { x: e.clientX, y: e.clientY })
+          }}
           onPointerMove={(e) => {
             pointerRef.current = { x: e.clientX, y: e.clientY }
           }}

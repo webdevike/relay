@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ChatImage as ChatImageData } from '@evaos/chat-core/message'
 import { invoke } from '../ipc'
+import { IMAGE_DRAG_TYPE } from '../canvas/image-drop'
 import './images.css'
 
 export const THUMB_MAX = 240
@@ -100,7 +101,14 @@ export function ChatImage({ image, index, total, onOpen }: ChatImageProps) {
       aria-label={url === null ? alt : undefined}
       onClick={onOpen}
     >
-      {url !== null ? <img src={url} alt={alt} draggable={false} /> : null}
+      {url !== null ? (
+        <img
+          src={url}
+          alt={alt}
+          draggable
+          onDragStart={(e) => e.dataTransfer.setData(IMAGE_DRAG_TYPE, url)}
+        />
+      ) : null}
     </button>
   )
 }
