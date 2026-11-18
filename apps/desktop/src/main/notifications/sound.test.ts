@@ -14,7 +14,7 @@ describe('installRelaySound', () => {
   const o = () => ({
     source: path.join(dir, 'bundle.aiff'),
     soundsDir: path.join(dir, 'Library/Sounds'),
-    name: 'relay-notification.aiff',
+    name: 'relay-chime.aiff',
   })
 
   it('copies the bundled sound into the Sounds folder, then leaves a current copy alone', () => {

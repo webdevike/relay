@@ -11,7 +11,7 @@ const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
  * (Soundly SND86872), bundled in the phone app by the expo-notifications plugin in apps/mobile/app.json.
  * A phone build without the file plays the system sound instead, so this is safe to send before that build ships.
  */
-export const RELAY_PUSH_SOUND = "relay-notification.caf";
+export const RELAY_PUSH_SOUND = "relay-chime.caf";
 
 const Ticket = z.union([
   z.object({ status: z.literal("ok"), id: z.string() }),

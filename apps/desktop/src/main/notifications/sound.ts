@@ -6,6 +6,10 @@ import * as path from 'node:path'
  * bundle (checked on macOS 27: a name that only exists in Relay.app/Contents/Resources falls back to
  * the default alert, the same name in ~/Library/Sounds plays). Relay therefore ships its sound in
  * Resources and copies it to ~/Library/Sounds when it starts.
+ *
+ * Never rename the sound back to a name that was once asked for while its file was missing:
+ * NotificationCenter remembers a name as invalid and keeps playing the default alert for it until it
+ * restarts (`relay-notification.aiff` was lost that way on the Mini, hence `relay-chime.aiff`).
  */
 export type SoundInstall = 'installed' | 'current' | 'missing-source' | 'failed'
 

@@ -156,7 +156,7 @@ test('replies, questions and canvases notify under the rules; settings mute and 
         title: 'Nova',
         body: 'Booked the dentist for Friday at 3.',
         silent: false,
-        sound: 'relay-notification.aiff',
+        sound: 'relay-chime.aiff',
       },
     ])
   await click(app, 0)

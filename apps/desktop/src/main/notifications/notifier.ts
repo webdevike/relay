@@ -30,7 +30,7 @@ export const REPEAT_MS = 60_000
  * Relay.app/Contents/Resources (electron-builder.yml extraResources) and sound.ts copies it to
  * ~/Library/Sounds at startup, the only place macOS finds a notification's named sound.
  */
-export const RELAY_SOUND = 'relay-notification.aiff'
+export const RELAY_SOUND = 'relay-chime.aiff'
 
 /** What the notifier needs from the machine: Electron's Notification and powerMonitor, or a stand-in. */
 export interface NotifyPlatform {
