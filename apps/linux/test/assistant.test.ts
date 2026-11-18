@@ -1712,6 +1712,65 @@ describe("AssistantService earlier contexts", () => {
     await h.service.retire();
   });
 
+  it("answers a turn's work from the transcript a row came from, live while the session works, and a step's detail", () => {
+    const h = harness();
+    const line = (message: object) => `${JSON.stringify({ type: "message", message })}\n`;
+    const user = (timestamp: number) => line({ role: "user", content: "go", timestamp });
+    const call = (timestamp: number, id: string, command: string) =>
+      line({
+        role: "assistant",
+        timestamp,
+        duration: 1_000,
+        content: [
+          { type: "thinking", thinking: `plan ${id}` },
+          { type: "toolCall", id, name: "bash", intent: `Running ${id}`, arguments: { command } },
+        ],
+      });
+    const result = (timestamp: number, id: string, text: string, isError = false) =>
+      line({
+        role: "toolResult",
+        timestamp,
+        toolCallId: id,
+        toolName: "bash",
+        isError,
+        content: [{ type: "text", text }],
+      });
+    const old = join(h.home, "2026-11-01T00-00-00-000Z_old.jsonl");
+    writeFileSync(old, user(10) + call(20, "o1", "ls old") + result(1_500, "o1", "boom", true));
+    const live = join(h.home, "live.jsonl");
+    writeFileSync(live, user(5_000) + call(5_010, "l1", "sleep 1"));
+    new FileAssistantStore(h.storePath).save({ sessionFile: live, history: [old] });
+    h.register("working", live);
+    // An earlier context's row names its file; its turn is long over.
+    const earlier = h.service.work({ row: "2026-11-01T00-00-00-000Z_old-2", at: 20 });
+    expect(earlier.work).toMatchObject({
+      at: 10,
+      running: false,
+      steps: [{ id: "o1", status: "failed" }],
+    });
+    // The live session's newest turn runs: its call has no result yet.
+    expect(h.service.work({}).work).toMatchObject({
+      at: 5_000,
+      running: true,
+      now: { kind: "tools", since: 6_010 },
+      steps: [{ id: "l1", title: "Running l1", summary: "sleep 1", status: "running" }],
+    });
+    // The result lands (appended to the file, read incrementally) and the session goes idle.
+    writeFileSync(live, result(7_000, "l1", "done\nmore"), { flag: "a" });
+    h.register("idle", live);
+    expect(h.service.work({ at: 5_010, row: "1795-3" }).work).toMatchObject({
+      running: false,
+      endedAt: 7_000,
+      steps: [{ id: "l1", status: "done", startedAt: 6_010, endedAt: 7_000, output: "done" }],
+    });
+    expect(h.service.work({ at: 5_010, detail: "l1" })).toEqual({
+      ok: true,
+      detail: { input: "sleep 1", output: "done\nmore" },
+    });
+    expect(h.service.work({ at: 5_010, detail: "thinking" }).detail?.text).toBe("plan l1");
+    expect(h.service.work({ at: 5_010, detail: "nope" })).toMatchObject({ ok: false });
+  });
+
   it("reads a store file without the history field as empty history", () => {
     const h = harness();
     writeFileSync(h.storePath, JSON.stringify({ sessionFile: "/sessions/eva.jsonl" }));

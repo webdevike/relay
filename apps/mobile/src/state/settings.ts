@@ -31,6 +31,11 @@ export interface SettingsState {
   audioRate: number;
   /** Home's widgets in grid order, per device. Empty when the user removed them all. */
   homeWidgets: HomeWidget[];
+  /**
+   * Show work ("peek behind the curtain"): a small brain under an assistant's replies opens the turn's thinking
+   * and tool steps. Off, no brain shows and the phone never asks the host for a turn's work. On by default.
+   */
+  showWork: boolean;
   set: (partial: Partial<Omit<SettingsState, "set">>) => void;
 }
 
@@ -50,6 +55,7 @@ export const useSettingsStore = create<SettingsState>()(
       appearance: "system",
       audioRate: 1,
       homeWidgets: DEFAULT_WIDGETS.map((w) => ({ ...w })),
+      showWork: true,
       set: (partial) => {
         set(partial);
       },

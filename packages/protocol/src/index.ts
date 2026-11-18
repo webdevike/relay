@@ -49,6 +49,7 @@ import { AgentRun } from "./agent-runs";
 import { RouterTurn } from "./specialist-router";
 import { StatsSnapshot } from "./stats";
 import { Trial, TrialPick, TrialSwitch } from "./trials";
+import { TurnWork, TurnWorkDetail } from "./turn-work";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const BONJOUR_SERVICE_TYPE = "_relay._tcp" as const;
@@ -2200,6 +2201,21 @@ export const ClientMessage = z.discriminatedUnion("t", [
   z.object({ t: z.literal("reviews.req"), rid: ReviewsRid, op: ReviewsOp }),
   /** Read or save an assistant's prime.md or thread.md on the host (`AssistantFileReq`); answered by `assistant.file.res` with the same `rid`. */
   AssistantFileReq,
+  /**
+   * A look at the work behind one turn of assistant `agent`'s thread (`turn-work.ts`): the turn holding `at`
+   * (a row's or a turn's `at`; absent: the live session's newest turn), `row` the phone row's id, which names the
+   * earlier transcript an older row came from. With `detail` (a step id, or THINKING_DETAIL) the full text behind
+   * that part instead. Answered by `assistant.work.res` with the same `rid`. Only sent to a host whose
+   * `welcome.features` has ASSISTANT_WORK_FEATURE.
+   */
+  z.object({
+    t: z.literal("assistant.work.req"),
+    rid: z.string().min(1).max(64),
+    agent: AssistantAgentId,
+    at: ms.optional(),
+    row: z.string().min(1).max(200).optional(),
+    detail: z.string().min(1).max(200).optional(),
+  }),
   /** Run one allowlisted read-only query tool (`QUERY_TOOLS`) for a live widget; answered by `query.res` with the same `rid`. Only sent to a host whose `welcome.features` has "query". */
   z.object({
     t: z.literal("query.req"),
@@ -2523,6 +2539,15 @@ export const ServerMessage = z.discriminatedUnion("t", [
   ReviewsResult.extend({ t: z.literal("reviews.res") }),
   /** Answer to `assistant.file.req`. */
   AssistantFileRes,
+  /** Answer to `assistant.work.req`: the turn's `work`, or with `detail` asked the part's full text, or why not (`error`). */
+  z.object({
+    t: z.literal("assistant.work.res"),
+    rid: z.string().min(1).max(64),
+    ok: z.boolean(),
+    work: TurnWork.optional(),
+    detail: TurnWorkDetail.optional(),
+    error: z.string().max(400).optional(),
+  }),
   /** The Reviews queue changed (a source finished reading, an item marked Done); pushed to every device. */
   z.object({ t: z.literal("reviews.queue"), queue: ReviewQueue }),
   /** An item's Astra session changed (streamed text, a turn ending); pushed to every device. */
@@ -2607,3 +2632,4 @@ export * from "./room-card";
 export * from "./agent-runs";
 export * from "./trials";
 export * from "./specialist-router";
+export * from "./turn-work";

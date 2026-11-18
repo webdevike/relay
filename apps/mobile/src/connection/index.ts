@@ -88,6 +88,13 @@ import type { RoomsRequest } from "@/rooms/roomsRequest.machine";
 import { createReviewsFrameRouter, PendingReviews } from "./reviews";
 import { createMeetingsFrameRouter, PendingMeetings } from "./meetings";
 import { createQueryClient, createQueryFrameRouter, PendingQueries } from "./query";
+import {
+  createTurnWorkFrameRouter,
+  useTurnWorkStore,
+  WORK_TIMEOUT_MS,
+  workAnswerOf,
+} from "./turnWork";
+import type { WorkAnswer, WorkTarget } from "@/agents/turnWork.machine";
 import { beginCanvasAccess, canvasWelcomeFrames, createCanvasFrameRouter } from "./canvas";
 import { allowedTarget, mayDiscover, parseOnlyHost } from "./only-host";
 import * as identity from "./identity";
@@ -162,6 +169,29 @@ export const liveQuery = createQueryClient(pendingQueries, (rid, tool, args) => 
   socket.send(encode({ t: "query.req", rid, tool, args }));
   return true;
 });
+const pendingWork = new PendingQueries(WORK_TIMEOUT_MS);
+
+/**
+ * Asks the host for the work behind one turn of an assistant thread, or with `detail` one part's full text
+ * (`assistant.work.req`); refused at once while not connected or on a host without ASSISTANT_WORK_FEATURE.
+ */
+export async function requestTurnWork(target: WorkTarget, detail?: string): Promise<WorkAnswer> {
+  if (useConnectionStore.getState().status !== "connected" || !useTurnWorkStore.getState().up)
+    return { ok: false, error: "Not connected to your Mac." };
+  const rid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const answer = pendingWork.add(rid);
+  socket.send(
+    encode({
+      t: "assistant.work.req",
+      rid,
+      agent: target.agent,
+      ...(target.at === undefined ? {} : { at: target.at }),
+      ...(target.row === undefined ? {} : { row: target.row }),
+      ...(detail === undefined ? {} : { detail }),
+    }),
+  );
+  return workAnswerOf(await answer);
+}
 
 const commandQueue = new CommandQueue();
 const socket = new RelaySocket();
@@ -209,6 +239,7 @@ const routeQueryFrame = createQueryFrameRouter(
   useBoardsStore.getState().setQueries,
   pendingQueries,
 );
+const routeTurnWorkFrame = createTurnWorkFrameRouter(pendingWork);
 const routeCallFrame = createCallFrameRouter(
   {
     current: () => useCallStore.getState().call,
@@ -270,6 +301,8 @@ function connectionLost(epoch: number): void {
   // ... and whether it keeps dismissed cards; the set it last sent stays in force, but nothing can be sent.
   useDismissedCardsStore.getState().clearHost();
   pendingQueries.cancelAll();
+  pendingWork.cancelAll();
+  useTurnWorkStore.getState().setUp(false);
   // A room command sent on this socket is answered on it or not at all.
   pendingRooms.cancelAll();
   // Commands on its wire wait for the next socket, with no ack deadline running.
@@ -419,6 +452,7 @@ function handleFrame(data: string): void {
   routeReviewsFrame(message);
   routeMeetingsFrame(message);
   routeQueryFrame(message);
+  routeTurnWorkFrame(message);
   routeAssistantFrame(message);
   routeCallFrame(message);
   void dispatch({ type: "server", message });
@@ -628,6 +662,8 @@ async function retarget(id: string | null): Promise<void> {
   pendingReviews.cancelAll();
   pendingMeetings.cancelAll();
   pendingQueries.cancelAll();
+  pendingWork.cancelAll();
+  useTurnWorkStore.getState().setUp(false);
   useBoardsStore.getState().setQueries(false);
   useVncStore.getState().setAccess({ kind: "idle" });
   await resetSession();

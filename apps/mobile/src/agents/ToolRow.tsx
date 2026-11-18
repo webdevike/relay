@@ -5,6 +5,7 @@
  */
 import { StyleSheet, View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
+import { toolLabel } from "@/lib/toolName";
 import { spacing, useColors } from "@/theme";
 import { Text } from "@/ui/Text";
 
@@ -28,12 +29,6 @@ const glyphFor: Record<string, SFSymbol> = {
   ast_edit: "point.3.connected.trianglepath.dotted",
 };
 const DEFAULT_GLYPH: SFSymbol = "wrench.and.screwdriver";
-
-/** MCP tools arrive as `server__tool`; the tool's own name is what reads. */
-export function toolLabel(name: string): string {
-  const parts = name.split("__");
-  return parts[parts.length - 1] ?? name;
-}
 
 export function toolGlyph(name: string | undefined): SFSymbol {
   return (name === undefined ? undefined : glyphFor[toolLabel(name)]) ?? DEFAULT_GLYPH;

@@ -80,6 +80,11 @@ import { MessageText } from "@/agents/MessageText";
 import { SpecialistRunsSheet } from "@/agents/SpecialistRunsSheet";
 import { RouterLine } from "@/agents/RouterLine";
 import { RouterSheet } from "@/agents/RouterSheet";
+import { openTurnWork, TurnWorkSheet, useTurnWork } from "@/agents/TurnWorkSheet";
+import { WorkBrain } from "@/agents/WorkBrain";
+import { workBrains, type WorkBrain as Brain } from "@/lib/turnWork";
+import { useSettingsStore } from "@/state/settings";
+import { useTurnWorkStore } from "@/connection/turnWork";
 import { useSpecialistRuns } from "@/lib/useSpecialistRuns";
 import { BackgroundRow } from "@/agents/BackgroundRow";
 import { AskCard } from "@/agents/AskCard";
@@ -173,6 +178,15 @@ import { CardUndoToast } from "@/ui/CardUndoToast";
 
 /** Prefix of the rows echoing sent turns before the host's snapshot lists them (then the echo's id). */
 const PENDING_ID = "pending-turn:";
+/** Rows that are not the host's: echoes, this screen's local rows, ask and trial cards (no turn, no work of their own). */
+function notHostRow(message: AssistantMessage): boolean {
+  return (
+    message.id.startsWith(PENDING_ID) ||
+    isLocalRow(message.id) ||
+    isAskRow(message.id) ||
+    isTrialRow(message.id)
+  );
+}
 /** The receipt under an echo, by its turn's state (`state/turn.machine.ts`). */
 const ECHO_RECEIPT: Record<PendingTurnState, string> = {
   sending: "Sending",
@@ -739,16 +753,7 @@ function Thread({ agent }: { agent: string }) {
   }, [jumpTo, listed.length, scrollToRow]);
   // Turns of the host's rows, for bookmarks: flagged by an ask nobody answered and by reactions.
   const turnRows = useMemo(
-    () =>
-      assistantTurnRows(
-        rows,
-        (message) =>
-          message.id.startsWith(PENDING_ID) ||
-          isLocalRow(message.id) ||
-          isAskRow(message.id) ||
-          isTrialRow(message.id),
-        pendingAsk !== undefined,
-      ),
+    () => assistantTurnRows(rows, notHostRow, pendingAsk !== undefined),
     [rows, pendingAsk],
   );
   useTurnBookmarks({ turnRows, thread: artifactsThread });
@@ -758,6 +763,19 @@ function Thread({ agent }: { agent: string }) {
   // and the newest row is not an assistant message already showing words. Once text streams, it is the indicator.
   const newest = newestFirst[0];
   const typing = busy && !(newestSettled?.role === "assistant" && newestSettled.text.trim() !== "");
+  // Show work: a brain on the last reply of each turn (and by the dots while a turn has no reply yet) opens the
+  // turn's work, fetched only then; off in Settings, or on a host that cannot answer, no brain and no fetch.
+  const showWork = useSettingsStore((state) => state.showWork);
+  const workUp = useTurnWorkStore((state) => state.up);
+  const peek = showWork && workUp;
+  const brains = useMemo(() => workBrains(rows, busy, peek, notHostRow), [rows, busy, peek]);
+  const turnWork = useTurnWork(snapshot?.rev);
+  useEffect(() => {
+    if (!peek) turnWork.send({ type: "sheet.close" });
+  }, [peek, turnWork]);
+  useEffect(() => {
+    turnWork.send({ type: "sheet.close" });
+  }, [agent, turnWork]);
 
   // Only the newest message Isaac typed carries a receipt: Sending while its echo waits on the host's
   // ack, Sent once the host has it (a turn sent while the assistant works waits there until it is
@@ -971,6 +989,15 @@ function Thread({ agent }: { agent: string }) {
   const onRouter = useCallback((messageId: string) => {
     setOpenRouter(messageId);
   }, []);
+  const onWork = useCallback(
+    (message: AssistantMessage) => {
+      openTurnWork(turnWork, { agent, at: message.at, row: message.id });
+    },
+    [agent, turnWork],
+  );
+  const onTypingWork = useCallback(() => {
+    openTurnWork(turnWork, { agent });
+  }, [agent, turnWork]);
   const onEcho = useCallback(
     (messageId: string, action: "retry" | "dismiss") => {
       const clientId = messageId.slice(PENDING_ID.length);
@@ -1092,6 +1119,9 @@ function Thread({ agent }: { agent: string }) {
                               onSignIn={openSignIn}
                               onEcho={echo?.state === "unconfirmed" ? onEcho : null}
                               onRouter={onRouter}
+                              title={title}
+                              work={brains.get(item.id) ?? null}
+                              onWork={onWork}
                             />
                           </LocalRowFrame>
                         )}
@@ -1105,6 +1135,7 @@ function Thread({ agent }: { agent: string }) {
                       {typing && (
                         <TypingRow
                           title={title}
+                          onWork={peek ? onTypingWork : null}
                           gap={
                             newest !== undefined && senderOf(newest) === "eva"
                               ? GAP_RUN
@@ -1308,6 +1339,7 @@ function Thread({ agent }: { agent: string }) {
             setOpenRouter(null);
           }}
         />
+        <TurnWorkSheet actor={turnWork} />
         <OpenAsksSheet
           open={asksOpen}
           asks={shownAsks}
@@ -1401,7 +1433,15 @@ function senderOf(message: AssistantMessage): "user" | "status" | "eva" {
 }
 
 /** The typing dots at the live edge of the inverted list, in the incoming bubble's fill. */
-function TypingRow({ title, gap }: { title: string; gap: number }) {
+function TypingRow({
+  title,
+  gap,
+  onWork,
+}: {
+  title: string;
+  gap: number;
+  onWork: (() => void) | null;
+}) {
   const colors = useColors();
   const fill = useScheme() === "dark" ? BUBBLE_DARK : colors.surface;
   return (
@@ -1411,6 +1451,7 @@ function TypingRow({ title, gap }: { title: string; gap: number }) {
       style={[styles.evaRow, { marginTop: gap }]}
     >
       <TypingDots fill={fill} label={`${title} is typing`} />
+      {onWork !== null && <WorkBrain state="live" title={title} onOpen={onWork} />}
     </Animated.View>
   );
 }
@@ -1440,6 +1481,12 @@ interface RowProps {
   onEcho: ((messageId: string, action: "retry" | "dismiss") => void) | null;
   /** The router line under Isaac's bubble was tapped: open its decision. */
   onRouter: (messageId: string) => void;
+  /** The assistant's name, for the brain's VoiceOver label. */
+  title: string;
+  /** The brain under the last reply of a turn (Show work on); null for every other row. */
+  work: Brain | null;
+  /** The brain was tapped: open the work behind this reply's turn. */
+  onWork: (message: AssistantMessage) => void;
 }
 
 /**
@@ -1501,6 +1548,9 @@ function RowView({
   pulse,
   onEcho,
   onRouter,
+  title,
+  work,
+  onWork,
 }: RowProps) {
   const signedIn = useAssistantStore(
     (state) => threadOf(state, agent).signedIn[message.id] === true,
@@ -1713,6 +1763,15 @@ function RowView({
                   }}
                 />
               </View>
+            )}
+            {work !== null && (
+              <WorkBrain
+                state={work}
+                title={title}
+                onOpen={() => {
+                  onWork(message);
+                }}
+              />
             )}
           </View>
         </RenderMessage>

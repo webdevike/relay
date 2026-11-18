@@ -39,6 +39,8 @@ import type {
   StudioOp,
   StudioResult,
   StudioState,
+  TurnWork,
+  TurnWorkDetail,
 } from "@relay/protocol";
 
 /** Outbound side of one connection. `send` after `close` is a no-op. */
@@ -238,11 +240,31 @@ export interface AssistantRelaying {
     req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">,
   ): Omit<AssistantFileRes, "t" | "rid">;
   /**
+   * `assistant.work.req`: the work behind one turn of agent `agent`'s thread, or one part's full text
+   * (`assistant/work.ts`, protocol `turn-work.ts`). Absent where the host keeps no assistant transcripts.
+   */
+  work?(agent: string, query: AssistantWorkQuery): AssistantWorkAnswer;
+  /**
    * `relay-linux assistant consult` (`POST /assistant/consult`): assistant `from` brings assistant
    * `agent` into its chat with Isaac and puts `question` to it (`assistant/consult.ts`). Rejects
    * with `AckFailure`. Absent where the host cannot post guest rows.
    */
   consult?(request: ConsultRequest): Promise<ConsultResult>;
+}
+
+/** Which turn of an assistant's thread `assistant.work.req` asks about (its frame's fields). */
+export interface AssistantWorkQuery {
+  readonly at?: number | undefined;
+  readonly row?: string | undefined;
+  readonly detail?: string | undefined;
+}
+
+/** An `assistant.work.res` without its `t` and `rid`. */
+export interface AssistantWorkAnswer {
+  readonly ok: boolean;
+  readonly work?: TurnWork;
+  readonly detail?: TurnWorkDetail;
+  readonly error?: string;
 }
 
 /** A question one assistant puts to another from its chat with Isaac. */

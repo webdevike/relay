@@ -18,7 +18,8 @@ import type { AgentMessage } from "@relay/protocol";
 import { spacing, useColors } from "@/theme";
 import { Sheet } from "@/ui/Sheet";
 import { Text } from "@/ui/Text";
-import { ToolRow, toolGlyph, toolLabel } from "./ToolRow";
+import { toolLabel } from "@/lib/toolName";
+import { ToolRow, toolGlyph } from "./ToolRow";
 
 const ROLL = 260;
 const GLYPH = 11;

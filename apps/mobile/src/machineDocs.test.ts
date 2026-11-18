@@ -24,6 +24,7 @@ import { sessionMachine } from "./connection/session.machine";
 import { legacyCallMachine } from "./call/legacyCall.machine";
 import { cardUndoMachine } from "./ui/cardUndo.machine";
 import { modelViewMachine } from "./ui/modelView.machine";
+import { turnWorkMachine } from "./agents/turnWork.machine";
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   { file: "dictation", title: "Dictation (hold-to-talk and tap runs)", machine: dictationMachine },
@@ -41,6 +42,7 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
   { file: "legacy-call", title: "Legacy voice call (host speech over the app socket)", machine: legacyCallMachine },
   { file: "card-undo", title: "Undo toast after dismissing a status card", machine: cardUndoMachine },
   { file: "model-view", title: "3D model view (live slot, poster snapshot)", machine: modelViewMachine },
+  { file: "turn-work", title: "Work sheet (peek behind the curtain)", machine: turnWorkMachine },
 ];
 
 const DOCS = fileURLToPath(new URL("../../../docs/state-machines/", import.meta.url));

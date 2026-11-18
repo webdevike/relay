@@ -35,6 +35,8 @@ import {
   splitPins,
   splitRoomCards,
   splitSignin,
+  foldTurnWork,
+  turnWorkDetail,
   untagged,
   type ActivityItem,
   type AgentImage,
@@ -65,6 +67,8 @@ import {
   type AskStatus,
   type AssistantRelaying,
   type AssistantThread,
+  type AssistantWorkAnswer,
+  type AssistantWorkQuery,
   type ConsultRequest,
   type ConsultResult,
 } from "../seams";
@@ -78,6 +82,7 @@ import { RouterLog, withRouter } from "./router-log";
 import { type SpecialistRunBook, settleAssistantMessages } from "./specialist-runs";
 import type { AssistantStore } from "./store";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
+import { transcriptOfRow, WorkReader } from "./work";
 import type { FinishedReply } from "../widgets/service";
 
 /** A turn from the host's jobs rather than from Isaac, for agent `title`; the thread shows it as a `status` row (and hides the agent's silent answer to it). */
@@ -451,6 +456,8 @@ export class AssistantService implements AssistantThread {
   private stopRuns: (() => void) | undefined;
   /** The specialist router's decisions in the thread's transcripts, put on Isaac's rows (`router-log.ts`). */
   private readonly router = new RouterLog();
+  /** The thread's transcripts as the work fold reads them (`assistant.work.req`). */
+  private readonly workReader = new WorkReader();
 
   constructor(private readonly deps: AssistantServiceDeps) {
     this.id = deps.agent.id;
@@ -561,6 +568,37 @@ export class AssistantService implements AssistantThread {
       sessionId: session?.id ?? "",
       asks: this.deps.asks.open(),
     };
+  }
+
+  /**
+   * `assistant.work.req`: the work behind the turn holding `query.at` (absent: the newest), in the transcript
+   * phone row `query.row` came from (an earlier context's, else the live session's), or with `detail` the full
+   * text of one step or of the turn's thinking. The live session's newest turn runs while the session works.
+   */
+  work(query: AssistantWorkQuery): AssistantWorkAnswer {
+    const session = this.current();
+    const live = session === undefined ? null : this.deps.sessionFile(session.id);
+    const record = this.deps.store.load();
+    const earlier = [
+      ...(record?.history ?? []),
+      ...(record?.sessionFile === undefined ? [] : [record.sessionFile]),
+    ].filter((file) => file !== live);
+    const file = transcriptOfRow(query.row, earlier, live ?? record?.sessionFile ?? null);
+    if (file === null) return { ok: false, error: `${this.title} has no transcript yet.` };
+    const messages = this.workReader.messages(file);
+    if (messages === null)
+      return { ok: false, error: `${this.title}'s transcript could not be read.` };
+    const at = query.at ?? null;
+    if (query.detail !== undefined) {
+      const detail = turnWorkDetail(messages, at, query.detail);
+      return detail === null
+        ? { ok: false, error: "That step is not in this turn." }
+        : { ok: true, detail };
+    }
+    const work = foldTurnWork(messages, at, file === live && session?.status === "working");
+    return work === null
+      ? { ok: false, error: "This turn has no work to show." }
+      : { ok: true, work };
   }
 
   /** The live session's settled rows as the phone shows them, guest rows unfolded; empty while no session is live. */
@@ -1211,6 +1249,14 @@ export class AssistantThreads implements AssistantRelaying {
         error: "This host has no agent home.",
       }
     );
+  }
+
+  /** `assistant.work.req` for agent `agent`'s thread (`AssistantService.work`). */
+  work(agent: string, query: AssistantWorkQuery): AssistantWorkAnswer {
+    const thread = this.thread(agent);
+    return thread === undefined
+      ? { ok: false, error: `No assistant ${agent} on this host.` }
+      : thread.work(query);
   }
 
   observe(change: AgentProviderChange): void {

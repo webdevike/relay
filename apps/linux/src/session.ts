@@ -26,6 +26,7 @@ import {
   ROOMS_CHAT_FEATURE,
   ROOMS_DECIDE_FEATURE,
   ASSISTANT_GUESTS_FEATURE,
+  ASSISTANT_WORK_FEATURE,
   WORKSPACE_FEATURE,
   CANVAS_FILES_FEATURE,
   STATS_FEATURE,
@@ -1174,6 +1175,14 @@ export class ClientSession {
         this.sink.send({ t: "assistant.file.res", rid: message.rid, ...result });
         break;
       }
+      case "assistant.work.req": {
+        const answer = this.deps.assistant?.work?.(message.agent, message) ?? {
+          ok: false,
+          error: "This host shows no assistant work.",
+        };
+        this.sink.send({ t: "assistant.work.res", rid: message.rid, ...answer });
+        break;
+      }
       case "query.req": {
         const query = this.deps.query;
         if (query === null) {
@@ -1568,6 +1577,8 @@ export class ClientSession {
         : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE]),
       // Snapshots carry guest rows (another assistant popped into a thread) with their entry.
       ...(this.deps.assistant?.consult === undefined ? [] : [ASSISTANT_GUESTS_FEATURE]),
+      // Answers `assistant.work.req`: the work behind a thread's turns, fetched per turn and per step.
+      ...(this.deps.assistant?.work === undefined ? [] : [ASSISTANT_WORK_FEATURE]),
       ...((this.deps.workspace ?? null) === null ? [] : [WORKSPACE_FEATURE]),
       ...((this.deps.canvasFiles ?? null) === null ? [] : [CANVAS_FILES_FEATURE]),
     ];

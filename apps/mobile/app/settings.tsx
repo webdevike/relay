@@ -7,6 +7,7 @@ import { Row } from "@/ui/Row";
 import { Separator } from "@/ui/Separator";
 import { Text } from "@/ui/Text";
 import { Button } from "@/ui/Button";
+import { BrainIcon } from "@/ui/BrainIcon";
 import { radii, spacing, type, useColors, useScheme } from "@/theme";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore, type AppearanceChoice, type PointerSpeed, type Recognizer } from "@/state/settings";
@@ -455,6 +456,22 @@ export default function Settings() {
             onValueChange={(value) => {
               settings.set({ skillWheelEnabled: value });
             }}
+          />
+        }
+      />
+      <Separator />
+      <Row
+        title="Show work"
+        subtitle="Brain under replies opens their work"
+        leading={<BrainIcon size={22} color={colors.textMuted} />}
+        trailing={
+          <Switch
+            value={settings.showWork}
+            onValueChange={(value) => {
+              settings.set({ showWork: value });
+            }}
+            accessibilityLabel="Show work"
+            testID="settings-show-work"
           />
         }
       />
