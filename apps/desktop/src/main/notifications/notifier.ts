@@ -26,7 +26,7 @@ export const STATE_FILE = 'notifications-state.json'
 /** The same thing told again inside this window (a chat that asks twice in a row) is skipped. */
 export const REPEAT_MS = 60_000
 /**
- * Relay's notification sound (Soundly SND86872, trimmed and normalized, Free plan). It ships in
+ * Relay's notification sound (Isaac's ElevenLabs UI alert, 2026-11-18, trimmed and normalized). It ships in
  * Relay.app/Contents/Resources (electron-builder.yml extraResources) and sound.ts copies it to
  * ~/Library/Sounds at startup, the only place macOS finds a notification's named sound.
  */
