@@ -232,6 +232,8 @@ export const generateWithTools = <A, R>(
     /** The answer object as the model should write it. */
     readonly answerExample: string
     readonly maxSteps: number
+    /** Image paths tools produced so far, read before every model call and attached with `request.files` (vision models). */
+    readonly attachments?: () => ReadonlyArray<string>
   }
 ): Effect.Effect<ToolGeneration<A>, ModelError | ToolLoopError, ModelRunner | R> =>
   Effect.gen(function*() {
@@ -259,7 +261,13 @@ export const generateWithTools = <A, R>(
         ...(transcript.length === 0 ? [] : ["## Your replies so far and their results", ...transcript]),
         ...(last ? [`This is your last reply: tools are closed, answer now with {"answer": ...}.`] : [])
       ].join("\n\n")
-      const reply = yield* models.generate({ ...request, system, prompt })
+      const attached = options.attachments?.() ?? []
+      const reply = yield* models.generate({
+        ...request,
+        system,
+        prompt,
+        ...(attached.length === 0 ? {} : { files: [...(request.files ?? []), ...attached] })
+      })
       cost += reply.cost
       const parsed = decodeReply(jsonObject(reply.text))
       const said = `[${step}] you: ${reply.text.trim().slice(0, 1000)}`

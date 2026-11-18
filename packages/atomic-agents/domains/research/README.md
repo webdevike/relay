@@ -4,26 +4,34 @@ Answers one research question with cited, quote-verified sources from the web, a
 
 ## Agents
 
-One spec, `web-researcher.json` (component `web-researcher`, job `answer`).
+One agent folder, `agents/web-researcher/AGENT.md` (component `web-researcher`, job `answer`); request and reply schemas in `schema.ts`.
 
-| Field         | Value                                                                                                                                                                                                      |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Purpose       | Answer one research question with cited sources, read-only.                                                                                                                                                |
-| Input event   | `research.asked`: `question`, optional `requestId`, `platforms` (web, github, youtube, reddit, x, xiaohongshu, instagram, facebook, marketplace), `depth` (quick, standard, deep)                          |
-| Output event  | `research.answered`: `answer`, `citations[{url, quote, verified, checked (page, excerpt, muse, none), via}]`, `route`, `toolCalls`, `model`, `attempts`, `cost`, `seconds`, plus the echoed request fields |
-| Default model | `anthropic/claude-haiku-5-5`, thinking `low`; candidates: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, `openai-codex/gpt-6.1-sol`, `openai-codex/gpt-6-astra`, `openai-codex/gpt-6-luna`          |
-| Triggers      | `onEvent: research.asked`, `manual`. No cron.                                                                                                                                                              |
-| Limits        | `timeout` 480, `maxSteps` 10, check `research.citations`                                                                                                                                                   |
-| Tools         | `web.search`, `web.read`, `muse.social_search`, `reach.fallback_search`, `reach.fallback_read`, `reach.platform_search`                                                                                    |
+| Field          | Value                                                                                                                                                                                                                                                |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Purpose        | Answer one research question with cited sources, read-only.                                                                                                                                                                                          |
+| Input event    | `research.asked`: `question`, optional `requestId`, `platforms` (web, github, youtube, reddit, x, xiaohongshu, instagram, facebook, marketplace), `depth` (quick, standard, deep)                                                                    |
+| Output event   | `research.answered`: `answer`, `citations[{url, quote, verified, checked (page, excerpt, muse, none), via}]`, `route`, `toolCalls`, `model`, `attempts`, `cost`, `seconds`, plus the echoed request fields                                           |
+| Model by depth | `agent.tiers` on `depth` (below). Base `model` `anthropic/claude-sonnet-5-5`, thinking `medium`; candidates: claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, `openai-codex/gpt-6.1-sol`, `openai-codex/gpt-6-astra`, `openai-codex/gpt-6-luna` |
+| Triggers       | `onEvent: research.asked`, `manual`. No cron.                                                                                                                                                                                                        |
+| Limits         | per tier `maxSteps` and `timeout` (below), check `research.citations`                                                                                                                                                                                |
+| Tools          | `web.search`, `web.read`, `web.screenshot` (deep only), `muse.social_search`, `reach.fallback_search`, `reach.fallback_read`, `reach.platform_search`                                                                                                |
 
-The spec also has `asks` (request `research.asked`, reply `research.answered`, show `answer`). The source order is in the system prompt: web first; Muse first when the request names instagram, facebook or marketplace; agent-reach only as fallback or for named platforms.
+| Depth      | Model                         | Thinking | Model calls (`maxSteps`) | Timeout per call |
+| ---------- | ----------------------------- | -------- | ------------------------ | ---------------- |
+| `quick`    | `anthropic/claude-haiku-5-5`  | low      | 6                        | 240 s            |
+| `standard` | `anthropic/claude-sonnet-5-5` | medium   | 10                       | 480 s            |
+| `deep`     | `anthropic/claude-opus-5-5`   | high     | 40                       | 900 s            |
+
+No depth is `standard`. The depth also changes the instructions: deep reads many pages, follows claims to primary sources, verifies every key claim and may cite up to 8. `config.json` `components.web-researcher.model` / `thinking` override every tier (one explicit choice); the budget stays the tier's.
+
+The agent has the `asks` pair (request `research.asked`, reply `research.answered`, show `answer`). The source order is in the system prompt: web first; Muse first when the request names instagram, facebook or marketplace; agent-reach only as fallback or for named platforms.
 
 ## Tools and adapters
 
-`adapters/pack.ts` builds `researchPack`: the six tools above plus the `research.citations` check. Gates are enforced in code with a per-item ledger, not left to the prompt. The check normalizes markdown, HTML, quotes, dashes and case, verifies each quote on its page (else on search excerpts, else on Muse's words for a Muse link), gives one repair turn, then ships the answer with `verified: false`. `route` is a `+` join of primary, muse, platform, fallback.
+`adapters/pack.ts` builds `researchPack`: the seven tools above plus the `research.citations` check. Gates are enforced in code with a per-item ledger, not left to the prompt. The check normalizes markdown, HTML, quotes, dashes and case, verifies each quote on its page (else on search excerpts, else on Muse's words for a Muse link), gives one repair turn, then ships the answer with `verified: false`. `route` is a `+` join of primary, muse, platform, fallback.
 
 - `adapters/http.ts`: `ResearchError`, `Hit`, `Page`, `fetchText` (45 s timeout), `mcpCall` (stateless JSON-RPC to a keyless MCP endpoint).
-- `adapters/web.ts`: `Web` service. Search through `https://search.parallel.ai/mcp`. Read through the `omp read <url>:1-100000` CLI (90 s timeout). A page under 80 chars or navigation only (`navOnly`) counts as failed.
+- `adapters/web.ts`: `Web` service. Search through `https://search.parallel.ai/mcp`. Read through the `omp read <url>:1-100000` CLI (90 s timeout). A page under 80 chars or navigation only (`navOnly`) counts as failed. `screenshot` shoots a page in a private headless Chromium (1280 wide, full page cut at 2400 px, 90 s) into a temp file; `web.screenshot` is closed unless `depth` is `deep`, and the file is attached to the model's later turns (the tool result says so, never shows the path), so a vision model can answer how a page looks. Tool mode only: a code-mode script cannot see it.
 - `adapters/reach.ts`: `Reach` service. Search and fetch through Exa's MCP (`https://mcp.exa.ai/mcp`), read through Jina (`https://r.jina.ai/`) then Exa fetch, GitHub through `gh search` (repos, issues, code; 45 s timeout), other platforms through Exa filtered to that platform's hosts.
 - `adapters/muse.ts`: `Muse` service, one question at a time (semaphore), 20 s gap between questions. `musePrompt` adds read-only guard rails. Failures become `ResearchError` naming the kind.
 - `adapters/muse/ask.machine.ts`: pure XState machine for one question; failure kinds unavailable, signed_out, busy, ui_changed, rate_limited, timeout.

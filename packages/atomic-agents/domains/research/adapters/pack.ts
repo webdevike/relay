@@ -5,6 +5,7 @@ import type { ToolsError } from "../../../src/core/Component.ts"
 import { type Hit, ResearchError } from "./http.ts"
 import { MUSE_PLATFORMS, type MusePlatform, Muse } from "./muse.ts"
 import { type GithubKind, type Platform, PLATFORMS, Reach } from "./reach.ts"
+import { schemas } from "../schema.ts"
 import { Web } from "./web.ts"
 
 /**
@@ -40,6 +41,7 @@ type Route = "primary" | "muse" | "platform" | "fallback"
 const ROUTE: Readonly<Record<string, Route>> = {
   "web.search": "primary",
   "web.read": "primary",
+  "web.screenshot": "primary",
   "muse.social_search": "muse",
   "reach.platform_search": "platform",
   "reach.fallback_search": "fallback",
@@ -269,6 +271,7 @@ export const researchPack = (
   pack<Web | Reach | Muse>({
     name: "research",
     layer: Layer.mergeAll(web, reach, muse),
+    schemas,
     tools: [
       toolAdapter({
         name: "web.search",
@@ -309,6 +312,21 @@ export const researchPack = (
             remember(ledger, "web.read", url, page.text, undefined)
             return pageFor(url, page.text, find, caller)
           }).pipe(Effect.mapError((error) => ({ message: `${error.message}; fallback_read (agent-reach) is now open for this url` })))
+      }),
+      toolAdapter({
+        name: "web.screenshot",
+        description:
+          "PRIMARY page screenshot, only at depth deep and only for a question about how a page looks (layout, a chart, a logo, a design). The image is attached to your next turn: look at it and say what you see; it is not a quotable source, so cite a read page for the claims. Read it first when the facts are in its text.",
+        args: Schema.Struct({ url: Schema.String.check(Schema.isPattern(/^https?:\/\//)) }),
+        example: `{"url": "<url>"}`,
+        returns: Schema.Struct({ url: Schema.String, image: Schema.String }),
+        run: ({ url }, fields, caller) =>
+          Effect.gen(function*() {
+            if (fields["depth"] !== "deep") return yield* refused("closed: screenshots open only at depth deep")
+            if (caller !== "model") return yield* refused("closed: a screenshot reaches only the model's own turns, not a script; call screenshot as a tool")
+            counted(ledgerOf(fields), "web.screenshot")
+            return { url, image: yield* (yield* Web).screenshot(url) }
+          })
       }),
       toolAdapter({
         name: "reach.fallback_search",

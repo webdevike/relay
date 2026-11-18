@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { type AgentSpec, Lines, Thinking, TriggerSpec } from "./AgentSpec.ts";
+import { type AgentSpec, Lines, Thinking, TiersSpec, TriggerSpec } from "./AgentSpec.ts";
 import { ToolMode } from "./Component.ts";
 
 /**
@@ -35,6 +35,8 @@ export const AgentDocFront = Schema.Struct({
   model: Schema.NonEmptyString,
   candidates: Schema.Array(Schema.NonEmptyString),
   thinking: Schema.optionalKey(Thinking),
+  /** Per-request tiers: the value of a request field picks model, thinking and budget (`AgentSpec.ts` `TiersSpec`). */
+  tiers: Schema.optionalKey(TiersSpec),
   /** Harness the model runs in (a model adapter: `omp`, `codex`, `claude-code`), default `omp`. */
   harness: Schema.optionalKey(Schema.NonEmptyString),
   /** A taste agent Isaac picks blind (`Trial.ts`): requests also run on the other trial models, shown as A / B / C. */
@@ -103,6 +105,7 @@ export const toAgentSpec = (
     model: front.model,
     candidates: front.candidates,
     ...(front.thinking === undefined ? {} : { thinking: front.thinking }),
+    ...(front.tiers === undefined ? {} : { tiers: front.tiers }),
     ...(front.trial === undefined ? {} : { trial: front.trial }),
     system: body,
     knowledge: knowledge.map((file) => ({ file })),

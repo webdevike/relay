@@ -1,7 +1,14 @@
+import { mkdtemp } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Context, Effect, Layer, Option, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/process"
+import { chromium } from "playwright-core"
 import { exec } from "../../../src/core/exec.ts"
 import { type Hit, mcpCall, type Page, ResearchError } from "./http.ts"
+
+/** A page shot stops at this height: past it a vision model downscales until text is unreadable. */
+const SHOT_HEIGHT = 2400
 
 /** omp's first web search engine (`web/parallel`), through its credential-free MCP endpoint. */
 const PARALLEL_MCP = "https://search.parallel.ai/mcp"
@@ -41,11 +48,13 @@ export const navOnly = (page: string) => {
 /**
  * The primary source: a plain web search (Parallel, omp's default first engine) and omp's own page
  * reader (`omp read <url>`: markdown alternates, PDFs, GitHub issues and READMEs through the API,
- * YouTube transcripts). Read-only; nothing here signs in anywhere.
+ * YouTube transcripts), plus a screenshot of a page for questions about how it looks. Read-only; nothing here signs in anywhere.
  */
 export class Web extends Context.Service<Web, {
   search(objective: string, queries: ReadonlyArray<string>): Effect.Effect<ReadonlyArray<Hit>, ResearchError>
   read(url: string): Effect.Effect<Page, ResearchError>
+  /** A PNG of the page at desktop width (full page, cut at 2400px): the absolute path of the file. Its own private headless Chromium, never Isaac's browsers. */
+  screenshot(url: string): Effect.Effect<string, ResearchError>
 }>()("atomic-agents/research/Web") {
   static readonly layer = Layer.effect(
     Web,
@@ -81,7 +90,41 @@ export class Web extends Context.Service<Web, {
         if (navOnly(body)) return yield* new ResearchError({ message: `read ${url}: only the site's navigation came back, not its content` })
         return { url, text: body } satisfies Page
       })
-      return Web.of({ search, read })
+      const screenshot = (url: string) =>
+        Effect.acquireUseRelease(
+          Effect.tryPromise({
+            try: () => chromium.launch({ headless: true }),
+            catch: (error) => new ResearchError({ message: `screenshot ${url}: cannot launch headless Chromium: ${String(error)}` })
+          }),
+          (browser) =>
+            Effect.tryPromise({
+              try: async () => {
+                const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+                try {
+                  const page = await context.newPage()
+                  const response = await page.goto(url, { waitUntil: "load", timeout: 30_000 })
+                  if (response !== null && response.status() >= 400) throw new Error(`answered ${response.status()}`)
+                  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined)
+                  const file = join(await mkdtemp(join(tmpdir(), "research-shot-")), "page.png")
+                  const height = await page.evaluate(() => document.documentElement.scrollHeight)
+                  await page.screenshot({
+                    path: file,
+                    fullPage: true,
+                    clip: { x: 0, y: 0, width: 1280, height: Math.min(Math.max(height, 900), SHOT_HEIGHT) },
+                    animations: "disabled"
+                  })
+                  return file
+                } finally {
+                  await context.close()
+                }
+              },
+              catch: (error) => new ResearchError({ message: `screenshot ${url}: ${error instanceof Error ? error.message : String(error)}` })
+            }),
+          (browser) => Effect.promise(() => browser.close().catch(() => undefined))
+        ).pipe(
+          Effect.timeoutOrElse({ duration: "90 seconds", orElse: () => Effect.fail(new ResearchError({ message: `screenshot ${url}: timed out` })) })
+        )
+      return Web.of({ search, read, screenshot })
     })
   )
 }

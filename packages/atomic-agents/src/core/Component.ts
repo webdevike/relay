@@ -95,6 +95,32 @@ export const define = <R>(component: Component<R>): Registered => ({
 export const ToolMode = Schema.Literals(["tools", "code"]);
 export type ToolMode = typeof ToolMode.Type;
 
+/**
+ * What one value of a request field changes about a run: the model, thinking level and budget the agent runs with
+ * (`AgentSettings.tiers`). `maxSteps` is model calls in the tool loop, `timeout` seconds per model call; absent
+ * means the agent file's own. `candidates` are the models a trial compares inside this tier (default: the agent's).
+ */
+export interface Tier {
+  readonly model: string;
+  readonly thinking?: "off" | "minimal" | "low" | "medium" | "high";
+  readonly maxSteps?: number;
+  readonly timeout?: number;
+  readonly candidates?: ReadonlyArray<string>;
+}
+
+/** A request field (`by`, a string field of the job input) picks a tier by value; an absent or empty field is `default`. */
+export interface Tiers {
+  readonly by: string;
+  readonly default: string;
+  readonly levels: Readonly<Record<string, Tier>>;
+}
+
+/** The budget a tier gives one run: what the agent spec's tool loop and model calls use in place of the file's. */
+export interface Budget {
+  readonly maxSteps?: number;
+  readonly timeout?: number;
+}
+
 export interface AgentSettings {
   /** Code default model (omp id); `config.json` `components.<id>.model` overrides it, and `atomic-agents use` writes that after a bake-off. */
   readonly model: string;
@@ -105,6 +131,12 @@ export interface AgentSettings {
    * without tools has none. `config.json` `components.<id>.toolMode` overrides it, live, like the model.
    */
   readonly toolMode?: ToolMode;
+  /**
+   * Per-request tiers: the value of one request field picks the model, thinking and budget (`Settings.effective(...).tier`).
+   * `model` and `thinking` above are the defaults for a request no tier covers; a tier overrides them, and
+   * `config.json` `components.<id>.model` / `thinking` still override a tier (one explicit model for every request).
+   */
+  readonly tiers?: Tiers;
   /**
    * A taste agent whose model Isaac picks blind (`Trial.ts`): with `trial` on, each caller's request also runs on the
    * other trial models in parallel and Relay shows the results as A / B / C. Needs 3 models among `model` and
@@ -148,6 +180,8 @@ export interface RunContext {
   readonly runDir: string;
   /** Persistent across runs, created before each run: cursors and other state a job carries forward go here. */
   readonly stateDir: string;
+  /** The tier's step and time budget for this run (`AgentSettings.tiers`); absent without a tier. */
+  readonly budget?: Budget;
   /** The resolved model for this run (bake-off override, else config.json, else `agent.model`). */
   readonly model: string;
   /** The resolved tool mode for this run (bake-off override, else config.json, else `agent.toolMode`); absent for an agent without tools. */

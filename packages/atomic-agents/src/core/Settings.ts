@@ -17,7 +17,13 @@ import {
 } from "effect";
 import { Background } from "./Background.ts";
 import { Agents } from "./Agent.ts";
-import { type AgentSettings, eventType, type Registered, Trigger } from "./Component.ts";
+import {
+  type AgentSettings,
+  type Budget,
+  eventType,
+  type Registered,
+  Trigger,
+} from "./Component.ts";
 import { EventBus, Home, type JournalError } from "./Event.ts";
 import { shortId } from "./Id.ts";
 import { type Change, events, publishRuntime, runtime, SettingsFile } from "./RuntimeEvents.ts";
@@ -38,6 +44,15 @@ export class SettingsError extends Schema.TaggedError<SettingsError>()("Settings
   message: Schema.String,
 }) {}
 
+/** What one request's tier resolves to, config.json applied: the model and thinking it runs with, its budget, and the trial models inside the tier. */
+export interface TierPick {
+  readonly name: string;
+  readonly model: string;
+  readonly thinking?: "off" | "minimal" | "low" | "medium" | "high";
+  readonly budget?: Budget;
+  readonly arms: ReadonlyArray<string>;
+}
+
 /** A component with config.json applied. */
 export interface Effective {
   readonly enabled: boolean;
@@ -48,6 +63,11 @@ export interface Effective {
    * the models a request runs on, the agent's model first, then `trialModels` (else `candidates`), at most 3.
    */
   readonly trial: { readonly on: boolean; readonly arms: ReadonlyArray<string> };
+  /**
+   * The tier a job input falls in (`AgentSettings.tiers`), or undefined for an agent without tiers. A trial of a
+   * tiered agent compares models inside the request's tier: `arms` here, not `trial.arms`.
+   */
+  tier(input: unknown): TierPick | undefined;
   /** The cron expression for a job's Cron trigger: config override, else the code's. */
   cron(job: string, fallback: string): string;
 }
@@ -61,6 +81,30 @@ export const effective = (component: Registered, settings: SettingsFile): Effect
   const model = own.model ?? component.agent.model;
   const candidates = own.candidates ?? component.agent.candidates;
   const arms = [...new Set([model, ...(own.trialModels ?? candidates)])].slice(0, 3);
+  const tiers = component.agent.tiers;
+  const tier = (input: unknown): TierPick | undefined => {
+    if (tiers === undefined) return undefined;
+    const value = isObject(input) ? input[tiers.by] : undefined;
+    const name = typeof value === "string" && value !== "" ? value : tiers.default;
+    const level = tiers.levels[name];
+    if (level === undefined) return undefined;
+    const picked = own.model ?? level.model;
+    const tierThinking = own.thinking ?? level.thinking ?? thinking;
+    const budget = {
+      ...(level.maxSteps === undefined ? {} : { maxSteps: level.maxSteps }),
+      ...(level.timeout === undefined ? {} : { timeout: level.timeout }),
+    };
+    return {
+      name,
+      model: picked,
+      ...(tierThinking === undefined ? {} : { thinking: tierThinking }),
+      ...(Object.keys(budget).length === 0 ? {} : { budget }),
+      arms: [...new Set([picked, ...(own.trialModels ?? level.candidates ?? candidates)])].slice(
+        0,
+        3,
+      ),
+    };
+  };
   return {
     enabled: own.enabled ?? true,
     ...(own.fallbackModel === undefined ? {} : { fallbackModel: own.fallbackModel }),
@@ -70,9 +114,11 @@ export const effective = (component: Registered, settings: SettingsFile): Effect
       candidates,
       ...(thinking === undefined ? {} : { thinking }),
       ...(toolMode === undefined ? {} : { toolMode }),
+      ...(component.agent.tiers === undefined ? {} : { tiers: component.agent.tiers }),
       ...(component.agent.trial === undefined ? {} : { trial: component.agent.trial }),
     },
     trial: { on: (own.trial ?? component.agent.trial ?? false) && arms.length >= 2, arms },
+    tier,
     cron: (job, fallback) => own.cron?.[job] ?? fallback,
   };
 };

@@ -159,7 +159,18 @@ export class Runner extends Context.Service<
         const run = yield* runId;
         const runDir = home.runDir(component.id, run);
         const stateDir = home.stateDir(component.id);
-        const model = options.model ?? resolved.agent.model;
+        // A tiered agent's request field (depth) picks the model, thinking and budget; a bake-off or trial arm (`options.model`) keeps its own model inside the tier.
+        const tier = resolved.tier(input);
+        const model = options.model ?? tier?.model ?? resolved.agent.model;
+        const agent =
+          tier === undefined
+            ? resolved.agent
+            : {
+                ...resolved.agent,
+                model: tier.model,
+                ...(tier.thinking === undefined ? {} : { thinking: tier.thinking }),
+              };
+        const budget = tier?.budget === undefined ? {} : { budget: tier.budget };
         const arm = options.trial?.role === "arm";
         // A trial arm waits on nothing: not the agent's lock, not other arms (nine Sol arms in a row took 4.5 minutes).
         const lock = arm ? undefined : yield* lockOf(component.id);
@@ -214,7 +225,8 @@ export class Runner extends Context.Service<
                 stateDir,
                 model,
                 ...modes,
-                agent: resolved.agent,
+                ...budget,
+                agent,
                 publish: jobPublish,
                 ...(options.trial?.inline === undefined ? {} : { trial: options.trial.inline }),
               })
@@ -453,14 +465,22 @@ export class Runner extends Context.Service<
       });
 
       /** The agent's trial when this request starts one: trial on, and a caller to show the card to. */
-      const trialFor = (agentId: string, caller: string | undefined) =>
+      const trialFor = (agentId: string, caller: string | undefined, input: unknown) =>
         Effect.gen(function* () {
           if (caller === undefined) return undefined;
           const agent = (yield* agents.current).find((candidate) => candidate.id === agentId);
           if (agent === undefined) return undefined;
           const resolved = effective(agent, yield* settings.current);
+          const tier = resolved.tier(input);
           return resolved.enabled && resolved.trial.on
-            ? { agent, caller, trial: { arms: resolved.trial.arms, model: resolved.agent.model } }
+            ? {
+                agent,
+                caller,
+                trial: {
+                  arms: tier?.arms ?? resolved.trial.arms,
+                  model: tier?.model ?? resolved.agent.model,
+                },
+              }
             : undefined;
         });
       const runLogged = (component: string, job: string, input: unknown, options?: RunOptions) =>
@@ -476,7 +496,7 @@ export class Runner extends Context.Service<
       const runRequested = (data: unknown, caller: string | undefined) =>
         decodeRunRequested(data).pipe(
           Effect.flatMap((request) =>
-            Effect.flatMap(trialFor(request.agent, caller), (trial) =>
+            Effect.flatMap(trialFor(request.agent, caller, request.input), (trial) =>
               trial === undefined
                 ? runner.run(request.agent, request.job, request.input, {
                     requestId: request.requestId,
@@ -537,7 +557,9 @@ export class Runner extends Context.Service<
                       event.job === "ask" &&
                       agent.asks !== undefined &&
                       event.type === `${agent.id}/${agent.asks.request}`;
-                    const trial = asked ? yield* trialFor(agent.id, event.caller) : undefined;
+                    const trial = asked
+                      ? yield* trialFor(agent.id, event.caller, event.data)
+                      : undefined;
                     const data = event.data as { readonly requestId?: unknown } | null;
                     // Each run in its own fiber: a slow agent never holds up another agent's events (the runner's lock orders an agent's own).
                     yield* FiberSet.run(

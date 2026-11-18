@@ -21,7 +21,7 @@ import {
   ToolMode,
   Trigger,
 } from "./Component.ts";
-import { compileFields, type Fields } from "./Fields.ts";
+import { compileFields, type Fields, isObject } from "./Fields.ts";
 import { type GenerateRequest, generateWithTools, ModelRunner, tool } from "./Model.ts";
 
 /**
@@ -51,6 +51,29 @@ export const TriggerSpec = Schema.Union([
   Schema.Struct({ onEvent: Schema.NonEmptyString }),
 ]);
 
+/** One tier of `agent.tiers` (`Component.ts` `Tier`). */
+const TierSpec = Schema.Struct({
+  model: Schema.NonEmptyString,
+  thinking: Schema.optionalKey(Thinking),
+  /** Model calls in the tool loop for this tier (replaces `job.maxSteps`). */
+  maxSteps: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+  /** Seconds per model call for this tier (replaces `job.timeout`). */
+  timeout: Schema.optionalKey(Schema.Number.check(Schema.isGreaterThan(0))),
+  /** The models a trial compares inside this tier; default `agent.candidates`. */
+  candidates: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+});
+
+/**
+ * The value of one input field picks the model, thinking and budget of a request: `by` names a string field of the
+ * job input (`depth`), `levels` maps each value to its tier, `default` is the tier of an absent or empty field. Any
+ * agent may use it; a field value with no level runs on `agent.model`.
+ */
+export const TiersSpec = Schema.Struct({
+  by: Schema.NonEmptyString,
+  default: Schema.NonEmptyString,
+  levels: Schema.Record(Schema.String, TierSpec),
+});
+
 export const AgentSpec = Schema.Struct({
   id: Schema.String,
   kind: Schema.optionalKey(Schema.Literal("spec")),
@@ -67,6 +90,8 @@ export const AgentSpec = Schema.Struct({
     thinking: Schema.optionalKey(Thinking),
     /** A taste agent Isaac picks blind (`Trial.ts`): each caller's request also runs on its other trial models, shown as A / B / C. Needs 3 models among `model` and `candidates`. */
     trial: Schema.optionalKey(Schema.Boolean),
+    /** Per-request tiers (`TiersSpec`); `model` and `thinking` above stay the defaults for a request no tier covers. */
+    tiers: Schema.optionalKey(TiersSpec),
     /** The system prompt (a list is joined with newlines); `{{check}}` places the check adapter's contract. */
     system: Lines,
     /** Files appended to the system prompt on every run (relative to this file; `~` and `${VAR:-default}` expand). */
@@ -138,6 +163,20 @@ export interface AgentSpecEnv {
   readonly knowledge: ReadonlyArray<{ readonly file: string; readonly heading?: string }>;
   readonly readFile: (file: string) => Effect.Effect<string, Failure>;
 }
+
+/** Images the model sees at once: the latest ones; older ones drop out of its attachments. */
+const MAX_SHOTS = 4;
+
+/**
+ * A tool result with an `image` (an absolute file path) hands that file to the model: it is attached to every later
+ * turn of the item (vision models read it), and the result the model reads says so instead of showing the path.
+ */
+const takeImage = (result: unknown, shots: Array<string>): unknown => {
+  if (!isObject(result) || typeof result["image"] !== "string") return result;
+  const { image, ...rest } = result;
+  shots.push(image as string);
+  return { ...rest, image: "attached to your next turn" };
+};
 
 /** Stats every item's output may use: the model in force, model calls, USD, seconds. */
 const ITEM_STATS = ["model", "attempts", "cost", "seconds"];
@@ -388,6 +427,21 @@ export const compileAgentSpec = (
   }
   if (file.agent.trial === true && new Set([file.agent.model, ...file.agent.candidates]).size < 3)
     errors.push("agent.trial: a trial needs 3 models among agent.model and agent.candidates");
+  if (file.agent.tiers !== undefined) {
+    const { by, default: base, levels } = file.agent.tiers;
+    if (!before.has(by))
+      errors.push(
+        `agent.tiers.by: ${by} is not an input, source or step field (have: ${[...before].join(", ")})`,
+      );
+    if (levels[base] === undefined)
+      errors.push(
+        `agent.tiers.default: ${base} is not a level (have: ${Object.keys(levels).join(", ")})`,
+      );
+    for (const [name, level] of Object.entries(levels)) {
+      if (level.maxSteps !== undefined && spec.answer === undefined)
+        errors.push(`agent.tiers.levels.${name}.maxSteps: only applies with job.answer`);
+    }
+  }
 
   const rawSystem = join(file.agent.system);
   for (const name of placeholders(rawSystem)) {
@@ -419,6 +473,7 @@ export const compileAgentSpec = (
 
   const prompt = join(spec.prompt);
   const timeout = spec.timeout === undefined ? undefined : (`${spec.timeout} seconds` as const);
+  const secondsOf = (value: number) => `${value} seconds` as const;
   const answerExample =
     spec.answerExample ??
     JSON.stringify(
@@ -463,12 +518,17 @@ export const compileAgentSpec = (
     const viaAdapter = ModelRunner.of({
       generate: (request) => model.generate(request).pipe(Effect.provideContext(services)),
     });
+    // The tier's budget replaces the file's; images a tool took (a page screenshot) go to the model on every later turn.
+    const limit =
+      context.budget?.timeout === undefined ? timeout : secondsOf(context.budget.timeout);
+    const maxSteps = context.budget?.maxSteps ?? spec.maxSteps ?? 3;
+    const shots: Array<string> = [];
     const request: Omit<GenerateRequest, "prompt"> = {
       model: context.model,
       system: agentSystem ?? (yield* withKnowledge),
       ...(files.length === 0 ? {} : { files }),
       ...(context.agent.thinking ? { thinking: context.agent.thinking } : {}),
-      ...(timeout === undefined ? {} : { timeout }),
+      ...(limit === undefined ? {} : { timeout: limit }),
     };
     const call = (text: string) =>
       (answer === undefined
@@ -491,12 +551,16 @@ export const compileAgentSpec = (
                           description: candidate.description,
                           args: candidate.args,
                           example: candidate.example,
-                          run: (args) => candidate.run(args, fields, "model"),
+                          run: (args) =>
+                            candidate
+                              .run(args, fields, "model")
+                              .pipe(Effect.map((result) => takeImage(result, shots))),
                         }),
                       ),
                 answer: answer.schema,
                 answerExample,
-                maxSteps: spec.maxSteps ?? 3,
+                maxSteps,
+                attachments: () => shots.slice(-MAX_SHOTS),
               },
             ),
             (reply) => ({
@@ -605,6 +669,7 @@ export const compileAgentSpec = (
       model: file.agent.model,
       candidates: file.agent.candidates,
       ...(file.agent.thinking ? { thinking: file.agent.thinking } : {}),
+      ...(file.agent.tiers === undefined ? {} : { tiers: file.agent.tiers }),
       ...(tools.length > 0 ? { toolMode: spec.toolMode ?? "tools" } : {}),
       ...(file.agent.trial === undefined ? {} : { trial: file.agent.trial }),
       system,

@@ -30,6 +30,8 @@ interface FakeWeb {
   readonly hits?: ReadonlyArray<Hit>
   /** url → page text; any other url fails to read. */
   readonly pages?: Readonly<Record<string, string>>
+  /** The file `screenshot` answers with. */
+  readonly shot?: string
 }
 
 const read = (pages: Readonly<Record<string, string>> | undefined) => (url: string) =>
@@ -44,7 +46,7 @@ interface FakeMuse {
 const fakes = (web: FakeWeb, reach: FakeWeb & { readonly platform?: ReadonlyArray<Hit> }, muse: FakeMuse = {}): ReadonlyArray<Pack> => [
   ...defaultPacks.filter((candidate) => candidate.name !== "research"),
   researchPack(
-    Layer.succeed(Web, Web.of({ search: () => Effect.succeed(web.hits ?? []), read: read(web.pages) })),
+    Layer.succeed(Web, Web.of({ search: () => Effect.succeed(web.hits ?? []), read: read(web.pages), screenshot: () => Effect.succeed(web.shot ?? "/tmp/shot.png") })),
     Layer.succeed(Reach, Reach.of({ search: () => Effect.succeed(reach.hits ?? []), read: read(reach.pages), platform: () => Effect.succeed(reach.platform ?? []) })),
     Layer.succeed(Muse, Muse.of({
       ask: () => muse.answer !== undefined ? Effect.succeed(muse.answer) : Effect.fail(new ResearchError({ message: muse.failure ?? "muse unavailable: not in tests" }))
@@ -53,13 +55,13 @@ const fakes = (web: FakeWeb, reach: FakeWeb & { readonly platform?: ReadonlyArra
 ]
 
 /** Run the shipped web-researcher agent (in `toolMode`, default as shipped) once over a temp home; answer its research.answered data and the model requests. */
-const research = (input: Readonly<Record<string, unknown>>, replies: ReadonlyArray<unknown>, packs: ReadonlyArray<Pack>, toolMode?: "code") =>
+const research = (input: Readonly<Record<string, unknown>>, replies: ReadonlyArray<unknown>, packs: ReadonlyArray<Pack>, toolMode?: "code", model: string | null = "test/model") =>
   Effect.gen(function*() {
     const root = yield* tempHome
     const dir = yield* builtinAgents(root, ["web-researcher"])
     const { models, seen } = yield* scripted(replies)
     return yield* Effect.gen(function*() {
-      const result = yield* (yield* Runner).run("web-researcher", "answer", input, { model: "test/model", ...(toolMode === undefined ? {} : { toolMode }) })
+      const result = yield* (yield* Runner).run("web-researcher", "answer", input, { ...(model === null ? {} : { model }), ...(toolMode === undefined ? {} : { toolMode }) })
       const events = yield* (yield* EventBus).history
       const output = events.find((event) => event.type === "web-researcher/research.answered" && event.run === result.run)
       return { ok: result.ok, data: output?.data as Record<string, any> | undefined, requests: yield* Ref.get(seen) }
@@ -298,5 +300,53 @@ describe("web-researcher", () => {
       expect(requests[2]!.prompt).toContain("closed: Muse was already asked about facebook")
       expect(data!["citations"]).toEqual([{ url: group, quote: "the flow paddle is the reason to buy it", verified: true, checked: "excerpt", via: "reach.platform_search" }])
       expect(data!["route"]).toBe("muse+platform")
+    }).pipe(Effect.runPromise), 20_000)
+})
+
+describe("web-researcher depth tiers", () => {
+  const done = { answer: { answer: "October 22, 2026.", citations: [{ url: "https://b.test/notes", quote: "The 1.4 release shipped" }] } }
+  const world = fakes({ pages: { "https://b.test/notes": PAGE } }, {})
+  const tiered = (depth: string | undefined) =>
+    research({ question: "When did 1.4 ship?", ...(depth === undefined ? {} : { depth }) }, [{ tool: "read", args: { url: "https://b.test/notes" } }, done], world, undefined, null)
+
+  test.each([
+    ["quick", "anthropic/claude-haiku-5-5", "low", "240 seconds", "at most 6 replies"],
+    ["standard", "anthropic/claude-sonnet-5-5", "medium", "480 seconds", "at most 10 replies"],
+    ["deep", "anthropic/claude-opus-5-5", "high", "900 seconds", "at most 40 replies"],
+    [undefined, "anthropic/claude-sonnet-5-5", "medium", "480 seconds", "at most 10 replies"]
+  ])("depth %p runs on %p, thinking %p, %p per call, %p", (depth, model, thinking, timeout, steps) =>
+    Effect.gen(function*() {
+      const { ok, data, requests } = yield* tiered(depth)
+      expect(ok).toBe(true)
+      expect(data!["model"]).toBe(model)
+      for (const request of requests) {
+        expect(request.model).toBe(model)
+        expect<unknown>(request.thinking).toBe(thinking)
+        expect<unknown>(request.timeout).toBe(timeout)
+      }
+      expect(requests[0]!.system).toContain(steps)
+    }).pipe(Effect.runPromise), 20_000)
+
+  test("a bake-off or trial arm keeps its own model but the tier's effort and budget", () =>
+    Effect.gen(function*() {
+      const { requests } = yield* research({ question: "When did 1.4 ship?", depth: "deep" }, [done], world, undefined, "openai-codex/gpt-6-luna")
+      expect(requests[0]!.model).toBe("openai-codex/gpt-6-luna")
+      expect(requests[0]!.thinking).toBe("high")
+      expect(requests[0]!.system).toContain("at most 40 replies")
+    }).pipe(Effect.runPromise), 20_000)
+
+  test("screenshots open only at depth deep, and the image rides along on the model's next turns", () =>
+    Effect.gen(function*() {
+      const shot = fakes({ shot: "/tmp/page-shot.png", pages: { "https://b.test/notes": PAGE } }, {})
+      const script = [{ tool: "screenshot", args: { url: "https://b.test/notes" } }, { tool: "read", args: { url: "https://b.test/notes" } }, done]
+      const deep = yield* research({ question: "What does the page look like?", depth: "deep" }, script, shot)
+      expect(deep.requests[0]!.files).toBeUndefined()
+      expect(deep.requests[1]!.files).toEqual(["/tmp/page-shot.png"])
+      expect(deep.requests[1]!.prompt).toContain("attached to your next turn")
+      expect(deep.requests[1]!.prompt).not.toContain("/tmp/page-shot.png")
+      expect(deep.data!["toolCalls"]).toEqual({ "web.screenshot": 1, "web.read": 1 })
+      const standard = yield* research({ question: "What does the page look like?", depth: "standard" }, script, shot)
+      expect(standard.requests[1]!.prompt).toContain("closed: screenshots open only at depth deep")
+      expect(standard.requests[2]!.files).toBeUndefined()
     }).pipe(Effect.runPromise), 20_000)
 })
