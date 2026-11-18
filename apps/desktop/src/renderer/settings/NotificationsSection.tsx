@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, Switch } from '@mantine/core'
+import { Button, SegmentedControl, Switch } from '@mantine/core'
 import { useAssistants } from '../assistants/assistants-store'
 import {
   saveNotificationPrefs,
@@ -46,6 +46,27 @@ export function NotificationsSection() {
             onChange={(e) => void saveNotificationPrefs({ enabled: e.currentTarget.checked })}
           />
         </label>
+        <div className="eva-settings-row">
+          <span className="eva-settings-label">
+            <span className="eva-settings-label-title">Notification sound</span>
+            <span className="eva-settings-label-help">
+              Relay&apos;s own chime, or the sound macOS plays for every app. Quiet notifications
+              (an update that is ready) stay silent either way.
+            </span>
+          </span>
+          <SegmentedControl
+            data-testid="settings-notifications-sound"
+            aria-label="Notification sound"
+            value={prefs.sound}
+            onChange={(v) =>
+              void saveNotificationPrefs({ sound: v === 'system' ? 'system' : 'relay' })
+            }
+            data={[
+              { value: 'relay', label: 'Relay sound' },
+              { value: 'system', label: 'System sound' },
+            ]}
+          />
+        </div>
         <div className="eva-settings-row">
           <span className="eva-settings-label">
             <span className="eva-settings-label-title">Send a test</span>

@@ -58,7 +58,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-notifications",
+      ["expo-notifications", { "sounds": ["./assets/sounds/relay-notification.caf"] }],
       [
         "expo-local-authentication",
         {

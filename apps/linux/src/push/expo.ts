@@ -6,6 +6,13 @@ import type { PushMessage, PushOutcome, PushSender } from "./notifier";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
+/**
+ * The sound a push plays unless the message says `sound: null` (silent) or its own name: Relay's chime
+ * (Soundly SND86872), bundled in the phone app by the expo-notifications plugin in apps/mobile/app.json.
+ * A phone build without the file plays the system sound instead, so this is safe to send before that build ships.
+ */
+export const RELAY_PUSH_SOUND = "relay-notification.caf";
+
 const Ticket = z.union([
   z.object({ status: z.literal("ok"), id: z.string() }),
   z.object({
@@ -29,7 +36,7 @@ export class ExpoPushSender implements PushSender {
       headers: { "content-type": "application/json", accept: "application/json", "accept-encoding": "gzip, deflate" },
       body: JSON.stringify(
         messages.map(({ contentAvailable, ...message }) => ({
-          sound: "default",
+          sound: RELAY_PUSH_SOUND,
           priority: "high",
           ...message,
           ...(contentAvailable === true ? { _contentAvailable: true } : {}),

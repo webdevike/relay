@@ -144,6 +144,13 @@ export interface SoundlyApi {
   fileIds(key: string): Effect.Effect<ReadonlyArray<string>, SoundlyError>;
   /** Deletes a collection and checks it is gone. */
   remove(key: string): Effect.Effect<void, SoundlyError>;
+  /**
+   * The original file (WAV) of the sound with this file id, from a Search on the id. Fails when the account may not use
+   * it (a Pro sound on the Free plan) or Soundly lists no original.
+   */
+  download(
+    fileId: string,
+  ): Effect.Effect<{ readonly match: Match; readonly bytes: Uint8Array }, SoundlyError>;
 }
 
 const Constants = Schema.Struct({
@@ -394,6 +401,53 @@ export const cloud = (run: Run, script: string) => {
           }),
           (items) => rows(field(items, "PlaylistFiles")).map((file) => String(file["FileID"])),
         ),
+      download: (fileId) =>
+        Effect.gen(function* () {
+          const items = yield* call(
+            {
+              Type: "Search",
+              SearchString: fileId,
+              LibraryIDs: libraries.map((library) => library.id).join(","),
+              CategoryID: "",
+              ZipResponse: true,
+              UseThesaurus: false,
+              SearchID: `eva-${crypto.randomUUID()}`,
+              SearchFilters: {},
+              PageSize: 10,
+            },
+            app.server,
+          );
+          const hit = rows(field(items, "SearchMatches")).find((row) => row["FileID"] === fileId);
+          const match = toMatches(hit === undefined ? [] : [hit])[0];
+          if (hit === undefined || match === undefined)
+            return yield* new SoundlyError({ message: `Soundly has no sound ${fileId}` });
+          if (match.pro)
+            return yield* new SoundlyError({
+              message: `${fileId} needs Soundly Pro; the account is on the Free plan`,
+            });
+          const original = rows(hit["UrlList"]).find(
+            (url) => url["IsOriginal"] === true && typeof url["Location"] === "string",
+          );
+          if (original === undefined)
+            return yield* new SoundlyError({
+              message: `Soundly lists no original file for ${fileId}`,
+            });
+          const bytes = yield* Effect.tryPromise({
+            try: async () => {
+              const response = await fetch(String(original["Location"]), {
+                signal: AbortSignal.timeout(60_000),
+              });
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              return new Uint8Array(await response.arrayBuffer());
+            },
+            // The signed URL carries the session id: only the failure text, never the URL.
+            catch: (error) =>
+              new SoundlyError({
+                message: `download of ${fileId}: ${error instanceof Error ? error.message : "failed"}`,
+              }),
+          });
+          return { match, bytes };
+        }),
       remove: (key) =>
         Effect.gen(function* () {
           // Soundly answers a deleted collection with the new list plus a spurious "58: no permission".

@@ -312,6 +312,8 @@ const account = (evaPicks: ReadonlyArray<Collection>, matches: ReadonlyArray<Mat
         log.push(`remove ${collections.find((collection) => collection.key === key)?.name ?? key}`);
         collections = collections.filter((collection) => collection.key !== key);
       }),
+    download: (fileId) =>
+      Effect.fail(new SoundlyError({ message: `the fake account has no file ${fileId}` })),
   };
   return { api, log, names: () => collections.map((collection) => collection.name), files };
 };

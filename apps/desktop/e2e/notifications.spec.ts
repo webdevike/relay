@@ -73,6 +73,7 @@ interface Shown {
   title: string
   body: string
   silent: boolean
+  sound: string | null
 }
 interface Stub {
   log: Array<Shown & { click(): void }>
@@ -87,7 +88,13 @@ type W = { __evaosShell?: Hooks }
 const shown = (app: ElectronApplication): Promise<Shown[]> =>
   app.evaluate(() => {
     const stub = (globalThis as unknown as TestGlobal).__evaosTest.hooks.notifications
-    return stub.log.map(({ groupId, title, body, silent }) => ({ groupId, title, body, silent }))
+    return stub.log.map(({ groupId, title, body, silent, sound }) => ({
+      groupId,
+      title,
+      body,
+      silent,
+      sound,
+    }))
   })
 const titles = async (app: ElectronApplication): Promise<string[]> =>
   (await shown(app)).map((n) => n.title)
@@ -120,10 +127,11 @@ const openPlace = (shell: Page, page: string, section?: string): Promise<void> =
     [page, section],
   )
 
-const saved = (dir: string): { enabled: boolean; muted: string[] } =>
+const saved = (dir: string): { enabled: boolean; muted: string[]; sound: string } =>
   JSON.parse(fs.readFileSync(path.join(dir, 'notifications.json'), 'utf8')) as {
     enabled: boolean
     muted: string[]
+    sound: string
   }
 
 test('replies, questions and canvases notify under the rules; settings mute and switch off', async ({
@@ -148,6 +156,7 @@ test('replies, questions and canvases notify under the rules; settings mute and 
         title: 'Nova',
         body: 'Booked the dentist for Friday at 3.',
         silent: false,
+        sound: 'relay-notification.aiff',
       },
     ])
   await click(app, 0)
@@ -211,13 +220,17 @@ test('replies, questions and canvases notify under the rules; settings mute and 
   const nova = shell.locator(sel('settings-notifications-assistant-nova'))
   await expect(nova).toBeChecked()
   await nova.click({ force: true })
-  await expect.poll(() => saved(configDir)).toEqual({ enabled: true, muted: ['nova'] })
+  await expect
+    .poll(() => saved(configDir))
+    .toEqual({ enabled: true, muted: ['nova'], sound: 'relay' })
   await fx.append('nova-1', reply('a6', 'a5', 'Muted reply.'))
   await shell.waitForTimeout(800)
   expect((await shown(app)).length).toBe(before)
 
   await shell.locator(sel('settings-notifications-enabled')).click({ force: true })
-  await expect.poll(() => saved(configDir)).toEqual({ enabled: false, muted: ['nova'] })
+  await expect
+    .poll(() => saved(configDir))
+    .toEqual({ enabled: false, muted: ['nova'], sound: 'relay' })
   await expect(nova).toBeDisabled()
   host.setActivity([
     {

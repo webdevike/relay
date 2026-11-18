@@ -13,6 +13,8 @@ export interface StubNotification {
   title: string
   body: string
   silent: boolean
+  /** The bundled sound file the notification asks macOS to play; null: the system's default. */
+  sound: string | null
   click(): void
 }
 
@@ -23,8 +25,8 @@ function electronPlatform(ctx: MainContext): NotifyPlatform {
     // Fixture sessions (dev, e2e) never notify, unless a run asks for real ones.
     supported: () =>
       (ctx.env.live || process.env.EVAOS_NOTIFY_REAL === '1') && Notification.isSupported(),
-    show({ groupId, title, body, silent, onClick }) {
-      const n = new Notification({ title, body, silent, groupId })
+    show({ groupId, title, body, silent, sound, onClick }) {
+      const n = new Notification({ title, body, silent, groupId, ...(sound ? { sound } : {}) })
       shown.add(n)
       n.on('click', () => {
         shown.delete(n)
@@ -72,8 +74,8 @@ function stubPlatform(ctx: MainContext): {
     state,
     platform: {
       supported: () => true,
-      show: ({ groupId, title, body, silent, onClick }) =>
-        log.push({ groupId, title, body, silent, click: onClick }),
+      show: ({ groupId, title, body, silent, sound, onClick }) =>
+        log.push({ groupId, title, body, silent, sound, click: onClick }),
       windowFocused: () => state.focused,
       idleSeconds: () => state.idle,
       now: () => Date.now(),

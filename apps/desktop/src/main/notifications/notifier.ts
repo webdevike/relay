@@ -25,6 +25,11 @@ export const PREFS_FILE = 'notifications.json'
 export const STATE_FILE = 'notifications-state.json'
 /** The same thing told again inside this window (a chat that asks twice in a row) is skipped. */
 export const REPEAT_MS = 60_000
+/**
+ * Relay's notification sound (Soundly SND86872, trimmed and normalized, Free plan). It ships in
+ * Relay.app/Contents/Resources (electron-builder.yml extraResources), where macOS finds a named sound.
+ */
+export const RELAY_SOUND = 'relay-notification.aiff'
 
 /** What the notifier needs from the machine: Electron's Notification and powerMonitor, or a stand-in. */
 export interface NotifyPlatform {
@@ -35,6 +40,8 @@ export interface NotifyPlatform {
     title: string
     body: string
     silent: boolean
+    /** A sound file name macOS plays from the app bundle, or null for the system's default (never with `silent`). */
+    sound: string | null
     onClick: () => void
   }): void
   windowFocused(): boolean
@@ -62,7 +69,13 @@ export interface Notifier {
 }
 
 export function loadPrefs(config: ConfigStore): NotificationPrefs {
-  const parsed = NotificationPrefsSchema.safeParse(config.readJson<unknown>(PREFS_FILE, null))
+  // A file saved before `sound` existed has no such key: it takes the default.
+  const stored = config.readJson<unknown>(PREFS_FILE, null)
+  const parsed = NotificationPrefsSchema.safeParse(
+    typeof stored === 'object' && stored !== null
+      ? { ...DEFAULT_NOTIFICATION_PREFS, ...stored }
+      : null,
+  )
   return parsed.success ? parsed.data : { ...DEFAULT_NOTIFICATION_PREFS, muted: [] }
 }
 
@@ -107,6 +120,7 @@ export function createNotifier(deps: {
       title: e.title,
       body: e.body,
       silent: e.silent,
+      sound: !e.silent && prefs.sound === 'relay' ? RELAY_SOUND : null,
       onClick: () => platform.open(e.click),
     })
   }
@@ -150,7 +164,7 @@ export function createNotifier(deps: {
     prefs: () => prefs,
     setPrefs(patch) {
       const next = NotificationPrefsSchema.parse({ ...prefs, ...patch })
-      prefs = { enabled: next.enabled, muted: [...new Set(next.muted)] }
+      prefs = { enabled: next.enabled, muted: [...new Set(next.muted)], sound: next.sound }
       config.writeJson(PREFS_FILE, prefs)
       deps.onPrefs(prefs)
       return prefs
@@ -165,6 +179,7 @@ export function createNotifier(deps: {
         title: 'Relay notifications are on',
         body: 'You will see replies, questions and canvases here while you are at this Mac.',
         silent: false,
+        sound: prefs.sound === 'relay' ? RELAY_SOUND : null,
         onClick: () => platform.open({ link: 'relay://open/settings/notifications' }),
       })
       return true

@@ -13,12 +13,12 @@ import { assistantsStore } from '../assistants/assistants-store'
 import { resetNotificationPrefsForTests } from '../notifications/notifications-store'
 import { resetSettingsForTest } from './settings-store'
 
-let saved = { enabled: true, muted: [] as string[] }
+let saved = { enabled: true, muted: [] as string[], sound: 'relay' }
 let shown = true
 
 beforeEach(() => {
   invoke.mockReset()
-  saved = { enabled: true, muted: [] }
+  saved = { enabled: true, muted: [], sound: 'relay' }
   shown = true
   resetSettingsForTest()
   resetNotificationPrefsForTests()
@@ -100,5 +100,17 @@ describe('Settings > Notifications', () => {
         'cannot show notifications',
       ),
     )
+  })
+
+  it('picks the Relay sound or the system sound and saves it', async () => {
+    open()
+    const sound = await screen.findByTestId('settings-notifications-sound')
+    await waitFor(() => expect(screen.getByLabelText('Relay sound')).toBeChecked())
+    await userEvent.click(screen.getByLabelText('System sound'))
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith('notifications.set', { sound: 'system' }),
+    )
+    expect(screen.getByLabelText('System sound')).toBeChecked()
+    expect(sound).toBeInTheDocument()
   })
 })

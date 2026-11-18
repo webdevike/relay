@@ -27,7 +27,7 @@ Isaac's account is on the Free plan, so by default only sounds included without 
 
 ## Adapters and state
 
-- `adapters/soundly/api.ts`: the private cloud API (Login, HybridSearch with keyword fallback, GetPlaylists, NewPlaylist, AddFilesToPlaylist, GetPlaylist, DeletePlaylist). Constants come from the installed app through `app_constants.py` under its own interpreter (cached per build). The saved login and the session id stay in memory; never logged or written.
+- `adapters/soundly/api.ts`: the private cloud API (Login, HybridSearch with keyword fallback, GetPlaylists, NewPlaylist, AddFilesToPlaylist, GetPlaylist, DeletePlaylist, and `download(fileId)`: a Search on the file id, then the signed URL of its original WAV from the hit's `UrlList`; Pro sounds are refused on the Free plan, and the signed URL carries the session id so it is never logged). Constants come from the installed app through `app_constants.py` under its own interpreter (cached per build). The saved login and the session id stay in memory; never logged or written.
 - `adapters/soundly/desktop.ts`: the app side (probe via `lsappinfo` and `ioreg` HIDIdleTime, quit and accessibility via `cua-driver call`, relaunch via `open`).
 - `adapters/ledger.ts`: `<home>/state/sound/collections.json` (what Eva made, for the 24 h TTL) and `searches.json` (the last 40 searches with Soundly's candidates, the bench cases). A collection is deleted only when its live name starts with `Eva picks: ` and the account owns it (`Admin`).
 

@@ -4,7 +4,14 @@ import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Assistants } from '@evaos/contract'
 import { createConfigStore } from '../config-store'
-import { PREFS_FILE, REPEAT_MS, STATE_FILE, createNotifier, type NotifyPlatform } from './notifier'
+import {
+  PREFS_FILE,
+  RELAY_SOUND,
+  REPEAT_MS,
+  STATE_FILE,
+  createNotifier,
+  type NotifyPlatform,
+} from './notifier'
 import type { ClickTarget } from './policy'
 
 let dir: string
@@ -19,14 +26,15 @@ function setup(config = createConfigStore(dir)) {
     title: string
     body: string
     silent: boolean
+    sound: string | null
     click(): void
   }> = []
   const opened: ClickTarget[] = []
   const clock = { now: 1_000_000, idle: 3, focused: false }
   const platform: NotifyPlatform = {
     supported: () => true,
-    show: ({ groupId, title, body, silent, onClick }) =>
-      shown.push({ groupId, title, body, silent, click: onClick }),
+    show: ({ groupId, title, body, silent, sound, onClick }) =>
+      shown.push({ groupId, title, body, silent, sound, click: onClick }),
     windowFocused: () => clock.focused,
     idleSeconds: () => clock.idle,
     now: () => clock.now,
@@ -73,17 +81,49 @@ describe('notifier', () => {
   it('respects the per-assistant mute and the global switch, and saves both', () => {
     const { notifier, shown, changed, config } = setup()
     notifier.setPrefs({ muted: ['nova', 'nova'] })
-    expect(notifier.prefs()).toEqual({ enabled: true, muted: ['nova'] })
+    expect(notifier.prefs()).toEqual({ enabled: true, muted: ['nova'], sound: 'relay' })
     notifier.onAssistants(agents('hi', 1))
     notifier.onAssistants(agents('done', 2))
     expect(shown.map((n) => n.title)).toEqual(['Astra'])
     notifier.setPrefs({ enabled: false })
     notifier.onAssistants(agents('later', 3))
     expect(shown).toHaveLength(1)
-    expect(config.readJson(PREFS_FILE, null)).toEqual({ enabled: false, muted: ['nova'] })
+    expect(config.readJson(PREFS_FILE, null)).toEqual({
+      enabled: false,
+      muted: ['nova'],
+      sound: 'relay',
+    })
     expect(changed).toHaveLength(2)
     // A new notifier on the same folder reads them back.
-    expect(setup(config).notifier.prefs()).toEqual({ enabled: false, muted: ['nova'] })
+    expect(setup(config).notifier.prefs()).toEqual({
+      enabled: false,
+      muted: ['nova'],
+      sound: 'relay',
+    })
+  })
+
+  it('plays the Relay sound for a loud notification, the system sound when chosen, and nothing for a silent one', () => {
+    const { notifier, shown, config } = setup()
+    notifier.onAssistants(agents('hi', 1))
+    notifier.onAssistants(agents('done', 2))
+    notifier.onUpdate({ pending: true, build: 'abc123', summary: 'Notifications.' })
+    expect(shown.map((n) => [n.groupId, n.silent, n.sound])).toEqual([
+      ['assistant:nova', false, RELAY_SOUND],
+      ['assistant:astra', false, RELAY_SOUND],
+      ['update', true, null],
+    ])
+    notifier.setPrefs({ sound: 'system' })
+    notifier.onAssistants(agents('again', 3))
+    expect(shown.at(-1)).toMatchObject({ silent: false, sound: null })
+    expect(notifier.test()).toBe(true)
+    expect(shown.at(-1)).toMatchObject({ groupId: 'test', sound: null })
+    // Prefs saved before the sound setting existed read back with the Relay sound.
+    config.writeJson(PREFS_FILE, { enabled: false, muted: ['nova'] })
+    expect(setup(config).notifier.prefs()).toEqual({
+      enabled: false,
+      muted: ['nova'],
+      sound: 'relay',
+    })
   })
 
   it('says nothing while the Mac is idle (the phone has it) and speaks again after input', () => {

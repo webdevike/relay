@@ -9,10 +9,16 @@ export const NotificationPrefsSchema = z.object({
   enabled: z.boolean(),
   /** Assistant ids (`nova`, `astra`) whose replies, questions and canvases stay quiet. */
   muted: z.array(z.string().min(1).max(128)).max(200),
+  /** What a non-silent notification plays: Relay's own sound (bundled) or the system's default. */
+  sound: z.enum(['relay', 'system']),
 })
 export type NotificationPrefs = z.infer<typeof NotificationPrefsSchema>
 
-export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = { enabled: true, muted: [] }
+export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  enabled: true,
+  muted: [],
+  sound: 'relay',
+}
 
 export const notificationsInvoke = {
   'notifications.get': { input: z.object({}).strict(), output: NotificationPrefsSchema },

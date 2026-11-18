@@ -14,7 +14,7 @@ const event = (over: Partial<NotifyEvent> = {}): NotifyEvent => ({
 })
 
 const state = (over: Partial<NotifyState> = {}): NotifyState => ({
-  prefs: { enabled: true, muted: [] },
+  prefs: { enabled: true, muted: [], sound: 'relay' },
   windowFocused: false,
   visible: new Set(),
   idleSeconds: 5,
@@ -27,20 +27,22 @@ describe('decide', () => {
   })
 
   it('shows nothing with the global switch off', () => {
-    expect(decide(event(), state({ prefs: { enabled: false, muted: [] } }))).toEqual({
+    expect(
+      decide(event(), state({ prefs: { enabled: false, muted: [], sound: 'relay' } })),
+    ).toEqual({
       show: false,
       reason: 'off',
     })
     expect(
       decide(
         event({ kind: 'update', assistant: null, thread: null }),
-        state({ prefs: { enabled: false, muted: [] } }),
+        state({ prefs: { enabled: false, muted: [], sound: 'relay' } }),
       ),
     ).toEqual({ show: false, reason: 'off' })
   })
 
   it('mutes one assistant, for every kind of event it has, and no other', () => {
-    const muted = state({ prefs: { enabled: true, muted: ['nova'] } })
+    const muted = state({ prefs: { enabled: true, muted: ['nova'], sound: 'relay' } })
     expect(decide(event(), muted)).toEqual({ show: false, reason: 'muted' })
     expect(decide(event({ kind: 'waiting' }), muted)).toEqual({ show: false, reason: 'muted' })
     expect(decide(event({ kind: 'canvas' }), muted)).toEqual({ show: false, reason: 'muted' })
