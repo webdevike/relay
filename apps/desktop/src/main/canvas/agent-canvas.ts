@@ -66,6 +66,11 @@ function compileOf(type: CanvasNodeKind, data: CanvasNodeData | undefined): stri
  * change written to `<slug>.json` through the board store, which the open board reloads at once.
  * The board on screen answers the `@canvas` calls (CanvasBoardCall); a board that is not on screen
  * still gets every change, without the cursor (docs/agent-presence.md).
+ *
+ * Isaac looking around never stops the agent: panning, zooming, selecting, commenting and Pick
+ * change nothing here. Only Take over pauses the run. His own changes to cards (`hold`) lock just
+ * those cards for a moment: an agent change to one answers `locked-by-isaac` at once, every other
+ * change lands. No action outlives ANSWER_MS: what cannot finish answers why instead of hanging.
  */
 
 export interface CanvasDriveDeps {
@@ -82,6 +87,9 @@ export interface CanvasDriveDeps {
   show(slug: string, scope: string | undefined): Promise<void>
   now?: () => number
   sleep?: (ms: number) => Promise<void>
+  /** Test seams for ANSWER_MS and BOARD_CALL_MS. */
+  answerMs?: number
+  boardCallMs?: number
 }
 
 /** How long canvas.open waits for the board to come up on screen. */
@@ -98,6 +106,15 @@ const SPACING = 56
 const INSET = 28
 /** Board units shown around a comment pin the agent replies at. */
 const PIN_ROOM = 48
+/** Isaac's hold on a card lasts this long after his last change to it. */
+export const HOLD_IDLE_MS = 3_000
+/**
+ * The longest an action (with its wait behind the board's earlier ones) runs before it answers:
+ * well inside an MCP call's 60 s. Past it the action answers `timeout` and lands nothing more.
+ */
+export const ANSWER_MS = 30_000
+/** The longest one call to the board on screen may take; past it the board counts as not shown. */
+export const BOARD_CALL_MS = 5_000
 const FIRST_PAGE = 'page-1'
 
 function realSleep(ms: number): Promise<void> {
@@ -111,18 +128,28 @@ interface Where {
   page: string
 }
 
+/** The action in flight on a board: the run epoch it began in, and whether it ran out of time. */
+interface Turn {
+  epoch: number
+  late: boolean
+}
+
 export class CanvasDrive {
   private readonly runs: AgentRuns<string, DriveIdentity>
   private readonly shown = new Map<string, CanvasRun>()
   private readonly where = new Map<string, Where>()
-  /** The run epoch each board's action in flight began in (one action per board at a time). */
-  private readonly acting = new Map<string, number>()
+  /** Each board's action in flight (one action per board at a time). */
+  private readonly acting = new Map<string, Turn>()
+  /** The cards Isaac is changing on each board, until when (HOLD_IDLE_MS after his last change). */
+  private readonly held = new Map<string, Map<string, number>>()
+  private readonly now: () => number
   /** Each board's actions, one after another. */
   private readonly queues = new Map<string, Promise<unknown>>()
   private readonly sleep: (ms: number) => Promise<void>
 
   constructor(private readonly deps: CanvasDriveDeps) {
     const now = deps.now ?? Date.now
+    this.now = now
     this.sleep = deps.sleep ?? realSleep
     this.runs = new AgentRuns<string, DriveIdentity>(
       {
@@ -164,13 +191,51 @@ export class CanvasDrive {
     this.runs.op(slug, op)
   }
 
+  /**
+   * Isaac is changing `nodes` on the board (a drag, a resize, a delete, an undo): an agent change
+   * to one of them answers `locked-by-isaac` until HOLD_IDLE_MS after his last change. The run
+   * keeps working; every other card stays the agent's to change.
+   */
+  hold(slug: string, nodes: readonly string[]): void {
+    const until = this.now() + HOLD_IDLE_MS
+    const cards = this.held.get(slug) ?? new Map<string, number>()
+    for (const [id, end] of cards) if (end <= this.now()) cards.delete(id)
+    for (const id of nodes) cards.set(id, until)
+    if (cards.size > 0) this.held.set(slug, cards)
+    else this.held.delete(slug)
+  }
+
+  /** Fails `locked-by-isaac`, at once, when Isaac is changing any of `nodes` now. */
+  private free(slug: string, nodes: Iterable<string>): void {
+    const cards = this.held.get(slug)
+    if (!cards) return
+    const now = this.now()
+    const busy: string[] = []
+    let wait = 0
+    for (const id of new Set(nodes)) {
+      const end = cards.get(id)
+      if (end === undefined || end <= now) continue
+      busy.push(id)
+      wait = Math.max(wait, end - now)
+    }
+    if (busy.length === 0) return
+    const which = busy.length === 1 ? `card ${busy[0]}` : `cards ${busy.join(', ')}`
+    fail(
+      'locked-by-isaac',
+      `Card locked by Isaac: he is changing ${which} right now, so nothing landed. Work on other ` +
+        `cards, or try again in about ${Math.ceil(wait / 1000)} s (canvas.read first: he may have moved it)`,
+    )
+  }
+
   // Board on screen ------------------------------------------------------------------------------
 
+  /** One call to the board on screen; a board that errs or takes over BOARD_CALL_MS is not shown. */
   private async call(c: CanvasBoardCall): Promise<CanvasBoardAnswer> {
+    const missing: CanvasBoardAnswer = { mounted: false, ms: 0 }
     try {
-      return await this.deps.board(c)
+      return (await within(this.deps.board(c), this.deps.boardCallMs ?? BOARD_CALL_MS)) ?? missing
     } catch {
-      return { mounted: false, ms: 0 }
+      return missing
     }
   }
 
@@ -217,28 +282,60 @@ export class CanvasDrive {
   }
 
   /**
-   * The action in flight may go on: its run is still working in the epoch it began in. Isaac
-   * taking over (or the run ending) since then stops it before anything more lands.
+   * The action in flight may go on: its run is still working in the epoch it began in, and it has
+   * not run out of time. Isaac taking over (or the run ending, or ANSWER_MS passing) since then
+   * stops it before anything more lands.
    */
   private stillMine(slug: string): void {
+    const turn = this.acting.get(slug)
+    if (turn?.late) {
+      fail('timeout', 'This action ran out of time and was answered; nothing more landed')
+    }
     const status = this.runs.view(slug)?.status
     if (status === 'paused') {
       fail('paused-by-isaac', 'Isaac took over this board. canvas.wait until handback')
     }
-    if (status !== 'working' || this.runs.epoch(slug) !== this.acting.get(slug)) {
+    if (status !== 'working' || this.runs.epoch(slug) !== turn?.epoch) {
       fail('stopped', 'This run on the board ended while the action ran; nothing more landed')
     }
   }
 
-  /** Runs `act` once the board's earlier actions are through, so their steps never interleave. */
-  private serial<T>(slug: string, act: () => Promise<T>): Promise<T> {
-    const run = (this.queues.get(slug) ?? Promise.resolve()).then(act, act)
+  /**
+   * Runs `act` once the board's earlier actions are through, so their steps never interleave, and
+   * answers within ANSWER_MS whatever happens: `busy` when the earlier ones still run (this one
+   * then never runs), `timeout` when this one is too slow (it lands nothing more).
+   */
+  private async serial<T extends object>(slug: string, act: () => Promise<T>): Promise<T> {
+    const turn: Turn = { epoch: -1, late: false }
+    let started = false
+    const go = (): Promise<T> => {
+      if (turn.late) return Promise.reject(new Error('answered already'))
+      started = true
+      this.acting.set(slug, turn)
+      return act()
+    }
+    const run = (this.queues.get(slug) ?? Promise.resolve()).then(go, go)
     const tail = run.catch(() => {})
     this.queues.set(slug, tail)
     void tail.then(() => {
       if (this.queues.get(slug) === tail) this.queues.delete(slug)
     })
-    return run
+    const ms = this.deps.answerMs ?? ANSWER_MS
+    const value = await within(run, ms)
+    if (value !== undefined) return value
+    turn.late = true
+    const secs = Math.round(ms / 1000)
+    return started
+      ? fail(
+          'timeout',
+          `The board did not finish this in ${secs} s (its file or the app page is slow); nothing ` +
+            'more lands. canvas.read to see what is there before trying again',
+        )
+      : fail(
+          'busy',
+          `An earlier action on this board is still running after ${secs} s; this one did not ` +
+            'run. Try again in a moment',
+        )
   }
 
   // Runs -----------------------------------------------------------------------------------------
@@ -270,7 +367,7 @@ export class CanvasDrive {
     this.runs.admit(slug, who)
     this.where.set(slug, { board: at.board, page: at.page })
     this.runs.begin(slug, who, caption)
-    this.acting.set(slug, this.runs.epoch(slug))
+    this.acting.get(slug)!.epoch = this.runs.epoch(slug)
     return { ...at, who }
   }
 
@@ -281,16 +378,22 @@ export class CanvasDrive {
   /**
    * Saves the board's pending edits, then applies `edit` to the page as the file has it and writes
    * it in one store step (no save of Isaac's lands in between), unless the run stopped being the
-   * agent's meanwhile: checked as the edit applies and again as the file is replaced.
+   * agent's or Isaac took hold of one of the `cards` it changes meanwhile: checked as the edit
+   * applies and again as the file is replaced.
    */
   private async write<T>(
     slug: string,
     page: string,
     edit: (b: CanvasBoard) => { board: CanvasBoard; value: T },
+    cards: readonly string[] = [],
   ): Promise<T> {
-    this.stillMine(slug)
+    const mine = (): void => {
+      this.stillMine(slug)
+      this.free(slug, cards)
+    }
+    mine()
     await this.call({ op: 'flush', slug })
-    const r = await this.deps.store.update(slug, page, edit, () => this.stillMine(slug))
+    const r = await this.deps.store.update(slug, page, edit, mine)
     if (r.saved) this.deps.changed(slug)
     this.runs.touch(slug)
     return r.value
@@ -336,7 +439,20 @@ export class CanvasDrive {
     })
   }
 
+  /** canvas.read; answers `timeout` rather than outliving ANSWER_MS. */
   async read(slug: string, page: string | undefined): Promise<object> {
+    const ms = this.deps.answerMs ?? ANSWER_MS
+    const shown = await within(this.readNow(slug, page), ms)
+    return (
+      shown ??
+      fail(
+        'timeout',
+        `The board did not answer in ${Math.round(ms / 1000)} s; try again in a moment`,
+      )
+    )
+  }
+
+  private async readNow(slug: string, page: string | undefined): Promise<object> {
     const at = await this.page(slug, page)
     const shown = await this.deps.store.load(slug, at.page)
     const { threads } = await this.deps.store.threads(slug, at.page)
@@ -451,6 +567,13 @@ export class CanvasDrive {
       const frame = p.parent === undefined ? undefined : boxes.get(p.parent)
       const grown = row && frame ? grownFrame(frame, row) : null
       const context = [p.from, p.near, p.parent, p.copy].filter((id) => id !== undefined)
+      // The cards this add changes besides the new ones: the copied card (it becomes variant A)
+      // and a frame it grows. Isaac holding one answers at once, before the cursor moves.
+      const changes = [
+        ...(base ? [base.id] : []),
+        ...(grown && p.parent !== undefined ? [p.parent] : []),
+      ]
+      this.free(p.slug, changes)
       const tip = (s: { x: number; y: number }) => ({ x: s.x + INSET, y: s.y + INSET })
       if (spots && row) {
         await this.reveal(p.slug, at.page, { box: row, ...(context.length ? { context } : {}) })
@@ -461,31 +584,36 @@ export class CanvasDrive {
         await this.reveal(p.slug, at.page, { nodes: [p.parent] })
         await this.cursor(p.slug, at.page, { op: 'move', node: p.parent })
       }
-      const made = await this.write<{ ids: string[]; link?: string }>(p.slug, at.page, (b) => {
-        let board = b
-        if (base && group !== undefined && baseLabel !== undefined) {
-          board = editCard(board, base.id, { data: { group, variant: baseLabel } })
-        }
-        const ids: string[] = []
-        cards.forEach((d, i) => {
-          const spot = spots?.[i]
-          const r = addCard(board, {
-            type,
-            data: d,
-            ...(spot ? { at: spot } : {}),
-            ...(p.w === undefined ? {} : { w: p.w }),
-            ...(p.h === undefined ? {} : { h: p.h }),
-            ...(p.parent === undefined ? {} : { parent: p.parent }),
+      const made = await this.write<{ ids: string[]; link?: string }>(
+        p.slug,
+        at.page,
+        (b) => {
+          let board = b
+          if (base && group !== undefined && baseLabel !== undefined) {
+            board = editCard(board, base.id, { data: { group, variant: baseLabel } })
+          }
+          const ids: string[] = []
+          cards.forEach((d, i) => {
+            const spot = spots?.[i]
+            const r = addCard(board, {
+              type,
+              data: d,
+              ...(spot ? { at: spot } : {}),
+              ...(p.w === undefined ? {} : { w: p.w }),
+              ...(p.h === undefined ? {} : { h: p.h }),
+              ...(p.parent === undefined ? {} : { parent: p.parent }),
+            })
+            board = r.board
+            ids.push(r.id)
           })
-          board = r.board
-          ids.push(r.id)
-        })
-        if (grown && p.parent !== undefined)
-          board = editCard(board, p.parent, { data: {}, ...grown })
-        if (p.from === undefined) return { board, value: { ids } }
-        const c = connectCards(board, p.from, ids[0]!, p.label ? { label: p.label } : {})
-        return { board: c.board, value: { ids, link: c.id } }
-      })
+          if (grown && p.parent !== undefined)
+            board = editCard(board, p.parent, { data: {}, ...grown })
+          if (p.from === undefined) return { board, value: { ids } }
+          const c = connectCards(board, p.from, ids[0]!, p.label ? { label: p.label } : {})
+          return { board: c.board, value: { ids, link: c.id } }
+        },
+        changes,
+      )
       // The cursor visits each sibling as it lands (the first one it clicked into place).
       for (const spot of spots?.slice(1) ?? []) {
         try {
@@ -541,26 +669,32 @@ export class CanvasDrive {
       // A patch that does not apply, or a frame that is not one, fails before the cursor moves.
       if (p.edits) patchBody(card.data?.body ?? '', p.edits)
       if (p.data?.frame !== undefined) checkFrame(p.data.frame)
+      this.free(p.slug, [p.node])
       this.auto(p.slug, `Editing ${quote(card.data?.title ?? card.id)}`)
       await this.reveal(p.slug, at.page, { nodes: [p.node] })
       if (await this.cursor(p.slug, at.page, { op: 'move', node: p.node })) {
         await this.cursor(p.slug, at.page, { op: 'click', node: p.node })
       }
-      const edited = await this.write(p.slug, at.page, (b) => {
-        // Patched against the file as it is now, not as it was read.
-        const body = p.edits ? patchBody(nodeOf(b, p.node).data?.body ?? '', p.edits) : p.body
-        const board = editCard(b, p.node, {
-          data: {
-            ...p.data,
-            ...(p.title === undefined ? {} : { title: p.title }),
-            ...(body === undefined ? {} : { body }),
-          },
-          ...(p.type === undefined ? {} : { type: p.type }),
-          ...(p.w === undefined ? {} : { w: p.w }),
-          ...(p.h === undefined ? {} : { h: p.h }),
-        })
-        return { board, value: nodeOf(board, p.node) }
-      })
+      const edited = await this.write(
+        p.slug,
+        at.page,
+        (b) => {
+          // Patched against the file as it is now, not as it was read.
+          const body = p.edits ? patchBody(nodeOf(b, p.node).data?.body ?? '', p.edits) : p.body
+          const board = editCard(b, p.node, {
+            data: {
+              ...p.data,
+              ...(p.title === undefined ? {} : { title: p.title }),
+              ...(body === undefined ? {} : { body }),
+            },
+            ...(p.type === undefined ? {} : { type: p.type }),
+            ...(p.w === undefined ? {} : { w: p.w }),
+            ...(p.h === undefined ? {} : { h: p.h }),
+          })
+          return { board, value: nodeOf(board, p.node) }
+        },
+        [p.node],
+      )
       const compile = compileOf(edited.type, edited.data)
       return { id: p.node, ...(compile === undefined ? {} : { compile }) }
     })
@@ -579,6 +713,7 @@ export class CanvasDrive {
     return this.serial(p.slug, async () => {
       const at = await this.begin(p.slug, p.page, p.scope, p.caption)
       const card = nodeOf(at.b, p.node)
+      this.free(p.slug, [p.node])
       this.auto(p.slug, `Moving ${quote(card.data?.title ?? card.id)}`)
       const boxes = await this.boxes(p.slug, at.page, at.b)
       const own = boxes.get(p.node) ?? { x: 0, y: 0, w: 240, h: 120 }
@@ -607,7 +742,9 @@ export class CanvasDrive {
         })
         if (d.mounted) await this.sleep(d.ms ?? DRAG_MS)
       }
-      await this.write(p.slug, at.page, (b) => ({ board: moveCard(b, p.node, to), value: null }))
+      await this.write(p.slug, at.page, (b) => ({ board: moveCard(b, p.node, to), value: null }), [
+        p.node,
+      ])
       // The move is in the file: a later hide (done, Take over) leaves the card where it is.
       await this.call({ op: 'landed', slug: p.slug, page: at.page, node: p.node })
       return { id: p.node, x: Math.round(to.x), y: Math.round(to.y) }
@@ -663,7 +800,11 @@ export class CanvasDrive {
     to: ReadonlyMap<string, { x: number; y: number }>,
     whole: boolean,
     edit: (b: CanvasBoard) => CanvasBoard,
+    resized: readonly string[] = [],
   ): Promise<void> {
+    // Every card that moves or grows; one Isaac holds answers at once, before the cursor moves.
+    const cards = [...to.keys(), ...resized]
+    this.free(slug, cards)
     const first = to.keys().next().value
     const spots = [...to].flatMap(([id, at]) => {
       const box = boxes.get(id)
@@ -686,7 +827,7 @@ export class CanvasDrive {
       })
       if (a.mounted) await this.sleep(a.ms ?? ARRANGE_MS)
     }
-    await this.write(slug, page, (b) => ({ board: edit(b), value: null }))
+    await this.write(slug, page, (b) => ({ board: edit(b), value: null }), cards)
     // Landing one card of the glide lands all of it on every mounted board of the slug.
     if (first !== undefined) await this.call({ op: 'landed', slug, page, node: first })
   }
@@ -735,8 +876,14 @@ export class CanvasDrive {
         only,
       })
       const to = moves(laid.positions, boxes)
-      await this.glide(p.slug, at.page, boxes, to, only === null, (b) =>
-        arrangeCards(b, laid.positions, laid.frameSizes, laid.edges),
+      await this.glide(
+        p.slug,
+        at.page,
+        boxes,
+        to,
+        only === null,
+        (b) => arrangeCards(b, laid.positions, laid.frameSizes, laid.edges),
+        [...laid.frameSizes.keys()],
       )
       return { moved: to.size, kept: laid.kept, algorithm, routed: laid.edges.size }
     })
@@ -819,6 +966,7 @@ export class CanvasDrive {
       const edges = p.edges ?? []
       // Unknown ids fail before the cursor moves.
       removeItems(at.b, nodes, edges)
+      this.free(p.slug, nodes)
       this.auto(
         p.slug,
         nodes.length === 1
@@ -830,10 +978,15 @@ export class CanvasDrive {
         if (!(await this.cursor(p.slug, at.page, { op: 'move', node: id }))) break
         await this.cursor(p.slug, at.page, { op: 'click', node: id })
       }
-      return this.write(p.slug, at.page, (b) => {
-        const r = removeItems(b, nodes, edges)
-        return { board: r.board, value: { deleted: { nodes: r.nodes, edges: r.edges } } }
-      })
+      return this.write(
+        p.slug,
+        at.page,
+        (b) => {
+          const r = removeItems(b, nodes, edges)
+          return { board: r.board, value: { deleted: { nodes: r.nodes, edges: r.edges } } }
+        },
+        nodes,
+      )
     })
   }
 
@@ -1002,4 +1155,15 @@ function union(boxes: readonly Box[]): Box | null {
   const r = Math.max(...boxes.map((b) => b.x + b.w))
   const bottom = Math.max(...boxes.map((b) => b.y + b.h))
   return { x, y, w: r - x, h: bottom - y }
+}
+
+/** What `p` resolves to, or undefined once `ms` pass first (`p` itself runs on). */
+async function within<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
+  const late = Promise.withResolvers<undefined>()
+  const timer = setTimeout(() => late.resolve(undefined), ms)
+  try {
+    return await Promise.race([p, late.promise])
+  } finally {
+    clearTimeout(timer)
+  }
 }

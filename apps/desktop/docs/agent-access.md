@@ -161,8 +161,9 @@ Tones: `neutral` (default), `accent`, `success`, `warn`, `danger`, `muted`. Link
 
 What Isaac sees: the board in a soft ring of the agent's color with the caption row (Take over,
 Hand back), the agent's cursor (shared with the browser, `@evaos/shell-core/agent-cursor`) moving
-to each change with its route and trail, and a work card in the agent's chat. His own edits on
-the board pause the run. His comments on the board, and notes he leaves on a web page with the
+to each change with its route and trail, and a work card in the agent's chat. Isaac looking
+around never pauses the run; a card he is changing answers `locked-by-isaac` for a moment, and
+only Take over pauses it. His comments on the board, and notes he leaves on a web page with the
 page's Note button (an element or a dragged region, with a screenshot), go into the chat that
 owns the surface as his message (`agent.note`). The live room (`canvas.live`) stays as the older
 mode with a separate canvas self. Main: `canvas/agent-canvas.ts`, `canvas/board-edit.ts`,

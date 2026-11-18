@@ -342,9 +342,11 @@ export const canvasInvoke = {
         slug: CanvasSlugSchema,
         board: CanvasBoardSchema,
         page: CanvasPageIdSchema.optional(),
+        /** The page as the board last read or wrote it: the save merges over newer writes. */
+        base: CanvasBoardSchema.optional(),
       })
       .strict(),
-    output: z.object({ saved: z.boolean() }),
+    output: z.object({ saved: z.boolean(), merged: z.boolean() }),
   },
   'canvas.pages': {
     input: z
@@ -431,6 +433,16 @@ export const canvasInvoke = {
   /** Isaac's controls on an agent's run on a board (Take over, Hand back, dismiss). */
   'canvas.agent': {
     input: z.object({ slug: CanvasSlugSchema, op: AgentRunOpSchema }).strict(),
+    output: z.object({ ok: z.literal(true) }),
+  },
+  /**
+   * Isaac is changing these cards (moving, resizing, deleting, undoing): an agent's change to
+   * one of them answers `locked-by-isaac` until he has left them alone for a moment.
+   */
+  'canvas.hold': {
+    input: z
+      .object({ slug: CanvasSlugSchema, nodes: z.array(z.string().min(1).max(500)).max(10_000) })
+      .strict(),
     output: z.object({ ok: z.literal(true) }),
   },
 } as const

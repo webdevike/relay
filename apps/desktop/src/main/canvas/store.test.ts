@@ -65,15 +65,34 @@ describe('canvas store', () => {
   it('saves only when the text changes', async () => {
     const { store, dir } = setup()
     const { board, text } = await store.load('mind-map')
-    expect(await store.save('mind-map', board)).toEqual({ saved: false })
+    expect(await store.save('mind-map', board)).toEqual({ saved: false, merged: false })
     const moved = { ...board, nodes: board.nodes.map((n) => ({ ...n, x: 10, y: 20.25 })) }
-    expect(await store.save('mind-map', moved)).toEqual({ saved: true })
+    expect(await store.save('mind-map', moved)).toEqual({ saved: true, merged: false })
     const after = fs.readFileSync(path.join(dir, 'mind-map.json'), 'utf8')
     expect(after).not.toBe(text)
     expect(after).toBe(boardText(parseBoard(after)))
     expect(after).toContain('"x": 10.0,\n      "y": 20.25,')
-    expect(await store.save('mind-map', moved)).toEqual({ saved: false })
+    expect(await store.save('mind-map', moved)).toEqual({ saved: false, merged: false })
     expect(fs.readdirSync(dir).filter((f) => f.includes('tmp'))).toEqual([])
+  })
+
+  it("keeps an agent's write the board had not loaded yet when Isaac's save lands on top", async () => {
+    const { store } = setup()
+    const { board: base, page } = await store.load('mind-map')
+    // The agent adds a card while Isaac's board still shows `base`...
+    await store.update('mind-map', page, (b) => ({
+      board: { ...b, nodes: [...b.nodes, { id: 'agent-1', type: 'note', x: 0, y: 900 }] },
+      value: null,
+    }))
+    // ...and Isaac's save of his drag of the first card arrives after it.
+    const dragged = {
+      ...base,
+      nodes: base.nodes.map((n, i) => (i === 0 ? { ...n, x: 4321 } : n)),
+    }
+    expect(await store.save('mind-map', dragged, page, base)).toEqual({ saved: true, merged: true })
+    const nodes = (await store.load('mind-map')).board.nodes
+    expect(nodes[0]!.x).toBe(4321)
+    expect(nodes.some((n) => n.id === 'agent-1')).toBe(true)
   })
 
   it("keeps a live room's comment threads through a Canvas page edit and a rename", async () => {
@@ -101,7 +120,7 @@ describe('canvas store', () => {
     const page = CanvasBoardSchema.parse(board)
     expect(page).not.toHaveProperty('threads')
     const moved = { ...page, nodes: page.nodes.map((n, i) => (i === 0 ? { ...n, x: 999 } : n)) }
-    expect(await store.save('user-flow', moved)).toEqual({ saved: true })
+    expect(await store.save('user-flow', moved)).toEqual({ saved: true, merged: false })
     const saved = parseBoard(fs.readFileSync(file, 'utf8'))
     expect(saved.nodes[0]!.x).toBe(999)
     expect(saved.threads).toEqual(threads)
@@ -219,8 +238,11 @@ describe('canvas store', () => {
       // What the renderer sees (the schema strips threads and pages) saves back unchanged.
       const seen1 = CanvasBoardSchema.parse(one.board)
       const seen2 = CanvasBoardSchema.parse(two.board)
-      expect(await store.save('user-flow', seen1)).toEqual({ saved: false })
-      expect(await store.save('user-flow', seen2, 'page-2')).toEqual({ saved: false })
+      expect(await store.save('user-flow', seen1)).toEqual({ saved: false, merged: false })
+      expect(await store.save('user-flow', seen2, 'page-2')).toEqual({
+        saved: false,
+        merged: false,
+      })
       expect(text()).toBe(start)
 
       const before = parseBoard(start)
@@ -228,7 +250,7 @@ describe('canvas store', () => {
         ...seen1,
         nodes: seen1.nodes.map((n, i) => (i === 0 ? { ...n, x: 777 } : n)),
       }
-      expect(await store.save('user-flow', moved1)).toEqual({ saved: true })
+      expect(await store.save('user-flow', moved1)).toEqual({ saved: true, merged: false })
       const after1 = parseBoard(text())
       expect(after1.nodes[0]!.x).toBe(777)
       expect(after1.threads).toEqual(before.threads)
@@ -239,7 +261,10 @@ describe('canvas store', () => {
         nodes: seen2.nodes.map((n) => ({ ...n, x: 321 })),
         viewport: { x: 1, y: 2, zoom: 0.5 },
       }
-      expect(await store.save('user-flow', moved2, 'page-2')).toEqual({ saved: true })
+      expect(await store.save('user-flow', moved2, 'page-2')).toEqual({
+        saved: true,
+        merged: false,
+      })
       const after2 = parseBoard(text())
       expect(after2.nodes).toEqual(after1.nodes)
       expect(after2.threads).toEqual(before.threads)
@@ -320,6 +345,7 @@ describe('canvas store', () => {
         expect(loaded.pages).toEqual([{ id: 'page-1', title: 'Page 1' }])
         expect(await store.save(slug, CanvasBoardSchema.parse(loaded.board))).toEqual({
           saved: false,
+          merged: false,
         })
         expect(fs.readFileSync(file, 'utf8')).toBe(original)
         // Adding a page and deleting it again leaves the board as it was.
@@ -357,11 +383,11 @@ describe('canvas store', () => {
     const page = CanvasBoardSchema.parse(board)
     expect(page.nodes.map((n) => n.id)).not.toContain('live-copy')
     expect(page.edges.map((e) => e.id)).not.toContain('to-live')
-    expect(await store.save('user-flow', page)).toEqual({ saved: false })
+    expect(await store.save('user-flow', page)).toEqual({ saved: false, merged: false })
     expect(fs.readFileSync(file, 'utf8')).toBe(original)
 
     const moved = { ...page, nodes: page.nodes.map((n, i) => (i === 0 ? { ...n, x: 999 } : n)) }
-    expect(await store.save('user-flow', moved)).toEqual({ saved: true })
+    expect(await store.save('user-flow', moved)).toEqual({ saved: true, merged: false })
     expect(fs.readFileSync(file, 'utf8')).toBe(
       original.replace(/("id": "[^"]+",\n {6}"type": "[^"]+",\n {6}"x": )[^,]+/, '$1999.0'),
     )

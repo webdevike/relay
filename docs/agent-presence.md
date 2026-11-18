@@ -51,13 +51,31 @@ board's actions run one at a time, in the order they came. Each write action run
    A card the agent carries saves at its old spot until main's write lands it (`landed`); a hide
    before that puts it back.
 
+Isaac working the board alongside the agent never pauses it. Looking around (pan, zoom, select,
+open a card, comment, Pick, another page) sends nothing to main; for 2 s after he moves the view
+himself the agent's reveals leave it where he put it. His own changes to cards (drag, resize,
+delete, frame, undo or redo, Tidy) send `canvas.hold` with those card ids (renewed at most once a
+second while he keeps at it): main locks just those cards for 3 s after his last change
+(`HOLD_IDLE_MS`). An agent action that would change a held card (edit, move, delete, layout,
+align, distribute, a copy's original, a frame an add grows) answers `locked-by-isaac` at once,
+before the cursor moves, or at the commit if he grabbed it meanwhile; everything else lands. A
+card he grabs mid-carry becomes his where it is. Both sides' changes survive: the board's saves
+carry `base` (the page as it last read or wrote it) and main merges them over the file per card
+(`shared/canvas-merge.ts`: a card he changed is his, the rest the file's), and a reload merges his
+unsaved edits over the agent's write the same way. Only Take over (caption row) pauses the run.
+
+No action hangs: each one answers within `ANSWER_MS` (30 s, inside an MCP call's 60 s), `busy`
+when the board's earlier action is still running (this one never runs) or `timeout` when it is
+too slow itself (it lands nothing more); a call to the board on screen counts as not shown after
+`BOARD_CALL_MS` (5 s), and the board's own view animation never waits past its duration (React
+Flow's transition promise never settles when Isaac's pan interrupts it).
+
 A board not on screen answers `mounted: false`: main skips the cursor and still writes the file.
 Hiding the cursor (Take over, done) reaches every mounted board of the slug, so a board shown
 again later has no stale cursor.
 Runs publish as `canvas.runs` (contract `CanvasRun`: the run plus slug, board, page and the
 driving chat's `workspace`). The board's caption row sends `canvas.agent` (Take over, Hand back,
-dismiss); Isaac's own edits on the board (and his own pan, zoom or page switch) send Take over
-while the run is working.
+dismiss).
 
 ## Markdown in Files
 

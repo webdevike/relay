@@ -125,9 +125,9 @@ describe('host board files', () => {
   it('saves, updates, pages, threads, creates, renames and removes on the host', async () => {
     const { store, fake } = setup()
     const { board } = await store.load('mind-map')
-    expect(await store.save('mind-map', board)).toEqual({ saved: false })
+    expect(await store.save('mind-map', board)).toEqual({ saved: false, merged: false })
     const moved = { ...board, nodes: board.nodes.map((n) => ({ ...n, x: 10, y: 20.25 })) }
-    expect(await store.save('mind-map', moved)).toEqual({ saved: true })
+    expect(await store.save('mind-map', moved)).toEqual({ saved: true, merged: false })
     expect(fake.boards.get('mind-map')!.text).toContain('"x": 10.0,\n      "y": 20.25,')
     const writes = fake.sent.filter((f) => f.op === 'write')
     expect(writes.every((f) => f.origin === 'relay-desktop-test')).toBe(true)

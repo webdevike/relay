@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CanvasRun } from '@evaos/contract'
-import { shownRun, takesOver } from './runs-store'
+import { HOLD_REFRESH_MS, cardsIsaacChanges, dueHolds, shownRun } from './runs-store'
 
 function run(slug: string, status: CanvasRun['status']): CanvasRun {
   return {
@@ -20,12 +20,31 @@ function run(slug: string, status: CanvasRun['status']): CanvasRun {
   }
 }
 
-describe('takesOver', () => {
-  it("pauses the agent for Isaac's edit only while it acts or waits on his Allow", () => {
-    expect(takesOver('working')).toBe(true)
-    expect(takesOver('ask')).toBe(true)
-    for (const s of ['paused', 'done', 'stopped', 'idle'] as const) expect(takesOver(s)).toBe(false)
-    expect(takesOver(undefined)).toBe(false)
+describe('cardsIsaacChanges', () => {
+  it('holds the cards he drags or resizes, never ones he only selects or the layout sizes', () => {
+    expect(
+      cardsIsaacChanges([
+        { type: 'select', id: 'picked', selected: true },
+        { type: 'dimensions', id: 'measured', dimensions: { width: 10, height: 10 } },
+        { type: 'position', id: 'dragged', position: { x: 1, y: 2 }, dragging: true },
+        {
+          type: 'dimensions',
+          id: 'resized',
+          dimensions: { width: 10, height: 10 },
+          resizing: true,
+          setAttributes: true,
+        },
+      ]),
+    ).toEqual(['dragged', 'resized'])
+  })
+})
+
+describe('dueHolds', () => {
+  it('sends a card once per refresh while he keeps changing it, and again after', () => {
+    const sent = new Map<string, number>()
+    expect(dueHolds(sent, ['a', 'a', 'b'], 0)).toEqual(['a', 'b'])
+    expect(dueHolds(sent, ['a'], HOLD_REFRESH_MS - 1)).toEqual([])
+    expect(dueHolds(sent, ['a', 'c'], HOLD_REFRESH_MS)).toEqual(['a', 'c'])
   })
 })
 

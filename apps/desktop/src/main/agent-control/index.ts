@@ -146,6 +146,10 @@ export function registerAgentControl(
     canvasDrive.op(slug, op)
     return { ok: true as const }
   })
+  handle(ctx, 'canvas.hold', ({ slug, nodes }) => {
+    canvasDrive.hold(slug, nodes)
+    return { ok: true as const }
+  })
   registerTestHook('canvasDrive', canvasDrive)
   // No agent drives Files: a Files note goes to the chat of the workspace it was left in.
   notes.runsFrom((note) =>

@@ -242,7 +242,7 @@ const DRIVE_RULES =
 const CardRef = z.string().min(1).max(500)
 const BoardCoord = z.number().min(-1_000_000).max(1_000_000)
 const CANVAS_RULES =
-  'Acts as the calling agent on the board in front of Isaac: it shows your face, a ring, your cursor moving to each change and your caption; changes are saved to the board file. When Isaac edits the board he takes over: actions answer `paused-by-isaac` until he hands back (canvas.wait until handback). His comments on the board come into this chat as his messages.'
+  'Acts as the calling agent on the board in front of Isaac: it shows your face, a ring, your cursor moving to each change and your caption; changes are saved to the board file. Isaac looking around (pan, zoom, select, comment, Pick) never stops you; `canvas.read` `selected` is what he selected. A card he is moving, resizing or deleting is locked for a moment: a change to it answers `locked-by-isaac` at once (work on other cards, retry it in a few seconds). Only his Take over pauses you: actions answer `paused-by-isaac` until he hands back (canvas.wait until handback). An action never hangs: one that cannot finish answers `busy` or `timeout`. His comments on the board come into this chat as his messages.'
 /**
  * A patch on a card's body (a prototype's JSX): `find` replaced by `replace`, exactly once unless
  * `all`. Patches apply in order, each to the body the earlier ones left; one that does not match

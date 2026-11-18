@@ -110,8 +110,8 @@ export function registerCanvasIpc(ctx: MainContext, frames: RelayFrames & RelayF
   handle(ctx, 'canvas.list', async () => ({ entries: await store.list() }))
   handle(ctx, 'canvas.load', ({ slug, page }) => store.load(slug, page))
   // `handle` hands over the parsed input, so the board's defaults (version, nodes...) are filled.
-  handle(ctx, 'canvas.save', ({ slug, board, page }) =>
-    store.save(slug, board as CanvasBoard, page),
+  handle(ctx, 'canvas.save', ({ slug, board, page, base }) =>
+    store.save(slug, board as CanvasBoard, page, base as CanvasBoard | undefined),
   )
   handle(ctx, 'canvas.pages', ({ slug, ...op }) => store.pages(slug, op))
   handle(ctx, 'canvas.threads', ({ slug, page, op }) => store.threads(slug, page, op))
@@ -141,7 +141,7 @@ export function registerCanvasIpc(ctx: MainContext, frames: RelayFrames & RelayF
         ...shown.board,
         nodes: [...shown.board.nodes, ...imageCards(shown.board.nodes, added)],
       }
-      await store.save(slug, board, shown.page)
+      await store.save(slug, board, shown.page, shown.board)
       // The store's own writes raise no watch event: an open board hears it here and reloads.
       emit(ctx, 'canvas.changed', { slug })
       return added.length

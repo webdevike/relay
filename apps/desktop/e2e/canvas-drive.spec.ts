@@ -10,7 +10,9 @@ import { proofShot } from './helpers/proofShot'
 // The chat drives a board: Nova's thread asks for the board (canvas.open), it opens beside her
 // chat with her ring, caption row and a work card in the chat, and her cursor travels to each
 // change before it lands in the board file (canvas.add, canvas.connect). Isaac's comment on a card
-// goes into Nova's thread as his message; her reply shows under it. His Take over pauses her.
+// goes into Nova's thread as his message; her reply shows under it. His looking around (click,
+// pan, zoom) never pauses her; a card he drags is locked against her changes for a moment; only
+// his Take over pauses her.
 // Frames of the window are captured while she works; EVAOS_CANVAS_FRAMES=<dir> keeps them for a
 // clip (default test-results/canvas-drive).
 
@@ -197,8 +199,8 @@ test('the chat drives a board with its cursor; comments come back to the chat', 
 
   // 5. Isaac comments on the Build card: it goes into Nova's thread as his message.
   await board.locator(`.react-flow__node[data-id="${build.id}"]`).click()
-  // His click on the board is his edit: Nova's run pauses.
-  await expect(frame).toHaveAttribute('data-agent', /working|paused/)
+  // His click selects the card; Nova keeps working.
+  await expect(frame).toHaveAttribute('data-agent', 'working')
   await shell.keyboard.press('/')
   const draft = shell.locator(`${sel('canvas-thread')}[data-thread=draft]`)
   await expect(draft).toBeVisible()
@@ -214,6 +216,61 @@ test('the chat drives a board with its cursor; comments come back to the chat', 
   const thread = boardFile().threads!.at(-1)!
   await proofShot(app, shell, 'canvas-drive-comment', { phase: 'canvas-drive' })
   await shell.keyboard.press('Escape')
+
+  // 5a. Isaac looks around while Nova adds a card: his selection, pan and zoom never pause her,
+  // and the add lands.
+  await ok('canvas.zoom', { slug: 'mind-map', node: build.id, zoom: 1 })
+  await board.locator(`.react-flow__node[data-id="${build.id}"]`).click()
+  const area = (await board.boundingBox())!
+  const adding = run('canvas.add', {
+    slug: 'mind-map',
+    title: 'While he looks',
+    near: build.id,
+    caption: 'Adding while Isaac looks around',
+  })
+  // While it runs: a click on the board (his selection changes), a pan and a zoom.
+  await shell.mouse.click(area.x + 40, area.y + area.height - 40)
+  await shell.mouse.move(area.x + area.width / 2, area.y + area.height / 2)
+  await shell.mouse.wheel(0, 240)
+  await shell.keyboard.down('Meta')
+  await shell.mouse.wheel(0, -120)
+  await shell.keyboard.up('Meta')
+  const whileLooking = await adding
+  expect(whileLooking, `${whileLooking.code} ${whileLooking.message}`).toMatchObject({ ok: true })
+  expect(boardFile().nodes.some((n) => n.data?.title === 'While he looks')).toBe(true)
+  await expect(frame).toHaveAttribute('data-agent', 'working')
+  await proofShot(app, shell, 'canvas-drive-looking-around', { phase: 'canvas-drive' })
+
+  // 5b. Isaac drags the Research card while Nova changes it: hers answers locked-by-isaac at
+  // once; her change of another card lands, and both survive his drop.
+  await ok('canvas.zoom', { slug: 'mind-map', node: research.id, zoom: 1 })
+  const researchCard = board.locator(`.react-flow__node[data-id="${research.id}"]`)
+  const rb = (await researchCard.boundingBox())!
+  await shell.mouse.move(rb.x + 24, rb.y + 14)
+  await shell.mouse.down()
+  await shell.mouse.move(rb.x + 84, rb.y + 64, { steps: 6 })
+  await shell.waitForTimeout(150)
+  const askedAt = Date.now()
+  const locked = await run('canvas.edit', {
+    slug: 'mind-map',
+    node: research.id,
+    title: 'Research (Nova)',
+  })
+  expect(locked).toMatchObject({ ok: false, code: 'locked-by-isaac' })
+  expect(locked.message).toContain('Card locked by Isaac')
+  expect(Date.now() - askedAt).toBeLessThan(3_000)
+  await ok('canvas.edit', { slug: 'mind-map', node: build.id, body: 'Ship the beta in October' })
+  await shell.mouse.move(rb.x + 104, rb.y + 84, { steps: 3 })
+  await shell.mouse.up()
+  const researchAt = (): number | undefined =>
+    boardFile().nodes.find((n) => n.id === research.id)?.x
+  await expect.poll(researchAt, { timeout: 10_000 }).not.toBe(research.x)
+  const after = boardFile().nodes
+  expect(after.find((n) => n.id === research.id)?.data?.title).toBe('Research')
+  expect(after.find((n) => n.id === build.id)).toMatchObject({
+    data: { body: 'Ship the beta in October' },
+  })
+  await expect(frame).toHaveAttribute('data-agent', 'working')
 
   // 6. Take over pauses Nova; her actions are refused until Hand back.
   if ((await frame.getAttribute('data-agent')) !== 'paused') {

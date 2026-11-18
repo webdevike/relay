@@ -13,7 +13,7 @@ import { createConfigStore } from '../config-store'
 import type { DriveIdentity } from '../browser/agent-drive'
 import { layoutBoard } from '../../shared/canvas-layout'
 import type * as Engine from '../../shared/canvas-layout'
-import { CanvasDrive } from './agent-canvas'
+import { CanvasDrive, HOLD_IDLE_MS, type CanvasDriveDeps } from './agent-canvas'
 import { createCanvasStore } from './store'
 
 // The real engine, with a seam to answer one layout with a fixed result.
@@ -38,10 +38,14 @@ const PENNY: DriveIdentity = {
 
 /**
  * A drive over a copy of the fixture boards; `mounted` says whether a board shows on screen,
- * `onCall` runs inside each board call (to interrupt an action mid-way). A `chat:` scope is a
- * plain chat (Eva, its own workspace); no scope is Penny.
+ * `onCall` runs inside each board call (to interrupt an action mid-way), `tweak` changes the deps
+ * (a clock, a slow store). A `chat:` scope is a plain chat (Eva, its own workspace); no scope is Penny.
  */
-function setup(mounted = true, onCall?: (call: CanvasBoardCall) => Promise<void> | void) {
+function setup(
+  mounted = true,
+  onCall?: (call: CanvasBoardCall) => Promise<void> | void,
+  tweak: (deps: CanvasDriveDeps) => CanvasDriveDeps = (d) => d,
+) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-canvas-drive-')))
   roots.push(root)
   const dir = path.join(root, 'canvases')
@@ -52,31 +56,33 @@ function setup(mounted = true, onCall?: (call: CanvasBoardCall) => Promise<void>
   const runs: CanvasRun[][] = []
   /** The boxes the board on screen answers, by card id. */
   const drawn: Record<string, { x: number; y: number; w: number; h: number }> = {}
-  const drive = new CanvasDrive({
-    store,
-    board: async (call: CanvasBoardCall): Promise<CanvasBoardAnswer> => {
-      const what =
-        call.op === 'cursor'
-          ? `cursor ${call.cursor.op}${call.cursor.node ? ` ${call.cursor.node}` : ''}`
-          : call.op === 'reveal'
-            ? `reveal ${(call.nodes ?? []).join(',')}`
-            : call.op
-      log.push(what)
-      await onCall?.(call)
-      if (!mounted) return { mounted: false, ms: 0 }
-      return call.op === 'boxes' ? { mounted: true, boxes: drawn } : { mounted: true, ms: 10 }
-    },
-    changed: (slug) => log.push(`write ${slug}`),
-    publish: (r) => runs.push(r),
-    identify: async (scope) =>
-      scope?.startsWith('chat:')
-        ? { id: null, name: 'Eva', color: '#a5b4fc', avatar: null, workspace: scope }
-        : PENNY,
-    show: async (slug) => {
-      log.push(`show ${slug}`)
-    },
-    sleep: async () => {},
-  })
+  const drive = new CanvasDrive(
+    tweak({
+      store,
+      board: async (call: CanvasBoardCall): Promise<CanvasBoardAnswer> => {
+        const what =
+          call.op === 'cursor'
+            ? `cursor ${call.cursor.op}${call.cursor.node ? ` ${call.cursor.node}` : ''}`
+            : call.op === 'reveal'
+              ? `reveal ${(call.nodes ?? []).join(',')}`
+              : call.op
+        log.push(what)
+        await onCall?.(call)
+        if (!mounted) return { mounted: false, ms: 0 }
+        return call.op === 'boxes' ? { mounted: true, boxes: drawn } : { mounted: true, ms: 10 }
+      },
+      changed: (slug) => log.push(`write ${slug}`),
+      publish: (r) => runs.push(r),
+      identify: async (scope) =>
+        scope?.startsWith('chat:')
+          ? { id: null, name: 'Eva', color: '#a5b4fc', avatar: null, workspace: scope }
+          : PENNY,
+      show: async (slug) => {
+        log.push(`show ${slug}`)
+      },
+      sleep: async () => {},
+    }),
+  )
   return { drive, store, log, runs, drawn, dir }
 }
 
@@ -153,6 +159,77 @@ describe('canvas drive', () => {
     expect(await waited).toEqual({ met: true, status: 'working' })
     await drive.add({ slug: 'mind-map', title: 'Now' })
     expect((await store.load('mind-map')).board.nodes.length).toBe(before + 1)
+  })
+
+  it('keeps working while Isaac changes other cards; his card answers locked-by-isaac at once, then lands', async () => {
+    let t = 1_000
+    const { drive, store } = setup(true, undefined, (d) => ({ ...d, now: () => t }))
+    const [held, other] = (await store.load('mind-map')).board.nodes
+    drive.hold('mind-map', [held!.id])
+    await drive.edit({ slug: 'mind-map', node: other!.id, title: 'Agent edit' })
+    const added = (await drive.add({ slug: 'mind-map', title: 'New card' })) as { id: string }
+    expect(drive.list()[0]!.status).toBe('working')
+    const asked = performance.now()
+    await expect(
+      drive.edit({ slug: 'mind-map', node: held!.id, title: 'Clash' }),
+    ).rejects.toMatchObject({
+      code: 'locked-by-isaac',
+      message: expect.stringContaining(`Card locked by Isaac: he is changing card ${held!.id}`),
+    })
+    expect(performance.now() - asked).toBeLessThan(500)
+    await expect(
+      drive.move({ slug: 'mind-map', node: held!.id, x: 5, y: 5 }),
+    ).rejects.toMatchObject({ code: 'locked-by-isaac' })
+    await expect(drive.remove({ slug: 'mind-map', nodes: [held!.id] })).rejects.toMatchObject({
+      code: 'locked-by-isaac',
+    })
+    let nodes = (await store.load('mind-map')).board.nodes
+    expect(nodes.find((n) => n.id === held!.id)).toEqual(held)
+    expect(nodes.find((n) => n.id === other!.id)?.data?.title).toBe('Agent edit')
+    expect(nodes.some((n) => n.id === added.id)).toBe(true)
+    // He lets go: a moment later the card is the agent's to change again.
+    t += HOLD_IDLE_MS
+    await drive.edit({ slug: 'mind-map', node: held!.id, title: 'After he let go' })
+    nodes = (await store.load('mind-map')).board.nodes
+    expect(nodes.find((n) => n.id === held!.id)?.data?.title).toBe('After he let go')
+  })
+
+  it('lands nothing when Isaac grabs the card the agent is changing mid-action', async () => {
+    let node = ''
+    const s = setup(true, (call) => {
+      if (call.op === 'cursor' && call.cursor.op === 'click') s.drive.hold('mind-map', [node])
+    })
+    const card = (await s.store.load('mind-map')).board.nodes[0]!
+    node = card.id
+    await expect(s.drive.edit({ slug: 'mind-map', node, title: 'Mine' })).rejects.toMatchObject({
+      code: 'locked-by-isaac',
+    })
+    expect((await s.store.load('mind-map')).board.nodes[0]).toEqual(card)
+    expect(s.drive.list()[0]!.status).toBe('working')
+  })
+
+  it('answers instead of hanging: a stuck board counts as not shown, a stuck write answers timeout', async () => {
+    const never = new Promise<void>(() => {})
+    // The board on screen never answers: the add still lands, without the cursor.
+    const slow = setup(
+      true,
+      () => never,
+      (d) => ({ ...d, boardCallMs: 20 }),
+    )
+    const r = (await slow.drive.add({ slug: 'user-flow', title: 'Lands' })) as { id: string }
+    expect((await slow.store.load('user-flow')).board.nodes.some((n) => n.id === r.id)).toBe(true)
+    // The board file never finishes a write: the add answers `timeout`, the next one `busy`.
+    const stuck = setup(true, undefined, (d) => ({
+      ...d,
+      answerMs: 50,
+      store: { ...d.store, update: () => new Promise(() => {}) },
+    }))
+    await expect(stuck.drive.add({ slug: 'user-flow', title: 'A' })).rejects.toMatchObject({
+      code: 'timeout',
+    })
+    await expect(stuck.drive.add({ slug: 'user-flow', title: 'B' })).rejects.toMatchObject({
+      code: 'busy',
+    })
   })
 
   it('posts a reply as the agent under a comment thread', async () => {

@@ -31,6 +31,7 @@ import { MAX_THREAD_TEXT, THREAD_ID, newThreadId } from '@relay/canvas-live/thre
 import * as Y from 'yjs'
 import type { ConfigStore } from '../config-store'
 import { boardText, coded, overFile, pageView, parseBoard, type PageRef } from './board-text'
+import { mergeBoards } from '../../shared/canvas-merge'
 
 const SLUG = /^[a-z0-9-]{1,80}$/
 const PINS = 'canvas.json'
@@ -97,9 +98,16 @@ export interface CanvasStore {
   load(slug: string, page?: string): Promise<CanvasLoad>
   /**
    * Writes the Canvas page's board to `page` (default page-1), keeping what the file has that the
-   * page does not show (threads, the other pages).
+   * page does not show (threads, the other pages). With `base` (the page as the board last read or
+   * wrote it) the board is merged over what the file has now (mergeBoards: the agent's writes since
+   * `base` stay); `merged` says the file now holds more than the board sent, so it reloads.
    */
-  save(slug: string, board: CanvasBoard, page?: string): Promise<{ saved: boolean }>
+  save(
+    slug: string,
+    board: CanvasBoard,
+    page?: string,
+    base?: CanvasBoard,
+  ): Promise<{ saved: boolean; merged: boolean }>
   /**
    * Applies `edit` to `page` as the file has it now and writes the result, as one step no other
    * write of the board (a save, a page or thread change) can land inside. `edit` throws to write
@@ -218,7 +226,8 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     slug: string,
     board: CanvasBoard,
     page: string = FIRST_PAGE,
-  ): Promise<{ saved: boolean }> {
+    base?: CanvasBoard,
+  ): Promise<{ saved: boolean; merged: boolean }> {
     return queue.run(slug, async () => {
       const disk = await readText(slug)
       let file: Board | null = null
@@ -227,13 +236,17 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
       } catch {
         file = null
       }
-      const text = boardText(overFile(board, file, page))
+      const shown = base && file ? pageView(file, page) : null
+      const next =
+        shown && base && shown.page === page ? mergeBoards(base, board, shown.board) : board
+      const merged = next !== board && JSON.stringify(next) !== JSON.stringify(board)
+      const text = boardText(overFile(next, file, page))
       if (disk === text) {
         written.set(slug, text)
-        return { saved: false }
+        return { saved: false, merged }
       }
       await writeText(slug, text)
-      return { saved: true }
+      return { saved: true, merged }
     })
   }
 

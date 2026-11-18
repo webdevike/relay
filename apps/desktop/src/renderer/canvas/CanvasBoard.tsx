@@ -95,7 +95,8 @@ import { protoCardSize } from '../../shared/proto-card'
 import { AgentCursorLayer, type CursorLayer } from './agent/AgentCursorLayer'
 import { registerBoardDriver } from './agent/board-drivers'
 import { easeInOut, REVEAL_MS, revealView, viewTarget, type Viewport } from './agent/cursor-model'
-import { canvasAgentOp, shownRun, takesOver, useCanvasRuns } from './agent/runs-store'
+import { cardsIsaacChanges, dueHolds } from './agent/runs-store'
+import { changedIds, mergeBoards } from '../../shared/canvas-merge'
 import { frontWorkspace } from '../tiling/tiling-store'
 
 const NODE_TYPES = { card: CanvasCard }
@@ -111,6 +112,8 @@ const SETTLE_SLACK = 8
 const SETTLE_ROUNDS = 6
 /** A new note's size in flow units. */
 const NOTE_SIZE: Size = [220, 120]
+/** How long after Isaac moved the view himself the agent's reveals leave it where he put it. */
+const VIEW_YIELD_MS = 2_000
 
 type SaveState = 'saved' | 'unsaved' | 'saving' | { error: string }
 
@@ -296,6 +299,10 @@ function Board({
     view: Viewport
     panned: Viewport | null
   } | null>(null)
+  /** The agent's carry animation in flight (its frame request). */
+  const carryRef = useRef<number | undefined>(undefined)
+  /** When Isaac last moved the view himself: the agent's reveals leave his view alone a moment. */
+  const isaacViewAtRef = useRef(Number.NEGATIVE_INFINITY)
   const goneRef = useRef(false)
   const unmountedRef = useRef(false)
   const fitPendingRef = useRef(false)
@@ -317,27 +324,29 @@ function Board({
     return { key: JSON.stringify(toBoard(doc, null)), value: doc }
   }, [])
 
-  /** The agent's run on this board; Isaac's own edits take it over while it acts. */
-  const run = useCanvasRuns((s) => shownRun(s.runs, slug))
-  const runRef = useRef(run)
-  runRef.current = run
-  /** Take over was asked for this stretch of the agent's work; cleared once it stops acting. */
-  const pausingRef = useRef(false)
-  if (!takesOver(run?.status)) pausingRef.current = false
-  /** An edit of Isaac's (undo steps, drags, resizes, page changes): the agent pauses for him. */
-  const isaacEdited = useCallback(() => {
-    if (!takesOver(runRef.current?.status) || pausingRef.current) return
-    pausingRef.current = true
-    void canvasAgentOp(slug, 'takeOver').then((ok) => {
-      if (!ok) pausingRef.current = false
-    })
-  }, [slug])
+  /** When each card Isaac changes was last held in main (a hold lapses a moment after his last). */
+  const heldRef = useRef(new Map<string, number>())
+  /**
+   * Isaac is changing cards `ids` (a drag, a resize, a delete, an undo): main locks just those
+   * against the agent's changes for a moment; the agent keeps working on the rest. Looking around
+   * (pan, zoom, select, comment, Pick, another page) sends nothing and never pauses the agent.
+   */
+  const holdCards = useCallback(
+    (ids: Iterable<string>) => {
+      const due = dueHolds(heldRef.current, ids, performance.now())
+      if (due.length > 0) void invoke('canvas.hold', { slug, nodes: due })
+    },
+    [slug],
+  )
 
-  /** Records the board before an action, as one undo step (an edit of Isaac's). */
-  const remember = useCallback(() => {
-    isaacEdited()
-    setHistory((h) => record(h, snapshot()))
-  }, [snapshot, isaacEdited])
+  /** Records the board before an edit of Isaac's (one undo step) that changes cards `ids`. */
+  const remember = useCallback(
+    (ids: Iterable<string> = []) => {
+      holdCards(ids)
+      setHistory((h) => record(h, snapshot()))
+    },
+    [snapshot, holdCards],
+  )
 
   /**
    * The viewport a save writes: the file's own while the board sits where a rescue fit put it,
@@ -368,6 +377,27 @@ function Board({
     [slug, page, flow],
   )
 
+  /**
+   * The board as a save writes it. Cards the agent is carrying save where they were: only main's
+   * guarded write lands the move.
+   */
+  const savedBoard = useCallback((): BoardFile => {
+    const c = carriedRef.current
+    const doc = c
+      ? {
+          ...docRef.current,
+          nodes: docRef.current.nodes.map((n) => {
+            const from = c.from.get(n.id)
+            return from ? { ...n, position: from } : n
+          }),
+        }
+      : docRef.current
+    return toBoard(doc, viewToSave())
+  }, [viewToSave])
+
+  /** The reload, for a save that merged newer changes of the file in (it is defined further down). */
+  const reloadRef = useRef<() => Promise<void>>(async () => {})
+
   const saveNow = useCallback(async () => {
     timerRef.current = undefined
     if (goneRef.current || !syncedRef.current) return
@@ -379,25 +409,16 @@ function Board({
         timerRef.current = window.setTimeout(() => void saveNow(), SAVE_DELAY)
       return
     }
-    // Cards the agent is carrying save where they were: only main's guarded write lands the move.
-    const c = carriedRef.current
-    const doc = c
-      ? {
-          ...docRef.current,
-          nodes: docRef.current.nodes.map((n) => {
-            const from = c.from.get(n.id)
-            return from ? { ...n, position: from } : n
-          }),
-        }
-      : docRef.current
-    const board = toBoard(doc, viewToSave())
+    const board = savedBoard()
     const key = JSON.stringify(board)
     if (key === syncedRef.current) {
       setSave('saved')
       return
     }
     setSave('saving')
-    const saving = invoke('canvas.save', { slug, board, page })
+    // The save merges over what the file has now (the agent's writes since `base` stay).
+    const base = JSON.parse(syncedRef.current) as BoardFile
+    const saving = invoke('canvas.save', { slug, board, page, base })
     savingRef.current = saving
     const r = await saving
     if (goneRef.current) return
@@ -405,8 +426,10 @@ function Board({
       syncedRef.current = key
       // A newer edit keeps the board unsaved until its own save.
       if (timerRef.current === undefined) setSave('saved')
+      // The file holds more than this board sent (an agent's write it had not loaded): show it.
+      if (r.value.merged) void reloadRef.current()
     } else setSave({ error: r.error.message })
-  }, [viewToSave, slug, page])
+  }, [savedBoard, slug, page])
 
   const scheduleSave = useCallback(() => {
     if (goneRef.current) return
@@ -537,16 +560,22 @@ function Board({
     }
     const key = JSON.stringify(r.value.board)
     if (key === syncedRef.current) return
+    // Isaac's edits the file does not have yet stay on top of what changed there (an agent's
+    // write while he worked): only the cards he changed are his, the rest are the file's.
+    const next = syncedRef.current
+      ? mergeBoards(JSON.parse(syncedRef.current) as BoardFile, savedBoard(), r.value.board)
+      : r.value.board
     clearTimeout(timerRef.current)
     timerRef.current = undefined
     syncedRef.current = key
-    apply(r.value.board)
+    apply(next)
     // The file changed under a carried card: main's write of the move landed (or the file now
     // says where it is); either way it is no longer the agent's to take back.
     carriedRef.current = null
     setSave('saved')
     saveIfChanged()
-  }, [apply, saveIfChanged, slug, page, onPage])
+  }, [apply, saveIfChanged, savedBoard, slug, page, onPage])
+  reloadRef.current = reload
 
   /** Saves what is pending (or waits for the save in flight), so the file is as the board is. */
   const flush = useCallback(async () => {
@@ -570,7 +599,6 @@ function Board({
   const pageOp = useCallback(
     async (op: Omit<InvokeInput<'canvas.pages'>, 'slug'>) => {
       if (liveOn) return
-      isaacEdited()
       await flush()
       const r = await invoke('canvas.pages', { slug, ...op })
       if (goneRef.current || unmountedRef.current) return
@@ -583,7 +611,7 @@ function Board({
         op.op === 'add' || op.op === 'duplicate' || (op.op === 'delete' && op.page === page)
       if (moved && r.value.page !== page) onPage(r.value.page)
     },
-    [flush, isaacEdited, liveOn, onPage, page, slug],
+    [flush, liveOn, onPage, page, slug],
   )
 
   /** The page's comment threads, as the board file has them. */
@@ -890,12 +918,11 @@ function Board({
           (c.type === 'dimensions' && c.setAttributes && c.resizing !== undefined),
       )
       const sized = kept.some((c) => c.type === 'dimensions' && c.setAttributes)
-      if (edit || sized) {
-        if (edit) isaacEdited()
-        scheduleSave()
-      }
+      // His drags and resizes hold those cards against the agent's changes (never a pause).
+      holdCards(cardsIsaacChanges(kept))
+      if (edit || sized) scheduleSave()
     },
-    [scheduleSave, isaacEdited],
+    [scheduleSave, holdCards],
   )
 
   const onEdgesChange = useCallback((changes: EdgeChange<LinkEdge>[]) => {
@@ -907,10 +934,30 @@ function Board({
     )
   }, [])
 
-  const dragStart = useCallback(() => {
-    draggingRef.current = true
-    remember()
-  }, [remember])
+  /**
+   * Isaac starts dragging `dragged`. A card the agent is carrying becomes his where it is; main
+   * refuses the agent's write of it (`locked-by-isaac`), so the rest of that carry goes back.
+   */
+  const dragStart = useCallback(
+    (dragged: readonly CardNode[]) => {
+      draggingRef.current = true
+      const ids = new Set(dragged.map((n) => n.id))
+      const c = carriedRef.current
+      if (c && [...ids].some((id) => c.from.has(id))) {
+        cancelAnimationFrame(carryRef.current ?? 0)
+        carryRef.current = undefined
+        carriedRef.current = null
+        setNodes((ns) =>
+          ns.map((n) => {
+            const from = c.from.get(n.id)
+            return from && !ids.has(n.id) ? { ...n, position: from } : n
+          }),
+        )
+      }
+      remember(ids)
+    },
+    [remember],
+  )
 
   /** Isaac's drag ends: the cards he moved are pinned (canvas.layout keeps them where they are). */
   const dragStop = useCallback(
@@ -962,7 +1009,7 @@ function Board({
   const removeNodes = useCallback(
     (ids: ReadonlySet<string>, edgeIds: ReadonlySet<string> = new Set()) => {
       if (ids.size === 0 && edgeIds.size === 0) return
-      remember()
+      remember(ids)
       const doc = docRef.current
       const abs = absolutePositions(doc.nodes)
       const kept: CardNode[] = doc.nodes
@@ -1195,7 +1242,7 @@ function Board({
         addNote(at, noteTitle, from, true)
       },
       setFrame: (id, frame) => {
-        remember()
+        remember([id])
         const size = protoCardSize(frame)
         setNodes((ns) =>
           ns.map((n) => {
@@ -1223,27 +1270,28 @@ function Board({
     [scheduleSave],
   )
 
+  /** An undo or redo is Isaac's edit of every card it changes. */
   const doUndo = useCallback(() => {
     const r = undo(historyRef.current, snapshot())
     if (!r) return
     setHistory(r.history)
-    isaacEdited()
+    holdCards(changedIds(toBoard(docRef.current, null).nodes, toBoard(r.state, null).nodes))
     restore(r.state)
-  }, [restore, snapshot, isaacEdited])
+  }, [restore, snapshot, holdCards])
 
   const doRedo = useCallback(() => {
     const r = redo(historyRef.current, snapshot())
     if (!r) return
     setHistory(r.history)
-    isaacEdited()
+    holdCards(changedIds(toBoard(docRef.current, null).nodes, toBoard(r.state, null).nodes))
     restore(r.state)
-  }, [restore, snapshot, isaacEdited])
+  }, [restore, snapshot, holdCards])
 
   /** The Tidy in flight; a newer one (or an edit meanwhile) drops its result. */
   const tidyRef = useRef(0)
   /** Lays the whole board out afresh with the layout engine (pins let go), as one undo step. */
   const tidy = useCallback(() => {
-    remember()
+    remember(docRef.current.nodes.map((n) => n.id))
     const doc = docRef.current
     const before = snapshot().key
     const run = ++tidyRef.current
@@ -1324,7 +1372,6 @@ function Board({
   // agent's cursor, its view, selection and the cards it carries, none of them Isaac's edits.
   const store = useStoreApi()
   const cursorRef = useRef<CursorLayer | null>(null)
-  const carryRef = useRef<number | undefined>(undefined)
   useEffect(() => {
     // The agent moving the view takes it over, as Isaac's own pan would: the open's pending fit
     // and the settling relayout's refit would otherwise snap the board away from its work.
@@ -1387,10 +1434,13 @@ function Board({
         )
         setEdges((es) => es.map((e) => (e.selected ? { ...e, selected: false } : e)))
       },
+      // The view moves at most for the call's own duration: Isaac panning meanwhile interrupts
+      // React Flow's transition, whose promise then never settles.
       view: async ({ zoom, center, fit, pan, duration }) => {
         takeView()
         const timing = duration === undefined ? {} : { duration }
-        if (fit) await flow.fitView({ padding: FIT_PADDING, ...timing })
+        let moved: Promise<unknown>
+        if (fit) moved = flow.fitView({ padding: FIT_PADDING, ...timing })
         else {
           const { width, height } = store.getState()
           const target = viewTarget(
@@ -1398,11 +1448,21 @@ function Board({
             { w: width, h: height },
             { zoom, center, pan },
           )
-          await flow.setViewport(target, timing)
+          moved = flow.setViewport(target, timing)
         }
+        // The renderer's lib has no Promise.withResolvers.
+        let timer = 0
+        const settled = new Promise<void>((resolve) => {
+          timer = window.setTimeout(resolve, (duration ?? 0) + 100)
+        })
+        await Promise.race([moved, settled])
+        clearTimeout(timer)
         return flow.getViewport()
       },
+      // Isaac moving the view himself wins: for a moment after, the agent's work is not brought
+      // into view (its cursor and changes still land).
       reveal: (need, want) => {
+        if (performance.now() - isaacViewAtRef.current < VIEW_YIELD_MS) return 0
         const { width, height } = store.getState()
         const target = revealView(flow.getViewport(), { w: width, h: height }, need, want)
         if (!target) return 0
@@ -1424,7 +1484,10 @@ function Board({
         const from = card.position
         const view = flow.getViewport()
         const { width, height } = store.getState()
-        const end = revealView(view, { w: width, h: height }, { ...box, x: to.x, y: to.y })
+        const yielding = performance.now() - isaacViewAtRef.current < VIEW_YIELD_MS
+        const end = yielding
+          ? null
+          : revealView(view, { w: width, h: height }, { ...box, x: to.x, y: to.y })
         const carried = { from: new Map([[node, from]]), view, panned: end ? view : null }
         carriedRef.current = carried
         if (end) takeView()
@@ -1613,10 +1676,7 @@ function Board({
             pages={pages}
             page={page}
             editable={!liveOn && loaded}
-            onSwitch={(id) => {
-              isaacEdited()
-              void switchTo(id)
-            }}
+            onSwitch={(id) => void switchTo(id)}
             onAdd={() => void pageOp({ op: 'add', page })}
             onRename={(id, t) => void pageOp({ op: 'rename', page: id, title: t })}
             onMove={(id, to) => void pageOp({ op: 'move', page: id, to })}
@@ -1631,18 +1691,17 @@ function Board({
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
-            onNodeDragStart={dragStart}
+            onNodeDragStart={(_e, _node, dragged) => dragStart(dragged)}
             onNodeDragStop={(_e, _node, dragged) => dragStop(dragged)}
             onNodeDoubleClick={(_e, node) => {
               if (node.data.spec.type === 'image' && node.data.spec.data?.src)
                 setLightboxId(node.id)
             }}
-            onSelectionDragStart={dragStart}
-            onSelectionDragStop={(_e, dragged) => dragStop(dragged)}
-            // His own pan or zoom (an event; the agent's reveals and fits have none) takes over,
-            // as his scroll does in the shared browser, so the next reveal never fights him.
-            onMoveStart={(e) => {
-              if (e) isaacEdited()
+            onSelectionDragStart={(_e, dragged) => dragStart(dragged)}
+            // His own pan or zoom (an event; the agent's reveals and fits have none) never pauses
+            // the agent; its reveals leave his view alone for a moment instead.
+            onMove={(e) => {
+              if (e) isaacViewAtRef.current = performance.now()
             }}
             onMoveEnd={(_e, vp) => {
               const quiet = quietViewRef.current
