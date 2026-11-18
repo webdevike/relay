@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { Deferred, Effect, FileSystem, Layer, Option, Schedule, Schema } from "effect";
+import { Deferred, Effect, Fiber, FileSystem, Layer, Option, Schedule, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { Background } from "../src/core/Background.ts";
 import { define, job, OnEvent, type Registered, Trigger } from "../src/core/Component.ts";
 import { AgentEvent, EventBus, Lifecycle, lifecycle } from "../src/core/Event.ts";
+import { request } from "../src/core/Requests.ts";
 import { Runner } from "../src/core/Runtime.ts";
 import { events as runtimeEvents } from "../src/core/RuntimeEvents.ts";
 import { Settings } from "../src/core/Settings.ts";
@@ -333,4 +334,161 @@ describe("fallback model", () => {
         ]);
       }).pipe(Effect.provide(world(root)));
     }).pipe(Effect.scoped, Effect.runPromise));
+});
+
+describe("a run that falls back answers its asker once, from its last attempt", () => {
+  const pickEvents = {
+    "pick.requested": Schema.Struct({ requestId: Schema.String, draft: Schema.String }),
+    "pick.ready": Schema.Struct({
+      requestId: Schema.String,
+      kind: Schema.String,
+      why: Schema.String,
+    }),
+  };
+  const decodeReady = Schema.decodeUnknownOption(pickEvents["pick.ready"]);
+  // Like an agent file's `onFailure` (the widget's): a failed model call still emits a "failed: ..." reply, then the job
+  // fails. `test/backup` answers after 2 s; `test/silent` fails without a reply.
+  const picker = define({
+    id: "picker",
+    events: pickEvents,
+    purpose: "Answer a pick request on whichever model it runs.",
+    agent: { model: "test/default", candidates: ["test/default"], system: "" },
+    jobs: [
+      job(pickEvents, {
+        id: "pick",
+        description: "Pick for the request on the run's model.",
+        input: pickEvents["pick.requested"],
+        triggers: [Trigger.OnEvent({ type: "picker/pick.requested" })],
+        run: ({ requestId }, ctx) =>
+          ctx.model === "test/backup"
+            ? Effect.sleep("2 seconds").pipe(
+                Effect.andThen(
+                  ctx.emit("pick.ready", { requestId, kind: "openui", why: "the real answer" }),
+                ),
+              )
+            : ctx.model === "test/silent"
+              ? Effect.sleep("1 second").pipe(
+                  Effect.andThen(Effect.fail(new Boom({ message: "silent too" }))),
+                )
+              : Effect.sleep("400 millis").pipe(
+                  Effect.andThen(
+                    ctx.emit("pick.ready", {
+                      requestId,
+                      kind: "none",
+                      why: `failed: ${ctx.model} is down`,
+                    }),
+                  ),
+                  Effect.andThen(Effect.fail(new Boom({ message: `${ctx.model} is down` }))),
+                ),
+      }),
+    ],
+    asks: {
+      request: "pick.requested",
+      reply: "pick.ready",
+      show: (reply) =>
+        Option.match(decodeReady(reply), { onNone: () => "none", onSome: ({ why }) => why }),
+    },
+    tools: Layer.empty,
+  });
+
+  /** Advance the fake clock `ms` in 100 ms steps, letting the service's fibers run between them. */
+  const advance = (ms: number) =>
+    Effect.gen(function* () {
+      for (let at = 0; at < ms; at += 100) {
+        yield* TestClock.adjust("100 millis");
+        yield* TestClock.withLive(Effect.sleep("2 millis"));
+      }
+    });
+
+  /**
+   * Ask `picker` as a caller does (`Requests.request`) on a running service, `fallbackModel` set when given: what the
+   * run had published 1 s in (after the main attempt failed at 0.4 s) and at the end (4 s), and the caller's answer.
+   */
+  const askPicker = (fallbackModel?: string) =>
+    Effect.gen(function* () {
+      const root = yield* tempHome;
+      return yield* Effect.gen(function* () {
+        if (fallbackModel !== undefined)
+          yield* (yield* Settings).set(
+            { components: { picker: { fallbackModel } } },
+            "tester",
+            "use",
+          );
+        const bus = yield* EventBus;
+        const published = Effect.map(bus.history, (all) =>
+          all
+            .filter((event) => event.job === "pick")
+            .map((event) => {
+              const what = Option.match(lifecycle(event), {
+                onSome: (phase) => phase.model,
+                onNone: () => Option.getOrUndefined(decodeReady(event.data))?.why,
+              });
+              return `${event.type.slice("picker/".length)} ${what}`;
+            }),
+        );
+        const asked = yield* Effect.forkChild(request("picker", { draft: "sales up" }, 10_000));
+        yield* advance(1_000);
+        const early = yield* published;
+        yield* advance(3_000);
+        return { answer: yield* Fiber.join(asked), early, events: yield* published };
+      }).pipe(
+        Effect.provide(
+          Runner.layerTriggers.pipe(
+            Layer.provideMerge(Background.layer),
+            Layer.provideMerge(runtime(root, { code: [picker] })),
+          ),
+        ),
+      );
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer()), Effect.runPromise);
+
+  test("the main attempt's failure reply is held: the asker's only reply is the fallback's real answer", async () => {
+    const { answer, early, events } = await askPicker("test/backup");
+    // 0.6 s after the main attempt failed, the fallback is running and nothing has answered the asker.
+    expect(early).toEqual(["job.started test/default", "job.started test/backup"]);
+    expect(events).toEqual([
+      "job.started test/default",
+      "job.started test/backup",
+      "pick.ready the real answer",
+      "job.succeeded test/backup",
+    ]);
+    expect(answer).toMatchObject({
+      status: "done",
+      text: "the real answer",
+      model: "test/backup",
+      fellBack: true,
+    });
+  }, 20_000);
+
+  test("with no fallback the failure reply goes out as soon as the attempt emits it, as before", async () => {
+    const { answer, early, events } = await askPicker();
+    expect(early).toEqual([
+      "job.started test/default",
+      "pick.ready failed: test/default is down",
+      "job.failed test/default",
+    ]);
+    expect(events).toEqual(early);
+    expect(answer).toMatchObject({ status: "done", text: "failed: test/default is down" });
+  }, 20_000);
+
+  test("when the fallback fails too, the run publishes one failure reply: the fallback's", async () => {
+    const { answer, events } = await askPicker("test/dead");
+    expect(events).toEqual([
+      "job.started test/default",
+      "job.started test/dead",
+      "pick.ready failed: test/dead is down",
+      "job.failed test/dead",
+    ]);
+    expect(answer).toMatchObject({ text: "failed: test/dead is down", fellBack: true });
+  }, 20_000);
+
+  test("a fallback that fails without a reply leaves the main attempt's failure reply as the run's one answer", async () => {
+    const { answer, events } = await askPicker("test/silent");
+    expect(events).toEqual([
+      "job.started test/default",
+      "job.started test/silent",
+      "pick.ready failed: test/default is down",
+      "job.failed test/silent",
+    ]);
+    expect(answer).toMatchObject({ text: "failed: test/default is down" });
+  }, 20_000);
 });

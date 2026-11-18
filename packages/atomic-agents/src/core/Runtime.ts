@@ -228,9 +228,24 @@ export class Runner extends Context.Service<
           );
         // The job's answer, for the trial card: its ask pair's reply, else the last event it emitted. An arm's never goes on the journal.
         const answer: { value?: unknown } = {};
-        const jobPublish = (name: string, data: unknown) => {
-          if (component.asks === undefined || name === component.asks.reply) answer.value = data;
+        let replies = 0;
+        const deliver = (name: string, data: unknown) => {
+          if (component.asks === undefined || name === component.asks.reply) {
+            answer.value = data;
+            replies++;
+          }
           return arm ? Effect.void : publish(name, data);
+        };
+        // An attempt a fallback may still replace holds its ask pair's replies (an `onFailure` "failed: ..." would answer
+        // the asker before the fallback's real answer): they go out only once that attempt turns out to be the run's last.
+        // Its other events (progress, a batch item's committed output) go out as they come.
+        let held: Array<readonly [string, unknown]> | undefined;
+        const jobPublish = (name: string, data: unknown) => {
+          if (held !== undefined && component.asks?.reply === name) {
+            held.push([name, data]);
+            return Effect.void;
+          }
+          return deliver(name, data);
         };
         const lifecycle = (event: Lifecycle) =>
           encodeLifecycle(event).pipe(
@@ -284,35 +299,47 @@ export class Runner extends Context.Service<
                 : { trial: { id: options.trial.id, letter: options.trial.letter } }),
             }),
           );
-          let outcome = yield* attempt(model);
-          let ranOn = model;
           // One retry on the backup model when the run failed on the main one. A bad input (SchemaError) or a defect would fail the same way, and a bake-off arm (`options.model`) must not be swapped.
           const backup = options.model === undefined ? resolved.fallbackModel : undefined;
-          if (backup !== undefined && backup !== model && Exit.isFailure(outcome)) {
-            const first = Cause.findErrorOption(outcome.cause);
-            if (first._tag === "Some" && first.value._tag !== "SchemaError") {
-              const reason = `${first.value._tag}: ${first.value.message}`.slice(0, 500);
-              yield* lifecycle(
-                JobStarted.make({
-                  input,
-                  model: backup,
-                  ...modes,
-                  ...thinking,
-                  fellBackFrom: model,
-                  reason,
-                  ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
-                  ...(options.trial === undefined
-                    ? {}
-                    : { trial: { id: options.trial.id, letter: options.trial.letter } }),
-                }),
-              );
-              outcome = yield* attempt(backup, {
-                "fallback.from": model,
-                "fallback.reason": reason,
-              });
-              ranOn = backup;
-            }
+          const mayFallBack = backup !== undefined && backup !== model;
+          held = mayFallBack ? [] : undefined;
+          let outcome = yield* attempt(model);
+          const firstReplies = held ?? [];
+          held = undefined;
+          let ranOn = model;
+          let releaseFirst = true;
+          const first = Exit.isFailure(outcome)
+            ? Cause.findErrorOption(outcome.cause)
+            : Option.none();
+          if (mayFallBack && first._tag === "Some" && first.value._tag !== "SchemaError") {
+            const reason = `${first.value._tag}: ${first.value.message}`.slice(0, 500);
+            yield* lifecycle(
+              JobStarted.make({
+                input,
+                model: backup,
+                ...modes,
+                ...thinking,
+                fellBackFrom: model,
+                reason,
+                ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
+                ...(options.trial === undefined
+                  ? {}
+                  : { trial: { id: options.trial.id, letter: options.trial.letter } }),
+              }),
+            );
+            const before = replies;
+            outcome = yield* attempt(backup, {
+              "fallback.from": model,
+              "fallback.reason": reason,
+            });
+            ranOn = backup;
+            // The fallback failed without a reply of its own: the main attempt's failure reply is the run's one answer.
+            releaseFirst = Exit.isFailure(outcome) && replies === before;
           }
+          if (releaseFirst)
+            yield* Effect.forEach(firstReplies, ([name, data]) => deliver(name, data), {
+              discard: true,
+            });
           const fellBack = ranOn !== model;
           if (Exit.isSuccess(outcome)) {
             const took = yield* seconds;
