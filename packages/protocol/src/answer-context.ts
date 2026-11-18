@@ -36,3 +36,30 @@ export function answerTagOf(text: string): { question: string; answer: string } 
   const match = TAG.exec(text);
   return match === null ? null : { question: match[1] ?? "", answer: text.slice(match[0].length) };
 }
+
+/** The bits of an open ask `stillAsking` reads. */
+export interface AskTurnInput {
+  source: "replies" | "ask" | "session";
+  question: string;
+  at: number;
+}
+
+/**
+ * Whether the thread's own reply-chip question (`source` "replies") still waits on Isaac, judged from
+ * the rows the client holds: any later turn of his answers it, typed or tapped, except one whose
+ * answer tag names another question. The host closes it too (its snapshot's `asks`), but a client
+ * must not keep a stale outline, label and chips for a snapshot it holds that predates the close.
+ * Other asks (an omp ask card, a session's question) answer elsewhere and always stay open here.
+ */
+export function stillAsking(
+  ask: AskTurnInput,
+  rows: readonly { role: string; text: string; at?: number | undefined }[],
+): boolean {
+  if (ask.source !== "replies") return true;
+  const excerpt = answerExcerpt(ask.question);
+  return !rows.some((row) => {
+    if (row.role !== "user" || row.at === undefined || row.at <= ask.at) return false;
+    const tag = answerTagOf(row.text);
+    return tag === null || tag.question === excerpt;
+  });
+}

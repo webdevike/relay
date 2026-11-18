@@ -24,6 +24,19 @@ describe('asksOf', () => {
     expect(view?.asks?.[0]).toMatchObject({ id: 'abcdef01', label: 'Push it?', messageId: 'a1' })
   })
 
+  it('drops a reply-chip ask once a later turn of his is in the snapshot', () => {
+    const frame = (messages: object[]) => ({
+      t: 'assistant.snapshot',
+      agent: 'nova',
+      snapshot: { rev: 2, messages, busy: false, sessionId: '', asks: [open] },
+    })
+    const asked = { id: 'a1', role: 'assistant', text: 'Push it to prod?', at: 5 }
+    expect(asksOf(frame([asked]))?.asks).toHaveLength(1)
+    expect(
+      asksOf(frame([asked, { id: 'u2', role: 'user', text: 'Okay nvm', at: 9 }]))?.asks,
+    ).toEqual([])
+  })
+
   it('says null asks for a host that predates them, and nothing for other frames', () => {
     expect(asksOf({ t: 'assistant.snapshot', agent: 'nova', snapshot: { messages: [] } })).toEqual({
       agent: 'nova',

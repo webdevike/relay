@@ -157,6 +157,7 @@ import {
   hiddenAskIds,
   insertByAt,
   isAskRow,
+  answeredAskIds,
   openAskKey,
   visibleAsks,
   waitingMessageIds,
@@ -684,15 +685,20 @@ function Thread({ agent }: { agent: string }) {
   const newestSettled = settled[settled.length - 1];
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending.length > 0) : null;
+  // Closed on this phone, or answered by a later turn of his (the echo of one in flight too) that a snapshot the host has not yet re-sent does not show.
+  const closedAsks = useMemo(
+    () => new Set([...hiddenAsks, ...answeredAskIds(openAsks, settled)]),
+    [hiddenAsks, openAsks, settled],
+  );
   // Open questions, minus the one whose ask card shows above the composer: the header button's count and its sheet.
   const shownAsks = useMemo(
     () =>
       visibleAsks(
         openAsks,
         pendingAsk === undefined || sessionId === null ? null : { sessionId, askId: pendingAsk.id },
-        hiddenAsks,
+        closedAsks,
       ),
-    [openAsks, pendingAsk, sessionId, hiddenAsks],
+    [openAsks, pendingAsk, sessionId, closedAsks],
   );
   // The last question answered or dismissed closes the sheet.
   useEffect(() => {
@@ -701,8 +707,8 @@ function Thread({ agent }: { agent: string }) {
   // An open ask with a bubble in the thread marks that bubble; one without (a session's, an `ask` card left open) is a card where it was asked.
   const messageIds = useMemo(() => new Set(messages.map((message) => message.id)), [messages]);
   const waitingIds = useMemo(
-    () => waitingMessageIds(openAsks, hiddenAsks, messageIds),
-    [openAsks, hiddenAsks, messageIds],
+    () => waitingMessageIds(openAsks, closedAsks, messageIds),
+    [openAsks, closedAsks, messageIds],
   );
   const cards = useMemo(() => askCards(shownAsks, messageIds), [shownAsks, messageIds]);
   const cardByRow = useMemo(() => new Map(cards.map((ask) => [askRowId(ask), ask])), [cards]);
