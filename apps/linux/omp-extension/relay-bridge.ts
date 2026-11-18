@@ -41,11 +41,22 @@ import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry
 // The ask tool's blocking dialog is mirrored to the phone: these describe the omp dialog shape this
 // wraps (from omp's own install) and the protocol frames the phone speaks. Both are type-only, erased.
 import type {
-  ExtensionAskDialogQuestion,
   ExtensionAskDialogResult,
   ExtensionAskDialogResultItem,
 } from "@oh-my-pi/pi-coding-agent/extensibility/extensions/types";
 import type { AgentAskAnswer, AgentAskQuestion } from "@relay/protocol";
+// Since omp 18.18.3 the ask tool opens one HTML <form> (ui.formDialog). omp's own parser and data
+// rules shape it into card questions and the card's answers back into form data (ask-form.ts).
+import { parseHtmlForm } from "@oh-my-pi/pi-tui/html-form/parse";
+import {
+  choiceValue,
+  defaultFormData,
+  fieldContexts,
+  fieldQuestions,
+  isArrayChoice,
+  textValue,
+} from "@oh-my-pi/pi-tui/html-form/data";
+import { formAsk, type FormHelpers } from "../src/agents/ask-form";
 // Shared with the host's assistant service: omp's session transcript read into inbox rows. Imported
 // by relative path (this file is symlinked into omp's extensions dir, and bun resolves the real path).
 import {
@@ -482,8 +493,17 @@ const RECONNECT_MS = 3000;
 const SETTINGS_SETTLE_MS = 2000;
 /** Time for the fed Enter to clear the editor before a held draft is put back. */
 const SUBMIT_SETTLE_MS = 150;
-/** Time for the Escape that dismisses a cancelled ask's terminal dialog to be read before a reply goes in. */
+/** Time for a cancelled ask's terminal dialog to close (the Escape fed to askDialog's, formDialog's abort) before a reply goes in. */
 const ASK_DISMISS_SETTLE_MS = 80;
+/** omp's own form rules, so a card answer submits what the same answer submits in the terminal form. */
+const FORM_HELPERS: FormHelpers = {
+  fieldQuestions,
+  fieldContexts,
+  defaultFormData,
+  choiceValue,
+  textValue,
+  isArrayChoice,
+};
 /**
  * A handoff that never compacts (refused, failed, cancelled; omp only says so in the TUI) stops
  * showing as in progress after this, the bound EvaOS uses too.
@@ -1112,14 +1132,15 @@ export default function relayBridge(pi: ExtensionAPI): void {
   const agentCalls = new AgentCalls();
   /** Insertion-ordered so the oldest entry is the first key; capped at MAX_IMAGES. */
   const images = new Map<string, Image>();
-  // omp's `ask` tool blocks in the TUI on ctx.ui.askDialog; each in-flight ask keeps the phone's
-  // resolve callback here (keyed by the ask.request id) plus the questions, so an answer from the
-  // phone can be shaped back into omp's dialog result. Cleared when a session ends or switches.
+  // omp's `ask` tool blocks in the TUI on a dialog: ctx.ui.formDialog (its HTML form) or
+  // ctx.ui.askDialog (the question list extensions can still open). Each in-flight one keeps here,
+  // keyed by the ask.request id, how a device's answer (undefined: cancelled) resolves it and how
+  // Isaac's own typed turn interrupts it. Cleared when a session ends or switches.
   const pendingAsks = new Map<
     string,
     {
-      resolve: (result: ExtensionAskDialogResult | undefined) => void;
-      questions: ExtensionAskDialogQuestion[];
+      answer: (results: AgentAskAnswer[] | undefined) => void;
+      interrupt: () => void;
     }
   >();
   // omp asks for a tool approval with ctx.ui.select("Allow tool: <name>\n<detail lines>", ["Approve", "Deny"]).
@@ -1130,6 +1151,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
   const pendingApprovals = new Map<string, { frame: Outbound; decide: (allow: boolean) => void }>();
   /** The select wrapper installed on omp's UI, so a session_switch does not wrap it a second time. */
   let installedSelect: unknown = null;
+  /** The formDialog wrapper installed on omp's UI, for the same reason. */
+  let installedFormDialog: unknown = null;
   // The async jobs this session left running (`bg_N` bash, eval cells), read from its messages.
   const backgroundJobs = new BackgroundJobs();
   // Set while a /handoff or a compaction summarizes the session; cleared when the compaction lands.
@@ -1324,9 +1347,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
         const existing = ctx.ui.getEditorText();
         // A turn sent while an ask blocks the session would only queue behind the blocked `ask` tool
         // call (the steer lands once the tool returns), so from the sender's side nothing went
-        // through, and omp drops an ask that has messages queued behind it. Isaac's own send is
-        // answering "no": the ask is cancelled first, which also dismisses the terminal dialog and
-        // every device's card. A background line (job report, heartbeat) is not his answer: it is
+        // through, and omp drops an ask that has messages queued behind it. Isaac's own send is his
+        // answer: the ask is interrupted first (a form ask: the tool returns and the turn goes on
+        // to his message), which also dismisses the terminal dialog and every device's card. A
+        // background line (job report, heartbeat) is not his answer: it is
         // held and replayed once no ask is open (see AskGate).
         const sendsTurn = frame.submit || (frame.images !== undefined && frame.images.length > 0);
         const proceed = await askGate.admit(frame.text, sendsTurn, () => {
@@ -1499,32 +1523,12 @@ export default function relayBridge(pi: ExtensionAPI): void {
         }, 0).unref();
         return undefined;
       case "ask": {
-        // The phone answered a pending ask. Rebuild omp's dialog result from the stored questions
-        // (they carry the labels/multi omp's ExtensionAskDialogResultItem wants) and hand it to the
-        // blocked askDialog. A missing entry means the ask already closed elsewhere: ack ok:false.
+        // A device answered a pending ask, or cancelled it (no results). A missing entry means the
+        // ask already closed elsewhere: ack ok:false.
         const pending = pendingAsks.get(frame.askId);
         if (pending === undefined) throw new Error(`ask ${frame.askId} already resolved`);
         pendingAsks.delete(frame.askId);
-        if (frame.cancel === true) {
-          // Cancelled from the phone: resolve the blocked dialog as undefined (omp treats it as no answer).
-          pending.resolve(undefined);
-          return undefined;
-        }
-        const answers = frame.results ?? [];
-        const results: ExtensionAskDialogResultItem[] = answers.map((answer) => {
-          const question = pending.questions.find((candidate) => candidate.id === answer.id);
-          const item: ExtensionAskDialogResultItem = {
-            id: answer.id,
-            question: question?.question ?? "",
-            options: question?.options.map((option) => option.label) ?? [],
-            multi: question?.multi ?? false,
-            selectedOptions: answer.selectedOptions,
-          };
-          if (answer.customInput !== undefined) item.customInput = answer.customInput;
-          if (answer.note !== undefined) item.note = answer.note;
-          return item;
-        });
-        pending.resolve({ kind: "submit", results });
+        pending.answer(frame.cancel === true ? undefined : (frame.results ?? []));
         return undefined;
       }
       case "approval": {
@@ -1557,7 +1561,29 @@ export default function relayBridge(pi: ExtensionAPI): void {
       setStatus("waiting", questions[0]?.question);
       send({ t: "ask.request", id: askId, questions });
       const phone = new Promise<ExtensionAskDialogResult | undefined>((resolve) => {
-        pendingAsks.set(askId, { resolve, questions });
+        // An answer is rebuilt into omp's dialog result from these questions (they carry the
+        // labels/multi omp's ExtensionAskDialogResultItem wants); a cancel resolves it as no answer.
+        const answer = (answers: AgentAskAnswer[] | undefined): void => {
+          if (answers === undefined) {
+            resolve(undefined);
+            return;
+          }
+          const results = answers.map((reply) => {
+            const question = questions.find((candidate) => candidate.id === reply.id);
+            const item: ExtensionAskDialogResultItem = {
+              id: reply.id,
+              question: question?.question ?? "",
+              options: question?.options.map((option) => option.label) ?? [],
+              multi: question?.multi ?? false,
+              selectedOptions: reply.selectedOptions,
+            };
+            if (reply.customInput !== undefined) item.customInput = reply.customInput;
+            if (reply.note !== undefined) item.note = reply.note;
+            return item;
+          });
+          resolve({ kind: "submit", results });
+        };
+        pendingAsks.set(askId, { answer, interrupt: () => answer(undefined) });
       });
       const terminal = original(questions, dialogOptions).then((result) => ({
         who: "tui" as const,
@@ -1575,14 +1601,75 @@ export default function relayBridge(pi: ExtensionAPI): void {
     };
   };
 
+  // Wrap ctx.ui.formDialog the same way for omp's `ask` tool, which opens one HTML <form> there
+  // (omp 18.18.3+; it no longer calls askDialog). The form's fields go out as the card's questions
+  // (ask-form.ts) while the terminal form stays open. A device's answer resolves the form with the
+  // data the same answers submit in the terminal, and closes the terminal form through its abort
+  // signal; a device's cancel resolves it unanswered, as Escape there does. Isaac's own typed turn
+  // interrupts it with an AbortError: the tool reports the ask cut short and the turn goes on to
+  // his message instead of being cancelled. Read off the target like select (see wrapApprovalDialog).
+  type FormDialog = NonNullable<ExtensionContext["ui"]["formDialog"]>;
+  const wrapFormDialog = (context: ExtensionContext): void => {
+    const ui = context.ui;
+    const original = Object.getOwnPropertyDescriptor(ui, "formDialog")?.value as
+      FormDialog | undefined;
+    if (typeof original !== "function" || original === installedFormDialog) return;
+    const mirrored: FormDialog = async (html, dialogOptions) => {
+      const form = parseHtmlForm(html);
+      const ask = formAsk(form, FORM_HELPERS);
+      if (ask.questions.length === 0) return original(html, dialogOptions);
+      const askId = nextId();
+      // A blocking ask is the one moment a session truly waits on Isaac; it drives the push.
+      setStatus("waiting", ask.summary);
+      send({ t: "ask.request", id: askId, questions: ask.questions });
+      // omp names no type for the form's result; it is whatever its formDialog resolves with.
+      type FormResult = Awaited<ReturnType<FormDialog>>;
+      const device = Promise.withResolvers<FormResult>();
+      pendingAsks.set(askId, {
+        answer: (answers) => {
+          device.resolve(answers === undefined ? undefined : { data: ask.data(answers) });
+        },
+        interrupt: () => {
+          device.reject(new DOMException("Isaac sent a message instead", "AbortError"));
+        },
+      });
+      const closeTerminal = new AbortController();
+      const signal =
+        dialogOptions?.signal === undefined
+          ? closeTerminal.signal
+          : AbortSignal.any([dialogOptions.signal, closeTerminal.signal]);
+      const terminal = original(html, { ...dialogOptions, signal });
+      // Once a device has answered, how the closed terminal form settles no longer matters.
+      terminal.catch(() => undefined);
+      let result: FormResult = undefined;
+      try {
+        result = await Promise.race([terminal, device.promise]);
+        return result;
+      } finally {
+        pendingAsks.delete(askId);
+        closeTerminal.abort();
+        askGate.closed();
+        send({ t: "ask.resolved", id: askId, answered: result !== undefined });
+        if (status === "waiting") setStatus("working");
+      }
+    };
+    ui.formDialog = installedFormDialog = mirrored;
+  };
+
   /** Abandons every in-flight ask (session end or switch): resolve each as a cancel and drop it. */
   const abandonAsks = (): void => {
-    for (const pending of pendingAsks.values()) pending.resolve(undefined);
+    for (const pending of pendingAsks.values()) pending.answer(undefined);
     pendingAsks.clear();
   };
-  // What a turn sent while an ask is open does to it: Isaac's cancels it, a background line waits.
+  /** Isaac typed a turn while asks are open: each is interrupted (an askDialog one resolves unanswered). */
+  const interruptAsks = (): void => {
+    const open = [...pendingAsks.values()];
+    pendingAsks.clear();
+    for (const pending of open) pending.interrupt();
+  };
+  // What a turn sent while an ask is open does to it: Isaac's interrupts it, a background line waits.
   const askGate = new AskGate(
-    { open: () => pendingAsks.size > 0, cancel: abandonAsks },
+    { open: () => pendingAsks.size > 0, cancel: interruptAsks },
     ASK_DISMISS_SETTLE_MS,
   );
 
@@ -1830,6 +1917,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     stopped = false;
     watchName(context);
     wrapAskDialog(context);
+    wrapFormDialog(context);
     wrapApprovalDialog(context);
     if (ASSISTANT !== null && history.length === 0) seedHistory(context);
     seedGoal(context);
@@ -1892,6 +1980,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     ctx = context;
     watchName(context);
     wrapAskDialog(context);
+    wrapFormDialog(context);
     wrapApprovalDialog(context);
     history.length = 0;
     images.clear();

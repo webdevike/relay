@@ -14,6 +14,8 @@ export interface ThrowawayHost {
   /** The boards folder both the host and the app read. */
   canvasDir: string
   port: number
+  /** The unix socket omp's relay-bridge extension connects to (its RELAY_AGENTS_SOCKET). */
+  agentsSocket: string
   env: Record<string, string>
   stop(): Promise<void>
 }
@@ -24,6 +26,7 @@ export async function startThrowawayHost(): Promise<ThrowawayHost> {
   const relayDir = path.join(root, 'relay')
   const canvasDir = path.join(root, 'canvases')
   fs.cpSync(path.join(FIXTURES_DIR, 'canvases'), canvasDir, { recursive: true })
+  const agentsSocket = path.join(root, 'a.sock')
   const child: ChildProcess = spawn(
     'bun',
     [
@@ -39,7 +42,7 @@ export async function startThrowawayHost(): Promise<ThrowawayHost> {
       cwd: path.join(REPO_ROOT, 'apps/linux'),
       env: {
         ...process.env,
-        RELAY_AGENTS_SOCKET: path.join(root, 'a.sock'),
+        RELAY_AGENTS_SOCKET: agentsSocket,
         XDG_CONFIG_HOME: path.join(root, 'xdg'),
         XDG_RUNTIME_DIR: root,
       },
@@ -64,6 +67,7 @@ export async function startThrowawayHost(): Promise<ThrowawayHost> {
   return {
     canvasDir,
     port,
+    agentsSocket,
     env: { EVAOS_RELAY_DIR: relayDir, EVAOS_CANVAS_DIR: canvasDir },
     stop: async () => {
       child.removeAllListeners('exit')

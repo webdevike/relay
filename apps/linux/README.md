@@ -171,6 +171,18 @@ opens in the terminal is answered Yes. A skill the user invoked (`/skill:<name> 
 `skill-prompt` custom message) shows in the transcript as that command, live and when a session
 file is read.
 
+### Asks
+
+omp's `ask` tool (an HTML `<form>` since omp 18.18.3) blocks on `ctx.ui.formDialog`. The extension wraps it:
+the form still opens in the terminal, and the host also gets `ask.request` with one question per named
+field (`src/agents/ask-form.ts`, on omp's own `@oh-my-pi/pi-tui/html-form` parser and data rules): radios
+and selects are single choice, checkboxes multi, the preset option is `recommended`, a text field offers its
+preset (or "Leave blank") and takes typed text, and the form's text before a field leads its question.
+`agent.ask.answer` resolves the form with the data the same answers submit in the terminal and closes the
+terminal form; `agent.ask.cancel` resolves it unanswered, as Escape does. Isaac's own message sent while it
+is open interrupts it: the tool returns ("Ask input was cancelled") and the turn goes on to his message.
+Extensions that call `ctx.ui.askDialog` are mirrored the same way with their questions as given.
+
 ### Tool approvals
 
 A session in an approval mode (`--approval-mode always-ask`, or `write` for a write or exec tool) blocks
