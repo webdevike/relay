@@ -2,6 +2,18 @@
 
 Atomic specialist agents: one narrow agent plus its jobs, tools, knowledge and typed events per component, run by one service (`ai.eva.atomic-agents`). What is built and why: [`PLAN.md`](PLAN.md). Agent folders: [`docs/agent-folders.md`](docs/agent-folders.md). Tool modes: [`docs/code-mode.md`](docs/code-mode.md).
 
+## Install
+
+```
+bun src/cli.ts service install [--base origin/main] [--force]
+```
+
+Run from a checkout of `origin/main`. It never stops the running service before the replacement is ready (`src/core/Service.ts`, gates in `src/core/InstallGate.ts`):
+
+1. **Stage.** The package and the chat-core sources it imports are copied to `<home>/app.next`, production dependencies installed there.
+2. **Gate.** Refused, with every reason printed and the running service untouched, when the source checkout has uncommitted changes, is not an ancestor-or-equal of `--base` (fetched first), or does not contain the commit in `<home>/app/source.json` (behind or diverged); or when the staged copy's `list --json` would drop an agent the installed copy loads, or one `config.json` sets to mode `live` or `shadow`. `--force` installs anyway and prints what it forced past.
+3. **Swap.** Stop, rename `<home>/app` to `<home>/app.prev` and the stage to `<home>/app`, start. A start that fails puts `app.prev` back. `app.prev` stays until the next install, for a manual rollback.
+
 ## Tracing
 
 Every agent run is one trace, kept on disk next to the journal, so an agent debugging a run reads its span tree instead of grepping `logs/serve.log`.

@@ -1021,14 +1021,35 @@ const serve = Command.make("serve", {}, () =>
 
 const service = Command.make("service").pipe(
   Command.withSubcommands([
-    Command.make("install", {}, () =>
-      Service.install.pipe(
-        Effect.flatMap(({ plist, log, app }) =>
-          Console.log(
-            `installed ${Service.LABEL}\n  app   ${app}\n  plist ${plist}\n  log   ${log}`,
+    Command.make(
+      "install",
+      {
+        force: Flag.Boolean("force").pipe(
+          Flag.withDescription(
+            "install even when the source is not on --base, is dirty or behind the installed commit, or the new copy would drop an agent (the reasons are still printed)",
+          ),
+          Flag.withDefault(false),
+        ),
+        base: Flag.String("base").pipe(
+          Flag.withDescription("<remote>/<branch> the source checkout must be on (fetched first)"),
+          Flag.withDefault("origin/main"),
+        ),
+      },
+      (options) =>
+        Service.install(options).pipe(
+          Effect.flatMap(({ plist, log, app, commit, agents, overridden, notes }) =>
+            Console.log(
+              [
+                ...notes.map((note) => `note: ${note}`),
+                ...overridden.map((reason) => `forced past: ${reason}`),
+                `installed ${Service.LABEL}${commit === undefined ? "" : ` from ${commit.slice(0, 8)}`}${agents === undefined ? "" : `, ${agents} agent(s) load`}`,
+                `  app   ${app}`,
+                `  plist ${plist}`,
+                `  log   ${log}`,
+              ].join("\n"),
+            ),
           ),
         ),
-      ),
     ),
     Command.make("uninstall", {}, () =>
       Service.uninstall.pipe(
