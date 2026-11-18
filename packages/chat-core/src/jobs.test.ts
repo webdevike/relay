@@ -118,6 +118,14 @@ describe('subagentsFromListing', () => {
   it('yields nothing for md alone', () => {
     expect(subagentsFromListing([{ name: 'a.md', mtimeMs: 1 }])).toEqual([])
   })
+  it("leaves out omp's change journal, which is no subagent", () => {
+    expect(
+      subagentsFromListing([
+        { name: 'changes.jsonl', mtimeMs: 9 },
+        { name: 'Helper.jsonl', mtimeMs: 1 },
+      ]),
+    ).toEqual([{ name: 'Helper', file: 'Helper.jsonl', mtimeMs: 1, done: false }])
+  })
 })
 
 describe('subagentOver', () => {

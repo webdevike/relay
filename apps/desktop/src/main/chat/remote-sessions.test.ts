@@ -247,6 +247,17 @@ describe('RemoteSessions', () => {
     expect(host.sent.filter((f) => f.t === 'session.read').length).toBe(reads)
   })
 
+  it("skips omp's change journal an older host lists, so it neither mirrors nor polls", () => {
+    host.listSubs = true
+    host.files.set('2026_abc.jsonl', Buffer.from('{}\n'))
+    host.files.set('2026_abc/changes.jsonl', Buffer.from('{"type":"call"}\n'))
+    mirror.start()
+    expect(fs.existsSync(local('2026_abc/changes.jsonl'))).toBe(false)
+    const lists = host.sent.filter((f) => f.t === 'sessions.list').length
+    vi.advanceTimersByTime(SUBS_POLL_MS * 3)
+    expect(host.sent.filter((f) => f.t === 'sessions.list').length).toBe(lists)
+  })
+
   it('asks again for a read whose answer never came, so the mirror keeps up', () => {
     host.files.set('nova.jsonl', Buffer.from('{"a":1}\n'))
     host.dropReads = 1

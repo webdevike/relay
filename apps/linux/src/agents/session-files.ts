@@ -11,6 +11,7 @@ import { closeSync, lstatSync, openSync, readdirSync, readFileSync, readSync, ty
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SessionFile } from "@relay/protocol";
+import { OMP_CHANGE_LOG } from "@relay/protocol/omp-files";
 /** Largest raw slice one `session.chunk` carries (base64 on the wire). */
 export const MAX_SESSION_CHUNK = 256 * 1024;
 /** A transcript written this recently lists its subagent files. */
@@ -82,11 +83,11 @@ export class SessionFiles {
     }
     return files.sort((a, b) => b.mtime - a.mtime);
   }
-  /** The direct `.jsonl`/`.md` files of a transcript's subagent folder. */
+  /** The direct `.jsonl`/`.md` files of a transcript's subagent folder (not omp's change journal). */
   private subs(folder: string): NonNullable<SessionFile["subs"]> {
     const out: NonNullable<SessionFile["subs"]> = [];
     for (const file of entries(folder)) {
-      if (!file.isFile() || !segment(file.name) || !SUB_FILE.test(file.name)) continue;
+      if (!file.isFile() || !segment(file.name) || !SUB_FILE.test(file.name) || file.name === OMP_CHANGE_LOG) continue;
       const stats = lstat(join(folder, file.name));
       if (stats !== null) out.push({ name: file.name, size: stats.size, mtime: stats.mtimeMs });
     }

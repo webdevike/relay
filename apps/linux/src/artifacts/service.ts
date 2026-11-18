@@ -19,6 +19,7 @@ import { human } from "../host-config";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { isSubagentTranscript } from "@relay/protocol/omp-files";
 import {
   ARTIFACT_STALE_MS,
   Artifact,
@@ -740,7 +741,7 @@ export class ArtifactService implements ArtifactRelaying {
     let changed = false;
     const prefix = `${basename(dir)}.`;
     for (const name of readdirSync(dir)) {
-      if (!name.endsWith(".jsonl")) continue;
+      if (!isSubagentTranscript(name)) continue;
       const file = join(dir, name);
       const id = `subagent:${file}`;
       if (state.items.has(id)) continue;

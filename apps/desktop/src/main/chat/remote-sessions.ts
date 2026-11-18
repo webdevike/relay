@@ -1,6 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { SUBAGENT_STALE_MS } from '@evaos/chat-core/artifacts'
+import { OMP_CHANGE_LOG } from '@relay/protocol/omp-files'
 import type { RelayFrames } from '../relay/client'
 
 /** Bytes fetched of a chat that is neither open nor recent: its header lines, for the list. */
@@ -418,7 +419,8 @@ export class RemoteSessions {
     for (const { name, size, mtime } of subs) {
       if (typeof name !== 'string' || typeof size !== 'number' || typeof mtime !== 'number')
         continue
-      if (name !== path.basename(name) || !SUB_FILE.test(name)) continue
+      // Older hosts list omp's change journal too: it is no subagent, and never ends.
+      if (name !== path.basename(name) || !SUB_FILE.test(name) || name === OMP_CHANGE_LOG) continue
       if (name.endsWith('.md')) notes.add(name.slice(0, -'.md'.length))
       else transcripts.set(name.slice(0, -'.jsonl'.length), mtime)
       const key = `${parent}/${name}`

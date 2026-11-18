@@ -1,5 +1,6 @@
 // Background jobs and subagents derived from session files. Pure over text and listings;
 // callers in main read the files. Ported from Rust chat.rs background_jobs / subagents.
+import { isSubagentTranscript } from '@relay/protocol/omp-files'
 import { SUBAGENT_STALE_MS } from './artifacts'
 import { oneLine } from './session'
 
@@ -123,15 +124,15 @@ export function subagentFinished(s: { done: boolean; mtimeMs: number }, now: num
 
 /**
  * Subagents from the direct entries of a session's folder, newest first. A `<name>.jsonl`
- * transcript is done once omp wrote `<name>.md`. (Claude callers override `done` with
- * claudeSubagentDone on the transcript text.)
+ * transcript is done once omp wrote `<name>.md`. omp's change journal there is no subagent.
+ * (Claude callers override `done` with claudeSubagentDone on the transcript text.)
  */
 export function subagentsFromListing(
   entries: ReadonlyArray<{ name: string; mtimeMs: number }>,
 ): SubagentEntry[] {
   const results = new Map(entries.map((e) => [e.name, e.mtimeMs]))
   return entries
-    .filter((e) => e.name.endsWith('.jsonl'))
+    .filter((e) => isSubagentTranscript(e.name))
     .map((e) => {
       const stem = e.name.slice(0, -'.jsonl'.length)
       const result = results.get(`${stem}.md`)

@@ -70,13 +70,14 @@ describe("SessionFiles", () => {
     expect(files.read(undefined, "-Eva", "Sub.jsonl", 0, undefined, "")).toBeNull();
   });
 
-  it("lists a recent transcript's subagent files and reads their result notes", () => {
+  it("lists a recent transcript's subagent files (not omp's change journal) and reads their result notes", () => {
     const chat = join(root, "agent", "sessions", "-Eva");
     const recent = "2026-10-02T00-00-00-000Z_new";
     mkdirSync(join(chat, recent, "Scout"), { recursive: true });
     writeFileSync(join(chat, recent, "Scout.jsonl"), "{}\n");
     writeFileSync(join(chat, recent, "Scout.md"), "\"Found it.\"");
     writeFileSync(join(chat, recent, "notes.txt"), "x");
+    writeFileSync(join(chat, recent, "changes.jsonl"), '{"type":"call"}\n');
     utimesSync(join(chat, recent, "Scout.md"), 2000, 2000);
     writeFileSync(join(chat, `${recent}.md`), "top");
     const list = files.list();
