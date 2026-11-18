@@ -1,12 +1,14 @@
 # prop-render stage: runs the model's build() in an empty scene, exports the bare model as GLB, then
 # owns everything else (floor, lights, camera framing, render settings) so the agent only ever writes geometry.
+# The one camera choice the agent makes is VIEW = {"azimuth": deg, "elevation": deg}, the angle the model is seen from
+# (to match a reference image); without it the stage keeps its default three-quarter view.
 # Usage: blender -b --factory-startup -noaudio --python-exit-code 1 --python stage.py -- <script.py> <out.png> <out.glb>
 import math
 import sys
 import traceback
 
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 script, out, glb = sys.argv[sys.argv.index("--") + 1:]
 
@@ -22,10 +24,31 @@ try:
         if "build" not in namespace:
             raise RuntimeError("script must define build()")
         namespace["build"]()
+    view = namespace.get("VIEW")
+    if view is not None and not (
+        isinstance(view, dict)
+        and set(view) == {"azimuth", "elevation"}
+        and all(isinstance(view[key], (int, float)) for key in view)
+    ):
+        raise ValueError('VIEW must be {"azimuth": degrees, "elevation": degrees}')
 except Exception:
     print("STAGE_ERROR")
     traceback.print_exc()
     raise
+
+# The default view: front-right, slightly above (azimuth about 35, elevation about 23 degrees).
+DEFAULT_DIRECTION = Vector((1.0, -1.45, 0.75)).normalized()
+DEFAULT_AZIMUTH = math.atan2(DEFAULT_DIRECTION.x, -DEFAULT_DIRECTION.y)
+if view is None:
+    direction = DEFAULT_DIRECTION
+    azimuth = DEFAULT_AZIMUTH
+else:
+    # Azimuth 0 looks at the front (from -Y), positive swings to the object's right (+X); elevation is above the horizon.
+    azimuth = math.radians(view["azimuth"])
+    elevation = math.radians(max(-30.0, min(85.0, view["elevation"])))
+    direction = Vector((math.sin(azimuth) * math.cos(elevation), -math.cos(azimuth) * math.cos(elevation), math.sin(elevation)))
+# Lights turn with the camera, so every view is lit the same way.
+turn = Matrix.Rotation(azimuth - DEFAULT_AZIMUTH, 3, "Z")
 
 # The agent owns geometry only.
 for obj in list(scene.objects):
@@ -82,7 +105,7 @@ def light(name, offset, energy, size):
     data.size = size * radius
     obj = bpy.data.objects.new(name, data)
     scene.collection.objects.link(obj)
-    obj.location = center + offset * radius
+    obj.location = center + (turn @ offset) * radius
     aim(obj)
 
 
@@ -96,7 +119,7 @@ camera = bpy.data.objects.new("stage-camera", camera_data)
 scene.collection.objects.link(camera)
 fov = 2 * math.atan(camera_data.sensor_width / (2 * camera_data.lens))
 distance = radius / math.sin(fov / 2) * 1.12
-camera.location = center + Vector((1.0, -1.45, 0.75)).normalized() * distance
+camera.location = center + direction * distance
 camera_data.clip_end = distance * 500
 aim(camera)
 scene.camera = camera
