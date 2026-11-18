@@ -25,6 +25,8 @@ import type { PageControl } from './page-control'
 export { ASK_WAIT_MS } from '../agent-presence/agent-runs'
 /** How long a click or key waits for a load it started. */
 const LOAD_WAIT_MS = 15_000
+/** How long after an Enter we watch for the navigation it starts. */
+const ENTER_NAV_MS = 1000
 
 /**
  * Who drives, as the drive draws it: identity plus the portrait SVG its cursor carries, and the
@@ -224,8 +226,15 @@ export class AgentDrive {
   }
 
   /** Lets a load the last input started finish (bounded), so answers describe the new page. */
-  private async settle(wc: WebContents): Promise<void> {
+  /**
+   * Wait out the load an action started. `startMs` is extra time to see a load begin: an Enter
+   * in a form navigates after the key event returns, which a loaded host can delay past 150ms.
+   */
+  private async settle(wc: WebContents, startMs = 0): Promise<void> {
     await sleep(150)
+    for (let waited = 0; startMs > waited && !wc.isDestroyed() && !wc.isLoading(); waited += 50) {
+      await sleep(50)
+    }
     if (wc.isDestroyed() || !wc.isLoading()) return
     await loaded(wc, LOAD_WAIT_MS)
   }
@@ -381,7 +390,7 @@ export class AgentDrive {
       const risk = riskOf(info, intent, intent ? '' : await this.pageText(pc), true)
       await this.runs.guarded(tabId, risk, async () => {
         await this.host.acting(tabId, () => pc.press('Enter'))
-        await this.settle(wc)
+        await this.settle(wc, ENTER_NAV_MS)
       })
     }
     this.runs.touch(tabId)
@@ -406,7 +415,7 @@ export class AgentDrive {
     }
     await this.runs.guarded(tabId, risk, async () => {
       await this.host.acting(tabId, () => pc.press(key))
-      await this.settle(wc)
+      await this.settle(wc, name === 'enter' ? ENTER_NAV_MS : 0)
     })
     this.runs.touch(tabId)
     return { pressed: key, ...this.where(wc) }
