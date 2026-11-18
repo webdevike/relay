@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkspaceService } from "../src/workspace/service";
 import { CanvasFilesService } from "../src/canvas/files";
+import { NO_BOARD, boardRevision } from "@relay/canvas-live/board-file";
 
 let dir: string;
 beforeEach(() => {
@@ -135,6 +136,37 @@ describe("CanvasFilesService", () => {
           [null, null],
         ]),
       );
+    } finally {
+      files.stop();
+    }
+  });
+
+  it("refuses a write made from a board another writer changed since, and tells no one", async () => {
+    const { files, changes } = await start();
+    try {
+      const write = (rid: string, text: string, ifRevision?: string) =>
+        files.handle({
+          t: "canvas.file.req",
+          rid,
+          op: "write",
+          slug: "plan",
+          text,
+          origin: "book",
+          ...(ifRevision ? { ifRevision } : {}),
+        });
+      expect(await write("1", "v1", NO_BOARD)).toEqual({ ok: true });
+      // The Mac's read was v1; the Mini's own desktop writes v2 before the Mac's change lands.
+      writeFileSync(join(boards(), "plan.json"), "v2 from the Mini");
+      expect(await write("2", "v1 + the Mac's card", boardRevision("v1"))).toMatchObject({
+        ok: false,
+        code: "conflict",
+      });
+      expect(readFileSync(join(boards(), "plan.json"), "utf8")).toBe("v2 from the Mini");
+      expect(await write("3", "v2 + the Mac's card", boardRevision("v2 from the Mini"))).toEqual({
+        ok: true,
+      });
+      await vi.waitFor(() => expect(changes.at(-1)).toEqual(["plan", "book"]));
+      expect(changes.filter(([, origin]) => origin === "book")).toHaveLength(2);
     } finally {
       files.stop();
     }

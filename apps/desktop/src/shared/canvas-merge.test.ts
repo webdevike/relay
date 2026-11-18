@@ -52,6 +52,22 @@ describe('mergeBoards', () => {
     const theirs = board([{ id: 'a', type: 'note', x: 70, y: 0 }])
     expect(mergeBoards(base, ours, theirs).nodes[0]).toMatchObject({ x: 70 })
   })
+
+  it("keeps the agent's new body of a card whose size Isaac's board changed since its last read", () => {
+    const proto = (body: string, h: number): CanvasNode => ({
+      id: 'proto-1',
+      type: 'proto',
+      x: 80,
+      y: 80,
+      w: 1148,
+      h,
+      data: { title: 'Assistants', body, frame: 'page' },
+    })
+    const base = board([proto('old', 740)])
+    const ours = board([proto('old', 760)])
+    const theirs = board([proto('new with a text section', 740)])
+    expect(mergeBoards(base, ours, theirs).nodes).toEqual([proto('new with a text section', 760)])
+  })
 })
 
 describe('changedIds', () => {

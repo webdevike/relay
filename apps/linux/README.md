@@ -767,6 +767,9 @@ Canvas boards live in this host's boards folder; a desktop on another Mac reads 
 `canvas.file.req` (`src/canvas/files.ts`: board text, history lines and images, paths kept inside the folder) and hears
 `canvas.files.changed` after `canvas.files.watch`, also for edits made on this Mac (a watch on the folder). The
 desktop moves the boards it kept itself up once and renames its old folder `<dir>.migrated-<date>`.
+A `write` with `ifRevision` (the sha1 of the text the desktop read) lands only while the board is still that text,
+checked under `<slug>.json.lock` (the Mini's own desktop takes the same lock); otherwise it answers `conflict` and
+the desktop reads again and redoes its change.
 
 ## Loopback writes: one guard (`src/http-guard.ts`)
 

@@ -5,7 +5,8 @@
 // come from `$XDG_CONFIG_HOME/relay/devices.json`, and serve.json (port, pid, controlToken) goes
 // next to it, where relay-ctl's RELAY_HOST_FILE can point.
 //
-//   bun test/control-host.ts [--port 0] [--mirror] [--canvases DIR]   prints `ready <port>` once listening
+//   bun test/control-host.ts [--port 0] [--mirror] [--canvases DIR] [--hold-writes MS]
+//                                     prints `ready <port>` once listening
 //
 // `--mirror` adds the window mirror (`workspace.*`, kept in `$XDG_CONFIG_HOME/relay/workspace.json`)
 // and `--canvases` serves that boards folder to desktops on other Macs (`canvas.file.req`), for
@@ -29,6 +30,7 @@ const { values } = parseArgs({
     port: { type: "string", default: "0" },
     mirror: { type: "boolean", default: false },
     canvases: { type: "string" },
+    "hold-writes": { type: "string" },
   },
 });
 const log = (line: string): void => {
@@ -42,6 +44,21 @@ const workspace = values.mirror
 const canvasFiles =
   values.canvases === undefined ? null : new CanvasFilesService({ dir: values.canvases, log });
 await canvasFiles?.start();
+// `--hold-writes MS`: each board write from another Mac waits MS after printing
+// `held <slug> <its text as base64>`, so a test can land a change on the Mini between that Mac's
+// read and its write.
+const hold = Number(values["hold-writes"] ?? 0);
+if (canvasFiles && hold > 0) {
+  const handle = canvasFiles.handle.bind(canvasFiles);
+  canvasFiles.handle = async (req) => {
+    if (req.op === "write") {
+      const text = Buffer.from(req.text ?? "").toString("base64");
+      process.stdout.write(`held ${req.slug ?? ""} ${text}\n`);
+      await Bun.sleep(hold);
+    }
+    return handle(req);
+  };
+}
 const server = new RelayServer(
   { port: Number(values.port), hostName: "control-e2e", version: "e2e", vncPort: 1 },
   {

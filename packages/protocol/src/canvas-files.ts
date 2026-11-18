@@ -22,7 +22,10 @@ export const CanvasFileRid = z.string().min(1).max(64);
 
 /**
  * `list`: every board's text and mtime. `read`: one board's text (null when there is none).
- * `write`: replaces a board's text atomically. `remove`: deletes a board (none is fine).
+ * `write`: replaces a board's text atomically; with `ifRevision` (the sha1 hex of the text the
+ * writer read, `none` for no board) only while the file is still that text, else it answers
+ * `conflict` and writes nothing (the writer reads again and redoes its change). An older host
+ * ignores `ifRevision`. `remove`: deletes a board (none is fine).
  * `exists`: whether a board is there. `history`: appends `text` (one line) to `<slug>.history.jsonl`.
  * `asset.read` / `asset.write`: an image file by `src`, relative to the boards folder (never
  * absolute, never `..`), its bytes as base64 in `data`.
@@ -52,6 +55,8 @@ export const CanvasFileReq = z.object({
     .optional(),
   /** The writer's launch id, echoed in `canvas.files.changed`. */
   origin: z.string().min(1).max(200).optional(),
+  /** `write`: land only while the board is still this revision (see above). */
+  ifRevision: z.string().min(1).max(64).optional(),
 });
 export type CanvasFileReq = z.infer<typeof CanvasFileReq>;
 
@@ -74,7 +79,8 @@ export const CanvasFileRes = z.object({
   exists: z.boolean().optional(),
   /** `asset.read`: the file's bytes as base64. */
   data: z.string().optional(),
-  code: z.enum(["not-found", "invalid", "too-large", "internal"]).optional(),
+  /** `conflict`: a `write` whose `ifRevision` the board no longer is. */
+  code: z.enum(["not-found", "invalid", "too-large", "internal", "conflict"]).optional(),
   error: z.string().max(2000).optional(),
 });
 export type CanvasFileRes = z.infer<typeof CanvasFileRes>;

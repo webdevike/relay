@@ -13,6 +13,7 @@ import {
 import { NOT_CONNECTED, type RelayFeatures, type RelayFrames } from '../relay/client'
 import type { BoardFiles } from './board-files'
 import { coded } from './board-text'
+import { boardRevision } from '@relay/canvas-live/board-file'
 
 /** A host connected but without CANVAS_FILES_FEATURE. */
 export const OLD_HOST_CANVAS =
@@ -37,6 +38,7 @@ const CODES: Record<NonNullable<CanvasFileRes['code']>, string> = {
   invalid: 'invalid-input',
   'too-large': 'unsupported',
   internal: 'host-refused',
+  conflict: 'conflict',
 }
 
 /**
@@ -96,9 +98,10 @@ export function createHostBoardFiles(
     async read(slug) {
       return (await req({ op: 'read', slug })).text ?? null
     },
-    async write(slug, text, commit) {
+    async write(slug, text, commit, base) {
       commit()
-      await req({ op: 'write', slug, text, origin })
+      const ifRevision = base === undefined ? {} : { ifRevision: boardRevision(base) }
+      await req({ op: 'write', slug, text, origin, ...ifRevision })
     },
     async list() {
       return (await req({ op: 'list' })).files ?? []

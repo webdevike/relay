@@ -37,6 +37,8 @@ const SLUG = /^[a-z0-9-]{1,80}$/
 const PINS = 'canvas.json'
 /** Who a comment written on the Canvas page is from (the host's `HUMAN_COLOR` face). */
 const HUMAN = { name: 'Isaac', color: '#0ea5e9' } as const
+/** How often a write starts over when other writers keep changing the board under it. */
+const MAX_TRIES = 8
 
 function readPins(text: string | null): string[] | null {
   if (text === null) return null
@@ -147,7 +149,9 @@ export interface CanvasStore {
 /**
  * Board files, mirroring native `board.rs` and the Canvas page: one `<slug>.json` per board,
  * written atomically (to the boards folder here, or the host's through `files`), pins in Relay's
- * own `canvas.json`. Remembers what it wrote so the watcher can tell Relay's own writes from
+ * own `canvas.json`. Every change is made from the file as read and lands only while the file is
+ * still that (`change`), so a write from another process or Mac in between is never overwritten
+ * by a stale copy. Remembers what it wrote so the watcher can tell Relay's own writes from
  * outside edits.
  */
 export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
@@ -168,13 +172,56 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     return files.read(named(slug))
   }
 
-  /** `guard` throws at the commit (the new text staged, before it lands) to write nothing. */
-  async function writeText(slug: string, text: string, guard?: () => void): Promise<void> {
-    await files.write(named(slug), text, () => {
-      guard?.()
-      written.set(slug, text)
-      deleted.delete(slug)
-    })
+  /**
+   * `guard` throws at the commit (the new text staged, before it lands) to write nothing. With
+   * `base` (the text this write was made from; null: no board) it throws `conflict` when the board
+   * is no longer that.
+   */
+  async function writeText(
+    slug: string,
+    text: string,
+    guard?: () => void,
+    base?: string | null,
+  ): Promise<void> {
+    await files.write(
+      named(slug),
+      text,
+      () => {
+        guard?.()
+        written.set(slug, text)
+        deleted.delete(slug)
+      },
+      base,
+    )
+  }
+
+  /**
+   * Reads the board, makes its next text from what the file has (`next`; text null writes
+   * nothing) and writes it only while the file is still what was read. Another writer landing in
+   * between (the host for another Mac, the Mini's own desktop) makes it start over from the new
+   * file, so no write puts a copy made from an older file over another one's. `guard` runs again
+   * at the commit. Runs inside the board's queue.
+   */
+  async function change<T>(
+    slug: string,
+    next: (disk: string | null) => { text: string | null; value: T },
+    guard?: () => void,
+  ): Promise<{ value: T; saved: boolean }> {
+    for (let tries = 1; ; tries++) {
+      const disk = await readText(slug)
+      const { text, value } = next(disk)
+      if (text === null) return { value, saved: false }
+      if (text === disk) {
+        written.set(slug, text)
+        return { value, saved: false }
+      }
+      try {
+        await writeText(slug, text, guard, disk)
+        return { value, saved: true }
+      } catch (e) {
+        if ((e as { code?: unknown } | null)?.code !== 'conflict' || tries >= MAX_TRIES) throw e
+      }
+    }
   }
 
   function pins(): string[] {
@@ -229,24 +276,20 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     base?: CanvasBoard,
   ): Promise<{ saved: boolean; merged: boolean }> {
     return queue.run(slug, async () => {
-      const disk = await readText(slug)
-      let file: Board | null = null
-      try {
-        file = disk === null ? null : parseBoard(disk)
-      } catch {
-        file = null
-      }
-      const shown = base && file ? pageView(file, page) : null
-      const next =
-        shown && base && shown.page === page ? mergeBoards(base, board, shown.board) : board
-      const merged = next !== board && JSON.stringify(next) !== JSON.stringify(board)
-      const text = boardText(overFile(next, file, page))
-      if (disk === text) {
-        written.set(slug, text)
-        return { saved: false, merged }
-      }
-      await writeText(slug, text)
-      return { saved: true, merged }
+      const r = await change(slug, (disk) => {
+        let file: Board | null = null
+        try {
+          file = disk === null ? null : parseBoard(disk)
+        } catch {
+          file = null
+        }
+        const shown = base && file ? pageView(file, page) : null
+        const next =
+          shown && base && shown.page === page ? mergeBoards(base, board, shown.board) : board
+        const merged = next !== board && JSON.stringify(next) !== JSON.stringify(board)
+        return { text: boardText(overFile(next, file, page)), value: merged }
+      })
+      return { saved: r.saved, merged: r.value }
     })
   }
 
@@ -257,86 +300,86 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     guard?: () => void,
   ): Promise<{ value: T; page: string; saved: boolean }> {
     return queue.run(slug, async () => {
-      const disk = await readText(slug)
-      if (disk === null) throw coded(`No board ${slug}.`, 'not-found')
-      const file = parseBoard(disk)
-      const shown = pageView(file, page)
-      // Reads fall back to the first page; a write meant for a page the file no longer has lands
-      // nowhere rather than on another page.
-      if (page !== undefined && shown.page !== page) {
-        throw coded(`No page ${page} on board ${slug}.`, 'not-found')
-      }
-      guard?.()
-      const { board, value } = edit(shown.board)
-      if (board === shown.board) return { value, page: shown.page, saved: false }
-      const text = boardText(overFile(board, file, shown.page))
-      if (text === disk) {
-        written.set(slug, text)
-        return { value, page: shown.page, saved: false }
-      }
-      await writeText(slug, text, guard)
-      return { value, page: shown.page, saved: true }
+      const r = await change(
+        slug,
+        (disk) => {
+          if (disk === null) throw coded(`No board ${slug}.`, 'not-found')
+          const file = parseBoard(disk)
+          const shown = pageView(file, page)
+          // Reads fall back to the first page; a write meant for a page the file no longer has
+          // lands nowhere rather than on another page.
+          if (page !== undefined && shown.page !== page) {
+            throw coded(`No page ${page} on board ${slug}.`, 'not-found')
+          }
+          guard?.()
+          const { board, value } = edit(shown.board)
+          const text = board === shown.board ? null : boardText(overFile(board, file, shown.page))
+          return { text, value: { value, page: shown.page } }
+        },
+        guard,
+      )
+      return { ...r.value, saved: r.saved }
     })
   }
 
   /** Adds, renames, moves, duplicates or deletes a page, as one write of the whole board. */
   function pages(slug: string, op: PageOp): Promise<{ pages: PageRef[]; page: string }> {
+    // One id for every try, so a retry after another writer makes the same page.
+    const fresh = op.id ?? newPageId()
     return queue.run(slug, async () => {
-      const disk = await readText(slug)
-      if (disk === null) throw coded(`No board ${slug}.`, 'not-found')
-      const doc = new Y.Doc()
-      seedDoc(doc, parseBoard(disk))
-      const before = pagesOf(doc)
-      const at = (id: string | undefined): number => before.findIndex((p) => p.id === id)
-      const refuse = (what: string): Error => coded(what, 'invalid-input')
-      const known = (id: string | undefined): string => {
-        if (id === undefined || at(id) < 0) throw refuse(`No page ${id ?? ''}.`)
-        return id
-      }
-      let shown: string
-      switch (op.op) {
-        case 'add': {
-          const id = op.id ?? newPageId()
-          if (!addPage(doc, id, cleanTitle(op.title ?? '', before.length + 1), op.page)) {
-            throw refuse('This board cannot take another page.')
+      const r = await change(slug, (disk) => {
+        if (disk === null) throw coded(`No board ${slug}.`, 'not-found')
+        const doc = new Y.Doc()
+        seedDoc(doc, parseBoard(disk))
+        const before = pagesOf(doc)
+        const at = (id: string | undefined): number => before.findIndex((p) => p.id === id)
+        const refuse = (what: string): Error => coded(what, 'invalid-input')
+        const known = (id: string | undefined): string => {
+          if (id === undefined || at(id) < 0) throw refuse(`No page ${id ?? ''}.`)
+          return id
+        }
+        let shown: string
+        switch (op.op) {
+          case 'add': {
+            if (!addPage(doc, fresh, cleanTitle(op.title ?? '', before.length + 1), op.page)) {
+              throw refuse('This board cannot take another page.')
+            }
+            shown = fresh
+            break
           }
-          shown = id
-          break
-        }
-        case 'duplicate': {
-          const id = op.id ?? newPageId()
-          if (!duplicatePage(doc, known(op.page), id, op.title ?? '')) {
-            throw refuse('This board cannot take another page.')
+          case 'duplicate': {
+            if (!duplicatePage(doc, known(op.page), fresh, op.title ?? '')) {
+              throw refuse('This board cannot take another page.')
+            }
+            shown = fresh
+            break
           }
-          shown = id
-          break
-        }
-        case 'rename': {
-          const id = known(op.page)
-          if (!renamePage(doc, id, cleanTitle(op.title ?? '', at(id) + 1))) {
-            throw refuse(`No page ${id}.`)
+          case 'rename': {
+            const id = known(op.page)
+            if (!renamePage(doc, id, cleanTitle(op.title ?? '', at(id) + 1))) {
+              throw refuse(`No page ${id}.`)
+            }
+            shown = id
+            break
           }
-          shown = id
-          break
+          case 'move': {
+            const id = known(op.page)
+            if (op.to === undefined || !movePage(doc, id, op.to)) throw refuse(`No page ${id}.`)
+            shown = id
+            break
+          }
+          case 'delete': {
+            const id = known(op.page)
+            if (!deletePage(doc, id)) throw refuse('A board keeps at least one page.')
+            const left = before.filter((p) => p.id !== id)
+            shown = left[Math.min(at(id), left.length - 1)]!.id
+            break
+          }
         }
-        case 'move': {
-          const id = known(op.page)
-          if (op.to === undefined || !movePage(doc, id, op.to)) throw refuse(`No page ${id}.`)
-          shown = id
-          break
-        }
-        case 'delete': {
-          const id = known(op.page)
-          if (!deletePage(doc, id)) throw refuse('A board keeps at least one page.')
-          const left = before.filter((p) => p.id !== id)
-          shown = left[Math.min(at(id), left.length - 1)]!.id
-          break
-        }
-      }
-      const text = boardText(exportBoard(doc))
-      if (text !== disk) await writeText(slug, text)
-      else written.set(slug, text)
-      const result = pageView(parseBoard(text), shown)
+        const text = boardText(exportBoard(doc))
+        return { text, value: { text, shown } }
+      })
+      const result = pageView(parseBoard(r.value.text), r.value.shown)
       return { pages: result.pages, page: result.page }
     })
   }
@@ -368,90 +411,99 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
     guard?: () => void,
   ): Promise<{ threads: CanvasThread[]; opened?: string }> {
     return queue.run(slug, async () => {
-      const disk = await readText(slug)
-      if (disk === null) throw coded(`No board ${slug}.`, 'not-found')
-      const file = parseBoard(disk)
-      const content = pageContent(file, page)
-      let list = content.threads
-      let opened: string | undefined
-      if (op) {
-        guard?.()
-        const refuse = (what: string): Error => coded(what, 'invalid-input')
-        const now = Date.now()
-        const message = (text: string): BoardThread['messages'][number] => ({
-          id: `c-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-          ...(agent ? { kind: 'agent' as const, ...agent } : { kind: 'human' as const, ...HUMAN }),
-          text: text.trim().slice(0, MAX_THREAD_TEXT),
-          ts: now,
-        })
-        const known = (id: string): BoardThread => {
-          const t = list.find((x) => x.id === id)
-          if (!t) throw refuse(`No thread ${id}.`)
-          return t
-        }
-        const replace = (t: BoardThread): BoardThread[] => list.map((x) => (x.id === t.id ? t : x))
-        if (op.op === 'open') {
-          if (op.text.trim() === '') throw refuse('A comment needs some text.')
-          if (op.node !== undefined && !content.nodes.has(op.node)) {
-            throw refuse(`No card ${op.node} on this page.`)
-          }
-          const id = newThreadId(now)
-          if (!THREAD_ID.test(id) || list.some((t) => t.id === id)) throw refuse('Try again.')
-          const pin: BoardThread = {
-            id,
-            ...(op.node === undefined ? {} : { node: op.node }),
-            x: op.x,
-            y: op.y,
-            ...(op.assignee === undefined ? {} : { assignee: op.assignee }),
-            messages: [message(op.text)],
-          }
-          list = [...list, pin]
-          opened = id
-        } else if (op.op === 'post') {
-          const t = known(op.thread)
-          if (op.text.trim() === '') throw refuse('A comment needs some text.')
-          // A human writing in a resolved thread reopens it, as in a live room; an agent's reply does not.
-          const { resolved, ...rest } = t
-          const assignee = op.assignee ?? t.assignee
-          list = replace({
-            ...rest,
-            ...(agent && resolved ? { resolved } : {}),
-            ...(assignee === undefined ? {} : { assignee }),
-            messages: [...t.messages, message(op.text)],
-          })
-        } else if (op.op === 'move') {
-          const t = known(op.thread)
-          if (op.node !== undefined && !content.nodes.has(op.node)) {
-            throw refuse(`No card ${op.node} on this page.`)
-          }
-          const { node: _node, ...rest } = t
-          list = replace({
-            ...rest,
-            ...(op.node === undefined ? {} : { node: op.node }),
-            x: op.x,
-            y: op.y,
-          })
-          // The board's change log, for an agent that comes back to it (the host keeps the rest when a room is live).
-          const entry: HistoryEntry = {
+      // Set by the try that lands (a closure assignment, so typed past the null start).
+      let entry = null as HistoryEntry | null
+      const r = await change(
+        slug,
+        (disk) => {
+          if (disk === null) throw coded(`No board ${slug}.`, 'not-found')
+          const file = parseBoard(disk)
+          const content = pageContent(file, page)
+          let list = content.threads
+          let opened: string | undefined
+          entry = null
+          if (!op) return { text: null, value: { list, opened } }
+          guard?.()
+          const refuse = (what: string): Error => coded(what, 'invalid-input')
+          const now = Date.now()
+          const message = (text: string): BoardThread['messages'][number] => ({
+            id: `c-${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+            ...(agent
+              ? { kind: 'agent' as const, ...agent }
+              : { kind: 'human' as const, ...HUMAN }),
+            text: text.trim().slice(0, MAX_THREAD_TEXT),
             ts: now,
-            who: HUMAN.name,
-            role: 'human',
-            op: 'move',
-            kind: 'thread',
-            id: t.id,
-            label: excerpt(t.messages[0]?.text ?? '', 50),
-            page,
+          })
+          const known = (id: string): BoardThread => {
+            const t = list.find((x) => x.id === id)
+            if (!t) throw refuse(`No thread ${id}.`)
+            return t
           }
-          await files.appendHistory(slug, historyLine(entry))
-        } else {
-          const t = known(op.thread)
-          const { resolved: _was, ...rest } = t
-          list = replace(op.resolved ? { ...rest, resolved: true } : rest)
-        }
-        const text = boardText(withThreads(file, page, list))
-        if (text !== disk) await writeText(slug, text, guard)
-        else written.set(slug, text)
-      }
+          const replace = (t: BoardThread): BoardThread[] =>
+            list.map((x) => (x.id === t.id ? t : x))
+          if (op.op === 'open') {
+            if (op.text.trim() === '') throw refuse('A comment needs some text.')
+            if (op.node !== undefined && !content.nodes.has(op.node)) {
+              throw refuse(`No card ${op.node} on this page.`)
+            }
+            const id = newThreadId(now)
+            if (!THREAD_ID.test(id) || list.some((t) => t.id === id)) throw refuse('Try again.')
+            const pin: BoardThread = {
+              id,
+              ...(op.node === undefined ? {} : { node: op.node }),
+              x: op.x,
+              y: op.y,
+              ...(op.assignee === undefined ? {} : { assignee: op.assignee }),
+              messages: [message(op.text)],
+            }
+            list = [...list, pin]
+            opened = id
+          } else if (op.op === 'post') {
+            const t = known(op.thread)
+            if (op.text.trim() === '') throw refuse('A comment needs some text.')
+            // A human writing in a resolved thread reopens it, as in a live room; an agent's reply does not.
+            const { resolved, ...rest } = t
+            const assignee = op.assignee ?? t.assignee
+            list = replace({
+              ...rest,
+              ...(agent && resolved ? { resolved } : {}),
+              ...(assignee === undefined ? {} : { assignee }),
+              messages: [...t.messages, message(op.text)],
+            })
+          } else if (op.op === 'move') {
+            const t = known(op.thread)
+            if (op.node !== undefined && !content.nodes.has(op.node)) {
+              throw refuse(`No card ${op.node} on this page.`)
+            }
+            const { node: _node, ...rest } = t
+            list = replace({
+              ...rest,
+              ...(op.node === undefined ? {} : { node: op.node }),
+              x: op.x,
+              y: op.y,
+            })
+            // The board's change log, for an agent that comes back to it (the host keeps the rest when a room is live).
+            entry = {
+              ts: now,
+              who: HUMAN.name,
+              role: 'human',
+              op: 'move',
+              kind: 'thread',
+              id: t.id,
+              label: excerpt(t.messages[0]?.text ?? '', 50),
+              page,
+            }
+          } else {
+            const t = known(op.thread)
+            const { resolved: _was, ...rest } = t
+            list = replace(op.resolved ? { ...rest, resolved: true } : rest)
+          }
+          return { text: boardText(withThreads(file, page, list)), value: { list, opened } }
+        },
+        guard,
+      )
+      if (entry) await files.appendHistory(slug, historyLine(entry))
+      const { list, opened } = r.value
       return {
         threads: list.map((t) => ({
           id: t.id,
@@ -470,27 +522,34 @@ export function createCanvasStore(opts: CanvasStoreOptions): CanvasStore {
   /** Native `new_board`: the first free `untitled-<n>`, titled "Untitled board". */
   function create(): Promise<{ slug: string }> {
     return queue.run('\0create', async () => {
-      let n = 1
-      while (await files.exists(`untitled-${n}`)) n++
-      const slug = `untitled-${n}`
       const board: Board = {
         version: CANVAS_VERSION,
         title: 'Untitled board',
         nodes: [],
         edges: [],
       }
-      await writeText(slug, boardText(board))
-      return { slug }
+      for (let n = 1, tries = 1; ; n++) {
+        const slug = `untitled-${n}`
+        if (await files.exists(slug)) continue
+        try {
+          // Only while there is still no such board: another Mac may make the same one meanwhile.
+          await writeText(slug, boardText(board), undefined, null)
+          return { slug }
+        } catch (e) {
+          if ((e as { code?: unknown } | null)?.code !== 'conflict' || tries++ >= MAX_TRIES) throw e
+        }
+      }
     })
   }
 
   /** Native `retitle` for a board that is not open: rewrites the title only. */
   function rename(slug: string, title: string): Promise<{ saved: true }> {
     return queue.run(slug, async () => {
-      const text = await readText(slug)
-      if (text === null) throw coded(`No board ${slug}.`, 'not-found')
-      // The whole file (every page, threads, keys Relay does not know), not the page view `load` gives.
-      await writeText(slug, boardText({ ...parseBoard(text), title }))
+      await change(slug, (text) => {
+        if (text === null) throw coded(`No board ${slug}.`, 'not-found')
+        // The whole file (every page, threads, keys Relay does not know), not the page view `load` gives.
+        return { text: boardText({ ...parseBoard(text), title }), value: null }
+      })
       return { saved: true as const }
     })
   }

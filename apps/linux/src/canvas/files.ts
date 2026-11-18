@@ -18,6 +18,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, normalize, sep } from "node:path";
+import { BoardConflict, writeBoardFile } from "@relay/canvas-live/board-file";
 import {
   MAX_CANVAS_ASSET_BYTES,
   type CanvasFileEntry,
@@ -158,10 +159,13 @@ export class CanvasFilesService implements CanvasFilesRelaying {
         if (file === null || req.text === undefined)
           return refuse("invalid", "A write needs a board name and its text.");
         const slug = req.slug!;
-        const tmp = `${file}.${process.pid}.${Date.now().toString(36)}.tmp`;
-        await mkdir(this.deps.dir, { recursive: true });
-        await writeFile(tmp, req.text, "utf8");
-        await rename(tmp, file);
+        try {
+          // Under the board's lock, which the Mini's own desktop takes too (board-file.ts).
+          await writeBoardFile(file, req.text, { ifRevision: req.ifRevision });
+        } catch (error) {
+          if (error instanceof BoardConflict) return refuse("conflict", error.message);
+          throw error;
+        }
         this.written.set(slug, hash(req.text));
         const isNew = !this.known.has(slug);
         this.known.add(slug);

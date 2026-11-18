@@ -7,6 +7,7 @@
   "exports": {
     "./shared": "./src/shared.ts",
     "./board": "./src/board.ts",
+    "./board-file": "./src/board-file.ts",
     "./threads": "./src/threads.ts",
     "./doc-threads": "./src/doc-threads.ts",
     "./layout": "./src/layout.ts",

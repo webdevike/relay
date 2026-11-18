@@ -777,11 +777,13 @@ function Board({
     },
   }
 
-  // An outside edit reloads the board, after any drag in progress.
+  // An outside edit reloads the board, after any drag in progress. A change of no one board (the
+  // list, or the host back after a disconnect: boards may have changed meanwhile) reloads it too;
+  // a file that did not change reloads nothing.
   useEffect(
     () =>
       on('canvas.changed', (e) => {
-        if (e.slug !== slug || !syncedRef.current) return
+        if ((e.slug !== null && e.slug !== slug) || !syncedRef.current) return
         void loadThreads()
         if (draggingRef.current) reloadPendingRef.current = true
         else void reload()

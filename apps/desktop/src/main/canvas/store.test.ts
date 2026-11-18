@@ -6,6 +6,8 @@ import { CanvasBoardSchema } from '@evaos/contract'
 import { createConfigStore } from '../config-store'
 import { boardText, parseBoard } from './board-text'
 import { createCanvasStore } from './store'
+import { localBoardFiles, type BoardFiles } from './board-files'
+import type { CanvasBoard } from '@evaos/contract'
 
 const repo = path.resolve(__dirname, '../../../../..')
 const roots: string[] = []
@@ -93,6 +95,41 @@ describe('canvas store', () => {
     const nodes = (await store.load('mind-map')).board.nodes
     expect(nodes[0]!.x).toBe(4321)
     expect(nodes.some((n) => n.id === 'agent-1')).toBe(true)
+  })
+
+  it('redoes a change made from a file another writer replaced before it landed, keeping both', async () => {
+    // Two writers on one boards folder: the Mini's desktop and the Relay Host writing for the
+    // MacBook. The other one lands between this store's read and its write, twice.
+    const { dir, root } = setup()
+    const other = createCanvasStore({ dir, config: createConfigStore(path.join(root, 'other')) })
+    const add = (id: string) => (b: CanvasBoard) => ({
+      board: { ...b, nodes: [...b.nodes, { id, type: 'note' as const, x: 0, y: 900 }] },
+      value: null,
+    })
+    let interleave = ['other-1', 'other-2']
+    const local = localBoardFiles(dir)
+    const files: BoardFiles = {
+      ...local,
+      async read(slug) {
+        const text = await local.read(slug)
+        const id = interleave.shift()
+        if (id !== undefined) await other.update(slug, undefined, add(id))
+        return text
+      },
+    }
+    const store = createCanvasStore({ config: createConfigStore(path.join(root, 'c')), files })
+    expect(await store.update('mind-map', undefined, add('mine-1'))).toMatchObject({ saved: true })
+    const ids = (await other.load('mind-map')).board.nodes.map((n) => n.id)
+    expect(ids).toEqual(expect.arrayContaining(['other-1', 'other-2', 'mine-1']))
+
+    // A save of Isaac's board made from an older read lands merged over the other writer's card.
+    const { board: base, page } = await store.load('mind-map')
+    interleave = ['other-3']
+    const dragged = { ...base, nodes: base.nodes.map((n, i) => (i === 0 ? { ...n, x: 4321 } : n)) }
+    expect(await store.save('mind-map', dragged, page, base)).toEqual({ saved: true, merged: true })
+    const after = (await other.load('mind-map')).board.nodes
+    expect(after[0]!.x).toBe(4321)
+    expect(after.map((n) => n.id)).toEqual(expect.arrayContaining(['other-3', 'mine-1']))
   })
 
   it("keeps a live room's comment threads through a Canvas page edit and a rename", async () => {

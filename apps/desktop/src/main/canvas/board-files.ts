@@ -1,6 +1,6 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { atomicWrite } from '@evaos/eva-core/fs/atomic-write'
+import { boardRevision, writeBoardFile } from '@relay/canvas-live/board-file'
 
 /** One board as `list` finds it. */
 export interface BoardFileEntry {
@@ -19,9 +19,11 @@ export interface BoardFiles {
   read(slug: string): Promise<string | null>
   /**
    * Replaces a board's text atomically. `commit` runs right before the new text lands and throws
-   * to write nothing.
+   * to write nothing. With `base` (the text the writer read; null: there was no board) it lands
+   * only while the board is still `base`, else it throws `conflict` and writes nothing: another
+   * writer (the host for another Mac, the Mini's own desktop) changed it since.
    */
-  write(slug: string, text: string, commit: () => void): Promise<void>
+  write(slug: string, text: string, commit: () => void, base?: string | null): Promise<void>
   /** Every board (unreadable ones left out); a missing folder has none. */
   list(): Promise<BoardFileEntry[]>
   /** Deletes a board; one that is not there is fine. */
@@ -53,8 +55,11 @@ export function localBoardFiles(dir: string): BoardFiles {
         throw e
       }
     },
-    async write(slug, text, commit) {
-      await atomicWrite(file(slug), text, commit)
+    async write(slug, text, commit, base) {
+      await writeBoardFile(file(slug), text, {
+        commit,
+        ifRevision: base === undefined ? undefined : boardRevision(base),
+      })
     },
     async list() {
       let names: string[]

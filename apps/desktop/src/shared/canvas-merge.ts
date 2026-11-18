@@ -4,9 +4,10 @@ import type { CanvasBoard } from '@evaos/contract'
  * Three-way merge of one board page, so Isaac and the agent can change the same board at once:
  * `ours` is what Isaac's board shows (his unsaved edits on top of `base`, the file as his board
  * last read or wrote it), `theirs` the file now (the agent's writes since `base`). Per card and
- * per link: one Isaac changed (added, edited, moved, deleted) is his, else the file's. Top-level
- * fields (title, layout, viewport) the same way. Both changing one card is a conflict the agent's
- * per-card lock prevents (main/canvas/agent-canvas.ts); if it happens anyway, Isaac's wins.
+ * per link: one Isaac changed (added, edited, moved, deleted) is his, else the file's; one both
+ * changed merges field by field (his position or size and the agent's new body both stay), Isaac's
+ * field winning only where both changed the same one. Top-level fields (title, layout, viewport)
+ * the same way.
  */
 export function mergeBoards(
   base: CanvasBoard,
@@ -51,10 +52,14 @@ function mergeItems<T extends { id: string }>(
   const t = byId(theirs)
   const mine = (id: string): boolean => !same(o.get(id), b.get(id))
   const out: T[] = []
-  // The file's order, each item Isaac's when he changed it (gone when he deleted it).
+  // The file's order, each item Isaac's when he changed it (gone when he deleted it), merged with
+  // the file's change when both changed it.
   for (const item of theirs) {
     if (!mine(item.id)) out.push(item)
-    else if (o.has(item.id)) out.push(o.get(item.id)!)
+    else if (o.has(item.id)) {
+      const was = b.get(item.id)
+      out.push(was === undefined ? o.get(item.id)! : (merge3(was, o.get(item.id)!, item) as T))
+    }
   }
   // What Isaac changed that the file no longer (or never) had: his new cards, and his edits of
   // cards the agent removed.
@@ -64,6 +69,24 @@ function mergeItems<T extends { id: string }>(
 
 function byId<T extends { id: string }>(items: readonly T[]): Map<string, T> {
   return new Map(items.map((i) => [i.id, i]))
+}
+
+/**
+ * `ours` and `theirs` both made from `base`: each changed key from whoever changed it, plain
+ * objects (a card's `data`) key by key; a key both changed differently is `ours`.
+ */
+function merge3(base: unknown, ours: unknown, theirs: unknown): unknown {
+  if (same(ours, base)) return theirs
+  if (same(theirs, base) || same(ours, theirs)) return ours
+  const plain = (v: unknown): boolean => v !== null && typeof v === 'object' && !Array.isArray(v)
+  if (!plain(base) || !plain(ours) || !plain(theirs)) return ours
+  const [b, o, t] = [base, ours, theirs] as Record<string, unknown>[]
+  const out: Record<string, unknown> = {}
+  for (const key of new Set([...Object.keys(b!), ...Object.keys(o!), ...Object.keys(t!)])) {
+    const v = merge3(b![key], o![key], t![key])
+    if (v !== undefined) out[key] = v
+  }
+  return out
 }
 
 /** Deep equality by value, key order ignored (a board read from the file and one drawn differ in it). */

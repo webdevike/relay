@@ -61,8 +61,13 @@ align, distribute, a copy's original, a frame an add grows) answers `locked-by-i
 before the cursor moves, or at the commit if he grabbed it meanwhile; everything else lands. A
 card he grabs mid-carry becomes his where it is. Both sides' changes survive: the board's saves
 carry `base` (the page as it last read or wrote it) and main merges them over the file per card
-(`shared/canvas-merge.ts`: a card he changed is his, the rest the file's), and a reload merges his
-unsaved edits over the agent's write the same way. Only Take over (caption row) pauses the run.
+(`shared/canvas-merge.ts`: a card he changed is his, the rest the file's; a card both changed
+merges field by field), and a reload merges his unsaved edits over the agent's write the same way.
+Every board write, on any Mac, is made from the file as read and lands only while the file is still
+that (`@relay/canvas-live/board-file`: a revision check under `<slug>.json.lock`, which the Mini's
+desktop and the Relay Host both take); a write another Mac's landed under is redone over the new
+file, so an acknowledged write is never overwritten by a stale copy. Only Take over (caption row)
+pauses the run.
 
 No action hangs: each one answers within `ANSWER_MS` (30 s, inside an MCP call's 60 s), `busy`
 when the board's earlier action is still running (this one never runs) or `timeout` when it is
