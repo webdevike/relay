@@ -363,7 +363,9 @@ body.eva-tab-dragging * {
   user-select: none;
 }
 
-/* The pane + menu: compact rows, shortcut hints on the right. */
+/* The pane + menu: compact rows, shortcut hints on the right. The dropdown is portaled outside
+   .eva-shell, so --eva-gap (declared there) is undefined here: use the :root tokens, same as
+   .eva-menu-item in overlay.css. */
 .eva-add-menu-list {
   display: flex;
   flex-direction: column;
@@ -372,21 +374,30 @@ body.eva-tab-dragging * {
   overflow-y: auto;
 }
 .eva-add-menu-filter {
-  margin-bottom: var(--eva-gap);
+  margin-bottom: calc(var(--mantine-spacing-xs) / 2);
 }
 .eva-add-menu-row {
   display: flex;
   align-items: center;
-  gap: var(--eva-gap);
-  height: 28px;
-  padding: 0 var(--eva-gap);
-  border-radius: var(--eva-radius, 6px);
-  font-size: var(--mantine-font-size-sm);
+  gap: var(--mantine-spacing-sm);
+  min-height: calc(var(--eva-fz-body) * var(--eva-lh-body) + var(--mantine-spacing-xs));
+  padding: calc(var(--mantine-spacing-xs) / 2) var(--mantine-spacing-sm);
+  border-radius: var(--eva-radius);
+  font-size: var(--eva-fz-body);
+  line-height: var(--eva-lh-body);
   cursor: default;
   user-select: none;
 }
+.eva-add-menu-row > svg {
+  flex: none;
+}
 .eva-add-menu-row[data-active] {
-  background: var(--eva-c-muted-background);
+  background: var(--eva-hover);
+}
+.eva-add-menu-row .mantine-Kbd-root {
+  flex: none;
+  min-width: calc(var(--eva-space-xl) + var(--eva-space-xs));
+  text-align: center;
 }
 .eva-add-menu-label {
   flex: 1;
@@ -397,11 +408,11 @@ body.eva-tab-dragging * {
 }
 .eva-add-menu-divider {
   height: 1px;
-  margin: var(--eva-gap) 0;
-  background: var(--eva-c-border);
+  margin: calc(var(--mantine-spacing-xs) / 2) 0;
+  background: var(--eva-border);
 }
 .eva-add-menu-empty {
-  padding: var(--eva-gap);
-  font-size: var(--mantine-font-size-sm);
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  font-size: var(--eva-fz-body);
   color: var(--mantine-color-dimmed);
 }

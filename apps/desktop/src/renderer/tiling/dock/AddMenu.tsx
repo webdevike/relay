@@ -56,7 +56,7 @@ export function AddMenu({
 }) {
   const [opened, setOpened] = useState(false)
   return (
-    <EvaPopover opened={opened} onChange={setOpened} position="bottom-start" width={220}>
+    <EvaPopover opened={opened} onChange={setOpened} position="bottom-start" width={240}>
       <EvaPopover.Target>
         <Tooltip label="Add a tab or split" position="bottom" openDelay={400} disabled={opened}>
           <ActionIcon
@@ -247,7 +247,7 @@ function MenuBody({ pane, app, close }: { pane: string; app: boolean; close: () 
               {r.icon}
               <span className="eva-add-menu-label">{r.label}</span>
               {r.hint ? <Kbd size="xs">{r.hint}</Kbd> : null}
-              {r.more ? <IconChevronRight size={14} stroke={1.5} /> : null}
+              {r.more ? <IconChevronRight size={16} stroke={1.5} /> : null}
             </div>
           </div>
         ))}
