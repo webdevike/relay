@@ -67,6 +67,24 @@ export function emit(
   appendFileSync(journal, `${JSON.stringify(event(component, name, job, data, runPrefix))}\n`);
 }
 
+/** What a consumer did with an agent's answer (the package's `atomic-agents/outcome.reported`, `Outcome`). */
+export type Outcome = "used" | "skipped" | "none" | "timeout";
+
+export interface OutcomeReport {
+  /** The id `ask` sent: the run carries it, so the service records the outcome on that run's trace. */
+  readonly requestId: string;
+  /** Who used it, e.g. `relay.widgets`. */
+  readonly consumer: string;
+  readonly outcome: Outcome;
+  readonly latencyMs: number;
+  readonly detail?: string;
+}
+
+/** Appends `atomic-agents/outcome.reported`: any consumer of any agent reports this way. */
+export function reportOutcome(home: string, report: OutcomeReport): void {
+  emit(home, "atomic-agents", "outcome.reported", report, "outcome", "relay");
+}
+
 async function size(journal: string): Promise<number> {
   try {
     return (await stat(journal)).size;

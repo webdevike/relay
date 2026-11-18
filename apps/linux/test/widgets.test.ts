@@ -140,7 +140,10 @@ describe("reply widget hook", () => {
     expect(typeof line?.["ms"]).toBe("number");
     expect(
       journal(h.home).map((event) => [event.type, event.data["mode"], event.data["shown"]]),
-    ).toEqual([["widget/widget.logged", "shadow", false]]);
+    ).toEqual([
+      ["atomic-agents/outcome.reported", undefined, undefined],
+      ["widget/widget.logged", "shadow", false],
+    ]);
     expect(h.sent).toEqual([]);
     expect(h.service.snapshot("assistant:nova")).toEqual({});
   });
@@ -266,6 +269,76 @@ describe("reply widget hook", () => {
     expect(logs.at(-1)).toMatch(
       /live openui in \d+ ms \(numbers\), after Isaac's label, not kept$/,
     );
+  });
+
+  it("reports what it did with each answer on the bus, keyed by the request id: used, skipped, none, timeout", async () => {
+    const outcomes = (home: string) =>
+      journal(home)
+        .filter((event) => event.type === "atomic-agents/outcome.reported")
+        .map((event) => event.data);
+    const live = setup({ mode: "live", askMs: 1_900 });
+    await live.service.reply(reply());
+    const shadow = setup();
+    await shadow.service.reply(reply());
+    const none = setup({ mode: "live", answer: { kind: "none", why: "prose" } });
+    await none.service.reply(reply());
+    const late = setup({ mode: "live", answer: null, askMs: AUTO_ASK_WAIT_MS });
+    await late.service.reply(reply());
+    expect([live, shadow, none, late].map((h) => outcomes(h.home))).toEqual([
+      [
+        {
+          requestId: "req-1",
+          consumer: "relay.widgets",
+          outcome: "used",
+          latencyMs: 1_900,
+          detail: "live",
+        },
+      ],
+      [
+        {
+          requestId: "req-1",
+          consumer: "relay.widgets",
+          outcome: "skipped",
+          latencyMs: 0,
+          detail: "shadow",
+        },
+      ],
+      [
+        {
+          requestId: "req-1",
+          consumer: "relay.widgets",
+          outcome: "none",
+          latencyMs: 0,
+          detail: "live",
+        },
+      ],
+      [
+        {
+          requestId: "req-1",
+          consumer: "relay.widgets",
+          outcome: "timeout",
+          latencyMs: AUTO_ASK_WAIT_MS,
+          detail: "live",
+        },
+      ],
+    ]);
+    // A form Isaac picked reports too: drawn is used.
+    const picked = setup({
+      answer: { kind: "openui", block: BLOCK, why: "picked" },
+      messages: { "assistant:nova assistant@1000": "Jan 42, Feb 51." },
+    });
+    await picked.service.label({
+      thread: "assistant:nova",
+      message: "assistant@1000",
+      label: "chart",
+      surface: "phone",
+      excerpt: "Jan",
+    });
+    await vi.waitFor(() => {
+      expect(outcomes(picked.home)).toMatchObject([
+        { requestId: "req-1", outcome: "used", detail: "chart picked by Isaac" },
+      ]);
+    });
   });
 
   it("reads the mode from config.json: disabled is off, no mode is shadow", () => {

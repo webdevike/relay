@@ -17,6 +17,10 @@
 // same file (`autoAskSettings`). An answer is logged with the milliseconds it really took; none within
 // the wait is a timeout and shows nothing. An answer landing after Isaac's 🎯 label on that reply is
 // logged but never replaces what his label drew.
+// Every ask, automatic or a 🎯 form pick, then reports what the host did with the answer to the service
+// (`atomic-agents/outcome.reported`, `bus.ts` `reportOutcome`, consumer `relay.widgets`): `used` (shown),
+// `skipped` (an openui answer not shown: shadow mode, or after the label), `none`, or `timeout`, with
+// the ms it took. The service records it on the run's trace (`atomic-agents traces`, `health`).
 //
 // 🎯 on a reply opens a one-question sheet on the device; its answer (`widget.label`) is saved with
 // the reply, what was shown under it and the shadow suggestion to `<home>/bench/widget/training.jsonl`,
@@ -48,7 +52,7 @@ import {
   type WidgetSurface,
 } from "@relay/protocol";
 import { GATE_DEFAULTS, gateCounts, widgetGate, type GateLimits } from "./gate";
-import { ask, emit, readConfig, type AskAnswer } from "./bus";
+import { ask, emit, readConfig, reportOutcome, type AskAnswer, type Outcome } from "./bus";
 
 /**
  * How long the automatic pass waits for the widget agent by default. Its answers took 1.9 s at p50 and up
@@ -64,6 +68,8 @@ export const FORM_TIMEOUT_MS = 25_000;
 type WidgetForm = "chart" | "table" | "card";
 /** Suggestions kept per thread, newest first. */
 const MAX_PER_THREAD = 200;
+/** How the widget pass names itself on `atomic-agents/outcome.reported`. */
+export const WIDGETS_CONSUMER = "relay.widgets";
 
 export type WidgetMode = "shadow" | "live" | "off";
 
@@ -322,7 +328,16 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
       });
     if (shown)
       this.deps.broadcast({ t: "widgets.snapshot", thread, widgets: this.snapshot(thread) });
+    // An openui answer not shown was skipped: shadow mode, or Isaac's label came first.
+    const outcome: Outcome = shown ? "used" : kind === "openui" ? "skipped" : kind;
     try {
+      reportOutcome(this.deps.home, {
+        requestId: answer.requestId,
+        consumer: WIDGETS_CONSUMER,
+        outcome,
+        latencyMs: ms,
+        detail: labeled ? `${mode}, after Isaac's label` : mode,
+      });
       this.append("shadow.jsonl", {
         at: new Date(this.deps.now()).toISOString(),
         mode,
@@ -448,6 +463,7 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
         context,
         form,
       };
+      const asked = this.deps.now();
       const answer = await (this.deps.ask?.(request, FORM_TIMEOUT_MS) ??
         ask(
           this.deps.home,
@@ -461,12 +477,22 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
         typeof ready?.["block"] === "string" && ready["block"].length <= MAX_REPLY_WIDGET
           ? ready["block"]
           : undefined;
+      const report = (outcome: Outcome): void =>
+        reportOutcome(this.deps.home, {
+          requestId: answer.requestId,
+          consumer: WIDGETS_CONSUMER,
+          outcome,
+          latencyMs: this.deps.now() - asked,
+          detail: `${form} picked by Isaac`,
+        });
       if (ready?.["kind"] !== "openui" || block === undefined) {
+        report(ready === null ? "timeout" : "none");
         this.deps.log(
           `${tag}: no ${form} widget (${ready === null ? "timeout" : typeof ready["why"] === "string" ? ready["why"] : "none"})`,
         );
         return;
       }
+      report("used");
       this.keep(thread, message, {
         kind: "openui",
         block,
