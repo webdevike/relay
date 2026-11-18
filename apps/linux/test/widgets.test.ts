@@ -1,11 +1,27 @@
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  watch,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerMessage } from "@relay/protocol";
 import { ask, type AskAnswer } from "../src/widgets/bus";
 import { GATE_DEFAULTS, widgetGate } from "../src/widgets/gate";
-import { AUTO_ASK_WAIT_MS, autoAskSettings, ReplyWidgetService, surfaceOf, widgetMode, type FinishedReply } from "../src/widgets/service";
+import {
+  AUTO_ASK_WAIT_MS,
+  autoAskSettings,
+  ReplyWidgetService,
+  surfaceOf,
+  widgetMode,
+  type FinishedReply,
+} from "../src/widgets/service";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -22,11 +38,17 @@ interface Line {
 }
 const journal = (home: string): Line[] =>
   existsSync(join(home, "events.ndjson"))
-    ? readFileSync(join(home, "events.ndjson"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as Line)
+    ? readFileSync(join(home, "events.ndjson"), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Line)
     : [];
 const jsonl = (home: string, file: string): Record<string, unknown>[] =>
   existsSync(join(home, "bench", "widget", file))
-    ? readFileSync(join(home, "bench", "widget", file), "utf8").trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>)
+    ? readFileSync(join(home, "bench", "widget", file), "utf8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, unknown>)
     : [];
 
 function tempHome(): string {
@@ -37,10 +59,21 @@ function tempHome(): string {
   return home;
 }
 
-function setup(options: { mode?: string; autoAsk?: Record<string, unknown>; answer?: AskAnswer["reply"]; messages?: Record<string, string>; askMs?: number } = {}) {
+function setup(
+  options: {
+    mode?: string;
+    autoAsk?: Record<string, unknown>;
+    answer?: AskAnswer["reply"];
+    messages?: Record<string, string>;
+    askMs?: number;
+  } = {},
+) {
   const home = tempHome();
   const setMode = (mode: string | undefined): void => {
-    const widget = { ...(mode === undefined ? {} : { mode }), ...(options.autoAsk === undefined ? {} : { autoAsk: options.autoAsk }) };
+    const widget = {
+      ...(mode === undefined ? {} : { mode }),
+      ...(options.autoAsk === undefined ? {} : { autoAsk: options.autoAsk }),
+    };
     writeFileSync(join(home, "config.json"), JSON.stringify({ components: { widget } }));
   };
   setMode(options.mode);
@@ -61,8 +94,14 @@ function setup(options: { mode?: string; autoAsk?: Record<string, unknown>; answ
       asked.push(request);
       waits.push(timeoutMs);
       clock += options.askMs ?? 0;
-      const reply = options.answer === undefined ? { kind: "openui", block: BLOCK, why: "one headline number" } : options.answer;
-      return Promise.resolve({ requestId: `req-${String(asked.length)}`, reply: reply === null ? null : { requestId: `req-${String(asked.length)}`, ...reply } });
+      const reply =
+        options.answer === undefined
+          ? { kind: "openui", block: BLOCK, why: "one headline number" }
+          : options.answer;
+      return Promise.resolve({
+        requestId: `req-${String(asked.length)}`,
+        reply: reply === null ? null : { requestId: `req-${String(asked.length)}`, ...reply },
+      });
     },
   });
   return { home, service, sent, asked, waits, logs, setMode };
@@ -81,12 +120,27 @@ describe("reply widget hook", () => {
   it("shadow (the default) logs the suggestion with draft hash, excerpt, signals, why and latency, and shows nothing", async () => {
     const h = setup();
     await h.service.reply(reply());
-    expect(h.asked).toEqual([{ draft: TEXT, surface: "phone", context: { channel: "text", askedForDetail: true } }]);
+    expect(h.asked).toEqual([
+      { draft: TEXT, surface: "phone", context: { channel: "text", askedForDetail: true } },
+    ]);
     const [line] = jsonl(h.home, "shadow.jsonl");
-    expect(line).toMatchObject({ mode: "shadow", agent: "nova", message: "assistant@1000", kind: "openui", block: BLOCK, why: "one headline number", shown: false, excerpt: TEXT, signals: ["numbers"], requestId: "req-1" });
+    expect(line).toMatchObject({
+      mode: "shadow",
+      agent: "nova",
+      message: "assistant@1000",
+      kind: "openui",
+      block: BLOCK,
+      why: "one headline number",
+      shown: false,
+      excerpt: TEXT,
+      signals: ["numbers"],
+      requestId: "req-1",
+    });
     expect(line?.["draftHash"]).toMatch(/^[0-9a-f]{16}$/);
     expect(typeof line?.["ms"]).toBe("number");
-    expect(journal(h.home).map((event) => [event.type, event.data["mode"], event.data["shown"]])).toEqual([["widget/widget.logged", "shadow", false]]);
+    expect(
+      journal(h.home).map((event) => [event.type, event.data["mode"], event.data["shown"]]),
+    ).toEqual([["widget/widget.logged", "shadow", false]]);
     expect(h.sent).toEqual([]);
     expect(h.service.snapshot("assistant:nova")).toEqual({});
   });
@@ -94,13 +148,17 @@ describe("reply widget hook", () => {
   it("live shows an openui answer under its reply on every device; switching mode needs no restart", async () => {
     const h = setup({ mode: "live" });
     await h.service.reply(reply());
-    expect(h.sent).toEqual([{ t: "widgets.snapshot", thread: "assistant:nova", widgets: { "assistant@1000": BLOCK } }]);
+    expect(h.sent).toEqual([
+      { t: "widgets.snapshot", thread: "assistant:nova", widgets: { "assistant@1000": BLOCK } },
+    ]);
     h.setMode("off");
     await h.service.reply(reply({ message: "assistant@2000" }));
     h.setMode("shadow");
     await h.service.reply(reply({ message: "assistant@3000" }));
     expect(h.asked).toHaveLength(2);
-    expect(jsonl(h.home, "shadow.jsonl").map((line) => [line["message"], line["mode"], line["shown"]])).toEqual([
+    expect(
+      jsonl(h.home, "shadow.jsonl").map((line) => [line["message"], line["mode"], line["shown"]]),
+    ).toEqual([
       ["assistant@1000", "live", true],
       ["assistant@3000", "shadow", false],
     ]);
@@ -118,25 +176,37 @@ describe("reply widget hook", () => {
   it("no answer within the wait is logged as a timeout with the ms it waited and shows nothing, even live", async () => {
     const h = setup({ mode: "live", answer: null, askMs: AUTO_ASK_WAIT_MS });
     await h.service.reply(reply());
-    expect(jsonl(h.home, "shadow.jsonl")).toMatchObject([{ kind: "timeout", shown: false, ms: AUTO_ASK_WAIT_MS }]);
+    expect(jsonl(h.home, "shadow.jsonl")).toMatchObject([
+      { kind: "timeout", shown: false, ms: AUTO_ASK_WAIT_MS },
+    ]);
     expect(h.sent).toEqual([]);
-    expect(h.logs).toContain(`widgets: nova assistant@1000: live timeout in ${String(AUTO_ASK_WAIT_MS)} ms (numbers)`);
+    expect(h.logs).toContain(
+      `widgets: nova assistant@1000: live timeout in ${String(AUTO_ASK_WAIT_MS)} ms (numbers)`,
+    );
   });
 
   it("an answer slower than the old 3 s window is still shown under its reply, logged with its real ms", async () => {
     const h = setup({ mode: "live", askMs: 7_395 });
     await h.service.reply(reply());
     expect(h.waits).toEqual([AUTO_ASK_WAIT_MS]);
-    expect(jsonl(h.home, "shadow.jsonl")).toMatchObject([{ kind: "openui", shown: true, ms: 7_395 }]);
-    expect(h.sent).toEqual([{ t: "widgets.snapshot", thread: "assistant:nova", widgets: { "assistant@1000": BLOCK } }]);
+    expect(jsonl(h.home, "shadow.jsonl")).toMatchObject([
+      { kind: "openui", shown: true, ms: 7_395 },
+    ]);
+    expect(h.sent).toEqual([
+      { t: "widgets.snapshot", thread: "assistant:nova", widgets: { "assistant@1000": BLOCK } },
+    ]);
   });
 
   it("asks nothing for a reply without structured data, and logs which counts fell short", async () => {
     const h = setup({ mode: "live" });
-    await h.service.reply(reply({ text: "Done. The fix is merged and the host restarted cleanly." }));
+    await h.service.reply(
+      reply({ text: "Done. The fix is merged and the host restarted cleanly." }),
+    );
     expect(h.asked).toEqual([]);
     expect(existsSync(join(h.home, "bench", "widget", "shadow.jsonl"))).toBe(false);
-    expect(h.logs).toEqual(["widgets: nova assistant@1000: no widget data (numbers 0 of 3, items 0 of 3, keys 0 of 2, media 0 of 2), skipped"]);
+    expect(h.logs).toEqual([
+      "widgets: nova assistant@1000: no widget data (numbers 0 of 3, items 0 of 3, keys 0 of 2, media 0 of 2), skipped",
+    ]);
   });
 
   it("takes the gate's limits and the wait from components.widget.autoAsk", async () => {
@@ -147,13 +217,21 @@ describe("reply widget hook", () => {
     await loose.service.reply(reply());
     expect(loose.waits).toEqual([9_000]);
     expect(autoAskSettings(null)).toEqual({ limits: GATE_DEFAULTS, waitMs: AUTO_ASK_WAIT_MS });
-    expect(autoAskSettings({ components: { widget: { autoAsk: { keys: 1, media: 3 } } } })).toEqual({ limits: { ...GATE_DEFAULTS, keys: 1, media: 3 }, waitMs: AUTO_ASK_WAIT_MS });
-    expect(autoAskSettings({ components: { widget: { autoAsk: { keys: 0 } } } })).toEqual({ limits: GATE_DEFAULTS, waitMs: AUTO_ASK_WAIT_MS });
+    expect(autoAskSettings({ components: { widget: { autoAsk: { keys: 1, media: 3 } } } })).toEqual(
+      { limits: { ...GATE_DEFAULTS, keys: 1, media: 3 }, waitMs: AUTO_ASK_WAIT_MS },
+    );
+    expect(autoAskSettings({ components: { widget: { autoAsk: { keys: 0 } } } })).toEqual({
+      limits: GATE_DEFAULTS,
+      waitMs: AUTO_ASK_WAIT_MS,
+    });
   });
 
   it("an automatic answer landing after Isaac's 🎯 label on that reply is logged but never shown", async () => {
     const home = tempHome();
-    writeFileSync(join(home, "config.json"), JSON.stringify({ components: { widget: { mode: "live" } } }));
+    writeFileSync(
+      join(home, "config.json"),
+      JSON.stringify({ components: { widget: { mode: "live" } } }),
+    );
     const sent: ServerMessage[] = [];
     const logs: string[] = [];
     const answer = Promise.withResolvers<AskAnswer>();
@@ -168,13 +246,26 @@ describe("reply widget hook", () => {
       ask: () => answer.promise,
     });
     const pending = service.reply(reply());
-    expect(await service.label({ thread: "assistant:nova", message: "assistant@1000", label: "keep", surface: "phone", excerpt: "Boards" })).toEqual({ ok: true });
-    answer.resolve({ requestId: "r1", reply: { requestId: "r1", kind: "openui", block: BLOCK, why: "late" } });
+    expect(
+      await service.label({
+        thread: "assistant:nova",
+        message: "assistant@1000",
+        label: "keep",
+        surface: "phone",
+        excerpt: "Boards",
+      }),
+    ).toEqual({ ok: true });
+    answer.resolve({
+      requestId: "r1",
+      reply: { requestId: "r1", kind: "openui", block: BLOCK, why: "late" },
+    });
     await pending;
     expect(service.snapshot("assistant:nova")).toEqual({});
     expect(sent).toEqual([]);
     expect(jsonl(home, "shadow.jsonl")).toMatchObject([{ kind: "openui", shown: false }]);
-    expect(logs.at(-1)).toMatch(/live openui in \d+ ms \(numbers\), after Isaac's label, not kept$/);
+    expect(logs.at(-1)).toMatch(
+      /live openui in \d+ ms \(numbers\), after Isaac's label, not kept$/,
+    );
   });
 
   it("reads the mode from config.json: disabled is off, no mode is shadow", () => {
@@ -186,7 +277,9 @@ describe("reply widget hook", () => {
 
   it("Isaac reads on the desktop only while it had input in the last 5 minutes", () => {
     expect(surfaceOf([], 1_000_000)).toBe("phone");
-    expect(surfaceOf([{ lastInputAt: null }, { lastInputAt: 1_000_000 - 60_000 }], 1_000_000)).toBe("desktop");
+    expect(surfaceOf([{ lastInputAt: null }, { lastInputAt: 1_000_000 - 60_000 }], 1_000_000)).toBe(
+      "desktop",
+    );
     expect(surfaceOf([{ lastInputAt: 1_000_000 - 6 * 60_000 }], 1_000_000)).toBe("phone");
   });
 });
@@ -195,18 +288,33 @@ describe("widget gate", () => {
   const fired = (text: string): readonly string[] => widgetGate(text).signals;
 
   it("lets through measures to compare: currency, %, units, either side of a comparison", () => {
-    expect(widgetGate("Free space is 40 GB, swap grew to 26 GB, and the cache holds 85 GB.").counts.numbers).toBe(3);
-    expect(fired("Accuracy was 66.7% against a 75% target; the baseline got 41.7%.")).toEqual(["numbers"]);
-    expect(fired("The Dyson is $599.99 and the Bissell $259.99, with 5 years of warranty.")).toEqual(["numbers"]);
+    expect(
+      widgetGate("Free space is 40 GB, swap grew to 26 GB, and the cache holds 85 GB.").counts
+        .numbers,
+    ).toBe(3);
+    expect(fired("Accuracy was 66.7% against a 75% target; the baseline got 41.7%.")).toEqual([
+      "numbers",
+    ]);
+    expect(
+      fired("The Dyson is $599.99 and the Bissell $259.99, with 5 years of warranty."),
+    ).toEqual(["numbers"]);
     expect(fired("Tokens went from 6843 to 5231, under the 6000 limit.")).toEqual([]);
     expect(fired("Version 0.2.106 is out, see gpt-6 and v2 for the 3 of us.")).toEqual([]);
   });
 
   it("lets through a table or a list carrying numbers, not a list of prose points", () => {
-    expect(fired("| Category | v1 | v2 |\n|---|---|---|\n| Sky | 7 | 6 |\n| Turf | 5 | 6 |\n| Trees | 6 | 5 |")).toEqual(["items"]);
-    expect(fired("Sky and light: v1 5, v2 8.\nTurf: v1 6, v2 7.\nTrees: v1 4, v2 5.")).toEqual(["items"]);
+    expect(
+      fired(
+        "| Category | v1 | v2 |\n|---|---|---|\n| Sky | 7 | 6 |\n| Turf | 5 | 6 |\n| Trees | 6 | 5 |",
+      ),
+    ).toEqual(["items"]);
+    expect(fired("Sky and light: v1 5, v2 8.\nTurf: v1 6, v2 7.\nTrees: v1 4, v2 5.")).toEqual([
+      "items",
+    ]);
     expect(fired("- 18 boards in stock\n- 4 on order\n- 2 returned")).toEqual(["items"]);
-    expect(fired("- **Safety:** low risk.\n- **Evidence:** we copied it.\n- **Offline:** for good.")).toEqual([]);
+    expect(
+      fired("- **Safety:** low risk.\n- **Evidence:** we copied it.\n- **Offline:** for good."),
+    ).toEqual([]);
   });
 
   it("lets through two distinct ticket or PR keys", () => {
@@ -217,18 +325,28 @@ describe("widget gate", () => {
 
   it("lets through two images, or one with before/after wording", () => {
     expect(fired("![grid](/drops/a/1)\n![photo](/drops/b/2)")).toEqual(["media"]);
-    expect(fired("Before:\n![menu before](/drops/a/1)\nAfter: it lines up now.")).toEqual(["media"]);
+    expect(fired("Before:\n![menu before](/drops/a/1)\nAfter: it lines up now.")).toEqual([
+      "media",
+    ]);
     expect(fired("The diagram agent made this:\n\n![loop](/drops/a/1)")).toEqual([]);
   });
 
   it("counts nothing inside code fences and nothing in plain prose", () => {
     expect(widgetGate("```ts\nconst a = 5 ms, b = 6 ms, c = 7 ms;\n```").eligible).toBe(false);
-    expect(widgetGate("Done. The fix is merged and the host restarted cleanly.")).toEqual({ eligible: false, signals: [], counts: { numbers: 0, items: 0, keys: 0, media: 0 }, beforeAfter: false });
+    expect(widgetGate("Done. The fix is merged and the host restarted cleanly.")).toEqual({
+      eligible: false,
+      signals: [],
+      counts: { numbers: 0, items: 0, keys: 0, media: 0 },
+      beforeAfter: false,
+    });
   });
 
   it("each limit is a parameter", () => {
     expect(widgetGate("ENG-1 shipped.", { ...GATE_DEFAULTS, keys: 1 }).signals).toEqual(["keys"]);
-    expect(widgetGate("Free space is 40 GB, swap 26 GB, cache 85 GB.", { ...GATE_DEFAULTS, numbers: 4 }).eligible).toBe(false);
+    expect(
+      widgetGate("Free space is 40 GB, swap 26 GB, cache 85 GB.", { ...GATE_DEFAULTS, numbers: 4 })
+        .eligible,
+    ).toBe(false);
   });
 });
 
@@ -240,12 +358,26 @@ describe("atomic-agents journal ask", () => {
     writeFileSync(file, "");
     const agent = watch(file, () => {
       const request = journal(home).find((event) => event.type === "widget/widget.requested");
-      if (request === undefined || journal(home).some((event) => event.type === "widget/widget.ready")) return;
-      const line = (requestId: unknown, kind: string): string => `${JSON.stringify({ id: kind, type: "widget/widget.ready", component: "widget", job: "pick", run: "r", at: "", data: { requestId, kind, why: kind } })}\n`;
-      appendFileSync(file, `${line("someone-else", "none")}{torn\n${line(request.data["requestId"], "openui")}`);
+      if (
+        request === undefined ||
+        journal(home).some((event) => event.type === "widget/widget.ready")
+      )
+        return;
+      const line = (requestId: unknown, kind: string): string =>
+        `${JSON.stringify({ id: kind, type: "widget/widget.ready", component: "widget", job: "pick", run: "r", at: "", data: { requestId, kind, why: kind } })}\n`;
+      appendFileSync(
+        file,
+        `${line("someone-else", "none")}{torn\n${line(request.data["requestId"], "openui")}`,
+      );
     });
     try {
-      const answer = await ask(home, "widget", { request: "widget.requested", reply: "widget.ready" }, { draft: "d", surface: "phone" }, { timeoutMs: 3_000 });
+      const answer = await ask(
+        home,
+        "widget",
+        { request: "widget.requested", reply: "widget.ready" },
+        { draft: "d", surface: "phone" },
+        { timeoutMs: 3_000 },
+      );
       expect(answer.reply).toEqual({ requestId: answer.requestId, kind: "openui", why: "openui" });
     } finally {
       agent.close();
@@ -255,18 +387,35 @@ describe("atomic-agents journal ask", () => {
   it("answers null once the timeout passes with no reply", async () => {
     const home = tempHome();
     const started = Date.now();
-    const answer = await ask(home, "widget", { request: "widget.requested", reply: "widget.ready" }, { draft: "d", surface: "phone" }, { timeoutMs: 120 });
+    const answer = await ask(
+      home,
+      "widget",
+      { request: "widget.requested", reply: "widget.ready" },
+      { draft: "d", surface: "phone" },
+      { timeoutMs: 120 },
+    );
     expect(answer.reply).toBeNull();
     expect(Date.now() - started).toBeGreaterThanOrEqual(110);
-    expect(journal(home).map((event) => [event.type, event.data["requestId"]])).toEqual([["widget/widget.requested", answer.requestId]]);
+    expect(journal(home).map((event) => [event.type, event.data["requestId"]])).toEqual([
+      ["widget/widget.requested", answer.requestId],
+    ]);
   });
 });
 
 describe("🎯 widget training", () => {
   it("saves the reply, what was shown under it, the suggestion and Isaac's answer, and emits widget.labeled", async () => {
-    const h = setup({ mode: "live", messages: { "assistant:nova assistant@1000": "We sold 42 boards this month." } });
+    const h = setup({
+      mode: "live",
+      messages: { "assistant:nova assistant@1000": "We sold 42 boards this month." },
+    });
     await h.service.reply(reply());
-    const result = await h.service.label({ thread: "assistant:nova", message: "assistant@1000", label: "chart", surface: "desktop", excerpt: "We sold 42 boards" });
+    const result = await h.service.label({
+      thread: "assistant:nova",
+      message: "assistant@1000",
+      label: "chart",
+      surface: "desktop",
+      excerpt: "We sold 42 boards",
+    });
     expect(result).toEqual({ ok: true });
     expect(jsonl(h.home, "training.jsonl")).toMatchObject([
       {
@@ -281,46 +430,119 @@ describe("🎯 widget training", () => {
         suggestion: { kind: "openui", mode: "live", block: BLOCK, why: "one headline number" },
       },
     ]);
-    expect(journal(h.home).find((event) => event.type === "widget/widget.labeled")?.data).toEqual({ agent: "nova", message: "assistant@1000", surface: "desktop", label: "chart", shown: "openui" });
+    expect(journal(h.home).find((event) => event.type === "widget/widget.labeled")?.data).toEqual({
+      agent: "nova",
+      message: "assistant@1000",
+      surface: "desktop",
+      label: "chart",
+      shown: "openui",
+    });
   });
 
   it("a reply's own widget is what was shown; a reply the thread lost is saved from its excerpt; only assistant replies count", async () => {
     const h = setup({ messages: { "assistant:nova assistant@5": `Totals:\n\n${BLOCK}` } });
-    expect(await h.service.label({ thread: "assistant:nova", message: "assistant@5", label: "keep", surface: "phone", excerpt: "Totals:" })).toEqual({ ok: true });
-    expect(await h.service.label({ thread: "assistant:nova", message: "assistant@6", label: "plain", surface: "phone", excerpt: "Gone reply" })).toEqual({ ok: true });
-    expect(await h.service.label({ thread: "session:s1", message: "assistant@7", label: "plain", surface: "phone", excerpt: "x" })).toMatchObject({ ok: false });
-    expect(jsonl(h.home, "training.jsonl").map((line) => [line["message"], line["draft"], line["shown"]])).toEqual([
+    expect(
+      await h.service.label({
+        thread: "assistant:nova",
+        message: "assistant@5",
+        label: "keep",
+        surface: "phone",
+        excerpt: "Totals:",
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      await h.service.label({
+        thread: "assistant:nova",
+        message: "assistant@6",
+        label: "plain",
+        surface: "phone",
+        excerpt: "Gone reply",
+      }),
+    ).toEqual({ ok: true });
+    expect(
+      await h.service.label({
+        thread: "session:s1",
+        message: "assistant@7",
+        label: "plain",
+        surface: "phone",
+        excerpt: "x",
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      jsonl(h.home, "training.jsonl").map((line) => [
+        line["message"],
+        line["draft"],
+        line["shown"],
+      ]),
+    ).toEqual([
       ["assistant@5", `Totals:\n\n${BLOCK}`, { kind: "openui", source: "reply", block: BLOCK }],
       ["assistant@6", "Gone reply", { kind: "none" }],
     ]);
   });
 
   const TABLE = '```openui\nroot = Table([Column("Month", ["Jan"])])\n```';
-  const table = { thread: "assistant:nova", message: "assistant@1000", label: "table", surface: "desktop", excerpt: "We sold" } as const;
+  const table = {
+    thread: "assistant:nova",
+    message: "assistant@1000",
+    label: "table",
+    surface: "desktop",
+    excerpt: "We sold",
+  } as const;
 
   it("a form pick saves first, then asks the widget agent for exactly that form over the reply and shows it whatever the mode", async () => {
-    const h = setup({ answer: { kind: "openui", block: TABLE, why: "picked" }, messages: { "assistant:nova assistant@1000": "Jan 42, Feb 51." } });
+    const h = setup({
+      answer: { kind: "openui", block: TABLE, why: "picked" },
+      messages: { "assistant:nova assistant@1000": "Jan 42, Feb 51." },
+    });
     expect(await h.service.label(table)).toEqual({ ok: true });
-    await vi.waitFor(() => expect(h.service.snapshot("assistant:nova")).toEqual({ "assistant@1000": TABLE }));
-    expect(h.asked).toEqual([{ draft: "Jan 42, Feb 51.", surface: "desktop", context: { channel: "text", askedForDetail: false }, form: "table" }]);
-    expect(h.sent).toEqual([{ t: "widgets.snapshot", thread: "assistant:nova", widgets: { "assistant@1000": TABLE } }]);
+    await vi.waitFor(() => {
+      expect(h.service.snapshot("assistant:nova")).toEqual({ "assistant@1000": TABLE });
+    });
+    expect(h.asked).toEqual([
+      {
+        draft: "Jan 42, Feb 51.",
+        surface: "desktop",
+        context: { channel: "text", askedForDetail: false },
+        form: "table",
+      },
+    ]);
+    expect(h.sent).toEqual([
+      { t: "widgets.snapshot", thread: "assistant:nova", widgets: { "assistant@1000": TABLE } },
+    ]);
     expect(jsonl(h.home, "training.jsonl")).toHaveLength(1);
   });
 
   it("shows nothing when the agent has no widget for the form or times out, and 'plain' takes a shown widget off", async () => {
-    const none = setup({ answer: { kind: "none", why: "no data" }, messages: { "assistant:nova assistant@1000": "Hello." } });
+    const none = setup({
+      answer: { kind: "none", why: "no data" },
+      messages: { "assistant:nova assistant@1000": "Hello." },
+    });
     await none.service.label(table);
-    await vi.waitFor(() => expect(none.asked).toHaveLength(1));
+    await vi.waitFor(() => {
+      expect(none.asked).toHaveLength(1);
+    });
     const late = setup({ answer: null, messages: { "assistant:nova assistant@1000": "Hello." } });
     await late.service.label(table);
-    await vi.waitFor(() => expect(late.asked).toHaveLength(1));
-    expect([none.sent, late.sent, none.service.snapshot("assistant:nova"), late.service.snapshot("assistant:nova")]).toEqual([[], [], {}, {}]);
+    await vi.waitFor(() => {
+      expect(late.asked).toHaveLength(1);
+    });
+    expect([
+      none.sent,
+      late.sent,
+      none.service.snapshot("assistant:nova"),
+      late.service.snapshot("assistant:nova"),
+    ]).toEqual([[], [], {}, {}]);
 
-    const h = setup({ mode: "live", messages: { "assistant:nova assistant@1000": "We sold 42 boards this month." } });
+    const h = setup({
+      mode: "live",
+      messages: { "assistant:nova assistant@1000": "We sold 42 boards this month." },
+    });
     await h.service.reply(reply());
     expect(h.service.snapshot("assistant:nova")).toEqual({ "assistant@1000": BLOCK });
     await h.service.label({ ...table, label: "plain" });
-    await vi.waitFor(() => expect(h.service.snapshot("assistant:nova")).toEqual({}));
+    await vi.waitFor(() => {
+      expect(h.service.snapshot("assistant:nova")).toEqual({});
+    });
     expect(h.asked).toHaveLength(1);
     expect(h.sent.at(-1)).toEqual({ t: "widgets.snapshot", thread: "assistant:nova", widgets: {} });
   });

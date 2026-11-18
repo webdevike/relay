@@ -205,7 +205,7 @@ not quiet hours or a habit break, rate limited) and speaks to the host as the de
   the delivered notification with a silent push (`{ withdraw: <id> }`, content-available).
 - A phone's own answer (`agent.approve`, `agent.deny`, `agent.ask.answer`) is claimed by the session before it
   runs (`InboxRelaying.claim`); omp's resolved event then makes the host send `inbox.resolve { by: "phone",
-  answer }` to every device, EvaOS included, ahead of the plain `agent.approval.resolved`, so the Mac's row
+answer }` to every device, EvaOS included, ahead of the plain `agent.approval.resolved`, so the Mac's row
   reads "answered on iPhone". A refused answer (no Face ID) releases the claim.
 - While `evaos` is connected the host's own "session is waiting" pushes (`AttentionNotifier`) are suppressed:
   the engine already applied the rules. Without EvaOS they behave as before.
@@ -287,7 +287,7 @@ line, no turn, no push.
 
 When an assistant's turn ends (its session goes from working to idle), `AssistantService` hands the turn's last
 reply to `src/widgets/service.ts`, after the reply already went out, so the text never waits. Voice-call turns
-and replies that already hold a widget fence (```openui, ```ui, ```html-widget, ```mantine-widget) are
+and replies that already hold a widget fence (`openui, `ui, `html-widget, `mantine-widget) are
 skipped. So is a reply with no structured data: `src/widgets/gate.ts` counts, with no model call and leaving
 code fences out, measures to compare (currency, %, a number with a unit, either side of "N vs N" / "from N to
 N"), table rows plus list items and `Label: ...` lines holding a number, distinct ticket or PR keys (`ENG-123`,
@@ -346,7 +346,7 @@ sentence), and the label is the ask-label or that question cut to `MAX_ASK_LABEL
 before ": " when the rest stands alone ("Last one for today: want me to ..." reads "Want me to ...").
 
 - An ask closes as `answered` when a device sends `assistant.ask.resolve { agent, id, how: "answered",
-  answer? }` (Isaac tapped one of its answers, or typed one on a session ask's card), when a later turn of
+answer? }` (Isaac tapped one of its answers, or typed one on a session ask's card), when a later turn of
   his in the thread is exactly one of its answers (case aside; covers desktop chips and older phones; never
   for a session ask), or when the bridge reports its ask card answered (the extension's
   `ask.resolved { answered }`; a cancel leaves it open). `how: "dismissed"` waves it away. A message typed in
@@ -354,9 +354,9 @@ before ": " when the rest stands alone ("Last one for today: want me to ..." rea
 - The assistant closes one itself with `relay-linux asks resolve <id>...|--all [--answer '<text>']`
   (`POST /assistant/asks/resolve` `{ id, agent?, answer? }` on loopback, 404 for an id that is not open;
   with an answer it closes as `answered`, else `resolved`) and lists them with `relay-linux asks list
-  [--agent <id>] [--json]` (`GET /assistant/asks[?agent=<id>]`; agent from `$RELAY_ASSISTANT`, else every
+[--agent <id>] [--json]` (`GET /assistant/asks[?agent=<id>]`; agent from `$RELAY_ASSISTANT`, else every
   thread): one line each, `<id>  <agent>  <age>  <label>: <question>  [a | b]`. `relay-linux asks get <id>
-  [--json]` (`GET /assistant/asks/<id>`, every thread searched) reads one, open or closed while it is kept:
+[--json]` (`GET /assistant/asks/<id>`, every thread searched) reads one, open or closed while it is kept:
   state, who asked, the question, the default, the answer and whether it was delivered.
 - A row is known by its time and question, not its row id, so an earlier context read back after the
   nightly rollover is the same ask. Asking an open question again refreshes that ask; a closed one asked
@@ -742,10 +742,10 @@ focused, remote }` on connect and after input, page and focus changes; the host 
 the one on this Mac (loopback socket, not remote mode), else the newest connection.
 
 - `GET /control/devices`: `{ok, value: {active, devices: [{id, name, instance, local, lastInputAt, page, focused,
-  connectedAt, active}]}}`. A device id is the hello's device id, `:<instance>` appended for builds other than `stable`.
+connectedAt, active}]}}`. A device id is the hello's device id, `:<instance>` appended for builds other than `stable`.
 - `POST /control/run {target?: "active" | <id> | <name>, action, params?, confirm?, scope?}` sends `control.req` with a
   fresh rid to that desktop and answers its `control.res` result (the desktop's control API result, plus `device {id,
-  name}`), with the desktop API's HTTP statuses. Host failures: `no-device` 404, `device-gone` 502 (it disconnected),
+name}`), with the desktop API's HTTP statuses. Host failures: `no-device` 404, `device-gone` 502 (it disconnected),
   `device-timeout` 504 (90 s: a destructive action waits up to 60 s for Isaac). `action: "@actions"` is the catalog.
 
 Both need a loopback peer, a loopback `Host`, no `Origin` and `Authorization: Bearer <controlToken>`, the random token
