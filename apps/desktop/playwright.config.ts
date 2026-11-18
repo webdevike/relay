@@ -50,6 +50,8 @@ const SERIAL_SPECS = [
   '**/canvas-paste.spec.ts',
   // A component card's redraw is asserted under a second of its edit landing.
   '**/canvas-design.spec.ts',
+  // Measures real surfaces by resizing the window and compares frames pixel for pixel.
+  '**/canvas-frames.spec.ts',
 ]
 
 // packaged.spec.ts launches the built .app: opt in with EVAOS_PACKAGED=1, never in the project runs.

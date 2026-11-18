@@ -118,6 +118,20 @@ describe("boardText", () => {
     mergeBoardIntoDoc(doc, unaware, "file", b);
     expect(boardText(exportBoard(doc))).toBe(t.replace('"x": 1.0', '"x": 50.0'));
   });
+
+  it("reads a component card's old screen (`viewport`) as its frame and writes only the frame", () => {
+    const card = (data: string): string => `{"nodes":[{"id":"p","type":"proto","data":{"system":"relay",${data}}}]}`;
+    const pairs: [string, string][] = [["desktop", "window"], ["mobile", "phone"], ["sidebar", "sidebar"], ["pane", "pane"], ["chat", "chat"]];
+    for (const [viewport, frame] of pairs) {
+      const b = parseBoard(card(`"viewport":"${viewport}"`));
+      expect(b.nodes[0]?.data).toEqual({ system: "relay", frame });
+      expect(boardText(b)).toContain(`"frame": "${frame}"`);
+      expect(boardText(b)).not.toContain("viewport");
+    }
+    // A frame wins over an old screen; a screen it never had stays out of the card's data.
+    expect(parseBoard(card(`"frame":"page","viewport":"mobile"`)).nodes[0]?.data).toEqual({ system: "relay", frame: "page" });
+    expect(parseBoard(card(`"viewport":"tv"`)).nodes[0]?.data).toEqual({ system: "relay" });
+  });
 });
 
 describe("seed and export", () => {

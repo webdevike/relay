@@ -1,0 +1,253 @@
+{
+  "agents": [
+    {
+      "id": "astra",
+      "title": "Astra",
+      "scope": "eCard Systems work",
+      "avatar": {
+        "style": "micah",
+        "seed": "astra-2",
+        "options": {
+          "base": [
+            "standard"
+          ],
+          "earringsProbability": 100,
+          "ears": [
+            "attached"
+          ],
+          "eyebrows": [
+            "eyelashesUp"
+          ],
+          "eyes": [
+            "smiling"
+          ],
+          "facialHairProbability": 0,
+          "glassesProbability": 0,
+          "hair": [
+            "pixie"
+          ],
+          "hairProbability": 100,
+          "mouth": [
+            "smirk"
+          ],
+          "nose": [
+            "tound"
+          ],
+          "shirt": [
+            "collared"
+          ],
+          "baseColor": [
+            "f9c9b6"
+          ],
+          "hairColor": [
+            "f4d150"
+          ],
+          "shirtColor": [
+            "fc909f"
+          ],
+          "glasses": [
+            "round"
+          ],
+          "earrings": [
+            "stud"
+          ]
+        },
+        "colors": {
+          "paper": "#ffe3e3",
+          "accent": "#1c7ed6"
+        }
+      }
+    },
+    {
+      "id": "nova",
+      "title": "Nova",
+      "scope": "Personal",
+      "avatar": {
+        "style": "micah",
+        "seed": "nova-17",
+        "options": {
+          "base": [
+            "standard"
+          ],
+          "earringsProbability": 0,
+          "ears": [
+            "attached"
+          ],
+          "eyebrows": [
+            "eyelashesDown"
+          ],
+          "eyes": [
+            "eyes"
+          ],
+          "facialHairProbability": 0,
+          "glasses": [
+            "round"
+          ],
+          "glassesProbability": 100,
+          "hair": [
+            "full"
+          ],
+          "hairProbability": 100,
+          "mouth": [
+            "smile"
+          ],
+          "nose": [
+            "curve"
+          ],
+          "shirt": [
+            "crew"
+          ],
+          "baseColor": [
+            "b16a5b"
+          ],
+          "hairColor": [
+            "e0ddff"
+          ],
+          "shirtColor": [
+            "000000"
+          ],
+          "earrings": [
+            "stud"
+          ]
+        },
+        "colors": {
+          "paper": "#e7f5ff",
+          "accent": "#f76707"
+        }
+      }
+    },
+    {
+      "id": "polaris",
+      "title": "Polaris",
+      "scope": "Eva self-improvement: agent miner, hill climber, experiments",
+      "avatar": {
+        "style": "micah",
+        "seed": "astra-2",
+        "options": {
+          "base": [
+            "standard"
+          ],
+          "earringsProbability": 100,
+          "ears": [
+            "attached"
+          ],
+          "eyebrows": [
+            "eyelashesUp"
+          ],
+          "eyes": [
+            "eyesShadow"
+          ],
+          "facialHairProbability": 0,
+          "glassesProbability": 100,
+          "hair": [
+            "full"
+          ],
+          "hairProbability": 100,
+          "mouth": [
+            "laughing"
+          ],
+          "nose": [
+            "tound"
+          ],
+          "shirt": [
+            "open"
+          ],
+          "baseColor": [
+            "eeb4a4"
+          ],
+          "hairColor": [
+            "6bd9e9"
+          ],
+          "shirtColor": [
+            "e0ddff"
+          ],
+          "glasses": [
+            "square"
+          ],
+          "earrings": [
+            "stud"
+          ],
+          "facialHair": [
+            "beard"
+          ]
+        },
+        "colors": {
+          "paper": "#ffe3e3",
+          "accent": "#d6336c"
+        }
+      }
+    },
+    {
+      "id": "penny",
+      "title": "Penny",
+      "scope": "Deals, price drops, watch lists, coupons",
+      "avatar": {
+        "style": "micah",
+        "seed": "penny-1",
+        "options": {
+          "hair": [
+            "pixie"
+          ],
+          "hairProbability": 100,
+          "glassesProbability": 0,
+          "mouth": [
+            "laughing"
+          ]
+        },
+        "colors": {
+          "paper": "#f4d150",
+          "accent": "#e03131"
+        }
+      }
+    },
+    {
+      "id": "iris",
+      "title": "Iris",
+      "scope": "Curates Isaac's discovery feed: tools, platforms and process creators in game dev, 3D, woodworking, UI/UX, type, furniture, product and logo design.",
+      "avatar": {
+        "style": "notionists",
+        "seed": "iris",
+        "options": {
+          "base": [
+            "variant01"
+          ],
+          "beard": [
+            "variant11"
+          ],
+          "beardProbability": 0,
+          "body": [
+            "variant15"
+          ],
+          "bodyIconProbability": 100,
+          "brows": [
+            "variant07"
+          ],
+          "eyes": [
+            "variant04"
+          ],
+          "gestureProbability": 100,
+          "glassesProbability": 0,
+          "hair": [
+            "variant45"
+          ],
+          "lips": [
+            "variant29"
+          ],
+          "nose": [
+            "variant17"
+          ],
+          "bodyIcon": [
+            "galaxy"
+          ],
+          "gesture": [
+            "waveLongArms"
+          ]
+        },
+        "colors": {
+          "paper": "#fff1e6",
+          "accent": "#1098ad"
+        }
+      }
+    }
+  ]
+}

@@ -137,7 +137,7 @@ describe("toFlowNodes", () => {
 });
 
 describe("proto nodes", () => {
-  it("snap their design system, viewport and size, defaulting to a desktop screen", () => {
+  it("snap their design system, frame and size, defaulting to a desktop screen", () => {
     const doc = new Y.Doc();
     node(doc, "p", {
       type: "proto",
@@ -148,7 +148,7 @@ describe("proto nodes", () => {
       title: "Approve",
       body: "<Button />",
       system: "relay",
-      viewport: "mobile",
+      frame: "phone",
     });
     node(doc, "q", {
       type: "proto",
@@ -162,7 +162,7 @@ describe("proto nodes", () => {
     expect(snaps[0]).toMatchObject({
       type: "proto",
       system: "relay",
-      viewport: "mobile",
+      frame: "phone",
       body: "<Button />",
     });
     const [p, q] = toFlowNodes({ nodes: snaps, edges: [] });

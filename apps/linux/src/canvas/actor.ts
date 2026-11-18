@@ -19,7 +19,7 @@ import { DOC_KEYS, type NodeKind, type Presence, type TextField, type User } fro
 import { anchorFor, openThread, pinAt, postInThread, setResolved, THREAD_ID, type ThreadAnchor, type ThreadMap, type ThreadMsg } from "@relay/canvas-live/threads";
 import { liveRefusal } from "../query/openui";
 import { protoSourceRefusal } from "../../../../packages/widget-runtime/src/proto";
-import { DESIGN_SYSTEMS, isDesignSystem } from "../../../../packages/widget-runtime/src/systems";
+import { DESIGN_SYSTEMS, frameRefusal, isDesignSystem } from "../../../../packages/widget-runtime/src/systems";
 import type { Action, TextStream } from "./dsl";
 
 const ease = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
@@ -510,6 +510,8 @@ export class CanvasActor {
       case "add_proto": {
         if (this.nodes.has(a.id)) return `id ${a.id} is taken`;
         if (!isDesignSystem(a.system)) return `unknown design system "${a.system}" (use ${DESIGN_SYSTEMS.join(", ")})`;
+        const badFrame = a.frame === null ? null : frameRefusal(a.frame);
+        if (badFrame !== null) return badFrame;
         // Title on the first line, the JSX after it; it lands whole, and only once it compiles.
         while (!a.text.closed) await a.text.changed();
         const [title = "", ...rest] = a.text.text.split("\n");
@@ -527,7 +529,7 @@ export class CanvasActor {
         m.set("title", new Y.Text(title.trim()));
         m.set("body", new Y.Text(source));
         m.set("system", a.system);
-        if (a.viewport === "mobile") m.set("viewport", "mobile");
+        if (a.frame !== null) m.set("frame", a.frame);
         m.set("fields", []);
         transact(() => {
           this.nodes.set(a.id, m);

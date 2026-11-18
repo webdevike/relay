@@ -2,9 +2,10 @@
 // contract (```mantine-widget's), what each design system gives (Relay's theme, eCard's design-system
 // components) and example prototypes. The examples are checked by test/canvas.test.ts with the same
 // check that guards @add_proto, so the prompt cannot teach code that would be refused.
+import { FRAME_PRESETS } from "../../../../packages/widget-runtime/src/systems";
 
 /** Example prototypes for the prompt; each is a complete `@add_proto` block. */
-export const PROTO_EXAMPLES: readonly { id: string; title: string; system: "relay" | "ecard"; width: number; height: number; mobile?: boolean; source: string }[] = [
+export const PROTO_EXAMPLES: readonly { id: string; title: string; system: "relay" | "ecard"; width: number; height: number; frame?: string; source: string }[] = [
   {
     id: "ecard-assets",
     title: "Platform Assets (eCard)",
@@ -48,7 +49,7 @@ return (
     system: "relay",
     width: 430,
     height: 640,
-    mobile: true,
+    frame: "phone",
     source: `const [done, setDone] = useState(false);
 return (
   <Stack p="md" gap="sm">
@@ -72,13 +73,15 @@ return (
 export function protoPrompt(): string {
   const examples = PROTO_EXAMPLES.map(
     (e, i) =>
-      `Example ${String(i + 1)}:\n@add_proto ${e.id} ${String(i * 1000)} 800 ${String(e.width)} ${String(e.height)} ${e.system}${e.mobile === true ? " mobile" : ""}\n${e.title}\n${e.source}\n@end`,
+      `Example ${String(i + 1)}:\n@add_proto ${e.id} ${String(i * 1000)} 800 ${String(e.width)} ${String(e.height)} ${e.system}${e.frame === undefined ? "" : ` ${e.frame}`}\n${e.title}\n${e.source}\n@end`,
   ).join("\n\n");
   return `Prototypes (@add_proto):
 A "proto" node is a real, clickable mockup of a screen, drawn live in a product's design system. Use it when asked to mock up, prototype, sketch a screen, show what a page or flow could look like, "mock up X for eCard", "a Relay version of Y". Not for live data (that is @add_ui) and not a handoff.
-Syntax: @add_proto <newId> <x> <y> <width> [height] <relay|ecard|mantine> [mobile], then the title on the first line, then the JSX, then @end. @set_text <protoId> body with new JSX replaces it.
+Syntax: @add_proto <newId> <x> <y> <width> [height] <relay|ecard|mantine> [frame], then the title on the first line, then the JSX, then @end. @set_text <protoId> body with new JSX replaces it.
 - relay: Relay's own app look (its Mantine theme, dark or light like the board). ecard: eCard's design system (brand blue buttons, Inter, its tokens) plus its components: BasePageBody, BasePageHeader, BasePageTitle, BasePageDescription, BasePanel, BaseCardTitle, BaseRowTitle, BaseDetailLabel, BaseDetailValue, BaseLedgerRow, BaseTextInput, BaseTextarea, BaseNumberInput, BaseColorInput, and Base<Name> for any Mantine <Name> (BaseButton, BaseTable, ...). Button variants contained, outlined, text and quiet are eCard's. mantine: plain Mantine.
-- Size: desktop screens 900-1100 wide and 560-720 tall; mobile adds "mobile" (a 390px phone column) with width about 430.
+- Size: desktop screens 900-1100 wide and 560-720 tall. [frame] draws the screen at a real Relay surface's size inside the card: ${Object.entries(FRAME_PRESETS)
+    .map(([id, f]) => `${id} ${String(f.w)}x${String(f.h)}`)
+    .join(", ")}, or <w>x<h>; for a phone screen give "phone" and a width of about 430.
 - The JSX is the body of a React component: hooks and constants, then return <JSX/> (or one JSX element). Every @mantine/core, @mantine/charts and @mantine/hooks name and React's hooks are in scope; no imports, no icons packages, no network, no images except data: URLs. Define small helper components inside the code. Make it interactive with useState: tabs that switch, buttons that change state, inputs that filter, rows that select. Use realistic made-up content, never real customer data.
 - It must compile and use only known components, or it does not land (the reason comes back to you). Put prototypes side by side with 60px gaps, below or beside the related notes.
 

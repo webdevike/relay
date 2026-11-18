@@ -2,7 +2,13 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { CanvasBoardAnswer, CanvasBoardCall, CanvasRun } from '@evaos/contract'
+import {
+  agentActions,
+  type CanvasBoardAnswer,
+  type CanvasBoardCall,
+  type CanvasRun,
+} from '@evaos/contract'
+import { FRAME_PRESETS } from '@relay/widget-runtime/systems'
 import { createConfigStore } from '../config-store'
 import type { DriveIdentity } from '../browser/agent-drive'
 import { layoutBoard } from '../../shared/canvas-layout'
@@ -574,7 +580,7 @@ describe('component cards (the design canvas)', () => {
       slug: 'mind-map',
       title: 'Session badge',
       body: badge('Working'),
-      data: { viewport: 'pane' },
+      data: { frame: 'pane' },
       variants: [
         {},
         { edits: [{ find: 'light', replace: 'filled' }] },
@@ -595,7 +601,10 @@ describe('component cards (the design canvas)', () => {
       '<Indicator />',
     ])
     expect(new Set(cards.map((c) => c.data?.group)).size).toBe(1)
-    expect(cards.every((c) => c.data?.system === 'relay' && c.w === 480 + 32)).toBe(true)
+    // Each card is its frame (the tool pane, 331 x 728) plus the card's chrome.
+    expect(
+      cards.every((c) => c.data?.system === 'relay' && c.w === 331 + 28 && c.h === 728 + 56),
+    ).toBe(true)
     // Side by side, never on top of each other.
     expect(cards[1]!.y).toBe(cards[0]!.y)
     expect(cards[1]!.x! - cards[0]!.x!).toBeGreaterThanOrEqual(cards[0]!.w!)
@@ -606,7 +615,12 @@ describe('component cards (the design canvas)', () => {
 
   it('duplicates a card as a variant: the original becomes A, the patched copy B', async () => {
     const { drive, store } = setup()
-    const a = (await drive.add({ slug: 'mind-map', type: 'proto', body: badge('Idle') })) as Answer
+    const a = (await drive.add({
+      slug: 'mind-map',
+      type: 'proto',
+      body: badge('Idle'),
+      data: { frame: 'chips' },
+    })) as Answer
     expect(a['compile']).toBe('ok')
     const b = (await drive.add({
       slug: 'mind-map',
@@ -623,7 +637,12 @@ describe('component cards (the design canvas)', () => {
 
   it('patches a card in place, answers a compile error, and refuses a patch that does not match', async () => {
     const { drive, store, log } = setup()
-    const a = (await drive.add({ slug: 'mind-map', type: 'proto', body: badge('One') })) as Answer
+    const a = (await drive.add({
+      slug: 'mind-map',
+      type: 'proto',
+      body: badge('One'),
+      data: { frame: 'chips' },
+    })) as Answer
     const id = a['id'] as string
     const ok = (await drive.edit({
       slug: 'mind-map',
@@ -646,16 +665,60 @@ describe('component cards (the design canvas)', () => {
     expect(body).toBe('<Badge variant="light">Two')
   })
 
-  it('reads a component card whole, with its design fields and Isaac’s selection', async () => {
+  it('refuses a component card without a real frame before anything moves, and sizes the card to a new one', async () => {
+    const { drive, store, log } = setup()
+    log.length = 0
+    await expect(
+      drive.add({ slug: 'mind-map', type: 'proto', body: badge('One') }),
+    ).rejects.toMatchObject({
+      code: 'invalid-params',
+      message: expect.stringMatching(/needs data.frame.*page \(Page, 1120x684\)/),
+    })
+    await expect(
+      drive.add({ slug: 'mind-map', type: 'proto', body: badge('One'), data: { frame: '9x9' } }),
+    ).rejects.toMatchObject({ code: 'invalid-params' })
+    expect(log.filter((l) => l.startsWith('write') || l.startsWith('cursor'))).toEqual([])
+    const a = (await drive.add({
+      slug: 'mind-map',
+      type: 'proto',
+      body: badge('One'),
+      data: { frame: 'phone' },
+    })) as Answer
+    const id = a['id'] as string
+    const sized = async () => (await store.load('mind-map')).board.nodes.find((n) => n.id === id)!
+    expect(await sized()).toMatchObject({ w: 390 + 28, h: 844 + 56 })
+    // A custom size, and a width or height the agent sends is not the artboard's to take.
+    await drive.edit({ slug: 'mind-map', node: id, data: { frame: '600x200' }, w: 2000, h: 50 })
+    expect(await sized()).toMatchObject({ w: 600 + 28, h: 200 + 56, data: { frame: '600x200' } })
+  })
+
+  it('reads a component card whole, with its design fields, its frame and Isaac’s selection', async () => {
     const { drive } = setup()
     const long = `<Stack>${'<Text>row</Text>'.repeat(80)}</Stack>`
-    const a = (await drive.add({ slug: 'mind-map', type: 'proto', body: long })) as Answer
+    const a = (await drive.add({
+      slug: 'mind-map',
+      type: 'proto',
+      body: long,
+      data: { frame: 'page' },
+    })) as Answer
     const read = (await drive.read('mind-map', undefined)) as {
       nodes: Answer[]
       selected?: string[]
     }
     const card = read.nodes.find((n) => n['id'] === a['id'])!
-    expect(card).toMatchObject({ body: long, system: 'relay' })
+    expect(card).toMatchObject({
+      body: long,
+      system: 'relay',
+      frame: { preset: 'page', label: 'Page', w: 1120, h: 684 },
+    })
     expect(read.selected).toEqual([])
+  })
+
+  it('tells agents every frame with its measured size', () => {
+    for (const action of ['canvas.add', 'canvas.edit'] as const) {
+      const told = agentActions[action].description
+      for (const [id, f] of Object.entries(FRAME_PRESETS))
+        expect(told).toContain(`\`${id}\` (${String(f.w)}x${String(f.h)}`)
+    }
   })
 })

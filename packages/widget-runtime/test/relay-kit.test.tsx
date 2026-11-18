@@ -5,7 +5,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { SYSTEM_SCOPE_NAMES } from "../generated/scope";
 import { protoSourceRefusal } from "../src/proto";
 import { WidgetRoot } from "../src/runtime/index";
+import { setKitAssistants } from "../src/runtime/relay-kit";
 import { systemScope } from "../src/runtime/systems";
+import { portrait } from "../../../apps/desktop/src/renderer/ui/portrait";
 import { systemCss } from "../src/systems/css";
 import { defaultConfig } from "../src/theme";
 
@@ -102,6 +104,46 @@ describe("the relay kit", () => {
     const html = await render('<AssistantAvatar face="nova-1" size="sm" />');
     expect(html).toContain('class="eva-pm"');
     expect(html).toContain("eva-as-avatar");
+  });
+
+  it("draws a registry assistant's real portrait and name from its id, and names the ones it has for an unknown id", async () => {
+    const nova = { style: "micah" as const, seed: "nova-17", colors: { paper: "#e7f5ff" } };
+    setKitAssistants({
+      nova: { title: "Nova", avatar: nova },
+      astra: { title: "Astra", avatar: "astra-2" },
+    });
+    try {
+      const html = await render(
+        '<Group><AssistantCard agent="nova" status="idle" /><AssistantAvatar agent="nova" /></Group>',
+      );
+      const real = portrait(nova);
+      expect(html).toContain('<span class="eva-asg-name">Nova</span>');
+      expect(html).toContain('class="eva-asg-art" style="background: rgb(231, 245, 255);"');
+      // Both draw the registry's portrait, not one seeded by the id.
+      expect(html.split(real.replaceAll("&", "&amp;")).length - 1).toBe(2);
+      expect(html).not.toContain(portrait("nova").replaceAll("&", "&amp;"));
+      document.body.innerHTML = "";
+      const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const element = document.createElement("div");
+      document.body.append(element);
+      await act(() => {
+        createRoot(element).render(
+          <WidgetRoot
+            source={'<AssistantAvatar agent="nobody" />'}
+            config={defaultConfig}
+            colorScheme="dark"
+            system="relay"
+          />,
+        );
+        return Promise.resolve();
+      });
+      errors.mockRestore();
+      expect(document.body.textContent).toContain(
+        'No assistant "nobody"; the registry has nova, astra',
+      );
+    } finally {
+      setKitAssistants({});
+    }
   });
 
   it("draws the composer's chips in their strip", async () => {

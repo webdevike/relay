@@ -572,25 +572,26 @@ describe("agents joining a live room", () => {
     const room = await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
     const theo = service.join("ecs-roles", { name: "Theo" }).participant.id;
     const jsx = "const [n, setN] = useState(0);\nreturn <BasePanel><BasePageTitle>Assets</BasePageTitle><Button onClick={() => setN(n + 1)}>{n}</Button></BasePanel>;";
-    const added = await service.act("ecs-roles", theo, `@add_proto assets 6000 600 960 640 ecard\nPlatform Assets\n${jsx}\n@end\n@add_proto phone 7100 600 430 relay mobile\nApprove\n<Button>Approve</Button>\n@end`);
+    const added = await service.act("ecs-roles", theo, `@add_proto assets 6000 600 960 640 ecard\nPlatform Assets\n${jsx}\n@end\n@add_proto phone 7100 600 430 relay phone\nApprove\n<Button>Approve</Button>\n@end`);
     expect(added).toEqual({ ran: 2, said: [], skipped: [], added: ["assets", "phone"] });
     const nodes = service.view("ecs-roles").board.nodes;
     expect(nodes.find((n) => n.id === "assets")).toMatchObject({ type: "proto", x: 6000, y: 600, w: 960, h: 640, data: { title: "Platform Assets", body: jsx, system: "ecard" } });
-    expect(nodes.find((n) => n.id === "phone")).toMatchObject({ type: "proto", w: 430, h: 640, data: { system: "relay", viewport: "mobile" } });
+    expect(nodes.find((n) => n.id === "phone")).toMatchObject({ type: "proto", w: 430, h: 640, data: { system: "relay", frame: "phone" } });
 
     const refused = await service.act(
       "ecs-roles",
       theo,
-      "@add_proto bad 8000 0 960 ecard\nBad\nreturn <Button>\n@end\n@add_proto icons 8000 0 960 relay\nIcons\n<IconCheck />\n@end\n@add_proto nope 8000 0 960 figma\nX\n<Text />\n@end\n@add_proto relay-base 8000 0 960 relay\nX\n<BasePanel />\n@end\n@set_text assets body\n<Stack><Bogus /></Stack>\n@end",
+      "@add_proto bad 8000 0 960 ecard\nBad\nreturn <Button>\n@end\n@add_proto icons 8000 0 960 relay\nIcons\n<IconCheck />\n@end\n@add_proto nope 8000 0 960 figma\nX\n<Text />\n@end\n@add_proto relay-base 8000 0 960 relay\nX\n<BasePanel />\n@end\n@add_proto tv 8000 0 960 relay television\nX\n<Text />\n@end\n@set_text assets body\n<Stack><Bogus /></Stack>\n@end",
     );
     expect(refused.skipped).toEqual([
       expect.stringMatching(/^add_proto bad: jsx: does not compile: /),
       "add_proto icons: jsx: unknown component <IconCheck>: not in Mantine, @mantine/charts or the design system, and not defined in the code",
       'add_proto nope: unknown design system "figma" (use relay, ecard, mantine)',
       expect.stringMatching(/^add_proto relay-base: jsx: unknown component <BasePanel>/),
+      expect.stringMatching(/^add_proto tv: frame "television" is not a preset or <w>x<h> .*presets: window \(Desktop window, 1280x800\)/),
       expect.stringMatching(/^set_text assets: jsx: unknown component <Bogus>/),
     ]);
-    expect(service.view("ecs-roles").board.nodes.some((n) => ["bad", "icons", "nope", "relay-base"].includes(n.id))).toBe(false);
+    expect(service.view("ecs-roles").board.nodes.some((n) => ["bad", "icons", "nope", "relay-base", "tv"].includes(n.id))).toBe(false);
     const next = "<BaseButton variant=\"outlined\">Cancel</BaseButton>";
     expect((await service.act("ecs-roles", theo, `@set_text assets body\n${next}\n@end`)).ran).toBe(1);
 
@@ -610,13 +611,14 @@ describe("agents joining a live room", () => {
     await service.end(room.roomId);
     const onDisk = parseBoard(readFileSync(join(canvasDir, "ecs-roles.json"), "utf8"));
     expect(onDisk.nodes.find((n) => n.id === "assets")).toMatchObject({ type: "proto", w: 960, h: 640, data: { title: "Platform Assets", body: next, system: "ecard" } });
-    expect(onDisk.nodes.find((n) => n.id === "phone")).toMatchObject({ data: { system: "relay", viewport: "mobile" } });
+    expect(onDisk.nodes.find((n) => n.id === "phone")).toMatchObject({ data: { system: "relay", frame: "phone" } });
   });
 
   it("tells the canvas self how to build prototypes, with examples that compile", async () => {
     await service.start({ slug: "ecs-roles", caller: { sessionFile: chatFile } });
     const system = brains[0]?.system ?? "";
-    expect(system).toContain("@add_proto <newId> <x> <y> <width> [height] <relay|ecard|mantine> [mobile]");
+    expect(system).toContain("@add_proto <newId> <x> <y> <width> [height] <relay|ecard|mantine> [frame]");
+    expect(system).toContain("phone 390x844");
     expect(system).toContain('"mock up X for eCard"');
     expect(system).toContain("BasePageTitle");
     for (const example of PROTO_EXAMPLES) {

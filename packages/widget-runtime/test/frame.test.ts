@@ -108,5 +108,14 @@ describe("parseFrameMessage", () => {
     expect(parseFrameMessage('{"type":"height","height":-1}')).toBeNull();
     expect(parseFrameMessage('{"type":"reply","text":"  "}')).toBeNull();
     expect(parseFrameMessage('{"type":"navigate","url":"https://x.test"}')).toBeNull();
+    expect(parseFrameMessage('{"type":"content","w":390,"h":-1}')).toBeNull();
+  });
+
+  it("reads a live page's content size", () => {
+    expect(parseFrameMessage('{"type":"content","w":1120,"h":912}')).toEqual({
+      type: "content",
+      w: 1120,
+      h: 912,
+    });
   });
 });

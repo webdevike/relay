@@ -1,5 +1,6 @@
 import { DEFAULT_THEME } from '@mantine/core'
 import type { FrameTheme } from '@relay/widget-runtime/frame'
+import type { ProtoAssistant } from '@relay/widget-runtime/proto'
 import type { ColorScheme, ThemeConfig } from '@relay/widget-runtime/theme'
 
 export type FrameRuntime = 'html' | 'mantine'
@@ -69,17 +70,27 @@ export function frameUrl(
 
 /**
  * The `relay-widget:` page of a canvas prototype: its JSX in its design system, light or dark;
- * `config` (the Settings > Theme config) draws the `relay` system as the app runs it, and `live`
- * makes a page that takes new code from its card without reloading (frame.ts liveSourceMessage).
+ * `config` (the Settings > Theme config) draws the `relay` system as the app runs it,
+ * `assistants` (the registry) gives its kit the real portraits, and `live` makes a page that takes
+ * new code from its card without reloading (frame.ts liveSourceMessage).
  */
 export function protoFrameUrl(
   source: string,
   system: string,
   scheme: ColorScheme,
-  { config, live = false }: { config?: ThemeConfig | undefined; live?: boolean } = {},
+  {
+    config,
+    assistants,
+    live = false,
+  }: {
+    config?: ThemeConfig | undefined
+    assistants?: Readonly<Record<string, ProtoAssistant>> | undefined
+    live?: boolean
+  } = {},
 ): string {
   const params = new URLSearchParams({ source, system, scheme })
   if (config) params.set('config', JSON.stringify(config))
+  if (assistants) params.set('assistants', JSON.stringify(assistants))
   if (live) params.set('live', '1')
   return `relay-widget://frame/proto?${params.toString()}`
 }

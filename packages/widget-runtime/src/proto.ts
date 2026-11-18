@@ -26,20 +26,38 @@ export interface ProtoFrameOptions {
   /**
    * A live page (a canvas card on desktop): it takes new source from its parent window
    * (frame.ts `liveSourceMessage`) without reloading, keeps the last good render, and answers each
-   * revision with a `render` frame message.
+   * revision with a `render` frame message. It is a frame of a fixed size: what does not fit is
+   * clipped, not scrolled, and the page reports its content size (`content` frame messages).
    */
   live?: boolean | undefined;
+  /** The assistant registry, so the `relay` kit's `agent="nova"` draws Nova's real portrait. */
+  assistants?: Readonly<Record<string, ProtoAssistant>> | undefined;
 }
 
-/** Opaque page chrome: the product's own body color, scrolling inside the frame. */
+/**
+ * One registry assistant as a prototype page gets it: its name and its avatar (a notionists seed
+ * or a designed portrait, @evaos/contract AssistantPortrait), drawn by the kit (relay-kit.tsx).
+ */
+export interface ProtoAssistant {
+  title: string;
+  avatar: string | Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Opaque page chrome: the product's own body color, scrolling inside the frame. `#root` is a flow
+ * root so a first child's top margin (the badge strip's 10px) stays inside the frame, as in the app.
+ */
 const PROTO_STYLE = `html, body { margin: 0; min-height: 100%; -webkit-text-size-adjust: 100%; }
 body { overflow-wrap: anywhere; -webkit-tap-highlight-color: transparent; }
-#root { min-height: 100vh; }`;
+#root { min-height: 100vh; display: flow-root; }`;
+
+/** A live page is a fixed frame: it clips, like an artboard. */
+const LIVE_STYLE = `html, body { overflow: hidden; }`;
 
 /** The full document for a prototype: `source` drawn by the bundled runtime in `system`, after its CSS and fonts. */
 export function protoFrameDocument(
   source: string,
-  { system, dark, relayConfig, live }: ProtoFrameOptions,
+  { system, dark, relayConfig, live, assistants }: ProtoFrameOptions,
 ): string {
   const scheme = dark ? "dark" : "light";
   const mount = {
@@ -49,13 +67,14 @@ export function protoFrameDocument(
     system,
     ...(system === "relay" && relayConfig !== undefined ? { systemConfig: relayConfig } : {}),
     ...(live === true ? { live: true } : {}),
+    ...(system === "relay" && assistants !== undefined ? { assistants } : {}),
   };
   return `<!doctype html>
 <html data-mantine-color-scheme="${scheme}" data-design-system="${system}"><head>
 ${head(PROTO_FRAME_CSP)}
 <style>${WIDGET_RUNTIME_CSS}</style>
 <style>${systemCss(system).replaceAll("</style", "<\\/style")}</style>
-<style>${PROTO_STYLE}</style>
+<style>${PROTO_STYLE}${live === true ? LIVE_STYLE : ""}</style>
 <script>${bridgeScript(null, dark)}</script>
 <script>${WIDGET_RUNTIME_JS}</script>
 </head><body>

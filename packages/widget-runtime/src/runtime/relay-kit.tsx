@@ -5,8 +5,14 @@
  * from the same app files (generated/relay/styles.ts, ../systems/css.ts).
  */
 import type { CSSProperties } from "react";
-import { AssistantAvatar } from "../../../../apps/desktop/src/renderer/assistants/AssistantAvatar";
-import { AssistantCard } from "../../../../apps/desktop/src/renderer/assistants/AssistantCard";
+import {
+  AssistantAvatar as AppAssistantAvatar,
+  type AssistantAvatarProps,
+} from "../../../../apps/desktop/src/renderer/assistants/AssistantAvatar";
+import {
+  AssistantCard as AppAssistantCard,
+  type AssistantCardProps,
+} from "../../../../apps/desktop/src/renderer/assistants/AssistantCard";
 import { stepIcon } from "../../../../apps/desktop/src/renderer/canvas/cards/step-icons";
 import {
   ChipStrip,
@@ -33,6 +39,60 @@ export interface TablerIconProps {
   color?: string;
   className?: string;
   style?: CSSProperties;
+}
+
+/** One registry assistant as a page knows it: its name and its designed portrait. */
+export interface KitAssistant {
+  title: string;
+  avatar: AssistantCardProps["face"];
+}
+
+/**
+ * The assistant registry (Eva's .omp/assistant/agents.json) as Relay Desktop read it, handed to
+ * the page when it boots (proto.ts `assistants`), so `agent="nova"` draws Nova's real portrait.
+ */
+let registry: Readonly<Record<string, KitAssistant>> = {};
+
+export function setKitAssistants(assistants: Readonly<Record<string, KitAssistant>>): void {
+  registry = assistants;
+}
+
+/**
+ * Registry assistant `agent`. A page with no registry (a phone or a live room) falls back to a
+ * face seeded by the id; an id the registry lacks is an error that names the ones it has.
+ */
+function assistantOf(agent: string): KitAssistant {
+  const known = registry[agent];
+  if (known) return known;
+  const ids = Object.keys(registry);
+  if (ids.length > 0)
+    throw new Error(`No assistant "${agent}"; the registry has ${ids.join(", ")}`);
+  return { title: agent, avatar: agent };
+}
+
+/** A portrait to draw: a registry assistant's (`agent`), or a seed or designed one (`face`). */
+type FaceOrAgent =
+  { agent: string; face?: undefined } | { agent?: undefined; face: AssistantCardProps["face"] };
+
+/** The app's AssistantAvatar; `agent="nova"` draws that registry assistant's real portrait. */
+function AssistantAvatar(props: Omit<AssistantAvatarProps, "face"> & FaceOrAgent) {
+  const { agent, face, ...rest } = props;
+  return (
+    <AppAssistantAvatar {...rest} face={agent === undefined ? face : assistantOf(agent).avatar} />
+  );
+}
+
+/**
+ * The Assistants page's cover card; `agent="nova"` takes that registry assistant's real portrait
+ * and, unless `title` is given, its name.
+ */
+function AssistantCard(
+  props: Omit<AssistantCardProps, "face" | "title"> & FaceOrAgent & { title?: string },
+) {
+  const { agent, face, title, ...rest } = props;
+  if (agent === undefined) return <AppAssistantCard {...rest} title={title ?? ""} face={face} />;
+  const known = assistantOf(agent);
+  return <AppAssistantCard {...rest} title={title ?? known.title} face={known.avatar} />;
 }
 
 /**

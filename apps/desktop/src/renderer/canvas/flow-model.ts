@@ -12,6 +12,7 @@ import type {
   CanvasViewport,
 } from '@evaos/contract'
 import { CANVAS_VERSION } from '@evaos/contract'
+import { protoCardSize } from '../../shared/proto-card'
 import { FRAME_DEFAULT_H, defaultWidth, edgeTone, roundHalfAway } from './board-model'
 import type { Point } from './layout'
 
@@ -86,17 +87,20 @@ export function toFlowNodes(
     const p = parent.get(spec.id)
     const [px, py] = p !== undefined ? (at.get(p) ?? [0, 0]) : [0, 0]
     const frame = spec.type === 'frame'
+    // A component card is an artboard: its frame decides its size, never a resize.
+    const artboard = spec.type === 'proto' ? protoCardSize(spec.data?.frame) : null
     const { x: _x, y: _y, ...rest } = spec
     const node: CardNode = {
       id: spec.id,
       type: 'card',
       position: { x: x - px, y: y - py },
       data: { spec: rest, rank, hasChildren: withChildren.has(spec.id) },
-      width: spec.w ?? defaultWidth(spec.type),
+      width: artboard?.w ?? spec.w ?? defaultWidth(spec.type),
       selected: selected.has(spec.id),
       zIndex: frame ? -1 : 0,
     }
     if (frame) node.height = spec.h ?? FRAME_DEFAULT_H
+    else if (artboard) node.height = artboard.h
     else if (spec.h !== undefined) node.height = spec.h
     if (p !== undefined) {
       node.parentId = p
@@ -146,11 +150,13 @@ function fileNode(n: CardNode, at: Point): CanvasNode {
       w = roundHalfAway(n.width)
     if (n.height !== undefined && (h !== undefined || n.height !== FRAME_DEFAULT_H))
       h = roundHalfAway(n.height)
-  } else if (spec.type === 'ui' || spec.type === 'proto') {
-    // A live widget or prototype keeps the size its resize handles gave it.
+  } else if (spec.type === 'ui') {
+    // A live widget keeps the size its resize handles gave it.
     if (n.width !== undefined && (w !== undefined || n.width !== defaultWidth(spec.type)))
       w = roundHalfAway(n.width)
     if (n.height !== undefined) h = roundHalfAway(n.height)
+  } else if (spec.type === 'proto') {
+    ;({ w, h } = protoCardSize(spec.data?.frame))
   }
   const out: CanvasNode = { id: spec.id, type: spec.type }
   out.x = roundHalfAway(at[0])

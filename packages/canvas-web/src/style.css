@@ -475,9 +475,12 @@ kbd {
   height: 100%;
   border: 0;
 }
-.cv-proto-body[data-viewport="mobile"] .cv-proto-frame {
+.cv-proto-body[data-frame] {
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+.cv-proto-body[data-frame] .cv-proto-frame {
   flex: 0 0 auto;
-  border-inline: 1px solid var(--c-border);
 }
 
 .cv-card[data-kind="suggestion"] {

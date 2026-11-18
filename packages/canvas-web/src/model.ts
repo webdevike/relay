@@ -47,8 +47,8 @@ export interface NodeSnap {
   sample?: string;
   /** A `proto` node's design system. */
   system?: string;
-  /** A `proto` node's screen (`mobile`, else desktop). */
-  viewport?: string;
+  /** A `proto` node's frame: a FRAME_PRESETS id or `<w>x<h>` (its page is drawn at that size); none fills the card. */
+  frame?: string;
   /** Data keys the file had: `body` shows when listed even if empty. */
   fields: string[];
 }
@@ -318,7 +318,7 @@ const PLAIN = [
   "font",
   "sample",
   "system",
-  "viewport",
+  "frame",
 ] as const;
 
 export function snapNode(id: string, m: Y.Map<unknown>): NodeSnap {

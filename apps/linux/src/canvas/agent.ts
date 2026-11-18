@@ -202,7 +202,7 @@ Action lines (exact format; text blocks end with @end):
 <title>
 <OpenUI program lines>
 @end
-@add_proto <newId> <x> <y> <width> [height] <relay|ecard|mantine> [mobile]   (a clickable PROTOTYPE, see "Prototypes")
+@add_proto <newId> <x> <y> <width> [height] <relay|ecard|mantine> [frame]   (a clickable PROTOTYPE, see "Prototypes")
 <title>
 <JSX lines>
 @end
@@ -972,7 +972,7 @@ export class CanvasAgent {
       }
       lines.push(`[${id}] ${type} @${String(Math.round(b.x))},${String(Math.round(b.y))} ${String(Math.round(b.w))}×${String(Math.round(b.h))}${typeof parent === "string" ? ` in frame ${parent}` : ""}`, `title: ${str(m, "title")}`);
       if (type === "image") lines.push(`image: ${str(m, "src")} (caption: ${str(m, "caption")})`);
-      if (type === "proto") lines.push(`prototype in ${str(m, "system") || "relay"}${str(m, "viewport") === "mobile" ? ", mobile" : ""}`);
+      if (type === "proto") lines.push(`prototype in ${str(m, "system") || "relay"}${str(m, "frame") !== "" ? `, frame ${str(m, "frame")}` : ""}`);
       for (const k of ["key", "status", "pr", "url"]) if (str(m, k) !== "") lines.push(`${k}: ${str(m, k)}`);
       const body = str(m, "body");
       if (body !== "") {

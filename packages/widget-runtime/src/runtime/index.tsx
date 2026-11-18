@@ -9,7 +9,8 @@
  * A `live` page (a canvas component card on desktop) also takes new source from its host without
  * reloading (`{type: "source", source, rev}` posted by the parent window): each revision compiles
  * and renders in place, and one that does not compile or throws while rendering leaves the last
- * good render on screen. The page answers every revision with `{type: "render", rev, ok, error?}`.
+ * good render on screen. The page answers every revision with `{type: "render", rev, ok, error?}`
+ * and reports its content's size (`{type: "content", w, h}`), which the card's frame clips.
  */
 import * as React from "react";
 import { Component, type ErrorInfo, type FunctionComponent, type ReactNode } from "react";
@@ -19,6 +20,7 @@ import type { DesignSystem } from "../systems";
 import { cssVariablesFor, themeOverrideFor, type ColorScheme, type ThemeConfig } from "../theme";
 import { compileWidget } from "./compile";
 import { widgetScope } from "./scope";
+import { setKitAssistants, type KitAssistant } from "./relay-kit";
 import { systemTheme } from "./systems";
 
 export interface MountOptions {
@@ -34,6 +36,8 @@ export interface MountOptions {
   systemConfig?: ThemeConfig | undefined;
   /** Take new source from the parent window and keep the last good render (see above). */
   live?: boolean | undefined;
+  /** The assistant registry for the `relay` kit's `agent` props (relay-kit.tsx). */
+  assistants?: Readonly<Record<string, KitAssistant>> | undefined;
 }
 
 /** What a live page answers for each revision of its source. */
@@ -284,9 +288,29 @@ function parentFeed(): SourceFeed {
   };
 }
 
+/** Reports the page's content size to the host whenever it changes (the card's frame clips it). */
+function reportContentSize(): void {
+  const doc = document.documentElement;
+  let last = "";
+  const send = (): void => {
+    const size = { w: doc.scrollWidth, h: doc.scrollHeight };
+    const key = `${String(size.w)}x${String(size.h)}`;
+    if (key === last) return;
+    last = key;
+    post({ type: "content", ...size });
+  };
+  const observer = new ResizeObserver(send);
+  observer.observe(doc);
+  observer.observe(document.body);
+  // Content that grows inside a fixed-height body resizes neither: watch the tree too.
+  new MutationObserver(send).observe(document.body, { childList: true, subtree: true });
+  send();
+}
+
 if (typeof window !== "undefined") {
   window.RelayWidget = {
-    mount(element, { live, ...options }) {
+    mount(element, { live, assistants, ...options }) {
+      if (assistants !== undefined) setKitAssistants(assistants);
       createRoot(element).render(
         live === true ? (
           <LiveRoot
@@ -300,6 +324,7 @@ if (typeof window !== "undefined") {
           <WidgetRoot {...options} />
         ),
       );
+      if (live === true) reportContentSize();
     },
   };
 }

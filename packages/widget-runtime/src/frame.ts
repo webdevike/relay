@@ -46,7 +46,9 @@ export type FrameMessage =
    * is true when a user gesture opened it; a `relay://assistant/<id>?send=` link sends only then. */
   | { type: "open"; url: string; gesture: boolean }
   /** A live page's answer for revision `rev` of its source: drawn, or why not (`error`). */
-  | { type: "render"; rev: number; ok: boolean; error?: string };
+  | { type: "render"; rev: number; ok: boolean; error?: string }
+  /** A live page's content size in CSS px (its frame clips it), sent whenever it changes. */
+  | { type: "content"; w: number; h: number };
 
 /** An assistant registry id (`relay.reply`'s `agent`). */
 const AGENT_ID = /^[a-z][a-z0-9-]{0,63}$/;
@@ -301,6 +303,18 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
     return typeof error === "string"
       ? { type: "render", rev, ok: message["ok"] === true, error: error.slice(0, 2000) }
       : { type: "render", rev, ok: message["ok"] === true };
+  }
+  if (message["type"] === "content") {
+    const w = message["w"];
+    const h = message["h"];
+    return typeof w === "number" &&
+      Number.isFinite(w) &&
+      w >= 0 &&
+      typeof h === "number" &&
+      Number.isFinite(h) &&
+      h >= 0
+      ? { type: "content", w, h }
+      : null;
   }
   return null;
 }

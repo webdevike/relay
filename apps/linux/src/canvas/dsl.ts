@@ -18,7 +18,7 @@
 //   @add_ui <newId> <x> <y> <w> [h]                        then title line, OpenUI Lang source lines, @end
 //                                         (a live widget: checked like a dashboard's before it lands;
 //                                         @set_text <id> body replaces its source, checked the same way)
-//   @add_proto <newId> <x> <y> <w> [h] <relay|ecard|mantine> [mobile]   then title line, JSX lines, @end
+//   @add_proto <newId> <x> <y> <w> [h] <relay|ecard|mantine> [frame]   then title line, JSX lines, @end
 //                                         (an interactive prototype in that design system: the JSX is
 //                                         ```mantine-widget's contract and must compile before it lands;
 //                                         @set_text <id> body replaces it, checked the same way)
@@ -75,7 +75,7 @@ export type Action =
   | { kind: "add_image"; id: string; x: number; y: number; w: number; src: string; text: TextStream }
   | { kind: "add_frame"; id: string; x: number; y: number; w: number; h: number; text: TextStream }
   | { kind: "add_ui"; id: string; x: number; y: number; w: number; h: number | null; text: TextStream }
-  | { kind: "add_proto"; id: string; x: number; y: number; w: number; h: number | null; system: string; viewport: "desktop" | "mobile"; text: TextStream }
+  | { kind: "add_proto"; id: string; x: number; y: number; w: number; h: number | null; system: string; frame: string | null; text: TextStream }
   | { kind: "move_node"; id: string; x: number; y: number }
   | { kind: "parent"; id: string; frame: string | null }
   | { kind: "add_edge"; source: string; target: string; label: string }
@@ -309,7 +309,7 @@ export class ActionParser {
           w: num(a[3]) || 960,
           h,
           system: (rest[0] ?? "").toLowerCase(),
-          viewport: rest[1]?.toLowerCase() === "mobile" ? "mobile" : "desktop",
+          frame: rest[1]?.toLowerCase() ?? null,
           text,
         });
         this.openBlock(text);

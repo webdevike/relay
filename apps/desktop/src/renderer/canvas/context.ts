@@ -14,6 +14,11 @@ export interface BoardActions {
    * works the board like any comment.
    */
   pickVariant: (id: string) => void
+  /**
+   * Sets component card `id`'s frame (a preset id or `<w>x<h>`): its artboard takes that size, as
+   * one undo step.
+   */
+  setFrame: (id: string, frame: string) => void
 }
 
 export const BoardContext = createContext<BoardActions | null>(null)

@@ -437,9 +437,8 @@ export const CanvasCard = memo(function CanvasCard({ id, data, selected }: NodeP
           : undefined
       }
     >
-      {kind === 'ui' || kind === 'proto' ? (
-        <NodeResizer isVisible={selected} minWidth={240} minHeight={140} />
-      ) : null}
+      {/* A component card is sized by its frame (its header picks it), so only widgets resize. */}
+      {kind === 'ui' ? <NodeResizer isVisible={selected} minWidth={240} minHeight={140} /> : null}
       <Body id={id} spec={spec} hasChildren={hasChildren} />
       <Handles />
     </div>

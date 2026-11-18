@@ -35,8 +35,8 @@ export interface BoardNodeData {
   sample?: string;
   /** A `proto` node's design system (`relay`, `ecard`, `mantine`). */
   system?: string;
-  /** A `proto` node's screen: `mobile`, else desktop. */
-  viewport?: string;
+  /** A `proto` node's frame: a preset of @relay/widget-runtime/systems (`page`, `phone`...) or `<w>x<h>`. */
+  frame?: string;
   /** Data keys this build does not know, kept as the file had them so no writer loses them. */
   extra?: Record<string, unknown>;
 }
@@ -118,6 +118,11 @@ export class BoardError extends Error {}
 
 const LAYOUTS: readonly string[] = ["grid", "tree", "flow"];
 const DATA_KEYS = ["title", "body", ...PLAIN_DATA_KEYS] as const;
+/**
+ * Cards from before frames named a screen (`data.viewport`); a read makes it their frame
+ * (FRAME_PRESETS ids) and a write drops the old key. `desktop` filled its card, like a window.
+ */
+const VIEWPORT_FRAMES: Readonly<Record<string, string>> = { desktop: "window", mobile: "phone", sidebar: "sidebar", pane: "pane", chat: "chat" };
 const NODE_KEYS: readonly string[] = ["id", "type", "x", "y", "w", "h", "parent", "data"];
 const EDGE_FILE_KEYS: readonly string[] = ["id", "source", "target", "sourceHandle", "targetHandle", "label", "tone"];
 const BOARD_KEYS: readonly string[] = ["version", "title", "layout", "nodes", "edges", "viewport", "threads", "pages"];
@@ -180,7 +185,9 @@ function parseData(v: unknown, where: string): BoardNodeData | undefined {
       if (s !== undefined) out[key] = s;
     }
   }
-  const extra = extraOf(v, DATA_KEYS);
+  const legacy = v["viewport"];
+  if (out["frame"] === undefined && typeof legacy === "string" && Object.hasOwn(VIEWPORT_FRAMES, legacy)) out["frame"] = VIEWPORT_FRAMES[legacy];
+  const extra = extraOf(v, [...DATA_KEYS, "viewport"]);
   if (extra !== undefined) out["extra"] = extra;
   return out;
 }
@@ -394,7 +401,7 @@ function dataObj(d: BoardNodeData | undefined): Obj | undefined {
     ["font", d.font],
     ["sample", d.sample],
     ["system", d.system],
-    ["viewport", d.viewport],
+    ["frame", d.frame],
     ...extraFields(d.extra),
   ]);
   return obj.fields.some(([, v]) => v !== undefined) ? obj : undefined;

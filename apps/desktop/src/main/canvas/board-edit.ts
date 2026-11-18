@@ -6,7 +6,9 @@ import type {
   CanvasNodeKind,
   CardEdit,
 } from '@evaos/contract'
+import { frameOf } from '@relay/widget-runtime/systems'
 import { FRAME_HEADER, FRAME_PAD, LANE_HEADER } from '../../shared/canvas-layout'
+import { protoCardSize } from '../../shared/proto-card'
 import type { LaidEdge, LayoutEdge, LayoutNode } from '../../shared/canvas-layout/types'
 
 /**
@@ -256,6 +258,10 @@ export interface NewCard {
   parent?: string
 }
 
+/**
+ * Adds a card. A component card is an artboard: its size is its frame's (protoCardSize), whatever
+ * `w`/`h` say.
+ */
 export function addCard(board: CanvasBoard, card: NewCard): { board: CanvasBoard; id: string } {
   if (card.parent !== undefined) nodeOf(board, card.parent)
   const id = freshNodeId(
@@ -263,19 +269,23 @@ export function addCard(board: CanvasBoard, card: NewCard): { board: CanvasBoard
     board.nodes.map((n) => n.id),
   )
   const data = cleanData(card.data)
+  const size = card.type === 'proto' ? protoCardSize(data.frame) : card
   const node: CanvasNode = {
     id,
     type: card.type,
     ...(card.at ? { x: card.at.x, y: card.at.y } : {}),
-    ...(card.w === undefined ? {} : { w: card.w }),
-    ...(card.h === undefined ? {} : { h: card.h }),
+    ...(size.w === undefined ? {} : { w: size.w }),
+    ...(size.h === undefined ? {} : { h: size.h }),
     ...(card.parent === undefined ? {} : { parent: card.parent }),
     ...(Object.keys(data).length ? { data } : {}),
   }
   return { board: { ...board, nodes: [...board.nodes, node] }, id }
 }
 
-/** Merges `data` into card `id` (a field set to "" clears it), and changes its kind or size. */
+/**
+ * Merges `data` into card `id` (a field set to "" clears it), and changes its kind or size. A
+ * component card takes its frame's size instead (protoCardSize).
+ */
 export function editCard(
   board: CanvasBoard,
   id: string,
@@ -290,11 +300,12 @@ export function editCard(
         Object.entries({ ...n.data, ...cleanData(change.data) }).filter(([, v]) => v !== ''),
       ) as CanvasNodeData
       const { data: _old, ...rest } = n
+      const size = (change.type ?? n.type) === 'proto' ? protoCardSize(merged.frame) : change
       return {
         ...rest,
         ...(change.type === undefined ? {} : { type: change.type }),
-        ...(change.w === undefined ? {} : { w: change.w }),
-        ...(change.h === undefined ? {} : { h: change.h }),
+        ...(size.w === undefined ? {} : { w: size.w }),
+        ...(size.h === undefined ? {} : { h: size.h }),
         ...(Object.keys(merged).length ? { data: merged } : {}),
       }
     }),
@@ -562,16 +573,18 @@ export function readout(
     nodes: board.nodes.map((n) => {
       const d = n.data ?? {}
       const box = boxes.get(n.id)
+      // A component card's frame: the surface it is drawn at, by preset (or custom) and size.
+      const frame = n.type === 'proto' ? frameOf(d.frame) : null
       return {
         id: n.id,
         type: n.type,
         ...(d.title !== undefined ? { title: clip(d.title, 200) } : {}),
         // A component card's code comes whole: the agent patches it with find and replace.
         ...(d.body !== undefined ? { body: n.type === 'proto' ? d.body : clip(d.body, 600) } : {}),
-        ...(n.type === 'proto'
+        ...(frame
           ? {
               system: d.system ?? 'mantine',
-              ...(d.viewport !== undefined ? { viewport: d.viewport } : {}),
+              frame,
               ...(d.variant !== undefined ? { variant: d.variant } : {}),
               ...(d.group !== undefined ? { group: d.group } : {}),
             }

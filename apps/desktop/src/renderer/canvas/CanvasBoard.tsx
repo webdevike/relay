@@ -91,6 +91,7 @@ import { emptyHistory, record, redo, undo, type History, type Snapshot } from '.
 import { type Point, type Size } from './layout'
 import { layoutBoard } from '../../shared/canvas-layout'
 import type { LayoutResult } from '../../shared/canvas-layout/types'
+import { protoCardSize } from '../../shared/proto-card'
 import { AgentCursorLayer, type CursorLayer } from './agent/AgentCursorLayer'
 import { registerBoardDriver } from './agent/board-drivers'
 import { easeInOut, REVEAL_MS, revealView, viewTarget, type Viewport } from './agent/cursor-model'
@@ -1193,8 +1194,21 @@ function Board({
         removeNodes(new Set([id]))
         addNote(at, noteTitle, from, true)
       },
+      setFrame: (id, frame) => {
+        remember()
+        const size = protoCardSize(frame)
+        setNodes((ns) =>
+          ns.map((n) => {
+            if (n.id !== id) return n
+            const spec = n.data.spec
+            const next = { ...spec, ...size, data: { ...spec.data, frame } }
+            return { ...n, width: size.w, height: size.h, data: { ...n.data, spec: next } }
+          }),
+        )
+        scheduleSave()
+      },
     }),
-    [slug, removeNodes, addNote],
+    [slug, removeNodes, addNote, remember, scheduleSave],
   )
 
   const restore = useCallback(

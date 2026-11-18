@@ -27,7 +27,7 @@ import {
 } from "react";
 import * as Y from "yjs";
 import type { Presence, TextField } from "../../canvas-live/src/shared";
-import { MOBILE_VIEWPORT_WIDTH } from "../../widget-runtime/src/systems";
+import { parseFrame } from "../../widget-runtime/src/systems";
 import { imageUrl, roomUrl } from "./env";
 import {
   type CardNode,
@@ -433,12 +433,13 @@ function ProtoPage({ spec }: { spec: NodeSnap }) {
     endLoad.current = beginLoad(spec.id);
     return () => endLoad.current?.();
   }, [spec.id, src]);
-  const mobile = spec.viewport === "mobile";
+  // A card with a frame draws its page at that surface's real size, clipped; without one it fills.
+  const frame = parseFrame(spec.frame);
   return (
     <div
       className="cv-proto-body nodrag nopan nowheel"
       data-testid={`canvas-proto-${spec.id}`}
-      data-viewport={mobile ? "mobile" : "desktop"}
+      data-frame={frame === null ? undefined : frame.preset}
       onPointerDown={stop}
       onDoubleClick={stop}
     >
@@ -452,7 +453,7 @@ function ProtoPage({ spec }: { spec: NodeSnap }) {
           endLoad.current?.();
           arrivals.markReady(spec.id);
         }}
-        style={mobile ? { width: MOBILE_VIEWPORT_WIDTH } : undefined}
+        style={frame === null ? undefined : { width: frame.w, height: frame.h }}
       />
     </div>
   );

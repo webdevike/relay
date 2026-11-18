@@ -13,7 +13,11 @@ import {
   mantineFrameDocument,
   type FrameTheme,
 } from '@relay/widget-runtime/frame'
-import { PROTO_FRAME_CSP, protoFrameDocument } from '@relay/widget-runtime/proto'
+import {
+  PROTO_FRAME_CSP,
+  protoFrameDocument,
+  type ProtoAssistant,
+} from '@relay/widget-runtime/proto'
 import { isDesignSystem } from '@relay/widget-runtime/systems'
 import type { ThemeConfig } from '@relay/widget-runtime/theme'
 
@@ -43,9 +47,10 @@ function page(html: string, csp: string): Response {
 /**
  * Answers `relay-widget://frame/html?source=&theme=`,
  * `relay-widget://frame/mantine?source=&theme=&config=[&fill=1]` and
- * `relay-widget://frame/proto?source=&system=&scheme=[&config=][&live=1]` with the widget's page
- * (a prototype's `config` is the app's theme for the `relay` system; `live` takes new source
- * from the card without reloading).
+ * `relay-widget://frame/proto?source=&system=&scheme=[&config=][&assistants=][&live=1]` with the
+ * widget's page (a prototype's `config` is the app's theme for the `relay` system, `assistants`
+ * the registry its kit draws real portraits from; `live` takes new source from the card without
+ * reloading).
  */
 export function handleFrameRequest(request: Request): Response {
   const url = new URL(request.url)
@@ -57,9 +62,19 @@ export function handleFrameRequest(request: Request): Response {
       return new Response('Missing source or design system', { status: 400 })
     const dark = url.searchParams.get('scheme') === 'dark'
     const relayConfig = parseObject(url.searchParams.get('config')) as ThemeConfig | null
+    const assistants = parseObject(url.searchParams.get('assistants')) as Record<
+      string,
+      ProtoAssistant
+    > | null
     const live = url.searchParams.get('live') === '1'
     return page(
-      protoFrameDocument(source, { system, dark, relayConfig: relayConfig ?? undefined, live }),
+      protoFrameDocument(source, {
+        system,
+        dark,
+        relayConfig: relayConfig ?? undefined,
+        assistants: assistants ?? undefined,
+        live,
+      }),
       PROTO_FRAME_CSP,
     )
   }

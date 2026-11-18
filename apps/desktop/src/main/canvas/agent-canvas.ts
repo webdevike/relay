@@ -12,7 +12,7 @@ import type {
   CanvasRun,
 } from '@evaos/contract'
 import { protoSourceRefusal } from '@relay/widget-runtime/proto'
-import { isDesignSystem, viewportWidth } from '@relay/widget-runtime/systems'
+import { frameRefusal, isDesignSystem } from '@relay/widget-runtime/systems'
 import { AgentRuns, fail } from '../agent-presence/agent-runs'
 import type { DriveIdentity } from '../browser/agent-drive'
 import { alignNodes, distributeNodes, layoutBoard } from '../../shared/canvas-layout'
@@ -40,17 +40,13 @@ import {
   withFrameChildren,
   type Box,
 } from './board-edit'
+import { protoCardSize } from '../../shared/proto-card'
 import type { CanvasStore } from './store'
 
-/** A component card's padding and borders around its page (canvas.css `.eva-cv-card`). */
-const PROTO_CHROME = 32
-/** A column-viewport component card's height when the agent gives none. */
-const COLUMN_CARD_H = 560
-
-/** A new card's size: a component card with a column viewport fits that column's width. */
-function cardSize(type: CanvasNodeKind, viewport: string | undefined): { w: number; h: number } {
-  const column = type === 'proto' ? viewportWidth(viewport) : undefined
-  return column === undefined ? typicalSize(type) : { w: column + PROTO_CHROME, h: COLUMN_CARD_H }
+/** Fails before anything moves when a component card's frame is missing or not one. */
+function checkFrame(frame: string | undefined): void {
+  const why = frameRefusal(frame)
+  if (why !== null) fail('invalid-params', why)
 }
 
 /**
@@ -423,6 +419,8 @@ export class CanvasDrive {
                 group,
               }
             })
+      // A component card is drawn at the real size of the surface it is for: it names a frame.
+      if (type === 'proto') for (const d of cards) checkFrame(d.frame)
       const label = data.title ?? data.body ?? type
       this.auto(
         p.slug,
@@ -431,10 +429,13 @@ export class CanvasDrive {
           : `Adding ${quote(label)}`,
       )
       const boxes = await this.boxes(p.slug, at.page, at.b)
-      const typical = cardSize(type, data.viewport)
-      const size = { w: p.w ?? base?.w ?? typical.w, h: p.h ?? base?.h ?? typical.h }
-      // A component card keeps its size in the file (its frame fills it); others size themselves.
-      const sized = type === 'proto' ? size : { w: p.w, h: p.h }
+      const typical = typicalSize(type)
+      // A component card's size is its frame's (the row is as big as its biggest frame).
+      const framed = type === 'proto' ? cards.map((d) => protoCardSize(d.frame)) : []
+      const size =
+        framed.length > 0
+          ? { w: Math.max(...framed.map((s) => s.w)), h: Math.max(...framed.map((s) => s.h)) }
+          : { w: p.w ?? base?.w ?? typical.w, h: p.h ?? base?.h ?? typical.h }
       const spots =
         p.x !== undefined && p.y !== undefined
           ? cards.map((_, i) => ({ x: p.x! + i * (size.w + GAP), y: p.y! }))
@@ -472,8 +473,8 @@ export class CanvasDrive {
             type,
             data: d,
             ...(spot ? { at: spot } : {}),
-            ...(sized.w === undefined ? {} : { w: sized.w }),
-            ...(sized.h === undefined ? {} : { h: sized.h }),
+            ...(p.w === undefined ? {} : { w: p.w }),
+            ...(p.h === undefined ? {} : { h: p.h }),
             ...(p.parent === undefined ? {} : { parent: p.parent }),
           })
           board = r.board
@@ -537,8 +538,9 @@ export class CanvasDrive {
     return this.serial(p.slug, async () => {
       const at = await this.begin(p.slug, p.page, p.scope, p.caption)
       const card = nodeOf(at.b, p.node)
-      // A patch that does not apply fails before the cursor moves.
+      // A patch that does not apply, or a frame that is not one, fails before the cursor moves.
       if (p.edits) patchBody(card.data?.body ?? '', p.edits)
+      if (p.data?.frame !== undefined) checkFrame(p.data.frame)
       this.auto(p.slug, `Editing ${quote(card.data?.title ?? card.id)}`)
       await this.reveal(p.slug, at.page, { nodes: [p.node] })
       if (await this.cursor(p.slug, at.page, { op: 'move', node: p.node })) {

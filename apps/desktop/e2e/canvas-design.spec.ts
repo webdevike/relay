@@ -135,7 +135,7 @@ test('an agent designs a component live: patches redraw in place, errors keep th
     type: 'proto',
     title: 'Badge strip',
     body: STRIP,
-    data: { viewport: 'pane' },
+    data: { frame: 'pane' },
     caption: 'Drafting the badge strip',
   })
   expect(added).toMatchObject({ compile: 'ok' })

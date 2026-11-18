@@ -22,9 +22,9 @@ export const CANVAS_NODE_KINDS = [
   /**
    * An interactive prototype or component (the design canvas): `data.title` is its card title,
    * `data.body` its JSX (the ```mantine-widget contract), `data.system` its design system
-   * (`relay`, `ecard`, `mantine`), `data.viewport` its screen width (`mobile`, `sidebar`, `pane`,
-   * `chat`; else it fills the card), and `data.variant` + `data.group` its label in a set of
-   * sibling variants.
+   * (`relay`, `ecard`, `mantine`), `data.frame` the real surface it is drawn at, 1:1 and clipped
+   * (a preset of @relay/widget-runtime/systems FRAME_PRESETS such as `page` or `phone`, or
+   * `<w>x<h>`), and `data.variant` + `data.group` its label in a set of sibling variants.
    */
   'proto',
   /**
@@ -67,7 +67,8 @@ export const CanvasNodeDataSchema = z.object({
   font: Text.optional(),
   sample: Text.optional(),
   system: Text.optional(),
-  viewport: Text.optional(),
+  /** A `proto` card's frame: a FRAME_PRESETS id or `<w>x<h>` (older files' `viewport` reads as one). */
+  frame: z.string().max(20).optional(),
   /** Tabler icon name for a `step` card (`photo`, `list-check`...). */
   icon: z.string().max(100).optional(),
   /** The number badge of a `step` card ("1", "6a"). */
