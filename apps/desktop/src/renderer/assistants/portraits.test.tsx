@@ -57,7 +57,7 @@ describe('assistant portraits', () => {
     expect(portrait({ style: 'notionists', seed: 'astra-2' })).toBe(portrait('astra-2'))
   })
 
-  it("seeds each Home row and an agent's notch from the registry, else from its id", () => {
+  it("seeds each Home card and an agent's notch from the registry, else from its id", () => {
     assistantsStore.setState({
       data: {
         agents: [agent('astra', { style: 'notionists', seed: 'astra-2' }), agent('nova', NOVA)],

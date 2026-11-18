@@ -1,0 +1,63 @@
+/* Assistants as cover cards. A card carries a border, never a shadow; hover only recolors it. */
+.eva-asg {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+}
+.eva-asg-card {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  color: var(--eva-c-foreground);
+}
+.eva-asg-art {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-card-radius);
+  transition: border-color var(--eva-dur-fast) var(--eva-ease);
+}
+.eva-asg-art > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.eva-asg-card:hover .eva-asg-art,
+.eva-asg-card:focus-visible .eva-asg-art {
+  border-color: var(--mantine-color-dimmed);
+}
+/* Name and status over the portrait's foot, on a dark fade so they read on any paper. */
+.eva-asg-text {
+  position: absolute;
+  inset: auto 1px 1px;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 40%;
+  padding: var(--mantine-spacing-xl) var(--mantine-spacing-md) var(--mantine-spacing-md);
+  border-radius: 0 0 calc(var(--eva-card-radius) - 1px) calc(var(--eva-card-radius) - 1px);
+  background: linear-gradient(to top, rgb(0 0 0 / 0.92) 8%, rgb(0 0 0 / 0.55) 55%, rgb(0 0 0 / 0));
+  color: #fff;
+}
+.eva-asg-name {
+  overflow: hidden;
+  font-size: var(--eva-fz-body);
+  font-weight: var(--eva-fw-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-asg-status {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  font-size: var(--eva-fz-label);
+  color: rgb(255 255 255 / 0.78);
+  white-space: nowrap;
+}
+.eva-asg-status[data-status='working'] {
+  color: #fff;
+}
