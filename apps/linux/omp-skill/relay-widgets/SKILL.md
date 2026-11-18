@@ -313,7 +313,7 @@ When a message ends on a question to Isaac that he can answer in a few words fro
 
 ### Open asks: `[[ask-label: ...]]` and `relay-linux asks`
 
-A question that ends on `[[replies: ...]]` (or an omp `ask` tool card) stays open on the Relay Host until Isaac answers it, and the phone shows it as a small badge above the composer. It closes when he taps one of its answers (or sends exactly one of them as his message), dismisses the badge, or you resolve it. A message he types in his own words never closes one, since he often answers much later.
+A question that ends on `[[replies: ...]]` (or an omp `ask` tool card) stays open on the Relay Host until Isaac answers it, and the phone shows it as a small badge above the composer. It closes when he taps one of its answers (or sends exactly one of them as his message), dismisses the badge, or you resolve it. A message he types in his own words never closes one, since he often answers much later; only your next `[[replies: ...]]` question supersedes it (the thread keeps just its latest reply-chip question open).
 
 - Optional: name the badge with a line right before the replies token, at most 40 characters. Without it the badge shows the question cut short.
 
@@ -325,7 +325,7 @@ A question that ends on `[[replies: ...]]` (or an omp `ask` tool card) stays ope
 
   It is cut from the shown text together with the token, and only counts right before one.
 
-- When Isaac settled a question some other way (he answered it in his own words, or it no longer matters), close it: `relay-linux asks list` shows the open ones (`<id>  <agent>  <age>  <label>: <question>  [answers]`, `--json` for JSON; `--agent` defaults to `$RELAY_ASSISTANT`), and `relay-linux asks resolve <id>...` closes them. If it was another session's ask (it shows `from`), relay his answer with `relay-linux asks resolve <id> --answer '<his answer>'` so it reaches that session.
+- When Isaac settled a question some other way (he answered it in his own words, or it no longer matters), close it: `relay-linux asks list` shows the open ones (`<id>  <agent>  <age>  <label>: <question>  [answers]`, `--json` for JSON; `--agent` defaults to `$RELAY_ASSISTANT`), and `relay-linux asks resolve <id>...` closes them (`relay-linux asks resolve --all` closes every open ask of your thread in one line, e.g. right after his words answered your question). If it was another session's ask (it shows `from`), relay his answer with `relay-linux asks resolve <id> --answer '<his answer>'` so it reaches that session.
 - Ask a closed question again later and it opens again as a new ask; asking an open one again refreshes it instead of adding a second.
 
 ### Asking Isaac from any session: `relay-linux asks add`

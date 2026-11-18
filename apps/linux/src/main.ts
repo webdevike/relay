@@ -57,7 +57,6 @@ import {
 import { AssistantService, AssistantThreads, type AssistantThreadsDeps } from "./assistant/service";
 import { spawnFill } from "./assistant/signin";
 import { AskStore, defaultAsksPath } from "./assistant/ask-store";
-import { claudeAskJudge } from "./assistant/ask-judge";
 import { ago } from "./query/tools";
 import { defaultAssistantPath, defaultAssistantsDir, FileAssistantStore } from "./assistant/store";
 import { CallService } from "./call/service";
@@ -306,11 +305,13 @@ const USAGE = `relay-linux <command>
                                    Isaac (a reply ending on [[replies: ...]], or an omp ask) that
                                    he has not answered yet, one line each (--agent defaults to
                                    $RELAY_ASSISTANT, else every thread)
-  asks resolve <id>... [--agent <id>] [--answer '<text>']
+  asks resolve <id>...|--all [--agent <id>] [--answer '<text>']
                                    from an assistant's session: close open asks that are settled
-                                   some other way (Isaac answered in his own words); --answer
-                                   records his answer and, for a session's ask, hands it to that
-                                   session as "[answer to ask <id>] <text>"
+                                   some other way (Isaac answered in his own words); --all closes
+                                   every open ask of the thread (--agent defaults to
+                                   $RELAY_ASSISTANT); --answer records his answer and, for a
+                                   session's ask, hands it to that session as
+                                   "[answer to ask <id>] <text>"
   asks add --thread <id> --from '<session title>' --question '...' --options 'a|b|c'
            [--default 'a'] [--session <session id>|me]
                                    from any omp session: put a question to Isaac through assistant
@@ -560,8 +561,6 @@ function serve(
           cli: Bun.main.endsWith(".ts") ? `bun "${Bun.main}"` : `"${process.execPath}"`,
           log,
         });
-  // One judge for every thread: did Isaac's later turns already answer an open ask?
-  const askJudge = claudeAskJudge(bunRun, resolveClaude());
   const thread = (agent: AssistantAgentConfig): AssistantService =>
     new AssistantService({
       agent,
@@ -574,7 +573,6 @@ function serve(
       agentHome,
       store: new FileAssistantStore(defaultAssistantPath(agent.id)),
       asks: new AskStore(defaultAsksPath(agent.id)),
-      judgeAsk: askJudge,
       tokens: pushTokens,
       sender: new ExpoPushSender(),
       broadcast: (message): void => {
@@ -1834,13 +1832,31 @@ async function asksList(agent: string | undefined, json: boolean): Promise<void>
   }
 }
 
-/** `asks resolve <id>...`: the running host closes each open ask, as answered with `answer` (delivered to a session's ask) or else as resolved by the assistant. */
+/** `asks resolve <id>... | --all`: the running host closes each open ask (`--all`: every open ask of `agent`), as answered with `answer` (delivered to a session's ask) or else as resolved by the assistant. */
 async function asksResolve(
   agent: string | undefined,
-  ids: string[],
+  given: string[],
   answer: string | undefined,
+  all: boolean,
 ): Promise<void> {
-  if (ids.length === 0) throw new Error("asks resolve: expected <id>...");
+  let ids = given;
+  if (all) {
+    if (agent === undefined || agent === "")
+      throw new Error("asks resolve --all: missing --agent <id> (or $RELAY_ASSISTANT)");
+    const response = await hostFetch(
+      `${hostUrl()}/assistant/asks?agent=${encodeURIComponent(agent)}`,
+    );
+    if (!response.ok) {
+      console.error(await response.text());
+      process.exit(1);
+    }
+    ids = ((await response.json()) as { asks: ListedAsk[] }).asks.map((ask) => ask.id);
+    if (ids.length === 0) {
+      console.log("no open asks");
+      return;
+    }
+  }
+  if (ids.length === 0) throw new Error("asks resolve: expected <id>... or --all");
   let failed = false;
   for (const id of ids) {
     const response = await hostFetch(`${hostUrl()}/assistant/asks/resolve`, {
@@ -2611,6 +2627,7 @@ async function main(argv: string[]): Promise<void> {
       options: { type: "string" },
       default: { type: "string" },
       answer: { type: "string" },
+      all: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
       device: { type: "string" },
     },
@@ -2662,7 +2679,8 @@ async function main(argv: string[]): Promise<void> {
       const verb = positionals[1];
       const agent = values.agent ?? process.env["RELAY_ASSISTANT"];
       if (verb === "list") await asksList(agent, values.json);
-      else if (verb === "resolve") await asksResolve(agent, positionals.slice(2), values.answer);
+      else if (verb === "resolve")
+        await asksResolve(agent, positionals.slice(2), values.answer, values.all);
       else if (verb === "get") await asksGet(positionals[2], values.json);
       else if (verb === "add")
         await asksAdd({

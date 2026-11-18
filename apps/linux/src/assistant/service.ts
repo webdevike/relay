@@ -65,7 +65,6 @@ import {
   type ConsultResult,
 } from "../seams";
 import type { SessionClock } from "../session";
-import type { AskJudge } from "./ask-judge";
 import { type AskStore, MAX_ASK_FROM, MAX_ASK_REPLIES, MAX_ASK_REPLY } from "./ask-store";
 import { type AssistantAgentConfig, RegistryError } from "./registry";
 import { CONSULT_TURN, type ConsultDeps, Consults } from "./consult";
@@ -129,8 +128,6 @@ export interface AssistantServiceDeps {
   readonly store: AssistantStore;
   /** The thread's open asks (`assistants/<id>.asks.json`). */
   readonly asks: AskStore;
-  /** Reads whether Isaac's later turns already answered an open ask (`claudeAskJudge`); absent, only exact answers, answer tags and the turn count close one. */
-  readonly judgeAsk?: AskJudge;
   readonly tokens: PushTokenSource & { unregister(deviceId: string): void };
   readonly sender: PushSender;
   /** Sends `message` to every socket following this thread. */
@@ -412,8 +409,6 @@ export class AssistantService implements AssistantThread {
    * twice; a failed delivery forgets its id, so a retry does deliver.
    */
   private readonly turns = new Map<string, Promise<void>>();
-  /** Open asks the judge is reading now, so a snapshot while it thinks does not ask again. */
-  private readonly judging = new Set<string>();
   /** The reply `onReply` last got, so one reply is handed over once. */
   private finished: string | null = null;
   /** Stops listening to the service's runs (`retire`). */
@@ -511,10 +506,9 @@ export class AssistantService implements AssistantThread {
           );
     // One work card per piece of work: its latest state, where it started.
     const messages = this.markSubmitted(foldGuestWork([...earlier, ...live]));
-    this.deps.asks.observe(messages, asking);
+    // A close the thread's rows caused (an exact answer, a superseding question) reaches every device, not just whoever asked for this snapshot.
+    if (this.deps.asks.observe(messages, asking)) this.changed();
     const busy = session?.status === "working";
-    // Judged once the turn settles, so the judge reads the assistant's reply to Isaac's latest turn too.
-    if (!busy) this.judgeAsks(messages);
     // A specialist the transcript still shows running reads what the service recorded of it (done, failed, or unknown);
     // trial runs show their letters and a switched agent its new model.
     const book = this.deps.specialistRuns;
@@ -541,36 +535,6 @@ export class AssistantService implements AssistantThread {
       (message) => message.streaming !== true,
     );
     return toAssistantMessages(live, this.prime(), this.prefix);
-  }
-
-  /**
-   * Has the judge read the open asks with turns of Isaac's after them it has not read yet; an ask
-   * it calls answered closes (`resolveAsk`, which tells every device). A failed judge leaves the
-   * ask open and is not retried for the same turns.
-   */
-  private judgeAsks(messages: readonly AssistantMessage[]): void {
-    const judge = this.deps.judgeAsk;
-    if (judge === undefined) return;
-    for (const ask of this.deps.asks.unjudged(messages)) {
-      if (this.judging.has(ask.id)) continue;
-      this.judging.add(ask.id);
-      judge(ask)
-        .then(
-          (answered) => {
-            this.deps.asks.judged(ask.id, ask.upTo);
-            if (!answered) return;
-            this.deps.log(`assistant ${this.id}: ask ${ask.id} answered by a later turn (judge)`);
-            this.resolveAsk(ask.id, "answered", ask.said.at(-1));
-          },
-          (error: unknown) => {
-            this.deps.asks.judged(ask.id, ask.upTo);
-            this.deps.log(
-              `assistant ${this.id}: ask ${ask.id} not judged: ${error instanceof Error ? error.message : String(error)}`,
-            );
-          },
-        )
-        .finally(() => this.judging.delete(ask.id));
-    }
   }
 
   /**

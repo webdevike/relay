@@ -5,7 +5,7 @@
  * thread row Show in chat scrolls to (a bubble, or an inline card for an ask without one). No React
  * Native imports.
  */
-import { stillAsking, type AssistantMessage, type OpenAsk } from "@relay/protocol";
+import type { AssistantMessage, OpenAsk } from "@relay/protocol";
 import type { AskRecordState } from "@/agents/ask.machine";
 
 /** The ask card showing above the composer: its open ask is not listed twice. */
@@ -68,20 +68,6 @@ export function hiddenAskIds(
     if (state !== undefined && state !== "open" && state !== "failed") hidden.add(ask.id);
   }
   return hidden;
-}
-
-/**
- * The ids of `asks` Isaac has since answered in the thread (`stillAsking`: any later turn of his in
- * `rows`, the echo of one in flight included). A snapshot that predates the host closing them still
- * lists them; they stay hidden so no outline, label, chip or badge outlives the answer.
- */
-export function answeredAskIds(
-  asks: readonly OpenAsk[] | undefined,
-  rows: readonly AssistantMessage[],
-): ReadonlySet<string> {
-  const answered = new Set<string>();
-  for (const ask of asks ?? []) if (!stillAsking(ask, rows)) answered.add(ask.id);
-  return answered;
 }
 
 /** Row ids of an ask drawn inline in the thread (no bubble of its own) start with this. */

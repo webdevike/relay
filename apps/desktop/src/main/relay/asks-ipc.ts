@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import { stillAsking } from '@relay/protocol'
 import { OpenAskSchema, type AsksView, type OpenAsk } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
@@ -14,32 +13,25 @@ export const ASK_FOLLOW_MS = 4 * 60_000
 
 const SnapshotFrame = z.object({
   agent: z.string().min(1),
-  snapshot: z.object({
-    asks: z.array(z.unknown()).optional(),
-    messages: z
-      .array(z.object({ role: z.string(), text: z.string(), at: z.number().optional() }))
-      .optional()
-      .catch(undefined),
-  }),
+  snapshot: z.object({ asks: z.array(z.unknown()).optional() }),
 })
 
 /**
  * An `assistant.snapshot` frame's open asks (a bad one is dropped); null when the frame is another
- * kind, has no `asks` (a host that predates them) or names no agent.
+ * kind, has no `asks` (a host that predates them) or names no agent. The host's list is the state:
+ * nothing here closes an ask from the thread's rows.
  */
 export function asksOf(frame: Record<string, unknown>): AsksView | null {
   if (frame['t'] !== 'assistant.snapshot') return null
   const s = SnapshotFrame.safeParse(frame)
   if (!s.success) return null
   const asks = s.data.snapshot.asks
-  const rows = s.data.snapshot.messages ?? []
   const parsed: OpenAsk[] | null =
     asks === undefined
       ? null
       : asks.flatMap((a) => {
           const r = OpenAskSchema.safeParse(a)
-          // A reply-chip question a later turn of his answered is over, even in a snapshot from before the host closed it.
-          return r.success && stillAsking(r.data, rows) ? [r.data] : []
+          return r.success ? [r.data] : []
         })
   return { agent: s.data.agent, asks: parsed }
 }

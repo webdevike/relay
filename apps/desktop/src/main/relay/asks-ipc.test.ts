@@ -24,16 +24,18 @@ describe('asksOf', () => {
     expect(view?.asks?.[0]).toMatchObject({ id: 'abcdef01', label: 'Push it?', messageId: 'a1' })
   })
 
-  it('drops a reply-chip ask once a later turn of his is in the snapshot', () => {
+  it("keeps a reply-chip ask the host lists even with his later turns in the snapshot: the host's list is the state", () => {
     const frame = (messages: object[]) => ({
       t: 'assistant.snapshot',
       agent: 'nova',
       snapshot: { rev: 2, messages, busy: false, sessionId: '', asks: [open] },
     })
     const asked = { id: 'a1', role: 'assistant', text: 'Push it to prod?', at: 5 }
-    expect(asksOf(frame([asked]))?.asks).toHaveLength(1)
     expect(
-      asksOf(frame([asked, { id: 'u2', role: 'user', text: 'Okay nvm', at: 9 }]))?.asks,
+      asksOf(frame([asked, { id: 'u2', role: 'user', text: 'what did CI say', at: 9 }]))?.asks,
+    ).toHaveLength(1)
+    expect(
+      asksOf({ ...frame([asked]), snapshot: { rev: 3, messages: [asked], asks: [] } })?.asks,
     ).toEqual([])
   })
 

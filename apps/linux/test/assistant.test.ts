@@ -30,9 +30,8 @@ import {
 } from "../src/assistant/service";
 import { MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from "../src/assistant/replies";
 import type { FillSpawn } from "../src/assistant/signin";
-import { type AskCase, AskStore } from "../src/assistant/ask-store";
+import { AskStore } from "../src/assistant/ask-store";
 import { SpecialistRunBook } from "../src/assistant/specialist-runs";
-import type { AskJudge } from "../src/assistant/ask-judge";
 import {
   defaultAssistantPath,
   FileAssistantStore,
@@ -230,8 +229,6 @@ interface HarnessOptions {
   reconnected?: Promise<void>;
   /** The thread's open asks; default an in-memory store whose `since` is the fake clock's start (1000). */
   asks?: AskStore;
-  /** Reads Isaac's later turns on an open ask; default none. */
-  judgeAsk?: AskJudge;
   /** Gets each finished turn's last reply (the widget hook). */
   onReply?: (reply: FinishedReply) => void;
   /** The atomic-agents service's runs the thread settles its specialist badges against; default none. */
@@ -294,7 +291,6 @@ function harness(options: HarnessOptions = {}) {
     agentHome: options.agentHome === null ? null : home,
     store,
     asks,
-    ...(options.judgeAsk === undefined ? {} : { judgeAsk: options.judgeAsk }),
     ...(options.onReply === undefined ? {} : { onReply: options.onReply }),
     ...(options.specialistRuns === undefined ? {} : { specialistRuns: options.specialistRuns }),
     tokens: {
@@ -1509,25 +1505,94 @@ describe("AssistantService earlier contexts", () => {
     vi.setSystemTime(Date.parse("2026-11-17T15:08:00.000Z"));
     const at = "2026-11-17T15:07:01.000Z";
     const requested = (id: string) =>
-      JSON.stringify({ id: `q-${id}`, type: "atomic-agents/run.requested", component: "atomic-agents", job: "ask", run: `ask-${id}`, at, caller: "agent:nova", data: { requestId: id, agent: "prop-render", job: "render", input: {} } });
+      JSON.stringify({
+        id: `q-${id}`,
+        type: "atomic-agents/run.requested",
+        component: "atomic-agents",
+        job: "ask",
+        run: `ask-${id}`,
+        at,
+        caller: "agent:nova",
+        data: { requestId: id, agent: "prop-render", job: "render", input: {} },
+      });
     const started = (id: string) =>
-      JSON.stringify({ id: `s-${id}`, type: "prop-render/job.started", component: "prop-render", job: "render", run: id, at, data: { _tag: "job.started", requestId: id, input: {}, model: "m" } });
+      JSON.stringify({
+        id: `s-${id}`,
+        type: "prop-render/job.started",
+        component: "prop-render",
+        job: "render",
+        run: id,
+        at,
+        data: { _tag: "job.started", requestId: id, input: {}, model: "m" },
+      });
     const ended = (id: string, tag: "job.succeeded" | "job.failed") =>
-      JSON.stringify({ id: `e-${id}`, type: `prop-render/${tag}`, component: "prop-render", job: "render", run: id, at, data: { _tag: tag, seconds: 98, message: "crashed" } });
+      JSON.stringify({
+        id: `e-${id}`,
+        type: `prop-render/${tag}`,
+        component: "prop-render",
+        job: "render",
+        run: id,
+        at,
+        data: { _tag: tag, seconds: 98, message: "crashed" },
+      });
     writeFileSync(
       join(dir, "events.ndjson"),
-      [requested("r-done"), started("r-done"), ended("r-done", "job.succeeded"), requested("r-bad"), started("r-bad"), ended("r-bad", "job.failed"), requested("r-live"), started("r-live")].join("\n") + "\n",
+      [
+        requested("r-done"),
+        started("r-done"),
+        ended("r-done", "job.succeeded"),
+        requested("r-bad"),
+        started("r-bad"),
+        ended("r-bad", "job.failed"),
+        requested("r-live"),
+        started("r-live"),
+      ].join("\n") + "\n",
     );
     const h = harness({ specialistRuns: new SpecialistRunBook(dir) });
     const file = join(h.home, "2026-11-17T0400_iiii.jsonl");
     const ask = (id: string, run: string) => [
-      JSON.stringify({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", id, name: "write", arguments: { path: "xd://mcp__relay_agents_ask", content: JSON.stringify({ agent: "prop-render", request: { subject: id } }) } }], timestamp: 2 } }),
-      JSON.stringify({ type: "message", message: { role: "toolResult", toolCallId: id, toolName: "write", content: [{ type: "text", text: JSON.stringify({ run, agent: "prop-render", status: "running" }) }], isError: false, timestamp: 3 } }),
+      JSON.stringify({
+        type: "message",
+        message: {
+          role: "assistant",
+          content: [
+            {
+              type: "toolCall",
+              id,
+              name: "write",
+              arguments: {
+                path: "xd://mcp__relay_agents_ask",
+                content: JSON.stringify({ agent: "prop-render", request: { subject: id } }),
+              },
+            },
+          ],
+          timestamp: 2,
+        },
+      }),
+      JSON.stringify({
+        type: "message",
+        message: {
+          role: "toolResult",
+          toolCallId: id,
+          toolName: "write",
+          content: [
+            {
+              type: "text",
+              text: JSON.stringify({ run, agent: "prop-render", status: "running" }),
+            },
+          ],
+          isError: false,
+          timestamp: 3,
+        },
+      }),
     ];
     writeFileSync(
       file,
       [
-        JSON.stringify({ type: "message", message: { role: "user", content: "render turbines", timestamp: 1 } }),
+        JSON.stringify({
+          type: "message",
+          message: { role: "user", content: "render turbines", timestamp: 1 },
+        }),
         ...ask("t1", "r-done"),
         ...ask("t2", "r-bad"),
         ...ask("t3", "r-live"),
@@ -1599,7 +1664,14 @@ describe("AssistantService earlier contexts", () => {
     const outcome = (id: string) => ({
       type: "custom",
       customType: "eva.specialist-router",
-      data: { v: 1, kind: "outcome", id, at: "2026-11-17T20:01:00.000Z", used: true, usedAgents: ["web-researcher"] },
+      data: {
+        v: 1,
+        kind: "outcome",
+        id,
+        at: "2026-11-17T20:01:00.000Z",
+        used: true,
+        usedAgents: ["web-researcher"],
+      },
     });
     const user = (id: string, text: string, timestamp: number) => ({
       type: "message",
@@ -1614,12 +1686,17 @@ describe("AssistantService earlier contexts", () => {
         .join(""),
     );
     const live = join(h.home, "live.jsonl");
-    writeFileSync(live, `${JSON.stringify(decision("sr-2", "none"))}\n${JSON.stringify(user("e2", "thanks", 20))}\n`);
+    writeFileSync(
+      live,
+      `${JSON.stringify(decision("sr-2", "none"))}\n${JSON.stringify(user("e2", "thanks", 20))}\n`,
+    );
     new FileAssistantStore(h.storePath).save({ sessionFile: live, history: [old] });
     h.register("working", live);
     h.agents.transcript = [{ id: "u2", role: "user", text: "thanks", at: 20 }];
     const rows = (await h.service.snapshot()).messages;
-    expect(rows.map((row) => [row.text, row.router?.decision.agent, row.router?.outcome?.used])).toEqual([
+    expect(
+      rows.map((row) => [row.text, row.router?.decision.agent, row.router?.outcome?.used]),
+    ).toEqual([
       ["prices?", "web-researcher", true],
       ["thanks", "none", undefined],
     ]);
@@ -1818,7 +1895,11 @@ describe("replies token", () => {
   it("cuts an ask-label line before the token and returns its label, clipped", () => {
     expect(
       splitReplies("Push it now?\n[[ask-label: Push the fix]]\n[[replies: Yes | Not yet]]", false),
-    ).toEqual({ text: "Push it now?", replies: ["Yes", "Not yet"], label: "Push the fix" });
+    ).toEqual({
+      text: "Push it now?",
+      replies: ["Yes", "Not yet"],
+      label: "Push the fix",
+    });
     expect(splitReplies("Ok?\n[[ask-label:   Ship    it ]]\n[[replies: Yes]]", false)).toEqual({
       text: "Ok?",
       label: "Ship it",
@@ -2071,61 +2152,39 @@ describe("AssistantService open asks", () => {
     expect((await h.service.snapshot()).asks).toEqual([]);
   });
 
-  it("has the judge read his later turn once the reply settles, closes the ask it calls answered for every device, and never asks twice for the same turns", async () => {
-    const read: AskCase[] = [];
-    const verdicts = [false, true];
-    const h = harness({
-      judgeAsk: (ask) => {
-        read.push(ask);
-        return Promise.resolve(verdicts.shift() ?? false);
-      },
-    });
+  it("never closes a reply-chip ask from his typed turns, and a newer reply-chip question supersedes it for every device", async () => {
+    const h = harness();
     h.register("idle");
     h.agents.transcript = [
       {
         id: "a1",
         role: "assistant",
-        text: "Done. Want me to push it?\n[[replies: Yes | Not yet]]",
+        text: "Want me to push it?\n[[replies: Yes | Not yet]]",
         at: 1_200,
       },
+      { id: "u1", role: "user", text: "what did CI say", at: 1_300 },
+      { id: "a2", role: "assistant", text: "CI is green.", at: 1_350 },
     ];
     expect((await h.service.snapshot()).asks).toHaveLength(1);
-    h.register("working");
-    h.agents.transcript.push({ id: "u1", role: "user", text: "what did CI say", at: 1_300 });
-    await h.service.snapshot();
-    expect(read).toEqual([]);
-    h.register("idle");
-    h.agents.transcript.push({ id: "a2", role: "assistant", text: "CI is green.", at: 1_350 });
-    await h.service.snapshot();
-    await h.service.snapshot();
-    await flush();
-    expect(read).toMatchObject([
-      {
-        question: "Want me to push it?",
-        said: ["what did CI say"],
-        reply: "CI is green.",
-        upTo: 1_300,
-      },
-    ]);
-    expect((await h.service.snapshot()).asks).toHaveLength(1);
-    h.agents.transcript.push(
-      { id: "u2", role: "user", text: "ok ship it then", at: 1_400 },
-      { id: "a3", role: "assistant", text: "Pushed.", at: 1_450 },
-    );
-    h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
-    await flush();
-    h.broadcasts.length = 0;
-    await h.service.snapshot();
-    await flush();
-    expect(read).toHaveLength(2);
-    expect(h.asks.get(read[1]?.id ?? "")).toMatchObject({
-      state: "answered",
-      answer: "ok ship it then",
+    h.agents.transcript.push({
+      id: "a3",
+      role: "assistant",
+      text: "Cut the release?\n[[replies: Cut it | Wait]]",
+      at: 1_400,
     });
     h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
     await flush();
+    h.broadcasts.length = 0;
+    const asks = (await h.service.snapshot()).asks ?? [];
+    expect(asks.map((ask) => ask.question)).toEqual(["Cut the release?"]);
+    h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+    await flush();
     expect(h.broadcasts).toMatchObject([
-      { t: "assistant.snapshot", agent: "astra", snapshot: { asks: [] } },
+      {
+        t: "assistant.snapshot",
+        agent: "astra",
+        snapshot: { asks: [{ question: "Cut the release?" }] },
+      },
     ]);
   });
 });
@@ -2466,7 +2525,13 @@ describe("AssistantService listing", () => {
     // The seed rides along for phones from before designed portraits.
     expect(
       await harness({ agent: { ...ASTRA, avatar: "nova-17", portrait } }).service.listing(),
-    ).toEqual({ id: "astra", title: "Astra", avatar: "nova-17", portrait, status: "not_started" });
+    ).toEqual({
+      id: "astra",
+      title: "Astra",
+      avatar: "nova-17",
+      portrait,
+      status: "not_started",
+    });
   });
 
   it("is the newest settled reply of the live session with the session's status, hiding job lines, the silence marker and a reply still streaming", async () => {

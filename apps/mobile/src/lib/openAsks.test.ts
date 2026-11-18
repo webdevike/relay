@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AssistantMessage, OpenAsk } from "@relay/protocol";
 import {
-  answeredAskIds,
   askCards,
   askRowTarget,
   cardAskKey,
@@ -150,17 +149,5 @@ describe("defaultNote", () => {
     ).toBe("Going with 7:40 unless you say otherwise.");
     expect(defaultNote(ask("0000000a", 1, { replies: ["Yes"] }))).toBeNull();
     expect(defaultNote(ask("0000000a", 1, { replies: ["Yes"], default: "Maybe" }))).toBeNull();
-  });
-});
-
-describe("answeredAskIds", () => {
-  it("hides a reply-chip ask once Isaac sent any later turn, typed words or a pending echo", () => {
-    const asks = [ask("0000000a", 10), ask("0000000b", 20, { source: "session" })];
-    const asked: AssistantMessage = { id: "a1", role: "assistant", text: "Push it?", at: 10 };
-    expect([...answeredAskIds(asks, [asked])]).toEqual([]);
-    expect([
-      ...answeredAskIds(asks, [asked, { id: "u1", role: "user", text: "Okay nvm", at: 15 }]),
-    ]).toEqual(["0000000a"]);
-    expect([...answeredAskIds(undefined, [])]).toEqual([]);
   });
 });

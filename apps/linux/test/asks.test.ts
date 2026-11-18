@@ -3,9 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { answerText, type AgentAsk, type AssistantMessage, MAX_ASK_LABEL, MAX_ASK_QUESTION, MAX_OPEN_ASKS } from "@relay/protocol";
-import { ASK_LAPSE_TURNS, AskStore, CLOSED_ASK_TTL_MS, defaultAsksPath } from "../src/assistant/ask-store";
+import { AskStore, CLOSED_ASK_TTL_MS, defaultAsksPath } from "../src/assistant/ask-store";
 import { askId, askKey, askLabel, askQuestion } from "../src/assistant/asks";
-import { judgePrompt, parseVerdict } from "../src/assistant/ask-judge";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -20,7 +19,12 @@ function tempFile(): string {
 
 /** A settled assistant row that ended on answers, and a user row. */
 const asked = (id: string, text: string, at: number, replies = ["Yes", "Not yet"]): AssistantMessage => ({ id, role: "assistant", text, at, replies });
-const said = (id: string, text: string, at: number): AssistantMessage => ({ id, role: "user", text, at });
+const said = (id: string, text: string, at: number): AssistantMessage => ({
+  id,
+  role: "user",
+  text,
+  at,
+});
 /** `asking` for the rows: every assistant row with replies, with the given labels. */
 const asking = (rows: readonly AssistantMessage[], labels: Record<string, string> = {}): Map<string, string | undefined> =>
   new Map(rows.filter((row) => row.role === "assistant" && row.replies !== undefined).map((row) => [row.id, labels[row.id]]));
@@ -34,25 +38,10 @@ function store(path: string | null = null) {
 
 const card = (id: string, question: string, extra: Partial<AgentAsk["questions"][number]> = {}): AgentAsk => ({
   id,
-  questions: [{ id: "q1", question, options: [{ label: "Ship it" }, { label: "Hold" }], ...extra }, { id: "q2", question: "And then?", options: [{ label: "x" }] }],
-});
-
-describe("the ask judge", () => {
-  it("counts only a bare ANSWERED as answered, so a hedge or anything else leaves the ask open", () => {
-    expect(parseVerdict("ANSWERED")).toBe(true);
-    expect(parseVerdict(" answered.\n")).toBe(true);
-    expect(parseVerdict("OPEN")).toBe(false);
-    expect(parseVerdict("Answered? Not really, it is OPEN")).toBe(false);
-    expect(parseVerdict("")).toBe(false);
-  });
-
-  it("shows the model the question, his turns in order and the reply when there is one", () => {
-    const prompt = judgePrompt({ id: "00000001", question: "Push it?", said: ["what did CI say", "ok ship it"], reply: "Pushed.", upTo: 1 });
-    expect(prompt).toContain("Push it?\n");
-    expect(prompt).toContain("1. what did CI say\n2. ok ship it");
-    expect(prompt).toContain("reply to the latest of them:\nPushed.");
-    expect(judgePrompt({ id: "00000001", question: "Push it?", said: ["x"], upTo: 1 })).not.toContain("reply to the latest");
-  });
+  questions: [
+    { id: "q1", question, options: [{ label: "Ship it" }, { label: "Hold" }], ...extra },
+    { id: "q2", question: "And then?", options: [{ label: "x" }] },
+  ],
 });
 
 describe("askQuestion", () => {
@@ -104,18 +93,29 @@ describe("AskStore", () => {
     const { asks, observe } = store();
     const rows = [asked("old", "Old news?", 999), asked("a1", "Fixed it. Want me to push?", 1_500)];
     expect(observe(rows, { a1: "Push the fix" })).toBe(true);
-    expect(asks.open()).toEqual([{ id: expect.stringMatching(/^[0-9a-f]{8}$/) as string, source: "replies", label: "Push the fix", question: "Want me to push?", replies: ["Yes", "Not yet"], at: 1_500, messageId: "a1" }]);
+    expect(asks.open()).toEqual([
+      {
+        id: expect.stringMatching(/^[0-9a-f]{8}$/) as string,
+        source: "replies",
+        label: "Push the fix",
+        question: "Want me to push?",
+        replies: ["Yes", "Not yet"],
+        at: 1_500,
+        messageId: "a1",
+      },
+    ]);
     expect(observe(rows, { a1: "Push the fix" })).toBe(false);
   });
 
   it("resolves and dismisses by id, and says whether it was open", () => {
     const { asks, observe } = store();
-    observe([asked("a1", "Push?", 1_100), asked("a2", "Deploy?", 1_200)]);
-    const [push, deploy] = asks.open();
+    observe([asked("a1", "Push?", 1_100)]);
+    const deploy = asks.addSession({ from: "Golf", question: "Deploy?", options: ["Yes", "No"] });
+    const push = asks.open().find((ask) => ask.source === "replies");
     expect(asks.resolve(push?.id ?? "", "dismissed")).toBe(true);
     expect(asks.resolve(push?.id ?? "", "resolved")).toBe(false);
     expect(asks.resolve("ffffffff", "resolved")).toBe(false);
-    expect(asks.open().map((ask) => ask.id)).toEqual([deploy?.id]);
+    expect(asks.open().map((ask) => ask.id)).toEqual([deploy.id]);
   });
 
   it("is answered by a later user row that is exactly one of its replies, and stays open on free text", () => {
@@ -130,45 +130,57 @@ describe("AskStore", () => {
   it("is answered by a later turn whose answer tag names its question, in his own words, and not by a tag naming another", () => {
     const { asks, observe } = store();
     const push = asked("a1", `Done. Want me to push the "fix" for ${"the billing path and ".repeat(6)}the invoices now?`, 1_100);
-    const deploy = asked("a2", "Deploy after?", 1_200);
-    observe([push, deploy]);
+    observe([push]);
     const pushAsk = asks.open()[0];
     expect(pushAsk?.question.length).toBeGreaterThan(120);
-    observe([push, deploy, said("u1", answerText("wait for CI", pushAsk?.question ?? "", true), 1_300)]);
-    expect(asks.open().map((ask) => ask.question)).toEqual(["Deploy after?"]);
+    const other = said("u1", answerText("wait for CI", "Another question?", true), 1_250);
+    observe([push, other]);
+    expect(asks.open()).toHaveLength(1);
+    observe([push, other, said("u2", answerText("wait for CI", pushAsk?.question ?? "", true), 1_300)]);
+    expect(asks.open()).toEqual([]);
     expect(asks.get(pushAsk?.id ?? "")).toMatchObject({ state: "answered", answer: "wait for CI" });
   });
 
-  it(`resolves a thread's ask left behind by ${String(ASK_LAPSE_TURNS)} later turns of his, but never a session's`, () => {
+  it("never closes a thread's ask from his other turns, however many, and a session's ask only from its answer", () => {
     const { asks, clock, observe } = store();
-    const session = asks.addSession({ from: "Golf", sessionId: "s1", question: "Book it?", options: ["Book it", "Skip"] });
+    const session = asks.addSession({
+      from: "Golf",
+      sessionId: "s1",
+      question: "Book it?",
+      options: ["Book it", "Skip"],
+    });
     clock.now = 1_050;
     const rows: AssistantMessage[] = [asked("a1", "Push?", 1_100)];
-    for (let n = 1; n < ASK_LAPSE_TURNS; n += 1) rows.push(said(`u${String(n)}`, `something else ${String(n)}`, 1_100 + n * 100));
+    for (let n = 1; n <= 6; n += 1) rows.push(said(`u${String(n)}`, `something else ${String(n)}`, 1_100 + n * 100));
     observe(rows);
     expect(asks.open()).toHaveLength(2);
-    observe([...rows, { id: "s", role: "status", text: "[From Nova's background jobs] heartbeat", at: 1_900 }]);
-    expect(asks.open()).toHaveLength(2);
-    observe([...rows, said("last", "and another thing", 2_000)]);
-    expect(asks.open().map((ask) => ask.id)).toEqual([session.id]);
+    expect(asks.open().map((ask) => ask.id)).toContain(session.id);
   });
 
-  it("hands the judge each open thread ask with his turns after it and the reply after the latest, once per new turn", () => {
-    const { asks, observe } = store();
-    asks.addSession({ from: "Golf", question: "Book it?", options: ["Book it", "Skip"] });
-    const rows: AssistantMessage[] = [said("u0", "morning", 1_050), asked("a1", "Push?", 1_100)];
-    observe(rows);
-    expect(asks.unjudged(rows)).toEqual([]);
-    rows.push(said("u1", "sure, go ahead and ship it", 1_200), { id: "a2", role: "assistant", text: "Pushed.", at: 1_300 });
-    observe(rows);
-    const [first, ...rest] = asks.unjudged(rows);
-    expect(rest).toEqual([]);
-    expect(first).toEqual({ id: asks.open()[1]?.id, question: "Push?", said: ["sure, go ahead and ship it"], reply: "Pushed.", upTo: 1_200 });
-    asks.judged(first?.id ?? "", 1_200);
-    expect(asks.unjudged(rows)).toEqual([]);
-    rows.push(said("u2", "actually also tag it", 1_400));
-    expect(asks.unjudged(rows)).toMatchObject([{ said: ["sure, go ahead and ship it", "actually also tag it"], upTo: 1_400 }]);
-    expect(asks.unjudged(rows)[0]?.reply).toBeUndefined();
+  it("lets a newer reply-chip question supersede the older ones, but not a card's or a session's ask", () => {
+    const { asks, clock, observe } = store();
+    const session = asks.addSession({
+      from: "Golf",
+      sessionId: "s1",
+      question: "Book it?",
+      options: ["Book it", "Skip"],
+    });
+    asks.addCard("s2", card("k1", "Ship it?"));
+    clock.now = 1_050;
+    const first = asked("a1", "Push?", 1_100);
+    observe([first]);
+    expect(asks.open().map((ask) => ask.question)).toEqual(expect.arrayContaining(["Push?"]));
+    const second = asked("a2", "Deploy after?", 1_200);
+    observe([first, said("u1", "hold on", 1_150), second]);
+    expect(
+      asks
+        .open()
+        .map((ask) => ask.question)
+        .sort(),
+    ).toEqual(["Book it?", "Deploy after?", "Ship it?"].sort());
+    expect(asks.open().some((ask) => ask.id === session.id)).toBe(true);
+    observe([first, second]);
+    expect(asks.open().filter((ask) => ask.source === "replies")).toHaveLength(1);
   });
 
   it("refreshes an open ask asked again instead of adding a second, but a closed one asked again is a new ask", () => {
@@ -179,7 +191,12 @@ describe("AskStore", () => {
     const again = asked("a2", "Still there. Want me to push it", 1_200, ["Push", "Wait"]);
     observe([first, again]);
     expect(asks.open()).toHaveLength(1);
-    expect(asks.open()[0]).toMatchObject({ id: open?.id, at: 1_200, messageId: "a2", replies: ["Push", "Wait"] });
+    expect(asks.open()[0]).toMatchObject({
+      id: open?.id,
+      at: 1_200,
+      messageId: "a2",
+      replies: ["Push", "Wait"],
+    });
     asks.resolve(open?.id ?? "", "answered");
     observe([first, again]);
     expect(asks.open()).toEqual([]);
@@ -197,8 +214,15 @@ describe("AskStore", () => {
   });
 
   it("keeps the newest MAX_OPEN_ASKS, oldest first", () => {
-    const { asks, observe } = store();
-    observe(Array.from({ length: MAX_OPEN_ASKS + 3 }, (_, index) => asked(`a${String(index)}`, `Question number ${String(index)}?`, 1_100 + index)));
+    const { asks, clock } = store();
+    for (let index = 0; index < MAX_OPEN_ASKS + 3; index += 1) {
+      clock.now = 1_100 + index;
+      asks.addSession({
+        from: "Golf",
+        question: `Question number ${String(index)}?`,
+        options: ["Yes", "No"],
+      });
+    }
     const open = asks.open();
     expect(open).toHaveLength(MAX_OPEN_ASKS);
     expect(open[0]?.question).toBe("Question number 3?");
@@ -209,7 +233,18 @@ describe("AskStore", () => {
     const { asks } = store();
     expect(asks.addCard("s1", card("k1", "Ship the release   today?", { header: "Release" }))).toBe(true);
     expect(asks.addCard("s1", card("k1", "Ship the release today?", { header: "Release" }))).toBe(false);
-    expect(asks.open()).toEqual([{ id: expect.stringMatching(/^[0-9a-f]{8}$/) as string, source: "ask", label: "Release", question: "Ship the release today?", replies: ["Ship it", "Hold"], at: 1_000, sessionId: "s1", askId: "k1" }]);
+    expect(asks.open()).toEqual([
+      {
+        id: expect.stringMatching(/^[0-9a-f]{8}$/) as string,
+        source: "ask",
+        label: "Release",
+        question: "Ship the release today?",
+        replies: ["Ship it", "Hold"],
+        at: 1_000,
+        sessionId: "s1",
+        askId: "k1",
+      },
+    ]);
     expect(asks.cardResolved("s1", "k1", false)).toBe(false);
     expect(asks.open()).toHaveLength(1);
     expect(asks.cardResolved("s1", "k1", true)).toBe(true);
@@ -273,24 +308,66 @@ describe("AskStore", () => {
 
   it("keeps a session's ask with its from, default and a label that leads with who asks", () => {
     const { asks } = store();
-    const ask = asks.addSession({ from: "Golf", sessionId: "s1", question: "Last one for today: book the 7:10 tee time?", options: ["Book it", "Skip"], default: "Book it" });
-    expect(asks.open()).toEqual([{ id: ask.id, source: "session", label: "Golf: Book the 7:10 tee time?", question: "Last one for today: book the 7:10 tee time?", replies: ["Book it", "Skip"], at: 1_000, from: "Golf", sessionId: "s1", default: "Book it" }]);
+    const ask = asks.addSession({
+      from: "Golf",
+      sessionId: "s1",
+      question: "Last one for today: book the 7:10 tee time?",
+      options: ["Book it", "Skip"],
+      default: "Book it",
+    });
+    expect(asks.open()).toEqual([
+      {
+        id: ask.id,
+        source: "session",
+        label: "Golf: Book the 7:10 tee time?",
+        question: "Last one for today: book the 7:10 tee time?",
+        replies: ["Book it", "Skip"],
+        at: 1_000,
+        from: "Golf",
+        sessionId: "s1",
+        default: "Book it",
+      },
+    ]);
   });
 
   it("refreshes a session's ask asked again by the same session while open, but not another session's or a thread row's", () => {
     const { asks, clock, observe } = store();
-    const first = asks.addSession({ from: "Golf", sessionId: "s1", question: "Book the tee time?", options: ["Book it", "Skip"] });
+    const first = asks.addSession({
+      from: "Golf",
+      sessionId: "s1",
+      question: "Book the tee time?",
+      options: ["Book it", "Skip"],
+    });
     clock.now = 1_500;
-    expect(asks.addSession({ from: "Golf", sessionId: "s1", question: "Book the tee time", options: ["Book it", "Skip", "Later"] }).id).toBe(first.id);
+    expect(
+      asks.addSession({
+        from: "Golf",
+        sessionId: "s1",
+        question: "Book the tee time",
+        options: ["Book it", "Skip", "Later"],
+      }).id,
+    ).toBe(first.id);
     expect(asks.open()).toMatchObject([{ id: first.id, at: 1_500, replies: ["Book it", "Skip", "Later"] }]);
-    expect(asks.addSession({ from: "Trip", sessionId: "s2", question: "Book the tee time?", options: ["Yes", "No"] }).id).not.toBe(first.id);
+    expect(
+      asks.addSession({
+        from: "Trip",
+        sessionId: "s2",
+        question: "Book the tee time?",
+        options: ["Yes", "No"],
+      }).id,
+    ).not.toBe(first.id);
     observe([asked("a1", "Book the tee time?", 1_600)]);
     expect(asks.open().map((ask) => ask.source)).toEqual(["session", "session", "replies"]);
   });
 
   it("is not answered by a thread row that matches one of its options: the answer belongs to the asking session", () => {
     const { asks, clock, observe } = store();
-    asks.addSession({ from: "Golf", sessionId: "s1", question: "Book it?", options: ["Book it", "Skip"] });
+    asks.addSession({
+      from: "Golf",
+      sessionId: "s1",
+      question: "Book it?",
+      options: ["Book it", "Skip"],
+    });
     clock.now = 2_000;
     observe([said("u1", "Skip", 1_500)]);
     expect(asks.open()).toHaveLength(1);
@@ -298,7 +375,11 @@ describe("AskStore", () => {
 
   it("keeps the answer and the delivery on a closed ask, which get still reads", () => {
     const { asks } = store();
-    const { id } = asks.addSession({ from: "Golf", question: "Book it?", options: ["Book it", "Skip"] });
+    const { id } = asks.addSession({
+      from: "Golf",
+      question: "Book it?",
+      options: ["Book it", "Skip"],
+    });
     expect(asks.resolve(id, "answered", "Skip")).toBe(true);
     expect(asks.get(id)).toMatchObject({ state: "answered", answer: "Skip", from: "Golf" });
     expect(asks.get(id)?.delivered).toBeUndefined();

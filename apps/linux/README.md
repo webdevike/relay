@@ -329,8 +329,8 @@ before ": " when the rest stands alone ("Last one for today: want me to ..." rea
   his in the thread is exactly one of its answers (case aside; covers desktop chips and older phones; never
   for a session ask), or when the bridge reports its ask card answered (the extension's
   `ask.resolved { answered }`; a cancel leaves it open). `how: "dismissed"` waves it away. A message typed in
-  his own words never closes one: he often answers much later. An id no longer open acks ok.
-- The assistant closes one itself with `relay-linux asks resolve <id>... [--answer '<text>']`
+  his own words never closes one: he often answers much later. A newer reply-chip question in the thread supersedes older ones (only the latest stays open; cards and session asks are not superseded). An id no longer open acks ok.
+- The assistant closes one itself with `relay-linux asks resolve <id>...|--all [--answer '<text>']`
   (`POST /assistant/asks/resolve` `{ id, agent?, answer? }` on loopback, 404 for an id that is not open;
   with an answer it closes as `answered`, else `resolved`) and lists them with `relay-linux asks list
   [--agent <id>] [--json]` (`GET /assistant/asks[?agent=<id>]`; agent from `$RELAY_ASSISTANT`, else every
