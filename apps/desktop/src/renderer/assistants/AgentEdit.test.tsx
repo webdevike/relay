@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type * as FilesStore from '../files/files-store'
 import type * as TilingStore from '../tiling/tiling-store'
 
-vi.mock('../ipc', () => ({ invoke: vi.fn(), on: () => () => {} }))
+vi.mock('../ipc', () => ({
+  invoke: vi.fn(() => Promise.resolve({ ok: false, error: { message: 'offline' } })),
+  on: () => () => {},
+}))
 vi.mock('../files/files-store', async (orig) => ({
   ...(await orig<typeof FilesStore>()),
   openAgentFiles: vi.fn(() => Promise.resolve()),

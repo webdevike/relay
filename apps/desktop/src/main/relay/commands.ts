@@ -71,6 +71,8 @@ export type RelayCommand =
     }
   /** Adds an assistant to the host's registry; with `start`, its thread opens with "Hi <title>". */
   | { kind: 'assistant.create'; id: string; title: string; scope?: string; start: boolean }
+  /** Sets agent `agent`'s registry model (`provider/id`, optionally `:thinking`); it applies when its session next starts. */
+  | { kind: 'assistant.configure'; agent: string; model: string }
   /**
    * Isaac's credentials for the login page (`url`) agent `agent`'s reply `messageId` asked him to
    * sign in to: the host types them into that page in Eva's contained browser. Never logged.

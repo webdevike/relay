@@ -134,7 +134,7 @@ import { pushDictationTarget } from "@/dictation/deliver";
 import { useDictation } from "@/dictation/useDictation";
 import { useWalkieOrb } from "@/dictation/walkie";
 import { AssistantComposer } from "@/agents/AssistantComposer";
-import { ThinkingPopover, type PopoverAnchor } from "@/agents/ThinkingPopover";
+import { AssistantMenuSheet, type AssistantMenuItem } from "@/agents/AssistantMenuSheet";
 import { COMPOSER_PILL_HEIGHT } from "@/ui/ComposerPill";
 import { choosePhoto, chooseLibraryPhotos, type Photo } from "@/lib/photo";
 import { ArtifactsButton } from "@/artifacts/ArtifactsButton";
@@ -319,8 +319,8 @@ function Thread({ agent }: { agent: string }) {
       hidden.remove();
     };
   }, [bottomInset]);
-  // The thinking-level popover, over the composer's model chip.
-  const [thinkingAnchor, setThinkingAnchor] = useState<PopoverAnchor | null>(null);
+  // The avatar menu sheet.
+  const [menuOpen, setMenuOpen] = useState(false);
   // Images queued on the composer, sent with the next turn.
   const [photos, setPhotos] = useState<Photo[]>([]);
   // The images of the tapped bubble, open in the full-screen viewer.
@@ -628,7 +628,7 @@ function Thread({ agent }: { agent: string }) {
   useCoversContent(
     (sessionId !== null && pendingApproval !== undefined) || pendingAsk !== undefined,
   );
-  // The model and thinking level of the thread's session, for the composer's chip: primitives, so the
+  // The model and thinking level of the thread's session, for the avatar menu when the registry names none: primitives, so the
   // screen redraws when they change, not on every status frame of any session the host follows.
   const threadModel = useAgentsStore((state) =>
     sessionId === null ? undefined : state.sessions[sessionId]?.model,
@@ -638,6 +638,10 @@ function Thread({ agent }: { agent: string }) {
   );
   const threadOptions = useAgentsStore((state) =>
     sessionId === null ? undefined : state.options[sessionId],
+  );
+  // What the registry starts the assistant on (`provider/id[:level]`): the menu edits it.
+  const registryModel = useAssistantStore(
+    (state) => state.agents?.find((entry) => entry.id === agent)?.model,
   );
   useEffect(() => {
     if (connected && sessionId !== null) requestAgentOptions(sessionId);
@@ -789,31 +793,10 @@ function Thread({ agent }: { agent: string }) {
     stack.value = height;
   };
 
-  /** The avatar menu: a native action sheet, since a bottom-sheet modal did not present on this screen. */
+  /** The avatar menu: a bottom sheet (`AssistantMenuSheet`) over the thread. */
   const openMenu = (): void => {
     Keyboard.dismiss();
-    ActionSheetIOS.showActionSheetWithOptions(
-      {
-        title,
-        options: [
-          "Edit avatar",
-          "Edit instructions",
-          `${title}'s computer`,
-          "Mac live view",
-          "Agent Inbox",
-          "Cancel",
-        ],
-        cancelButtonIndex: 5,
-      },
-      (index) => {
-        if (index === 0) useLocalRowsStore.getState().openAvatarEditor(agent, portrait);
-        // The phone has no Files tab: the assistant takes the change as a chat turn.
-        if (index === 1) sendTurn("I'd like to change your instructions", [], false);
-        if (index === 2) router.push("/eva-computer");
-        if (index === 3) router.push("/screen");
-        if (index === 4) router.push("/agents");
-      },
-    );
+    setMenuOpen(true);
   };
 
   /** The attach menu, native too: the camera or the photo library. */
@@ -844,35 +827,78 @@ function Thread({ agent }: { agent: string }) {
     });
   };
 
-  /** The thinking levels the thread session's model takes (empty: unknown model or an older host). */
-  const thinkingLevels =
-    threadOptions?.models.find((model) => model.name === threadModel)?.thinkingLevels ?? [];
-  // "Claude Opus 5.5" reads "Opus 5.5": the chip has little room, and the header already names the assistant.
-  const modelName = threadModel?.replace(/^Claude\s+/i, "");
-  /** The card's chip: the thinking-level popover over it, else (no levels to pick) the avatar menu. */
-  const openThinking = (anchor: PopoverAnchor): void => {
-    if (sessionId === null || thinkingLevels.length === 0) {
-      openMenu();
-      return;
-    }
-    setThinkingAnchor(anchor);
-  };
-  const setThinking = (level: string): void => {
-    if (sessionId === null) return;
-    sendCommand({ kind: "agent.configure", sessionId, thinkingLevel: level }).catch(
-      (error: unknown) => {
-        setFailure(
-          error instanceof Error && error.message !== ""
-            ? error.message
-            : "Couldn't change the thinking level.",
-        );
+  // The avatar menu's items; each closes the sheet first, and the ones that open another sheet wait for it to leave.
+  const menuItems: AssistantMenuItem[] = [
+    {
+      key: "avatar",
+      symbol: "face.smiling",
+      label: "Edit avatar",
+      onPress: () => {
+        setMenuOpen(false);
+        setTimeout(() => {
+          useLocalRowsStore.getState().openAvatarEditor(agent, portrait);
+        }, SHEET_CLOSE_MS);
       },
-    );
+    },
+    {
+      key: "instructions",
+      symbol: "doc.text",
+      label: "Edit instructions",
+      onPress: () => {
+        setMenuOpen(false);
+        // The phone has no Files tab: the assistant takes the change as a chat turn.
+        sendTurn("I'd like to change your instructions", [], false);
+      },
+    },
+    {
+      key: "computer",
+      symbol: "desktopcomputer",
+      label: `${title}'s computer`,
+      onPress: () => {
+        setMenuOpen(false);
+        router.push("/eva-computer");
+      },
+    },
+    {
+      key: "screen",
+      symbol: "display",
+      label: "Mac live view",
+      onPress: () => {
+        setMenuOpen(false);
+        router.push("/screen");
+      },
+    },
+    {
+      key: "inbox",
+      symbol: "tray",
+      label: "Agent Inbox",
+      onPress: () => {
+        setMenuOpen(false);
+        router.push("/agents");
+      },
+    },
+  ];
+  /** Writes the assistant's registry model (`provider/id[:level]`); the host applies it when the assistant's session next starts. */
+  const setRegistryModel = (model: string): void => {
+    sendCommand({ kind: "assistant.configure", agent, model }).catch((error: unknown) => {
+      setFailure(
+        error instanceof Error && error.message !== ""
+          ? error.message
+          : "Couldn't change the model.",
+      );
+    });
   };
-  const chip = {
-    label: modelName ?? title,
-    detail: threadThinking === undefined ? undefined : capitalized(threadThinking),
-    onPress: openThinking,
+  const menu = {
+    open: menuOpen,
+    close: () => {
+      setMenuOpen(false);
+    },
+    models: threadOptions?.models ?? [],
+    registryModel,
+    sessionModel: threadModel,
+    sessionThinking: threadThinking,
+    setModel: setRegistryModel,
+    items: menuItems,
   };
 
   /**
@@ -1240,7 +1266,6 @@ function Thread({ agent }: { agent: string }) {
               onSend={(words, sent) => {
                 if (connected) sendTurn(words, sent, true);
               }}
-              chip={chip}
               onWalkie={walkieOrb.start}
               height={pillHeight}
             />
@@ -1308,16 +1333,19 @@ function Thread({ agent }: { agent: string }) {
             setAsksOpen(false);
           }}
         />
-        {/* Last, over everything: it fills the screen (a tap outside closes it). */}
-        <ThinkingPopover
-          anchor={thinkingAnchor}
-          model={modelName ?? title}
-          levels={thinkingLevels}
-          current={threadThinking}
-          onSelect={setThinking}
-          onClose={() => {
-            setThinkingAnchor(null);
-          }}
+        {/* The avatar menu, last, over everything. */}
+        <AssistantMenuSheet
+          open={menu.open}
+          onClose={menu.close}
+          title={title}
+          portrait={portrait}
+          models={menu.models}
+          registryModel={menu.registryModel}
+          sessionModel={menu.sessionModel}
+          sessionThinking={menu.sessionThinking}
+          connected={connected}
+          onSetModel={menu.setModel}
+          items={menu.items}
         />
       </View>
     </BubbleMenuProvider>
@@ -1358,11 +1386,6 @@ function LocalRowFrame({
       {children}
     </WidgetCloseProvider>
   );
-}
-
-/** "medium" reads "Medium" in the chip and the thinking sheet. */
-function capitalized(word: string): string {
-  return word.charAt(0).toUpperCase() + word.slice(1);
 }
 
 /** Space above a row: the sender gap when the row above (older) is by someone else, the run gap when it is by the same one. */

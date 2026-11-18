@@ -226,6 +226,11 @@ export interface AssistantRelaying {
     start: boolean,
   ): Promise<{ readonly id: string; readonly title: string }>;
   /**
+   * `assistant.configure`: sets agent `agent`'s registry model (`provider/id[:thinking]`); it applies when its session next starts.
+   * Rejects with `AckFailure`. Absent where the host cannot write the registry.
+   */
+  configure?(agent: string, model: string): Promise<void>;
+  /**
    * `assistant.file.req`: reads or saves agent `agent`'s prime.md or thread memory (`assistant/files.ts`).
    * Absent where the host has no agent home.
    */

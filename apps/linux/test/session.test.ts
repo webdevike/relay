@@ -1967,6 +1967,54 @@ describe("assistant threads", () => {
     });
   });
 
+  it("hands assistant.configure to the host's threads, nacks what the registry refuses and a host that cannot write it", async () => {
+    const set: unknown[] = [];
+    const assistant = Object.assign(new FakeThreads(), {
+      configure: (agent: string, model: string) => {
+        set.push([agent, model]);
+        return agent === "ghost"
+          ? Promise.reject(
+              new AckFailure({ code: "invalid_command", message: "no assistant ghost" }),
+            )
+          : Promise.resolve();
+      },
+    });
+    const h = harness({ assistant });
+    pair(h);
+    h.session.receive({
+      t: "cmd",
+      id: "m1",
+      cmd: { kind: "assistant.configure", agent: "nova", model: "anthropic/claude-opus-5-5:high" },
+    });
+    h.session.receive({
+      t: "cmd",
+      id: "m2",
+      cmd: { kind: "assistant.configure", agent: "ghost", model: "a/b" },
+    });
+    await h.sink.sentCount(6);
+    expect(set).toEqual([
+      ["nova", "anthropic/claude-opus-5-5:high"],
+      ["ghost", "a/b"],
+    ]);
+    expect(h.sink.sent.slice(-2)).toEqual([
+      { t: "ack", id: "m1" },
+      { t: "nack", id: "m2", error: { code: "invalid_command", message: "no assistant ghost" } },
+    ]);
+    const bare = harness({ assistant: new FakeThreads() });
+    pair(bare);
+    bare.session.receive({
+      t: "cmd",
+      id: "m3",
+      cmd: { kind: "assistant.configure", agent: "nova", model: "a/b" },
+    });
+    await bare.sink.sentCount(5);
+    expect(bare.sink.last()).toMatchObject({
+      t: "nack",
+      id: "m3",
+      error: { code: "invalid_command", message: "this host cannot change assistants" },
+    });
+  });
+
   it("hands assistant.create to the host's threads with its start flag, and nacks where the host cannot add assistants", async () => {
     const created: unknown[] = [];
     const assistant = Object.assign(new FakeThreads(), {

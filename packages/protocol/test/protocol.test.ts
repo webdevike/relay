@@ -394,6 +394,13 @@ describe("assistant thread", () => {
       ).ok,
     ).toBe(false);
   });
+  it("assistant.configure takes an agent id and a model string", () => {
+    const configure = (cmd: object) => parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.configure", ...cmd } })).ok;
+    expect(configure({ agent: "nova", model: "anthropic/claude-opus-5-5:high" })).toBe(true);
+    expect(configure({ agent: "nova", model: "  " })).toBe(false);
+    expect(configure({ agent: "Nova", model: "a/b" })).toBe(false);
+    expect(configure({ model: "a/b" })).toBe(false);
+  });
   it("assistant.create takes a title, and an optional id, scope and start", () => {
     const create = (cmd: object) => parseClientMessage(JSON.stringify({ t: "cmd", id: "c", cmd: { kind: "assistant.create", ...cmd } })).ok;
     expect(create({ title: "Vega" })).toBe(true);

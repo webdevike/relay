@@ -76,6 +76,10 @@ export function registerAssistantsIpc(
     )
     return { id }
   })
+  handle(ctx, 'assistants.configure', async ({ agent, model }) => {
+    await relay.command({ kind: 'assistant.configure', agent, model }, START_TIMEOUT_MS)
+    return { set: true as const }
+  })
   let timer: NodeJS.Timeout | undefined
   const refresh = (): void => {
     if (timer) return

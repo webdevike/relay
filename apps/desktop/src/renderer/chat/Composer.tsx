@@ -708,6 +708,7 @@ export function Composer({
           paneId={paneId}
           disabled={disabled}
           launch={launch}
+          assistant={agent !== null}
           attach={
             <>
               <input

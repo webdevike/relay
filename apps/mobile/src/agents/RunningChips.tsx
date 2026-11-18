@@ -8,7 +8,7 @@ import { Chip, CHIP_HEIGHT } from "@/ui/Chip";
 import { ProgressFill } from "@/ui/ProgressFill";
 import { Text } from "@/ui/Text";
 import { ChipEtaPopover } from "@/agents/ChipEtaPopover";
-import type { PopoverAnchor } from "@/agents/ThinkingPopover";
+import type { PopoverAnchor } from "@/ui/popoverAnchor";
 import type { RunningChip } from "@/lib/activity";
 import { chipFill, doneFill } from "@/lib/chipFill";
 import { LINGER_MS, lingerLeft, settleChips, type ShownChip } from "@/lib/chipLinger";

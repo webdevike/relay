@@ -7,19 +7,22 @@ import { useChatStore } from '../chat-store'
 
 /**
  * Native wrapping toolbar: attach and account at the left; context, model and
- * actions at the right. The right group wraps as a unit at narrow panel widths.
+ * actions at the right (an assistant's thread has no model picker). The right group wraps as a unit at narrow panel widths.
  */
 export function Toolbar({
   paneId,
   disabled,
   launch,
   attach,
+  assistant = false,
   children,
 }: {
   paneId: string
   disabled: boolean
   launch: LaunchControls
   attach: ReactNode
+  /** An assistant's thread: its model and thinking level live in the avatar menu (AgentEdit), not here. */
+  assistant?: boolean
   children: ReactNode
 }) {
   const tokens = useChatStore((s) => s.panes[paneId]?.meta.contextTokens ?? null)
@@ -47,13 +50,15 @@ export function Toolbar({
         </div>
         <div className="eva-composer-actions">
           <ContextRing tokens={tokens} window={window} />
-          <ModelPicker
-            state={state}
-            defaultThinking={launch.defaultThinking}
-            models={launch.models}
-            disabled={off}
-            onChange={(p) => void launch.apply(p)}
-          />
+          {assistant ? null : (
+            <ModelPicker
+              state={state}
+              defaultThinking={launch.defaultThinking}
+              models={launch.models}
+              disabled={off}
+              onChange={(p) => void launch.apply(p)}
+            />
+          )}
           {children}
         </div>
       </div>

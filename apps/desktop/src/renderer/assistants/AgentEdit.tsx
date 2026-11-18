@@ -10,6 +10,7 @@ import { EvaMenu } from '../overlay'
 import { agentTitle } from '../eva/names-store'
 import { revealTool } from '../tiling/tiling-store'
 import { agentOf, assistantsStore } from './assistants-store'
+import { AgentModelSettings } from './AgentModelSettings'
 import './assistants.css'
 
 /** What the header's edit menu needs of the chat it sits in. */
@@ -55,7 +56,7 @@ export function AgentEdit({
   return (
     <span className="eva-as-edit" data-open={open || undefined} data-testid="agent-edit">
       {children}
-      <EvaMenu opened={open} onChange={setOpen} position="bottom-start" width={200}>
+      <EvaMenu opened={open} onChange={setOpen} position="bottom-start" width={260}>
         <EvaMenu.Target>
           <ActionIcon
             variant="default"
@@ -69,6 +70,8 @@ export function AgentEdit({
           </ActionIcon>
         </EvaMenu.Target>
         <EvaMenu.Dropdown>
+          <AgentModelSettings id={id} />
+          <EvaMenu.Divider />
           <EvaMenu.Item
             leftSection={<IconMoodSmile size={16} stroke={1.5} />}
             onClick={editAvatar}

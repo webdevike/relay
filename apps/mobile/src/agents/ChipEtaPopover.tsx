@@ -4,9 +4,9 @@ import { motion, spacing, useColors, useScheme } from "@/theme";
 import { Text } from "@/ui/Text";
 import { Button } from "@/ui/Button";
 import { popoverLeft, popoverWidth } from "@/ui/sliderMath";
-import type { PopoverAnchor } from "@/agents/ThinkingPopover";
+import type { PopoverAnchor } from "@/ui/popoverAnchor";
 
-/** Same opaque fill as `ThinkingPopover`'s card in dark mode. */
+/** Opaque fill, the same as the composer pill in dark mode. */
 const FILL_DARK = "#262626";
 const CARD_RADIUS = 22;
 const MAX_WIDTH = 280;

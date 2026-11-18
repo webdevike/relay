@@ -1464,6 +1464,18 @@ export class ClientSession {
           )
           .then(() => undefined);
       }
+      case "assistant.configure": {
+        const assistant = this.deps.assistant;
+        if (assistant?.configure === undefined) {
+          return Promise.reject(
+            new AckFailure({
+              code: "invalid_command",
+              message: "this host cannot change assistants",
+            }),
+          );
+        }
+        return assistant.configure(cmd.agent, cmd.model);
+      }
     }
   }
 

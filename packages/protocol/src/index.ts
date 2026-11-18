@@ -791,6 +791,8 @@ export const AssistantAgent = z.object({
   status: AssistantStatus.optional(),
   /** The newest reply of the agent worth showing (never the silence marker), one clipped line. */
   lastReply: z.object({ text: z.string(), at: ms }).optional(),
+  /** The model the registry starts the agent's session on (`provider/id`, optionally `:thinking`); absent when the registry names none and from older hosts. */
+  model: z.string().optional(),
 });
 export type AssistantAgent = z.infer<typeof AssistantAgent>;
 
@@ -1836,6 +1838,17 @@ export const Command = z.discriminatedUnion("kind", [
     title: z.string().trim().min(1).max(40),
     scope: z.string().trim().max(200).optional(),
     start: z.boolean().optional(),
+  }),
+  /**
+   * Set assistant `agent`'s model in the host's registry (`model`: omp's `provider/id`, optionally
+   * `:thinking`, e.g. `anthropic/claude-opus-5-5:high`). It applies when the assistant's session next
+   * starts; every client gets the new `assistant.agents` list. An unknown agent or an invalid model
+   * nacks `invalid_command`.
+   */
+  z.object({
+    kind: z.literal("assistant.configure"),
+    agent: AssistantAgentId,
+    model: z.string().trim().min(1).max(120),
   }),
 ]);
 export type Command = z.infer<typeof Command>;

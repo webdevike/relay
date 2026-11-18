@@ -129,6 +129,17 @@ describe('Composer toolbar', () => {
     expect(screen.queryByTestId('composer-account')).toBeNull()
   })
 
+  it("an assistant's thread has no model or thinking picker (its avatar menu holds them)", async () => {
+    open(1, 100)
+    render(
+      <MantineProvider>
+        <Composer paneId="pane-1" disabled={false} agent="nova" />
+      </MantineProvider>,
+    )
+    await screen.findByTestId('composer-context')
+    expect(screen.queryByTestId('composer-model')).toBeNull()
+  })
+
   it('a failed model load is retried, so the picker recovers from raw ids to names', async () => {
     let calls = 0
     const base = invoke.getMockImplementation()!

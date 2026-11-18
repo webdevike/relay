@@ -10,20 +10,18 @@
  * transcript bubble. Holding the pill's open middle talks
  * the same way; tapping it starts typing.
  */
-import { useEffect, useLayoutEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useEffect, useLayoutEffect, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
-import Animated, { FadeIn, FadeOut, ReduceMotion, type SharedValue } from "react-native-reanimated";
+import type { SharedValue } from "react-native-reanimated";
 import { useActorRef, useSelector } from "@xstate/react";
 import { ComposerPill, COMPOSER_BUTTON, COMPOSER_FIELD } from "@/ui/ComposerPill";
 import { AttachmentTray } from "@/ui/AttachmentTray";
 import { IconButton } from "@/ui/IconButton";
-import { Chip } from "@/ui/Chip";
 import { LevelDots } from "@/ui/LevelDots";
 import { Text } from "@/ui/Text";
-import { motion, spacing, useColors, useScheme } from "@/theme";
+import { spacing, useColors, useScheme } from "@/theme";
 import type { Photo } from "@/lib/photo";
 import { expectKeyboard } from "@/lib/keyboardMotion";
-import type { PopoverAnchor } from "@/agents/ThinkingPopover";
 import { cardOpen, composerShapeMachine, holding as isHolding, tapDictating as isTapDictating } from "@/agents/composerShape.machine";
 import { trackComposer } from "@/agents/composerShape";
 import { useCoversContent } from "@/ui/covering";
@@ -53,15 +51,13 @@ export interface AssistantComposerProps {
   onAttach: () => void;
   /** Sends a turn: the words and the queued photos. */
   onSend: (text: string, photos: Photo[]) => void;
-  /** The model and its thinking level, in the card's chip; a tap gets the chip's place on screen, to open the level picker over it. */
-  chip: { label: string; detail?: string | undefined; onPress: (anchor: PopoverAnchor) => void };
   /** A hold started: the screen shows the edge glow until it has faded. */
   onWalkie: () => void;
   /** The pill's height on screen, frame by frame (`ComposerPill` `height`). */
   height: SharedValue<number>;
 }
 
-export function AssistantComposer({ title, connected, draft, setDraft, photos, setPhotos, inputRef, cursor, onComposing, onAttach, onSend, chip, onWalkie, height }: AssistantComposerProps) {
+export function AssistantComposer({ title, connected, draft, setDraft, photos, setPhotos, inputRef, cursor, onComposing, onAttach, onSend, onWalkie, height }: AssistantComposerProps) {
   const colors = useColors();
   const dark = useScheme() === "dark";
   const button = dark ? BUTTON_DARK : colors.surfaceRaised;
@@ -107,7 +103,6 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
     shape.send({ type: "composer.tapPill" });
     inputRef.current?.focus();
   };
-  const chipBox = useRef<View>(null);
   const hold = {
     onHoldStart: () => {
       shape.send({ type: "composer.holdStart" });
@@ -196,26 +191,6 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
         }
         field={field}
         leading={dictating ? <IconButton symbol="xmark" size={COMPOSER_BUTTON} glyphSize={17} backgroundColor={button} onPress={tap.cancel} accessibilityLabel="Cancel dictation" /> : attach}
-        middle={
-          dictating ? undefined : (
-            <Animated.View entering={FadeIn.duration(motion.duration.base).reduceMotion(ReduceMotion.System)} exiting={FadeOut.duration(motion.duration.fast).reduceMotion(ReduceMotion.System)} style={styles.chip}>
-              <View ref={chipBox} collapsable={false} style={styles.chip}>
-                <Chip
-                  size="large"
-                  label={chip.label}
-                  detail={chip.detail}
-                  onPress={() => {
-                    chipBox.current?.measureInWindow((x, y, width, height) => {
-                      chip.onPress({ x, y, width, height });
-                    });
-                  }}
-                  style={[styles.chip, { backgroundColor: button }]}
-                  accessibilityLabel={`${chip.label}${chip.detail === undefined ? "" : ` ${chip.detail}`}, change thinking`}
-                />
-              </View>
-            </Animated.View>
-          )
-        }
         trailing={
           dictating ? (
             <>
@@ -250,6 +225,5 @@ export function AssistantComposer({ title, connected, draft, setDraft, photos, s
 const styles = StyleSheet.create({
   /** The same metrics in both shapes (`COMPOSER_FIELD`): opening the card moves the field, never restyles it. */
   input: { fontSize: 17, lineHeight: COMPOSER_FIELD.line, paddingHorizontal: spacing.xs, paddingTop: COMPOSER_FIELD.padTop, paddingBottom: COMPOSER_FIELD.padBottom, minHeight: COMPOSER_FIELD.min, maxHeight: COMPOSER_FIELD.max, textAlignVertical: "top" },
-  chip: { flexShrink: 1, minWidth: 0 },
   tray: { paddingBottom: spacing.sm },
 });

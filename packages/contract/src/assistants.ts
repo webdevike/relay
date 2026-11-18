@@ -82,6 +82,16 @@ export const assistantsInvoke = {
     input: z.object({ title: z.string().trim().min(1).max(40).optional() }).strict(),
     output: z.object({ id: z.string().min(1) }),
   },
+  /**
+   * Sets the agent's registry model through Relay (`assistant.configure`): `provider/id`, optionally
+   * `:thinking`. It applies when the agent's session next starts; `assistants.changed` follows.
+   */
+  'assistants.configure': {
+    input: z
+      .object({ agent: z.string().min(1).max(128), model: z.string().trim().min(1).max(120) })
+      .strict(),
+    output: z.object({ set: z.literal(true) }),
+  },
 } as const
 
 export const assistantsEvents = {

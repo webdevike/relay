@@ -601,7 +601,10 @@ function serve(
     create: thread,
     ...(registryAdmin === null
       ? {}
-      : { register: (input: unknown) => registryAdmin.create(input) }),
+      : {
+          register: (input: unknown) => registryAdmin.create(input),
+          update: (id: string, patch: unknown) => registryAdmin.update(id, patch),
+        }),
     ...(agentHome === null ? {} : { file: (req) => handleAssistantFile(agentHome, req) }),
     // One assistant brings another into its chat (`assistant consult`): guest rows go in through its bridge.
     guests: {

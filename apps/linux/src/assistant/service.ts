@@ -689,6 +689,7 @@ export class AssistantService implements AssistantThread {
       ...(this.agent.scope === undefined ? {} : { scope: this.agent.scope }),
       ...(this.agent.avatar === undefined ? {} : { avatar: this.agent.avatar }),
       ...(this.agent.portrait === undefined ? {} : { portrait: this.agent.portrait }),
+      ...(this.agent.model === undefined ? {} : { model: this.agent.model }),
       status: assistantStatus(session),
       ...(lastReply === null ? {} : { lastReply }),
     };
@@ -1126,6 +1127,8 @@ export interface AssistantThreadsDeps {
   readonly create?: (agent: AssistantAgentConfig) => AssistantService;
   /** Adds an agent to the registry (`AssistantRegistry.create`); without it `create` nacks. */
   readonly register?: (input: unknown) => { readonly id: string; readonly title: string };
+  /** Changes an agent's registry entry (`AssistantRegistry.update`); without it `configure` nacks. */
+  readonly update?: (id: string, patch: unknown) => unknown;
   /** Reads or saves an agent's prime.md or thread memory (`handleAssistantFile`); without it `assistant.file.req` answers that the host has no agent home. */
   readonly file?: (
     req: Pick<AssistantFileReq, "agent" | "file" | "op" | "text" | "expectedHash" | "force">,
@@ -1278,6 +1281,28 @@ export class AssistantThreads implements AssistantRelaying {
         });
     }
     return Promise.resolve(added);
+  }
+
+  /** Sets an agent's registry model (`assistant.configure`); the registry write reloads the threads and every phone gets the new list. */
+  configure(agent: string, model: string): Promise<void> {
+    const update = this.deps?.update;
+    if (update === undefined)
+      return Promise.reject(
+        new AckFailure({ code: "invalid_command", message: "this host cannot change assistants" }),
+      );
+    try {
+      update(agent, { model });
+    } catch (error) {
+      if (error instanceof RegistryError)
+        return Promise.reject(new AckFailure({ code: "invalid_command", message: error.message }));
+      return Promise.reject(
+        new AckFailure({
+          code: "internal",
+          message: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    return Promise.resolve();
   }
 
   private list(): Promise<AssistantAgent[]> {

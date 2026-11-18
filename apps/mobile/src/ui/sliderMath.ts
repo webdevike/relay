@@ -1,5 +1,5 @@
 /**
- * Pure math for `DotSlider` and `ThinkingPopover`. Each function is also called from a worklet,
+ * Pure math for `DotSlider` and `ChipEtaPopover`. Each function is also called from a worklet,
  * so they take every input as a plain argument (no defaults, no module constants).
  */
 
