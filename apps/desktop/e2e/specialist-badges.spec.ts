@@ -42,7 +42,34 @@ const test = base.extend({
     )
     const relayDir = path.join(fx.root, 'relay')
     host = await FakeRelayHost.start(relayDir)
-    await use({ ...fx.launchEnv, EVAOS_EVA_ROOT: evaRoot, EVAOS_RELAY_DIR: relayDir })
+    // The atomic-agents service, as its CLI answers `runs`: the run, with the model it ran on.
+    const atomic = path.join(fx.root, 'atomic')
+    fs.mkdirSync(path.join(atomic, 'app/atomic-agents/src'), { recursive: true })
+    fs.writeFileSync(path.join(atomic, 'events.ndjson'), '')
+    fs.writeFileSync(
+      path.join(atomic, 'app/atomic-agents/src/cli.ts'),
+      `console.log(JSON.stringify(${JSON.stringify({
+        days: 7,
+        runs: [
+          {
+            run: RESEARCH.run,
+            agent: 'web-researcher',
+            status: 'running',
+            caller: 'agent:nova',
+            model: 'anthropic/claude-haiku-5-5',
+            thinking: 'high',
+            requestedAt: RESEARCH.requestedAt,
+          },
+        ],
+        agents: [],
+      })}))`,
+    )
+    await use({
+      ...fx.launchEnv,
+      EVAOS_EVA_ROOT: evaRoot,
+      EVAOS_RELAY_DIR: relayDir,
+      EVAOS_ATOMIC_AGENTS_HOME: atomic,
+    })
     await host.close()
     fx.cleanup()
   },
@@ -181,6 +208,13 @@ test('a specialist run is a live badge in the strip: running with a clock, then 
   await expect(shell.locator(sel('agents-caption'))).toHaveCount(0)
   await shot(shell, 'running.png')
   await strip.screenshot({ path: path.join(PROOF, 'strip-running.png') })
+  // Open while it works: the model it is running on shows already.
+  await badge.click()
+  const working = shell.locator(sel(`specialist-details-${RESEARCH.run}`))
+  await expect(working.locator(sel('agents-model'))).toHaveText('Claude Haiku 5.5 · high thinking')
+  await shot(shell, 'expanded-running.png')
+  await badge.click()
+  await expect(working).toHaveCount(0)
 
   // The research comes back and Nova replies: the same badge reads done with how long it took.
   await fx.append(
@@ -225,6 +259,8 @@ test('a specialist run is a live badge in the strip: running with a clock, then 
   await expect(details.locator(`${sel('agents-sources')} a`)).toHaveCount(2)
   await expect(details.locator(sel('agents-verified'))).toHaveCount(2)
   await expect(details).toContainText('29s · $0.004')
+  // The model it ran on sits right under the agent's name, with its thinking level.
+  await expect(details.locator(sel('agents-model'))).toHaveText('Claude Haiku 5.5 · high thinking')
   await shot(shell, 'expanded.png')
   await badge.click()
   await expect(details).toHaveCount(0)

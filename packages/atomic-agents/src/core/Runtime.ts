@@ -173,6 +173,8 @@ export class Runner extends Context.Service<
             ? undefined
             : (options.toolMode ?? resolved.agent.toolMode);
         const modes = toolMode === undefined ? {} : { toolMode };
+        const thinking =
+          resolved.agent.thinking === undefined ? {} : { thinking: resolved.agent.thinking };
         const envelope = { component: component.id, job: job.id, run };
         const publish = (name: string, data: unknown) =>
           makeEvent({ ...envelope, type: `${component.id}/${name}`, data }).pipe(
@@ -222,6 +224,7 @@ export class Runner extends Context.Service<
               input,
               model,
               ...modes,
+              ...thinking,
               ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
               ...(options.trial === undefined
                 ? {}
@@ -240,6 +243,7 @@ export class Runner extends Context.Service<
                   input,
                   model: backup,
                   ...modes,
+                  ...thinking,
                   fellBackFrom: model,
                   reason: `${first.value._tag}: ${first.value.message}`.slice(0, 500),
                   ...(options.requestId === undefined ? {} : { requestId: options.requestId }),

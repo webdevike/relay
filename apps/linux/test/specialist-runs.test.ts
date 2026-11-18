@@ -75,9 +75,9 @@ describe("specialistRunsOfJournal", () => {
       line("widget/job.succeeded", "2026-11-17T15:07:23.000Z", { _tag: "job.succeeded", seconds: 1 }, { job: "pick", run: "w1" }),
     ];
     expect(specialistRunsOfJournal(lines)).toEqual([
-      { run: "r-done", agent: "prop-render", status: "done", startedAt: Date.parse("2026-11-17T15:07:01.399Z"), seconds: 98 },
-      { run: "r-failed", agent: "prop-render", status: "failed", startedAt: Date.parse("2026-11-17T15:07:06.000Z"), seconds: 24, error: "render crashed" },
-      { run: "r-running", agent: "prop-render", status: "running", startedAt: Date.parse("2026-11-17T15:07:12.000Z") },
+      { run: "r-done", agent: "prop-render", status: "done", startedAt: Date.parse("2026-11-17T15:07:01.399Z"), seconds: 98, model: "m" },
+      { run: "r-failed", agent: "prop-render", status: "failed", startedAt: Date.parse("2026-11-17T15:07:06.000Z"), seconds: 24, error: "render crashed", model: "m" },
+      { run: "r-running", agent: "prop-render", status: "running", startedAt: Date.parse("2026-11-17T15:07:12.000Z"), model: "m" },
       { run: "r-rejected", agent: "diagram", status: "failed", startedAt: Date.parse("2026-11-17T15:07:20.000Z"), error: "bad request" },
     ]);
   });
@@ -89,7 +89,7 @@ describe("specialistRunsOfJournal", () => {
       line("diagram/diagram.rendered", "2026-11-17T15:00:09.000Z", { requestId: "p-1", image: "x" }, { job: "draw", run: "d1" }),
     ];
     expect(specialistRunsOfJournal(lines)).toEqual([
-      { run: "p-1", agent: "diagram", status: "done", startedAt: Date.parse("2026-11-17T15:00:00.000Z") },
+      { run: "p-1", agent: "diagram", status: "done", startedAt: Date.parse("2026-11-17T15:00:00.000Z"), model: "m" },
     ]);
   });
 });
@@ -164,5 +164,41 @@ describe("SpecialistRunBook", () => {
     } finally {
       stop();
     }
+  });
+});
+
+describe("the model a run ran on", () => {
+  const started = (requestId: string, extra: Record<string, unknown>, model: string): string =>
+    line("prop-render/job.started", "2026-11-17T15:07:02Z", { _tag: "job.started", requestId, input: {}, model, ...extra }, { run: requestId });
+
+  it("is the one the run started on, its thinking level, and the backup after a fallback", () => {
+    const ask = propRender("req-1", "2026-11-17T15:07:01Z").slice(0, 1);
+    const plain = specialistRunsOfJournal([...ask, started("req-1", { thinking: "high" }, "anthropic/claude-haiku-5-5")]);
+    expect(plain[0]).toMatchObject({ model: "anthropic/claude-haiku-5-5", thinking: "high" });
+    expect(plain[0]?.fellBack).toBeUndefined();
+    const fell = specialistRunsOfJournal([
+      ...ask,
+      started("req-1", {}, "anthropic/claude-haiku-5-5"),
+      started("req-1", { fellBackFrom: "anthropic/claude-haiku-5-5" }, "openrouter/moonshotai/kimi-k3.1-pro"),
+    ]);
+    expect(fell[0]).toMatchObject({ model: "openrouter/moonshotai/kimi-k3.1-pro", fellBack: true });
+  });
+
+  it("reaches a finished row from the service, and a trial's own run stays blind until the pick", () => {
+    const done: AgentRun = { run: "r-1", agent: "prop-render", status: "done", startedAt: 1_000, seconds: 9 };
+    const row: AssistantMessage = { id: "a1", role: "assistant", text: "ok", at: 5, agents: [done] };
+    const service: AgentRun[] = [{ ...done, model: "anthropic/claude-haiku-5-5", thinking: "low" }];
+    expect(settleAssistantMessages([row], service, 2_000)[0]?.agents?.[0]).toMatchObject({
+      model: "anthropic/claude-haiku-5-5",
+      thinking: "low",
+    });
+    const badge = (picked: boolean) => ({
+      byRequest: new Map([["r-1", { trialId: "t1", agent: "prop-render", letter: "A" as const, picked, others: [{ letter: "B" as const, status: "done" as const, model: "openai/gpt-6.1-sol" }] }]]),
+      switched: new Map(),
+    });
+    const blind = settleAssistantMessages([row], service, 2_000, badge(false))[0]?.agents ?? [];
+    expect(blind.map((r) => [r.trial, r.model])).toEqual([["A", undefined], ["B", undefined]]);
+    const shown = settleAssistantMessages([row], service, 2_000, badge(true))[0]?.agents ?? [];
+    expect(shown.map((r) => r.model)).toEqual(["anthropic/claude-haiku-5-5", "openai/gpt-6.1-sol"]);
   });
 });

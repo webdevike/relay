@@ -82,6 +82,7 @@ describe("agentRunDetail", () => {
       ],
       fields: ["confidence: high"],
       meta: "29s · $0.004",
+      model: null,
     });
   });
 
@@ -94,6 +95,19 @@ describe("agentRunDetail", () => {
       citations: [],
       fields: [],
       meta: null,
+      model: null,
     });
+  });
+
+  it("carries the Model row: the model with its thinking level, the backup marked, nothing while blind", () => {
+    const model = (extra: Partial<AgentRun>) =>
+      agentRunDetail(run({ status: "running", ...extra })).model;
+    expect(model({ model: "anthropic/claude-haiku-5-5", thinking: "high" })).toBe(
+      "Claude Haiku 5.5 · high thinking",
+    );
+    expect(model({ model: "openrouter/moonshotai/kimi-k3.1-pro", fellBack: true })).toBe(
+      "Kimi K3.1 Pro (backup)",
+    );
+    expect(model({ trial: "B" })).toBeNull();
   });
 });

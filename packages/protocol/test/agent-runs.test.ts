@@ -1,3 +1,4 @@
+import { agentModelLine, modelName } from "../src/agent-runs";
 import { describe, expect, it } from "vitest";
 import {
   agentBadge,
@@ -311,5 +312,22 @@ describe("agentRunsByRow", () => {
     expect(placed.get(2)).toEqual([{ ...done, startedAt: 1_000 }]);
     expect(placed.get(5)).toEqual([{ ...done, startedAt: 1_000 }]);
     expect(agentsCaption(placed.get(2)!, 500_000)).toBe("Answered with Web researcher · 1m 30s");
+  });
+});
+
+describe("the Model row", () => {
+  it("names a model id as Isaac reads it", () => {
+    expect(modelName("anthropic/claude-haiku-5-5")).toBe("Claude Haiku 5.5");
+    expect(modelName("anthropic/claude-haiku-4-5-20251001")).toBe("Claude Haiku 4.5");
+    expect(modelName("openrouter/moonshotai/kimi-k3.1-pro")).toBe("Kimi K3.1 Pro");
+    expect(modelName("openai/gpt-6.1-sol")).toBe("GPT-6.1 Sol");
+    expect(modelName("openai/gpt-6-1-sol")).toBe("GPT-6.1 Sol");
+  });
+
+  it("adds the thinking level, marks the backup model, and stays empty without a model (a blind trial arm)", () => {
+    expect(agentModelLine({ model: "anthropic/claude-haiku-5-5", thinking: "high" })).toBe("Claude Haiku 5.5 · high thinking");
+    expect(agentModelLine({ model: "anthropic/claude-haiku-5-5", thinking: "off" })).toBe("Claude Haiku 5.5");
+    expect(agentModelLine({ model: "openrouter/moonshotai/kimi-k3.1-pro", fellBack: true })).toBe("Kimi K3.1 Pro (backup)");
+    expect(agentModelLine({})).toBeNull();
   });
 });

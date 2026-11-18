@@ -209,3 +209,37 @@ describe("a chat's specialist badges", () => {
     )
   })
 })
+
+describe("a specialist badge's popover", () => {
+  const open = (run: AgentRun) => {
+    invoke.mockResolvedValue({ ok: true, value: { ok: false, text: '' } })
+    wrap(
+      <SubagentChips
+        subagents={[]}
+        hidden={new Set()}
+        onOpen={() => undefined}
+        onClearDone={() => undefined}
+        specialists={[run]}
+      />,
+    )
+    fireEvent.click(screen.getByTestId('specialist-chip-r1'))
+  }
+
+  it('names the model with its thinking level right under the agent', async () => {
+    open({ ...asked, model: 'anthropic/claude-haiku-5-5', thinking: 'high' })
+    expect(await screen.findByTestId('agents-model')).toHaveTextContent(
+      'Claude Haiku 5.5 · high thinking',
+    )
+  })
+
+  it('marks the backup model', async () => {
+    open({ ...asked, model: 'openrouter/moonshotai/kimi-k3.1-pro', fellBack: true })
+    expect(await screen.findByTestId('agents-model')).toHaveTextContent('Kimi K3.1 Pro (backup)')
+  })
+
+  it('has no Model row while the run is blind', async () => {
+    open({ ...asked, trial: 'B' })
+    await screen.findByTestId('agents-run')
+    expect(screen.queryByTestId('agents-model')).toBeNull()
+  })
+})

@@ -26,6 +26,8 @@ export interface TrialArmRun {
   readonly status: TrialArm["status"];
   readonly startedAt?: number;
   readonly seconds?: number;
+  /** The arm's model id; badges show it only once the trial is picked. */
+  readonly model?: string;
 }
 
 /** A trial seen from the default arm's run: its letter, and the other arms that ran beside it. */
@@ -34,6 +36,8 @@ export interface TrialRunBadge {
   readonly agent: string;
   readonly letter: TrialLetter;
   readonly others: readonly TrialArmRun[];
+  /** Isaac picked: the models may show. */
+  readonly picked: boolean;
 }
 
 /** An agent's latest switch still standing: its runs started within TRIAL_SWITCH_BADGE_MS after `at` name `toLabel`. */
@@ -280,6 +284,7 @@ export function trialsOfJournal(lines: readonly string[], now: number): TrialsFo
       trialId: t.id,
       agent: t.agent,
       letter: own.letter,
+      picked: t.pick !== undefined,
       others: t.arms
         .filter((a) => a !== own)
         .map((a) => {
@@ -288,6 +293,7 @@ export function trialsOfJournal(lines: readonly string[], now: number): TrialsFo
             letter: a.letter,
             status: a.status,
             startedAt,
+            model: a.model,
             ...(a.seconds === undefined ? {} : { seconds: a.seconds }),
           };
         }),

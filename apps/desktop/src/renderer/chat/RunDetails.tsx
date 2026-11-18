@@ -2,7 +2,7 @@ import './run-details.css'
 import type { MouseEvent } from 'react'
 import { Tooltip } from '@mantine/core'
 import { IconCircleCheck } from '@tabler/icons-react'
-import { agentClock, agentLabel, type AgentRun } from '@relay/protocol'
+import { agentClock, agentLabel, agentModelLine, type AgentRun } from '@relay/protocol'
 import { openLink } from '../navigation/open-link'
 import { openTargetOf } from '../navigation/open-target'
 import { Markdown } from './markdown/Markdown'
@@ -18,7 +18,13 @@ function plain(v: unknown): string | null {
   return null
 }
 
-function Fields({ entries }: { entries: [string, unknown][] }) {
+function Fields({
+  entries,
+  testIds,
+}: {
+  entries: [string, unknown][]
+  testIds?: Readonly<Record<string, string>>
+}) {
   return (
     <dl className="eva-agents-fields">
       {entries.map(([key, value]) => {
@@ -27,7 +33,7 @@ function Fields({ entries }: { entries: [string, unknown][] }) {
           <div key={key} className="eva-agents-field">
             {/* `maxSources` reads `Max sources`. */}
             <dt>{agentLabel(key.replace(/([a-z])([A-Z])/g, '$1 $2').toLowerCase())}</dt>
-            <dd>
+            <dd data-testid={testIds?.[key]}>
               {text !== null ? (
                 text
               ) : (
@@ -141,13 +147,22 @@ export function RunDetails({ run }: { run: AgentRun }) {
     run.seconds !== undefined ? agentClock(run.seconds * 1000, false) : null,
     run.cost === undefined ? null : costLabel(run.cost),
   ].filter((s): s is string => s !== null)
+  const modelLine = agentModelLine(run)
   return (
     <section className="eva-agents-run" data-testid="agents-run" data-state={run.status}>
       <div className="eva-agents-run-head">
         <span className="eva-agents-run-name">{agentLabel(run.agent)}</span>
         {stats.length > 0 ? <span>{stats.join(' · ')}</span> : null}
       </div>
-      {asked.length > 0 ? <Fields entries={asked} /> : null}
+      {modelLine !== null || asked.length > 0 ? (
+        <Fields
+          entries={[
+            ...(modelLine === null ? [] : [['model', modelLine] as [string, unknown]]),
+            ...asked,
+          ]}
+          testIds={{ model: 'agents-model' }}
+        />
+      ) : null}
       {run.error ? (
         <div className="eva-agents-error" data-testid="agents-error">
           {run.error}

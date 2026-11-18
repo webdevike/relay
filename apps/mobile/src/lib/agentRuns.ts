@@ -3,7 +3,13 @@
  * what the badge says, and what a run's opened details hold.
  */
 import { z } from "zod";
-import { agentClock, agentRunsByRow, type AgentMessage, type AgentRun } from "@relay/protocol";
+import {
+  agentClock,
+  agentModelLine,
+  agentRunsByRow,
+  type AgentMessage,
+  type AgentRun,
+} from "@relay/protocol";
 
 /** The badge's state: accent while any run works, danger when every run failed, else quiet. */
 export type AgentsTone = "running" | "failed" | "done";
@@ -49,6 +55,8 @@ export interface AgentRunDetail {
   fields: string[];
   /** `29s · $0.004` once done. */
   meta: string | null;
+  /** The Model row: `Claude Haiku 5.5 · high thinking`, `Kimi K3.1 Pro (backup)`; null while unknown or blind (a trial arm before the pick). */
+  model: string | null;
 }
 
 /** A value as one readable line: text as is, anything else as compact JSON. */
@@ -95,5 +103,6 @@ export function agentRunDetail(run: AgentRun): AgentRunDetail {
     citations,
     fields,
     meta: meta === "" ? null : meta,
+    model: agentModelLine(run),
   };
 }

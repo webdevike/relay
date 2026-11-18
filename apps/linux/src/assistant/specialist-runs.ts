@@ -42,7 +42,14 @@ interface Tracked {
   agent: string | undefined;
   requestedAt: string | undefined;
   rejected: string | undefined;
-  started: { readonly at: string } | undefined;
+  started:
+    | {
+        readonly at: string;
+        readonly model?: string;
+        readonly thinking?: string;
+        readonly fellBack?: boolean;
+      }
+    | undefined;
   finished:
     | {
         readonly ok: boolean;
@@ -144,7 +151,15 @@ export function specialistRunsOfJournal(lines: readonly string[]): AgentRun[] {
       const tracked = started === undefined ? undefined : byRequest.get(started);
       if (tracked !== undefined) {
         tracked.agent ??= event.component;
-        tracked.started = { at: event.at };
+        // A retry on the backup model starts the same run again: its start replaces the first.
+        const model = text(event.data?.["model"]);
+        const thinking = text(event.data?.["thinking"]);
+        tracked.started = {
+          at: event.at,
+          ...(model === undefined ? {} : { model }),
+          ...(thinking === undefined ? {} : { thinking }),
+          ...(text(event.data?.["fellBackFrom"]) === undefined ? {} : { fellBack: true }),
+        };
         byRun.set(key, tracked);
       }
       continue;
@@ -189,6 +204,9 @@ export function specialistRunsOfJournal(lines: readonly string[]): AgentRun[] {
       ...(Number.isNaN(at) ? {} : { startedAt: at }),
       ...(seconds === undefined ? {} : { seconds }),
       ...(failure === undefined ? {} : { error: failure.slice(0, 4000) }),
+      ...(t.started?.model === undefined ? {} : { model: t.started.model }),
+      ...(t.started?.thinking === undefined ? {} : { thinking: t.started.thinking }),
+      ...(t.started?.fellBack === true ? { fellBack: true } : {}),
     });
   }
   return out;
@@ -205,7 +223,10 @@ function badgeTrialRuns(runs: readonly AgentRun[], badges: TrialBadges): AgentRu
     if (r.run?.startsWith("trial:") === true) continue;
     const trial = r.run === undefined ? undefined : badges.byRequest.get(r.run);
     if (trial !== undefined) {
-      out.push(r.trial === trial.letter ? r : { ...r, trial: trial.letter });
+      // Blind until Isaac picks: the default arm's own run shows its letter and no model.
+      const { model: _m, thinking: _t, fellBack: _f, ...own } = r;
+      const shown = trial.picked ? r : own;
+      out.push(shown.trial === trial.letter ? shown : { ...shown, trial: trial.letter });
       for (const arm of trial.others) {
         out.push({
           run: `trial:${trial.trialId}:${arm.letter}`,
@@ -214,6 +235,7 @@ function badgeTrialRuns(runs: readonly AgentRun[], badges: TrialBadges): AgentRu
           trial: arm.letter,
           ...(arm.startedAt === undefined ? {} : { startedAt: arm.startedAt }),
           ...(arm.seconds === undefined ? {} : { seconds: arm.seconds }),
+          ...(trial.picked && arm.model !== undefined ? { model: arm.model } : {}),
         });
       }
       continue;
@@ -245,9 +267,22 @@ export function settleAssistantMessages(
   return messages.map((message) => {
     const agents = message.agents;
     if (agents === undefined || agents.length === 0) return message;
-    const settled = agents.some((r) => r.status === "running")
+    const settledRuns = agents.some((r) => r.status === "running")
       ? settleAgentRuns(agents, { runs, now })
       : agents;
+    // A finished run keeps its row; the model it ran on comes from the service whenever it lists the run.
+    const byRun = new Map(runs.flatMap((s) => (s.run === undefined ? [] : [[s.run, s] as const])));
+    const settled = settledRuns.map((r) => {
+      const s = r.run === undefined ? undefined : byRun.get(r.run);
+      if (s?.model === undefined) return r;
+      const { thinking: _t, fellBack: _f, ...rest } = r;
+      return {
+        ...rest,
+        model: s.model,
+        ...(s.thinking === undefined ? {} : { thinking: s.thinking }),
+        ...(s.fellBack === true ? { fellBack: true } : {}),
+      };
+    });
     const moved = settled.some((r, i) => r.status !== agents[i]?.status);
     const badged = trials === null ? settled : badgeTrialRuns(settled, trials);
     const same =
@@ -259,7 +294,10 @@ export function settleAssistantMessages(
           r.run === was.run &&
           r.status === was.status &&
           r.trial === was.trial &&
-          r.newModel === was.newModel
+          r.newModel === was.newModel &&
+          r.model === was.model &&
+          r.thinking === was.thinking &&
+          r.fellBack === was.fellBack
         );
       });
     if (same) return message;

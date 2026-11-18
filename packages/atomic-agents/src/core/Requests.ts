@@ -177,6 +177,10 @@ export interface RunStatus {
   readonly text?: string
   readonly error?: string
   readonly model?: string
+  /** The thinking level the run's agent was set to, when it has one. */
+  readonly thinking?: string
+  /** The run is on the backup model: the main one failed first (`job.started`'s `fellBackFrom`). */
+  readonly fellBack?: boolean
   readonly requestedAt?: string
   readonly startedAt?: string
   readonly finishedAt?: string
@@ -206,7 +210,7 @@ class Tracker {
   request: unknown
   requestedAt: string | undefined
   rejected: string | undefined
-  started: { readonly component: string; readonly job: string; readonly run: string; readonly at: string; readonly model: string } | undefined
+  started: { readonly component: string; readonly job: string; readonly run: string; readonly at: string; readonly model: string; readonly thinking?: string; readonly fellBack?: boolean } | undefined
   finished: { readonly ok: boolean; readonly at: string; readonly seconds: number; readonly error?: string } | undefined
   readonly outputs: Array<AgentEvent> = []
 
@@ -253,7 +257,7 @@ class Tracker {
           const input = withoutRequestId(phase.value.input)
           if (Object.keys(input).length > 0) this.request = input
         }
-        this.started = { component: event.component, job: event.job, run: event.run, at: event.at, model: phase.value.model }
+        this.started = { component: event.component, job: event.job, run: event.run, at: event.at, model: phase.value.model, ...(phase.value.thinking === undefined ? {} : { thinking: phase.value.thinking }), ...(phase.value.fellBackFrom === undefined ? {} : { fellBack: true }) }
       }
       return
     }
@@ -294,7 +298,7 @@ class Tracker {
       ...(data === undefined ? {} : { reply: data }),
       ...(shown === undefined || shown === "none" ? {} : { text: shown }),
       ...(failed === undefined ? {} : { error: failed }),
-      ...(this.started === undefined ? {} : { job: this.started.job, model: this.started.model, startedAt: this.started.at }),
+      ...(this.started === undefined ? {} : { job: this.started.job, model: this.started.model, ...(this.started.thinking === undefined ? {} : { thinking: this.started.thinking }), ...(this.started.fellBack === true ? { fellBack: true } : {}), startedAt: this.started.at }),
       ...(this.requestedAt === undefined ? {} : { requestedAt: this.requestedAt }),
       ...(this.finished === undefined && reply === undefined ? {} : { finishedAt: this.finished?.at ?? reply!.at }),
       ...(seconds === undefined ? {} : { seconds }),

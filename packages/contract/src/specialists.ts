@@ -32,6 +32,10 @@ export const SpecialistRunSchema = z.object({
   job: z.string().max(200).nullable(),
   error: z.string().max(4000).nullable(),
   model: z.string().max(200).nullable(),
+  /** The thinking level its specialist was set to for the run, when it had one (hidden with the model on a blind trial run). */
+  thinking: z.string().max(40).nullable().optional(),
+  /** The run is on the specialist's backup model: the main one failed first. */
+  fellBack: z.boolean().optional(),
   /** When the request went out, else when the run started (epoch ms). */
   at: z.number().finite().nullable(),
   seconds: z.number().finite().nullable(),

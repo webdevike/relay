@@ -33,8 +33,52 @@ export const AgentRun = z.object({
   trial: z.enum(["A", "B", "C"]).optional().catch(undefined),
   /** The short name of the model the agent switched to on its own, for a while after the switch (`TRIAL_SWITCH_BADGE_MS`): its badge reads `Diagram · Sonnet 5.5`. */
   newModel: z.string().max(200).optional().catch(undefined),
+  /** The model id the run is on (the service's `job.started`); absent for a trial arm until Isaac picks, and until the service lists the run. */
+  model: z.string().max(200).optional().catch(undefined),
+  /** The thinking level its agent was set to for the run, when it had one. */
+  thinking: z.string().max(40).optional().catch(undefined),
+  /** The run is on the agent's backup model: the main one failed first. */
+  fellBack: z.boolean().optional().catch(undefined),
 });
 export type AgentRun = z.infer<typeof AgentRun>;
+
+const idWords = (text: string): string[] =>
+  text
+    .split(/[-_\s]+/)
+    .filter((word) => word !== "" && !/^\d{8}$/.test(word))
+    .reduce<string[]>((out, word) => {
+      const last = out[out.length - 1];
+      // `5-5` is version 5.5: a number after a whole number joins it.
+      if (/^\d+$/.test(word) && last !== undefined && /^\d+$/.test(last))
+        out[out.length - 1] = `${last}.${word}`;
+      else out.push(word);
+      return out;
+    }, []);
+
+/** A model id as Isaac reads it: `anthropic/claude-haiku-5-5` → `Claude Haiku 5.5`, `openrouter/moonshotai/kimi-k3.1-pro` → `Kimi K3.1 Pro`, `openai/gpt-6.1-sol` → `GPT-6.1 Sol`. */
+export function modelName(model: string): string {
+  const words = idWords(model.split("/").pop() ?? model);
+  const cap = (w: string): string =>
+    /^[a-z]/.test(w) ? w.charAt(0).toUpperCase() + w.slice(1) : w;
+  if (words[0]?.toLowerCase() === "gpt" && words[1] !== undefined)
+    return [`GPT-${words[1]}`, ...words.slice(2).map(cap)].join(" ");
+  return words.map(cap).join(" ");
+}
+
+/**
+ * The Model row of a run's details: `Claude Haiku 5.5 · high thinking`, with `(backup)` after the name when the run
+ * fell back to the agent's backup model (`Kimi K3.1 Pro (backup)`). Null while no model is known, which is also how a
+ * trial arm stays blind: its run carries no model until Isaac picks.
+ */
+export function agentModelLine(
+  run: Pick<AgentRun, "model" | "thinking" | "fellBack">,
+): string | null {
+  if (run.model === undefined || run.model.trim() === "") return null;
+  const name = `${modelName(run.model)}${run.fellBack === true ? " (backup)" : ""}`;
+  return run.thinking === undefined || run.thinking === "off"
+    ? name
+    : `${name} · ${run.thinking} thinking`;
+}
 
 export type AgentTool = "agents_ask" | "agents_result";
 

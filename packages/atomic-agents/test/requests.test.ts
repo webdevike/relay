@@ -313,4 +313,23 @@ describe("the Relay Agents page's data", () => {
         expect(typeof read.seconds).toBe("number")
       }).pipe(Effect.provide(service(root, gate)))
     }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+
+  test("a run reports its thinking level, and the backup model once it fell back (the retry's job.started replaces the first)", () =>
+    Effect.gen(function*() {
+      const root = yield* home()
+      const gate = yield* Deferred.make<void>()
+      yield* Deferred.succeed(gate, undefined)
+      yield* Effect.gen(function*() {
+        const bus = yield* EventBus
+        const started = (data: Record<string, unknown>) =>
+          bus.publish(new AgentEvent({ id: `fb-${Math.random()}`, type: "tally/job.started", component: "tally", job: "count", run: "fb-1", at: new Date().toISOString(), data: { _tag: "job.started", input: { items: [] }, ...data } }))
+        yield* started({ model: "test/code", thinking: "high" })
+        const first = (yield* runs({ days: 7, limit: 10, every: true })).runs.find((run) => run.run === "fb-1")
+        expect(first).toMatchObject({ model: "test/code", thinking: "high" })
+        expect(first).not.toHaveProperty("fellBack")
+        yield* started({ model: "test/backup", thinking: "high", fellBackFrom: "test/code" })
+        const second = (yield* runs({ days: 7, limit: 10, every: true })).runs.find((run) => run.run === "fb-1")
+        expect(second).toMatchObject({ model: "test/backup", thinking: "high", fellBack: true })
+      }).pipe(Effect.provide(service(root, gate)))
+    }).pipe(Effect.scoped, Effect.runPromise), 20_000)
 })

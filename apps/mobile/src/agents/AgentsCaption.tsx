@@ -132,6 +132,11 @@ export function RunDetail({ run, first }: { run: AgentRun; first: boolean }) {
           </Text>
         )}
       </View>
+      {detail.model !== null && (
+        <Text variant="caption" color="textMuted" numberOfLines={2} testID="agents-model">
+          {`Model: ${detail.model}`}
+        </Text>
+      )}
       {detail.asked !== null && (
         <Text variant="caption" color="textMuted" numberOfLines={3}>
           {`Asked: ${detail.asked}`}

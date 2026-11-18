@@ -142,8 +142,10 @@ export class TrialRuns {
       const own = this.own.get(r.run)
       if (own !== undefined) {
         const picked = this.trials.get(own.trialId)?.picked === true
+        // Blind until Isaac picks: no model, thinking level or backup mark of the caller's own run.
+        const { thinking: _t, fellBack: _f, ...blind } = out
         out = {
-          ...out,
+          ...(picked ? out : blind),
           trial: own.letter,
           trialId: own.trialId.slice(0, 200),
           model: picked ? out.model : null,

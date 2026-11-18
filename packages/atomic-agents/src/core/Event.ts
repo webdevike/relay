@@ -56,6 +56,8 @@ export const JobStarted = Schema.TaggedStruct("job.started", {
   /** Set on the retry the runtime starts on the component's `fallbackModel`: the main model that failed, and why. */
   fellBackFrom: Schema.optionalKey(Schema.String),
   reason: Schema.optionalKey(Schema.String),
+  /** The thinking level the run's agent was set to, when it has one. */
+  thinking: Schema.optionalKey(Schema.String),
   /** A trial's arm (`Trial.ts`): the trial id and the arm's letter on Isaac's card. */
   trial: Schema.optionalKey(Schema.Struct({ id: Schema.String, letter: Schema.String })),
 });

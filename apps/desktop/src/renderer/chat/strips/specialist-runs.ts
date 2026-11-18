@@ -70,6 +70,9 @@ const serviceAgentRun = (r: SpecialistRun): AgentRun => ({
   ...(r.error === null ? {} : { error: r.error }),
   ...(r.trial === undefined ? {} : { trial: r.trial }),
   ...(r.newModel === undefined ? {} : { newModel: r.newModel }),
+  ...(r.model === null ? {} : { model: r.model }),
+  ...(r.thinking ? { thinking: r.thinking } : {}),
+  ...(r.fellBack === true ? { fellBack: true } : {}),
 })
 
 /** The service runs this chat asked: its assistant (`agent`) or its own session file. */

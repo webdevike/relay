@@ -90,4 +90,25 @@ describe('specialistRunsOf', () => {
     ])
     expect(() => specialistRunsOf('error: boom', () => ({ kind: 'none' }), 0)).toThrow()
   })
+
+  it('carries the thinking level and a fallback onto the run', () => {
+    const line = JSON.stringify({
+      since: '2026-11-10T00:00:00.000Z',
+      days: 7,
+      runs: [
+        {
+          run: 'r-1',
+          agent: 'web-researcher',
+          status: 'done',
+          model: 'openrouter/moonshotai/kimi-k3.1-pro',
+          thinking: 'high',
+          fellBack: true,
+        },
+      ],
+      agents: [],
+    })
+    const out = specialistRunsOf(line, () => ({ kind: 'none' }), 0)
+    expect(out.runs[0]).toMatchObject({ thinking: 'high', fellBack: true })
+    expect(SpecialistRunsSchema.safeParse(out).success).toBe(true)
+  })
 })
