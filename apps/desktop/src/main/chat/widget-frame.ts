@@ -43,7 +43,9 @@ function page(html: string, csp: string): Response {
 /**
  * Answers `relay-widget://frame/html?source=&theme=`,
  * `relay-widget://frame/mantine?source=&theme=&config=[&fill=1]` and
- * `relay-widget://frame/proto?source=&system=&scheme=` with the widget's page.
+ * `relay-widget://frame/proto?source=&system=&scheme=[&config=][&live=1]` with the widget's page
+ * (a prototype's `config` is the app's theme for the `relay` system; `live` takes new source
+ * from the card without reloading).
  */
 export function handleFrameRequest(request: Request): Response {
   const url = new URL(request.url)
@@ -54,7 +56,12 @@ export function handleFrameRequest(request: Request): Response {
     if (source === null || !isDesignSystem(system))
       return new Response('Missing source or design system', { status: 400 })
     const dark = url.searchParams.get('scheme') === 'dark'
-    return page(protoFrameDocument(source, { system, dark }), PROTO_FRAME_CSP)
+    const relayConfig = parseObject(url.searchParams.get('config')) as ThemeConfig | null
+    const live = url.searchParams.get('live') === '1'
+    return page(
+      protoFrameDocument(source, { system, dark, relayConfig: relayConfig ?? undefined, live }),
+      PROTO_FRAME_CSP,
+    )
   }
   if (url.host !== 'frame' || (runtime !== 'html' && runtime !== 'mantine'))
     return new Response('Unknown widget page', { status: 404 })

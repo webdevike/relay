@@ -7,24 +7,33 @@ import type {
   CanvasCursorOp,
   CanvasNodeData,
   CanvasNodeKind,
+  CardEdit,
+  CardVariant,
   CanvasRun,
 } from '@evaos/contract'
+import { protoSourceRefusal } from '@relay/widget-runtime/proto'
+import { isDesignSystem, viewportWidth } from '@relay/widget-runtime/systems'
 import { AgentRuns, fail } from '../agent-presence/agent-runs'
 import type { DriveIdentity } from '../browser/agent-drive'
 import { alignNodes, distributeNodes, layoutBoard } from '../../shared/canvas-layout'
 import type { AlignTo, LayoutAlgorithm, LayoutDirection } from '../../shared/canvas-layout/types'
 import {
+  GAP,
   addCard,
   arrangeCards,
   boxesOf,
   connectCards,
   descendantsOf,
   editCard,
+  freshGroup,
   grownFrame,
   layoutGraph,
   moveCard,
+  nextVariantLabel,
   nodeOf,
+  patchBody,
   placeNew,
+  placeRow,
   readout,
   removeItems,
   typicalSize,
@@ -32,6 +41,27 @@ import {
   type Box,
 } from './board-edit'
 import type { CanvasStore } from './store'
+
+/** A component card's padding and borders around its page (canvas.css `.eva-cv-card`). */
+const PROTO_CHROME = 32
+/** A column-viewport component card's height when the agent gives none. */
+const COLUMN_CARD_H = 560
+
+/** A new card's size: a component card with a column viewport fits that column's width. */
+function cardSize(type: CanvasNodeKind, viewport: string | undefined): { w: number; h: number } {
+  const column = type === 'proto' ? viewportWidth(viewport) : undefined
+  return column === undefined ? typicalSize(type) : { w: column + PROTO_CHROME, h: COLUMN_CARD_H }
+}
+
+/**
+ * What canvas.add and canvas.edit answer about a component card's code: `ok`, or why it does not
+ * compile in its design system (the card keeps its last good render). Undefined for other cards.
+ */
+function compileOf(type: CanvasNodeKind, data: CanvasNodeData | undefined): string | undefined {
+  if (type !== 'proto') return undefined
+  const system = isDesignSystem(data?.system) ? data.system : 'mantine'
+  return protoSourceRefusal(data?.body ?? '', system) ?? 'ok'
+}
 
 /**
  * A chat's agent working a board in front of Isaac (the canvas.* agent actions), like the browser
@@ -322,6 +352,7 @@ export class CanvasDrive {
       page: at.page,
       pages: shown.pages,
       mounted: a.mounted,
+      ...(a.mounted ? { selected: a.selected ?? [] } : {}),
       ...readout(at.b, boxes),
       threads: threads
         .filter((t) => !t.resolved)
@@ -351,62 +382,141 @@ export class CanvasDrive {
     parent?: string | undefined
     from?: string | undefined
     label?: string | undefined
+    copy?: string | undefined
+    edits?: CardEdit[] | undefined
+    variants?: CardVariant[] | undefined
     caption?: string | undefined
     scope?: string | undefined
   }): Promise<object> {
     return this.serial(p.slug, async () => {
       const at = await this.begin(p.slug, p.page, p.scope, p.caption)
-      const type = p.type ?? 'note'
+      // Unknown cards and patches that do not apply fail before the cursor moves.
+      for (const ref of [p.near, p.from, p.parent, p.copy]) if (ref !== undefined) nodeOf(at.b, ref)
+      const base = p.copy === undefined ? undefined : nodeOf(at.b, p.copy)
+      const type = p.type ?? base?.type ?? (p.variants ? 'proto' : 'note')
+      const { variant: _v, group: _g, ...baseData } = base?.data ?? {}
       const data: CanvasNodeData = {
+        ...baseData,
         ...p.data,
         ...(p.title === undefined ? {} : { title: p.title }),
         ...(p.body === undefined ? {} : { body: p.body }),
       }
-      // Unknown cards fail before the cursor moves.
-      for (const ref of [p.near, p.from, p.parent]) if (ref !== undefined) nodeOf(at.b, ref)
+      if (p.edits) data.body = patchBody(data.body ?? '', p.edits)
+      if (type === 'proto' && data.system === undefined) data.system = 'relay'
+      // A copy is a one-card variant set with the card it copies.
+      const variants = p.variants ?? (base ? [{}] : null)
+      const group = variants === null ? undefined : (base?.data?.group ?? freshGroup(at.b))
+      const baseLabel = base && group !== undefined ? (base.data?.variant ?? 'A') : undefined
+      const taken: string[] = baseLabel === undefined ? [] : [baseLabel]
+      const cards: CanvasNodeData[] =
+        variants === null || group === undefined
+          ? [data]
+          : variants.map((v) => {
+              const variant = v.label ?? nextVariantLabel(at.b, group, taken)
+              taken.push(variant)
+              return {
+                ...data,
+                ...v.data,
+                ...(v.title === undefined ? {} : { title: v.title }),
+                body: v.body ?? (v.edits ? patchBody(data.body ?? '', v.edits) : data.body),
+                variant,
+                group,
+              }
+            })
       const label = data.title ?? data.body ?? type
-      this.auto(p.slug, `Adding ${quote(label)}`)
+      this.auto(
+        p.slug,
+        cards.length > 1
+          ? `Adding ${cards.length} variants of ${quote(label)}`
+          : `Adding ${quote(label)}`,
+      )
       const boxes = await this.boxes(p.slug, at.page, at.b)
-      const typical = typicalSize(type)
-      const size = { w: p.w ?? typical.w, h: p.h ?? typical.h }
-      const spot =
+      const typical = cardSize(type, data.viewport)
+      const size = { w: p.w ?? base?.w ?? typical.w, h: p.h ?? base?.h ?? typical.h }
+      // A component card keeps its size in the file (its frame fills it); others size themselves.
+      const sized = type === 'proto' ? size : { w: p.w, h: p.h }
+      const spots =
         p.x !== undefined && p.y !== undefined
-          ? { x: p.x, y: p.y }
-          : placeNew(at.b, boxes, size, { near: p.near, from: p.from, parent: p.parent })
-      // A card placed in its frame grows the frame around it in the same write.
+          ? cards.map((_, i) => ({ x: p.x! + i * (size.w + GAP), y: p.y! }))
+          : placeRow(at.b, boxes, size, cards.length, {
+              near: p.near ?? p.copy,
+              from: p.from,
+              parent: p.parent,
+            })
+      const row = spots
+        ? { ...spots[0]!, w: cards.length * size.w + (cards.length - 1) * GAP, h: size.h }
+        : null
+      // Cards placed in their frame grow the frame around them in the same write.
       const frame = p.parent === undefined ? undefined : boxes.get(p.parent)
-      const grown = spot && frame ? grownFrame(frame, { ...spot, ...size }) : null
-      const context = [p.from, p.near, p.parent].filter((id) => id !== undefined)
-      if (spot) {
-        await this.reveal(p.slug, at.page, {
-          box: { ...spot, ...size },
-          ...(context.length ? { context } : {}),
-        })
-        const tip = { x: spot.x + INSET, y: spot.y + INSET }
-        if (await this.cursor(p.slug, at.page, { op: 'move', at: tip })) {
-          await this.cursor(p.slug, at.page, { op: 'click', at: tip })
+      const grown = row && frame ? grownFrame(frame, row) : null
+      const context = [p.from, p.near, p.parent, p.copy].filter((id) => id !== undefined)
+      const tip = (s: { x: number; y: number }) => ({ x: s.x + INSET, y: s.y + INSET })
+      if (spots && row) {
+        await this.reveal(p.slug, at.page, { box: row, ...(context.length ? { context } : {}) })
+        if (await this.cursor(p.slug, at.page, { op: 'move', at: tip(spots[0]!) })) {
+          await this.cursor(p.slug, at.page, { op: 'click', at: tip(spots[0]!) })
         }
       } else if (p.parent !== undefined) {
         await this.reveal(p.slug, at.page, { nodes: [p.parent] })
         await this.cursor(p.slug, at.page, { op: 'move', node: p.parent })
       }
-      const made = await this.write<{ id: string; link?: string }>(p.slug, at.page, (b) => {
-        const r = addCard(b, {
-          type,
-          data,
-          ...(spot ? { at: spot } : {}),
-          ...(p.w === undefined ? {} : { w: p.w }),
-          ...(p.h === undefined ? {} : { h: p.h }),
-          ...(p.parent === undefined ? {} : { parent: p.parent }),
+      const made = await this.write<{ ids: string[]; link?: string }>(p.slug, at.page, (b) => {
+        let board = b
+        if (base && group !== undefined && baseLabel !== undefined) {
+          board = editCard(board, base.id, { data: { group, variant: baseLabel } })
+        }
+        const ids: string[] = []
+        cards.forEach((d, i) => {
+          const spot = spots?.[i]
+          const r = addCard(board, {
+            type,
+            data: d,
+            ...(spot ? { at: spot } : {}),
+            ...(sized.w === undefined ? {} : { w: sized.w }),
+            ...(sized.h === undefined ? {} : { h: sized.h }),
+            ...(p.parent === undefined ? {} : { parent: p.parent }),
+          })
+          board = r.board
+          ids.push(r.id)
         })
-        let board = r.board
         if (grown && p.parent !== undefined)
           board = editCard(board, p.parent, { data: {}, ...grown })
-        if (p.from === undefined) return { board, value: { id: r.id } }
-        const c = connectCards(board, p.from, r.id, p.label ? { label: p.label } : {})
-        return { board: c.board, value: { id: r.id, link: c.id } }
+        if (p.from === undefined) return { board, value: { ids } }
+        const c = connectCards(board, p.from, ids[0]!, p.label ? { label: p.label } : {})
+        return { board: c.board, value: { ids, link: c.id } }
       })
-      return { ...made, ...(spot ? { x: spot.x, y: spot.y } : {}), page: at.page }
+      // The cursor visits each sibling as it lands (the first one it clicked into place).
+      for (const spot of spots?.slice(1) ?? []) {
+        try {
+          if (await this.cursor(p.slug, at.page, { op: 'move', at: tip(spot) })) {
+            await this.cursor(p.slug, at.page, { op: 'click', at: tip(spot) })
+          }
+        } catch {
+          // Isaac took over after the cards landed: they stay, the tour stops.
+          break
+        }
+      }
+      const compiled = cards.map((d) => compileOf(type, d))
+      if (p.variants) {
+        return {
+          ids: made.ids,
+          group,
+          labels: cards.map((d) => d.variant),
+          ...(type === 'proto'
+            ? { compile: Object.fromEntries(made.ids.map((id, i) => [id, compiled[i]])) }
+            : {}),
+          page: at.page,
+        }
+      }
+      const id = made.ids[0]!
+      return {
+        id,
+        ...(made.link === undefined ? {} : { link: made.link }),
+        ...(spots ? { x: spots[0]!.x, y: spots[0]!.y } : {}),
+        ...(group === undefined ? {} : { group, variant: cards[0]!.variant }),
+        ...(compiled[0] === undefined ? {} : { compile: compiled[0] }),
+        page: at.page,
+      }
     })
   }
 
@@ -416,6 +526,7 @@ export class CanvasDrive {
     node: string
     title?: string | undefined
     body?: string | undefined
+    edits?: CardEdit[] | undefined
     data?: CanvasNodeData | undefined
     type?: CanvasNodeKind | undefined
     w?: number | undefined
@@ -426,25 +537,30 @@ export class CanvasDrive {
     return this.serial(p.slug, async () => {
       const at = await this.begin(p.slug, p.page, p.scope, p.caption)
       const card = nodeOf(at.b, p.node)
+      // A patch that does not apply fails before the cursor moves.
+      if (p.edits) patchBody(card.data?.body ?? '', p.edits)
       this.auto(p.slug, `Editing ${quote(card.data?.title ?? card.id)}`)
       await this.reveal(p.slug, at.page, { nodes: [p.node] })
       if (await this.cursor(p.slug, at.page, { op: 'move', node: p.node })) {
         await this.cursor(p.slug, at.page, { op: 'click', node: p.node })
       }
-      await this.write(p.slug, at.page, (b) => ({
-        board: editCard(b, p.node, {
+      const edited = await this.write(p.slug, at.page, (b) => {
+        // Patched against the file as it is now, not as it was read.
+        const body = p.edits ? patchBody(nodeOf(b, p.node).data?.body ?? '', p.edits) : p.body
+        const board = editCard(b, p.node, {
           data: {
             ...p.data,
             ...(p.title === undefined ? {} : { title: p.title }),
-            ...(p.body === undefined ? {} : { body: p.body }),
+            ...(body === undefined ? {} : { body }),
           },
           ...(p.type === undefined ? {} : { type: p.type }),
           ...(p.w === undefined ? {} : { w: p.w }),
           ...(p.h === undefined ? {} : { h: p.h }),
-        }),
-        value: null,
-      }))
-      return { id: p.node }
+        })
+        return { board, value: nodeOf(board, p.node) }
+      })
+      const compile = compileOf(edited.type, edited.data)
+      return { id: p.node, ...(compile === undefined ? {} : { compile }) }
     })
   }
 

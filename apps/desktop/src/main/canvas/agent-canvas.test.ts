@@ -561,3 +561,101 @@ describe('canvas drive', () => {
     expect(file.edges.at(-1)).toMatchObject({ label: 'retry', tone: 'loop' })
   })
 })
+
+describe('component cards (the design canvas)', () => {
+  type Answer = Record<string, unknown>
+  const badge = (label: string) => `<Badge variant="light">${label}</Badge>`
+
+  it('adds variants as one row of sibling cards in one write, lettered, in the relay system', async () => {
+    const { drive, store, log } = setup()
+    const base = (await store.load('mind-map')).board.nodes.length
+    log.length = 0
+    const r = (await drive.add({
+      slug: 'mind-map',
+      title: 'Session badge',
+      body: badge('Working'),
+      data: { viewport: 'pane' },
+      variants: [
+        {},
+        { edits: [{ find: 'light', replace: 'filled' }] },
+        { label: 'Dot', body: '<Indicator />' },
+      ],
+    })) as Answer
+    expect(r).toMatchObject({ labels: ['A', 'B', 'Dot'] })
+    const ids = r['ids'] as string[]
+    expect(Object.values(r['compile'] as Answer)).toEqual(['ok', 'ok', 'ok'])
+    expect(log.filter((l) => l.startsWith('write'))).toEqual(['write mind-map'])
+    const nodes = (await store.load('mind-map')).board.nodes
+    expect(nodes).toHaveLength(base + 3)
+    const cards = ids.map((id) => nodes.find((n) => n.id === id)!)
+    expect(cards.map((c) => c.type)).toEqual(['proto', 'proto', 'proto'])
+    expect(cards.map((c) => c.data?.body)).toEqual([
+      badge('Working'),
+      '<Badge variant="filled">Working</Badge>',
+      '<Indicator />',
+    ])
+    expect(new Set(cards.map((c) => c.data?.group)).size).toBe(1)
+    expect(cards.every((c) => c.data?.system === 'relay' && c.w === 480 + 32)).toBe(true)
+    // Side by side, never on top of each other.
+    expect(cards[1]!.y).toBe(cards[0]!.y)
+    expect(cards[1]!.x! - cards[0]!.x!).toBeGreaterThanOrEqual(cards[0]!.w!)
+    // The cursor visits the siblings after they land.
+    const after = log.slice(log.indexOf('write mind-map'))
+    expect(after.filter((l) => l === 'cursor move')).toHaveLength(2)
+  })
+
+  it('duplicates a card as a variant: the original becomes A, the patched copy B', async () => {
+    const { drive, store } = setup()
+    const a = (await drive.add({ slug: 'mind-map', type: 'proto', body: badge('Idle') })) as Answer
+    expect(a['compile']).toBe('ok')
+    const b = (await drive.add({
+      slug: 'mind-map',
+      copy: a['id'] as string,
+      edits: [{ find: 'Idle', replace: 'Done' }],
+    })) as Answer
+    expect(b).toMatchObject({ variant: 'B', compile: 'ok' })
+    const nodes = (await store.load('mind-map')).board.nodes
+    const orig = nodes.find((n) => n.id === a['id'])!
+    const copy = nodes.find((n) => n.id === b['id'])!
+    expect(orig.data).toMatchObject({ variant: 'A', group: b['group'] })
+    expect(copy.data).toMatchObject({ variant: 'B', body: badge('Done'), system: 'relay' })
+  })
+
+  it('patches a card in place, answers a compile error, and refuses a patch that does not match', async () => {
+    const { drive, store, log } = setup()
+    const a = (await drive.add({ slug: 'mind-map', type: 'proto', body: badge('One') })) as Answer
+    const id = a['id'] as string
+    const ok = (await drive.edit({
+      slug: 'mind-map',
+      node: id,
+      edits: [{ find: 'One', replace: 'Two' }],
+    })) as Answer
+    expect(ok).toEqual({ id, compile: 'ok' })
+    const broken = (await drive.edit({
+      slug: 'mind-map',
+      node: id,
+      edits: [{ find: '</Badge>', replace: '' }],
+    })) as Answer
+    expect(String(broken['compile'])).toMatch(/does not compile/)
+    log.length = 0
+    await expect(
+      drive.edit({ slug: 'mind-map', node: id, edits: [{ find: 'Three', replace: 'Four' }] }),
+    ).rejects.toMatchObject({ code: 'invalid-params' })
+    expect(log).not.toContain('write mind-map')
+    const body = (await store.load('mind-map')).board.nodes.find((n) => n.id === id)!.data?.body
+    expect(body).toBe('<Badge variant="light">Two')
+  })
+
+  it('reads a component card whole, with its design fields and Isaac’s selection', async () => {
+    const { drive } = setup()
+    const long = `<Stack>${'<Text>row</Text>'.repeat(80)}</Stack>`
+    const a = (await drive.add({ slug: 'mind-map', type: 'proto', body: long })) as Answer
+    const read = (await drive.read('mind-map', undefined)) as {
+      nodes: Answer[]
+      selected?: string[]
+    }
+    const card = read.nodes.find((n) => n['id'] === a['id'])!
+    expect(card).toMatchObject({ body: long, system: 'relay' })
+    expect(read.selected).toEqual([])
+  })
+})

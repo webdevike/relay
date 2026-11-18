@@ -14,23 +14,20 @@ import {
   IconPhoto,
   IconSparkles,
   IconTimeline,
-  IconTemplate,
 } from '@tabler/icons-react'
 import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
 import { memo, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import type { CanvasNode } from '@evaos/contract'
 import { liveQuery } from '../../boards/live-query'
 import { OpenUIQuery } from '../../chat/widgets/actions'
-import { protoFrameUrl } from '../../chat/widgets/frame-theme'
 import { OpenUIBlock } from '../../chat/widgets/Widget'
-import { MOBILE_VIEWPORT_WIDTH } from '@relay/widget-runtime/systems'
-import { useColorScheme } from '../../theme/theme-config'
 import { openLink } from '../../navigation/open-link'
 import { useBoardActions } from '../context'
 import type { CardNode } from '../flow-model'
 import { Markdown } from '../../chat/markdown/Markdown'
 import { useCanvasImage } from './canvas-image'
 import { MermaidBlock } from './MermaidBlock'
+import { ProtoCard } from './ProtoCard'
 import { stepIcon } from './step-icons'
 import { Wireframe } from './Wireframe'
 
@@ -395,44 +392,8 @@ function Body({ id, spec, hasChildren }: { id: string; spec: CanvasNode; hasChil
         </>
       )
     case 'proto':
-      return (
-        <>
-          <div className="eva-cv-ui-title">
-            <IconTemplate size={12} stroke={1.75} aria-hidden />
-            <span>{title || 'Prototype'}</span>
-          </div>
-          <ProtoPage id={id} spec={spec} />
-        </>
-      )
+      return <ProtoCard id={id} spec={spec} />
   }
-}
-
-/**
- * A prototype card's page: its JSX in its design system on `relay-widget:`, in a sandboxed frame
- * (scripts only) that takes its own pointer and wheel, in the app's light or dark.
- */
-function ProtoPage({ id, spec }: { id: string; spec: CanvasNode }) {
-  const scheme = useColorScheme()
-  const d = spec.data ?? {}
-  const mobile = d.viewport === 'mobile'
-  return (
-    <div
-      className="eva-cv-proto-body nodrag nopan nowheel"
-      data-testid={`canvas-proto-${id}`}
-      data-viewport={mobile ? 'mobile' : 'desktop'}
-      onPointerDown={stop}
-      onDoubleClick={stop}
-    >
-      <iframe
-        className="eva-cv-proto-frame"
-        title={d.title || 'Prototype'}
-        src={protoFrameUrl(d.body ?? '', d.system ?? 'mantine', scheme)}
-        sandbox="allow-scripts"
-        referrerPolicy="no-referrer"
-        style={mobile ? { width: MOBILE_VIEWPORT_WIDTH } : undefined}
-      />
-    </div>
-  )
 }
 
 const SIDES = [

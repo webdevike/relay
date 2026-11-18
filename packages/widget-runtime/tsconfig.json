@@ -3,8 +3,18 @@
   "compilerOptions": {
     "noEmit": true,
     "jsx": "react-jsx",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node", "bun"]
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "bun"],
+    // The relay kit (src/runtime/relay-kit.tsx) imports Relay Desktop's components, whose React
+    // types would resolve to apps/desktop's copy of @types/react; every file takes this package's,
+    // as build.ts bundles them with its one React. Bun reads these too, finds no JS there and
+    // resolves React from node_modules as usual.
+    "paths": {
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "react-dom": ["./node_modules/@types/react-dom"],
+      "react-dom/*": ["./node_modules/@types/react-dom/*"]
+    }
   },
   "include": ["src", "test", "generated", "build.ts"]
 }

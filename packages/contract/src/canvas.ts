@@ -20,9 +20,11 @@ export const CANVAS_NODE_KINDS = [
   /** A live OpenUI widget: `data.title` is its card title, `data.body` its OpenUI Lang source. */
   'ui',
   /**
-   * An interactive prototype: `data.title` is its card title, `data.body` its JSX (the
-   * ```mantine-widget contract), `data.system` its design system (`relay`, `ecard`, `mantine`) and
-   * `data.viewport` `mobile` for a phone-width screen.
+   * An interactive prototype or component (the design canvas): `data.title` is its card title,
+   * `data.body` its JSX (the ```mantine-widget contract), `data.system` its design system
+   * (`relay`, `ecard`, `mantine`), `data.viewport` its screen width (`mobile`, `sidebar`, `pane`,
+   * `chat`; else it fills the card), and `data.variant` + `data.group` its label in a set of
+   * sibling variants.
    */
   'proto',
   /**
@@ -74,8 +76,13 @@ export const CanvasNodeDataSchema = z.object({
   why: Text.optional(),
   /** Mermaid source an `explainer` card draws under its text. */
   mermaid: Text.optional(),
-  /** `lane` on a `frame` draws it as a phase lane: heading band, tinted by `tone`. */
+  /**
+   * `lane` on a `frame` draws it as a phase lane: heading band, tinted by `tone`. On a `proto`
+   * card, its variant label ("A", "Dense").
+   */
   variant: z.string().max(40).optional(),
+  /** The variant set a `proto` card belongs to: its siblings share it. */
+  group: z.string().max(80).optional(),
 })
 
 export const CanvasNodeSchema = z.object({
@@ -309,6 +316,8 @@ export interface CanvasBoardAnswer {
   /** How long the step takes on screen (cursor lead + glide, a reveal, a drag), else 0. */
   ms?: number
   boxes?: Record<string, { x: number; y: number; w: number; h: number }>
+  /** The cards Isaac has selected on the board (with `boxes`). */
+  selected?: string[]
   viewport?: { x: number; y: number; zoom: number }
 }
 

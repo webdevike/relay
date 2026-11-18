@@ -12,7 +12,7 @@ import { MANTINE_FRAME_CSP, bridgeScript, head, scriptJson } from "./frame";
 import { checkWidgetSource } from "./runtime/compile";
 import type { DesignSystem } from "./systems";
 import { systemCss } from "./systems/css";
-import { defaultConfig } from "./theme";
+import { defaultConfig, type ThemeConfig } from "./theme";
 
 /** A prototype page's CSP: the Mantine page's (inline script, eval, data: and https images, data: fonts, nothing else from the network). */
 export const PROTO_FRAME_CSP = MANTINE_FRAME_CSP;
@@ -21,6 +21,14 @@ export const PROTO_FRAME_CSP = MANTINE_FRAME_CSP;
 export interface ProtoFrameOptions {
   system: DesignSystem;
   dark: boolean;
+  /** The `relay` system as the host runs it (Relay Desktop's Settings > Theme), not the snapshot. */
+  relayConfig?: ThemeConfig | undefined;
+  /**
+   * A live page (a canvas card on desktop): it takes new source from its parent window
+   * (frame.ts `liveSourceMessage`) without reloading, keeps the last good render, and answers each
+   * revision with a `render` frame message.
+   */
+  live?: boolean | undefined;
 }
 
 /** Opaque page chrome: the product's own body color, scrolling inside the frame. */
@@ -29,9 +37,19 @@ body { overflow-wrap: anywhere; -webkit-tap-highlight-color: transparent; }
 #root { min-height: 100vh; }`;
 
 /** The full document for a prototype: `source` drawn by the bundled runtime in `system`, after its CSS and fonts. */
-export function protoFrameDocument(source: string, { system, dark }: ProtoFrameOptions): string {
+export function protoFrameDocument(
+  source: string,
+  { system, dark, relayConfig, live }: ProtoFrameOptions,
+): string {
   const scheme = dark ? "dark" : "light";
-  const mount = { source, config: defaultConfig, colorScheme: scheme, system };
+  const mount = {
+    source,
+    config: defaultConfig,
+    colorScheme: scheme,
+    system,
+    ...(system === "relay" && relayConfig !== undefined ? { systemConfig: relayConfig } : {}),
+    ...(live === true ? { live: true } : {}),
+  };
   return `<!doctype html>
 <html data-mantine-color-scheme="${scheme}" data-design-system="${system}"><head>
 ${head(PROTO_FRAME_CSP)}

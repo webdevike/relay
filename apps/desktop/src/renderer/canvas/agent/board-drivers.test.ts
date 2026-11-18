@@ -9,6 +9,7 @@ function driver(slug: string, page: string, shown = true): BoardDriver {
     cursor: vi.fn(() => 640),
     flush: vi.fn(() => Promise.resolve()),
     boxes: () => new Map([['n1', { x: 1, y: 2, w: 3, h: 4 }]]),
+    selected: () => ['n1'],
     select: vi.fn(),
     view: vi.fn(() => Promise.resolve({ x: 5, y: 6, zoom: 1.5 })),
     drag: vi.fn(() => 400),
@@ -57,6 +58,7 @@ describe('canvasBoardCall', () => {
     expect(await canvasBoardCall({ op: 'boxes', ...at }, [d])).toEqual({
       mounted: true,
       boxes: { n1: { x: 1, y: 2, w: 3, h: 4 } },
+      selected: ['n1'],
     })
     expect(await canvasBoardCall({ op: 'select', ...at, ids: ['n1'] }, [d])).toEqual({
       mounted: true,

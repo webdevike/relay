@@ -16,7 +16,8 @@ import { ECARD_COMPONENTS } from "../../generated/ecard/components";
 import { ECARD_DESIGN } from "../../generated/ecard/design";
 import type { DesignSystem } from "../systems";
 import { RELAY_SYSTEM_CONFIG } from "../systems/relay";
-import { cssVariablesFor, themeOverrideFor } from "../theme";
+import { cssVariablesFor, themeOverrideFor, type ThemeConfig } from "../theme";
+import { RELAY_KIT } from "./relay-kit";
 
 export interface SystemTheme {
   theme: MantineThemeOverride;
@@ -64,13 +65,18 @@ function ecardTheme(): MantineThemeOverride {
   };
 }
 
-export function systemTheme(system: DesignSystem): SystemTheme {
+/**
+ * A system's Mantine theme. `relayConfig` is the `relay` system as the host runs it (Relay
+ * Desktop's Settings > Theme); without it, the snapshot in systems/relay.ts.
+ */
+export function systemTheme(system: DesignSystem, relayConfig?: ThemeConfig): SystemTheme {
   switch (system) {
-    case "relay":
-      return {
-        theme: themeOverrideFor(RELAY_SYSTEM_CONFIG),
-        resolver: () => cssVariablesFor(RELAY_SYSTEM_CONFIG),
-      };
+    case "relay": {
+      const config = relayConfig
+        ? { ...relayConfig, focusRing: "never" as const }
+        : RELAY_SYSTEM_CONFIG;
+      return { theme: themeOverrideFor(config), resolver: () => cssVariablesFor(config) };
+    }
     case "ecard":
       return { theme: ecardTheme(), resolver: () => ECARD_DESIGN.cssVariables };
     case "mantine":
@@ -78,8 +84,12 @@ export function systemTheme(system: DesignSystem): SystemTheme {
   }
 }
 
-/** Names a system adds to a widget's scope: eCard's `Base*` facades and copied components. */
+/**
+ * Names a system adds to a widget's scope: Relay Desktop's own components (relay-kit.tsx), or
+ * eCard's `Base*` facades and copied components.
+ */
 export function systemScope(system: DesignSystem | undefined): Record<string, unknown> {
+  if (system === "relay") return RELAY_KIT;
   if (system !== "ecard") return {};
   const mantine = MantineCore as unknown as Record<string, unknown>;
   const scope: Record<string, unknown> = {};

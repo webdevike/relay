@@ -844,9 +844,68 @@
   border: 0;
   display: block;
 }
-.eva-cv-proto-body[data-viewport='mobile'] .eva-cv-proto-frame {
+/* A column screen (phone, sidebar, pane, chat): the page at its real width, centered. */
+.eva-cv-proto-body:not([data-viewport='desktop']) .eva-cv-proto-frame {
   flex: 0 0 auto;
   border-inline: 1px solid var(--eva-c-border);
+}
+/* While a new revision draws, the last render dims a touch (it stays readable). */
+.eva-cv-proto-body[data-phase='drawing'] .eva-cv-proto-frame {
+  opacity: 0.85;
+  transition: opacity var(--eva-dur-fast, 120ms) ease;
+}
+.eva-cv-proto-head {
+  min-width: 0;
+}
+.eva-cv-proto-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A variant's label: a small accent letter in front of its title. */
+.eva-cv-proto-label {
+  flex: none;
+  min-width: 16px;
+  padding: 0 var(--mantine-spacing-xs);
+  border-radius: 4px;
+  text-align: center;
+  background: var(--eva-c-primary-background);
+  color: var(--eva-c-primary-foreground);
+}
+.eva-cv-proto-meta {
+  flex: none;
+  font-weight: var(--eva-fw-regular, 400);
+}
+.eva-cv-proto-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) / 2);
+  font-size: 11px;
+  line-height: 16px;
+}
+/* Why the newest code did not draw; the page under it keeps the last good render. */
+.eva-cv-proto-error {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.75);
+  min-width: 0;
+  color: var(--mantine-color-red-text);
+  font-size: 11px;
+  line-height: 14px;
+}
+.eva-cv-proto-error-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--eva-font-code);
+}
+.eva-cv-proto-error-keep {
+  flex: none;
+  color: var(--eva-c-muted-foreground);
 }
 
 .eva-cv-card[data-kind='suggestion'] {

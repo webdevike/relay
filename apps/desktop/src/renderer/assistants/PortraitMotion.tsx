@@ -1,3 +1,4 @@
+import { AssistantAvatar, type AssistantAvatarProps } from './AssistantAvatar'
 import type { ReactNode } from 'react'
 import { useAgentMotion } from './motion-store'
 import './portrait-motion.css'
@@ -28,4 +29,12 @@ export function PortraitMotion({
       {children}
     </span>
   )
+}
+
+/** Agent `id`'s AssistantAvatar, breathing with its mood (motion-store). */
+export function AgentAvatar({
+  id,
+  ...props
+}: Omit<AssistantAvatarProps, 'state'> & { id: string }) {
+  return <AssistantAvatar {...props} state={useAgentMotion(id)} />
 }

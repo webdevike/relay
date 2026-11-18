@@ -66,7 +66,7 @@ export interface ListMarkProps {
   tone: ListTone
   /** Replaces the tone's default icon (a spinner for something running). */
   icon?: ReactNode
-  'data-testid'?: string
+  'data-testid'?: string | undefined
 }
 
 /**

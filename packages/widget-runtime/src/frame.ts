@@ -44,7 +44,9 @@ export type FrameMessage =
   | { type: "reply"; text: string; agent?: string }
   /** A clicked link, `window.open` or `relay.open(url)`: open `url` outside the frame. `gesture`
    * is true when a user gesture opened it; a `relay://assistant/<id>?send=` link sends only then. */
-  | { type: "open"; url: string; gesture: boolean };
+  | { type: "open"; url: string; gesture: boolean }
+  /** A live page's answer for revision `rev` of its source: drawn, or why not (`error`). */
+  | { type: "render"; rev: number; ok: boolean; error?: string };
 
 /** An assistant registry id (`relay.reply`'s `agent`). */
 const AGENT_ID = /^[a-z][a-z0-9-]{0,63}$/;
@@ -252,6 +254,14 @@ ${CHROME_STYLE}
 </body></html>`;
 }
 
+/**
+ * What a host posts a live page (a canvas prototype on desktop, `protoFrameDocument` with `live`)
+ * for revision `rev` of its source; the page answers with a `render` message for that `rev`.
+ */
+export function liveSourceMessage(source: string, rev: number): string {
+  return JSON.stringify({ type: "source", source, rev });
+}
+
 /** A message the page posted (a JSON string), or null for anything else. */
 export function parseFrameMessage(data: unknown): FrameMessage | null {
   if (typeof data !== "string") return null;
@@ -283,6 +293,14 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
     return typeof url === "string" && OPENABLE_URL.test(url)
       ? { type: "open", url, gesture: message["gesture"] === true }
       : null;
+  }
+  if (message["type"] === "render") {
+    const rev = message["rev"];
+    const error = message["error"];
+    if (typeof rev !== "number" || !Number.isInteger(rev) || rev < 0) return null;
+    return typeof error === "string"
+      ? { type: "render", rev, ok: message["ok"] === true, error: error.slice(0, 2000) }
+      : { type: "render", rev, ok: message["ok"] === true };
   }
   return null;
 }

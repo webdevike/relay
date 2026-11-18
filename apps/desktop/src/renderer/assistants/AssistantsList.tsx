@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
-import { ActionIcon, Avatar } from '@mantine/core'
+import { ActionIcon } from '@mantine/core'
 import { IconPlus, IconUsersGroup } from '@tabler/icons-react'
 import { placeOf } from '@evaos/shell-core'
 import { roomIsLive, type Assistant } from '@evaos/contract'
@@ -10,10 +10,9 @@ import { RoomMenu, RoomRenameField } from '../rooms/RoomMenu'
 import { roomIdOf, useRooms } from '../rooms/rooms-store'
 import type { Room } from '../rooms/types'
 import { activePlace, useTabs } from '../tabs/tabs-store'
-import { portrait } from '../ui/portrait'
 import { ListRow, ListView, rowTip } from '../ui/list'
 import { agentIdOf, useAssistants } from './assistants-store'
-import { PortraitMotion } from './PortraitMotion'
+import { AgentAvatar } from './PortraitMotion'
 import './assistants.css'
 import '../rooms/rooms.css'
 
@@ -92,16 +91,12 @@ export function AssistantsList() {
                 active={open === a.id}
                 aria-current={open === a.id ? 'page' : undefined}
                 leading={
-                  <PortraitMotion id={a.id} testId={`sidebar-portrait-${a.id}`}>
-                    <Avatar
-                      className="eva-as-avatar"
-                      size="sm"
-                      radius="xl"
-                      src={portrait(a.avatar)}
-                      alt=""
-                      aria-hidden
-                    />
-                  </PortraitMotion>
+                  <AgentAvatar
+                    id={a.id}
+                    face={a.avatar}
+                    size="sm"
+                    testId={`sidebar-portrait-${a.id}`}
+                  />
                 }
                 title={a.title}
                 trailing={<WorkspaceDot ws={`page:agent:${a.id}`} testId={`sidebar-dot-${a.id}`} />}

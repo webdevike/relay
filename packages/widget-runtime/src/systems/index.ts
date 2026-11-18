@@ -17,9 +17,28 @@ export function isDesignSystem(value: unknown): value is DesignSystem {
   return (DESIGN_SYSTEMS as readonly unknown[]).includes(value);
 }
 
-/** A prototype's screen: `desktop` fills its card, `mobile` is a phone-width column. */
-export const PROTO_VIEWPORTS = ["desktop", "mobile"] as const;
+/**
+ * A prototype's screen: `desktop` fills its card; the others are a column of a real width, so a
+ * component is seen at the size it ships: `mobile` a phone, `sidebar` Relay's sidebar, `pane` a
+ * tool pane beside the chat, `chat` the chat column.
+ */
+export const PROTO_VIEWPORTS = ["desktop", "mobile", "sidebar", "pane", "chat"] as const;
 export type ProtoViewport = (typeof PROTO_VIEWPORTS)[number];
 
+/** The page width of each column viewport, in CSS pixels. */
+export const VIEWPORT_WIDTHS: Readonly<Record<Exclude<ProtoViewport, "desktop">, number>> = {
+  mobile: 390,
+  sidebar: 272,
+  pane: 480,
+  chat: 780,
+};
+
 /** The page width of a `mobile` prototype, in CSS pixels (an iPhone's portrait width). */
-export const MOBILE_VIEWPORT_WIDTH = 390;
+export const MOBILE_VIEWPORT_WIDTH = VIEWPORT_WIDTHS.mobile;
+
+/** A viewport's column width, or undefined for `desktop` and unknown names (they fill the card). */
+export function viewportWidth(viewport: string | undefined): number | undefined {
+  return viewport !== undefined && viewport in VIEWPORT_WIDTHS
+    ? VIEWPORT_WIDTHS[viewport as keyof typeof VIEWPORT_WIDTHS]
+    : undefined;
+}

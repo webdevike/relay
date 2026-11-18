@@ -9,6 +9,11 @@ export interface BoardActions {
   removeNode: (id: string) => void
   /** Opens an image node full window, stepping through the board's other images. */
   openImage: (id: string) => void
+  /**
+   * Isaac picks variant card `id` of its set: a comment on it says so, and goes to the chat that
+   * works the board like any comment.
+   */
+  pickVariant: (id: string) => void
 }
 
 export const BoardContext = createContext<BoardActions | null>(null)

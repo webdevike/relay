@@ -680,6 +680,36 @@ function Board({
     else setNote(thread, { phase: 'refused', message: 'Not sent: no chat works on this board' })
   }
 
+  /**
+   * Isaac's Pick on a variant card: a comment pinned to it naming the pick ("Picked variant B of
+   * 3"), saved and sent to the chat that works the board like any comment. Kept in a ref so the
+   * cards' actions stay stable while the board renders.
+   */
+  const pickRef = useRef<(id: string) => void>(() => undefined)
+  useEffect(() => {
+    pickRef.current = (id: string) => {
+      const doc = docRef.current
+      const card = doc.nodes.find((n) => n.id === id)
+      const box = boxesOf(doc.nodes).get(id)
+      if (!card || !box) return
+      const d = card.data.spec.data ?? {}
+      const of =
+        d.group === undefined
+          ? 0
+          : doc.nodes.filter((n) => n.data.spec.data?.group === d.group).length
+      const text = `Picked ${d.variant ? `variant ${d.variant}` : 'this variant'}${of > 1 ? ` of ${of}` : ''}`
+      const anchor = anchorFor(null, { id, box })
+      threadOp({ op: 'open', ...anchor, text }).then(
+        (opened) => {
+          if (opened === null) return
+          setOpenThread(opened)
+          void sendNote(opened, text, anchor, false, null)
+        },
+        (e: unknown) => setSave({ error: e instanceof Error ? e.message : String(e) }),
+      )
+    }
+  })
+
   const commentProps = {
     mentionables,
     notes,
@@ -1152,6 +1182,7 @@ function Board({
       slug,
       removeNode: (id) => removeNodes(new Set([id])),
       openImage: setLightboxId,
+      pickVariant: (id) => pickRef.current(id),
       acceptSuggestion: (id) => {
         const doc = docRef.current
         const node = doc.nodes.find((n) => n.id === id)
@@ -1328,6 +1359,11 @@ function Board({
       },
       flush,
       boxes: () => boxesOf(docRef.current.nodes),
+      selected: () =>
+        flow
+          .getNodes()
+          .filter((n) => n.selected)
+          .map((n) => n.id),
       select: (ids) => {
         const picked = new Set(ids)
         setNodes((ns) =>

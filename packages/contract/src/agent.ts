@@ -243,7 +243,38 @@ const CardRef = z.string().min(1).max(500)
 const BoardCoord = z.number().min(-1_000_000).max(1_000_000)
 const CANVAS_RULES =
   'Acts as the calling agent on the board in front of Isaac: it shows your face, a ring, your cursor moving to each change and your caption; changes are saved to the board file. When Isaac edits the board he takes over: actions answer `paused-by-isaac` until he hands back (canvas.wait until handback). His comments on the board come into this chat as his messages.'
-
+/**
+ * A patch on a card's body (a prototype's JSX): `find` replaced by `replace`, exactly once unless
+ * `all`. Patches apply in order, each to the body the earlier ones left; one that does not match
+ * fails the whole call before anything changes.
+ */
+export const CardEditSchema = z
+  .object({
+    find: z.string().min(1).max(20_000),
+    replace: z.string().max(20_000),
+    all: z.boolean().optional(),
+  })
+  .strict()
+export type CardEdit = z.output<typeof CardEditSchema>
+const CardEdits = z.array(CardEditSchema).min(1).max(50)
+/** One variant of canvas.add `variants`: its label and what differs from the base. */
+export const CardVariantSchema = z
+  .object({
+    /** Its label on the card ("A", "Dense"); default the next letter. */
+    label: z.string().trim().min(1).max(40).optional(),
+    title: z.string().max(2000).optional(),
+    /** Its whole body; else the base's body with `edits` applied. */
+    body: z.string().max(20_000).optional(),
+    edits: CardEdits.optional(),
+    data: CanvasNodeDataSchema.optional(),
+  })
+  .strict()
+  .refine((v) => v.body === undefined || v.edits === undefined, {
+    message: 'Give a variant body or edits, not both',
+  })
+export type CardVariant = z.output<typeof CardVariantSchema>
+const COMPONENT_CARDS =
+  'Component cards (`type: "proto"`, the design canvas): `body` is Mantine JSX (a component body or one element; every Mantine and @mantine/hooks name, React hooks, and in the `relay` system Relay\'s own components, in scope; no imports), drawn live in the app\'s theme; `data.system` `relay` (default for new cards), `ecard` or `mantine`; `data.viewport` `desktop` (fills the card), `mobile` (390), `sidebar` (272), `pane` (480) or `chat` (780) px wide. A component card answers `compile`: `ok`, or why its code does not compile (the card keeps its last good render and shows the error; fix it next call).'
 export const agentActions = {
   'state.read': {
     title: 'Read state',
@@ -968,7 +999,7 @@ export const agentActions = {
   },
   'canvas.add': {
     title: 'Add a card to a board',
-    description: `Adds a card (\`type\`, default note; \`title\`, \`body\`, other fields in \`data\`): at board point \`x\`,\`y\` (its top left), else right of card \`near\`, else below everything. Your cursor goes there first and the card appears under it. \`parent\` puts it in a frame. Answers its id. ${CANVAS_RULES}`,
+    description: `Adds a card (\`type\`, default note; \`title\`, \`body\`, other fields in \`data\`): at board point \`x\`,\`y\` (its top left), else right of card \`near\`, else below everything. Your cursor goes there first and the card appears under it. \`parent\` puts it in a frame. Answers its id. \`copy\` duplicates card \`copy\` as a variant beside it (same type, data and size; \`title\`, \`body\`, \`data\` and \`edits\` change the copy; the copy and the original share a variant group, lettered A, B...). \`variants\` (2 to 6) adds a row of sibling variant cards side by side in one step, each from the base (card \`copy\`, else this call's fields) with its own \`label\`, \`title\`, \`body\` or \`edits\`; Isaac picks one by tapping Pick or commenting, and the pick comes into this chat as a comment. Answers \`ids\`. ${COMPONENT_CARDS} ${CANVAS_RULES}`,
     params: z
       .object({
         slug: CanvasSlugSchema,
@@ -987,11 +1018,26 @@ export const agentActions = {
         from: CardRef.optional(),
         /** The label of the `from` link. */
         label: z.string().max(200).optional(),
+        /** Duplicate this card as a variant (the base of `variants` when both are given). */
+        copy: CardRef.optional(),
+        /** Patches on the copy's body (with `copy`). */
+        edits: CardEdits.optional(),
+        /** Sibling variants added side by side in one step. */
+        variants: z.array(CardVariantSchema).min(2).max(6).optional(),
         caption: Caption,
         scope,
       })
       .strict()
-      .refine(pointPaired, { message: 'x and y go together' }),
+      .refine(pointPaired, { message: 'x and y go together' })
+      .refine((v) => v.edits === undefined || v.copy !== undefined, {
+        message: 'edits patch a copy: give copy too (canvas.edit patches a card in place)',
+      })
+      .refine((v) => v.variants === undefined || v.edits === undefined, {
+        message: 'With variants, give each variant its own edits',
+      })
+      .refine((v) => v.variants === undefined || v.from === undefined, {
+        message: 'Variants are not linked from a card: use near or copy to place them',
+      }),
     side: 'main',
     focus: 'none',
     destructive: false,
@@ -999,7 +1045,7 @@ export const agentActions = {
   },
   'canvas.edit': {
     title: 'Edit a card on a board',
-    description: `Changes card \`node\`: \`title\`, \`body\`, other \`data\` fields (an empty string clears one), \`type\`, size \`w\`/\`h\`. Your cursor goes to the card first. ${CANVAS_RULES}`,
+    description: `Changes card \`node\`: \`title\`, \`body\`, other \`data\` fields (an empty string clears one), \`type\`, size \`w\`/\`h\`. \`edits\` patches the body in place (find and replace, in order) instead of sending it whole: the quick way to iterate on a component card. Your cursor goes to the card first. ${COMPONENT_CARDS} ${CANVAS_RULES}`,
     params: z
       .object({
         slug: CanvasSlugSchema,
@@ -1007,6 +1053,7 @@ export const agentActions = {
         node: CardRef,
         title: z.string().max(2000).optional(),
         body: z.string().max(20_000).optional(),
+        edits: CardEdits.optional(),
         data: CanvasNodeDataSchema.optional(),
         type: CanvasNodeKindSchema.optional(),
         w: z.number().min(40).max(4000).optional(),
@@ -1014,7 +1061,10 @@ export const agentActions = {
         caption: Caption,
         scope,
       })
-      .strict(),
+      .strict()
+      .refine((v) => v.body === undefined || v.edits === undefined, {
+        message: 'Give body or edits, not both',
+      }),
     side: 'main',
     focus: 'none',
     destructive: false,

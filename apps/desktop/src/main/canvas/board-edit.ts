@@ -4,6 +4,7 @@ import type {
   CanvasNode,
   CanvasNodeData,
   CanvasNodeKind,
+  CardEdit,
 } from '@evaos/contract'
 import { FRAME_HEADER, FRAME_PAD, LANE_HEADER } from '../../shared/canvas-layout'
 import type { LaidEdge, LayoutEdge, LayoutNode } from '../../shared/canvas-layout/types'
@@ -69,8 +70,8 @@ export function boxesOf(
   return out
 }
 
-/** Space between a new card and its neighbor. */
-const GAP = 80
+/** Space between a new card and its neighbor (and between sibling variants). */
+export const GAP = 80
 /** A row of new cards wraps below everything past this many cards or this width. */
 const ROW_CARDS = 4
 const ROW_WIDTH = 1500
@@ -300,6 +301,72 @@ export function editCard(
   }
 }
 
+/**
+ * `body` with `edits` applied in order, each to what the earlier ones left: `find` replaced once
+ * (every match with `all`). An edit that matches nowhere, or more than once without `all`, fails
+ * the whole patch (`invalid-params`, naming it) so nothing lands half-done.
+ */
+export function patchBody(body: string, edits: readonly CardEdit[]): string {
+  let out = body
+  edits.forEach((e, i) => {
+    const hits = out.split(e.find).length - 1
+    const which = `edit ${i + 1} (find ${JSON.stringify(e.find.length > 60 ? `${e.find.slice(0, 59)}…` : e.find)})`
+    if (hits === 0)
+      throw coded(
+        'invalid-params',
+        `${which} matches nothing in the card's body; canvas.read shows it whole`,
+      )
+    if (hits > 1 && e.all !== true) {
+      throw coded('invalid-params', `${which} matches ${hits} times; make find unique or set all`)
+    }
+    out = e.all === true ? out.split(e.find).join(e.replace) : out.replace(e.find, () => e.replace)
+  })
+  return out
+}
+
+/** The first label from A to Z not taken in variant set `group` (then V27, V28...). */
+export function nextVariantLabel(
+  board: CanvasBoard,
+  group: string,
+  taken: readonly string[] = [],
+): string {
+  const used = new Set([
+    ...taken,
+    ...board.nodes.filter((n) => n.data?.group === group).flatMap((n) => n.data?.variant ?? []),
+  ])
+  for (let i = 0; i < 26; i++) {
+    const label = String.fromCharCode(65 + i)
+    if (!used.has(label)) return label
+  }
+  let n = 27
+  while (used.has(`V${n}`)) n += 1
+  return `V${n}`
+}
+
+/** A variant set id not used on the board yet (`variants-<n>`). */
+export function freshGroup(board: CanvasBoard): string {
+  const used = new Set(board.nodes.flatMap((n) => n.data?.group ?? []))
+  let n = 1
+  while (used.has(`variants-${n}`)) n += 1
+  return `variants-${n}`
+}
+
+/**
+ * Top lefts for a row of `count` cards of `size` side by side, `GAP` apart, placed as one block
+ * by `placeNew` (so the row never lands on other cards). Null as placeNew's.
+ */
+export function placeRow(
+  board: CanvasBoard,
+  boxes: ReadonlyMap<string, Box>,
+  size: { w: number; h: number },
+  count: number,
+  how: Placing = {},
+): { x: number; y: number }[] | null {
+  const spot = placeNew(board, boxes, { w: count * size.w + (count - 1) * GAP, h: size.h }, how)
+  if (!spot) return null
+  return Array.from({ length: count }, (_, i) => ({ x: spot.x + i * (size.w + GAP), y: spot.y }))
+}
+
 export function moveCard(
   board: CanvasBoard,
   id: string,
@@ -499,7 +566,16 @@ export function readout(
         id: n.id,
         type: n.type,
         ...(d.title !== undefined ? { title: clip(d.title, 200) } : {}),
-        ...(d.body !== undefined ? { body: clip(d.body, 600) } : {}),
+        // A component card's code comes whole: the agent patches it with find and replace.
+        ...(d.body !== undefined ? { body: n.type === 'proto' ? d.body : clip(d.body, 600) } : {}),
+        ...(n.type === 'proto'
+          ? {
+              system: d.system ?? 'mantine',
+              ...(d.viewport !== undefined ? { viewport: d.viewport } : {}),
+              ...(d.variant !== undefined ? { variant: d.variant } : {}),
+              ...(d.group !== undefined ? { group: d.group } : {}),
+            }
+          : {}),
         ...(d.key !== undefined ? { key: d.key } : {}),
         ...(d.status !== undefined ? { status: d.status } : {}),
         ...(d.url !== undefined ? { url: d.url } : {}),

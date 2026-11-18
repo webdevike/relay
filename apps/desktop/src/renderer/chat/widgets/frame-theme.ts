@@ -67,7 +67,19 @@ export function frameUrl(
   return `relay-widget://frame/${runtime}?${params.toString()}`
 }
 
-/** The `relay-widget:` page of a canvas prototype: its JSX in its design system, light or dark. */
-export function protoFrameUrl(source: string, system: string, scheme: ColorScheme): string {
-  return `relay-widget://frame/proto?${new URLSearchParams({ source, system, scheme }).toString()}`
+/**
+ * The `relay-widget:` page of a canvas prototype: its JSX in its design system, light or dark;
+ * `config` (the Settings > Theme config) draws the `relay` system as the app runs it, and `live`
+ * makes a page that takes new code from its card without reloading (frame.ts liveSourceMessage).
+ */
+export function protoFrameUrl(
+  source: string,
+  system: string,
+  scheme: ColorScheme,
+  { config, live = false }: { config?: ThemeConfig | undefined; live?: boolean } = {},
+): string {
+  const params = new URLSearchParams({ source, system, scheme })
+  if (config) params.set('config', JSON.stringify(config))
+  if (live) params.set('live', '1')
+  return `relay-widget://frame/proto?${params.toString()}`
 }

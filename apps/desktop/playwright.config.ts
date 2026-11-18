@@ -48,6 +48,8 @@ const SERIAL_SPECS = [
   '**/canvas-drive.spec.ts',
   // Cmd+V and Cmd+C go through the one system clipboard, shared by every Electron launched at once.
   '**/canvas-paste.spec.ts',
+  // A component card's redraw is asserted under a second of its edit landing.
+  '**/canvas-design.spec.ts',
 ]
 
 // packaged.spec.ts launches the built .app: opt in with EVAOS_PACKAGED=1, never in the project runs.

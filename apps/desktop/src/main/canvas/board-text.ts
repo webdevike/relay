@@ -48,6 +48,7 @@ const DATA_FIELDS = {
   why: CanvasNodeDataSchema.shape.why,
   mermaid: CanvasNodeDataSchema.shape.mermaid,
   variant: CanvasNodeDataSchema.shape.variant,
+  group: CanvasNodeDataSchema.shape.group,
 } as const
 const EDGE_FIELDS = { route: CanvasEdgeSchema.shape.route } as const
 

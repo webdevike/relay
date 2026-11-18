@@ -23,6 +23,8 @@ export interface BoardDriver {
   flush: () => Promise<void>
   /** Every card's absolute box as drawn. */
   boxes: () => ReadonlyMap<string, Box>
+  /** The cards Isaac has selected. */
+  selected: () => string[]
   select: (ids: readonly string[]) => void
   /** Animates the viewport; resolves with where it ended. */
   view: (call: Omit<ViewCall, 'op' | 'slug' | 'page'>) => Promise<Viewport>
@@ -105,7 +107,11 @@ export async function canvasBoardCall(
     case 'cursor':
       return { mounted: true, ms: board.cursor(call.cursor) }
     case 'boxes':
-      return { mounted: true, boxes: Object.fromEntries(board.boxes()) }
+      return {
+        mounted: true,
+        boxes: Object.fromEntries(board.boxes()),
+        selected: board.selected(),
+      }
     case 'select':
       board.select(call.ids)
       return { mounted: true }
