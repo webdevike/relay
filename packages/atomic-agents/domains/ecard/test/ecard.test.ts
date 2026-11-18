@@ -5,12 +5,13 @@ import { ecardPack } from "../adapters/pack.ts"
 import { type Email, Outlook } from "../adapters/outlook.ts"
 import { type GhCommit, Ledgers, Promotions, type Staging } from "../adapters/promotions.ts"
 import { GitHub, Linear } from "../adapters/services.ts"
-import { type Activity, flaggedItems, Flags, type Read, type Reader, Slack, SlackError } from "../adapters/slack.ts"
+import { type Activity, ChefSurface, flaggedItems, Flags, type Read, type Reader, Slack, SlackError, type Thread } from "../adapters/slack.ts"
 import { omp } from "../../../src/core/adapters/omp.ts"
 import { scorers, voiceBreaks } from "../bench/ecard-score.ts"
 import { spec as mainWatchSpec, keysOf, titleOf } from "../ecard-main-watch.ts"
 import { spec as outlookFetchSpec } from "../ecard-outlook-fetch.ts"
 import { spec as slackFetchSpec } from "../ecard-slack-fetch.ts"
+import { keyOf, spec as slackDigestSpec } from "../ecard-slack-digest.ts"
 import { define } from "../../../src/core/Component.ts"
 import { EventBus } from "../../../src/core/Event.ts"
 import { type GenerateRequest, ModelRunner } from "../../../src/core/Model.ts"
@@ -106,7 +107,7 @@ describe("ecard-slack-fetch", () => {
       }))
       const flags = Layer.succeed(Flags, Flags.of({ read: Ref.get(surface) }))
       const requests = yield* Ref.make<ReadonlyArray<GenerateRequest>>([])
-      const models = answering(requests, () => ({ answer: { verdict: "needs-isaac", isaacReplied: false, reason: "Todd asked for a review" } }))
+      const models = answering(requests, () => ({ answer: { verdict: "needs-isaac", isaacReplied: false, reason: "Todd asked for a review", gist: "Review Todd's PR today." } }))
       yield* Effect.gen(function*() {
         const runner = yield* Runner
         const bus = yield* EventBus
@@ -117,7 +118,7 @@ describe("ecard-slack-fetch", () => {
         const verdict = yield* runner.run("ecard-slack-triage", "triage", fetched[0]!.data)
         expect(verdict.ok).toBe(true)
         const triaged = (yield* bus.history).find((event) => event.run === verdict.run && event.type === "ecard-slack-triage/item.triaged")
-        expect(triaged?.data).toMatchObject({ url: URL_A, verdict: "needs-isaac", isaacReplied: false, summary: expect.stringContaining("Reply to Todd") })
+        expect(triaged?.data).toMatchObject({ url: URL_A, verdict: "needs-isaac", isaacReplied: false, gist: "Review Todd's PR today.", summary: expect.stringContaining("Reply to Todd") })
         expect((yield* Ref.get(requests))[0]?.prompt).toContain("Todd Barczak (FLAGGED): @Isaac can you review this today?")
 
         // A second run asks the proxy only for the new flag.
@@ -188,6 +189,94 @@ describe("ecard-slack-fetch", () => {
         expect(yield* Ref.get(asked)).toEqual(["2023-11-14T22:00:00.000Z"])
       }).pipe(Effect.provide(runtime(root, { dirs: [], code: [define({ ...slackFetchSpec, tools: Layer.mergeAll(slack, flags) })] })))
     }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+})
+
+describe("ecard-slack-digest", () => {
+  const hour = 3_600_000
+  const at = (hoursAgo: number) => new Date(Date.now() - hoursAgo * hour).toISOString()
+  const DM = "https://ecardplatform.slack.com/archives/D1/p1700000000000001"
+  const THREAD = "https://ecardplatform.slack.com/archives/C2/p1700000000000002?thread_ts=1700000000.000000&cid=C2"
+  const GROUP = "https://ecardplatform.slack.com/archives/G3/p1700000000000003"
+  const triaged = (url: string, channel: string, ts: string, verdict: "needs-isaac" | "skip", gist: string) => ({
+    url,
+    channel,
+    ts,
+    summary: `${channel} · Todd`,
+    messages: [{ author: "Todd Barczak", ts, text: "can you look?" }],
+    verdict,
+    isaacReplied: false,
+    reason: "he asked [you] · directly",
+    gist
+  })
+
+  test("keys lines by conversation thread", () => {
+    expect(keyOf(DM)).toBe("D1:1700000000.000001")
+    expect(keyOf(THREAD)).toBe("C2:1700000000.000000")
+    expect(keyOf("https://example.com")).toBeNull()
+  })
+
+  test("needs-isaac adds or replaces, skip removes, the recheck drops what Isaac answered, reacted to or let age out", () =>
+    Effect.gen(function*() {
+      const root = yield* tempHome
+      const eva = yield* evaRoot(root)
+      const threads = yield* Ref.make<Record<string, Thread>>({})
+      const asked = yield* Ref.make<ReadonlyArray<ReadonlyArray<string>>>([])
+      const slack = Layer.succeed(Slack, Slack.make({
+        "claude-proxy": (request) =>
+          Ref.update(asked, (all) => [...all, request.urls]).pipe(
+            Effect.andThen(Ref.get(threads)),
+            Effect.map((known) => ({ authedUser: "Isaac Weber", items: [], threads: request.urls.flatMap((url) => (known[url] === undefined ? [] : [known[url]!])) }))
+          ),
+        "slack-desktop": () => Effect.fail(new SlackError({ message: "desktop unused" }))
+      }))
+      const file = `${eva}/work/elysia/slack-chef.md`
+      yield* Effect.gen(function*() {
+        const runner = yield* Runner
+        const bus = yield* EventBus
+        const fs = yield* FileSystem.FileSystem
+        const digest = (input: unknown) =>
+          runner.run("ecard-slack-digest", "digest", input).pipe(
+            Effect.tap((result) => Effect.sync(() => expect(result.ok).toBe(true))),
+            Effect.andThen(bus.history),
+            Effect.map((history) => history.filter((event) => event.type === "ecard-slack-digest/digest.written").at(-1)?.data)
+          )
+        const lines = () => fs.readFileString(file).pipe(Effect.map((text) => text.split("\n").filter((line) => line.startsWith("- "))))
+
+        const asked3 = at(3)
+        expect(yield* digest(triaged(DM, "DM with Todd Barczak", asked3, "needs-isaac", "Review the PR · today [now]."))).toMatchObject({ change: "added", open: 1, dropped: [] })
+        expect(yield* fs.readFileString(file)).toMatch(/^_updated \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z · chef shadow_\n\n## Needs your attention\n\n- /)
+        expect(yield* lines()).toEqual([
+          `- **DM with Todd Barczak** · Todd Barczak · ${asked3.replace(/\.\d{3}Z$/, "Z")} · Review the PR, today (now). · why: he asked (you), directly [permalink](${DM})`
+        ])
+        // Nothing else was open, so nothing was reread.
+        expect(yield* Ref.get(asked)).toEqual([])
+
+        yield* digest(triaged(THREAD, "#ui-ux", at(2), "needs-isaac", "Answer David."))
+        yield* digest(triaged(GROUP, "group DM: Todd Barczak, Steve Arms", at(1), "needs-isaac", "Tell Steve what is urgent."))
+        expect((yield* lines()).map((line) => line.slice(0, 41))).toEqual([
+          "- **group DM** (Todd Barczak, Steve Arms)",
+          "- **#ui-ux** (thread) · Todd Barczak · 20",
+          "- **DM with Todd Barczak** · Todd Barczak"
+        ])
+
+        // A newer needs-isaac in the same thread replaces its line.
+        expect(yield* digest(triaged(THREAD.replace("p1700000000000002", "p1700000000000009"), "#ui-ux", at(0.5), "needs-isaac", "Answer David again."))).toMatchObject({ change: "replaced", open: 3 })
+        expect((yield* lines()).filter((line) => line.includes("#ui-ux"))).toEqual([expect.stringContaining("Answer David again.")])
+
+        // Isaac reacted in the DM and replied in the group DM: both drop on the next run; a skip removes the thread.
+        yield* Ref.set(threads, {
+          [DM]: { url: DM, channel: "DM with Todd Barczak", ts: at(3), messages: [{ author: "Todd Barczak", ts: at(3), text: "can you look?", reactions: [":eyes: by Steve Arms, Isaac Weber"] }] },
+          [GROUP]: { url: GROUP, channel: "group DM", ts: at(1), messages: [{ author: "Todd Barczak", ts: at(1), text: "?" }, { author: "Isaac Weber", ts: at(0.9), text: "on it" }] }
+        })
+        const removed = yield* digest(triaged(THREAD.replace("p1700000000000002", "p1700000000000010"), "#ui-ux", at(0.2), "skip", "Nothing to do."))
+        expect(removed).toMatchObject({ change: "removed", open: 0, source: "claude-proxy", dropped: expect.arrayContaining([{ url: DM, why: "reacted" }, { url: GROUP, why: "replied" }]) })
+        expect(yield* lines()).toEqual([])
+
+        // Older than 14 days: dropped without a read.
+        yield* digest(triaged(DM, "DM with Todd Barczak", at(15 * 24), "needs-isaac", "Old."))
+        expect(yield* lines()).toEqual([])
+      }).pipe(Effect.provide(runtime(root, { code: [define({ ...slackDigestSpec, tools: Layer.mergeAll(slack, ChefSurface.layer) })], env: { EVA_ROOT: eva } })))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.runPromise), 20_000)
 })
 
 describe("ecard-outlook-fetch", () => {

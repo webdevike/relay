@@ -434,3 +434,28 @@ export class Flags extends Context.Service<Flags, {
     })
   )
 }
+
+/** The slack triage chef's shadow surface (`work/elysia/slack-chef.md` under Eva's checkout); ecard-slack-digest is its only writer. */
+export class ChefSurface extends Context.Service<ChefSurface, {
+  readonly file: string
+  /** Replaces the file whole (tmp + rename). */
+  write(text: string): Effect.Effect<void, SlackError>
+}>()("atomic-agents/ecard/ChefSurface") {
+  static readonly layer = Layer.effect(
+    ChefSurface,
+    Effect.gen(function*() {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const file = path.join(yield* EvaRoot, "work", "elysia", "slack-chef.md")
+      return ChefSurface.of({
+        file,
+        write: (text) =>
+          fs.makeDirectory(path.dirname(file), { recursive: true }).pipe(
+            Effect.andThen(fs.writeFileString(`${file}.tmp`, text)),
+            Effect.andThen(fs.rename(`${file}.tmp`, file)),
+            Effect.mapError((error) => new SlackError({ message: `${file}: ${error.message}` }))
+          )
+      })
+    })
+  )
+}
