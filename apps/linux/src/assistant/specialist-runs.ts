@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
   TRIAL_SWITCH_BADGE_MS,
   agentsCaption,
+  expireAgentRuns,
   settleAgentRuns,
   type AgentRun,
   type AssistantMessage,
@@ -28,6 +29,8 @@ const RUN_REJECTED = "atomic-agents/run.rejected";
 const ASK_RUN_PREFIX = "ask-";
 /** How often the journal's size and time are read, and how long a burst of appends settles before listeners hear. */
 const JOURNAL_POLL_MS = 1000;
+/** How often the folded runs are re-judged while a listener hears them: a run past its time limit expires with no journal write to say so. */
+const TICK_MS = 30_000;
 
 interface JournalEvent {
   readonly type: string;
@@ -324,24 +327,28 @@ export class SpecialistRunBook {
   private reading: Promise<AgentRun[] | null> | null = null;
   private readonly listeners = new Set<() => void>();
   private watching = false;
+  private ticker: NodeJS.Timeout | undefined;
 
   constructor(
     home: string,
     private readonly pollMs = JOURNAL_POLL_MS,
+    private readonly tickMs = TICK_MS,
   ) {
     this.journal = join(home, "events.ndjson");
   }
 
-  /** The runs now: the cached fold while the journal is as it was, else a fresh read. */
+  /** The runs now: the cached fold while the journal is as it was, else a fresh read; a run still out past its time limit reads failed. */
   async current(): Promise<AgentRun[] | null> {
     if (!existsSync(this.journal)) return null;
     const stat = statSync(this.journal);
     const stamp = `${stat.size}:${stat.mtimeMs}`;
-    if (stamp === this.stamp && this.runs !== null) return this.runs;
-    this.reading ??= this.read(stamp).finally(() => {
-      this.reading = null;
-    });
-    return this.reading;
+    if (stamp !== this.stamp || this.runs === null) {
+      this.reading ??= this.read(stamp).finally(() => {
+        this.reading = null;
+      });
+      await this.reading;
+    }
+    return this.runs === null ? null : expireAgentRuns(this.runs, Date.now());
   }
 
   private async read(stamp: string): Promise<AgentRun[] | null> {
@@ -373,7 +380,10 @@ export class SpecialistRunBook {
     for (const heard of this.listeners) heard();
   }
 
-  /** Calls `listener` when the folded runs change (`notify`, on each journal write); starts watching the journal with the first. Returns what stops it. */
+  /**
+   * Calls `listener` when the folded runs change (`notify`, on each journal write and every `tickMs`, which is how a run
+   * the service lost expires with no write to wake it); starts watching with the first. Returns what stops it.
+   */
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
     if (!this.watching) {
@@ -381,11 +391,14 @@ export class SpecialistRunBook {
       watchFile(this.journal, { interval: this.pollMs, persistent: false }, () => {
         void this.notify();
       });
+      this.ticker = setInterval(() => void this.notify(), this.tickMs);
+      this.ticker.unref();
     }
     return () => {
       this.listeners.delete(listener);
       if (this.listeners.size === 0 && this.watching) {
         unwatchFile(this.journal);
+        clearInterval(this.ticker);
         this.watching = false;
       }
     };

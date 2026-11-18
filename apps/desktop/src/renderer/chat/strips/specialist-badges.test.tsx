@@ -9,7 +9,7 @@ const invoke = vi.hoisted(() => vi.fn())
 vi.mock('../../ipc', () => ({ invoke, on: () => () => undefined }))
 
 import { SubagentChips } from './SubagentChips'
-import { chatServiceRuns, chatSpecialists } from './specialist-runs'
+import { chatServiceRuns, chatSpecialists, hostRunsOf } from './specialist-runs'
 
 const wrap = (ui: React.ReactElement) => render(<MantineProvider>{ui}</MantineProvider>)
 const strip = (specialists: AgentRun[], onClearDone = () => undefined) => (
@@ -175,6 +175,59 @@ describe("a chat's specialist badges", () => {
     // Before the service was read at all, the transcript stands; a service that lacks the run fails it.
     expect(chatSpecialists(messages, [], NOW, null)[0]?.status).toBe('running')
     expect(chatSpecialists(messages, [], NOW, [])[0]?.status).toBe('failed')
+  })
+
+  it("a thin client with no service here settles its badges against the host's runs, and a lost run expires with no record", () => {
+    const left = (run: string, ago: number): AgentRun => ({
+      agent: 'web-researcher',
+      run,
+      status: 'running',
+      startedAt: NOW - ago,
+    })
+    const messages = [
+      makeMessage('u1', 'user', 'research'),
+      call('c1', left('r-done', 700_000)),
+      call('c2', left('r-failed', 400_000)),
+    ]
+    const host = hostRunsOf({
+      asOf: '12:00:00',
+      at: NOW,
+      runs: [
+        {
+          run: 'r-done',
+          agent: 'web-researcher',
+          status: 'done',
+          startedAt: NOW - 700_000,
+          seconds: 65,
+        },
+        {
+          run: 'r-failed',
+          agent: 'web-researcher',
+          status: 'failed',
+          startedAt: NOW - 400_000,
+          seconds: 484,
+          error: 'timed out',
+        },
+      ],
+    })
+    expect(host).not.toBeNull()
+    const badges = chatSpecialists(
+      messages,
+      chatServiceRuns(host ?? [], '/s/nova.jsonl', 'nova'),
+      NOW,
+      host,
+    )
+    expect(badges.map((b) => [b.run, b.status]).sort()).toEqual([
+      ['r-done', 'done'],
+      ['r-failed', 'failed'],
+    ])
+    expect(hostRunsOf({ runs: 'nope' })).toBeNull()
+    // No answer from the host either: a badge past its time limit still stops counting.
+    const lost = [makeMessage('u1', 'user', 'research'), call('c1', left('r-lost', 25 * 60_000))]
+    expect(chatSpecialists(lost, [], NOW, null)[0]).toMatchObject({
+      run: 'r-lost',
+      status: 'failed',
+    })
   })
 
   it("a trial shows the caller's run and the other arms as lettered badges; a switch names the new model", () => {

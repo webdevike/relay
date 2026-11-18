@@ -6,7 +6,7 @@
 
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentSession, AssistantAgent, QueryArgs, QueryToolName } from "@relay/protocol";
+import type { AgentRun, AgentSession, AssistantAgent, QueryArgs, QueryToolName } from "@relay/protocol";
 import { z } from "zod";
 import type { ToolRun } from "../reviews/exec";
 import { goodopsCollections, type GoodOpsSource } from "./goodops";
@@ -25,6 +25,8 @@ export interface QueryToolDeps {
   readonly now: () => number;
   /** GoodOps' read-only database and FieldRoutes access; null when secrets/goodops-readonly.env is missing. */
   readonly goodops: () => GoodOpsSource | null;
+  /** The atomic-agents service's runs as the host folds its journal (lost ones expired to failed); null while this host has no service. */
+  readonly specialistRuns?: () => Promise<readonly AgentRun[] | null>;
 }
 
 const GH_TIMEOUT_MS = 20_000;
@@ -342,6 +344,29 @@ async function relaySessions(deps: QueryToolDeps, args: QueryArgs<"relay_session
   };
 }
 
+async function specialistRuns(deps: QueryToolDeps): Promise<unknown> {
+  const now = deps.now();
+  const runs = (await deps.specialistRuns?.()) ?? null;
+  if (runs === null) throw new Error("this host runs no specialist service");
+  const since = now - 2 * 86_400_000;
+  return {
+    asOf: clockTime(now),
+    at: now,
+    runs: runs
+      .filter((r) => r.run !== undefined && (r.startedAt === undefined || r.startedAt >= since))
+      .sort((a, b) => (b.startedAt ?? Number.POSITIVE_INFINITY) - (a.startedAt ?? Number.POSITIVE_INFINITY))
+      .slice(0, 200)
+      .map((r) => ({
+        run: r.run!,
+        agent: r.agent,
+        status: r.status,
+        ...(r.startedAt === undefined ? {} : { startedAt: r.startedAt }),
+        ...(r.seconds === undefined ? {} : { seconds: r.seconds }),
+        ...(r.error === undefined ? {} : { error: r.error }),
+      })),
+  };
+}
+
 export function queryTools(deps: QueryToolDeps): QueryTools {
   return {
     work_items: (args) => Promise.resolve().then(() => workItems(deps, args)),
@@ -350,5 +375,6 @@ export function queryTools(deps: QueryToolDeps): QueryTools {
     github_prs: (args) => githubPrs(deps, args),
     relay_sessions: (args) => relaySessions(deps, args),
     goodops_collections: goodopsCollections(deps),
+    specialist_runs: () => specialistRuns(deps),
   };
 }

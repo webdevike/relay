@@ -4,7 +4,9 @@ import { createStore } from 'zustand/vanilla'
 import { SPECIALIST_LIMIT, type SpecialistRun } from '@evaos/contract'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import {
+  QUERY_TOOLS,
   agentRunKey,
+  expireAgentRuns,
   liveAgentRuns,
   recentAgentRuns,
   settleAgentRuns,
@@ -14,14 +16,44 @@ import { invoke, on } from '../../ipc'
 
 // A chat's specialist badges: the agents calls its transcript shows, joined with what the
 // atomic-agents service recorded for this chat as caller (`agents.specialists`, re-read on every
-// journal change while any chat strip is mounted), so a run shows from its ask to its end.
+// journal change and every POLL_MS while any chat strip is mounted), so a run shows from its ask to its end.
+// A thin client has no service here: it reads the same record from the Mini's Relay Host (`specialist_runs`).
 
 const store = createStore<{ runs: readonly SpecialistRun[] | null }>(() => ({ runs: null }))
+
+/** How often the record is re-read with no journal event to say it moved (a restarted service, a thin client). */
+export const SERVICE_POLL_MS = 15_000
 
 let watchers = 0
 let stop: (() => void) | null = null
 let asking = false
 let again = false
+
+/** The host's `specialist_runs` answer as service runs; only a run's id, state and times are known, so no caller. */
+export function hostRunsOf(data: unknown): SpecialistRun[] | null {
+  const parsed = QUERY_TOOLS.specialist_runs.result.safeParse(data)
+  if (!parsed.success) return null
+  return parsed.data.runs.map((r) => ({
+    run: r.run,
+    agent: r.agent,
+    caller: { kind: 'none' as const },
+    status: r.status,
+    summary: null,
+    job: null,
+    error: r.error ?? null,
+    model: null,
+    at: r.startedAt ?? null,
+    seconds: r.seconds ?? null,
+    cost: null,
+  }))
+}
+
+async function read(): Promise<readonly SpecialistRun[] | null> {
+  const r = await invoke('agents.specialists', {})
+  if (r.ok && r.value.available && r.value.error === null) return r.value.runs
+  const host = await invoke('boards.query', { tool: 'specialist_runs', args: {} })
+  return host.ok && host.value.ok ? hostRunsOf(host.value.data) : null
+}
 
 async function refresh(): Promise<void> {
   if (asking) {
@@ -30,8 +62,8 @@ async function refresh(): Promise<void> {
   }
   asking = true
   try {
-    const r = await invoke('agents.specialists', {})
-    if (r.ok && r.value.available && r.value.error === null) store.setState({ runs: r.value.runs })
+    const runs = await read()
+    if (runs !== null) store.setState({ runs })
   } finally {
     asking = false
     if (again) {
@@ -46,8 +78,12 @@ export function useServiceRuns(): readonly SpecialistRun[] | null {
   useEffect(() => {
     if (watchers++ === 0) {
       const off = on('agents.specialistsChanged', () => void refresh())
+      const poll = setInterval(() => void refresh(), SERVICE_POLL_MS)
       void refresh()
-      stop = off
+      stop = () => {
+        off()
+        clearInterval(poll)
+      }
     }
     return () => {
       if (--watchers === 0) {
@@ -58,7 +94,6 @@ export function useServiceRuns(): readonly SpecialistRun[] | null {
   }, [])
   return useStore(store, (s) => s.runs)
 }
-
 /** A service run as a badge's run: a trial arm's letter, or the model the specialist just switched to. */
 const serviceAgentRun = (r: SpecialistRun): AgentRun => ({
   run: r.run,
@@ -103,7 +138,7 @@ export function chatSpecialists(
 ): AgentRun[] {
   const transcript = messages.flatMap((m) => (m.agent === undefined ? [] : [m.agent]))
   const joined = liveAgentRuns(transcript, service)
-  if (all === null) return recentAgentRuns(joined, now)
+  if (all === null) return recentAgentRuns(expireAgentRuns(joined, now), now)
   // A list cut at its limit reaches back only to its oldest run; older ones it cannot judge.
   const times = all.flatMap((r) => (r.at === null ? [] : [r.at]))
   const since = all.length >= SPECIALIST_LIMIT && times.length > 0 ? Math.min(...times) : undefined

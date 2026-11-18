@@ -441,6 +441,9 @@ function serve(
     ...dropLimitsFromEnv(),
     probe: ffmpegProbe(log),
   });
+  // What the atomic-agents service recorded of specialist runs: every thread settles its running badges against it, and
+  // thin clients read the same fold through the `specialist_runs` query.
+  const specialistRuns = new SpecialistRunBook(defaultAtomicAgentsHome());
   // Live widgets' read-only data; `assistant` is only read once a query arrives, long after it is initialised.
   const query = new QueryService(
     queryTools({
@@ -453,6 +456,7 @@ function serve(
       assistants: () => assistant?.agents() ?? Promise.resolve([]),
       now: Date.now,
       goodops: goodopsSource(agentHome),
+      specialistRuns: () => specialistRuns.current(),
     }),
     Date.now,
     log,
@@ -558,8 +562,6 @@ function serve(
         });
   // One judge for every thread: did Isaac's later turns already answer an open ask?
   const askJudge = claudeAskJudge(bunRun, resolveClaude());
-  // What the atomic-agents service recorded of specialist runs: every thread settles its running badges against it.
-  const specialistRuns = new SpecialistRunBook(defaultAtomicAgentsHome());
   const thread = (agent: AssistantAgentConfig): AssistantService =>
     new AssistantService({
       agent,

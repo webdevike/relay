@@ -294,6 +294,11 @@ export function liveAgentRuns(
 
 /** An ask that has no run id this long after it started never reached the service (a blocking ask returns well inside it). */
 export const AGENT_UNRECORDED_MS = 10 * 60_000;
+/**
+ * The longest a specialist run lives: the deepest tier's budget (900 s) plus a grace. A run still `running` past it was lost
+ * (the service restarted under it, its end never reached the journal), so its badge reads failed instead of counting on.
+ */
+export const AGENT_RUN_MAX_MS = 20 * 60_000;
 
 /** What the atomic-agents service recorded, as a whole (every caller's runs), to settle a chat's running badges against. */
 export interface AgentSnapshot {
@@ -303,15 +308,25 @@ export interface AgentSnapshot {
   readonly since?: number;
 }
 
+/** A badge still `running` past `AGENT_RUN_MAX_MS` after it started, as failed; every other run as it is (the same objects). */
+export function expireAgentRuns(runs: readonly AgentRun[], now: number): AgentRun[] {
+  return runs.map((r) =>
+    r.status === "running" && r.startedAt !== undefined && now - r.startedAt > AGENT_RUN_MAX_MS
+      ? { ...r, status: "failed" as const, error: "The run outlived its time limit" }
+      : r,
+  );
+}
+
 /**
  * A badge still `running` against the service's record: the service's state when it knows the run (so a run that finished while
  * nobody polled `agents_result` reads done or failed), failed when it does not (a run id the service never recorded, or an ask that
- * got no id within `AGENT_UNRECORDED_MS`). Finished badges stay as they are; a run older than the snapshot reaches stays running.
+ * got no id within `AGENT_UNRECORDED_MS`). Finished badges stay as they are; a run older than the snapshot reaches stays running
+ * until `AGENT_RUN_MAX_MS` expires it, as it does a run the service itself still lists as running.
  */
 export function settleAgentRuns(runs: readonly AgentRun[], snapshot: AgentSnapshot): AgentRun[] {
   const byId = new Map<string, AgentRun>();
   for (const s of snapshot.runs) if (s.run !== undefined) byId.set(s.run, s);
-  return runs.map((r) => {
+  const settled = runs.map((r) => {
     if (finished(r)) return r;
     const known = r.run === undefined ? undefined : byId.get(r.run);
     if (known !== undefined) return overlay(r, known);
@@ -323,8 +338,13 @@ export function settleAgentRuns(runs: readonly AgentRun[], snapshot: AgentSnapsh
     ) {
       return r;
     }
-    return { ...r, status: "failed", error: "The specialist service has no record of this run" };
+    return {
+      ...r,
+      status: "failed" as const,
+      error: "The specialist service has no record of this run",
+    };
   });
+  return expireAgentRuns(settled, snapshot.now);
 }
 
 /** A finished badge stays this long after its run ended; a run still "running" this long after it started is stale (its end never reached the chat). */

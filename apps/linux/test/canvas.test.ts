@@ -634,7 +634,7 @@ describe("agents joining a live room", () => {
     expect(service.view("ecs-roles").board.nodes.find((n) => n.id === "dash")).toMatchObject({ type: "ui", data: { title: "Jobs", body: source } });
 
     const refused = await service.act("ecs-roles", theo, '@add_node bad-note note 7500 0 420\nInbox\nroot = Card([Stat("Unread", "" + inbox.n)])\ninbox = Query("inbox", {}, {n: 0}, 30)\n@end');
-    expect(refused.skipped).toEqual([expect.stringMatching(/^add_node bad-note: openui: inbox: unknown query tool "inbox" \(tools: work_items, jobs, linear_issues, github_prs, relay_sessions, goodops_collections\); .*never goes in a note.*Use @add_ui/)]);
+    expect(refused.skipped).toEqual([expect.stringMatching(/^add_node bad-note: openui: inbox: unknown query tool "inbox" \(tools: work_items, jobs, linear_issues, github_prs, relay_sessions, goodops_collections, specialist_runs\); .*never goes in a note.*Use @add_ui/)]);
     expect(service.view("ecs-roles").board.nodes.some((n) => n.id === "bad-note")).toBe(false);
 
     await service.act("ecs-roles", theo, "@add_node plain note 8000 0 420\nPlain\nJust words.\n@end");
@@ -666,7 +666,7 @@ describe("agents joining a live room", () => {
     const chat = tab.doc.getArray<ChatMsg>(DOC_KEYS.chat);
     chat.push([{ id: "n-dash", kind: "human", name: "Isaac", color: "#0ea5e9", text: "create me a dashboard with ui widgets", nodeIds: [], at: null, ts: Date.now() }]);
     await until(() => tab.doc.getMap(DOC_KEYS.nodes).has("dash-jobs"), "the corrected widget");
-    expect(brains[0]?.results.find((r) => r.includes("dash-bad"))).toMatch(/skipped: add_ui dash-bad: openui: .*unknown query tool "inbox" \(tools: work_items, jobs, linear_issues, github_prs, relay_sessions, goodops_collections\)/);
+    expect(brains[0]?.results.find((r) => r.includes("dash-bad"))).toMatch(/skipped: add_ui dash-bad: openui: .*unknown query tool "inbox" \(tools: work_items, jobs, linear_issues, github_prs, relay_sessions, goodops_collections, specialist_runs\)/);
     expect(tab.doc.getMap(DOC_KEYS.nodes).has("dash-bad")).toBe(false);
     // One turn did it all: no correction turn.
     expect(brains[0]?.prompts.filter((p) => p.includes("Isaac says:"))).toHaveLength(1);

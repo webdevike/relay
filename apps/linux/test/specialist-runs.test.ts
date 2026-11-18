@@ -1,7 +1,7 @@
 import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRun, AssistantMessage } from "@relay/protocol";
 import {
   SpecialistRunBook,
@@ -127,6 +127,15 @@ describe("SpecialistRunBook", () => {
     return { home, journal: join(home, "events.ndjson") };
   };
 
+  // The fixtures are dated: the book judges them against a clock set a minute after the first ask.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.parse("2026-11-17T15:08:00.000Z"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("is null while the service has no journal, and reads a run that finished after the last read", async () => {
     const { home, journal } = book();
     const runs = new SpecialistRunBook(home);
@@ -160,6 +169,29 @@ describe("SpecialistRunBook", () => {
       expect(heard).toBe(2);
       appendFileSync(journal, `${line("widget/widget.ready", "2026-11-17T15:09:00.000Z", { requestId: "bake" }, { job: "pick", run: "w" })}\n`);
       await runs.notify();
+      expect(heard).toBe(2);
+    } finally {
+      stop();
+    }
+  });
+
+  it("a run the service lost (no end in the journal) reads failed past its time limit, and the listeners hear it with no journal write", async () => {
+    const { home, journal } = book();
+    const asked = Date.parse("2026-11-17T15:07:01.000Z");
+    writeFileSync(journal, `${propRender("r-1", new Date(asked).toISOString()).join("\n")}\n`);
+    const runs = new SpecialistRunBook(home);
+    let heard = 0;
+    const stop = runs.onChange(() => {
+      heard += 1;
+    });
+    try {
+      vi.setSystemTime(asked + 5 * 60_000);
+      await runs.notify();
+      expect((await runs.current())?.map((r) => r.status)).toEqual(["running"]);
+      expect(heard).toBe(1);
+      vi.setSystemTime(asked + 21 * 60_000);
+      await runs.notify();
+      expect((await runs.current())?.[0]).toMatchObject({ run: "r-1", status: "failed", error: expect.any(String) });
       expect(heard).toBe(2);
     } finally {
       stop();

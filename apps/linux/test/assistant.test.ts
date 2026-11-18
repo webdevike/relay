@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
   type AgentImage,
   type AgentMessage,
@@ -1501,6 +1501,12 @@ describe("AssistantService earlier contexts", () => {
   it("settles a specialist the transcript left running against the service: done, failed, or unknown", async () => {
     const dir = mkdtempSync(join(tmpdir(), "relay-journal-"));
     dirs.push(dir);
+    // The journal is dated: judge it a minute after the asks, inside a run's time limit.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    vi.setSystemTime(Date.parse("2026-11-17T15:08:00.000Z"));
     const at = "2026-11-17T15:07:01.000Z";
     const requested = (id: string) =>
       JSON.stringify({ id: `q-${id}`, type: "atomic-agents/run.requested", component: "atomic-agents", job: "ask", run: `ask-${id}`, at, caller: "agent:nova", data: { requestId: id, agent: "prop-render", job: "render", input: {} } });

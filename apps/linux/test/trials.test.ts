@@ -275,7 +275,8 @@ describe("trial badges", () => {
       at: 5,
       agents: [ask, other],
     };
-    const out = settleAssistantMessages([reply], [ask], NOW, badges)[0];
+    // A minute after the ask: the run is still within its time limit.
+    const out = settleAssistantMessages([reply], [ask], Date.parse(T0) + 60_000, badges)[0];
     expect(out?.agents).toEqual([
       { ...ask, trial: "B" },
       {
@@ -297,7 +298,7 @@ describe("trial badges", () => {
     ]);
     // Drawn again (an already badged row), nothing moves: the same object.
     const again: AssistantMessage = { ...reply, agents: out?.agents ?? [] };
-    expect(settleAssistantMessages([again], [ask], NOW, badges)[0]).toBe(again);
+    expect(settleAssistantMessages([again], [ask], Date.parse(T0) + 60_000, badges)[0]).toBe(again);
   });
 
   it("names the new model on runs that started within the badge window after a switch", () => {

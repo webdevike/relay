@@ -11,6 +11,8 @@ import {
   liveAgentRuns,
   recentAgentRuns,
   settleAgentRuns,
+  expireAgentRuns,
+  AGENT_RUN_MAX_MS,
   type AgentRun,
 } from "../src/agent-runs";
 
@@ -191,17 +193,38 @@ describe("settleAgentRuns: a running badge against the service's whole record", 
     });
   });
 
-  it("a run still out on the service stays running; finished badges are left alone", () => {
-    const service: AgentRun = { agent: "prop-render", run: "r-1", status: "running", startedAt: now - 54 * min };
-    expect(settleAgentRuns([out], { runs: [service], now })[0]!.status).toBe("running");
+  it("a run still out on the service stays running within its time limit; finished badges are left alone", () => {
+    const young: AgentRun = { ...out, startedAt: now - 5 * min };
+    const service: AgentRun = { agent: "prop-render", run: "r-1", status: "running", startedAt: now - 5 * min };
+    expect(settleAgentRuns([young], { runs: [service], now })[0]!.status).toBe("running");
     const done: AgentRun = { ...out, status: "done" };
     expect(settleAgentRuns([done], { runs: [], now })).toEqual([done]);
   });
 
-  it("a run id the service never recorded fails; one older than a cut-off list is not judged", () => {
-    expect(settleAgentRuns([out], { runs: [], now })[0]).toMatchObject({ status: "failed", error: expect.any(String) });
-    expect(settleAgentRuns([out], { runs: [], now, since: now - 10 * min })[0]!.status).toBe("running");
-    expect(settleAgentRuns([out], { runs: [], now, since: now - 60 * min })[0]!.status).toBe("failed");
+  it("a run past its time limit fails even when the service still lists it running or the list cannot judge it", () => {
+    const service: AgentRun = { agent: "prop-render", run: "r-1", status: "running", startedAt: now - 54 * min };
+    expect(settleAgentRuns([out], { runs: [service], now })[0]).toMatchObject({ status: "failed", error: expect.any(String) });
+    expect(settleAgentRuns([out], { runs: [], now, since: now - 10 * min })[0]!.status).toBe("failed");
+    expect(settleAgentRuns([{ ...out, startedAt: now - 5 * min }], { runs: [], now, since: now - 1 * min })[0]!.status).toBe("running");
+  });
+
+  it("a run id the service never recorded fails; one older than a cut-off list is not judged yet", () => {
+    const young: AgentRun = { ...out, startedAt: now - 15 * min };
+    expect(settleAgentRuns([young], { runs: [], now })[0]).toMatchObject({ status: "failed", error: expect.any(String) });
+    expect(settleAgentRuns([young], { runs: [], now, since: now - 10 * min })[0]!.status).toBe("running");
+    expect(settleAgentRuns([young], { runs: [], now, since: now - 60 * min })[0]!.status).toBe("failed");
+  });
+
+  it("expireAgentRuns fails only running badges past the limit and keeps every other object", () => {
+    const old: AgentRun = { agent: "a", run: "o", status: "running", startedAt: now - AGENT_RUN_MAX_MS - 1 };
+    const fresh: AgentRun = { agent: "a", run: "f", status: "running", startedAt: now - 1 * min };
+    const noStart: AgentRun = { agent: "a", status: "running" };
+    const done: AgentRun = { agent: "a", run: "d", status: "done", startedAt: now - 90 * min };
+    const [a, b, c, d] = expireAgentRuns([old, fresh, noStart, done], now);
+    expect(a).toMatchObject({ status: "failed" });
+    expect(b).toBe(fresh);
+    expect(c).toBe(noStart);
+    expect(d).toBe(done);
   });
 
   it("an ask that never got a run id fails once it is old, not while it may still be answering", () => {
