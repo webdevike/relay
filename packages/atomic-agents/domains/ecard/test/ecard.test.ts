@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import { BunServices } from "@effect/platform-bun"
-import { Effect, FileSystem, Layer, Ref } from "effect"
+import { Effect, FileSystem, Layer, Ref, Schema } from "effect"
 import { ecardPack } from "../adapters/pack.ts"
 import { type Email, Outlook } from "../adapters/outlook.ts"
+import { type GhCommit, Ledgers, Promotions, type Staging } from "../adapters/promotions.ts"
 import { GitHub, Linear, Meetings } from "../adapters/services.ts"
 import { type Activity, flaggedItems, Flags, type Read, type Reader, Slack, SlackError } from "../adapters/slack.ts"
 import { omp } from "../../../src/core/adapters/omp.ts"
 import { scorers, voiceBreaks } from "../bench/ecard-score.ts"
+import { spec as mainWatchSpec, keysOf, titleOf } from "../ecard-main-watch.ts"
 import { spec as outlookFetchSpec } from "../ecard-outlook-fetch.ts"
 import { spec as slackFetchSpec } from "../ecard-slack-fetch.ts"
 import { define } from "../../../src/core/Component.ts"
@@ -238,6 +240,124 @@ describe("ecard-outlook-fetch", () => {
         expect((yield* Ref.get(asked))[1]).toBe(T0)
       }).pipe(Effect.provide(runtime(root, { dirs: [dir], code: [define({ ...outlookFetchSpec, tools: outlook })] }, models)))
     }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+})
+
+describe("ecard-main-watch", () => {
+  test("keysOf and titleOf read commit subjects, PR titles and branch names", () => {
+    expect(keysOf("Merge pull request #9 from eCardSystems/feature/eng-7489-egift\n\nref ENG-7489 and ENG-12")).toEqual(["ENG-7489", "ENG-12"])
+    expect(titleOf("fix: ref ENG-6832 Platform Assets filter and panel fixes from dev QA (#254)")).toBe("Platform Assets filter and panel fixes from dev QA")
+    expect(titleOf("ref ENG-7119 Entitlements: ECS Support can load partners")).toBe("Entitlements: ECS Support can load partners")
+    expect(titleOf("* fix: ref ENG-5974 Filter selects say Nothing found and clear by keyboard")).toBe("Filter selects say Nothing found and clear by keyboard")
+  })
+
+  test("watch reports Isaac's tickets by ancestry: a re-commit pushed to main, a merged PR, and what is still only on develop", () =>
+    Effect.gen(function*() {
+      const root = yield* tempHome
+      const eva = yield* evaRoot(root)
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.makeDirectory(`${eva}/work/items`, { recursive: true })
+      // ENG-1 is Isaac's only through his ledger: Noah re-commits it onto main under his own name.
+      yield* fs.writeFileString(`${eva}/work/items/ENG-1.md`, "---\nkey: ENG-1\nrepo: eCardSystems/ledger-repo\n---\n")
+
+      const graph = new Map<string, GhCommit>()
+      const add = (sha: string, message: string, author: string, date: string, parents: ReadonlyArray<string> = [], bot = false) =>
+        graph.set(sha, { sha, message, author, bot, date, parents })
+      add("m0", "ref ENG-90 old main", "noah", "2026-11-01T10:00:00Z")
+      add("d1", "fix: ref ENG-1 Fix the cart (#1)", "isaac", "2026-11-02T10:00:00Z", ["m0"])
+      add("d2", "ref ENG-2 Noah's develop work", "noah", "2026-11-02T11:00:00Z", ["d1"])
+      add("d3", "fix: ref ENG-3 Center the empty state (#3)", "isaac", "2026-11-02T12:00:00Z", ["d2"])
+      // Promotion 1: Noah pushes re-commits straight onto main, then a release bot commit.
+      add("m1a", "ref ENG-1 Fix the cart", "noah", "2026-11-03T10:00:00Z", ["m0"])
+      add("m1b", "ref ENG-5 Someone else's ticket", "noah", "2026-11-03T10:01:00Z", ["m1a"])
+      add("m1", "chore: release v1.2.0\n\n* ENG-99 changelog", "github-actions[bot]", "2026-11-03T10:02:00Z", ["m1b"], true)
+      // Promotion 2: a PR from Isaac's feature branch merged into main.
+      add("f1", "ref ENG-4 Rendition constants", "isaac", "2026-11-04T09:00:00Z", ["m1"])
+      add("m2", "Merge pull request #9 from eCardSystems/feature/eng-4-renditions", "noah", "2026-11-04T10:00:00Z", ["m1", "f1"])
+
+      const refs = yield* Ref.make<Record<string, string>>({ main: "m0", develop: "d3" })
+      const staging = yield* Ref.make<Staging>("deployed")
+      const etags = yield* Ref.make<ReadonlyArray<string | undefined>>([])
+      const resolve = (name: string) => Ref.get(refs).pipe(Effect.map((all) => all[name] ?? name))
+      const ancestors = (sha: string) => {
+        const seen = new Set<string>()
+        const stack = [sha]
+        while (stack.length > 0) {
+          const next = stack.pop()!
+          if (seen.has(next)) continue
+          seen.add(next)
+          stack.push(...graph.get(next)!.parents)
+        }
+        return seen
+      }
+      const promotions = Layer.succeed(Promotions, Promotions.of({
+        login: Effect.succeed("isaac"),
+        head: (_, branch, etag) =>
+          Ref.update(etags, (all) => [...all, etag]).pipe(Effect.andThen(resolve(branch)), Effect.map((sha) => (etag === `"${sha}"` ? "not-modified" as const : { sha, etag: `"${sha}"` }))),
+        commit: (_, ref) => resolve(ref).pipe(Effect.map((sha) => graph.get(sha)!)),
+        between: (_, base, head) =>
+          Effect.all([resolve(base), resolve(head)]).pipe(Effect.map(([from, to]) => {
+            const old = ancestors(from)
+            return [...ancestors(to)].filter((sha) => !old.has(sha)).map((sha) => graph.get(sha)!).sort((a, b) => a.date.localeCompare(b.date))
+          })),
+        history: (_, ref) => resolve(ref).pipe(Effect.map((sha) => [...ancestors(sha)].map((each) => graph.get(each)!).sort((a, b) => b.date.localeCompare(a.date)))),
+        pull: (_, number) => Effect.succeed({ title: `ENG-4 Rendition constants (#${number})`, author: "isaac", branch: "feature/eng-4-renditions" }),
+        staging: () => Ref.get(staging),
+        hasBranch: (repo) => Effect.succeed(repo !== "no-develop"),
+        activeRepos: () => Effect.succeed(["repo", "no-develop"])
+      }))
+
+      yield* Effect.gen(function*() {
+        const runner = yield* Runner
+        const bus = yield* EventBus
+        const decode = Schema.decodeUnknownSync(mainWatchSpec.events["main.promoted"])
+        // Both derived repos see the same fake graph; the assertions read `repo`.
+        const promoted = () =>
+          bus.history.pipe(Effect.map((all) => all.filter((event) => event.type === "ecard-main-watch/main.promoted").map((event) => decode(event.data))))
+
+        // First run: derives the repos and records main silently.
+        expect((yield* runner.run("ecard-main-watch", "watch", {})).ok).toBe(true)
+        const derived = (yield* bus.history).find((event) => event.type === "ecard-main-watch/repos.derived")
+        expect(derived?.data).toEqual({ repos: ["ledger-repo", "repo"], candidates: ["ledger-repo", "no-develop", "repo"] })
+        expect(yield* promoted()).toEqual([])
+
+        // Promotion 1 still deploying: held, nothing yet.
+        yield* Ref.update(refs, (all) => ({ ...all, main: "m1" }))
+        yield* Ref.set(staging, "deploying")
+        yield* runner.run("ecard-main-watch", "watch", {})
+        expect(yield* promoted()).toEqual([])
+
+        // Deployed: one event with ENG-1 (ledger), ENG-3 still on develop (d1 counts as on main via m1a), others ENG-5.
+        yield* Ref.set(staging, "deployed")
+        yield* runner.run("ecard-main-watch", "watch", {})
+        const first = (yield* promoted()).filter((data) => data.repo === "repo")
+        expect(first).toEqual([{
+          repo: "repo",
+          fromSha: "m0",
+          toSha: "m1",
+          compare: "https://github.com/eCardSystems/repo/compare/m0...m1",
+          staging: "deployed",
+          tickets: [{ key: "ENG-1", title: "Fix the cart", url: "https://linear.app/ecard-systems/issue/ENG-1", sha: "m1a" }],
+          pendingOnDevelop: [{ key: "ENG-3", title: "Center the empty state", url: "https://linear.app/ecard-systems/issue/ENG-3", sha: "d3" }],
+          otherTickets: ["ENG-5"]
+        }])
+
+        // Unchanged head: the read is conditional and nothing is re-reported.
+        yield* runner.run("ecard-main-watch", "watch", {})
+        expect((yield* Ref.get(etags)).at(-1)).toBe(`"m1"`)
+        expect((yield* promoted()).length).toBe(2)
+
+        // Promotion 2 is a merge commit: Isaac's feature commit is reached through its second parent.
+        yield* Ref.update(refs, (all) => ({ ...all, main: "m2" }))
+        yield* runner.run("ecard-main-watch", "watch", {})
+        const second = (yield* promoted()).filter((data) => data.repo === "repo" && data.toSha === "m2")
+        expect(second).toEqual([expect.objectContaining({
+          fromSha: "m1",
+          tickets: [{ key: "ENG-4", title: "Rendition constants", url: "https://linear.app/ecard-systems/issue/ENG-4", sha: "m2" }],
+          pendingOnDevelop: [expect.objectContaining({ key: "ENG-3" })],
+          otherTickets: []
+        })])
+      }).pipe(Effect.provide(runtime(root, { code: [define({ ...mainWatchSpec, tools: Layer.mergeAll(promotions, Ledgers.layer) })], env: { EVA_ROOT: eva } })))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.runPromise), 20_000)
 })
 
 describe("ecard-slack-reply-drafter", () => {
