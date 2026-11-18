@@ -3,6 +3,7 @@
   "purpose": "Draft Isaac's Slack reply, in his voice, to an eCard message triaged as needing him.",
   "agent": {
     "model": "anthropic/claude-sonnet-5-5",
+    "profile": "work",
     "candidates": [
       "anthropic/claude-haiku-5-5",
       "anthropic/claude-sonnet-5-5"

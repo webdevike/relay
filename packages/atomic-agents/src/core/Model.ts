@@ -32,6 +32,8 @@ export interface GenerateRequest {
   /** Absolute paths passed as `@file` (images for vision models). */
   readonly files?: ReadonlyArray<string>;
   readonly thinking?: "off" | "minimal" | "low" | "medium" | "high";
+  /** The omp profile this call runs under (`OMP_PROFILE` in omp's environment); absent: the process's own. */
+  readonly profile?: string;
   readonly timeout?: Duration.Input;
 }
 
@@ -589,7 +591,13 @@ export class ModelRunner extends Context.Service<
                     ...(request.files ?? []).map((file) => `@${file}`),
                     request.prompt,
                   ],
-                  { cwd, env },
+                  {
+                    cwd,
+                    env: {
+                      ...env,
+                      ...(request.profile === undefined ? {} : { OMP_PROFILE: request.profile }),
+                    },
+                  },
                 );
               }),
             ).pipe(
@@ -657,7 +665,10 @@ export class ModelRunner extends Context.Service<
               );
               return yield* rpcToolSession(bin, session, {
                 cwd,
-                env: childEnv(env),
+                env: childEnv({
+                  ...env,
+                  ...(session.profile === undefined ? {} : { OMP_PROFILE: session.profile }),
+                }),
                 viaOpenRouter,
                 images,
                 readImage,

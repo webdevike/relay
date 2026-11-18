@@ -17,6 +17,7 @@ const FAKE_OMP = new URL("./fixtures/fake-omp.ts", import.meta.url).pathname;
 interface Frame {
   readonly type?: string;
   readonly argv?: ReadonlyArray<string>;
+  readonly profile?: string | null;
   readonly tools?: ReadonlyArray<{
     readonly name: string;
     readonly parameters: { readonly properties?: Record<string, { readonly type?: string }> };
@@ -188,5 +189,21 @@ describe("native tool sessions (omp --mode rpc)", () => {
       expect(runs).toEqual(["m1"]);
       const results = frames.filter((frame) => frame.type === "host_tool_result");
       expect(results[0]!.result!.content[0]!.text).toContain("Your next model call is your last");
+    }).pipe(Effect.runPromise));
+
+  test("a request's profile is OMP_PROFILE in omp's environment, over the service's; without one omp inherits the process's", () =>
+    Effect.gen(function* () {
+      const before = process.env["OMP_PROFILE"];
+      process.env["OMP_PROFILE"] = "personal";
+      try {
+        const turns = [{ toolCalls: [{ name: "answer", args: { verdict: "ok" } }] }];
+        const own = yield* play(turns, { request: { profile: "work" } });
+        const inherited = yield* play(turns);
+        expect(own.frames[0]!.profile).toBe("work");
+        expect(inherited.frames[0]!.profile).toBe("personal");
+      } finally {
+        if (before === undefined) delete process.env["OMP_PROFILE"];
+        else process.env["OMP_PROFILE"] = before;
+      }
     }).pipe(Effect.runPromise));
 });

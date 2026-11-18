@@ -3,6 +3,7 @@
   "purpose": "Classify a failed eCard GitHub check as flaky, bug or env, with the evidence and the next step.",
   "agent": {
     "model": "anthropic/claude-haiku-5-5",
+    "profile": "work",
     "candidates": [
       "anthropic/claude-haiku-5-5",
       "anthropic/claude-sonnet-5-5"

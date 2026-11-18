@@ -126,6 +126,8 @@ export interface AgentSettings {
   readonly model: string;
   readonly candidates: ReadonlyArray<string>;
   readonly thinking?: "off" | "minimal" | "low" | "medium" | "high";
+  /** The omp profile this agent's omp calls run under (`OMP_PROFILE` in the child); absent: the service's own. */
+  readonly profile?: string;
   /**
    * Code default tool mode, present only for an agent whose model calls tools (an agent spec with `job.tools`); an agent
    * without tools has none. `config.json` `components.<id>.toolMode` overrides it, live, like the model.

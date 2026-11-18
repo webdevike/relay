@@ -1099,20 +1099,28 @@ const service = Command.make("service").pipe(
           Flag.withDescription("<remote>/<branch> the source checkout must be on (fetched first)"),
           Flag.withDefault("origin/main"),
         ),
+        profile: Flag.String("profile").pipe(
+          Flag.withDescription(
+            "omp profile the service's model calls run under (OMP_PROFILE in the plist); default personal, never the OMP_PROFILE of the shell that installs. An agent's own `profile` overrides it for that agent",
+          ),
+          Flag.optional,
+        ),
       },
-      (options) =>
-        Service.install(options).pipe(
-          Effect.flatMap(({ plist, log, app, commit, agents, overridden, notes }) =>
-            Console.log(
-              [
-                ...notes.map((note) => `note: ${note}`),
-                ...overridden.map((reason) => `forced past: ${reason}`),
-                `installed ${Service.LABEL}${commit === undefined ? "" : ` from ${commit.slice(0, 8)}`}${agents === undefined ? "" : `, ${agents} agent(s) load`}`,
-                `  app   ${app}`,
-                `  plist ${plist}`,
-                `  log   ${log}`,
-              ].join("\n"),
-            ),
+      ({ profile, ...options }) =>
+        Service.install({ ...options, profile: Option.getOrUndefined(profile) }).pipe(
+          Effect.flatMap(
+            ({ plist, log, app, commit, agents, overridden, notes, profile: written }) =>
+              Console.log(
+                [
+                  ...notes.map((note) => `note: ${note}`),
+                  ...overridden.map((reason) => `forced past: ${reason}`),
+                  `installed ${Service.LABEL}${commit === undefined ? "" : ` from ${commit.slice(0, 8)}`}${agents === undefined ? "" : `, ${agents} agent(s) load`}`,
+                  `  profile OMP_PROFILE=${written}`,
+                  `  app   ${app}`,
+                  `  plist ${plist}`,
+                  `  log   ${log}`,
+                ].join("\n"),
+              ),
           ),
         ),
     ),

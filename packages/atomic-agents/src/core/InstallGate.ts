@@ -53,6 +53,26 @@ export const sourceRefusals = (facts: SourceFacts): ReadonlyArray<string> => {
   return reasons;
 };
 
+/** The profile a service has no `--profile` for: personal. The caller's own OMP_PROFILE never decides it. */
+export const DEFAULT_PROFILE = "personal";
+
+/** `OMP_PROFILE` in a LaunchAgent plist's environment; undefined when the plist is unreadable or sets none. */
+export const plistProfile = (plist: string | undefined): string | undefined =>
+  plist === undefined
+    ? undefined
+    : /<key>OMP_PROFILE<\/key>\s*<string>([^<]*)<\/string>/.exec(plist)?.[1];
+
+/** Replacing a service must not switch its profile silently: reasons when the installed plist's differs from `next`. */
+export const profileRefusals = (
+  installed: { readonly exists: boolean; readonly profile: string | undefined },
+  next: string,
+): ReadonlyArray<string> =>
+  !installed.exists || installed.profile === next
+    ? []
+    : [
+        `the installed service runs OMP_PROFILE=${installed.profile ?? "(unset)"} and this install would write OMP_PROFILE=${next}; ${installed.profile === undefined ? "" : `pass --profile ${installed.profile} to keep it, or `}--force to switch`,
+      ];
+
 export interface Loss {
   readonly id: string;
   readonly why: string;

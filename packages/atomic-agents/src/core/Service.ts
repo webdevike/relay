@@ -1,7 +1,7 @@
 import { Effect, FileSystem, Option, Path, type PlatformError, Schedule, Schema } from "effect"
 import { exec } from "./exec.ts"
 import { Home } from "./Event.ts"
-import { ConfigModes, probeSource, RosterRows, rosterLosses, sourceRefusals } from "./InstallGate.ts"
+import { ConfigModes, DEFAULT_PROFILE, plistProfile, probeSource, profileRefusals, RosterRows, rosterLosses, sourceRefusals } from "./InstallGate.ts"
 
 /**
  * `serve` as its own macOS LaunchAgent (Eva's `ai.eva.*` family): KeepAlive, logs under the home dir.
@@ -48,6 +48,8 @@ export interface InstallOptions {
   readonly force: boolean
   /** `<remote>/<branch>` the source must be on. */
   readonly base: string
+  /** The omp profile the service's model calls run under (`OMP_PROFILE` in the plist); default `personal`, never the caller's. */
+  readonly profile?: string | undefined
 }
 
 /**
@@ -70,14 +72,18 @@ export const install = (options: InstallOptions) => Effect.gen(function*() {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const { plist, log, app, root, user, target } = yield* paths
+  const profile = options.profile ?? DEFAULT_PROFILE
+  const installedPlist = yield* fs.readFileString(plist).pipe(Effect.option)
+  const profileReasons = profileRefusals({ exists: Option.isSome(installedPlist), profile: plistProfile(Option.getOrUndefined(installedPlist)) }, profile)
   const blender = Bun.env["BLENDER"] ?? ((yield* fs.exists(BLENDER_APP).pipe(Effect.orElseSucceed(() => false))) ? BLENDER_APP : "blender")
   const env: Record<string, string> = {
     HOME: user,
     PATH: [path.dirname(process.execPath), path.join(user, ".local", "bin"), "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(":"),
     ATOMIC_AGENTS_HOME: root,
     BLENDER: blender,
-    // The omp profile model calls run under; launchd has none, and omp's default profile may load unrelated MCP servers.
-    ...(Bun.env["OMP_PROFILE"] ? { OMP_PROFILE: Bun.env["OMP_PROFILE"] } : {})
+    // The omp profile model calls run under: set explicitly, never inherited from whoever ran the install (a reinstall from a
+    // work session once moved the whole service to work). An agent's own `profile` overrides it for that agent's calls.
+    OMP_PROFILE: profile
   }
   const installed = path.join(app, "atomic-agents")
   const cli = path.join(installed, "src", "cli.ts")
@@ -115,10 +121,13 @@ ${Object.entries(env).map(([key, value]) => `\t\t<key>${key}</key><string>${xml(
   const source = yield* fs.realPath(PACKAGE).pipe(step("resolve package"))
   const hasApp = yield* fs.exists(installed).pipe(step("check app"))
   if (hasApp && (yield* fs.realPath(installed).pipe(step("resolve app"))) === source) {
+    if (profileReasons.length > 0 && !options.force) {
+      return yield* new ServiceError({ message: `refusing to reload ${LABEL}; it is untouched:\n${profileReasons.map((reason) => `  - ${reason}`).join("\n")}\nrerun with --force to switch` })
+    }
     yield* launchctl("bootout", `${target}/${LABEL}`)
     yield* fs.writeFileString(plist, body).pipe(step(`write ${plist}`))
     yield* start
-    return { plist, log, app, commit: undefined, agents: undefined, overridden: [], notes: [] }
+    return { plist, log, app, commit: undefined, agents: undefined, overridden: [...profileReasons], notes: [], profile }
   }
 
   // 1. Stage the replacement next to the running copy.
@@ -163,7 +172,7 @@ ${Object.entries(env).map(([key, value]) => `\t\t<key>${key}</key><string>${xml(
   )
   const probe = yield* probeSource(source, [".", "../chat-core"], options.base, Option.getOrUndefined(before)?.commit)
   if (probe.warning !== undefined) notes.push(probe.warning)
-  const refusals = [...sourceRefusals(probe.facts)]
+  const refusals = [...sourceRefusals(probe.facts), ...profileReasons]
   const rosterOf = (copy: string) =>
     exec(process.execPath, [path.join(copy, "atomic-agents", "src", "cli.ts"), "list", "--json"], { env: { ATOMIC_AGENTS_HOME: root } }).pipe(
       Effect.flatMap((result) =>
@@ -220,7 +229,7 @@ ${Object.entries(env).map(([key, value]) => `\t\t<key>${key}</key><string>${xml(
       })
     )
   )
-  return { plist, log, app, commit, agents: nextRoster.filter((row) => row.error === undefined).length, overridden: refusals, notes }
+  return { plist, log, app, commit, agents: nextRoster.filter((row) => row.error === undefined).length, overridden: refusals, notes, profile }
 })
 
 export const uninstall = Effect.gen(function*() {
@@ -245,4 +254,11 @@ export const status = Effect.gen(function*() {
     plist,
     log
   }
+})
+
+/** The omp profile in the installed plist: undefined when no plist is installed, or it sets none. */
+export const installedProfile = Effect.gen(function*() {
+  const fs = yield* FileSystem.FileSystem
+  const { plist } = yield* paths
+  return plistProfile(Option.getOrUndefined(yield* fs.readFileString(plist).pipe(Effect.option)))
 })

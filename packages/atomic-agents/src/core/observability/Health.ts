@@ -1,5 +1,6 @@
 import { Clock, Cron, Effect, Result } from "effect";
 import { Agents } from "../Agent.ts";
+import { installedProfile } from "../Service.ts";
 import { Trigger } from "../Component.ts";
 import { Home } from "../Event.ts";
 import { countedOn } from "../InstallGate.ts";
@@ -30,6 +31,8 @@ export interface AgentHealth {
   readonly agent: string;
   /** config.json `mode` when it is live or shadow and the agent is not disabled. */
   readonly mode?: Mode;
+  /** The omp profile this agent's own `profile` sets for its model calls; absent: it runs under the service's. */
+  readonly profile?: string;
   /** Undefined when this process does not load the agent. */
   readonly enabled?: boolean;
   readonly lastRun?: {
@@ -50,6 +53,8 @@ export interface AgentHealth {
 export interface Health {
   readonly since: string;
   readonly now: string;
+  /** `OMP_PROFILE` in the installed service's plist; absent when no service is installed or it sets none. */
+  readonly serviceProfile?: string;
   /** Cron ticks are counted from here: the window's start, or the first roster check when that is later. */
   readonly ticksSince: string;
   /** The service's newest `roster.check` (it records one at start and on every change). */
@@ -64,6 +69,7 @@ export interface Health {
 export interface Scheduled {
   readonly id: string;
   readonly enabled: boolean;
+  readonly profile?: string;
   readonly crons: ReadonlyArray<{ readonly job: string; readonly cron: string }>;
 }
 
@@ -83,6 +89,7 @@ export const summarize = (input: {
   readonly since: number;
   readonly now: number;
   readonly agents: ReadonlyArray<Scheduled>;
+  readonly serviceProfile?: string | undefined;
   readonly counted: ReadonlyArray<{ readonly id: string; readonly mode: Mode }>;
 }): Health => {
   const { traces, since, now } = input;
@@ -173,6 +180,7 @@ export const summarize = (input: {
     return {
       agent: id,
       ...(counted === undefined ? {} : { mode: counted.mode }),
+      ...(scheduled?.profile === undefined ? {} : { profile: scheduled.profile }),
       ...(scheduled === undefined ? {} : { enabled: scheduled.enabled }),
       ...(newest === undefined
         ? {}
@@ -198,6 +206,7 @@ export const summarize = (input: {
     since: iso(since),
     now: iso(now),
     ticksSince: iso(ticksFrom),
+    ...(input.serviceProfile === undefined ? {} : { serviceProfile: input.serviceProfile }),
     ...(roster === undefined ? {} : { roster }),
     agents,
   };
@@ -213,6 +222,7 @@ export const gather = (windowMs: number) =>
       return {
         id: agent.id,
         enabled: resolved.enabled,
+        ...(resolved.agent.profile === undefined ? {} : { profile: resolved.agent.profile }),
         crons: agent.jobs.flatMap((job) =>
           job.triggers.flatMap((trigger) =>
             Trigger.$is("Cron")(trigger)
@@ -227,7 +237,14 @@ export const gather = (windowMs: number) =>
       since: 0,
       limit: Number.POSITIVE_INFINITY,
     });
-    return summarize({ traces, since: now - windowMs, now, agents, counted: countedOn(config) });
+    return summarize({
+      traces,
+      since: now - windowMs,
+      now,
+      agents,
+      counted: countedOn(config),
+      serviceProfile: yield* installedProfile,
+    });
   });
 
 const local = (at: string) => at.replace("T", " ").slice(0, 16);
@@ -243,6 +260,14 @@ export const render = (health: Health): string => {
     `health ${local(health.since)} to ${local(health.now)} UTC (cron ticks counted from ${local(health.ticksSince)})`,
   ];
   const { roster } = health;
+  lines.push(
+    `profile: service ${health.serviceProfile === undefined ? "none set (no service installed, or its plist sets no OMP_PROFILE)" : `OMP_PROFILE=${health.serviceProfile}`}; ${(() => {
+      const own = health.agents.flatMap((agent) =>
+        agent.profile === undefined ? [] : [`${agent.agent}=${agent.profile}`],
+      );
+      return own.length === 0 ? "no per-agent overrides" : `per-agent overrides: ${own.join(", ")}`;
+    })()}`,
+  );
   lines.push(
     roster === undefined
       ? "roster: the service has recorded no roster check (not running this version yet?)"

@@ -3,6 +3,7 @@
   "purpose": "When an eCard ticket's code lands on develop, propose its Linear move to In QA for Steve with a retest comment, or none.",
   "agent": {
     "model": "anthropic/claude-sonnet-5-5",
+    "profile": "work",
     "candidates": [
       "anthropic/claude-haiku-5-5",
       "anthropic/claude-sonnet-5-5"

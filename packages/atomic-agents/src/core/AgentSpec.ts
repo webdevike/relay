@@ -87,6 +87,8 @@ export const AgentSpec = Schema.Struct({
      * (`claude -p`). Same system prompt, knowledge, prompt and check in each; only the harness around the model changes.
      */
     harness: Schema.optionalKey(Schema.NonEmptyString),
+    /** The omp profile this agent's omp calls run under (`work` for eCard agents); default: the service's own profile. */
+    profile: Schema.optionalKey(Schema.NonEmptyString),
     model: Schema.NonEmptyString,
     candidates: Schema.Array(Schema.NonEmptyString),
     thinking: Schema.optionalKey(Thinking),
@@ -527,6 +529,7 @@ export const compileAgentSpec = (
       system: agentSystem ?? (yield* withKnowledge),
       ...(files.length === 0 ? {} : { files }),
       ...(context.agent.thinking ? { thinking: context.agent.thinking } : {}),
+      ...(context.agent.profile ? { profile: context.agent.profile } : {}),
       ...(limit === undefined ? {} : { timeout: limit }),
     };
     const call = (text: string) =>
@@ -668,6 +671,7 @@ export const compileAgentSpec = (
       model: file.agent.model,
       candidates: file.agent.candidates,
       ...(file.agent.thinking ? { thinking: file.agent.thinking } : {}),
+      ...(file.agent.profile === undefined ? {} : { profile: file.agent.profile }),
       ...(file.agent.tiers === undefined ? {} : { tiers: file.agent.tiers }),
       ...(tools.length > 0 ? { toolMode: spec.toolMode ?? "tools" } : {}),
       ...(file.agent.trial === undefined ? {} : { trial: file.agent.trial }),

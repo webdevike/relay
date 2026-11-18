@@ -3,6 +3,7 @@
   "purpose": "Given one eCard Outlook email and its thread, say whether it needs Isaac, is fyi, or can be skipped.",
   "agent": {
     "model": "anthropic/claude-haiku-5-5",
+    "profile": "work",
     "candidates": [
       "anthropic/claude-haiku-5-5",
       "anthropic/claude-sonnet-5-5"

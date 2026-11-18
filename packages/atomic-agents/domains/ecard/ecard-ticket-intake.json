@@ -3,6 +3,7 @@
   "purpose": "Route an ENG ticket newly assigned to Isaac to auto-work or needs-isaac, with a size.",
   "agent": {
     "model": "anthropic/claude-haiku-5-5",
+    "profile": "work",
     "candidates": [
       "anthropic/claude-haiku-5-5",
       "anthropic/claude-sonnet-5-5"

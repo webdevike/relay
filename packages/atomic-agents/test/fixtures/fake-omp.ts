@@ -20,7 +20,7 @@ interface Turn {
 const turns: ReadonlyArray<Turn> = JSON.parse(readFileSync(process.env["FAKE_OMP_SCENARIO"]!, "utf8"))
 const log = (entry: unknown) => appendFileSync(process.env["FAKE_OMP_LOG"]!, `${JSON.stringify(entry)}\n`)
 const emit = (frame: unknown) => process.stdout.write(`${JSON.stringify(frame)}\n`)
-log({ argv: process.argv.slice(2) })
+log({ argv: process.argv.slice(2), profile: process.env["OMP_PROFILE"] ?? null })
 
 const pending = new Map<string, (text: string) => void>()
 const results: Array<string> = []

@@ -125,6 +125,7 @@ export const effective = (component: Registered, settings: SettingsFile): Effect
       model,
       candidates,
       ...(thinking === undefined ? {} : { thinking }),
+      ...(component.agent.profile === undefined ? {} : { profile: component.agent.profile }),
       ...(toolMode === undefined ? {} : { toolMode }),
       ...(component.agent.tiers === undefined ? {} : { tiers: component.agent.tiers }),
       ...(component.agent.trial === undefined ? {} : { trial: component.agent.trial }),
