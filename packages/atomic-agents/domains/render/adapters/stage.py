@@ -127,6 +127,9 @@ scene.camera = camera
 scene.render.engine = "BLENDER_EEVEE"
 scene.render.resolution_x = 768
 scene.render.resolution_y = 768
+# One stop down: at 0 the lights blow a lit surface's Base Color out by about a stop (a brown skin (178, 107, 90)
+# rendered (202, 154, 142)); at -1 it renders (174, 117, 102), so colors read off a reference come out as picked.
+scene.view_settings.exposure = -1.0
 scene.render.image_settings.file_format = "PNG"
 scene.render.filepath = out
 bpy.ops.render.render(write_still=True)
