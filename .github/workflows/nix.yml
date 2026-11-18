@@ -5,6 +5,7 @@ on:
     paths: ["flake.*", "nix/**", "apps/linux/**", "apps/desktop/**", "packages/**", "pnpm-lock.yaml", ".github/workflows/nix.yml"]
   pull_request:
     paths: ["flake.*", "nix/**", "apps/linux/**", "apps/desktop/**", "packages/**", "pnpm-lock.yaml", ".github/workflows/nix.yml"]
+  workflow_dispatch:
 
 permissions:
   contents: write
