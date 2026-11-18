@@ -66,6 +66,14 @@ describe('meetingsStore', () => {
     expect(meetingsStore.getState()).toMatchObject({ error: true, loading: false, list: null })
   })
 
+  it("takes the host's list as it comes, without asking for it again", () => {
+    applyMeetingsChange({ kind: 'state', state: listValue('Pushed') })
+    expect(invoke).not.toHaveBeenCalled()
+    expect(meetingsStore.getState()).toMatchObject({ loading: false, error: false })
+    expect(meetingsStore.getState().list?.[0]?.title).toBe('Pushed')
+    expect(meetingTitle('standup')).toBe('Pushed')
+  })
+
   it('caches details per stem and refreshes them on reload', async () => {
     const detail = (n: number) => ({
       ok: true,

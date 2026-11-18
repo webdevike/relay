@@ -76,23 +76,26 @@ export function useMeetings<T>(selector: (s: MeetingsState) => T): T {
 let inflight: Promise<void> | null = null
 let queued = false
 
+function applyList(value: Extract<MeetingsChange, { kind: 'state' }>['state']): void {
+  meetingsStore.setState({
+    list: value.meetings,
+    recordings: value.recordings,
+    digest: value.digest,
+    now: value.now,
+    error: false,
+    loading: false,
+  })
+  setMeetingTitles({
+    ...Object.fromEntries(value.meetings.map((m) => [m.stem, m.title])),
+    ...Object.fromEntries(value.recordings.map((x) => [x.id, recordingTitle(x)])),
+  })
+}
+
 async function runOnce(): Promise<void> {
   try {
     const r = await invoke('meetings.list', {})
-    if (r.ok) {
-      meetingsStore.setState({
-        list: r.value.meetings,
-        recordings: r.value.recordings,
-        digest: r.value.digest,
-        now: r.value.now,
-        error: false,
-        loading: false,
-      })
-      setMeetingTitles({
-        ...Object.fromEntries(r.value.meetings.map((m) => [m.stem, m.title])),
-        ...Object.fromEntries(r.value.recordings.map((x) => [x.id, recordingTitle(x)])),
-      })
-    } else meetingsStore.setState({ error: true, loading: false })
+    if (r.ok) applyList(r.value)
+    else meetingsStore.setState({ error: true, loading: false })
   } catch {
     meetingsStore.setState({ error: true, loading: false })
   }
@@ -190,6 +193,10 @@ function viewChange(
 export function applyMeetingsChange(c: MeetingsChange): void {
   if (c.kind === 'list') {
     void loadMeetings()
+    return
+  }
+  if (c.kind === 'state') {
+    applyList(c.state)
     return
   }
   meetingsStore.setState((s) => {

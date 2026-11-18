@@ -9,7 +9,13 @@ import {
   meetingsGet,
   meetingsList,
 } from '@evaos/eva-core/model/meetings-ops'
-import { meetingsOpenNotes } from './meetings-ipc'
+import { meetingsOpenNotes, registerMeetingsIpc } from './meetings-ipc'
+
+const emitted: [string, unknown][] = []
+vi.mock('../ipc/handle', () => ({
+  handle: () => {},
+  emit: (_c: unknown, name: string, payload: unknown) => emitted.push([name, payload]),
+}))
 
 const fixtures: Array<{ cleanup(): void }> = []
 const NOW = new Date(2026, 9, 15, 12, 0, 0)
@@ -43,6 +49,35 @@ describe('meetings.list', () => {
     expect(r.digest.out.map((o) => o.text)).toContain('Sam is out')
     expect(r.digest.out[0]!.date).toBe('2026-10-18')
     expect(r.digest.decisions.map((d) => d.text)).toContain('Ship the beta Friday')
+  })
+})
+
+describe('host pushes', () => {
+  it("hands the page the host's list instead of asking for it again", () => {
+    emitted.length = 0
+    let push!: (frame: Record<string, unknown>) => void
+    const sendFrame = vi.fn(() => true)
+    registerMeetingsIpc({ env: { evaRoot: '/eva' } } as never, {
+      onFrame: (cb) => {
+        push = cb
+        return () => {}
+      },
+      sendFrame,
+      hostHas: () => true,
+    })
+    const state = {
+      recordings: [],
+      meetings: [],
+      digest: { recentCount: 0, waiting: [], out: [], decisions: [] },
+      now: 5,
+    }
+    push({ t: 'meetings.state', ...state })
+    push({ t: 'welcome' })
+    expect(emitted).toEqual([
+      ['meetings.changed', { kind: 'state', state }],
+      ['meetings.changed', { kind: 'list' }],
+    ])
+    expect(sendFrame).not.toHaveBeenCalled()
   })
 })
 

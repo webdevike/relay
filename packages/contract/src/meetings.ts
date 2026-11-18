@@ -208,7 +208,9 @@ export const MeetingsChangeSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('moments'), id: z.string(), moments: z.array(KeyMomentSchema) }),
   /** A recording saved a screen snapshot. */
   z.object({ kind: z.literal('shot'), id: z.string(), shot: MeetingShotSchema }),
-  /** The list changed (a recording came or went, a record changed): read it again. */
+  /** The list as the host sent it (`meetings.state`, pushed or answering a list): applied as is, never re-asked. */
+  z.object({ kind: z.literal('state'), state: meetingsInvoke['meetings.list'].output }),
+  /** Nothing to apply yet (the host connected or reconnected): read the list again. */
   z.object({ kind: z.literal('list') }),
 ])
 export type MeetingsChange = z.output<typeof MeetingsChangeSchema>

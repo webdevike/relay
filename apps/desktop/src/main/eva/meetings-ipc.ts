@@ -149,7 +149,10 @@ export function registerMeetingsIpc(
         id: f.id,
         astra: meetingAstra(f.item as HostAstraItem),
       })
-    else if (f.t === 'meetings.state' || f.t === 'welcome')
-      emit(ctx, 'meetings.changed', { kind: 'list' })
+    else if (f.t === 'meetings.state') {
+      // The list itself (a push, or the answer to a `meetings.list`): asking again on it would loop.
+      const { t: _t, ...state } = f
+      emit(ctx, 'meetings.changed', { kind: 'state', state: state as never })
+    } else if (f.t === 'welcome') emit(ctx, 'meetings.changed', { kind: 'list' })
   })
 }
