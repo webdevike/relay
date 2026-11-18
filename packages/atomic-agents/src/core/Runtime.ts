@@ -33,6 +33,7 @@ import { isObject } from "./Fields.ts";
 import { runId, uuid } from "./Id.ts";
 import type { ModelRunner } from "./Model.ts";
 import { events as runtimeEvents, publishRuntime, RUNTIME } from "./RuntimeEvents.ts";
+import { runSpan, SPAN, traced } from "./observability/Spans.ts";
 import { effective, Settings } from "./Settings.ts";
 import {
   armInput,
@@ -140,7 +141,7 @@ export class Runner extends Context.Service<
               );
         });
 
-      const run = Effect.fn("Runner.run")(function* (
+      const run = Effect.fnUntraced(function* (
         componentId: string,
         jobId: string,
         input: unknown,
@@ -204,8 +205,10 @@ export class Runner extends Context.Service<
             ),
             Effect.flatMap((data) => publish(event._tag, data)),
           );
+        const queuedFrom = yield* Clock.currentTimeMillis;
         const body = Effect.gen(function* () {
           const started = yield* Clock.currentTimeMillis;
+          yield* Effect.annotateCurrentSpan("agent.queued_ms", started - queuedFrom);
           const seconds = Effect.map(Clock.currentTimeMillis, (now) => (now - started) / 1000);
           yield* Effect.forEach(
             [runDir, stateDir],
@@ -217,7 +220,7 @@ export class Runner extends Context.Service<
                 ),
             { discard: true },
           );
-          const attempt = (model: string) =>
+          const attempt = (model: string, fallback: Readonly<Record<string, string>> = {}) =>
             job
               .start(input, {
                 ...envelope,
@@ -230,7 +233,11 @@ export class Runner extends Context.Service<
                 publish: jobPublish,
                 ...(options.trial?.inline === undefined ? {} : { trial: options.trial.inline }),
               })
-              .pipe(Effect.provideContext(services), Effect.exit);
+              .pipe(
+                Effect.provideContext(services),
+                traced(SPAN.attempt, { "model.id": model, ...fallback }),
+                Effect.exit,
+              );
           yield* lifecycle(
             JobStarted.make({
               input,
@@ -250,6 +257,7 @@ export class Runner extends Context.Service<
           if (backup !== undefined && backup !== model && Exit.isFailure(outcome)) {
             const first = Cause.findErrorOption(outcome.cause);
             if (first._tag === "Some" && first.value._tag !== "SchemaError") {
+              const reason = `${first.value._tag}: ${first.value.message}`.slice(0, 500);
               yield* lifecycle(
                 JobStarted.make({
                   input,
@@ -257,14 +265,17 @@ export class Runner extends Context.Service<
                   ...modes,
                   ...thinking,
                   fellBackFrom: model,
-                  reason: `${first.value._tag}: ${first.value.message}`.slice(0, 500),
+                  reason,
                   ...(options.requestId === undefined ? {} : { requestId: options.requestId }),
                   ...(options.trial === undefined
                     ? {}
                     : { trial: { id: options.trial.id, letter: options.trial.letter } }),
                 }),
               );
-              outcome = yield* attempt(backup);
+              outcome = yield* attempt(backup, {
+                "fallback.from": model,
+                "fallback.reason": reason,
+              });
               ranOn = backup;
             }
           }
@@ -278,13 +289,15 @@ export class Runner extends Context.Service<
                 ...(fellBack ? { fellBack } : {}),
               }),
             );
-            return {
+            yield* Effect.annotateCurrentSpan({ "run.model": ranOn, "run.fell_back": fellBack });
+            const result: RunResult = {
               run,
               ok: true,
               model: ranOn,
               seconds: took,
               ...("value" in answer ? { reply: answer.value } : {}),
             };
+            return { answer: result };
           }
           const failure = Cause.findErrorOption(outcome.cause);
           const took = yield* seconds;
@@ -300,9 +313,38 @@ export class Runner extends Context.Service<
               message,
             }),
           );
-          return { run, ok: false, model: ranOn, seconds: took, error: message };
+          yield* Effect.annotateCurrentSpan({ "run.model": ranOn, "run.fell_back": fellBack });
+          const result: RunResult = { run, ok: false, model: ranOn, seconds: took, error: message };
+          return { answer: result, failure: outcome.cause };
         });
-        return yield* lock === undefined ? body : lock.withPermits(1)(body);
+        const requestId =
+          options.requestId ??
+          (isObject(input) && typeof input["requestId"] === "string"
+            ? input["requestId"]
+            : undefined);
+        // Every span of the run says whose it is, so `traces --agent` and `--run` find a run still in progress too.
+        const shared = {
+          "agent.id": component.id,
+          "agent.run": run,
+          ...(tier === undefined ? {} : { "agent.tier": tier.name }),
+        };
+        return yield* runSpan(
+          {
+            ...shared,
+            "agent.job": job.id,
+            "model.id": model,
+            ...(requestId === undefined ? {} : { "agent.request": requestId }),
+            ...(toolMode === undefined ? {} : { "agent.tool_mode": toolMode }),
+            ...(options.trial === undefined
+              ? {}
+              : {
+                  "agent.trial": `${options.trial.id.slice(0, 8)} ${options.trial.letter} ${options.trial.role}`,
+                }),
+          },
+          (lock === undefined ? body : lock.withPermits(1)(body)).pipe(
+            Effect.annotateSpans(shared),
+          ),
+        );
       });
 
       return Runner.of({ run });

@@ -23,6 +23,8 @@ import { type EventSchemas, ToolMode, Trigger } from "./core/Component.ts";
 import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./core/Event.ts";
 import { shortId } from "./core/Id.ts";
 import { ModelRunner } from "./core/Model.ts";
+import * as Tracing from "./core/observability/Tracing.ts";
+import * as Traces from "./core/observability/Traces.ts";
 import { Orchestrators, Reporter, Sessions } from "./core/Orchestrator.ts";
 import { type RunOptions, Runner } from "./core/Runtime.ts";
 import { RUNTIME, runtime } from "./core/RuntimeEvents.ts";
@@ -736,6 +738,62 @@ const runsCommand = Command.make(
     ),
 );
 
+/**
+ * Runs as span trees, from the trace files every process writes (`<home>/traces`, `core/observability/`): newest
+ * first (slowest with --slow), one line per span with its model, tool, tokens, cost, duration and error tag.
+ */
+const tracesCommand = Command.make(
+  "traces",
+  {
+    agent: Flag.String("agent").pipe(Flag.withDescription("only this agent's runs"), Flag.optional),
+    run: Flag.String("run").pipe(
+      Flag.withDescription("one run: its job run id or request id (a prefix works)"),
+      Flag.optional,
+    ),
+    errors: Flag.Boolean("errors").pipe(
+      Flag.withDescription("only runs with a failed span (a fallback that saved the run counts)"),
+      Flag.withDefault(false),
+    ),
+    slow: Flag.Boolean("slow").pipe(
+      Flag.withDescription("slowest runs first"),
+      Flag.withDefault(false),
+    ),
+    since: Flag.String("since").pipe(
+      Flag.withDescription("how far back: 30m, 1h, 2d (default 24h; with --run, all that is kept)"),
+      Flag.optional,
+    ),
+    limit: Flag.Int("limit").pipe(Flag.withDescription("how many runs"), Flag.withDefault(5)),
+    json: Flag.Boolean("json").pipe(
+      Flag.withDescription("one JSON line, {traces: [...]}: each run's span tree"),
+      Flag.withDefault(false),
+    ),
+  },
+  Effect.fnUntraced(function* ({ agent, run, errors, slow, since, limit, json }) {
+    const window = Option.isSome(since)
+      ? Traces.parseSince(since.value)
+      : Option.isSome(run)
+        ? Number.POSITIVE_INFINITY
+        : 24 * 3_600_000;
+    if (window === undefined)
+      return yield* Effect.fail(new Error("--since: write it as 30m, 1h or 2d"));
+    const found = Traces.query((yield* Home).root, {
+      ...Option.match(agent, { onNone: () => ({}), onSome: (id) => ({ agent: id }) }),
+      ...Option.match(run, { onNone: () => ({}), onSome: (id) => ({ run: id }) }),
+      errors,
+      slow,
+      since: (yield* Clock.currentTimeMillis) - window,
+      limit,
+    });
+    if (json) return yield* printJson(Effect.map(found, (traces) => ({ traces })));
+    const traces = yield* found;
+    yield* Console.log(
+      traces.length === 0
+        ? `no traces match in ${(yield* Home).root}/${Traces.TRACES_DIR}`
+        : traces.map(Traces.render).join("\n\n"),
+    );
+  }),
+);
+
 const events = Command.make(
   "events",
   {
@@ -1000,6 +1058,7 @@ const App = Runner.layer.pipe(
   Layer.provideMerge(Agents.layer),
   Layer.provideMerge(Adapters.make(packs)),
   Layer.provideMerge(EventBus.layer),
+  Layer.provideMerge(Tracing.layer()),
   Layer.provideMerge(Home.layer),
   Layer.provideMerge(BunServices.layer),
 );
@@ -1020,6 +1079,7 @@ Command.make("atomic-agents").pipe(
     requestCommand,
     resultCommand,
     runsCommand,
+    tracesCommand,
     events,
     agent,
     orch,

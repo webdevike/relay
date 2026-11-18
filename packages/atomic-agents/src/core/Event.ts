@@ -17,6 +17,7 @@ import {
 } from "effect";
 import { ToolMode } from "./Component.ts";
 import { uuid } from "./Id.ts";
+import { SPAN } from "./observability/Spans.ts";
 
 /**
  * The one envelope every component event travels in. `type` is `<component>/<name>`;
@@ -209,7 +210,8 @@ export class EventBus extends Context.Service<
         Effect.forkScoped,
       );
 
-      const publish = Effect.fn("EventBus.publish")(function* (event: AgentEvent) {
+      const publish = Effect.fn(SPAN.emit)(function* (event: AgentEvent) {
+        yield* Effect.annotateCurrentSpan("event.type", event.type);
         const line = yield* encodeLine(event).pipe(Effect.mapError(fail(`encode ${event.type}`)));
         yield* fs
           .writeFileString(journal, `${line}\n`, { flag: "a" })

@@ -23,6 +23,7 @@ import {
 } from "./Component.ts";
 import { compileFields, type Fields, isObject } from "./Fields.ts";
 import { type GenerateRequest, generateWithTools, ModelRunner, tool } from "./Model.ts";
+import { SPAN } from "./observability/Spans.ts";
 
 /**
  * The standard agent spec, as an agent file writes it (`<id>.json`):
@@ -504,7 +505,7 @@ export const compileAgentSpec = (
           );
     }).pipe(Effect.map((lists) => lists.flat()));
 
-  const item = Effect.fn("AgentSpec.item")(function* (
+  const item = Effect.fn(SPAN.item)(function* (
     raw: Readonly<Record<string, unknown>>,
     context: AdapterContext,
     agentSystem?: string,
