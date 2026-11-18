@@ -9,11 +9,20 @@ export function isNothingToReport(text: string): boolean {
 
 const BACKGROUND_LINE = /^\[From .+?'s background jobs\]/
 
+/** Roles that are noise in a turn whose only reply is silent; anything else (guest, notice, canvas) is real content. */
+const NOISE_ROLES: Partial<Record<ChatMessage['role'], true>> = {
+  user: true,
+  assistant: true,
+  thinking: true,
+  tool: true,
+}
+
 /**
  * `list` without its quiet replies. A turn (a user row and everything up to the next one) whose
- * only replies are `(nothing to report)` is background noise, so its prompt, thinking and tools go
- * too; a background line that got no turn of its own (queued behind another, answered once) goes
- * with the turn that answers it. In a turn with a real reply, a silent reply is dropped alone.
+ * only replies are `(nothing to report)` and that holds nothing but its prompt, thinking and tools
+ * is background noise, so all of it goes; a background line that got no turn of its own (queued
+ * behind another, answered once) goes with the turn that answers it. In any other turn (a real
+ * reply, or a guest assistant, notice or canvas row) only the silent reply is dropped.
  */
 export function dropQuietTurns(list: ChatMessage[]): ChatMessage[] {
   const out: ChatMessage[] = []
@@ -25,7 +34,10 @@ export function dropQuietTurns(list: ChatMessage[]): ChatMessage[] {
     if (replies.length === 0) {
       if (!last && turn.length === 1 && BACKGROUND_LINE.test(turn[0]!.text)) held.push(...turn)
       else out.push(...held.splice(0), ...turn)
-    } else if (replies.every((m) => isNothingToReport(m.text))) {
+    } else if (
+      replies.every((m) => isNothingToReport(m.text)) &&
+      turn.every((m) => NOISE_ROLES[m.role])
+    ) {
       held = []
     } else {
       out.push(
