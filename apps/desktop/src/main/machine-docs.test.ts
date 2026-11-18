@@ -11,10 +11,16 @@ import { describe, expect, it } from 'vitest'
 import type { AnyStateMachine } from 'xstate'
 import { machineDiagram, newDoc, withDiagram } from '../renderer/lib/machine-diagram'
 import { designModeMachine } from '../renderer/browser/design/design-mode.machine'
+import { agentFollowMachine } from '../renderer/files/markdown/agent-follow.machine'
 import { mediaSlotMachine } from '../renderer/chat/widgets/media-slot.machine'
 import { shareSnapshotsMachine } from './meetings/share-snapshots.machine'
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
+  {
+    file: 'agent-follow',
+    title: 'Live agent edits in rendered Markdown (desktop Files)',
+    machine: agentFollowMachine,
+  },
   { file: 'design-mode', title: 'Design Mode in a page tab (desktop)', machine: designModeMachine },
   { file: 'media-slot', title: 'Chat media load order (desktop)', machine: mediaSlotMachine },
   {

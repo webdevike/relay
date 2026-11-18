@@ -337,7 +337,9 @@ test('lists the specialists; one opens its folder to edit (saved live and commit
   )
   await proofShot(app, shell, 'agent-saved', { phase: PHASE })
 
-  // A save the agent does not load with stays live but is not committed.
+  // A save the agent does not load with stays live but is not committed. AGENT.md opens
+  // rendered: its frontmatter shows as properties until a click opens its lines.
+  await editor.locator(sel('md-block-frontmatter')).click()
   await editor.locator('.view-line', { hasText: 'thinking: low' }).click()
   await shell.keyboard.press('End')
   await shell.keyboard.type(' BROKEN')

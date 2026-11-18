@@ -646,12 +646,275 @@
     animation: none;
   }
 }
-.eva-files-md {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: var(--mantine-spacing-md) var(--mantine-spacing-lg);
-  max-width: 760px;
+.eva-agent-intent {
+  display: none;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+/* Markdown drawn rendered on the editor's buffer (markdown/live-preview.ts): prose type, the
+   Markdown syntax hidden off the caret, code and quotes as blocks, bullets and task boxes drawn
+   over their characters (same width, so the caret still lands where it should). */
+.eva-md-prose {
+  --eva-md-code-bg: color-mix(in srgb, var(--eva-c-foreground) 5%, transparent);
+  --eva-md-dim: var(--eva-c-muted-foreground);
+}
+.eva-md-prose .monaco-editor .view-line span:not(.eva-md-code-text) {
+  color: var(--eva-c-foreground);
+}
+.eva-md-prose .monaco-editor .view-line span.eva-md-syntax,
+.eva-md-prose .monaco-editor .view-line span.eva-md-fence-label,
+.eva-md-prose .monaco-editor .view-line span.eva-md-quote,
+.eva-md-prose .monaco-editor .view-line span.eva-md-done {
+  color: var(--eva-md-dim);
+}
+.eva-md-prose .monaco-editor .view-line span.eva-md-link {
+  color: var(--mantine-primary-color-filled);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--mantine-primary-color-filled) 40%, transparent);
+  text-underline-offset: 3px;
+}
+/* The fonts the decorations declare (live-preview.ts HEADING and SPAN), drawn here. */
+.eva-md-heading,
+.eva-md-strong {
+  font-weight: 650;
+}
+.eva-md-h1 {
+  font-size: 26px;
+}
+.eva-md-h2 {
+  font-size: 21px;
+}
+.eva-md-h3 {
+  font-size: 18px;
+}
+.eva-md-h4 {
+  font-size: 16px;
+}
+.eva-md-h6 {
+  font-size: 14px;
+}
+.eva-md-em {
+  font-style: italic;
+}
+.eva-md-code,
+.eva-md-code-text,
+.eva-md-fence-label {
+  font-family: var(--eva-font-code);
+  font-size: 13px;
+}
+.eva-md-conceal {
+  display: none;
+}
+/* Rendered blocks take their own clicks (the text layer would sit over them). */
+.eva-md-prose .monaco-editor .view-zones {
+  z-index: 1;
+}
+.eva-md-del {
+  text-decoration: line-through;
+}
+.eva-md-code {
+  background: var(--eva-md-code-bg);
+  border-radius: 4px;
+}
+.eva-md-fence-label {
+  font-size: 11px;
+}
+.eva-md-code-line {
+  max-width: var(--eva-md-measure);
+  background: var(--eva-md-code-bg);
+}
+.eva-md-code-gutter::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 12px;
+  background: var(--eva-md-code-bg);
+}
+.eva-md-hr {
+  max-width: var(--eva-md-measure);
+  background: linear-gradient(var(--eva-c-border), var(--eva-c-border)) center / 100% 1px no-repeat;
+}
+.eva-md-quote-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 12px;
+  bottom: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--eva-c-border);
+}
+.eva-md-prose .monaco-editor .view-line span.eva-md-bullet,
+.eva-md-prose .monaco-editor .view-line span.eva-md-task {
+  position: relative;
+  color: transparent;
+}
+.eva-md-bullet::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--eva-md-dim);
+  transform: translate(-50%, -50%);
+}
+.eva-md-task {
+  cursor: pointer;
+}
+.eva-md-task::before,
+.eva-md-task::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.eva-md-task::before {
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--eva-md-dim);
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.eva-md-task.is-checked::before {
+  border-color: transparent;
+  background: var(--mantine-primary-color-filled);
+}
+/* Tabler's check, as a mask so it takes the color. */
+.eva-md-task.is-checked::after {
+  width: 11px;
+  height: 11px;
+  background: var(--mantine-primary-color-contrast);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12l5 5l10 -10'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+/* Agents in prose: the caret is a prose line tall, its tag carries the caption, and the bar on
+   the lines it changed sits by the text instead of at the panel's edge. */
+.eva-md-prose .eva-agent-caret {
+  height: 24px;
+}
+.eva-md-prose .eva-agent-intent,
+.eva-md-block-agent .eva-agent-intent {
+  display: inline;
+}
+/* The bar's box is the side margin; it moves across to sit just left of the text. */
+.eva-md-prose .eva-agent-gutter {
+  transform: translateX(calc(100% - 8px));
+}
+.eva-md-prose .eva-agent-line {
+  max-width: var(--eva-md-measure);
+}
+
+/* A table, standalone image or frontmatter drawn rendered over its hidden lines; a click edits it.
+   The outline sits inside the padded box: the editor clips anything left of the text column. */
+.eva-md-block {
+  position: relative;
+  box-sizing: border-box;
+  max-width: var(--eva-md-measure);
+  padding: calc(var(--mantine-spacing-xs) * 0.6) calc(var(--mantine-spacing-xs) * 0.8);
+  border-radius: var(--mantine-radius-sm);
+  outline: 1px solid transparent;
+  outline-offset: -2px;
+  cursor: text;
+  font-family: var(--eva-font-ui);
+  font-size: 15px;
+  transition: outline-color 0.15s;
+}
+.eva-md-block:hover {
+  outline-color: var(--eva-c-border);
+}
+.eva-md-block[data-agent] {
+  outline: 2px solid var(--who);
+}
+.eva-md-block[data-fading] {
+  outline-color: transparent;
+  transition: outline-color 0.6s ease-in;
+}
+.eva-md-block .eva-md-block-agent {
+  top: 4px;
+  right: 4px;
+  bottom: auto;
+  left: auto;
+  border-radius: var(--mantine-radius-sm);
+  z-index: 1;
+}
+.eva-md-block .eva-md {
+  font-size: 15px;
+}
+.eva-md-block img {
+  display: block;
+  max-width: 100%;
+  max-height: 480px;
+  border-radius: var(--mantine-radius-sm);
+}
+.eva-md-image-missing {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.5);
+  color: var(--eva-c-muted-foreground);
+  font-size: 13px;
+}
+.eva-md-props {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: calc(var(--mantine-spacing-xs) * 0.2) var(--mantine-spacing-md);
+  margin: 0;
+  padding-bottom: var(--mantine-spacing-xs);
+  border-bottom: 1px solid var(--eva-c-border);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.eva-md-prop {
+  display: contents;
+}
+.eva-md-prop dt {
+  color: var(--eva-c-muted-foreground);
+}
+.eva-md-prop dd {
+  margin: 0;
+  color: var(--eva-c-foreground);
+  overflow-wrap: anywhere;
+}
+.eva-md-prop dd[data-wide] {
+  grid-column: 1 / -1;
+  color: var(--eva-c-muted-foreground);
+  font-family: var(--eva-font-code);
+  white-space: pre-wrap;
+}
+
+/* Who is editing off screen while Isaac works (markdown/AgentFollow.tsx); a click goes there. */
+.eva-md-follow {
+  position: absolute;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  padding: calc(var(--mantine-spacing-xs) * 0.4) calc(var(--mantine-spacing-xs) * 1.2)
+    calc(var(--mantine-spacing-xs) * 0.4) calc(var(--mantine-spacing-xs) * 0.4);
+  border-radius: 999px;
+  background: var(--eva-c-popover-background);
+  color: var(--eva-c-foreground);
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: var(--mantine-shadow-md);
+  transform: translateX(-50%);
+}
+.eva-md-follow[data-side='below'] {
+  bottom: var(--mantine-spacing-md);
+}
+.eva-md-follow[data-side='above'] {
+  top: var(--mantine-spacing-md);
+}
+.eva-md-follow .eva-agent-avatar {
+  width: 22px;
+  height: 22px;
+  box-shadow: 0 0 0 2px var(--who);
 }
 .eva-files-image {
   flex: 1;

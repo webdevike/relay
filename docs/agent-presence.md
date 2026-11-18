@@ -59,6 +59,16 @@ driving chat's `workspace`). The board's caption row sends `canvas.agent` (Take 
 dismiss); Isaac's own edits on the board (and his own pan, zoom or page switch) send Take over
 while the run is working.
 
+## Markdown in Files
+
+Markdown in Files opens rendered and editable on the same Monaco buffer as its source view
+(`renderer/files/markdown/`; Open as source in the tab menu or F1 switches, undo and unsaved edits
+carry across). An agent's writes there (`files.edit`) show its caret, face and caption on the
+rendered text; a table, image or frontmatter it edits is outlined in its color. While Isaac is
+idle the view follows the agent's edits; while he types, an edit off screen shows as a pill ("Nova
+is editing below") that scrolls there on a click (`agent-follow.machine.ts`). A comment on
+rendered lines carries the same source lines as one on the code view.
+
 ## Notes to the chat
 
 Board comments (click a card, `/` or Comment) are saved in the board's thread as before, then sent

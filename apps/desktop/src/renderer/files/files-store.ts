@@ -39,6 +39,8 @@ export interface EditorTab {
   conflictBy: string | null
   /** Bumped when `content` was replaced from disk; the editor reloads its buffer. */
   loadId: number
+  /** A Markdown file shown as its source; Markdown opens rendered unless Isaac picks Open as source. */
+  source: boolean
 }
 
 export interface SearchOptions {
@@ -538,6 +540,7 @@ export function openFile(root: string, path: string, opts: OpenOptions = {}): vo
     conflict: false,
     conflictBy: null,
     loadId: 0,
+    source: false,
   }
   update(root, (s) => {
     // The open preview tab gives its place to the new file.
@@ -574,6 +577,11 @@ async function readTab(root: string, path: string): Promise<void> {
         : t,
     ),
   }))
+}
+
+/** Shows a Markdown tab as its source, or rendered again; the buffer stays as it is. */
+export function setSourceView(root: string, path: string, source: boolean): void {
+  updateTab(root, path, { source })
 }
 
 export function pinTab(root: string, path: string): void {

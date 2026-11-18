@@ -2,22 +2,34 @@ import { useEffect, useRef, useState } from 'react'
 import { changedRanges } from '@relay/protocol/text-diff'
 import { useColorScheme, useThemeConfig } from '../theme/theme-config'
 import { registerPageChord } from '../hotkeys/router'
+import { openLink } from '../navigation/open-link'
 import {
+  openFile,
   saveTab,
   setDirty,
   setEditorBridge,
+  setSourceView,
   useFiles,
   useSpace,
   type EditorTab,
   type Reveal,
 } from './files-store'
-import { nameOf } from './tree-model'
+import { nameOf, parentOf } from './tree-model'
 import { applyEvaTheme, languageFor, monaco } from './monaco-setup'
 import { focusHeld } from '../agent/focus-safety'
 import { drawAgentMarks } from './agent-cursors'
 import { lineEdits, rebase } from './buffer-edits'
-import { setLocalFocus, useMarks } from './presence-store'
+import { setLocalFocus, useMarks, type AgentMark } from './presence-store'
 import { CodeComment, draftOf, type CodeDraft } from './CodeComment'
+import {
+  attachLivePreview,
+  PROSE_OPTIONS,
+  type BlockSlot,
+  type LivePreview,
+} from './markdown/live-preview'
+import { isMarkdownPath } from './markdown/md-layout'
+import { RenderedBlocks } from './markdown/RenderedBlocks'
+import { AgentFollow } from './markdown/AgentFollow'
 
 type Model = monaco.editor.ITextModel
 
@@ -143,15 +155,41 @@ function applyReveal(editor: monaco.editor.IStandaloneCodeEditor, r: Reveal): vo
 export interface CodeEditorProps {
   root: string
   tab: EditorTab & { content: { kind: 'text'; text: string } }
+  /**
+   * Markdown drawn rendered (markdown/live-preview.ts) on the same buffer. Switching remounts the
+   * editor (EditorArea keys it by mode); the buffer, its undo and its dirty state stay.
+   */
+  rendered: boolean
+}
+
+const NO_MARKS: readonly AgentMark[] = []
+
+/** A link in a rendered file: a URL opens like any link, a relative path opens here in Files. */
+function followLink(root: string, path: string, url: string): void {
+  if (/^[a-z][\w+.-]*:/i.test(url)) {
+    openLink(url)
+    return
+  }
+  const target = decodeURI(url.split('#')[0] ?? '')
+  if (target === '') return
+  const parts: string[] = []
+  for (const p of `${parentOf(path)}/${target}`.split('/')) {
+    if (p === '..') parts.pop()
+    else if (p !== '' && p !== '.') parts.push(p)
+  }
+  openFile(root, parts.join('/'), { pin: true })
 }
 
 /** One Monaco editor for the active text tab; switching tabs swaps models and view state. */
-export function CodeEditor({ root, tab }: CodeEditorProps) {
+export function CodeEditor({ root, tab, rendered }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const current = useRef<string | null>(null)
   const [editorOn, setEditorOn] = useState<monaco.editor.IStandaloneCodeEditor | null>(null)
   const [draft, setDraft] = useState<CodeDraft | null>(null)
+  const [slots, setSlots] = useState<readonly BlockSlot[]>([])
+  const preview = useRef<LivePreview | null>(null)
+  const markdownKey = useRef<monaco.editor.IContextKey<boolean> | null>(null)
   const scheme = useColorScheme()
   const config = useThemeConfig()
   const reveal = useSpace(root, (w) => w.reveal, null)
@@ -159,11 +197,12 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
   const quickOpen = useFiles((s) => s.quickOpen)
   const marks = useMarks(root, tab.path)
 
-  // Create once.
+  // Create once per mode.
   useEffect(() => {
     const el = host.current
     if (!el) return
-    const font = getComputedStyle(el).getPropertyValue('--eva-font-code').trim()
+    const style = getComputedStyle(el)
+    const font = style.getPropertyValue(rendered ? '--eva-font-ui' : '--eva-font-code').trim()
     const editor = monaco.editor.create(el, {
       model: null,
       automaticLayout: true,
@@ -189,6 +228,7 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       overviewRulerLanes: 2,
       hideCursorInOverviewRuler: true,
       find: { addExtraSpaceOnTop: false, seedSearchStringFromSelection: 'selection' },
+      ...(rendered ? PROSE_OPTIONS : {}),
     })
     editorRef.current = editor
     setEditorOn(editor)
@@ -201,6 +241,29 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       precondition: 'editorHasSelection',
       run: () => setDraft(draftOf(editor, current.current)),
     })
+    // A Markdown file's other view, in the editor's command palette (F1) as in the tab menu.
+    markdownKey.current = editor.createContextKey('evaMarkdown', false)
+    const otherView = editor.addAction({
+      id: rendered ? 'eva.files.openSource' : 'eva.files.openRendered',
+      label: rendered ? 'Open as Source' : 'Open Rendered',
+      precondition: 'evaMarkdown',
+      run: () => {
+        const key = current.current
+        if (key === null) return
+        const [r, p] = key.split('\0') as [string, string]
+        setSourceView(r, p, rendered)
+      },
+    })
+    if (rendered)
+      preview.current = attachLivePreview(editor, {
+        onBlocks: setSlots,
+        openLink: (url) => {
+          const key = current.current
+          if (key === null) return
+          const [r, p] = key.split('\0') as [string, string]
+          followLink(r, p, url)
+        },
+      })
     const offContent = editor.onDidChangeModelContent(() => {
       const model = editor.getModel()
       const key = current.current
@@ -225,7 +288,10 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       offEsc()
       offContent.dispose()
       comment.dispose()
+      otherView.dispose()
       offCursor.dispose()
+      preview.current?.dispose()
+      preview.current = null
       setLocalFocus(null)
       const key = current.current
       if (key !== null) viewStates.set(key, editor.saveViewState())
@@ -234,7 +300,7 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       setEditorOn(null)
       current.current = null
     }
-  }, [])
+  }, [rendered])
 
   // Theme follows the app (light/dark and the theme settings).
   useEffect(() => {
@@ -266,8 +332,12 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
       current.current = key
       setDraft(null)
       editor.setModel(model)
+      markdownKey.current?.set(isMarkdownPath(tab.path))
       const view = viewStates.get(key)
       if (view) editor.restoreViewState(view)
+      // From the other view of the same file the caret carries; its line shows.
+      const at = editor.getPosition()
+      if (view && at) editor.revealPositionInCenterIfOutsideViewport(at)
       if (!quickOpen && !focusHeld()) editor.focus()
       publishFocus(editor, key)
     }
@@ -283,8 +353,9 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
   // Agents' carets and changed lines in this file, until their marks fade.
   useEffect(() => {
     const editor = editorRef.current
-    if (!editor || !marks || current.current !== keyOf(root, tab.path)) return
-    return drawAgentMarks(editor, marks)
+    if (!editor || current.current !== keyOf(root, tab.path)) return
+    preview.current?.setAgents(marks ?? NO_MARKS)
+    return marks ? drawAgentMarks(editor, marks) : undefined
   }, [marks, root, tab.path])
 
   useEffect(() => {
@@ -297,6 +368,8 @@ export function CodeEditor({ root, tab }: CodeEditorProps) {
     <div className="eva-files-code">
       <div ref={host} className="eva-files-monaco monaco-component" data-testid="files-editor" />
       <CodeComment editor={editorOn} current={current} draft={draft} onDraft={setDraft} />
+      {rendered ? <RenderedBlocks slots={slots} file={`${root}/${tab.path}`} /> : null}
+      {rendered && editorOn ? <AgentFollow editor={editorOn} marks={marks ?? NO_MARKS} /> : null}
     </div>
   )
 }

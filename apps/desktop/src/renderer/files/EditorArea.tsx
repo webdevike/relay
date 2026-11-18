@@ -1,19 +1,18 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ActionIcon, Button, Tooltip } from '@mantine/core'
+import { ActionIcon, Button } from '@mantine/core'
 import {
   IconAlertTriangle,
   IconCode,
   IconCopy,
   IconDots,
-  IconEye,
   IconFileOff,
+  IconFileText,
   IconFolderOpen,
   IconInfoCircle,
   IconRefresh,
   IconX,
 } from '@tabler/icons-react'
 import { EvaMenu, EvaModal } from '../overlay'
-import { Markdown } from '../chat/markdown/Markdown'
 import { FileIcon } from './FileIcon'
 import {
   activateTab,
@@ -25,11 +24,13 @@ import {
   revealFinder,
   saveTab,
   setClosingPath,
+  setSourceView,
   useFiles,
   useSpace,
   type EditorTab,
 } from './files-store'
 import { nameOf, parentOf } from './tree-model'
+import { isMarkdownPath } from './markdown/md-layout'
 
 // Monaco is large; it loads the first time a text file opens.
 const CodeEditor = lazy(() => import('./CodeEditor').then((m) => ({ default: m.CodeEditor })))
@@ -98,20 +99,21 @@ function Notice({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   )
 }
 
-function Body({ root, tab, preview }: { root: string; tab: EditorTab; preview: boolean }) {
+function Body({ root, tab }: { root: string; tab: EditorTab }) {
   if (tab.error) return <Notice icon={<IconFileOff size={20} stroke={1.5} />}>{tab.error}</Notice>
   const c = tab.content
   if (c === null) return <div className="eva-files-monaco" />
   if (c.kind === 'text') {
-    if (preview)
-      return (
-        <div className="eva-files-md">
-          <Markdown text={c.text} />
-        </div>
-      )
+    // Markdown opens rendered; the editor remounts per view on the same buffer.
+    const rendered = isMarkdownPath(tab.path) && !tab.source
     return (
       <Suspense fallback={<div className="eva-files-monaco" />}>
-        <CodeEditor root={root} tab={{ ...tab, content: c }} />
+        <CodeEditor
+          key={rendered ? 'rendered' : 'code'}
+          root={root}
+          tab={{ ...tab, content: c }}
+          rendered={rendered}
+        />
       </Suspense>
     )
   }
@@ -153,7 +155,6 @@ export function EditorArea({ root, empty }: { root: string; empty?: ReactNode })
   const closing = useSpace(root, (w) => w.closing, null)
   const [menu, setMenu] = useState(false)
   const setClosing = (path: string | null): void => setClosingPath(root, path)
-  const [previews, setPreviews] = useState<ReadonlySet<string>>(new Set())
   const tab = tabs.find((t) => t.path === active) ?? null
   const note = useFiles((s) => (tab ? s.agentFiles[agentFileKey(root, tab.path)] : undefined))
   const strip = useRef<HTMLDivElement>(null)
@@ -168,8 +169,7 @@ export function EditorArea({ root, empty }: { root: string; empty?: ReactNode })
 
   const requestClose = (t: EditorTab): void => requestCloseTab(root, t.path)
   const closingTab = tabs.find((t) => t.path === closing) ?? null
-  const isMarkdown = tab !== null && /\.(md|mdx|markdown)$/i.test(tab.path)
-  const previewing = tab !== null && isMarkdown && previews.has(tab.path)
+  const isMarkdown = tab !== null && isMarkdownPath(tab.path)
 
   if (tabs.length === 0)
     return (
@@ -200,29 +200,6 @@ export function EditorArea({ root, empty }: { root: string; empty?: ReactNode })
         </div>
         {tab ? (
           <div className="eva-files-tabs-actions">
-            {isMarkdown ? (
-              <Tooltip label={previewing ? 'Show source' : 'Preview'} openDelay={400}>
-                <ActionIcon
-                  variant="subtle"
-                  color="gray"
-                  aria-label={previewing ? 'Show source' : 'Preview'}
-                  onClick={() =>
-                    setPreviews((p) => {
-                      const next = new Set(p)
-                      if (previewing) next.delete(tab.path)
-                      else next.add(tab.path)
-                      return next
-                    })
-                  }
-                >
-                  {previewing ? (
-                    <IconCode size={16} stroke={1.5} />
-                  ) : (
-                    <IconEye size={16} stroke={1.5} />
-                  )}
-                </ActionIcon>
-              </Tooltip>
-            ) : null}
             <EvaMenu opened={menu} onChange={setMenu} position="bottom-end" testid="files-tab-menu">
               <EvaMenu.Target>
                 <ActionIcon variant="subtle" color="gray" aria-label="File actions">
@@ -230,6 +207,21 @@ export function EditorArea({ root, empty }: { root: string; empty?: ReactNode })
                 </ActionIcon>
               </EvaMenu.Target>
               <EvaMenu.Dropdown>
+                {isMarkdown ? (
+                  <EvaMenu.Item
+                    leftSection={
+                      tab.source ? (
+                        <IconFileText size={14} stroke={1.5} />
+                      ) : (
+                        <IconCode size={14} stroke={1.5} />
+                      )
+                    }
+                    data-testid="files-open-as"
+                    onClick={() => setSourceView(root, tab.path, !tab.source)}
+                  >
+                    {tab.source ? 'Open rendered' : 'Open as source'}
+                  </EvaMenu.Item>
+                ) : null}
                 <EvaMenu.Item
                   leftSection={<IconCopy size={14} stroke={1.5} />}
                   onClick={() => void navigator.clipboard.writeText(`${root}/${tab.path}`)}
@@ -293,7 +285,7 @@ export function EditorArea({ root, empty }: { root: string; empty?: ReactNode })
           </span>
         </div>
       ) : null}
-      {tab ? <Body root={root} tab={tab} preview={previewing} /> : null}
+      {tab ? <Body root={root} tab={tab} /> : null}
       <EvaModal
         opened={closingTab !== null}
         onClose={() => setClosing(null)}

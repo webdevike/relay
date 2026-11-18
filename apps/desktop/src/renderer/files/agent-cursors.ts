@@ -42,7 +42,14 @@ function caretWidget(
     label.append(img)
   }
   label.append(mark.agent.name)
-  if (mark.intent) label.title = mark.intent
+  if (mark.intent) {
+    // The caption shows in rendered Markdown (files.css); code keeps the tag to the name.
+    label.title = mark.intent
+    const intent = document.createElement('span')
+    intent.className = 'eva-agent-intent'
+    intent.textContent = mark.intent
+    label.append(intent)
+  }
   node.append(label)
   return {
     getId: () => id,

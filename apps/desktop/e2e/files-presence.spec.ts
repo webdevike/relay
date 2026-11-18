@@ -28,7 +28,8 @@ const test = base.extend({
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'evaos-presence-'))
     root = path.join(fs.realpathSync(tmp), 'eva-root')
     fs.cpSync(EVA_FIXTURE_ROOT, root, { recursive: true })
-    file = path.join(root, 'notes.md')
+    // A text file: the code editor's presence (Markdown opens rendered, files-markdown.spec.ts).
+    file = path.join(root, 'notes.txt')
     fs.writeFileSync(file, `${LINES.join('\n')}\n`)
     const relayDir = path.join(tmp, 'relay')
     host = await FakeRelayHost.start(relayDir)
@@ -68,7 +69,7 @@ test("an agent's edit lands in place with its caret, merges into typing, and onl
   shell,
 }) => {
   await shell.locator(sel('pane-tab-files')).click()
-  await shell.locator(`${sel('files-row')}[data-path="notes.md"]`).dblclick()
+  await shell.locator(`${sel('files-row')}[data-path="notes.txt"]`).dblclick()
   const editor = shell.locator(sel('files-editor'))
   await expect(editor.locator('.view-lines')).toContainText('line_12')
   await expect.poll(() => host.filesOpen.at(-1)).toEqual([file])
@@ -81,7 +82,8 @@ test("an agent's edit lands in place with its caret, merges into typing, and onl
   await expect(editor.locator('.view-lines')).toContainText('NOVA_ADDED_A_LINE')
   const caret = shell.locator(sel('agent-caret-Nova'))
   await expect(caret).toBeVisible()
-  await expect(caret).toHaveText('Nova')
+  // In code the tag is the name alone; the caption is its tooltip.
+  await expect(caret).toHaveText('Nova', { useInnerText: true })
   await expect(editor.locator('.eva-agent-line')).toHaveCount(2)
   await expect(shell.locator(sel('files-conflict'))).toHaveCount(0)
   await shot(shell, '1-nova-edits')
