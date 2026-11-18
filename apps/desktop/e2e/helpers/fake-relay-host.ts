@@ -515,6 +515,15 @@ export class FakeRelayHost {
     this.broadcast({ t: 'activity.snapshot', items })
   }
 
+  /** The host's `assistant.agents` list (AssistantAgent), sent when asked and pushed on change. */
+  private assistantAgents: Json[] = []
+
+  /** Sets the assistant list and pushes it to every device, as the host does when a row moves. */
+  setAssistantAgents(agents: Json[]): void {
+    this.assistantAgents = agents
+    this.broadcast({ t: 'assistant.agents', agents })
+  }
+
   /** Sets the stats snapshot and pushes it, as the host does when a refresh starts or ends. */
   setStats(stats: Json): void {
     this.statsSnapshot = stats
@@ -1377,6 +1386,8 @@ export class FakeRelayHost {
         return peer.send({ t: 'canvas.rooms', rev: 1, rooms: this.canvasRooms })
       case 'activity.get':
         return peer.send({ t: 'activity.snapshot', items: this.activityItems })
+      case 'assistant.agents':
+        return peer.send({ t: 'assistant.agents', agents: this.assistantAgents })
       case 'stats.get':
         this.statsGets++
         return peer.send({ t: 'stats.snapshot', stats: this.statsSnapshot })
