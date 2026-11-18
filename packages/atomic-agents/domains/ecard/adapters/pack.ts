@@ -3,13 +3,13 @@ import type { BunServices } from "@effect/platform-bun/BunServices"
 import { pack, type StepAdapter, toolAdapter } from "../../../src/core/Adapter.ts"
 import type { ToolsError } from "../../../src/core/Component.ts"
 import { Email } from "./outlook.ts"
-import { Commit, GitHub, Issue, IssueSummary, Linear, Meetings, PriorMeeting, PullSummary, WorkflowRuns } from "./services.ts"
+import { Commit, GitHub, Issue, IssueSummary, Linear, PullSummary, WorkflowRuns } from "./services.ts"
 import { Item, Message } from "./slack.ts"
 
 /**
  * The eCard agents' adapters (`domains/ecard/ecard-*.json`). Every one reads; nothing here writes to Slack, Outlook, Linear
  * or GitHub (shadow mode). Steps lay one request out as the model's `prompt` (and `asOf`, the moment a replay reads
- * Linear and GitHub as of); tools read `repo`, `ref`, `runId` and `asOf` from the item, so the model never repeats them.
+ * Linear and GitHub as of); tools read `repo`, `runId` and `asOf` from the item, so the model never repeats them.
  */
 
 class PromptError extends Schema.TaggedError<PromptError>()("PromptError", { message: Schema.String }) {}
@@ -43,9 +43,7 @@ const needed = <A>(value: A | undefined, name: string) =>
   value === undefined ? Effect.fail(new ToolError({ message: `this item has no ${name}` })) : Effect.succeed(value)
 
 const Triaged = Schema.Struct({ ...Item.fields, reason: Schema.String })
-const Comment = Schema.Struct({ repo: Schema.String, pr: Schema.Int, author: Schema.String, path: Schema.String, body: Schema.String, diffHunk: Schema.String, commit: Schema.optionalKey(Schema.String) })
 const Merged = Schema.Struct({ repo: Schema.String, shas: Schema.Array(Schema.String), ticket: Schema.String, branch: Schema.String, pr: Schema.optionalKey(Schema.Int), at: Schema.optionalKey(Schema.String) })
-const Upcoming = Schema.Struct({ title: Schema.String, start: Schema.String, end: Schema.optionalKey(Schema.String), organizer: Schema.optionalKey(Schema.String), attendees: Schema.Array(Schema.String), body: Schema.String })
 const Assigned = Schema.Struct({ key: Schema.String, title: Schema.String, creator: Schema.String, at: Schema.optionalKey(Schema.String) })
 const Failed = Schema.Struct({ repo: Schema.String, pr: Schema.optionalKey(Schema.Int), runId: Schema.Int, check: Schema.String, branch: Schema.String, sha: Schema.String, at: Schema.optionalKey(Schema.String), log: Schema.String })
 
@@ -69,17 +67,6 @@ const steps: ReadonlyArray<StepAdapter<never>> = [
     schema: Triaged,
     build: (request) =>
       Effect.succeed({ prompt: [`Channel: ${request.channel}`, `Why it needs Isaac: ${request.reason}`, "Messages (time order):", ...thread(request, false)].join("\n") })
-  }),
-  promptStep({
-    name: "ecard.review_comment",
-    description: "Lay out a review comment on Isaac's PR (repo, PR, file, reviewer, hunk, comment); ref = the commented commit, else the PR head.",
-    schema: Comment,
-    extra: ["ref"],
-    build: (request) =>
-      Effect.succeed({
-        ref: request.commit ?? `refs/pull/${request.pr}/head`,
-        prompt: [`Repo: ${request.repo}  PR #${request.pr}`, `File: ${request.path}`, `Reviewer: ${request.author}`, "Diff hunk the comment is on:", request.diffHunk, "Comment:", request.body].join("\n")
-      })
   }),
   promptStep({
     name: "ecard.merged_change",
@@ -130,25 +117,6 @@ const steps: ReadonlyArray<StepAdapter<never>> = [
       })
   }),
   promptStep({
-    name: "ecard.meeting_upcoming",
-    description: "Lay out an upcoming calendar event (title, when, organizer, attendees, description); asOf = its start in UTC.",
-    schema: Upcoming,
-    extra: ["asOf"],
-    build: (request) =>
-      Effect.succeed({
-        // Linear and GitHub dates are UTC ISO; the calendar start carries an offset.
-        asOf: new Date(request.start).toISOString(),
-        prompt: [
-          `Meeting: ${request.title}`,
-          `When: ${request.start}${request.end === undefined ? "" : ` to ${request.end}`}`,
-          ...(request.organizer === undefined ? [] : [`Organizer: ${request.organizer}`]),
-          `Attendees: ${request.attendees.join(", ") || "(none listed)"}`,
-          "Description:",
-          request.body.slice(0, 2000) || "(empty)"
-        ].join("\n")
-      })
-  }),
-  promptStep({
     name: "ecard.ticket_assigned",
     description: "Lay out a ticket newly assigned to Isaac (key, title, filed by, when); asOf = when it was assigned.",
     schema: Assigned,
@@ -179,9 +147,9 @@ const steps: ReadonlyArray<StepAdapter<never>> = [
   })
 ]
 
-/** The ecard adapters over `layer` (the real Linear GraphQL, `gh` and meeting-ledger readers, or test fakes). */
+/** The ecard adapters over `layer` (the real Linear GraphQL and `gh` readers, or test fakes). */
 export const ecardPack = (
-  layer: Layer.Layer<Linear | GitHub | Meetings, ToolsError, BunServices> = Layer.mergeAll(Linear.layer, GitHub.layer, Meetings.layer)
+  layer: Layer.Layer<Linear | GitHub, ToolsError, BunServices> = Layer.mergeAll(Linear.layer, GitHub.layer)
 ) =>
   pack({
     name: "ecard",
@@ -220,39 +188,12 @@ export const ecardPack = (
         run: () => Effect.gen(function*() { return yield* (yield* Linear).isaacOpen() })
       }),
       toolAdapter({
-        name: "ecard.isaac_recent",
-        description: "Isaac's ENG tickets (assigned or filed by him) in flight at the item's moment: open, or completed in the week before, with their state then; most recent activity first.",
-        args: Schema.Struct({}),
-        example: "{}",
-        returns: Schema.Array(IssueSummary),
-        run: (_, fields) => Effect.gen(function*() { return yield* (yield* Linear).isaacRecent(yield* needed(text(fields, "asOf"), "asOf")) })
-      }),
-      toolAdapter({
-        name: "ecard.meeting_notes",
-        description: "Eva's notes of what happened since this group last met (never this meeting): the last meeting of the same series and the eCard meetings after it, each with series, summary, tasks with who owns them, open questions, ENG keys named; at most 6.",
-        args: Schema.Struct({}),
-        example: "{}",
-        returns: Schema.Array(PriorMeeting),
-        run: (_, fields) => Effect.gen(function*() { return yield* (yield* Meetings).before(yield* needed(text(fields, "asOf"), "asOf"), text(fields, "title") ?? "") })
-      }),
-      toolAdapter({
         name: "ecard.github_prs",
         description: "eCardSystems PRs whose title or body matches the words (an ENG key works), newest first, at most 8, opened by the item's moment when it has one; state then: open, merged, or closed (closed without merging, abandoned).",
         args: Schema.Struct({ text: Schema.NonEmptyString }),
         example: `{"text": "ENG-1234"}`,
         returns: Schema.Array(PullSummary),
         run: (args, fields) => Effect.gen(function*() { return yield* (yield* GitHub).searchPrs(args.text, text(fields, "asOf")) })
-      }),
-      toolAdapter({
-        name: "ecard.read_file",
-        description: "Lines of a file in this PR at the commit the comment was made on (numbered, at most 200).",
-        args: Schema.Struct({ path: Schema.NonEmptyString, from: Schema.Int, to: Schema.Int }),
-        example: `{"path": "src/file.ts", "from": 1, "to": 120}`,
-        returns: Schema.String,
-        run: ({ path, from, to }, fields) =>
-          Effect.gen(function*() {
-            return yield* (yield* GitHub).file(yield* needed(text(fields, "repo"), "repo"), yield* needed(text(fields, "ref"), "ref"), path, from, to)
-          })
       }),
       toolAdapter({
         name: "ecard.git_log",

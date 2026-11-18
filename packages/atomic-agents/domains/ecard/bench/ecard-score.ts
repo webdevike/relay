@@ -39,12 +39,6 @@ export const scorers: Readonly<Record<string, Scorer<unknown, unknown>>> = {
     answer: Verdict,
     score: (expect, answer) => ({ right: answer.verdict === expect.verdict, note: answer.verdict })
   }),
-  /** The kind Isaac actually chose (his real reply decides it). */
-  "ecard-review-drafter": scorer({
-    expect: Schema.Struct({ kind: Schema.String }),
-    answer: Schema.Struct({ kind: Schema.String }),
-    score: (expect, answer) => ({ right: answer.kind === expect.kind, note: answer.kind })
-  }),
   /** The state is the decision; for In QA the assignee and a comment naming a SHA count too. */
   "ecard-ticket-mover": scorer({
     expect: Schema.Struct({ state: Schema.String, assignee: Schema.optionalKey(Schema.String) }),
@@ -94,16 +88,6 @@ export const scorers: Readonly<Record<string, Scorer<unknown, unknown>>> = {
     expect: Verdict,
     answer: Schema.Struct({ verdict: Schema.String, reason: Schema.String }),
     score: (expect, answer) => ({ right: answer.verdict === expect.verdict, note: `${answer.verdict}: ${answer.reason.slice(0, 80)}` })
-  }),
-  /** hits = expected tickets the brief names (those discussed in that meeting); right at half or more and at most 6 named. */
-  "ecard-meeting-prep": scorer({
-    expect: Schema.Struct({ tickets: Schema.Array(Schema.String) }),
-    answer: Schema.Struct({ tickets: Schema.Array(Schema.Struct({ ref: Schema.String })) }),
-    score: (expect, answer) => {
-      const named = answer.tickets.map((ticket) => ticket.ref.toUpperCase())
-      const hits = expect.tickets.filter((key) => named.includes(key.toUpperCase())).length
-      return { right: hits * 2 >= expect.tickets.length && named.length <= 6, note: `${hits}/${expect.tickets.length} named: ${named.join(" ") || "-"}`, hits, total: expect.tickets.length }
-    }
   }),
   /** The route decides; the size is a partial hit. */
   "ecard-ticket-intake": scorer({

@@ -1,16 +1,15 @@
-import { Context, Effect, FileSystem, Layer, Option, Path, Redacted, Schema } from "effect"
+import { Context, Effect, FileSystem, Layer, Path, Redacted, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { EvaRoot } from "../../../src/core/adapters/eva.ts"
 import { exec } from "../../../src/core/exec.ts"
 
 /**
- * Read-only eCard services behind the ecard pack's tools: Linear (GraphQL, queries only), GitHub (`gh api`, GET only)
- * and Meetings (Eva's meeting ledger on disk). None has a write operation, so an agent cannot move, comment or post through them.
+ * Read-only eCard services behind the ecard pack's tools: Linear (GraphQL, queries only) and GitHub (`gh api`, GET
+ * only). Neither has a write operation, so an agent cannot move, comment or post through them.
  */
 
 export class LinearError extends Schema.TaggedError<LinearError>()("LinearError", { message: Schema.String }) {}
 export class GitHubError extends Schema.TaggedError<GitHubError>()("GitHubError", { message: Schema.String }) {}
-export class MeetingsError extends Schema.TaggedError<MeetingsError>()("MeetingsError", { message: Schema.String }) {}
 
 /*
  * What the services answer, as schemas: the TypeScript types below come from them, and the ecard tools hand the same
@@ -50,12 +49,6 @@ export class Linear extends Context.Service<Linear, {
   search(text: string, before?: string): Effect.Effect<ReadonlyArray<IssueSummary>, LinearError>
   /** ENG issues assigned to Isaac Weber not Done or Canceled (as of now), at most 50. */
   isaacOpen(): Effect.Effect<ReadonlyArray<IssueSummary>, LinearError>
-  /**
-   * ENG issues Isaac Weber is assigned or filed that were in flight at `asOf` (ISO): created by then, not canceled
-   * by then, open or completed in the 7 days before. Most recent activity (created, started, completed) first, at
-   * most 15, with the state as of then (Todo, In Progress or Done, from those dates).
-   */
-  isaacRecent(asOf: string): Effect.Effect<ReadonlyArray<IssueSummary>, LinearError>
 }>()("atomic-agents/ecard/Linear") {
   static readonly layer = Layer.effect(
     Linear,
@@ -161,29 +154,7 @@ export class Linear extends Context.Service<Linear, {
           query<{ issues: { nodes: ReadonlyArray<Node> } }>(
             `query { issues(first: 50, orderBy: updatedAt, filter: { team: { key: { eq: "ENG" } }, assignee: { name: { eq: "Isaac Weber" } }, state: { type: { nin: ["completed", "canceled"] } } }) { nodes { ${FIELDS} } } }`,
             {}
-          ).pipe(Effect.map(({ issues }) => issues.nodes.map(summary))),
-        isaacRecent: (when) => {
-          // Linear dates are UTC ISO; a calendar start carries an offset, so normalize before comparing strings.
-          const asOf = new Date(when).toISOString()
-          const weekBefore = new Date(Date.parse(asOf) - 7 * 86_400_000).toISOString()
-          return query<{ issues: { nodes: ReadonlyArray<Node & { startedAt: string | null; completedAt: string | null }> } }>(
-            `query($asOf: DateTimeOrDuration!, $weekBefore: DateTimeOrDuration!) { issues(first: 100, filter: { team: { key: { eq: "ENG" } }, createdAt: { lte: $asOf },
-              and: [{ or: [{ assignee: { name: { eq: "Isaac Weber" } } }, { creator: { name: { eq: "Isaac Weber" } } }] },
-                { or: [{ completedAt: { null: true } }, { completedAt: { gte: $weekBefore } }] },
-                { or: [{ canceledAt: { null: true } }, { canceledAt: { gte: $asOf } }] }] }) { nodes { ${FIELDS} startedAt completedAt } } }`,
-            { asOf, weekBefore }
-          ).pipe(Effect.map(({ issues }) =>
-            issues.nodes
-              .map((node) => {
-                // Dates after asOf had not happened yet.
-                const started = node.startedAt !== null && node.startedAt <= asOf ? node.startedAt : null
-                const completed = node.completedAt !== null && node.completedAt <= asOf ? node.completedAt : null
-                return { node, activity: completed ?? started ?? node.createdAt, state: completed !== null ? "Done" : started !== null ? "In Progress" : "Todo" }
-              })
-              .sort((a, b) => b.activity.localeCompare(a.activity))
-              .slice(0, 15)
-              .map(({ node, state }) => ({ ...summary(node), state }))))
-        }
+          ).pipe(Effect.map(({ issues }) => issues.nodes.map(summary)))
       })
     })
   )
@@ -221,10 +192,6 @@ export type WorkflowRuns = typeof WorkflowRuns.Type
 export class GitHub extends Context.Service<GitHub, {
   /** A commit's message, author, date and changed files (`gh api repos/<repo>/commits/<sha>`). */
   commit(repo: string, sha: string): Effect.Effect<Commit, GitHubError>
-  /** A file at a ref, numbered lines `from`..`to` (1-based, at most 200 lines). */
-  file(repo: string, ref: string, filePath: string, from: number, to: number): Effect.Effect<string, GitHubError>
-  /** The PR's other review comments in that file and the replies to `commentId` (author, body). */
-  thread(repo: string, pr: number, commentId: number): Effect.Effect<unknown, GitHubError>
   /**
    * eCardSystems PRs whose title or body matches `text`, newest first, at most 8; `before` (ISO) drops later ones and
    * replays each PR's state to then (a PR merged or closed after `before` was still open).
@@ -260,21 +227,6 @@ export class GitHub extends Context.Service<GitHub, {
             : json(`repos/${repo}/commits/${sha}`, "{sha, message: .commit.message, author: .commit.author.name, date: .commit.author.date, files: [.files[].filename]}").pipe(
               Effect.map((value) => value as Commit)
             ),
-        file: (repo, ref, filePath, from, to) =>
-          !safe(repo)
-            ? Effect.fail(new GitHubError({ message: `bad repo ${repo}` }))
-            : json(`repos/${repo}/contents/${filePath.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(ref)}`, ".content").pipe(
-              Effect.map((content) => {
-                const lines = Buffer.from(String(content), "base64").toString("utf8").split("\n")
-                const start = Math.max(1, from)
-                const end = Math.min(lines.length, to, start + 199)
-                return lines.slice(start - 1, end).map((line, index) => `${start + index}: ${line}`).join("\n")
-              })
-            ),
-        thread: (repo, pr, commentId) =>
-          !safe(repo)
-            ? Effect.fail(new GitHubError({ message: `bad repo ${repo}` }))
-            : json(`repos/${repo}/pulls/${pr}/comments?per_page=100`, `[.[] | select(.id == ${commentId} or .in_reply_to_id == ${commentId}) | {author: .user.login, at: .created_at, body: .body[0:800]}]`),
         searchPrs: (text, before) => {
           const terms = text.replace(/[^\w\s.#-]/g, " ").trim()
           const query = `${terms} org:eCardSystems is:pr${before === undefined ? "" : ` created:<=${before.slice(0, 10)}`}`
@@ -313,104 +265,6 @@ export class GitHub extends Context.Service<GitHub, {
           !safe(repo)
             ? Effect.fail(new GitHubError({ message: `bad repo ${repo}` }))
             : gh(["run", "view", String(runId), "-R", repo, "--attempt", String(attempt), "--log-failed"]).pipe(Effect.map((log) => log.slice(-6000)))
-      })
-    })
-  )
-}
-
-export const PriorMeeting = Schema.Struct({
-  /** The Outlook series when the protocol names it, else the ledger's generated title. */
-  title: Schema.String,
-  start: Schema.String,
-  sameSeries: Schema.Boolean,
-  summary: Schema.String,
-  /** "<task> — <responsible>" per Tasks row. */
-  tasks: Schema.Array(Schema.String),
-  openQuestions: Schema.Array(Schema.String),
-  /** The ledger's takeaways and the actions it proposed (with their ticket when matched). */
-  takeaways: Schema.Array(Schema.String),
-  /** ENG keys the protocol (without its transcript) or the ledger's actions name. */
-  keys: Schema.Array(Schema.String)
-})
-export type PriorMeeting = typeof PriorMeeting.Type
-
-/** One meeting in Eva's meeting ledger (`<EVA_ROOT>/work/meetings/<stem>.json`, written as each recording is processed). */
-const LedgerEntry = Schema.Struct({
-  stem: Schema.String,
-  title: Schema.String,
-  start: Schema.String,
-  notes: Schema.optionalKey(Schema.String),
-  workspace: Schema.optionalKey(Schema.String),
-  takeaways: Schema.optionalKey(Schema.Array(Schema.String)),
-  proposals: Schema.optionalKey(Schema.Array(Schema.Struct({ text: Schema.String, item: Schema.optionalKey(Schema.NullOr(Schema.String)) })))
-})
-const decodeLedgerEntry = Schema.decodeUnknownEffect(Schema.fromJsonString(LedgerEntry))
-
-/** The recorder starts a few minutes before or after the invite: a recording this close to the start is this meeting. */
-const SAME_MEETING_MS = 20 * 60_000
-/** How far back the last meeting of the same series is looked for; without one, the notes cover `NO_SERIES_WINDOW_MS`. */
-const SERIES_WINDOW_MS = 14 * 24 * 3600_000
-const NO_SERIES_WINDOW_MS = 7 * 24 * 3600_000
-
-export class Meetings extends Context.Service<Meetings, {
-  /**
-   * What happened since this group last met, never the meeting at `asOf` (ISO) itself: the last meeting of the same
-   * series as `title` (up to 14 days back) and every eCard meeting after it (without one, the last 7 days). Per meeting
-   * its series, summary, tasks, open questions and the ENG keys it names; the same series first, then newest, at most 6.
-   */
-  before(asOf: string, title: string): Effect.Effect<ReadonlyArray<PriorMeeting>, MeetingsError>
-}>()("atomic-agents/ecard/Meetings") {
-  static readonly layer = Layer.effect(
-    Meetings,
-    Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const dir = path.join(yield* EvaRoot, "work", "meetings")
-      return Meetings.of({
-        before: (asOf, title) =>
-          Effect.gen(function*() {
-            const end = Date.parse(asOf) - SAME_MEETING_MS
-            const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")
-            const names = (yield* fs.readDirectory(dir).pipe(Effect.mapError((error) => new MeetingsError({ message: `${dir}: ${error.message}` }))))
-              .filter((name) => name.endsWith(".json"))
-              .sort()
-              .reverse()
-            const meetings: Array<PriorMeeting> = []
-            for (const name of names) {
-              const entry = Option.getOrUndefined(yield* fs.readFileString(path.join(dir, name)).pipe(Effect.flatMap(decodeLedgerEntry), Effect.option))
-              const at = entry === undefined ? Number.NaN : Date.parse(entry.start)
-              if (entry === undefined || entry.workspace !== "ecardsystems" || !(at < end && at >= end - SERIES_WINDOW_MS)) continue
-              const protocol = entry.notes === undefined ? "" : yield* fs.readFileString(entry.notes).pipe(Effect.orElseSucceed(() => ""))
-              // Without the transcript: what was said in passing is not what the meeting settled.
-              const head = protocol.split(/\n## Full Transcript/i)[0]!
-              const section = (heading: string) => new RegExp(`\\n## ${heading}[^\\n]*\\n([\\s\\S]*?)(?=\\n## |\\n---|$)`, "i").exec(head)?.[1]?.trim() ?? ""
-              const series = /\(Outlook: "([^"]+)"\)/.exec(head)?.[1]
-              const keys = new Set([
-                ...head.match(/\bENG-\d+\b/g) ?? [],
-                ...[...head.matchAll(/\bticket #?(\d{4,5})\b/gi)].map((match) => `ENG-${match[1]}`),
-                ...(entry.proposals ?? []).flatMap((proposal) => proposal.item != null && /^ENG-\d+$/.test(proposal.item) ? [proposal.item] : [])
-              ])
-              meetings.push({
-                title: series ?? entry.title,
-                start: entry.start,
-                sameSeries: series?.toLowerCase() === title.toLowerCase() || (slug !== "" && entry.stem.includes(slug)),
-                summary: section("Summary").slice(0, 700),
-                tasks: section("Tasks").split("\n").filter((line) => line.startsWith("|") && !/^\|\s*(Task\b|-)/.test(line))
-                  .map((line) => line.split("|").map((cell) => cell.trim()).filter(Boolean).slice(0, 2).join(" — ")).slice(0, 15),
-                openQuestions: section("Open Questions").split("\n").filter((line) => line.startsWith("- ")).map((line) => line.slice(2)).slice(0, 5),
-                takeaways: [
-                  ...(entry.takeaways ?? []),
-                  ...(entry.proposals ?? []).map((proposal) => `action: ${proposal.text}${proposal.item == null ? "" : ` (${proposal.item})`}`)
-                ].slice(0, 6),
-                keys: [...keys]
-              })
-            }
-            // Newest first: the first same-series meeting is the last time this group met.
-            const lastOfSeries = meetings.find((meeting) => meeting.sameSeries)
-            const since = lastOfSeries === undefined ? end - NO_SERIES_WINDOW_MS : Date.parse(lastOfSeries.start)
-            const recent = meetings.filter((meeting) => Date.parse(meeting.start) >= since)
-            return [...recent.filter((meeting) => meeting.sameSeries), ...recent.filter((meeting) => !meeting.sameSeries)].slice(0, 6)
-          })
       })
     })
   )
