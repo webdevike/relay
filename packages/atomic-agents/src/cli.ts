@@ -92,7 +92,7 @@ const modelFlag = Flag.String("model").pipe(
 );
 const toolModeFlag = Flag.Literals("tool-mode", ToolMode.literals).pipe(
   Flag.withDescription(
-    "tools (one tool call per model turn) or code (one sandboxed script per turn); only for an agent with tools, see docs/code-mode.md",
+    "tools (native tool calls, several per model turn) or code (one sandboxed script per turn); only for an agent with tools, see docs/code-mode.md",
   ),
   Flag.optional,
 );

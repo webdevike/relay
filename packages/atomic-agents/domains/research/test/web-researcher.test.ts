@@ -310,10 +310,10 @@ describe("web-researcher depth tiers", () => {
     research({ question: "When did 1.4 ship?", ...(depth === undefined ? {} : { depth }) }, [{ tool: "read", args: { url: "https://b.test/notes" } }, done], world, undefined, null)
 
   test.each([
-    ["quick", "anthropic/claude-haiku-5-5", "low", "240 seconds", "at most 6 replies"],
-    ["standard", "anthropic/claude-sonnet-5-5", "medium", "480 seconds", "at most 10 replies"],
-    ["deep", "anthropic/claude-opus-5-5", "high", "900 seconds", "at most 40 replies"],
-    [undefined, "anthropic/claude-sonnet-5-5", "medium", "480 seconds", "at most 10 replies"]
+    ["quick", "anthropic/claude-haiku-5-5", "low", "120 seconds", "at most 6 replies"],
+    ["standard", "anthropic/claude-sonnet-5-5", "medium", "180 seconds", "at most 10 replies"],
+    ["deep", "anthropic/claude-opus-5-5", "high", "300 seconds", "at most 40 replies"],
+    [undefined, "anthropic/claude-sonnet-5-5", "medium", "180 seconds", "at most 10 replies"]
   ])("depth %p runs on %p, thinking %p, %p per call, %p", (depth, model, thinking, timeout, steps) =>
     Effect.gen(function*() {
       const { ok, data, requests } = yield* tiered(depth)

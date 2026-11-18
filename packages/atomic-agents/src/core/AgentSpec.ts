@@ -2,6 +2,7 @@ import { Clock, Cron, DateTime, Effect, Layer, Option, Result, Schema } from "ef
 import type { BunServices } from "@effect/platform-bun/BunServices";
 import {
   type AdapterContext,
+  adapterRunner,
   type CheckAdapter,
   type ModelAdapter,
   type Registry,
@@ -123,7 +124,7 @@ export const AgentSpec = Schema.Struct({
     timeout: Schema.optionalKey(Schema.Number.check(Schema.isGreaterThan(0))),
     tools: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
     /**
-     * How the model uses the tools by default (`tools`): one tool call per model turn, or `code`, one script per turn
+     * How the model uses the tools by default (`tools`): native tool calls, several per model turn, or `code`, one script per turn
      * against the tools as typed functions, run in a sandbox (`CodeMode.ts`). `config.json` `toolMode` overrides it
      * live; when to pick which: `docs/code-mode.md`.
      */
@@ -515,10 +516,7 @@ export const compileAgentSpec = (
     let fields = raw;
     for (const step of steps) fields = { ...fields, ...(yield* step.run(fields, context)) };
     const files = yield* attached(fields);
-    const services = yield* Effect.context<ModelRunner | BunServices>();
-    const viaAdapter = ModelRunner.of({
-      generate: (request) => model.generate(request).pipe(Effect.provideContext(services)),
-    });
+    const viaAdapter = adapterRunner(model, yield* Effect.context<ModelRunner | BunServices>());
     // The tier's budget replaces the file's; images a tool took (a page screenshot) go to the model on every later turn.
     const limit =
       context.budget?.timeout === undefined ? timeout : secondsOf(context.budget.timeout);

@@ -89,7 +89,7 @@ export const define = <R>(component: Component<R>): Registered => ({
 });
 
 /**
- * How an agent's model uses its tools: one tool call per model turn (`tools`), or one TypeScript script per turn
+ * How an agent's model uses its tools: native tool calls, several per model turn (`tools`), or one TypeScript script per turn
  * against the tools as typed functions, run in a sandbox (`code`, `CodeMode.ts`). When to pick which: `docs/code-mode.md`.
  */
 export const ToolMode = Schema.Literals(["tools", "code"]);

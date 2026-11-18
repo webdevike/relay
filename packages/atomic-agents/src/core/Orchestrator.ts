@@ -1,7 +1,7 @@
 import { Clock, Config, Context, Cron, DateTime, Effect, FiberSet, FileSystem, Layer, Option, Path, Ref, Result, Schedule, Schema, Semaphore, Stream, SubscriptionRef, SynchronizedRef } from "effect"
 import type { BunServices } from "@effect/platform-bun/BunServices"
 import { ChildProcessSpawner } from "effect/process"
-import { Adapters } from "./Adapter.ts"
+import { adapterRunner, Adapters } from "./Adapter.ts"
 import { ask } from "./Ask.ts"
 import { Background } from "./Background.ts"
 import { type Agent, Agents, expandPath } from "./Agent.ts"
@@ -611,7 +611,7 @@ export class Orchestrators extends Context.Service<Orchestrators, {
               ...(yield* readContext(orchestrator))
             ].join("\n\n")
             const model = adapters.models.get(spec.harness ?? "omp")!
-            const viaAdapter = ModelRunner.of({ generate: (request) => model.generate(request).pipe(Effect.provideService(ModelRunner, runner), Effect.provideContext(services)) })
+            const viaAdapter = adapterRunner(model, Context.add(services, ModelRunner, runner))
             const planned = yield* generateWithTools<Plan, never>({
               model: spec.model,
               system: plannerSystem(orchestrator),

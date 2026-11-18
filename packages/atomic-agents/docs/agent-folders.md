@@ -59,19 +59,19 @@ tiers:
   by: depth # a field of the request (a string)
   default: standard # the tier of an absent or empty field
   levels:
-    quick: { model: anthropic/claude-haiku-5-5, thinking: low, maxSteps: 6, timeout: 240 }
-    standard: { model: anthropic/claude-sonnet-5-5, thinking: medium, maxSteps: 10, timeout: 480 }
+    quick: { model: anthropic/claude-haiku-5-5, thinking: low, maxSteps: 6, timeout: 120 }
+    standard: { model: anthropic/claude-sonnet-5-5, thinking: medium, maxSteps: 10, timeout: 180 }
     deep:
       {
         model: anthropic/claude-opus-5-5,
         thinking: high,
         maxSteps: 40,
-        timeout: 900,
+        timeout: 300,
         candidates: [..],
       }
 ```
 
-A level has `model`, and optionally `thinking`, `maxSteps` (model calls in the tool loop, replaces `maxSteps`), `timeout` (seconds per model call, replaces `timeout`) and `candidates` (the models a trial compares inside this tier, else the agent's). `by` must be a request, source or step field; `default` must be a level. A value with no level runs on `model`.
+A level has `model`, and optionally `thinking`, `maxSteps` (model calls in the tool loop, replaces `maxSteps`), `timeout` (seconds per model call, tool time excluded, replaces `timeout`) and `candidates` (the models a trial compares inside this tier, else the agent's). `by` must be a request, source or step field; `default` must be a level. A value with no level runs on `model`.
 
 The runner resolves the tier per run from the job input (`Settings.effective(...).tier`). Precedence for the model: a bake-off or trial arm's own model (`--model`), then `config.json` `components.<id>.model` (one explicit choice for every tier), then the tier's, then the agent's; thinking the same without the arm. The budget is always the tier's. Trial mode arms are the tier's model plus its `candidates`, so a trial compares models only within one tier; a fallback model still applies after a failure.
 

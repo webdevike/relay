@@ -1,6 +1,6 @@
 import { type Cause, Effect } from "effect";
 import type { Caller } from "../Adapter.ts";
-import type { GenerateRequest, Generation } from "../Model.ts";
+import type { GenerateRequest, Generation, Tokens, ToolGeneration } from "../Model.ts";
 
 /**
  * Span names, one set for every domain. The core opens each of them once (`Runtime.ts`, `Adapter.ts` `pack`,
@@ -62,32 +62,72 @@ export const traced =
       Effect.withSpan(name, { attributes }),
     );
 
+/** What a model call's span knows up front: harness, model, thinking, prompt size, attached files. */
+const modelAttributes = (harness: string, request: GenerateRequest) => ({
+  "model.harness": harness,
+  "model.id": request.model,
+  "prompt.chars": request.prompt.length,
+  ...(request.thinking === undefined ? {} : { "model.thinking": request.thinking }),
+  ...(request.files === undefined || request.files.length === 0
+    ? {}
+    : { "model.files": request.files.length }),
+});
+
+/** Provider, USD and tokens once a model call (or a whole tool session) answers. */
+const usageAttributes = (
+  provider: string | undefined,
+  cost: number,
+  tokens: Tokens | undefined,
+) => ({
+  ...(provider === undefined ? {} : { "model.provider": provider }),
+  "cost.usd": cost,
+  ...(tokens === undefined
+    ? {}
+    : {
+        "tokens.input": tokens.input,
+        "tokens.output": tokens.output,
+        "tokens.cached": tokens.cachedInput,
+      }),
+});
+
 /** A model call: harness, model and thinking up front; provider, tokens and USD once it answers. */
 export const traceModel =
   (harness: string, request: GenerateRequest) =>
   <E, R>(effect: Effect.Effect<Generation, E, R>) =>
     effect.pipe(
       Effect.tap((reply) =>
+        Effect.annotateCurrentSpan(usageAttributes(reply.provider, reply.cost, reply.tokens)),
+      ),
+      traced(SPAN.model, modelAttributes(harness, request)),
+    );
+
+/**
+ * A native tool session (`ModelRunner.runTools`): one `model.call` span over all its model calls, marked
+ * `model.tools native`, with the tools it offered up front and its model calls, tool calls, tokens and USD at the end.
+ * The tool calls it ran are `tool.call` spans of the same item.
+ */
+export const traceToolSession =
+  (
+    harness: string,
+    session: GenerateRequest & {
+      readonly tools: ReadonlyArray<{ readonly name: string }>;
+      readonly maxSteps: number;
+    },
+  ) =>
+  <A, E, R>(effect: Effect.Effect<ToolGeneration<A>, E, R>) =>
+    effect.pipe(
+      Effect.tap((reply) =>
         Effect.annotateCurrentSpan({
-          "model.provider": reply.provider,
-          "cost.usd": reply.cost,
-          ...(reply.tokens === undefined
-            ? {}
-            : {
-                "tokens.input": reply.tokens.input,
-                "tokens.output": reply.tokens.output,
-                "tokens.cached": reply.tokens.cachedInput,
-              }),
+          ...usageAttributes(reply.provider, reply.cost, reply.tokens),
+          "model.steps": reply.steps,
+          "model.tool_calls": reply.calls.length,
         }),
       ),
       traced(SPAN.model, {
-        "model.harness": harness,
-        "model.id": request.model,
-        "prompt.chars": request.prompt.length,
-        ...(request.thinking === undefined ? {} : { "model.thinking": request.thinking }),
-        ...(request.files === undefined || request.files.length === 0
-          ? {}
-          : { "model.files": request.files.length }),
+        ...modelAttributes(harness, session),
+        "model.tools": "native",
+        "model.offered": session.tools.map((candidate) => candidate.name).join(","),
+        "model.max_steps": session.maxSteps,
       }),
     );
 

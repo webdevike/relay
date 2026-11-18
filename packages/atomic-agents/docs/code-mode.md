@@ -1,6 +1,6 @@
 # Tool modes: when to use code mode, when to use tools mode
 
-Every agent with tools runs in one of two tool modes. **tools** (the default): the model calls one tool per turn and reads each result. **code**: the model's only tool is `run_code`; it writes one TypeScript script per turn against the agent's tools as typed functions (`src/core/CodeMode.ts`), which runs in a sandbox (no network except through the functions, writes only in a temp dir, 240 s, 512 MB) and returns only what the answer needs.
+Every agent with tools runs in one of two tool modes. **tools** (the default): the model calls the tools with its provider's native tool calling, several at once when they are independent, and reads each result as a tool result; it ends by calling `answer` (`generateWithTools` in `src/core/Model.ts`; the codex and claude-code harnesses, which cannot host tools, fall back to a JSON reply per turn). **code**: the model's only tool is `run_code`; it writes one TypeScript script per turn against the agent's tools as typed functions (`src/core/CodeMode.ts`), which runs in a sandbox (no network except through the functions, writes only in a temp dir, 240 s, 512 MB) and returns only what the answer needs.
 
 ## Use code mode for
 

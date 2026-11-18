@@ -364,6 +364,9 @@ const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1
 const LABEL: ReadonlyArray<readonly [string, (value: Attribute) => string]> = [
   ["model.harness", String],
   ["model.id", String],
+  ["model.tools", (value) => (value === "native" ? "native tools" : "")],
+  ["model.steps", (value) => `${value} model calls`],
+  ["model.tool_calls", (value) => `${value} tool calls`],
   ["fallback.from", (value) => `fallback from ${value}`],
   ["tool.name", String],
   ["tool.caller", (value) => (value === "script" ? "(script)" : "")],

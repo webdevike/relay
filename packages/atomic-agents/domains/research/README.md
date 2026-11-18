@@ -16,11 +16,11 @@ One agent folder, `agents/web-researcher/AGENT.md` (component `web-researcher`, 
 | Limits         | per tier `maxSteps` and `timeout` (below), check `research.citations`                                                                                                                                                                                |
 | Tools          | `web.search`, `web.read`, `web.screenshot` (deep only), `muse.social_search`, `reach.fallback_search`, `reach.fallback_read`, `reach.platform_search`                                                                                                |
 
-| Depth      | Model                         | Thinking | Model calls (`maxSteps`) | Timeout per call |
-| ---------- | ----------------------------- | -------- | ------------------------ | ---------------- |
-| `quick`    | `anthropic/claude-haiku-5-5`  | low      | 6                        | 240 s            |
-| `standard` | `anthropic/claude-sonnet-5-5` | medium   | 10                       | 480 s            |
-| `deep`     | `anthropic/claude-opus-5-5`   | high     | 40                       | 900 s            |
+| Depth      | Model                         | Thinking | Model calls (`maxSteps`) | Timeout per model call |
+| ---------- | ----------------------------- | -------- | ------------------------ | ---------------------- |
+| `quick`    | `anthropic/claude-haiku-5-5`  | low      | 6                        | 120 s                  |
+| `standard` | `anthropic/claude-sonnet-5-5` | medium   | 10                       | 180 s                  |
+| `deep`     | `anthropic/claude-opus-5-5`   | high     | 40                       | 300 s                  |
 
 No depth is `standard`. The depth also changes the instructions: deep reads many pages, follows claims to primary sources, verifies every key claim and may cite up to 8. `config.json` `components.web-researcher.model` / `thinking` override every tier (one explicit choice); the budget stays the tier's.
 

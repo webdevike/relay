@@ -18,17 +18,17 @@ tiers:
       model: anthropic/claude-haiku-5-5
       thinking: low
       maxSteps: 6
-      timeout: 240
+      timeout: 120
     standard:
       model: anthropic/claude-sonnet-5-5
       thinking: medium
       maxSteps: 10
-      timeout: 480
+      timeout: 180
     deep:
       model: anthropic/claude-opus-5-5
       thinking: high
       maxSteps: 40
-      timeout: 900
+      timeout: 300
 request: research.asked
 reply: research.answered
 show: answer
@@ -56,7 +56,7 @@ codeExample: |
 answer: research.reply
 answerExample: '{"answer": "<the direct answer with its specific facts>", "citations": [{"url": "<a url a tool showed you>", "quote": "<12-300 characters copied exactly from it>"}]}'
 maxSteps: 10
-timeout: 480
+timeout: 180
 check: research.citations
 ---
 

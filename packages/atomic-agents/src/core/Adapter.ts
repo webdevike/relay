@@ -2,8 +2,16 @@ import { Context, Effect, Layer, type Schema, type Scope } from "effect";
 import { type Fields, fromStruct } from "./Fields.ts";
 import type { BunServices } from "@effect/platform-bun/BunServices";
 import type { Failure, RunContext, ToolsError } from "./Component.ts";
-import type { GenerateRequest, Generation, ModelError, ModelRunner } from "./Model.ts";
-import { SPAN, traced, traceModel } from "./observability/Spans.ts";
+import {
+  type GenerateRequest,
+  type Generation,
+  type ModelError,
+  ModelRunner,
+  type ToolGeneration,
+  type ToolLoopError,
+  type ToolSession,
+} from "./Model.ts";
+import { SPAN, traced, traceModel, traceToolSession } from "./observability/Spans.ts";
 
 /**
  * Adapters: the small, named parts a config agent is assembled from (`Agent.ts`, `AgentSpec.ts`). An agent file
@@ -24,7 +32,32 @@ export interface ModelAdapter<R = never> {
   generate(
     request: GenerateRequest,
   ): Effect.Effect<Generation, ModelError, R | ModelRunner | BunServices>;
+  /** A native tool session (`ModelRunner.runTools`), when the harness hosts tools; else the tool loop runs as JSON over `generate`. */
+  readonly runTools?: <A>(
+    session: ToolSession<A>,
+  ) => Effect.Effect<ToolGeneration<A>, ModelError | ToolLoopError, R | ModelRunner | BunServices>;
 }
+
+/**
+ * A model adapter as the `ModelRunner` an agent's model turns run on, `services` provided. It runs native tool
+ * sessions when the adapter has them and the process's runner hosts them (omp's does; a test's scripted fake does not,
+ * so its JSON replies keep driving the loop).
+ */
+export const adapterRunner = (
+  model: ModelAdapter,
+  services: Context.Context<ModelRunner | BunServices>,
+) => {
+  const runTools = model.runTools;
+  return ModelRunner.of({
+    generate: (request) => model.generate(request).pipe(Effect.provideContext(services)),
+    ...(runTools === undefined || Context.get(services, ModelRunner).runTools === undefined
+      ? {}
+      : {
+          runTools: <A>(session: ToolSession<A>) =>
+            runTools(session).pipe(Effect.provideContext(services)),
+        }),
+  });
+};
 
 /** Who called a tool: the model in the tool loop, or a script the model wrote (tool mode `code`, `CodeMode.ts`). */
 export type Caller = "model" | "script";
@@ -196,10 +229,16 @@ export const pack = <R>(spec: PackSpec<R>): Pack => ({
       new Map((list ?? []).map((item) => [item.name, item] as const));
     return {
       models: byName(
-        (spec.models ?? []).map((model): ModelAdapter => ({
+        (spec.models ?? []).map(({ runTools, ...model }): ModelAdapter => ({
           ...model,
           generate: (request) =>
             bind(model.generate(request)).pipe(traceModel(model.name, request)),
+          ...(runTools === undefined
+            ? {}
+            : {
+                runTools: <A>(session: ToolSession<A>) =>
+                  bind(runTools(session)).pipe(traceToolSession(model.name, session)),
+              }),
         })),
       ),
       tools: byName(
