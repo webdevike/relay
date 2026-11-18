@@ -246,7 +246,11 @@ function MenuBody({ pane, app, close }: { pane: string; app: boolean; close: () 
             >
               {r.icon}
               <span className="eva-add-menu-label">{r.label}</span>
-              {r.hint ? <Kbd size="xs">{r.hint}</Kbd> : null}
+              {r.hint ? (
+                <Kbd size="xs" className="eva-add-menu-hint">
+                  {r.hint}
+                </Kbd>
+              ) : null}
               {r.more ? <IconChevronRight size={16} stroke={1.5} /> : null}
             </div>
           </div>

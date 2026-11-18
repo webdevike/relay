@@ -394,7 +394,7 @@ body.eva-tab-dragging * {
 .eva-add-menu-row[data-active] {
   background: var(--eva-hover);
 }
-.eva-add-menu-row .mantine-Kbd-root {
+.eva-add-menu-hint {
   flex: none;
   min-width: calc(var(--eva-space-xl) + var(--eva-space-xs));
   text-align: center;
