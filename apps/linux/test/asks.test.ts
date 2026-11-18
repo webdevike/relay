@@ -213,6 +213,14 @@ describe("AskStore", () => {
     expect(asks.open()).toEqual([{ ...open, messageId: "2026-11-05T0400_aaaa-7" }]);
   });
 
+  it("changes nothing when the same rows come again after an ask was asked again", () => {
+    const { asks, observe } = store();
+    const rows = [asked("a1", "Want me to push it?", 1_100), asked("a2", "Still there. Want me to push it", 1_200)];
+    expect(observe(rows)).toBe(true);
+    expect(observe(rows)).toBe(false);
+    expect(asks.open()[0]?.messageId).toBe("a2");
+  });
+
   it("keeps the newest MAX_OPEN_ASKS, oldest first", () => {
     const { asks, clock } = store();
     for (let index = 0; index < MAX_OPEN_ASKS + 3; index += 1) {

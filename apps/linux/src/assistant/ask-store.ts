@@ -109,8 +109,11 @@ export class AskStore {
       const key = `${row.at}:${askKey(question)}`;
       const known = byKey.get(key);
       if (known !== undefined) {
-        // The same row under a new id (an earlier context read back after the rollover).
-        if (known.messageId !== row.id && known.source === "replies") {
+        // The same row under a new id (an earlier context read back after the rollover). Only the
+        // row the ask stands for (its latest asking, `known.at`): an ask asked again holds every
+        // asking row's key, and each taking its id in turn changed it on every pass, so each
+        // snapshot saved the file and scheduled the next snapshot, forever (6 frames a second).
+        if (row.at === known.at && known.messageId !== row.id && known.source === "replies") {
           known.messageId = row.id;
           changed = true;
         }
