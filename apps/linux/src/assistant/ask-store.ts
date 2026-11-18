@@ -125,12 +125,13 @@ export class AskStore {
         messageId: row.id,
       });
       byKey.set(key, ask);
-      // Only the thread's latest reply-chip question stays open: a newer one supersedes the rest.
-      for (const older of record.asks) {
-        if (older !== ask && older.state === "open" && older.source === "replies" && older.at < ask.at) this.close(older, "resolved");
-      }
       changed = true;
     });
+    // Only the thread's latest reply-chip question stays open: a newer one (answered or not) supersedes the older ones.
+    const latest = record.asks.reduce((at, ask) => (ask.source === "replies" ? Math.max(at, ask.at) : at), -1);
+    for (const ask of record.asks) {
+      if (ask.source === "replies" && ask.at < latest) changed = this.close(ask, "resolved") || changed;
+    }
     if (changed) this.save(record);
     return changed;
   }
