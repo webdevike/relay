@@ -1,5 +1,0 @@
-{
-  "id": "ecard-main-watch",
-  "kind": "code",
-  "module": "./ecard-main-watch.ts"
-}

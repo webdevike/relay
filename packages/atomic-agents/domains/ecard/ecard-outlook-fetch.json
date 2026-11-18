@@ -1,5 +1,0 @@
-{
-  "id": "ecard-outlook-fetch",
-  "kind": "code",
-  "module": "./ecard-outlook-fetch.ts"
-}

@@ -1,5 +1,0 @@
-{
-  "id": "ecard-slack-digest",
-  "kind": "code",
-  "module": "./ecard-slack-digest.ts"
-}
