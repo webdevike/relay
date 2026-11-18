@@ -34,6 +34,8 @@ function seed(registryModel: string | undefined) {
           avatar: { style: 'notionists', seed: 'nova' },
           ...(registryModel === undefined ? {} : { model: registryModel }),
           status: 'idle',
+          background: 0,
+          turn: false,
           tool: null,
           file: null,
           reply: null,

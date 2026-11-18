@@ -58,6 +58,8 @@ const agents = (text: string, at: number, status: 'idle' | 'working' = 'idle'): 
     scope: '',
     avatar: { style: 'notionists' as const, seed: id },
     status,
+    background: 0,
+    turn: status === 'working',
     tool: null,
     file: `/s/${id}.jsonl`,
     // `at` is a small offset from just before the test clock's now, so every reply is fresh.

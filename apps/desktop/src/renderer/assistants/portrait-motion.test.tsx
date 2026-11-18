@@ -39,6 +39,8 @@ function list(status: AssistantStatus, tool: string | null = null): void {
           scope: '',
           avatar: NOVA,
           status,
+          background: 0,
+          turn: status === 'working',
           tool,
           file: null,
           reply: null,

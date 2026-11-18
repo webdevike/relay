@@ -2,6 +2,7 @@ import { UnstyledButton } from '@mantine/core'
 import type { MouseEvent, ReactNode } from 'react'
 import { IconBellRinging, IconCircleDashed, IconLoader2, IconMoon } from '@tabler/icons-react'
 import type { AssistantPortrait, AssistantStatus } from '@evaos/contract'
+import { backgroundTasks } from '@relay/protocol'
 import { portrait } from '../ui/portrait'
 import { rowTip } from '../ui/list/ListRow'
 
@@ -26,7 +27,9 @@ export interface AssistantCardProps {
   /** Its last reply's words; in the hover text. */
   reply?: string | undefined
   status: AssistantStatus
-  /** How long ago it last replied ("5m"), after the status label. */
+  /** Work it owns that runs besides its own turn: a working card counts it ("Working · 3 tasks"). */
+  background?: number | undefined
+  /** How long ago it last replied ("5m"), after the status label when no count shows. */
   age?: string | null | undefined
   /** A notionists seed, or a designed portrait (its paper fills the card behind it). */
   face: string | AssistantPortrait
@@ -47,6 +50,7 @@ export function AssistantCard({
   scope,
   reply,
   status,
+  background,
   age,
   face,
   onClick,
@@ -56,6 +60,7 @@ export function AssistantCard({
   statusTestId,
 }: AssistantCardProps) {
   const paper = typeof face === 'string' ? undefined : face.colors?.paper
+  const after = (status === 'working' ? backgroundTasks(background) : null) ?? age
   return (
     <UnstyledButton
       className="eva-asg-card"
@@ -72,7 +77,7 @@ export function AssistantCard({
         <span className="eva-asg-name">{title}</span>
         <span className="eva-asg-status" data-status={status} data-testid={statusTestId}>
           {STATUS_ICON[status]}
-          <span>{age == null ? LABEL[status] : `${LABEL[status]} \u00b7 ${age}`}</span>
+          <span>{after == null ? LABEL[status] : `${LABEL[status]} \u00b7 ${after}`}</span>
         </span>
       </span>
     </UnstyledButton>

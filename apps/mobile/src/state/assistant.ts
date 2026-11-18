@@ -7,7 +7,7 @@
  * until a snapshot carries it; `state/turns.ts` runs each echo's `turnMachine` and keeps its state here.
  */
 import { create } from "zustand";
-import { untagged, type AssistantAgent, type AssistantPortrait, type AssistantSnapshot, type AssistantStatus } from "@relay/protocol";
+import { backgroundTasks, untagged, type AssistantAgent, type AssistantPortrait, type AssistantSnapshot, type AssistantStatus } from "@relay/protocol";
 import { countOf } from "@/lib/format";
 import { portraitOf } from "@/lib/portrait";
 import type { Photo } from "@/lib/photo";
@@ -172,6 +172,16 @@ export const STATUS_LABEL: Record<AssistantStatus, string> = {
   idle: "Idle",
   not_started: "Not started",
 };
+
+/**
+ * The status words `agent`'s pill shows, with the host's count of the background work it owns while
+ * it works ("Working · 3 tasks"); null for a host from before statuses.
+ */
+export function statusLabel(agent: Pick<AssistantAgent, "status" | "background">): string | null {
+  if (agent.status === undefined) return null;
+  const tasks = agent.status === "working" ? backgroundTasks(agent.background) : null;
+  return tasks === null ? STATUS_LABEL[agent.status] : `${STATUS_LABEL[agent.status]} · ${tasks}`;
+}
 
 /** The agent with the most recent last reply and that reply; null when none has said anything. */
 export function latestReply(agents: AssistantAgent[] | null): { agent: AssistantAgent; text: string; at: number } | null {

@@ -178,13 +178,13 @@ export function registerChat(ctx: MainContext, queue: WriteQueue): ChatHandles {
     relay: () => relay.sessions(),
   })
   const alerts = new ChatAlertTracker()
-  // Assistant threads: Relay says how each stands, their files hold the last reply; a thin client
-  // takes the registry from the Mini's host.
+  // Assistant threads: Relay says how each stands (the host's status counts the work it owns), their
+  // files hold the last reply; a thin client takes the registry from the Mini's host.
   const assistants = registerAssistantsIpc(
     ctx,
     relay,
     sessionsDirs,
-    ctx.env.relayRemote ? relay : null,
+    ctx.env.relayRemote !== null,
     (l) => notifier.onAssistants(l),
   )
   // Desktop notifications. A thin client hears the same things from the host: its assistants and

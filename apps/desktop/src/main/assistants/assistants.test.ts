@@ -10,9 +10,11 @@ import {
   REGISTRY_FILE,
   lastReply,
   parseHostAgents,
+  parseHostStatus,
   parseRegistry,
   readTail,
   type Agent,
+  type HostStatus,
 } from './assistants'
 
 const dirs: string[] = []
@@ -58,17 +60,19 @@ function setup(
   const sessionsDir = path.join(root, 'sessions')
   fs.mkdirSync(sessionsDir)
   const relay: { sessions: Map<string, RelaySession> | null } = { sessions: new Map() }
+  const host: { status: Map<string, HostStatus> | null } = { status: null }
   const svc = new AssistantsService({
     evaRoot: root,
     sessionsDirs: [sessionsDir],
     relay: () => relay.sessions,
+    hostStatus: () => host.status,
   })
   const write = (id: string, lines: string[]): string => {
     const file = path.join(sessionsDir, `2026-10-23T08-00-00-000Z_${id}.jsonl`)
     fs.writeFileSync(file, lines.join('\n') + '\n')
     return file
   }
-  return { root, svc, relay, write }
+  return { root, svc, relay, host, write }
 }
 
 describe('assistant status like native', () => {
@@ -123,6 +127,8 @@ describe('assistant status like native', () => {
           scope: 'eCard Systems work',
           avatar: { style: 'notionists', seed: 'astra-2' },
           status: 'not-started',
+          background: 0,
+          turn: false,
           tool: null,
           file: null,
           reply: null,
@@ -133,12 +139,55 @@ describe('assistant status like native', () => {
           scope: '',
           avatar: { style: 'notionists', seed: 'nova' },
           status: 'not-started',
+          background: 0,
+          turn: false,
           tool: null,
           file: null,
           reply: null,
         },
       ],
     })
+  })
+
+  it("takes the host's status, which counts the work the agent owns, over its own session's", () => {
+    const s = setup()
+    s.relay.sessions = new Map([
+      ['s-astra', thread('s-astra', 'astra', 'idle')],
+      ['s-nova', { ...thread('s-nova', 'nova', 'working'), detail: 'bash' }],
+    ])
+    // A host from before the count lists none: the session alone decides.
+    s.host.status = parseHostStatus([
+      { id: 'astra', title: 'Astra', status: 'idle' },
+      { id: 'nova', title: 'Nova', status: 'working' },
+    ])
+    expect(s.svc.list().agents.map((a) => [a.id, a.status, a.background, a.tool])).toEqual([
+      ['astra', 'idle', 0, null],
+      ['nova', 'working', 0, 'bash'],
+    ])
+    // Astra's thread rests while two sessions she started run; Nova works on her own turn.
+    s.host.status = parseHostStatus([
+      { id: 'astra', title: 'Astra', status: 'working', background: 2 },
+      { id: 'nova', title: 'Nova', status: 'working', background: 0 },
+    ])
+    expect(s.svc.list().agents.map((a) => [a.id, a.status, a.background, a.tool])).toEqual([
+      ['astra', 'working', 2, null],
+      ['nova', 'working', 0, 'bash'],
+    ])
+    // They finished.
+    s.host.status = parseHostStatus([
+      { id: 'astra', title: 'Astra', status: 'idle', background: 0 },
+      { id: 'nova', title: 'Nova', status: 'needs_you', background: 0 },
+    ])
+    expect(s.svc.list().agents.map((a) => [a.id, a.status, a.background])).toEqual([
+      ['astra', 'idle', 0],
+      ['nova', 'needs-you', 0],
+    ])
+    // Relay down: the host's last word is stale, nothing reads as running.
+    s.host.status = parseHostStatus([
+      { id: 'astra', title: 'Astra', status: 'working', background: 2 },
+    ])
+    s.relay.sessions = null
+    expect(s.svc.list().agents[0]).toMatchObject({ status: 'not-started', background: 0 })
   })
 
   it("previews a started thread's newest reply from its session file", () => {

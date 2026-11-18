@@ -20,6 +20,8 @@ const agent = (
   scope: '',
   avatar: { style: 'notionists', seed: id },
   status: 'idle',
+  background: 0,
+  turn: false,
   tool: null,
   file: `/s/${id}.jsonl`,
   reply: null,
@@ -69,7 +71,7 @@ describe('repliesSince', () => {
     const first = repliesSince(null, list(agent('nova', { reply: reply('Hi', 1) }))).next
     const mid = repliesSince(
       first,
-      list(agent('nova', { status: 'working', reply: reply('Let me look.', 2) })),
+      list(agent('nova', { status: 'working', turn: true, reply: reply('Let me look.', 2) })),
     )
     expect(mid.events).toEqual([])
     const end = repliesSince(
@@ -77,6 +79,15 @@ describe('repliesSince', () => {
       list(agent('nova', { status: 'idle', reply: reply('Found it: Friday.', 3) })),
     )
     expect(end.events.map((e) => e.body)).toEqual(['Found it: Friday.'])
+  })
+
+  it('tells a reply whose turn ended while work the assistant owns still runs in the background', () => {
+    const first = repliesSince(null, list(agent('nova', { reply: reply('Hi', 1) }))).next
+    const out = repliesSince(
+      first,
+      list(agent('nova', { status: 'working', background: 2, reply: reply('Started both.', 2) })),
+    )
+    expect(out.events.map((e) => e.body)).toEqual(['Started both.'])
   })
 
   it('tells the first reply of an assistant that had none, not one that appears with a reply', () => {

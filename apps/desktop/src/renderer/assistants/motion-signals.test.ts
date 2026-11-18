@@ -17,6 +17,8 @@ const agent = (over: Partial<Assistant> = {}): Assistant => ({
   scope: '',
   avatar: { style: 'micah', seed: 'nova-17' },
   status: 'idle',
+  background: 0,
+  turn: false,
   tool: null,
   file: FILE,
   reply: { text: 'Hi', at: 1_000 },
@@ -88,6 +90,10 @@ describe('motion signals', () => {
     expect(
       motionSignals(state(agent({ status: 'working', tool: 'bash' })), 'nova', null).tool,
     ).toBe('work')
+    // Work it owns in the background works even while its own turn has no tool.
+    expect(
+      motionSignals(state(agent({ status: 'working', background: 2 })), 'nova', null),
+    ).toMatchObject({ running: true, tool: 'work' })
     expect(motionSignals(state(agent({ status: 'needs-you' })), 'nova', null).waiting).toBe(true)
     // Start on its way runs before Relay lists the thread; a refused Start fails.
     const fresh = agent({ status: 'not-started', file: null, reply: null })

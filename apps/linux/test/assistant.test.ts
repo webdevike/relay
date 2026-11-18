@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import {
+  type ActivityItem,
   type AgentImage,
   type AgentMessage,
   type AgentSession,
@@ -18,6 +19,7 @@ import { liveVoiceFor, loadRegistry, RegistryError } from "../src/assistant/regi
 import { handleAssistantAsks, handleAssistantSay } from "../src/assistant/http";
 import {
   assistantStatus,
+  backgroundOf,
   AssistantService,
   AssistantThreads,
   finishedReply,
@@ -233,6 +235,8 @@ interface HarnessOptions {
   onReply?: (reply: FinishedReply) => void;
   /** The atomic-agents service's runs the thread settles its specialist badges against; default none. */
   specialistRuns?: SpecialistRunBook;
+  /** The host's activity list; default none. */
+  activity?: () => readonly ActivityItem[];
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -293,6 +297,7 @@ function harness(options: HarnessOptions = {}) {
     asks,
     ...(options.onReply === undefined ? {} : { onReply: options.onReply }),
     ...(options.specialistRuns === undefined ? {} : { specialistRuns: options.specialistRuns }),
+    ...(options.activity === undefined ? {} : { activity: options.activity }),
     tokens: {
       tokens: () => tokens,
       unregister: (deviceId) => {
@@ -2438,6 +2443,56 @@ describe("assistantStatus", () => {
     expect(assistantStatus(astra("idle"))).toBe("idle");
     expect(assistantStatus(astra("ended"))).toBe("idle");
   });
+
+  it("reads an open omp ask as needs_you, though the session still says working", () => {
+    expect(assistantStatus({ ...astra("working"), statusDetail: "ask" })).toBe("needs_you");
+    expect(assistantStatus(astra("working"), 0, true)).toBe("needs_you");
+    expect(assistantStatus({ ...astra("working"), statusDetail: "bash" })).toBe("working");
+  });
+
+  it("is working while background work runs, unless the thread needs Isaac", () => {
+    expect(assistantStatus(astra("idle"), 2)).toBe("working");
+    expect(assistantStatus(undefined, 1)).toBe("working");
+    expect(assistantStatus(astra("waiting"), 3)).toBe("needs_you");
+    expect(assistantStatus(astra("idle"), 0)).toBe("idle");
+  });
+});
+
+const owned = (
+  id: string,
+  status: ActivityItem["status"],
+  owner = "assistant:nova",
+): ActivityItem => ({
+  id,
+  kind: id.startsWith("helper:") ? "helper" : "session",
+  owner,
+  title: id,
+  status,
+  intent: "",
+  startedAt: 1,
+  updatedAt: 1,
+  open: { to: "chat", thread: owner },
+});
+
+describe("backgroundOf", () => {
+  it("counts the working items the agent owns besides its own session, and its running specialist runs", () => {
+    const activity = [
+      owned("session:nova-1", "working"),
+      owned("session:delegated-a", "working"),
+      owned("session:delegated-b", "waiting"),
+      owned("helper:/s/nova-1/scout.jsonl", "working"),
+      owned("session:old", "done"),
+      owned("session:astra-work", "working", "assistant:astra"),
+    ];
+    const runs = [
+      { run: "r1", agent: "web-researcher", status: "running" as const },
+      { run: "r1", agent: "web-researcher", status: "running" as const },
+      { run: "r2", agent: "design-critic", status: "done" as const },
+    ];
+    expect(backgroundOf("nova", "nova-1", activity, runs)).toBe(3);
+    expect(backgroundOf("nova", undefined, activity, [])).toBe(3);
+    expect(backgroundOf("astra", "eva-1", activity, [])).toBe(1);
+  });
 });
 
 describe("lastReplyOf", () => {
@@ -2502,6 +2557,19 @@ describe("lastReplyOf", () => {
 });
 
 describe("AssistantService listing", () => {
+  it("is working with the count while sessions it owns run under an idle thread, and idle once they finish", async () => {
+    let activity: ActivityItem[] = [
+      owned("session:nova-1", "working"),
+      owned("session:2026-11-18T16-21-29-solstice", "working"),
+      owned("session:2026-11-18T16-19-56-researcher", "working"),
+    ];
+    const h = harness({ agent: NOVA, activity: () => activity });
+    h.register("idle");
+    expect(await h.service.listing()).toMatchObject({ status: "working", background: 2 });
+    activity = activity.map((item) => ({ ...item, status: "done" }));
+    expect(await h.service.listing()).toMatchObject({ status: "idle", background: 0 });
+  });
+
   it("is not_started with its scope and no reply before the agent has ever run", async () => {
     const h = harness({ agent: { ...ASTRA, scope: "eCard Systems work", avatar: "astra-2" } });
     expect(await h.service.listing()).toEqual({
@@ -2510,11 +2578,13 @@ describe("AssistantService listing", () => {
       scope: "eCard Systems work",
       avatar: "astra-2",
       status: "not_started",
+      background: 0,
     });
     expect(await harness().service.listing()).toEqual({
       id: "astra",
       title: "Astra",
       status: "not_started",
+      background: 0,
     });
     const portrait: AssistantPortrait = {
       style: "micah",
@@ -2531,6 +2601,7 @@ describe("AssistantService listing", () => {
       avatar: "nova-17",
       portrait,
       status: "not_started",
+      background: 0,
     });
   });
 
@@ -2549,6 +2620,7 @@ describe("AssistantService listing", () => {
       id: "astra",
       title: "Astra",
       status: "working",
+      background: 0,
       lastReply: { text: "Standup is at 9:30.", at: 3 },
     });
     h.register("waiting");
@@ -2605,9 +2677,10 @@ describe("assistant.agents list", () => {
         title: "Astra",
         scope: "eCard Systems work",
         status: "working",
+        background: 0,
         lastReply: { text: "Reviewing the PR.", at: 7 },
       },
-      { id: "nova", title: "Nova", scope: "Personal", status: "needs_you" },
+      { id: "nova", title: "Nova", scope: "Personal", status: "needs_you", background: 0 },
     ]);
   });
 
@@ -2650,9 +2723,10 @@ describe("assistant.agents list", () => {
             title: "Astra",
             scope: "eCard Systems work",
             status: "idle",
+            background: 0,
             lastReply: { text: "On it.", at: 5 },
           },
-          { id: "nova", title: "Nova", scope: "Personal", status: "idle" },
+          { id: "nova", title: "Nova", scope: "Personal", status: "idle", background: 0 },
         ],
       },
     ]);
@@ -2700,6 +2774,39 @@ describe("assistant.agents list", () => {
     expect(frames(broadcasts)).toHaveLength(2);
   });
 
+  it("goes out again when the work an assistant owns starts or ends, and stays quiet for activity that moves nothing it owns", async () => {
+    let activity: ActivityItem[] = [];
+    const n = harness({ agent: NOVA, activity: () => activity });
+    const broadcasts: ServerMessage[] = [];
+    const threads = new AssistantThreads([n.service], {
+      broadcast: (message) => broadcasts.push(message),
+      clock: n.clock,
+      log: () => undefined,
+    });
+    n.register("idle");
+    const step = async (items: ActivityItem[]): Promise<void> => {
+      activity = items;
+      threads.observeActivity(items);
+      n.clock.advance(SNAPSHOT_DEBOUNCE_MS);
+      await flush();
+    };
+    await step([owned("session:a", "working"), owned("session:b", "working")]);
+    expect(frames(broadcasts).at(-1)).toMatchObject({
+      agents: [{ id: "nova", status: "working", background: 2 }],
+    });
+    await step([
+      owned("session:a", "working"),
+      owned("session:b", "working"),
+      owned("session:x", "working", "other"),
+    ]);
+    expect(frames(broadcasts)).toHaveLength(1);
+    await step([owned("session:a", "done"), owned("session:b", "done")]);
+    expect(frames(broadcasts)).toHaveLength(2);
+    expect(frames(broadcasts).at(-1)).toMatchObject({
+      agents: [{ id: "nova", status: "idle", background: 0 }],
+    });
+  });
+
   it("sends no frames without broadcast deps", async () => {
     const h = harness();
     const threads = new AssistantThreads([h.service]);
@@ -2707,7 +2814,9 @@ describe("assistant.agents list", () => {
     threads.observe({ kind: "message", sessionId: "eva-1", id: "m", text: "hi", streaming: false });
     h.clock.advance(SNAPSHOT_DEBOUNCE_MS);
     await flush();
-    expect(await threads.agents()).toEqual([{ id: "astra", title: "Astra", status: "idle" }]);
+    expect(await threads.agents()).toEqual([
+      { id: "astra", title: "Astra", status: "idle", background: 0 },
+    ]);
   });
 });
 
@@ -2768,8 +2877,8 @@ describe("registry changes while the host runs", () => {
     expect(frames(broadcasts).at(-1)).toEqual({
       t: "assistant.agents",
       agents: [
-        { id: "astra", title: "Astra", scope: "ECS", status: "not_started" },
-        { id: "vega", title: "Vega", status: "not_started" },
+        { id: "astra", title: "Astra", scope: "ECS", status: "not_started", background: 0 },
+        { id: "vega", title: "Vega", status: "not_started", background: 0 },
       ],
     });
   });

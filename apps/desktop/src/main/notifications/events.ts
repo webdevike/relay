@@ -64,7 +64,8 @@ export function repliesSince(
       next.set(a.id, sig)
       continue
     }
-    if (a.status === 'working') {
+    // Its own turn still writing; work it owns in the background does not hold its reply back.
+    if (a.turn) {
       next.set(a.id, before)
       continue
     }

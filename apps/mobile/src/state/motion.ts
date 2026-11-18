@@ -8,7 +8,7 @@
  * `useMotionSignals` wires it to the stores and only changes identity when a signal does.
  */
 import { useMemo } from "react";
-import type { AgentSession, AssistantAgent, AssistantSnapshot, AssistantStatus, CallState } from "@relay/protocol";
+import { backgroundTasks, type AgentSession, type AssistantAgent, type AssistantSnapshot, type AssistantStatus, type CallState } from "@relay/protocol";
 import { Director, statusText, toolKind, type MotionSignals, type ToolKind } from "@relay/portrait-motion";
 import { subagentsOf, useAgentsStore } from "./agents";
 import { threadOf, useAssistantStore } from "./assistant";
@@ -74,8 +74,10 @@ export function useMotionSignals(agent: string, turnFailed: boolean): MotionSign
   const thread = useAssistantStore((state) => threadOf(state, agent));
   const status = useAssistantStore((state) => state.agents?.find((entry) => entry.id === agent)?.status);
   const lastReplyAt = useAssistantStore((state) => state.agents?.find((entry) => entry.id === agent)?.lastReply?.at);
+  const background = useAssistantStore((state) => state.agents?.find((entry) => entry.id === agent)?.background ?? 0);
   const sessionId = thread.snapshot?.sessionId ?? null;
-  const tool = useAgentsStore((state) => threadTool(state.sessions, sessionId));
+  // Work the agent owns in the background (sessions it started, helpers, specialists) is work.
+  const tool = useAgentsStore((state) => threadTool(state.sessions, sessionId)) ?? (background > 0 ? "work" : null);
   // Primitives only: the call's microphone level changes many times a second.
   const callState = useCallStore((state) => (state.call?.agent === agent ? state.call.state : null));
   const callError = useCallStore((state) => (state.call?.agent === agent ? state.call.error : null));
@@ -97,19 +99,23 @@ export function useMotionSignals(agent: string, turnFailed: boolean): MotionSign
 /**
  * The status words a list row shows for `agent` (`statusText`: "is thinking", "is researching",
  * "needs you", ...; null at rest), from what every phone hears without following the thread: its
- * registry status and last reply, and the tool its omp session (`kind` "assistant") runs now.
+ * registry status and last reply, and the tool its omp session (`kind` "assistant") runs now. Work
+ * it owns in the background is work, counted after the words ("is working · 3 tasks").
  */
 export function listingWords(agent: AssistantAgent, sessions: Record<string, AgentSession>, now: number): string | null {
   const own = Object.values(sessions).filter((session) => session.kind === "assistant" && session.assistant === agent.id);
   const session = own.find((entry) => entry.status === "working") ?? own[0];
+  const working = agent.status === "working";
+  const tasks = working ? backgroundTasks(agent.background) : null;
   const signals: MotionSignals = {
-    running: agent.status === "working",
-    tool: agent.status === "working" ? threadTool(sessions, session?.id ?? null) : null,
+    running: working,
+    tool: working ? (threadTool(sessions, session?.id ?? null) ?? (tasks === null ? null : "work")) : null,
     waiting: agent.status === "needs_you",
     failed: false,
     activityAt: agent.lastReply?.at ?? null,
   };
-  return statusText(new Director().next(signals, now), signals);
+  const words = statusText(new Director().next(signals, now), signals);
+  return words === null || tasks === null ? words : `${words} · ${tasks}`;
 }
 
 /** `listingWords` for `agent`, from the stores. */

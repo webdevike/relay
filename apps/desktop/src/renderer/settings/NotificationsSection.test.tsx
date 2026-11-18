@@ -31,6 +31,8 @@ beforeEach(() => {
         scope: '',
         avatar: { style: 'notionists' as const, seed: id },
         status: 'idle' as const,
+        background: 0,
+        turn: false,
         tool: null,
         file: null,
         reply: null,

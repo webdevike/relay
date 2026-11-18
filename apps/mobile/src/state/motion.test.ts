@@ -107,6 +107,12 @@ describe("listingWords", () => {
     expect(listingWords({ ...nova, status: "working" }, {}, 0)).toBe("is thinking");
   });
 
+  it("words background work it owns as work and counts it", () => {
+    expect(listingWords({ ...nova, status: "working", background: 3 }, own({ status: "idle" }), 0)).toBe("is working · 3 tasks");
+    expect(listingWords({ ...nova, status: "working", background: 1 }, own({ status: "working", statusDetail: "web_search" }), 0)).toBe("is researching · 1 task");
+    expect(listingWords({ ...nova, status: "idle", background: 0 }, own(), 1000)).toBeNull();
+  });
+
   it("says needs you, is away after 30 quiet minutes, and nothing at rest", () => {
     expect(listingWords({ ...nova, status: "needs_you" }, own(), 0)).toBe("needs you");
     expect(listingWords({ ...nova, status: "idle", lastReply: { text: "hi", at: 0 } }, own(), SNOOZE_MS)).toBe("is away");

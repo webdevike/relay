@@ -183,6 +183,8 @@ describe('reaction bar and badge', () => {
             scope: '',
             avatar: { style: 'micah', seed: 'astra-2' },
             status: 'idle',
+            background: 0,
+            turn: false,
             tool: null,
             file: null,
             reply: null,

@@ -17,7 +17,7 @@ import { Text } from "@/ui/Text";
 import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
 import { portraitOf } from "@/lib/portrait";
-import { STATUS_LABEL, useAssistantStore } from "@/state/assistant";
+import { statusLabel, useAssistantStore } from "@/state/assistant";
 import { useListingWords } from "@/state/motion";
 import { useConnectionStore } from "@/state/connection";
 import { useSettingsStore } from "@/state/settings";
@@ -50,7 +50,7 @@ function agentLine(agent: AssistantAgent): string {
   const reply = agent.lastReply === undefined ? "" : previewText(agent.lastReply.text);
   if (reply !== "") return reply;
   if (agent.scope !== undefined && agent.scope !== "") return agent.scope;
-  return agent.status === undefined ? "" : STATUS_LABEL[agent.status];
+  return statusLabel(agent) ?? "";
 }
 
 function AgentRow({ agent, open, first }: { agent: AssistantAgent; open: WidgetBodyProps["open"]; first: boolean }) {

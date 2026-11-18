@@ -23,6 +23,7 @@ export function AssistantsGrid({ agents }: { agents: Assistant[] }) {
           scope={a.scope}
           reply={a.reply?.text}
           status={a.status}
+          background={a.background}
           age={a.reply && a.reply.at !== null ? agoLabel(a.reply.at, now) : null}
           face={a.avatar}
           onClick={(e) => openFromNav(placeOf(`agent:${a.id}`), e)}

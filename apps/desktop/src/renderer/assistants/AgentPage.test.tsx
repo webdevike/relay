@@ -44,6 +44,8 @@ const nova = (file: string | null): Assistant => ({
   scope: '',
   avatar: { style: 'notionists', seed: 'nova' },
   status: 'idle',
+  background: 0,
+  turn: false,
   tool: null,
   file,
   reply: null,

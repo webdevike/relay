@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { AssistantAgent, AssistantSnapshot } from "@relay/protocol";
-import { agentTitle, assistantsCaption, latestReply, STATUS_LABEL, threadOf, useAssistantStore } from "@/state/assistant";
+import { agentTitle, assistantsCaption, latestReply, STATUS_LABEL, statusLabel, threadOf, useAssistantStore } from "@/state/assistant";
 import { createAssistantFrameRouter, type AssistantFrameRouter } from "./assistant";
 
 function snapshot(rev: number, texts: string[], busy = false): AssistantSnapshot {
@@ -84,8 +84,13 @@ describe("Assistants summaries", () => {
     expect(assistantsCaption(null)).toBe("No assistants yet");
   });
 
-  it("labels every status", () => {
+  it("labels every status, and counts a working agent's background work", () => {
     expect(STATUS_LABEL).toEqual({ working: "Working", needs_you: "Needs you", idle: "Idle", not_started: "Not started" });
+    expect(statusLabel({ status: "working", background: 3 })).toBe("Working · 3 tasks");
+    expect(statusLabel({ status: "working", background: 1 })).toBe("Working · 1 task");
+    expect(statusLabel({ status: "working", background: 0 })).toBe("Working");
+    expect(statusLabel({ status: "idle", background: 0 })).toBe("Idle");
+    expect(statusLabel({})).toBeNull();
   });
 });
 

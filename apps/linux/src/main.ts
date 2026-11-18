@@ -24,6 +24,7 @@ import {
   Drop,
   reactionKey,
   sessionReactionThread,
+  type ActivityItem,
   type ServerMessage,
 } from "@relay/protocol";
 import type { LaunchOptions } from "./agents/herdr";
@@ -550,6 +551,8 @@ function serve(
     isViewing: (deviceId, sessionId): boolean => server.isViewing(deviceId, sessionId),
     log,
   });
+  // The activity list as last pushed: the work an assistant owns counts toward its status (`backgroundOf`).
+  let activityItems: readonly ActivityItem[] = [];
   // Registry writes (`assistant create|set|retire`, `assistant.create` from a device) and hand edits
   // reach the threads at once; the host CLI is what an assistant runs to change itself.
   const registryAdmin =
@@ -585,6 +588,7 @@ function serve(
       aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
       logPath: hostLogPath(),
       specialistRuns,
+      activity: () => activityItems,
       onReply: (reply): void => {
         void replyWidgets?.reply(reply);
       },
@@ -620,6 +624,10 @@ function serve(
           };
           return registryAdmin.watch();
         })();
+  // A specialist run that ends after the turn moves its assistant's count of running work.
+  specialistRuns.onChange(() => {
+    assistant?.relist();
+  });
   // Local voice calls run on Eva's speech stack (eva-realtime venv + pocket-tts); a host without it has none.
   const voiceRoot =
     agentHome === null
@@ -897,6 +905,9 @@ function serve(
     },
     broadcast: (message): void => {
       server.broadcastExcept(message, null);
+      if (message.t !== "activity.snapshot") return;
+      activityItems = message.items;
+      assistant?.observeActivity(message.items);
     },
     clock: systemClock,
     log,

@@ -747,7 +747,11 @@ export const ControlDevice = z.object({
 });
 export type ControlDevice = z.infer<typeof ControlDevice>;
 
-/** Where an assistant's thread stands, from its live omp session: no session is "not_started". */
+/**
+ * Where an assistant stands, from its live omp session and the work it owns: needing Isaac (a question,
+ * an approval, omp's `ask`) wins, then working (its own turn, or any `AssistantAgent.background` work),
+ * else idle; no session and nothing running is "not_started".
+ */
 export const AssistantStatus = z.enum(["working", "needs_you", "idle", "not_started"]);
 export type AssistantStatus = z.infer<typeof AssistantStatus>;
 
@@ -789,12 +793,25 @@ export const AssistantAgent = z.object({
   /** The agent's designed portrait, drawn instead of `avatar`; one this build cannot read is dropped, leaving `avatar`. */
   portrait: AssistantPortrait.optional().catch(undefined),
   status: AssistantStatus.optional(),
+  /**
+   * Work the agent owns that runs now besides its own turn: sessions it started (`RELAY_OWNER`), its
+   * thread's helpers and canvas rooms (the activity list's working items under `assistant:<id>`) and
+   * its running specialist calls. Above 0 the status is "working" unless it needs Isaac; clients show
+   * the count ("Working · 3 tasks"). Absent from hosts before it.
+   */
+  background: z.number().int().min(0).optional(),
   /** The newest reply of the agent worth showing (never the silence marker), one clipped line. */
   lastReply: z.object({ text: z.string(), at: ms }).optional(),
   /** The model the registry starts the agent's session on (`provider/id`, optionally `:thinking`); absent when the registry names none and from older hosts. */
   model: z.string().optional(),
 });
 export type AssistantAgent = z.infer<typeof AssistantAgent>;
+
+/** The quiet count a working assistant's status shows for its `background` work ("Working · 3 tasks"): "1 task", "3 tasks"; null for none. */
+export function backgroundTasks(background: number | undefined): string | null {
+  if (background === undefined || background <= 0) return null;
+  return background === 1 ? "1 task" : `${String(background)} tasks`;
+}
 
 /**
  * Each assistant is a first-class conversation, separate from omp's operational session inbox.

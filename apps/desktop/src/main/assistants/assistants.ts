@@ -130,9 +130,11 @@ export function assistantSession(
 }
 
 /**
- * Where a thread stands: no session is Not started, working is Working, a question or an
- * approval is Needs you, anything else Idle (native assistants_view::Status::of). omp's `ask` tool
- * blocks while Relay still says `working` (its detail `ask`): that thread waits on Isaac too.
+ * Where a thread stands by its own session alone: no session is Not started, working is Working, a
+ * question or an approval is Needs you, anything else Idle (native assistants_view::Status::of).
+ * omp's `ask` tool blocks while Relay still says `working` (its detail `ask`): that thread waits on
+ * Isaac too. The host's status (`parseHostStatus`) also counts the work the agent owns and wins;
+ * this stands in for hosts from before it.
  */
 export function statusOf(session: RelaySession | undefined): AssistantStatus {
   switch (session?.status) {
@@ -147,6 +149,40 @@ export function statusOf(session: RelaySession | undefined): AssistantStatus {
     case 'ended':
       return 'idle'
   }
+}
+
+/** What the host says of an agent in `assistant.agents`: its status counting the work it owns, and that work's count. */
+export interface HostStatus {
+  status: AssistantStatus
+  background: number
+}
+
+const HOST_STATUS = {
+  working: 'working',
+  needs_you: 'needs-you',
+  idle: 'idle',
+  not_started: 'not-started',
+} as const satisfies Record<string, AssistantStatus>
+
+const HostStatusSchema = z.object({
+  id: z.string().min(1),
+  status: z.enum(['working', 'needs_you', 'idle', 'not_started']),
+  background: z.number().int().nonnegative(),
+})
+
+/**
+ * The host's `assistant.agents` statuses by agent id; null when it is not a list. Agents from a host
+ * before `background` are left out: their status counts only the thread's own turn.
+ */
+export function parseHostStatus(raw: unknown): Map<string, HostStatus> | null {
+  if (!Array.isArray(raw)) return null
+  const out = new Map<string, HostStatus>()
+  for (const a of raw) {
+    const r = HostStatusSchema.safeParse(a)
+    if (r.success)
+      out.set(r.data.id, { status: HOST_STATUS[r.data.status], background: r.data.background })
+  }
+  return out
 }
 
 export interface Reply {
@@ -236,6 +272,8 @@ export interface AssistantsDeps {
    * until it has answered (the Eva root's file stands in meanwhile). Absent on the Mini itself.
    */
   hostAgents?: () => Agent[] | null
+  /** The host's statuses (`parseHostStatus`), null until it has answered. */
+  hostStatus?: () => ReadonlyMap<string, HostStatus> | null
 }
 
 /**
@@ -286,16 +324,20 @@ export class AssistantsService {
         : session.file !== undefined && fs.existsSync(session.file)
           ? session.file
           : this.fileOf(session.id)
-      const status = statusOf(session)
+      const own = statusOf(session)
+      // While Relay is down its last statuses are stale: nothing reads as running.
+      const host = sessions === null ? undefined : this.deps.hostStatus?.()?.get(agent.id)
       return {
         id: agent.id,
         title: agent.title,
         scope: agent.scope,
         avatar: agent.avatar,
         ...(agent.model ? { model: agent.model } : {}),
-        status,
-        // Relay's detail is the running tool while it works (an open `ask` already reads Needs you).
-        tool: status === 'working' ? (session?.detail ?? null) : null,
+        status: host?.status ?? own,
+        background: host?.background ?? 0,
+        turn: own === 'working',
+        // Relay's detail is the running tool while its own turn works (an open `ask` already reads Needs you).
+        tool: own === 'working' ? (session?.detail ?? null) : null,
         file,
         reply: file ? this.replyOf(file) : null,
       }

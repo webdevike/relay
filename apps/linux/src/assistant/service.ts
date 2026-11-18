@@ -22,6 +22,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
+  agentRunKey,
   agentRunsByRow,
   agentsCaption,
   foldGuestWork,
@@ -29,12 +30,15 @@ import {
   OpenAsk,
   reactionKey,
   roomCardFallback,
+  recentAgentRuns,
   signinHost,
   splitPins,
   splitRoomCards,
   splitSignin,
   untagged,
+  type ActivityItem,
   type AgentImage,
+  type AgentRun,
   type AgentMessage,
   type AgentSession,
   type AssistantAgent,
@@ -152,6 +156,8 @@ export interface AssistantServiceDeps {
   readonly onReply?: (reply: FinishedReply) => void;
   /** The atomic-agents service's runs: the thread settles its running specialist badges against it and redraws when a run changes. */
   readonly specialistRuns?: SpecialistRunBook;
+  /** The host's activity list (`ActivityService.snapshot`): the work this agent owns counts toward its status. */
+  readonly activity?: () => readonly ActivityItem[];
 }
 
 /** "No AI account" as the start fails with it: what failed, what to do, where the log is. */
@@ -304,19 +310,49 @@ export function toAssistantMessages(
   return out;
 }
 
-/** Where an agent's thread stands from its live session: no session is "not_started" (never launched, or the bridge lists none). */
-export function assistantStatus(session: AgentSession | undefined): AssistantStatus {
-  if (session === undefined) return "not_started";
-  switch (session.status) {
-    case "working":
-      return "working";
-    case "waiting":
-    case "needs_permission":
-      return "needs_you";
-    case "idle":
-    case "ended":
-      return "idle";
-  }
+/** The tool omp's `ask` runs under: the session still reports `working`, but it waits on Isaac. */
+const ASK_TOOL = "ask";
+
+/**
+ * Where an agent stands from its live session and `background`, the work it owns that runs now
+ * (`backgroundOf`): a question, an approval or an open omp `ask` (`asking`, the bridge's pending ask,
+ * or the session running the ask tool) is "needs_you", its own turn or any background work is
+ * "working", else "idle"; no session and nothing running is "not_started".
+ */
+export function assistantStatus(
+  session: AgentSession | undefined,
+  background = 0,
+  asking = false,
+): AssistantStatus {
+  const status = session?.status;
+  if (status === "waiting" || status === "needs_permission") return "needs_you";
+  if (status === "working")
+    return asking || session?.statusDetail === ASK_TOOL ? "needs_you" : "working";
+  if (background > 0) return "working";
+  return session === undefined ? "not_started" : "idle";
+}
+
+/**
+ * How much work agent `agent` owns that runs now besides its own turn (session `own`): the working
+ * items the activity list files under `assistant:<agent>` (sessions it started with `RELAY_OWNER`,
+ * its thread's helpers, its canvas rooms) other than its own session, and its thread's specialist
+ * `runs` still running.
+ */
+export function backgroundOf(
+  agent: string,
+  own: string | undefined,
+  activity: readonly ActivityItem[],
+  runs: readonly AgentRun[],
+): number {
+  const owner = `assistant:${agent}`;
+  const ownItem = own === undefined ? null : `session:${own}`;
+  const running = new Set<string>();
+  for (const item of activity)
+    if (item.owner === owner && item.status === "working" && item.id !== ownItem)
+      running.add(item.id);
+  for (const run of runs)
+    if (run.status === "running") running.add(`specialist:${agentRunKey(run)}`);
+  return running.size;
 }
 
 /**
@@ -646,7 +682,16 @@ export class AssistantService implements AssistantThread {
   async listing(): Promise<AssistantAgent> {
     const session = this.current();
     const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id));
-    const lastReply = lastReplyOf([...earlier, ...(await this.settled())]);
+    const live = await this.settled();
+    const lastReply = lastReplyOf([...earlier, ...live]);
+    // Specialist calls the live turns made, as the service last recorded them; a lost one goes stale.
+    const now = Date.now();
+    const runs = settleAssistantMessages(
+      live,
+      (await this.deps.specialistRuns?.current()) ?? null,
+      now,
+    ).flatMap((message) => recentAgentRuns(message.agents ?? [], now));
+    const background = backgroundOf(this.id, session?.id, this.deps.activity?.() ?? [], runs);
     return {
       id: this.id,
       title: this.title,
@@ -654,7 +699,12 @@ export class AssistantService implements AssistantThread {
       ...(this.agent.avatar === undefined ? {} : { avatar: this.agent.avatar }),
       ...(this.agent.portrait === undefined ? {} : { portrait: this.agent.portrait }),
       ...(this.agent.model === undefined ? {} : { model: this.agent.model }),
-      status: assistantStatus(session),
+      status: assistantStatus(
+        session,
+        background,
+        session !== undefined && this.deps.agents.pendingAsk(session.id) !== null,
+      ),
+      background,
       ...(lastReply === null ? {} : { lastReply }),
     };
   }
@@ -736,7 +786,7 @@ export class AssistantService implements AssistantThread {
     );
   }
 
-  /** Takes a provider change; true when this agent's `assistant.agents` row may have changed (its status moved or a reply settled). */
+  /** Takes a provider change; true when this agent's `assistant.agents` row may have changed (its status moved, an omp `ask` opened or closed, a specialist run moved or a reply settled). */
   observe(change: AgentProviderChange): boolean {
     if (change.kind === "sessions") {
       const session = this.current();
@@ -767,14 +817,15 @@ export class AssistantService implements AssistantThread {
           ? this.deps.asks.addCard(change.sessionId, change.ask)
           : this.deps.asks.cardResolved(change.sessionId, change.id, change.answered);
       if (moved) this.changed();
-      return false;
+      // An open omp `ask` reads Needs you.
+      return true;
     }
     if (change.kind !== "conversation" && change.kind !== "message" && change.kind !== "agentRun")
       return false;
     if (change.sessionId !== this.current()?.id) return false;
     this.changed();
-    // A specialist's run moved under a reply: the thread redraws, no reply settled.
-    if (change.kind === "agentRun") return false;
+    // A specialist's run moved under a reply: the thread redraws, and the agent's count of running work may move.
+    if (change.kind === "agentRun") return true;
     if (change.kind === "conversation") {
       let settled = false;
       for (const message of change.appended) {
@@ -1103,9 +1154,10 @@ export interface AssistantThreadsDeps {
 
 /**
  * Every registry agent's thread, in registry order; the first answers requests that name no agent.
- * With `deps`, it also keeps the phones' agent list live: when an agent's status moves or a reply
- * settles it sends a fresh `assistant.agents` frame, debounced like snapshots and skipped when the
- * list came out the same as the last one sent. `reload` follows registry changes without a restart.
+ * With `deps`, it also keeps the phones' agent list live: when an agent's status moves, a reply
+ * settles or the work it owns starts or ends (`observeActivity`, `relist`) it sends a fresh
+ * `assistant.agents` frame, debounced like snapshots and skipped when the list came out the same as
+ * the last one sent. `reload` follows registry changes without a restart.
  */
 export class AssistantThreads implements AssistantRelaying {
   private cancelFlush: (() => void) | null = null;
@@ -1115,6 +1167,8 @@ export class AssistantThreads implements AssistantRelaying {
   private current: readonly AssistantService[];
   /** One assistant bringing another into its chat (`consult.ts`); null without `deps.post`. */
   private readonly consults: Consults | null;
+  /** The working activity items assistants own as last seen, so activity that moves nothing they own stays quiet. */
+  private owned = "";
 
   constructor(
     threads: readonly AssistantService[],
@@ -1164,6 +1218,23 @@ export class AssistantThreads implements AssistantRelaying {
     for (const thread of this.current) listed = thread.observe(change) || listed;
     if (listed) this.scheduleBroadcast();
     this.consults?.observe(change);
+  }
+
+  /** Takes the host's new activity list: when the work an assistant owns started or ended, the list goes out again. */
+  observeActivity(items: readonly ActivityItem[]): void {
+    const owned = items
+      .filter((item) => item.status === "working" && item.owner.startsWith("assistant:"))
+      .map((item) => `${item.owner} ${item.id}`)
+      .sort()
+      .join("\n");
+    if (owned === this.owned) return;
+    this.owned = owned;
+    this.scheduleBroadcast();
+  }
+
+  /** Something an agent's row reads may have moved (a specialist run): the list goes out again if it changed. */
+  relist(): void {
+    this.scheduleBroadcast();
   }
 
   /** `relay-linux assistant consult`: assistant `request.from` brings `request.agent` into its chat (`Consults.consult`). Rejects with `AckFailure`. */

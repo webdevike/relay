@@ -282,6 +282,8 @@ describe('SettingsPage', () => {
       scope: '',
       avatar: { style, seed: id },
       status: 'idle' as const,
+      background: 0,
+      turn: false,
       tool: null,
       file: null,
       reply: null,
