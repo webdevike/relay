@@ -19,14 +19,36 @@ describe('dropQuietTurns', () => {
     ).toEqual(['u1', 'a1', 'u3'])
   })
 
-  it('keeps a turn with a real reply, and a turn still waiting for one', () => {
+  it('keeps a turn with a real reply without its silent reply, and a turn still waiting', () => {
     const list = [
       makeMessage('u1', 'user', '[background]'),
       makeMessage('a1', 'assistant', '(nothing to report)'),
       makeMessage('a2', 'assistant', 'ENG-6409 needs your review.'),
       makeMessage('u2', 'user', 'pending'),
     ]
-    expect(ids(list)).toEqual(['u1', 'a1', 'a2', 'u2'])
+    expect(ids(list)).toEqual(['u1', 'a2', 'u2'])
+  })
+
+  it('drops background lines queued behind each other with the one silent reply, not a typed line', () => {
+    const bg = (id: string) => makeMessage(id, 'user', "[From Nova's background jobs] Heartbeat")
+    expect(
+      ids([bg('u1'), bg('u2'), makeMessage('a1', 'assistant', '(nothing to report)')]),
+    ).toEqual([])
+    expect(
+      ids([
+        makeMessage('u1', 'user', 'typed'),
+        bg('u2'),
+        makeMessage('a1', 'assistant', '(nothing to report)'),
+      ]),
+    ).toEqual(['u1'])
+    expect(ids([bg('u1'), bg('u2')])).toEqual(['u1', 'u2'])
+    expect(
+      ids([bg('u1'), makeMessage('u2', 'user', 'typed'), makeMessage('a1', 'assistant', 'Hi')]),
+    ).toEqual(['u1', 'u2', 'a1'])
+  })
+
+  it('matches the exact text only', () => {
+    expect(ids([makeMessage('a1', 'assistant', '(nothing to report) yet')])).toEqual(['a1'])
   })
 
   it('keeps a turn another assistant popped into, without the silent reply', () => {

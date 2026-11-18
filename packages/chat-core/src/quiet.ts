@@ -7,27 +7,39 @@ export function isNothingToReport(text: string): boolean {
   return text.trim() === NOTHING_TO_REPORT
 }
 
+const BACKGROUND_LINE = /^\[From .+?'s background jobs\]/
+
 /**
- * `list` without its quiet turns: a turn (a user row and everything up to the next one) whose
- * only reply is `(nothing to report)` is background noise, so its prompt, thinking and tools go too.
- * A turn another assistant popped into (guest rows) still shows, minus that reply: Isaac sees who
- * came and what they said or took on, even when the host assistant had nothing to add.
+ * `list` without its quiet replies. A turn (a user row and everything up to the next one) whose
+ * only replies are `(nothing to report)` is background noise, so its prompt, thinking and tools go
+ * too; a background line that got no turn of its own (queued behind another, answered once) goes
+ * with the turn that answers it. In a turn with a real reply, a silent reply is dropped alone.
  */
 export function dropQuietTurns(list: ChatMessage[]): ChatMessage[] {
   const out: ChatMessage[] = []
   let turn: ChatMessage[] = []
-  const flush = (): void => {
+  /** Reply-less background lines waiting for the turn that answers them. */
+  let held: ChatMessage[] = []
+  const flush = (last: boolean): void => {
     const replies = turn.filter((m) => m.role === 'assistant')
-    const quiet = replies.length > 0 && replies.every((m) => isNothingToReport(m.text))
-    if (!quiet) out.push(...turn)
-    else if (turn.some((m) => m.role === 'guest'))
-      out.push(...turn.filter((m) => m.role !== 'assistant'))
+    if (replies.length === 0) {
+      if (!last && turn.length === 1 && BACKGROUND_LINE.test(turn[0]!.text)) held.push(...turn)
+      else out.push(...held.splice(0), ...turn)
+    } else if (replies.every((m) => isNothingToReport(m.text))) {
+      held = []
+    } else {
+      out.push(
+        ...held.splice(0),
+        ...turn.filter((m) => !(m.role === 'assistant' && isNothingToReport(m.text))),
+      )
+    }
     turn = []
   }
   for (const m of list) {
-    if (m.role === 'user') flush()
+    if (m.role === 'user') flush(false)
     turn.push(m)
   }
-  flush()
+  flush(true)
+  out.push(...held)
   return out.length === list.length ? list : out
 }
