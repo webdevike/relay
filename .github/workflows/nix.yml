@@ -57,7 +57,9 @@ jobs:
         run: |
           nix eval --impure --raw --expr '
             let
-              flake = builtins.getFlake (toString ./.);
+              # A git+file ref (shallow: actions/checkout fetches depth 1); a path: copy of the checkout
+              # breaks lib.fileset.gitTracked.
+              flake = builtins.getFlake "git+file://${builtins.getEnv "PWD"}?shallow=1";
               sys = flake.inputs.nixpkgs.lib.nixosSystem {
                 system = "x86_64-linux";
                 modules = [
