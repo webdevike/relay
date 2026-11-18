@@ -45,10 +45,10 @@ import Animated, {
 import { expectKeyboard, keyboardHeight } from "@/lib/keyboardMotion";
 import { invertedIndicatorInsets } from "@/lib/invertedIndicatorInsets";
 import {
-  agentRunKey,
+  agentRunCardId,
+  type AgentRun,
   answerText,
   assistantReactionThread,
-  liveAgentRuns,
   MAX_ASK_ANSWER,
   MAX_REPLY_IMAGES,
   splitRoomCards,
@@ -77,10 +77,10 @@ import { ImageViewer } from "@/agents/ImageViewer";
 import { MessageImageStack } from "@/agents/MessageImageStack";
 import { bubbleSegments, topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
-import { SpecialistRunSheet } from "@/agents/SpecialistRunSheet";
+import { SpecialistRunsSheet } from "@/agents/SpecialistRunsSheet";
 import { RouterLine } from "@/agents/RouterLine";
 import { RouterSheet } from "@/agents/RouterSheet";
-import { specialistRuns } from "@/lib/specialistChips";
+import { useSpecialistRuns } from "@/lib/useSpecialistRuns";
 import { BackgroundRow } from "@/agents/BackgroundRow";
 import { AskCard } from "@/agents/AskCard";
 import { SessionApprovalCard } from "@/agents/SessionApprovalCard";
@@ -114,6 +114,7 @@ import {
   stopAssistant,
   subscribeAgent,
   unsubscribeAgent,
+  setCardDismissed,
   watchArtifacts,
 } from "@/connection";
 import { dismissTurn, newClientId, retryTurn, startTurn, type TurnStart } from "@/state/turns";
@@ -354,7 +355,7 @@ function Thread({ agent }: { agent: string }) {
   );
   const artifactsThread = assistantReactionThread(agent);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
-  // The specialist chip opened (its `agentRunKey`), shown in `SpecialistRunSheet`.
+  // The specialist chip opened (its `agentRunKey`), shown in `SpecialistRunsSheet`.
   const [openRun, setOpenRun] = useState<string | null>(null);
   // The router line opened (its row's message id), shown in `RouterSheet`.
   const [openRouter, setOpenRouter] = useState<string | null>(null);
@@ -666,16 +667,12 @@ function Thread({ agent }: { agent: string }) {
   );
   // What the host's transcript (plus the echo of a turn in flight) says; local rows come after it and never count as its newest reply.
   const settled = useMemo(() => [...messages, ...pendingRow], [messages, pendingRow]);
-  // The opened specialist chip's run as it stands now (it keeps updating while the sheet is open).
-  const openedRun = useMemo(
-    () =>
-      openRun === null
-        ? null
-        : (liveAgentRuns(
-            (snapshot?.messages ?? []).flatMap((message) => message.agents ?? []),
-          ).find((run) => agentRunKey(run) === openRun) ?? null),
-    [snapshot, openRun],
-  );
+  // The thread's specialist runs, newest first, minus the finished ones Isaac cleared (here or on desktop).
+  const specialists = useSpecialistRuns(snapshot?.messages ?? NO_MESSAGES);
+  // A cleared or expired run that was open leaves nothing to show: forget it, so a later run does not pop the sheet.
+  useEffect(() => {
+    if (openRun !== null && specialists.length === 0) setOpenRun(null);
+  }, [openRun, specialists]);
   // The opened router line's decision as it stands now (its outcome lands when the turn ends).
   const openedRouter = useMemo(
     () =>
@@ -1172,7 +1169,7 @@ function Thread({ agent }: { agent: string }) {
             agent={agent}
             thread={artifactsThread}
             sessionId={sessionId}
-            messages={snapshot?.messages ?? NO_MESSAGES}
+            specialists={specialists}
             onOpenRun={(key) => {
               Keyboard.dismiss();
               setOpenRun(key);
@@ -1270,10 +1267,14 @@ function Thread({ agent }: { agent: string }) {
             setArtifactsTab(null);
           }}
         />
-        <SpecialistRunSheet
-          run={openedRun}
+        <SpecialistRunsSheet
+          runs={specialists}
+          openKey={openRun}
           onClose={() => {
             setOpenRun(null);
+          }}
+          onClear={(runs) => {
+            for (const run of runs) setCardDismissed(agentRunCardId(run), true);
           }}
         />
         <RouterSheet
@@ -1428,7 +1429,7 @@ function ThreadRunning({
   agent,
   thread,
   sessionId,
-  messages,
+  specialists,
   onOpenSession,
   onOpenWorking,
   onOpenRun,
@@ -1436,8 +1437,8 @@ function ThreadRunning({
   agent: string;
   thread: string;
   sessionId: string | null;
-  /** The host's transcript rows, status rows included: where the specialist runs ride. */
-  messages: readonly AssistantMessage[];
+  /** The thread's specialist runs (`lib/useSpecialistRuns`), also what the specialists sheet lists. */
+  specialists: readonly AgentRun[];
   onOpenSession: (id: string) => void;
   onOpenWorking: () => void;
   onOpenRun: (key: string) => void;
@@ -1448,20 +1449,6 @@ function ThreadRunning({
   const running = useMemo(
     () => runningChips(activityItems, thread, { threadSession: sessionId, sessions }, owned),
     [activityItems, thread, sessionId, sessions, owned],
-  );
-  // Read again each minute too, so a finished specialist chip leaves once its linger is over.
-  const [minute, setMinute] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setMinute(Date.now());
-    }, 60_000);
-    return () => {
-      clearInterval(timer);
-    };
-  }, []);
-  const specialists = useMemo(
-    () => specialistRuns(messages, Math.max(minute, Date.now())),
-    [messages, minute],
   );
   // Stays mounted with nothing running: a finished chip fills up and fades out before the row goes.
   return (

@@ -15,12 +15,7 @@ import { PendingDialog } from './cards/PendingDialog'
 import { JobsStrip } from './strips/JobsStrip'
 import { StatusStrip } from './strips/StatusStrip'
 import { SubagentChips, useMinute } from './strips/SubagentChips'
-import {
-  chatServiceRuns,
-  chatSpecialists,
-  specialistName,
-  useServiceRuns,
-} from './strips/specialist-runs'
+import { chatServiceRuns, chatSpecialists, useServiceRuns } from './strips/specialist-runs'
 import { AgentWorkCards } from './strips/AgentWorkCards'
 import { MeetingCards } from './strips/MeetingCards'
 import { useFrontChatPane } from './front-chat'
@@ -30,6 +25,8 @@ import { ownedActive } from '@evaos/chat-core/activity'
 import { listStore, useListStore } from './list/list-store'
 import { sessionId } from '@evaos/chat-core/session-id'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
+import { agentRunCardId } from '@relay/protocol'
+import { dismissCard, useDismissedIds } from './status-card/dismissed-cards'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
 import { browserScope, placeOf, type Place } from '@evaos/shell-core'
@@ -275,13 +272,14 @@ function ChatView({
   // for), a badge each from its ask to its end; Clear done hides the finished ones.
   const serviceRuns = useServiceRuns()
   const minute = useMinute()
+  const dismissed = useDismissedIds()
   const specialists = useMemo(() => {
     if (!pane) return []
     const service = chatServiceRuns(serviceRuns ?? [], pane.file, agent)
     return chatSpecialists(shownMessages ?? [], service, minute, serviceRuns).filter(
-      (r) => !(r.status !== 'running' && hiddenDone.has(hiddenKey(pane.file, specialistName(r)))),
+      (r) => !(r.status !== 'running' && dismissed.includes(agentRunCardId(r))),
     )
-  }, [pane, serviceRuns, agent, shownMessages, minute, hiddenDone])
+  }, [pane, serviceRuns, agent, shownMessages, minute, dismissed])
 
   // A tab on this chat names it as the header does, and follows a rename or omp's auto title.
   const shownFile = pane?.file ?? ''
@@ -459,14 +457,10 @@ function ChatView({
             if (split) openSubagentTab({ session: pane.file, file, name: s.name })
             else drillStore.push(paneId, { file, title: s.name })
           }}
-          onClearDone={() =>
-            chatStore
-              .getState()
-              .clearDone(
-                paneId,
-                specialists.filter((r) => r.status !== 'running').map(specialistName),
-              )
-          }
+          onClearDone={() => {
+            chatStore.getState().clearDone(paneId)
+            for (const r of specialists) if (r.status !== 'running') dismissCard(agentRunCardId(r))
+          }}
           specialists={specialists}
         />
       ) : null}

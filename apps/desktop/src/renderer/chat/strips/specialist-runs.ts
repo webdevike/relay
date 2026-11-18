@@ -5,7 +5,6 @@ import { SPECIALIST_LIMIT, type SpecialistRun } from '@evaos/contract'
 import type { ChatMessage } from '@evaos/chat-core/message'
 import {
   QUERY_TOOLS,
-  agentRunKey,
   expireAgentRuns,
   liveAgentRuns,
   recentAgentRuns,
@@ -151,6 +150,3 @@ export function chatSpecialists(
     now,
   )
 }
-
-/** The name Clear done hides a finished badge under (beside the subagents' names). */
-export const specialistName = (run: AgentRun): string => `specialist:${agentRunKey(run)}`

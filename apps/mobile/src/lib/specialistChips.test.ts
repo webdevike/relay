@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentRun, AssistantMessage } from "@relay/protocol";
-import { specialistRuns } from "./specialistChips";
+import { agentRunCardId } from "@relay/protocol";
+import { finishedSpecialists, shownSpecialists, specialistRuns } from "./specialistChips";
 
 const NOW = 10_000_000;
 const MIN = 60_000;
@@ -12,8 +13,20 @@ const run = (id: string, over: Partial<AgentRun> = {}): AgentRun => ({
   ...over,
 });
 const user = (id: string): AssistantMessage => ({ id, role: "user", text: "go", at: 1 });
-const status = (id: string, agents: AgentRun[]): AssistantMessage => ({ id, role: "status", text: "", at: 1, agents });
-const reply = (id: string, agents: AgentRun[]): AssistantMessage => ({ id, role: "assistant", text: "ok", at: 1, agents });
+const status = (id: string, agents: AgentRun[]): AssistantMessage => ({
+  id,
+  role: "status",
+  text: "",
+  at: 1,
+  agents,
+});
+const reply = (id: string, agents: AgentRun[]): AssistantMessage => ({
+  id,
+  role: "assistant",
+  text: "ok",
+  at: 1,
+  agents,
+});
 
 describe("specialistRuns", () => {
   it("shows a run from the moment it starts, then done once its reply finishes it", () => {
@@ -26,8 +39,14 @@ describe("specialistRuns", () => {
   });
 
   it("goes from running to failed, keeping the error", () => {
-    const rows = [user("u1"), status("s1", [run("r1")]), reply("a1", [run("r1", { status: "failed", error: "timeout", seconds: 5 })])];
-    expect(specialistRuns(rows, NOW)).toEqual([expect.objectContaining({ status: "failed", error: "timeout" })]);
+    const rows = [
+      user("u1"),
+      status("s1", [run("r1")]),
+      reply("a1", [run("r1", { status: "failed", error: "timeout", seconds: 5 })]),
+    ];
+    expect(specialistRuns(rows, NOW)).toEqual([
+      expect.objectContaining({ status: "failed", error: "timeout" }),
+    ]);
   });
 
   it("gathers runs from every row, newest first", () => {
@@ -35,7 +54,10 @@ describe("specialistRuns", () => {
       user("u1"),
       reply("a1", [run("r1", { startedAt: NOW - 3 * MIN, status: "done", seconds: 10 })]),
       user("u2"),
-      status("s2", [run("r2", { startedAt: NOW - 2 * MIN }), run("r3", { agent: "design-critic" })]),
+      status("s2", [
+        run("r2", { startedAt: NOW - 2 * MIN }),
+        run("r3", { agent: "design-critic" }),
+      ]),
     ];
     expect(specialistRuns(rows, NOW).map((r) => r.run)).toEqual(["r3", "r2", "r1"]);
   });
@@ -51,5 +73,30 @@ describe("specialistRuns", () => {
 
   it("is empty with no runs", () => {
     expect(specialistRuns([user("u1"), reply("a1", [])], NOW)).toEqual([]);
+  });
+});
+
+describe("clearing specialist badges", () => {
+  const running = run("r1");
+  const done = run("r2", { status: "done", seconds: 9 });
+  const failed = run("r3", { status: "failed", error: "timeout" });
+
+  it("hides a cleared finished run, and never a running one", () => {
+    const cleared = [agentRunCardId(done), agentRunCardId(running)];
+    expect(shownSpecialists([running, done, failed], cleared).map((r) => r.run)).toEqual([
+      "r1",
+      "r3",
+    ]);
+  });
+
+  it("names a run like desktop's Clear done does, by run id", () => {
+    expect(agentRunCardId(done)).toBe("specialist:r2");
+    expect(agentRunCardId({ agent: "prop-render", status: "running", startedAt: 5 })).toBe(
+      "specialist:prop-render@5",
+    );
+  });
+
+  it("Clear finished takes every run that is no longer running", () => {
+    expect(finishedSpecialists([running, done, failed]).map((r) => r.run)).toEqual(["r2", "r3"]);
   });
 });

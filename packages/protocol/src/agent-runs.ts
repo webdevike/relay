@@ -392,6 +392,14 @@ export function agentRunKey(run: AgentRun): string {
   return run.run ?? `${run.agent}@${run.startedAt ?? ""}`;
 }
 
+/**
+ * The id a finished badge is cleared under in the host's dismissed-card set (`card.dismiss`, `cards.dismissed`), so
+ * Clear done on desktop and on the phone hide the same badges. A running badge is never hidden by it.
+ */
+export function agentRunCardId(run: AgentRun): string {
+  return `specialist:${agentRunKey(run)}`;
+}
+
 const list = (names: readonly string[]): string =>
   names.length <= 1
     ? (names[0] ?? "")
