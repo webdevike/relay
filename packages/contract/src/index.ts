@@ -19,7 +19,6 @@ import { assistantsEvents, assistantsInvoke } from './assistants'
 import { boardsEvents, boardsInvoke } from './boards'
 import { reactionsEvents, reactionsInvoke } from './reactions'
 import { cardsEvents, cardsInvoke } from './cards'
-import { trialsEvents, trialsInvoke } from './trials'
 import { renderInvoke } from './render'
 import { asksEvents, asksInvoke } from './asks'
 import { signinInvoke } from './signin'
@@ -45,7 +44,6 @@ import { updateEvents, updateInvoke } from './update'
 import { setupEvents, setupInvoke } from './setup'
 import { contextEvents, contextInvoke } from './context'
 import { agentsBoardEvents, agentsBoardInvoke } from './agents-board'
-import { specialistsEvents, specialistsInvoke } from './specialists'
 import { computerEvents, computerInvoke } from './computer'
 import { notificationsEvents, notificationsInvoke } from './notifications'
 import { designEvents, designInvoke } from './design'
@@ -58,7 +56,6 @@ export * from './assistants'
 export * from './boards'
 export * from './reactions'
 export * from './cards'
-export * from './trials'
 export * from './render'
 export * from './asks'
 export * from './signin'
@@ -83,7 +80,6 @@ export * from './build'
 export * from './update'
 export * from './context'
 export * from './agents-board'
-export * from './specialists'
 export * from './setup'
 export * from './notifications'
 export * from './skills'
@@ -135,7 +131,6 @@ export const invokeContract = {
   ...boardsInvoke,
   ...reactionsInvoke,
   ...cardsInvoke,
-  ...trialsInvoke,
   ...renderInvoke,
   ...asksInvoke,
   ...signinInvoke,
@@ -153,7 +148,6 @@ export const invokeContract = {
   ...updateInvoke,
   ...contextInvoke,
   ...agentsBoardInvoke,
-  ...specialistsInvoke,
   ...setupInvoke,
   ...notificationsInvoke,
   ...computerInvoke,
@@ -176,7 +170,6 @@ export const eventContract = {
   ...boardsEvents,
   ...reactionsEvents,
   ...cardsEvents,
-  ...trialsEvents,
   ...asksEvents,
   ...artifactsEvents,
   ...activityEvents,
@@ -192,7 +185,6 @@ export const eventContract = {
   ...updateEvents,
   ...contextEvents,
   ...agentsBoardEvents,
-  ...specialistsEvents,
   ...reviewsEvents,
   ...setupEvents,
   ...notificationsEvents,

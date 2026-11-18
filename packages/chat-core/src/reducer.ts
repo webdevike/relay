@@ -1,4 +1,4 @@
-import { agentAnswered, attachResult, messagesFrom, oneLine } from './session'
+import { attachResult, messagesFrom, oneLine } from './session'
 import { makeMessage, type ChatMessage, type Goal, type SessionMeta } from './message'
 import type { MetaPatch } from './batcher'
 import { answerRowText, parseDialog, UNREADABLE_ASK_NOTICE, type Dialog } from './dialogs'
@@ -478,25 +478,14 @@ export class LiveReducer {
       a.streaming === b.streaming &&
       a.role === b.role &&
       a.at === b.at &&
-      JSON.stringify(a.tool) === JSON.stringify(b.tool) &&
-      JSON.stringify(a.agent) === JSON.stringify(b.agent)
+      JSON.stringify(a.tool) === JSON.stringify(b.tool)
     )
   }
 
-  /**
-   * A rebuilt tool row against what the row showed: a call that already has its result keeps it
-   * (and its run), and a run still out keeps the time it started (now, when it first shows).
-   */
+  /** A rebuilt tool row against what the row showed: a call that already has its result keeps it. */
   private mergeTool(row: ChatMessage, old: ChatMessage | undefined): ChatMessage {
-    if (old?.tool && old.tool.status !== 'running' && row.tool) {
-      const kept: ChatMessage = { ...row, tool: old.tool }
-      if (old.agent) kept.agent = old.agent
-      else delete kept.agent
-      return kept
-    }
-    if (row.agent?.status !== 'running') return row
-    const startedAt = old?.agent?.startedAt ?? row.agent.startedAt ?? Date.now()
-    return { ...row, agent: { ...row.agent, startedAt } }
+    if (old?.tool && old.tool.status !== 'running' && row.tool) return { ...row, tool: old.tool }
+    return row
   }
 
   /** Rebuilds the rows one assistant message shows from its full content snapshot. */
@@ -597,8 +586,7 @@ export class LiveReducer {
     const isError = frame.isError === true
     const result = resultText(frame) ?? row.tool!.result
     const tool = { ...row.tool!, result, isError, status: isError ? 'failed' : 'done' } as const
-    const agent = agentAnswered({ ...row, tool }, result, isError)
-    this.msgs[ix] = { ...row, tool, ...(agent ? { agent } : {}) }
+    this.msgs[ix] = { ...row, tool }
     dirty.add(row.id)
   }
 }

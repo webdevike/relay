@@ -85,8 +85,8 @@ async function size(app: ElectronApplication, shell: Page, w: number, h: number)
 const STRIP = `<Stack gap="sm" p="md">
   <ChipStrip>
     <SessionChip label="Fix login" state="running" />
-    <SpecialistChip label="Web researcher" state="running" clock="0:12" />
-    <SpecialistChip label="Design critic" state="done" />
+    <SessionChip label="Web researcher" state="running" />
+    <SessionChip label="Design critic" state="done" />
   </ChipStrip>
   <Group gap="xs"><AssistantAvatar face="nova-1" size="sm" /><Text size="sm">Nova</Text></Group>
   <Text size="xs" c="dimmed">Round 0</Text>
@@ -145,7 +145,7 @@ test('an agent designs a component live: patches redraw in place, errors keep th
   await expect(page).toHaveAttribute('data-phase', 'live', { timeout: 20_000 })
   await expect(inFrame.getByText('Round 0')).toBeVisible()
   // The real Relay components, with the app's classes, drawn in the frame.
-  await expect(inFrame.locator('.eva-chip[data-kind="specialist"]').first()).toBeVisible()
+  await expect(inFrame.locator('.eva-chips .eva-chip').first()).toBeVisible()
   await expect(inFrame.locator('.eva-pm .eva-as-avatar').first()).toBeVisible()
   const card = board.locator(`.react-flow__node[data-id="${id}"]`)
   // The card at 100% so the screenshots show it at its real size.

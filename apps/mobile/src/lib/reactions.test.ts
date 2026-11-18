@@ -16,8 +16,8 @@ describe("MORE_REACTIONS", () => {
 });
 
 describe("QUICK_REACTIONS", () => {
-  it("are iMessage's six tapbacks and 🎯 Train on this, last", () => {
-    expect(QUICK_REACTIONS).toEqual(["❤️", "👍", "👎", "😂", "‼️", "❓", "🎯"]);
+  it("are iMessage's six tapbacks", () => {
+    expect(QUICK_REACTIONS).toEqual(["❤️", "👍", "👎", "😂", "‼️", "❓"]);
   });
 });
 

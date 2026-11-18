@@ -251,27 +251,6 @@ export const QUERY_TOOLS = {
     }),
     ttlMs: 60_000,
   },
-  specialist_runs: {
-    description:
-      "The atomic-agents specialists' runs of the last two days as the host's service journal folds them (any caller): run id, agent, running, done or failed, start, seconds, error. Thin clients settle their running badges against it.",
-    args: z.object({}).strict(),
-    result: z.object({
-      asOf: AsOf,
-      at: At,
-      runs: z.array(
-        z.object({
-          run: z.string(),
-          agent: z.string(),
-          status: z.enum(["running", "done", "failed"]),
-          /** Epoch ms the run was asked. */
-          startedAt: z.number().optional(),
-          seconds: z.number().optional(),
-          error: z.string().optional(),
-        }),
-      ),
-    }),
-    ttlMs: 2_000,
-  },
 } as const;
 
 export type QueryToolName = keyof typeof QUERY_TOOLS;

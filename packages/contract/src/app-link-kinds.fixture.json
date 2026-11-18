@@ -14,18 +14,6 @@
       "phone": "/assistants"
     },
     {
-      "what": "page: agents",
-      "params": { "page": "agents" },
-      "url": "relay://open/agents",
-      "phone": "/agents"
-    },
-    {
-      "what": "agents page + one specialist",
-      "params": { "page": "agents", "agent": "diagram" },
-      "url": "relay://open/agents?agent=diagram",
-      "phone": "/agents"
-    },
-    {
       "what": "page: board (the agents' work board; the phone lists its dashboard boards)",
       "params": { "page": "board" },
       "url": "relay://open/board",

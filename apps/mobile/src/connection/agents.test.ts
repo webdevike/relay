@@ -142,41 +142,6 @@ describe("conversation", () => {
     expect(sent).toHaveLength(0);
   });
 
-  it("takes an agents call row's new run from its update, keeping its text", () => {
-    const tool = { name: "write", summary: "xd://mcp__relay_agents_ask" };
-    route({
-      t: "agent.conversation",
-      sessionId: "a",
-      rev: 0,
-      messages: [
-        {
-          id: "t1",
-          role: "tool",
-          text: "ask",
-          at: 1,
-          tool,
-          agentRun: { agent: "web-researcher", status: "running", startedAt: 1 },
-        },
-      ],
-    });
-    route({
-      t: "agent.message.update",
-      sessionId: "a",
-      id: "t1",
-      text: "ask",
-      streaming: false,
-      agentRun: { run: "r1", agent: "web-researcher", status: "done", seconds: 29 },
-    });
-    expect(useAgentsStore.getState().conversations["a"]?.messages[0]).toEqual({
-      id: "t1",
-      role: "tool",
-      text: "ask",
-      at: 1,
-      tool,
-      agentRun: { run: "r1", agent: "web-researcher", status: "done", seconds: 29 },
-    });
-  });
-
   it("drops every conversation on welcome so a reconnect starts clean", () => {
     route({
       t: "agent.conversation",

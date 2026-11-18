@@ -78,7 +78,7 @@ export interface ChatState {
   /** Extras that arrived before their pane was opened (main emits during `chat.open`). */
   pendingExtras: Record<string, PaneExtras>
   setExtras(e: Extras): void
-  /** Hides the pane's finished subagent chips (finished specialist badges clear through the host's dismissed set). */
+  /** Hides the pane's finished subagent chips. */
   clearDone(paneId: string): void
   openPane(paneId: string, data: OpenData): void
   /** Forgets a pane that went away (a tool pane's chat tab closed). */

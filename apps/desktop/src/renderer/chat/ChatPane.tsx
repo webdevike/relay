@@ -14,8 +14,7 @@ import { WidgetActions, type WidgetActionsValue } from './widgets/actions'
 import { PendingDialog } from './cards/PendingDialog'
 import { JobsStrip } from './strips/JobsStrip'
 import { StatusStrip } from './strips/StatusStrip'
-import { SubagentChips, useMinute } from './strips/SubagentChips'
-import { chatServiceRuns, chatSpecialists, useServiceRuns } from './strips/specialist-runs'
+import { SubagentChips } from './strips/SubagentChips'
 import { AgentWorkCards } from './strips/AgentWorkCards'
 import { MeetingCards } from './strips/MeetingCards'
 import { useFrontChatPane } from './front-chat'
@@ -25,8 +24,6 @@ import { ownedActive } from '@evaos/chat-core/activity'
 import { listStore, useListStore } from './list/list-store'
 import { sessionId } from '@evaos/chat-core/session-id'
 import { chatStore, hiddenKey, useChatStore } from './chat-store'
-import { agentRunCardId } from '@relay/protocol'
-import { dismissCard, useDismissedIds } from './status-card/dismissed-cards'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
 import { browserScope, placeOf, type Place } from '@evaos/shell-core'
@@ -61,7 +58,6 @@ import {
 import { PinsScope, usePinsFor } from '../pins/pins-scope'
 import { PinsButton, PinsRail, useRailFits } from '../pins/PinsRail'
 import { PinHoverLayer } from '../pins/PinHoverLayer'
-import { useThreadTrialRows } from './trials/trials-store'
 
 declare global {
   interface Window {
@@ -262,24 +258,10 @@ function ChatView({
     () => ownedActive(activityItems, ownThread).filter((i) => i.kind !== 'helper'),
     [activityItems, ownThread],
   )
-  // Taste agents' trial cards and model switch messages of this chat, as the host keeps them.
-  const trialRows = useThreadTrialRows(ownThread)
   // The owning assistant's portrait color tints the chips' progress fill; a plain chat uses the accent.
   const agentColor = useAssistants((s) =>
     agent === null ? undefined : agentOf(s, agent)?.avatar.colors?.accent,
   )
-  // Every specialist this chat asked (its agents calls, and the service's record of runs it asked
-  // for), a badge each from its ask to its end; Clear done hides the finished ones.
-  const serviceRuns = useServiceRuns()
-  const minute = useMinute()
-  const dismissed = useDismissedIds()
-  const specialists = useMemo(() => {
-    if (!pane) return []
-    const service = chatServiceRuns(serviceRuns ?? [], pane.file, agent)
-    return chatSpecialists(shownMessages ?? [], service, minute, serviceRuns).filter(
-      (r) => !(r.status !== 'running' && dismissed.includes(agentRunCardId(r))),
-    )
-  }, [pane, serviceRuns, agent, shownMessages, minute, dismissed])
 
   // A tab on this chat names it as the header does, and follows a rename or omp's auto title.
   const shownFile = pane?.file ?? ''
@@ -417,7 +399,6 @@ function ChatView({
                   shown
                   typing={typing}
                   busy={pane.running}
-                  trials={trialRows}
                 />
               </ReactionScope.Provider>
             </WidgetActions.Provider>
@@ -457,11 +438,7 @@ function ChatView({
             if (split) openSubagentTab({ session: pane.file, file, name: s.name })
             else drillStore.push(paneId, { file, title: s.name })
           }}
-          onClearDone={() => {
-            chatStore.getState().clearDone(paneId)
-            for (const r of specialists) if (r.status !== 'running') dismissCard(agentRunCardId(r))
-          }}
-          specialists={specialists}
+          onClearDone={() => chatStore.getState().clearDone(paneId)}
         />
       ) : null}
       {inFront ? <AgentWorkCards /> : null}

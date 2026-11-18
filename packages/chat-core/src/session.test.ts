@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { agentRunsByRow } from '@relay/protocol/agent-runs'
 import { parseSession, untagged } from './session'
 
 const j = (o: unknown): string => JSON.stringify(o)
@@ -231,42 +230,22 @@ describe('parseSession', () => {
   })
 })
 
-describe('specialist agents calls', () => {
-  const ask = (id: string, args: unknown) => ({
-    type: 'toolCall',
-    id,
-    name: 'write',
-    arguments: {
-      path: 'xd://mcp__relay_agents_ask',
-      i: 'Asking the web researcher',
-      content: JSON.stringify(args),
-    },
-  })
-  const request = { question: 'Who makes the M5?', depth: 'quick' }
-  const done = {
-    run: 'r1',
-    agent: 'web-researcher',
-    status: 'done',
-    request,
-    reply: {
-      answer: 'Apple.',
-      citations: [
-        { url: 'https://apple.com', quote: 'M5', verified: true },
-        { url: 'https://x.com', quote: 'maybe', verified: false },
-      ],
-      model: 'm',
-    },
-    text: 'Apple.',
-    requestedAt: '2026-11-16T10:00:00.000Z',
-    seconds: 29.4,
-    cost: 0.004,
-  }
-
-  it('an xd write to agents_ask is a running agent row, and its result makes it done', () => {
+describe('old specialist agents calls', () => {
+  it('an agents_ask xd write and its result are a plain tool row', () => {
     const call = msg('a', null, {
       role: 'assistant',
       timestamp: 1_000,
-      content: [ask('c1', { agent: 'web-researcher', request })],
+      content: [
+        {
+          type: 'toolCall',
+          id: 'c1',
+          name: 'write',
+          arguments: {
+            path: 'xd://mcp__relay_agents_ask',
+            content: JSON.stringify({ agent: 'web-researcher', request: { question: 'q' } }),
+          },
+        },
+      ],
     })
     const start = j({
       type: 'custom',
@@ -275,71 +254,16 @@ describe('specialist agents calls', () => {
       customType: 'tool_execution_start',
       data: { toolCallId: 'c1', startedAt: '2026-11-16T09:59:59.000Z' },
     })
-    const running = parseSession([call, start].join('\n')).messages
-    expect(running).toHaveLength(1)
-    expect(running[0]!.agent).toEqual({
-      agent: 'web-researcher',
-      status: 'running',
-      request,
-      startedAt: Date.parse('2026-11-16T09:59:59.000Z'),
-    })
-    expect(running[0]!.tool!.input).not.toContain('xd://')
-
     const result = msg('r', 's', {
       role: 'toolResult',
       toolCallId: 'c1',
-      content: [{ type: 'text', text: JSON.stringify(done, null, 2) }],
+      content: [{ type: 'text', text: '{"run":"r1","agent":"web-researcher","status":"done"}' }],
     })
     const rows = parseSession([call, start, result].join('\n')).messages
-    expect(rows[0]!.agent).toMatchObject({
-      run: 'r1',
-      agent: 'web-researcher',
-      status: 'done',
-      text: 'Apple.',
-      seconds: 29.4,
-      cost: 0.004,
-      sources: 1,
-    })
-    expect(rows[0]!.agent!.reply).not.toHaveProperty('model')
-  })
-
-  it('an ask that came back running and a later agents_result fold to one done run', () => {
-    const text = [
-      msg('a', null, {
-        role: 'assistant',
-        content: [ask('c1', { agent: 'web-researcher', request })],
-      }),
-      msg('b', 'a', {
-        role: 'toolResult',
-        toolCallId: 'c1',
-        content: [{ type: 'text', text: JSON.stringify({ ...done, status: 'running' }) }],
-      }),
-      msg('c', 'b', {
-        role: 'assistant',
-        content: [
-          {
-            type: 'toolCall',
-            id: 'c2',
-            name: 'write',
-            arguments: { path: 'xd://mcp__relay_agents_result', content: '{"run":"r1"}' },
-          },
-        ],
-      }),
-      msg('d', 'c', {
-        role: 'toolResult',
-        toolCallId: 'c2',
-        content: [{ type: 'text', text: JSON.stringify(done) }],
-      }),
-      msg('e', 'd', { role: 'assistant', content: [{ type: 'text', text: 'Apple makes it.' }] }),
-    ].join('\n')
-    const rows = parseSession(text).messages
-    expect(rows.map((m) => m.agent?.status)).toEqual(['running', 'done', undefined])
-    const byRow = agentRunsByRow(rows, (m) =>
-      m.role === 'user' ? 'user' : m.role === 'assistant' ? 'reply' : m.agent,
-    )
-    expect([...byRow.keys()]).toEqual([2])
-    expect(byRow.get(2)).toHaveLength(1)
-    expect(byRow.get(2)![0]).toMatchObject({ run: 'r1', status: 'done', sources: 1 })
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ role: 'tool', text: 'write' })
+    expect(rows[0]!.tool).toMatchObject({ call: 'c1', status: 'done' })
+    expect(rows[0]).not.toHaveProperty('agent')
   })
 })
 
@@ -454,58 +378,31 @@ describe('omp timestamps (reaction keys)', () => {
   })
 })
 
-describe('parseSession specialist router', () => {
-  const decision = {
-    v: 1,
-    kind: 'decision',
-    id: 'sr-1',
-    at: '2026-11-17T20:00:00.000Z',
-    assistant: 'nova',
-    mode: 'shadow',
-    agent: 'web-researcher',
-    confidence: 0.86,
-    why: 'wants sourced prices',
-    alternatives: [],
-    threshold: 0.7,
-    hinted: false,
-    latencyMs: 300,
-    prompt: 'x',
-  }
-  const router = (id: string, parentId: string, data: unknown): string =>
-    j({ type: 'custom', id, parentId, customType: 'eva.specialist-router', data })
-
-  it("puts the decision on the user row it judged and the turn's outcome once it is written", () => {
-    const head = [
-      router('d', 'root', decision),
-      j({ type: 'custom', id: 'r', parentId: 'd', customType: 'date-reminder', data: {} }),
-      msg('u', 'r', { role: 'user', content: 'prices?', timestamp: 5 }),
-      msg('a', 'u', { role: 'assistant', content: [{ type: 'text', text: 'Here.' }] }),
-    ]
-    const running = parseSession(head.join('\n')).messages
-    expect(running.map((m) => m.router?.decision.id)).toEqual(['sr-1', undefined])
-    expect(running[0]!.router!.outcome).toBeUndefined()
-    const ended = parseSession(
-      [
-        ...head,
-        router('o', 'a', {
-          v: 1,
-          kind: 'outcome',
-          id: 'sr-1',
-          at: 'x',
-          used: true,
-          usedAgents: ['web-researcher'],
-        }),
-      ].join('\n'),
-    ).messages
-    expect(ended[0]!.router!.outcome!.used).toBe(true)
-    expect(ended).toHaveLength(2)
-  })
-
-  it('leaves rows alone without router entries or with junk ones', () => {
+describe('parseSession old specialist router entries', () => {
+  it('skips the retired eva.specialist-router entries without touching the rows', () => {
     const text = [
-      router('d', 'root', { ...decision, v: 2 }),
-      msg('u', 'd', { role: 'user', content: 'hi' }),
+      j({
+        type: 'custom',
+        id: 'd',
+        parentId: 'root',
+        customType: 'eva.specialist-router',
+        data: { v: 1, kind: 'decision', id: 'sr-1', agent: 'web-researcher' },
+      }),
+      msg('u', 'd', { role: 'user', content: 'prices?', timestamp: 5 }),
+      msg('a', 'u', { role: 'assistant', content: [{ type: 'text', text: 'Here.' }] }),
+      j({
+        type: 'custom',
+        id: 'o',
+        parentId: 'a',
+        customType: 'eva.specialist-router',
+        data: { v: 1, kind: 'outcome', id: 'sr-1', used: true },
+      }),
     ].join('\n')
-    expect(parseSession(text).messages[0]).not.toHaveProperty('router')
+    const { messages } = parseSession(text)
+    expect(messages.map((m) => [m.role, m.text])).toEqual([
+      ['user', 'prices?'],
+      ['assistant', 'Here.'],
+    ])
+    for (const m of messages) expect(m).not.toHaveProperty('router')
   })
 })

@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
-import { notifications } from '@mantine/notifications'
 import { makeMessage, type ChatMessage } from '@evaos/chat-core/message'
 import { QUICK_REACTIONS } from '@evaos/chat-core/reactions'
 
@@ -14,7 +13,6 @@ import { MessageRow } from '../MessageRow'
 import { RELAY_DOWN, quoteOf } from './BubbleActions'
 import { ReactionBar } from './ReactionBar'
 import { ReactionScope, reactionsStore } from './reactions-store'
-import { replyWidgetsStore } from './reply-widgets'
 
 const THREAD = 'session:s1'
 const writeText = vi.fn(async (_text: string) => {})
@@ -41,7 +39,6 @@ beforeEach(() => {
   writeText.mockClear()
   reactionsStore.setState({ up: true, threads: {} })
   assistantsStore.setState({ data: null })
-  replyWidgetsStore.setState({ threads: {}, arrived: {}, training: false })
 })
 
 describe('quoteOf', () => {
@@ -51,7 +48,7 @@ describe('quoteOf', () => {
 })
 
 describe('reaction bar and badge', () => {
-  it('opens the bar from the hover button: seven quick picks and more, then reacts', async () => {
+  it('opens the bar from the hover button: six quick picks and more, then reacts', async () => {
     show(user)
     expect(screen.queryByTestId('reaction-badge-u1')).toBeNull()
     fireEvent.click(screen.getByTestId('react-btn-u1'))
@@ -248,112 +245,6 @@ describe('reaction bar and badge', () => {
     show(makeMessage('n1', 'notice', 'Error', { at: 1 }))
     expect(screen.queryByTestId('bubble-t1')).toBeNull()
     expect(screen.queryByTestId('bubble-n1')).toBeNull()
-  })
-})
-
-describe('🎯 train sheet', () => {
-  const NOVA = 'assistant:nova'
-  const train = async (m: ChatMessage, thread: string): Promise<void> => {
-    show(m, thread)
-    fireEvent.click(screen.getByTestId(`react-btn-${m.id}`))
-    fireEvent.click(await screen.findByTestId('reaction-pick-🎯'))
-  }
-
-  it("on an assistant's reply in its thread, asks one question and sends the answer", async () => {
-    const toast = vi.spyOn(notifications, 'show').mockImplementation(() => '')
-    replyWidgetsStore.setState({ training: true })
-    invoke.mockImplementation(async (channel: string) =>
-      channel === 'reactions.widgetLabel'
-        ? { ok: true, value: { ok: true } }
-        : { ok: true, value: { sent: true } },
-    )
-    await train(reply, NOVA)
-    // 🎯 is still a reaction: it shows on the bubble.
-    expect(invoke).toHaveBeenCalledWith('reactions.react', {
-      thread: NOVA,
-      message: 'assistant@200',
-      emoji: '🎯',
-      excerpt: 'Fixed **the dock**.',
-    })
-    expect(screen.getByTestId('reaction-badge-a1')).toHaveTextContent('🎯')
-    const sheet = await screen.findByTestId('train-sheet')
-    expect(screen.queryByTestId('reaction-bar')).toBeNull()
-    expect(sheet).toHaveTextContent('Train on this')
-    expect(sheet).toHaveTextContent("Should've been:")
-    expect([...sheet.querySelectorAll('button')].map((b) => b.getAttribute('data-testid'))).toEqual(
-      ['train-keep', 'train-plain', 'train-chart', 'train-table', 'train-card', 'train-other'],
-    )
-    expect(screen.getByTestId('train-keep')).toHaveTextContent('Keep it like this')
-    fireEvent.click(screen.getByTestId('train-chart'))
-    expect(invoke).toHaveBeenCalledWith('reactions.widgetLabel', {
-      thread: NOVA,
-      message: 'assistant@200',
-      label: 'chart',
-      excerpt: 'Fixed **the dock**.',
-    })
-    await waitFor(() => expect(screen.queryByTestId('train-sheet')).toBeNull())
-    await waitFor(() =>
-      expect(toast).toHaveBeenCalledWith(expect.objectContaining({ message: 'Saved' })),
-    )
-  })
-
-  it('says so when the host could not save the answer', async () => {
-    const toast = vi.spyOn(notifications, 'show').mockImplementation(() => '')
-    replyWidgetsStore.setState({ training: true })
-    invoke.mockImplementation(async (channel: string) =>
-      channel === 'reactions.widgetLabel'
-        ? { ok: true, value: { ok: false, error: 'Not connected.' } }
-        : { ok: true, value: { sent: true } },
-    )
-    await train(reply, NOVA)
-    fireEvent.click(await screen.findByTestId('train-keep'))
-    await waitFor(() =>
-      expect(toast).toHaveBeenCalledWith(
-        expect.objectContaining({
-          color: 'red',
-          message: expect.stringContaining('Not connected.'),
-        }),
-      ),
-    )
-    toast.mockRestore()
-  })
-
-  it('dismissing it sends nothing', async () => {
-    replyWidgetsStore.setState({ training: true })
-    await train(reply, NOVA)
-    await screen.findByTestId('train-sheet')
-    act(() => void dismissTop())
-    await waitFor(() => expect(screen.queryByTestId('train-sheet')).toBeNull())
-    expect(invoke.mock.calls.map(([c]) => c)).not.toContain('reactions.widgetLabel')
-  })
-
-  it('is a plain reaction on a host without widget training, a user bubble, or a session thread', async () => {
-    const closed = async (): Promise<void> => {
-      await waitFor(() => expect(screen.queryByTestId('reaction-bar')).toBeNull())
-      expect(screen.queryByTestId('train-sheet')).toBeNull()
-    }
-    await train(reply, NOVA)
-    await closed()
-    replyWidgetsStore.setState({ training: true })
-    await train(makeMessage('u9', 'user', 'Show me sales', { at: 900 }), NOVA)
-    await closed()
-    await train(makeMessage('a9', 'assistant', 'Sales.', { at: 901 }), THREAD)
-    await closed()
-    expect(invoke.mock.calls.filter(([c]) => c === 'reactions.react')).toHaveLength(3)
-    expect(invoke.mock.calls.map(([c]) => c)).not.toContain('reactions.widgetLabel')
-  })
-
-  it('taking 🎯 off asks nothing', async () => {
-    replyWidgetsStore.setState({ training: true })
-    reactionsStore.setState({
-      threads: { [NOVA]: { 'assistant@200': { isaac: { emoji: '🎯', excerpt: '', at: 1 } } } },
-    })
-    show(reply, NOVA)
-    fireEvent.click(screen.getByTestId('reaction-badge-a1'))
-    fireEvent.click(await screen.findByTestId('reaction-pick-🎯'))
-    expect(invoke).toHaveBeenCalledWith('reactions.react', expect.objectContaining({ emoji: null }))
-    await waitFor(() => expect(screen.queryByTestId('reaction-bar')).toBeNull())
-    expect(screen.queryByTestId('train-sheet')).toBeNull()
   })
 })
 

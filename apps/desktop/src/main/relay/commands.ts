@@ -209,21 +209,6 @@ export function bookmarkFrame(
   return { t: 'bookmark.set', thread, message, on }
 }
 
-/** Asks for `thread`'s follow-up reply widgets; Relay answers with its `widgets.snapshot`. Only for a host with the "reply.widgets" feature. */
-export function widgetsGetFrame(thread: string): Record<string, unknown> {
-  return { t: 'widgets.get', thread }
-}
-
-/** Isaac's 🎯 answer for assistant reply `message` (its reaction key) of `thread`, read on the desktop. Relay answers `widget.labeled`. */
-export function widgetLabelFrame(
-  thread: string,
-  message: string,
-  label: string,
-  excerpt: string,
-): Record<string, unknown> {
-  return { t: 'widget.label', thread, message, label, surface: 'desktop', excerpt }
-}
-
 /** Asks for the dismissed status cards; Relay answers with `cards.dismissed`. Only for a host with the "cards.dismissed" feature. */
 export function cardsGetFrame(): Record<string, unknown> {
   return { t: 'cards.get' }

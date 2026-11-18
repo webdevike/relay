@@ -1115,32 +1115,6 @@ export class FakeRelayHost {
     return { t: 'bookmarks.snapshot', thread, messages: this.bookmarks(thread) }
   }
 
-  /** Each thread's follow-up reply widgets by reply key, as a host with "reply.widgets" keeps them. */
-  private readonly widgetsOf = new Map<string, Record<string, string>>()
-  /** Every `widgets.get` and `widget.label` the app sent, in order. */
-  readonly widgetFrames: Json[] = []
-
-  /** Adds reply `message`'s follow-up widget (a whole ```openui fence) and pushes the thread's snapshot, as the live host does. */
-  addReplyWidget(thread: string, message: string, block: string): void {
-    this.widgetsOf.set(thread, { ...this.widgetsOf.get(thread), [message]: block })
-    this.broadcast(this.widgetsSnapshot(thread))
-  }
-
-  private widgetsSnapshot(thread: string): Json {
-    return { t: 'widgets.snapshot', thread, widgets: this.widgetsOf.get(thread) ?? {} }
-  }
-
-  /** Every trial card and switch message, as a host with "trials" keeps them (`trials.snapshot`). */
-  private trialsHeld: { trials: Json[]; switches: Json[] } = { trials: [], switches: [] }
-  /** Every `trials.get`, `trial.pick` and `trial.undo` the app sent, in order. */
-  readonly trialFrames: Json[] = []
-
-  /** Sets the cards and switch messages and pushes them to every device, as the host does on any change. */
-  setTrials(trials: Json[], switches: Json[] = []): void {
-    this.trialsHeld = { trials, switches }
-    this.broadcast({ t: 'trials.snapshot', ...this.trialsHeld })
-  }
-
   private snapshotOf(thread: string): Json {
     return { t: 'reactions.snapshot', thread, reactions: this.reactionsOf.get(thread) ?? {} }
   }
@@ -1372,13 +1346,6 @@ export class FakeRelayHost {
           f.on === true ? [...have, message] : have.filter((k) => k !== message),
         )
       }
-      case 'widgets.get':
-        this.widgetFrames.push(f)
-        return peer.send(this.widgetsSnapshot(String(f.thread)))
-      case 'widget.label':
-        this.widgetFrames.push(f)
-        // The live host saves it as a widget bench case; this one always manages.
-        return peer.send({ t: 'widget.labeled', thread: f.thread, message: f.message, ok: true })
       case 'board.subscribe':
       case 'board.get':
         return peer.send({ t: 'board.snapshot', rev: 1, boards: this.boards })
@@ -1391,16 +1358,6 @@ export class FakeRelayHost {
       case 'stats.get':
         this.statsGets++
         return peer.send({ t: 'stats.snapshot', stats: this.statsSnapshot })
-      case 'trials.get':
-        this.trialFrames.push(f)
-        return peer.send({ t: 'trials.snapshot', ...this.trialsHeld })
-      case 'trial.pick':
-        // The live host records it on the agent's bench and pushes the revealed card; tests push that.
-        this.trialFrames.push(f)
-        return peer.send({ t: 'trial.picked', trial: f.trial, ok: true })
-      case 'trial.undo':
-        this.trialFrames.push(f)
-        return peer.send({ t: 'trial.undone', switch: f.switch, ok: true })
       case 'artifacts.get':
         return peer.send({
           t: 'artifacts.snapshot',

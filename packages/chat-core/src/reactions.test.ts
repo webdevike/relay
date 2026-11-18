@@ -7,12 +7,7 @@ import {
   ReactionEmojiSchema,
   ReactionKeySchema,
   ReactionThreadSchema,
-  TRAIN_REACTION,
   ThreadReactionsSchema,
-  ThreadWidgetsSchema,
-  WIDGET_LABELS,
-  WIDGET_LABEL_TEXT,
-  WidgetLabelSchema,
   agentReactions,
   assistantReactionThread,
   reactionExcerpt,
@@ -25,8 +20,7 @@ import {
 
 describe('reaction helpers (mirror of relay protocol "Reactions")', () => {
   it('keeps the quick picks in the protocol order, and every offered emoji is valid', () => {
-    expect(QUICK_REACTIONS).toEqual(['❤️', '👍', '👎', '😂', '‼️', '❓', '🎯'])
-    expect(QUICK_REACTIONS.at(-1)).toBe(TRAIN_REACTION)
+    expect(QUICK_REACTIONS).toEqual(['❤️', '👍', '👎', '😂', '‼️', '❓'])
     for (const e of [...QUICK_REACTIONS, ...MORE_REACTIONS]) {
       expect(ReactionEmojiSchema.safeParse(e).success, e).toBe(true)
     }
@@ -34,23 +28,6 @@ describe('reaction helpers (mirror of relay protocol "Reactions")', () => {
     expect(MORE_REACTIONS.some((e) => (QUICK_REACTIONS as readonly string[]).includes(e))).toBe(
       false,
     )
-  })
-
-  it('mirrors the reply widget labels and snapshots', () => {
-    expect(WIDGET_LABELS).toEqual(['keep', 'plain', 'chart', 'table', 'card', 'other'])
-    expect(WIDGET_LABELS.map((l) => WIDGET_LABEL_TEXT[l])).toEqual([
-      'Keep it like this',
-      'Plain text',
-      'Chart',
-      'Table',
-      'Card',
-      'Other',
-    ])
-    expect(WidgetLabelSchema.safeParse('graph').success).toBe(false)
-    const fence = '```openui\nroot = Card([])\n```'
-    expect(ThreadWidgetsSchema.safeParse({ 'assistant@1': fence }).success).toBe(true)
-    expect(ThreadWidgetsSchema.safeParse({ 'row-1': fence }).success).toBe(false)
-    expect(ThreadWidgetsSchema.safeParse({ 'assistant@1': '' }).success).toBe(false)
   })
 
   it('rejects text, empty and overlong emoji', () => {

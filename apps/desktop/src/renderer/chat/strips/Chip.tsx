@@ -3,7 +3,6 @@ import { Scroller } from '@mantine/core'
 import {
   IconAlertCircle,
   IconCheck,
-  IconChefHat,
   IconChevronLeft,
   IconChevronRight,
   IconSubtask,
@@ -31,40 +30,6 @@ export interface ChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>,
   children?: ReactNode
   ref?: Ref<HTMLButtonElement> | undefined
   'data-testid'?: string | undefined
-}
-
-/**
- * One specialist run (an agents_ask): a squared tag in the accent's light tint while it runs, its
- * clock ticking; grey with a check once done, light red when it failed.
- */
-export function SpecialistChip({
-  label,
-  state,
-  clock,
-  className,
-  children,
-  ...rest
-}: ChipProps & {
-  /** Elapsed while it runs, how long it took once it ended. */
-  clock?: string | null | undefined
-}) {
-  return (
-    <button
-      type="button"
-      {...rest}
-      className={className ? `eva-chip eva-label ${className}` : 'eva-chip eva-label'}
-      data-kind="specialist"
-      data-state={state}
-    >
-      <SubagentStateIcon state={state} />
-      <IconChefHat size={12} stroke={1.5} aria-hidden="true" />
-      <span className="eva-chip-name">{label}</span>
-      {clock === undefined || clock === null ? null : (
-        <span className="eva-chip-clock">{clock}</span>
-      )}
-      {children}
-    </button>
-  )
 }
 
 /** One subagent session of the chat: a round chip with its state and the helper icon. */

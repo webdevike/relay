@@ -17,7 +17,6 @@ import { selectionTarget, type PinTarget } from '../../pins/PinHoverLayer'
 import { usePinsScope } from '../../pins/pins-scope'
 import {
   ISAAC_REACTOR,
-  TRAIN_REACTION,
   agentReactions,
   reactionExcerpt,
   reactionKeyOf,
@@ -28,8 +27,6 @@ import { BubbleMenu } from './BubbleMenu'
 import { AgentReactionBadge, ReactionBadge } from './ReactionBadge'
 import { ReactionBar } from './ReactionBar'
 import { ReactionScope, react, useReactions, type ReactionScopeValue } from './reactions-store'
-import { useReplyWidgets } from './reply-widgets'
-import { TrainSheet, sendWidgetLabel } from './TrainSheet'
 
 export const RELAY_DOWN = "Reactions need Relay, and it isn't connected."
 
@@ -47,9 +44,7 @@ export function quoteOf(text: string): string {
  * the bubble's top `corner`; it (or Isaac's reaction badge) opens the bar above the bubble. The
  * reactions sit on the bubble's bottom-right corner, side by side: each assistant's, then Isaac's
  * outermost. Right-click opens the bar and a menu at the pointer. Escape or a click elsewhere
- * closes both. Picking 🎯 on an assistant's reply in its thread, on a host that takes widget
- * training, swaps the bar for the one-question "Train on this" sheet. Outside a ReactionScope the
- * bubble renders as is.
+ * closes both. Outside a ReactionScope the bubble renders as is.
  */
 export function BubbleActions(props: {
   m: ChatMessage
@@ -61,11 +56,8 @@ export function BubbleActions(props: {
   return <Actions {...props} scope={scope} />
 }
 
-/**
- * Open: the bar alone (from the button), or the bar with the menu at `at` (right-click); `train`:
- * the 🎯 sheet in the bar's place.
- */
-type Open = { menu: { x: number; y: number } | null; train?: boolean }
+/** Open: the bar alone (from the button), or the bar with the menu at `at` (right-click). */
+type Open = { menu: { x: number; y: number } | null }
 
 function Actions({
   m,
@@ -95,9 +87,6 @@ function Actions({
   const barRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const canBar = reactable && up
-  // 🎯 on an assistant's reply in its thread asks one question when the host takes the answer.
-  const training = useReplyWidgets((s) => s.training)
-  const canTrain = training && m.role === 'assistant' && thread?.startsWith('assistant:') === true
   // Pins: this bubble's whole message, or the text selected in it, into the chat's pin rail.
   const pins = usePinsScope()
   const canPin = pins !== null && pins.up && key !== null
@@ -143,10 +132,6 @@ function Actions({
     if (thread === null || key === null) return
     const next = toggleReaction(current, emoji)
     void react(thread, key, next, reactionExcerpt(m.text))
-    if (next === TRAIN_REACTION && canTrain) {
-      setOpen({ menu: null, train: true })
-      return
-    }
     close()
   }
 
@@ -296,18 +281,9 @@ function Actions({
         ref={barRef}
         className="eva-reaction-pop"
         role="dialog"
-        aria-label={open?.train ? 'Train on this' : 'Reactions'}
+        aria-label="Reactions"
       >
-        {open?.train && thread !== null && key !== null ? (
-          <TrainSheet
-            onPick={(label) => {
-              void sendWidgetLabel(thread, key, label, reactionExcerpt(m.text))
-              close()
-            }}
-          />
-        ) : (
-          <ReactionBar current={current} onPick={pick} />
-        )}
+        <ReactionBar current={current} onPick={pick} />
       </EvaPopover.Dropdown>
     </EvaPopover>
   )

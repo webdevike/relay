@@ -11,11 +11,6 @@
  * the bubble's text to the screen (`onReply`), which quotes it into its composer
  * (`lib/bubbleMenu.ts` `quoteIntoDraft`); Copy, Select Text and Share act on the text without its
  * surface tag.
- *
- * 🎯 turned on for an assistant's reply in an assistant thread, on a host that takes labels
- * (`lib/widgetTraining.ts` `opensWidgetTraining`), also opens the one-question "Train on this"
- * sheet; its answer goes up as `widget.label` (`labelReplyWidget`) and the host's answer shows as a
- * toast.
  */
 import {
   createContext,
@@ -28,15 +23,9 @@ import {
 } from "react";
 import { Keyboard, Share, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
 import { ISAAC_REACTOR, toggleReaction, untagged } from "@relay/protocol";
-import { labelReplyWidget, react, watchReactions } from "@/connection";
+import { react, watchReactions } from "@/connection";
 import { useAssistantStore } from "@/state/assistant";
 import { useBubbleReaction, useBubbleReactions, useReactionsStore } from "@/state/reactions";
-import { useReplyWidgetsStore } from "@/state/replyWidgets";
-import { useTrialsStore } from "@/state/trials";
-import { useTransientMessage } from "@/lib/useTransientMessage";
-import { labelAnswerText, opensWidgetTraining } from "@/lib/widgetTraining";
-import { WidgetTrainingSheet } from "@/agents/WidgetTrainingSheet";
-import { Toast } from "@/ui/Toast";
 import type { Rect } from "@/lib/bubbleMenu";
 import { copyText } from "@/lib/clipboard";
 import { notifyHaptic, selectHaptic, tapHaptic } from "@/lib/haptics";
@@ -89,32 +78,8 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
   const [open, setOpen] = useState<OpenBubble | null>(null);
   const [picking, setPicking] = useState<{ key: string; text: string } | null>(null);
   const [selecting, setSelecting] = useState<string | null>(null);
-  // The reply the 🎯 sheet asks about.
-  const [training, setTraining] = useState<{ key: string; text: string } | null>(null);
-  const toast = useTransientMessage();
-  const showToast = toast.show;
   useCoversContent(open !== null);
   useEffect(() => (thread === null ? undefined : watchReactions(thread)), [thread]);
-  // The host's answer to a label sent from this thread.
-  useEffect(
-    () =>
-      useReplyWidgetsStore.subscribe((state, previous) => {
-        const answer = state.labelAnswer;
-        if (answer !== null && answer !== previous.labelAnswer && answer.thread === thread)
-          showToast(labelAnswerText(answer));
-      }),
-    [thread, showToast],
-  );
-  // A trial pick or undo from this thread that did not go through (trial cards live in the thread's list).
-  useEffect(
-    () =>
-      useTrialsStore.subscribe((state, previous) => {
-        const failure = state.failure;
-        if (failure !== null && failure !== previous.failure && failure.thread === thread)
-          showToast(failure.text);
-      }),
-    [thread, showToast],
-  );
   const shownKey = open?.key ?? picking?.key ?? null;
   const current = useBubbleReaction(thread, shownKey);
 
@@ -129,8 +94,6 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
         return;
       }
       selectHaptic();
-      if (opensWidgetTraining(thread, key, next, useReplyWidgetsStore.getState().trainingUp))
-        setTraining({ key, text });
     },
     [thread],
   );
@@ -235,28 +198,6 @@ export function BubbleMenuProvider({ thread, onReply, children }: BubbleMenuProv
             onClose={close}
           />
         )}
-        {thread?.startsWith("assistant:") === true && (
-          <WidgetTrainingSheet
-            open={training !== null}
-            onPick={(label) => {
-              if (
-                thread !== null &&
-                training !== null &&
-                !labelReplyWidget(thread, training.key, label, training.text)
-              )
-                showToast("Not connected: label not sent");
-              setTraining(null);
-            }}
-            onClose={() => {
-              setTraining(null);
-            }}
-          />
-        )}
-        {toast.message !== null && (
-          <View style={styles.toast} pointerEvents="none">
-            <Toast message={toast.message} />
-          </View>
-        )}
       </View>
       <EmojiPickerSheet
         visible={picking !== null}
@@ -351,6 +292,4 @@ export function ChatBubble({
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  /** Under the chat's header, clear of the composer and the keyboard. */
-  toast: { position: "absolute", top: "18%", left: 0, right: 0 },
 });

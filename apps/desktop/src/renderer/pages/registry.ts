@@ -4,7 +4,6 @@ import { createElement } from 'react'
 import { AgentPage } from '../assistants/AgentPage'
 import { AssistantsHome } from '../assistants/AssistantsHome'
 import { AgentBoardPage } from '../agents-board/AgentBoardPage'
-import { AgentsPage } from '../specialists/AgentsPage'
 import { BoardPage } from '../boards/BoardPage'
 import { CanvasPage } from '../canvas/CanvasPage'
 import { DashboardPage } from '../dashboard/DashboardPage'
@@ -30,7 +29,6 @@ export type PageRegistryKind =
 
 const PAGE_BY_SLUG: Record<string, ComponentType<{ place: Place }>> = {
   assistants: AssistantsHome,
-  agents: AgentsPage,
   board: AgentBoardPage,
   dashboard: DashboardPage,
   jobs: JobsPage,

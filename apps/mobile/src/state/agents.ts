@@ -5,7 +5,6 @@ import type {
   AgentImage,
   AgentMessage,
   AgentOptions,
-  AgentRun,
   AgentSession,
 } from "@relay/protocol";
 import {
@@ -395,7 +394,6 @@ export function updateMessage(
   id: string,
   text: string,
   streaming: boolean,
-  agentRun?: AgentRun,
 ): AgentsData {
   const existing = data.conversations[sessionId];
   if (!existing) return data;
@@ -404,7 +402,7 @@ export function updateMessage(
   const messages = existing.messages.slice();
   const current = messages[index];
   if (current === undefined) return data;
-  const rest = { ...current, ...(agentRun === undefined ? {} : { agentRun }) };
+  const rest = { ...current };
   delete rest.streaming;
   messages[index] = streaming ? { ...rest, text, streaming: true } : { ...rest, text };
   return {
@@ -498,13 +496,7 @@ export interface AgentsStore extends AgentsData {
   setConversation: (sessionId: string, rev: number, messages: AgentMessage[]) => void;
   appendMessages: (sessionId: string, rev: number, append: AgentMessage[]) => boolean;
   setOptions: (sessionId: string, options: AgentOptions) => void;
-  updateMessage: (
-    sessionId: string,
-    id: string,
-    text: string,
-    streaming: boolean,
-    agentRun?: AgentRun,
-  ) => void;
+  updateMessage: (sessionId: string, id: string, text: string, streaming: boolean) => void;
   setImage: (sessionId: string, id: string, image: AgentImage | null) => void;
   setAsk: (sessionId: string, ask: AgentAsk) => void;
   clearAsk: (sessionId: string, id: string) => void;
@@ -540,8 +532,8 @@ export const useAgentsStore = create<AgentsStore>((set, get) => ({
     set(result.data);
     return result.ok;
   },
-  updateMessage: (sessionId, id, text, streaming, agentRun) => {
-    set(updateMessage(get(), sessionId, id, text, streaming, agentRun));
+  updateMessage: (sessionId, id, text, streaming) => {
+    set(updateMessage(get(), sessionId, id, text, streaming));
   },
   setOptions: (sessionId, options) => {
     set({ options: { ...get().options, [sessionId]: options } });

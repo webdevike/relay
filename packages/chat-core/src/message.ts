@@ -1,6 +1,4 @@
 import { z } from 'zod'
-import { AgentRun as AgentRunShape, type AgentRun } from '@relay/protocol/agent-runs'
-import { RouterTurn as RouterTurnShape, type RouterTurn } from '@relay/protocol/specialist-router'
 import { CanvasChatEntrySchema } from './canvas-live'
 import { GuestEntrySchema } from './guest-entry'
 
@@ -11,20 +9,6 @@ export const ToolIoSchema = z.object({
   isError: z.boolean(),
   status: z.enum(['running', 'done', 'failed']),
 })
-
-/** An `agents_ask` / `agents_result` call (`@relay/protocol` `AgentCall`), kept so its result can be read. */
-export const AgentCallSchema = z.object({
-  tool: z.enum(['agents_ask', 'agents_result']),
-  agent: z.string().optional(),
-  run: z.string().optional(),
-  request: z.unknown().optional(),
-})
-
-/** A specialist run (`@relay/protocol` `AgentRun`), checked by the protocol's own schema. */
-export const AgentRunSchema = z.custom<AgentRun>((v) => AgentRunShape.safeParse(v).success)
-
-/** Eva's specialist router on a user row (`@relay/protocol` `RouterTurn`), checked by the protocol's own schema. */
-export const RouterTurnSchema = z.custom<RouterTurn>((v) => RouterTurnShape.safeParse(v).success)
 
 /**
  * `src` is a `data:image/...;base64,...` URL or a `blob:sha256:<64 hex>` token (or, for widget
@@ -59,12 +43,6 @@ export const ChatMessageSchema = z.object({
   at: z.number().optional(),
   canvas: CanvasChatEntrySchema.optional(),
   guest: GuestEntrySchema.optional(),
-  /** A tool row that is an agents call: the call as asked. */
-  agentCall: AgentCallSchema.optional(),
-  /** A tool row that is an agents call: the run it shows (running while the call is out). */
-  agent: AgentRunSchema.optional(),
-  /** A user row of an assistant thread: what the specialist router decided for it, and its outcome once the turn ended. */
-  router: RouterTurnSchema.optional(),
 })
 export type ChatMessage = z.infer<typeof ChatMessageSchema>
 export type ToolIo = z.infer<typeof ToolIoSchema>

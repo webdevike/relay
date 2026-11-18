@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   type ActivityItem,
   type AgentImage,
@@ -22,7 +22,6 @@ import {
   backgroundOf,
   AssistantService,
   AssistantThreads,
-  finishedReply,
   lastReplyOf,
   MAX_LAST_REPLY,
   REGISTER_TIMEOUT_MS,
@@ -33,7 +32,6 @@ import {
 import { MAX_REPLIES, MAX_REPLY_CHARS, splitReplies } from "../src/assistant/replies";
 import type { FillSpawn } from "../src/assistant/signin";
 import { AskStore } from "../src/assistant/ask-store";
-import { SpecialistRunBook } from "../src/assistant/specialist-runs";
 import {
   defaultAssistantPath,
   FileAssistantStore,
@@ -43,7 +41,6 @@ import { voiceTurn } from "../src/assistant/voice";
 import type { PushMessage } from "../src/push/notifier";
 import { AckFailure, type AgentProvider } from "../src/seams";
 import type { SessionClock } from "../src/session";
-import type { FinishedReply } from "../src/widgets/service";
 
 class FakeClock implements SessionClock {
   private timers: { at: number; fn: () => void; cancelled: boolean }[] = [];
@@ -231,10 +228,6 @@ interface HarnessOptions {
   reconnected?: Promise<void>;
   /** The thread's open asks; default an in-memory store whose `since` is the fake clock's start (1000). */
   asks?: AskStore;
-  /** Gets each finished turn's last reply (the widget hook). */
-  onReply?: (reply: FinishedReply) => void;
-  /** The atomic-agents service's runs the thread settles its specialist badges against; default none. */
-  specialistRuns?: SpecialistRunBook;
   /** The host's activity list; default none. */
   activity?: () => readonly ActivityItem[];
 }
@@ -295,8 +288,6 @@ function harness(options: HarnessOptions = {}) {
     agentHome: options.agentHome === null ? null : home,
     store,
     asks,
-    ...(options.onReply === undefined ? {} : { onReply: options.onReply }),
-    ...(options.specialistRuns === undefined ? {} : { specialistRuns: options.specialistRuns }),
     ...(options.activity === undefined ? {} : { activity: options.activity }),
     tokens: {
       tokens: () => tokens,
@@ -1155,64 +1146,6 @@ describe("AssistantService changes", () => {
     expect(h.pushes[0]).toMatchObject({ threadId: "assistant:astra", mutableContent: true });
   });
 
-  it("hands each finished turn's last reply to onReply once, with its reaction key and the turn it answers", async () => {
-    const replies: FinishedReply[] = [];
-    const h = harness({ onReply: (reply) => replies.push(reply) });
-    h.register("working");
-    h.agents.transcript = [
-      { id: "u1", role: "user", text: "Show me the sales by month", at: 10 },
-      { id: "a1", role: "assistant", text: "Pulling them now.", at: 11 },
-      {
-        id: "a2",
-        role: "assistant",
-        text: "Jan 12, Feb 30, Mar 41.\n[[replies: Chart it | Fine]]",
-        at: 12,
-      },
-    ];
-    h.register("idle");
-    await flush();
-    h.register("working");
-    h.register("idle");
-    await flush();
-    expect(replies).toEqual([
-      {
-        agent: "astra",
-        sessionId: "eva-1",
-        message: "assistant@12",
-        text: "Jan 12, Feb 30, Mar 41.",
-        turn: { text: "Show me the sales by month", voice: false },
-      },
-    ]);
-  });
-
-  it("finishedReply marks a voice-call turn, keeps a job line's reply turnless, and has nothing once Isaac wrote again", () => {
-    const voice = toAssistantMessages(
-      [
-        { id: "u1", role: "user", text: voiceTurn("how many boards"), at: 1 },
-        { id: "a1", role: "assistant", text: "Twelve.", at: 2 },
-      ],
-      null,
-      statusPrefix("Astra"),
-    );
-    expect(finishedReply(voice)).toEqual({
-      message: "assistant@2",
-      text: "Twelve.",
-      turn: { text: "how many boards", voice: true },
-    });
-    const job = toAssistantMessages(
-      [
-        { id: "u1", role: "user", text: `${statusPrefix("Astra")}build done`, at: 1 },
-        { id: "a1", role: "assistant", text: "The build passed.", at: 2 },
-      ],
-      null,
-      statusPrefix("Astra"),
-    );
-    expect(finishedReply(job)?.turn).toBeNull();
-    expect(
-      finishedReply([...voice, { id: "u2", role: "user", text: "and Feb?", at: 3 }]),
-    ).toBeNull();
-  });
-
   it("remembers the session file as soon as a status report carries it, keeping the history", () => {
     const h = harness({ history: ["/sessions/old.jsonl"] });
     h.register("idle");
@@ -1413,7 +1346,7 @@ describe("AssistantService earlier contexts", () => {
     expect(messages[2]?.guest?.agent).toEqual(penny);
   });
 
-  it("puts the specialists a turn asked on its reply, read from the transcript", async () => {
+  it("reads old agents_ask calls as plain tool calls and skips old specialist router entries", async () => {
     const h = harness();
     const file = join(h.home, "2026-11-16T0400_hhhh.jsonl");
     const run = {
@@ -1431,6 +1364,11 @@ describe("AssistantService earlier contexts", () => {
     writeFileSync(
       file,
       [
+        JSON.stringify({
+          type: "custom",
+          customType: "eva.specialist-router",
+          data: { v: 1, kind: "decision", id: "sr-1", agent: "web-researcher" },
+        }),
         JSON.stringify({
           type: "message",
           message: { role: "user", content: "find an SSD", timestamp: 1 },
@@ -1479,141 +1417,14 @@ describe("AssistantService earlier contexts", () => {
     );
     new FileAssistantStore(h.storePath).save({ history: [file] });
     const messages = (await h.service.snapshot()).messages;
-    expect(messages.map((m) => m.role)).toEqual(["user", "assistant"]);
-    expect(messages[1]?.agents).toEqual([
-      {
-        run: "run-1",
-        agent: "web-researcher",
-        status: "done",
-        request: { question: "SSD?" },
-        reply: {
-          answer: "Acasis.",
-          citations: [{ url: "https://a.example", quote: "fast", verified: true }],
-        },
-        text: "Acasis.",
-        startedAt: 2,
-        seconds: 29,
-        cost: 0.004,
-        sources: 1,
-      },
+    expect(messages.map((m) => [m.role, m.text])).toEqual([
+      ["user", "find an SSD"],
+      ["assistant", "Get the Acasis."],
     ]);
-  });
-
-  it("settles a specialist the transcript left running against the service: done, failed, or unknown", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "relay-journal-"));
-    dirs.push(dir);
-    // The journal is dated: judge it a minute after the asks, inside a run's time limit.
-    vi.useFakeTimers({ toFake: ["Date"] });
-    onTestFinished(() => {
-      vi.useRealTimers();
-    });
-    vi.setSystemTime(Date.parse("2026-11-17T15:08:00.000Z"));
-    const at = "2026-11-17T15:07:01.000Z";
-    const requested = (id: string) =>
-      JSON.stringify({
-        id: `q-${id}`,
-        type: "atomic-agents/run.requested",
-        component: "atomic-agents",
-        job: "ask",
-        run: `ask-${id}`,
-        at,
-        caller: "agent:nova",
-        data: { requestId: id, agent: "prop-render", job: "render", input: {} },
-      });
-    const started = (id: string) =>
-      JSON.stringify({
-        id: `s-${id}`,
-        type: "prop-render/job.started",
-        component: "prop-render",
-        job: "render",
-        run: id,
-        at,
-        data: { _tag: "job.started", requestId: id, input: {}, model: "m" },
-      });
-    const ended = (id: string, tag: "job.succeeded" | "job.failed") =>
-      JSON.stringify({
-        id: `e-${id}`,
-        type: `prop-render/${tag}`,
-        component: "prop-render",
-        job: "render",
-        run: id,
-        at,
-        data: { _tag: tag, seconds: 98, message: "crashed" },
-      });
-    writeFileSync(
-      join(dir, "events.ndjson"),
-      [
-        requested("r-done"),
-        started("r-done"),
-        ended("r-done", "job.succeeded"),
-        requested("r-bad"),
-        started("r-bad"),
-        ended("r-bad", "job.failed"),
-        requested("r-live"),
-        started("r-live"),
-      ].join("\n") + "\n",
-    );
-    const h = harness({ specialistRuns: new SpecialistRunBook(dir) });
-    const file = join(h.home, "2026-11-17T0400_iiii.jsonl");
-    const ask = (id: string, run: string) => [
-      JSON.stringify({
-        type: "message",
-        message: {
-          role: "assistant",
-          content: [
-            {
-              type: "toolCall",
-              id,
-              name: "write",
-              arguments: {
-                path: "xd://mcp__relay_agents_ask",
-                content: JSON.stringify({ agent: "prop-render", request: { subject: id } }),
-              },
-            },
-          ],
-          timestamp: 2,
-        },
-      }),
-      JSON.stringify({
-        type: "message",
-        message: {
-          role: "toolResult",
-          toolCallId: id,
-          toolName: "write",
-          content: [
-            {
-              type: "text",
-              text: JSON.stringify({ run, agent: "prop-render", status: "running" }),
-            },
-          ],
-          isError: false,
-          timestamp: 3,
-        },
-      }),
-    ];
-    writeFileSync(
-      file,
-      [
-        JSON.stringify({
-          type: "message",
-          message: { role: "user", content: "render turbines", timestamp: 1 },
-        }),
-        ...ask("t1", "r-done"),
-        ...ask("t2", "r-bad"),
-        ...ask("t3", "r-live"),
-        ...ask("t4", "r-gone"),
-      ].join("\n"),
-    );
-    new FileAssistantStore(h.storePath).save({ history: [file] });
-    const messages = (await h.service.snapshot()).messages;
-    const runs = messages.flatMap((m) => m.agents ?? []);
-    expect(runs.map((r) => [r.run, r.status])).toEqual([
-      ["r-done", "done"],
-      ["r-bad", "failed"],
-      ["r-live", "running"],
-      ["r-gone", "failed"],
-    ]);
-    expect(runs[1]?.error).toBe("crashed");
+    for (const m of messages) {
+      expect(m).not.toHaveProperty("agents");
+      expect(m).not.toHaveProperty("router");
+    }
   });
 
   it("starts a new primed session after a rollover and keeps the history in the agent's store", async () => {
@@ -1642,74 +1453,6 @@ describe("AssistantService earlier contexts", () => {
     expect((await h.service.snapshot()).messages).toEqual([
       { id: "u1", role: "user", text: "kept", at: 1 },
     ]);
-  });
-
-  it("puts the specialist router's decision and outcome on Isaac's rows, from earlier and live transcripts", async () => {
-    const h = harness();
-    const decision = (id: string, agent: string) => ({
-      type: "custom",
-      customType: "eva.specialist-router",
-      data: {
-        v: 1,
-        kind: "decision",
-        id,
-        at: "2026-11-17T20:00:00.000Z",
-        assistant: "astra",
-        mode: "shadow",
-        agent,
-        confidence: 0.86,
-        why: "wants sourced prices",
-        alternatives: [],
-        threshold: 0.7,
-        hinted: false,
-        latencyMs: 300,
-        prompt: "x",
-      },
-    });
-    const outcome = (id: string) => ({
-      type: "custom",
-      customType: "eva.specialist-router",
-      data: {
-        v: 1,
-        kind: "outcome",
-        id,
-        at: "2026-11-17T20:01:00.000Z",
-        used: true,
-        usedAgents: ["web-researcher"],
-      },
-    });
-    const user = (id: string, text: string, timestamp: number) => ({
-      type: "message",
-      id,
-      message: { role: "user", content: text, timestamp },
-    });
-    const old = join(h.home, "old.jsonl");
-    writeFileSync(
-      old,
-      [decision("sr-1", "web-researcher"), user("e1", "prices?", 10), outcome("sr-1")]
-        .map((entry) => `${JSON.stringify(entry)}\n`)
-        .join(""),
-    );
-    const live = join(h.home, "live.jsonl");
-    writeFileSync(
-      live,
-      `${JSON.stringify(decision("sr-2", "none"))}\n${JSON.stringify(user("e2", "thanks", 20))}\n`,
-    );
-    new FileAssistantStore(h.storePath).save({ sessionFile: live, history: [old] });
-    h.register("working", live);
-    h.agents.transcript = [{ id: "u2", role: "user", text: "thanks", at: 20 }];
-    const rows = (await h.service.snapshot()).messages;
-    expect(
-      rows.map((row) => [row.text, row.router?.decision.agent, row.router?.outcome?.used]),
-    ).toEqual([
-      ["prices?", "web-researcher", true],
-      ["thanks", "none", undefined],
-    ]);
-    // The turn ends: its outcome is appended to the live transcript and the next snapshot has it.
-    writeFileSync(live, `${JSON.stringify(outcome("sr-2"))}\n`, { flag: "a" });
-    const after = (await h.service.snapshot()).messages;
-    expect(after[1]?.router?.outcome?.usedAgents).toEqual(["web-researcher"]);
-    await h.service.retire();
   });
 
   it("answers a turn's work from the transcript a row came from, live while the session works, and a step's detail", () => {
@@ -2534,7 +2277,7 @@ const owned = (
 });
 
 describe("backgroundOf", () => {
-  it("counts the working items the agent owns besides its own session, and its running specialist runs", () => {
+  it("counts the working items the agent owns besides its own session", () => {
     const activity = [
       owned("session:nova-1", "working"),
       owned("session:delegated-a", "working"),
@@ -2543,14 +2286,9 @@ describe("backgroundOf", () => {
       owned("session:old", "done"),
       owned("session:astra-work", "working", "assistant:astra"),
     ];
-    const runs = [
-      { run: "r1", agent: "web-researcher", status: "running" as const },
-      { run: "r1", agent: "web-researcher", status: "running" as const },
-      { run: "r2", agent: "design-critic", status: "done" as const },
-    ];
-    expect(backgroundOf("nova", "nova-1", activity, runs)).toBe(3);
-    expect(backgroundOf("nova", undefined, activity, [])).toBe(3);
-    expect(backgroundOf("astra", "eva-1", activity, [])).toBe(1);
+    expect(backgroundOf("nova", "nova-1", activity)).toBe(2);
+    expect(backgroundOf("nova", undefined, activity)).toBe(3);
+    expect(backgroundOf("astra", "eva-1", activity)).toBe(1);
   });
 });
 

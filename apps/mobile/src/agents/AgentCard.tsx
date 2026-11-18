@@ -6,7 +6,6 @@ import {
   untagged,
   type AgentImageRef,
   type AgentMessage,
-  type AgentRun,
   type AgentSession,
   type AgentStatus,
 } from "@relay/protocol";
@@ -21,7 +20,7 @@ import type { SentCommand } from "@/lib/sentCommand";
 import { echoRows, type UserEcho } from "@/lib/userEcho";
 import { ImageViewer } from "./ImageViewer";
 import { modelShortName, VendorLogo } from "./VendorLogo";
-import { LARGE_BODY, MessageText } from "./MessageText";
+import { MessageText } from "./MessageText";
 import { MarkdownImages } from "./MarkdownImages";
 import { RenderMessage } from "./RenderReportContext";
 import { userImageUrls } from "@evaos/chat-core/image-urls";
@@ -29,8 +28,6 @@ import { ChatBubble } from "./BubbleMenu";
 import { bubbleReactionKey } from "@/lib/reactions";
 import { ActivityRow } from "./ActivityRow";
 import { ToolRow } from "./ToolRow";
-import { AgentsBadge, AgentsCaption, CAPTION_LINE_MIDDLE } from "./AgentsCaption";
-import { sessionAgentRuns } from "@/lib/agentRuns";
 import { ToolStack, ToolTimelineSheet } from "./ToolStack";
 import { MessageAppearance } from "@/ui/MessageAppearance";
 import { ScrollToBottom } from "@/ui/ScrollToBottom";
@@ -144,8 +141,6 @@ interface MessageRowProps {
   pending: boolean;
   /** The session's reaction thread, so media in its replies can report render failures; null while there is none. */
   thread: string | null;
-  /** The specialist agents its turn asked, when they show under this row (`sessionAgentRuns`). */
-  agents: readonly AgentRun[] | undefined;
 }
 
 const USER_RADIUS = 24;
@@ -153,15 +148,7 @@ const USER_RADIUS = 24;
 const REPLY_LIFT_RADIUS = 18;
 const REPLY_LIFT_INSET = 10;
 
-function MessageRow({
-  sessionId,
-  message,
-  onOpenImage,
-  error,
-  pending,
-  thread,
-  agents,
-}: MessageRowProps) {
+function MessageRow({ sessionId, message, onOpenImage, error, pending, thread }: MessageRowProps) {
   const colors = useColors();
   const reactionKey = bubbleReactionKey(message, pending);
   const images =
@@ -231,15 +218,6 @@ function MessageRow({
       return (
         <RenderMessage thread={thread} message={reactionKey} at={message.at}>
           <View style={{ paddingHorizontal: spacing.lg }}>
-            {agents !== undefined && (
-              <AgentsBadge
-                runs={agents}
-                lineMiddle={
-                  message.text.length > 0 ? LARGE_BODY.lineHeight / 2 : CAPTION_LINE_MIDDLE
-                }
-                margin={spacing.lg}
-              />
-            )}
             <ChatBubble
               messageKey={reactionKey}
               side="left"
@@ -255,26 +233,10 @@ function MessageRow({
                 {images}
               </View>
             </ChatBubble>
-            {agents !== undefined && (
-              <AgentsCaption
-                runs={agents}
-                fill={colors.surfaceRaised}
-                style={{ marginTop: spacing.sm }}
-              />
-            )}
           </View>
         </RenderMessage>
       );
     case "tool":
-      // The newest agents call of a turn nothing has answered yet: its specialists' seal and caption, where the reply will go.
-      if (agents !== undefined) {
-        return (
-          <View style={{ paddingHorizontal: spacing.lg }}>
-            <AgentsBadge runs={agents} lineMiddle={CAPTION_LINE_MIDDLE} margin={spacing.lg} />
-            <AgentsCaption runs={agents} fill={colors.surfaceRaised} />
-          </View>
-        );
-      }
       return (
         <View style={{ gap: spacing.sm }}>
           {message.tool === undefined ? (
@@ -501,28 +463,16 @@ export function AgentCard({
       });
     return reversed;
   }, [rows, sent]);
-  // The specialist agents each turn asked, by the row they show under (its last reply, else its last agents call).
-  const agentRuns = useMemo(() => sessionAgentRuns(rows ?? []), [rows]);
-  // Consecutive tool calls collapse into one row, keyed by the run's first call so it never remounts. An agents
-  // call that carries its turn's runs (no reply yet) stays a row of its own, so the stack never hides them.
+  // Consecutive tool calls collapse into one row, keyed by the run's first call so it never remounts.
   const grouped = useMemo(() => {
     if (newestFirst === undefined) return undefined;
     const runs = new Map<string, AgentMessage[]>();
     const listed: AgentMessage[] = [];
     let run: AgentMessage[] | null = null;
     for (const message of [...newestFirst].reverse()) {
-      // An agents call is never a tool row: its badge row when it carries its turn's runs, else nothing (a reply carries them).
-      if (message.role === "tool" && message.agentRun !== undefined) {
-        if (agentRuns.has(message.id)) {
-          run = null;
-          listed.push(message);
-        }
-        continue;
-      }
       if (
         message.role === "tool" &&
-        (message.images === undefined || message.images.length === 0) &&
-        !agentRuns.has(message.id)
+        (message.images === undefined || message.images.length === 0)
       ) {
         if (run === null) {
           run = [];
@@ -544,7 +494,7 @@ export function AgentCard({
       }
     }
     return { listed: listed.reverse(), runs };
-  }, [newestFirst, agentRuns]);
+  }, [newestFirst]);
   const newest = messages === undefined ? undefined : messages[messages.length - 1];
   const running = sent !== undefined && !sent.handoff ? `Running ${sent.name}` : undefined;
   const working = status === "working" || running !== undefined;
@@ -657,7 +607,6 @@ export function AgentCard({
                     (sent !== undefined && item.id === `sent-${String(sent.at)}`)
                   }
                   thread={thread}
-                  agents={agentRuns.get(item.id)}
                 />
               )}
             </MessageAppearance>

@@ -12,7 +12,7 @@ import { EVA_FIXTURE_ROOT } from './helpers/paths'
 // (EVAOS_PROOF=1).
 
 const PHASE = 'phase-files-reveal'
-const REL = 'work/relay-runtime/packages/atomic-agents/src/core/Agent.ts'
+const REL = 'work/relay-runtime/packages/runner/src/core/Agent.ts'
 
 let root: string
 let file: string
@@ -70,11 +70,7 @@ test('files.open inside an ignored nested repo expands the ancestors and selects
   const row = shell.locator(`[data-testid=files-row][data-path="${REL}"]`)
   await expect(row).toBeVisible()
   await expect(row).toHaveAttribute('aria-selected', 'true')
-  for (const dir of [
-    'work',
-    'work/relay-runtime',
-    'work/relay-runtime/packages/atomic-agents/src/core',
-  ]) {
+  for (const dir of ['work', 'work/relay-runtime', 'work/relay-runtime/packages/runner/src/core']) {
     await expect(shell.locator(`[data-testid=files-row][data-path="${dir}"]`)).toBeVisible()
   }
   await proofShot(app, shell, 'tree-reveals-ignored-nested-file', { phase: PHASE })

@@ -295,55 +295,6 @@ bubble keeps one reaction per reactor (`isaac` or an agent id), so the snapshot 
 files from before reactors read as Isaac's. An assistant's reaction is only shown: no note, no feedback
 line, no turn, no push.
 
-## Reply widgets and 🎯 training (`widgets.get`, `widget.label`)
-
-When an assistant's turn ends (its session goes from working to idle), `AssistantService` hands the turn's last
-reply to `src/widgets/service.ts`, after the reply already went out, so the text never waits. Voice-call turns
-and replies that already hold a widget fence (`openui, `ui, `html-widget, `mantine-widget) are
-skipped. So is a reply with no structured data: `src/widgets/gate.ts` counts, with no model call and leaving
-code fences out, measures to compare (currency, %, a number with a unit, either side of "N vs N" / "from N to
-N"), table rows plus list items and `Label: ...` lines holding a number, distinct ticket or PR keys (`ENG-123`,
-`#123`), and images (one is enough with before/after wording). A reply below every limit gets one host log
-line (`no widget data (numbers 1 of 3, items 0 of 3, keys 0 of 2, media 0 of 2), skipped`) and no ask.
-Otherwise the host asks the atomic-agents `widget` specialist (`packages/atomic-agents`, its own
-service `ai.eva.atomic-agents`) over that service's journal (`$XDG_CONFIG_HOME/relay/atomic-agents/events.ndjson`,
-or `ATOMIC_AGENTS_HOME`; `src/widgets/bus.ts` appends and tails it, no import of the package):
-`widget/widget.requested { requestId, draft, surface, context: { channel, askedForDetail } }`, then waits up
-to 35 s for `widget/widget.ready` with that `requestId`: the agent gives up on its own at 30 s and answers
-none, so every logged outcome is the agent's. `surface` is `desktop` when a Relay Desktop had input in
-the last 5 minutes (`control.presence`), else `phone`; `askedForDetail` is a word match on Isaac's turn.
-
-Why the wait is not 3 s any more: in the 1,112 live asks before the gate, the host logged 142 timeouts at
-3 s, yet the agent answered 141 of them (p50 3.5 s, p95 10.6 s, max 16.4 s), 37 with a widget that was
-never shown, against 5 shown in time. The reply never waits on the widget, and `widgets.snapshot` draws it
-under the reply whenever it lands, so the host now waits for the agent's real answer and logs its real `ms`.
-
-The mode is `components.widget.mode` in the service's `config.json`, read on every reply (no restart; `bun
-src/cli.ts mode widget shadow|live|off` in the package writes it): `shadow` (default) logs the answer only, as a
-line of `<home>/bench/widget/shadow.jsonl` (`{ at, mode, agent, thread, message, surface, context, draftHash,
-excerpt, signals, kind: openui|none|timeout, block?, why?, ms, requestId, shown }`, `signals` being the gate's
-that fired) and a `widget/widget.logged` event; `live` logs it the same way and keeps an openui answer for that
-reply in `$XDG_CONFIG_HOME/relay/reply-widgets.json`, sending every device the thread's `widgets.snapshot {
-thread, widgets: { <reply key>: <fence> } }`, which the phone and Relay desktop draw under the reply; `off` (or
-`enabled: false`) asks nothing. An automatic answer landing after Isaac's 🎯 label on that reply is logged but
-never replaces what the label drew. The gate's limits and the wait are `components.widget.autoAsk` in the same
-file, also read on every reply: `{ "numbers": 3, "items": 3, "keys": 2, "media": 2, "waitMs": 35000 }` are the
-defaults, any key may be left out. `widgets.get { thread }` answers the asking device. The host builds the
-service (features `reply.widgets`, `widget.training`) only when the atomic-agents home exists; host.json
-`features.widgets: false` turns it off.
-
-`bun src/widgets/replay.ts [--until <ISO time>] [<home>]` replays the gate, read-only, over the real asks
-(`widget/widget.requested` drafts joined by `requestId` with `shadow.jsonl` and `widget/widget.ready`): how many
-would still run and by which signal, what becomes of the shown, none and timeout outcomes, when the timed-out
-asks really got their answer, and the gate on the 🎯 labels. Over the review's snapshot
-(`--until 2026-11-18T14:44:45.269Z`) 204 of 1,112 asks still run, 2 of the 5 shown widgets among them.
-
-🎯 on an assistant's reply opens a one-question sheet on the device (keep it like this, or plain text, chart,
-table, card, other); its `widget.label { thread, message, label, surface, excerpt }` appends `{ at, agent, thread,
-message, surface, label, answer, excerpt, draft, shown: { kind, source?, block? }, suggestion? }` to
-`<home>/bench/widget/training.jsonl` and a `widget/widget.labeled` event, and answers `widget.labeled { thread,
-message, ok, error? }`. The widget bench (`packages/atomic-agents/domains/widget/bench/widget.ts`) loads those lines as cases.
-
 ## Open asks (`AssistantSnapshot.asks`, `assistant.ask.resolve`)
 
 Questions waiting on Isaac in an assistant's thread, which the phone shows as small badges above the

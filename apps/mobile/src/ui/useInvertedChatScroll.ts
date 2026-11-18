@@ -71,11 +71,6 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
     follow.send({ type: "follow.contentChanged" });
   }, [follow]);
 
-  /** A follow-up is about to grow under the newest reply: stop following so the reply stays put. */
-  const keepPlace = useCallback(() => {
-    follow.send({ type: "follow.keepPlace" });
-  }, [follow]);
-
   const scrollToBottom = useCallback(() => {
     follow.send({ type: "follow.toBottom", animated: !reducedMotion });
   }, [follow, reducedMotion]);
@@ -101,7 +96,7 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
   };
 
   return {
-    listRef, offsetRef, awayFromBottom, scrollToBottom, scrollToRow, followContent, keepPlace,
+    listRef, offsetRef, awayFromBottom, scrollToBottom, scrollToRow, followContent,
     scrollHandlers: {
       onScrollToIndexFailed,
       onContentSizeChange: () => { followContent(); requestSettle(); },

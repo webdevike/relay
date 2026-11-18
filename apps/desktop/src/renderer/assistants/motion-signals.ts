@@ -21,7 +21,7 @@ export function motionSignals(
   const status = agent?.status ?? 'not-started'
   return {
     running: status === 'working' || assistants.starting[id] === true || (open?.running ?? false),
-    // Work it owns in the background (sessions it started, helpers, specialists) is work.
+    // Work it owns in the background (sessions it started, helpers) is work.
     tool: toolOf(agent?.tool ?? null, open) ?? ((agent?.background ?? 0) > 0 ? 'work' : null),
     waiting: status === 'needs-you' || (open?.dialog ?? null) !== null,
     failed:

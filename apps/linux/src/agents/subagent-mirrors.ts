@@ -12,13 +12,7 @@ import { statSync, openSync, readSync, closeSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import type { ActivityItem, AgentSession, Artifact } from "@relay/protocol";
 import { helperItems } from "../activity/sources";
-import {
-  AgentCalls,
-  firstLine,
-  parseSessionRows,
-  type Image,
-  type InboxMessage,
-} from "./transcript";
+import { firstLine, parseSessionRows, type Image, type InboxMessage } from "./transcript";
 import type { OwnedSession } from "./owned-sessions";
 
 /** How often the helpers are looked at, and every mirrored transcript for new lines. */
@@ -82,11 +76,6 @@ function parentOf(file: string, sessionForFile: MirrorDeps["sessionForFile"]): A
 class Mirror {
   private readonly history: InboxMessage[] = [];
   private readonly images = new Map<string, Image>();
-  /** Agents call rows a result read later updated, sent once the read is done. */
-  private readonly updated: InboxMessage[] = [];
-  private readonly agentCalls = new AgentCalls((row) => {
-    this.updated.push(row);
-  });
   private link: MirrorLink | null = null;
   private seq = 0;
   private offset = 0;
@@ -187,7 +176,6 @@ class Mirror {
       this.offset = 0;
       this.partial = "";
       this.history.length = 0;
-      this.agentCalls.clear();
     }
     if (size === this.offset) return false;
     const chunk = Buffer.alloc(size - this.offset);
@@ -200,18 +188,7 @@ class Mirror {
     this.offset = size;
     const lines = (this.partial + chunk.toString("utf8")).split("\n");
     this.partial = lines.pop() ?? "";
-    const appended = parseSessionRows(lines.join("\n"), this.images, this.nextId, this.agentCalls);
-    // A result read now for a call sent before: the row's run moves (`message.agent`).
-    const fresh = new Set(appended);
-    for (const row of this.updated.splice(0)) {
-      if (!fresh.has(row) && row.agentTool !== undefined)
-        this.link?.send({
-          t: "message.agent",
-          id: row.id,
-          text: row.text,
-          agentTool: row.agentTool,
-        });
-    }
+    const appended = parseSessionRows(lines.join("\n"), this.images, this.nextId);
     if (appended.length === 0) return false;
     for (const row of appended) this.history.push(row);
     if (this.history.length > MAX_HISTORY)

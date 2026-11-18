@@ -30,14 +30,6 @@ export const NAV_PAGES: readonly NavPage[] = [
     icon: 'IconMessageChatbot',
   },
   {
-    slug: 'agents',
-    page: 'agents',
-    title: 'Agents',
-    description:
-      'The specialists your assistants ask: what each does, its model and runs. Open one to edit its instructions.',
-    icon: 'IconRobot',
-  },
-  {
     slug: 'board',
     page: 'board',
     title: 'Board',

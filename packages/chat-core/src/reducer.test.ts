@@ -85,7 +85,7 @@ describe('LiveReducer', () => {
     expect(r.messages()[0]!.tool).toMatchObject({ result: 'file body', status: 'done' })
   })
 
-  it('an agents_ask call shows a running run that its result makes done, and keeps it', () => {
+  it('an old agents_ask call is a plain tool row that its result finishes, and keeps it', () => {
     const r = mk()
     const call = {
       type: 'toolCall',
@@ -97,36 +97,18 @@ describe('LiveReducer', () => {
       },
     }
     r.apply({ type: 'message_update', messageId: 'm1', message: asst([call]) })
-    const running = r.messages()[0]!.agent!
-    expect(running).toMatchObject({ agent: 'web-researcher', status: 'running' })
-    expect(typeof running.startedAt).toBe('number')
-    // A later snapshot keeps the time the run started.
-    r.apply({ type: 'message_end', messageId: 'm1', message: { ...asst([call]), timestamp: 1 } })
-    expect(r.messages()[0]!.agent!.startedAt).toBe(running.startedAt)
-    const reply = {
-      run: 'r1',
-      agent: 'web-researcher',
-      status: 'done',
-      reply: { answer: 'a', citations: [{ url: 'u', verified: true }] },
-      seconds: 29,
-    }
+    expect(r.messages()[0]).toMatchObject({ role: 'tool', tool: { status: 'running' } })
+    expect(r.messages()[0]).not.toHaveProperty('agent')
     r.apply({
       type: 'tool_execution_end',
       toolCallId: 'c1',
       isError: false,
-      result: { content: [text(JSON.stringify(reply))] },
+      result: { content: [text('{"run":"r1","status":"done"}')] },
     })
-    expect(r.messages()[0]!.agent).toMatchObject({ run: 'r1', status: 'done', sources: 1 })
     // The finished message's snapshot does not set it running again.
     r.apply({ type: 'message_end', messageId: 'm1', message: asst([call]) })
-    expect(r.messages()[0]!.agent!.status).toBe('done')
-    // The toolResult message gives the same run.
-    r.apply({
-      type: 'message_end',
-      messageId: 't1',
-      message: { role: 'toolResult', toolCallId: 'c1', content: [text(JSON.stringify(reply))] },
-    })
-    expect(r.messages()[0]!.agent).toMatchObject({ run: 'r1', status: 'done', seconds: 29 })
+    expect(r.messages()[0]!.tool).toMatchObject({ status: 'done' })
+    expect(r.messages()[0]).not.toHaveProperty('agent')
   })
 
   it('a relay-canvas custom message_end is a canvas row, with or without an id', () => {

@@ -63,7 +63,6 @@ const KIT = [
   "ListTime",
   "RelayMenu",
   "SessionChip",
-  "SpecialistChip",
   "TablerIcon",
 ];
 
@@ -71,7 +70,7 @@ const SAMPLES = {
   assistant:
     '<AssistantCard title="Nova" status="working" face={{ style: "micah", seed: "nova", colors: { paper: "#f4e9d8" } }} age="5m" />',
   chips:
-    '<ChipStrip><SpecialistChip label="Web researcher" state="running" clock="0:12"/><SessionChip label="scout" state="done" /></ChipStrip>',
+    '<ChipStrip><SessionChip label="scout" state="running" /><SessionChip label="fix" state="done" /></ChipStrip>',
   row: '<ListRow title="x" meta="y" leading={<TablerIcon name="bolt" />} trailing={<ListPill tone="ok">Live</ListPill>} />',
   menu: "<RelayMenu opened><RelayMenu.Target><Button>Open</Button></RelayMenu.Target><RelayMenu.Dropdown><RelayMenu.Item>Rename</RelayMenu.Item></RelayMenu.Dropdown></RelayMenu>",
 };
@@ -150,11 +149,8 @@ describe("the relay kit", () => {
     const html = await render(SAMPLES.chips);
     expect(html).toContain('class="eva-chips"');
     expect(html).toContain("eva-chips-scroller");
-    expect(html).toContain(
-      'class="eva-chip eva-label" data-kind="specialist" data-state="running"',
-    );
-    expect(html).toContain('<span class="eva-chip-name">Web researcher</span>');
-    expect(html).toContain('<span class="eva-chip-clock">0:12</span>');
+    expect(html).toContain('class="eva-chip eva-label" data-state="running"');
+    expect(html).toContain('<span class="eva-chip-name">scout</span>');
     expect(html).toContain('class="eva-chip eva-label" data-state="done"');
   });
 
@@ -183,7 +179,6 @@ describe("the relay page CSS", () => {
     expect(css).toContain("--eva-kit-control-sm:");
     expect(css).toContain(".eva-label {");
     expect(css).toContain(".eva-list-row {");
-    expect(css).toContain(".eva-chip[data-kind='specialist']");
     expect(css).toContain(".eva-menu-item {");
     expect(css).toContain(".eva-as-avatar {");
     expect(css).toContain(":where(.eva-pm > :first-child)");

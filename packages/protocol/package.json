@@ -8,9 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./text-diff": "./src/text-diff.ts",
-    "./agent-runs": "./src/agent-runs.ts",
     "./omp-files": "./src/omp-files.ts",
-    "./specialist-router": "./src/specialist-router.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "scripts": {

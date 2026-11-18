@@ -5,8 +5,6 @@ import {
   ReactionKeySchema,
   ReactionThreadSchema,
   ThreadReactionsSchema,
-  ThreadWidgetsSchema,
-  WidgetLabelSchema,
 } from '@evaos/chat-core/reactions'
 
 /** A thread's reactions as the renderer shows them, and whether Relay can take a change now. */
@@ -24,13 +22,6 @@ export const ReactionsViewSchema = z.object({
   bookmarks: z.array(ReactionKeySchema).nullable().optional(),
   /** The host keeps bookmarks, so a change can be sent now. */
   bookmarksUp: z.boolean().optional(),
-  /**
-   * The thread's follow-up reply widgets (an ```openui fence by reply reaction key) as the host
-   * last sent them; null while it has sent none (down, or one without the "reply.widgets" feature).
-   */
-  widgets: ThreadWidgetsSchema.nullable().optional(),
-  /** The host takes 🎯 answers ("widget.training"), so picking 🎯 on a reply asks the one question. */
-  training: z.boolean().optional(),
 })
 export type ReactionsView = z.infer<typeof ReactionsViewSchema>
 
@@ -69,22 +60,6 @@ export const reactionsInvoke = {
       .object({ thread: ReactionThreadSchema, message: ReactionKeySchema, on: z.boolean() })
       .strict(),
     output: z.object({ sent: z.boolean() }),
-  },
-  /**
-   * Isaac's 🎯 answer for assistant reply `message` of `thread`: sends `widget.label` (surface
-   * desktop) and waits for the host's `widget.labeled`. `ok` false says why (not connected, a host
-   * without "widget.training", no answer, or the host's error).
-   */
-  'reactions.widgetLabel': {
-    input: z
-      .object({
-        thread: ReactionThreadSchema,
-        message: ReactionKeySchema,
-        label: WidgetLabelSchema,
-        excerpt: z.string().max(MAX_REACTION_EXCERPT),
-      })
-      .strict(),
-    output: z.object({ ok: z.boolean(), error: z.string().optional() }),
   },
 } as const
 

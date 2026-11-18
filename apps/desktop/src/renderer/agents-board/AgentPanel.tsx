@@ -19,7 +19,7 @@ export interface PanelChrome {
 }
 
 /**
- * The Agents page's side panel (a card's ticket view, a specialist run's reply). Beside the board
+ * The Board page's side panel (a card's ticket view). Beside the board
  * or list (which shrinks and stays live; drag the edge to resize, double-click it for the default
  * width, collapse it to a strip) or, on a page too narrow for both, an overlay drawer. `open`
  * names what it shows (`label` on the folded strip); `children` draws it.

@@ -14,9 +14,6 @@ import {
   FILES_PRESENCE_FEATURE,
   MEETINGS_FEATURE,
   RENDER_REPORT_FEATURE,
-  REPLY_WIDGETS_FEATURE,
-  WIDGET_TRAINING_FEATURE,
-  TRIALS_FEATURE,
   PROTOCOL_VERSION,
   defaultTabs,
   parseClientMessage,
@@ -34,7 +31,6 @@ import {
   type AgentApproval,
   type AgentAsk,
   type AgentMessage,
-  type AgentRun,
   type AgentOptions,
   type AssistantSnapshot,
   type ClientMessage,
@@ -57,8 +53,6 @@ import type { ActivityRelaying } from "./activity/service";
 import type { RenderFailureReporting } from "./render-failures/service";
 import type { WorkspaceRelaying } from "./workspace/service";
 import type { CanvasFilesRelaying } from "./canvas/files";
-import type { ReplyWidgetRelaying } from "./widgets/service";
-import type { TrialRelaying } from "./trials/service";
 import type { CommandDedupStore } from "./dedup";
 import type { PairingCoordinator } from "./pairing";
 import type { UsageService } from "./usage/service";
@@ -158,10 +152,6 @@ export interface SessionDeps {
   readonly renderFailures?: RenderFailureReporting | null;
   /** Rooms of the connected Relay Desktops; absent or null ignores `rooms.*` and leaves the feature out of `welcome.features`. */
   readonly rooms?: RoomsRelaying | null;
-  /** Reply widgets and 🎯 training (`widgets/service.ts`); absent or null answers `widgets.get` empty, refuses `widget.label` and leaves both features out of `welcome.features`. */
-  readonly replyWidgets?: ReplyWidgetRelaying | null;
-  /** Trial mode (`trials/service.ts`); absent or null answers `trials.get` empty, refuses `trial.pick` / `trial.undo` and leaves TRIALS_FEATURE out of `welcome.features`. */
-  readonly trials?: TrialRelaying | null;
   /** The window mirror the desktops share (`workspace/service.ts`); absent or null ignores `workspace.*` and leaves WORKSPACE_FEATURE out of `welcome.features`. */
   readonly workspace?: WorkspaceRelaying | null;
   /** Sends a `workspace.changed` to every socket but `from` that sent `workspace.get`. */
@@ -339,26 +329,10 @@ export class ClientSession {
     this.sink.send({ t: "agent.messages", sessionId, rev: rev + 1, append: [...messages] });
   }
 
-  /**
-   * Forwards a streaming message's text so far iff subscribed; no rev, the frame is idempotent. An agents call's
-   * tool row comes this way too with its new `agentRun` (a phone without runs sets the same text again).
-   */
-  agentMessageUpdated(
-    sessionId: string,
-    id: string,
-    text: string,
-    streaming: boolean,
-    agentRun?: AgentRun,
-  ): void {
+  /** Forwards a streaming message's text so far iff subscribed; no rev, the frame is idempotent. */
+  agentMessageUpdated(sessionId: string, id: string, text: string, streaming: boolean): void {
     if (this.phase.kind !== "authenticated" || !this.subscriptions.has(sessionId)) return;
-    this.sink.send({
-      t: "agent.message.update",
-      sessionId,
-      id,
-      text,
-      streaming,
-      ...(agentRun === undefined ? {} : { agentRun }),
-    });
+    this.sink.send({ t: "agent.message.update", sessionId, id, text, streaming });
   }
 
   /** Forwards a board write iff this socket sent `board.subscribe`. */
@@ -771,79 +745,6 @@ export class ClientSession {
             thread: message.thread,
             messages: [...(bookmarks?.snapshot(message.thread) ?? [])],
           });
-        break;
-      }
-      case "widgets.get":
-        this.sink.send({
-          t: "widgets.snapshot",
-          thread: message.thread,
-          widgets: this.deps.replyWidgets?.snapshot(message.thread) ?? {},
-        });
-        break;
-      case "widget.label": {
-        const { thread, message: key, label, surface, excerpt } = message;
-        const widgets = this.deps.replyWidgets ?? null;
-        void (
-          widgets === null
-            ? Promise.resolve({ ok: false, error: "this host saves no widget labels" })
-            : widgets.label({ thread, message: key, label, surface, excerpt })
-        ).then((result) => {
-          this.sink.send({
-            t: "widget.labeled",
-            thread,
-            message: key,
-            ok: result.ok,
-            ...(result.error === undefined ? {} : { error: result.error }),
-          });
-        });
-        break;
-      }
-      case "trials.get": {
-        const trials = this.deps.trials ?? null;
-        void (
-          trials === null ? Promise.resolve({ trials: [], switches: [] }) : trials.snapshot()
-        ).then((snapshot) => {
-          this.sink.send({
-            t: "trials.snapshot",
-            trials: snapshot.trials,
-            switches: snapshot.switches,
-          });
-        });
-        break;
-      }
-      case "trial.pick": {
-        const { trial, pick, surface } = message;
-        const trials = this.deps.trials ?? null;
-        // The revealed card reaches every device (this one included) through the service's broadcast; this is the answer.
-        void (
-          trials === null
-            ? Promise.resolve({ ok: false, error: "this host runs no trials" })
-            : trials.pick(trial, pick, surface)
-        ).then((result) => {
-          this.sink.send({
-            t: "trial.picked",
-            trial,
-            ok: result.ok,
-            ...(result.error === undefined ? {} : { error: result.error }),
-          });
-        });
-        break;
-      }
-      case "trial.undo": {
-        const id = message.switch;
-        const trials = this.deps.trials ?? null;
-        void (
-          trials === null
-            ? Promise.resolve({ ok: false, error: "this host runs no trials" })
-            : trials.undo(id)
-        ).then((result) => {
-          this.sink.send({
-            t: "trial.undone",
-            switch: id,
-            ok: result.ok,
-            ...(result.error === undefined ? {} : { error: result.error }),
-          });
-        });
         break;
       }
       case "cards.get":
@@ -1568,10 +1469,6 @@ export class ClientSession {
       ...(this.deps.dismissedCards === null ? [] : [CARDS_DISMISSED_FEATURE]),
       ...(this.deps.stats === null ? [] : [STATS_FEATURE]),
       ...((this.deps.renderFailures ?? null) === null ? [] : [RENDER_REPORT_FEATURE]),
-      ...((this.deps.replyWidgets ?? null) === null
-        ? []
-        : [REPLY_WIDGETS_FEATURE, WIDGET_TRAINING_FEATURE]),
-      ...((this.deps.trials ?? null) === null ? [] : [TRIALS_FEATURE]),
       ...((this.deps.rooms ?? null) === null
         ? []
         : [ROOMS_FEATURE, ROOMS_RESUME_FEATURE, ROOMS_CHAT_FEATURE, ROOMS_DECIDE_FEATURE]),

@@ -22,7 +22,6 @@ import { parseArgs } from "node:util";
 import {
   ControlResult,
   Drop,
-  reactionKey,
   sessionReactionThread,
   type ActivityItem,
   type ServerMessage,
@@ -40,8 +39,6 @@ import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
 import { handleAssistantFile } from "./assistant/files";
-import { SpecialistRunBook } from "./assistant/specialist-runs";
-import { TrialService } from "./trials/service";
 import type { FoundAsk, ListedAsk } from "./assistant/http";
 import type { ConsultResult } from "./seams";
 import { AssistantRegistry, type FieldChange } from "./assistant/admin";
@@ -106,8 +103,6 @@ import {
 } from "./reactions/service";
 import { defaultRenderFailuresPath, RenderFailureService } from "./render-failures/service";
 import { BookmarkService, defaultBookmarksPath } from "./bookmarks/service";
-import { defaultReplyWidgetsPath, ReplyWidgetService, surfaceOf } from "./widgets/service";
-import { defaultAtomicAgentsHome } from "./widgets/bus";
 import { DismissedCardService, defaultDismissedCardsPath } from "./cards/service";
 import { WorkspaceService, defaultWorkspacePath } from "./workspace/service";
 import { CanvasFilesService } from "./canvas/files";
@@ -443,9 +438,6 @@ function serve(
     ...dropLimitsFromEnv(),
     probe: ffmpegProbe(log),
   });
-  // What the atomic-agents service recorded of specialist runs: every thread settles its running badges against it, and
-  // thin clients read the same fold through the `specialist_runs` query.
-  const specialistRuns = new SpecialistRunBook(defaultAtomicAgentsHome());
   // Live widgets' read-only data; `assistant` is only read once a query arrives, long after it is initialised.
   const query = new QueryService(
     queryTools({
@@ -458,7 +450,6 @@ function serve(
       assistants: () => assistant?.agents() ?? Promise.resolve([]),
       now: Date.now,
       goodops: goodopsSource(agentHome),
-      specialistRuns: () => specialistRuns.current(),
     }),
     Date.now,
     log,
@@ -587,11 +578,7 @@ function serve(
       spawn: spawnFill,
       aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
       logPath: hostLogPath(),
-      specialistRuns,
       activity: () => activityItems,
-      onReply: (reply): void => {
-        void replyWidgets?.reply(reply);
-      },
     });
   const assistant = assistantThreads(agentHome, thread, {
     // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
@@ -624,10 +611,6 @@ function serve(
           };
           return registryAdmin.watch();
         })();
-  // A specialist run that ends after the turn moves its assistant's count of running work.
-  specialistRuns.onChange(() => {
-    assistant?.relist();
-  });
   // Local voice calls run on Eva's speech stack (eva-realtime venv + pocket-tts); a host without it has none.
   const voiceRoot =
     agentHome === null
@@ -729,45 +712,6 @@ function serve(
     },
     log,
   });
-  // The atomic-agents widget specialist under assistants' replies (shadow by default) and 🎯 training; needs that service's home.
-  const atomicAgentsHome = defaultAtomicAgentsHome();
-  const replyWidgets = featureOn(
-    config,
-    "widgets",
-    assistant !== null && existsSync(atomicAgentsHome),
-  )
-    ? new ReplyWidgetService({
-        home: atomicAgentsHome,
-        path: defaultReplyWidgetsPath(),
-        surface: () => surfaceOf(control?.devices() ?? [], Date.now()),
-        message: async (thread, key) => {
-          const target = assistant?.thread(thread.slice("assistant:".length));
-          if (target === undefined) return null;
-          const { messages } = await target.snapshot();
-          return (
-            messages.find(
-              (row) => row.role === "assistant" && reactionKey("assistant", row.at) === key,
-            )?.text ?? null
-          );
-        },
-        broadcast: (message): void => {
-          server.broadcastExcept(message, null);
-        },
-        now: () => Date.now(),
-        log,
-      })
-    : null;
-  // Trial mode's cards, picks and Undo, folded from the same journal read the threads' badges use; needs that service's home.
-  const trials = featureOn(config, "trials", existsSync(atomicAgentsHome))
-    ? new TrialService({
-        home: atomicAgentsHome,
-        book: specialistRuns,
-        broadcast: (message): void => {
-          server.broadcastExcept(message, null);
-        },
-        log,
-      })
-    : null;
   const dismissedCards = new DismissedCardService({
     path: defaultDismissedCardsPath(),
     broadcast: (message): void => {
@@ -1086,8 +1030,6 @@ function serve(
       meetings,
       control,
       renderFailures,
-      replyWidgets,
-      trials,
       workspace,
       canvasFiles,
       hostToken,

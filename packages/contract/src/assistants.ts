@@ -43,8 +43,8 @@ export const AssistantSchema = z.object({
   model: z.string().optional(),
   status: AssistantStatusSchema,
   /**
-   * Work it owns that runs now besides its own turn (sessions it started, its thread's helpers,
-   * specialist calls), as the host counts it; `status` is `working` while it is above 0.
+   * Work it owns that runs now besides its own turn (sessions it started, its thread's helpers),
+   * as the host counts it; `status` is `working` while it is above 0.
    */
   background: z.number().int().nonnegative(),
   /** Its thread's own turn runs now (Relay's session is working), apart from any background work. */

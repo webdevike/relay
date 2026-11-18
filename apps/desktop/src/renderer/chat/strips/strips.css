@@ -49,39 +49,6 @@
   color: var(--eva-text-dim);
   font-variant-numeric: tabular-nums;
 }
-/*
- * A specialist run: a squared tag, so its shape alone says it is not a session. The accent's light
- * tint while it runs; grey once done; light red when it failed (fainter in dark, where Mantine's
- * red light reads as a block).
- */
-.eva-chip[data-kind='specialist'] {
-  border-radius: var(--eva-radius-sm);
-  border-color: transparent;
-  background: var(--mantine-primary-color-light);
-  color: var(--mantine-primary-color-light-color);
-}
-.eva-chip[data-kind='specialist'] .eva-spinner {
-  border-color: color-mix(in srgb, var(--mantine-primary-color-light-color) 25%, transparent);
-  border-top-color: var(--mantine-primary-color-light-color);
-}
-.eva-chip[data-kind='specialist'][data-state='done'] {
-  border-color: var(--eva-border);
-  background: var(--eva-surface);
-  color: var(--eva-text-dim);
-}
-.eva-chip[data-kind='specialist'][data-state='failed'] {
-  background: var(--mantine-color-red-light);
-  color: var(--mantine-color-red-light-color);
-}
-[data-mantine-color-scheme='dark'] .eva-chip[data-kind='specialist'][data-state='failed'] {
-  background: color-mix(in srgb, var(--mantine-color-red-filled) 16%, transparent);
-  color: var(--mantine-color-red-4);
-}
-/* A specialist's clock: elapsed while it runs, how long it took once it ended. */
-.eva-chip-clock {
-  opacity: 0.75;
-  font-variant-numeric: tabular-nums;
-}
 .eva-chip:focus-visible,
 .eva-chips-clear:focus-visible,
 .eva-jobs-head:focus-visible {

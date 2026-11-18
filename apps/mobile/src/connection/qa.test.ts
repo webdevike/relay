@@ -142,8 +142,8 @@ describe("SessionMachine heartbeat under stress", () => {
 describe("SessionMachine backoff jitter bounds", () => {
   it("keeps every jittered delay within [0.4s, 6s] across 200 real-random iterations", async () => {
     const delays: number[] = [];
-    for (let trial = 0; trial < 200; trial++) {
-      const targetAttempts = (trial % 6) + 1; // cycles 1..6, covering the capped 5th+ tier too
+    for (let round = 0; round < 200; round++) {
+      const targetAttempts = (round % 6) + 1; // cycles 1..6, covering the capped 5th+ tier too
       const m = new SessionMachine({
         sha256,
         deviceId: "d",

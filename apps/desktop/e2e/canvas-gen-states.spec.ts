@@ -40,8 +40,8 @@ const START = `<Stack gap="md" p="xl">
 const SECTIONS = [
   `<ChipStrip>
     <SessionChip label="Fix login" state="running" />
-    <SpecialistChip label="Web researcher" state="running" clock="0:12" />
-    <SpecialistChip label="Design critic" state="done" />
+    <SessionChip label="Web researcher" state="running" />
+    <SessionChip label="Design critic" state="done" />
   </ChipStrip>`,
   `<Group gap="xs"><AssistantAvatar face="nova-1" size="sm" /><Text size="sm">Nova is working on 3 badges</Text></Group>`,
   `<SimpleGrid cols={3} spacing="sm">

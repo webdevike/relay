@@ -10,7 +10,6 @@ import { openArmTab, revealTool, splitAt, tilingStore } from '../tiling/tiling-s
 import { openWebPage } from '../tiling/web-tabs'
 import { requestExperiment } from '../test-bench/bench-request'
 import { requestSkill } from '../skills/skill-request'
-import { openAgent } from '../specialists/specialists-store'
 import { requestStudioOpen } from '../studio/studio-store'
 import { pointAtSetting } from '../settings/setting-targets'
 import { focusConnection } from '../settings/connections-store'
@@ -169,10 +168,9 @@ export function openAddress(a: TabAddress, target: OpenTarget = 'here'): boolean
 function openPageLink(link: Extract<AppLink, { kind: 'open' }>, target: OpenTarget): boolean {
   const place = appLinkPlace(link)
   if (place === null) return false
-  const { item, job, setting, connect, experiment, arm, skill, agent } = link.params ?? {}
+  const { item, job, setting, connect, experiment, arm, skill } = link.params ?? {}
   if (experiment !== undefined) requestExperiment(experiment)
   if (skill !== undefined && link.page === 'skills') requestSkill(skill)
-  if (agent !== undefined && link.page === 'agents') openAgent(agent)
   openInApp(place, target)
   if (item !== undefined) openReviewItem(item)
   if (job !== undefined) requestStudioOpen({ job })

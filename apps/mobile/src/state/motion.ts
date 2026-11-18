@@ -76,7 +76,7 @@ export function useMotionSignals(agent: string, turnFailed: boolean): MotionSign
   const lastReplyAt = useAssistantStore((state) => state.agents?.find((entry) => entry.id === agent)?.lastReply?.at);
   const background = useAssistantStore((state) => state.agents?.find((entry) => entry.id === agent)?.background ?? 0);
   const sessionId = thread.snapshot?.sessionId ?? null;
-  // Work the agent owns in the background (sessions it started, helpers, specialists) is work.
+  // Work the agent owns in the background (sessions it started, helpers) is work.
   const tool = useAgentsStore((state) => threadTool(state.sessions, sessionId)) ?? (background > 0 ? "work" : null);
   // Primitives only: the call's microphone level changes many times a second.
   const callState = useCallStore((state) => (state.call?.agent === agent ? state.call.state : null));

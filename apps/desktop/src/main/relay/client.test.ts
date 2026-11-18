@@ -473,78 +473,6 @@ describe('RelayClient', () => {
     client.stop()
   })
 
-  it('asks a host with reply widgets for them, keeps its snapshots, and answers a 🎯 label with its widget.labeled', async () => {
-    const { client, relay } = connected()
-    const heard = vi.fn()
-    client.onReactions(heard)
-    client.watchReactions('assistant:nova')
-    client.start()
-    await vi.advanceTimersByTimeAsync(0)
-    // An older host: no widgets.get, and a label is refused without a frame.
-    relay.say({ t: 'welcome', state: { agents: { rev: 1, sessions: [] } } })
-    expect(client.widgetsUp()).toBe(false)
-    expect(client.trainingUp()).toBe(false)
-    expect(await client.labelWidget('assistant:nova', 'assistant@2', 'chart', 'x')).toMatchObject({
-      ok: false,
-    })
-    expect(relay.frames().filter((f) => f.t === 'widgets.get' || f.t === 'widget.label')).toEqual(
-      [],
-    )
-    relay.handlers.at(-1)!.closed(CLOSED)
-    await vi.advanceTimersByTimeAsync(3000)
-
-    relay.say({
-      t: 'welcome',
-      state: { agents: { rev: 1, sessions: [] } },
-      features: ['reply.widgets', 'widget.training'],
-    })
-    expect(relay.frames().filter((f) => f.t === 'widgets.get')).toEqual([
-      { t: 'widgets.get', thread: 'assistant:nova' },
-    ])
-    const fence = '```openui\nroot = Card([])\n```'
-    relay.say({
-      t: 'widgets.snapshot',
-      thread: 'assistant:nova',
-      widgets: { 'assistant@2': fence, 'row-1': fence, 'assistant@3': 7 },
-    })
-    relay.say({
-      t: 'widgets.snapshot',
-      thread: 'assistant:astra',
-      widgets: { 'assistant@2': fence },
-    })
-    expect(client.widgets('assistant:nova')).toEqual({ 'assistant@2': fence })
-    expect(client.widgets('assistant:astra')).toBeNull()
-    expect(heard.mock.calls.at(-1)).toEqual(['assistant:nova'])
-
-    const saved = client.labelWidget('assistant:nova', 'assistant@2', 'chart', 'Sales by month')
-    expect(relay.frames().at(-1)).toEqual({
-      t: 'widget.label',
-      thread: 'assistant:nova',
-      message: 'assistant@2',
-      label: 'chart',
-      surface: 'desktop',
-      excerpt: 'Sales by month',
-    })
-    relay.say({ t: 'widget.labeled', thread: 'assistant:nova', message: 'assistant@2', ok: true })
-    expect(await saved).toEqual({ ok: true })
-    const refused = client.labelWidget('assistant:nova', 'assistant@2', 'keep', '')
-    relay.say({
-      t: 'widget.labeled',
-      thread: 'assistant:nova',
-      message: 'assistant@2',
-      ok: false,
-      error: 'bench is read-only',
-    })
-    expect(await refused).toEqual({ ok: false, error: 'bench is read-only' })
-    // Relay going away answers a label still waiting.
-    const waiting = client.labelWidget('assistant:nova', 'assistant@2', 'table', '')
-    relay.handlers.at(-1)!.closed(CLOSED)
-    expect(await waiting).toMatchObject({ ok: false })
-    client.unwatchReactions('assistant:nova')
-    expect(client.widgets('assistant:nova')).toBeNull()
-    client.stop()
-  })
-
   it('asks a host that keeps dismissed cards for them on connect, keeps its set and sends changes; an older host hears nothing', async () => {
     const { client, relay } = connected()
     const heard = vi.fn()
@@ -710,9 +638,6 @@ describe('StaticRelay', () => {
     expect(relay.bookmarksUp()).toBe(false)
     expect(relay.bookmark()).toBe(false)
     expect(relay.bookmarks()).toBeNull()
-    expect(relay.widgetsUp()).toBe(false)
-    expect(relay.widgets()).toBeNull()
-    expect(relay.trainingUp()).toBe(false)
   })
 })
 

@@ -9,18 +9,15 @@ import { toolLabel } from "./toolName";
 /** A reply's brain: the turn is over, or it runs now (the brain pulses). */
 export type WorkBrain = "settled" | "live";
 
-/** A row that starts a turn: Isaac's message, or a job line (a `status` row that is not a specialist caption or a guest's line). */
+/** A row that starts a turn: Isaac's message, or a job line (a `status` row that is not a guest's line). */
 function startsTurn(row: AssistantMessage): boolean {
-  return (
-    row.role === "user" ||
-    (row.role === "status" && row.agents === undefined && row.guest === undefined)
-  );
+  return row.role === "user" || (row.role === "status" && row.guest === undefined);
 }
 
 /**
  * The replies that carry a brain, by row id: the last assistant row of every turn in `rows` (oldest first),
  * the newest one `live` while the thread is `busy`. `skip` leaves out rows that are not the host's (echoes,
- * local rows, ask and trial cards). Empty when the brain is off (`show`): Settings' Show work, and a host that
+ * local rows, ask cards). Empty when the brain is off (`show`): Settings' Show work, and a host that
  * answers `assistant.work.req`.
  */
 export function workBrains(

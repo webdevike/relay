@@ -10,11 +10,6 @@
  * the middle and remembers it (`target`), so a row the list had not laid out yet still ends up
  * centred when `useInvertedChatScroll` retries.
  *
- * `follow.keepPlace` is the one way out of `following` without a gesture: a follow-up widget is
- * about to mount under the newest reply, and following would push the reply up by its height. It
- * stops following before the widget mounts, so native anchoring keeps the reply where Isaac reads
- * it and the widget arrives below (the scroll-to-bottom button shows it is there).
- *
  * Effects are named actions `useInvertedChatScroll` provides: `followNewest` (pin to 0 on the
  * next frame, if still following), `scrollHome` (to 0, animated or not) and `centreRow`.
  */
@@ -40,8 +35,6 @@ export type ChatFollowEvent =
   | { type: "follow.scroll"; offset: number }
   /** Rows arrived or grew. */
   | { type: "follow.contentChanged" }
-  /** Something is about to grow under the newest reply that must not move it. */
-  | { type: "follow.keepPlace" }
   | { type: "follow.toBottom"; animated: boolean }
   | { type: "follow.toRow"; index: number; animated: boolean };
 
@@ -57,7 +50,6 @@ export const chatFollowMachine = setup({
     scrollHome: () => undefined,
     centreRow: () => undefined,
     atBottom: assign({ near: true }),
-    leaveBottom: assign({ near: false }),
     trackOffset: assign({
       near: ({ context, event }) => ("offset" in event ? event.offset <= BOTTOM_THRESHOLD : context.near),
     }),
@@ -98,7 +90,6 @@ export const chatFollowMachine = setup({
         "follow.contentChanged": { actions: "followNewest" },
         "follow.dragStart": "reading.moving",
         "follow.momentumStart": "reading.moving",
-        "follow.keepPlace": { target: "reading.still", actions: "leaveBottom" },
       },
     },
     reading: {

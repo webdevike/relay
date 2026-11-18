@@ -11,43 +11,8 @@ import type { ChatMessage } from './message'
 /** Protocol `untagged`: a leading `<surface>...</surface>` tag is the agent's, never shown. */
 const LEADING_SURFACE = /^\s*<surface>[^<]*<\/surface>[\r\n]*/
 
-/** The bar's quick picks, in order: heart, thumbs up, thumbs down, haha, emphasis, question, train (🎯, TRAIN_REACTION). */
-export const QUICK_REACTIONS = ['❤️', '👍', '👎', '😂', '‼️', '❓', '🎯'] as const
-
-/** The reaction that means "train on this": on an assistant's reply it opens the one-question widget sheet. */
-export const TRAIN_REACTION = '🎯'
-
-// Reply widgets and widget training, mirrored from the protocol ("Reply widgets"): the host keeps an
-// ```openui block per assistant reply (by reaction key) and sends a thread's `widgets.snapshot`;
-// 🎯 asks Isaac one question and sends his answer as `widget.label`. Each needs its feature in
-// `welcome.features`.
-
-/** `welcome.features` entry of a host that keeps follow-up widgets under assistant replies. */
-export const REPLY_WIDGETS_FEATURE = 'reply.widgets'
-/** `welcome.features` entry of a host that takes `widget.label` from the 🎯 sheet. */
-export const WIDGET_TRAINING_FEATURE = 'widget.training'
-
-/** Longest reply widget block (the whole fence) a snapshot carries. */
-export const MAX_REPLY_WIDGET = 32_000
-
-/** Isaac's answer on the 🎯 sheet: keep what was shown, or what it should have been. */
-export const WIDGET_LABELS = ['keep', 'plain', 'chart', 'table', 'card', 'other'] as const
-export const WidgetLabelSchema = z.enum(WIDGET_LABELS)
-export type WidgetLabel = z.infer<typeof WidgetLabelSchema>
-
-/** The 🎯 sheet's words for each label, the same on every client. */
-export const WIDGET_LABEL_TEXT: Readonly<Record<WidgetLabel, string>> = {
-  keep: 'Keep it like this',
-  plain: 'Plain text',
-  chart: 'Chart',
-  table: 'Table',
-  card: 'Card',
-  other: 'Other',
-}
-
-/** Where Isaac read the reply he labeled. */
-export const WidgetSurfaceSchema = z.enum(['phone', 'desktop'])
-export type WidgetSurface = z.infer<typeof WidgetSurfaceSchema>
+/** The bar's quick picks, in order: heart, thumbs up, thumbs down, haha, emphasis, question. */
+export const QUICK_REACTIONS = ['❤️', '👍', '👎', '😂', '‼️', '❓'] as const
 
 /** The "more" grid: any other single emoji is valid, these are the ones offered here. */
 export const MORE_REACTIONS = [
@@ -115,13 +80,6 @@ export type BubbleReactions = z.infer<typeof BubbleReactionsSchema>
 /** One thread's reactions by reaction key, then by reactor. */
 export const ThreadReactionsSchema = z.record(ReactionKeySchema, BubbleReactionsSchema)
 export type ThreadReactions = z.infer<typeof ThreadReactionsSchema>
-
-/** One thread's reply widgets by the reply's reaction key: the whole ```openui fence. */
-export const ThreadWidgetsSchema = z.record(
-  ReactionKeySchema,
-  z.string().min(1).max(MAX_REPLY_WIDGET),
-)
-export type ThreadWidgets = z.infer<typeof ThreadWidgetsSchema>
 
 /**
  * A bubble's assistant reactions in the order they show, oldest first (ties by agent id); Isaac's

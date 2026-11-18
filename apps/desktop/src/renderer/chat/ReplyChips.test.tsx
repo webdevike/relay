@@ -115,19 +115,4 @@ describe('liveRowId', () => {
     ).toBeNull()
     expect(liveRowId([], false)).toBeNull()
   })
-
-  it('looks past a trial card or switch message after the reply: they are not a turn', () => {
-    const trial = {
-      id: 't1',
-      agent: 'diagram',
-      label: 'Diagram',
-      at: 5,
-      arms: [
-        { letter: 'A' as const, status: 'running' as const },
-        { letter: 'B' as const, status: 'running' as const },
-      ],
-    }
-    expect(liveRowId([msg(reply), { kind: 'trial', at: 5, item: trial }], false)).toBe('a1')
-    expect(liveRowId([{ kind: 'trial', at: 5, item: trial }], false)).toBeNull()
-  })
 })

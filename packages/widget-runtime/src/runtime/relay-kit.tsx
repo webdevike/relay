@@ -14,11 +14,7 @@ import {
   type AssistantCardProps,
 } from "../../../../apps/desktop/src/renderer/assistants/AssistantCard";
 import { stepIcon } from "../../../../apps/desktop/src/renderer/canvas/cards/step-icons";
-import {
-  ChipStrip,
-  SessionChip,
-  SpecialistChip,
-} from "../../../../apps/desktop/src/renderer/chat/strips/Chip";
+import { ChipStrip, SessionChip } from "../../../../apps/desktop/src/renderer/chat/strips/Chip";
 import { RelayMenu } from "../../../../apps/desktop/src/renderer/overlay/RelayMenu";
 import { ListLayoutProvider } from "../../../../apps/desktop/src/renderer/ui/list/list-context";
 import {
@@ -114,7 +110,6 @@ export const RELAY_KIT: Record<string, unknown> = {
   ListKpis,
   ListEmpty,
   ListLayoutProvider,
-  SpecialistChip,
   SessionChip,
   ChipStrip,
   AssistantAvatar,

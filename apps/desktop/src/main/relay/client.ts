@@ -11,13 +11,7 @@
 // Relay is down it fails at once, and one in flight when the connection drops fails with it.
 //
 // With a remote host (another Mac over Tailscale) it dials that instead and pairs with a PIN.
-import {
-  REPLY_WIDGETS_FEATURE,
-  WIDGET_TRAINING_FEATURE,
-  type ThreadReactions,
-  type ThreadWidgets,
-  type WidgetLabel,
-} from '@evaos/chat-core/reactions'
+import type { ThreadReactions } from '@evaos/chat-core/reactions'
 import type { Artifact, ArtifactAction, ArtifactTab } from '@evaos/chat-core/artifacts'
 import type { ActivityItem } from '@evaos/chat-core/activity'
 import {
@@ -54,8 +48,6 @@ import {
   renderFailedFrame,
   type RenderFailureReport,
   bookmarksGetFrame,
-  widgetsGetFrame,
-  widgetLabelFrame,
   cardsGetFrame,
   cardDismissFrame,
   subscribeFrame,
@@ -132,8 +124,6 @@ export type RelaySessionEvent = Exclude<
       | 'boards'
       | 'reactions'
       | 'bookmarks'
-      | 'widgets'
-      | 'widgetLabeled'
       | 'cards'
       | 'artifacts'
       | 'activity'
@@ -218,26 +208,7 @@ export interface RelayReactions {
   bookmarks(thread: string): string[] | null
   /** Bookmarks (`on`) or unbookmarks a turn; false when nothing could be sent. */
   bookmark(thread: string, message: string, on: boolean): boolean
-  /** Connected to a host that keeps follow-up reply widgets (`welcome.features` has "reply.widgets"). */
-  widgetsUp(): boolean
-  /** `thread`'s follow-up widgets by reply key as the host last sent them; null before its first snapshot. */
-  widgets(thread: string): ThreadWidgets | null
-  /** Connected to a host that takes 🎯 answers (`welcome.features` has "widget.training"). */
-  trainingUp(): boolean
-  /**
-   * Sends Isaac's 🎯 answer for reply `message` of `thread` and waits for the host's
-   * `widget.labeled`; never rejects (not connected, no answer, or the host's error).
-   */
-  labelWidget(
-    thread: string,
-    message: string,
-    label: WidgetLabel,
-    excerpt: string,
-  ): Promise<WidgetLabelAnswer>
 }
-
-/** The host's answer to a 🎯 label: saved, or why not. */
-export type WidgetLabelAnswer = { ok: true } | { ok: false; error: string }
 
 /** Media render failures, told to the host so the owning agent can repost a working form. */
 export interface RelayRender {
@@ -452,13 +423,6 @@ export class RelayClient
   private readonly reactionMap = new Map<string, ThreadReactions>()
   /** The last bookmarks snapshot of each watched thread (a host with the "bookmarks" feature). */
   private readonly bookmarkMap = new Map<string, string[]>()
-  /** The last reply widgets snapshot of each watched thread (a host with the "reply.widgets" feature). */
-  private readonly widgetMap = new Map<string, ThreadWidgets>()
-  /** 🎯 labels sent on this connection, by `<thread> <message>`, until Relay answers. */
-  private readonly labelReqs = new Map<
-    string,
-    { resolve(r: WidgetLabelAnswer): void; timer: NodeJS.Timeout }
-  >()
   /** The last dismissed status cards snapshot (a host with the "cards.dismissed" feature); null before the first. */
   private cardIds: string[] | null = null
   private readonly cardListeners = new Set<() => void>()
@@ -645,14 +609,12 @@ export class RelayClient
     this.reactionThreads.add(thread)
     if (this.feed?.authenticated) this.send(reactionsGetFrame(thread))
     if (this.bookmarksUp()) this.send(bookmarksGetFrame(thread))
-    if (this.widgetsUp()) this.send(widgetsGetFrame(thread))
   }
 
   unwatchReactions(thread: string): void {
     this.reactionThreads.delete(thread)
     this.reactionMap.delete(thread)
     this.bookmarkMap.delete(thread)
-    this.widgetMap.delete(thread)
   }
 
   react(thread: string, message: string, emoji: string | null, excerpt: string): boolean {
@@ -678,42 +640,6 @@ export class RelayClient
     if (!this.bookmarksUp()) return false
     this.send(bookmarkFrame(thread, message, on))
     return true
-  }
-
-  widgetsUp(): boolean {
-    return this.hostHas(REPLY_WIDGETS_FEATURE)
-  }
-
-  widgets(thread: string): ThreadWidgets | null {
-    return this.widgetMap.get(thread) ?? null
-  }
-
-  trainingUp(): boolean {
-    return this.hostHas(WIDGET_TRAINING_FEATURE)
-  }
-
-  labelWidget(
-    thread: string,
-    message: string,
-    label: WidgetLabel,
-    excerpt: string,
-  ): Promise<WidgetLabelAnswer> {
-    if (!this.trainingUp()) return Promise.resolve({ ok: false, error: NOT_CONNECTED })
-    const id = `${thread} ${message}`
-    // A second answer for the same reply replaces the first wait; the host answers each in turn.
-    const prev = this.labelReqs.get(id)
-    if (prev) {
-      clearTimeout(prev.timer)
-      prev.resolve({ ok: false, error: 'Replaced by a newer answer.' })
-    }
-    const { promise, resolve } = Promise.withResolvers<WidgetLabelAnswer>()
-    const timer = setTimeout(() => {
-      this.labelReqs.delete(id)
-      resolve({ ok: false, error: NO_ANSWER })
-    }, this.commandTimeoutMs)
-    this.labelReqs.set(id, { resolve, timer })
-    this.send(widgetLabelFrame(thread, message, label, excerpt))
-    return promise
   }
 
   cardsUp(): boolean {
@@ -1004,10 +930,8 @@ export class RelayClient
       this.pingTimer = setInterval(() => this.send({ t: 'ping', ts: this.now() }), this.pingMs)
       for (const id of this.subscriptions) this.send(subscribeFrame(id))
       for (const thread of this.reactionThreads) this.send(reactionsGetFrame(thread))
-      for (const thread of this.reactionThreads) {
+      for (const thread of this.reactionThreads)
         if (feed.features.includes(BOOKMARKS_FEATURE)) this.send(bookmarksGetFrame(thread))
-        if (feed.features.includes(REPLY_WIDGETS_FEATURE)) this.send(widgetsGetFrame(thread))
-      }
       if (feed.features.includes(CARDS_FEATURE)) this.send(cardsGetFrame())
       for (const thread of this.artifactWatch) this.send(artifactsGetFrame(thread))
       if (this.activityWatched) this.send(ACTIVITY_GET_FRAME)
@@ -1035,24 +959,6 @@ export class RelayClient
           this.bookmarkMap.set(event.thread, event.messages)
           for (const cb of [...this.reactionListeners]) cb(event.thread)
           break
-        case 'widgets':
-          if (!this.reactionThreads.has(event.thread)) break
-          this.widgetMap.set(event.thread, event.widgets)
-          for (const cb of [...this.reactionListeners]) cb(event.thread)
-          break
-        case 'widgetLabeled': {
-          const id = `${event.thread} ${event.message}`
-          const req = this.labelReqs.get(id)
-          if (!req) break
-          this.labelReqs.delete(id)
-          clearTimeout(req.timer)
-          req.resolve(
-            event.ok
-              ? { ok: true }
-              : { ok: false, error: event.error ?? "Relay couldn't save it." },
-          )
-          break
-        }
         case 'cards':
           this.cardIds = event.ids
           for (const cb of [...this.cardListeners]) cb()
@@ -1207,11 +1113,6 @@ export class RelayClient
       a.resolve({ ok: false, error: reason })
     }
     this.acts.clear()
-    for (const l of this.labelReqs.values()) {
-      clearTimeout(l.timer)
-      l.resolve({ ok: false, error: reason })
-    }
-    this.labelReqs.clear()
     for (const s of this.studioReqs.values()) {
       clearTimeout(s.timer)
       s.resolve({ ok: false, error: reason })
@@ -1401,22 +1302,6 @@ export class StaticRelay
 
   bookmark(): boolean {
     return false
-  }
-
-  widgetsUp(): boolean {
-    return false
-  }
-
-  widgets(): ThreadWidgets | null {
-    return null
-  }
-
-  trainingUp(): boolean {
-    return false
-  }
-
-  labelWidget(): Promise<WidgetLabelAnswer> {
-    return Promise.resolve({ ok: false, error: NOT_CONNECTED })
   }
 
   cardsUp(): boolean {

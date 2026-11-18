@@ -8,7 +8,6 @@ import type {
   AgentAskAnswer,
   AgentImage,
   AgentMessage,
-  AgentRun,
   AgentOptions,
   AgentSession,
   ApprovalConfirmation,
@@ -480,14 +479,6 @@ export type AgentProviderChange =
       readonly id: string;
       readonly text: string;
       readonly streaming: boolean;
-    }
-  /** An agents call's tool row has a new run (its result came in): `text` is the row's, unchanged. */
-  | {
-      readonly kind: "agentRun";
-      readonly sessionId: string;
-      readonly id: string;
-      readonly text: string;
-      readonly agentRun: AgentRun;
     }
   /** The session is now blocked on an ask; the transport shows it to subscribed phones. */
   | { readonly kind: "ask"; readonly sessionId: string; readonly ask: AgentAsk }

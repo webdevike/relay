@@ -3,7 +3,6 @@
 // dropping is the session ending. Frames are JSONL both ways.
 //
 //   extension -> host   hello (full session info) | status | messages { append } | message.update { id, text, streaming } |
-//                       message.agent { id, text, agentTool } (an agents call's result, read into its row's `agentRun`) |
 //                       result { id, ok, error?, value? } | gate.status { gate } |
 //                       approval.request { id, toolName, command, reason? } | approval.resolved { id }
 //   host -> extension   conversation { id } | reply { id, text, submit, images? } | note { id, text } |
@@ -20,6 +19,7 @@ import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "nod
 import type { Socket, SocketHandler } from "bun";
 import {
   AgentAccount,
+  AgentMessage,
   AgentAskQuestion,
   AgentBackgroundJob,
   AgentGoal,
@@ -48,7 +48,6 @@ import {
   type AgentProviderChange,
   type GateCommand,
 } from "../seams";
-import { AgentToolFrame, agentRunOfTool, BridgeMessage } from "./agent-rows";
 import { destructivePattern } from "./destructive";
 import { closeHerdrPane, launchInHerdr, type LaunchOptions } from "./herdr";
 
@@ -90,19 +89,12 @@ const Inbound = z.discriminatedUnion("t", [
       herdrPane: z.string().min(1).optional(),
     }),
   StatusFrame,
-  z.object({ t: z.literal("messages"), append: z.array(BridgeMessage).min(1) }),
+  z.object({ t: z.literal("messages"), append: z.array(AgentMessage).min(1) }),
   z.object({
     t: z.literal("message.update"),
     id: z.string().min(1),
     text: z.string(),
     streaming: z.boolean(),
-  }),
-  /** An agents call's result came in: its tool row's id and text, and the call with its result (`AgentToolRaw`). */
-  z.object({
-    t: z.literal("message.agent"),
-    id: z.string().min(1),
-    text: z.string(),
-    agentTool: AgentToolFrame,
   }),
   z.object({
     t: z.literal("result"),
@@ -336,7 +328,7 @@ export class OmpBridgeProvider implements AgentProvider {
     const connection = this.find(sessionId);
     if (connection === undefined) return null;
     const parsed = z
-      .array(BridgeMessage)
+      .array(AgentMessage)
       .safeParse(await this.request(connection, "conversation", {}));
     return parsed.success ? parsed.data : [];
   }
@@ -817,19 +809,6 @@ export class OmpBridgeProvider implements AgentProvider {
           streaming: frame.streaming,
         });
         return;
-      case "message.agent": {
-        if (connection.session === null) return;
-        const agentRun = agentRunOfTool(frame.agentTool);
-        if (agentRun !== undefined)
-          this.onChange?.({
-            kind: "agentRun",
-            sessionId: connection.session.id,
-            id: frame.id,
-            text: frame.text,
-            agentRun,
-          });
-        return;
-      }
       case "result": {
         const pending = connection.pending.get(frame.id);
         if (pending === undefined) {

@@ -48,19 +48,6 @@ export interface GuestRow {
   };
 }
 
-/**
- * A specialist agents call (`agents_ask` / `agents_result` on the relay MCP server) as the transcript holds it:
- * the call's tool name and arguments, when it started, and its result once in. Raw, because this file cannot read
- * it (no zod, no @relay/protocol): the host turns it into the row's `AgentMessage.agentRun` with the protocol's
- * `agentCallOf` / `agentRunOf` (agents/agent-rows.ts) and never passes it on.
- */
-export interface AgentToolRaw {
-  name: string;
-  args?: unknown;
-  startedAt: number;
-  result?: { text: string; isError: boolean } | undefined;
-}
-
 export interface InboxMessage {
   id: string;
   role: Role;
@@ -71,7 +58,6 @@ export interface InboxMessage {
   streaming?: boolean;
   canvas?: CanvasRow;
   guest?: GuestRow;
-  agentTool?: AgentToolRaw;
 }
 
 /** omp custom message type the host's live canvas posts into a chat (relay-bridge `canvas` request). */
@@ -154,52 +140,6 @@ export function guestRowOf(message: { customType?: unknown; details?: unknown })
     if (typeof work["link"] === "string") row.work.link = work["link"];
   }
   return kind === "work" && row.work === undefined ? null : row;
-}
-
-/** An agents tool by name, or the xd device path omp writes it through (`xd://mcp__relay_agents_ask`). A loose pre-check: the host's `agentCallOf` decides. */
-const AGENTS_TOOL = /agents_(?:ask|result)$/;
-
-/**
- * The agents calls of one transcript whose results have not come in yet, by tool call id: a call's row gets its
- * `agentTool` when written, and the result (a later message, often a later read of the file) fills it in place.
- * `onResult` hears each row a result updated, for a reader that already sent the row and must send the change.
- */
-export class AgentCalls {
-  private readonly open = new Map<string, InboxMessage>();
-
-  constructor(private readonly onResult?: (row: InboxMessage) => void) {}
-
-  /** The tool row of call `toolCallId`, carrying `agentTool` (and remembered) when it may be an agents call. */
-  row(id: string, toolCallId: unknown, name: string, args: unknown, at: number): InboxMessage {
-    const tool = toolCallOf(name, args);
-    const row: InboxMessage = { id, role: "tool", text: tool.summary, at, tool };
-    const path =
-      name === "write" && isRecord(args) && typeof args["path"] === "string" ? args["path"] : name;
-    if (!AGENTS_TOOL.test(path)) return row;
-    row.agentTool = { name, args, startedAt: at };
-    if (typeof toolCallId === "string") this.open.set(toolCallId, row);
-    return row;
-  }
-
-  /** Fills in an agents call's result from its `toolResult` message; the row it updated, or null for any other result. */
-  result(message: {
-    toolCallId?: unknown;
-    content?: unknown;
-    isError?: unknown;
-  }): InboxMessage | null {
-    if (typeof message.toolCallId !== "string") return null;
-    const row = this.open.get(message.toolCallId);
-    if (row?.agentTool === undefined) return null;
-    this.open.delete(message.toolCallId);
-    row.agentTool.result = { text: textOf(message.content), isError: message.isError === true };
-    this.onResult?.(row);
-    return row;
-  }
-
-  /** Forgets every open call (the session switched to another transcript). */
-  clear(): void {
-    this.open.clear();
-  }
 }
 
 export const MAX_SUMMARY = 120;
@@ -432,12 +372,11 @@ export function skillCommandOf(message: {
   return args.length === 0 ? `/skill:${details.name}` : `/skill:${details.name} ${args}`;
 }
 
-/** The transcript rows one finished omp message contributes: the same shapes the live session streams. An agents call's result fills in its call's row (`calls`) and adds none. */
+/** The transcript rows one finished omp message contributes: the same shapes the live session streams. */
 function rowsOf(
   message: Record<string, unknown>,
   images: Map<string, Image> | null,
   nextId: () => string,
-  calls: AgentCalls,
 ): InboxMessage[] {
   const at = typeof message["timestamp"] === "number" ? message["timestamp"] : Date.now();
   const content = message["content"];
@@ -458,7 +397,6 @@ function rowsOf(
       break;
     }
     case "toolResult": {
-      calls.result(message);
       const refs = imageRefsOf(images, content);
       const name = typeof message["toolName"] === "string" ? message["toolName"] : "tool";
       if (refs.length > 0)
@@ -483,7 +421,8 @@ function rowsOf(
         arguments?: unknown;
       }[]) {
         if (part.type !== "toolCall" || typeof part.name !== "string") continue;
-        rows.push(calls.row(nextId(), part.id, part.name, part.arguments, at));
+        const tool = toolCallOf(part.name, part.arguments);
+        rows.push({ id: nextId(), role: "tool", text: tool.summary, at, tool });
       }
       break;
     }
@@ -511,7 +450,6 @@ function entryRows(
   entry: SessionEntryLine,
   images: Map<string, Image> | null,
   nextId: () => string,
-  calls: AgentCalls,
 ): InboxMessage[] {
   const stamp = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : Number.NaN;
   const at = Number.isFinite(stamp) ? stamp : Date.now();
@@ -545,20 +483,18 @@ function entryRows(
   }
   if (entry.type !== "message" || typeof entry.message !== "object" || entry.message === null)
     return [];
-  return rowsOf(entry.message as Record<string, unknown>, images, nextId, calls);
+  return rowsOf(entry.message as Record<string, unknown>, images, nextId);
 }
 
 /**
  * Every row of a session file's text, in order. The file holds one JSON entry per line; only
  * `message`, user-invoked skill and live canvas `custom_message` and `compaction` entries are rows, and a line
- * that does not parse is skipped (a half-written tail). A reader that parses a growing file piece by piece
- * passes one `calls` for all of it, so a result read later still finds its call's row.
+ * that does not parse is skipped (a half-written tail).
  */
 export function parseSessionRows(
   raw: string,
   images: Map<string, Image> | null,
   nextId: () => string,
-  calls: AgentCalls = new AgentCalls(),
 ): InboxMessage[] {
   const rows: InboxMessage[] = [];
   for (const line of raw.split("\n")) {
@@ -569,7 +505,7 @@ export function parseSessionRows(
     } catch {
       continue;
     }
-    rows.push(...entryRows(entry, images, nextId, calls));
+    rows.push(...entryRows(entry, images, nextId));
   }
   return rows;
 }

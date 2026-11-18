@@ -22,15 +22,10 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
-  agentRunKey,
-  agentRunsByRow,
-  agentsCaption,
   foldGuestWork,
   MAX_ASK_QUESTION,
   OpenAsk,
-  reactionKey,
   roomCardFallback,
-  recentAgentRuns,
   signinHost,
   splitPins,
   splitRoomCards,
@@ -40,7 +35,6 @@ import {
   untagged,
   type ActivityItem,
   type AgentImage,
-  type AgentRun,
   type AgentMessage,
   type AgentSession,
   type AssistantAgent,
@@ -54,7 +48,6 @@ import {
 } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
 import { liveSessionId } from "../agents/session-ref";
-import { agentMessageOf } from "../agents/agent-rows";
 import { parseSessionRows } from "../agents/transcript";
 import type { PushSender } from "../push/notifier";
 import { pushPreview } from "../push/preview";
@@ -78,12 +71,9 @@ import { type AssistantAgentConfig, RegistryError } from "./registry";
 import { CONSULT_TURN, type ConsultDeps, Consults } from "./consult";
 import { splitReplies } from "./replies";
 import { type FillSpawn, runFill } from "./signin";
-import { RouterLog, withRouter } from "./router-log";
-import { type SpecialistRunBook, settleAssistantMessages } from "./specialist-runs";
 import type { AssistantStore } from "./store";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
 import { transcriptOfRow, WorkReader } from "./work";
-import type { FinishedReply } from "../widgets/service";
 
 /** A turn from the host's jobs rather than from Isaac, for agent `title`; the thread shows it as a `status` row (and hides the agent's silent answer to it). */
 export function statusPrefix(title: string): string {
@@ -154,13 +144,6 @@ export interface AssistantServiceDeps {
   readonly aiAccount?: () => Promise<boolean | null>;
   /** The host log a failed start points at, for support. */
   readonly logPath?: string | null;
-  /**
-   * Called once per finished turn (the session went from working to idle) with its last reply, after
-   * that reply was published; the host's widget hook (`widgets/service.ts`). Never awaited.
-   */
-  readonly onReply?: (reply: FinishedReply) => void;
-  /** The atomic-agents service's runs: the thread settles its running specialist badges against it and redraws when a run changes. */
-  readonly specialistRuns?: SpecialistRunBook;
   /** The host's activity list (`ActivityService.snapshot`): the work this agent owns counts toward its status. */
   readonly activity?: () => readonly ActivityItem[];
 }
@@ -191,9 +174,7 @@ function guestCardText(entry: GuestEntry, content: string): string {
  * becomes a paragraph break, and its answers token becomes the row's `replies`. `asking`, when
  * given, collects the settled rows that end on answers, with their `[[ask-label]]` (the open asks'
  * sources); the label never reaches the row. Guest rows keep their entry: join and leave as
- * `status`, say and work as a `card` titled with the guest's name (work rows unfolded). The
- * specialist agents a turn asked (tool rows with `agentRun`) go on its last shown reply as `agents`,
- * or, while it has none, on a `status` row in the calls' place whose text is the caption (`agentsCaption`).
+ * `status`, say and work as a `card` titled with the guest's name (work rows unfolded).
  */
 export function toAssistantMessages(
   messages: readonly AgentMessage[],
@@ -203,12 +184,7 @@ export function toAssistantMessages(
 ): AssistantMessage[] {
   const out: AssistantMessage[] = [];
   let firstUser = true;
-  /** Per message, how many rows were out before it: where a row standing in for it goes. */
-  const starts: number[] = [];
-  /** The messages shown as assistant rows: the replies a turn's specialists show under. */
-  const replies = new Set<AgentMessage>();
-  for (const [index, message] of messages.entries()) {
-    starts[index] = out.length;
+  for (const message of messages) {
     const images =
       message.images === undefined || message.images.length === 0 ? {} : { images: message.images };
     if (message.canvas !== undefined) {
@@ -279,7 +255,6 @@ export function toAssistantMessages(
       if (text.length === 0 && signin === undefined && !("images" in images)) continue;
       if (asking !== undefined && !streaming && answered.replies !== undefined)
         asking.set(message.id, answered.label);
-      replies.add(message);
       out.push({
         id: message.id,
         role: "assistant",
@@ -290,27 +265,6 @@ export function toAssistantMessages(
         ...(answered.replies === undefined ? {} : { replies: answered.replies }),
       });
     }
-  }
-  const runs = agentRunsByRow(messages, (message) =>
-    message.role === "user" ? "user" : replies.has(message) ? "reply" : message.agentRun,
-  );
-  if (runs.size === 0) return out;
-  const shown = new Map(out.map((row, i) => [row.id, i]));
-  // Newest first, so a status row put in does not move the places of the ones still to go.
-  for (const [index, agents] of [...runs].reverse()) {
-    const message = messages[index];
-    if (message === undefined) continue;
-    const reply = replies.has(message) ? shown.get(message.id) : undefined;
-    const row = reply === undefined ? undefined : out[reply];
-    if (row !== undefined) row.agents = agents;
-    else
-      out.splice(starts[index] ?? out.length, 0, {
-        id: message.id,
-        role: "status",
-        text: agentsCaption(agents, Date.now()),
-        at: message.at,
-        agents,
-      });
   }
   return out;
 }
@@ -340,14 +294,12 @@ export function assistantStatus(
 /**
  * How much work agent `agent` owns that runs now besides its own turn (session `own`): the working
  * items the activity list files under `assistant:<agent>` (sessions it started with `RELAY_OWNER`,
- * its thread's helpers, its canvas rooms) other than its own session, and its thread's specialist
- * `runs` still running.
+ * its thread's helpers, its canvas rooms) other than its own session.
  */
 export function backgroundOf(
   agent: string,
   own: string | undefined,
   activity: readonly ActivityItem[],
-  runs: readonly AgentRun[],
 ): number {
   const owner = `assistant:${agent}`;
   const ownItem = own === undefined ? null : `session:${own}`;
@@ -355,8 +307,6 @@ export function backgroundOf(
   for (const item of activity)
     if (item.owner === owner && item.status === "working" && item.id !== ownItem)
       running.add(item.id);
-  for (const run of runs)
-    if (run.status === "running") running.add(`specialist:${agentRunKey(run)}`);
   return running.size;
 }
 
@@ -382,30 +332,6 @@ export function lastReplyOf(
         ? text
         : `${/[\uD800-\uDBFF]$/.test(head) ? head.slice(0, -1) : head.trimEnd()}…`;
     return { text: clipped, at: message.at };
-  }
-  return null;
-}
-
-/**
- * The reply a finished turn ends on, from the thread's settled rows: the last assistant row with
- * words, its key, and the turn it answers (Isaac's row before it; null for a job line). Null when
- * Isaac already wrote again after it, or the agent said nothing.
- */
-export function finishedReply(
-  messages: readonly AssistantMessage[],
-): Omit<FinishedReply, "agent" | "sessionId"> | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const row = messages[index];
-    if (row === undefined || row.role === "user") return null;
-    if (row.role !== "assistant" || untagged(row.text).trim() === "") continue;
-    const turn = messages
-      .slice(0, index)
-      .findLast((earlier) => earlier.role === "user" || earlier.role === "status");
-    return {
-      message: reactionKey("assistant", row.at),
-      text: row.text,
-      turn: turn?.role === "user" ? { text: turn.text, voice: turn.voice === true } : null,
-    };
   }
   return null;
 }
@@ -450,12 +376,6 @@ export class AssistantService implements AssistantThread {
    * twice; a failed delivery forgets its id, so a retry does deliver.
    */
   private readonly turns = new Map<string, Promise<void>>();
-  /** The reply `onReply` last got, so one reply is handed over once. */
-  private finished: string | null = null;
-  /** Stops listening to the service's runs (`retire`). */
-  private stopRuns: (() => void) | undefined;
-  /** The specialist router's decisions in the thread's transcripts, put on Isaac's rows (`router-log.ts`). */
-  private readonly router = new RouterLog();
   /** The thread's transcripts as the work fold reads them (`assistant.work.req`). */
   private readonly workReader = new WorkReader();
 
@@ -463,10 +383,6 @@ export class AssistantService implements AssistantThread {
     this.id = deps.agent.id;
     this.agent = deps.agent;
     this.prefix = statusPrefix(deps.agent.title);
-    // A run that finished or appeared on the service redraws the thread's badges.
-    this.stopRuns = deps.specialistRuns?.onChange(() => {
-      this.changed();
-    });
   }
 
   get title(): string {
@@ -508,9 +424,6 @@ export class AssistantService implements AssistantThread {
 
   /** Taken out of the registry: closes its live session, if any. Its transcript and store stay. */
   async retire(): Promise<void> {
-    this.stopRuns?.();
-    this.stopRuns = undefined;
-    this.router.stop();
     const session = this.current();
     if (session === undefined) return;
     this.deps.log(`assistant ${this.id}: retired; closing session ${session.id}`);
@@ -531,39 +444,23 @@ export class AssistantService implements AssistantThread {
     const asking = new Map<string, string | undefined>();
     const liveFile = session === undefined ? null : this.deps.sessionFile(session.id);
     const earlier = this.earlier(liveFile, asking);
-    // The router's entries never reach the bridge: read from the live transcript, which is polled for the outcome a turn ends with.
-    this.router.follow(liveFile, () => {
-      this.changed();
-    });
     const live =
       session === undefined
         ? []
-        : withRouter(
-            toAssistantMessages(
-              (await this.deps.agents.conversation(session.id)) ?? [],
-              this.prime(),
-              this.prefix,
-              asking,
-            ),
-            liveFile === null ? new Map() : this.router.turns(liveFile),
+        : toAssistantMessages(
+            (await this.deps.agents.conversation(session.id)) ?? [],
+            this.prime(),
+            this.prefix,
+            asking,
           );
     // One work card per piece of work: its latest state, where it started.
     const messages = this.markSubmitted(foldGuestWork([...earlier, ...live]));
     // A close the thread's rows caused (an exact answer, a superseding question) reaches every device, not just whoever asked for this snapshot.
     if (this.deps.asks.observe(messages, asking)) this.changed();
     const busy = session?.status === "working";
-    // A specialist the transcript still shows running reads what the service recorded of it (done, failed, or unknown);
-    // trial runs show their letters and a switched agent its new model.
-    const book = this.deps.specialistRuns;
-    const settled = settleAssistantMessages(
-      messages,
-      (await book?.current()) ?? null,
-      Date.now(),
-      book?.trials().badges ?? null,
-    );
     return {
       rev,
-      messages: settled,
+      messages,
       busy,
       sessionId: session?.id ?? "",
       asks: this.deps.asks.open(),
@@ -722,14 +619,7 @@ export class AssistantService implements AssistantThread {
     const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id));
     const live = await this.settled();
     const lastReply = lastReplyOf([...earlier, ...live]);
-    // Specialist calls the live turns made, as the service last recorded them; a lost one goes stale.
-    const now = Date.now();
-    const runs = settleAssistantMessages(
-      live,
-      (await this.deps.specialistRuns?.current()) ?? null,
-      now,
-    ).flatMap((message) => recentAgentRuns(message.agents ?? [], now));
-    const background = backgroundOf(this.id, session?.id, this.deps.activity?.() ?? [], runs);
+    const background = backgroundOf(this.id, session?.id, this.deps.activity?.() ?? []);
     return {
       id: this.id,
       title: this.title,
@@ -824,7 +714,7 @@ export class AssistantService implements AssistantThread {
     );
   }
 
-  /** Takes a provider change; true when this agent's `assistant.agents` row may have changed (its status moved, an omp `ask` opened or closed, a specialist run moved or a reply settled). */
+  /** Takes a provider change; true when this agent's `assistant.agents` row may have changed (its status moved, an omp `ask` opened or closed, or a reply settled). */
   observe(change: AgentProviderChange): boolean {
     if (change.kind === "sessions") {
       const session = this.current();
@@ -834,10 +724,7 @@ export class AssistantService implements AssistantThread {
       else this.strayHandled = false;
       const key = session === undefined ? null : `${session.id} ${session.status}`;
       if (key === this.seen) return false;
-      const ended =
-        session !== undefined && session.status === "idle" && this.seen === `${session.id} working`;
       this.seen = key;
-      if (ended) this.turnEnded(session.id);
       if (session !== undefined) {
         const waiter = this.waiter;
         if (waiter !== null && (!waiter.primed || session.status === "working")) {
@@ -858,12 +745,9 @@ export class AssistantService implements AssistantThread {
       // An open omp `ask` reads Needs you.
       return true;
     }
-    if (change.kind !== "conversation" && change.kind !== "message" && change.kind !== "agentRun")
-      return false;
+    if (change.kind !== "conversation" && change.kind !== "message") return false;
     if (change.sessionId !== this.current()?.id) return false;
     this.changed();
-    // A specialist's run moved under a reply: the thread redraws, and the agent's count of running work may move.
-    if (change.kind === "agentRun") return true;
     if (change.kind === "conversation") {
       let settled = false;
       for (const message of change.appended) {
@@ -876,25 +760,6 @@ export class AssistantService implements AssistantThread {
     if (change.streaming) return false;
     if (change.text.length > 0) this.push(change.text);
     return true;
-  }
-
-  /** Hands the turn's last reply to `onReply` once; the reply itself already went out. */
-  private turnEnded(sessionId: string): void {
-    const onReply = this.deps.onReply;
-    if (onReply === undefined) return;
-    void this.settled().then(
-      (messages) => {
-        const reply = finishedReply(messages);
-        if (reply === null || reply.message === this.finished) return;
-        this.finished = reply.message;
-        onReply({ agent: this.id, sessionId, ...reply });
-      },
-      (error: unknown) => {
-        this.deps.log(
-          `assistant ${this.id}: cannot read the finished reply: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      },
-    );
   }
 
   private changed(): void {
@@ -941,7 +806,6 @@ export class AssistantService implements AssistantThread {
       files.push(record.sessionFile);
     for (const cached of [...this.transcripts.keys()])
       if (!files.includes(cached)) this.transcripts.delete(cached);
-    this.router.keep(live === null ? files : [...files, live]);
     return files.flatMap((file) => {
       const transcript = this.transcript(file);
       if (transcript === null) return [];
@@ -970,14 +834,11 @@ export class AssistantService implements AssistantThread {
     const stamp = basename(file, ".jsonl");
     let seq = 0;
     const asking = new Map<string, string | undefined>();
-    const messages = withRouter(
-      toAssistantMessages(
-        parseSessionRows(raw, null, () => `${stamp}-${++seq}`).map(agentMessageOf),
-        this.prime(),
-        this.prefix,
-        asking,
-      ),
-      this.router.turns(file),
+    const messages = toAssistantMessages(
+      parseSessionRows(raw, null, () => `${stamp}-${++seq}`),
+      this.prime(),
+      this.prefix,
+      asking,
     );
     const entry = { mtimeMs: stat.mtimeMs, size: stat.size, messages, asking };
     this.transcripts.set(file, entry);
@@ -1275,11 +1136,6 @@ export class AssistantThreads implements AssistantRelaying {
       .join("\n");
     if (owned === this.owned) return;
     this.owned = owned;
-    this.scheduleBroadcast();
-  }
-
-  /** Something an agent's row reads may have moved (a specialist run): the list goes out again if it changed. */
-  relist(): void {
     this.scheduleBroadcast();
   }
 

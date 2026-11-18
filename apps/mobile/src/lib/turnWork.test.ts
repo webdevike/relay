@@ -16,9 +16,8 @@ describe("workBrains", () => {
     row("a2", "assistant"),
     row("job", "status"),
     row("a3", "assistant"),
-    // A guest's joined line and a specialist caption sit inside a turn; neither starts one.
+    // A guest's joined line sits inside a turn; it does not start one.
     row("g", "status", { guest: { kind: "join", agent: { id: "astra", title: "Astra" } } }),
-    row("c", "status", { agents: [] }),
     row("u2", "user"),
     row("a4", "assistant"),
   ];

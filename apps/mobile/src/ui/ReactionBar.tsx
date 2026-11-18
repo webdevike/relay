@@ -31,7 +31,6 @@ const QUICK_LABEL: Record<(typeof QUICK_REACTIONS)[number], string> = {
   "😂": "Ha ha",
   "‼️": "Exclamation marks",
   "❓": "Question mark",
-  "🎯": "Train on this",
 };
 
 export interface ReactionBarProps {

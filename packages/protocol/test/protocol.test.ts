@@ -763,20 +763,6 @@ describe("reactions", () => {
     expect(parseServerMessage(JSON.stringify({ ...snapshot, messages: Array.from({ length: 501 }, (_, i) => `user@${i}`) })).ok).toBe(false);
   });
 
-  it("parses widgets.get, widget.label and their answers; a label is one of the sheet's six", () => {
-    expect(client({ t: "widgets.get", thread: "assistant:nova" })).toBe(true);
-    const label = { t: "widget.label", thread: "assistant:nova", message: "assistant@2", label: "chart", surface: "phone", excerpt: "Sales by month" };
-    expect(client(label)).toBe(true);
-    expect(client({ ...label, label: "graph" })).toBe(false);
-    expect(client({ ...label, surface: "watch" })).toBe(false);
-    expect(client({ ...label, message: "row-2" })).toBe(false);
-    const snapshot = { t: "widgets.snapshot", thread: "assistant:nova", widgets: { "assistant@2": '```openui\nroot = Stat("Boards", "42")\n```' } };
-    expect(parseServerMessage(JSON.stringify(snapshot)).ok).toBe(true);
-    expect(parseServerMessage(JSON.stringify({ ...snapshot, widgets: { "row-2": "x" } })).ok).toBe(false);
-    expect(parseServerMessage(JSON.stringify({ ...snapshot, widgets: { "assistant@2": "x".repeat(32_001) } })).ok).toBe(false);
-    expect(parseServerMessage(JSON.stringify({ t: "widget.labeled", thread: "assistant:nova", message: "assistant@2", ok: false, error: "disk full" })).ok).toBe(true);
-  });
-
   it("parses get, set, clear and the snapshot", () => {
     expect(client({ t: "reactions.get", thread: "assistant:astra" })).toBe(true);
     expect(client({ t: "reactions.get", thread: "session:2026-10-27_abc" })).toBe(true);

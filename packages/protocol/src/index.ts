@@ -45,10 +45,7 @@ import { WorkspaceClientFrames, WorkspaceServerFrames } from "./workspace";
 import { CanvasFilesClientFrames, CanvasFilesServerFrames } from "./canvas-files";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
-import { AgentRun } from "./agent-runs";
-import { RouterTurn } from "./specialist-router";
 import { StatsSnapshot } from "./stats";
-import { Trial, TrialPick, TrialSwitch } from "./trials";
 import { TurnWork, TurnWorkDetail } from "./turn-work";
 
 export const PROTOCOL_VERSION = 1 as const;
@@ -608,8 +605,6 @@ export const AgentMessage = z.object({
   canvas: CanvasEntry.optional().catch(undefined),
   /** A guest row (role "system"): another assistant joined, spoke, left, or works on something; builds without guests show `text`. */
   guest: GuestEntry.optional().catch(undefined),
-  /** A specialist agent call (role "tool": `agents_ask` / `agents_result`) as its run stands; builds without it show the tool row. */
-  agentRun: AgentRun.optional().catch(undefined),
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
 
@@ -796,9 +791,9 @@ export const AssistantAgent = z.object({
   status: AssistantStatus.optional(),
   /**
    * Work the agent owns that runs now besides its own turn: sessions it started (`RELAY_OWNER`), its
-   * thread's helpers and canvas rooms (the activity list's working items under `assistant:<id>`) and
-   * its running specialist calls. Above 0 the status is "working" unless it needs Isaac; clients show
-   * the count ("Working · 3 tasks"). Absent from hosts before it.
+   * thread's helpers and canvas rooms (the activity list's working items under `assistant:<id>`).
+   * Above 0 the status is "working" unless it needs Isaac; clients show the count ("Working · 3
+   * tasks"). Absent from hosts before it.
    */
   background: z.number().int().min(0).optional(),
   /** The newest reply of the agent worth showing (never the silence marker), one clipped line. */
@@ -839,13 +834,6 @@ export const AssistantMessage = z.object({
    * name (what a phone without guests shows). Work rows are folded by `work.id` (latest state).
    */
   guest: GuestEntry.optional().catch(undefined),
-  /**
-   * Specialist agents the turn used (`agents_ask`), on its last assistant row, else on a `status` row while none
-   * replied yet: a badge beside the reply and one caption line under it (`agentsCaption`). Older phones ignore it.
-   */
-  agents: z.array(AgentRun).max(12).optional().catch(undefined),
-  /** Isaac's row only (assistant threads): what Eva's specialist router decided for it and, once the turn ended, whether the assistant used it (`routerLine`). Older phones ignore it. */
-  router: RouterTurn.optional().catch(undefined),
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 
@@ -1245,8 +1233,8 @@ export type FeedSnapshot = z.infer<typeof FeedSnapshot>;
 // (`ISAAC_REACTOR`, the only one the client frames set) and any assistant by its agent id.
 // ---------------------------------------------------------------------------------------------
 
-/** The bar's quick picks, in order: heart, thumbs up, thumbs down, haha, emphasis, question, train (🎯, TRAIN_REACTION). Any other single emoji comes from "more". */
-export const QUICK_REACTIONS = ["❤️", "👍", "👎", "😂", "‼️", "❓", "🎯"] as const;
+/** The bar's quick picks, in order: heart, thumbs up, thumbs down, haha, emphasis, question. Any other single emoji comes from "more". */
+export const QUICK_REACTIONS = ["❤️", "👍", "👎", "😂", "‼️", "❓"] as const;
 /** Reactions on an assistant's reply that are also logged as feedback for it. */
 export const FEEDBACK_REACTIONS: readonly string[] = ["👎", "❓"];
 /** Longest message excerpt a reaction carries (the agent's note quotes its first 80 characters). */
@@ -1350,51 +1338,6 @@ export const MAX_BOOKMARKS = 500;
 /** One thread's bookmarked turns, oldest first. */
 export const ThreadBookmarks = z.array(ReactionKey).max(MAX_BOOKMARKS);
 export type ThreadBookmarks = z.infer<typeof ThreadBookmarks>;
-
-// ---------------------------------------------------------------------------------------------
-// Reply widgets: an ```openui block the widget agent (atomic-agents `widget`) picked for an
-// assistant's finished reply, shown under that reply as a follow-up. The host asks the agent after
-// the reply went out and, in live mode, keeps the block per thread and reply (`ReactionKey`), so
-// every device shows the same one; each new block goes out as the thread's `widgets.snapshot`.
-// Only sent to a host whose `welcome.features` has REPLY_WIDGETS_FEATURE.
-//
-// Widget training: 🎯 (TRAIN_REACTION) on an assistant's reply asks Isaac one question, keep what
-// was shown or what it should have been (`WidgetLabel`); the client sends `widget.label`, the host
-// saves it as a widget bench case and answers `widget.labeled`. Only sent to a host whose
-// `welcome.features` has WIDGET_TRAINING_FEATURE; elsewhere 🎯 is a plain reaction.
-// ---------------------------------------------------------------------------------------------
-
-export const REPLY_WIDGETS_FEATURE = "reply.widgets";
-export const WIDGET_TRAINING_FEATURE = "widget.training";
-
-/** The reaction that means "train on this": it opens the one-question widget sheet on an assistant's reply. */
-export const TRAIN_REACTION = "🎯";
-
-/** Longest reply widget block (the whole fence) a snapshot carries. */
-export const MAX_REPLY_WIDGET = 32_000;
-
-/** One thread's reply widgets by the reply's `ReactionKey`: the whole ```openui fence. */
-export const ThreadWidgets = z.record(ReactionKey, z.string().min(1).max(MAX_REPLY_WIDGET));
-export type ThreadWidgets = z.infer<typeof ThreadWidgets>;
-
-/** Isaac's answer on the 🎯 sheet: keep what was shown, or what it should have been. */
-export const WIDGET_LABELS = ["keep", "plain", "chart", "table", "card", "other"] as const;
-export const WidgetLabel = z.enum(WIDGET_LABELS);
-export type WidgetLabel = z.infer<typeof WidgetLabel>;
-
-/** The 🎯 sheet's words for each label, the same on every client. */
-export const WIDGET_LABEL_TEXT: Readonly<Record<WidgetLabel, string>> = {
-  keep: "Keep it like this",
-  plain: "Plain text",
-  chart: "Chart",
-  table: "Table",
-  card: "Card",
-  other: "Other",
-};
-
-/** Where Isaac read the reply he labeled. */
-export const WidgetSurface = z.enum(["phone", "desktop"]);
-export type WidgetSurface = z.infer<typeof WidgetSurface>;
 
 // ---------------------------------------------------------------------------------------------
 // Dismissed status cards: the one-row cards above a chat's composer (browser work, canvas Join and
@@ -2092,36 +2035,6 @@ export const ClientMessage = z.discriminatedUnion("t", [
     message: ReactionKey,
     on: z.boolean(),
   }),
-  /** Ask for a thread's reply widgets; answered by `widgets.snapshot`. Only sent to a host whose `welcome.features` has REPLY_WIDGETS_FEATURE. */
-  z.object({ t: z.literal("widgets.get"), thread: ReactionThread }),
-  /**
-   * Isaac's answer on the 🎯 sheet for assistant reply `message` of `thread`, read on `surface`.
-   * `excerpt` is `reactionExcerpt` of its text. The host saves it as a widget bench case and answers
-   * `widget.labeled`. Only sent to a host whose `welcome.features` has WIDGET_TRAINING_FEATURE.
-   */
-  z.object({
-    t: z.literal("widget.label"),
-    thread: ReactionThread,
-    message: ReactionKey,
-    label: WidgetLabel,
-    surface: WidgetSurface,
-    excerpt: z.string().max(MAX_REACTION_EXCERPT),
-  }),
-  /** Ask for every trial card and switch message; answered by `trials.snapshot`. Only sent to a host whose `welcome.features` has TRIALS_FEATURE. */
-  z.object({ t: z.literal("trials.get") }),
-  /**
-   * Isaac's pick on trial card `trial` (a letter, or `unsure` for "can't tell"), made on `surface`. The host records it
-   * on the agent's bench, answers `trial.picked` and sends every device the revealed card. Only sent to a host whose
-   * `welcome.features` has TRIALS_FEATURE.
-   */
-  z.object({
-    t: z.literal("trial.pick"),
-    trial: z.string().min(1).max(200),
-    pick: TrialPick,
-    surface: WidgetSurface,
-  }),
-  /** Undo an agent's own model switch `switch` (a TrialSwitch id): the old model and the trial come back; answered by `trial.undone`. Only sent to a host whose `welcome.features` has TRIALS_FEATURE. */
-  z.object({ t: z.literal("trial.undo"), switch: z.string().min(1).max(200) }),
   /** Ask for the dismissed status cards; answered by `cards.dismissed`. Only sent to a host whose `welcome.features` has CARDS_DISMISSED_FEATURE. */
   z.object({ t: z.literal("cards.get") }),
   /** Dismiss (`on`) or restore (undo) status card `id`. Every device gets the new `cards.dismissed`; no change re-sends it to the sender only. */
@@ -2299,8 +2212,7 @@ export const ServerMessage = z.discriminatedUnion("t", [
   /**
    * The full text so far of a message that was appended with `streaming: true`. Idempotent and
    * unsequenced: the last one (`streaming: false`) is the final text. Ignored when the phone does
-   * not hold `id`; the next `agent.conversation` carries the settled message. An agents call's tool
-   * row comes this way too once its result is in: its unchanged text and its new `agentRun`.
+   * not hold `id`; the next `agent.conversation` carries the settled message.
    */
   z.object({
     t: z.literal("agent.message.update"),
@@ -2308,7 +2220,6 @@ export const ServerMessage = z.discriminatedUnion("t", [
     id: nonEmpty,
     text: z.string(),
     streaming: z.boolean(),
-    agentRun: AgentRun.optional().catch(undefined),
   }),
   z.object({
     t: z.literal("agent.options"),
@@ -2411,36 +2322,6 @@ export const ServerMessage = z.discriminatedUnion("t", [
     t: z.literal("bookmarks.snapshot"),
     thread: ReactionThread,
     messages: ThreadBookmarks,
-  }),
-  /** A thread's reply widgets: the answer to `widgets.get`, and pushed to every device when one is added. */
-  z.object({ t: z.literal("widgets.snapshot"), thread: ReactionThread, widgets: ThreadWidgets }),
-  /** Answer to `widget.label`: `ok` false when the host could not save it (`error` says why). */
-  z.object({
-    t: z.literal("widget.labeled"),
-    thread: ReactionThread,
-    message: ReactionKey,
-    ok: z.boolean(),
-    error: z.string().optional(),
-  }),
-  /** Every trial card and switch message: the answer to `trials.get`, and pushed to every device whenever one changes (a result streams in, a pick, a switch, an undo). */
-  z.object({
-    t: z.literal("trials.snapshot"),
-    trials: z.array(Trial).max(300),
-    switches: z.array(TrialSwitch).max(100),
-  }),
-  /** Answer to `trial.pick`: `ok` false when the host could not record it (`error` says why, e.g. already picked). */
-  z.object({
-    t: z.literal("trial.picked"),
-    trial: z.string(),
-    ok: z.boolean(),
-    error: z.string().optional(),
-  }),
-  /** Answer to `trial.undo`. */
-  z.object({
-    t: z.literal("trial.undone"),
-    switch: z.string(),
-    ok: z.boolean(),
-    error: z.string().optional(),
   }),
   /** Every dismissed status card id: the answer to `cards.get`, and pushed to every device when the set changes. */
   z.object({ t: z.literal("cards.dismissed"), ids: DismissedCards }),
@@ -2629,7 +2510,4 @@ export * from "./canvas-files";
 export * from "./answer-context";
 export * from "./signin";
 export * from "./room-card";
-export * from "./agent-runs";
-export * from "./trials";
-export * from "./specialist-router";
 export * from "./turn-work";

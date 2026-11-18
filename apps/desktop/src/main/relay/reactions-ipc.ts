@@ -46,8 +46,6 @@ export function registerReactionsIpc(
     reactions: { ...relay.reactions(thread) },
     bookmarks: relay.bookmarksUp() ? relay.bookmarks(thread) : null,
     bookmarksUp: relay.bookmarksUp(),
-    widgets: relay.widgetsUp() ? relay.widgets(thread) : null,
-    training: relay.trainingUp(),
   })
   handle(ctx, 'reactions.watch', ({ file, agent }) => {
     const thread = reactionThreadOf(file, agent, relay.sessions())
@@ -58,8 +56,6 @@ export function registerReactionsIpc(
         reactions: {},
         bookmarks: null,
         bookmarksUp: false,
-        widgets: null,
-        training: false,
       }
     watched.set(thread, (watched.get(thread) ?? 0) + 1)
     relay.watchReactions(thread)
@@ -77,10 +73,6 @@ export function registerReactionsIpc(
   handle(ctx, 'reactions.bookmark', ({ thread, message, on }) => ({
     sent: watched.has(thread) && relay.bookmark(thread, message, on),
   }))
-  handle(ctx, 'reactions.widgetLabel', async ({ thread, message, label, excerpt }) => {
-    if (!watched.has(thread)) return { ok: false, error: 'This chat is not open.' }
-    return relay.labelWidget(thread, message, label, excerpt)
-  })
   const offReactions = relay.onReactions((thread) => emit(ctx, 'reactions.changed', view(thread)))
   let up = relay.reactionsUp()
   const offStatus = relay.onChange(() => {

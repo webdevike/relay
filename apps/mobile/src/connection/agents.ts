@@ -66,13 +66,7 @@ export function createAgentFrameRouter(
         resubscribe(message.sessionId);
         return;
       case "agent.message.update":
-        store.updateMessage(
-          message.sessionId,
-          message.id,
-          message.text,
-          message.streaming,
-          message.agentRun,
-        );
+        store.updateMessage(message.sessionId, message.id, message.text, message.streaming);
         return;
       case "agent.options":
         store.setOptions(message.sessionId, { models: message.models, skills: message.skills });

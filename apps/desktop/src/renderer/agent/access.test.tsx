@@ -133,15 +133,11 @@ describe('deep links', () => {
       // A bare `board` is the Board page (the agents' work); `board/<slug>` is a dashboard board.
       [{ page: 'board' }, placeOf('board')],
       [{ page: 'board:ops' }, placeOf('board:ops')],
-      [{ page: 'agents', agent: 'web-researcher' }, placeOf('agents')],
     ]
     for (const [params, place] of cases) {
       const { url } = appLinkFor(AgentLinkParamsSchema.parse(params))
       expect(appLinkPlace(parseAppLink(url)!), url).toEqual(place)
     }
-    expect(
-      appLinkFor(AgentLinkParamsSchema.parse({ page: 'agents', agent: 'web-researcher' })).url,
-    ).toBe('relay://open/agents?agent=web-researcher')
     expect(appLinkPlace(parseAppLink('relay://open/settings/nope')!)).toBeNull()
     expect(appLinkPlace(parseAppLink('relay://open/jobs/x')!)).toBeNull()
   })

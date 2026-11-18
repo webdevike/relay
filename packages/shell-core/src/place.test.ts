@@ -14,7 +14,6 @@ describe('pages', () => {
   it('pages round trip through their keys', () => {
     const pages: PageKey[] = [
       'dashboard',
-      'agents',
       'workspace:alpha',
       'chat',
       'skills',
@@ -31,6 +30,8 @@ describe('pages', () => {
     ]
     for (const p of pages) expect(pageFromKey(pageKey(p))).toBe(p)
     expect(pageFromKey('nope')).toBeNull()
+    // The retired Agents page: an old layout.json tab of it reads as no page.
+    expect(pageFromKey('agents')).toBeNull()
     expect(pageFromKey('board:')).toBeNull()
     expect(pageFromKey('review:')).toBeNull()
     expect(pageFromKey('room:')).toBeNull()

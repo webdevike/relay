@@ -1,15 +1,10 @@
 import './strips.css'
 import { useEffect, useMemo, useState } from 'react'
 import { Tooltip } from '@mantine/core'
-import { EvaPopover } from '../../overlay'
 import { IconHandStop } from '@tabler/icons-react'
-import { agentBadge, agentRunKey, agentRunOf, type AgentRun } from '@relay/protocol'
 import type { ActivityItem } from '@evaos/chat-core/activity'
 import { subagentFinished } from '@evaos/chat-core/jobs'
 import type { Subagent } from '@evaos/chat-core/message'
-import { invoke } from '../../ipc'
-import { RunDetails } from '../RunDetails'
-import { useSecond } from '../WorkCard'
 import { elapsedLabel } from '../../context/format'
 import { KIND_ICON } from '../../artifacts/ActivityRows'
 import {
@@ -23,10 +18,9 @@ import {
   useEtaNow,
   type EtaFill,
 } from '../../activity/eta'
-import { ChipStrip, SessionChip, SpecialistChip, type SubagentState } from './Chip'
+import { ChipStrip, SessionChip, type SubagentState } from './Chip'
 
 const NONE: readonly ActivityItem[] = []
-const NO_RUNS: readonly AgentRun[] = []
 
 /** A clock that ticks each minute, so a subagent that goes quiet stops spinning without new files. */
 export function useMinute(): number {
@@ -61,71 +55,6 @@ function EtaShort({ fill }: { fill: EtaFill | null }) {
   )
 }
 
-/**
- * The run as the popover shows it: once it ended with no reply in the transcript (an ask that came
- * back running, or a run asked outside an agents call), the service's record of it.
- */
-function useShownRun(run: AgentRun, opened: boolean): AgentRun {
-  const [read, setRead] = useState<AgentRun | null>(null)
-  const id = run.run
-  const needs =
-    opened &&
-    id !== undefined &&
-    run.status !== 'running' &&
-    run.reply === undefined &&
-    run.text === undefined &&
-    run.error === undefined
-  useEffect(() => {
-    if (!needs) return
-    let live = true
-    void invoke('agents.specialistRun', { run: id }).then((r) => {
-      if (!live || !r.ok) return
-      const got = agentRunOf(
-        { tool: 'agents_result', run: id, agent: run.agent },
-        { text: r.value.text, isError: !r.value.ok },
-      )
-      if (got) setRead(got)
-    })
-    return () => {
-      live = false
-    }
-  }, [needs, id, run.agent])
-  return read === null ? run : { ...run, ...read }
-}
-
-/**
- * One specialist run (an agents_ask from this chat): a squared tag in the accent's light tint while
- * it runs, its clock ticking; grey with a check once done, light red when it failed. A click shows
- * what was asked and the typed reply.
- */
-function SpecialistRunChip({ run }: { run: AgentRun }) {
-  const now = useSecond(run.status === 'running')
-  const badge = agentBadge(run, now)
-  const key = agentRunKey(run)
-  const [opened, setOpened] = useState(false)
-  const shown = useShownRun(run, opened)
-  return (
-    <EvaPopover opened={opened} onChange={setOpened} position="top-start" width={420} shadow="md">
-      <EvaPopover.Target>
-        <SpecialistChip
-          label={badge.label}
-          state={badge.state}
-          clock={badge.clock}
-          data-testid={`specialist-chip-${key}`}
-          aria-label={`Specialist ${badge.label}, ${badge.state}`}
-          aria-expanded={opened}
-          onClick={() => setOpened((o) => !o)}
-        />
-      </EvaPopover.Target>
-      <EvaPopover.Dropdown>
-        <div className="eva-agents-details" data-testid={`specialist-details-${key}`}>
-          <RunDetails run={shown} />
-        </div>
-      </EvaPopover.Dropdown>
-    </EvaPopover>
-  )
-}
-
 export interface SubagentChipsProps {
   subagents: readonly Subagent[]
   /** Finished chips the user cleared; they are left out here. */
@@ -150,13 +79,12 @@ export interface SubagentChipsProps {
   sessionFile?: string
   /** The owning assistant's color for the fill; the accent when there is none. */
   agentColor?: string
-  /** The chat's specialist runs (agents_ask) to show, newest first, cleared ones left out. */
-  specialists?: readonly AgentRun[]
 }
 
 /**
- * A chip per specialist run and per subagent of the open chat, newest first, in a horizontal
- * scroller. Clear done stays pinned at the row's end. Rendered outside the virtualized log.
+ * A chip per subagent of the open chat and per piece of work its assistant has in progress, newest
+ * first, in a horizontal scroller. Clear done stays pinned at the row's end. Rendered outside the
+ * virtualized log.
  */
 export function SubagentChips({
   subagents,
@@ -169,7 +97,6 @@ export function SubagentChips({
   helperActivity = NONE,
   sessionFile = '',
   agentColor,
-  specialists = NO_RUNS,
 }: SubagentChipsProps) {
   const now = useMinute()
   const withEta = useMemo(
@@ -180,9 +107,8 @@ export function SubagentChips({
   const etaNow = useEtaNow(withEta.length > 0 || leaving.length > 0)
   const shown = subagents.filter((s) => !(subagentFinished(s, now) && hidden.has(s.name)))
   const chips = [...activity, ...leaving.filter((i) => i.kind !== 'helper')]
-  if (shown.length === 0 && chips.length === 0 && specialists.length === 0) return null
-  const anyDone =
-    shown.some((s) => subagentFinished(s, now)) || specialists.some((r) => r.status !== 'running')
+  if (shown.length === 0 && chips.length === 0) return null
+  const anyDone = shown.some((s) => subagentFinished(s, now))
   return (
     <ChipStrip
       data-testid="subagent-chips"
@@ -200,9 +126,6 @@ export function SubagentChips({
         </button>
       }
     >
-      {specialists.map((r) => (
-        <SpecialistRunChip key={agentRunKey(r)} run={r} />
-      ))}
       {shown.map((s) => {
         const state = subagentState(s, now)
         // The helper's run in the host's list: its estimate, or just-finished and filling up.

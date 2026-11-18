@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { QUERY_TOOLS, type AgentRun, type AgentSession } from "@relay/protocol";
+import { QUERY_TOOLS, type AgentSession } from "@relay/protocol";
 import { afterEach, describe, expect, it } from "vitest";
 import { FileBoardStore } from "../src/boards/store";
 import { handleQueryRequest } from "../src/query/http";
@@ -238,17 +238,6 @@ describe("query tools", () => {
     expect(result).toMatchObject({ from: "2026-11-03", to: "2026-11-03", delinquency: null, payments: null, calls: { placed: 0, perDay: [{ date: "11-03", placed: 0, connected: 0 }] } });
     expect(result.unavailable).toEqual(expect.arrayContaining([expect.stringMatching(/^Delinquent book: FieldRoutes answered 503/), expect.stringMatching(/^Payments: FieldRoutes answered 503/)]));
   });
-
-  it("specialist_runs lists the host's runs of the last two days, newest first, with their state", async () => {
-    const run = (id: string, status: "running" | "done" | "failed", startedAt: number): AgentRun => ({ agent: "web-researcher", run: id, status, startedAt, ...(status === "failed" ? { error: "timed out" } : {}) });
-    const runs = [run("old", "done", NOW - 3 * 86_400_000), run("a", "done", NOW - 600_000), { agent: "x", status: "running" as const }, run("b", "failed", NOW - 60_000)];
-    const result = QUERY_TOOLS.specialist_runs.result.parse(await queryTools(deps({ specialistRuns: () => Promise.resolve(runs) })).specialist_runs({}));
-    expect(result.runs.map((r) => [r.run, r.status, r.error])).toEqual([
-      ["b", "failed", "timed out"],
-      ["a", "done", undefined],
-    ]);
-    await expect(queryTools(deps({ specialistRuns: () => Promise.resolve(null) })).specialist_runs({})).rejects.toThrow(/no specialist service/);
-  });
 });
 
 function fakeTools(over: Partial<Record<keyof QueryTools, () => Promise<unknown>>> = {}): { tools: QueryTools; reads: string[] } {
@@ -267,7 +256,6 @@ function fakeTools(over: Partial<Record<keyof QueryTools, () => Promise<unknown>
       github_prs: read("github_prs", { ...stamp, prs: [] }),
       relay_sessions: read("relay_sessions", { ...stamp, byStatus: [], sessions: [], assistants: [] }),
       goodops_collections: read("goodops_collections", { ...stamp, range: "7d", from: "", to: "", delinquency: null, calls: {}, payments: null, unavailable: [] }),
-      specialist_runs: read("specialist_runs", { ...stamp, runs: [] }),
     },
   };
 }

@@ -34,7 +34,7 @@ export const FRAME_PRESETS = {
   /** tokens.css `--eva-chat-column-w`: the chat log's column, header to pane bottom. */
   chat: { label: "Chat column", w: 780, h: 684 },
   /**
-   * strips.css `.eva-chips`, the chip strip over the composer (session and specialist badges), in
+   * strips.css `.eva-chips`, the chip strip over the composer (subagent session badges), in
    * the band of the chat pane it sits in: 780 wide (the chat column) between 20px gutters, 33 tall
    * under its 10px top margin.
    */

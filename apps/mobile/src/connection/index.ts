@@ -15,8 +15,6 @@ import {
   ROOMS_CHAT_FEATURE,
   ROOMS_FEATURE,
   reactionExcerpt,
-  REPLY_WIDGETS_FEATURE,
-  TRIALS_FEATURE,
   WS_PATH,
   type ArtifactAction,
   type CatchUpSignal,
@@ -29,8 +27,6 @@ import {
   type MeetingsResult,
   type ReviewsOp,
   type ReviewsResult,
-  type TrialPick,
-  type WidgetLabel,
   type RoomsCmd,
   type RoomsResult,
   type StudioOp,
@@ -49,8 +45,6 @@ import { useFeedStore } from "@/state/feed";
 import { useAssistantStore } from "@/state/assistant";
 import { useReactionsStore } from "@/state/reactions";
 import { isTurnKey, useBookmarksStore } from "@/state/bookmarks";
-import { useReplyWidgetsStore } from "@/state/replyWidgets";
-import { useTrialsStore } from "@/state/trials";
 import { useDismissedCardsStore } from "@/state/dismissedCards";
 import { useArtifactsStore } from "@/state/artifacts";
 import { useCanvasStore } from "@/state/canvas";
@@ -78,8 +72,6 @@ import { createFeedFrameRouter } from "./feed";
 import { createAssistantFrameRouter } from "./assistant";
 import { createReactionFrameRouter } from "./reactions";
 import { createBookmarkFrameRouter } from "./bookmarks";
-import { createReplyWidgetFrameRouter } from "./replyWidgets";
-import { createTrialFrameRouter } from "./trials";
 import { createDismissedCardFrameRouter } from "./dismissedCards";
 import { createArtifactFrameRouter, PendingActs, type ActResult } from "./artifacts";
 import { createStudioFrameRouter, PendingStudio } from "./studio";
@@ -111,8 +103,6 @@ import {
   renderFailedFrame,
   type RenderReport,
 } from "@/agents/renderReport";
-import { widgetLabelFrame } from "@/lib/widgetTraining";
-import { trialPickFrame, trialUndoFrame } from "@/lib/trials";
 
 /** `EXPO_PUBLIC_RELAY_ONLY_HOST` pins a test bundle to one host; unset (every real build) changes nothing. */
 const ONLY_HOST = parseOnlyHost(process.env.EXPO_PUBLIC_RELAY_ONLY_HOST);
@@ -221,8 +211,6 @@ const routeBookmarkFrame = createBookmarkFrameRouter(
     socket.send(encode({ t: "bookmark.set", thread, message: key, on: true }));
   },
 );
-const routeReplyWidgetFrame = createReplyWidgetFrameRouter(useReplyWidgetsStore.getState());
-const routeTrialFrame = createTrialFrameRouter(useTrialsStore.getState());
 const routeDismissedCardFrame = createDismissedCardFrameRouter(
   useDismissedCardsStore.getState(),
   (id) => {
@@ -294,10 +282,6 @@ function connectionLost(epoch: number): void {
   useBoardsStore.getState().setQueries(false);
   // ... and whether it keeps bookmarks; what it last said stays shown, but nothing can be sent.
   useBookmarksStore.getState().setHostUp(false);
-  // ... and whether it keeps reply widgets and takes labels; the blocks it sent stay shown.
-  useReplyWidgetsStore.getState().clearFeatures();
-  // ... and whether it keeps trials; the cards it sent stay shown, a pick or undo in flight is answered nowhere.
-  useTrialsStore.getState().clearFeatures();
   // ... and whether it keeps dismissed cards; the set it last sent stays in force, but nothing can be sent.
   useDismissedCardsStore.getState().clearHost();
   pendingQueries.cancelAll();
@@ -392,16 +376,10 @@ function handleFrame(data: string): void {
       socket.send(encode({ t: "reactions.get", thread }));
       if (message.features?.includes(BOOKMARKS_FEATURE) === true)
         socket.send(encode({ t: "bookmarks.get", thread }));
-      if (message.features?.includes(REPLY_WIDGETS_FEATURE) === true) askReplyWidgets(thread);
     }
     // Cards dismissed on the desktop (or another phone) while away.
     if (message.features?.includes(CARDS_DISMISSED_FEATURE) === true)
       socket.send(encode({ t: "cards.get" }));
-    // Trial cards filled in, were picked or switched while away (every chat at once).
-    if (message.features?.includes(TRIALS_FEATURE) === true) {
-      useTrialsStore.getState().ask();
-      socket.send(encode({ t: "trials.get" }));
-    }
     for (const thread of artifactThreads.keys())
       socket.send(encode({ t: "artifacts.get", thread }));
     // Live canvas rooms come and go while away, and a restarted host counts revs from zero again and
@@ -442,8 +420,6 @@ function handleFrame(data: string): void {
   routeFeedFrame(message);
   routeReactionFrame(message);
   routeBookmarkFrame(message);
-  routeReplyWidgetFrame(message);
-  routeTrialFrame(message);
   routeDismissedCardFrame(message);
   routeArtifactFrame(message);
   routeCanvasFrame(message);
@@ -647,8 +623,6 @@ async function retarget(id: string | null): Promise<void> {
   useFeedStore.getState().set(null);
   useReactionsStore.getState().clear();
   useBookmarksStore.getState().clearHost();
-  useReplyWidgetsStore.getState().clear();
-  useTrialsStore.getState().clear();
   useDismissedCardsStore.getState().clearHost();
   useArtifactsStore.getState().clear();
   useCanvasStore.getState().clear();
@@ -898,76 +872,6 @@ export function getReactions(thread: string): void {
   if (useConnectionStore.getState().status !== "connected") return;
   socket.send(encode({ t: "reactions.get", thread }));
   if (useBookmarksStore.getState().hostUp) socket.send(encode({ t: "bookmarks.get", thread }));
-  if (useReplyWidgetsStore.getState().widgetsUp) askReplyWidgets(thread);
-}
-
-/**
- * Asks for the follow-up widgets of an assistant thread (other threads have none); the answer
- * lands in `useReplyWidgetsStore().threads[thread]` and draws without motion.
- */
-function askReplyWidgets(thread: string): void {
-  if (!thread.startsWith("assistant:")) return;
-  useReplyWidgetsStore.getState().ask(thread);
-  socket.send(encode({ t: "widgets.get", thread }));
-}
-
-/**
- * Sends Isaac's answer on the 🎯 sheet for assistant reply `key` of `thread` (`text` is the reply,
- * for the excerpt). The host's `widget.labeled` lands in `useReplyWidgetsStore().labelAnswer`.
- * False (nothing sent) while not connected or on a host that takes no labels.
- */
-export function labelReplyWidget(
-  thread: string,
-  key: string,
-  label: WidgetLabel,
-  text: string,
-): boolean {
-  if (
-    useConnectionStore.getState().status !== "connected" ||
-    !useReplyWidgetsStore.getState().trainingUp
-  )
-    return false;
-  socket.send(encode(widgetLabelFrame(thread, key, label, text)));
-  return true;
-}
-
-/**
- * Sends Isaac's pick on trial card `trial` (a letter, or `unsure` for "can't tell"). The host
- * answers `trial.picked` and pushes the revealed card; a refusal lands in
- * `useTrialsStore().failure`. False (nothing sent, the failure recorded) while not connected or on
- * a host that keeps no trials.
- */
-export function pickTrial(trial: string, pick: TrialPick): boolean {
-  const store = useTrialsStore.getState();
-  if (useConnectionStore.getState().status !== "connected" || !store.up) {
-    store.fail({
-      thread: store.snapshot.trials.find((entry) => entry.id === trial)?.thread,
-      text: "Not connected: pick not sent",
-    });
-    return false;
-  }
-  store.sentPick(trial, pick);
-  socket.send(encode(trialPickFrame(trial, pick)));
-  return true;
-}
-
-/**
- * Undoes an agent's own model switch `switchId`: its old model and the trial come back. The host
- * answers `trial.undone` and pushes the switch as undone. False (nothing sent, the failure
- * recorded) while not connected or on a host that keeps no trials.
- */
-export function undoTrialSwitch(switchId: string): boolean {
-  const store = useTrialsStore.getState();
-  if (useConnectionStore.getState().status !== "connected" || !store.up) {
-    store.fail({
-      thread: store.snapshot.switches.find((entry) => entry.id === switchId)?.thread,
-      text: "Not connected: undo not sent",
-    });
-    return false;
-  }
-  store.sentUndo(switchId);
-  socket.send(encode(trialUndoFrame(switchId)));
-  return true;
 }
 
 /**

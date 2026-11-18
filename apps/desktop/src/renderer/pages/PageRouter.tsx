@@ -24,7 +24,6 @@ export function PageView({ place }: { place: Place }) {
     meta.slug === 'studio' ||
     meta.slug === 'skills' ||
     meta.slug === 'reviews' ||
-    meta.slug === 'agents' ||
     (meta.kind === 'page' && meta.slug === 'board')
   const key = placeKey(place)
   const Page = pageRegistry[meta.kind as PageRegistryKind]

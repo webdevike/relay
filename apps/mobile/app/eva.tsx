@@ -45,8 +45,6 @@ import Animated, {
 import { expectKeyboard, keyboardHeight } from "@/lib/keyboardMotion";
 import { invertedIndicatorInsets } from "@/lib/invertedIndicatorInsets";
 import {
-  agentRunCardId,
-  type AgentRun,
   answerText,
   assistantReactionThread,
   MAX_ASK_ANSWER,
@@ -77,15 +75,11 @@ import { ImageViewer } from "@/agents/ImageViewer";
 import { MessageImageStack } from "@/agents/MessageImageStack";
 import { bubbleSegments, topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
-import { SpecialistRunsSheet } from "@/agents/SpecialistRunsSheet";
-import { RouterLine } from "@/agents/RouterLine";
-import { RouterSheet } from "@/agents/RouterSheet";
 import { openTurnWork, TurnWorkSheet, useTurnWork } from "@/agents/TurnWorkSheet";
 import { WorkBrain } from "@/agents/WorkBrain";
 import { workBrains, type WorkBrain as Brain } from "@/lib/turnWork";
 import { useSettingsStore } from "@/state/settings";
 import { useTurnWorkStore } from "@/connection/turnWork";
-import { useSpecialistRuns } from "@/lib/useSpecialistRuns";
 import { BackgroundRow } from "@/agents/BackgroundRow";
 import { AskCard } from "@/agents/AskCard";
 import { SessionApprovalCard } from "@/agents/SessionApprovalCard";
@@ -98,8 +92,6 @@ import { backgroundOf } from "@/lib/background";
 import { guestRowKind } from "@/lib/guests";
 import { GuestBubble, GuestLine, WorkCardRow } from "@/agents/GuestRows";
 import { BubbleMenuProvider, ChatBubble } from "@/agents/BubbleMenu";
-import { KeepPlaceContext, ReplyFollowUp } from "@/agents/ReplyFollowUp";
-import { useReplyWidget } from "@/state/replyWidgets";
 import { quoteIntoDraft } from "@/lib/bubbleMenu";
 import { bubbleReactionKey } from "@/lib/reactions";
 import { radii, spacing, useColors, useScheme } from "@/theme";
@@ -119,7 +111,6 @@ import {
   stopAssistant,
   subscribeAgent,
   unsubscribeAgent,
-  setCardDismissed,
   watchArtifacts,
 } from "@/connection";
 import { dismissTurn, newClientId, retryTurn, startTurn, type TurnStart } from "@/state/turns";
@@ -151,16 +142,12 @@ import { OpenAsksButton } from "@/agents/OpenAsksButton";
 import { OpenAsksSheet } from "@/agents/OpenAsksSheet";
 import { RunningChips } from "@/agents/RunningChips";
 import { AskInlineCard } from "@/agents/AskInlineCard";
-import { TrialCard, TrialSwitchRow } from "@/agents/TrialCard";
-import { isTrialRow, threadTrialRows } from "@/lib/trials";
-import { useTrialsStore } from "@/state/trials";
 import { WaitingMark } from "@/ui/WaitingMark";
 import {
   askCards,
   askRowId,
   askRowTarget,
   hiddenAskIds,
-  insertByAt,
   isAskRow,
   openAskKey,
   visibleAsks,
@@ -178,14 +165,9 @@ import { CardUndoToast } from "@/ui/CardUndoToast";
 
 /** Prefix of the rows echoing sent turns before the host's snapshot lists them (then the echo's id). */
 const PENDING_ID = "pending-turn:";
-/** Rows that are not the host's: echoes, this screen's local rows, ask and trial cards (no turn, no work of their own). */
+/** Rows that are not the host's: echoes, this screen's local rows, ask cards (no turn, no work of their own). */
 function notHostRow(message: AssistantMessage): boolean {
-  return (
-    message.id.startsWith(PENDING_ID) ||
-    isLocalRow(message.id) ||
-    isAskRow(message.id) ||
-    isTrialRow(message.id)
-  );
+  return message.id.startsWith(PENDING_ID) || isLocalRow(message.id) || isAskRow(message.id);
 }
 /** The receipt under an echo, by its turn's state (`state/turn.machine.ts`). */
 const ECHO_RECEIPT: Record<PendingTurnState, string> = {
@@ -218,8 +200,6 @@ const SHEET_CLOSE_MS = 250;
 const USER_MAX_WIDTH = "80%";
 const USER_RADIUS = 24;
 const EVA_RADIUS = 22;
-/** A thread with no snapshot yet: one stable empty list, so the running chips do not recompute on each render. */
-const NO_MESSAGES: readonly AssistantMessage[] = [];
 /** The reply bubble's padding: its words start this far in from its edge, and its first line this far down. */
 const EVA_TEXT_INSET = 17;
 const EVA_TEXT_TOP = 11;
@@ -349,30 +329,19 @@ function Thread({ agent }: { agent: string }) {
   useEffect(() => {
     memory.current.drawn = drawn;
   }, [drawn]);
-  const {
-    listRef,
-    awayFromBottom,
-    scrollToBottom,
-    scrollToRow,
-    followContent,
-    keepPlace,
-    scrollHandlers,
-  } = useInvertedChatScroll<AssistantMessage>({
-    initialOffset: initialOffset.current,
-    onOffset: (offset) => {
-      memory.current.offset = offset;
-    },
-  });
+  const { listRef, awayFromBottom, scrollToBottom, scrollToRow, followContent, scrollHandlers } =
+    useInvertedChatScroll<AssistantMessage>({
+      initialOffset: initialOffset.current,
+      onOffset: (offset) => {
+        memory.current.offset = offset;
+      },
+    });
   const viewerImages = useMemo(
     () => (viewing === null ? null : viewing.uris.map((uri) => ({ uri }))),
     [viewing],
   );
   const artifactsThread = assistantReactionThread(agent);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
-  // The specialist chip opened (its `agentRunKey`), shown in `SpecialistRunsSheet`.
-  const [openRun, setOpenRun] = useState<string | null>(null);
-  // The router line opened (its row's message id), shown in `RouterSheet`.
-  const [openRouter, setOpenRouter] = useState<string | null>(null);
   // The Artifacts tab the sheet opens on: the Working group when a running chip that is not a session was tapped.
   const [artifactsTab, setArtifactsTab] = useState<string | null>(null);
   const [asksOpen, setAsksOpen] = useState(false);
@@ -685,20 +654,6 @@ function Thread({ agent }: { agent: string }) {
   );
   // What the host's transcript (plus the echo of a turn in flight) says; local rows come after it and never count as its newest reply.
   const settled = useMemo(() => [...messages, ...pendingRow], [messages, pendingRow]);
-  // The thread's specialist runs, newest first, minus the finished ones Isaac cleared (here or on desktop).
-  const specialists = useSpecialistRuns(snapshot?.messages ?? NO_MESSAGES);
-  // A cleared or expired run that was open leaves nothing to show: forget it, so a later run does not pop the sheet.
-  useEffect(() => {
-    if (openRun !== null && specialists.length === 0) setOpenRun(null);
-  }, [openRun, specialists]);
-  // The opened router line's decision as it stands now (its outcome lands when the turn ends).
-  const openedRouter = useMemo(
-    () =>
-      openRouter === null
-        ? null
-        : ((snapshot?.messages ?? []).find((message) => message.id === openRouter)?.router ?? null),
-    [snapshot, openRouter],
-  );
   const newestSettled = settled[settled.length - 1];
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending.length > 0) : null;
@@ -724,20 +679,10 @@ function Thread({ agent }: { agent: string }) {
   );
   const cards = useMemo(() => askCards(shownAsks, messageIds), [shownAsks, messageIds]);
   const cardByRow = useMemo(() => new Map(cards.map((ask) => [askRowId(ask), ask])), [cards]);
-  // The thread's trial cards and switch messages: rows of their own, placed by time among the messages.
-  const trialsSnapshot = useTrialsStore((state) => state.snapshot);
-  const trialRows = useMemo(
-    () => threadTrialRows(trialsSnapshot, artifactsThread),
-    [trialsSnapshot, artifactsThread],
-  );
   const { rows, newestFirst } = useMemo(() => {
-    const all = [
-      ...insertByAt(withAskRows(messages, cards), trialRows.rows),
-      ...localRows,
-      ...pendingRow,
-    ];
+    const all = [...withAskRows(messages, cards), ...localRows, ...pendingRow];
     return { rows: all, newestFirst: [...all].reverse() };
-  }, [messages, cards, trialRows, localRows, pendingRow]);
+  }, [messages, cards, localRows, pendingRow]);
   // What the list holds: the newest `drawn` rows. Nearing the oldest of them adds a page.
   const listed = useMemo(() => newestFirst.slice(0, drawn), [newestFirst, drawn]);
   const total = newestFirst.length;
@@ -986,9 +931,6 @@ function Thread({ agent }: { agent: string }) {
   const onOpenImages = useCallback((uris: string[], start: number) => {
     setViewing({ uris, start });
   }, []);
-  const onRouter = useCallback((messageId: string) => {
-    setOpenRouter(messageId);
-  }, []);
   const onWork = useCallback(
     (message: AssistantMessage) => {
       openTurnWork(turnWork, { agent, at: message.at, row: message.id });
@@ -1038,134 +980,116 @@ function Thread({ agent }: { agent: string }) {
             </Animated.View>
           ) : (
             // Reply buttons and inputs in the thread's widgets answer as Isaac's turn; offline they stay disabled.
-            // A follow-up widget arriving under a reply keeps the list's place (`ReplyFollowUp`).
-            <KeepPlaceContext.Provider value={keepPlace}>
-              <ReplyWidgetActions reply={connected ? widgetReply : null}>
-                <FlatList
-                  ref={listRef}
-                  style={styles.fill}
-                  data={listed}
-                  inverted
-                  keyExtractor={(message) => message.id}
-                  extraData={`${latestUserId ?? ""}|${receipt ?? ""}|${String(connected)}|${rung.id}:${String(rung.n)}|${[...waitingIds].join(",")}`}
-                  renderItem={({ item, index }) => {
-                    const card = cardByRow.get(item.id);
-                    const trialRow = trialRows.byRow.get(item.id);
-                    const echo = item.id.startsWith(PENDING_ID)
-                      ? pending.find((entry) => `${PENDING_ID}${entry.id}` === item.id)
-                      : undefined;
-                    return (
-                      // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
-                      <MessageAppearance
-                        // A trial card or switch keeps the list's place as it arrives, instead of entering.
-                        animate={enteringMessages.has(item.id) && trialRow === undefined}
-                        user={senderOf(item) === "user"}
-                        gap={gapAbove(item, newestFirst[index + 1])}
-                      >
-                        {trialRow?.kind === "trial" ? (
-                          <TrialCard
-                            trial={trialRow.trial}
-                            connected={connected}
-                            fill={dark ? BUBBLE_DARK : colors.surface}
-                          />
-                        ) : trialRow?.kind === "switch" ? (
-                          <TrialSwitchRow entry={trialRow.entry} />
-                        ) : card !== undefined ? (
-                          <AskInlineCard
-                            ask={card}
-                            source={card.from ?? title}
-                            fill={dark ? BUBBLE_DARK : colors.surface}
-                            page={bg}
-                            pulse={rung.id === item.id ? rung.n : 0}
-                            onPick={
-                              connected
-                                ? (reply) => {
-                                    answerOpenAsk(card, reply);
-                                  }
-                                : null
-                            }
-                          />
-                        ) : (
-                          <LocalRowFrame agent={agent} id={item.id}>
-                            <Row
-                              agent={agent}
-                              message={item}
-                              receipt={
-                                echo?.state === "unconfirmed"
-                                  ? ECHO_RECEIPT.unconfirmed
-                                  : item.id === latestUserId
-                                    ? receipt
-                                    : null
-                              }
-                              streaming={
-                                busy && item === newestSettled && item.role === "assistant"
-                              }
-                              sessionId={sessionId}
-                              local={echo?.images}
-                              replies={
-                                item === newestSettled
-                                  ? replies
-                                  : connected
-                                    ? (openAsks?.find(
-                                        (entry) =>
-                                          entry.messageId === item.id && waitingIds.has(item.id),
-                                      )?.replies ?? null)
-                                    : null
-                              }
-                              waiting={waitingIds.has(item.id)}
-                              pulse={rung.id === item.id ? rung.n : 0}
-                              onReply={onRowReply}
-                              onOpenImages={onOpenImages}
-                              onSignIn={openSignIn}
-                              onEcho={echo?.state === "unconfirmed" ? onEcho : null}
-                              onRouter={onRouter}
-                              title={title}
-                              work={brains.get(item.id) ?? null}
-                              onWork={onWork}
-                            />
-                          </LocalRowFrame>
-                        )}
-                      </MessageAppearance>
-                    );
-                  }}
-                  // Inverted: the header sits at the visual bottom, below the newest row; under it, room for the floating composer
-                  // that grows with the card on the UI thread, so the newest message stays just above the pill.
-                  ListHeaderComponent={
-                    <>
-                      {typing && (
-                        <TypingRow
-                          title={title}
-                          onWork={peek ? onTypingWork : null}
-                          gap={
-                            newest !== undefined && senderOf(newest) === "eva"
-                              ? GAP_RUN
-                              : GAP_SENDER
+            <ReplyWidgetActions reply={connected ? widgetReply : null}>
+              <FlatList
+                ref={listRef}
+                style={styles.fill}
+                data={listed}
+                inverted
+                keyExtractor={(message) => message.id}
+                extraData={`${latestUserId ?? ""}|${receipt ?? ""}|${String(connected)}|${rung.id}:${String(rung.n)}|${[...waitingIds].join(",")}`}
+                renderItem={({ item, index }) => {
+                  const card = cardByRow.get(item.id);
+                  const echo = item.id.startsWith(PENDING_ID)
+                    ? pending.find((entry) => `${PENDING_ID}${entry.id}` === item.id)
+                    : undefined;
+                  return (
+                    // Inverted: the next index is the older row above this one, and a row's top margin is the space above it.
+                    <MessageAppearance
+                      animate={enteringMessages.has(item.id)}
+                      user={senderOf(item) === "user"}
+                      gap={gapAbove(item, newestFirst[index + 1])}
+                    >
+                      {card !== undefined ? (
+                        <AskInlineCard
+                          ask={card}
+                          source={card.from ?? title}
+                          fill={dark ? BUBBLE_DARK : colors.surface}
+                          page={bg}
+                          pulse={rung.id === item.id ? rung.n : 0}
+                          onPick={
+                            connected
+                              ? (reply) => {
+                                  answerOpenAsk(card, reply);
+                                }
+                              : null
                           }
                         />
+                      ) : (
+                        <LocalRowFrame agent={agent} id={item.id}>
+                          <Row
+                            agent={agent}
+                            message={item}
+                            receipt={
+                              echo?.state === "unconfirmed"
+                                ? ECHO_RECEIPT.unconfirmed
+                                : item.id === latestUserId
+                                  ? receipt
+                                  : null
+                            }
+                            streaming={busy && item === newestSettled && item.role === "assistant"}
+                            sessionId={sessionId}
+                            local={echo?.images}
+                            replies={
+                              item === newestSettled
+                                ? replies
+                                : connected
+                                  ? (openAsks?.find(
+                                      (entry) =>
+                                        entry.messageId === item.id && waitingIds.has(item.id),
+                                    )?.replies ?? null)
+                                  : null
+                            }
+                            waiting={waitingIds.has(item.id)}
+                            pulse={rung.id === item.id ? rung.n : 0}
+                            onReply={onRowReply}
+                            onOpenImages={onOpenImages}
+                            onSignIn={openSignIn}
+                            onEcho={echo?.state === "unconfirmed" ? onEcho : null}
+                            title={title}
+                            work={brains.get(item.id) ?? null}
+                            onWork={onWork}
+                          />
+                        </LocalRowFrame>
                       )}
-                      <Animated.View style={reserveStyle} />
-                    </>
-                  }
-                  // Inverted: room at the visual top for the frosted header, and for the keyboard's lift while it is up.
-                  contentContainerStyle={{ paddingBottom: listTop + keyboardRoom }}
-                  // The scroll view is flipped, so UIKit's top inset is the visual bottom: the composer there, the header (and keyboard lift) at the visual top.
-                  scrollIndicatorInsets={invertedIndicatorInsets(
-                    headerHeight + keyboardRoom,
-                    stackHeight + COMPOSER_PILL_HEIGHT + COMPOSER_BOTTOM,
-                  )}
-                  contentOffset={{ x: 0, y: initialOffset.current }}
-                  onEndReached={loadOlder}
-                  onEndReachedThreshold={1}
-                  initialNumToRender={10}
-                  maxToRenderPerBatch={6}
-                  windowSize={WINDOW_SCREENS}
-                  {...scrollHandlers}
-                  // On drag, not interactive: the composer rides the keyboard's whole moves, and a finger-driven dismiss is not one it can follow without a native keyboard module.
-                  keyboardDismissMode="on-drag"
-                  keyboardShouldPersistTaps="handled"
-                />
-              </ReplyWidgetActions>
-            </KeepPlaceContext.Provider>
+                    </MessageAppearance>
+                  );
+                }}
+                // Inverted: the header sits at the visual bottom, below the newest row; under it, room for the floating composer
+                // that grows with the card on the UI thread, so the newest message stays just above the pill.
+                ListHeaderComponent={
+                  <>
+                    {typing && (
+                      <TypingRow
+                        title={title}
+                        onWork={peek ? onTypingWork : null}
+                        gap={
+                          newest !== undefined && senderOf(newest) === "eva" ? GAP_RUN : GAP_SENDER
+                        }
+                      />
+                    )}
+                    <Animated.View style={reserveStyle} />
+                  </>
+                }
+                // Inverted: room at the visual top for the frosted header, and for the keyboard's lift while it is up.
+                contentContainerStyle={{ paddingBottom: listTop + keyboardRoom }}
+                // The scroll view is flipped, so UIKit's top inset is the visual bottom: the composer there, the header (and keyboard lift) at the visual top.
+                scrollIndicatorInsets={invertedIndicatorInsets(
+                  headerHeight + keyboardRoom,
+                  stackHeight + COMPOSER_PILL_HEIGHT + COMPOSER_BOTTOM,
+                )}
+                contentOffset={{ x: 0, y: initialOffset.current }}
+                onEndReached={loadOlder}
+                onEndReachedThreshold={1}
+                initialNumToRender={10}
+                maxToRenderPerBatch={6}
+                windowSize={WINDOW_SCREENS}
+                {...scrollHandlers}
+                // On drag, not interactive: the composer rides the keyboard's whole moves, and a finger-driven dismiss is not one it can follow without a native keyboard module.
+                keyboardDismissMode="on-drag"
+                keyboardShouldPersistTaps="handled"
+              />
+            </ReplyWidgetActions>
           )}
           {/* Pinned to the composer's top edge as it grows and lifts. */}
           <Animated.View pointerEvents="box-none" style={[styles.overComposer, overComposerStyle]}>
@@ -1226,11 +1150,6 @@ function Thread({ agent }: { agent: string }) {
             agent={agent}
             thread={artifactsThread}
             sessionId={sessionId}
-            specialists={specialists}
-            onOpenRun={(key) => {
-              Keyboard.dismiss();
-              setOpenRun(key);
-            }}
             onOpenSession={(id) => {
               router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
             }}
@@ -1321,22 +1240,6 @@ function Thread({ agent }: { agent: string }) {
           onClose={() => {
             setArtifactsOpen(false);
             setArtifactsTab(null);
-          }}
-        />
-        <SpecialistRunsSheet
-          runs={specialists}
-          openKey={openRun}
-          onClose={() => {
-            setOpenRun(null);
-          }}
-          onClear={(runs) => {
-            for (const run of runs) setCardDismissed(agentRunCardId(run), true);
-          }}
-        />
-        <RouterSheet
-          turn={openedRouter}
-          onClose={() => {
-            setOpenRouter(null);
           }}
         />
         <TurnWorkSheet actor={turnWork} />
@@ -1479,8 +1382,6 @@ interface RowProps {
   pulse: number;
   /** The echo's ack is overdue: Try again or take it away. Null for every other row. */
   onEcho: ((messageId: string, action: "retry" | "dismiss") => void) | null;
-  /** The router line under Isaac's bubble was tapped: open its decision. */
-  onRouter: (messageId: string) => void;
   /** The assistant's name, for the brain's VoiceOver label. */
   title: string;
   /** The brain under the last reply of a turn (Show work on); null for every other row. */
@@ -1491,27 +1392,21 @@ interface RowProps {
 
 /**
  * What runs for the thread now (helpers, sessions, harnesses, rooms, and its own sessions only while
- * they work), and its specialist runs (`lib/specialistChips`): chips under the header row. Its own
- * component: the host publishes every session's status frames, and only these chips read them, so the
- * thread and its rows do not redraw on each.
+ * they work): chips under the header row. Its own component: the host publishes every session's
+ * status frames, and only these chips read them, so the thread and its rows do not redraw on each.
  */
 function ThreadRunning({
   agent,
   thread,
   sessionId,
-  specialists,
   onOpenSession,
   onOpenWorking,
-  onOpenRun,
 }: {
   agent: string;
   thread: string;
   sessionId: string | null;
-  /** The thread's specialist runs (`lib/useSpecialistRuns`), also what the specialists sheet lists. */
-  specialists: readonly AgentRun[];
   onOpenSession: (id: string) => void;
   onOpenWorking: () => void;
-  onOpenRun: (key: string) => void;
 }) {
   const activityItems = useActivityStore((state) => state.items);
   const sessions = useAgentsStore((state) => state.sessions);
@@ -1524,11 +1419,9 @@ function ThreadRunning({
   return (
     <RunningChips
       chips={running}
-      specialists={specialists}
       style={styles.running}
       onOpenSession={onOpenSession}
       onOpenWorking={onOpenWorking}
-      onOpenRun={onOpenRun}
     />
   );
 }
@@ -1547,7 +1440,6 @@ function RowView({
   waiting,
   pulse,
   onEcho,
-  onRouter,
   title,
   work,
   onWork,
@@ -1562,8 +1454,6 @@ function RowView({
   const page = dark ? BG_DARK : colors.bg;
   // The echo of a turn still being sent has the phone's clock, not the host's: no reaction yet.
   const reactionKey = bubbleReactionKey(message, message.id.startsWith(PENDING_ID));
-  // The follow-up widget the host picked for this reply, if any (protocol "Reply widgets").
-  const followUp = useReplyWidget(assistantReactionThread(agent), reactionKey);
   const hasText = message.text !== "";
   const imageCount = local !== undefined ? local.length : (message.images?.length ?? 0);
   // Images stack above the text, left or right with the bubble.
@@ -1586,9 +1476,6 @@ function RowView({
     if (guestKind === "say") return <GuestBubble entry={message.guest} />;
     return <WorkCardRow entry={message.guest} />;
   }
-  // A turn's specialist status row: its runs show as chips in the header (`ThreadRunning`), not in the list.
-  if (message.role === "status" && message.agents !== undefined && message.agents.length > 0)
-    return null;
   // A turn Isaac did not type (a job line, heartbeat, canvas notice, handoff, tapback): a quiet centered row.
   const background = backgroundOf(message);
   if (background !== null)
@@ -1622,7 +1509,6 @@ function RowView({
               </View>
             </ChatBubble>
           )}
-          <RouterLine message={message} onOpen={onRouter} />
           {receipt !== null && onEcho === null && (
             <Text variant="label" color="textMuted" style={styles.receipt}>
               {receipt}
@@ -1745,15 +1631,6 @@ function RowView({
             {roomed.rooms.map((r) => (
               <RoomCardRow key={r.id} refRoom={r} />
             ))}
-            {/* A reply that already holds a widget of its own takes no follow-up. */}
-            {followUp !== null && reactionKey !== null && !wide && (
-              <ReplyFollowUp
-                thread={assistantReactionThread(agent)}
-                messageKey={reactionKey}
-                block={followUp}
-                style={[styles.widgetCard, styles.followUp, { backgroundColor: bubbleFill }]}
-              />
-            )}
             {replies !== null && (
               <View style={styles.replies}>
                 <ReplyChips
@@ -1883,6 +1760,4 @@ const styles = StyleSheet.create({
   signinAbove: { marginBottom: spacing.sm },
   /** Clear of the reaction badges that overlap the bubble's bottom corner. */
   replies: { marginTop: spacing.sm },
-  /** Under the reply, clear of its reaction badges like the reply chips. */
-  followUp: { marginTop: spacing.sm },
 });

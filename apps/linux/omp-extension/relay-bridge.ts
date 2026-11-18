@@ -60,7 +60,6 @@ import { formAsk, type FormHelpers } from "../src/agents/ask-form";
 // Shared with the host's assistant service: omp's session transcript read into inbox rows. Imported
 // by relative path (this file is symlinked into omp's extensions dir, and bun resolves the real path).
 import {
-  AgentCalls,
   COMPACTION_NOTICE,
   firstLine,
   imageRefsOf,
@@ -68,11 +67,11 @@ import {
   skillCommandOf,
   CANVAS_MESSAGE_TYPE,
   MEETING_CONTEXT_TYPE,
-  type AgentToolRaw,
   type CanvasRow,
   GUEST_MESSAGE_TYPE,
   type GuestRow,
   textOf,
+  toolCallOf,
   type Image,
   type InboxMessage,
 } from "../src/agents/transcript";
@@ -434,8 +433,6 @@ type Outbound =
       Activity)
   | { t: "messages"; append: InboxMessage[] }
   | { t: "message.update"; id: string; text: string; streaming: boolean }
-  // An agents call's result came in: its tool row (sent before) with the result filled in; the host reads the run.
-  | { t: "message.agent"; id: string; text: string; agentTool: AgentToolRaw }
   | { t: "result"; id: string; ok: boolean; error?: string; value?: unknown }
   // The ask tool is now blocking in the TUI: mirror its choices to the phone, and tell the phone
   // when that ask closed (answered in the terminal, cancelled, or answered from the phone itself).
@@ -926,11 +923,6 @@ function mirrorSubagent(
   const id = first.id;
   const sessionId = `${parentId}:${id}`;
   const history: InboxMessage[] = [];
-  /** Agents call rows a result read later updated, sent as `message.agent` once the read is done. */
-  const updated: InboxMessage[] = [];
-  const agentCalls = new AgentCalls((row) => {
-    updated.push(row);
-  });
   const images = new Map<string, Image>();
   let seq = 0;
   let state: SubagentLifecycle["status"] = first.status;
@@ -1053,12 +1045,7 @@ function mirrorSubagent(
     offset = size;
     const lines = (partial + chunk.toString("utf8")).split("\n");
     partial = lines.pop() ?? "";
-    const appended = parseSessionRows(lines.join("\n"), images, nextId, agentCalls);
-    const fresh = new Set(appended);
-    for (const row of updated.splice(0)) {
-      if (!fresh.has(row) && row.agentTool !== undefined)
-        link.send({ t: "message.agent", id: row.id, text: row.text, agentTool: row.agentTool });
-    }
+    const appended = parseSessionRows(lines.join("\n"), images, nextId);
     if (appended.length === 0) return;
     for (const row of appended) history.push(row);
     if (history.length > 500) history.splice(0, history.length - 500);
@@ -1128,8 +1115,6 @@ export default function relayBridge(pi: ExtensionAPI): void {
   /** Stops the session-name subscription of the current context (auto titles, /rename, replan refresh). */
   let unwatchName: (() => void) | null = null;
   const history: InboxMessage[] = [];
-  /** The agents calls whose results have not come in: a result fills in its call's row (`message.agent`). */
-  const agentCalls = new AgentCalls();
   /** Insertion-ordered so the oldest entry is the first key; capped at MAX_IMAGES. */
   const images = new Map<string, Image>();
   // omp's `ask` tool blocks in the TUI on a dialog: ctx.ui.formDialog (its HTML form) or
@@ -1908,7 +1893,7 @@ export default function relayBridge(pi: ExtensionAPI): void {
     } catch {
       return; // a new session has no file yet
     }
-    for (const row of parseSessionRows(raw, images, nextId, agentCalls)) record(row);
+    for (const row of parseSessionRows(raw, images, nextId)) record(row);
   };
 
   pi.on("session_start", (_event, context) => {
@@ -1984,7 +1969,6 @@ export default function relayBridge(pi: ExtensionAPI): void {
     wrapApprovalDialog(context);
     history.length = 0;
     images.clear();
-    agentCalls.clear();
     // Background jobs and a handoff belong to the session that started them; the goal is the new one's.
     backgroundJobs.clear();
     clearTimeout(handoffTimer ?? undefined);
@@ -2148,10 +2132,6 @@ export default function relayBridge(pi: ExtensionAPI): void {
       const command = skillCommandOf(message);
       if (command !== null) appended.push({ id: nextId(), role: "user", text: command, at });
     } else if (message.role === "toolResult") {
-      // An agents call's result updates its row in place: the phone hears the run's new state.
-      const called = agentCalls.result(message);
-      if (called?.agentTool !== undefined)
-        send({ t: "message.agent", id: called.id, text: called.text, agentTool: called.agentTool });
       // Only a result that carries pictures (a rendered page, a screenshot) is worth a transcript entry.
       const refs = imageRefsOf(images, message.content);
       if (refs.length > 0)
@@ -2180,7 +2160,8 @@ export default function relayBridge(pi: ExtensionAPI): void {
       }
       for (const part of message.content) {
         if (part.type === "toolCall") {
-          appended.push(agentCalls.row(nextId(), part.id, part.name, part.arguments, at));
+          const tool = toolCallOf(part.name, part.arguments);
+          appended.push({ id: nextId(), role: "tool", text: tool.summary, at, tool });
           // Its result may start a background job, labelled with what the call runs.
           backgroundJobs.noteToolCall(part.id, part.arguments);
         }

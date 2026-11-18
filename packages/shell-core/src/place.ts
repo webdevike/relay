@@ -3,7 +3,6 @@
 export type FixedPage =
   | 'dashboard'
   | 'assistants'
-  | 'agents'
   | 'board'
   | 'chat'
   | 'skills'
@@ -61,7 +60,6 @@ export interface Place {
 const FIXED_PAGES: readonly string[] = [
   'dashboard',
   'assistants',
-  'agents',
   'board',
   'chat',
   'skills',

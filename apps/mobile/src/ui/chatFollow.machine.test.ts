@@ -56,25 +56,6 @@ describe("chatFollow", () => {
     expect(actor.getSnapshot().can({ type: "follow.scroll", offset: 400 })).toBe(false);
   });
 
-  it("keeping its place for a follow-up widget stops following without a gesture, so anchoring holds the reply", () => {
-    const { actor, value, away, effects } = start();
-    actor.send({ type: "follow.keepPlace" });
-    expect(value()).toEqual({ reading: "still" });
-    expect(away()).toBe(true);
-    // The widget's layout grows the list: nothing pins it back to the newest row.
-    actor.send({ type: "follow.contentChanged" });
-    expect(effects).toEqual([]);
-    // The scroll-to-bottom button still goes home.
-    actor.send({ type: "follow.toBottom", animated: false });
-    expect(value()).toBe("following");
-  });
-
-  it("a reader keeps their place: keepPlace changes nothing away from the bottom", () => {
-    const { actor, value } = start(400);
-    expect(actor.getSnapshot().can({ type: "follow.keepPlace" })).toBe(false);
-    expect(value()).toEqual({ reading: "still" });
-  });
-
   it("scrolling back near the bottom follows again", () => {
     const { actor, value, away } = start(500);
     actor.send({ type: "follow.dragStart" });

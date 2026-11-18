@@ -52,7 +52,6 @@ import { registerUpdate } from './update'
 import { registerContext } from './context-popover'
 import { registerAgentsBoard } from './agents-board'
 import { createLinearStates, hostBatch, localBatch } from './agents-board/linear-states'
-import { registerSpecialists } from './specialists'
 import { createPackagedUpdater, type PackagedUpdater } from './update/packaged'
 import { assistExecutable, startAssist } from './assist'
 import { registerMeetingsIpc } from './eva/meetings-ipc'
@@ -266,8 +265,6 @@ function bootstrap(): void {
       )
       const filesIpc = registerFilesIpc(ctx, chat, presence.noteSave)
       files = filesIpc
-      // The Agents page: the atomic-agents service's agents, runs and files, through its CLI.
-      registerSpecialists(ctx, chat, filesIpc)
       registerTerminalIpc(ctx, chat)
       const browser = registerBrowser(ctx)
       // The live app (and e2e runs) mirror the window with every other Mac on the same Relay Host.
