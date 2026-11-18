@@ -4,6 +4,7 @@ import {
   READ_ZOOM,
   REVEAL_INSET,
   aimOnScreen,
+  aimsAt,
   easeInOut,
   revealView,
   toScreen,
@@ -146,5 +147,17 @@ describe('easeInOut', () => {
     expect(easeInOut(0.5)).toBeCloseTo(0.5)
     expect(easeInOut(0.25) + easeInOut(0.75)).toBeCloseTo(1)
     expect(easeInOut(0.1)).toBeLessThan(0.1)
+  })
+})
+
+describe('aimsAt', () => {
+  const boxes = new Map([['new', { x: 100, y: 100, w: 200, h: 100 }]])
+  it('is on a card it names or whose box holds its point, nowhere else', () => {
+    expect(aimsAt({ node: 'new' }, ['new'], boxes)).toBe(true)
+    // canvas.add aims at a point just inside the new card's top left.
+    expect(aimsAt({ at: { x: 128, y: 128 } }, ['new'], boxes)).toBe(true)
+    expect(aimsAt({ at: { x: 320, y: 128 } }, ['new'], boxes)).toBe(false)
+    expect(aimsAt({ node: 'other', at: { x: 128, y: 128 } }, [], boxes)).toBe(false)
+    expect(aimsAt(null, ['new'], boxes)).toBe(false)
   })
 })

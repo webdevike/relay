@@ -240,6 +240,8 @@ export const CanvasCursorOpSchema = z.object({
   /** Ms the dotted route and target show before the cursor travels (move only). */
   lead: z.number().min(0).max(2000).optional(),
   color: z.string().max(32).optional(),
+  /** The agent's name, on a chip beside the cursor (`Nova`). */
+  name: z.string().max(120).optional(),
   /** The agent's portrait as SVG text. */
   avatar: z.string().max(200_000).optional(),
   initial: z.string().max(4).optional(),
@@ -309,6 +311,17 @@ export const CanvasBoardCallSchema = z.discriminatedUnion('op', [
    * switches there (or while no board on screen shows the slug).
    */
   z.object({ op: z.literal('page'), ...BoardAt }),
+  /**
+   * The agent's canvas.add landed cards `nodes` (`added`) or its canvas.edit changed them
+   * (`edited`): each card shows its generation state (renderer card-gen.machine.ts) on every
+   * mounted board of `slug`.
+   */
+  z.object({
+    op: z.literal('gen'),
+    ...BoardAt,
+    nodes: z.array(z.string().max(500)).max(200),
+    phase: z.enum(['added', 'edited']),
+  }),
 ])
 export type CanvasBoardCall = z.output<typeof CanvasBoardCallSchema>
 

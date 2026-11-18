@@ -973,6 +973,116 @@
   color: var(--eva-c-muted-foreground);
 }
 
+/*
+ * Generation states (agent/card-gen.machine.ts), after pen.dev: while an agent makes a component
+ * card or a frame, its label says so in the accent and the frame takes an accent border and a soft
+ * light that drifts slowly. The light is one oversized layer moved by transform only (composited,
+ * no layout or paint per frame) and holds still when motion is off or reduced. Done: the label
+ * goes plain and the light fades out. Error: the label and border in the danger color.
+ */
+.eva-cv-gen-label {
+  display: inline-flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-xs) * 0.6);
+  min-width: 0;
+  color: var(--eva-c-muted-foreground);
+  font-weight: var(--eva-fw-medium);
+}
+.eva-cv-gen-label[data-gen='creating'],
+.eva-cv-gen-label[data-gen='generating'] {
+  color: var(--eva-c-accent);
+}
+.eva-cv-gen-label[data-gen='error'] {
+  color: var(--eva-c-danger);
+}
+.eva-cv-gen-label > svg {
+  flex: none;
+}
+.eva-cv-gen-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.eva-cv-proto-body[data-gen] {
+  transition: border-color var(--eva-dur-fast, 120ms) ease;
+}
+.eva-cv-proto-body[data-gen='creating'],
+.eva-cv-proto-body[data-gen='generating'] {
+  border-color: var(--eva-c-accent);
+}
+.eva-cv-proto-body[data-gen='error'] {
+  border-color: color-mix(in srgb, var(--eva-c-danger) 70%, transparent);
+}
+/* Nothing drew yet: the booting page stays soft under the spinner. */
+.eva-cv-proto-body[data-gen='creating'] .eva-cv-proto-frame {
+  filter: blur(6px);
+  opacity: 0.6;
+}
+.eva-cv-gen-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: eva-cv-gen-in 400ms ease-out;
+  transition: opacity 1200ms ease;
+}
+/* A frame card is the frame: the light draws its accent border over the card's own. */
+.eva-cv-card[data-kind='frame'] > .eva-cv-gen-glow {
+  inset: -1px;
+  border: 1px solid var(--eva-c-accent);
+}
+.eva-cv-gen-glow::before {
+  content: '';
+  position: absolute;
+  inset: -50%;
+  z-index: -1;
+  background:
+    radial-gradient(
+      32% 40% at 34% 42%,
+      color-mix(in srgb, var(--eva-c-accent) 16%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      28% 36% at 66% 62%,
+      color-mix(in srgb, var(--eva-c-accent) 11%, transparent),
+      transparent 70%
+    );
+  animation: eva-cv-gen-drift 7s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.eva-cv-gen-glow[data-gen='done'] {
+  opacity: 0;
+}
+@keyframes eva-cv-gen-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes eva-cv-gen-drift {
+  from {
+    transform: translate3d(-14%, -8%, 0) rotate(-4deg);
+  }
+  to {
+    transform: translate3d(14%, 8%, 0) rotate(4deg);
+  }
+}
+[data-eva-motion='off'] .eva-cv-gen-glow,
+[data-eva-motion='off'] .eva-cv-gen-glow::before {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .eva-cv-gen-glow,
+  .eva-cv-gen-glow::before {
+    animation: none;
+  }
+}
+
 .eva-cv-card[data-kind='suggestion'] {
   padding: var(--mantine-spacing-sm);
   gap: var(--mantine-spacing-xs);

@@ -3,7 +3,8 @@ import { useEffect, useRef, type RefObject } from 'react'
 import type { CanvasCursorOp } from '@evaos/contract'
 import { drawAgentCursor } from '@evaos/shell-core/agent-cursor'
 import type { Box } from '../comment-model'
-import { aimOnScreen, type Aim, type Transform } from './cursor-model'
+import { creatingCards, onCardGen } from './card-gen'
+import { aimOnScreen, aimsAt, type Aim, type Transform } from './cursor-model'
 
 /** The board's agent cursor, for the board's driver. */
 export interface CursorLayer {
@@ -15,14 +16,18 @@ export interface CursorLayer {
 
 /**
  * The agent's cursor over a board (shell-core drawAgentCursor in an overlay the size of the
- * board): screen-sized at any zoom. It keeps what it points at in flow terms, so while parked it
- * follows pans, zooms and the card moving; a pan drops the trail, which would point at nothing.
- * Render it inside the board's React Flow, outside the viewport transform.
+ * board): screen-sized at any zoom, with the agent's name on a chip in its color. It keeps what it
+ * points at in flow terms, so while parked it follows pans, zooms and the card moving; a pan drops
+ * the trail, which would point at nothing. While a card the agent added is still being created
+ * (card-gen.ts), a spinner rings its tip. Render it inside the board's React Flow, outside the
+ * viewport transform.
  */
 export function AgentCursorLayer({
+  slug,
   handle,
   boxes,
 }: {
+  slug: string
   handle: RefObject<CursorLayer | null>
   boxes: ReadonlyMap<string, Box>
 }) {
@@ -39,6 +44,25 @@ export function AgentCursorLayer({
   const stale = useRef(false)
   const lastTransform = useRef<Transform>(transform)
   const landTimer = useRef<number | undefined>(undefined)
+  /** The cursor is on a card being created: the spinner rings its tip. */
+  const making = useRef(false)
+  const slugRef = useRef(slug)
+  slugRef.current = slug
+
+  /**
+   * Follows whether the cursor is on a card being created (card-gen.ts); `draw` redraws a shown
+   * cursor at once (a step draws it itself). Answers it.
+   */
+  const syncMaking = useRef((draw: boolean): boolean => {
+    const next = aimsAt(aim.current, creatingCards(slugRef.current), boxesRef.current)
+    const host = el.current
+    if (host && next !== making.current) {
+      making.current = next
+      host.dataset['making'] = String(next)
+      if (draw && aim.current) drawAgentCursor({ op: 'show', busy: next }, host)
+    }
+    return next
+  })
 
   /** Puts the parked cursor back on what it aims at; `clear` drops the trail first. */
   const follow = useRef((clear: boolean): void => {
@@ -75,8 +99,10 @@ export function AgentCursorLayer({
             op: op.op,
             x: p.x,
             y: p.y,
+            busy: syncMaking.current(false),
             ...(op.lead === undefined ? {} : { lead: op.lead }),
             ...(op.color === undefined ? {} : { color: op.color }),
+            ...(op.name === undefined ? {} : { name: op.name }),
             ...(op.avatar === undefined ? {} : { avatar: op.avatar }),
             ...(op.initial === undefined ? {} : { initial: op.initial }),
           },
@@ -117,6 +143,12 @@ export function AgentCursorLayer({
     }
     follow.current(moved)
   }, [transform, boxes])
+
+  // The spinner at the tip follows the cards' states and where they are drawn.
+  useEffect(() => {
+    syncMaking.current(true)
+  }, [boxes, slug])
+  useEffect(() => onCardGen(() => syncMaking.current(true)), [])
 
   return (
     <div

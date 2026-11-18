@@ -16,14 +16,16 @@ import {
   IconTimeline,
 } from '@tabler/icons-react'
 import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
-import { memo, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import { memo, useEffect, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import type { CanvasNode } from '@evaos/contract'
 import { liveQuery } from '../../boards/live-query'
 import { OpenUIQuery } from '../../chat/widgets/actions'
 import { OpenUIBlock } from '../../chat/widgets/Widget'
 import { openLink } from '../../navigation/open-link'
+import { sendCardGen, useCardGen } from '../agent/card-gen'
 import { useBoardActions } from '../context'
 import type { CardNode } from '../flow-model'
+import { GenGlow, GenLabel } from './CardGen'
 import { Markdown } from '../../chat/markdown/Markdown'
 import { useCanvasImage } from './canvas-image'
 import { MermaidBlock } from './MermaidBlock'
@@ -136,6 +138,57 @@ function Swatches({ spec }: { spec: CanvasNode }) {
         </div>
       ))}
     </div>
+  )
+}
+
+/**
+ * A frame (or a lane): its title, a wireframe while it is empty, and while an agent makes it
+ * (agent/card-gen.machine.ts) the generation label in place of the title and the frame's light.
+ * Its first card arriving is its content drawing.
+ */
+function FrameBody({
+  id,
+  spec,
+  hasChildren,
+}: {
+  id: string
+  spec: CanvasNode
+  hasChildren: boolean
+}) {
+  const { slug } = useBoardActions()
+  const gen = useCardGen(slug, id)
+  const creating = gen === 'creating'
+  useEffect(() => {
+    if (hasChildren) sendCardGen(slug, id, { type: 'card.drawn' })
+  }, [slug, id, hasChildren, creating])
+  const d = spec.data ?? {}
+  const title = d.title ?? ''
+  const label =
+    gen === 'idle' ? null : <GenLabel id={id} slug={slug} state={gen} title={title || 'Frame'} />
+  const glow = <GenGlow state={gen} empty={!hasChildren} />
+  if (d.variant === 'lane')
+    return (
+      <>
+        <div className="eva-cv-lane-head">
+          {label ?? <span className="eva-cv-lane-title">{title}</span>}
+          {d.body !== undefined ? <span className="eva-cv-lane-caption">{d.body}</span> : null}
+        </div>
+        {glow}
+      </>
+    )
+  return (
+    <>
+      <div className="eva-cv-frame-title">
+        {label ?? (
+          <>
+            <IconFrame size={12} stroke={1.75} aria-hidden />
+            <span>{title}</span>
+          </>
+        )}
+      </div>
+      {!hasChildren && d.url !== undefined ? <Wireframe url={d.url} /> : null}
+      {glow}
+    </>
   )
 }
 
@@ -335,22 +388,7 @@ function Body({ id, spec, hasChildren }: { id: string; spec: CanvasNode; hasChil
         </>
       )
     case 'frame':
-      if (d.variant === 'lane')
-        return (
-          <div className="eva-cv-lane-head">
-            <span className="eva-cv-lane-title">{title}</span>
-            {d.body !== undefined ? <span className="eva-cv-lane-caption">{d.body}</span> : null}
-          </div>
-        )
-      return (
-        <>
-          <div className="eva-cv-frame-title">
-            <IconFrame size={12} stroke={1.75} aria-hidden />
-            <span>{title}</span>
-          </div>
-          {!hasChildren && d.url !== undefined ? <Wireframe url={d.url} /> : null}
-        </>
-      )
+      return <FrameBody id={id} spec={spec} hasChildren={hasChildren} />
     case 'suggestion':
       return (
         <>

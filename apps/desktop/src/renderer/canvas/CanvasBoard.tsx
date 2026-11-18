@@ -1744,7 +1744,7 @@ function Board({
               onCancelDraft={() => setDraft(null)}
               {...commentProps}
             />
-            <AgentCursorLayer handle={cursorRef} boxes={boxes} />
+            <AgentCursorLayer slug={slug} handle={cursorRef} boxes={boxes} />
             <BoardControls
               locked={locked}
               onLock={() => setLocked((l) => !l)}

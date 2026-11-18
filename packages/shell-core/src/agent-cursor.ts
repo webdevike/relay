@@ -24,6 +24,10 @@ export interface CursorOp {
   avatar?: string
   /** Its initial, when there is no portrait (or the page refuses it). */
   initial?: string
+  /** Its name, on a chip in its color beside the face (`Nova`). */
+  name?: string
+  /** A spinner ring at the tip while what it points at is being made; stays until set false. */
+  busy?: boolean
   /** Ms to show the dotted route and target before the cursor travels (move only). */
   lead?: number
   /** Drops the trail and target first (the surface under it moved, so they point at nothing). */
@@ -45,6 +49,8 @@ export function drawAgentCursor(op: CursorOp, place?: HTMLElement): number {
     root: ShadowRoot
     pointer: HTMLElement
     face: HTMLElement
+    label: HTMLElement
+    spin: HTMLElement
     mark: HTMLElement
     trail: SVGSVGElement
     segs: Array<{ g: SVGGElement; line: SVGPathElement; halo: SVGPathElement }>
@@ -93,6 +99,17 @@ export function drawAgentCursor(op: CursorOp, place?: HTMLElement): number {
         border: 2px solid var(--c); box-shadow: 0 0 0 2px #fff, inset 0 0 0 2px #fff; opacity: 0; transform: scale(.4); }
       .r.go { animation: ripple .5s ease-out; }
       @keyframes ripple { 0% { opacity: .9; transform: scale(.4) } 100% { opacity: 0; transform: scale(1.6) } }
+      .n { position: absolute; left: 38px; top: 18px; display: none; max-width: 160px; padding: 0 6px;
+        border-radius: 4px; background: var(--c); box-shadow: 0 0 0 2px #fff; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; font: 600 11px/16px -apple-system, system-ui, sans-serif;
+        color: #111; }
+      .n.on { display: block; }
+      .s { position: absolute; left: -13px; top: -13px; width: 26px; height: 26px; box-sizing: border-box;
+        border-radius: 50%; border: 2.5px solid color-mix(in srgb, var(--c) 30%, transparent);
+        border-top-color: var(--c); opacity: 0; transition: opacity .2s ease; }
+      .s.on { opacity: 1; animation: spin .9s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg) } }
+      @media (prefers-reduced-motion: reduce) { .s.on { animation: none; } }
     `)
     root.adoptedStyleSheets = [sheet]
     const pointer = document.createElement('div')
@@ -111,14 +128,31 @@ export function drawAgentCursor(op: CursorOp, place?: HTMLElement): number {
     arrow.append(path)
     const face = document.createElement('div')
     face.className = 'f'
-    pointer.append(ripple, arrow, face)
+    const label = document.createElement('div')
+    label.className = 'n'
+    const spin = document.createElement('div')
+    spin.className = 's'
+    pointer.append(spin, ripple, arrow, face, label)
     const trail = document.createElementNS(SVG, 'svg')
     trail.setAttribute('class', 't')
     const mark = document.createElement('div')
     mark.className = 'm'
     root.append(trail, mark, pointer)
     ;(place ?? document.documentElement).append(host)
-    c = { host, root, pointer, face, mark, trail, segs: [], glide: null, x: -1, y: -1 }
+    c = {
+      host,
+      root,
+      pointer,
+      face,
+      label,
+      spin,
+      mark,
+      trail,
+      segs: [],
+      glide: null,
+      x: -1,
+      y: -1,
+    }
     w.__relayAgentCursor = c
   }
   const cur = c
@@ -164,6 +198,11 @@ export function drawAgentCursor(op: CursorOp, place?: HTMLElement): number {
     }
     if (!drawn) cur.face.textContent = (op.initial ?? '').slice(0, 1).toUpperCase()
   }
+  if (op.name !== undefined) {
+    cur.label.textContent = op.name
+    cur.label.classList.toggle('on', op.name !== '')
+  }
+  if (op.busy !== undefined) cur.spin.classList.toggle('on', op.busy)
   if (op.clear) {
     land()
     for (const s of cur.segs) s.g.remove()
@@ -173,6 +212,7 @@ export function drawAgentCursor(op: CursorOp, place?: HTMLElement): number {
   if (op.op === 'hide') {
     land()
     cur.pointer.classList.remove('on')
+    cur.spin.classList.remove('on')
     cur.mark.classList.remove('on')
     return 0
   }

@@ -249,6 +249,7 @@ export class CanvasDrive {
     const face = who
       ? {
           color: who.color,
+          name: who.name,
           initial: who.name.slice(0, 1),
           ...(who.avatar ? { avatar: who.avatar } : {}),
         }
@@ -273,6 +274,19 @@ export class CanvasDrive {
     this.stillMine(slug)
     const a = await this.call({ op: 'reveal', slug, page, ...what })
     if (a.mounted && a.ms) await this.sleep(a.ms)
+  }
+
+  /**
+   * The board shows what the agent is making: cards `nodes` it added (`added`) or changed
+   * (`edited`) take their generation state. Only component cards and frames show one.
+   */
+  private async gen(
+    slug: string,
+    page: string,
+    nodes: string[],
+    phase: 'added' | 'edited',
+  ): Promise<void> {
+    await this.call({ op: 'gen', slug, page, nodes, phase })
   }
 
   /** Cards' boxes as drawn when the board is on screen, else from the file. */
@@ -614,6 +628,9 @@ export class CanvasDrive {
         },
         changes,
       )
+      if (type === 'proto' || type === 'frame') await this.gen(p.slug, at.page, made.ids, 'added')
+      // A card placed in a frame is the frame's content arriving.
+      if (p.parent !== undefined) await this.gen(p.slug, at.page, [p.parent], 'edited')
       // The cursor visits each sibling as it lands (the first one it clicked into place).
       for (const spot of spots?.slice(1) ?? []) {
         try {
@@ -695,6 +712,9 @@ export class CanvasDrive {
         },
         [p.node],
       )
+      if (edited.type === 'proto' || edited.type === 'frame') {
+        await this.gen(p.slug, at.page, [p.node], 'edited')
+      }
       const compile = compileOf(edited.type, edited.data)
       return { id: p.node, ...(compile === undefined ? {} : { compile }) }
     })

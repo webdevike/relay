@@ -60,6 +60,21 @@ export function aimOnScreen(aim: Aim, boxes: ReadonlyMap<string, Box>, t: Transf
   }
 }
 
+/** Whether the cursor aiming at `aim` is on one of cards `ids` (it names one, or its point is in one). */
+export function aimsAt(
+  aim: Aim | null,
+  ids: readonly string[],
+  boxes: ReadonlyMap<string, Box>,
+): boolean {
+  if (!aim) return false
+  return ids.some((id) => {
+    if (aim.node === id) return true
+    const b = boxes.get(id)
+    const p = aim.at
+    return !!b && !!p && p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h
+  })
+}
+
 /**
  * The viewport a `view` call asks for on a board `size` px wide and high: `center` (flow) in the
  * middle at `zoom`, each defaulting to what is shown now, then moved by `pan` screen px.

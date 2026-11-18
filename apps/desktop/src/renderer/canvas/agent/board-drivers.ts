@@ -7,6 +7,7 @@
  */
 import type { CanvasBoardAnswer, CanvasBoardCall, CanvasCursorOp } from '@evaos/contract'
 import type { Box } from '../comment-model'
+import { cardGenCall } from './card-gen'
 import { unionBox, type Point, type Viewport } from './cursor-model'
 
 type ViewCall = Extract<CanvasBoardCall, { op: 'view' }>
@@ -100,6 +101,11 @@ export async function canvasBoardCall(
     if (front.page === call.page) return { mounted: true }
     front.goTo(call.page)
     return { mounted: false, ms: 0 }
+  }
+  if (call.op === 'gen') {
+    // Cards keep their state off screen too: a board shown later picks it up.
+    cardGenCall(call.slug, call.nodes, call.phase)
+    return { mounted: [...all].some((d) => d.slug === call.slug) }
   }
   const board = shownBoard(all, call.slug, call.page)
   if (!board) return { mounted: false, ms: 0 }
