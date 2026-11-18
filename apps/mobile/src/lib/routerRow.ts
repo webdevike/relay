@@ -6,6 +6,7 @@ import {
   routerDetail,
   routerLine,
   routerParts,
+  routerPicked,
   type AssistantMessage,
   type RouterParts,
   type RouterTurn,
@@ -18,10 +19,10 @@ export interface RouterRowView {
   readonly label: string;
 }
 
-/** The router line `message` shows: only Isaac's rows the router judged; null for every other row. */
+/** The router line `message` shows: only Isaac's rows where the router picked a specialist; null for every other row (none and skipped included). */
 export function routerRowOf(message: Pick<AssistantMessage, "role" | "router">): RouterRowView | null {
   const turn = message.router;
-  if (message.role !== "user" || turn === undefined) return null;
+  if (message.role !== "user" || turn === undefined || !routerPicked(turn.decision)) return null;
   return {
     parts: routerParts(turn.decision, turn.outcome),
     label: routerLine(turn.decision, turn.outcome),

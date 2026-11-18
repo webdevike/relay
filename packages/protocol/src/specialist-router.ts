@@ -123,7 +123,7 @@ export function routerByUserMessage(entries: Iterable<unknown>): Map<string, Rou
   return out;
 }
 
-/** The row's pieces: `head` (`Router: web-researcher · 0.86`), the decision's `why` on one line (absent for none and errors), and the after-turn `mark`. */
+/** The row's pieces: `head` (`Router: web-researcher · 0.86`), the decision's `why` on one line, and the after-turn `mark`. */
 export interface RouterParts {
   readonly head: string;
   readonly why?: string;
@@ -132,37 +132,34 @@ export interface RouterParts {
 
 const NONE = "none";
 
-/** What a decision's row says, in pieces a view can truncate apart (the `why` shrinks, the mark stays). */
+/**
+ * Whether the router picked a specialist: the only decisions a chat shows. `none` and a failed judgement
+ * (`error`: timeout, jev 503) stay in the shadow log and the transcript entry and draw nothing.
+ */
+export function routerPicked(decision: RouterDecision): boolean {
+  return decision.error === undefined && decision.agent !== NONE;
+}
+
+/** What a picked decision's row says, in pieces a view can truncate apart (the `why` shrinks, the mark stays). Call only when `routerPicked`. */
 export function routerParts(decision: RouterDecision, outcome?: RouterOutcome): RouterParts {
-  const matched = decision.error === undefined && decision.agent !== NONE;
-  const head =
-    decision.error !== undefined
-      ? `Router: skipped · ${oneLine(decision.error)}`
-      : matched
-        ? `Router: ${decision.agent} · ${decision.confidence.toFixed(2)}`
-        : "Router: none";
-  const why = matched ? oneLine(decision.why) : "";
-  const mark = outcome === undefined ? undefined : routerMark(matched, outcome);
+  const why = oneLine(decision.why);
+  const mark = outcome === undefined ? undefined : routerMark(outcome);
   return {
-    head,
+    head: `Router: ${decision.agent} · ${decision.confidence.toFixed(2)}`,
     ...(why === "" ? {} : { why }),
     ...(mark === undefined ? {} : { mark }),
   };
 }
 
-function routerMark(matched: boolean, outcome: RouterOutcome): string | undefined {
-  if (matched) {
-    if (outcome.used) return "used";
-    const reason = oneLine(outcome.skipReason ?? "");
-    return reason === "" ? "skipped" : `skipped: ${reason}`;
-  }
-  const used = outcome.usedAgents.filter((agent) => agent !== NONE && agent.length > 0);
-  return used.length === 0 ? undefined : `used ${used.join(", ")}`;
+function routerMark(outcome: RouterOutcome): string {
+  if (outcome.used) return "used";
+  const reason = oneLine(outcome.skipReason ?? "");
+  return reason === "" ? "skipped" : `skipped: ${reason}`;
 }
 
 /**
- * The quiet line under Isaac's bubble: `Router: web-researcher · 0.86 · <why>`, `Router: none`, `Router: skipped · timeout`;
- * once the turn ended `· used`, `· skipped: <reason>` / `· skipped`, or `· used <agent>` when the router said none.
+ * The quiet line under Isaac's bubble for a picked specialist: `Router: web-researcher · 0.86 · <why>`;
+ * once the turn ended `· used`, or `· skipped: <reason>` / `· skipped`.
  */
 export function routerLine(decision: RouterDecision, outcome?: RouterOutcome): string {
   const { head, why, mark } = routerParts(decision, outcome);

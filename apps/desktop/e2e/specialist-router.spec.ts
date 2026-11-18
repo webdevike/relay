@@ -1,7 +1,7 @@
 // Eva's specialist router in an assistant thread: before each of Isaac's messages reaches Nova, the
 // router hook writes its decision (an omp `custom` entry, customType eva.specialist-router) just before
 // the user message, and the turn's outcome at its end. Under each of Isaac's bubbles one quiet line
-// shows it: the picked specialist with its confidence and why, or none; once the turn ended, whether
+// shows it when the router picked a specialist: its confidence and why; once the turn ended, whether
 // Nova used it. A click opens the whole decision. The entries come in as the transcript grows (the
 // thread rereads its file), so a turn's mark appears when its outcome is written. Saves screenshots
 // to proof/specialist-router/<scheme>/ (EVAOS_PROOF=1, or EVAOS_PROOF_DIR).
@@ -130,9 +130,8 @@ const MATCH_USED =
   'Router: web-researcher · 0.86 · wants current prices with sources it can check · used'
 const MATCH_SKIPPED =
   'Router: prop-render · 0.74 · asks to see the enclosure, a render fits · skipped: Isaac asked for words, not a picture'
-const NONE = 'Router: none'
 
-test('the router decision shows under each of Isaac messages, with whether the turn used it, and opens in full', async ({
+test('the router decision shows under Isaac messages where it picked a specialist, with whether the turn used it, and opens in full', async ({
   app,
   shell,
 }) => {
@@ -222,7 +221,7 @@ test('the router decision shows under each of Isaac messages, with whether the t
     }),
   )
 
-  // Turn 3: small talk, no specialist.
+  // Turn 3: small talk, no specialist: no row. Turn 4: the router timed out: no row either.
   await fx.append(
     THREAD,
     decision('sr-d3', 'sr-o2', 'sr-3', {
@@ -235,15 +234,28 @@ test('the router decision shows under each of Isaac messages, with whether the t
   await fx.append(THREAD, user('sr-u3', 'sr-d3', 'Thanks!', t0 + 40_000))
   await fx.append(THREAD, reply('sr-a3', 'sr-u3', 'Any time.', t0 + 41_000))
   await fx.append(THREAD, outcome('sr-o3', 'sr-a3', 'sr-3', { used: false, usedAgents: [] }))
+  await fx.append(
+    THREAD,
+    decision('sr-d4', 'sr-o3', 'sr-4', {
+      agent: 'none',
+      confidence: 0,
+      why: 'router skipped: timeout',
+      error: 'timeout',
+    }),
+  )
+  await fx.append(THREAD, user('sr-u4', 'sr-d4', 'And again?', t0 + 50_000))
+  await fx.append(THREAD, reply('sr-a4', 'sr-u4', 'Sure.', t0 + 51_000))
+  await fx.append(THREAD, outcome('sr-o4', 'sr-a4', 'sr-4', { used: false, usedAgents: [] }))
   host.upsert({ id: THREAD, status: 'idle', kind: 'assistant', assistant: 'nova', title: 'Nova' })
 
-  await expect(rows).toHaveCount(3)
+  await expect(log.locator('[data-testid="msg-sr-u4"]')).toBeVisible()
+  await expect(rows).toHaveCount(2)
   await expect(rows.nth(0)).toHaveText(MATCH_USED)
   await expect(rows.nth(1)).toHaveText(MATCH_SKIPPED)
-  await expect(rows.nth(2)).toHaveText(NONE)
-  // Each line sits under its own bubble, and the first chat message (no router entry) has none.
+  // Each line sits under its own bubble; the first chat message (no router entry), none and skipped have no row.
   await expect(log.locator('[data-testid="msg-u1"] [data-testid=router-row]')).toHaveCount(0)
-  await expect(log.locator('[data-testid="msg-sr-u3"] [data-testid=router-row]')).toHaveText(NONE)
+  await expect(log.locator('[data-testid="msg-sr-u3"] [data-testid=router-row]')).toHaveCount(0)
+  await expect(log.locator('[data-testid="msg-sr-u4"] [data-testid=router-row]')).toHaveCount(0)
   await shot(shell, 'rows.png')
 
   // A click opens the whole decision and its outcome.

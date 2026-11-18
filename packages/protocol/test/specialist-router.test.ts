@@ -5,6 +5,7 @@ import {
   routerDetail,
   routerLine,
   routerParts,
+  routerPicked,
   routerRecordOf,
   type RouterDecision,
   type RouterOutcome,
@@ -158,13 +159,11 @@ describe("routerLine", () => {
     });
   });
 
-  it("none and errors", () => {
-    expect(routerLine(decision({ agent: "none", confidence: 0.9, noneReason: "chat", why: "small talk" }))).toBe(
-      "Router: none",
-    );
-    expect(
-      routerLine(decision({ agent: "none", confidence: 0, error: "timeout", why: "router skipped: timeout" })),
-    ).toBe("Router: skipped · timeout");
+  it("shows only a picked specialist: none and failed judgements draw nothing", () => {
+    expect(routerPicked(decision())).toBe(true);
+    expect(routerPicked(decision({ agent: "none", confidence: 0.9, noneReason: "chat" }))).toBe(false);
+    expect(routerPicked(decision({ agent: "none", confidence: 0, error: "timeout" }))).toBe(false);
+    expect(routerPicked(decision({ error: "jev 503" }))).toBe(false);
   });
 
   it("marks a match used, or skipped with or without a reason, after the turn", () => {
@@ -180,26 +179,9 @@ describe("routerLine", () => {
     expect(routerParts(decision(), outcome({ used: false, usedAgents: [] })).mark).toBe("skipped");
   });
 
-  it("marks none only when the assistant used a specialist the router did not pick", () => {
-    const none = decision({ agent: "none", confidence: 0.8, noneReason: "no-fit" });
-    expect(routerLine(none, outcome({ used: false, usedAgents: ["prop-render"] }))).toBe(
-      "Router: none · used prop-render",
-    );
-    expect(routerLine(none, outcome({ used: false, usedAgents: [] }))).toBe("Router: none");
-    const failed = decision({ agent: "none", confidence: 0, error: "jev 503" });
-    expect(routerLine(failed, outcome({ used: false, usedAgents: ["diagram"] }))).toBe(
-      "Router: skipped · jev 503 · used diagram",
-    );
-  });
-
   it("has no mark while the turn runs, and never an em dash", () => {
     expect(routerParts(decision()).mark).toBeUndefined();
-    for (const line of [
-      routerLine(decision(), outcome()),
-      routerLine(decision({ agent: "none" })),
-      routerLine(decision({ agent: "none", error: "timeout" })),
-    ])
-      expect(line).not.toMatch(/\u2014/);
+    expect(routerLine(decision(), outcome())).not.toMatch(/\u2014/);
   });
 });
 

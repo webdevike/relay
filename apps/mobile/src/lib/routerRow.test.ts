@@ -25,7 +25,7 @@ const turn = (over: Partial<RouterTurn["decision"]> = {}, outcome?: RouterTurn["
 });
 
 describe("routerRowOf", () => {
-  it("words Isaac's judged row: a match used, skipped with a reason, and none", () => {
+  it("words Isaac's judged row: a match used, and skipped with a reason", () => {
     const used = routerRowOf({
       role: "user",
       router: turn({}, { v: 1, kind: "outcome", id: "sr-1", at: "x", used: true, usedAgents: ["web-researcher"] }),
@@ -37,7 +37,13 @@ describe("routerRowOf", () => {
       router: turn({}, { v: 1, kind: "outcome", id: "sr-1", at: "x", used: false, usedAgents: [], skipReason: "wanted words" }),
     });
     expect(skipped?.parts.mark).toBe("skipped: wanted words");
-    expect(routerRowOf({ role: "user", router: turn({ agent: "none" }) })?.label).toBe("Router: none");
+  });
+
+  it("draws nothing when the router said none or was skipped (timeout, error)", () => {
+    expect(routerRowOf({ role: "user", router: turn({ agent: "none" }) })).toBeNull();
+    expect(routerRowOf({ role: "user", router: turn({ agent: "none", confidence: 0, error: "timeout" }) })).toBeNull();
+    expect(routerRowOf({ role: "user", router: turn({ error: "jev 503" }) })).toBeNull();
+    expect(routerRowOf({ role: "user", router: turn() })).not.toBeNull();
   });
 
   it("has no line on other rows or rows the router never judged, and no mark while the turn runs", () => {

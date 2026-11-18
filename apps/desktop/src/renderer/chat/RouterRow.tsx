@@ -2,15 +2,26 @@ import './run-details.css'
 import './router-row.css'
 import { useState } from 'react'
 import { IconRoute } from '@tabler/icons-react'
-import { routerDetail, routerLine, routerParts, type RouterTurn } from '@relay/protocol'
+import {
+  routerDetail,
+  routerLine,
+  routerParts,
+  routerPicked,
+  type RouterTurn,
+} from '@relay/protocol'
 import { EvaPopover } from '../overlay'
 
 /**
  * Eva's specialist router under Isaac's bubble in an assistant thread (protocol `specialist-router`): one quiet
  * line (`Router: web-researcher · 0.86 · <why> · used`), the why truncating on one line while the mark stays.
- * A click opens the whole decision and its outcome.
+ * A click opens the whole decision and its outcome. Only a picked specialist shows: none and skipped (timeout,
+ * error) render nothing and stay in the shadow log.
  */
 export function RouterRow({ turn }: { turn: RouterTurn }) {
+  return routerPicked(turn.decision) ? <PickedRouterRow turn={turn} /> : null
+}
+
+function PickedRouterRow({ turn }: { turn: RouterTurn }) {
   const [opened, setOpened] = useState(false)
   const { head, why, mark } = routerParts(turn.decision, turn.outcome)
   const line = routerLine(turn.decision, turn.outcome)
