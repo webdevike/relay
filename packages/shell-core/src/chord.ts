@@ -1,5 +1,63 @@
 /** Hotkey chord normalisation and the README chord table (D-11, D-14). */
 
+/**
+ * True on macOS. The renderer (sandboxed, no `process`) reads `navigator.platform`; main reads
+ * `process.platform`. Off macOS the app modifier is Ctrl: Super belongs to the desktop.
+ */
+function detectMac(): boolean {
+  // Either global may be missing (and untyped) depending on the runtime and tsconfig.
+  const runtime: { navigator?: { platform?: unknown }; process?: { platform?: unknown } } =
+    globalThis
+  const nav = runtime.navigator?.platform
+  if (typeof nav === 'string' && nav !== '') return /^mac/i.test(nav)
+  const proc = runtime.process?.platform
+  return typeof proc === 'string' ? proc === 'darwin' : true
+}
+
+export const IS_MAC = detectMac()
+
+/** The app modifier is held: Cmd on macOS, Ctrl elsewhere (Super still counts there). */
+export function isMod(e: { metaKey?: boolean; ctrlKey?: boolean }, mac: boolean = IS_MAC): boolean {
+  return mac ? e.metaKey === true : e.ctrlKey === true || e.metaKey === true
+}
+
+/**
+ * A chord written for macOS as this platform's keyboard produces it. Off macOS Ctrl is the app
+ * modifier (`cmd` in chords), so a macOS `ctrl+` chord is pressed as `cmd+` there.
+ */
+export function platformChord(chord: string, mac: boolean = IS_MAC): string {
+  if (mac) return chord
+  const parts = chord.split('+')
+  const out = parts.map((p) => (p === 'ctrl' && parts.length > 1 ? 'cmd' : p))
+  return [...new Set(out.slice(0, -1)), out[out.length - 1]!].join('+')
+}
+
+const KEY_NAMES: Record<string, string> = {
+  '⌃': 'Ctrl',
+  '⌘': 'Ctrl',
+  '⌥': 'Alt',
+  '⇧': 'Shift',
+  '↩': 'Enter',
+  '↵': 'Enter',
+  '←': 'Left',
+  '→': 'Right',
+  '↑': 'Up',
+  '↓': 'Down',
+}
+
+/**
+ * Shortcut text written with macOS glyphs (`⌘⇧F`, `⌥⌘↩`, "press ⌘P") as this platform shows it:
+ * unchanged on macOS, `Ctrl+Shift+F`, `Ctrl+Alt+Enter`, "press Ctrl+P" elsewhere.
+ */
+export function keyLabel(text: string, mac: boolean = IS_MAC): string {
+  if (mac) return text
+  return text.replace(/([⌃⌘⌥⇧]+) ?([↩↵←→↑↓]|[^\s⌃⌘⌥⇧)])/g, (_m, mods: string, key: string) => {
+    const set = new Set([...mods].map((g) => KEY_NAMES[g]!))
+    const order = ['Ctrl', 'Alt', 'Shift'].filter((m) => set.has(m))
+    return [...order, KEY_NAMES[key] ?? key.toUpperCase()].join('+')
+  })
+}
+
 export interface KeyLike {
   key: string
   code: string
@@ -45,25 +103,27 @@ function build(
   c: boolean | undefined,
   a: boolean | undefined,
   s: boolean | undefined,
+  mac: boolean,
 ): string | null {
   if (BARE_MODIFIERS.has(key.toLowerCase())) return null
   const parts: string[] = []
-  if (m) parts.push('cmd')
-  if (c) parts.push('ctrl')
+  // Off macOS Ctrl is the app modifier: Ctrl+T is `cmd+t`, like Cmd+T on a Mac.
+  if (mac ? m : m || c) parts.push('cmd')
+  if (mac && c) parts.push('ctrl')
   if (a) parts.push('alt')
   if (s) parts.push('shift')
   parts.push(keyPart(key, code))
   return parts.join('+')
 }
 
-export function chordOf(e: KeyLike): string | null {
+export function chordOf(e: KeyLike, mac: boolean = IS_MAC): string | null {
   if (e.isComposing) return null
-  return build(e.key, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)
+  return build(e.key, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey, mac)
 }
 
-export function chordOfInput(input: InputLike): string | null {
+export function chordOfInput(input: InputLike, mac: boolean = IS_MAC): string | null {
   if (input.type !== 'keyDown' || input.isAutoRepeat) return null
-  return build(input.key, input.code, input.meta, input.control, input.alt, input.shift)
+  return build(input.key, input.code, input.meta, input.control, input.alt, input.shift, mac)
 }
 
 export type ActionId =
@@ -120,8 +180,23 @@ export function actionFor(chord: string): ActionId | null {
   return BY_CHORD.get(chord) ?? null
 }
 
-/** Chords a focused terminal lets escape to the app; the rest belong to the shell program. */
-export const TERMINAL_PASS_THROUGH = ['cmd+shift+b', 'cmd+b', 'cmd+t', 'cmd+w', 'cmd+q'] as const
+/**
+ * Chords a focused terminal lets escape to the app; the rest belong to the shell program. Off
+ * macOS the app's Ctrl chords are the shell's own keys (tmux Ctrl+B, readline Ctrl+W and Ctrl+T),
+ * so only Ctrl+Shift+B escapes as is and Ctrl+Shift+T / Ctrl+Shift+W stand in for new and close
+ * tab (TERMINAL_ALIASES), as Linux terminals do.
+ */
+export function terminalPassThrough(mac: boolean = IS_MAC): readonly string[] {
+  return mac ? ['cmd+shift+b', 'cmd+b', 'cmd+t', 'cmd+w', 'cmd+q'] : ['cmd+shift+b']
+}
+
+/** In a focused terminal, the chord pressed for an app chord whose own keys the shell keeps. */
+export function terminalAliases(mac: boolean = IS_MAC): Readonly<Record<string, string>> {
+  return mac ? {} : { 'cmd+shift+t': 'cmd+t', 'cmd+shift+w': 'cmd+w' }
+}
+
+export const TERMINAL_PASS_THROUGH = terminalPassThrough()
+export const TERMINAL_ALIASES = terminalAliases()
 
 /** Browser panel page scope. cmd+[ and cmd+] belong to main tab history (D-14). */
 export const PAGE_BROWSER_CHORDS = {

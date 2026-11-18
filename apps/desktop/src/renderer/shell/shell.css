@@ -14,6 +14,17 @@
   background: var(--eva-chrome);
   color: var(--eva-chrome-text);
 }
+/* Linux: the desktop draws a native frame (main/window.ts), so there are no traffic lights to
+   clear at the top left, and the window moves by its title bar, not by drag regions. */
+html[data-platform='linux'] .eva-shell {
+  --eva-traffic: 0px;
+}
+html[data-platform='linux'] .eva-sidebar-inner {
+  --eva-sidebar-top: 10px;
+}
+html[data-platform='linux'] * {
+  -webkit-app-region: no-drag !important;
+}
 .eva-shell-body {
   position: relative;
   flex: 1;

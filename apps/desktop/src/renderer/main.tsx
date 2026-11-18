@@ -12,6 +12,10 @@ import { startLinks } from './navigation/link-prefs'
 import { startToastHoles } from './overlay/toast-holes'
 import { bootstrapTheme } from './theme/bootstrap'
 import { ThemeProvider } from './theme/theme-config'
+import { IS_MAC } from '@evaos/shell-core'
+
+// The window chrome differs: macOS draws its traffic lights over the page, Linux has a native frame.
+document.documentElement.dataset.platform = IS_MAC ? 'mac' : 'linux'
 
 async function start(): Promise<void> {
   await bootstrapTheme()

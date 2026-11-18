@@ -265,7 +265,9 @@ export class AssistantRegistry {
     };
   }
 
+  /** The registry file; a missing one reads as no agents, so `create` writes the first entry. */
   private read(): { agents: RawEntry[] } & Record<string, unknown> {
+    if (!existsSync(this.path)) return { agents: [] };
     let raw: unknown;
     try {
       raw = readJson(this.path);

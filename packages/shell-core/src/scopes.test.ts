@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { TERMINAL_PASS_THROUGH } from './chord'
+import { terminalPassThrough } from './chord'
 import { createScopes, terminalClaim } from './scopes'
+
+/** The macOS list; the Linux one is covered in chord.test.ts. */
+const TERMINAL_PASS_THROUGH = terminalPassThrough(true)
 
 describe('scopes', () => {
   it('runs global when nothing else claims', () => {

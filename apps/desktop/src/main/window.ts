@@ -18,11 +18,15 @@ export function createMainWindow(
   backgroundColor = '#181817',
   saved: WindowState | null = null,
 ): { win: BaseWindow; shell: WebContentsView } {
+  const mac = process.platform === 'darwin'
   const win = new BaseWindow({
     ...(saved ? saved.bounds : { width: 1280, height: 800 }),
     minWidth: WINDOW_MIN.width,
     minHeight: WINDOW_MIN.height,
-    titleBarStyle: 'hiddenInset',
+    // macOS draws the traffic lights over the page (the shell leaves room and drag regions).
+    // Elsewhere a hidden title bar means no window controls at all: keep the desktop's own frame,
+    // and the menu bar shows on Alt only (renderer drops the drag regions: data-platform).
+    ...(mac ? { titleBarStyle: 'hiddenInset' as const } : { autoHideMenuBar: true }),
     show: false,
     backgroundColor,
   })

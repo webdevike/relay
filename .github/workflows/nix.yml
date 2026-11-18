@@ -2,9 +2,12 @@ name: nix
 
 on:
   push:
-    paths: ["flake.*", "nix/**", "apps/linux/**", "packages/protocol/**", "packages/canvas-live/**", "packages/canvas-web/generated/**", ".github/workflows/nix.yml"]
+    paths: ["flake.*", "nix/**", "apps/linux/**", "apps/desktop/**", "packages/**", "pnpm-lock.yaml", ".github/workflows/nix.yml"]
   pull_request:
-    paths: ["flake.*", "nix/**", "apps/linux/**", "packages/protocol/**", "packages/canvas-live/**", "packages/canvas-web/generated/**", ".github/workflows/nix.yml"]
+    paths: ["flake.*", "nix/**", "apps/linux/**", "apps/desktop/**", "packages/**", "pnpm-lock.yaml", ".github/workflows/nix.yml"]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -12,29 +15,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: cachix/install-nix-action@v31
-      - name: Lock
-        run: nix flake lock && cat flake.lock
-      - uses: actions/upload-artifact@v4
-        with:
-          name: flake.lock
-          path: flake.lock
-      - name: Build
-        run: nix build .#relay-linux --print-build-logs
-      - name: Smoke (daemon starts and accepts WebSocket upgrades)
+      # A lockfile change makes a dependency hash stale. On main the new hashes are committed back
+      # (the friend's `nix run` keeps working); on a branch the job fails and prints them.
+      - name: Dependency hashes
         run: |
-          export XDG_CONFIG_HOME=$RUNNER_TEMP/cfg XDG_RUNTIME_DIR=$RUNNER_TEMP/run
-          mkdir -p $XDG_RUNTIME_DIR
-          ./result/bin/relay-linux serve --port 7817 --no-clipboard > daemon.log 2>&1 &
-          for _ in $(seq 30); do grep -q "listening on" daemon.log && break; sleep 1; done
-          cat daemon.log
-          grep -q "listening on ws://0.0.0.0:7817/relay" daemon.log
+          nix/update-hashes.sh
+          if git diff --quiet nix/hashes.json; then exit 0; fi
+          git diff nix/hashes.json
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit -m "nix: dependency hashes for ${GITHUB_SHA::10}" nix/hashes.json
+            git pull --rebase origin main && git push origin HEAD:main
+          else
+            echo "nix/hashes.json is stale: run nix/update-hashes.sh (Linux + Nix) or apply the diff above" >&2
+            exit 1
+          fi
+      - name: Build relay-host and relay
+        run: nix build .#relay-host .#relay --print-build-logs
+      - name: Smoke (host starts, serves, bridge bundled)
+        run: |
+          export HOME=$RUNNER_TEMP/home XDG_CONFIG_HOME=$RUNNER_TEMP/home/.config XDG_RUNTIME_DIR=$RUNNER_TEMP/run
+          mkdir -p $HOME $XDG_RUNTIME_DIR
+          host=$(nix build .#relay-host --no-link --print-out-paths)
+          $host/bin/relay-host serve --port 7817 --no-clipboard > host.log 2>&1 &
+          for _ in $(seq 30); do grep -q "listening on" host.log && break; sleep 1; done
+          cat host.log
+          grep -q "listening on ws://0.0.0.0:7817/relay" host.log
           code=$(curl -s -o /dev/null -w '%{http_code}' -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
             -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
             --max-time 3 http://127.0.0.1:7817/relay || true)
           echo "upgrade status: $code"
           test "$code" = 101
-          ./result/bin/relay-linux devices
-          test -f result/share/relay-linux/omp-extension/relay-bridge.ts
+          test -f $host/Resources/omp-extension/relay-bridge.ts
+          app=$(nix build .#relay --no-link --print-out-paths)
+          test -f $app/share/relay/app/out/main/index.js
+          test -f $app/share/relay/app/resources/setup/start-host.sh
+          ls $app/share/relay/app/node_modules/node-pty/build/Release/pty.node
       - name: NixOS module evaluates
         run: |
           nix eval --impure --raw --expr '
@@ -45,7 +62,7 @@ jobs:
                 modules = [
                   flake.nixosModules.default
                   {
-                    services.relay-linux = { enable = true; users = [ "alice" ]; };
+                    services.relay = { enable = true; users = [ "alice" ]; };
                     users.users.alice = { isNormalUser = true; };
                     fileSystems."/" = { device = "none"; fsType = "tmpfs"; };
                     boot.loader.grub.enable = false;
@@ -56,9 +73,9 @@ jobs:
               c = sys.config;
             in
             builtins.concatStringsSep "\n" [
-              c.systemd.user.services.relay-linux.serviceConfig.ExecStart
+              c.systemd.user.services.relay-host.serviceConfig.ExecStart
+              c.systemd.user.services.herdr.serviceConfig.ExecStart
               (toString c.users.users.alice.extraGroups)
               (toString c.networking.firewall.allowedTCPPorts)
-              c.services.udev.extraRules
               c.system.build.toplevel.drvPath
             ]'

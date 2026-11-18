@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { ompSessionFolderName, resolveEnv, type ResolveEnvInput } from './env'
+import { ompSessionFolderName, resolveEnv, supportDirFor, type ResolveEnvInput } from './env'
 
 /** A throwaway home dir, with an Eva folder when `eva` (Isaac's Mac). */
 function fakeHome(eva: boolean): string {
@@ -18,6 +18,7 @@ const base = (over: Partial<ResolveEnvInput> = {}): ResolveEnvInput => ({
   homedir: '/home/u',
   tmpdir: '/tmp',
   pid: 42,
+  platform: 'darwin',
   ...over,
 })
 
@@ -321,5 +322,49 @@ describe('resolveEnv', () => {
         base({ env: { EVAOS_CANVAS_DIR: '/home/u/Library/Application Support/EvaOS/canvases' } }),
       ),
     ).toThrow(/EVAOS_LIVE=1/)
+  })
+
+  it('macOS keeps Application Support for config, legacy folder and canvases', () => {
+    const home = fakeHome(false)
+    const e = resolveEnv(base({ homedir: home, platform: 'darwin', env: { EVAOS_STABLE: '1' } }))
+    const support = path.join(home, 'Library/Application Support')
+    expect(e.configDir).toBe(path.join(support, 'Relay Desktop'))
+    expect(e.legacyConfigDir).toBe(path.join(support, 'EvaOS Electron'))
+    expect(e.canvasDir).toBe(path.join(support, 'Relay/canvases'))
+    expect(supportDirFor('darwin', { XDG_CONFIG_HOME: '/x' }, '/home/u')).toBe(
+      '/home/u/Library/Application Support',
+    )
+  })
+
+  it('Linux puts config and canvases in the XDG config home', () => {
+    const home = fakeHome(false)
+    const e = resolveEnv(base({ homedir: home, platform: 'linux', env: { EVAOS_STABLE: '1' } }))
+    const support = path.join(home, '.config')
+    expect(e.configDir).toBe(path.join(support, 'Relay Desktop'))
+    expect(e.legacyConfigDir).toBeNull()
+    expect(e.profile).toBe('starter')
+    expect(e.canvasDir).toBe(path.join(support, 'Relay/canvases'))
+    const dev = resolveEnv(base({ homedir: home, platform: 'linux', env: { EVAOS_LIVE: '1' } }))
+    expect(dev.configDir).toBe(path.join(support, 'Relay Dev'))
+    const eva = fakeHome(true)
+    const x = resolveEnv(
+      base({
+        homedir: eva,
+        platform: 'linux',
+        env: { EVAOS_LIVE: '1', XDG_CONFIG_HOME: path.join(eva, 'xdg') },
+      }),
+    )
+    expect(x.configDir).toBe(path.join(eva, 'xdg/Relay Dev'))
+    expect(x.canvasDir).toBe(path.join(eva, 'xdg/EvaOS/canvases'))
+    // A relative XDG_CONFIG_HOME is invalid per the spec and ignored.
+    expect(supportDirFor('linux', { XDG_CONFIG_HOME: 'rel' }, '/home/u')).toBe('/home/u/.config')
+  })
+
+  it('refuses the stable config folder from Relay Dev on Linux too', () => {
+    expect(() =>
+      resolveEnv(
+        base({ platform: 'linux', env: { EVAOS_CONFIG_DIR: '/home/u/.config/Relay Desktop' } }),
+      ),
+    ).toThrow(/stable app/)
   })
 })

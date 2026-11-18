@@ -91,6 +91,17 @@ describe("AssistantRegistry.create", () => {
     const dir = home([{ id: "nova", title: "Nova", avatar: "vega" }, { id: "astra", title: "Astra", avatar: { style: "micah", seed: "vega-2" } }]);
     expect(registry(dir).admin.create({ title: "Vega" })["avatar"]).toMatchObject({ seed: "vega-3" });
   });
+
+  it("writes the first entry into a home with no registry yet (a fresh host)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-admin-"));
+    dirs.push(dir);
+    const { admin, changes } = registry(dir);
+    expect(admin.list()).toEqual([]);
+    const entry = admin.create({ title: "Vega" });
+    expect(raw(dir)).toEqual({ agents: [entry] });
+    expect(changes.at(-1)?.map((agent) => agent.id)).toEqual(["vega"]);
+    expect(existsSync(join(dir, primeFile("vega")))).toBe(true);
+  });
 });
 
 describe("AssistantRegistry.update", () => {
@@ -183,6 +194,37 @@ describe("AssistantRegistry reload and watch", () => {
       expect(changes.map((agents) => agents.map((agent) => agent.id))).toEqual([["nova", "astra", "vega"]]);
       stop();
       expect(watched.closed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts watching before the registry exists and hands the file over once it is written", () => {
+    vi.useFakeTimers();
+    try {
+      const dir = mkdtempSync(join(tmpdir(), "relay-admin-"));
+      dirs.push(dir);
+      const watched: { changed: (name: string | null) => void } = { changed: () => undefined };
+      const changes: (readonly AssistantAgentConfig[])[] = [];
+      const admin = new AssistantRegistry({
+        agentHome: dir,
+        userName: () => "Jane",
+        cli: "relay-linux",
+        log: () => undefined,
+        watchDir: (_path, callback) => {
+          watched.changed = callback;
+          return { close: () => undefined };
+        },
+      });
+      admin.onChange = (agents) => changes.push(agents);
+      const stop = admin.watch();
+      // watch() makes the folder the setup wizard then writes agents.json into.
+      expect(existsSync(join(dir, ".omp", "assistant"))).toBe(true);
+      writeFileSync(join(dir, REGISTRY_FILE), JSON.stringify({ agents: [NOVA] }));
+      watched.changed("agents.json");
+      vi.advanceTimersByTime(WATCH_SETTLE_MS);
+      expect(changes.map((agents) => agents.map((agent) => agent.id))).toEqual([["nova"]]);
+      stop();
     } finally {
       vi.useRealTimers();
     }

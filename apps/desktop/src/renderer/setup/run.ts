@@ -119,14 +119,28 @@ export function firstIncomplete(
   )
 }
 
+/** The wizard runs on a Mac; elsewhere (Linux) the Apple-only rows and wording drop out. */
+export const IS_MAC = typeof navigator !== 'undefined' && navigator.platform.startsWith('Mac')
+
+/** "Mac" on macOS, "computer" elsewhere, for copy like "this Mac". */
+export const MACHINE = IS_MAC ? 'Mac' : 'computer'
+
 /**
  * Tools `detect.sh` found missing, in install order. relay-host is installed by its own step. Tailscale is not
  * listed: its .pkg auto-launches the app and macOS VPN dialogs, so the iPhone step installs it only on request.
+ * Apple's command line tools and Homebrew only apply on macOS.
  */
-export function missingTools(d: SetupDetect): Array<'clt' | 'brew' | 'bun' | 'omp' | 'herdr'> {
+export function missingTools(
+  d: SetupDetect,
+  mac: boolean = IS_MAC,
+): Array<'clt' | 'brew' | 'bun' | 'omp' | 'herdr'> {
   const rows = [
-    ['clt', d.clt.installed],
-    ['brew', d.brew.installed],
+    ...(mac
+      ? ([
+          ['clt', d.clt.installed],
+          ['brew', d.brew.installed],
+        ] as const)
+      : []),
     ['bun', d.bun.installed],
     ['omp', d.omp.installed],
     ['herdr', d.herdr.installed],

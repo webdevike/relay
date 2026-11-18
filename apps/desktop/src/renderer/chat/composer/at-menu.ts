@@ -119,7 +119,8 @@ export const COMPUTER_ROW: AtRow = {
 /**
  * `@` menu rows for the typed word at one level. Top: the agents, then Computer (opens its
  * modes) and skills (omp's `skill:` commands). Inside Computer: a back row, then Background, Live
- * and Walk. `actions: false` leaves out Computer and skills (a room has no computer runs).
+ * and Walk. `actions: false` leaves out Computer and skills (a room has no computer runs);
+ * `computer: false` leaves out Computer alone (it drives Mac apps: macOS only).
  */
 export function atRows(
   commands: readonly SlashCommand[] | null,
@@ -127,6 +128,7 @@ export function atRows(
   level: AtLevel = 'top',
   agents: readonly AtAgent[] = [],
   actions = true,
+  computer = true,
 ): AtRow[] {
   const q = query.toLowerCase()
   if (level === 'computer') {
@@ -157,7 +159,7 @@ export function atRows(
       item: { kind: 'agent', id: a.id, name: a.name },
     }))
   if (!actions) return rows
-  if ('computer'.startsWith(q)) rows.push(COMPUTER_ROW)
+  if (computer && 'computer'.startsWith(q)) rows.push(COMPUTER_ROW)
   const skills = (commands ?? [])
     .filter((c) => c.name.startsWith('skill:'))
     .map((c) => ({ c, bare: c.name.slice('skill:'.length).toLowerCase() }))

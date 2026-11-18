@@ -14,6 +14,7 @@ import { IconAnthropic } from '../../brand/ProviderIcon'
 import { registerPageChord } from '../../hotkeys/router'
 import { EvaPopover } from '../../overlay'
 import { startSettings, toggleFavorite, useSettings } from '../../settings/settings-store'
+import { keyLabel } from '@evaos/shell-core'
 import './model-picker.css'
 
 const slug = (s: string): string => s.replace(/[^A-Za-z0-9]+/g, '-')
@@ -267,7 +268,9 @@ export function ModelPicker({
                   <span className="eva-model-row-level">{thinkingLabel(thinking)}</span>
                 ) : null}
                 <span className="eva-model-row-fill" />
-                {!needle && i < 9 ? <span className="eva-model-kbd">⌘ {i + 1}</span> : null}
+                {!needle && i < 9 ? (
+                  <span className="eva-model-kbd">{keyLabel(`⌘ ${i + 1}`)}</span>
+                ) : null}
                 <ActionIcon
                   variant="subtle"
                   color="gray"

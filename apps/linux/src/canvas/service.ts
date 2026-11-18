@@ -24,7 +24,7 @@ import { lastDeleted, sinceYourLastTurn, summarizeHistory, type HistoryEntry } f
 import { DOC_KEYS, type ChatMsg, type ModelKey, type Presence, type SessionInfo, type User } from "@relay/canvas-live/shared";
 import { liveSessionId } from "../agents/session-ref";
 import type { AssistantAgentConfig } from "../assistant/registry";
-import { human } from "../host-config";
+import { human, relayCli } from "../host-config";
 import { readThreadMemory } from "../live/brief";
 import { AGENT_ORIGIN, str } from "./actor";
 import { CanvasAgent, systemPrompt, type AgentIdentity } from "./agent";
@@ -52,12 +52,14 @@ export const UNJOINED_END_MS = 30 * 60_000;
 /** Ended rooms listed in `canvas.rooms` for their cards. */
 const MAX_ENDED = 20;
 /**
- * The CLI an agent session runs to work a room (skill://canvas): the owner's checkout when it is
- * there, else this very binary (the packaged relay-host).
+ * The CLI an agent session runs to work a room (skill://canvas): `$RELAY_CLI` when set, else the
+ * owner's checkout when it is there, else this host's own CLI (`relayCli`).
  */
-export const CLI = existsSync(join(homedir(), "Eva", "work", "relay", "apps", "linux", "src", "main.ts"))
-  ? "bun ~/Eva/work/relay/apps/linux/src/main.ts"
-  : `"${process.execPath}"`;
+export const CLI =
+  process.env["RELAY_CLI"] === undefined &&
+  existsSync(join(homedir(), "Eva", "work", "relay", "apps", "linux", "src", "main.ts"))
+    ? "bun ~/Eva/work/relay/apps/linux/src/main.ts"
+    : relayCli();
 
 /** A request the HTTP layer answers with `status` and `{ error: message }`. */
 export class CanvasError extends Error {

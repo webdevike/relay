@@ -32,6 +32,40 @@ export function relayConfigDir(): string {
   return join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay");
 }
 
+/**
+ * Where the desktop keeps app data, so the host's default canvases and boards dirs match it:
+ * `~/Library/Application Support` on macOS, `${XDG_CONFIG_HOME:-~/.config}` elsewhere.
+ */
+export function supportDir(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform === "darwin") return join(homedir(), "Library", "Application Support");
+  const xdg = env["XDG_CONFIG_HOME"];
+  return xdg === undefined || xdg === "" ? join(homedir(), ".config") : xdg;
+}
+
+/**
+ * `serve`'s canvases and boards dirs when no flag or env names them, under `support`: the EvaOS
+ * boards when that dir exists, or on macOS for the owner's setup (no host.json); else Relay's own,
+ * which the desktop's starter profile reads too. Off macOS a host started before setup (a systemd
+ * unit at login) must not create the EvaOS dir and then keep it after setup. macOS leaves boards to
+ * the Relay Host wrapper (`--boards`); elsewhere they default to `Relay/boards`.
+ */
+export function defaultServeDirs(
+  config: HostConfig | null,
+  support: string = supportDir(),
+  platform: NodeJS.Platform = process.platform,
+  exists: (path: string) => boolean = existsSync,
+): { canvases: string; boards: string | null } {
+  const evaCanvases = join(support, "EvaOS", "canvases");
+  const eva = exists(evaCanvases) || (config === null && platform === "darwin");
+  return {
+    canvases: eva ? evaCanvases : join(support, "Relay", "canvases"),
+    boards: platform === "darwin" ? null : join(support, "Relay", "boards"),
+  };
+}
+
 export function hostConfigPath(): string {
   return join(relayConfigDir(), "host.json");
 }
@@ -47,10 +81,13 @@ export function loadHostConfig(path: string = hostConfigPath()): HostConfig | nu
   try {
     parsed = HostConfigFile.parse(JSON.parse(readFileSync(path, "utf8")));
   } catch (error) {
-    throw new Error(`${path} is not valid: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `${path} is not valid: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
   const features: Record<string, boolean> = {};
-  for (const [key, value] of Object.entries(parsed.features ?? {})) if (typeof value === "boolean") features[key] = value;
+  for (const [key, value] of Object.entries(parsed.features ?? {}))
+    if (typeof value === "boolean") features[key] = value;
   return {
     ...(parsed.agentHome === undefined ? {} : { agentHome: expandHome(parsed.agentHome) }),
     ...(parsed.name === undefined ? {} : { name: parsed.name }),
@@ -75,7 +112,11 @@ export function appAgentHome(config: HostConfig | null = loadHostConfig()): stri
  * Whether Isaac-specific feature `key` runs: an explicit `features.<key>` boolean wins; without a
  * host.json it is on (today's behavior); with one, it is on only when its resource is present.
  */
-export function featureOn(config: HostConfig | null, key: string, resourcePresent: boolean): boolean {
+export function featureOn(
+  config: HostConfig | null,
+  key: string,
+  resourcePresent: boolean,
+): boolean {
   const explicit = config?.features[key];
   if (explicit !== undefined) return explicit;
   return config === null ? true : resourcePresent;
@@ -99,17 +140,42 @@ function macFullName(): string | null {
   }
 }
 
+/** The full name in a passwd line's GECOS field (`jane:x:1000:100:Jane Doe,,,:/home/jane:/bin/sh`), or null. */
+export function gecosName(passwdLine: string): string | null {
+  const name = passwdLine.split(":")[4]?.split(",")[0]?.trim() ?? "";
+  return name === "" ? null : name;
+}
+
+/** The Linux account's full name: `getent passwd <uid>` (NSS, so LDAP/systemd-homed users too), else /etc/passwd. */
+function linuxFullName(): string | null {
+  if (process.platform !== "linux") return null;
+  const uid = String(process.getuid?.() ?? "");
+  try {
+    const getent = resolveTool("getent");
+    if (getent !== null) {
+      const out = Bun.spawnSync([getent, "passwd", uid], { stdout: "pipe", stderr: "ignore" });
+      if (out.exitCode === 0) return gecosName(out.stdout.toString().trim());
+    }
+    const line = readFileSync("/etc/passwd", "utf8")
+      .split("\n")
+      .find((entry) => entry.split(":")[2] === uid);
+    return line === undefined ? null : gecosName(line);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The person the assistants talk to. Without a host.json it is "Isaac" (this host's original
- * owner); with one: `human`, else the owner in the host name, else the macOS full name's first
- * name, else "the user".
+ * owner); with one: `human`, else the owner in the host name, else the account's full name's first
+ * name (macOS `id -F`, Linux passwd GECOS), else "the user".
  */
 export function resolveHuman(config: HostConfig | null, hostName: string): string {
   if (config === null) return "Isaac";
   if (config.human !== undefined) return config.human;
   const owner = ownerOf(config.name ?? hostName);
   if (owner !== null) return owner;
-  const full = macFullName();
+  const full = macFullName() ?? linuxFullName();
   return full === null ? "the user" : (full.split(/\s+/)[0] ?? full);
 }
 
@@ -123,10 +189,27 @@ export function human(): string {
   return humanName;
 }
 
-/** PATH dirs a host started by launchd/the app (no login shell) must search for herdr, omp and bun. */
+/** PATH dirs a host started by launchd/systemd/the app (no login shell) must search for herdr, omp and bun. */
 export function toolDirs(): string[] {
   const home = homedir();
-  return [join(home, ".local", "bin"), join(home, ".bun", "bin"), "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
+  const dirs = [
+    join(home, ".local", "bin"),
+    join(home, ".bun", "bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+  ];
+  if (process.platform !== "linux") return dirs;
+  // NixOS: the user's and the system's profiles (a systemd user unit starts with neither on PATH).
+  const user = process.env["USER"] ?? process.env["LOGNAME"];
+  return [
+    ...dirs,
+    join(home, ".nix-profile", "bin"),
+    ...(user === undefined ? [] : [join("/etc", "profiles", "per-user", user, "bin")]),
+    "/run/current-system/sw/bin",
+    "/run/wrappers/bin",
+  ];
 }
 
 /** `PATH` with `toolDirs()` appended where missing. */
@@ -139,4 +222,21 @@ export function toolPath(base: string | undefined = process.env["PATH"]): string
 /** Absolute path of `name` on PATH plus `toolDirs()`; null when not found. */
 export function resolveTool(name: string): string | null {
   return Bun.which(name, { PATH: toolPath() });
+}
+
+/**
+ * The command line an agent session runs to call this host's CLI (`<cli> canvas act ...`):
+ * `$RELAY_CLI` when set, else this very binary when compiled (Relay Host.app, the Nix package),
+ * else `bun "<entry script>"` for a host run from source (`main.ts`) or a bundle (`.js`).
+ */
+export function relayCli(
+  env: NodeJS.ProcessEnv = process.env,
+  main: string = Bun.main,
+  execPath: string = process.execPath,
+): string {
+  const override = env["RELAY_CLI"]?.trim();
+  if (override !== undefined && override !== "") return override;
+  // A `bun build --compile` binary reports its entry inside the embedded `/$bunfs` (`B:/~BUN` on Windows).
+  const compiled = main.startsWith("/$bunfs/") || main.startsWith("B:/~BUN/");
+  return !compiled && /\.(?:[cm]?[jt]s|tsx)$/.test(main) ? `bun "${main}"` : `"${execPath}"`;
 }

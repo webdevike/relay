@@ -64,6 +64,7 @@ import { ContextRing, contextLabel } from './ContextRing'
 import { chatStore } from '../chat-store'
 import { resetSettingsForTest } from '../../settings/settings-store'
 import { dispatchChord } from '../../hotkeys/router'
+import { keyLabel } from '@evaos/shell-core'
 
 const open = (tokens: number | null, window: number | null) => {
   chatStore.setState({ panes: {} })
@@ -200,7 +201,7 @@ describe('Composer toolbar', () => {
     expect(invoke).not.toHaveBeenCalledWith('chat.setLaunch', expect.anything())
     await user.click(screen.getByTestId('model-tab-starred'))
     expect(screen.getByPlaceholderText('Search starred...')).toBeInTheDocument()
-    expect(screen.getByTestId('model-option-fake-text-only')).toHaveTextContent('⌘ 1')
+    expect(screen.getByTestId('model-option-fake-text-only')).toHaveTextContent(keyLabel('⌘ 1'))
     expect(dispatchChord('cmd+1', { fromGuest: false })).toBe(true)
     expect(invoke).toHaveBeenCalledWith('chat.setLaunch', {
       paneId: 'pane-1',

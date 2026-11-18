@@ -59,27 +59,16 @@ the VNC password set under Screen Sharing → Computer Settings; the phone keeps
 
 ### NixOS
 
-The flake at the repo root packages the daemon (`bun` plus avahi, wtype and wl-clipboard on its
-PATH) and a module that sets up everything above:
+The flake at the repo root packages this host as `relay-host` (compiled with Bun, laid out like the
+Mac bundle: `bin/relay-host`, `Resources/omp-extension/relay-bridge.ts` bundled, `Resources/asr`),
+together with Relay desktop, omp and herdr. `nix run .#relay-host -- serve` runs it
+alone; `services.relay` (the NixOS module) runs it as the user unit `relay-host` with uinput, avahi
+and the firewall set up. Setup, phone pairing and the Linux gaps: `docs/linux-nixos.md`.
 
-```nix
-# flake.nix inputs
-relay.url = "github:webdevike/relay";
-
-# configuration.nix (with relay in the module's args)
-imports = [ relay.nixosModules.default ];
-services.relay-linux = {
-  enable = true;
-  users = [ "you" ];   # joins the uinput group; log out and in once after the switch
-};
-```
-
-That enables `hardware.uinput`, avahi with user-service publishing, opens TCP 7817, and installs a
-systemd user unit `relay-linux` bound to `graphical-session.target`; the PIN shows in
-`journalctl --user -u relay-linux -f`. Without the module: `nix run github:webdevike/relay -- serve
---port 7817` (uinput, avahi and the firewall are then yours to configure). For the Agent Inbox,
-symlink `/run/current-system/sw/share/relay-linux/omp-extension/relay-bridge.ts` into
-`~/.omp/agent/extensions/`.
+On Linux the host's defaults mirror Relay desktop's: canvases in `${XDG_CONFIG_HOME:-~/.config}/Relay/canvases`
+(or `EvaOS/canvases` when that exists), boards in `.../Relay/boards`. A missing `avahi-publish` is logged
+and the host keeps serving (phones then pair with Add by address). The bundled bridge is copied into
+`~/.omp/agent/extensions/` on first start (a checkout's bridge is symlinked, so its `../src` imports resolve).
 
 ## Run
 

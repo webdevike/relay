@@ -1,3 +1,4 @@
+import { IS_MAC, chordOf, keyLabel } from '@evaos/shell-core'
 import {
   useEffect,
   useImperativeHandle,
@@ -55,7 +56,7 @@ import { notifications } from '@mantine/notifications'
 
 const ABORT_WINDOW_MS = 500
 const STOP_TOAST_ID = 'composer-stop-hint'
-const STOP_TOOLTIP = 'Stop (press Esc twice, or ⌘.)'
+const STOP_TOOLTIP = keyLabel('Stop (press Esc twice, or ⌘.)')
 
 type Attached = ReadImage & { id: string }
 
@@ -206,7 +207,9 @@ export function Composer({
   useEffect(() => {
     if (!atOpen) setAtLevel('top')
   }, [atOpen])
-  const at: AtRow[] = atQuery && !atHidden ? atRows(commands, atQuery.query, atLevel, agents) : []
+  // Computer drives Mac apps (cua-driver, Relay Assist): there is none to offer off macOS.
+  const at: AtRow[] =
+    atQuery && !atHidden ? atRows(commands, atQuery.query, atLevel, agents, true, IS_MAC) : []
   const atSelected = Math.min(atIx, Math.max(at.length - 1, 0))
   const pendingCaret = useRef<number | null>(null)
   useLayoutEffect(() => {
@@ -386,7 +389,7 @@ export function Composer({
   useEffect(() => {
     if (!running) return
     const onKey = (e: KeyboardEvent): void => {
-      if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.key !== '.') return
+      if (chordOf(e) !== 'cmd+.') return
       const at = document.activeElement
       if (at && at !== document.body && !root.current?.contains(at)) return
       e.preventDefault()

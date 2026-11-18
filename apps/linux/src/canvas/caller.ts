@@ -6,8 +6,8 @@
 //   chat   = its top-level owner (walk up the folders while `<folder>.jsonl` exists).
 // Ported from relay-ctl's detectScope/topSessionFile (~/Eva/.omp/tools/relay-ctl.ts).
 
-import { existsSync, statSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { existsSync, readdirSync, readFileSync, readlinkSync, statSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 /** One ancestor process: its pid and full command line. */
 export interface Proc {
@@ -69,11 +69,25 @@ export function callerFile(open: readonly string[], mtime: (file: string) => num
   return files.reduce((a, b) => (mtime(b) > mtime(a) ? b : a));
 }
 
+/**
+ * Whether command line `args` runs omp: `omp ...` everywhere; on Linux also a Nix-wrapped omp
+ * (`.omp-wrapped`) and omp run by its interpreter (`bun /.../omp`, `node /.../@oh-my-pi/.../cli.js`).
+ */
+export function isOmpCommand(args: string, platform: NodeJS.Platform = process.platform): boolean {
+  const [first = "", second = ""] = args.split(/\s+/);
+  if (basename(first) === "omp") return true;
+  if (platform === "darwin") return false;
+  const omp = (word: string): boolean => /^\.?omp(?:-wrapped)?$/.test(basename(word));
+  if (omp(first)) return true;
+  const interpreter = /^\.?(?:bun|node)(?:-wrapped)?$/.test(basename(first));
+  return interpreter && (omp(second) || /\/(?:@oh-my-pi|oh-my-pi)\//.test(second));
+}
+
 /** The caller of this CLI, or null when it is not running under an omp session. */
 export function detectCaller(deps: CallerDeps): Caller | null {
   const assistantEnv = deps.env["RELAY_ASSISTANT"]?.trim();
   const assistant = assistantEnv === undefined || assistantEnv === "" ? {} : { assistant: assistantEnv };
-  const omp = deps.ancestors().find((p) => basename(p.args.split(/\s+/)[0] ?? "") === "omp");
+  const omp = deps.ancestors().find((p) => isOmpCommand(p.args));
   if (omp === undefined) return null;
   const file = callerFile(deps.openFiles(omp.pid), deps.mtime) ?? sessionArg(omp.args);
   if (file === null) return null;
@@ -85,13 +99,35 @@ function run(cmd: string[]): string {
   return r.exitCode === 0 ? r.stdout.toString() : "";
 }
 
-/** The live process tree and file table (ps, lsof). */
+/** Linux: `pid`'s parent and argv from /proc (no ps/lsof needed); null when /proc does not have it. */
+function procEntry(pid: number): { ppid: number; args: string } | null {
+  try {
+    // `pid (comm) state ppid ...`: comm may hold spaces and parens, so read after its last `)`.
+    const stat = readFileSync(`/proc/${String(pid)}/stat`, "utf8");
+    const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
+    const args = readFileSync(`/proc/${String(pid)}/cmdline`, "utf8").split("\0").filter((arg) => arg !== "").join(" ");
+    return Number.isInteger(ppid) ? { ppid, args } : null;
+  } catch {
+    return null;
+  }
+}
+
+const useProc = process.platform === "linux" && existsSync("/proc/self/stat");
+
+/** The live process tree and file table: /proc on Linux, else ps and lsof. */
 export const systemCallerDeps: CallerDeps = {
   env: process.env,
   ancestors() {
     const out: Proc[] = [];
     let pid = process.ppid;
     for (let i = 0; i < 16 && pid > 1; i++) {
+      if (useProc) {
+        const entry = procEntry(pid);
+        if (entry === null) break;
+        out.push({ pid, args: entry.args });
+        pid = entry.ppid;
+        continue;
+      }
       const line = run(["ps", "-o", "ppid=,args=", "-p", String(pid)]).trim();
       const m = /^(\d+)\s+(.*)$/.exec(line);
       if (!m) break;
@@ -101,6 +137,20 @@ export const systemCallerDeps: CallerDeps = {
     return out;
   },
   openFiles(pid) {
+    if (useProc) {
+      const dir = `/proc/${String(pid)}/fd`;
+      try {
+        return readdirSync(dir).flatMap((fd) => {
+          try {
+            return [readlinkSync(join(dir, fd))];
+          } catch {
+            return [];
+          }
+        });
+      } catch {
+        return [];
+      }
+    }
     return run(["lsof", "-a", "-p", String(pid), "-Fn"])
       .split("\n")
       .filter((l) => l.startsWith("n/"))

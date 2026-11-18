@@ -67,8 +67,8 @@ describe('approve visibility', () => {
 
 describe('approve hand-off', () => {
   it('tells Astra to run ready.ts approve for the key, and report', () => {
-    expect(approveLine('ENG-6648')).toBe(
-      'Approve request: Isaac approved the auto-work draft PR for ENG-6648 in Relay Reviews. Run `bun jobs/astra-auto-work/scripts/ready.ts ENG-6648 approve` from /Users/ike/Eva and report what it printed.',
+    expect(approveLine('ENG-6648', '/home/u/Eva')).toBe(
+      'Approve request: Isaac approved the auto-work draft PR for ENG-6648 in Relay Reviews. Run `bun jobs/astra-auto-work/scripts/ready.ts ENG-6648 approve` from /home/u/Eva and report what it printed.',
     )
   })
 })

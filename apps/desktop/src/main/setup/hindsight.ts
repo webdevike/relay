@@ -98,6 +98,8 @@ export interface HindsightDeps {
   healthTimeoutMs: number
   /** `process.arch`: the native install needs `arm64`. */
   arch: string
+  /** `process.platform`; absent means macOS. The native install is macOS only (launchd). */
+  platform?: NodeJS.Platform
   /** The user id launchctl's `gui/<uid>` domain is keyed on. */
   uid: number
   /** `~/Library/Application Support/Relay/hindsight`: venv, Python, uv, models and memories. */
@@ -496,6 +498,11 @@ function llmOnHand(d: HindsightDeps): HindsightStatus['llm'] {
   return c.kind === 'codex' || c.kind === 'key' ? c.kind : 'none'
 }
 
+/** The native engine (launchd, the macOS uv build, MLX-sized models): Apple Silicon Macs only. */
+function nativeSupportedOn(d: HindsightDeps): boolean {
+  return (d.platform ?? 'darwin') === 'darwin' && d.arch === 'arm64'
+}
+
 /**
  * The model on this Mac: installed and how it is doing, or offered when this Mac can run one and a
  * ChatGPT login does not already do the job.
@@ -505,7 +512,7 @@ function localStatus(
   llm: HindsightStatus['llm'],
   native: NativeInfo,
 ): HindsightLocal | null {
-  const m = d.arch === 'arm64' ? localModelFor(d.ramBytes) : null
+  const m = nativeSupportedOn(d) ? localModelFor(d.ramBytes) : null
   const sizes = { downloadBytes: m?.downloadBytes ?? 0, ramBytes: m?.ramBytes ?? 0 }
   if (native.local) {
     return { model: native.local.model, ...sizes, installed: true, running: native.localRunning }
@@ -557,7 +564,7 @@ async function findProblem(
 export async function hindsightStatus(d: HindsightDeps): Promise<HindsightStatus> {
   const cfg = readConfig(readText(ompConfig(d)) ?? '')
   const llm = llmOnHand(d)
-  const nativeSupported = d.arch === 'arm64'
+  const nativeSupported = nativeSupportedOn(d)
 
   const native = await nativeInfo(d)
   if (native.installed) {
@@ -666,7 +673,13 @@ export async function installHindsight(
     )
   }
   const engine = input.engine ?? 'native'
-  if (engine === 'native' && d.arch !== 'arm64') throw new HindsightError(NATIVE_UNSUPPORTED)
+  if (engine === 'native' && !nativeSupportedOn(d)) {
+    throw new HindsightError(
+      (d.platform ?? 'darwin') === 'darwin'
+        ? NATIVE_UNSUPPORTED
+        : 'The built-in memory engine runs on macOS only. Choose Docker on this computer.',
+    )
+  }
 
   // The LLM: decide before touching anything, so a missing account fails before a download.
   const wantLocal = input.llm === 'local'
@@ -737,7 +750,9 @@ async function installDocker(
   const first = await inspect(d)
   if (first.docker === 'missing') {
     throw new HindsightError(
-      'Docker is not installed. Install Docker Desktop or OrbStack, then try again.',
+      (d.platform ?? 'darwin') === 'darwin'
+        ? 'Docker is not installed. Install Docker Desktop or OrbStack, then try again.'
+        : 'Docker is not installed. Install Docker (on NixOS: virtualisation.docker.enable), then try again.',
     )
   }
   if (first.docker === 'down') {
@@ -1004,7 +1019,9 @@ export function realDeps(o: {
     },
     dirSize: async (dir) => {
       if (!fs.existsSync(dir)) return 0
-      const r = await run('/usr/bin/du', ['-sk', dir], process.env, 60_000)
+      // NixOS has no /usr/bin; the macOS path stays absolute.
+      const du = process.platform === 'darwin' ? '/usr/bin/du' : 'du'
+      const r = await run(du, ['-sk', dir], process.env, 60_000)
       const kb = Number.parseInt(r.stdout, 10)
       return Number.isFinite(kb) ? kb * 1024 : 0
     },
@@ -1050,6 +1067,7 @@ export function realDeps(o: {
       path.join(o.homedir, '.npm-global/bin'),
     ].join(':'),
     arch: o.arch ?? process.arch,
+    platform: process.platform,
     uid: process.getuid?.() ?? 0,
     nativeDir: o.nativeDir ?? path.join(o.homedir, 'Library/Application Support/Relay/hindsight'),
     launchAgentsDir: o.launchAgentsDir ?? path.join(o.homedir, 'Library/LaunchAgents'),

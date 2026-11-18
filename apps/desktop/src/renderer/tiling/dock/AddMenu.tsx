@@ -21,6 +21,7 @@ import {
   zoomPane,
 } from '../tiling-store'
 import { openToolIn, TOOLS } from '../tools'
+import { keyLabel } from '@evaos/shell-core'
 
 interface Row {
   id: string
@@ -248,7 +249,7 @@ function MenuBody({ pane, app, close }: { pane: string; app: boolean; close: () 
               <span className="eva-add-menu-label">{r.label}</span>
               {r.hint ? (
                 <Kbd size="xs" className="eva-add-menu-hint">
-                  {r.hint}
+                  {keyLabel(r.hint)}
                 </Kbd>
               ) : null}
               {r.more ? <IconChevronRight size={16} stroke={1.5} /> : null}

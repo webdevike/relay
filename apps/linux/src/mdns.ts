@@ -18,10 +18,15 @@ function tailnetAddress(): string | undefined {
 }
 
 const RESTART_DELAY_MS = 2000;
+/** Linux: Avahi may be down for good (no daemon); retries back off to this and repeat failures stay quiet. */
+const MAX_RESTART_DELAY_MS = 60_000;
 
 export class BonjourAdvertiser {
   private proc: Subprocess<"ignore", "ignore", "pipe"> | null = null;
   private stopped = false;
+  /** Linux: the last failure logged and the current retry delay, so a down avahi-daemon logs once. */
+  private lastFailure: string | null = null;
+  private delay = RESTART_DELAY_MS;
   /** argv that registers the service and stays in the foreground until killed. */
   private readonly argv: string[];
 
@@ -49,7 +54,7 @@ export class BonjourAdvertiser {
       throw new Error(
         this.tool === "dns-sd"
           ? "dns-sd not found (it ships with macOS in /usr/bin)"
-          : "avahi-publish not found: install avahi and enable avahi-daemon",
+          : "avahi-publish not found: install avahi and enable avahi-daemon (NixOS: services.avahi.enable and services.avahi.publish.userServices)",
       );
     }
     this.stopped = false;
@@ -65,13 +70,29 @@ export class BonjourAdvertiser {
   private spawn(): void {
     const proc = Bun.spawn(this.argv, { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
     this.proc = proc;
+    const started = Date.now();
     void proc.exited.then(async (code) => {
       if (this.stopped || this.proc !== proc) return;
       const stderr = (await new Response(proc.stderr).text()).trim();
-      this.log(`${this.tool} exited ${code}${stderr.length > 0 ? `: ${stderr}` : ""}; retrying in ${RESTART_DELAY_MS} ms`);
+      if (process.platform === "darwin") {
+        this.log(`${this.tool} exited ${code}${stderr.length > 0 ? `: ${stderr}` : ""}; retrying in ${RESTART_DELAY_MS} ms`);
+      } else {
+        // A run that held for a while was a real advertisement: start over. A quick exit again and
+        // again (avahi-daemon not running) logs once and backs off instead of filling the log.
+        if (Date.now() - started > MAX_RESTART_DELAY_MS) {
+          this.delay = RESTART_DELAY_MS;
+          this.lastFailure = null;
+        }
+        const failure = `${this.tool} exited ${code}${stderr.length > 0 ? `: ${stderr}` : ""}`;
+        if (failure !== this.lastFailure)
+          this.log(`${failure}; mDNS advertising is off until it works (is avahi-daemon running?), phones can still add this host by address; retrying quietly`);
+        this.lastFailure = failure;
+      }
+      const delay = this.delay;
+      if (process.platform !== "darwin") this.delay = Math.min(this.delay * 2, MAX_RESTART_DELAY_MS);
       setTimeout(() => {
         if (!this.stopped) this.spawn();
-      }, RESTART_DELAY_MS);
+      }, delay);
     });
   }
 }

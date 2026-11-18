@@ -6,6 +6,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ReviewApprove, ReviewWork } from "@relay/protocol";
+import { human } from "../host-config";
 
 /** Written by jobs/astra-auto-work when it opens a ledger (ledgerField / Decisions line). */
 const AUTO_WORK_MARK = "auto-work: opened by jobs/astra-auto-work";
@@ -47,9 +48,9 @@ export function approveState(f: ApproveFacts): ReviewApprove["state"] {
   return "ready";
 }
 
-/** The line Astra acts on; she runs ready.ts, never the host. */
-export function approveLine(key: string): string {
-  return `Approve request: Isaac approved the auto-work draft PR for ${key} in Relay Reviews. Run \`bun jobs/astra-auto-work/scripts/ready.ts ${key} approve\` from /Users/ike/Eva and report what it printed.`;
+/** The line Astra acts on; she runs ready.ts from the agent home `root`, never the host. */
+export function approveLine(key: string, root: string): string {
+  return `Approve request: ${human()} approved the auto-work draft PR for ${key} in Relay Reviews. Run \`bun jobs/astra-auto-work/scripts/ready.ts ${key} approve\` from ${root} and report what it printed.`;
 }
 
 export function readLedgers(evaRoot: string): { key: string; text: string }[] {

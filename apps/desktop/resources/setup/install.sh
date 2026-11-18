@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # Install one Relay prerequisite. Idempotent: an installed tool is left alone.
 #
-#   install.sh brew|bun|omp|herdr|tailscale|relay-host [relay-host args: <root> <hostName>]
+#   install.sh clt|brew|bun|omp|herdr|tailscale|relay-host [relay-host args: <root> <hostName>]
 #
 # stdout protocol: `PROGRESS <0-100> <message>` lines, then `OK <version>` (exit 0) or `ERR <message>` (exit 1).
-# Installer chatter goes to ~/Library/Logs/Relay/setup.log. Admin steps use the macOS password prompt; we never see it.
+# Installer chatter goes to the setup log (macOS ~/Library/Logs/Relay/setup.log, Linux
+# ${XDG_STATE_HOME:-~/.local/state}/relay/setup.log). Admin steps use the macOS password prompt; we never see it.
+# Linux: clt and brew are not needed; bun, omp and herdr use their official installers (never on NixOS, where the
+# flake provides them); Tailscale comes from the distribution.
 set -eEuo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib.sh"
 install_err_trap
-require_macos
+is_macos || is_linux || fail "these setup scripts support macOS and Linux only"
 
 TOOL="${1:-}"
 [ -n "$TOOL" ] || fail "usage: install.sh clt|brew|bun|omp|herdr|tailscale|relay-host"
@@ -20,6 +23,13 @@ already() { # already <tool>: exit OK when installed
   if [ -n "$(tool_path "$1")" ]; then
     v="$(tool_version "$1")"
     ok "${v:-installed} (already installed)"
+  fi
+}
+
+# NixOS cannot run the generic binaries the official installers download (no nix-ld by default).
+not_on_nixos() { # not_on_nixos <tool>
+  if is_nixos; then
+    fail "$1 was not found on PATH. On NixOS start Relay with the flake (nix run .#relay), which provides $1; downloaded generic binaries do not run on NixOS"
   fi
 }
 
@@ -35,15 +45,6 @@ verified_version() { # verified_version <tool>: fail unless it now resolves and 
   printf '%s' "$v"
 }
 
-# Wire herdr's omp status extension (best effort, only when both tools exist).
-herdr_omp_integration() {
-  if [ -n "$(tool_path herdr)" ] && [ -n "$(tool_path omp)" ]; then
-    # A fresh omp has not created its extensions folder yet; herdr refuses to install without it.
-    mkdir -p "$HOME/.omp/agent/extensions"
-    run_logged herdr integration install omp || log_line "herdr integration install omp failed (non-fatal)"
-  fi
-}
-
 install_pkg_as_admin() { # install_pkg_as_admin <pkg> <label>
   local pkg="$1" label="$2"
   pkgutil --check-signature "$pkg" 2>&1 | grep -q 'Status: signed' \
@@ -52,6 +53,12 @@ install_pkg_as_admin() { # install_pkg_as_admin <pkg> <label>
   admin_run "/usr/sbin/installer -pkg '$pkg' -target /" "Relay is installing $label. Enter your password to allow this." \
     || fail "$label install was cancelled or failed (the macOS password prompt may have been dismissed)"
 }
+
+case "$TOOL" in
+  clt|brew)
+    is_macos || ok "not needed on Linux"
+    ;;
+esac
 
 case "$TOOL" in
   clt)
@@ -91,6 +98,9 @@ case "$TOOL" in
 
   bun)
     already bun
+    not_on_nixos bun
+    # Bun's Linux installer unpacks a zip.
+    if is_linux && ! have unzip; then fail "Bun's installer needs unzip; install unzip with your package manager, then press Retry"; fi
     need_network
     progress 10 "Downloading Bun"
     # Official installer: https://bun.sh/docs/installation. Installs to ~/.bun and edits the shell rc for PATH.
@@ -104,6 +114,7 @@ case "$TOOL" in
 
   omp)
     already omp
+    not_on_nixos omp
     need_network
     progress 10 "Downloading omp"
     # Official installer (omp.sh): prebuilt binary into ~/.local/bin/omp, sha256-verified. --binary needs no Bun.
@@ -117,6 +128,7 @@ case "$TOOL" in
 
   herdr)
     already herdr
+    not_on_nixos herdr
     need_network
     progress 10 "Downloading herdr"
     # Official installer (herdr.dev): checksum-verified binary into ~/.local/bin/herdr.
@@ -129,6 +141,13 @@ case "$TOOL" in
     ;;
 
   tailscale)
+    if is_linux; then
+      if [ -n "$(tool_path tailscale)" ]; then
+        v="$(tool_version tailscale)"
+        ok "${v:-installed} (already installed)"
+      fi
+      fail "install Tailscale with your distro (NixOS: services.tailscale.enable = true), then sign in with: sudo tailscale up"
+    fi
     # Prefer the standalone app (works headless-CLI inside the bundle, no App Store sign-in needed).
     if [ -d /Applications/Tailscale.app ]; then
       v="$(tool_version tailscale)"
@@ -153,11 +172,11 @@ case "$TOOL" in
   relay-host)
     # Delegates to install-host.sh. Args: <root> <hostName>; defaults so the bare form works for tests.
     root="${1:-${RELAY_HOME_ROOT:-$HOME/Relay}}"
-    name="${2:-$(scutil --get ComputerName 2>/dev/null || hostname -s)}"
+    name="${2:-$(computer_name)}"
     exec "$HERE/install-host.sh" "$root" "$name"
     ;;
 
   *)
-    fail "unknown tool '$TOOL' (expected brew|bun|omp|herdr|tailscale|relay-host)"
+    fail "unknown tool '$TOOL' (expected clt|brew|bun|omp|herdr|tailscale|relay-host)"
     ;;
 esac

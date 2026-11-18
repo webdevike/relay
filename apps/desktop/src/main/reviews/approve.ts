@@ -48,9 +48,9 @@ export function approveState(f: ApproveFacts): ReviewApprove['state'] {
   return 'ready'
 }
 
-/** The line Astra acts on; she runs ready.ts, never the desktop. */
-export function approveLine(key: string): string {
-  return `Approve request: Isaac approved the auto-work draft PR for ${key} in Relay Reviews. Run \`bun jobs/astra-auto-work/scripts/ready.ts ${key} approve\` from /Users/ike/Eva and report what it printed.`
+/** The line Astra acts on; she runs ready.ts from the Eva root, never the desktop. */
+export function approveLine(key: string, evaRoot: string): string {
+  return `Approve request: Isaac approved the auto-work draft PR for ${key} in Relay Reviews. Run \`bun jobs/astra-auto-work/scripts/ready.ts ${key} approve\` from ${evaRoot} and report what it printed.`
 }
 
 /** The line Astra acts on when Isaac sends a ticket from the Agents board: start or resume its work. */

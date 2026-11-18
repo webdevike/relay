@@ -28,12 +28,14 @@ case "$ROOT" in "~"|"~/"*) ROOT="$HOME${ROOT#\~}" ;; esac
 case "$ROOT" in /*) ;; *) fail "root must be an absolute path, got '$ROOT'" ;; esac
 ROOT="${ROOT%/}"
 
-# ---- answers (plutil reads JSON on every Mac; no jq) ----
-ans() { plutil -extract "$1" raw -o - "$ANSWERS" 2>/dev/null || true; }
+# ---- answers (json_get: plutil on macOS, jq / bun / node on Linux) ----
+# A missing optional key reads as empty, never as an error message.
+ans() { json_get "$1" "$ANSWERS"; }
 trim() { printf '%s' "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
 slugify() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9]\{1,\}/-/g' -e 's/^-*//' -e 's/-*$//'; }
 
-plutil -convert json -o /dev/null "$ANSWERS" >/dev/null 2>&1 || fail "answers file is not valid JSON"
+json_tool >/dev/null || fail "reading the answers needs jq, bun or node on PATH"
+json_valid "$ANSWERS" || fail "answers file is not valid JSON"
 USER_NAME="$(trim "$(ans userName)")"
 [ -n "$USER_NAME" ] || fail "answers.userName is required"
 COUNT="$(ans assistants)"
@@ -109,7 +111,9 @@ subst_file() {
 place() { # place <src> <dest>
   if [ -e "$2" ]; then KEPT=$((KEPT + 1)); return 0; fi
   mkdir -p "$(dirname "$2")"
+  # The template may be read-only (the Nix store); the copy is the user's own file.
   cp "$1" "$2"
+  chmod u+w "$2"
   subst_file "$2"
   CREATED=$((CREATED + 1))
 }
@@ -170,7 +174,7 @@ else
     done
     printf '  ]\n}\n'
   } >"$registry"
-  plutil -convert json -o /dev/null "$registry" >/dev/null 2>&1 || fail "generated agents.json is invalid"
+  json_valid "$registry" || fail "generated agents.json is invalid"
   CREATED=$((CREATED + 1))
 fi
 

@@ -1,9 +1,11 @@
 import {
   GLOBAL_CHORDS,
+  TERMINAL_ALIASES,
   TEXT_OWNED_CHORDS,
   chordOf,
   createScopes,
   isNativeEditChord,
+  platformChord,
   terminalClaim,
   type ActionId,
   type ScopeHandler,
@@ -65,17 +67,36 @@ for (const { chord, action } of GLOBAL_CHORDS) {
   })
 }
 
+/** Chords are written as on a Mac; off macOS a `ctrl+` chord is pressed with the app modifier. */
 export function registerPageChord(chord: string, fn: ScopeHandler): () => void {
-  return scopes.register('page', chord, fn)
+  return scopes.register('page', platformChord(chord), fn)
 }
 
 export function registerOverlayChord(chord: string, fn: ScopeHandler): () => void {
-  return scopes.register('overlay', chord, fn)
+  return scopes.register('overlay', platformChord(chord), fn)
 }
 
-/** A focused terminal yields every chord except the pass-through list. */
-export function registerTerminalScope(passThrough: readonly string[]): () => void {
-  return scopes.register('terminal', '*', terminalClaim(passThrough))
+/**
+ * A focused terminal yields every chord except the pass-through list. Off macOS a terminal alias
+ * (Ctrl+Shift+T: Ctrl+T is the shell's) dispatches the app chord it stands for past the terminal.
+ */
+export function registerTerminalScope(
+  passThrough: readonly string[],
+  aliases: Readonly<Record<string, string>> = TERMINAL_ALIASES,
+): () => void {
+  const claim = terminalClaim(passThrough)
+  let aliasing = false
+  return scopes.register('terminal', '*', (chord) => {
+    if (aliasing) return false
+    const target = aliases[chord]
+    if (target === undefined) return claim(chord)
+    aliasing = true
+    try {
+      return scopes.dispatch(target).result === 'consumed' ? 'consumed' : 'yield'
+    } finally {
+      aliasing = false
+    }
+  })
 }
 
 let chordLock: ((chord: string) => boolean) | null = null

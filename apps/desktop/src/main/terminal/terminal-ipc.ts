@@ -3,6 +3,7 @@ import * as pty from 'node-pty'
 import { z } from 'zod'
 import type { ChatHandles } from '../chat'
 import type { MainContext } from '../context'
+import { defaultShell } from '../chat/shell-path'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
 import { emit, handle } from '../ipc/handle'
 import { createTerminalService } from './terminal-service'
@@ -31,7 +32,7 @@ export function registerTerminalIpc(ctx: MainContext, chat: Pick<ChatHandles, 'p
   const service = createTerminalService({
     evaRoot: ctx.env.evaRoot,
     homedir: home,
-    shell: process.env['SHELL'] || '/bin/zsh',
+    shell: defaultShell(),
     herdrBin,
     placeOf: (file) => {
       try {

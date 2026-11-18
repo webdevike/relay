@@ -1,14 +1,19 @@
 # Relay setup scripts
 
-Shell scripts the first-run wizard runs to get a new Mac ready. They ship inside the app (`electron-builder.yml` `extraResources`: `resources/setup` to `Relay.app/Contents/Resources/setup`; in dev run them from this folder). macOS only, bash 3.2 compatible (the system bash), no `jq` (JSON is read with `plutil`), no silent `sudo`.
+Shell scripts the first-run wizard runs to get a new Mac (or Linux machine, see [Linux](#linux)) ready. They ship inside the app (`electron-builder.yml` `extraResources`: `resources/setup` to `Relay.app/Contents/Resources/setup`; in dev run them from this folder; the Nix launcher sets `RELAY_SETUP_DIR`). bash 3.2 compatible (the macOS system bash), no `jq` needed (JSON is read with `plutil` on macOS; jq, bun or node on Linux), no silent `sudo`.
 
 Common rules
 
 - Idempotent: running twice is safe; an installed thing is left alone.
 - `detect.sh` prints one JSON object. The others speak a line protocol on stdout: `PROGRESS <0-100> <message>` (zero or more), then `OK <message>` (exit 0) or `ERR <message>` (exit 1). `ERR` is always one line.
-- Installer chatter goes to `~/Library/Logs/Relay/setup.log`, never stdout. Override the folder with `RELAY_SETUP_LOG_DIR`.
+- Installer chatter goes to the setup log, never stdout: `~/Library/Logs/Relay/setup.log` on macOS, `${XDG_STATE_HOME:-~/.local/state}/relay/setup.log` on Linux. Override the folder with `RELAY_SETUP_LOG_DIR`.
 - Steps that need admin rights use the macOS password prompt (`osascript ... with administrator privileges`). The scripts never see a password.
 - `lib.sh` holds the shared helpers (protocol, tool discovery, JSON reading); it is sourced, not run. It puts `~/.local/bin`, `~/.bun/bin`, `/opt/homebrew/bin` and `/usr/local/bin` on PATH because a GUI app starts with a minimal PATH.
+- `json_get <key> [file]` (lib.sh) reads a dotted path (`accounts.0.provider`) from stdin or a file and prints the raw value, an array's length, or nothing at all for a missing key, `null` or invalid JSON (macOS `plutil` prints some errors on stdout, so its output is kept only when it succeeds). `RELAY_JSON_TOOL=plutil|jq|bun|node` forces a reader.
+
+## Tests
+
+`pnpm test:setup` in `apps/desktop` (or `node --test apps/desktop/scripts/setup-json.test.mjs` from the repository root), on macOS or Linux. It checks `json_get` with every JSON reader present (plutil, jq, bun, node) and scaffolds temporary homes, so an omitted optional value never ends up as an error message in `agents.json`. It is separate from the Vitest suite.
 
 ## detect.sh
 
@@ -92,6 +97,19 @@ Installs Relay Host for this user and starts it.
 The LaunchAgent runs the `relay-host` binary directly; the SwiftUI wrapper (`RelayHost` login item) is not opened, so two hosts never fight over the port.
 
 Manual test only on a clean Mac or VM: `RELAY_HOST_APP="/path/to/Relay Host.app" ./install-host.sh ~/Relay "Test Mac"`. Undo: `launchctl bootout gui/$(id -u)/dev.relay.host`, delete `~/Library/LaunchAgents/dev.relay.*.plist`, `~/Applications/Relay Host.app`, `~/.config/relay/host.json`.
+
+## Linux
+
+The same wizard runs on Linux (NixOS first: the flake's `nix run .#relay` puts `relay-host`, `omp`, `herdr`, `bun`, `jq` and `git` on PATH). Scripts check the platform themselves (`is_macos`, `is_linux`, `is_nixos` in lib.sh); macOS behaviour is unchanged. What differs:
+
+- `detect.sh`: `clt` and `brew` print `{"installed":false,"version":null,"path":null,"applicable":false}` and the wizard skips them. Tailscale is asked directly (`tailscale status --json`; the CLI only talks to `tailscaled` and never launches anything). `relayHost.installed` is `relay-host` on PATH or `$RELAY_HOST_BIN` (never run), its version `$RELAY_HOST_VERSION`.
+- `install.sh`: `clt` and `brew` answer `OK not needed on Linux`. `bun`, `omp` and `herdr` use the official installers above only when missing; on NixOS a missing one is an `ERR` pointing at `nix run .#relay`, since downloaded generic binaries do not run there. `tailscale` is `OK` when installed, else `ERR` asking to install it with the distribution (NixOS: `services.tailscale.enable = true`). Admin steps would use `pkexec`, never a sudo prompt.
+- `ai-login.sh`: unchanged; `omp login` opens the browser itself (`xdg-open`).
+- `install-host.sh <root> <hostName> [<human>]`: refuses when the port is taken by something that is not our host; writes `~/.config/relay/host.json` `{"agentHome","name","port","human"?,"features":{"studio":true}}` (`human` is the wizard's user name); copies `relay-bridge.ts` into `~/.omp/agent/extensions/` from `$RELAY_OMP_EXTENSION_DIR` or `<prefix>/Resources/omp-extension/` beside `<prefix>/bin/relay-host` (a symlink there is left alone); sets omp's `startup.setupWizard` to false; runs `herdr integration install omp`; then `start-host.sh --restart`. Ends `OK <$RELAY_HOST_VERSION or installed>`.
+- `start-host.sh [--restart]` (Linux only; on macOS it prints `ERR start-host.sh is Linux only`): first closes every descriptor it inherited above stderr (Electron leaves its DevTools socket open across exec; the detached host would hold it), then starts herdr when no server answers (`herdr.service` user unit when it exists, else `herdr server` detached), then Relay Host: a live one (serve.json pid alive) is kept, or restarted with `--restart`; else `systemctl --user start|restart relay-host` when `systemctl --user cat relay-host.service` works, else `relay-host serve` detached (setsid) logging to `${XDG_STATE_HOME:-~/.local/state}/relay/host.log`. Waits up to 60 s for serve.json with a live pid. The app runs it once at startup when host.json exists and no host is live.
+- The app runs the scripts with `bash` from PATH (NixOS has no `/bin/bash`), passes `RELAY_HOST_BIN`, takes the computer name from `hostnamectl --pretty`, and its Tailscale button reports the state and the `sudo tailscale up` step instead of opening an app.
+
+Linux test without a Linux machine (what the author ran on macOS): export a `uname` shell function that answers `Linux` to `-s`, a temporary `HOME` whose `~/.local/bin` holds stand-ins for `relay-host`, `omp`, `herdr` and `tailscale`, then run `detect.sh`, `install-host.sh` and `start-host.sh`.
 
 ## Long-term memory (Hindsight), no script
 

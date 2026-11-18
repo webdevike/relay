@@ -59,7 +59,9 @@ my $buffer;
 export class FlockGpuLock implements GpuLock {
   constructor(
     private readonly path: string = defaultGpuLockPath(),
-    private readonly perl = "/usr/bin/perl",
+    // macOS's own perl (as always); elsewhere the one on PATH, which `serve` extends with the Nix
+    // profiles (`toolPath`): NixOS has no /usr/bin/perl.
+    private readonly perl = process.platform === "darwin" ? "/usr/bin/perl" : "perl",
   ) {}
 
   acquire(request: GpuLockRequest): Promise<() => Promise<void>> {

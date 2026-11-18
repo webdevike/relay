@@ -7,6 +7,7 @@ import { SetupDetectSchema, SetupStateSchema, type SetupState } from '@evaos/con
 import type { MainContext } from '../context'
 import { writeHome } from '../env'
 import { buildCommand, childPathFor, runCapture } from '../eva/spawn'
+import { relayConfigDir } from '../relay/device'
 import { emit, handle } from '../ipc/handle'
 import {
   installHindsight,
@@ -25,6 +26,7 @@ import {
   resolveHostApp,
   resolveSetupDir,
   runScript,
+  setupShell,
 } from './runner'
 
 const PROGRESS_FILE = 'setup-progress.json'
@@ -36,22 +38,37 @@ function fail(code: string, message: string): never {
 /** First-run wizard: runs resources/setup scripts and streams their lines to the renderer. */
 export function registerSetup(ctx: MainContext): void {
   const home = os.homedir()
+  const mac = process.platform === 'darwin'
   const dir = resolveSetupDir({
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     appPath: app.getAppPath(),
     override: process.env.RELAY_SETUP_DIR,
   })
-  const hostApp = resolveHostApp({
-    packaged: app.isPackaged,
-    resourcesPath: process.resourcesPath,
-    appPath: app.getAppPath(),
-    override: process.env.RELAY_HOST_APP,
-  })
+  // macOS: Relay Host.app. Linux resolves the relay-host binary per run, on the scripts' PATH.
+  const hostApp = mac
+    ? resolveHostApp({
+        packaged: app.isPackaged,
+        resourcesPath: process.resourcesPath,
+        appPath: app.getAppPath(),
+        override: process.env.RELAY_HOST_APP,
+      })
+    : null
   const running = new Map<
     string,
     { task: string; cancel: () => void; send: (text: string) => boolean; done: Promise<unknown> }
   >()
+
+  /**
+   * The scripts' PATH. Linux also keeps this process's own PATH: the Nix launcher puts relay-host,
+   * omp, herdr, bun and jq there, and a login shell's profile may replace it.
+   */
+  const scriptPath = async (): Promise<string> => {
+    const base = await childPathFor(ctx.env.live, home)
+    if (mac) return base
+    const dirs = [...base.split(path.delimiter), ...(process.env.PATH ?? '').split(path.delimiter)]
+    return [...new Set(dirs.filter((d) => d !== ''))].join(path.delimiter)
+  }
 
   const commandFor = async (script: string, args: string[]) => {
     if (dir === null || !fs.existsSync(path.join(dir, script))) {
@@ -60,8 +77,19 @@ export function registerSetup(ctx: MainContext): void {
         `Setup script ${script} was not found (looked in ${dir ?? 'resources/setup'}).`,
       )
     }
-    return buildCommand('/bin/bash', [path.join(dir, script), ...args], {
-      pathEnv: await childPathFor(ctx.env.live, home),
+    const pathEnv = await scriptPath()
+    const hostBin = mac
+      ? null
+      : resolveHostApp({
+          packaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          appPath: app.getAppPath(),
+          override: process.env.RELAY_HOST_BIN,
+          platform: process.platform,
+          pathEnv,
+        })
+    return buildCommand(setupShell(), [path.join(dir, script), ...args], {
+      pathEnv,
       homedir: home,
       execPath: process.execPath,
       baseEnv: {
@@ -69,13 +97,18 @@ export function registerSetup(ctx: MainContext): void {
         RELAY_SETUP_DIR: dir,
         RELAY_RESOURCES: process.resourcesPath,
         ...(hostApp !== null ? { RELAY_HOST_APP: hostApp } : {}),
+        ...(hostBin !== null ? { RELAY_HOST_BIN: hostBin } : {}),
       },
     })
   }
 
-  handle(ctx, 'setup.info', async () => {
+  /** macOS: the computer name (scutil). Linux: the pretty hostname (hostnamectl). Else the hostname. */
+  const computerName = async (): Promise<string> => {
+    const [file, args] = mac
+      ? ['/usr/sbin/scutil', ['--get', 'ComputerName']]
+      : ['hostnamectl', ['--pretty']]
     const name = await runCapture(
-      buildCommand('/usr/sbin/scutil', ['--get', 'ComputerName'], {
+      buildCommand(file, args, {
         pathEnv: process.env.PATH ?? '',
         homedir: home,
         execPath: process.execPath,
@@ -84,9 +117,13 @@ export function registerSetup(ctx: MainContext): void {
       home,
       3000,
     )
+    return name.stdout.trim() || os.hostname().replace(/\.local$/, '')
+  }
+
+  handle(ctx, 'setup.info', async () => {
     const parsed = SetupStateSchema.safeParse(ctx.config.readJson<unknown>(PROGRESS_FILE, {}))
     return {
-      computerName: name.stdout.trim() || os.hostname().replace(/\.local$/, ''),
+      computerName: await computerName(),
       defaultRoot: ctx.env.profile === 'starter' ? ctx.env.homeRoot : path.join(home, 'Relay'),
       setupDir: dir,
       missing: missingScripts(dir),
@@ -201,7 +238,10 @@ export function registerSetup(ctx: MainContext): void {
       for (const r of earlier) r.cancel()
       await Promise.all(earlier.map((r) => r.done))
     }
-    const plan = planRun(run, home)
+    // Linux: host.json's `human` is the user name the wizard saved (macOS reads the account name).
+    const saved = SetupStateSchema.safeParse(ctx.config.readJson<unknown>(PROGRESS_FILE, {}))
+    const human = !mac && saved.success ? saved.data.userName : undefined
+    const plan = planRun(run, home, human !== undefined ? { human } : {})
     try {
       const cmd = await commandFor(plan.script, plan.args)
       const job = runScript(cmd, home, plan, (line) => {
@@ -237,6 +277,28 @@ export function registerSetup(ctx: MainContext): void {
   })
 
   handle(ctx, 'setup.openTailscale', async () => {
+    if (!mac) {
+      // Linux: tailscaled is a system service with no app to open; report its state and the next step.
+      const r = await runCapture(await commandFor('detect.sh', []), home, 60_000)
+      let state = ''
+      try {
+        const d = SetupDetectSchema.parse(JSON.parse(r.stdout.slice(r.stdout.indexOf('{'))))
+        state = !d.tailscale.installed ? 'missing' : d.tailscale.loggedIn ? 'in' : 'out'
+      } catch {
+        // fall through to the install hint
+      }
+      if (state === 'in') return {}
+      if (state === 'out') {
+        fail(
+          'tailscale-signed-out',
+          'Tailscale is installed but not signed in. In a terminal run: sudo tailscale up, then sign in on the page it shows.',
+        )
+      }
+      fail(
+        'tailscale-missing',
+        'Tailscale is not installed. Install it with your distribution (NixOS: services.tailscale.enable = true), then run: sudo tailscale up',
+      )
+    }
     const err = await shell.openPath('/Applications/Tailscale.app')
     if (err !== '') fail('tailscale-missing', 'Tailscale is not installed yet.')
     return {}
@@ -256,7 +318,7 @@ export function registerSetup(ctx: MainContext): void {
     let hostPort: number | null = null
     try {
       const serve = JSON.parse(
-        fs.readFileSync(path.join(home, '.config/relay/serve.json'), 'utf8'),
+        fs.readFileSync(path.join(relayConfigDir(process.env, home), 'serve.json'), 'utf8'),
       ) as { port?: unknown }
       if (typeof serve.port === 'number') {
         const port = serve.port

@@ -31,6 +31,7 @@ import {
 } from './files-store'
 import { nameOf, parentOf } from './tree-model'
 import { isMarkdownPath } from './markdown/md-layout'
+import { keyLabel } from '@evaos/shell-core'
 
 // Monaco is large; it loads the first time a text file opens.
 const CodeEditor = lazy(() => import('./CodeEditor').then((m) => ({ default: m.CodeEditor })))
@@ -176,8 +177,8 @@ export function EditorArea({ root, empty }: { root: string; empty?: ReactNode })
       <div className="eva-files-welcome" data-testid="files-welcome">
         {empty ?? (
           <>
-            <p>Open a file from the tree, or press ⌘P to find one by name.</p>
-            <p>⌘⇧F searches inside files.</p>
+            <p>{keyLabel('Open a file from the tree, or press ⌘P to find one by name.')}</p>
+            <p>{keyLabel('⌘⇧F searches inside files.')}</p>
           </>
         )}
       </div>

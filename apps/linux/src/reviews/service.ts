@@ -268,10 +268,11 @@ export class ReviewsService implements ReviewsRelaying {
       }
       case "approve": {
         this.refuseWrites();
+        const root = this.deps.agentHome;
         const approve = this.approveOf(op.repo, op.number);
-        if (approve === null) throw new Error("That PR is no longer waiting on your approval");
+        if (approve === null || root === null) throw new Error("That PR is no longer waiting on your approval");
         if (approve.state !== "ready") throw new Error(`${approve.key} was already handed to Astra`);
-        await this.deps.tellAstra(approveLine(approve.key));
+        await this.deps.tellAstra(approveLine(approve.key, root));
         const sent = { ...readMarks(this.approvedPath), [approve.key]: this.deps.clock.now() };
         writeJson(this.approvedPath, sent);
         return { approve: this.approveOf(op.repo, op.number) };

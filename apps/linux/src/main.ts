@@ -131,9 +131,11 @@ import { PinFilePairingUI, TerminalPairingUI } from "./pairing";
 import { PAIRING_TIMEOUT_MS, systemClock } from "./session";
 import {
   appAgentHome,
+  defaultServeDirs,
   featureOn,
   human,
   loadHostConfig,
+  relayCli,
   relayConfigDir,
   resolveHuman,
   setHuman,
@@ -157,6 +159,7 @@ import { FlockGpuLock } from "./studio/gpu-lock";
 import { LtxRunner } from "./studio/ltx";
 import { defaultQwenPlist, LaunchdLtxMemory, systemLaunchctl } from "./studio/ltx-memory";
 import { defaultMossPaths, MossRunner } from "./studio/moss";
+import { UnavailableRunner } from "./studio/runner";
 import { ffmpegMedia } from "./studio/media";
 import { SamRunner } from "./studio/sam";
 import { StudioService, type StudioMessage } from "./studio/service";
@@ -182,7 +185,8 @@ const USAGE = `relay-linux <command>
                                    session started from the phone opens (default: $HOME);
                                    --no-clipboard stops desktop copies from becoming drops;
                                    --boards (or $RELAY_BOARDS_DIR) stores live dashboards
-                                   there (default: boards disabled). Calls to the assistants use
+                                   there (default on macOS: boards disabled; elsewhere
+                                   $XDG_CONFIG_HOME/Relay/boards). Calls to the assistants use
                                    eva-realtime's speech workers ($RELAY_VOICE_ROOT, default
                                    <agent-home>/apps/eva-realtime) and pocket-tts on
                                    $POCKET_PORT (8853) in voice $POCKET_VOICE (stuart_bell).
@@ -193,8 +197,10 @@ const USAGE = `relay-linux <command>
                                    The live view bridges paired phones to the Mac's Screen
                                    Sharing (VNC) on 127.0.0.1, port --vnc-port (default ${String(DEFAULT_VNC_PORT)}).
                                    Live canvas rooms run on the EvaOS boards in --canvases
-                                   (default on macOS: ~/Library/Application Support/EvaOS/canvases;
-                                   elsewhere off) with omp from PATH or $RELAY_CANVAS_OMP; each
+                                   (default: <support>/EvaOS/canvases when it exists or, on
+                                   macOS, without a host.json; else <support>/Relay/canvases;
+                                   <support> is ~/Library/Application Support on macOS, else $XDG_CONFIG_HOME)
+                                   with omp from PATH or $RELAY_CANVAS_OMP; each
                                    room's canvas self is a full omp agent working in the agent
                                    home ($RELAY_CANVAS_MODEL opus, $RELAY_CANVAS_EFFORT low|medium,
                                    budget $RELAY_CANVAS_MAX_TURNS / _MAX_TOKENS / _MAX_TURN_MIN,
@@ -519,7 +525,7 @@ function serve(
                   scopes: registry
                     .map((agent) => `${agent.title}: ${agent.scope ?? "any work"}`)
                     .join("; "),
-                  bounce: (id: string) => `"${process.execPath}" catchup bounce ${id} "<reason>"`,
+                  bounce: (id: string) => `${relayCli()} catchup bounce ${id} "<reason>"`,
                 },
               }),
           log,
@@ -552,7 +558,7 @@ function serve(
       : new AssistantRegistry({
           agentHome,
           userName: human,
-          cli: Bun.main.endsWith(".ts") ? `bun "${Bun.main}"` : `"${process.execPath}"`,
+          cli: relayCli(),
           log,
         });
   const thread = (agent: AssistantAgentConfig): AssistantService =>
@@ -1097,8 +1103,16 @@ function serve(
   );
 
   const advertiser = new BonjourAdvertiser(name, boundPort, log);
-  advertiser.start();
-  log(`advertising _relay._tcp via ${advertiser.tool}`);
+  try {
+    advertiser.start();
+    log(`advertising _relay._tcp via ${advertiser.tool}`);
+  } catch (error) {
+    // macOS always has dns-sd; elsewhere a host without Avahi still serves (phones add it by address).
+    if (process.platform === "darwin") throw error;
+    log(
+      `mDNS advertising off: ${error instanceof Error ? error.message : String(error)}; phones can still add this host by address (port ${String(boundPort)})`,
+    );
+  }
 
   clipboard?.start();
   catchup?.start();
@@ -1292,7 +1306,7 @@ function meetingsService(o: {
     findMoments: claudeFinder({ claude: resolveClaude(), run: bunRun, human: o.human }),
   });
   log(
-    `meetings in ${defaultMeetingsDir()}, notes in ${join(meetingsDir, shadow ? "shadow" : "protocols")}${shadow ? " (shadow)" : ""}, transcription ${asr === null ? `off (no ${existsSync(asrPython()) ? ASR_SCRIPT : asrPython()})` : "by relay-asr"}`,
+    `meetings in ${defaultMeetingsDir()}, notes in ${join(meetingsDir, shadow ? "shadow" : "protocols")}${shadow ? " (shadow)" : ""}, transcription ${asr !== null ? "by relay-asr" : process.platform !== "darwin" ? "off (relay-asr runs on parakeet-mlx, macOS on Apple silicon only; recordings are kept untranscribed)" : `off (no ${existsSync(asrPython()) ? ASR_SCRIPT : asrPython()})`}`,
   );
   return service;
 }
@@ -1333,22 +1347,26 @@ function studioService(
   const sam = new SamRunner();
   const openrouterKeyFile =
     process.env["RELAY_STUDIO_OPENROUTER_KEY_FILE"] ?? join(home, "secrets", OPENROUTER_KEY_FILE);
+  // LTX, MOSS-Image and Kontext run on MLX (Apple silicon); elsewhere they are listed with the reason.
+  const mlx = process.platform === "darwin";
   try {
     const studio = new StudioService({
       dir: defaultStudioDir(),
       gpuHeld,
       runners: {
-        ltx: new LtxRunner(
-          ltxDir,
-          undefined,
-          new LaunchdLtxMemory({
-            freeComfy: [() => comfyui.release(), () => comfyuiVideo.release()],
-            launchctl: systemLaunchctl,
-            uid: process.getuid?.() ?? 501,
-            qwenPlist: defaultQwenPlist(),
-            log,
-          }),
-        ),
+        ltx: mlx
+          ? new LtxRunner(
+              ltxDir,
+              undefined,
+              new LaunchdLtxMemory({
+                freeComfy: [() => comfyui.release(), () => comfyuiVideo.release()],
+                launchctl: systemLaunchctl,
+                uid: process.getuid?.() ?? 501,
+                qwenPlist: defaultQwenPlist(),
+                log,
+              }),
+            )
+          : new UnavailableRunner("ltx", "LTX video runs on MLX: macOS on Apple silicon only"),
         "codex-image": new CodexRunner({
           backend: "codex-image",
           token,
@@ -1363,8 +1381,15 @@ function studioService(
           jpeg: media.jpeg,
           cover: media.cover,
         }),
-        moss: new MossRunner(defaultMossPaths(home), () => comfyui.release()),
-        kontext: new KontextRunner(),
+        moss: mlx
+          ? new MossRunner(defaultMossPaths(home), () => comfyui.release())
+          : new UnavailableRunner("moss", "MOSS-Image runs on MLX: macOS on Apple silicon only"),
+        kontext: mlx
+          ? new KontextRunner()
+          : new UnavailableRunner(
+              "kontext",
+              "Kontext runs on mflux (MLX): macOS on Apple silicon only",
+            ),
         comfyui,
         "comfyui-video": comfyuiVideo,
         sam,
@@ -1402,8 +1427,9 @@ function studioService(
 
 /**
  * One thread per agent in `<agentHome>/.omp/assistant/agents.json`, read at start and reloaded on
- * every change (`AssistantRegistry.watch`); null (and logged) when there is no agent home or the
- * registry is missing or invalid at start.
+ * every change (`AssistantRegistry.watch`); null (and logged) only without an agent home. A
+ * registry that is missing or invalid at start leaves the threads empty: the watch starts them as
+ * soon as a valid file appears (the setup wizard, `assistant create`), no restart needed.
  */
 function assistantThreads(
   agentHome: string | null,
@@ -1414,14 +1440,15 @@ function assistantThreads(
     log("assistant threads disabled (no --agent-home)");
     return null;
   }
-  let registry: readonly AssistantAgentConfig[];
+  let registry: readonly AssistantAgentConfig[] = [];
   try {
     registry = loadRegistry(agentHome);
+    log(`assistant threads: ${registry.map((agent) => `${agent.title} (${agent.id})`).join(", ")}`);
   } catch (error) {
-    log(`assistant threads disabled: ${error instanceof Error ? error.message : String(error)}`);
-    return null;
+    log(
+      `assistant threads: none yet (${error instanceof Error ? error.message : String(error)}); they start when the registry is written`,
+    );
   }
-  log(`assistant threads: ${registry.map((agent) => `${agent.title} (${agent.id})`).join(", ")}`);
   return new AssistantThreads(registry.map(create), deps);
 }
 
@@ -2602,22 +2629,17 @@ async function main(argv: string[]): Promise<void> {
         throw new Error(`invalid --vnc-port ${values["vnc-port"]}`);
       const name = values.name ?? config?.name ?? hostname();
       setHuman(resolveHuman(config, name));
-      // The Eva boards dir exists only on the owner's Mac; other hosts keep canvases under Relay's own support dir.
-      const evaCanvases = join(homedir(), "Library", "Application Support", "EvaOS", "canvases");
-      const defaultCanvases =
-        process.platform !== "darwin"
-          ? null
-          : config === null || existsSync(evaCanvases)
-            ? evaCanvases
-            : join(homedir(), "Library", "Application Support", "Relay", "canvases");
+      // The Eva boards dir exists only on the owner's machine; other hosts keep canvases under Relay's
+      // own support dir, the same dirs the desktop uses (macOS Application Support, else XDG config).
+      const defaults = defaultServeDirs(config);
       serve(
         port,
         name,
         values["agent-home"] ?? config?.agentHome ?? process.env["HOME"] ?? null,
         !values["no-clipboard"],
-        values.boards ?? process.env["RELAY_BOARDS_DIR"] ?? null,
+        values.boards ?? process.env["RELAY_BOARDS_DIR"] ?? defaults.boards,
         vncPort,
-        values.canvases ?? defaultCanvases,
+        values.canvases ?? defaults.canvases,
         config,
       );
       return;

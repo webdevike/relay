@@ -1,16 +1,35 @@
 # Shared helpers for the Relay setup scripts. Source it, never run it:
 #   . "$(dirname "$0")/lib.sh"
 #
-# Protocol the long-running scripts (install.sh, install-host.sh, ai-login.sh) speak on stdout:
+# Protocol the long-running scripts (install.sh, install-host.sh, ai-login.sh, start-host.sh) speak on stdout:
 #   PROGRESS <0-100> <message>   zero or more
 #   OK <message>                 last line, exit 0
 #   ERR <message>                last line, exit 1
 # Everything noisy (installer chatter, curl progress) goes to the setup log, never to stdout.
+#
+# macOS and Linux. Platform-specific steps check `is_macos` / `is_linux` themselves.
+
+OS_NAME="$(uname -s)"
+is_macos() { [ "$OS_NAME" = "Darwin" ]; }
+is_linux() { [ "$OS_NAME" = "Linux" ]; }
+# NixOS: generic downloaded binaries do not run there without nix-ld; the flake provides the tools.
+is_nixos() { [ -e /etc/NIXOS ] || grep -Eq '^ID="?nixos"?$' /etc/os-release 2>/dev/null; }
 
 # GUI apps start with a minimal PATH; the tools we manage live in these places.
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+# NixOS keeps user and system tools (and the pkexec wrapper) in profile folders; appended, so the PATH the
+# launcher gave us wins.
+if is_linux; then
+  export PATH="$PATH:$HOME/.nix-profile/bin:/etc/profiles/per-user/${USER:-$(id -un)}/bin:/run/current-system/sw/bin:/run/wrappers/bin"
+fi
 
-SETUP_LOG_DIR="${RELAY_SETUP_LOG_DIR:-$HOME/Library/Logs/Relay}"
+if is_macos; then
+  SETUP_LOG_DIR="${RELAY_SETUP_LOG_DIR:-$HOME/Library/Logs/Relay}"
+  THIS_MACHINE="this Mac"
+else
+  SETUP_LOG_DIR="${RELAY_SETUP_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/relay}"
+  THIS_MACHINE="this computer"
+fi
 SETUP_LOG="$SETUP_LOG_DIR/setup.log"
 ensure_log() { mkdir -p "$SETUP_LOG_DIR" 2>/dev/null || true; }
 
@@ -59,8 +78,10 @@ run_timeout() {
   pid=$!
   ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 &
   watcher=$!
-  rc=0; wait "$pid" || rc=$?
+  # Reap both quietly: bash otherwise reports "Terminated"/"Killed" job notices on stderr, which the app shows.
+  rc=0; wait "$pid" 2>/dev/null || rc=$?
   kill "$watcher" 2>/dev/null || true
+  wait "$watcher" 2>/dev/null || true
   return "$rc"
 }
 
@@ -107,7 +128,7 @@ tool_version() {
   esac
 }
 
-# ---- JSON (no jq) -------------------------------------------------------------
+# ---- JSON (no jq needed) ------------------------------------------------------
 
 # Escape a string for embedding in a JSON string literal.
 json_esc() {
@@ -119,19 +140,87 @@ jstr() {
   if [ -z "${1:-}" ]; then printf 'null'; else printf '"%s"' "$(json_esc "$1")"; fi
 }
 
-# Extract a value from JSON on stdin with plutil (always present on macOS). Prints raw value.
-# usage: printf '%s' "$json" | json_get Self.TailscaleIPs.0
-json_get() { plutil -extract "$1" raw -o - - 2>/dev/null || true; }
+# What reads JSON here: plutil on macOS (always present); on Linux jq when present, else bun, else node.
+# RELAY_JSON_TOOL=plutil|jq|bun|node forces one (tests). Prints nothing when none is available.
+json_tool() {
+  if [ -n "${RELAY_JSON_TOOL:-}" ]; then printf '%s' "$RELAY_JSON_TOOL"
+  elif is_macos; then printf plutil
+  elif have jq; then printf jq
+  elif have bun; then printf bun
+  elif have node; then printf node
+  else return 1
+  fi
+}
 
-# ---- macOS helpers ------------------------------------------------------------
+# jq and JS read a dotted path the way `plutil -extract <path> raw` does: a digit segment indexes an array;
+# an array prints its length, an object its keys (one per line); null, a missing key or bad JSON fail.
+JSON_GET_JQ='reduce ($k | split("."))[] as $s (.;
+  if type == "array" then (if ($s | test("^[0-9]+$")) then .[$s | tonumber] else error("not an index") end)
+  elif type == "object" then .[$s]
+  else error("no such key") end)
+  | if . == null then error("missing")
+    elif type == "array" then length
+    elif type == "object" then (keys | join("\n"))
+    else . end'
+JSON_GET_JS='const fs = require("fs");
+let v;
+try { v = JSON.parse(fs.readFileSync(process.env.RELAY_JSON_FILE || 0, "utf8")); } catch { process.exit(1); }
+for (const s of process.env.RELAY_JSON_KEY.split(".")) {
+  if (Array.isArray(v)) { if (!/^[0-9]+$/.test(s)) process.exit(1); v = v[Number(s)]; }
+  else if (v !== null && typeof v === "object") { v = Object.prototype.hasOwnProperty.call(v, s) ? v[s] : undefined; }
+  else process.exit(1);
+  if (v === undefined) process.exit(1);
+}
+if (v === null) process.exit(1);
+process.stdout.write(Array.isArray(v) ? String(v.length) : typeof v === "object" ? Object.keys(v).sort().join("\n") : String(v));'
+JSON_VALID_JS='try { JSON.parse(require("fs").readFileSync(process.env.RELAY_JSON_FILE, "utf8")); } catch { process.exit(1); }'
 
-# Run a shell command as root through the standard macOS password prompt. We never see the password.
+# Extract a value from JSON on stdin (or a file). Prints the raw value; a missing key, null or invalid JSON
+# prints nothing (plutil writes some errors to stdout, so output is emitted only after a successful extraction).
+# usage: printf '%s' "$json" | json_get Self.TailscaleIPs.0      json_get assistants.0.model answers.json
+json_get() {
+  local key="$1" file="${2:-}" value tool
+  tool="$(json_tool)" || return 0
+  case "$tool" in
+    plutil) value="$(plutil -extract "$key" raw -o - "${file:--}" 2>/dev/null)" || return 0 ;;
+    jq)
+      if [ -n "$file" ]; then value="$(jq -r --arg k "$key" "$JSON_GET_JQ" "$file" 2>/dev/null)" || return 0
+      else value="$(jq -r --arg k "$key" "$JSON_GET_JQ" 2>/dev/null)" || return 0
+      fi ;;
+    bun|node) value="$(RELAY_JSON_KEY="$key" RELAY_JSON_FILE="$file" "$tool" -e "$JSON_GET_JS" 2>/dev/null)" || return 0 ;;
+    *) return 0 ;;
+  esac
+  printf '%s' "$value"
+}
+
+# json_valid <file>: exit 0 when the file holds valid JSON.
+json_valid() {
+  local tool
+  tool="$(json_tool)" || return 1
+  case "$tool" in
+    plutil) plutil -convert json -o /dev/null "$1" >/dev/null 2>&1 ;;
+    jq) jq empty "$1" >/dev/null 2>&1 ;;
+    bun|node) RELAY_JSON_FILE="$1" "$tool" -e "$JSON_VALID_JS" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# ---- admin, network ------------------------------------------------------------
+
+# Run a shell command as root through the system's password prompt. We never see the password.
+# macOS: the standard administrator prompt. Linux: polkit's pkexec; without it, fail (never a sudo prompt).
 # usage: admin_run <command> [<reason shown in the prompt>]
 admin_run() {
   local cmd="$1" reason="${2:-Relay setup needs your password to continue.}" esc rsn
+  ensure_log
+  if is_linux; then
+    have pkexec || fail "this step needs administrator rights, and pkexec (polkit) is not installed; run it yourself in a terminal: $cmd"
+    log_line "pkexec: $reason"
+    pkexec /bin/sh -c "$cmd" >>"$SETUP_LOG" 2>&1
+    return
+  fi
   esc="$(printf '%s' "$cmd" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
   rsn="$(printf '%s' "$reason" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"
-  ensure_log
   osascript -e "do shell script \"$esc\" with prompt \"$rsn\" with administrator privileges" >>"$SETUP_LOG" 2>&1
 }
 
@@ -142,7 +231,7 @@ download() {
   curl -fL --retry 3 --connect-timeout 15 -o "$dest" "$url" >>"$SETUP_LOG" 2>&1
 }
 
-# need_network [url]: fail early, with a message a person can act on, when this Mac cannot reach the
+# need_network [url]: fail early, with a message a person can act on, when this machine cannot reach the
 # server the step downloads from (default github.com). Logged with a timestamp, not bare curl output.
 need_network() {
   local url="${1:-https://github.com}" host
@@ -150,14 +239,31 @@ need_network() {
   log_line "checking internet: $url"
   # Any HTTP answer means the server is reachable (Apple's update host answers 404 at its root).
   curl -sS --connect-timeout 8 -o /dev/null -I "$url" >>"$SETUP_LOG" 2>&1 \
-    || fail "this Mac is not online (could not reach $host). Check Wi-Fi or Ethernet, then press Retry"
+    || fail "$THIS_MACHINE is not online (could not reach $host). Check Wi-Fi or Ethernet, then press Retry"
 }
 
-require_macos() {
-  [ "$(uname -s)" = "Darwin" ] || fail "these setup scripts only support macOS"
+# How this machine is called: the macOS computer name; on Linux the pretty hostname, else the hostname.
+computer_name() {
+  local n=""
+  if is_macos; then
+    scutil --get ComputerName 2>/dev/null || hostname -s
+    return
+  fi
+  have hostnamectl && n="$(hostnamectl --pretty 2>/dev/null || true)"
+  [ -n "$n" ] || n="$(hostname 2>/dev/null || uname -n)"
+  printf '%s' "$n"
 }
 
 plist_get() { /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null || true; }
+
+# Wire herdr's omp status extension (best effort, only when both tools exist).
+herdr_omp_integration() {
+  if [ -n "$(tool_path herdr)" ] && [ -n "$(tool_path omp)" ]; then
+    # A fresh omp has not created its extensions folder yet; herdr refuses to install without it.
+    mkdir -p "$HOME/.omp/agent/extensions"
+    run_logged herdr integration install omp || log_line "herdr integration install omp failed (non-fatal)"
+  fi
+}
 
 # Relay Host bookkeeping (matches apps/linux state dir).
 relay_state_dir() { printf '%s' "${XDG_CONFIG_HOME:-$HOME/.config}/relay"; }
@@ -187,5 +293,44 @@ relay_host_app_source() {
 relay_host_app_installed() {
   if [ -d "$HOME/Applications/Relay Host.app" ]; then printf '%s' "$HOME/Applications/Relay Host.app"
   elif [ -d "/Applications/Relay Host.app" ]; then printf '%s' "/Applications/Relay Host.app"
+  fi
+}
+
+# ---- Linux: the relay-host binary (Nix wrapper PATH or $RELAY_HOST_BIN) ----------------------------------
+
+relay_host_bin() {
+  if [ -n "${RELAY_HOST_BIN:-}" ] && [ -x "$RELAY_HOST_BIN" ]; then printf '%s' "$RELAY_HOST_BIN"
+  else tool_path relay-host
+  fi
+}
+
+# The version the launcher exports ($RELAY_HOST_VERSION), else empty.
+relay_host_version() { printf '%s' "${RELAY_HOST_VERSION:-}"; }
+
+# The bundled omp bridge extension: $RELAY_OMP_EXTENSION_DIR, else <prefix>/Resources/omp-extension next to
+# <prefix>/bin/relay-host (the binary or the symlink a profile points at). Empty when none is found.
+relay_bridge_source() {
+  local bin real d
+  if [ -n "${RELAY_OMP_EXTENSION_DIR:-}" ] && [ -f "$RELAY_OMP_EXTENSION_DIR/relay-bridge.ts" ]; then
+    printf '%s' "$RELAY_OMP_EXTENSION_DIR/relay-bridge.ts"; return 0
+  fi
+  bin="$(relay_host_bin)"
+  [ -n "$bin" ] || return 0
+  real="$(readlink -f "$bin" 2>/dev/null || printf '%s' "$bin")"
+  for d in "$(dirname "$bin")" "$(dirname "$real")"; do
+    if [ -f "$d/../Resources/omp-extension/relay-bridge.ts" ]; then
+      printf '%s' "$(cd "$d/../Resources/omp-extension" && pwd)/relay-bridge.ts"; return 0
+    fi
+  done
+}
+
+# Linux: port <n> has a listener on this machine.
+port_in_use() {
+  if have ss; then
+    [ -n "$(ss -Hltn "sport = :$1" 2>/dev/null)" ]
+  elif have lsof; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
   fi
 }

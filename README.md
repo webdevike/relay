@@ -14,6 +14,9 @@ packages/slack-emoji  Slack shortcodes (:clapper:, :+1::skin-tone-3:) as emoji; 
 tooling/         Shared eslint config
 ```
 
+Run it on Linux (NixOS or any distro with Nix): `nix run .#relay`. Setup, phone pairing and what
+does not work there: [docs/linux-nixos.md](docs/linux-nixos.md).
+
 ## Toolchain
 
 - pnpm 9 (`packageManager` in package.json; the global pnpm on this Mac is v6, so use `npx -y pnpm@9.15.0 …` or corepack), hoisted `node_modules` (`.npmrc`).

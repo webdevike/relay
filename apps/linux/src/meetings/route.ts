@@ -10,6 +10,7 @@
 
 import { meetingClock, meetingIsLive, type LiveLine } from "@relay/protocol";
 import type { AssistantAgentConfig } from "../assistant/registry";
+import { human } from "../host-config";
 import type { RecordingMeta } from "./store";
 
 const WORK_APP = /\bteams\b/i;
@@ -67,7 +68,7 @@ export function meetingContext(
   const cursor = Math.max(since, ...said.filter((l) => l.final).map((l) => l.startMs));
   const title = m.title ?? `${m.app} call`;
   const head = live
-    ? `Isaac is in a meeting right now and it is in your chat: "${title}" (${m.app}, started ${clockTime(m.startedAt)}, ${meetingClock(now - m.startedAt)} in).`
+    ? `${human()} is in a meeting right now and it is in your chat: "${title}" (${m.app}, started ${clockTime(m.startedAt)}, ${meetingClock(now - m.startedAt)} in).`
     : `The meeting "${title}" (${m.app}, started ${clockTime(m.startedAt)}) ended${m.endedAt === null ? "" : ` at ${clockTime(m.endedAt)}`}; its notes come later on the Meetings page.`;
   const about =
     given === null

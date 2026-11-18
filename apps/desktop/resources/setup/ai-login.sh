@@ -14,7 +14,7 @@ set -eEuo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib.sh"
 install_err_trap
-require_macos
+is_macos || is_linux || fail "these setup scripts support macOS and Linux only"
 
 API_KEY_MODE=0
 if [ "${1:-}" = "--stdin" ]; then API_KEY_MODE=1; shift; fi

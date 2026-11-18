@@ -1,8 +1,24 @@
 import { NumberInput } from '@mantine/core'
+import { IS_MAC } from '@evaos/shell-core'
 import { setSnapshotChange, useSettings } from './settings-store'
 
 export function MeetingsSection() {
   const change = useSettings((s) => s.meeting_snapshot_change)
+  // Relay Meetings records through a macOS audio tap and screen capture; Linux has no recorder.
+  if (!IS_MAC) {
+    return (
+      <div className="eva-settings-card" data-testid="settings-meetings-mac-only">
+        <div className="eva-settings-row">
+          <span className="eva-settings-label">
+            <span className="eva-settings-label-title">macOS only</span>
+            <span className="eva-settings-label-help">
+              Live meeting recording runs on a Mac. Meetings recorded there still show here.
+            </span>
+          </span>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="eva-settings-card">
       <div className="eva-settings-row">

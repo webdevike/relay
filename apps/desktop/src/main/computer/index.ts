@@ -81,6 +81,8 @@ export function registerComputer(
     io,
     control,
   ) => {
+    // cua-driver and Relay Assist are macOS apps (Accessibility, screen capture).
+    if (process.platform !== 'darwin') throw new Error('Computer use works on macOS only.')
     const key = readOpenAIKey(ctx.env.evaRoot)
     if (!key) throw new Error('no OpenAI key (OPENAI_API_KEY or secrets/openai.env)')
     const bin = driverBinary()

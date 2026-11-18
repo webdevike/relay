@@ -2,10 +2,11 @@
 # Read-only probe of what Relay setup needs. Prints ONE JSON object on stdout, nothing else.
 # Never installs, starts, logs in, or writes anything.
 #
-# {"brew":{installed,version,path},"bun":{...},
+# {"clt":{installed,version,path},"brew":{...},"bun":{...},
 #  "omp":{installed,version,path,loggedIn,providers:[...]},"herdr":{...},
 #  "tailscale":{installed,version,path,running,loggedIn,tailnetIp?},
 #  "relayHost":{installed,running,version,port?}}
+# On Linux clt and brew do not apply: they print {"installed":false,...,"applicable":false} and the wizard skips them.
 set -uo pipefail
 . "$(cd "$(dirname "$0")" && pwd)/lib.sh"
 
@@ -21,8 +22,13 @@ basic() {
 }
 
 # ---- clt / brew / bun / herdr ----
-CLT="{$(basic clt)}"
-BREW="{$(basic brew)}"
+if is_macos; then
+  CLT="{$(basic clt)}"
+  BREW="{$(basic brew)}"
+else
+  CLT='{"installed":false,"version":null,"path":null,"applicable":false}'
+  BREW="$CLT"
+fi
 BUN="{$(basic bun)}"
 HERDR="{$(basic herdr)}"
 
@@ -63,10 +69,15 @@ OMP="{$(basic omp),\"loggedIn\":$(bool "$logged_in"),\"providers\":[$providers_j
 # ---- tailscale ----
 ts_running=0; ts_logged_in=0; ts_ip=""
 ts_bin="$(tool_path tailscale)"
-# Any Tailscale CLI call can launch the GUI (Welcome window, "Add VPN Configurations" prompt), and the app CLI never
-# answers until its network extension is approved. Only ask an app that is already running; otherwise report
-# {installed, running:false, loggedIn:false} from Info.plist alone. Never launch it.
-if [ -n "$ts_bin" ] && pgrep -xq Tailscale; then
+# macOS: any Tailscale CLI call can launch the GUI (Welcome window, "Add VPN Configurations" prompt), and the app
+# CLI never answers until its network extension is approved. Only ask an app that is already running; otherwise
+# report {installed, running:false, loggedIn:false} from Info.plist alone. Never launch it.
+# Linux: the CLI only talks to tailscaled (a system service) and never launches anything, so ask it directly.
+ts_ask=0
+if [ -n "$ts_bin" ]; then
+  if is_linux || pgrep -xq Tailscale; then ts_ask=1; fi
+fi
+if [ "$ts_ask" = 1 ]; then
   ts_json="$(run_timeout 5 "$ts_bin" status --json 2>/dev/null || true)"
   if [ -n "$ts_json" ]; then
     state="$(printf '%s' "$ts_json" | json_get BackendState)"
@@ -82,11 +93,19 @@ TAILSCALE="{$(basic tailscale),\"running\":$(bool "$ts_running"),\"loggedIn\":$(
 TAILSCALE="$TAILSCALE}"
 
 # ---- relay host ----
-host_app="$(relay_host_app_installed)"
 host_installed=0; host_version=""; host_running=0; host_port=""
-if [ -n "$host_app" ]; then
-  host_installed=1
-  host_version="$(plist_get "$host_app/Contents/Info.plist" CFBundleShortVersionString)"
+if is_linux; then
+  # Linux: the relay-host binary (Nix wrapper PATH or $RELAY_HOST_BIN); never run here.
+  if [ -n "$(relay_host_bin)" ]; then
+    host_installed=1
+    host_version="$(relay_host_version)"
+  fi
+else
+  host_app="$(relay_host_app_installed)"
+  if [ -n "$host_app" ]; then
+    host_installed=1
+    host_version="$(plist_get "$host_app/Contents/Info.plist" CFBundleShortVersionString)"
+  fi
 fi
 live="$(relay_host_live)"
 if [ -n "$live" ]; then

@@ -20,4 +20,13 @@ describe('matchesAppChord', () => {
       matchesAppChord({ type: 'keyDown', key: 'w', meta: true, isAutoRepeat: true }),
     ).toBeNull()
   })
+  it('uses Cmd on macOS and Ctrl elsewhere', () => {
+    const ctrlAltI = { type: 'keyDown', key: 'i', control: true, alt: true }
+    expect(matchesAppChord(ctrlAltI, true)).toBeNull()
+    expect(matchesAppChord({ ...ctrlAltI, meta: true }, true)).toBeNull()
+    expect(matchesAppChord(ctrlAltI, false)).toBe('devtools')
+    expect(matchesAppChord({ type: 'keyDown', key: 'i', meta: true, alt: true }, false)).toBe(
+      'devtools',
+    )
+  })
 })

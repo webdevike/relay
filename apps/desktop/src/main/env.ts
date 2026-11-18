@@ -17,7 +17,7 @@ export interface Env {
   legacyConfigDir: string | null
   sessionsDir: string
   arcExportCmd: string[] | null
-  /** `eva` (Isaac's home base, every page) or `starter` (a new user: Assistants, Chat, Canvas, Settings). */
+  /** `eva` (Isaac's home base, every page) or `starter` (a new user: the pages profile.ts lists). */
   profile: 'eva' | 'starter'
   /** False until the first-run setup wizard finishes (starter only). */
   setupComplete: boolean
@@ -101,6 +101,8 @@ export interface ResolveEnvInput {
   homedir: string
   tmpdir: string
   pid: number
+  /** `process.platform` by default; picks the support folder (macOS vs XDG). */
+  platform?: NodeJS.Platform
 }
 
 const DEFAULT_ARC_CMD = ['bun', '.omp/tools/arc-cookies.ts', '.omp/tools/lib/evaos-arc-sites.txt']
@@ -220,7 +222,21 @@ function parseArcCmd(raw: string | undefined): string[] | null {
   throw new Error('EVAOS_ARC_EXPORT_CMD must be a JSON array of strings')
 }
 
-/** The stable app's config folder name under Application Support, and Relay Dev's. */
+/**
+ * Where app config lives: `~/Library/Application Support` on macOS, else the XDG config home
+ * (`$XDG_CONFIG_HOME`, default `~/.config`). Relay Host uses the same folders on each OS.
+ */
+export function supportDirFor(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  homedir: string,
+): string {
+  if (platform === 'darwin') return path.join(homedir, 'Library/Application Support')
+  const xdg = env.XDG_CONFIG_HOME
+  return xdg && path.isAbsolute(xdg) ? xdg : path.join(homedir, '.config')
+}
+
+/** The stable app's config folder name under the support folder, and Relay Dev's. */
 export const STABLE_CONFIG_NAME = 'Relay Desktop'
 export const DEV_CONFIG_NAME = 'Relay Dev'
 export const STABLE_CDP_PORT = 9339
@@ -228,13 +244,14 @@ export const DEV_CDP_PORT = 9340
 
 export function resolveEnv(input: ResolveEnvInput): Env {
   const { env, isPackaged, repoRoot, homedir, tmpdir, pid } = input
+  const platform = input.platform ?? process.platform
   const stable = isPackaged || env.EVAOS_STABLE === '1'
   // The stable app is always the live app; Relay Dev may opt into live data with EVAOS_LIVE=1.
   const live = stable || env.EVAOS_LIVE === '1'
   const realRoot = path.join(homedir, 'Eva')
 
   // The app is "Relay"; its folder is "Relay Desktop" because Relay Host already owns "Relay".
-  const supportDir = path.join(homedir, 'Library/Application Support')
+  const supportDir = supportDirFor(platform, env, homedir)
   const stableConfigDir = path.join(supportDir, STABLE_CONFIG_NAME)
   const configDir = env.EVAOS_CONFIG_DIR
     ? env.EVAOS_CONFIG_DIR
@@ -300,8 +317,11 @@ export function resolveEnv(input: ResolveEnvInput): Env {
         )
       : path.join(repoRoot, 'fixtures/agent/sessions/-fixture')
 
+  // The pre-rename folder only ever existed on macOS.
   const legacyConfigDir =
-    stable && !env.EVAOS_CONFIG_DIR ? path.join(supportDir, 'EvaOS Electron') : null
+    stable && !env.EVAOS_CONFIG_DIR && platform === 'darwin'
+      ? path.join(supportDir, 'EvaOS Electron')
+      : null
 
   const cdpPort = parseCdpPort(
     env.EVAOS_CDP_PORT,

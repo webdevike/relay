@@ -3,6 +3,7 @@ import { IconSearch } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 import { useDismissable } from '../hotkeys/dismiss'
 import { registerSearchFocuser } from './nav-level'
+import { keyLabel } from '@evaos/shell-core'
 
 export interface SearchBoxProps {
   value: string
@@ -58,7 +59,7 @@ export function SearchBox({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
       />
-      {showKbd && !value ? <Kbd size="xs">⌘F</Kbd> : null}
+      {showKbd && !value ? <Kbd size="xs">{keyLabel('⌘F')}</Kbd> : null}
     </label>
   )
 }

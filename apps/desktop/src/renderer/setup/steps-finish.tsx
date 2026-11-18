@@ -5,7 +5,7 @@ import { placeOf } from '@evaos/shell-core'
 import { invoke } from '../ipc'
 import { openPlace } from '../navigation/navigate'
 import { flushPendingTabs } from '../tabs/tabs-store'
-import { useSetupRun } from './run'
+import { IS_MAC, MACHINE, useSetupRun } from './run'
 import { QrCode } from './QrCode'
 import { AiStep } from './steps-system'
 import type { WizardCtx } from './wizard'
@@ -63,17 +63,37 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
         </Button>
       </Group>
       <Text c="dimmed" size="sm">
-        Your iPhone reaches this Mac through Tailscale, a private network only your devices are on.
-        You can skip this and pair later from Settings, Setup.
+        Your iPhone reaches this {MACHINE} through Tailscale, a private network only your devices
+        are on. You can skip this and pair later from Settings, Setup.
       </Text>
 
       <div className="eva-settings-card eva-settings-card-pad">
-        <Text fw={600}>1. Tailscale on this Mac</Text>
+        <Text fw={600}>1. Tailscale on this {MACHINE}</Text>
         {ready ? (
           <Group gap={6} mt={4} data-testid="setup-tailscale-ok">
             <IconCheck size={16} color="var(--mantine-color-green-6)" />
             <Text size="sm">Signed in{t?.tailnetIp ? ` as ${t.tailnetIp}` : ''}</Text>
           </Group>
+        ) : !t?.installed && !IS_MAC ? (
+          <Stack gap="xs" mt={4} data-testid="setup-tailscale-install">
+            <Text size="sm">
+              Install Tailscale with your distribution (NixOS: services.tailscale.enable = true),
+              then sign in from a terminal with: sudo tailscale up
+            </Text>
+            <Group>
+              <Button
+                size="xs"
+                variant="default"
+                onClick={() => {
+                  setOpened(true)
+                  void recheck.current()
+                }}
+                data-testid="setup-tailscale-recheck"
+              >
+                Check again
+              </Button>
+            </Group>
+          </Stack>
         ) : !t?.installed ? (
           <Stack gap="xs" mt={4} data-testid="setup-tailscale-install">
             <Text size="sm">Set up Tailscale (lets your iPhone reach this Mac)</Text>
@@ -117,16 +137,19 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
                 onClick={() =>
                   void invoke('setup.openTailscale', {}).then((r) => {
                     setOpenError(r.ok ? null : r.error.message)
-                    if (r.ok) setOpened(true)
+                    // Linux has no app to open: the check itself is the action, so keep checking.
+                    if (r.ok || !IS_MAC) setOpened(true)
                   })
                 }
               >
-                {opened ? 'Open Tailscale again' : 'Open Tailscale'}
+                {IS_MAC ? (opened ? 'Open Tailscale again' : 'Open Tailscale') : 'Check Tailscale'}
               </Button>
               <Text size="xs" c="dimmed">
-                {engaged
-                  ? 'Sign in there, then come back. This page checks on its own.'
-                  : 'macOS will ask you to approve a VPN configuration the first time.'}
+                {!IS_MAC
+                  ? 'In a terminal run sudo tailscale up and sign in. This page checks on its own.'
+                  : engaged
+                    ? 'Sign in there, then come back. This page checks on its own.'
+                    : 'macOS will ask you to approve a VPN configuration the first time.'}
               </Text>
             </Group>
             {openError ? (
@@ -141,7 +164,7 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
       <div className="eva-settings-card eva-settings-card-pad">
         <Text fw={600}>2. Two apps on your iPhone</Text>
         <Text size="sm" c="dimmed" mb="sm">
-          Point the camera at each code. Sign in to the same Tailscale account as the Mac.
+          Point the camera at each code. Sign in to the same Tailscale account as the {MACHINE}.
         </Text>
         <Group gap="xl">
           <QrCode
@@ -158,7 +181,7 @@ export function PhoneStep({ ctx }: { ctx: WizardCtx }) {
       </div>
 
       <div className="eva-settings-card eva-settings-card-pad">
-        <Text fw={600}>3. Add this Mac in Relay</Text>
+        <Text fw={600}>3. Add this {MACHINE} in Relay</Text>
         {address ? (
           <Group gap="md" mt="xs" align="center">
             <Text className="eva-setup-address" data-testid="setup-address">

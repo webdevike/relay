@@ -323,7 +323,9 @@ async function downloadUv(d: HindsightDeps, p: NativePaths): Promise<string> {
       `Downloading uv failed: ${e instanceof Error ? e.message : String(e)}. Check your internet connection and try again.`,
     )
   }
-  const x = await d.exec('/usr/bin/tar', ['-xzf', tgz, '-C', p.uvDir, '--strip-components=1'], {
+  // NixOS has no /usr/bin; the macOS path stays absolute.
+  const tar = (d.platform ?? 'darwin') === 'darwin' ? '/usr/bin/tar' : 'tar'
+  const x = await d.exec(tar, ['-xzf', tgz, '-C', p.uvDir, '--strip-components=1'], {
     timeoutMs: 60_000,
   })
   fs.rmSync(tgz, { force: true })

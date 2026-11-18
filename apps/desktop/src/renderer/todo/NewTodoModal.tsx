@@ -7,6 +7,7 @@ import { invoke } from '../ipc'
 import { reloadAll } from '../reload/reload'
 import { loadDashboard, useDashboard } from '../dashboard/dashboard-store'
 import { closeNewTodo, finishNewTodo, newTodoStore, useNewTodo } from './new-todo-store'
+import { isMod, keyLabel } from '@evaos/shell-core'
 import './new-todo.css'
 
 const MAX = 2000
@@ -101,7 +102,7 @@ function Form() {
           data-testid="new-todo-text"
           onChange={(e) => setText(e.currentTarget.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && e.metaKey) {
+            if (e.key === 'Enter' && isMod(e)) {
               e.preventDefault()
               void submit()
             }
@@ -126,7 +127,7 @@ function Form() {
           disabled={!clean}
           onClick={() => void submit()}
           data-testid="new-todo-submit"
-          rightSection={pending ? null : <Kbd style={{ opacity: 0.7 }}>⌘↵</Kbd>}
+          rightSection={pending ? null : <Kbd style={{ opacity: 0.7 }}>{keyLabel('⌘↵')}</Kbd>}
         >
           {pending ? 'Adding' : 'Add todo'}
         </Button>

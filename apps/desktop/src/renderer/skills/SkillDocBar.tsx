@@ -2,6 +2,7 @@ import { ActionIcon, Alert, Badge, Button, Group, Text, Tooltip } from '@mantine
 import { IconDeviceFloppy } from '@tabler/icons-react'
 import type * as Y from 'yjs'
 import { useYMap } from './use-ymap'
+import { keyLabel } from '@evaos/shell-core'
 
 interface SkillDocBarProps {
   /** The live doc's `state` map, written only by the host. */
@@ -33,7 +34,7 @@ export function SkillDocBar({ state, conflict, busy, onSave, onReload }: SkillDo
             <Badge variant="dot" color="yellow" tt="none" data-testid="skill-unsaved">
               Unsaved
             </Badge>
-            <Tooltip label="Save (⌘S)" openDelay={300}>
+            <Tooltip label={keyLabel('Save (⌘S)')} openDelay={300}>
               <ActionIcon
                 variant="default"
                 aria-label="Save"

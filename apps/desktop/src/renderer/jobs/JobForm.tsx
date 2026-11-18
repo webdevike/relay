@@ -11,7 +11,7 @@ import {
 } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import { IconAlertTriangle } from '@tabler/icons-react'
-import { placeOf } from '@evaos/shell-core'
+import { isMod, keyLabel, placeOf } from '@evaos/shell-core'
 import { JOB_COPY, type JobFieldErrors } from '@evaos/eva-core/model/jobs'
 import { registerDirty } from '../dirty/dirty-store'
 import { invoke } from '../ipc'
@@ -230,7 +230,7 @@ function Form({ mode, jobName }: { mode: 'create' | 'update'; jobName: string })
     <div
       className="eva-job-form"
       onKeyDown={(e) => {
-        if (e.key === 'Enter' && e.metaKey) {
+        if (e.key === 'Enter' && isMod(e)) {
           e.preventDefault()
           void submit()
         }
@@ -400,7 +400,7 @@ function Form({ mode, jobName }: { mode: 'create' | 'update'; jobName: string })
               disabled={!canSave}
               data-testid="job-save"
               onClick={() => void submit()}
-              rightSection={pending ? null : <Kbd style={{ opacity: 0.7 }}>⌘↵</Kbd>}
+              rightSection={pending ? null : <Kbd style={{ opacity: 0.7 }}>{keyLabel('⌘↵')}</Kbd>}
             >
               {pending ? 'Saving' : mode === 'create' ? 'Create job' : 'Save job'}
             </Button>

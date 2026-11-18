@@ -421,7 +421,7 @@ export function registerReviewsIpc(
     const a = approveOf(repo, number)
     if (a === null) throw fail('not-approvable', 'That PR is no longer waiting on your approval')
     if (a.state !== 'ready') throw fail('already-sent', `${a.key} was already handed to Astra`)
-    const sent = await tellAstra(approveLine(a.key))
+    const sent = await tellAstra(approveLine(a.key, ctx.env.evaRoot))
     if (sent.status === 'sent')
       ctx.config.writeJson(APPROVED_FILE, {
         ...ctx.config.readJson<Record<string, number>>(APPROVED_FILE, {}),

@@ -3,12 +3,20 @@ import { invoke } from '../ipc'
 
 export type Profile = 'eva' | 'starter'
 
-/** Pages a starter profile shows (Overview is the dashboard, which renders fine empty). */
+/**
+ * Pages a starter profile shows: the ones that need no Eva checkout. Overview is the dashboard,
+ * which renders fine empty; Skills and Studio go through the Relay host (a "needs the host" state
+ * without one).
+ * Files and the boards under Dashboards show for every profile. Board, Feed, Reviews, Test Bench,
+ * Jobs, Habits and Meetings read Eva's own folders and tools and stay Eva only.
+ */
 export const STARTER_SLUGS: Record<string, true> = {
   assistants: true,
   dashboard: true,
   chat: true,
+  skills: true,
   canvas: true,
+  studio: true,
   setting: true,
 }
 

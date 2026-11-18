@@ -36,6 +36,7 @@ import {
 } from './files-store'
 import { QuickOpen } from './QuickOpen'
 import { SearchView } from './SearchView'
+import { keyLabel } from '@evaos/shell-core'
 import './files.css'
 
 const SIDE_MIN = 160
@@ -188,20 +189,20 @@ export function FilesPanel({ hidden }: { hidden: boolean }) {
     <div className="eva-files" hidden={hidden} data-testid="files-panel">
       <nav className="eva-files-rail" aria-label="Files views">
         <RailButton
-          label="Explorer (⌘⇧E)"
+          label={keyLabel('Explorer (⌘⇧E)')}
           active={sideOpen && side === 'explorer'}
           onClick={() => toggle('explorer')}
         >
           <IconFiles size={18} stroke={1.5} />
         </RailButton>
         <RailButton
-          label="Search in files (⌘⇧F)"
+          label={keyLabel('Search in files (⌘⇧F)')}
           active={sideOpen && side === 'search'}
           onClick={() => toggle('search')}
         >
           <IconSearch size={18} stroke={1.5} />
         </RailButton>
-        <RailButton label="Go to file (⌘P)" onClick={() => setQuickOpen(true)}>
+        <RailButton label={keyLabel('Go to file (⌘P)')} onClick={() => setQuickOpen(true)}>
           <IconTextScan2 size={18} stroke={1.5} />
         </RailButton>
       </nav>

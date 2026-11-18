@@ -7,12 +7,13 @@ import { useLayout } from '../../shell/layout-store'
 import { closePaneById, useTiling, zoomPane, type PaneView } from '../tiling-store'
 import { openWebPage, webTabOf } from '../web-tabs'
 import { AddMenu } from './AddMenu'
+import { keyLabel } from '@evaos/shell-core'
 
 function tip(label: string, chord?: string) {
   return (
     <span className="eva-tip">
       {label}
-      {chord ? <Kbd size="xs">{chord}</Kbd> : null}
+      {chord ? <Kbd size="xs">{keyLabel(chord)}</Kbd> : null}
     </span>
   )
 }

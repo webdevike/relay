@@ -97,6 +97,7 @@ import { registerBoardDriver } from './agent/board-drivers'
 import { easeInOut, REVEAL_MS, revealView, viewTarget, type Viewport } from './agent/cursor-model'
 import { cardsIsaacChanges, dueHolds } from './agent/runs-store'
 import { changedIds, mergeBoards } from '../../shared/canvas-merge'
+import { isMod } from '@evaos/shell-core'
 import { frontWorkspace } from '../tiling/tiling-store'
 
 const NODE_TYPES = { card: CanvasCard }
@@ -1341,13 +1342,13 @@ function Board({
     const t = e.target as HTMLElement
     if (t.closest('input, textarea, [contenteditable=true]')) return
     const key = e.key.toLowerCase()
-    if ((e.key === 'Backspace' || e.key === 'Delete') && !e.metaKey && !locked) {
+    if ((e.key === 'Backspace' || e.key === 'Delete') && !isMod(e) && !locked) {
       e.preventDefault()
       deleteSelected()
-    } else if (e.metaKey && key === 'a') {
+    } else if (isMod(e) && key === 'a') {
       e.preventDefault()
       selectAll()
-    } else if (e.metaKey && key === 'z' && !locked) {
+    } else if (isMod(e) && key === 'z' && !locked) {
       e.preventDefault()
       if (e.shiftKey) doRedo()
       else doUndo()

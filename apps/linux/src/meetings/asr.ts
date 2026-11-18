@@ -122,9 +122,13 @@ export class AsrWorker implements Asr {
 
   constructor(private readonly deps: AsrWorkerDeps) {}
 
-  /** Whether the worker can run here (its venv and script exist). */
-  static available(python = asrPython(), script = ASR_SCRIPT): boolean {
-    return existsSync(python) && existsSync(script);
+  /** Whether the worker can run here: macOS (parakeet-mlx runs on Apple silicon only) with its venv and script. */
+  static available(
+    python = asrPython(),
+    script = ASR_SCRIPT,
+    platform: NodeJS.Platform = process.platform,
+  ): boolean {
+    return platform === "darwin" && existsSync(python) && existsSync(script);
   }
 
   private ensure(): ChildProcessWithoutNullStreams {

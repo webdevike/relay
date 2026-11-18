@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, Switch, Text, TextInput } from '@mantine/core'
 import { notifications } from '@mantine/notifications'
 import type { GateStatus } from '@evaos/contract'
+import { isMod } from '@evaos/shell-core'
 import { EvaModal } from '../overlay'
 import { runHabit } from './habit-store'
 import { MINUTES_ERROR, parseMinutes } from './HabitSections'
@@ -71,7 +72,7 @@ function Form({
       className="eva-habit-form"
       data-testid="habit-form-body"
       onKeyDown={(e) => {
-        if (e.key === 'Enter' && e.metaKey) {
+        if (e.key === 'Enter' && isMod(e)) {
           e.preventDefault()
           void save()
         }

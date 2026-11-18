@@ -1,14 +1,15 @@
 // Opens a phone-started omp session inside Herdr (the terminal workspace manager the host's owner
 // keeps their sessions in): every session gets its own workspace, so the workspace list reads like the
-// phone's inbox. Herdr's default server is started headless when it is not running: on Linux in
-// its own transient systemd user unit (it outlives this daemon; a `setsid` child would still die
-// with the service cgroup), on macOS through the per-user LaunchAgent `dev.relay.herdr` (written
-// here when missing; the owner's own `ai.eva.herdr` agent is never touched). A later `herdr`
-// attaches to it.
+// phone's inbox. Herdr's default server is started headless when it is not running: on Linux through
+// the user's `herdr.service` unit when one exists (NixOS module, setup wizard), else in its own
+// transient systemd user unit (it outlives this daemon; a `setsid` child would still die with the
+// service cgroup), else as a detached process where there is no systemd user manager; on macOS
+// through the per-user LaunchAgent `dev.relay.herdr` (written here when missing; the owner's own
+// `ai.eva.herdr` agent is never touched). A later `herdr` attaches to it.
 //
-// The host may be started without a login shell's PATH (a login item, launchd), so `herdr` is
-// resolved from PATH plus ~/.local/bin, ~/.bun/bin and the Homebrew dirs, and the child's PATH
-// carries the same dirs so the pane's shell finds `omp` and `bun` too.
+// The host may be started without a login shell's PATH (a login item, launchd, systemd), so `herdr`
+// is resolved from PATH plus ~/.local/bin, ~/.bun/bin, the Homebrew and Nix profile dirs, and the
+// child's PATH carries the same dirs so the pane's shell finds `omp` and `bun` too.
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -138,16 +139,50 @@ async function startServerMac(bin: string, log: (line: string) => void): Promise
   log("started herdr server (detached process; launchctl was unavailable)");
 }
 
-async function startServerLinux(log: (line: string) => void): Promise<void> {
-  const proc = Bun.spawn(
-    ["systemd-run", "--user", "--collect", "--quiet", `--unit=${SERVER_UNIT}`, "herdr", "server"],
-    { stdin: "ignore", stdout: "ignore", stderr: "pipe" },
-  );
-  if ((await proc.exited) !== 0) {
-    const stderr = (await new Response(proc.stderr).text()).trim();
-    throw fail(`could not start the herdr server: ${stderr.length > 0 ? stderr : "systemd-run failed"}`);
+/** Exit code and stderr of a short command run to completion. */
+async function exec(argv: readonly string[]): Promise<{ code: number; stderr: string }> {
+  const proc = Bun.spawn([...argv], { stdin: "ignore", stdout: "ignore", stderr: "pipe", env: { ...process.env, PATH: toolPath() } });
+  const [stderr, code] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+  return { code, stderr: stderr.trim() };
+}
+
+/**
+ * Starts `herdr server` (`bin`): the user's `herdr.service` when it exists, else a transient
+ * `systemd-run --user` unit, else a detached process (no systemd user manager).
+ */
+async function startServerLinux(bin: string, log: (line: string) => void): Promise<void> {
+  const systemctl = resolveTool("systemctl");
+  if (systemctl !== null && (await exec([systemctl, "--user", "cat", "herdr.service"])).code === 0) {
+    const started = await exec([systemctl, "--user", "start", "herdr.service"]);
+    if (started.code === 0) {
+      log("started herdr server (systemd user unit herdr.service)");
+      return;
+    }
+    log(`herdr.service did not start (${started.stderr || `exit ${String(started.code)}`}); starting herdr server directly`);
   }
-  log(`started headless herdr server (systemd user unit ${SERVER_UNIT})`);
+  const systemdRun = resolveTool("systemd-run");
+  if (systemdRun !== null) {
+    const run = await exec([
+      systemdRun,
+      "--user",
+      "--collect",
+      "--quiet",
+      `--unit=${SERVER_UNIT}`,
+      `--property=WorkingDirectory=${homedir()}`,
+      `--setenv=PATH=${toolPath()}`,
+      ...(process.env["SHELL"] === undefined ? [] : [`--setenv=SHELL=${process.env["SHELL"]}`]),
+      bin,
+      "server",
+    ]);
+    if (run.code === 0) {
+      log(`started headless herdr server (systemd user unit ${SERVER_UNIT})`);
+      return;
+    }
+    log(`systemd-run could not start herdr (${run.stderr || `exit ${String(run.code)}`}); starting it detached`);
+  }
+  const detached = Bun.spawn([bin, "server"], { cwd: homedir(), stdin: "ignore", stdout: "ignore", stderr: "ignore", env: { ...process.env, PATH: toolPath() }, detached: true });
+  detached.unref();
+  log("started herdr server (detached process; no systemd user manager)");
 }
 
 /** Workspaces of the running default server, starting it headless first when nothing answers. */
@@ -158,7 +193,7 @@ async function ensureServer(bin: string, log: (line: string) => void): Promise<z
     if (!(error instanceof HerdrError) || error.code !== "server_not_running") throw error;
   }
   if (process.platform === "darwin") await startServerMac(bin, log);
-  else await startServerLinux(log);
+  else await startServerLinux(bin, log);
   const deadline = Date.now() + SERVER_START_TIMEOUT_MS;
   for (;;) {
     await Bun.sleep(SERVER_POLL_MS);

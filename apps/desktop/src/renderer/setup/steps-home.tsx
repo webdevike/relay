@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react'
 import type { SetupAssistant } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { portrait } from '../ui/portrait'
-import { AVATAR_PALETTE, assistantId, useSetupRun } from './run'
+import { AVATAR_PALETTE, IS_MAC, MACHINE, assistantId, useSetupRun } from './run'
 import type { WizardCtx } from './wizard'
 
 const LAYERS: ReadonlyArray<readonly [string, string, string]> = [
@@ -58,8 +58,8 @@ export function HomeStep({ ctx }: { ctx: WizardCtx }) {
   return (
     <Stack gap="md" data-testid="setup-home">
       <Text>
-        Your home base is one folder on your Mac. Your assistants read it to know you and write to
-        it to remember. It has five layers, from the most general to the most current:
+        Your home base is one folder on your {MACHINE}. Your assistants read it to know you and
+        write to it to remember. It has five layers, from the most general to the most current:
       </Text>
       <Layers />
       <TextInput
@@ -313,8 +313,11 @@ export function HostStep({ ctx }: { ctx: WizardCtx }) {
   return (
     <Stack gap="md" data-testid="setup-host">
       <Text c="dimmed" size="sm">
-        Relay Host runs quietly on this Mac. It keeps your assistants going and is what your iPhone
-        talks to. It starts by itself when you log in.
+        Relay Host runs quietly on this {MACHINE}. It keeps your assistants going and is what your
+        iPhone talks to.{' '}
+        {IS_MAC
+          ? 'It starts by itself when you log in.'
+          : 'It starts when Relay opens, or when you log in if its systemd user service is enabled.'}
       </Text>
       <TextInput
         label="Name of this computer in Relay"

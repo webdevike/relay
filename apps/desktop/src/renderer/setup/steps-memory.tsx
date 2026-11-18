@@ -13,7 +13,7 @@ import type { HindsightStatus } from '@evaos/contract'
 import { invoke } from '../ipc'
 import { formatBytes, installEngine, memoryPhase, offersDockerFallback } from './hindsight-state'
 import { checkMemory } from './memory-watch'
-import { useSetupRun } from './run'
+import { IS_MAC, MACHINE, useSetupRun } from './run'
 import type { WizardCtx } from './wizard'
 
 const DOCKER_URL = 'https://www.docker.com/products/docker-desktop/'
@@ -42,8 +42,31 @@ function useMemoryStatus(): {
   return { status, error, refresh }
 }
 
-/** Only shown on an Intel Mac, where Relay's own install cannot run the local models. */
+/** Shown where Relay's own install cannot run the local models (an Intel Mac, Linux): Docker is the way in. */
 function DockerHelp({ missing }: { missing: boolean }) {
+  if (!IS_MAC) {
+    return (
+      <Alert
+        color="yellow"
+        title={missing ? 'Docker is not installed' : 'Docker is not running'}
+        data-testid="memory-docker"
+      >
+        On Linux, long-term memory runs in Docker.{' '}
+        {missing ? (
+          <>
+            Install Docker and let your user run it (on NixOS:{' '}
+            <code>virtualisation.docker.enable = true;</code> and the <code>docker</code> group),
+            then check again. Relay never installs it for you.
+          </>
+        ) : (
+          <>
+            Start Docker (<code>sudo systemctl start docker</code>) and make sure your user is in
+            the <code>docker</code> group, then check again.
+          </>
+        )}
+      </Alert>
+    )
+  }
   return (
     <Alert
       color="yellow"
@@ -144,7 +167,7 @@ function MemoryControls({
               value={useLocal ? 'local' : 'account'}
               onChange={(v) => setUseLocal(v === 'local')}
               data={[
-                { value: 'local', label: 'A model on this Mac' },
+                { value: 'local', label: `A model on this ${MACHINE}` },
                 { value: 'account', label: 'My AI account' },
               ]}
               data-testid="memory-llm-choice"
@@ -152,7 +175,7 @@ function MemoryControls({
           )}
           {picksLocal ? (
             <Text size="sm" data-testid="memory-local-cost">
-              Memory will read with a model that runs on this Mac, so nothing is sent to an AI
+              Memory will read with a model that runs on this {MACHINE}, so nothing is sent to an AI
               company and it costs nothing per use. It downloads about{' '}
               {formatBytes(offer.downloadBytes)} and holds about {formatBytes(offer.ramBytes)} of
               memory while it runs.
@@ -178,7 +201,7 @@ function MemoryControls({
       {phase === 'on' && !status?.problem && status ? (
         <Alert color="green" title="Long-term memory is on" data-testid="memory-ok">
           Your assistant saves what matters and recalls it next time. It lives at {status.apiUrl},
-          only on this Mac, in the bank "{status.bankId}".
+          only on this {MACHINE}, in the bank "{status.bankId}".
           {status.engine === 'native' && status.version ? (
             <Text size="xs" mt={4} data-testid="memory-version">
               Hindsight {status.version}
@@ -187,7 +210,7 @@ function MemoryControls({
                 : ''}
               . Reads with{' '}
               {status.local?.installed
-                ? `the model on this Mac (${status.local.running ? 'running' : 'stopped'})`
+                ? `the model on this ${MACHINE} (${status.local.running ? 'running' : 'stopped'})`
                 : status.llm === 'codex'
                   ? 'your ChatGPT sign-in'
                   : 'your AI account'}
@@ -262,7 +285,7 @@ function MemoryControls({
                 disabled={busy}
                 data-testid="memory-use-local"
               >
-                Use a model on this Mac
+                Use a model on this {MACHINE}
               </Button>
             ) : null}
             {status.engine === 'native' ? (
@@ -322,8 +345,8 @@ export function MemoryStep({ ctx }: { ctx: WizardCtx }) {
         conversations, instead of starting fresh each time.
       </Text>
       <Text c="dimmed" size="sm">
-        Relay installs it for you as a small private service on this Mac. It is never reachable from
-        other devices, and you can update or remove it in Settings any time.
+        Relay installs it for you as a small private service on this {MACHINE}. It is never
+        reachable from other devices, and you can update or remove it in Settings any time.
       </Text>
       <MemoryControls
         root={ctx.state.root ?? ctx.defaultRoot}
@@ -356,7 +379,7 @@ export function MemorySection({ root, userName }: { root: string; userName?: str
           <span className="eva-settings-label-title">Long-term memory</span>
           <span className="eva-settings-label-help">
             Your assistant remembers decisions and preferences across conversations. Runs privately
-            on this Mac, managed by Relay.
+            on this {MACHINE}, managed by Relay.
           </span>
         </span>
       </div>

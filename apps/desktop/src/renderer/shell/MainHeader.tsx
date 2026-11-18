@@ -13,6 +13,7 @@ import { roomIdOf } from '../rooms/rooms-store'
 import { tabTitle } from '../tabs/tab-meta'
 import { toggleToolPanes, toolsShown, useTiling } from '../tiling/tiling-store'
 import { FOLDED_LABEL, toggleSidebar, useLayout } from './layout-store'
+import { keyLabel } from '@evaos/shell-core'
 
 /**
  * A page's header inside its card: its title, context, and in the lead pane the sidebar and
@@ -33,7 +34,7 @@ export function MainHeader({ place, lead }: { place: Place; lead: boolean }) {
         <Tooltip
           label={
             <span className="eva-tip">
-              {sidebarLabel} <Kbd size="xs">⌘B</Kbd>
+              {sidebarLabel} <Kbd size="xs">{keyLabel('⌘B')}</Kbd>
             </span>
           }
           position="bottom"
@@ -74,7 +75,7 @@ export function MainHeader({ place, lead }: { place: Place; lead: boolean }) {
         <Tooltip
           label={
             <span className="eva-tip">
-              {panelLabel} <Kbd size="xs">⌘⇧B</Kbd>
+              {panelLabel} <Kbd size="xs">{keyLabel('⌘⇧B')}</Kbd>
             </span>
           }
           position="bottom-end"

@@ -1,27 +1,104 @@
 #!/usr/bin/env bash
 # Install Relay Host for this user and start it.
 #
-#   install-host.sh <root> <hostName>
+#   install-host.sh <root> <hostName> [<human>]
 #
 #   root      absolute path of the ICM home base (becomes host.json agentHome / --agent-home)
 #   hostName  how this Mac shows up on the iPhone ("Jane's Mac Studio")
+#   human     Linux only: the user's name for host.json `human` (the wizard's userName); optional
 #
-# Needs the app: $RELAY_HOST_APP (dev) or <Relay.app>/Contents/Resources/RelayHost/Relay Host.app (packaged).
+# macOS needs the app: $RELAY_HOST_APP (dev) or <Relay.app>/Contents/Resources/RelayHost/Relay Host.app (packaged).
 # Writes: ~/Applications/Relay Host.app, ~/.config/relay/host.json,
 #         ~/Library/LaunchAgents/dev.relay.host.plist (+ dev.relay.herdr.plist when no herdr server is being kept alive).
 # Refuses (ERR) when Isaac-style `ai.eva.relay-host` is installed. stdout: PROGRESS/OK/ERR.
+#
+# Linux needs `relay-host` on PATH (the Nix launcher puts it there) or $RELAY_HOST_BIN. Writes
+# ~/.config/relay/host.json and ~/.omp/agent/extensions/relay-bridge.ts, then starts herdr and the host with
+# start-host.sh --restart (systemd user units when they exist, else detached processes).
 set -eEuo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib.sh"
 install_err_trap
-require_macos
+is_macos || is_linux || fail "these setup scripts support macOS and Linux only"
 
 ROOT="${1:-}"
 NAME="${2:-}"
+HUMAN="${3:-}"
 PORT="${RELAY_HOST_PORT:-7817}"
 [ -n "$ROOT" ] && [ -n "$NAME" ] || fail "usage: install-host.sh <root> <hostName>"
 case "$ROOT" in /*) ;; *) fail "root must be an absolute path, got '$ROOT'" ;; esac
 case "$PORT" in ''|*[!0-9]*) fail "invalid RELAY_HOST_PORT '$PORT'" ;; esac
+
+# ---- Linux ------------------------------------------------------------------------------------------------
+if is_linux; then
+  STATE_DIR="$(relay_state_dir)"
+  [ -d "$ROOT" ] || fail "home base folder $ROOT does not exist; create it (scaffold-home.sh) first"
+
+  progress 5 "Locating Relay Host"
+  HOST_BIN="$(relay_host_bin)"
+  [ -n "$HOST_BIN" ] || fail "relay-host was not found on PATH; start Relay with the flake (nix run .#relay) or set RELAY_HOST_BIN"
+  VERSION="$(relay_host_version)"
+
+  # A free port, or our own host already on it (start-host.sh restarts that one).
+  live="$(relay_host_live)"
+  if port_in_use "$PORT" && [ "${live%% *}" != "$PORT" ]; then
+    fail "port $PORT is already in use by another program; close it or set RELAY_HOST_PORT"
+  fi
+
+  progress 20 "Writing host config"
+  mkdir -p "$STATE_DIR"
+  {
+    printf '{\n  "agentHome": "%s",\n  "name": "%s",\n  "port": %s,\n' "$(json_esc "$ROOT")" "$(json_esc "$NAME")" "$PORT"
+    [ -z "$HUMAN" ] || printf '  "human": "%s",\n' "$(json_esc "$HUMAN")"
+    printf '  "features": { "studio": true }\n}\n'
+  } >"$STATE_DIR/host.json.tmp"
+  json_valid "$STATE_DIR/host.json.tmp" || fail "generated host.json is invalid"
+  mv "$STATE_DIR/host.json.tmp" "$STATE_DIR/host.json"
+  # The host's default boards folder (<support>/Relay/boards, support = ${XDG_CONFIG_HOME:-~/.config}).
+  mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/Relay/boards"
+
+  # The omp extension the host injects into assistant sessions (bundled next to the binary).
+  progress 30 "Installing the omp bridge"
+  EXT_DIR="$HOME/.omp/agent/extensions"
+  EXT_DEST="$EXT_DIR/relay-bridge.ts"
+  EXT_SRC="$(relay_bridge_source)"
+  mkdir -p "$EXT_DIR"
+  if [ -L "$EXT_DEST" ]; then
+    : # a developer checkout's symlink: leave it
+  elif [ -n "$EXT_SRC" ]; then
+    # A plain copy came from an earlier install: refresh it. Nix store files are read-only, so copy then chmod.
+    cp "$EXT_SRC" "$EXT_DEST.tmp"
+    chmod 644 "$EXT_DEST.tmp"
+    mv -f "$EXT_DEST.tmp" "$EXT_DEST"
+  elif [ ! -f "$EXT_DEST" ]; then
+    fail "the omp bridge extension (relay-bridge.ts) was not found next to $HOST_BIN; set RELAY_OMP_EXTENSION_DIR"
+  fi
+
+  # Assistants run omp in a hidden herdr pane: omp's own first-run wizard would wait there forever.
+  if [ -n "$(tool_path omp)" ] && [ "$(omp config get startup.setupWizard 2>/dev/null)" != "false" ]; then
+    run_logged omp config set startup.setupWizard false || fail "could not turn off omp's first-run setup: $(last_log_lines 2)"
+  fi
+  herdr_omp_integration
+
+  # herdr and the host: start-host.sh speaks the same protocol; pass its progress through (40-100).
+  progress 40 "Starting herdr and Relay Host"
+  started=""; why=""
+  while IFS= read -r line; do
+    case "$line" in
+      "PROGRESS "*)
+        rest="${line#PROGRESS }"; pct="${rest%% *}"; msg="${rest#* }"
+        case "$pct" in ''|*[!0-9]*) pct=0 ;; esac
+        progress $((40 + pct * 3 / 5)) "$msg" ;;
+      "OK"*) started="${line#OK}"; started="${started# }" ;;
+      "ERR"*) why="${line#ERR}"; why="${why# }" ;;
+    esac
+  done < <(bash "$HERE/start-host.sh" --restart 2>>"$SETUP_LOG" || true)
+  [ -n "$started" ] || fail "${why:-Relay Host did not start; see $SETUP_LOG}"
+  progress 100 "Relay Host: $started"
+  ok "${VERSION:-installed}"
+fi
+
+# ---- macOS ------------------------------------------------------------------------------------------------
 
 UID_NUM="$(id -u)"
 LA_DIR="$HOME/Library/LaunchAgents"

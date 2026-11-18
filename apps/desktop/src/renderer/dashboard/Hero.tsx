@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ActionIcon, Button, Kbd, Tooltip, useComputedColorScheme } from '@mantine/core'
 import { IconFolder, IconPlus, IconRefresh } from '@tabler/icons-react'
 import { BANNERS, BANNER_ROTATE_MS } from './banners'
+import { keyLabel } from '@evaos/shell-core'
 
 export interface HeroProps {
   summary: string
@@ -71,7 +72,7 @@ export function Hero(p: HeroProps) {
           <Button
             size="sm"
             leftSection={<IconPlus size={16} />}
-            rightSection={<Kbd className="eva-dash-kbd">⌘N</Kbd>}
+            rightSection={<Kbd className="eva-dash-kbd">{keyLabel('⌘N')}</Kbd>}
             data-testid="dash-new-todo"
             onClick={p.onNewTodo}
           >
@@ -97,7 +98,7 @@ export function Hero(p: HeroProps) {
         <Tooltip
           label={
             <span>
-              Reload from the Eva repo <Kbd>⌘R</Kbd>
+              Reload from the Eva repo <Kbd>{keyLabel('⌘R')}</Kbd>
             </span>
           }
         >

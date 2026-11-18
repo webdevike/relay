@@ -12,7 +12,13 @@ export const SETUP_SCRIPTS = [
   'scaffold-home.sh',
   'install-host.sh',
   'ai-login.sh',
+  'start-host.sh',
 ] as const
+
+/** The bash that runs the scripts: the system one on macOS; on Linux from PATH (NixOS has no /bin/bash). */
+export function setupShell(platform: NodeJS.Platform = process.platform): string {
+  return platform === 'darwin' ? '/bin/bash' : 'bash'
+}
 
 /** Packaged: Relay.app/Contents/Resources/setup. Dev: apps/desktop/resources/setup. */
 export function resolveSetupDir(
@@ -26,11 +32,30 @@ export function resolveSetupDir(
   return candidates.find((d) => exists(d)) ?? null
 }
 
-/** Packaged: Relay.app/Contents/Resources/RelayHost/Relay Host.app. Dev: apps/desktop/resources/RelayHost. An explicit RELAY_HOST_APP wins. */
+/**
+ * What install-host.sh installs. macOS: the app, packaged at Relay.app/Contents/Resources/RelayHost/Relay
+ * Host.app, dev at apps/desktop/resources/RelayHost; an explicit RELAY_HOST_APP wins. Linux: the
+ * `relay-host` binary, an explicit RELAY_HOST_BIN (passed as `override`) else the first on `pathEnv`.
+ */
 export function resolveHostApp(
-  o: { packaged: boolean; resourcesPath: string; appPath: string; override?: string },
+  o: {
+    packaged: boolean
+    resourcesPath: string
+    appPath: string
+    override?: string
+    platform?: NodeJS.Platform
+    pathEnv?: string
+  },
   exists: (p: string) => boolean = (p) => fs.existsSync(p),
 ): string | null {
+  if ((o.platform ?? process.platform) !== 'darwin') {
+    const dirs = (o.pathEnv ?? '').split(path.delimiter).filter((d) => d !== '')
+    const candidates = [
+      ...(o.override ? [o.override] : []),
+      ...dirs.map((d) => path.join(d, 'relay-host')),
+    ]
+    return candidates.find((d) => exists(d)) ?? null
+  }
   const candidates = [
     ...(o.override ? [o.override] : []),
     o.packaged
@@ -137,7 +162,7 @@ const MIN = 60_000
 /** Runs that are shell scripts; `hindsight` runs in-process (see hindsight.ts). */
 export type ScriptRun = Exclude<SetupRun, { task: 'hindsight' }>
 
-export function planRun(run: ScriptRun, homedir: string): ScriptPlan {
+export function planRun(run: ScriptRun, homedir: string, o: { human?: string } = {}): ScriptPlan {
   switch (run.task) {
     case 'install':
       return { script: 'install.sh', args: [run.tool], timeoutMs: 30 * MIN }
@@ -164,7 +189,13 @@ export function planRun(run: ScriptRun, homedir: string): ScriptPlan {
     }
     case 'install-host': {
       const root = checkRoot(run.root, homedir)
-      return { script: 'install-host.sh', args: [root, run.hostName], timeoutMs: 5 * MIN }
+      // `human` (Linux: host.json's human, the wizard's user name) is a third argument when known.
+      const human = o.human?.trim() ?? ''
+      return {
+        script: 'install-host.sh',
+        args: [root, run.hostName, ...(human !== '' ? [human] : [])],
+        timeoutMs: 5 * MIN,
+      }
     }
   }
 }

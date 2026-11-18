@@ -41,10 +41,18 @@ export interface InputLike {
   isAutoRepeat?: boolean
 }
 
-/** The app chord an input event is, or null. Only keyDown matches; auto-repeat is ignored. */
-export function matchesAppChord(input: InputLike): AppChord | null {
+/** `process` exists only in main; this package's tsconfig types neither Node nor the DOM. */
+const proc: unknown = Reflect.get(globalThis, 'process')
+const PROCESS_MAC =
+  !(proc !== null && typeof proc === 'object' && 'platform' in proc) || proc.platform === 'darwin'
+
+/**
+ * The app chord an input event is, or null. Only keyDown matches; auto-repeat is ignored. The
+ * modifier is Cmd on macOS and Ctrl (or Super) elsewhere, as in shell-core's chords.
+ */
+export function matchesAppChord(input: InputLike, mac: boolean = PROCESS_MAC): AppChord | null {
   if (input.type !== 'keyDown' || input.isAutoRepeat) return null
-  if (!input.meta || input.control) return null
+  if (mac ? !input.meta || input.control : !input.meta && !input.control) return null
   const key = input.key.toLowerCase()
   for (const [name, spec] of Object.entries(APP_CHORDS) as Array<[AppChord, ChordSpec]>) {
     if (spec.key === key && !!spec.shift === !!input.shift && !!spec.alt === !!input.alt) {

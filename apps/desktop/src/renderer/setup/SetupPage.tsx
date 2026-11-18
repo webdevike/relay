@@ -5,7 +5,7 @@ import type { SetupDetect, SetupState, SetupStep } from '@evaos/contract'
 import { invoke } from '../ipc'
 import '../settings/settings.css'
 import './setup.css'
-import { firstIncomplete } from './run'
+import { MACHINE, firstIncomplete } from './run'
 import { neighbour, visibleSteps } from './hindsight-state'
 import { MemoryStep } from './steps-memory'
 import { AiStep, CheckStep, InstallStep, WelcomeStep } from './steps-system'
@@ -15,7 +15,7 @@ import type { WizardCtx } from './wizard'
 
 const TITLES: Record<SetupStep, string> = {
   welcome: 'Welcome to Relay',
-  check: 'Check your Mac',
+  check: `Check your ${MACHINE}`,
   install: 'Install what is missing',
   ai: 'Connect AI',
   home: 'Your home base',

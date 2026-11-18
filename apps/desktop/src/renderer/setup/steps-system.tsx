@@ -13,23 +13,25 @@ import {
 import { IconCheck, IconCircleDashed, IconX } from '@tabler/icons-react'
 import { useEffect, useRef, useState } from 'react'
 import type { SetupProvider } from '@evaos/contract'
-import { TOOL_LABEL, missingTools, runSetup, useSetupRun } from './run'
+import { IS_MAC, MACHINE, TOOL_LABEL, missingTools, runSetup, useSetupRun } from './run'
 import type { WizardCtx } from './wizard'
 
 export function WelcomeStep({ ctx }: { ctx: WizardCtx }) {
   return (
     <Stack gap="md" data-testid="setup-welcome">
       <Text>
-        Relay is where you chat with your AI assistants on your Mac and your iPhone. This setup gets
-        your Mac ready, signs you in to an AI provider, creates a folder that holds everything your
-        assistants know, and links your phone.
+        Relay is where you chat with your AI assistants on your {MACHINE} and your iPhone. This
+        setup gets your {MACHINE} ready, signs you in to an AI provider, creates a folder that holds
+        everything your assistants know, and links your phone.
       </Text>
       <Text c="dimmed" size="sm">
         Here is what will happen: check which tools you already have, install the missing ones, sign
         in to AI, create your home base folder and assistants, start Relay Host, and pair your
         iPhone. Nothing is changed without showing you first, and nothing you already have is
-        replaced or deleted. macOS may ask for your password for a few installs; you type it into
-        macOS, never into Relay.
+        replaced or deleted.
+        {IS_MAC
+          ? ' macOS may ask for your password for a few installs; you type it into macOS, never into Relay.'
+          : ''}
       </Text>
       <Group>
         <Button onClick={ctx.finish} data-testid="setup-start">
@@ -81,17 +83,21 @@ export function CheckStep({ ctx }: { ctx: WizardCtx }) {
   return (
     <Stack gap="md" data-testid="setup-check">
       <Text c="dimmed" size="sm">
-        Looking at your Mac. Nothing is changed in this step.
+        Looking at your {MACHINE}. Nothing is changed in this step.
       </Text>
       {ctx.detectError ? (
-        <Alert color="red" title="Could not check your Mac" data-testid="setup-detect-error">
+        <Alert
+          color="red"
+          title={`Could not check your ${MACHINE}`}
+          data-testid="setup-detect-error"
+        >
           {ctx.detectError}
         </Alert>
       ) : null}
       {d ? (
         <div className="eva-settings-card">
-          <Status ok={d.clt.installed} label="clt" detail={ver(d.clt)} />
-          <Status ok={d.brew.installed} label="brew" detail={ver(d.brew)} />
+          {IS_MAC ? <Status ok={d.clt.installed} label="clt" detail={ver(d.clt)} /> : null}
+          {IS_MAC ? <Status ok={d.brew.installed} label="brew" detail={ver(d.brew)} /> : null}
           <Status ok={d.bun.installed} label="bun" detail={ver(d.bun)} />
           <Status
             ok={d.omp.installed ? (d.omp.loggedIn ? true : 'warn') : false}
@@ -197,14 +203,15 @@ export function InstallStep({ ctx }: { ctx: WizardCtx }) {
     <Stack gap="md" data-testid="setup-install">
       {todo === null ? (
         <Text c="dimmed" size="sm">
-          Checking your Mac…
+          Checking your {MACHINE}…
         </Text>
       ) : todo.length === 0 ? (
-        <Text>Everything Relay needs is already on your Mac.</Text>
+        <Text>Everything Relay needs is already on your {MACHINE}.</Text>
       ) : (
         <Text c="dimmed" size="sm">
-          Installing what is missing. If macOS asks for your password or opens an installer, follow
-          it and come back here.
+          {IS_MAC
+            ? 'Installing what is missing. If macOS asks for your password or opens an installer, follow it and come back here.'
+            : 'Installing what is missing.'}
         </Text>
       )}
       <div className="eva-settings-card">
@@ -404,7 +411,7 @@ export function AiStep({ ctx }: { ctx: WizardCtx }) {
           />
           <PasswordInput
             label="API key"
-            description="Stored by omp on this Mac. Relay does not keep a copy."
+            description={`Stored by omp on this ${MACHINE}. Relay does not keep a copy.`}
             value={apiKey}
             onChange={(e) => setApiKey(e.currentTarget.value)}
             autoComplete="off"

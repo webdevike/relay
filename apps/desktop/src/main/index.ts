@@ -60,6 +60,7 @@ import { openAppLink, showNotice } from './notice'
 import { registerSetup } from './setup'
 import { registerConnections } from './connections'
 import { listenForDeepLinks } from './deep-links'
+import { autostartHost } from './host-autostart'
 
 /** Marks that the packaged app registered itself as a login item once. */
 const LOGIN_ITEM_FILE = 'login-item.json'
@@ -95,6 +96,14 @@ function bootstrap(): void {
   moveLegacyConfig(env.legacyConfigDir, env.configDir)
   // Chromium profile, persist:browser and extension storage live under the config dir.
   app.setPath('userData', env.configDir)
+  // Off macOS nothing stops a second launch (a relay:// link click starts the app again): one app
+  // per config folder, keyed on userData, so the stable app and Relay Dev never block each other.
+  // The second one hands its argv to the first (deep-links.ts) and quits. Test launches each
+  // have their own config folder and never take the lock.
+  if (process.platform !== 'darwin' && !env.e2e && !app.requestSingleInstanceLock()) {
+    app.exit(0)
+    return
+  }
   installWriteGuard(env)
   registerWidgetSchemes()
   // relay:// links from outside the app; only the packaged live app claims the scheme.
@@ -187,6 +196,8 @@ function bootstrap(): void {
       registerAppIpc(ctx)
       deepLinks.attach(ctx)
       registerSetup(ctx)
+      // Linux has no LaunchAgent: the stable app starts an installed Relay Host that is down.
+      void autostartHost(env, (m) => console.warn(m))
       const layout = registerLayoutIpc(ctx, queue)
       registerDraftsIpc(ctx)
       registerThemeIpc(ctx, queue)
@@ -286,7 +297,10 @@ function bootstrap(): void {
       })
       registerTestHook('update', update)
       registerAboutIpc(ctx, chat.hostInfo)
-      if (app.isPackaged) {
+      // The packaged app is a signed macOS bundle: its self-updater swaps the .app, and Relay
+      // Assist and Relay Meetings are macOS helper apps. A Linux install (Nix) updates with its
+      // package manager and has none of the helpers.
+      if (app.isPackaged && process.platform === 'darwin') {
         packagedUpdater = createPackagedUpdater({
           configDir: env.configDir,
           appPath: app.getAppPath(),

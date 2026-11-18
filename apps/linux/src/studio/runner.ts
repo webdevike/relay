@@ -3,7 +3,8 @@
 // images (`codex.ts`), Higgsfield (`higgsfield.ts`), OpenRouter images (`openrouter.ts`), SAM 2.1 cutouts (`sam.ts`), crops (`crop.ts`).
 // Tests swap in fakes.
 
-import type { StudioBackend, StudioFrameSlot, StudioSpec } from "@relay/protocol";
+import type { StudioBackend, StudioBackendId, StudioFrameSlot, StudioSpec } from "@relay/protocol";
+import { BACKEND_BASE } from "./backends";
 
 export interface StudioRunInput {
   readonly spec: StudioSpec;
@@ -58,4 +59,20 @@ export interface StudioRunner {
 export function oneLine(error: unknown, max = 600): string {
   const text = error instanceof Error ? error.message : String(error);
   return text.replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+/** A backend that cannot run on this machine at all (the MLX ones off macOS): listed as unavailable with `reason`. */
+export class UnavailableRunner implements StudioRunner {
+  constructor(
+    private readonly id: StudioBackendId,
+    private readonly reason: string,
+  ) {}
+
+  describe(): Promise<StudioBackend> {
+    return Promise.resolve({ ...BACKEND_BASE[this.id], available: false, reason: this.reason });
+  }
+
+  run(): Promise<StudioRunOutput> {
+    return Promise.reject(new Error(this.reason));
+  }
 }

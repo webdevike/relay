@@ -13,6 +13,7 @@ import {
   IconStrikethrough,
 } from '@tabler/icons-react'
 import { EvaMenu } from '../overlay'
+import { keyLabel } from '@evaos/shell-core'
 
 const HEADINGS = [
   { label: 'Heading 1', level: 1 },
@@ -35,7 +36,11 @@ function Tool({
   children: ReactNode
 }) {
   return (
-    <Tooltip label={shortcut ? `${label}  ${shortcut}` : label} openDelay={400} withinPortal>
+    <Tooltip
+      label={shortcut ? `${label}  ${keyLabel(shortcut)}` : label}
+      openDelay={400}
+      withinPortal
+    >
       <ActionIcon
         variant={active ? 'light' : 'subtle'}
         color={active ? undefined : 'gray'}
