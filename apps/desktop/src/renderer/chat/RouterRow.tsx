@@ -49,7 +49,11 @@ export function RouterRow({ turn }: { turn: RouterTurn }) {
                 <div key={label} className="eva-agents-field">
                   <dt>{label}</dt>
                   <dd>
-                    {label === 'Suggested request' ? <pre className="eva-tool-code">{value}</pre> : value}
+                    {label === 'Suggested request' ? (
+                      <pre className="eva-tool-code">{value}</pre>
+                    ) : (
+                      value
+                    )}
                   </dd>
                 </div>
               ))}

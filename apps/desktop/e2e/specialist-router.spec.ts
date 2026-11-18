@@ -93,7 +93,12 @@ const decision = (
     prompt: 'x',
     ...over,
   })
-const outcome = (id: string, parentId: string, srId: string, over: Record<string, unknown>): string =>
+const outcome = (
+  id: string,
+  parentId: string,
+  srId: string,
+  over: Record<string, unknown>,
+): string =>
   router(id, parentId, {
     v: 1,
     kind: 'outcome',
@@ -151,7 +156,13 @@ test('the router decision shows under each of Isaac messages, with whether the t
     THREAD,
     user('sr-u1', 'sr-d1', 'Which 2TB USB4 SSD under $200 has the best sustained writes?', t0),
   )
-  host.upsert({ id: THREAD, status: 'working', kind: 'assistant', assistant: 'nova', title: 'Nova' })
+  host.upsert({
+    id: THREAD,
+    status: 'working',
+    kind: 'assistant',
+    assistant: 'nova',
+    title: 'Nova',
+  })
   await resize(app, 1280, 900)
   await pickScheme(shell, SCHEME)
   await shell.getByTestId('nav-assistants').click()
@@ -170,7 +181,12 @@ test('the router decision shows under each of Isaac messages, with whether the t
   // The turn ends and the outcome is written: the mark appears without reopening the thread.
   await fx.append(
     THREAD,
-    reply('sr-a1', 'sr-u1', 'Get the **Acasis 40Gbps** enclosure with a **WD SN7100 2TB**.', t0 + 20_000),
+    reply(
+      'sr-a1',
+      'sr-u1',
+      'Get the **Acasis 40Gbps** enclosure with a **WD SN7100 2TB**.',
+      t0 + 20_000,
+    ),
   )
   await fx.append(
     THREAD,
@@ -189,7 +205,10 @@ test('the router decision shows under each of Isaac messages, with whether the t
       hinted: true,
     }),
   )
-  await fx.append(THREAD, user('sr-u2', 'sr-d2', 'What would it look like on my desk?', t0 + 30_000))
+  await fx.append(
+    THREAD,
+    user('sr-u2', 'sr-d2', 'What would it look like on my desk?', t0 + 30_000),
+  )
   await fx.append(
     THREAD,
     reply('sr-a2', 'sr-u2', 'A matte grey slab about the size of a deck of cards.', t0 + 35_000),

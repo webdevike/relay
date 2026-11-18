@@ -4,7 +4,7 @@
   align-items: center;
   max-width: 80%;
   min-width: 0;
-  padding: 0 var(--eva-space-xs);
+  padding: 0 var(--mantine-spacing-xs);
   border: 0;
   border-radius: var(--eva-radius);
   background: none;
@@ -25,7 +25,7 @@
 }
 .eva-router-row svg {
   flex: none;
-  margin-right: 4px;
+  margin-right: var(--eva-gap);
 }
 .eva-router-head,
 .eva-router-mark {

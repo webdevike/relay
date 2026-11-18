@@ -336,7 +336,8 @@ export function parseSession(text: string): ParsedSession {
   if (routed.size > 0)
     for (const m of messages) {
       const turn = m.role === 'user' ? routed.get(m.id) : undefined
-      if (turn) m.router = { decision: turn.decision, ...(turn.outcome ? { outcome: turn.outcome } : {}) }
+      if (turn)
+        m.router = { decision: turn.decision, ...(turn.outcome ? { outcome: turn.outcome } : {}) }
     }
 
   // A rename appends a title record, so the last one is the session's name now.

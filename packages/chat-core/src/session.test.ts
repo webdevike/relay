@@ -487,7 +487,14 @@ describe('parseSession specialist router', () => {
     const ended = parseSession(
       [
         ...head,
-        router('o', 'a', { v: 1, kind: 'outcome', id: 'sr-1', at: 'x', used: true, usedAgents: ['web-researcher'] }),
+        router('o', 'a', {
+          v: 1,
+          kind: 'outcome',
+          id: 'sr-1',
+          at: 'x',
+          used: true,
+          usedAgents: ['web-researcher'],
+        }),
       ].join('\n'),
     ).messages
     expect(ended[0]!.router!.outcome!.used).toBe(true)
