@@ -6,6 +6,8 @@ import type { GenerateRequest, Generation } from "../Model.ts";
  * Span names, one set for every domain. The core opens each of them once (`Runtime.ts`, `Adapter.ts` `pack`,
  * `Model.ts` `tool`, `CodeMode.ts`, `EventBus.publish`), so an agent gets them without instrumenting anything.
  * Attributes: `agent.id`, `agent.run` and `agent.tier` on every span of a run; the rest per span (`Traces.ts` reads them).
+ * Three more come from the service, not from a run: `outcome.reported` (a child of the run it reports on),
+ * `schedule.missed` and `roster.check` (roots of their own trace).
  */
 export const SPAN = {
   /** One `Runner.run`: the trace's root. */
@@ -23,6 +25,13 @@ export const SPAN = {
   tool: "tool.call",
   /** One event appended to the journal. */
   emit: "event.emit",
+  /** What a consumer did with a run's answer (`Outcomes.ts`), under that run's root. */
+  outcome: "outcome.reported",
+  /** A cron tick that did not start a run, or a run that hung past its deadline (`Scheduler.ts`). */
+  missed: "schedule.missed",
+  /** The service's roster against config.json (`Roster.ts`); a `roster.missing` child per agent it lacks. */
+  roster: "roster.check",
+  rosterMissing: "roster.missing",
 } as const;
 
 /** Up to `max` characters of a value, as JSON unless it is a string: what an attribute keeps of args or messages. */

@@ -5,8 +5,11 @@ import { Home } from "../Event.ts";
 import { SPAN } from "./Spans.ts";
 import { fileOf, prune, RETENTION, type Retention, TRACES_DIR } from "./Traces.ts";
 
-/** Root spans that start a trace. Any other root (a config reload, a CLI publish, a bench call) is not sampled, nor is anything under it. */
-const ROOTS: ReadonlySet<string> = new Set([SPAN.run]);
+/**
+ * Root spans that start a trace: a run, a missed cron tick, a roster check. Any other root (a config reload, a CLI
+ * publish, a bench call) is not sampled, nor is anything under it. An `outcome.reported` has its run as parent.
+ */
+const ROOTS: ReadonlySet<string> = new Set([SPAN.run, SPAN.missed, SPAN.roster]);
 
 const PRUNE_EVERY = 10 * 60_000;
 

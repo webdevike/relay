@@ -23,11 +23,14 @@ import { type EventSchemas, ToolMode, Trigger } from "./core/Component.ts";
 import { type AgentEvent, EventBus, Home, lifecycle, makeEvent } from "./core/Event.ts";
 import { shortId } from "./core/Id.ts";
 import { ModelRunner } from "./core/Model.ts";
+import * as Health from "./core/observability/Health.ts";
+import * as Outcomes from "./core/observability/Outcomes.ts";
+import * as Roster from "./core/observability/Roster.ts";
 import * as Tracing from "./core/observability/Tracing.ts";
 import * as Traces from "./core/observability/Traces.ts";
 import { Orchestrators, Reporter, Sessions } from "./core/Orchestrator.ts";
 import { type RunOptions, Runner } from "./core/Runtime.ts";
-import { RUNTIME, runtime } from "./core/RuntimeEvents.ts";
+import { Outcome, publishRuntime, RUNTIME, runtime } from "./core/RuntimeEvents.ts";
 import * as Requests from "./core/Requests.ts";
 import * as Service from "./core/Service.ts";
 import { effective, Settings } from "./core/Settings.ts";
@@ -797,6 +800,63 @@ const tracesCommand = Command.make(
   }),
 );
 
+/**
+ * Per agent over a window: last run, runs, failures, fallbacks, each cron job's expected vs actual ticks with the missed
+ * ones by reason, what consumers did with requested runs, and whether the service's roster check found it missing.
+ */
+const healthCommand = Command.make(
+  "health",
+  {
+    since: Flag.String("since").pipe(
+      Flag.withDescription("the window: 30m, 1h, 2d"),
+      Flag.withDefault("24h"),
+    ),
+    json: Flag.Boolean("json").pipe(
+      Flag.withDescription(
+        "one JSON line, {since, now, roster, agents: [{agent, mode, enabled, lastRun, runs, failures, fallbacks, crons, outcomes, missing}]}",
+      ),
+      Flag.withDefault(false),
+    ),
+  },
+  Effect.fnUntraced(function* ({ since, json }) {
+    const window = Traces.parseSince(since);
+    if (window === undefined)
+      return yield* Effect.fail(new Error("--since: write it as 30m, 1h or 2d"));
+    if (json) return yield* printJson(Health.gather(window));
+    yield* Console.log(Health.render(yield* Health.gather(window)));
+  }),
+);
+
+/** A consumer's report of what it did with the answer to its request; the service records it on the run's trace. */
+const outcomeCommand = Command.make(
+  "outcome",
+  {
+    requestId: Argument.String("request-id"),
+    outcome: Argument.Literals("outcome", Outcome.literals),
+    consumer: Flag.String("consumer").pipe(Flag.withDescription("who used the answer")),
+    latencyMs: Flag.Int("latency-ms").pipe(
+      Flag.withDescription("from the request to the decision"),
+      Flag.optional,
+    ),
+    detail: Flag.String("detail").pipe(Flag.withDescription("one line of context"), Flag.optional),
+  },
+  Effect.fnUntraced(function* ({ requestId, outcome, consumer, latencyMs, detail }) {
+    yield* publishRuntime(
+      yield* EventBus,
+      "outcome.reported",
+      {
+        requestId,
+        consumer,
+        outcome,
+        ...Option.match(latencyMs, { onNone: () => ({}), onSome: (ms) => ({ latencyMs: ms }) }),
+        ...Option.match(detail, { onNone: () => ({}), onSome: (text) => ({ detail: text }) }),
+      },
+      "outcome",
+    );
+    yield* Console.log(`reported ${outcome} by ${consumer} for request ${requestId}`);
+  }),
+);
+
 const events = Command.make(
   "events",
   {
@@ -1001,13 +1061,15 @@ const orch = Command.make("orch").pipe(
   ]),
 );
 
-/** The service: config and agent file watch, triggers and trials, as background layers; the first fatal error (see `Background`) ends it. */
+/** The service: config and agent file watch, triggers, trials, outcomes and the roster check, as background layers; the first fatal error (see `Background`) ends it. */
 const Serve = Layer.mergeAll(
   Settings.layerWatch,
   Agents.layerWatch,
   Runner.layerTriggers,
   Orchestrators.layerSchedule,
   layerTrials({ catalogEvery: "1 hour" }),
+  Outcomes.layer,
+  Roster.layer,
 ).pipe(Layer.provideMerge(Background.layer));
 
 const serve = Command.make("serve", {}, () =>
@@ -1104,6 +1166,8 @@ Command.make("atomic-agents").pipe(
     resultCommand,
     runsCommand,
     tracesCommand,
+    healthCommand,
+    outcomeCommand,
     events,
     agent,
     orch,

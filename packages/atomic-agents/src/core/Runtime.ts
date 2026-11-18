@@ -9,7 +9,7 @@ import {
   Layer,
   Option,
   Random,
-  Schedule,
+  Ref,
   Schema,
   Semaphore,
   Stream,
@@ -33,6 +33,7 @@ import { isObject } from "./Fields.ts";
 import { runId, uuid } from "./Id.ts";
 import type { ModelRunner } from "./Model.ts";
 import { events as runtimeEvents, publishRuntime, RUNTIME } from "./RuntimeEvents.ts";
+import * as Scheduler from "./Scheduler.ts";
 import { runSpan, SPAN, traced } from "./observability/Spans.ts";
 import { effective, Settings } from "./Settings.ts";
 import {
@@ -85,6 +86,8 @@ export interface RunOptions {
     readonly role: "default" | "arm";
     readonly inline?: InlineTrial;
   };
+  /** A cron tick's run (`Scheduler.ts`): its expression and the tick it answers (epoch ms), recorded on the run's span. */
+  readonly schedule?: { readonly cron: string; readonly expected: number };
 }
 
 export interface RunResult {
@@ -98,6 +101,17 @@ export interface RunResult {
   /** Why it failed. */
   readonly error?: string;
 }
+
+/** Where a run's root span is, so a later span can join its trace (`Outcomes.ts`). */
+export interface RunSpan {
+  readonly traceId: string;
+  readonly spanId: string;
+  readonly agent: string;
+  readonly run: string;
+}
+
+/** Request ids whose run span the runner remembers, newest kept: a consumer reports within minutes. */
+const REMEMBERED_SPANS = 1000;
 
 const encodeLifecycle = Schema.encodeEffect(Lifecycle);
 
@@ -116,6 +130,8 @@ export class Runner extends Context.Service<
       input: unknown,
       options?: RunOptions,
     ): Effect.Effect<RunResult, UnknownJob | ComponentDisabled | NoToolMode | JournalError>;
+    /** The root span of the run this process started for `requestId`, while it is among the last 1000 requests. */
+    spanOf(requestId: string): Effect.Effect<Option.Option<RunSpan>>;
   }
 >()("atomic-agents/Runner") {
   static readonly layer = Layer.effect(
@@ -141,6 +157,23 @@ export class Runner extends Context.Service<
                 (made) => [made, new Map([...all, [id, made]])] as const,
               );
         });
+      // Request id -> its run's root span, oldest first (a Map keeps insertion order), for outcomes reported later.
+      const spans = yield* Ref.make<ReadonlyMap<string, RunSpan>>(new Map());
+      const remember = (requestId: string, agent: string, run: string) =>
+        Effect.currentSpan.pipe(
+          Effect.flatMap((span) =>
+            Ref.update(spans, (all) => {
+              const next = new Map(all);
+              next.set(requestId, { traceId: span.traceId, spanId: span.spanId, agent, run });
+              for (const key of next.keys()) {
+                if (next.size <= REMEMBERED_SPANS) break;
+                next.delete(key);
+              }
+              return next;
+            }),
+          ),
+          Effect.ignore,
+        );
 
       const run = Effect.fnUntraced(function* (
         componentId: string,
@@ -335,6 +368,16 @@ export class Runner extends Context.Service<
             "agent.job": job.id,
             "model.id": model,
             ...(requestId === undefined ? {} : { "agent.request": requestId }),
+            ...(options.schedule !== undefined
+              ? {
+                  "run.trigger": "cron",
+                  "schedule.cron": options.schedule.cron,
+                  "schedule.expected": options.schedule.expected,
+                  "schedule.lag_ms": queuedFrom - options.schedule.expected,
+                }
+              : requestId === undefined
+                ? {}
+                : { "run.trigger": "request" }),
             ...(toolMode === undefined ? {} : { "agent.tool_mode": toolMode }),
             ...(options.trial === undefined
               ? {}
@@ -342,13 +385,19 @@ export class Runner extends Context.Service<
                   "agent.trial": `${options.trial.id.slice(0, 8)} ${options.trial.letter} ${options.trial.role}`,
                 }),
           },
-          (lock === undefined ? body : lock.withPermits(1)(body)).pipe(
+          // Remembered before the lock: a consumer that gives up while the run is still queued reports on it too.
+          (requestId === undefined ? Effect.void : remember(requestId, component.id, run)).pipe(
+            Effect.andThen(lock === undefined ? body : lock.withPermits(1)(body)),
             Effect.annotateSpans(shared),
           ),
         );
       });
 
-      return Runner.of({ run });
+      return Runner.of({
+        run,
+        spanOf: (requestId) =>
+          Ref.get(spans).pipe(Effect.map((all) => Option.fromUndefinedOr(all.get(requestId)))),
+      });
     }),
   );
 
@@ -356,8 +405,8 @@ export class Runner extends Context.Service<
    * Background layer: arms every OnEvent and Cron trigger of the agents in force, in the `Background` set.
    * One bus subscription serves every event trigger: each event looks up the agents and config in force,
    * so an agent loaded or edited later is armed without re-subscribing, and a disabled agent skips it. Crons
-   * are re-armed whenever the agents, the enabled set or an expression changes. A trigger that cannot run
-   * is logged; a `JournalError` ends serve.
+   * are re-armed whenever the agents, the enabled set or an expression changes; `Scheduler.ts` accounts for each
+   * tick (a run, or a `schedule.missed` trace). A trigger that cannot run is logged; a `JournalError` ends serve.
    */
   static readonly layerTriggers = Layer.effectDiscard(
     Effect.gen(function* () {
@@ -700,24 +749,23 @@ export class Runner extends Context.Service<
           Stream.changes,
           Stream.switchMap((plan) =>
             Stream.fromEffectDrain(
-              Effect.forEach(
-                plan,
-                (entry) =>
-                  Effect.logInfo(`armed ${entry.component}/${entry.job} cron "${entry.cron}"`).pipe(
-                    Effect.andThen(
-                      entry.input.pipe(
-                        Effect.flatMap((input) => runLogged(entry.component, entry.job, input)),
-                        Effect.schedule(Schedule.cron(entry.cron)),
-                        // config.json and agent file crons are validated before they apply; this catches a bad code default.
-                        Effect.catchTag("CronParseError", (error) =>
-                          Effect.logError(
-                            `bad cron "${entry.cron}" for ${entry.component}/${entry.job}: ${error.message}`,
+              Scheduler.forget(plan).pipe(
+                Effect.andThen(
+                  Effect.forEach(
+                    plan,
+                    (entry) =>
+                      Effect.logInfo(
+                        `armed ${entry.component}/${entry.job} cron "${entry.cron}"`,
+                      ).pipe(
+                        Effect.andThen(
+                          Scheduler.arm(entry, (input, schedule) =>
+                            runner.run(entry.component, entry.job, input, { schedule }),
                           ),
                         ),
                       ),
-                    ),
+                    { concurrency: "unbounded", discard: true },
                   ),
-                { concurrency: "unbounded", discard: true },
+                ),
               ),
             ),
           ),

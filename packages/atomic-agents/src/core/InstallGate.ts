@@ -81,9 +81,19 @@ export type RosterRow = (typeof RosterRows.Type)[number];
 /** Modes that mean a consumer counts on the agent: its answers are logged (`shadow`) or used (`live`). */
 const COVERED: ReadonlyArray<Mode> = ["live", "shadow"];
 
+/** Every config.json `components.<id>` with mode live or shadow and not `enabled: false`: agents a consumer counts on. */
+export const countedOn = (
+  config: ConfigModes,
+): ReadonlyArray<{ readonly id: string; readonly mode: Mode }> =>
+  Object.entries(config.components ?? {}).flatMap(([id, own]) =>
+    own.enabled === false || own.mode === undefined || !COVERED.includes(own.mode)
+      ? []
+      : [{ id, mode: own.mode }],
+  );
+
 /**
  * What the new roster would lose: each agent the installed copy loads (`loaded`, undefined on a first install) and
- * each config.json `components.<id>` with mode live or shadow and not `enabled: false`, that the new copy does not load.
+ * each agent config.json counts on (`countedOn`), that the new copy does not load.
  */
 export const rosterLosses = (
   loaded: ReadonlyArray<RosterRow> | undefined,
@@ -102,16 +112,10 @@ export const rosterLosses = (
     const why = missing(row.id);
     if (why !== undefined) losses.set(row.id, `loaded now, ${why}`);
   }
-  for (const [id, own] of Object.entries(config.components ?? {})) {
-    if (
-      own.enabled === false ||
-      own.mode === undefined ||
-      !COVERED.includes(own.mode) ||
-      losses.has(id)
-    )
-      continue;
+  for (const { id, mode } of countedOn(config)) {
+    if (losses.has(id)) continue;
     const why = missing(id);
-    if (why !== undefined) losses.set(id, `config.json mode ${own.mode}, ${why}`);
+    if (why !== undefined) losses.set(id, `config.json mode ${mode}, ${why}`);
   }
   return [...losses].map(([id, why]) => ({ id, why }));
 };

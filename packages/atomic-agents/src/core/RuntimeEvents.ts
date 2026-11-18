@@ -105,6 +105,14 @@ export type Change = typeof Change.Type;
 const Patch = Schema.Record(Schema.String, Schema.Json);
 const ConfigKind = Schema.Literals(["spec", "code"]);
 
+/**
+ * What a consumer did with a run's answer: `used` (it reached Isaac: a widget shown, a draft sent), `skipped` (an answer
+ * came and the consumer did not use it: shadow mode, overridden), `none` (the agent answered that there is nothing to
+ * use), `timeout` (no answer within the consumer's wait).
+ */
+export const Outcome = Schema.Literals(["used", "skipped", "none", "timeout"]);
+export type Outcome = typeof Outcome.Type;
+
 export const events = {
   /** Request: apply `patch` (JSON merge patch, RFC 7396: `null` removes a key) to config.json. The service applies it. */
   "config.set": Schema.Struct({ by: Schema.NonEmptyString, patch: Patch }),
@@ -151,6 +159,20 @@ export const events = {
     requestId: Schema.String,
     agent: Schema.String,
     error: Schema.String,
+  }),
+  /**
+   * A consumer reports what it did with the answer to its request (`requestId`: the id it sent, which the run carries as
+   * `agent.request`). The service records it as an `outcome.reported` span on that run's trace (`Outcomes.ts`).
+   */
+  "outcome.reported": Schema.Struct({
+    requestId: Schema.NonEmptyString,
+    /** Who used it, e.g. `relay.widgets`. */
+    consumer: Schema.NonEmptyString,
+    outcome: Outcome,
+    /** From the consumer's request to its decision. */
+    latencyMs: Schema.optionalKey(Schema.Number.check(Schema.isGreaterThanOrEqualTo(0))),
+    /** One line of context, e.g. the consumer's mode. */
+    detail: Schema.optionalKey(Schema.String),
   }),
 };
 

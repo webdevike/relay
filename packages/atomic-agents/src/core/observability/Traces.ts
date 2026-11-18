@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Option, Path, Schema } from "effect";
+import { Clock, Effect, FileSystem, Option, Path, Schema } from "effect";
 import { SPAN } from "./Spans.ts";
 
 /**
@@ -132,12 +132,56 @@ export interface SpanNode {
 
 export interface Trace {
   readonly traceId: string;
-  /** The `agent.run` span; while the run is still going (or its root was pruned), a stand-in over the spans that ended. */
+  /**
+   * The root span: an `agent.run`, a `schedule.missed` or a `roster.check`. While a run is still going (or its root
+   * was pruned), a stand-in `agent.run` over the spans that ended.
+   */
   readonly root: SpanNode;
   readonly open: boolean;
   readonly spans: number;
   readonly errors: number;
+  /** Set by `query` on a run a consumer asked for (`outcomeOf`). */
+  readonly outcome?: TraceOutcome;
 }
+
+/**
+ * How long after a requested run ends its consumer has to report an outcome (`outcome.reported`) before the run counts
+ * as `unknown`. Relay's widget pass waits 35 s at most; a slower consumer is still well inside it.
+ */
+export const OUTCOME_WINDOW_MS = 10 * 60_000;
+
+/** What a consumer did with a run's answer: a reported outcome, or `pending` / `unknown` (none reported yet / in time). */
+export interface TraceOutcome {
+  readonly value: "used" | "skipped" | "none" | "timeout" | "pending" | "unknown";
+  readonly consumer?: string;
+  readonly latencyMs?: number;
+}
+
+/**
+ * The outcome of a run a consumer asked for (it carries `agent.request`): the newest `outcome.reported` under it, else
+ * `pending` until `OUTCOME_WINDOW_MS` after the run ended and `unknown` after. Undefined for any other trace.
+ */
+export const outcomeOf = (trace: Trace, now: number): TraceOutcome | undefined => {
+  const { root } = trace;
+  if (root.name !== SPAN.run || root.attributes["agent.request"] === undefined) return undefined;
+  const reported = root.children.filter((child) => child.name === SPAN.outcome).at(-1);
+  if (reported === undefined)
+    return { value: now - (root.start + root.ms) > OUTCOME_WINDOW_MS ? "unknown" : "pending" };
+  const { attributes } = reported;
+  const value = attributes["outcome.value"];
+  return {
+    value:
+      value === "used" || value === "skipped" || value === "none" || value === "timeout"
+        ? value
+        : "unknown",
+    ...(typeof attributes["outcome.consumer"] === "string"
+      ? { consumer: attributes["outcome.consumer"] }
+      : {}),
+    ...(typeof attributes["outcome.latency_ms"] === "number"
+      ? { latencyMs: attributes["outcome.latency_ms"] }
+      : {}),
+  };
+};
 
 const attributesOf = (values: typeof KeyValues.Type) =>
   Object.fromEntries(
@@ -222,8 +266,11 @@ export const buildTraces = (spans: ReadonlyArray<Flat>): ReadonlyArray<Trace> =>
         children: (children.get(span.spanId) ?? []).sort((a, b) => a.start - b.start).map(tree),
       };
     };
-    const tops = (children.get(undefined) ?? []).sort((a, b) => a.start - b.start).map(tree);
-    const closed = tops.length === 1 && tops[0]!.name === SPAN.run ? tops[0] : undefined;
+    const topSpans = (children.get(undefined) ?? []).sort((a, b) => a.start - b.start);
+    const tops = topSpans.map(tree);
+    // One top with no parent is the root itself; tops whose parent is not on disk (yet) are an open run's spans.
+    const closed =
+      topSpans.length === 1 && topSpans[0]!.parentSpanId === undefined ? tops[0] : undefined;
     const start = Math.min(...flat.map((span) => span.start));
     const end = Math.max(...flat.map((span) => span.start + span.ms));
     // Every span of a run carries agent.id, agent.run and agent.tier, so a stand-in root still says whose it is.
@@ -290,7 +337,7 @@ export const parseSince = (value: string) => {
   return Number(match[1]) * { m: 60_000, h: HOUR, d: 24 * HOUR }[match[2] as "m" | "h" | "d"];
 };
 
-/** Traces in `<root>/traces` that started since `query.since`, filtered and ordered by `query`. */
+/** Traces in `<root>/traces` that started since `query.since`, filtered and ordered by `query`, each run with its outcome. */
 export const query = (root: string, query: TraceQuery) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -304,7 +351,11 @@ export const query = (root: string, query: TraceQuery) =>
     const texts = yield* Effect.forEach(names, (name) =>
       fs.readFileString(path.join(dir, name)).pipe(Effect.orElseSucceed(() => "")),
     );
-    return select(buildTraces(texts.flatMap(parseLines)), query);
+    const now = yield* Clock.currentTimeMillis;
+    return select(buildTraces(texts.flatMap(parseLines)), query).map((trace): Trace => {
+      const outcome = outcomeOf(trace, now);
+      return outcome === undefined ? trace : { ...trace, outcome };
+    });
   });
 
 const duration = (ms: number) => (ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`);
@@ -324,6 +375,12 @@ const LABEL: ReadonlyArray<readonly [string, (value: Attribute) => string]> = [
   ["check.attempt", (value) => `attempt ${value}`],
   ["check.pass", (value) => (value === true ? "pass" : "fail")],
   ["event.type", String],
+  ["outcome.value", String],
+  ["outcome.consumer", (value) => `by ${value}`],
+  ["outcome.latency_ms", (value) => `after ${duration(Number(value))}`],
+  ["outcome.detail", (value) => `(${value})`],
+  ["roster.agent", String],
+  ["roster.why", String],
   ["tokens.input", (value) => `in ${value}`],
   ["tokens.output", (value) => `out ${value}`],
   ["tokens.cached", (value) => (value === 0 ? "" : `cached ${value}`)],
@@ -338,6 +395,16 @@ const ROOT_LABEL: ReadonlyArray<readonly [string, (value: Attribute) => string]>
   ["agent.tier", (value) => `tier ${value}`],
   ["agent.trial", (value) => `trial ${value}`],
   ["agent.queued_ms", (value) => (Number(value) < 1000 ? "" : `queued ${duration(Number(value))}`)],
+  ["schedule.count", (value) => `${value} tick(s) missed`],
+  ["schedule.reason", (value) => `(${value})`],
+  ["schedule.cron", (value) => `cron "${value}"`],
+  [
+    "schedule.lag_ms",
+    (value) => (Number(value) < 60_000 ? "" : `${duration(Number(value))} after its tick`),
+  ],
+  ["schedule.detail", String],
+  ["roster.loaded", (value) => `${value} agents loaded`],
+  ["roster.missing", (value) => (value === "" ? "none missing" : `missing: ${value}`)],
 ];
 
 const labelOf = (
@@ -361,8 +428,18 @@ export const render = (trace: Trace): string => {
     .filter((part) => part !== undefined)
     .join("/");
   const status = trace.open ? " (open)" : root.error === undefined ? " ok" : "";
+  const outcome =
+    trace.outcome === undefined
+      ? ""
+      : `  outcome: ${[
+          trace.outcome.value,
+          trace.outcome.consumer === undefined ? "" : `by ${trace.outcome.consumer}`,
+          trace.outcome.latencyMs === undefined ? "" : `after ${duration(trace.outcome.latencyMs)}`,
+        ]
+          .filter((part) => part !== "")
+          .join(" ")}`;
   const lines = [
-    `${new Date(root.start).toISOString().replace("T", " ").slice(0, 19)}  ${SPAN.run} ${who} ${labelOf(root.attributes, ROOT_LABEL)}  ${duration(root.ms)}${status}${statusOf(root)}`,
+    `${new Date(root.start).toISOString().replace("T", " ").slice(0, 19)}  ${root.name}${who === "" ? "" : ` ${who}`} ${labelOf(root.attributes, ROOT_LABEL)}  ${duration(root.ms)}${status}${statusOf(root)}${outcome}`,
   ];
   const walk = (nodes: ReadonlyArray<SpanNode>, prefix: string) =>
     nodes.forEach((node, index) => {
