@@ -227,26 +227,44 @@ describe("missed ticks", () => {
           ["cron", 4],
         ]);
 
-        // health over that hour: 4 ticks expected (+1..+4 min), 2 ran, 2 missed busy (the hang ran its tick), 9 down before.
-        const health = Health.summarize({
-          traces,
-          since: T0 - 3_600_000,
-          now: T0 + 5 * 60_000,
-          agents: [{ id: "probe", enabled: true, crons: [{ job: "slow", cron: "* * * * *" }] }],
-          counted: [],
-        });
-        expect(health.agents[0]!.crons).toEqual([
+        // health over the hour to +5 min, the service's first roster check before it: ticks -59..+4 are expected (64);
+        // +1 and +4 ran; 9 were down and 2 busy (the hang ran its tick); the 51 before the saved one are unaccounted.
+        const rosterCheck: Traces.Trace = {
+          traceId: "roster",
+          root: {
+            name: "roster.check",
+            spanId: "r",
+            start: T0 - 2 * 3_600_000,
+            ms: 0,
+            attributes: { "roster.loaded": 1 },
+            logs: [],
+            children: [],
+          },
+          open: false,
+          spans: 1,
+          errors: 0,
+        };
+        const summary = (all: ReadonlyArray<Traces.Trace>) =>
+          Health.summarize({
+            traces: all,
+            since: T0 - 3_600_000,
+            now: T0 + 5 * 60_000,
+            agents: [{ id: "probe", enabled: true, crons: [{ job: "slow", cron: "* * * * *" }] }],
+            counted: [],
+          }).agents[0]!.crons;
+        expect(summary([...traces, rosterCheck])).toEqual([
           {
             job: "slow",
             cron: "* * * * *",
-            // No roster check yet: ticks count from now, so none are expected.
-            expected: 0,
+            expected: 64,
             ran: 2,
             missed: 11,
             reasons: { down: 9, hung: 1, busy: 2 },
-            unaccounted: 0,
+            unaccounted: 51,
           },
         ]);
+        // No roster check yet (no service with the scheduler has run): nothing is counted.
+        expect(summary(traces)).toMatchObject([{ expected: 0, ran: 0, missed: 0, unaccounted: 0 }]);
       }).pipe(
         Effect.scoped,
         Effect.provide(TestClock.layer()),

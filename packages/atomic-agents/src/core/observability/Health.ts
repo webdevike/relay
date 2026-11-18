@@ -129,6 +129,8 @@ export const summarize = (input: {
     const scheduled = input.agents.find((agent) => agent.id === id);
     const outcomes: Partial<Record<Traces.TraceOutcome["value"], number>> = {};
     for (const trace of own) if (trace.outcome !== undefined) bump(outcomes, trace.outcome.value);
+    // Expected, ran and missed all count the ticks in (ticksFrom, now - GRACE_MS]; a tick younger than that may still start.
+    const inRange = (at: unknown) => Number(at) > ticksFrom && Number(at) <= now - GRACE_MS;
     const crons = (scheduled?.enabled === true ? scheduled.crons : []).map(({ job, cron }) => {
       const parsed = Cron.parse(cron);
       const expected = Result.isSuccess(parsed)
@@ -136,11 +138,17 @@ export const summarize = (input: {
         : 0;
       const ran = own.filter(
         ({ root }) =>
-          root.attributes["run.trigger"] === "cron" && root.attributes["agent.job"] === job,
+          root.attributes["run.trigger"] === "cron" &&
+          root.attributes["agent.job"] === job &&
+          inRange(root.attributes["schedule.expected"]),
       ).length;
       const reasons: Partial<Record<MissedReason, number>> = {};
       for (const { root } of missedTicks)
-        if (root.attributes["agent.id"] === id && root.attributes["agent.job"] === job)
+        if (
+          root.attributes["agent.id"] === id &&
+          root.attributes["agent.job"] === job &&
+          inRange(root.attributes["schedule.expected"])
+        )
           bump(
             reasons,
             String(root.attributes["schedule.reason"]) as MissedReason,

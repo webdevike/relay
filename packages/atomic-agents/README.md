@@ -69,9 +69,7 @@ Every span of a run also carries `agent.id`, `agent.run` and `agent.tier`, so a 
 
 ```
 2026-11-18 10:00:00  schedule.missed probe/slow 9 tick(s) missed (down) cron "* * * * *" no service had it armed (last tick handled 2026-11-18T09:50:00.000Z)  0ms ok
-2026-11-18 10:02:30  schedule.missed probe/slow 1 tick(s) missed (hung) cron "* * * * *" no end 30 min after the tick (still running, or queued behind another run of probe)  0ms ok
-2026-11-18 15:54:20  roster.check 18 agents loaded missing: ecard-main-watch  0ms ok
-└─ roster.missing ecard-main-watch config.json mode live, not loaded: no agent file with this id in the agent dirs  0ms
+2026-11-18 15:58:55  roster.check 18 agents loaded none missing  0ms ok
 ```
 
 **Health.** One summary per agent over a window, from the trace files and `config.json` (`src/core/observability/Health.ts`):
