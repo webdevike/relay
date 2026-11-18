@@ -147,7 +147,7 @@ test('the router decision shows under each of Isaac messages, with whether the t
       alternatives: [
         { agent: 'web-researcher', p: 0.857 },
         { agent: 'none', p: 0.09 },
-        { agent: 'anti-average', p: 0.03 },
+        { agent: 'diagram', p: 0.03 },
       ],
       suggestedRequest: { question: 'Best 2TB USB4 SSD under $200', depth: 'quick' },
     }),
@@ -250,7 +250,7 @@ test('the router decision shows under each of Isaac messages, with whether the t
   await rows.nth(0).click()
   const details = shell.locator('[data-testid=router-details]')
   await expect(details).toBeVisible()
-  await expect(details).toContainText('web-researcher 0.86, none 0.09, anti-average 0.03')
+  await expect(details).toContainText('web-researcher 0.86, none 0.09, diagram 0.03')
   await expect(details).toContainText('"depth": "quick"')
   await expect(details).toContainText('shadow')
   await expect(details).toContainText('380 ms')
