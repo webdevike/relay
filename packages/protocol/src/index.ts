@@ -46,6 +46,7 @@ import { CanvasFilesClientFrames, CanvasFilesServerFrames } from "./canvas-files
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
 import { AgentRun } from "./agent-runs";
+import { RouterTurn } from "./specialist-router";
 import { StatsSnapshot } from "./stats";
 import { Trial, TrialPick, TrialSwitch } from "./trials";
 
@@ -823,6 +824,8 @@ export const AssistantMessage = z.object({
    * replied yet: a badge beside the reply and one caption line under it (`agentsCaption`). Older phones ignore it.
    */
   agents: z.array(AgentRun).max(12).optional().catch(undefined),
+  /** Isaac's row only (assistant threads): what Eva's specialist router decided for it and, once the turn ended, whether the assistant used it (`routerLine`). Older phones ignore it. */
+  router: RouterTurn.optional().catch(undefined),
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 
@@ -2573,3 +2576,4 @@ export * from "./signin";
 export * from "./room-card";
 export * from "./agent-runs";
 export * from "./trials";
+export * from "./specialist-router";

@@ -453,3 +453,52 @@ describe('omp timestamps (reaction keys)', () => {
     for (const m of parseSession(text).messages) expect('at' in m).toBe(false)
   })
 })
+
+describe('parseSession specialist router', () => {
+  const decision = {
+    v: 1,
+    kind: 'decision',
+    id: 'sr-1',
+    at: '2026-11-17T20:00:00.000Z',
+    assistant: 'nova',
+    mode: 'shadow',
+    agent: 'web-researcher',
+    confidence: 0.86,
+    why: 'wants sourced prices',
+    alternatives: [],
+    threshold: 0.7,
+    hinted: false,
+    latencyMs: 300,
+    prompt: 'x',
+  }
+  const router = (id: string, parentId: string, data: unknown): string =>
+    j({ type: 'custom', id, parentId, customType: 'eva.specialist-router', data })
+
+  it("puts the decision on the user row it judged and the turn's outcome once it is written", () => {
+    const head = [
+      router('d', 'root', decision),
+      j({ type: 'custom', id: 'r', parentId: 'd', customType: 'date-reminder', data: {} }),
+      msg('u', 'r', { role: 'user', content: 'prices?', timestamp: 5 }),
+      msg('a', 'u', { role: 'assistant', content: [{ type: 'text', text: 'Here.' }] }),
+    ]
+    const running = parseSession(head.join('\n')).messages
+    expect(running.map((m) => m.router?.decision.id)).toEqual(['sr-1', undefined])
+    expect(running[0]!.router!.outcome).toBeUndefined()
+    const ended = parseSession(
+      [
+        ...head,
+        router('o', 'a', { v: 1, kind: 'outcome', id: 'sr-1', at: 'x', used: true, usedAgents: ['web-researcher'] }),
+      ].join('\n'),
+    ).messages
+    expect(ended[0]!.router!.outcome!.used).toBe(true)
+    expect(ended).toHaveLength(2)
+  })
+
+  it('leaves rows alone without router entries or with junk ones', () => {
+    const text = [
+      router('d', 'root', { ...decision, v: 2 }),
+      msg('u', 'd', { role: 'user', content: 'hi' }),
+    ].join('\n')
+    expect(parseSession(text).messages[0]).not.toHaveProperty('router')
+  })
+})

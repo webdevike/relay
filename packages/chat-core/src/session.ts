@@ -1,4 +1,5 @@
 import { agentCallOf, agentRunOf, type AgentRun } from '@relay/protocol/agent-runs'
+import { routerByUserMessage } from '@relay/protocol/specialist-router'
 import { imageSize } from './image-size'
 import { canvasEntryOf } from './canvas-live'
 import { guestEntryOf } from './guest-entry'
@@ -330,6 +331,13 @@ export function parseSession(text: string): ParsedSession {
       messages.push(...messagesFrom(entry.message, str(entry.id) ?? ''))
     }
   }
+  // Eva's specialist router (assistant threads): its decision before a user message, and the turn's outcome, ride on that row.
+  const routed = routerByUserMessage(branch)
+  if (routed.size > 0)
+    for (const m of messages) {
+      const turn = m.role === 'user' ? routed.get(m.id) : undefined
+      if (turn) m.router = { decision: turn.decision, ...(turn.outcome ? { outcome: turn.outcome } : {}) }
+    }
 
   // A rename appends a title record, so the last one is the session's name now.
   const named = records.findLast((r) => r.type === 'title' && str(r.title))?.title

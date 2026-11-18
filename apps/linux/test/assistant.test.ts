@@ -1568,6 +1568,62 @@ describe("AssistantService earlier contexts", () => {
     ]);
   });
 
+  it("puts the specialist router's decision and outcome on Isaac's rows, from earlier and live transcripts", async () => {
+    const h = harness();
+    const decision = (id: string, agent: string) => ({
+      type: "custom",
+      customType: "eva.specialist-router",
+      data: {
+        v: 1,
+        kind: "decision",
+        id,
+        at: "2026-11-17T20:00:00.000Z",
+        assistant: "astra",
+        mode: "shadow",
+        agent,
+        confidence: 0.86,
+        why: "wants sourced prices",
+        alternatives: [],
+        threshold: 0.7,
+        hinted: false,
+        latencyMs: 300,
+        prompt: "x",
+      },
+    });
+    const outcome = (id: string) => ({
+      type: "custom",
+      customType: "eva.specialist-router",
+      data: { v: 1, kind: "outcome", id, at: "2026-11-17T20:01:00.000Z", used: true, usedAgents: ["web-researcher"] },
+    });
+    const user = (id: string, text: string, timestamp: number) => ({
+      type: "message",
+      id,
+      message: { role: "user", content: text, timestamp },
+    });
+    const old = join(h.home, "old.jsonl");
+    writeFileSync(
+      old,
+      [decision("sr-1", "web-researcher"), user("e1", "prices?", 10), outcome("sr-1")]
+        .map((entry) => `${JSON.stringify(entry)}\n`)
+        .join(""),
+    );
+    const live = join(h.home, "live.jsonl");
+    writeFileSync(live, `${JSON.stringify(decision("sr-2", "none"))}\n${JSON.stringify(user("e2", "thanks", 20))}\n`);
+    new FileAssistantStore(h.storePath).save({ sessionFile: live, history: [old] });
+    h.register("working", live);
+    h.agents.transcript = [{ id: "u2", role: "user", text: "thanks", at: 20 }];
+    const rows = (await h.service.snapshot()).messages;
+    expect(rows.map((row) => [row.text, row.router?.decision.agent, row.router?.outcome?.used])).toEqual([
+      ["prices?", "web-researcher", true],
+      ["thanks", "none", undefined],
+    ]);
+    // The turn ends: its outcome is appended to the live transcript and the next snapshot has it.
+    writeFileSync(live, `${JSON.stringify(outcome("sr-2"))}\n`, { flag: "a" });
+    const after = (await h.service.snapshot()).messages;
+    expect(after[1]?.router?.outcome?.usedAgents).toEqual(["web-researcher"]);
+    await h.service.retire();
+  });
+
   it("reads a store file without the history field as empty history", () => {
     const h = harness();
     writeFileSync(h.storePath, JSON.stringify({ sessionFile: "/sessions/eva.jsonl" }));

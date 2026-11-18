@@ -78,6 +78,8 @@ import { MessageImageStack } from "@/agents/MessageImageStack";
 import { bubbleSegments, topLevelImages } from "@/agents/markdown";
 import { MessageText } from "@/agents/MessageText";
 import { SpecialistRunSheet } from "@/agents/SpecialistRunSheet";
+import { RouterLine } from "@/agents/RouterLine";
+import { RouterSheet } from "@/agents/RouterSheet";
 import { specialistRuns } from "@/lib/specialistChips";
 import { BackgroundRow } from "@/agents/BackgroundRow";
 import { AskCard } from "@/agents/AskCard";
@@ -354,6 +356,8 @@ function Thread({ agent }: { agent: string }) {
   const [artifactsOpen, setArtifactsOpen] = useState(false);
   // The specialist chip opened (its `agentRunKey`), shown in `SpecialistRunSheet`.
   const [openRun, setOpenRun] = useState<string | null>(null);
+  // The router line opened (its row's message id), shown in `RouterSheet`.
+  const [openRouter, setOpenRouter] = useState<string | null>(null);
   // The Artifacts tab the sheet opens on: the Working group when a running chip that is not a session was tapped.
   const [artifactsTab, setArtifactsTab] = useState<string | null>(null);
   const [asksOpen, setAsksOpen] = useState(false);
@@ -672,6 +676,14 @@ function Thread({ agent }: { agent: string }) {
           ).find((run) => agentRunKey(run) === openRun) ?? null),
     [snapshot, openRun],
   );
+  // The opened router line's decision as it stands now (its outcome lands when the turn ends).
+  const openedRouter = useMemo(
+    () =>
+      openRouter === null
+        ? null
+        : ((snapshot?.messages ?? []).find((message) => message.id === openRouter)?.router ?? null),
+    [snapshot, openRouter],
+  );
   const newestSettled = settled[settled.length - 1];
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending.length > 0) : null;
@@ -933,6 +945,9 @@ function Thread({ agent }: { agent: string }) {
   const onOpenImages = useCallback((uris: string[], start: number) => {
     setViewing({ uris, start });
   }, []);
+  const onRouter = useCallback((messageId: string) => {
+    setOpenRouter(messageId);
+  }, []);
   const onEcho = useCallback(
     (messageId: string, action: "retry" | "dismiss") => {
       const clientId = messageId.slice(PENDING_ID.length);
@@ -1053,6 +1068,7 @@ function Thread({ agent }: { agent: string }) {
                               onOpenImages={onOpenImages}
                               onSignIn={openSignIn}
                               onEcho={echo?.state === "unconfirmed" ? onEcho : null}
+                              onRouter={onRouter}
                             />
                           </LocalRowFrame>
                         )}
@@ -1260,6 +1276,12 @@ function Thread({ agent }: { agent: string }) {
             setOpenRun(null);
           }}
         />
+        <RouterSheet
+          turn={openedRouter}
+          onClose={() => {
+            setOpenRouter(null);
+          }}
+        />
         <OpenAsksSheet
           open={asksOpen}
           asks={shownAsks}
@@ -1392,6 +1414,8 @@ interface RowProps {
   pulse: number;
   /** The echo's ack is overdue: Try again or take it away. Null for every other row. */
   onEcho: ((messageId: string, action: "retry" | "dismiss") => void) | null;
+  /** The router line under Isaac's bubble was tapped: open its decision. */
+  onRouter: (messageId: string) => void;
 }
 
 /**
@@ -1466,6 +1490,7 @@ function RowView({
   waiting,
   pulse,
   onEcho,
+  onRouter,
 }: RowProps) {
   const signedIn = useAssistantStore(
     (state) => threadOf(state, agent).signedIn[message.id] === true,
@@ -1537,6 +1562,7 @@ function RowView({
               </View>
             </ChatBubble>
           )}
+          <RouterLine message={message} onOpen={onRouter} />
           {receipt !== null && onEcho === null && (
             <Text variant="label" color="textMuted" style={styles.receipt}>
               {receipt}

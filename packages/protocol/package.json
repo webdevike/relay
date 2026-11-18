@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./text-diff": "./src/text-diff.ts",
     "./agent-runs": "./src/agent-runs.ts",
+    "./specialist-router": "./src/specialist-router.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "scripts": {

@@ -71,6 +71,7 @@ import { type AssistantAgentConfig, RegistryError } from "./registry";
 import { CONSULT_TURN, type ConsultDeps, Consults } from "./consult";
 import { splitReplies } from "./replies";
 import { type FillSpawn, runFill } from "./signin";
+import { RouterLog, withRouter } from "./router-log";
 import { type SpecialistRunBook, settleAssistantMessages } from "./specialist-runs";
 import type { AssistantStore } from "./store";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
@@ -417,6 +418,8 @@ export class AssistantService implements AssistantThread {
   private finished: string | null = null;
   /** Stops listening to the service's runs (`retire`). */
   private stopRuns: (() => void) | undefined;
+  /** The specialist router's decisions in the thread's transcripts, put on Isaac's rows (`router-log.ts`). */
+  private readonly router = new RouterLog();
 
   constructor(private readonly deps: AssistantServiceDeps) {
     this.id = deps.agent.id;
@@ -469,6 +472,7 @@ export class AssistantService implements AssistantThread {
   async retire(): Promise<void> {
     this.stopRuns?.();
     this.stopRuns = undefined;
+    this.router.stop();
     const session = this.current();
     if (session === undefined) return;
     this.deps.log(`assistant ${this.id}: retired; closing session ${session.id}`);
@@ -487,18 +491,23 @@ export class AssistantService implements AssistantThread {
     const session = this.current();
     const rev = this.rev;
     const asking = new Map<string, string | undefined>();
-    const earlier = this.earlier(
-      session === undefined ? null : this.deps.sessionFile(session.id),
-      asking,
-    );
+    const liveFile = session === undefined ? null : this.deps.sessionFile(session.id);
+    const earlier = this.earlier(liveFile, asking);
+    // The router's entries never reach the bridge: read from the live transcript, which is polled for the outcome a turn ends with.
+    this.router.follow(liveFile, () => {
+      this.changed();
+    });
     const live =
       session === undefined
         ? []
-        : toAssistantMessages(
-            (await this.deps.agents.conversation(session.id)) ?? [],
-            this.prime(),
-            this.prefix,
-            asking,
+        : withRouter(
+            toAssistantMessages(
+              (await this.deps.agents.conversation(session.id)) ?? [],
+              this.prime(),
+              this.prefix,
+              asking,
+            ),
+            liveFile === null ? new Map() : this.router.turns(liveFile),
           );
     // One work card per piece of work: its latest state, where it started.
     const messages = this.markSubmitted(foldGuestWork([...earlier, ...live]));
@@ -878,6 +887,7 @@ export class AssistantService implements AssistantThread {
       files.push(record.sessionFile);
     for (const cached of [...this.transcripts.keys()])
       if (!files.includes(cached)) this.transcripts.delete(cached);
+    this.router.keep(live === null ? files : [...files, live]);
     return files.flatMap((file) => {
       const transcript = this.transcript(file);
       if (transcript === null) return [];
@@ -906,11 +916,14 @@ export class AssistantService implements AssistantThread {
     const stamp = basename(file, ".jsonl");
     let seq = 0;
     const asking = new Map<string, string | undefined>();
-    const messages = toAssistantMessages(
-      parseSessionRows(raw, null, () => `${stamp}-${++seq}`).map(agentMessageOf),
-      this.prime(),
-      this.prefix,
-      asking,
+    const messages = withRouter(
+      toAssistantMessages(
+        parseSessionRows(raw, null, () => `${stamp}-${++seq}`).map(agentMessageOf),
+        this.prime(),
+        this.prefix,
+        asking,
+      ),
+      this.router.turns(file),
     );
     const entry = { mtimeMs: stat.mtimeMs, size: stat.size, messages, asking };
     this.transcripts.set(file, entry);

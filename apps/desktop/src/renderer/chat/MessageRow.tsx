@@ -30,6 +30,7 @@ import { SignInCard } from './SignInCard'
 import { resolveAsk } from './asks/asks-store'
 import { useAssistants } from '../assistants/assistants-store'
 import { MentionText } from '../rooms/MentionText'
+import { RouterRow } from './RouterRow'
 import type { OpenAsk } from '@evaos/contract'
 
 /** Thumbnails for a message's images; Enter or click opens the viewer on that image. */
@@ -238,6 +239,7 @@ function MessageRowImpl({
             </>
           )}
         </BubbleActions>
+        {m.router ? <RouterRow turn={m.router} /> : null}
       </div>
     )
   } else if (m.role === 'assistant') {
