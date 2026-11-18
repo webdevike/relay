@@ -27,7 +27,8 @@ export const STATE_FILE = 'notifications-state.json'
 export const REPEAT_MS = 60_000
 /**
  * Relay's notification sound (Soundly SND86872, trimmed and normalized, Free plan). It ships in
- * Relay.app/Contents/Resources (electron-builder.yml extraResources), where macOS finds a named sound.
+ * Relay.app/Contents/Resources (electron-builder.yml extraResources) and sound.ts copies it to
+ * ~/Library/Sounds at startup, the only place macOS finds a notification's named sound.
  */
 export const RELAY_SOUND = 'relay-notification.aiff'
 

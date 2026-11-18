@@ -1,9 +1,12 @@
-import { Notification, powerMonitor } from 'electron'
+import * as os from 'node:os'
+import * as path from 'node:path'
+import { app, Notification, powerMonitor } from 'electron'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
 import { registerTestHook } from '../test-hooks'
-import { createNotifier, type Notifier, type NotifyPlatform } from './notifier'
+import { RELAY_SOUND, createNotifier, type Notifier, type NotifyPlatform } from './notifier'
 import type { ClickTarget } from './policy'
+import { installRelaySound } from './sound'
 
 export type { Notifier } from './notifier'
 
@@ -21,12 +24,33 @@ export interface StubNotification {
 function electronPlatform(ctx: MainContext): NotifyPlatform {
   // Held until closed or clicked: a collected Notification loses its click handler on macOS.
   const shown = new Set<Notification>()
+  // Fixture sessions (dev, e2e) never notify, unless a run asks for real ones.
+  const supported = (): boolean =>
+    (ctx.env.live || process.env.EVAOS_NOTIFY_REAL === '1') && Notification.isSupported()
+  // macOS plays a named sound only from a Sounds folder, so Relay's own is copied to ~/Library/Sounds
+  // now, ahead of the first notification (a copy made at that moment is not found yet).
+  const soundReady =
+    supported() && process.platform === 'darwin'
+      ? ['installed', 'current'].includes(
+          installRelaySound({
+            source: app.isPackaged
+              ? path.join(process.resourcesPath, RELAY_SOUND)
+              : path.join(app.getAppPath(), 'resources/sounds', RELAY_SOUND),
+            soundsDir: path.join(os.homedir(), 'Library/Sounds'),
+            name: RELAY_SOUND,
+          }),
+        )
+      : false
   return {
-    // Fixture sessions (dev, e2e) never notify, unless a run asks for real ones.
-    supported: () =>
-      (ctx.env.live || process.env.EVAOS_NOTIFY_REAL === '1') && Notification.isSupported(),
+    supported,
     show({ groupId, title, body, silent, sound, onClick }) {
-      const n = new Notification({ title, body, silent, groupId, ...(sound ? { sound } : {}) })
+      const n = new Notification({
+        title,
+        body,
+        silent,
+        groupId,
+        ...(sound && soundReady ? { sound } : {}),
+      })
       shown.add(n)
       n.on('click', () => {
         shown.delete(n)

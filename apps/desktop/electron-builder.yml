@@ -10,8 +10,8 @@ files:
   - '!resources/RelayHost/**'
 # The setup wizard's shell scripts run with bash, so they ship as real files: Relay.app/Contents/Resources/setup.
 # RelayHost is a prebuilt, already signed "Relay Host.app" copied in by scripts/package-onboarding.sh.
-# resources/sounds/relay-notification.aiff sits at the top of Contents/Resources, where macOS finds a
-# notification's named sound (main/notifications/notifier.ts RELAY_SOUND).
+# resources/sounds/relay-notification.aiff sits at the top of Contents/Resources; main/notifications/sound.ts
+# copies it to ~/Library/Sounds at startup (macOS plays a notification's named sound from there only).
 extraResources:
   - from: resources/sounds/relay-notification.aiff
     to: relay-notification.aiff
