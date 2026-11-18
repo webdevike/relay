@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { LiveRoot, type RenderReport, type SourceFeed } from "../src/runtime/index";
+import { PageStream, type RevealReport } from "../src/runtime/stream";
 import { defaultConfig } from "../src/theme";
 
 beforeAll(() => {
@@ -31,7 +32,7 @@ async function live(source: string) {
   const element = document.createElement("div");
   document.body.append(element);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
-  let apply: ((source: string, rev: number) => void) | null = null;
+  let apply: ((source: string, rev: number, animate?: boolean) => void) | null = null;
   const feed: SourceFeed = {
     listen(fn) {
       apply = fn;
@@ -41,6 +42,7 @@ async function live(source: string) {
     },
   };
   const reports: RenderReport[] = [];
+  const reveals: (RevealReport & { rev: number })[] = [];
   await act(() => {
     createRoot(element).render(
       <LiveRoot
@@ -50,17 +52,19 @@ async function live(source: string) {
         system="mantine"
         feed={feed}
         report={(r) => reports.push(r)}
+        stream={new PageStream(element)}
+        revealed={(rev, r) => reveals.push({ rev, ...r })}
       />,
     );
     return Promise.resolve();
   });
-  const push = async (code: string, rev: number) => {
+  const push = async (code: string, rev: number, animate = false) => {
     await act(() => {
-      apply?.(code, rev);
+      apply?.(code, rev, animate);
       return Promise.resolve();
     });
   };
-  return { element, reports, push };
+  return { element, reports, reveals, push };
 }
 
 describe("LiveRoot", () => {
@@ -91,6 +95,16 @@ describe("LiveRoot", () => {
     await page.push("throw new Error('boom');", 1);
     expect(page.element.textContent).toContain("Good");
     expect(page.reports.at(-1)).toEqual({ rev: 1, ok: false, error: "boom" });
+  });
+
+  it("streams in only what a drawn revision added, never a broken one", async () => {
+    const page = await live("<Stack><Title>Assistants</Title></Stack>");
+    expect(page.reveals.map((r) => r.rev)).toEqual([0]);
+    await page.push("<Stack><Title>Assistants</Title><Text>Who works for you</Text></Stack>", 1);
+    expect(page.reveals.at(-1)).toEqual({ rev: 1, units: 1, ms: 0 });
+    await page.push("throw new Error('boom');", 2);
+    await page.push("return <Stack>", 3);
+    expect(page.reveals).toHaveLength(2);
   });
 
   it("shows the error when no revision has drawn yet", async () => {

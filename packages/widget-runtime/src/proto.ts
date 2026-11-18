@@ -30,6 +30,8 @@ export interface ProtoFrameOptions {
    * clipped, not scrolled, and the page reports its content size (`content` frame messages).
    */
   live?: boolean | undefined;
+  /** A live page's first draw streams in (an agent just made the card; runtime/stream.ts). */
+  animate?: boolean | undefined;
   /** The assistant registry, so the `relay` kit's `agent="nova"` draws Nova's real portrait. */
   assistants?: Readonly<Record<string, ProtoAssistant>> | undefined;
 }
@@ -57,7 +59,7 @@ const LIVE_STYLE = `html, body { overflow: hidden; }`;
 /** The full document for a prototype: `source` drawn by the bundled runtime in `system`, after its CSS and fonts. */
 export function protoFrameDocument(
   source: string,
-  { system, dark, relayConfig, live, assistants }: ProtoFrameOptions,
+  { system, dark, relayConfig, live, animate, assistants }: ProtoFrameOptions,
 ): string {
   const scheme = dark ? "dark" : "light";
   const mount = {
@@ -66,7 +68,7 @@ export function protoFrameDocument(
     colorScheme: scheme,
     system,
     ...(system === "relay" && relayConfig !== undefined ? { systemConfig: relayConfig } : {}),
-    ...(live === true ? { live: true } : {}),
+    ...(live === true ? { live: true, animate: animate === true } : {}),
     ...(system === "relay" && assistants !== undefined ? { assistants } : {}),
   };
   return `<!doctype html>

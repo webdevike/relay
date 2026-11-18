@@ -52,6 +52,8 @@ const SERIAL_SPECS = [
   '**/canvas-design.spec.ts',
   // Measures real surfaces by resizing the window and compares frames pixel for pixel.
   '**/canvas-frames.spec.ts',
+  // Catches each streamed reveal while it runs (under a second) by polling every 20 ms.
+  '**/canvas-stream.spec.ts',
 ]
 
 // packaged.spec.ts launches the built .app: opt in with EVAOS_PACKAGED=1, never in the project runs.

@@ -974,11 +974,12 @@
 }
 
 /*
- * Generation states (agent/card-gen.machine.ts), after pen.dev: while an agent makes a component
- * card or a frame, its label says so in the accent and the frame takes an accent border and a soft
- * light that drifts slowly. The light is one oversized layer moved by transform only (composited,
- * no layout or paint per frame) and holds still when motion is off or reduced. Done: the label
- * goes plain and the light fades out. Error: the label and border in the danger color.
+ * Generation states (agent/card-gen.machine.ts), after pen.dev: while content streams into a
+ * component card or a frame an agent makes (and while it is created), its label says so in the
+ * accent and the frame takes an accent border and a soft light that drifts slowly. The light is
+ * one oversized layer moved by transform only (composited, no layout or paint per frame). Between
+ * edits (settled) the label goes back to the title and the light fades out and stops. Error: the
+ * label and border in the danger color. Motion off or reduced: the label only, no light, no border.
  */
 .eva-cv-gen-label {
   display: inline-flex;
@@ -990,7 +991,7 @@
   font-weight: var(--eva-fw-medium);
 }
 .eva-cv-gen-label[data-gen='creating'],
-.eva-cv-gen-label[data-gen='generating'] {
+.eva-cv-gen-label[data-gen='streaming'] {
   color: var(--eva-c-accent);
 }
 .eva-cv-gen-label[data-gen='error'] {
@@ -1009,7 +1010,7 @@
   transition: border-color var(--eva-dur-fast, 120ms) ease;
 }
 .eva-cv-proto-body[data-gen='creating'],
-.eva-cv-proto-body[data-gen='generating'] {
+.eva-cv-proto-body[data-gen='streaming'] {
   border-color: var(--eva-c-accent);
 }
 .eva-cv-proto-body[data-gen='error'] {
@@ -1029,8 +1030,8 @@
   overflow: hidden;
   border-radius: inherit;
   pointer-events: none;
-  animation: eva-cv-gen-in 400ms ease-out;
-  transition: opacity 1200ms ease;
+  animation: eva-cv-gen-in 300ms ease-out;
+  transition: opacity 500ms ease;
 }
 /* A frame card is the frame: the light draws its accent border over the card's own. */
 .eva-cv-card[data-kind='frame'] > .eva-cv-gen-glow {
@@ -1056,8 +1057,12 @@
   animation: eva-cv-gen-drift 7s ease-in-out infinite alternate;
   will-change: transform;
 }
-.eva-cv-gen-glow[data-gen='done'] {
+/* Between edits the light fades out and holds still until the next reveal. */
+.eva-cv-gen-glow[data-gen='settled'] {
   opacity: 0;
+}
+.eva-cv-gen-glow[data-gen='settled']::before {
+  animation-play-state: paused;
 }
 @keyframes eva-cv-gen-in {
   from {
@@ -1072,14 +1077,27 @@
     transform: translate3d(14%, 8%, 0) rotate(4deg);
   }
 }
+/* No motion: the label alone says content is arriving (the creating spinner stays). */
 [data-eva-motion='off'] .eva-cv-gen-glow,
 [data-eva-motion='off'] .eva-cv-gen-glow::before {
   animation: none;
+}
+[data-eva-motion='off'] .eva-cv-gen-glow:not([data-gen='creating']) {
+  display: none;
+}
+[data-eva-motion='off'] .eva-cv-proto-body[data-gen='streaming'] {
+  border-color: var(--eva-c-border);
 }
 @media (prefers-reduced-motion: reduce) {
   .eva-cv-gen-glow,
   .eva-cv-gen-glow::before {
     animation: none;
+  }
+  .eva-cv-gen-glow:not([data-gen='creating']) {
+    display: none;
+  }
+  .eva-cv-proto-body[data-gen='streaming'] {
+    border-color: var(--eva-c-border);
   }
 }
 

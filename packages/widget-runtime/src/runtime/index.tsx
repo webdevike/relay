@@ -7,10 +7,12 @@
  * theme and components. A compile or render error shows a small Mantine Alert in place of the widget.
  *
  * A `live` page (a canvas component card on desktop) also takes new source from its host without
- * reloading (`{type: "source", source, rev}` posted by the parent window): each revision compiles
- * and renders in place, and one that does not compile or throws while rendering leaves the last
- * good render on screen. The page answers every revision with `{type: "render", rev, ok, error?}`
- * and reports its content's size (`{type: "content", w, h}`), which the card's frame clips.
+ * reloading (`{type: "source", source, rev, animate?}` posted by the parent window): each revision
+ * compiles and renders in place, and one that does not compile or throws while rendering leaves
+ * the last good render on screen. The page answers every revision with `{type: "render", rev, ok,
+ * error?}`, reports its content's size (`{type: "content", w, h}`), which the card's frame clips,
+ * and streams in what each revision added or changed (stream.ts; `animate` asks for the motion),
+ * answering `{type: "reveal", rev, units, ms}` when anything arrives.
  */
 import * as React from "react";
 import { Component, type ErrorInfo, type FunctionComponent, type ReactNode } from "react";
@@ -21,6 +23,7 @@ import { cssVariablesFor, themeOverrideFor, type ColorScheme, type ThemeConfig }
 import { compileWidget } from "./compile";
 import { widgetScope } from "./scope";
 import { setKitAssistants, type KitAssistant } from "./relay-kit";
+import { PageStream, type RevealReport } from "./stream";
 import { systemTheme } from "./systems";
 
 export interface MountOptions {
@@ -36,6 +39,8 @@ export interface MountOptions {
   systemConfig?: ThemeConfig | undefined;
   /** Take new source from the parent window and keep the last good render (see above). */
   live?: boolean | undefined;
+  /** A live page's first revision streams in (an agent is making the card, motion is on). */
+  animate?: boolean | undefined;
   /** The assistant registry for the `relay` kit's `agent` props (relay-kit.tsx). */
   assistants?: Readonly<Record<string, KitAssistant>> | undefined;
 }
@@ -165,22 +170,39 @@ function Committed({ onCommit }: { onCommit: () => void }) {
   return null;
 }
 
+/** Runs `onReveal` once revision `rev` is in the page, before it paints (stream.ts). */
+function Revealed({ rev, onReveal }: { rev: number; onReveal: (rev: number) => void }) {
+  React.useLayoutEffect(() => {
+    onReveal(rev);
+  }, [rev, onReveal]);
+  return null;
+}
+
 /** Where a live page hears new source: the host calls `push`; `listen` subscribes the root. */
 export interface SourceFeed {
-  listen(apply: (source: string, rev: number) => void): () => void;
+  listen(apply: (source: string, rev: number, animate?: boolean) => void): () => void;
 }
 
 /**
  * A live page's root. Each revision compiles; one that compiles renders in place of the shown one
  * and becomes the good one once it committed. A revision that does not compile, or throws while
  * rendering, is reported and the good one stays. With no good revision yet, the error shows.
+ * With a `stream`, what each drawn revision added or changed streams in (`revealed` hears it).
  */
 export function LiveRoot({
   source,
   feed,
   report,
+  stream,
+  revealed,
+  animate = false,
   ...theme
-}: Omit<MountOptions, "live"> & { feed: SourceFeed; report: (r: RenderReport) => void }) {
+}: Omit<MountOptions, "live"> & {
+  feed: SourceFeed;
+  report: (r: RenderReport) => void;
+  stream?: PageStream | undefined;
+  revealed?: ((rev: number, r: RevealReport) => void) | undefined;
+}) {
   const { system } = theme;
   const compile = React.useCallback(
     (code: string, rev: number): Revision | { rev: number; error: string } => {
@@ -210,10 +232,17 @@ export function LiveRoot({
     if (firstError.current !== null)
       reportRef.current({ rev: 0, ok: false, error: firstError.current });
   }, []);
+  // Whether the newest revision streams in with motion (the host says so with each revision).
+  const animateRef = React.useRef(animate);
+  const revealedRef = React.useRef(revealed);
+  revealedRef.current = revealed;
 
   React.useEffect(
     () =>
-      feed.listen((code, rev) => {
+      feed.listen((code, rev, motion) => {
+        animateRef.current = motion === true;
+        // The page on screen, before this revision replaces it: what the reveal diffs against.
+        stream?.mark();
         const r = compile(code, rev);
         if ("Widget" in r) {
           setView((v) => ({ ...v, next: r }));
@@ -222,7 +251,16 @@ export function LiveRoot({
           setView((v) => (v.good === null ? { good: null, next: null, error: r.error } : v));
         }
       }),
-    [feed, compile],
+    [feed, compile, stream],
+  );
+
+  const reveal = React.useCallback(
+    (rev: number) => {
+      if (stream === undefined) return;
+      const r = stream.reveal(animateRef.current);
+      if (r.units > 0) revealedRef.current?.(rev, r);
+    },
+    [stream],
   );
 
   const shown = view.next ?? view.good;
@@ -250,6 +288,7 @@ export function LiveRoot({
       ) : (
         <WidgetBoundary key={shown.rev} onError={shown === view.next ? failed : undefined}>
           <shown.Widget />
+          <Revealed rev={shown.rev} onReveal={reveal} />
           {shown === view.next ? <Committed onCommit={committed} /> : null}
         </WidgetBoundary>
       )}
@@ -278,7 +317,7 @@ function parentFeed(): SourceFeed {
         const m = value as Record<string, unknown>;
         if (m["type"] !== "source" || typeof m["source"] !== "string") return;
         if (typeof m["rev"] !== "number" || !Number.isInteger(m["rev"])) return;
-        apply(m["source"], m["rev"]);
+        apply(m["source"], m["rev"], m["animate"] === true);
       };
       window.addEventListener("message", onMessage);
       return () => {
@@ -318,6 +357,10 @@ if (typeof window !== "undefined") {
             feed={parentFeed()}
             report={(r) => {
               post({ type: "render", ...r });
+            }}
+            stream={new PageStream(element)}
+            revealed={(rev, r) => {
+              post({ type: "reveal", rev, ...r });
             }}
           />
         ) : (

@@ -7,8 +7,9 @@
  * is drawing, and a Pick button in a variant set. Content that does not fit says by how much. The
  * page boots once and takes every later edit of the code in place (proto-frame.machine.ts), so an
  * agent's edit redraws within a moment and a broken edit leaves the last good render on screen.
- * While an agent makes the card (agent/card-gen.machine.ts) the header says so and the frame
- * glows; its page's answers tell that machine when the content drew.
+ * While an agent makes the card (agent/card-gen.machine.ts) its page streams in what each edit
+ * added or changed (widget-runtime stream.ts, motion on) and the frame glows only while that
+ * runs; its page's answers tell that machine when content drew and streams.
  */
 import { Tooltip } from '@mantine/core'
 import { IconAlertTriangle, IconHandFinger, IconTemplate } from '@tabler/icons-react'
@@ -21,11 +22,12 @@ import { liveSourceMessage, parseFrameMessage } from '@relay/widget-runtime/fram
 import type { ProtoAssistant } from '@relay/widget-runtime/proto'
 import { frameOf } from '@relay/widget-runtime/systems'
 import { useAssistants } from '../../assistants/assistants-store'
+import { motionOff } from '../../assistants/motion-gate'
 import { protoFrameUrl } from '../../chat/widgets/frame-theme'
 import { themeStore, useColorScheme } from '../../theme/theme-config'
 import { sendCardGen, useCardGen } from '../agent/card-gen'
 import { useBoardActions } from '../context'
-import { GenGlow, GenLabel } from './CardGen'
+import { GenGlow, GenLabel, quietGen } from './CardGen'
 import { protoFrameMachine } from './proto-frame.machine'
 import { ProtoFramePicker } from './ProtoFramePicker'
 
@@ -68,6 +70,14 @@ export function ProtoCard({ id, spec }: { id: string; spec: CanvasNode }) {
     return out
   }, [system, agents])
 
+  // An agent making the card streams each edit in; nobody making it (a board opening, an undo)
+  // or no motion swaps at once.
+  const gen = useCardGen(slug, id)
+  const creating = gen === 'creating'
+  const animate = gen !== 'idle' && !motionOff()
+  const animateRef = useRef(animate)
+  animateRef.current = animate
+
   const page = useRef<HTMLIFrameElement>(null)
   const machine = useMemo(
     () =>
@@ -75,7 +85,7 @@ export function ProtoCard({ id, spec }: { id: string; spec: CanvasNode }) {
         actions: {
           post: ({ context }) =>
             page.current?.contentWindow?.postMessage(
-              liveSourceMessage(context.latest, context.rev),
+              liveSourceMessage(context.latest, context.rev, animateRef.current),
               '*',
             ),
         },
@@ -94,8 +104,6 @@ export function ProtoCard({ id, spec }: { id: string; spec: CanvasNode }) {
 
   // The page's answers tell the card's generation state its content drew (or did not); a card
   // the agent just added that already drew counts at once.
-  const gen = useCardGen(slug, id)
-  const creating = gen === 'creating'
   useEffect(() => {
     if (phase === 'live') sendCardGen(slug, id, { type: 'card.drawn' })
     else if (phase === 'error') sendCardGen(slug, id, { type: 'card.failed' })
@@ -114,6 +122,7 @@ export function ProtoCard({ id, spec }: { id: string; spec: CanvasNode }) {
   const [content, setContent] = useState<{ w: number; h: number } | null>(null)
   useEffect(() => setContent(null), [boot])
 
+  const parent = spec.parent
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (!page.current || event.source !== page.current.contentWindow) return
@@ -127,20 +136,27 @@ export function ProtoCard({ id, spec }: { id: string; spec: CanvasNode }) {
         })
       } else if (message?.type === 'content') {
         setContent({ w: Math.round(message.w), h: Math.round(message.h) })
+      } else if (message?.type === 'reveal') {
+        // Content streaming in: the card glows while it does, and so does the frame it sits in.
+        const event = { type: 'card.revealed', ms: message.ms } as const
+        sendCardGen(slug, id, event)
+        if (parent !== undefined) sendCardGen(slug, parent, event)
       }
     }
     window.addEventListener('message', onMessage)
     return () => window.removeEventListener('message', onMessage)
-  }, [actor])
+  }, [actor, slug, id, parent])
 
   // The page's URL changes only when it boots (`boot` bumps on every boot, with the look and
-  // code of that moment): later code goes to the running page as messages.
+  // code of that moment): later code goes to the running page as messages. A page booted for a
+  // card the agent is making streams its first draw in.
   const url = useMemo(
     () =>
       protoFrameUrl(bootSource, system, scheme, {
         config: themeConfig,
         assistants: registry,
         live: true,
+        animate: animateRef.current,
       }),
     [boot],
   )
@@ -155,15 +171,15 @@ export function ProtoCard({ id, spec }: { id: string; spec: CanvasNode }) {
           <span className="eva-cv-proto-label" data-testid={`canvas-proto-label-${id}`}>
             {label}
           </span>
-        ) : gen === 'idle' ? (
+        ) : quietGen(gen) ? (
           <IconTemplate size={12} stroke={1.75} aria-hidden />
         ) : null}
-        {gen === 'idle' ? (
+        {quietGen(gen) ? (
           <span className="eva-cv-proto-title">{title}</span>
         ) : (
           <GenLabel id={id} slug={slug} state={gen} title={title} />
         )}
-        {phase === 'drawing' && hasGood && gen === 'idle' ? (
+        {phase === 'drawing' && hasGood && quietGen(gen) ? (
           <span className="eva-cv-proto-meta" data-testid={`canvas-proto-drawing-${id}`}>
             Redrawing
           </span>

@@ -15,8 +15,14 @@ import {
   IconSparkles,
   IconTimeline,
 } from '@tabler/icons-react'
-import { Handle, NodeResizer, Position, type NodeProps } from '@xyflow/react'
-import { memo, useEffect, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
+import {
+  Handle,
+  NodeResizer,
+  Position,
+  useStore as useFlowStore,
+  type NodeProps,
+} from '@xyflow/react'
+import { memo, useEffect, useRef, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import type { CanvasNode } from '@evaos/contract'
 import { liveQuery } from '../../boards/live-query'
 import { OpenUIQuery } from '../../chat/widgets/actions'
@@ -25,7 +31,7 @@ import { openLink } from '../../navigation/open-link'
 import { sendCardGen, useCardGen } from '../agent/card-gen'
 import { useBoardActions } from '../context'
 import type { CardNode } from '../flow-model'
-import { GenGlow, GenLabel } from './CardGen'
+import { GenGlow, GenLabel, quietGen } from './CardGen'
 import { Markdown } from '../../chat/markdown/Markdown'
 import { useCanvasImage } from './canvas-image'
 import { MermaidBlock } from './MermaidBlock'
@@ -144,7 +150,8 @@ function Swatches({ spec }: { spec: CanvasNode }) {
 /**
  * A frame (or a lane): its title, a wireframe while it is empty, and while an agent makes it
  * (agent/card-gen.machine.ts) the generation label in place of the title and the frame's light.
- * Its first card arriving is its content drawing.
+ * Its first card arriving is its content drawing; a card landing in it (or one in it streaming,
+ * ProtoCard) is content streaming in.
  */
 function FrameBody({
   id,
@@ -161,10 +168,17 @@ function FrameBody({
   useEffect(() => {
     if (hasChildren) sendCardGen(slug, id, { type: 'card.drawn' })
   }, [slug, id, hasChildren, creating])
+  const kids = useFlowStore((s) => s.parentLookup.get(id)?.size ?? 0)
+  const kidsBefore = useRef(kids)
+  useEffect(() => {
+    if (kids > kidsBefore.current) sendCardGen(slug, id, { type: 'card.revealed', ms: 0 })
+    kidsBefore.current = kids
+  }, [slug, id, kids])
   const d = spec.data ?? {}
   const title = d.title ?? ''
-  const label =
-    gen === 'idle' ? null : <GenLabel id={id} slug={slug} state={gen} title={title || 'Frame'} />
+  const label = quietGen(gen) ? null : (
+    <GenLabel id={id} slug={slug} state={gen} title={title || 'Frame'} />
+  )
   const glow = <GenGlow state={gen} empty={!hasChildren} />
   if (d.variant === 'lane')
     return (

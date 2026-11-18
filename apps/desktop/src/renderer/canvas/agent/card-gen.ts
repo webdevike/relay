@@ -69,7 +69,7 @@ function watchRuns(): void {
 }
 
 const selectState = (s: SnapshotFrom<typeof cardGenMachine>): CardGenState =>
-  s.value as CardGenState
+  s.matches('streaming') ? 'streaming' : (s.value as Exclude<CardGenState, 'streaming'>)
 
 /** Card `id`'s generation state on board `slug`. */
 export function useCardGen(slug: string, id: string): CardGenState {

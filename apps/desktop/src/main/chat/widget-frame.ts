@@ -47,10 +47,10 @@ function page(html: string, csp: string): Response {
 /**
  * Answers `relay-widget://frame/html?source=&theme=`,
  * `relay-widget://frame/mantine?source=&theme=&config=[&fill=1]` and
- * `relay-widget://frame/proto?source=&system=&scheme=[&config=][&assistants=][&live=1]` with the
- * widget's page (a prototype's `config` is the app's theme for the `relay` system, `assistants`
- * the registry its kit draws real portraits from; `live` takes new source from the card without
- * reloading).
+ * `relay-widget://frame/proto?source=&system=&scheme=[&config=][&assistants=][&live=1][&animate=1]`
+ * with the widget's page (a prototype's `config` is the app's theme for the `relay` system,
+ * `assistants` the registry its kit draws real portraits from; `live` takes new source from the
+ * card without reloading, `animate` streams its first draw in).
  */
 export function handleFrameRequest(request: Request): Response {
   const url = new URL(request.url)
@@ -67,6 +67,7 @@ export function handleFrameRequest(request: Request): Response {
       ProtoAssistant
     > | null
     const live = url.searchParams.get('live') === '1'
+    const animate = url.searchParams.get('animate') === '1'
     return page(
       protoFrameDocument(source, {
         system,
@@ -74,6 +75,7 @@ export function handleFrameRequest(request: Request): Response {
         relayConfig: relayConfig ?? undefined,
         assistants: assistants ?? undefined,
         live,
+        animate,
       }),
       PROTO_FRAME_CSP,
     )

@@ -48,7 +48,10 @@ export type FrameMessage =
   /** A live page's answer for revision `rev` of its source: drawn, or why not (`error`). */
   | { type: "render"; rev: number; ok: boolean; error?: string }
   /** A live page's content size in CSS px (its frame clips it), sent whenever it changes. */
-  | { type: "content"; w: number; h: number };
+  | { type: "content"; w: number; h: number }
+  /** Revision `rev` drew and `units` elements of it are streaming in, the last one in `ms` from
+   * now (0 without motion). Sent only when something arrives. */
+  | { type: "reveal"; rev: number; units: number; ms: number };
 
 /** An assistant registry id (`relay.reply`'s `agent`). */
 const AGENT_ID = /^[a-z][a-z0-9-]{0,63}$/;
@@ -259,9 +262,11 @@ ${CHROME_STYLE}
 /**
  * What a host posts a live page (a canvas prototype on desktop, `protoFrameDocument` with `live`)
  * for revision `rev` of its source; the page answers with a `render` message for that `rev`.
+ * `animate`: what the revision adds or changes streams in with motion (an agent is making the
+ * card and motion is on); without it the page swaps at once.
  */
-export function liveSourceMessage(source: string, rev: number): string {
-  return JSON.stringify({ type: "source", source, rev });
+export function liveSourceMessage(source: string, rev: number, animate = false): string {
+  return JSON.stringify({ type: "source", source, rev, animate });
 }
 
 /** A message the page posted (a JSON string), or null for anything else. */
@@ -314,6 +319,20 @@ export function parseFrameMessage(data: unknown): FrameMessage | null {
       Number.isFinite(h) &&
       h >= 0
       ? { type: "content", w, h }
+      : null;
+  }
+  if (message["type"] === "reveal") {
+    const { rev, units, ms } = message;
+    return typeof rev === "number" &&
+      Number.isInteger(rev) &&
+      rev >= 0 &&
+      typeof units === "number" &&
+      Number.isInteger(units) &&
+      units > 0 &&
+      typeof ms === "number" &&
+      Number.isFinite(ms) &&
+      ms >= 0
+      ? { type: "reveal", rev, units, ms: Math.min(ms, 10_000) }
       : null;
   }
   return null;
