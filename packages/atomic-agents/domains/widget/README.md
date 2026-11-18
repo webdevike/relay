@@ -63,3 +63,4 @@ bun run typecheck
 - A `form` in the request forces a non-none answer in the prompt, using only the draft's facts.
 - `training.jsonl` entries labeled `other` and unreadable lines are skipped; the latest label per reply wins, and a reply carrying its own widget is benched on its prose with the fence removed.
 - The bench needs real model access (the omp model runner); the test file does not.
+- Relay Host asks only for replies its gate lets through (`apps/linux/src/widgets/gate.ts`; limits and the host's wait in config.json `components.widget.autoAsk`), and waits past this agent's 30 s timeout, so a slow answer is still shown and logged with its real `ms`.

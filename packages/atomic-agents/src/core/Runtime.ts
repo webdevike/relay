@@ -43,6 +43,7 @@ import {
   previewOf,
   requestLine,
   type TrialEvent,
+  trialAllowance,
   trialEvents,
 } from "./Trial.ts";
 
@@ -506,24 +507,40 @@ export class Runner extends Context.Service<
           .pipe(Effect.tap(reportRun(own.letter)));
       });
 
-      /** The agent's trial when this request starts one: trial on, and a caller to show the card to. */
+      /**
+       * The agent's trial when this request starts one: trial on, a caller to show the card to, and inside its bounds
+       * (`trialAllowance`: today's budget, not idle). Otherwise the request runs once on the agent's own model.
+       */
       const trialFor = (agentId: string, caller: string | undefined, input: unknown) =>
         Effect.gen(function* () {
           if (caller === undefined) return undefined;
           const agent = (yield* agents.current).find((candidate) => candidate.id === agentId);
           if (agent === undefined) return undefined;
           const resolved = effective(agent, yield* settings.current);
+          if (!resolved.enabled || !resolved.trial.on) return undefined;
+          const allowance = trialAllowance(
+            yield* bus.history,
+            agent.id,
+            resolved.trial,
+            yield* Clock.currentTimeMillis,
+          );
+          if (allowance.stop !== undefined) {
+            yield* Effect.logInfo(
+              allowance.stop === "idle"
+                ? `${agent.id}: trial idle (no pick in ${resolved.trial.idleDays} days), running once`
+                : `${agent.id}: trial budget used (${allowance.today} of ${allowance.perDay} today), running once`,
+            );
+            return undefined;
+          }
           const tier = resolved.tier(input);
-          return resolved.enabled && resolved.trial.on
-            ? {
-                agent,
-                caller,
-                trial: {
-                  arms: tier?.arms ?? resolved.trial.arms,
-                  model: tier?.model ?? resolved.agent.model,
-                },
-              }
-            : undefined;
+          return {
+            agent,
+            caller,
+            trial: {
+              arms: tier?.arms ?? resolved.trial.arms,
+              model: tier?.model ?? resolved.agent.model,
+            },
+          };
         });
       const runLogged = (component: string, job: string, input: unknown, options?: RunOptions) =>
         runner.run(component, job, input, options).pipe(

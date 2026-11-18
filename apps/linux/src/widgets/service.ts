@@ -1,17 +1,22 @@
 // Reply widgets and widget training (@relay/protocol REPLY_WIDGETS_FEATURE, WIDGET_TRAINING_FEATURE).
 //
 // After an assistant's final reply in its thread has gone out (`AssistantService` calls `reply` once
-// the turn ends, so the text reply never waits), the host asks the atomic-agents `widget` specialist
+// the turn ends, so the text reply never waits), the host may ask the atomic-agents `widget` specialist
 // (`widget/widget.requested` -> `widget/widget.ready` over its journal, `bus.ts`) which widget, if
-// any, the reply should have. It skips voice-call turns and replies that already hold a widget
-// fence. The mode is `components.widget.mode` in the service's live `config.json`, read on every
-// reply so a switch needs no restart:
+// any, the reply should have. It skips voice-call turns, replies that already hold a widget fence, and
+// replies with no structured data (`gate.ts`: numbers, list items, ticket keys or media below their
+// limits), which only get a host log line saying which counts fell short. The mode is
+// `components.widget.mode` in the service's live `config.json`, read on every reply so a switch needs
+// no restart:
 //   - "shadow" (the default): log the suggestion only, to `<home>/bench/widget/shadow.jsonl` and a
 //     `widget/widget.logged` event;
 //   - "live": the same log, and an ```openui answer is kept for that reply and sent to every device
-//     as the thread's `widgets.snapshot`, which shows it under the reply;
+//     as the thread's `widgets.snapshot`, which shows it under the reply whenever it lands;
 //   - "off" (or the component disabled): nothing is asked.
-// No answer within ASK_TIMEOUT_MS is logged as a timeout and nothing is shown.
+// The gate's limits and how long the host waits for the answer are `components.widget.autoAsk` in the
+// same file (`autoAskSettings`). An answer is logged with the milliseconds it really took; none within
+// the wait is a timeout and shows nothing. An answer landing after Isaac's 🎯 label on that reply is
+// logged but never replaces what his label drew.
 //
 // 🎯 on a reply opens a one-question sheet on the device; its answer (`widget.label`) is saved with
 // the reply, what was shown under it and the shadow suggestion to `<home>/bench/widget/training.jsonl`,
@@ -25,10 +30,16 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 import { MAX_REPLY_WIDGET, ReactionKey, reactionExcerpt, WIDGET_LABEL_TEXT, type ServerMessage, type ThreadWidgets, type WidgetLabel, type WidgetSurface } from "@relay/protocol";
+import { GATE_DEFAULTS, gateCounts, widgetGate, type GateLimits } from "./gate";
 import { ask, emit, readConfig, type AskAnswer } from "./bus";
 
-/** How long a reply waits for its widget; later answers are dropped (the package logs them as usual). */
-export const ASK_TIMEOUT_MS = 3_000;
+/**
+ * How long the automatic pass waits for the widget agent by default. Its answers took 1.9 s at p50 and up
+ * to 16.4 s (live journal, 2026-11-14 to 11-18); the agent gives up on its own at 30 s (`widget.json`
+ * `timeout`) and then answers none, so the host waits that long plus the queue, and every logged outcome is
+ * the agent's own. The text reply never waits on it.
+ */
+export const AUTO_ASK_WAIT_MS = 35_000;
 /** A desktop with input this recent means Isaac reads on the desktop; otherwise on his phone. */
 export const DESKTOP_RECENT_MS = 5 * 60_000;
 /** A form Isaac picked is a full generation, not the quick yes/no pick: it waits longer. */
@@ -48,6 +59,33 @@ export function widgetMode(config: unknown): WidgetMode {
   if (!widget.success) return "shadow";
   const { enabled, mode } = widget.data.components.widget;
   return enabled === false ? "off" : (mode ?? "shadow");
+}
+
+/** The automatic pass's settings: the gate's limits and the wait for the agent's answer. */
+export interface AutoAsk {
+  readonly limits: GateLimits;
+  readonly waitMs: number;
+}
+
+const Count = z.number().int().min(1);
+const AutoAskConfig = z.object({ numbers: Count, items: Count, keys: Count, media: Count, waitMs: Count }).partial().strict();
+
+/** `components.widget.autoAsk` of the service's config.json; every absent key (or an invalid section) takes its default. */
+export function autoAskSettings(config: unknown): AutoAsk {
+  const parsed = z
+    .object({ components: z.object({ widget: z.object({ autoAsk: AutoAskConfig }).passthrough() }).passthrough() })
+    .passthrough()
+    .safeParse(config);
+  const own = parsed.success ? parsed.data.components.widget.autoAsk : {};
+  return {
+    limits: {
+      numbers: own.numbers ?? GATE_DEFAULTS.numbers,
+      items: own.items ?? GATE_DEFAULTS.items,
+      keys: own.keys ?? GATE_DEFAULTS.keys,
+      media: own.media ?? GATE_DEFAULTS.media,
+    },
+    waitMs: own.waitMs ?? AUTO_ASK_WAIT_MS,
+  };
 }
 
 const WIDGET_FENCE = /^[ \t]*```(?:openui|ui|html-widget|mantine-widget)[ \t]*\n[\s\S]*?^[ \t]*```[ \t]*$/m;
@@ -111,8 +149,8 @@ export interface ReplyWidgetServiceDeps {
   readonly broadcast: (message: ServerMessage) => void;
   readonly now: () => number;
   readonly log: (line: string) => void;
-  /** Asks the widget agent over the bus; defaults to `ask` on `home`'s journal with ASK_TIMEOUT_MS. A test seam. */
-  readonly ask?: (request: Readonly<Record<string, unknown>>) => Promise<AskAnswer>;
+  /** Asks the widget agent over the bus, waiting up to `timeoutMs`; defaults to `ask` on `home`'s journal. A test seam. */
+  readonly ask?: (request: Readonly<Record<string, unknown>>, timeoutMs: number) => Promise<AskAnswer>;
 }
 
 /** Isaac's 🎯 answer on reply `message` of `thread` (a `widget.label` frame). */
@@ -140,6 +178,8 @@ export interface ReplyWidgetRelaying {
 
 export class ReplyWidgetService implements ReplyWidgetRelaying {
   private state: WidgetState;
+  /** Replies Isaac labeled with 🎯 (`<thread> <message>`): a late automatic answer never replaces what the label drew. */
+  private readonly labeled = new Set<string>();
 
   constructor(private readonly deps: ReplyWidgetServiceDeps) {
     this.state = this.load();
@@ -153,14 +193,21 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
     return widgets;
   }
 
-  /** Asks for `reply`'s widget and logs (shadow) or shows (live) the answer. Resolves when done; never rejects. */
+  /** Asks for `reply`'s widget when the gate lets it, and logs (shadow) or shows (live) the answer. Resolves when done; never rejects. */
   async reply(reply: FinishedReply): Promise<void> {
-    const mode = widgetMode(readConfig(this.deps.home));
+    const config = readConfig(this.deps.home);
+    const mode = widgetMode(config);
     if (mode === "off") return;
     const tag = `widgets: ${reply.agent} ${reply.message}`;
     const skip = reply.turn?.voice === true ? "voice-call turn" : widgetFence(reply.text) !== null ? "the reply has its own widget" : null;
     if (skip !== null) {
       this.deps.log(`${tag}: ${skip}, skipped`);
+      return;
+    }
+    const { limits, waitMs } = autoAskSettings(config);
+    const gate = widgetGate(reply.text, limits);
+    if (!gate.eligible) {
+      this.deps.log(`${tag}: no widget data (${gateCounts(gate, limits)}), skipped`);
       return;
     }
     const surface = this.deps.surface();
@@ -169,7 +216,7 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
     let answer: AskAnswer;
     try {
       const request = { draft: reply.text, surface, context };
-      answer = await (this.deps.ask?.(request) ?? ask(this.deps.home, "widget", { request: "widget.requested", reply: "widget.ready" }, request, { timeoutMs: ASK_TIMEOUT_MS }));
+      answer = await (this.deps.ask?.(request, waitMs) ?? ask(this.deps.home, "widget", { request: "widget.requested", reply: "widget.ready" }, request, { timeoutMs: waitMs }));
     } catch (error) {
       this.deps.log(`${tag}: cannot ask the widget agent: ${error instanceof Error ? error.message : String(error)}`);
       return;
@@ -179,9 +226,10 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
     const block = typeof ready?.["block"] === "string" && ready["block"].length <= MAX_REPLY_WIDGET ? ready["block"] : undefined;
     const kind = ready === null ? "timeout" : ready["kind"] === "openui" && block !== undefined ? "openui" : "none";
     const why = typeof ready?.["why"] === "string" ? ready["why"] : undefined;
-    const shown = mode === "live" && kind === "openui";
     const thread = `assistant:${reply.agent}`;
-    this.keep(thread, reply.message, { kind, ...(block === undefined ? {} : { block }), ...(why === undefined ? {} : { why }), mode, shown, at: this.deps.now() });
+    const labeled = this.labeled.has(`${thread} ${reply.message}`);
+    const shown = mode === "live" && kind === "openui" && !labeled;
+    if (!labeled) this.keep(thread, reply.message, { kind, ...(block === undefined ? {} : { block }), ...(why === undefined ? {} : { why }), mode, shown, at: this.deps.now() });
     if (shown) this.deps.broadcast({ t: "widgets.snapshot", thread, widgets: this.snapshot(thread) });
     try {
       this.append("shadow.jsonl", {
@@ -194,6 +242,7 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
         context,
         draftHash: createHash("sha256").update(reply.text).digest("hex").slice(0, 16),
         excerpt: reactionExcerpt(reply.text),
+        signals: gate.signals,
         kind,
         ...(block === undefined ? {} : { block }),
         ...(why === undefined ? {} : { why }),
@@ -205,12 +254,13 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
     } catch (error) {
       this.deps.log(`${tag}: cannot log the suggestion: ${error instanceof Error ? error.message : String(error)}`);
     }
-    this.deps.log(`${tag}: ${mode} ${kind} in ${String(ms)} ms${shown ? ", shown" : ""}`);
+    this.deps.log(`${tag}: ${mode} ${kind} in ${String(ms)} ms (${gate.signals.join(", ")})${shown ? ", shown" : ""}${labeled ? ", after Isaac's label, not kept" : ""}`);
   }
 
   async label(input: WidgetLabelInput): Promise<WidgetLabelResult> {
     if (!input.thread.startsWith("assistant:") || !input.message.startsWith("assistant@")) return { ok: false, error: "only an assistant's reply in its thread can be labeled" };
     const agent = input.thread.slice("assistant:".length);
+    this.labeled.add(`${input.thread} ${input.message}`);
     try {
       const draft = (await this.deps.message(input.thread, input.message)) ?? input.excerpt;
       const own = widgetFence(draft);
@@ -265,7 +315,7 @@ export class ReplyWidgetService implements ReplyWidgetRelaying {
     try {
       const own = widgetFence(draft);
       const request = { draft: own === null ? draft : draft.replace(own, "").trim(), surface: input.surface, context, form };
-      const answer = await (this.deps.ask?.(request) ?? ask(this.deps.home, "widget", { request: "widget.requested", reply: "widget.ready" }, request, { timeoutMs: FORM_TIMEOUT_MS }));
+      const answer = await (this.deps.ask?.(request, FORM_TIMEOUT_MS) ?? ask(this.deps.home, "widget", { request: "widget.requested", reply: "widget.ready" }, request, { timeoutMs: FORM_TIMEOUT_MS }));
       const ready = answer.reply;
       const block = typeof ready?.["block"] === "string" && ready["block"].length <= MAX_REPLY_WIDGET ? ready["block"] : undefined;
       if (ready?.["kind"] !== "openui" || block === undefined) {

@@ -14,6 +14,42 @@ export const Thinking = Schema.Literals(["off", "minimal", "low", "medium", "hig
 export const Mode = Schema.Literals(["shadow", "live", "off"]);
 export type Mode = typeof Mode.Type;
 
+const AtLeastOne = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
+
+/**
+ * Bounds on trial mode (`Trial.ts` `trialAllowance`), at the top of config.json for every agent and per component
+ * (each key wins over the top's, which wins over the defaults). Over either bound a caller's request runs once, on the
+ * agent's own model, with no arms.
+ */
+export const TrialLimits = Schema.Struct({
+  /** Trials an agent starts in any 24 hours; default 3 (`TRIAL_PER_DAY`). 0 never starts one. */
+  perDay: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  /**
+   * Trials offered this many days since the agent's epoch (its last switch, undo or re-trial) with no pick in the last
+   * this many days stop until a pick, switch or re-trial; default 7 (`TRIAL_IDLE_DAYS`).
+   */
+  idleDays: Schema.optionalKey(AtLeastOne),
+});
+export type TrialLimits = typeof TrialLimits.Type;
+
+/**
+ * Relay Host's automatic widget pass after an assistant's reply (`apps/linux/src/widgets/gate.ts`), only under
+ * `components.widget`. The runtime ignores it; the host reads it on every reply, like `mode`. Each key is the least
+ * count that makes a reply worth asking the widget agent about, or the wait; absent keys take the host's defaults.
+ */
+export const AutoAsk = Schema.Struct({
+  /** Measures to compare: currency, %, a number with a unit, either side of "N vs N" (default 3). */
+  numbers: Schema.optionalKey(AtLeastOne),
+  /** Table rows, list items and "Label: ..." lines holding a number (default 3). */
+  items: Schema.optionalKey(AtLeastOne),
+  /** Distinct ticket or PR keys, `ENG-123` or `#123` (default 2). */
+  keys: Schema.optionalKey(AtLeastOne),
+  /** Images; one is enough with before/after wording (default 2). */
+  media: Schema.optionalKey(AtLeastOne),
+  /** How long the host waits for the agent's answer, in ms (default 35000, past the agent's own 30 s timeout). */
+  waitMs: Schema.optionalKey(AtLeastOne),
+});
+
 export const ComponentSettings = Schema.Struct({
   /** Default true. A disabled component's triggers do not fire and manual runs are refused. */
   enabled: Schema.optionalKey(Schema.Boolean),
@@ -43,12 +79,17 @@ export const ComponentSettings = Schema.Struct({
   trial: Schema.optionalKey(Schema.Boolean),
   /** The trial's models (2 or 3; the agent's `model` is always one of them). Absent means `model` plus `candidates`. */
   trialModels: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+  /** This agent's trial bounds over the top-level `trialLimits`. */
+  trialLimits: Schema.optionalKey(TrialLimits),
+  autoAsk: Schema.optionalKey(AutoAsk),
 });
 
 export const SettingsFile = Schema.Struct({
   /** Path of the OpenRouter key (absolute, or relative to the home dir). The key itself never goes in config. */
   openRouterKeyFile: Schema.optionalKey(Schema.NonEmptyString),
   components: Schema.optionalKey(Schema.Record(Schema.String, ComponentSettings)),
+  /** Trial bounds for every agent; a component's own `trialLimits` keys win. */
+  trialLimits: Schema.optionalKey(TrialLimits),
 });
 export type SettingsFile = typeof SettingsFile.Type;
 

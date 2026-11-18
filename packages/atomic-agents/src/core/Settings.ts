@@ -44,6 +44,11 @@ export class SettingsError extends Schema.TaggedError<SettingsError>()("Settings
   message: Schema.String,
 }) {}
 
+/** Trials an agent starts in any 24 hours, unless config.json `trialLimits.perDay` says otherwise. */
+export const TRIAL_PER_DAY = 3;
+/** Days of trials with no pick before they stop, unless config.json `trialLimits.idleDays` says otherwise. */
+export const TRIAL_IDLE_DAYS = 7;
+
 /** What one request's tier resolves to, config.json applied: the model and thinking it runs with, its budget, and the trial models inside the tier. */
 export interface TierPick {
   readonly name: string;
@@ -61,8 +66,15 @@ export interface Effective {
   /**
    * Trial mode (`Trial.ts`): `on` when config.json (else the agent file) turns it on and there are 2+ models; `arms` are
    * the models a request runs on, the agent's model first, then `trialModels` (else `candidates`), at most 3.
+   * `perDay` and `idleDays` bound it (`trialAllowance`): the component's `trialLimits`, else the top-level ones, else
+   * `TRIAL_PER_DAY` / `TRIAL_IDLE_DAYS`.
    */
-  readonly trial: { readonly on: boolean; readonly arms: ReadonlyArray<string> };
+  readonly trial: {
+    readonly on: boolean;
+    readonly arms: ReadonlyArray<string>;
+    readonly perDay: number;
+    readonly idleDays: number;
+  };
   /**
    * The tier a job input falls in (`AgentSettings.tiers`), or undefined for an agent without tiers. A trial of a
    * tiered agent compares models inside the request's tier: `arms` here, not `trial.arms`.
@@ -117,7 +129,12 @@ export const effective = (component: Registered, settings: SettingsFile): Effect
       ...(component.agent.tiers === undefined ? {} : { tiers: component.agent.tiers }),
       ...(component.agent.trial === undefined ? {} : { trial: component.agent.trial }),
     },
-    trial: { on: (own.trial ?? component.agent.trial ?? false) && arms.length >= 2, arms },
+    trial: {
+      on: (own.trial ?? component.agent.trial ?? false) && arms.length >= 2,
+      arms,
+      perDay: own.trialLimits?.perDay ?? settings.trialLimits?.perDay ?? TRIAL_PER_DAY,
+      idleDays: own.trialLimits?.idleDays ?? settings.trialLimits?.idleDays ?? TRIAL_IDLE_DAYS,
+    },
     tier,
     cron: (job, fallback) => own.cron?.[job] ?? fallback,
   };

@@ -32,7 +32,7 @@ import * as Requests from "./core/Requests.ts";
 import * as Service from "./core/Service.ts";
 import { effective, Settings } from "./core/Settings.ts";
 import { ModelCatalog } from "./core/Catalog.ts";
-import { clearWinner, LETTERS, PickValue, trialEvents } from "./core/Trial.ts";
+import { clearWinner, LETTERS, PickValue, trialAllowance, trialEvents } from "./core/Trial.ts";
 import { benchFile, BenchLine, checkCatalog, layerTrials } from "./core/TrialService.ts";
 
 const parseJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
@@ -406,6 +406,8 @@ const trial = Command.make("trial").pipe(
         const current = yield* (yield* Settings).current;
         const home = yield* Home;
         const fs = yield* FileSystem.FileSystem;
+        const history = yield* (yield* EventBus).history;
+        const now = Date.now();
         for (const agent of yield* (yield* Agents).current) {
           if (Option.isSome(component) && agent.id !== component.value) continue;
           const resolved = effective(agent, current);
@@ -420,8 +422,9 @@ const trial = Command.make("trial").pipe(
           const decided = clearWinner(
             lines.map((line) => ({ at: Date.parse(line.at), winner: line.winner })),
           );
+          const allowance = trialAllowance(history, agent.id, resolved.trial, now);
           yield* Console.log(
-            `${agent.id}  trial ${resolved.trial.on ? "on" : "off"}  model ${resolved.agent.model}  arms ${resolved.trial.arms.join(", ")}  picks on the bench ${lines.length}${decided === undefined ? "" : `  (all-time leader ${decided.winner}: ${decided.wins} of ${decided.of})`}`,
+            `${agent.id}  trial ${resolved.trial.on ? "on" : "off"}${allowance.idle ? ` (idle-off: no pick in ${resolved.trial.idleDays} days)` : ""}  model ${resolved.agent.model}  arms ${resolved.trial.arms.join(", ")}  budget ${allowance.today} of ${allowance.perDay} today  picks on the bench ${lines.length}${decided === undefined ? "" : `  (all-time leader ${decided.winner}: ${decided.wins} of ${decided.of})`}`,
           );
         }
       }),

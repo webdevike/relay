@@ -4,9 +4,9 @@ import { publishRequest } from "../src/core/Ask.ts";
 import { Background } from "../src/core/Background.ts";
 import { ModelCatalog } from "../src/core/Catalog.ts";
 import { define, job, type Registered, Trigger } from "../src/core/Component.ts";
-import { type AgentEvent, EventBus, makeEvent } from "../src/core/Event.ts";
+import { AgentEvent, EventBus, makeEvent } from "../src/core/Event.ts";
 import { Runner } from "../src/core/Runtime.ts";
-import { Settings } from "../src/core/Settings.ts";
+import { effective, Settings, TRIAL_IDLE_DAYS, TRIAL_PER_DAY } from "../src/core/Settings.ts";
 import {
   type CatalogModel,
   clearWinner,
@@ -14,6 +14,7 @@ import {
   modelLabel,
   previewOf,
   relevantModels,
+  trialAllowance,
   trialEvents,
 } from "../src/core/Trial.ts";
 import { benchFile, checkCatalog, freshModels, layerTrials } from "../src/core/TrialService.ts";
@@ -109,6 +110,77 @@ describe("trial rules", () => {
     });
     // 9 to 5 at 15 picks: short of twice the runner-up, so not clear yet.
     expect(clearWinner(picks([..."abababababacaaa"]))).toBeUndefined();
+  });
+
+  test("at most perDay trials in any 24 hours; idle after idleDays of trials with no pick, until a pick, switch or re-trial", () => {
+    const now = Date.parse("2026-11-18T12:00:00.000Z");
+    const ago = (hours: number) => new Date(now - hours * 3_600_000).toISOString();
+    const line = (type: string, hours: number) => ({ type: `taster/${type}`, at: ago(hours) });
+    const limits = { perDay: 3, idleDays: 7 };
+    const recent = [
+      line("trial.picked", 30),
+      line("trial.started", 25),
+      line("trial.started", 20),
+      line("trial.started", 2),
+    ];
+    expect(trialAllowance(recent, "taster", limits, now)).toEqual({
+      today: 2,
+      perDay: 3,
+      idle: false,
+    });
+    expect(trialAllowance([...recent, line("trial.started", 1)], "taster", limits, now)).toEqual({
+      today: 3,
+      perDay: 3,
+      idle: false,
+      stop: "budget",
+    });
+    expect(trialAllowance(recent, "taster", { perDay: 0, idleDays: 7 }, now).stop).toBe("budget");
+    // Another agent's trials never count.
+    expect(trialAllowance(recent, "other", limits, now)).toEqual({
+      today: 0,
+      perDay: 3,
+      idle: false,
+    });
+
+    // Offered for 8 days, last pick 8 days ago: idle. A pick 2 days ago, or a switch or re-trial since, lifts it.
+    const stale = [
+      line("trial.started", 8 * 24),
+      line("trial.picked", 8 * 24 - 1),
+      line("trial.started", 3),
+    ];
+    expect(trialAllowance(stale, "taster", limits, now)).toEqual({
+      today: 1,
+      perDay: 3,
+      idle: true,
+      stop: "idle",
+    });
+    expect(trialAllowance([...stale, line("trial.picked", 48)], "taster", limits, now).idle).toBe(
+      false,
+    );
+    expect(
+      trialAllowance([...stale, line("trial.switched", 5 * 24)], "taster", limits, now).idle,
+    ).toBe(false);
+    expect(trialAllowance([...stale, line("trial.retrial", 1)], "taster", limits, now).idle).toBe(
+      false,
+    );
+    expect(trialAllowance(stale, "taster", { perDay: 3, idleDays: 9 }, now).idle).toBe(false);
+    // Never offered: nothing to be idle about.
+    expect(trialAllowance([line("trial.switched", 30 * 24)], "taster", limits, now).idle).toBe(
+      false,
+    );
+  });
+
+  test("trial limits: the component's keys win over the top-level ones, which win over the defaults", () => {
+    expect(effective(taster(true), {}).trial).toMatchObject({
+      perDay: TRIAL_PER_DAY,
+      idleDays: TRIAL_IDLE_DAYS,
+    });
+    expect(
+      effective(taster(true), {
+        trialLimits: { perDay: 5, idleDays: 2 },
+        components: { taster: { trialLimits: { perDay: 1 } } },
+      }).trial,
+    ).toMatchObject({ perDay: 1, idleDays: 2 });
   });
 
   test("labels Isaac reads, with no vendor", () => {
@@ -281,6 +353,96 @@ describe("a trial request", () => {
             ),
           ),
         );
+      }).pipe(Effect.scoped, Effect.runPromise),
+    20_000,
+  );
+
+  /** A `taster/<name>` line dated `daysAgo` days back. */
+  const putDated = (name: string, daysAgo: number) =>
+    Effect.gen(function* () {
+      const bus = yield* EventBus;
+      const fresh = yield* makeEvent({
+        type: `taster/${name}`,
+        component: "taster",
+        job: "taste",
+        run: "seed",
+        data: {},
+      });
+      yield* bus.publish(
+        new AgentEvent({ ...fresh, at: new Date(Date.now() - daysAgo * 86_400_000).toISOString() }),
+      );
+    });
+  const askTaster = (brief: string) =>
+    publishRequest(
+      taster(true),
+      { request: "taste.requested", reply: "taste.done" },
+      { brief },
+      "agent:nova",
+    );
+  /** Waits for `count` caller answers, then for any trial arm still running. */
+  const answered = (count: number) =>
+    Effect.gen(function* () {
+      const bus = yield* EventBus;
+      yield* eventually(
+        Effect.map(bus.history, (events) =>
+          ofType(events, "taster/taste.done").length === count ? Option.some(true) : Option.none(),
+        ),
+      );
+      yield* Effect.sleep("1500 millis");
+      return yield* bus.history;
+    });
+  const startsOf = (events: ReadonlyArray<AgentEvent>) =>
+    ofType(events, "taster/job.started").map((event) => {
+      const data = event.data as { model: string; trial?: unknown };
+      return { model: data.model, trial: data.trial !== undefined };
+    });
+  const triggers = (root: string) =>
+    Runner.layerTriggers.pipe(
+      Layer.provideMerge(Background.layer),
+      Layer.provideMerge(runtime(root, { code: [taster(true)] })),
+    );
+
+  test(
+    "over the agent's trials per day, a caller's request runs once on its own model",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* tempHome;
+        yield* Effect.gen(function* () {
+          yield* (yield* Settings).set(
+            { components: { taster: { trialLimits: { perDay: 1 } } } },
+            "test",
+            "set",
+          );
+          yield* askTaster("first");
+          yield* answered(1);
+          yield* askTaster("second");
+          const events = yield* answered(2);
+          expect(ofType(events, "taster/trial.started")).toHaveLength(1);
+          expect(startsOf(events)).toHaveLength(4);
+          expect(startsOf(events).at(-1)).toEqual({ model: SONNET, trial: false });
+        }).pipe(Effect.provide(triggers(root)));
+      }).pipe(Effect.scoped, Effect.runPromise),
+    20_000,
+  );
+
+  test(
+    "trials offered a week with no pick stop until a pick",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* tempHome;
+        yield* Effect.gen(function* () {
+          yield* putDated("trial.started", 8);
+          yield* askTaster("idle");
+          const idle = yield* answered(1);
+          expect(ofType(idle, "taster/trial.started")).toHaveLength(1);
+          expect(startsOf(idle)).toEqual([{ model: SONNET, trial: false }]);
+
+          yield* hostWrites("taster/trial.picked", "taster", { trialId: "old", pick: "A" });
+          yield* askTaster("picked");
+          const resumed = yield* answered(2);
+          expect(ofType(resumed, "taster/trial.started")).toHaveLength(2);
+          expect(startsOf(resumed).filter((start) => start.trial)).toHaveLength(3);
+        }).pipe(Effect.provide(triggers(root)));
       }).pipe(Effect.scoped, Effect.runPromise),
     20_000,
   );

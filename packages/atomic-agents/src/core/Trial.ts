@@ -352,3 +352,65 @@ export const decodeCatalog = Schema.decodeUnknownOption(Schema.fromJsonString(Ca
 
 /** Order-free key of a trial's models: picks count toward the trial only while its models are the same. */
 export const armsKey = (models: ReadonlyArray<string>) => [...models].sort().join(",");
+
+/** A journal line as the trial rules read it. */
+interface Dated {
+  readonly type: string;
+  readonly at: string;
+}
+
+/** When this agent's count last started over: its last switch, undo or re-trial (0 when none). */
+export const epochOf = (history: ReadonlyArray<Dated>, agent: string) =>
+  Math.max(
+    0,
+    ...history
+      .filter((event) =>
+        [`${agent}/trial.switched`, `${agent}/trial.undone`, `${agent}/trial.retrial`].includes(
+          event.type,
+        ),
+      )
+      .map((event) => Date.parse(event.at)),
+  );
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Whether a caller's request may start a trial at `now`, and why not. */
+export interface TrialAllowance {
+  /** `trial.started` in the 24 hours before `now`. */
+  readonly today: number;
+  readonly perDay: number;
+  /** Trials offered `idleDays` or more since the epoch with no pick in the last `idleDays`. */
+  readonly idle: boolean;
+  /** `idle` or `budget` (today reached perDay) when the request runs once, without arms. */
+  readonly stop?: "idle" | "budget";
+}
+
+/**
+ * The trial bounds (`Settings.effective(...).trial` `perDay`, `idleDays`) over the journal: at most `perDay` trials
+ * started in any 24 hours, and none once trials have been offered `idleDays` since the agent's epoch (`epochOf`: its
+ * first `trial.started` after its last switch, undo or re-trial) without a `trial.picked` in the last `idleDays`. A pick,
+ * switch or re-trial lifts the idle stop.
+ */
+export const trialAllowance = (
+  history: ReadonlyArray<Dated>,
+  agent: string,
+  limits: { readonly perDay: number; readonly idleDays: number },
+  now: number,
+): TrialAllowance => {
+  const epoch = epochOf(history, agent);
+  const started = history
+    .filter((event) => event.type === `${agent}/trial.started`)
+    .map((event) => Date.parse(event.at));
+  const today = started.filter((at) => at <= now && now - at < DAY_MS).length;
+  const offeredSince = Math.min(...started.filter((at) => at >= epoch));
+  const lastPick = Math.max(
+    -Infinity,
+    ...history
+      .filter((event) => event.type === `${agent}/trial.picked`)
+      .map((event) => Date.parse(event.at)),
+  );
+  const idleMs = limits.idleDays * DAY_MS;
+  const idle = now - offeredSince >= idleMs && now - lastPick >= idleMs;
+  const stop = idle ? "idle" : today >= limits.perDay ? "budget" : undefined;
+  return { today, perDay: limits.perDay, idle, ...(stop === undefined ? {} : { stop }) };
+};

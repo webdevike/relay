@@ -13,6 +13,7 @@ import {
   type CatalogModel,
   type CountedPick,
   decodeCatalog,
+  epochOf,
   modelLabel,
   relevantModels,
   switchText,
@@ -238,19 +239,6 @@ const readBench = (root: string, agent: string) =>
       .pipe(Effect.orElseSucceed(() => ""));
     return text.split("\n").flatMap((line) => Option.toArray(decodeBenchLine(line)));
   });
-
-/** When this agent's count last started over: its last switch, undo or re-trial. */
-const epochOf = (history: ReadonlyArray<AgentEvent>, agent: string) =>
-  Math.max(
-    0,
-    ...history
-      .filter((event) =>
-        [`${agent}/trial.switched`, `${agent}/trial.undone`, `${agent}/trial.retrial`].includes(
-          event.type,
-        ),
-      )
-      .map((event) => Date.parse(event.at)),
-  );
 
 /**
  * Background layer: the trial machines and the catalog watch (every `catalogEvery`). Picks arrive as `trial.picked`
