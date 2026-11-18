@@ -5,35 +5,18 @@ import { ecardPack } from "../adapters/pack.ts"
 import { type Email, Outlook } from "../adapters/outlook.ts"
 import { type GhCommit, Ledgers, Promotions, type Staging } from "../adapters/promotions.ts"
 import { GitHub, Linear } from "../adapters/services.ts"
-import { type Activity, ChefSurface, flaggedItems, Flags, type Read, type Reader, Slack, SlackError, type Thread } from "../adapters/slack.ts"
+import { type Activity, ChefSurface, type Cluster, clustersOf, type Reader, type Scan, Slack, SlackError, type Thread } from "../adapters/slack.ts"
 import { omp } from "../../../src/core/adapters/omp.ts"
 import { scorers, voiceBreaks } from "../bench/ecard-score.ts"
 import { spec as mainWatchSpec, keysOf, titleOf } from "../ecard-main-watch.ts"
 import { spec as outlookFetchSpec } from "../ecard-outlook-fetch.ts"
-import { spec as slackFetchSpec } from "../ecard-slack-fetch.ts"
+import { advanced, MAX_PER_RUN, spec as slackFetchSpec } from "../ecard-slack-fetch.ts"
 import { keyOf, spec as slackDigestSpec } from "../ecard-slack-digest.ts"
 import { define } from "../../../src/core/Component.ts"
 import { EventBus } from "../../../src/core/Event.ts"
 import { type GenerateRequest, ModelRunner } from "../../../src/core/Model.ts"
 import { Runner } from "../../../src/core/Runtime.ts"
 import { builtinAgents, agent, runtime, tempHome } from "../../../test/harness.ts"
-
-const slackMd = (urls: ReadonlyArray<string>) =>
-  [
-    "_updated 2026-11-14T00:00:00Z · cursor 2026-11-13T00:00:00Z_",
-    "",
-    "## Needs your attention",
-    "",
-    ...urls.map((url, index) => `- **DM** (Todd) · Todd · 2026-11-13T1${index}:00Z · Reply to Todd about item ${index} [permalink](${url})`),
-    "- **#general** · a bullet without a link",
-    "",
-    "## Worth remembering",
-    "",
-    "- **#eng** · Ted · shipped [permalink](https://ecardplatform.slack.com/archives/C1/p1700000000000009)"
-  ].join("\n")
-
-const URL_A = "https://ecardplatform.slack.com/archives/D1/p1700000000000001"
-const URL_B = "https://ecardplatform.slack.com/archives/C2/p1700000000000002?thread_ts=1700000000.000000&cid=C2"
 
 /** A model that answers every call with `answer`, and records the requests. */
 const answering = (requests: Ref.Ref<ReadonlyArray<GenerateRequest>>, answer: (request: GenerateRequest) => unknown) =>
@@ -78,117 +61,163 @@ describe("ecard agent files", () => {
 })
 
 describe("ecard-slack-fetch", () => {
-  test("flaggedItems reads only Needs your attention bullets with a permalink", () => {
-    expect(flaggedItems(slackMd([URL_A, URL_B]))).toEqual([
-      { url: URL_A, summary: "**DM** (Todd) · Todd · 2026-11-13T10:00Z · Reply to Todd about item 0" },
-      { url: URL_B, summary: "**DM** (Todd) · Todd · 2026-11-13T11:00Z · Reply to Todd about item 1" }
-    ])
+  const cluster = (channel: string, ts: string, emit = true, via: Cluster["via"] = "dm"): Cluster => ({
+    key: `${channel}:${ts}`,
+    via,
+    url: `https://ecardplatform.slack.com/archives/${channel}/p${ts.replace(".", "")}`,
+    channel: `DM with ${channel}`,
+    ts: new Date(Number(ts) * 1000).toISOString(),
+    emit,
+    messages: [{ author: "Todd Barczak", ts: new Date(Number(ts) * 1000).toISOString(), text: `@Isaac Weber can you look at ${channel}?` }],
+    advance: [{ key: via === "mention" ? "mentions" : `conv:${channel}`, from: ts, to: ts }]
   })
+  const reader = (scans: Ref.Ref<ReadonlyArray<Parameters<Reader["scan"]>[0]>>, answer: Ref.Ref<Scan>): Reader => ({
+    scan: (request) => Ref.update(scans, (all) => [...all, request]).pipe(Effect.andThen(Ref.get(answer))),
+    threads: () => Effect.fail(new SlackError({ message: "threads unused" }))
+  })
+  const failing = (message: string): Reader => ({ scan: () => Effect.fail(new SlackError({ message })), threads: () => Effect.fail(new SlackError({ message })) })
 
-  test("fetch hands each new flag to slack-triage once; triage emits its verdict with the text", () =>
+  test("fetch hands each cluster on oldest first, at most MAX_PER_RUN; the cursor moves per item and never past one waiting", () =>
     Effect.gen(function*() {
       const root = yield* tempHome
       const dir = yield* builtinAgents(root, ["ecard-slack-triage"])
-      const surface = yield* Ref.make(slackMd([URL_A]))
-      const asked = yield* Ref.make<ReadonlyArray<ReadonlyArray<string>>>([])
-      const slack = Layer.succeed(Slack, Slack.make({
-        "claude-proxy": (request) =>
-          Ref.update(asked, (all) => [...all, request.urls]).pipe(Effect.as({
-            authedUser: "Isaac Weber",
-            items: [],
-            threads: request.urls.map((url) => ({
-              url,
-              channel: "DM with Todd",
-              ts: "1700000000.000001",
-              messages: [{ author: "Todd Barczak", ts: "1700000000.000001", text: "@Isaac can you review this today?" }]
-            }))
-          })),
-        "slack-desktop": () => Effect.fail(new SlackError({ message: "desktop unused" }))
-      }))
-      const flags = Layer.succeed(Flags, Flags.of({ read: Ref.get(surface) }))
+      const scans = yield* Ref.make<ReadonlyArray<Parameters<Reader["scan"]>[0]>>([])
+      // Isaac's own message first (no item, cursor moves), then 13 DMs: the 13th waits for the next run.
+      const dms = Array.from({ length: 13 }, (_, at) => cluster(`D${at + 1}`, `17000000${String(10 + at)}.000100`))
+      const answer = yield* Ref.make<Scan>({ authedUser: "Isaac Weber", clusters: [...dms].reverse().concat(cluster("D0", "1700000001.000100", false)), failures: ["C9: channel_not_found"] })
+      const slack = Layer.succeed(Slack, Slack.make({ "slack-desktop": reader(scans, answer), "claude-proxy": failing("proxy unused") }))
       const requests = yield* Ref.make<ReadonlyArray<GenerateRequest>>([])
       const models = answering(requests, () => ({ answer: { verdict: "needs-isaac", isaacReplied: false, reason: "Todd asked for a review", gist: "Review Todd's PR today." } }))
+      const state = `${root}/state/ecard-slack-fetch`
       yield* Effect.gen(function*() {
         const runner = yield* Runner
         const bus = yield* EventBus
+        const fs = yield* FileSystem.FileSystem
+        yield* fs.makeDirectory(state, { recursive: true })
+        yield* fs.writeFileString(`${state}/watch.json`, JSON.stringify([{ id: "C0CB9NMQDHB", name: "#ui-ux" }]))
         expect((yield* runner.run("ecard-slack-fetch", "fetch", {})).ok).toBe(true)
-        const fetched = (yield* bus.history).filter((event) => event.type === "ecard-slack-fetch/item.fetched")
-        expect(fetched.map((event) => event.data)).toEqual([expect.objectContaining({ url: URL_A })])
+        const first = (yield* Ref.get(scans))[0]!
+        expect(first.cursor).toEqual({ conv: {}, threads: {} })
+        expect(first.watch).toEqual(["C0CB9NMQDHB"])
+        expect(Number(first.floor)).toBeGreaterThan(Date.now() / 1000 - 86_401)
 
+        const fetched = (yield* bus.history).filter((event) => event.type === "ecard-slack-fetch/item.fetched")
+        expect(fetched.map((event) => event.data)).toEqual(dms.slice(0, MAX_PER_RUN).map((dm) => expect.objectContaining({ url: dm.url })))
+        expect(fetched[0]!.data).toEqual({
+          url: dms[0]!.url,
+          channel: "DM with D1",
+          ts: dms[0]!.ts,
+          summary: `DM with D1 · Todd Barczak · ${dms[0]!.ts}`,
+          messages: dms[0]!.messages
+        })
+        const completed = (yield* bus.history).find((event) => event.type === "ecard-slack-fetch/fetch.completed")
+        expect(completed?.data).toEqual({ source: "slack-desktop", found: 13, fetched: 12, deferred: 1, bySource: { dm: 12, mention: 0, thread: 0, channel: 0 }, failures: ["C9: channel_not_found"] })
+        const cursor = JSON.parse(yield* fs.readFileString(`${state}/cursor.json`))
+        expect(Object.keys(cursor.conv).sort()).toEqual(["D0", ...dms.slice(0, 12).map((dm) => dm.key.split(":")[0]!)].sort())
+        expect(cursor.conv.D13).toBeUndefined()
+
+        // The next run starts from the saved cursor and hands on what waited.
+        yield* Ref.set(answer, { authedUser: "Isaac Weber", clusters: [dms[12]!], failures: [] })
+        yield* runner.run("ecard-slack-fetch", "fetch", {})
+        expect((yield* Ref.get(scans))[1]!.cursor).toEqual(cursor)
+        expect(JSON.parse(yield* fs.readFileString(`${state}/cursor.json`)).conv.D13).toBe("1700000022.000100")
+
+        // ecard-slack-triage takes the item as it is.
         const verdict = yield* runner.run("ecard-slack-triage", "triage", fetched[0]!.data)
         expect(verdict.ok).toBe(true)
-        const triaged = (yield* bus.history).find((event) => event.run === verdict.run && event.type === "ecard-slack-triage/item.triaged")
-        expect(triaged?.data).toMatchObject({ url: URL_A, verdict: "needs-isaac", isaacReplied: false, gist: "Review Todd's PR today.", summary: expect.stringContaining("Reply to Todd") })
-        expect((yield* Ref.get(requests))[0]?.prompt).toContain("Todd Barczak (FLAGGED): @Isaac can you review this today?")
+        expect((yield* Ref.get(requests))[0]?.prompt).toContain(`Todd Barczak (FLAGGED): @Isaac Weber can you look at D1?`)
+      }).pipe(Effect.provide(runtime(root, { dirs: [dir], code: [define({ ...slackFetchSpec, tools: slack })] }, models)))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.runPromise), 20_000)
 
-        // A second run asks the proxy only for the new flag.
-        yield* Ref.set(surface, slackMd([URL_A, URL_B]))
-        yield* runner.run("ecard-slack-fetch", "fetch", {})
-        expect(yield* Ref.get(asked)).toEqual([[URL_A], [URL_B]])
-      }).pipe(Effect.provide(runtime(root, { dirs: [dir], code: [define({ ...slackFetchSpec, tools: Layer.mergeAll(slack, flags) })] }, models)))
-    }).pipe(Effect.scoped, Effect.runPromise), 20_000)
-
-  const todd: Activity = {
-    url: "https://ecardplatform.slack.com/archives/D1/p1700000100000001",
-    channel: "DM with Todd Barczak",
-    kind: "dm",
-    author: "Todd Barczak",
-    ts: "2023-11-14T22:15:00.000Z",
-    text: "@Isaac Weber can you look at ENG-1?",
-    mentionsIsaac: true,
-    reactions: [{ emoji: "eyes", count: 1, byIsaac: true }]
-  }
-  const read: Read = { authedUser: "Isaac Weber", items: [todd], threads: [] }
-  const failing = (message: string): Reader => () => Effect.fail(new SlackError({ message }))
-
-  test("auto reads through the proxy; a failed proxy falls back to Slack desktop with the same shape", () =>
-    Effect.gen(function*() {
-      const calls = yield* Ref.make<ReadonlyArray<string>>([])
-      const reader = (source: string): Reader => () => Ref.update(calls, (all) => [...all, source]).pipe(Effect.as(read))
-
-      const proxied = yield* Slack.make({ "claude-proxy": reader("proxy"), "slack-desktop": reader("desktop") }).read({ since: "2023-11-14T22:00:00Z", urls: [] })
-      expect(proxied).toEqual({ ...read, source: "claude-proxy" })
-      expect(yield* Ref.get(calls)).toEqual(["proxy"])
-
-      const fellBack = yield* Slack.make({ "claude-proxy": failing("claude proxy timed out after 8 minutes"), "slack-desktop": reader("desktop") }).read({ since: "2023-11-14T22:00:00Z", urls: [] })
-      expect(fellBack).toEqual({ ...read, source: "slack-desktop", fallbackReason: "claude proxy timed out after 8 minutes" })
-
-      const forced = yield* Slack.make({ "claude-proxy": reader("proxy"), "slack-desktop": reader("desktop") }, "slack-desktop").read({ urls: [] })
-      expect(forced.source).toBe("slack-desktop")
-      expect(yield* Ref.get(calls)).toEqual(["proxy", "desktop", "desktop"])
-
-      const neither = yield* Effect.flip(Slack.make({ "claude-proxy": failing("claude-proxy: no authed Slack user"), "slack-desktop": failing("slack desktop: no app.slack.com/client page") }).read({ urls: [] }))
-      expect(neither.message).toBe("claude-proxy: no authed Slack user; then slack desktop: no app.slack.com/client page")
-
-      // A source named on the call wins and never falls back.
-      const only = yield* Effect.flip(Slack.make({ "claude-proxy": failing("proxy down"), "slack-desktop": reader("desktop") }).read({ urls: [] }, "claude-proxy"))
-      expect(only.message).toBe("proxy down")
-    }).pipe(Effect.runPromise))
-
-  test("activity emits one read with its source and the cursor to save", () =>
+  test("a run neither source can read is skipped and leaves the cursor alone", () =>
     Effect.gen(function*() {
       const root = yield* tempHome
-      const asked = yield* Ref.make<ReadonlyArray<string | undefined>>([])
-      const slack = Layer.succeed(Slack, Slack.make({
-        "claude-proxy": failing("claude proxy: Slack connector needs auth"),
-        "slack-desktop": (request) => Ref.update(asked, (all) => [...all, request.since]).pipe(Effect.as(read))
-      }))
-      const flags = Layer.succeed(Flags, Flags.of({ read: Effect.succeed("") }))
+      const slack = Layer.succeed(Slack, Slack.make({ "slack-desktop": failing("slack desktop: fetch failed"), "claude-proxy": failing("claude proxy exited 1") }))
       yield* Effect.gen(function*() {
         const runner = yield* Runner
         const bus = yield* EventBus
-        expect((yield* runner.run("ecard-slack-fetch", "activity", { since: "2023-11-14T22:00:00.000Z" })).ok).toBe(true)
-        const fetched = (yield* bus.history).find((event) => event.type === "ecard-slack-fetch/activity.fetched")
-        expect(fetched?.data).toEqual({
-          ...read,
-          source: "slack-desktop",
-          fallbackReason: "claude proxy: Slack connector needs auth",
-          since: "2023-11-14T22:00:00.000Z",
-          cursor: todd.ts
+        const fs = yield* FileSystem.FileSystem
+        expect((yield* runner.run("ecard-slack-fetch", "fetch", {})).ok).toBe(true)
+        expect((yield* bus.history).find((event) => event.type === "ecard-slack-fetch/fetch.completed")?.data).toMatchObject({
+          skipped: "slack desktop: fetch failed; then claude proxy exited 1",
+          fetched: 0
         })
-        expect(yield* Ref.get(asked)).toEqual(["2023-11-14T22:00:00.000Z"])
-      }).pipe(Effect.provide(runtime(root, { dirs: [], code: [define({ ...slackFetchSpec, tools: Layer.mergeAll(slack, flags) })] })))
-    }).pipe(Effect.scoped, Effect.runPromise), 20_000)
+        expect(yield* fs.exists(`${root}/state/ecard-slack-fetch/cursor.json`)).toBe(false)
+      }).pipe(Effect.provide(runtime(root, { code: [define({ ...slackFetchSpec, tools: slack })] })))
+    }).pipe(Effect.scoped, Effect.provide(BunServices.layer), Effect.runPromise), 20_000)
+
+  test("a cursor never moves past what a waiting cluster still needs", () => {
+    const mention = (from: string, to: string): Cluster => ({ ...cluster("C1", to, true, "mention"), advance: [{ key: "mentions", from, to }] })
+    const thread: Cluster = { ...cluster("C2", "1700000050.000000", true, "thread"), advance: [{ key: "thread:C2:1700000000.000000", from: "1700000040.000000", to: "1700000050.000000" }] }
+    expect(advanced({ conv: {}, threads: {}, mentions: "1700000001.000000" }, [mention("1700000030.000000", "1700000030.000000"), thread], [mention("1700000020.000000", "1700000020.000000")])).toEqual({
+      conv: {},
+      threads: { "C2:1700000000.000000": "1700000050.000000" },
+      mentions: "1700000001.000000"
+    })
+    expect(advanced({ conv: { D1: "1700000001.000000" }, threads: {} }, [cluster("D1", "1700000005.000000")], [])).toEqual({ conv: { D1: "1700000005.000000" }, threads: {} })
+  })
+
+  test("auto reads Slack desktop; a failed desktop falls back to the proxy with the same shape", () =>
+    Effect.gen(function*() {
+      const calls = yield* Ref.make<ReadonlyArray<string>>([])
+      const scan: Scan = { authedUser: "Isaac Weber", clusters: [cluster("D1", "1700000001.000000")], failures: [] }
+      const answering = (source: string): Reader => ({
+        scan: () => Ref.update(calls, (all) => [...all, source]).pipe(Effect.as(scan)),
+        threads: () => Ref.update(calls, (all) => [...all, source]).pipe(Effect.as({ authedUser: "Isaac Weber", threads: [] }))
+      })
+      const request = { cursor: { conv: {}, threads: {} }, watch: [], floor: "1700000000.000000" }
+
+      expect(yield* Slack.make({ "slack-desktop": answering("desktop"), "claude-proxy": answering("proxy") }).scan(request)).toEqual({ ...scan, source: "slack-desktop" })
+      expect(yield* Ref.get(calls)).toEqual(["desktop"])
+
+      const fellBack = yield* Slack.make({ "slack-desktop": failing("slack desktop: no app.slack.com/client page"), "claude-proxy": answering("proxy") }).threads(["u"])
+      expect(fellBack).toEqual({ authedUser: "Isaac Weber", threads: [], source: "claude-proxy", fallbackReason: "slack desktop: no app.slack.com/client page" })
+
+      const forced = yield* Slack.make({ "slack-desktop": answering("desktop"), "claude-proxy": answering("proxy") }, "claude-proxy").scan(request)
+      expect(forced.source).toBe("claude-proxy")
+
+      // A source named on the call wins and never falls back.
+      const only = yield* Effect.flip(Slack.make({ "slack-desktop": failing("desktop down"), "claude-proxy": answering("proxy") }).scan(request, "slack-desktop"))
+      expect(only.message).toBe("desktop down")
+    }).pipe(Effect.runPromise))
+
+  test("the proxy's activity read becomes clusters, each message held to its own cursor", () => {
+    const activity = (url: string, author: string, ts: string, extra: Partial<Activity> = {}): Activity => ({
+      url: `https://ecardplatform.slack.com/archives/${url}`,
+      channel: extra.kind === "channel" ? "#ui-ux" : "DM with Todd Barczak",
+      kind: "dm",
+      author,
+      ts: new Date(Number(ts) * 1000).toISOString(),
+      text: `${author} at ${ts}`,
+      mentionsIsaac: false,
+      reactions: [],
+      ...extra
+    })
+    const clusters = clustersOf({
+      authedUser: "Isaac Weber",
+      items: [
+        activity("D1/p1700000010000000", "Todd Barczak", "1700000010.000000"),
+        activity("D1/p1700000020000000", "Todd Barczak", "1700000020.000000", { reactions: [{ emoji: "eyes", count: 1, byIsaac: true }] }),
+        activity("D2/p1700000030000000", "Steve Arms", "1700000030.000000"),
+        activity("D2/p1700000040000000", "Isaac Weber", "1700000040.000000"),
+        // Before D3's cursor: already handed on.
+        activity("D3/p1700000005000000", "Noah", "1700000005.000000"),
+        // A channel outside watch.json, and one in it.
+        activity("C9/p1700000050000000", "Ted", "1700000050.000000", { kind: "channel" }),
+        activity("C1/p1700000060000000", "David Taylor", "1700000060.000000", { kind: "channel" }),
+        // An @-mention inside a thread.
+        activity("C1/p1700000070000000?thread_ts=1700000060.000000&cid=C1", "David Taylor", "1700000070.000000", { kind: "channel", mentionsIsaac: true, threadTs: "x" })
+      ],
+      threads: []
+    }, { cursor: { conv: { D3: "1700000006.000000" }, threads: {} }, watch: ["C1"], floor: "1700000000.000000" })
+    expect(clusters.map((found) => [found.key, found.via, found.emit, found.advance])).toEqual([
+      ["D1:1700000020.000000", "dm", true, [{ key: "conv:D1", from: "1700000010.000000", to: "1700000020.000000" }]],
+      ["D2:1700000030.000000", "dm", false, [{ key: "conv:D2", from: "1700000030.000000", to: "1700000040.000000" }]],
+      ["C1:1700000060.000000", "mention", true, [{ key: "conv:C1", from: "1700000060.000000", to: "1700000060.000000" }, { key: "mentions", from: "1700000070.000000", to: "1700000070.000000" }]]
+    ])
+    expect(clusters[0]!.messages[1]!.reactions).toEqual([":eyes: by Isaac Weber"])
+    expect(clusters[2]!.url).toContain("p1700000070000000?thread_ts=1700000060.000000")
+  })
 })
 
 describe("ecard-slack-digest", () => {
@@ -222,12 +251,15 @@ describe("ecard-slack-digest", () => {
       const threads = yield* Ref.make<Record<string, Thread>>({})
       const asked = yield* Ref.make<ReadonlyArray<ReadonlyArray<string>>>([])
       const slack = Layer.succeed(Slack, Slack.make({
-        "claude-proxy": (request) =>
-          Ref.update(asked, (all) => [...all, request.urls]).pipe(
-            Effect.andThen(Ref.get(threads)),
-            Effect.map((known) => ({ authedUser: "Isaac Weber", items: [], threads: request.urls.flatMap((url) => (known[url] === undefined ? [] : [known[url]!])) }))
-          ),
-        "slack-desktop": () => Effect.fail(new SlackError({ message: "desktop unused" }))
+        "slack-desktop": {
+          scan: () => Effect.fail(new SlackError({ message: "scan unused" })),
+          threads: (urls) =>
+            Ref.update(asked, (all) => [...all, urls]).pipe(
+              Effect.andThen(Ref.get(threads)),
+              Effect.map((known) => ({ authedUser: "Isaac Weber", threads: urls.flatMap((url) => (known[url] === undefined ? [] : [known[url]!])) }))
+            )
+        },
+        "claude-proxy": { scan: () => Effect.fail(new SlackError({ message: "proxy unused" })), threads: () => Effect.fail(new SlackError({ message: "proxy unused" })) }
       }))
       const file = `${eva}/work/elysia/slack-chef.md`
       yield* Effect.gen(function*() {
@@ -244,7 +276,7 @@ describe("ecard-slack-digest", () => {
 
         const asked3 = at(3)
         expect(yield* digest(triaged(DM, "DM with Todd Barczak", asked3, "needs-isaac", "Review the PR · today [now]."))).toMatchObject({ change: "added", open: 1, dropped: [] })
-        expect(yield* fs.readFileString(file)).toMatch(/^_updated \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z · chef shadow_\n\n## Needs your attention\n\n- /)
+        expect(yield* fs.readFileString(file)).toMatch(/^_updated \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z · chef_\n\n## Needs your attention\n\n- /)
         expect(yield* lines()).toEqual([
           `- **DM with Todd Barczak** · Todd Barczak · ${asked3.replace(/\.\d{3}Z$/, "Z")} · Review the PR, today (now). · why: he asked (you), directly [permalink](${DM})`
         ])
@@ -269,7 +301,7 @@ describe("ecard-slack-digest", () => {
           [GROUP]: { url: GROUP, channel: "group DM", ts: at(1), messages: [{ author: "Todd Barczak", ts: at(1), text: "?" }, { author: "Isaac Weber", ts: at(0.9), text: "on it" }] }
         })
         const removed = yield* digest(triaged(THREAD.replace("p1700000000000002", "p1700000000000010"), "#ui-ux", at(0.2), "skip", "Nothing to do."))
-        expect(removed).toMatchObject({ change: "removed", open: 0, source: "claude-proxy", dropped: expect.arrayContaining([{ url: DM, why: "reacted" }, { url: GROUP, why: "replied" }]) })
+        expect(removed).toMatchObject({ change: "removed", open: 0, source: "slack-desktop", dropped: expect.arrayContaining([{ url: DM, why: "reacted" }, { url: GROUP, why: "replied" }]) })
         expect(yield* lines()).toEqual([])
 
         // Older than 14 days: dropped without a read.
@@ -445,6 +477,7 @@ describe("ecard-main-watch", () => {
 })
 
 describe("ecard-slack-reply-drafter", () => {
+  const URL_A = "https://ecardplatform.slack.com/archives/D1/p1700000000000001"
   const triaged = (verdict: "needs-isaac" | "skip") => ({
     url: URL_A,
     channel: "DM with Todd",

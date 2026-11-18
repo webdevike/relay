@@ -22,7 +22,7 @@
       "- a bot or automated report, an announcement or FYI to many (@here, a channel), chatter, banter;",
       "- addressed to other people about their area (infra, secrets, SmartTrack, accounts, outages, someone else's tickets), even in a group DM he is in;",
       "- the ask was already resolved later in the thread.",
-      "isaacReplied: true only when a message by Isaac Weber comes after the flagged one in the messages, or his reaction is on it. Decide it from the messages alone: the flag note is a summary that can be written later and can mention replies that are not in these messages.",
+      "isaacReplied: true only when a message by Isaac Weber comes after the flagged one in the messages, or his reaction is on it. Decide it from the messages alone, never from the summary line.",
       "reason: one line, under 20 words.",
       "gist: one sentence, verb first, the action Isaac must take (\"Reply to Todd with the release date for ENG-7451.\"); for a skip, what the item was (\"Todd thanked the team for the release.\"). Never use the characters · [ ]."
     ]

@@ -54,11 +54,11 @@ const thread = (request: { readonly ts: string; readonly messages: ReadonlyArray
 const steps: ReadonlyArray<StepAdapter<never>> = [
   promptStep({
     name: "ecard.slack_item",
-    description: "Lay out a fetched Slack item (ecard-slack-fetch/item.fetched): channel, flagged ts, Elysia's note, the messages with reactions.",
+    description: "Lay out a fetched Slack item (ecard-slack-fetch/item.fetched): channel, flagged ts, its summary (where, author, when), the messages with reactions.",
     schema: Item,
     build: (request) =>
       Effect.succeed({
-        prompt: [`Channel: ${request.channel}`, `Flagged message ts: ${request.ts}`, `Flag note: ${request.summary || "(none)"}`, "Messages (time order):", ...thread(request, true)].join("\n")
+        prompt: [`Channel: ${request.channel}`, `Flagged message ts: ${request.ts}`, `Summary: ${request.summary || "(none)"}`, "Messages (time order):", ...thread(request, true)].join("\n")
       })
   }),
   promptStep({

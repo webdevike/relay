@@ -3,13 +3,13 @@ import { type Component, define, job, Trigger } from "../../src/core/Component.t
 import { ChefSurface, Item, Slack, Source, type Thread } from "./adapters/slack.ts"
 
 /**
- * `kind: "code"` agent (`ecard-slack-digest.json`, next to this file): the slack triage chef's "Needs your attention", in
- * shadow. No model. The only writer of `work/elysia/slack-chef.md` under Eva's checkout; Elysia's job keeps `slack.md`.
+ * `kind: "code"` agent (`ecard-slack-digest.json`, next to this file): the slack triage chef's "Needs your attention".
+ * No model. The only writer of `work/elysia/slack-chef.md` under Eva's checkout, which Eva's heartbeat and Catch Up read.
  * Each `ecard-slack-triage/item.triaged` updates the open list (kept in `open.json` in the state dir), keyed by
  * (conversation, thread): needs-isaac adds or replaces that line, skip removes it. Each run then rereads the other open
- * lines' threads through `Slack.read` (read-only, the fetch's read path) and drops a line once Isaac wrote or reacted at
- * or after its message, or once that message is older than 14 days. Then it rewrites the file:
- * `_updated <ISO> · chef shadow_`, `## Needs your attention`, one bullet per open line in the format Eva's heartbeat
+ * lines' threads through `Slack.threads` (read-only, the fetch's read path) and drops a line once Isaac wrote or reacted
+ * at or after its message, or once that message is older than 14 days. Then it rewrites the file:
+ * `_updated <ISO> · chef_`, `## Needs your attention`, one bullet per open line in the format Eva's heartbeat
  * (`sweep.ts`) and Catch Up (`catchup-build.ts`) parse. Never posts, reacts or marks anything read.
  */
 
@@ -98,7 +98,7 @@ export const lineOf = (entry: Entry) =>
   `- **${entry.where}**${entry.who === undefined ? "" : ` (${entry.who})`} · ${entry.author} · ${entry.ts} · ${entry.gist} · why: ${entry.reason} [permalink](${entry.url})`
 
 export const render = (entries: ReadonlyArray<Entry>, now: string) =>
-  [`_updated ${isoSecond(now)} · chef shadow_`, "", "## Needs your attention", "", ...entries.map(lineOf), ""].join("\n")
+  [`_updated ${isoSecond(now)} · chef_`, "", "## Needs your attention", "", ...entries.map(lineOf), ""].join("\n")
 
 /** Why an open line is done, from a fresh read of its thread: Isaac wrote or reacted at or after its message. */
 export const handled = (entry: Entry, thread: Thread, isaac: string): "replied" | "reacted" | null => {
@@ -116,7 +116,7 @@ const lock = Semaphore.makeUnsafe(1)
 const digest = job(events, {
   id: "digest",
   description:
-    "Update the shadow Needs your attention in Eva's work/elysia/slack-chef.md from one triaged Slack item (needs-isaac adds or replaces its line, skip removes it), recheck the other open lines read-only and drop those Isaac answered or reacted to, or older than 14 days. Never posts, reacts or marks read.",
+    "Update Needs your attention in Eva's work/elysia/slack-chef.md from one triaged Slack item (needs-isaac adds or replaces its line, skip removes it), recheck the other open lines read-only and drop those Isaac answered or reacted to, or older than 14 days. Never posts, reacts or marks read.",
   input: Triaged,
   triggers: [Trigger.Manual(), Trigger.OnEvent({ type: "ecard-slack-triage/item.triaged" })],
   run: Effect.fnUntraced(function*(item, ctx) {
@@ -143,7 +143,7 @@ const digest = job(events, {
         return false
       })
       const recheck = [...fresh].sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts)).slice(0, MAX_RECHECK)
-      const result = recheck.length === 0 ? undefined : yield* Effect.result((yield* Slack).read({ urls: recheck.map((entry) => entry.url) }))
+      const result = recheck.length === 0 ? undefined : yield* Effect.result((yield* Slack).threads(recheck.map((entry) => entry.url)))
       const fetched = result?._tag === "Success" ? result.success : undefined
       const kept = fresh.filter((entry) => {
         const thread = fetched?.threads.find((candidate) => candidate.url === entry.url)
@@ -175,7 +175,7 @@ export const spec = {
   id: "ecard-slack-digest",
   events,
   purpose:
-    "Keep the slack triage chef's Needs your attention in Eva's work/elysia/slack-chef.md (shadow of Elysia's slack.md): needs-isaac adds a line per conversation thread, skip removes it, lines Isaac answered or reacted to (read-only recheck) or older than 14 days drop.",
+    "Keep the slack triage chef's Needs your attention in Eva's work/elysia/slack-chef.md (read by Eva's heartbeat and Catch Up): needs-isaac adds a line per conversation thread, skip removes it, lines Isaac answered or reacted to (read-only recheck) or older than 14 days drop.",
   agent: {
     // No model calls. Kept for the Component shape.
     model: "anthropic/claude-haiku-5-5",

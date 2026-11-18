@@ -1,100 +1,148 @@
 import { Clock, Effect, FileSystem, Layer, Path, Schema } from "effect"
-import { Activity, flaggedItems, Flags, Item, Slack, Source, SourceChoice, Thread } from "./adapters/slack.ts"
+import { type Advance, type Cluster, Cursor, Item, Slack, slackTs, Source, SourceChoice } from "./adapters/slack.ts"
 import { type Component, define, job, Trigger } from "../../src/core/Component.ts"
 
 /**
- * `kind: "code"` agent (`ecard-slack-fetch.json`, next to this file): Isaac's eCard Slack, read-only, no model.
- * - `activity` (manual, what `request` runs): what is new since a cursor plus the threads of given permalinks, one read;
- *   Eva's `jobs/ecard-slack-triage` asks it each run.
- * - `fetch` (cron): the thread text of each new item Elysia flagged, for the ecard-slack-triage agent.
- * Both read through the claude proxy and fall back to Slack desktop over CDP when the proxy fails (`adapters/slack.ts`);
- * `source` in the input (or env `ECARD_SLACK_SOURCE`) forces one.
+ * `kind: "code"` agent (`ecard-slack-fetch.json`, next to this file): Isaac's eCard Slack, read directly and read-only,
+ * no model. Each `fetch` run scans what is new since the per-conversation cursors (`adapters/slack.ts` `Slack.scan`:
+ * Slack desktop over CDP, the claude proxy when that fails): DMs and group DMs, @-mentions of Isaac, threads he is in and
+ * the channels in `watch.json`, and hands each (conversation, thread) with something for him to ecard-slack-triage as
+ * one `item.fetched`. State in the agent state dir:
+ * - `cursor.json` (`Cursor`): newest Slack ts seen per conversation, per thread and of mentions. A missing key starts
+ *   24 h back. Rewritten (tmp + rename) after each cluster, never past one not yet handed on, so a crash or the
+ *   `MAX_PER_RUN` cut neither drops nor repeats an item.
+ * - `watch.json`: `[{id, name?}]`, the channels read whole besides DMs, mentions and threads.
  */
 
-const Sourced = {
-  source: Source,
-  /** Why the run left the claude proxy for Slack desktop. */
-  fallbackReason: Schema.optionalKey(Schema.String)
-}
+const BySource = Schema.Struct({ dm: Schema.Int, mention: Schema.Int, thread: Schema.Int, channel: Schema.Int })
 
 const events = {
-  /** One `activity` read: newest first, with the cursor to save for the next run. */
-  "activity.fetched": Schema.Struct({
-    ...Sourced,
-    authedUser: Schema.String,
-    since: Schema.String,
-    /** The newest item's ts, else `since`. */
-    cursor: Schema.String,
-    items: Schema.Array(Activity),
-    threads: Schema.Array(Thread)
-  }),
-  /** One per new item Elysia flagged under Needs your attention, with its Slack text: ecard-slack-triage's input. */
+  /** One (conversation, thread) with something for Isaac: ecard-slack-triage's input. */
   "item.fetched": Item,
-  /** `source` is absent when there was nothing new to read. */
-  "fetch.completed": Schema.Struct({ source: Schema.optionalKey(Source), fallbackReason: Sourced.fallbackReason, flagged: Schema.Int, fresh: Schema.Int, fetched: Schema.Int })
+  /** `skipped`: neither source could read Slack; every cursor stayed. */
+  "fetch.completed": Schema.Struct({
+    source: Schema.optionalKey(Source),
+    /** Why the run left Slack desktop for the claude proxy. */
+    fallbackReason: Schema.optionalKey(Schema.String),
+    skipped: Schema.optionalKey(Schema.String),
+    /** Clusters with something new for Isaac; `fetched` of them were handed on, `deferred` wait for the next run. */
+    found: Schema.Int,
+    fetched: Schema.Int,
+    deferred: Schema.Int,
+    bySource: BySource,
+    /** Conversations that could not be read; their cursors stayed. */
+    failures: Schema.Array(Schema.String)
+  })
 }
 
-export class SeenError extends Schema.TaggedError<SeenError>()("SeenError", { message: Schema.String }) {}
+export class FetchStateError extends Schema.TaggedError<FetchStateError>()("FetchStateError", { message: Schema.String }) {}
 
-/** Items per `fetch` run; the rest wait for the next run. One read covers them all. */
+/** Items per run; the rest wait for the next run. */
 export const MAX_PER_RUN = 12
-/** Permalinks per `activity` run. */
-export const MAX_URLS = 20
-const decodeSeen = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Array(Schema.String)))
+/** Thread cursors untouched this long are dropped. */
+const THREAD_KEEP_MS = 14 * 86_400_000
 
-const activity = job(events, {
-  id: "activity",
-  description:
-    "Read Isaac's eCard Slack after `since` (ISO; default 24 h ago): DMs, group DMs, his channels and @-mentions of him, with reactions, plus the threads of `urls`. Claude proxy first, Slack desktop (CDP :9333) when it fails; `source` forces one. Read-only.",
-  input: Schema.Struct({
-    since: Schema.optionalKey(Schema.String),
-    urls: Schema.optionalKey(Schema.Array(Schema.String)),
-    source: Schema.optionalKey(SourceChoice)
-  }),
-  triggers: [Trigger.Manual()],
-  run: Effect.fnUntraced(function*(input, ctx) {
-    const since = input.since ?? new Date((yield* Clock.currentTimeMillis) - 86_400_000).toISOString()
-    const read = yield* (yield* Slack).read({ since, urls: (input.urls ?? []).slice(0, MAX_URLS) }, input.source)
-    const newest = read.items.reduce((max, item) => (Date.parse(item.ts) > Date.parse(max) ? item.ts : max), since)
-    yield* ctx.emit("activity.fetched", { ...read, since, cursor: newest })
-  })
-})
+export const Watch = Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.optionalKey(Schema.String) }))
+const decodeCursor = Schema.decodeUnknownEffect(Schema.fromJsonString(Cursor))
+const decodeWatch = Schema.decodeUnknownEffect(Schema.fromJsonString(Watch))
+
+/**
+ * The cursor once `done` clusters are handed on and `pending` are not: each key moves to the newest ts `done` covers,
+ * but stays below the oldest ts a pending cluster needs for it.
+ */
+export const advanced = (cursor: Cursor, done: ReadonlyArray<Cluster>, pending: ReadonlyArray<Cluster>): Cursor => {
+  const floor = new Map<string, string>()
+  for (const advance of pending.flatMap((cluster) => cluster.advance)) {
+    const held = floor.get(advance.key)
+    if (held === undefined || advance.from < held) floor.set(advance.key, advance.from)
+  }
+  const next = { conv: { ...cursor.conv }, threads: { ...cursor.threads }, ...(cursor.mentions === undefined ? {} : { mentions: cursor.mentions }) }
+  const move = (advance: Advance) => {
+    const held = floor.get(advance.key)
+    if (held !== undefined && advance.to >= held) return
+    if (advance.key === "mentions") {
+      if (next.mentions === undefined || advance.to > next.mentions) next.mentions = advance.to
+      return
+    }
+    const [kind, ...rest] = advance.key.split(":")
+    const map = kind === "conv" ? next.conv : next.threads
+    const key = rest.join(":")
+    if (map[key] === undefined || advance.to > map[key]!) map[key] = advance.to
+  }
+  for (const advance of done.flatMap((cluster) => cluster.advance)) move(advance)
+  return next
+}
+
+/** Handed on first: mentions and DMs, then threads, then watched channels; oldest first within each. */
+const RANK: Readonly<Record<Cluster["via"], number>> = { mention: 0, dm: 0, thread: 1, channel: 2 }
+const firstTs = (cluster: Cluster) => cluster.advance.reduce((min, advance) => (advance.from < min ? advance.from : min), "9999999999.999999")
 
 const fetch = job(events, {
   id: "fetch",
-  description: "Fetch the thread text of new Slack items Elysia flagged (read-only; claude proxy, else Slack desktop) and hand each to ecard-slack-triage.",
+  description:
+    "Read Isaac's eCard Slack directly since the per-conversation cursors (DMs, group DMs, @-mentions, threads he is in, watched channels; Slack desktop over CDP, the claude proxy when that fails; read-only) and hand each (conversation, thread) with something for him to ecard-slack-triage.",
   input: Schema.Struct({ source: Schema.optionalKey(SourceChoice) }),
   triggers: [Trigger.Manual(), Trigger.Cron({ cron: "20 * * * *", input: Effect.succeed({}) })],
   run: Effect.fnUntraced(function*(input, ctx) {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const file = path.join(ctx.stateDir, "seen.json")
-    const seenError = (error: { readonly message: string }) => new SeenError({ message: `${file}: ${error.message}` })
-    const seen = (yield* fs.exists(file).pipe(Effect.mapError(seenError)))
-      ? yield* fs.readFileString(file).pipe(Effect.flatMap(decodeSeen), Effect.mapError(seenError))
-      : []
-    const flagged = flaggedItems(yield* (yield* Flags).read)
-    const known = new Set(seen)
-    const fresh = flagged.filter((item) => !known.has(item.url.split("?")[0]!))
-    const batch = fresh.slice(0, MAX_PER_RUN)
-    if (batch.length === 0) {
-      yield* ctx.emit("fetch.completed", { flagged: flagged.length, fresh: 0, fetched: 0 })
+    const cursorFile = path.join(ctx.stateDir, "cursor.json")
+    const watchFile = path.join(ctx.stateDir, "watch.json")
+    const failed = (file: string) => (error: { readonly message: string }) => new FetchStateError({ message: `${file}: ${error.message}` })
+    const load = <A>(file: string, decode: (text: string) => Effect.Effect<A, { readonly message: string }>, empty: A) =>
+      fs.exists(file).pipe(
+        Effect.flatMap((exists) => (exists ? fs.readFileString(file).pipe(Effect.flatMap(decode)) : Effect.succeed(empty))),
+        Effect.mapError(failed(file))
+      )
+    let cursor: Cursor = yield* load(cursorFile, decodeCursor, { conv: {}, threads: {} })
+    const watch = yield* load(watchFile, decodeWatch, [])
+    const now = yield* Clock.currentTimeMillis
+    const bySource = { dm: 0, mention: 0, thread: 0, channel: 0 }
+
+    const result = yield* Effect.result((yield* Slack).scan({ cursor, watch: watch.map((channel) => channel.id), floor: slackTs(now - 86_400_000) }, input.source))
+    if (result._tag === "Failure") {
+      yield* ctx.emit("fetch.completed", { skipped: result.failure.message, found: 0, fetched: 0, deferred: 0, bySource, failures: [] })
       return
     }
-    const read = yield* (yield* Slack).read({ urls: batch.map((item) => item.url) }, input.source)
-    for (const item of batch) {
-      const thread = read.threads.find((candidate) => candidate.url.split("?")[0] === item.url.split("?")[0])
-      if (thread !== undefined && thread.messages.length > 0) yield* ctx.emit("item.fetched", { ...thread, url: item.url, summary: item.summary })
+    const scan = result.success
+    const ordered = [...scan.clusters].sort((a, b) => RANK[a.via] - RANK[b.via] || (firstTs(a) < firstTs(b) ? -1 : firstTs(a) > firstTs(b) ? 1 : 0))
+    const found = ordered.filter((cluster) => cluster.emit).length
+    const keepThreads = slackTs(now - THREAD_KEEP_MS)
+    let fetched = 0
+    let at = 0
+    for (; at < ordered.length; at++) {
+      const cluster = ordered[at]!
+      if (cluster.emit) {
+        if (fetched === MAX_PER_RUN) break
+        const operative = cluster.messages.find((message) => message.ts === cluster.ts) ?? cluster.messages[cluster.messages.length - 1]
+        yield* ctx.emit("item.fetched", {
+          url: cluster.url,
+          channel: cluster.channel,
+          ts: cluster.ts,
+          summary: `${cluster.channel} · ${operative?.author ?? "unknown"} · ${cluster.ts}`,
+          messages: cluster.messages
+        })
+        fetched++
+        bySource[cluster.via]++
+      }
+      const next = advanced(cursor, ordered.slice(0, at + 1), ordered.slice(at + 1))
+      const threads = Object.fromEntries(Object.entries(next.threads).filter(([, ts]) => ts >= keepThreads))
+      const pruned = { ...next, threads }
+      if (JSON.stringify(pruned) === JSON.stringify(cursor)) continue
+      cursor = pruned
+      yield* fs.writeFileString(`${cursorFile}.tmp`, `${JSON.stringify(cursor, null, 2)}\n`).pipe(
+        Effect.andThen(fs.rename(`${cursorFile}.tmp`, cursorFile)),
+        Effect.mapError(failed(cursorFile))
+      )
     }
-    // Seen once tried: an item neither source could read is not retried every hour.
-    const next = [...seen, ...batch.map((item) => item.url.split("?")[0]!)].slice(-500)
-    yield* fs.writeFileString(`${file}.tmp`, `${JSON.stringify(next)}\n`).pipe(Effect.andThen(fs.rename(`${file}.tmp`, file)), Effect.mapError(seenError))
     yield* ctx.emit("fetch.completed", {
-      source: read.source,
-      ...(read.fallbackReason === undefined ? {} : { fallbackReason: read.fallbackReason }),
-      flagged: flagged.length,
-      fresh: fresh.length,
-      fetched: read.threads.length
+      source: scan.source,
+      ...(scan.fallbackReason === undefined ? {} : { fallbackReason: scan.fallbackReason }),
+      found,
+      fetched,
+      deferred: found - fetched,
+      bySource,
+      failures: scan.failures
     })
   })
 })
@@ -102,16 +150,16 @@ const fetch = job(events, {
 export const spec = {
   id: "ecard-slack-fetch",
   events,
-  purpose: "Read Isaac's eCard Slack, read-only: what is new since a cursor (with reactions) and the threads of given or flagged permalinks; claude proxy first, Slack desktop as the fallback.",
+  purpose:
+    "Read Isaac's eCard Slack directly, read-only: DMs, group DMs, @-mentions, threads he is in and watched channels since per-conversation cursors, one item per conversation thread for ecard-slack-triage; Slack desktop first, the claude proxy as the fallback.",
   agent: {
     // No model calls: the fetch is a fixed read. Kept for the Component shape.
     model: "anthropic/claude-haiku-5-5",
     candidates: ["anthropic/claude-haiku-5-5"],
     system: ""
   },
-  // `activity` first: `request` runs an agent's first manual job.
-  jobs: [activity, fetch],
-  tools: Layer.mergeAll(Slack.layer, Flags.layer)
-} satisfies Component<Slack | Flags>
+  jobs: [fetch],
+  tools: Slack.layer
+} satisfies Component<Slack>
 
 export default define(spec)
