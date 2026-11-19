@@ -169,13 +169,14 @@ async function expectRich(scope: Locator): Promise<void> {
     .poll(() => inline.evaluate((el: HTMLImageElement) => el.naturalWidth))
     .toBeGreaterThan(0)
   await expect(row.getByTestId('code-block')).toHaveCount(0)
-  // The slider moves: a drag across the frame changes the divider position.
+  // The slider moves: a click across the frame changes the divider position. A locator click, not
+  // page coordinates: a log just opened still settles its scroll at the end while rows measure, so
+  // a box read after scrollIntoViewIfNeeded can be stale (the click then lands off the frame).
   const frame = compare.getByTestId('compare-frame')
-  await frame.scrollIntoViewIfNeeded()
-  const box = (await frame.boundingBox())!
+  const { width, height } = (await frame.boundingBox())!
   const divider = compare.getByRole('slider', { name: 'Before and after divider' })
   const before = await divider.getAttribute('aria-valuenow')
-  await frame.page().mouse.click(box.x + box.width * 0.2, box.y + box.height / 2)
+  await frame.click({ position: { x: width * 0.2, y: height / 2 } })
   await expect(divider).not.toHaveAttribute('aria-valuenow', before ?? '')
   // Its top at the top of the log, so a screenshot shows the slider and what follows it.
   await row.evaluate((el) => el.scrollIntoView({ block: 'start' }))
