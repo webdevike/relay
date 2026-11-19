@@ -71,6 +71,16 @@
 .eva-as-failed {
   color: var(--eva-c-danger);
 }
+/* The warning mark beside an assistant (sidebar row, home card); its tooltip says what is wrong. */
+.eva-signin-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--eva-c-danger);
+}
+.eva-signin-mark[data-tone='warn'] {
+  color: var(--eva-c-warning);
+}
 
 /*
  * The header's notch, display only: the header's own fill hanging from its bottom edge, centered.

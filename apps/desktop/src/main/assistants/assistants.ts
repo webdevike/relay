@@ -6,10 +6,15 @@ import * as path from 'node:path'
 import { z } from 'zod'
 import {
   AssistantPortraitSchema,
+  OmpProfileSchema,
+  ProfileAuthSchema,
+  TurnFailureSchema,
   type Assistant,
   type AssistantPortrait,
   type AssistantStatus,
   type Assistants,
+  type ProfileAuth,
+  type TurnFailure,
 } from '@evaos/contract'
 import { oneLine } from '@evaos/chat-core/session'
 import { isNothingToReport } from '@evaos/chat-core/quiet'
@@ -185,6 +190,41 @@ export function parseHostStatus(raw: unknown): Map<string, HostStatus> | null {
   return out
 }
 
+/** What the host says of an agent's model sign-in in `assistant.agents`: its profile, how that profile is signed in, its newest unanswered failure. */
+export interface HostHealth {
+  profile?: string
+  auth?: ProfileAuth
+  failure?: TurnFailure
+}
+
+const HostHealthSchema = z.object({
+  id: z.string().min(1),
+  profile: OmpProfileSchema.optional().catch(undefined),
+  auth: ProfileAuthSchema.optional().catch(undefined),
+  failure: TurnFailureSchema.optional().catch(undefined),
+})
+
+/**
+ * The host's `assistant.agents` sign-in health by agent id (only agents it says something of); null
+ * when it is not a list. A field this build cannot read is dropped, never the agent.
+ */
+export function parseHostHealth(raw: unknown): Map<string, HostHealth> | null {
+  if (!Array.isArray(raw)) return null
+  const out = new Map<string, HostHealth>()
+  for (const a of raw) {
+    const r = HostHealthSchema.safeParse(a)
+    if (!r.success) continue
+    const { id, profile, auth, failure } = r.data
+    if (profile === undefined && auth === undefined && failure === undefined) continue
+    out.set(id, {
+      ...(profile !== undefined && { profile }),
+      ...(auth !== undefined && { auth }),
+      ...(failure !== undefined && { failure }),
+    })
+  }
+  return out
+}
+
 export interface Reply {
   text: string
   /** When omp wrote it, epoch ms; null when its record has no readable timestamp. */
@@ -274,6 +314,10 @@ export interface AssistantsDeps {
   hostAgents?: () => Agent[] | null
   /** The host's statuses (`parseHostStatus`), null until it has answered. */
   hostStatus?: () => ReadonlyMap<string, HostStatus> | null
+  /** The host's sign-in health (`parseHostHealth`), null until it has answered. */
+  hostHealth?: () => ReadonlyMap<string, HostHealth> | null
+  /** A thin client's host Mac by name (where the sign-ins live); absent on the host's own Mac. */
+  hostMac?: () => string
 }
 
 /**
@@ -327,6 +371,8 @@ export class AssistantsService {
       const own = statusOf(session)
       // While Relay is down its last statuses are stale: nothing reads as running.
       const host = sessions === null ? undefined : this.deps.hostStatus?.()?.get(agent.id)
+      // A failure or a broken sign-in stays true while Relay is down: the next reply clears it.
+      const health = this.deps.hostHealth?.()?.get(agent.id)
       return {
         id: agent.id,
         title: agent.title,
@@ -340,9 +386,11 @@ export class AssistantsService {
         tool: own === 'working' ? (session?.detail ?? null) : null,
         file,
         reply: file ? this.replyOf(file) : null,
+        ...health,
       }
     })
-    return { agents, relayUp: sessions !== null }
+    const hostMac = this.deps.hostMac?.()
+    return { agents, relayUp: sessions !== null, ...(hostMac !== undefined && { hostMac }) }
   }
 
   /** The session file for omp session `id`, newest when several dirs hold one. */

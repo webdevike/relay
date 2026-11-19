@@ -38,6 +38,7 @@ import pkg from "../package.json";
 import { bundleVersion } from "./bundle-version";
 import { ensureOmpExtensions } from "./agents/extensions";
 import { hasAiAccount, hostLogPath, ompAccounts } from "./assistant/ai-account";
+import { ProfileAuthMonitor } from "./assistant/profile-auth";
 import { handleAssistantFile } from "./assistant/files";
 import type { FoundAsk, ListedAsk } from "./assistant/http";
 import type { ConsultResult } from "./seams";
@@ -561,6 +562,17 @@ function serve(
           cli: relayCli(),
           log,
         });
+  // Every omp profile's model sign-ins (read-only): an assistant whose profile lost its model's
+  // sign-in is flagged on its row before a message is lost, and a failed sign-in reads them again.
+  const profileAuth = new ProfileAuthMonitor({
+    home: homedir(),
+    clock: systemClock,
+    log,
+    onChange: () => {
+      assistant?.authChanged();
+    },
+    env: process.env,
+  });
   const thread = (agent: AssistantAgentConfig): AssistantService =>
     new AssistantService({
       agent,
@@ -585,6 +597,10 @@ function serve(
       aiAccount: () => hasAiAccount(ompAccounts(resolveOmp())),
       logPath: hostLogPath(),
       activity: () => activityItems,
+      auth: (profile, provider) => profileAuth.auth(profile, provider),
+      authFailed: () => {
+        void profileAuth.refresh();
+      },
     });
   const assistant = assistantThreads(agentHome, thread, {
     // The phones' agent list follows status and last-reply changes on its own, without waiting for a request.
@@ -607,6 +623,7 @@ function serve(
       human,
     },
   });
+  if (assistant !== null) profileAuth.start();
   const stopRegistryWatch =
     registryAdmin === null || assistant === null
       ? null
@@ -1154,6 +1171,7 @@ function serve(
     server.stop();
     voice?.stop();
     stopRegistryWatch?.();
+    profileAuth.stop();
     catchup?.stop();
     device?.close();
     process.exit(0);

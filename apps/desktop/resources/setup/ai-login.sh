@@ -4,6 +4,9 @@
 #   ai-login.sh <anthropic|openai>             omp's own browser login (`omp login`): Claude account / ChatGPT account
 #   ai-login.sh --stdin <anthropic|openai>     reads the API key from STDIN, stores it in ~/.omp/agent/.env (chmod 600)
 #
+# OMP_PROFILE=<name> signs in that omp profile (~/.omp/profiles/<name>) instead of omp's default one,
+# and always runs `omp login`: a profile whose sign-in expired still lists the disabled account.
+#
 # Browser login: STDIN is handed to `omp login` and must stay open until it ends. omp listens for the
 # browser's redirect (ChatGPT: http://localhost:1455/auth/callback) and reads a pasted redirect address
 # or code from stdin at the same time; it gives up, callback listener and all, the moment stdin closes.
@@ -26,6 +29,13 @@ case "$PROVIDER" in
   openai) OMP_PROVIDER=openai-codex; ENV_NAME=OPENAI_API_KEY; ACCOUNT=ChatGPT ;;
   *) fail "usage: ai-login.sh [--stdin] <anthropic|openai>" ;;
 esac
+
+PROFILE="${OMP_PROFILE:-}"
+if [ -n "$PROFILE" ]; then
+  [[ "$PROFILE" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || fail "\"$PROFILE\" is not an omp profile name"
+  [ "$API_KEY_MODE" = 0 ] || fail "an API key is saved for omp's default profile only"
+  ACCOUNT="$ACCOUNT ($PROFILE profile)"
+fi
 
 [ -n "$(tool_path omp)" ] || fail "omp is not installed; run install.sh omp first"
 
@@ -78,12 +88,12 @@ header = \"anthropic-version: 2023-06-01\"" ;;
   ok "$PROVIDER"
 fi
 
-if has_account "$OMP_PROVIDER"; then
+if [ -z "$PROFILE" ] && has_account "$OMP_PROVIDER"; then
   ok "$PROVIDER (already signed in)"
 fi
 
 progress 10 "Opening your browser to sign in to $ACCOUNT"
-log_line "omp login $OMP_PROVIDER"
+log_line "omp login $OMP_PROVIDER (omp profile: ${PROFILE:-default})"
 from=$(( $(wc -c <"$SETUP_LOG" 2>/dev/null || echo 0) + 1 ))
 # omp opens the browser, waits for the callback (or a pasted address on stdin) and stores the
 # credential in ~/.omp/agent/agent.db.

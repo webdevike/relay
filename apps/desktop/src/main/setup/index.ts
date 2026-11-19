@@ -70,7 +70,7 @@ export function registerSetup(ctx: MainContext): void {
     return [...new Set(dirs.filter((d) => d !== ''))].join(path.delimiter)
   }
 
-  const commandFor = async (script: string, args: string[]) => {
+  const commandFor = async (script: string, args: string[], env: Record<string, string> = {}) => {
     if (dir === null || !fs.existsSync(path.join(dir, script))) {
       fail(
         'setup-scripts-missing',
@@ -98,6 +98,7 @@ export function registerSetup(ctx: MainContext): void {
         RELAY_RESOURCES: process.resourcesPath,
         ...(hostApp !== null ? { RELAY_HOST_APP: hostApp } : {}),
         ...(hostBin !== null ? { RELAY_HOST_BIN: hostBin } : {}),
+        ...env,
       },
     })
   }
@@ -232,6 +233,13 @@ export function registerSetup(ctx: MainContext): void {
       }
     }
     if (run.task === 'ai-login') {
+      // A thin client's assistants run on the host's Mac: a profile signed in here is the wrong omp.
+      if (run.profile !== undefined && ctx.env.relayRemote !== null) {
+        fail(
+          'on-the-host',
+          'Assistant sign-ins live on the Mac that runs Relay Host. Sign in there: Relay > Settings > Connections.',
+        )
+      }
       // One browser sign-in at a time: a second `omp login` could not bind the callback port the
       // first still holds, so a retry ends the earlier one first.
       const earlier = [...running.values()].filter((r) => r.task === 'ai-login')
@@ -243,7 +251,7 @@ export function registerSetup(ctx: MainContext): void {
     const human = !mac && saved.success ? saved.data.userName : undefined
     const plan = planRun(run, home, human !== undefined ? { human } : {})
     try {
-      const cmd = await commandFor(plan.script, plan.args)
+      const cmd = await commandFor(plan.script, plan.args, plan.env)
       const job = runScript(cmd, home, plan, (line) => {
         if (line.kind === 'progress') {
           emit(ctx, 'setup.progress', { runId, percent: line.percent, line: line.message })

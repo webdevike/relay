@@ -21,6 +21,7 @@ import { previewText } from "@/agents/markdown";
 import { relativeTime } from "@/lib/format";
 import { portraitOf } from "@/lib/portrait";
 import { tapHaptic } from "@/lib/haptics";
+import { agentHealth } from "@/lib/signin";
 import { statusLabel, useAssistantStore } from "@/state/assistant";
 import { spacing, useColors, type ToneToken } from "@/theme";
 
@@ -120,9 +121,10 @@ function newAssistant(): void {
 function AssistantRow({ agent, now, onPress }: { agent: AssistantAgent; now: number; onPress: () => void }) {
   const colors = useColors();
   const reply = agent.lastReply === undefined ? "" : previewText(agent.lastReply.text);
-  const status = agent.status;
+  const health = agentHealth(agent);
+  const tone: ToneToken | undefined = health?.tone ?? (agent.status === undefined ? undefined : statusTone[agent.status]);
   const words = statusLabel(agent);
-  const label = [agent.title, words, reply === "" ? null : reply].filter((part) => part !== null).join(". ");
+  const label = [agent.title, words, health?.detail, reply === "" ? null : reply].filter((part) => part !== null && part !== undefined).join(". ");
   return (
     <Pressable
       accessibilityRole="button"
@@ -140,7 +142,7 @@ function AssistantRow({ agent, now, onPress }: { agent: AssistantAgent; now: num
             <Text variant="title" numberOfLines={1} style={styles.grow}>
               {agent.title}
             </Text>
-            {status !== undefined && words !== null && <Pill label={words} tone={statusTone[status]} />}
+            {words !== null && tone !== undefined && <Pill label={words} tone={tone} />}
           </View>
           {agent.scope !== undefined && (
             <Text variant="caption" color="textMuted" numberOfLines={1}>

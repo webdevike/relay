@@ -1,7 +1,10 @@
 import { Badge, Button, Group, PasswordInput, Text } from '@mantine/core'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { LinearKeySchema, type Connection } from '@evaos/contract'
 import { placeOf } from '@evaos/shell-core'
+import { useAssistants } from '../assistants/assistants-store'
+import { AUTH_STATE_LABEL, profileSignins, type ProfileSignin } from '../assistants/agent-signin'
+import { SigninAction, SigninNote } from '../assistants/Signin'
 import { openPlace } from '../navigation/navigate'
 import { openLink } from '../navigation/open-link'
 import { connect, disconnect, startConnections, useConnections } from './connections-store'
@@ -10,6 +13,13 @@ const STATUS: Record<Connection['status'], { label: string; color: string }> = {
   connected: { label: 'Connected', color: 'green' },
   'not-connected': { label: 'Not connected', color: 'gray' },
   unknown: { label: 'Not checked', color: 'yellow' },
+}
+
+const AUTH_COLOR: Record<ProfileSignin['state'], string> = {
+  ok: 'green',
+  signed_out: 'red',
+  missing: 'red',
+  shared: 'yellow',
 }
 
 /** Linear: paste a personal API key; it is saved in Relay's config and never shown again. */
@@ -150,6 +160,69 @@ function ConnectionRow({ row }: { row: Connection }) {
   )
 }
 
+/**
+ * One omp profile's sign-in to a model provider that assistants run on, as the host reads it: who
+ * uses it, the account, what is wrong, and "Sign in again" under that profile.
+ */
+function ProfileSigninRow({ row, hostMac }: { row: ProfileSignin; hostMac: string | undefined }) {
+  const testId = `connection-profile-${row.key.replace(':', '-')}`
+  return (
+    <div
+      className="eva-settings-row eva-settings-row-static eva-conn-row"
+      data-testid={testId}
+      data-status={row.state}
+    >
+      <span className="eva-settings-label">
+        <Group gap="xs" wrap="nowrap">
+          <span className="eva-settings-label-title">{row.title}</span>
+          <Badge size="xs" variant="light" color={AUTH_COLOR[row.state]}>
+            {AUTH_STATE_LABEL[row.state]}
+          </Badge>
+        </Group>
+        {row.account || row.detail ? (
+          <span className="eva-settings-label-help">
+            {row.account && row.detail
+              ? `${row.account} · ${row.detail}`
+              : (row.account ?? row.detail)}
+          </span>
+        ) : null}
+        <Text size="xs" c="dimmed">
+          Used by {row.usedBy.join(', ')}
+        </Text>
+        <SigninNote fix={row.fix} testId={`${testId}-note`} />
+      </span>
+      <Group gap="xs" wrap="nowrap" className="eva-conn-actions">
+        <SigninAction
+          fix={row.fix}
+          hostMac={hostMac}
+          primary={row.state !== 'ok'}
+          testId={`${testId}-signin`}
+        />
+      </Group>
+    </div>
+  )
+}
+
+/** The omp profile sign-ins the assistants run on (each profile signs in on its own). */
+function AssistantSignins() {
+  const agents = useAssistants((s) => s.data?.agents)
+  const hostMac = useAssistants((s) => s.data?.hostMac)
+  const rows = useMemo(() => profileSignins(agents ?? []), [agents])
+  if (rows.length === 0) return null
+  return (
+    <section className="eva-conn-profiles" aria-labelledby="connections-profiles-title">
+      <h3 className="eva-settings-card-title" id="connections-profiles-title">
+        Assistant sign-ins
+      </h3>
+      <div className="eva-settings-card" data-testid="connections-profiles">
+        {rows.map((row) => (
+          <ProfileSigninRow key={row.key} row={row} hostMac={hostMac} />
+        ))}
+      </div>
+    </section>
+  )
+}
+
 /** Settings > Connections: what Relay reads from, with Connect and Disconnect where it can. */
 export function ConnectionsSection() {
   useEffect(() => startConnections(), [])
@@ -164,10 +237,13 @@ export function ConnectionsSection() {
   }
   if (rows === null) return <Text size="sm">Checking connections...</Text>
   return (
-    <div className="eva-settings-card" data-testid="connections-list">
-      {rows.map((row) => (
-        <ConnectionRow key={row.id} row={row} />
-      ))}
-    </div>
+    <>
+      <div className="eva-settings-card" data-testid="connections-list">
+        {rows.map((row) => (
+          <ConnectionRow key={row.id} row={row} />
+        ))}
+      </div>
+      <AssistantSignins />
+    </>
   )
 }

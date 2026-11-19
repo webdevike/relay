@@ -61,3 +61,18 @@
 .eva-asg-status[data-status='working'] {
   color: #fff;
 }
+/* A broken sign-in or failed turn: a small solid chip in the portrait's top corner (tooltip says why). */
+.eva-asg-trouble.eva-asg-trouble {
+  position: absolute;
+  top: var(--mantine-spacing-sm);
+  right: var(--mantine-spacing-sm);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--mantine-color-red-filled);
+  color: var(--mantine-color-white);
+}
+.eva-asg-trouble.eva-asg-trouble[data-tone='warn'] {
+  background: var(--mantine-color-yellow-filled);
+  color: var(--mantine-color-black);
+}

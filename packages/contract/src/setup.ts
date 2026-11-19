@@ -45,6 +45,19 @@ export type SetupTool = z.infer<typeof SetupToolSchema>
 export const SetupProviderSchema = z.enum(['anthropic', 'openai'])
 export type SetupProvider = z.infer<typeof SetupProviderSchema>
 
+/** An omp profile name (`~/.omp/profiles/<name>`, protocol `OmpProfileName`). */
+export const OmpProfileSchema = z.string().regex(/^[a-z][a-z0-9-]{0,39}$/)
+
+/**
+ * The setup provider whose browser sign-in (`ai-login`) signs omp in to omp provider `provider`:
+ * `anthropic` is Claude, `openai-codex` is ChatGPT. Null for any other provider.
+ */
+export function setupProviderOf(provider: string): SetupProvider | null {
+  if (provider === 'anthropic') return 'anthropic'
+  if (provider === 'openai-codex') return 'openai'
+  return null
+}
+
 export const SETUP_STEPS = [
   'welcome',
   'check',
@@ -93,7 +106,15 @@ export type SetupState = z.infer<typeof SetupStateSchema>
 
 export const SetupRunSchema = z.discriminatedUnion('task', [
   z.object({ task: z.literal('install'), tool: SetupToolSchema }),
-  z.object({ task: z.literal('ai-login'), provider: SetupProviderSchema }),
+  /**
+   * omp's browser sign-in. With `profile` it signs in that omp profile (OMP_PROFILE), always running
+   * `omp login` even when the profile lists an account of the provider (a disabled one stays listed).
+   */
+  z.object({
+    task: z.literal('ai-login'),
+    provider: SetupProviderSchema,
+    profile: OmpProfileSchema.optional(),
+  }),
   z.object({
     task: z.literal('ai-key'),
     provider: SetupProviderSchema,

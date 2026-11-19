@@ -154,6 +154,8 @@ export interface ScriptPlan {
    */
   interactive?: boolean
   timeoutMs: number
+  /** Extra environment for the script (OMP_PROFILE for a profile's sign-in). */
+  env?: Record<string, string>
   cleanup?: () => void
 }
 
@@ -167,7 +169,14 @@ export function planRun(run: ScriptRun, homedir: string, o: { human?: string } =
     case 'install':
       return { script: 'install.sh', args: [run.tool], timeoutMs: 30 * MIN }
     case 'ai-login':
-      return { script: 'ai-login.sh', args: [run.provider], interactive: true, timeoutMs: 10 * MIN }
+      return {
+        script: 'ai-login.sh',
+        args: [run.provider],
+        interactive: true,
+        timeoutMs: 10 * MIN,
+        // omp signs in the profile OMP_PROFILE names; without one, omp's default profile.
+        ...(run.profile !== undefined && { env: { OMP_PROFILE: run.profile } }),
+      }
     case 'ai-key':
       return {
         script: 'ai-login.sh',

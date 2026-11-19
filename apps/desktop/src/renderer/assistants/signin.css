@@ -1,0 +1,53 @@
+/*
+ * A failed turn at the end of an assistant's thread: a tab on the composer like the goal strip
+ * (inset past the frame's rounded corners, open at the bottom), tinted by its tone. Its border and
+ * fill carry the tone; the text stays the foreground color so it reads on the tint.
+ */
+.eva-signin-strip {
+  --eva-signin-tint: var(--mantine-color-red-light);
+  --eva-signin-line: var(--mantine-color-red-outline);
+  --eva-signin-ink: var(--mantine-color-red-light-color);
+  flex: none;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  width: calc(100% - var(--eva-space-native-lg) * 2 - var(--eva-radius-xl) * 2);
+  max-width: calc(var(--eva-chat-column-w) - var(--eva-radius-xl) * 2);
+  margin: var(--mantine-spacing-xs) auto 0;
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+  border: 1px solid var(--eva-signin-line);
+  border-bottom: none;
+  border-radius: var(--eva-radius-xl) var(--eva-radius-xl) 0 0;
+  background: var(--eva-signin-tint);
+  color: var(--eva-c-foreground);
+}
+.eva-signin-strip[data-tone='warn'] {
+  --eva-signin-tint: var(--mantine-color-yellow-light);
+  --eva-signin-line: var(--mantine-color-yellow-outline);
+  --eva-signin-ink: var(--mantine-color-yellow-light-color);
+}
+.eva-signin-strip + .eva-composer {
+  padding-top: 0;
+}
+.eva-signin-strip-body {
+  flex: 1;
+  min-width: 0;
+}
+/* The title line leads with the warning icon, in the tone's ink. */
+.eva-signin-strip-title {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  color: var(--eva-signin-ink);
+}
+.eva-signin-strip-title > svg {
+  flex: none;
+}
+.eva-signin-strip-action {
+  flex: none;
+}
+
+.eva-signin-elsewhere {
+  max-width: 240px;
+}

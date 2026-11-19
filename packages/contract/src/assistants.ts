@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OmpProfileSchema } from './setup'
 
 /**
  * Where an agent stands, as the Relay Host derives it (its thread's session plus the work it owns,
@@ -31,6 +32,53 @@ export const AssistantPortraitSchema = z.object({
 })
 export type AssistantPortrait = z.infer<typeof AssistantPortraitSchema>
 
+/**
+ * The one-tap fix of a failed turn or a signed-out profile (protocol `SigninFix`): sign omp
+ * provider `provider` (`anthropic`, `openai-codex`, ...) in again under omp profile `profile`
+ * (absent: omp's default profile), on the Mac Relay Host runs on.
+ */
+export const SigninFixSchema = z.object({
+  kind: z.literal('signin'),
+  provider: z.string().min(1),
+  profile: OmpProfileSchema.optional(),
+})
+export type SigninFix = z.infer<typeof SigninFixSchema>
+
+/**
+ * How an assistant's omp profile is signed in to its model's provider on the host (protocol
+ * `ProfileAuth`): `ok`; `signed_out` (every credential it had is disabled, e.g. an expired OAuth
+ * refresh); `missing` (it never had one); `shared` (a copy of another profile's sign-in, which the
+ * first of the two to refresh signs out). `detail` says why in one sentence for any state but `ok`.
+ */
+export const ProfileAuthSchema = z.object({
+  /** Absent: omp's default profile. */
+  profile: OmpProfileSchema.optional(),
+  provider: z.string().min(1),
+  state: z.enum(['ok', 'signed_out', 'missing', 'shared']),
+  detail: z.string().optional(),
+  /** The account signed in (its email), when the credential names one. */
+  account: z.string().optional(),
+})
+export type ProfileAuth = z.infer<typeof ProfileAuthSchema>
+
+/**
+ * The thread's newest failed turn with no reply since, as the host says it (protocol `TurnFailure`):
+ * its sign-in is missing or expired (`auth`), a rate or usage limit (`rate_limit`), another model
+ * error (`model`), or omp stopped mid-turn (`exit`). A turn that failed before it started is in no
+ * session file, so this is the only place it shows.
+ */
+export const TurnFailureSchema = z.object({
+  at: z.number(),
+  kind: z.enum(['auth', 'rate_limit', 'model', 'exit']),
+  /** e.g. "Nova couldn't reply". */
+  title: z.string(),
+  /** omp's reason and what to do, in plain words. */
+  text: z.string(),
+  /** One this build cannot read is dropped, keeping the failure. */
+  fix: SigninFixSchema.optional().catch(undefined),
+})
+export type TurnFailure = z.infer<typeof TurnFailureSchema>
+
 export const AssistantSchema = z.object({
   /** The registry id (`.omp/assistant/agents.json`), e.g. `astra`. */
   id: z.string(),
@@ -55,6 +103,12 @@ export const AssistantSchema = z.object({
   file: z.string().nullable(),
   /** The newest assistant reply with text, on one line, and when omp wrote it (epoch ms). */
   reply: z.object({ text: z.string(), at: z.number().nullable() }).nullable(),
+  /** The omp profile it runs under, as the host says; absent for omp's default profile. */
+  profile: OmpProfileSchema.optional(),
+  /** How its profile is signed in to its model's provider, when the host could read it. */
+  auth: ProfileAuthSchema.optional(),
+  /** Its newest failed turn with no reply since; the host clears it when a reply lands. */
+  failure: TurnFailureSchema.optional(),
 })
 export type Assistant = z.infer<typeof AssistantSchema>
 
@@ -63,6 +117,11 @@ export const AssistantsSchema = z.object({
   agents: z.array(AssistantSchema),
   /** Relay is connected, so an agent can be started from here. */
   relayUp: z.boolean(),
+  /**
+   * A thin client's host Mac by name: the assistants' omp sign-ins live there, so a sign-in run on
+   * this Mac would sign in the wrong omp. Absent when Relay Host runs on this Mac.
+   */
+  hostMac: z.string().optional(),
 })
 export type Assistants = z.infer<typeof AssistantsSchema>
 

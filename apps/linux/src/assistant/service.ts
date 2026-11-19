@@ -44,6 +44,7 @@ import {
   type AssistantSnapshot,
   type AssistantStatus,
   type GuestEntry,
+  type ProfileAuth,
   type ServerMessage,
 } from "@relay/protocol";
 import type { LaunchOptions } from "../agents/herdr";
@@ -72,6 +73,7 @@ import { CONSULT_TURN, type ConsultDeps, Consults } from "./consult";
 import { splitReplies } from "./replies";
 import { type FillSpawn, runFill } from "./signin";
 import type { AssistantStore } from "./store";
+import { errorRow, type FailingAgent, pendingFailure, providerOfModel } from "./turn-failure";
 import { splitVoiceTurn, withoutDetailsMarker } from "./voice";
 import { transcriptOfRow, WorkReader } from "./work";
 
@@ -146,6 +148,13 @@ export interface AssistantServiceDeps {
   readonly logPath?: string | null;
   /** The host's activity list (`ActivityService.snapshot`): the work this agent owns counts toward its status. */
   readonly activity?: () => readonly ActivityItem[];
+  /**
+   * How the agent's omp profile stands for its model's provider (`ProfileAuthMonitor.auth`):
+   * flagged on its `assistant.agents` row before a turn fails. Absent: rows carry no `auth`.
+   */
+  readonly auth?: (profile: string | undefined, provider: string | undefined) => ProfileAuth | undefined;
+  /** A turn failed for its sign-in: read the profiles' sign-ins again now (`ProfileAuthMonitor.refresh`). */
+  readonly authFailed?: () => void;
 }
 
 /** "No AI account" as the start fails with it: what failed, what to do, where the log is. */
@@ -181,10 +190,27 @@ export function toAssistantMessages(
   prime: string | null,
   prefix: string,
   asking?: Map<string, string | undefined>,
+  failing: FailingAgent = { title: "The assistant" },
 ): AssistantMessage[] {
   const out: AssistantMessage[] = [];
+  // A model error the same turn then answered anyway (omp retried, or moved to another account) is
+  // noise once the reply is there; a turn refused before it started (`prompt`) always stays: that message was lost.
+  const answered = new Set<string>();
+  let replied = false;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message === undefined) continue;
+    if (message.role === "user") replied = false;
+    else if (message.role === "assistant" && message.streaming !== true && message.text.trim().length > 0) replied = true;
+    else if (replied && message.error !== undefined && message.error.prompt === undefined) answered.add(message.id);
+  }
   let firstUser = true;
   for (const message of messages) {
+    if (message.error !== undefined) {
+      if (!answered.has(message.id))
+        out.push(errorRow(failing, { id: message.id, at: message.at, text: message.text, error: message.error }));
+      continue;
+    }
     const images =
       message.images === undefined || message.images.length === 0 ? {} : { images: message.images };
     if (message.canvas !== undefined) {
@@ -351,6 +377,12 @@ export class AssistantService implements AssistantThread {
   private rev = 0;
   /** Id and status of the assistant session as last seen, so unrelated session changes stay quiet. */
   private seen: string | null = null;
+  /** The live session's id while it was running a turn as last seen, so omp stopping mid-turn shows. */
+  private running: string | null = null;
+  /** Set while the host itself closes the thread's session (retired), which is no failure. */
+  private closing = false;
+  /** Turns the host saw end because omp stopped mid-turn ("exit" error rows), oldest first; kept in memory. */
+  private exits: AssistantMessage[] = [];
   private cancelFlush: (() => void) | null = null;
   private starting: Promise<AgentSession> | null = null;
   private waiter: Starting | null = null;
@@ -414,12 +446,20 @@ export class AssistantService implements AssistantThread {
       throw new Error(`assistant ${this.id} cannot take the entry of ${agent.id}`);
     if (JSON.stringify(agent) === JSON.stringify(this.agent)) return;
     this.agent = agent;
-    const prefix = statusPrefix(agent.title);
-    if (prefix !== this.prefix) {
-      this.prefix = prefix;
-      this.transcripts.clear();
-    }
+    this.prefix = statusPrefix(agent.title);
+    // The cached rows carry the title, profile and model in their prefix filter and error rows.
+    this.transcripts.clear();
     this.changed();
+  }
+
+  /** Who the thread's error rows are about: title, omp profile and its model's provider. */
+  private get failing(): FailingAgent {
+    const provider = providerOfModel(this.agent.model);
+    return {
+      title: this.title,
+      ...(this.agent.profile === undefined ? {} : { profile: this.agent.profile }),
+      ...(provider === undefined ? {} : { provider }),
+    };
   }
 
   /** Taken out of the registry: closes its live session, if any. Its transcript and store stay. */
@@ -427,7 +467,12 @@ export class AssistantService implements AssistantThread {
     const session = this.current();
     if (session === undefined) return;
     this.deps.log(`assistant ${this.id}: retired; closing session ${session.id}`);
-    await this.deps.close(session.id);
+    this.closing = true;
+    try {
+      await this.deps.close(session.id);
+    } finally {
+      this.closing = false;
+    }
   }
 
   /** This agent's live session: the assistant session the bridge reports under this registry id, unless it has ended (a dead omp takes no turns). */
@@ -452,9 +497,10 @@ export class AssistantService implements AssistantThread {
             this.prime(),
             this.prefix,
             asking,
+            this.failing,
           );
     // One work card per piece of work: its latest state, where it started.
-    const messages = this.markSubmitted(foldGuestWork([...earlier, ...live]));
+    const messages = this.markSubmitted(foldGuestWork(this.withExits([...earlier, ...live])));
     // A close the thread's rows caused (an exact answer, a superseding question) reaches every device, not just whoever asked for this snapshot.
     if (this.deps.asks.observe(messages, asking)) this.changed();
     const busy = session?.status === "working";
@@ -505,7 +551,7 @@ export class AssistantService implements AssistantThread {
     const live = ((await this.deps.agents.conversation(session.id)) ?? []).filter(
       (message) => message.streaming !== true,
     );
-    return toAssistantMessages(live, this.prime(), this.prefix);
+    return toAssistantMessages(live, this.prime(), this.prefix, undefined, this.failing);
   }
 
   /**
@@ -618,7 +664,10 @@ export class AssistantService implements AssistantThread {
     const session = this.current();
     const earlier = this.earlier(session === undefined ? null : this.deps.sessionFile(session.id));
     const live = await this.settled();
-    const lastReply = lastReplyOf([...earlier, ...live]);
+    const shown = this.withExits([...earlier, ...live]);
+    const lastReply = lastReplyOf(shown);
+    const failure = pendingFailure(shown);
+    const auth = this.deps.auth?.(this.agent.profile, providerOfModel(this.agent.model));
     const background = backgroundOf(this.id, session?.id, this.deps.activity?.() ?? []);
     return {
       id: this.id,
@@ -627,6 +676,9 @@ export class AssistantService implements AssistantThread {
       ...(this.agent.avatar === undefined ? {} : { avatar: this.agent.avatar }),
       ...(this.agent.portrait === undefined ? {} : { portrait: this.agent.portrait }),
       ...(this.agent.model === undefined ? {} : { model: this.agent.model }),
+      ...(this.agent.profile === undefined ? {} : { profile: this.agent.profile }),
+      ...(auth === undefined ? {} : { auth }),
+      ...(failure === undefined ? {} : { failure }),
       status: assistantStatus(
         session,
         background,
@@ -725,6 +777,9 @@ export class AssistantService implements AssistantThread {
       const key = session === undefined ? null : `${session.id} ${session.status}`;
       if (key === this.seen) return false;
       this.seen = key;
+      // The turn's omp went away without the host closing it: the turn died with it.
+      if (this.running !== null && session?.id !== this.running && !this.closing) this.exited();
+      this.running = session?.status === "working" ? session.id : null;
       if (session !== undefined) {
         const waiter = this.waiter;
         if (waiter !== null && (!waiter.primed || session.status === "working")) {
@@ -751,6 +806,17 @@ export class AssistantService implements AssistantThread {
     if (change.kind === "conversation") {
       let settled = false;
       for (const message of change.appended) {
+        if (message.error !== undefined) {
+          // A failed turn: its row goes on the agent's listing, and a turn that never started (Isaac's
+          // message lost) is pushed like a reply, so a phone in his pocket hears of it.
+          settled = true;
+          if (message.error.kind === "auth") this.deps.authFailed?.();
+          if (message.error.prompt !== undefined)
+            this.pushFailure(
+              toAssistantMessages([message], null, this.prefix, undefined, this.failing)[0],
+            );
+          continue;
+        }
         if (message.role !== "assistant" || message.streaming === true) continue;
         settled = true;
         if (message.text.length > 0) this.push(message.text);
@@ -839,6 +905,7 @@ export class AssistantService implements AssistantThread {
       this.prime(),
       this.prefix,
       asking,
+      this.failing,
     );
     const entry = { mtimeMs: stat.mtimeMs, size: stat.size, messages, asking };
     this.transcripts.set(file, entry);
@@ -988,6 +1055,41 @@ export class AssistantService implements AssistantThread {
     return this.primeCache;
   }
 
+  /**
+   * omp stopped while the thread's turn ran (crash, quit, its pane closed): an "exit" error row
+   * (kept in memory, newest 20), a push, and the failure on the agent's listing.
+   */
+  private exited(): void {
+    this.deps.log(`assistant ${this.id}: omp stopped in the middle of a turn`);
+    const at = this.deps.clock.now();
+    const row = errorRow(this.failing, {
+      id: `exit-${String(at)}`,
+      at,
+      text: "its process ended",
+      error: { kind: "exit" },
+    });
+    this.exits = [...this.exits, row].slice(-20);
+    this.pushFailure(row);
+    this.changed();
+  }
+
+  /** `rows` with the host's own "exit" rows put in by time, the rows' own order untouched. */
+  private withExits(rows: AssistantMessage[]): AssistantMessage[] {
+    if (this.exits.length === 0) return rows;
+    const out = [...rows];
+    for (const exit of this.exits) {
+      const index = out.findIndex((row) => row.at > exit.at);
+      out.splice(index === -1 ? out.length : index, 0, exit);
+    }
+    return out;
+  }
+
+  /** A failed turn's error row goes to every phone not looking at the thread, as "<title> couldn't reply: ...". */
+  private pushFailure(row: AssistantMessage | undefined): void {
+    if (row === undefined) return;
+    this.notify(`${row.title ?? this.title}: ${row.text}`);
+  }
+
   /** A settled reply goes to every phone that is not already looking at it. */
   private push(reply: string): void {
     if (isSilent(reply)) return;
@@ -1005,6 +1107,11 @@ export class AssistantService implements AssistantThread {
         : shown.trim().length > 0
           ? withoutDetailsMarker(shown.trim())
           : `Sign in to ${signin.host}`;
+    this.notify(text);
+  }
+
+  /** Pushes `text` (cut to a preview) to every phone registered for this thread that is not looking at it. */
+  private notify(text: string): void {
     const recipients: { deviceId: string; token: string }[] = [];
     for (const [deviceId, token] of this.deps.tokens.tokens(this.id)) {
       if (this.deps.isViewing(deviceId)) continue;
@@ -1137,6 +1244,11 @@ export class AssistantThreads implements AssistantRelaying {
     for (const thread of this.current) listed = thread.observe(change) || listed;
     if (listed) this.scheduleBroadcast();
     this.consults?.observe(change);
+  }
+
+  /** A profile's sign-ins changed (`ProfileAuthMonitor`): the agents' rows carry it, so the list goes out again. */
+  authChanged(): void {
+    this.scheduleBroadcast();
   }
 
   /** Takes the host's new activity list: when the work an assistant owns started or ended, the list goes out again. */

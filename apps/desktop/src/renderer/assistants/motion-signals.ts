@@ -24,7 +24,10 @@ export function motionSignals(
     // Work it owns in the background (sessions it started, helpers) is work.
     tool: toolOf(agent?.tool ?? null, open) ?? ((agent?.background ?? 0) > 0 ? 'work' : null),
     waiting: status === 'needs-you' || (open?.dialog ?? null) !== null,
+    // A turn the host says failed (one that never started is in no session file), Start's own
+    // failure, or the open thread's error.
     failed:
+      agent?.failure !== undefined ||
       assistants.failed[id] !== undefined ||
       (open !== null && (open.error !== null || turnFailed(open.messages))),
     activityAt: agent?.reply?.at ?? null,

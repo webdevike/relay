@@ -2,7 +2,9 @@ import { Button } from '@mantine/core'
 import { placeOf, type Place } from '@evaos/shell-core'
 import { openPlace } from '../navigation/navigate'
 import { agentIdOf, agentOf, startAgent, useAssistants } from './assistants-store'
+import { fixOf, troubleOf } from './agent-signin'
 import { PortraitCard } from './PortraitCard'
+import { SigninAction, SigninNote } from './Signin'
 import './assistants.css'
 
 /** The start card's portrait, Mantine's `xl` avatar. */
@@ -25,10 +27,14 @@ export function AgentPage({ place }: { place: Place }) {
   const relayUp = useAssistants((s) => s.data?.relayUp ?? false)
   const starting = useAssistants((s) => s.starting[id] === true)
   const failed = useAssistants((s) => s.failed[id] ?? null)
+  const hostMac = useAssistants((s) => s.data?.hostMac)
   if (!loaded) return null
   // The thread exists: the app tab shows it as the whole chat (AppPanel), not this page.
   if (agent?.file) return null
   const title = agent?.title ?? id
+  // What the host says is wrong with its sign-in or last turn, and the profile sign-in that fixes it.
+  const trouble = agent ? troubleOf(agent) : null
+  const fix = agent ? fixOf(agent) : null
   return (
     <div className="eva-as-start" data-testid={`agent-start-${id}`}>
       <PortraitCard
@@ -58,7 +64,7 @@ export function AgentPage({ place }: { place: Place }) {
           <p>
             {title} didn&apos;t start. {failed}
           </p>
-          {/no AI account/i.test(failed) ? (
+          {/no AI account/i.test(failed) && fix === null ? (
             <Button
               mt="xs"
               variant="default"
@@ -67,6 +73,19 @@ export function AgentPage({ place }: { place: Place }) {
             >
               Sign in
             </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {trouble ? (
+        <div className="eva-as-note eva-as-failed" role="alert" data-testid={`agent-trouble-${id}`}>
+          <p>
+            {trouble.title}. {trouble.text}
+          </p>
+          {fix ? (
+            <>
+              <SigninAction fix={fix} hostMac={hostMac} testId={`signin-${id}`} />
+              <SigninNote fix={fix} testId={`signin-${id}-note`} />
+            </>
           ) : null}
         </div>
       ) : null}

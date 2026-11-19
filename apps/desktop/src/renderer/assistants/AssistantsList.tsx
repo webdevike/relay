@@ -13,6 +13,8 @@ import { activePlace, useTabs } from '../tabs/tabs-store'
 import { ListRow, ListView, rowTip } from '../ui/list'
 import { agentIdOf, useAssistants } from './assistants-store'
 import { AgentAvatar } from './PortraitMotion'
+import { TroubleMark } from './TroubleMark'
+import { troubleOf } from './agent-signin'
 import './assistants.css'
 import '../rooms/rooms.css'
 
@@ -84,6 +86,7 @@ export function AssistantsList() {
         renderRow={(row) => {
           if (row.kind === 'agent') {
             const a = row.a
+            const trouble = troubleOf(a)
             return (
               <ListRow
                 key={a.id}
@@ -99,7 +102,14 @@ export function AssistantsList() {
                   />
                 }
                 title={a.title}
-                trailing={<WorkspaceDot ws={`page:agent:${a.id}`} testId={`sidebar-dot-${a.id}`} />}
+                trailing={
+                  <>
+                    {trouble ? (
+                      <TroubleMark trouble={trouble} testId={`sidebar-trouble-${a.id}`} />
+                    ) : null}
+                    <WorkspaceDot ws={`page:agent:${a.id}`} testId={`sidebar-dot-${a.id}`} />
+                  </>
+                }
                 tooltip={rowTip(a.title, a.scope)}
                 onActivate={(e) => openFromNav(placeOf(`agent:${a.id}`), e)}
                 middleClick

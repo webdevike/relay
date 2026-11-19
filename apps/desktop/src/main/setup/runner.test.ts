@@ -2,6 +2,7 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { SetupRunSchema } from '@evaos/contract'
 import type { Command } from '../eva/spawn'
 import { planRun, resolveHostApp, runScript, setupShell, type ScriptLine } from './runner'
 
@@ -91,6 +92,19 @@ describe('runScript', () => {
     expect(planRun({ task: 'install', tool: 'omp' }, os.homedir()).interactive).toBeUndefined()
   })
 
+  it("signs a profile in under OMP_PROFILE, and takes only an omp profile's name", () => {
+    expect(planRun({ task: 'ai-login', provider: 'anthropic' }, os.homedir()).env).toBeUndefined()
+    expect(
+      planRun({ task: 'ai-login', provider: 'anthropic', profile: 'personal' }, os.homedir()).env,
+    ).toEqual({ OMP_PROFILE: 'personal' })
+    const parse = (profile: string) =>
+      SetupRunSchema.safeParse({ task: 'ai-login', provider: 'anthropic', profile }).success
+    expect(parse('personal')).toBe(true)
+    expect(parse('work-2')).toBe(true)
+    for (const bad of ['', 'Personal', '2nd', '../x', 'a b', 'a;rm', 'a'.repeat(41)])
+      expect(parse(bad)).toBe(false)
+  })
+
   it('without an open stdin a login gives up at once (the localhost callback bug)', async () => {
     const job = runScript(bash(LOGIN), os.tmpdir(), { timeoutMs: 10_000 }, () => {})
     expect(await job.done).toEqual({
@@ -155,6 +169,8 @@ describe.skipIf(process.platform !== 'darwin' && process.platform !== 'linux')(
           `  if [ -f ${JSON.stringify(signedIn)} ]; then echo '{"accounts":[{"provider":"openai-codex"}]}'; else echo '{"accounts":[]}'; fi`,
           '  exit 0',
           'fi',
+          // Which omp profile each `omp login` ran under.
+          `echo "\${OMP_PROFILE:-default}" >>${JSON.stringify(path.join(home, 'login-profiles'))}`,
           'echo "Waiting for browser authentication..."',
           'read -r line || { echo "Login failed: Login cancelled: stdin closed"; exit 1; }',
           `case "$line" in *code=*) touch ${JSON.stringify(signedIn)} ;; *) printf 'Login failed: openai-codex token exchange failed: 401 {\\n  "code": "token_expired"\\n}\\n'; exit 1 ;; esac`,
@@ -210,6 +226,37 @@ describe.skipIf(process.platform !== 'darwin' && process.platform !== 'linux')(
         ok: false,
         message: 'sign-in to ChatGPT did not finish: openai-codex token exchange failed: 401',
       })
+    })
+
+    it('signs a profile in again even while it lists an account of the provider', async () => {
+      const { home, env } = fakeHome()
+      // The profile still lists its (disabled) ChatGPT account.
+      fs.writeFileSync(path.join(home, 'signed-in'), '')
+      const already = runScript(aiLogin(env), home, { timeoutMs: 10_000 }, () => {})
+      expect(await already.done).toEqual({ ok: true, version: 'openai (already signed in)' })
+      const { onLine, waiting } = firstProgress()
+      const job = runScript(
+        aiLogin({ ...env, OMP_PROFILE: 'personal' }),
+        home,
+        planRun({ task: 'ai-login', provider: 'openai', profile: 'personal' }, home),
+        onLine,
+      )
+      expect(await waiting).toBe('Opening your browser to sign in to ChatGPT (personal profile)')
+      expect(job.send('http://localhost:1455/auth/callback?code=abc&state=s')).toBe(true)
+      expect(await job.done).toEqual({ ok: true, version: 'openai' })
+      expect(fs.readFileSync(path.join(home, 'login-profiles'), 'utf8')).toBe('personal\n')
+    })
+
+    it('refuses a profile name that is not one', async () => {
+      const { home, env } = fakeHome()
+      const job = runScript(
+        aiLogin({ ...env, OMP_PROFILE: '../evil' }),
+        home,
+        { timeoutMs: 10_000 },
+        () => {},
+      )
+      expect(await job.done).toEqual({ ok: false, message: '"../evil" is not an omp profile name' })
+      expect(fs.existsSync(path.join(home, 'login-profiles'))).toBe(false)
     })
   },
 )

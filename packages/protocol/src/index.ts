@@ -580,6 +580,41 @@ export function foldGuestWork<T extends { id: string; guest?: GuestEntry | undef
   return out;
 }
 
+/**
+ * Why an assistant's (or any omp session's) turn failed: its model sign-in is missing or expired
+ * ("auth"), the provider's rate or usage limit ("rate_limit"), any other model or provider error
+ * ("model"), or its omp stopped in the middle of the turn ("exit").
+ */
+export const TurnFailureKind = z.enum(["auth", "rate_limit", "model", "exit"]);
+export type TurnFailureKind = z.infer<typeof TurnFailureKind>;
+
+/** An omp profile name (`~/.omp/profiles/<name>`); absent wherever one is optional means omp's default profile. */
+export const OmpProfileName = z.string().regex(/^[a-z][a-z0-9-]{0,39}$/);
+
+/**
+ * The one-tap fix of an auth failure or a signed-out profile: sign in to omp provider `provider`
+ * (e.g. "anthropic", "openai-codex") again under omp profile `profile` (absent: the default
+ * profile), on the Mac the host runs on (`omp --profile <profile> login <provider>`).
+ */
+export const SigninFix = z.object({
+  kind: z.literal("signin"),
+  provider: nonEmpty,
+  profile: OmpProfileName.optional(),
+});
+export type SigninFix = z.infer<typeof SigninFix>;
+
+/**
+ * A failed turn as the omp bridge reports it on a `system` row: the kind, the provider of the
+ * model it ran on, and the start of the message that never reached the model (`prompt`, when the
+ * turn failed before it started), so the thread can say what was lost.
+ */
+export const TurnError = z.object({
+  kind: TurnFailureKind,
+  provider: z.string().optional(),
+  prompt: z.string().optional(),
+});
+export type TurnError = z.infer<typeof TurnError>;
+
 export const AgentMessage = z.object({
   id: nonEmpty,
   role: AgentMessageRole,
@@ -605,6 +640,8 @@ export const AgentMessage = z.object({
   canvas: CanvasEntry.optional().catch(undefined),
   /** A guest row (role "system"): another assistant joined, spoke, left, or works on something; builds without guests show `text`. */
   guest: GuestEntry.optional().catch(undefined),
+  /** A failed turn (role "system"): `text` is omp's error; builds without it show nothing for the row. */
+  error: TurnError.optional().catch(undefined),
 });
 export type AgentMessage = z.infer<typeof AgentMessage>;
 
@@ -771,6 +808,37 @@ export const AssistantPortrait = z.object({
 export type AssistantPortrait = z.infer<typeof AssistantPortrait>;
 
 /**
+ * How an omp profile's sign-in to a model provider stands on the host: "ok"; "signed_out" (every
+ * credential it had is disabled, e.g. an expired OAuth refresh); "missing" (it never had one);
+ * "shared" (its sign-in is a copy of another profile's: the provider rotates the refresh token on
+ * use, so the first of the two to refresh signs the other out).
+ */
+export const ProfileAuthState = z.enum(["ok", "signed_out", "missing", "shared"]);
+export type ProfileAuthState = z.infer<typeof ProfileAuthState>;
+
+export const ProfileAuth = z.object({
+  /** Absent: omp's default profile. */
+  profile: OmpProfileName.optional(),
+  provider: nonEmpty,
+  state: ProfileAuthState,
+  /** One plain sentence for any state but "ok": the disabled cause, or which profile holds the same sign-in. */
+  detail: z.string().optional(),
+  /** The account signed in (its email), when the credential names one. */
+  account: z.string().optional(),
+});
+export type ProfileAuth = z.infer<typeof ProfileAuth>;
+
+/** The thread's newest failed turn that no reply has followed yet, as its error row says it. */
+export const TurnFailure = z.object({
+  at: ms,
+  kind: TurnFailureKind,
+  title: z.string(),
+  text: z.string(),
+  fix: SigninFix.optional().catch(undefined),
+});
+export type TurnFailure = z.infer<typeof TurnFailure>;
+
+/**
  * One assistant thread the host runs, as listed by `assistant.agents`. Everything beyond `id` and
  * `title` is optional so builds from before the Assistants screen keep parsing, and hosts from
  * before it keep parsing here.
@@ -800,6 +868,12 @@ export const AssistantAgent = z.object({
   lastReply: z.object({ text: z.string(), at: ms }).optional(),
   /** The model the registry starts the agent's session on (`provider/id`, optionally `:thinking`); absent when the registry names none and from older hosts. */
   model: z.string().optional(),
+  /** The omp profile the agent runs under; absent for omp's default profile and from older hosts. */
+  profile: OmpProfileName.optional().catch(undefined),
+  /** How the agent's profile is signed in to its model's provider, when the host could read it; anything but "ok" is flagged before a turn fails. */
+  auth: ProfileAuth.optional().catch(undefined),
+  /** The thread's newest failed turn with no reply since (cleared by the next reply); absent from older hosts. */
+  failure: TurnFailure.optional().catch(undefined),
 });
 export type AssistantAgent = z.infer<typeof AssistantAgent>;
 
@@ -834,6 +908,10 @@ export const AssistantMessage = z.object({
    * name (what a phone without guests shows). Work rows are folded by `work.id` (latest state).
    */
   guest: GuestEntry.optional().catch(undefined),
+  /** Role "error": why the turn failed. */
+  failure: TurnFailureKind.optional().catch(undefined),
+  /** Role "error": the one-tap fix (sign in again under the agent's profile). */
+  fix: SigninFix.optional().catch(undefined),
 });
 export type AssistantMessage = z.infer<typeof AssistantMessage>;
 

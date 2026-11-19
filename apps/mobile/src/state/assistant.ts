@@ -12,6 +12,7 @@ import { countOf } from "@/lib/format";
 import { portraitOf } from "@/lib/portrait";
 import type { Photo } from "@/lib/photo";
 import { previewText } from "@/agents/markdown";
+import { agentHealth } from "@/lib/signin";
 import { backgroundOf } from "@/lib/background";
 
 /** Where an echo's turn is (`state/turnMachine.ts`): "Sending", "Sent", or "Not confirmed" with Try again. */
@@ -175,9 +176,12 @@ export const STATUS_LABEL: Record<AssistantStatus, string> = {
 
 /**
  * The status words `agent`'s pill shows, with the host's count of the background work it owns while
- * it works ("Working · 3 tasks"); null for a host from before statuses.
+ * it works ("Working · 3 tasks"); null for a host from before statuses. A broken sign-in or a failed
+ * turn (`lib/signin` `agentHealth`) wins over every status word.
  */
-export function statusLabel(agent: Pick<AssistantAgent, "status" | "background">): string | null {
+export function statusLabel(agent: Pick<AssistantAgent, "status" | "background" | "auth" | "failure">): string | null {
+  const health = agentHealth(agent);
+  if (health !== null) return health.label;
   if (agent.status === undefined) return null;
   const tasks = agent.status === "working" ? backgroundTasks(agent.background) : null;
   return tasks === null ? STATUS_LABEL[agent.status] : `${STATUS_LABEL[agent.status]} · ${tasks}`;

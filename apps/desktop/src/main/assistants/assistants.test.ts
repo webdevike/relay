@@ -10,6 +10,7 @@ import {
   REGISTRY_FILE,
   lastReply,
   parseHostAgents,
+  parseHostHealth,
   parseHostStatus,
   parseRegistry,
   readTail,
@@ -254,6 +255,79 @@ describe('assistant status like native', () => {
     const later = Date.now() / 1000 + 5
     fs.utimesSync(file, later, later)
     expect(s.svc.list().agents.map((a) => a.title)).toEqual(['Polaris'])
+  })
+})
+
+describe("the host's word on an agent's sign-in", () => {
+  const FAILURE = {
+    at: 1_700_000_000_000,
+    kind: 'auth',
+    title: "Nova couldn't reply",
+    text: 'No API key found for anthropic. Sign in again under the personal profile.',
+    fix: { kind: 'signin', provider: 'anthropic', profile: 'personal' },
+  }
+  const AUTH = {
+    profile: 'personal',
+    provider: 'anthropic',
+    state: 'signed_out',
+    detail: 'oauth refresh failed: 400 invalid_grant, Refresh token expired',
+    account: 'isaac@example.com',
+  }
+
+  it('reads profile, auth and failure per agent, dropping only a field it cannot read', () => {
+    const health = parseHostHealth([
+      { id: 'nova', title: 'Nova', profile: 'personal', auth: AUTH, failure: FAILURE },
+      // A broken fix is dropped with the failure kept; a bad profile name is dropped alone.
+      {
+        id: 'astra',
+        title: 'Astra',
+        profile: 'Not A Profile',
+        auth: { provider: 'anthropic', state: 'ok' },
+        failure: { ...FAILURE, title: "Astra couldn't reply", fix: { kind: 'other' } },
+      },
+      // An older host says nothing of sign-ins.
+      { id: 'iris', title: 'Iris', status: 'idle', background: 0 },
+    ])
+    expect(health?.get('nova')).toEqual({ profile: 'personal', auth: AUTH, failure: FAILURE })
+    const astra = health?.get('astra')
+    expect(astra?.profile).toBeUndefined()
+    expect(astra?.auth).toEqual({ provider: 'anthropic', state: 'ok' })
+    expect(astra?.failure?.title).toBe("Astra couldn't reply")
+    expect(astra?.failure?.fix).toBeUndefined()
+    expect(health?.has('iris')).toBe(false)
+    expect(parseHostHealth({})).toBeNull()
+  })
+
+  it('carries them onto the listed agent, even while Relay is down, and names a thin client host', () => {
+    const s = setup()
+    const health = {
+      map: parseHostHealth([
+        { id: 'nova', title: 'Nova', profile: 'personal', auth: AUTH, failure: FAILURE },
+      ]),
+    }
+    const svc = new AssistantsService({
+      evaRoot: s.root,
+      sessionsDirs: [],
+      relay: () => s.relay.sessions,
+      hostHealth: () => health.map,
+      hostMac: () => 'Mac mini',
+    })
+    const list = svc.list()
+    expect(list.hostMac).toBe('Mac mini')
+    expect(list.agents.find((a) => a.id === 'nova')).toMatchObject({
+      profile: 'personal',
+      auth: AUTH,
+      failure: FAILURE,
+    })
+    const astra = list.agents.find((a) => a.id === 'astra')!
+    expect('auth' in astra || 'failure' in astra || 'profile' in astra).toBe(false)
+    s.relay.sessions = null
+    expect(svc.list().agents.find((a) => a.id === 'nova')?.failure).toEqual(FAILURE)
+    // The host's next list clears the failure once a reply landed.
+    health.map = parseHostHealth([{ id: 'nova', title: 'Nova', profile: 'personal', auth: AUTH }])
+    expect(svc.list().agents.find((a) => a.id === 'nova')?.failure).toBeUndefined()
+    // On the host's own Mac the list names no host Mac.
+    expect('hostMac' in s.svc.list()).toBe(false)
   })
 })
 

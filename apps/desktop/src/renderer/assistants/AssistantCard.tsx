@@ -5,6 +5,8 @@ import type { AssistantPortrait, AssistantStatus } from '@evaos/contract'
 import { backgroundTasks } from '@relay/protocol'
 import { portrait } from '../ui/portrait'
 import { rowTip } from '../ui/list/ListRow'
+import type { Trouble } from './agent-signin'
+import { TroubleMark } from './TroubleMark'
 
 const LABEL: Record<AssistantStatus, string> = {
   working: 'Working',
@@ -33,11 +35,14 @@ export interface AssistantCardProps {
   age?: string | null | undefined
   /** A notionists seed, or a designed portrait (its paper fills the card behind it). */
   face: string | AssistantPortrait
+  /** What is wrong with its model sign-in or last turn (`troubleOf`): a warning mark on the card. */
+  trouble?: Trouble | null | undefined
   onClick?: ((e: MouseEvent<HTMLButtonElement>) => void) | undefined
   onAuxClick?: ((e: MouseEvent<HTMLButtonElement>) => void) | undefined
   'data-testid'?: string | undefined
   portraitTestId?: string | undefined
   statusTestId?: string | undefined
+  troubleTestId?: string | undefined
 }
 
 /**
@@ -53,11 +58,13 @@ export function AssistantCard({
   background,
   age,
   face,
+  trouble,
   onClick,
   onAuxClick,
   'data-testid': testId,
   portraitTestId,
   statusTestId,
+  troubleTestId,
 }: AssistantCardProps) {
   const paper = typeof face === 'string' ? undefined : face.colors?.paper
   const after = (status === 'working' ? backgroundTasks(background) : null) ?? age
@@ -73,6 +80,9 @@ export function AssistantCard({
       <span className="eva-asg-art" style={{ background: paper }}>
         <img src={portrait(face)} alt="" aria-hidden data-testid={portraitTestId} />
       </span>
+      {trouble ? (
+        <TroubleMark trouble={trouble} testId={troubleTestId} className="eva-asg-trouble" />
+      ) : null}
       <span className="eva-asg-text">
         <span className="eva-asg-name">{title}</span>
         <span className="eva-asg-status" data-status={status} data-testid={statusTestId}>

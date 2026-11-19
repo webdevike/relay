@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { View } from "react-native";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { radii, spacing, toneFill, useColors, withAlpha, type ToneToken } from "@/theme";
@@ -15,10 +16,12 @@ export interface CalloutProps {
   text: string;
   title?: string | undefined;
   tone?: ToneToken;
+  /** Extra content under the text, e.g. an action. */
+  children?: ReactNode;
 }
 
 /** A note set apart on a low-alpha tone fill with a hairline in the tone, led by the tone's icon. */
-export function Callout({ text, title, tone = "accent" }: CalloutProps) {
+export function Callout({ text, title, tone = "accent", children }: CalloutProps) {
   const colors = useColors();
   return (
     <View
@@ -36,6 +39,7 @@ export function Callout({ text, title, tone = "accent" }: CalloutProps) {
       <View style={{ flex: 1, gap: 2 }}>
         {title !== undefined && title !== "" && <Text variant="label">{title}</Text>}
         <Text variant="body">{text}</Text>
+        {children}
       </View>
     </View>
   );

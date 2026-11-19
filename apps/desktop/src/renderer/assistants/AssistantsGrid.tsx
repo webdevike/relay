@@ -3,6 +3,7 @@ import { agoLabel } from '@evaos/eva-core/model/jobs'
 import { placeOf } from '@evaos/shell-core'
 import { openFromNav } from '../navigation/open-in-app'
 import { AssistantCard } from './AssistantCard'
+import { troubleOf } from './agent-signin'
 import './assistants-grid.css'
 
 /**
@@ -26,6 +27,8 @@ export function AssistantsGrid({ agents }: { agents: Assistant[] }) {
           background={a.background}
           age={a.reply && a.reply.at !== null ? agoLabel(a.reply.at, now) : null}
           face={a.avatar}
+          trouble={troubleOf(a)}
+          troubleTestId={`assistant-trouble-${a.id}`}
           onClick={(e) => openFromNav(placeOf(`agent:${a.id}`), e)}
           onAuxClick={(e) => {
             if (e.button === 1) openFromNav(placeOf(`agent:${a.id}`), e)

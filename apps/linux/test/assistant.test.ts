@@ -11,10 +11,13 @@ import {
   type AssistantPortrait,
   MAX_ASK_LABEL,
   OpenAsk,
+  type ProfileAuth,
   type ServerMessage,
 } from "@relay/protocol";
 import { z } from "zod";
 import type { LaunchOptions } from "../src/agents/herdr";
+import { parseSessionRows } from "../src/agents/transcript";
+import { turnErrorOf } from "../src/agents/turn-error";
 import { liveVoiceFor, loadRegistry, RegistryError } from "../src/assistant/registry";
 import { handleAssistantAsks, handleAssistantSay } from "../src/assistant/http";
 import {
@@ -216,6 +219,8 @@ interface HarnessOptions {
     avatar?: string;
     portrait?: AssistantPortrait;
     external?: true;
+    profile?: "personal" | "work";
+    model?: string;
   };
   /** Run beside another harness's thread. */
   beside?: Shared;
@@ -233,6 +238,8 @@ interface HarnessOptions {
   asks?: AskStore;
   /** The host's activity list; default none. */
   activity?: () => readonly ActivityItem[];
+  /** The profiles' sign-ins as the monitor reads them; default none. */
+  auth?: (profile: string | undefined, provider: string | undefined) => ProfileAuth | undefined;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -293,6 +300,7 @@ function harness(options: HarnessOptions = {}) {
     store,
     asks,
     ...(options.activity === undefined ? {} : { activity: options.activity }),
+    ...(options.auth === undefined ? {} : { auth: options.auth }),
     tokens: {
       tokens: () => tokens,
       unregister: (deviceId) => {
@@ -2751,5 +2759,149 @@ describe("registry changes while the host runs", () => {
     await expect(new AssistantThreads([]).create({ title: "X" }, false)).rejects.toBeInstanceOf(
       AckFailure,
     );
+  });
+});
+
+describe("failed turns", () => {
+  const NOVA_PERSONAL = { ...NOVA, profile: "personal" as const, model: "anthropic/claude-opus-5-5:high" };
+  const omp = "No API key found for anthropic.\n\nUse /login, set an API key environment variable, or create /x/agent.db";
+  const refused = (id: string, at: number, prompt: string): AgentMessage => ({
+    id,
+    role: "system",
+    text: omp,
+    at,
+    error: turnErrorOf(omp, "anthropic", prompt),
+  });
+  const failing = { title: "Nova", profile: "personal", provider: "anthropic" };
+
+  it("shows a turn omp refused as an error row that names the lost message and signs in under the agent's profile", () => {
+    const rows = toAssistantMessages(
+      [
+        { id: "u1", role: "user", text: "morning", at: 1 },
+        { id: "a1", role: "assistant", text: "Morning!", at: 2 },
+        refused("e1", 3, "hello?"),
+      ],
+      null,
+      STATUS_PREFIX,
+      undefined,
+      failing,
+    );
+    const error = rows.at(-1);
+    expect(error).toMatchObject({
+      id: "e1",
+      role: "error",
+      title: "Nova couldn't reply",
+      failure: "auth",
+      fix: { kind: "signin", provider: "anthropic", profile: "personal" },
+    });
+    expect(error?.text).toContain('"hello?"');
+    expect(error?.text).toContain("Claude sign-in for the personal profile isn't working (No API key found for anthropic)");
+    expect(error?.text).not.toContain("/login");
+  });
+
+  it("hides a model error the same turn answered after all, and keeps a refused turn even after later replies", () => {
+    const retried: AgentMessage = {
+      id: "m1",
+      role: "system",
+      text: "529 overloaded_error",
+      at: 2,
+      error: turnErrorOf("529 overloaded_error", "anthropic"),
+    };
+    const rows = toAssistantMessages(
+      [
+        { id: "u1", role: "user", text: "plan my day", at: 1 },
+        retried,
+        { id: "a1", role: "assistant", text: "Here is your day.", at: 3 },
+        refused("e1", 4, "and tomorrow?"),
+        { id: "u2", role: "user", text: "hello?", at: 5 },
+        { id: "a2", role: "assistant", text: "Back now.", at: 6 },
+      ],
+      null,
+      STATUS_PREFIX,
+      undefined,
+      failing,
+    );
+    expect(rows.map((row) => `${row.role}:${row.id}`)).toEqual([
+      "user:u1",
+      "assistant:a1",
+      "error:e1",
+      "user:u2",
+      "assistant:a2",
+    ]);
+  });
+
+  it("reads failed turns back from the session file: a model error message and the bridge's relay-turn-error entry", () => {
+    let seq = 0;
+    const rows = parseSessionRows(
+      [
+        JSON.stringify({
+          type: "message",
+          timestamp: "2026-11-19T20:50:00.000Z",
+          message: { role: "assistant", content: [], stopReason: "error", provider: "anthropic", errorMessage: "429 rate_limit_error: slow down" },
+        }),
+        JSON.stringify({
+          type: "custom",
+          customType: "relay-turn-error",
+          timestamp: "2026-11-19T20:51:00.000Z",
+          data: { text: omp, kind: "auth", provider: "anthropic", prompt: "hello?" },
+        }),
+      ].join("\n"),
+      null,
+      () => `r${String(++seq)}`,
+    );
+    expect(rows).toEqual([
+      expect.objectContaining({ role: "system", error: { kind: "rate_limit", provider: "anthropic" } }),
+      expect.objectContaining({ role: "system", error: { kind: "auth", provider: "anthropic", prompt: "hello?" } }),
+    ]);
+  });
+
+  it("puts the failure and the profile's sign-in on the agent's row, pushes a lost message, and clears it on the next reply", async () => {
+    const signedOut: ProfileAuth = {
+      profile: "personal",
+      provider: "anthropic",
+      state: "signed_out",
+      detail: "Claude sign-in for the personal profile stopped working (Refresh token expired).",
+    };
+    const asked: [string | undefined, string | undefined][] = [];
+    const h = harness({
+      agent: NOVA_PERSONAL,
+      auth: (profile, provider) => {
+        asked.push([profile, provider]);
+        return signedOut;
+      },
+    });
+    h.register("idle");
+    const error = refused("e1", 5, "hello?");
+    h.agents.novaTranscript = [error];
+    expect(h.service.observe({ kind: "conversation", sessionId: "nova-1", appended: [error] })).toBe(true);
+    await flush();
+    // Both registered phones, neither looking at the thread; the preview keeps the opening sentences.
+    const body =
+      'Nova couldn\'t reply: Your message didn\'t reach Nova: "hello?". Claude sign-in for the personal profile isn\'t working (No API key found for anthropic).';
+    expect(h.pushes.map((push) => push.body)).toEqual([body, body]);
+    const listed = await h.service.listing();
+    expect(asked).toContainEqual(["personal", "anthropic"]);
+    expect(listed).toMatchObject({
+      profile: "personal",
+      auth: signedOut,
+      failure: { kind: "auth", title: "Nova couldn't reply", fix: { kind: "signin", provider: "anthropic", profile: "personal" } },
+    });
+    h.agents.novaTranscript = [error, { id: "a1", role: "assistant", text: "I'm back.", at: 9 }];
+    expect((await h.service.listing()).failure).toBeUndefined();
+  });
+
+  it("shows omp stopping mid-turn as an exit row, but not a session the host closed itself", async () => {
+    const h = harness({ agent: NOVA_PERSONAL });
+    h.register("working");
+    h.agents.sessions = h.agents.sessions.filter((session) => session.id !== "nova-1");
+    h.service.observe({ kind: "sessions" });
+    const snapshot = await h.service.snapshot();
+    expect(snapshot.messages.at(-1)).toMatchObject({ role: "error", title: "Nova stopped", failure: "exit" });
+    expect((await h.service.listing()).failure?.kind).toBe("exit");
+
+    const retired = harness({ agent: NOVA_PERSONAL });
+    retired.register("working");
+    await retired.service.retire();
+    expect((await retired.service.snapshot()).messages.filter((row) => row.role === "error")).toEqual([]);
   });
 });

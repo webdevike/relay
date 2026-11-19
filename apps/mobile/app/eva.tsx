@@ -58,6 +58,7 @@ import { AvatarTitle } from "@/ui/AvatarTitle";
 import { FrostedBar } from "@/ui/FrostedBar";
 import { Banner } from "@/ui/Banner";
 import { Callout } from "@/ui/Callout";
+import { SigninFixAction } from "@/agents/SigninFixAction";
 import { EmptyState } from "@/ui/EmptyState";
 import { IconButton } from "@/ui/IconButton";
 import { Chip } from "@/ui/Chip";
@@ -1682,7 +1683,9 @@ function RowView({
     case "error":
       return (
         <View style={styles.evaRow}>
-          <Callout tone="danger" title={message.title} text={message.text} />
+          <Callout tone="danger" title={message.title} text={message.text}>
+            {message.fix !== undefined && <SigninFixAction fix={message.fix} />}
+          </Callout>
         </View>
       );
   }

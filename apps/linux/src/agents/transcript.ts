@@ -5,6 +5,7 @@
 // and must stay free of the repo's packages (no zod, no @relay/protocol).
 
 import { createHash } from "node:crypto";
+import { MAX_ERROR_TEXT, oneLine, TURN_ERROR_TYPE, turnErrorEntryOf, turnErrorOf, type TurnErrorRow } from "./turn-error";
 
 export type Role = "user" | "assistant" | "tool" | "system";
 export type ImageMimeType = "image/jpeg" | "image/png" | "image/webp";
@@ -58,6 +59,8 @@ export interface InboxMessage {
   streaming?: boolean;
   canvas?: CanvasRow;
   guest?: GuestRow;
+  /** A failed turn (role "system"): `text` is omp's error (`turn-error.ts`). */
+  error?: TurnErrorRow;
 }
 
 /** omp custom message type the host's live canvas posts into a chat (relay-bridge `canvas` request). */
@@ -413,6 +416,18 @@ function rowsOf(
     case "assistant": {
       const text = textOf(content);
       if (text.length > 0) rows.push({ id: nextId(), role: "assistant", text, at });
+      // A turn the model or provider ended with an error (after omp's own retries): a failed-turn row.
+      const failure = message["errorMessage"];
+      if (message["stopReason"] === "error" && typeof failure === "string" && failure.length > 0) {
+        const provider = typeof message["provider"] === "string" ? message["provider"] : undefined;
+        rows.push({
+          id: nextId(),
+          role: "system",
+          text: oneLine(failure, MAX_ERROR_TEXT),
+          at,
+          error: turnErrorOf(failure, provider),
+        });
+      }
       if (!Array.isArray(content)) break;
       for (const part of content as {
         type?: unknown;
@@ -439,6 +454,7 @@ interface SessionEntryLine {
   attribution?: unknown;
   details?: unknown;
   content?: unknown;
+  data?: unknown;
 }
 
 /**
@@ -455,6 +471,12 @@ function entryRows(
   const at = Number.isFinite(stamp) ? stamp : Date.now();
   if (entry.type === "compaction")
     return [{ id: nextId(), role: "system", text: COMPACTION_NOTICE, at }];
+  if (entry.type === "custom" && entry.customType === TURN_ERROR_TYPE) {
+    const failed = turnErrorEntryOf(entry.data);
+    return failed === null
+      ? []
+      : [{ id: nextId(), role: "system", text: failed.text, at, error: failed.error }];
+  }
   if (entry.type === "custom_message") {
     const canvas = canvasRowOf(entry);
     if (canvas !== null)

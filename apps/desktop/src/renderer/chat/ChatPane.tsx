@@ -46,6 +46,7 @@ import { DrillCrumb } from './DrillCrumb'
 import { drillStore, useDrillTrail } from './drill-store'
 import { SubagentTranscript } from './SubagentTranscript'
 import { AgentNotch } from '../assistants/AgentNotch'
+import { FailureStrip } from '../assistants/Signin'
 import { useLocalRows } from './local-rows'
 import { placeRows, useComputerRows } from './computer-rows'
 import { agentFile, agentIdOf, agentOf, useAssistants } from '../assistants/assistants-store'
@@ -446,6 +447,8 @@ function ChatView({
       <PendingDialog paneId={paneId} />
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
       <StatusStrip paneId={paneId} />
+      {/* An assistant's failed turn (or broken sign-in) ends its thread, over the composer. */}
+      {agent !== null && current === undefined ? <FailureStrip agent={agent} /> : null}
       {current === undefined ? (
         <Composer
           ref={composer}

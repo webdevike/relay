@@ -3,14 +3,16 @@ import * as path from 'node:path'
 import type { Assistants } from '@evaos/contract'
 import type { MainContext } from '../context'
 import { emit, handle } from '../ipc/handle'
-import type { RelayFrames, RelayLink } from '../relay/client'
+import type { RelayFrames, RelayHostInfo, RelayLink } from '../relay/client'
 import {
   assistantIdFrom,
   AssistantsService,
   parseHostAgents,
+  parseHostHealth,
   parseHostStatus,
   REGISTRY_FILE,
   type Agent,
+  type HostHealth,
   type HostStatus,
 } from './assistants'
 
@@ -29,11 +31,12 @@ const START_TIMEOUT_MS = 45_000
  * assistant Relay Host adds or changes shows here without a restart). `refresh` schedules that check.
  * Each agent's status is the host's (`assistant.agents`, asked on every connection and pushed on
  * every change), which counts the work it owns. On a thin client (`remote`) the registry is the
- * Mini's as its host lists it too, not this Mac's Eva root.
+ * Mini's as its host lists it too, not this Mac's Eva root, and the list names the host's Mac
+ * (`hostMac`), where the assistants' omp sign-ins live.
  */
 export function registerAssistantsIpc(
   ctx: MainContext,
-  relay: RelayLink & RelayFrames,
+  relay: RelayLink & RelayFrames & RelayHostInfo,
   sessionsDirs: readonly string[],
   remote = false,
   /** Called with each list `assistants.changed` carries (desktop notifications read replies from it). */
@@ -41,12 +44,17 @@ export function registerAssistantsIpc(
 ): { list(): Assistants; refresh(): void; close(): void } {
   let hostAgents: Agent[] | null = null
   let hostStatus: ReadonlyMap<string, HostStatus> | null = null
+  let hostHealth: ReadonlyMap<string, HostHealth> | null = null
   const service = new AssistantsService({
     evaRoot: ctx.env.evaRoot,
     sessionsDirs,
     relay: () => relay.sessions(),
-    ...(remote && { hostAgents: () => hostAgents }),
+    ...(remote && {
+      hostAgents: () => hostAgents,
+      hostMac: () => relay.host()?.name ?? 'the host Mac',
+    }),
     hostStatus: () => hostStatus,
+    hostHealth: () => hostHealth,
   })
   let shown = ''
   const list = (): Assistants => {
@@ -104,6 +112,7 @@ export function registerAssistantsIpc(
     else if (f.t === 'assistant.agents') {
       hostAgents = parseHostAgents(f.agents) ?? hostAgents
       hostStatus = parseHostStatus(f.agents) ?? hostStatus
+      hostHealth = parseHostHealth(f.agents) ?? hostHealth
       refresh()
     }
   })

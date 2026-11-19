@@ -75,6 +75,8 @@ import {
   type Image,
   type InboxMessage,
 } from "../src/agents/transcript";
+// Same constraint: a failed turn as a row.
+import { MAX_ERROR_TEXT, oneLine, TURN_ERROR_TYPE, turnErrorOf } from "../src/agents/turn-error";
 // Same constraint: the session's async jobs (`bg_N` bash, eval cells) read from its messages.
 import {
   BackgroundJobs,
@@ -1287,6 +1289,30 @@ export default function relayBridge(pi: ExtensionAPI): void {
     send({ t: "messages", append: [row] });
   };
 
+  /**
+   * A turn omp refused before it started (no API key, no model selected, a dropped prompt): the
+   * terminal shows the error, the phone and Relay get a failed-turn row, and the session file keeps
+   * it as a `relay-turn-error` entry (never sent to the model), since omp writes no message for it.
+   */
+  const turnFailed = (error: unknown, prompt: string): void => {
+    if (ctx === null) return;
+    // Esc or a closing session cancels a turn on purpose: not a failure.
+    if (error instanceof Error && error.name === "AbortError") return;
+    const text = oneLine(error instanceof Error ? error.message : String(error), MAX_ERROR_TEXT);
+    // A turn that started and then threw already left its error row (message_end): one row per failure.
+    const last = history.at(-1);
+    if (last?.error !== undefined && last.text === text) return;
+    const failure = turnErrorOf(text, ctx.model?.provider, prompt);
+    const row: InboxMessage = { id: nextId(), role: "system", text, at: Date.now(), error: failure };
+    try {
+      pi.appendEntry(TURN_ERROR_TYPE, { text, ...failure });
+    } catch {
+      // The live row below still tells the phone; only a later resume would miss it.
+    }
+    record(row);
+    send({ t: "messages", append: [row] });
+  };
+
   /** Takes omp's latest goal; a changed one is reported at once. */
   const setGoal = (next: Goal | undefined): void => {
     if (sameGoal(goal, next)) return;
@@ -1352,7 +1378,10 @@ export default function relayBridge(pi: ExtensionAPI): void {
             mimeType: image.mimeType,
           }));
           if (frame.text.length > 0) parts.unshift({ type: "text", text: frame.text });
-          pi.sendUserMessage(parts);
+          // Fire and forget (it settles when the turn ends), but a refused turn becomes a row, never silence.
+          Promise.resolve(pi.sendUserMessage(parts)).catch((error: unknown) => {
+            turnFailed(error, frame.text);
+          });
         } else if (!frame.submit) {
           // Released without the flick: leave it in the editor for the keyboard to finish.
           ctx.ui.setEditorText(existing.length === 0 ? frame.text : `${existing} ${frame.text}`);
@@ -1398,7 +1427,9 @@ export default function relayBridge(pi: ExtensionAPI): void {
             }, SUBMIT_SETTLE_MS).unref();
           } else {
             // Same semantics as typing in the TUI and pressing Enter: prompt when idle, steer while streaming.
-            pi.sendUserMessage(text);
+            Promise.resolve(pi.sendUserMessage(text)).catch((error: unknown) => {
+              turnFailed(error, text);
+            });
           }
         }
         return undefined;
@@ -2170,6 +2201,18 @@ export default function relayBridge(pi: ExtensionAPI): void {
         lastActivity = firstLine(text);
         lastActivityAt = at;
         sendStatus();
+      }
+      // The model or provider ended the turn with an error: a failed-turn row, as the transcript
+      // reader makes of the same message on a resume (the host hides one a later reply in the same turn answered).
+      if (message.stopReason === "error" && (message.errorMessage ?? "").length > 0) {
+        const failure = oneLine(message.errorMessage ?? "", MAX_ERROR_TEXT);
+        appended.push({
+          id: nextId(),
+          role: "system",
+          text: failure,
+          at,
+          error: turnErrorOf(failure, message.provider),
+        });
       }
     }
     // A tool result can start a background job; it, a `wait`, a proc:// kill or omp's async-result
