@@ -862,7 +862,7 @@ export class AssistantService implements AssistantThread {
    * and the transcript keeps a single omp.
    */
   private resumeOverStray(): void {
-    if (this.strayHandled || this.starting !== null || this.deps.agentHome === null) return;
+    if (this.strayHandled || this.starting !== null || this.deps.agentHome === null || this.agent.external === true) return;
     const file = this.deps.store.load()?.sessionFile;
     if (file === undefined) return;
     const stray = this.deps.holder(file);
@@ -889,6 +889,14 @@ export class AssistantService implements AssistantThread {
    * still on the transcript.
    */
   private async start(): Promise<AgentSession> {
+    // An external agent (registry `external`) is its own process that connects as the session; no omp stands in for it.
+    if (this.agent.external === true) {
+      this.deps.log(`assistant ${this.id}: not starting: it runs outside the host and is not connected`);
+      throw new AckFailure({
+        code: "agent_launch_failed",
+        message: `${this.title} runs outside Relay Host and is not connected right now, so nothing was sent. Try again in a minute.`,
+      });
+    }
     const home = this.deps.agentHome;
     if (home === null)
       throw new AckFailure({

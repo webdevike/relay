@@ -35,6 +35,12 @@ export interface AssistantAgentConfig {
   readonly avatar?: string;
   /** The registry's designed portrait (an object `avatar`), drawn instead of the notionists `avatar` by clients that know it. */
   readonly portrait?: AssistantPortrait;
+  /**
+   * The agent runs outside the host and connects as its own live session (Isaac's ChatGPT dot through
+   * Eva's dot bridge): the host never starts or resumes an omp for it, and a turn while it is not
+   * connected fails instead.
+   */
+  readonly external?: true;
 }
 
 /** The registry file as validated: what `loadRegistry` reads and what `admin.ts` writes. */
@@ -51,6 +57,7 @@ export const Registry = z
           voice: z.string().trim().min(1).optional(),
           liveVoice: z.string().trim().min(1).optional(),
           avatar: z.union([z.string().trim().min(1), AssistantPortrait]).optional(),
+          external: z.boolean().optional(),
         }),
       )
       .min(1),
@@ -76,7 +83,7 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
   if (!parsed.success) {
     throw new Error(`invalid ${path}: ${parsed.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join("; ")}`);
   }
-  return parsed.data.agents.map(({ id, title, scope, profile, model, voice, liveVoice, avatar }) => {
+  return parsed.data.agents.map(({ id, title, scope, profile, model, voice, liveVoice, avatar, external }) => {
     const trimmed = scope?.trim();
     return {
       id,
@@ -87,6 +94,7 @@ export function loadRegistry(agentHome: string): readonly AssistantAgentConfig[]
       ...(voice === undefined ? {} : { voice }),
       ...(liveVoice === undefined ? {} : { liveVoice }),
       ...(avatar === undefined ? {} : typeof avatar === "string" ? { avatar } : { avatar: avatar.seed, portrait: avatar }),
+      ...(external === true ? { external } : {}),
     };
   });
 }

@@ -127,8 +127,9 @@ describe("consult", () => {
     consults.observe({ kind: "sessions" });
     await settle();
     expect(kinds()).toEqual(["join", "say", "leave", "work:working", "work:done"]);
-    expect(posts[4]?.details).toMatchObject({ text: "Acasis 40Gbps + WD SN7100 2TB · $189", work: { id: "w1", state: "done", startedAt: 1_000, endedAt: clock.now() } });
-    expect(posts[4]?.content).toBe("Penny finished Find a 2TB USB4 SSD under $200: Acasis 40Gbps + WD SN7100 2TB · $189");
+    // Nova reads the whole answer, not just its first line.
+    expect(posts[4]?.details).toMatchObject({ text: "Acasis 40Gbps + WD SN7100 2TB · $189\nOrdered nothing yet.", work: { id: "w1", state: "done", startedAt: 1_000, endedAt: clock.now() } });
+    expect(posts[4]?.content).toBe("Penny finished Find a 2TB USB4 SSD under $200: Acasis 40Gbps + WD SN7100 2TB · $189\nOrdered nothing yet.");
     expect(consults.open).toBe(0);
   });
 

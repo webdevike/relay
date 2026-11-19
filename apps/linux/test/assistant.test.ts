@@ -215,6 +215,7 @@ interface HarnessOptions {
     scope?: string;
     avatar?: string;
     portrait?: AssistantPortrait;
+    external?: true;
   };
   /** Run beside another harness's thread. */
   beside?: Shared;
@@ -1025,6 +1026,13 @@ describe("AssistantService turns", () => {
     await flush();
     h.clock.advance(REGISTER_TIMEOUT_MS);
     await expect(turn).rejects.toMatchObject({ error: { code: "agent_launch_failed" } });
+    expect(h.agents.replies).toEqual([]);
+  });
+
+  it("never starts an omp for an external agent: a turn while it is not connected fails", async () => {
+    const h = harness({ agent: { ...ASTRA, external: true } });
+    await expect(h.service.turn("hi")).rejects.toMatchObject({ error: { code: "agent_launch_failed" } });
+    expect(h.launches).toEqual([]);
     expect(h.agents.replies).toEqual([]);
   });
 

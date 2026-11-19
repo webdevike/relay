@@ -9,8 +9,8 @@
 //   4. work: B is still at it after QUICK_MS (or was busy before the question came, or A said
 //      `--work`). B's first words, if any, go in as its bubble, B leaves, and a work card goes in
 //      (`working`). The CLI returns at once. The host keeps watching B and, once B's turn
-//      settles, posts the card again as `done` with the first line of B's reply (`failed` when
-//      B's session ends first). Those rows wait until A's session is idle, so they append at once
+//      settles, posts the card again as `done` with B's whole reply, so A reads all of it (`failed`
+//      when B's session ends first). Those rows wait until A's session is idle, so they append at once
 //      instead of waiting for A's next turn.
 // A work card still `working` in A's live session after a host restart is picked up again (the
 // session file is the only store): B's reply after the card's start finishes it.
@@ -237,7 +237,7 @@ export class Consults {
     const reply = (await this.repliesSince(b, job.startedAt)).at(-1);
     if (reply === undefined || !this.jobs.has(job.id) || b.current()?.status !== "idle") return;
     if (job.phase === "work") {
-      await this.finish(job, "done", firstLine(reply));
+      await this.finish(job, "done", reply);
       return;
     }
     this.jobs.delete(job.id);
