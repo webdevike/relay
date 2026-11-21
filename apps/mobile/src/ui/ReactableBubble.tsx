@@ -5,7 +5,8 @@
  * keeps a little room below it for them), and it hides while
  * the overlay draws its lifted copy. The hold is a gesture-handler long press that fails as soon
  * as the finger moves, so scrolling, swipes and taps on links, images and widgets inside the
- * bubble go on as before; once it fires it cancels them, so a held link does not also open.
+ * bubble go on as before; once it fires it cancels them, so a held link does not also open. A held
+ * image or video inside (`ui/Holdable`, via `BubbleHoldContext`) opens its own menu instead.
  *
  * `style` takes the bubble's layout (alignSelf, maxWidth, margins); the bubble's own look stays on
  * its child, so the overlay can redraw the child at this exact width.
@@ -14,9 +15,9 @@
  * without (a bubble with links or widget controls VoiceOver must reach) it stays a container and
  * a React button follows its content.
  */
-import { useCallback, useMemo, useRef, type ReactNode } from "react";
+import { createContext, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { Pressable, StyleSheet, View, type AccessibilityActionEvent, type StyleProp, type ViewStyle } from "react-native";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, type GestureType } from "react-native-gesture-handler";
 import { useReducedMotion } from "react-native-reanimated";
 import type { Rect } from "@/lib/bubbleMenu";
 import { impactHaptic } from "@/lib/haptics";
@@ -24,6 +25,9 @@ import { ReactionBadges, reactionRoom, type BadgeReaction } from "@/ui/ReactionB
 
 /** Holding still this long (ms) opens the overlay; under the chat's action wheel hold, so on a bubble the overlay wins. */
 export const BUBBLE_HOLD_MS = 300;
+
+/** The hold of the bubble around the caller, so a hold inside it (`ui/Holdable`) can go first; null outside a bubble. */
+export const BubbleHoldContext = createContext<GestureType | null>(null);
 
 export interface ReactableBubbleProps {
   children: ReactNode;
@@ -85,7 +89,7 @@ export function ReactableBubble({ children, style, reactions, bare, enabled, lif
             }
           : {})}
       >
-        {children}
+        <BubbleHoldContext.Provider value={hold}>{children}</BubbleHoldContext.Provider>
         {reacted && <ReactionBadges reactions={reactions} bare={bare} ring={ring} onPress={open} reducedMotion={reducedMotion} />}
         {enabled && !grouped && (
           <Pressable accessibilityRole="button" accessibilityLabel="React to this message" onPress={open} style={styles.voiceOverOnly} />

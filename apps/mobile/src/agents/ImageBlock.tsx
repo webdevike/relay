@@ -1,9 +1,11 @@
 /**
  * The ```ui "image" widget: one framed image at its own shape (or the spec's `aspect`), tap to
- * open the full-screen viewer with pinch zoom, caption and source link underneath.
+ * open the full-screen viewer with pinch zoom, hold for its save and share menu, caption and
+ * source link underneath.
  */
 import { useEffect, useState } from "react";
 import { Image, View } from "react-native";
+import { openMediaActions } from "@/media/actions";
 import { spacing } from "@/theme";
 import { ImageCaption } from "@/ui/ImageCaption";
 import { ImageFrame } from "@/ui/ImageFrame";
@@ -72,6 +74,9 @@ export function ImageBlock({ spec }: { spec: ImageSpec }) {
               badge="arrow.up.left.and.arrow.down.right"
               onPress={() => {
                 setOpen(true);
+              }}
+              onLongPress={() => {
+                openMediaActions({ uri, kind: "image" });
               }}
             />
           ))}

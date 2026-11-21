@@ -10,6 +10,8 @@ import {
   type AgentStatus,
 } from "@relay/protocol";
 import { Text } from "@/ui/Text";
+import { Holdable } from "@/ui/Holdable";
+import { openMediaActions } from "@/media/actions";
 import { Pill, type PillProps } from "@/ui/Pill";
 import { spacing, useColors, type Colors } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
@@ -72,7 +74,8 @@ interface MessageImagesProps {
 /**
  * One message's attachments. Bytes are fetched on first sight (once per ref, see
  * `requestAgentImage`); until they land a raised placeholder holds the thumbnail's spot, and a
- * `null` answer (the host no longer has the image) shows a photo glyph instead.
+ * `null` answer (the host no longer has the image) shows a photo glyph instead. Holding one opens
+ * its save and share menu.
  */
 function MessageImages({ sessionId, refs, onOpen }: MessageImagesProps) {
   const colors = useColors();
@@ -116,15 +119,21 @@ function MessageImages({ sessionId, refs, onOpen }: MessageImagesProps) {
           );
         }
         return (
-          <Pressable
+          <Holdable
             key={key}
-            onPress={() => {
-              onOpen(uri);
+            onHold={() => {
+              openMediaActions({ uri, kind: "image" });
             }}
-            style={({ pressed }) => [frame, { opacity: pressed ? 0.7 : 1 }]}
           >
-            <Image source={{ uri }} resizeMode="cover" style={size} />
-          </Pressable>
+            <Pressable
+              onPress={() => {
+                onOpen(uri);
+              }}
+              style={({ pressed }) => [frame, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Image source={{ uri }} resizeMode="cover" style={size} />
+            </Pressable>
+          </Holdable>
         );
       })}
     </View>

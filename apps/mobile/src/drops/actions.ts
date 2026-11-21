@@ -23,10 +23,23 @@ export async function downloadDrop(baseUrl: string, drop: FileDrop): Promise<Fil
   return target;
 }
 
-/** Adds the image to the camera roll; `false` when the user declined the add-only permission. */
+/** What a save says when Photos access is off: only Settings can turn it back on. */
+export const PHOTOS_DENIED = "Relay needs Photos access in Settings";
+
+/**
+ * Add-only Photos access. iOS is asked only while it still may ask (the first save); after a
+ * refusal this answers false without asking again, so a save never turns into a run of prompts.
+ */
+export async function photosAccess(): Promise<boolean> {
+  const current = await MediaLibrary.getPermissionsAsync(true);
+  if (current.granted) return true;
+  if (!current.canAskAgain) return false;
+  return (await MediaLibrary.requestPermissionsAsync(true)).granted;
+}
+
+/** Adds the image or video to the camera roll; `false` when the add-only permission is off. */
 export async function saveToPhotos(file: File): Promise<boolean> {
-  const permission = await MediaLibrary.requestPermissionsAsync(true);
-  if (!permission.granted) return false;
+  if (!(await photosAccess())) return false;
   await MediaLibrary.saveToLibraryAsync(file.uri);
   return true;
 }

@@ -3,6 +3,7 @@ import { StyleSheet } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
+import { BUBBLE_HOLD_MS } from "@/ui/ReactableBubble";
 
 export interface ZoomableImageProps {
   uri: string;
@@ -13,6 +14,8 @@ export interface ZoomableImageProps {
   onTap: () => void;
   /** True from the first pinch until the image is back at fit; a pager stops scrolling meanwhile. */
   onZoomChange?: (zoomed: boolean) => void;
+  /** Held still for `BUBBLE_HOLD_MS`: the image's menu. */
+  onLongPress?: (() => void) | undefined;
 }
 
 const MAX_SCALE = 6;
@@ -21,10 +24,11 @@ const DOUBLE_TAP_SCALE = 2.5;
 
 /**
  * One image fitted to a box: pinch to zoom, drag to pan while zoomed, double tap to toggle a 2.5x
- * zoom aimed at the tap. Panning is clamped so the image never leaves the box, and letting go below
- * fit springs back. At fit the pan never activates, so a surrounding pager still gets the swipe.
+ * zoom aimed at the tap, hold for `onLongPress`. Panning is clamped so the image never leaves the
+ * box, and letting go below fit springs back. At fit the pan never activates, so a surrounding
+ * pager still gets the swipe.
  */
-export function ZoomableImage({ uri, width, height, onTap, onZoomChange }: ZoomableImageProps) {
+export function ZoomableImage({ uri, width, height, onTap, onZoomChange, onLongPress }: ZoomableImageProps) {
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const translateX = useSharedValue(0);
@@ -138,7 +142,15 @@ export function ZoomableImage({ uri, width, height, onTap, onZoomChange }: Zooma
       if (success) scheduleOnRN(onTap);
     });
 
-  const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, singleTap));
+  // Holding still opens the image's menu; a tap waits for the hold to fail, which a lift before it does.
+  const longPress = Gesture.LongPress()
+    .minDuration(BUBBLE_HOLD_MS)
+    .enabled(onLongPress !== undefined)
+    .onStart(() => {
+      if (onLongPress !== undefined) scheduleOnRN(onLongPress);
+    });
+
+  const gesture = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(longPress, doubleTap, singleTap));
 
   const imageStyle = useAnimatedStyle(() => ({
     transform: [

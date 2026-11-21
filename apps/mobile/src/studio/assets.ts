@@ -6,7 +6,7 @@ import { Directory, File, Paths } from "expo-file-system";
 import type { StudioAsset } from "@relay/protocol";
 import { hostBaseUrl } from "@/connection";
 import { useConnectionStore } from "@/state/connection";
-import { saveToPhotos } from "@/drops/actions";
+import { PHOTOS_DENIED, saveToPhotos } from "@/drops/actions";
 import { mediaClock } from "@/lib/format";
 import { toast } from "./actions";
 import { imageCount } from "./library";
@@ -43,7 +43,7 @@ export async function saveAssets(assets: readonly StudioAsset[]): Promise<void> 
   try {
     for (const asset of assets) {
       if (!(await saveToPhotos(await downloadAsset(base, asset)))) {
-        toast("Relay needs Photos access in Settings");
+        toast(PHOTOS_DENIED);
         return;
       }
     }

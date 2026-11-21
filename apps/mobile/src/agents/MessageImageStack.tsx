@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import type { AgentImageRef } from "@relay/protocol";
+import { openMediaActions } from "@/media/actions";
 import { ImageFrame } from "@/ui/ImageFrame";
 import { spacing, useColors } from "@/theme";
 import { useAgentsStore } from "@/state/agents";
@@ -41,10 +42,10 @@ function fit(width: number | undefined, height: number | undefined): { width: nu
 }
 
 /**
- * A message's images as rounded frames stacked above its text, tap to open. Ref bytes are fetched
- * on first sight (once per ref, see `requestAgentImage`) and land in `useAgentsStore().images`;
- * until then a raised placeholder holds the spot, and a `null` answer (the host no longer has the
- * image) shows a photo glyph.
+ * A message's images as rounded frames stacked above its text, tap to open, hold for the save and
+ * share menu. Ref bytes are fetched on first sight (once per ref, see `requestAgentImage`) and land
+ * in `useAgentsStore().images`; until then a raised placeholder holds the spot, and a `null` answer
+ * (the host no longer has the image) shows a photo glyph.
  */
 export function MessageImageStack({ sessionId, refs, local, align, onOpen }: MessageImageStackProps) {
   const colors = useColors();
@@ -86,6 +87,9 @@ export function MessageImageStack({ sessionId, refs, local, align, onOpen }: Mes
             radius={RADIUS}
             onPress={() => {
               onOpen(loaded, loaded.indexOf(uri));
+            }}
+            onLongPress={() => {
+              openMediaActions({ uri, kind: "image" });
             }}
           />
         );

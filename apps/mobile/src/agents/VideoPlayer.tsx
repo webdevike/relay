@@ -2,13 +2,15 @@
  * Inline player for the ```ui "video" widget: a frame at the video's aspect ratio (16:9 until the
  * track reports its size) showing the first frame as the poster, tap to play or pause, and the same
  * transport row as audio (play/pause, seekable progress bar, elapsed/total time). The corner button
- * opens the system full-screen player. Streams from the host drop (or an https URL) once mounted;
+ * opens it full screen in `VideoViewer` (the same player, with Save to Photos and Share); holding
+ * the frame opens that menu in place. Streams from the host drop (or an https URL) once mounted;
  * plays with the phone on silent, like audio.
  */
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { useEvent } from "expo";
 import { type PlayerError, useVideoPlayer, type VideoPlayer as Player, type VideoPlayerStatus } from "expo-video";
+import { openMediaActions } from "@/media/actions";
 import { spacing } from "@/theme";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { MediaTransport } from "@/ui/MediaTransport";
@@ -17,6 +19,7 @@ import { VideoFrame } from "@/ui/VideoFrame";
 import { useDropSrc } from "./dropSrc";
 import { failureText } from "./renderReport";
 import { useRenderFailure } from "./RenderReportContext";
+import { VideoViewer } from "./VideoViewer";
 import type { VideoSpec } from "./widget";
 
 /** Frame shape until the video track reports its real size. */
@@ -51,6 +54,7 @@ function Playback({ src, uri, width }: { src: string; uri: string; width: number
   const player = useVideoPlayer({ uri }, (p) => {
     p.timeUpdateEventInterval = 0.25;
   });
+  const [expanded, setExpanded] = useState(false);
   const initial: { status: VideoPlayerStatus; error?: PlayerError } = { status: player.status };
   const { status, error } = useEvent(player, "statusChange", initial);
   const report = useRenderFailure();
@@ -92,6 +96,12 @@ function Playback({ src, uri, width }: { src: string; uri: string; width: number
           playing={isPlaying}
           loading={status === "loading"}
           onToggle={toggle}
+          onExpand={() => {
+            setExpanded(true);
+          }}
+          onLongPress={() => {
+            openMediaActions({ uri, kind: "video" });
+          }}
         />
       </View>
       <MediaTransport
@@ -103,6 +113,15 @@ function Playback({ src, uri, width }: { src: string; uri: string; width: number
           player.currentTime = fraction * duration;
         }}
       />
+      {expanded && (
+        <VideoViewer
+          player={player}
+          uri={uri}
+          onClose={() => {
+            setExpanded(false);
+          }}
+        />
+      )}
     </View>
   );
 }

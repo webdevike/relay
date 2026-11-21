@@ -2,7 +2,8 @@
  * Markdown images (`![alt](src)`) of one message as a stack of left-aligned tiles, the way a chat
  * app shows pictures: `TILE_WIDTH` wide, shaped by the picture (via `Image.getSize`) between
  * `MIN_HEIGHT` and `MAX_HEIGHT`, cropped to fill (cover), `GAP` apart. A tap opens `ImageViewer`
- * with every loadable image of the stack, starting at the tapped one. A src that is a video (a
+ * with every loadable image of the stack, starting at the tapped one; a hold opens its save and
+ * share menu (`media/actions`). A src that is a video (a
  * `video/*` drop or an https `.mp4`, see `videoEmbed.ts`) plays inline as an `InlineVideo` instead,
  * and an audio one (`audio/*` drop or https `.mp3`/`.m4a`...) as the same `AudioPlayer` the ```ui
  * `audio` widget uses. A 3D model (`model/*` drop, `.glb`/`.gltf`) only renders in an openui Model
@@ -18,6 +19,7 @@ import { useDropsStore } from "@/state/drops";
 import { useColors } from "@/theme";
 import { ImageFrame } from "@/ui/ImageFrame";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
+import { openMediaActions } from "@/media/actions";
 import { useDropSrc } from "./dropSrc";
 import { ImageViewer, type ViewerImage } from "./ImageViewer";
 import { AudioPlayer } from "./AudioPlayer";
@@ -152,6 +154,9 @@ function Tile({ src, alt, kind, uri, onPress }: TileProps) {
         report("image", src, failureText("image failed to load", error));
       }}
       onPress={onPress}
+      onLongPress={() => {
+        openMediaActions({ uri, kind: "image" });
+      }}
     />
   );
 }

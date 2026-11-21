@@ -7,26 +7,29 @@
  * opened; Subagents spins while any runs and carries a warn glyph while the thread needs Isaac.
  * Long-press a tab to rename, move or hide it; the trailing menu brings hidden tabs back. Rows:
  * pinned first with who pinned it, quiet status pills, a short "48x, last 10:50 PM"; swipe left for
- * Open and Pin. Media is a two-column grid. Subagents shows the thread's tasks by state (Needs
- * input, Ready for review, Working, then Resolved folded), the phone's twin of the desktop's
- * running popover. What runs now shows as chips in the thread's header (`agents/RunningChips`);
+ * Open and Pin. Media is a two-column grid; hold a tile to save or share it. Subagents shows the
+ * thread's tasks by state (Needs input, Ready for review, Working, then Resolved folded), the
+ * phone's twin of the desktop's running popover. What runs now shows as chips in the thread's
+ * header (`agents/RunningChips`);
  * one that is not a session opens this sheet on the Subagents tab (`tab`). The rows are drawn only
  * while the sheet shows: a closed sheet sits under every thread, and a long thread holds thousands
  * of artifacts (Nova's: 2,000, 700 of them pictures), which kept every row, and after a look at
  * Media every picture, alive behind the chat.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ActionSheetIOS, ActivityIndicator, Alert, Image, Modal, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { ActionSheetIOS, ActivityIndicator, Alert, Image, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { ScrollView } from "react-native-gesture-handler";
 import ReanimatedSwipeable, { type SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 import BottomSheet, { BottomSheetBackdrop, BottomSheetFlatList, BottomSheetScrollView, BottomSheetTextInput, type BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
 import { SymbolView, type SFSymbol } from "expo-symbols";
 import { useRouter } from "expo-router";
-import { useVideoPlayer, VideoView } from "expo-video";
+import { useVideoPlayer } from "expo-video";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isDefaultTab, subagentView, tabItems, tidyIds, visibleTabs, type Artifact, type ArtifactAction, type AssistantAgent, type AssistantPortrait, type ArtifactKind, type ArtifactTab } from "@relay/protocol";
 import { actArtifacts, hostBaseUrl } from "@/connection";
 import { ImageViewer, type ViewerImage } from "@/agents/ImageViewer";
+import { VideoViewer } from "@/agents/VideoViewer";
+import { openMediaActions, type MediaRef } from "@/media/actions";
 import { openExternal } from "@/lib/links";
 import { tapHaptic } from "@/lib/haptics";
 import { agentPortrait, agentTitle, useAssistantStore } from "@/state/assistant";
@@ -38,6 +41,7 @@ import { useConnectionStore } from "@/state/connection";
 import { ActionToast } from "@/ui/ActionToast";
 import { Button } from "@/ui/Button";
 import { Collapse } from "@/ui/Collapse";
+import { Holdable } from "@/ui/Holdable";
 import { IconButton } from "@/ui/IconButton";
 import { Portrait } from "@/ui/Portrait";
 import { Text } from "@/ui/Text";
@@ -59,6 +63,7 @@ import {
   ruleChips,
   searchArtifacts,
   statusPills,
+  stillUrl,
   taskGroups,
   taskTime,
   videoLength,
@@ -275,9 +280,9 @@ export function ArtifactsSheet({ thread, agent, session, open, tab: openTab = nu
         setVideo(url);
         return;
       }
-      const pictures = list.filter((entry) => entry.media !== undefined && !isVideo(entry) && hostUrl(entry.url, base) !== null);
+      const pictures = list.filter((entry) => entry.media !== undefined && !isVideo(entry) && stillUrl(entry, base) !== null);
       setViewer({
-        images: pictures.map((entry) => ({ uri: hostUrl(entry.url, base) ?? "", title: entry.title, caption: entry.caption })),
+        images: pictures.map((entry) => ({ uri: stillUrl(entry, base) ?? "", title: entry.title, caption: entry.caption })),
         start: Math.max(0, pictures.findIndex((entry) => entry.id === item.id)),
       });
       return;
@@ -710,46 +715,50 @@ function MediaTile({ item, base, now, onOpen }: { item: Artifact; base: string |
   const colors = useColors();
   const { width } = useWindowDimensions();
   const tile = (width - spacing.xl * 2 - spacing.md) / 2;
-  const src = hostUrl(isVideo(item) ? (item.media?.poster ?? undefined) : item.url, base);
+  const src = stillUrl(item, base);
+  const video = isVideo(item) ? hostUrl(item.url, base) : null;
+  // Holding a video saves the video; anything else saves its picture (a model's poster, never its GLB).
+  const media: MediaRef | null = video !== null ? { uri: video, kind: "video" } : src !== null ? { uri: src, kind: "image" } : null;
   const length = videoLength(item);
   return (
-    <Pressable accessibilityRole="imagebutton" accessibilityLabel={item.caption ?? item.title} onPress={onOpen} style={{ width: tile }}>
-      <View style={[styles.tile, { width: tile, height: tile * 0.75, backgroundColor: colors.surfaceRaised }]}>
-        {src !== null && <Image source={{ uri: src }} style={StyleSheet.absoluteFill} resizeMode="cover" />}
-        {length !== null && (
-          <View style={styles.length}>
-            <SymbolView name="play.fill" size={9} tintColor="#FFFFFF" />
-            <Text variant="caption" tabular style={styles.lengthText}>
-              {length}
-            </Text>
-          </View>
-        )}
-      </View>
-      <Text variant="label" numberOfLines={1} style={styles.tileCaption}>
-        {item.caption ?? item.title}
-      </Text>
-      <Text variant="caption" color="textMuted">
-        {metaLine({ ...item, mentions: 0 }, now)}
-      </Text>
-    </Pressable>
+    <Holdable
+      onHold={
+        media === null
+          ? undefined
+          : () => {
+              openMediaActions(media);
+            }
+      }
+    >
+      <Pressable accessibilityRole="imagebutton" accessibilityLabel={item.caption ?? item.title} onPress={onOpen} style={{ width: tile }}>
+        <View style={[styles.tile, { width: tile, height: tile * 0.75, backgroundColor: colors.surfaceRaised }]}>
+          {src !== null && <Image source={{ uri: src }} style={StyleSheet.absoluteFill} resizeMode="cover" />}
+          {length !== null && (
+            <View style={styles.length}>
+              <SymbolView name="play.fill" size={9} tintColor="#FFFFFF" />
+              <Text variant="caption" tabular style={styles.lengthText}>
+                {length}
+              </Text>
+            </View>
+          )}
+        </View>
+        <Text variant="label" numberOfLines={1} style={styles.tileCaption}>
+          {item.caption ?? item.title}
+        </Text>
+        <Text variant="caption" color="textMuted">
+          {metaLine({ ...item, mentions: 0 }, now)}
+        </Text>
+      </Pressable>
+    </Holdable>
   );
 }
 
+/** A video from the sheet, full screen with its own player. */
 function VideoModal({ uri, onClose }: { uri: string; onClose: () => void }) {
-  const insets = useSafeAreaInsets();
   const player = useVideoPlayer({ uri }, (p) => {
     p.play();
   });
-  return (
-    <Modal visible animationType="fade" onRequestClose={onClose} supportedOrientations={["portrait", "landscape"]}>
-      <View style={styles.video}>
-        <VideoView player={player} style={StyleSheet.absoluteFill} nativeControls contentFit="contain" />
-        <View style={[styles.videoClose, { top: insets.top + spacing.sm }]}>
-          <IconButton symbol="xmark" tone="overlay" accessibilityLabel="Close video" onPress={onClose} />
-        </View>
-      </View>
-    </Modal>
-  );
+  return <VideoViewer player={player} uri={uri} onClose={onClose} />;
 }
 
 const styles = StyleSheet.create({
@@ -785,6 +794,4 @@ const styles = StyleSheet.create({
   rule: { marginHorizontal: spacing.xl, marginTop: spacing.md, padding: spacing.md, borderWidth: 1, borderRadius: radii.md, gap: spacing.sm },
   ruleChips: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: spacing.xs + 2 },
   ruleChipRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs + 2 },
-  video: { flex: 1, backgroundColor: "#000" },
-  videoClose: { position: "absolute", right: spacing.lg },
 });

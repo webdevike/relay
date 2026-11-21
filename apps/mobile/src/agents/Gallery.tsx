@@ -1,10 +1,12 @@
 /**
  * Image carousel for the ```ui "gallery" widget: one image per page, swipe or tap the chevrons to
  * step through, title and caption under each. Tapping an image opens the full-screen viewer at that
- * page, where Isaac keeps swiping and can pinch or double tap to zoom.
+ * page, where Isaac keeps swiping and can pinch or double tap to zoom; holding one opens its save
+ * and share menu.
  */
 import { useState } from "react";
 import { View } from "react-native";
+import { openMediaActions } from "@/media/actions";
 import { spacing } from "@/theme";
 import { ImageCaption } from "@/ui/ImageCaption";
 import { ImageFrame } from "@/ui/ImageFrame";
@@ -79,6 +81,9 @@ export function Gallery({ spec }: { spec: GallerySpec }) {
                 }}
                 onPress={() => {
                   openAt(i);
+                }}
+                onLongPress={() => {
+                  openMediaActions({ uri, kind: "image" });
                 }}
               />
             );

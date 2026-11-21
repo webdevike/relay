@@ -12,6 +12,7 @@ import { useColors, useScheme } from "@/theme";
 import { followLiveCalls } from "@/call/live";
 import { LiveCallScreen } from "@/call/LiveCallScreen";
 import { LinkNotice } from "@/ui/LinkNotice";
+import { MediaNotice } from "@/ui/MediaNotice";
 import { KeyCommands } from "../modules/key-commands";
 
 export default function RootLayout() {
@@ -82,6 +83,7 @@ export default function RootLayout() {
       </BottomSheetModalProvider>
       <LiveCallScreen />
       <LinkNotice />
+      <MediaNotice />
     </GestureHandlerRootView>
   );
 }

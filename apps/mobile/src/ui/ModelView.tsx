@@ -6,11 +6,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fromPromise } from "xstate";
 import { POSTER_MIN_SHARE, settling, useLiveModel, viewportBand, visibility, type Rect } from "@/lib/liveModel";
 import { capturePoster, usePoster } from "@/lib/modelPosters";
+import { openMediaActions } from "@/media/actions";
 import { radii, spacing, useColors } from "@/theme";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { OverlayTag } from "@/ui/OverlayTag";
 import { Text } from "@/ui/Text";
 import { contentCovered, useScreenFocused } from "@/ui/covering";
+import { Holdable } from "./Holdable";
 import { modelViewMachine } from "./modelView.machine";
 import { NativeModelView } from "../../modules/model-view";
 
@@ -140,18 +142,22 @@ export function ModelView({ uri, posterKey, serverPoster, width, height, autoRot
           )}
         </>
       ) : (
-        <Pressable onPress={activate} accessibilityRole="button" accessibilityLabel="View in 3D" style={[StyleSheet.absoluteFill, styles.center, styles.gap]}>
-          {poster !== null ? (
-            <OverlayTag icon="rotate.3d" label="3D" corner="top-left" />
-          ) : (
-            <>
-              <SymbolView name="rotate.3d" size={36} tintColor={colors.textMuted} />
-              <Text variant="caption" color="textMuted">
-                3D model
-              </Text>
-            </>
-          )}
-        </Pressable>
+        <Holdable onHold={poster === null ? undefined : () => {
+          openMediaActions({ uri: poster, kind: "image" });
+        }}>
+          <Pressable onPress={activate} accessibilityRole="button" accessibilityLabel="View in 3D" style={[StyleSheet.absoluteFill, styles.center, styles.gap]}>
+            {poster !== null ? (
+              <OverlayTag icon="rotate.3d" label="3D" corner="top-left" />
+            ) : (
+              <>
+                <SymbolView name="rotate.3d" size={36} tintColor={colors.textMuted} />
+                <Text variant="caption" color="textMuted">
+                  3D model
+                </Text>
+              </>
+            )}
+          </Pressable>
+        </Holdable>
       )}
     </View>
   );

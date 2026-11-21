@@ -199,6 +199,16 @@ export function hostUrl(url: string | undefined, base: string | null): string | 
   return base === null ? null : `${base}${url}`;
 }
 
+/**
+ * A media item's picture as a fetchable URL: an image itself, else the poster the host cut (a
+ * video's, a 3D model's), so a tile, the viewer and Save to Photos only ever get image bytes, never
+ * a GLB. Null without one or while offline.
+ */
+export function stillUrl(item: Artifact, base: string | null): string | null {
+  if (item.media === undefined) return null;
+  return hostUrl(item.media.mimeType.startsWith("image/") ? item.url : item.media.poster, base);
+}
+
 const KIND_LABEL: Record<ArtifactKind, string> = {
   linear: "Linear ticket",
   "gh-pr": "GitHub PR",

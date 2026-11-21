@@ -2,10 +2,13 @@ import { useState } from "react";
 import { Modal, StyleSheet, useWindowDimensions, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { impactHaptic } from "@/lib/haptics";
+import { openMediaActions } from "@/media/actions";
 import { spacing } from "@/theme";
 import { IconButton } from "@/ui/IconButton";
 import { ImageCaption } from "@/ui/ImageCaption";
 import { LinkButton } from "@/ui/LinkButton";
+import { MediaNotice } from "@/ui/MediaNotice";
 import { PageCounter } from "@/ui/PageControls";
 import { Pager, usePager } from "@/ui/Pager";
 import { ZoomableImage } from "./ZoomableImage";
@@ -29,7 +32,9 @@ export interface ImageViewerProps {
 /**
  * Images full-screen on black. Swipe or tap the chevrons to page; pinch to zoom, drag to pan while
  * zoomed, double tap to toggle a 2.5x zoom, single tap (or the close button) to dismiss. Paging
- * stops while an image is zoomed so a pan never flips the page.
+ * stops while an image is zoomed so a pan never flips the page. The share button top right (or
+ * holding the image) opens Save to Photos, Copy and Share for the image shown; their notice draws
+ * in here, since this modal covers the app's own.
  *
  * The gestures live under their own GestureHandlerRootView: a React Native Modal renders in a
  * detached native hierarchy the app-root provider does not reach, so without this the pinch/pan
@@ -86,6 +91,10 @@ export function ImageViewer({ images, start = 0, onClose }: ImageViewerProps) {
                 height={height}
                 onTap={onClose}
                 onZoomChange={setZoomed}
+                onLongPress={() => {
+                  impactHaptic("medium");
+                  openMediaActions({ uri: image.uri, kind: "image" });
+                }}
               />
             ))}
           </Pager>
@@ -95,6 +104,16 @@ export function ImageViewer({ images, start = 0, onClose }: ImageViewerProps) {
           <View style={styles.row} pointerEvents="box-none">
             {current?.url !== undefined && (
               <LinkButton url={current.url} variant="icon" tone="overlay" />
+            )}
+            {current !== undefined && (
+              <IconButton
+                symbol="square.and.arrow.up"
+                tone="overlay"
+                accessibilityLabel="Save or share"
+                onPress={() => {
+                  openMediaActions({ uri: current.uri, kind: "image" });
+                }}
+              />
             )}
             <IconButton symbol="xmark" onPress={onClose} tone="overlay" />
           </View>
@@ -127,6 +146,7 @@ export function ImageViewer({ images, start = 0, onClose }: ImageViewerProps) {
             />
           )}
         </View>
+        <MediaNotice viewer />
       </GestureHandlerRootView>
     </Modal>
   );

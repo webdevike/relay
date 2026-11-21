@@ -3,23 +3,27 @@
  * app's video bubble: a frame at the video's aspect (from the drop, 16:9 until known), up to
  * `MAX_WIDTH` or `WIDTH_FRACTION` of the screen and `MAX_HEIGHT` tall, showing the host's poster
  * with a play button and the length. Nothing streams until it is tapped; then the native player
- * takes the frame (its own controls: play/pause, ±10 s, scrubbing) and plays with sound. At bubble
- * size AVKit leaves full screen out of those controls, so a corner button opens it (the full-screen
- * player has its own controls and Done). The poster stays on top until the first frame draws, so
- * the tap never flashes black.
+ * takes the frame (its own controls: play/pause, ±10 s, scrubbing) and plays with sound. A corner
+ * button opens it full screen in `VideoViewer` (the same player, with Save to Photos and Share on
+ * top, which AVKit's own full screen can't carry). Holding the video still, poster or playing, opens
+ * that menu in place; a tap or scrub stays the player's. The poster stays on top until the first
+ * frame draws, so the tap never flashes black.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useEvent } from "expo";
 import { type PlayerError, useVideoPlayer, VideoView, type VideoPlayerStatus } from "expo-video";
 import { mediaClock } from "@/lib/format";
+import { openMediaActions } from "@/media/actions";
 import { spacing } from "@/theme";
 import { IconButton } from "@/ui/IconButton";
+import { Holdable } from "@/ui/Holdable";
 import { MediaPlaceholder } from "@/ui/MediaPlaceholder";
 import { OverlayTag } from "@/ui/OverlayTag";
 import { useDropSrc } from "./dropSrc";
 import { failureText } from "./renderReport";
 import { useRenderFailure } from "./RenderReportContext";
+import { VideoViewer } from "./VideoViewer";
 import type { VideoEmbed } from "./videoEmbed";
 
 const MAX_WIDTH = 320;
@@ -62,44 +66,50 @@ function InlineVideoFrame({ video, alt, uri, poster }: { video: VideoEmbed; alt:
   };
   const label = alt === "" ? "Play video" : `Play video: ${alt}`;
   return (
-    <View style={{ width, height, borderRadius: RADIUS, overflow: "hidden", backgroundColor: "#000000" }}>
-      {phase !== "poster" && (
-        <Playback
-          uri={uri}
-          width={width}
-          height={height}
-          onAspect={setTrackAspect}
-          onFirstFrame={() => {
-            setPhase("playing");
-          }}
-          onError={(message) => {
-            setPhase("error");
-            report("video", video.src, failureText("video error", message ?? (video.mimeType === "video/webm" ? "WebM doesn't play on iPhone" : null)));
-          }}
-        />
-      )}
-      {phase !== "playing" && (
-        <Pressable
-          onPress={start}
-          disabled={phase === "starting"}
-          accessibilityRole="button"
-          accessibilityLabel={label}
-          style={[StyleSheet.absoluteFill, styles.center]}
-        >
-          {poster !== null && poster !== undefined && poster !== "" && (
-            <Image source={{ uri: poster }} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
-          )}
-          {phase === "starting" ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <IconButton symbol="play.fill" tone="overlay" size={52} onPress={start} accessibilityLabel={label} />
-          )}
-          {phase === "poster" && video.durationMs !== undefined && (
-            <OverlayTag corner="bottom-right" icon="video.fill" label={mediaClock(video.durationMs / 1000)} />
-          )}
-        </Pressable>
-      )}
-    </View>
+    <Holdable
+      onHold={() => {
+        openMediaActions({ uri, kind: "video" });
+      }}
+    >
+      <View style={{ width, height, borderRadius: RADIUS, overflow: "hidden", backgroundColor: "#000000" }}>
+        {phase !== "poster" && (
+          <Playback
+            uri={uri}
+            width={width}
+            height={height}
+            onAspect={setTrackAspect}
+            onFirstFrame={() => {
+              setPhase("playing");
+            }}
+            onError={(message) => {
+              setPhase("error");
+              report("video", video.src, failureText("video error", message ?? (video.mimeType === "video/webm" ? "WebM doesn't play on iPhone" : null)));
+            }}
+          />
+        )}
+        {phase !== "playing" && (
+          <Pressable
+            onPress={start}
+            disabled={phase === "starting"}
+            accessibilityRole="button"
+            accessibilityLabel={label}
+            style={[StyleSheet.absoluteFill, styles.center]}
+          >
+            {poster !== null && poster !== undefined && poster !== "" && (
+              <Image source={{ uri: poster }} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
+            )}
+            {phase === "starting" ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <IconButton symbol="play.fill" tone="overlay" size={52} onPress={start} accessibilityLabel={label} />
+            )}
+            {phase === "poster" && video.durationMs !== undefined && (
+              <OverlayTag corner="bottom-right" icon="video.fill" label={mediaClock(video.durationMs / 1000)} />
+            )}
+          </Pressable>
+        )}
+      </View>
+    </Holdable>
   );
 }
 
@@ -113,9 +123,9 @@ interface PlaybackProps {
   onError: (message: string | undefined) => void;
 }
 
-/** Mounted by the tap: loads the stream, plays at once (unmuted), native controls inline and full screen. */
+/** Mounted by the tap: loads the stream, plays at once (unmuted), native controls inline, full screen in `VideoViewer`. */
 function Playback({ uri, width, height, onAspect, onFirstFrame, onError }: PlaybackProps) {
-  const view = useRef<VideoView>(null);
+  const [expanded, setExpanded] = useState(false);
   const player = useVideoPlayer({ uri }, (p) => {
     // expo-video switches the audio session to playback on play, so it plays through the silent switch.
     p.play();
@@ -135,11 +145,10 @@ function Playback({ uri, width, height, onAspect, onFirstFrame, onError }: Playb
   return (
     <View style={{ width, height }}>
       <VideoView
-        ref={view}
         player={player}
         nativeControls
         contentFit="contain"
-        fullscreenOptions={{ enable: true }}
+        fullscreenOptions={{ enable: false }}
         allowsPictureInPicture={false}
         allowsVideoFrameAnalysis={false}
         onFirstFrameRender={onFirstFrame}
@@ -152,10 +161,19 @@ function Playback({ uri, width, height, onAspect, onFirstFrame, onError }: Playb
           size={32}
           accessibilityLabel="Full screen"
           onPress={() => {
-            void view.current?.enterFullscreen();
+            setExpanded(true);
           }}
         />
       </View>
+      {expanded && (
+        <VideoViewer
+          player={player}
+          uri={uri}
+          onClose={() => {
+            setExpanded(false);
+          }}
+        />
+      )}
     </View>
   );
 }
