@@ -17,7 +17,7 @@ import { type Align, type Block, type Inline, type MessageImage, parseBlocks } f
 import { openUIView, syncOpenUIRuntime } from "./openui";
 import { OpenUIRuntimeContext } from "./OpenUIRuntime";
 import { RenderFormContext } from "./RenderReportContext";
-import { Widget } from "./Widget";
+import { Widget } from "./WidgetRenderer";
 
 const mono = Platform.select({ ios: "Menlo", default: "monospace" });
 

@@ -28,7 +28,7 @@ import { TileSend, useSendToAssistant } from "@/boards/TileSend";
 import { HtmlFrame } from "@/ui/HtmlFrame";
 import { SegmentedTabs } from "@/ui/SegmentedTabs";
 import { boardSubtitle, pickBoardTab, SCROLL_TABS_ABOVE, shownBoardTab } from "@/lib/boardTabs";
-import { Widget } from "@/agents/Widget";
+import { Widget } from "@/agents/WidgetRenderer";
 import { OpenUIRuntimeContext } from "@/agents/OpenUIRuntime";
 
 export default function Boards() {

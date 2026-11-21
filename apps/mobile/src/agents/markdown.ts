@@ -169,7 +169,7 @@ function matchAutolink(text: string, at: number): { text: string; href: string; 
   const m = AUTOLINK.exec(text.slice(at));
   if (!m) return null;
   let raw = m[0];
-  while (raw.length > 0 && /[.,;:!?'"]/.test(raw[raw.length - 1])) raw = raw.slice(0, -1);
+  while (/[.,;:!?'"]/.test(raw.charAt(raw.length - 1))) raw = raw.slice(0, -1);
   if (raw.length < 4) return null;
   const href = /^www\./i.test(raw) ? `https://${raw}` : raw;
   return { text: raw, href, end: at + raw.length };

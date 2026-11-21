@@ -3,13 +3,13 @@ import { Text } from "@/ui/Text";
 
 /* eslint-disable @typescript-eslint/no-require-imports -- static asset table; Metro needs literal requires */
 const logos: Record<string, ImageSourcePropType> = {
-  anthropic: require<ImageSourcePropType>("../../assets/vendors/anthropic.png"),
-  openai: require<ImageSourcePropType>("../../assets/vendors/openai.png"),
-  google: require<ImageSourcePropType>("../../assets/vendors/google.png"),
-  xai: require<ImageSourcePropType>("../../assets/vendors/xai.png"),
-  deepseek: require<ImageSourcePropType>("../../assets/vendors/deepseek.png"),
-  meta: require<ImageSourcePropType>("../../assets/vendors/meta.png"),
-  mistral: require<ImageSourcePropType>("../../assets/vendors/mistral.png"),
+  anthropic: require("../../assets/vendors/anthropic.png") as ImageSourcePropType,
+  openai: require("../../assets/vendors/openai.png") as ImageSourcePropType,
+  google: require("../../assets/vendors/google.png") as ImageSourcePropType,
+  xai: require("../../assets/vendors/xai.png") as ImageSourcePropType,
+  deepseek: require("../../assets/vendors/deepseek.png") as ImageSourcePropType,
+  meta: require("../../assets/vendors/meta.png") as ImageSourcePropType,
+  mistral: require("../../assets/vendors/mistral.png") as ImageSourcePropType,
 };
 /* eslint-enable @typescript-eslint/no-require-imports */
 

@@ -102,7 +102,7 @@ export function HtmlFrame({
     if (message === null || code === null) return;
     if (message.type === "height") setMeasured({ code, height: message.height });
     else if (message.type === "open") onOpenLink(message.url, message.gesture);
-    else onReply(message.text, message.agent);
+    else if (message.type === "reply") onReply(message.text, message.agent);
   };
 
   // The page's own script sends links through `relay.open`; this only stops anything else (a

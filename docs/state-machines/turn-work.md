@@ -7,7 +7,6 @@ The bottom sheet a reply's brain opens in an assistant thread (`apps/mobile/src/
 - A step or the thinking opens with `part.toggle`; its full text is fetched the first time only (a spawned `fetchDetail`), and an answer for a sheet already closed or moved to another turn is dropped by its `generation`.
 
 <!-- diagram:start (generated from the machine by `pnpm machines:docs`; do not edit) -->
-
 ```mermaid
 stateDiagram-v2
   state "any state" as anyState
@@ -35,5 +34,4 @@ stateDiagram-v2
   failed --> closed : sheet.close
   failed --> loading : sheet.retry
 ```
-
 <!-- diagram:end -->

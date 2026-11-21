@@ -22,6 +22,7 @@ const ICONS: Record<BackgroundIcon, SFSymbol> = {
   robot: "cpu",
   board: "square.grid.2x2",
   hand: "hand.point.up.left",
+  pointer: "cursorarrow",
   chat: "bubble.left",
   reaction: "face.smiling",
 };
