@@ -50,6 +50,16 @@ Settings > omp account supplies its initial default. Named choices pass `--profi
 `--profile work` to omp on the host, keeping authentication, sessions, settings, and caches separate.
 Log into each named profile once on the host.
 
+## Chat images and videos
+
+On desktop, right-click an image to copy it, save it, or copy its address. Videos can be saved or
+copied as an address. In the media viewer, Download and Cmd+S save the current item; Cmd+C copies
+the current image. The save dialog starts in Downloads.
+
+On iPhone, press and hold chat media or tap the share button in the viewer to save the item to
+Photos or share the file. Images can also be copied. Relay asks for add-only Photos access the
+first time you save.
+
 ## Pairing and security (V1)
 
 Plaintext WebSocket on the LAN. A physically paired iPhone can receive quick trust through its protected app-data channel, with no PIN entry; the transient transfer file is deleted after its secret moves into Keychain. Other first contacts use a 6-digit PIN for 120 s. The phone keeps independent credentials per connection target, so switching computers does not replace existing trust. Every later connection is `challenge` (32-byte nonce) → `auth` (HMAC-SHA256 proof) → `welcome`. Trackpad input is dropped, never queued, when disconnected; commands are acked and deduplicated by id across reconnects. No TLS yet: fine at home, not on hostile Wi-Fi.

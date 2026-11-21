@@ -4,21 +4,13 @@ import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react'
 import type { ChatImage as ChatImageData } from '@evaos/chat-core/message'
 import { EvaModal } from '../overlay'
 import { useImageSrc } from './ChatImage'
+import { mediaTarget } from './media-actions/media-actions'
+import { useMediaMenu } from './media-actions/MediaMenu'
+import { useViewerMediaKeys } from './media-actions/useViewerMediaKeys'
+import { ViewerDownload } from './media-actions/ViewerDownload'
 import './images.css'
 
-function ViewerImage({
-  image,
-  index,
-  total,
-}: {
-  image: ChatImageData
-  index: number
-  total: number
-}) {
-  const url = useImageSrc(image)
-  const alt = `Image ${index + 1} of ${total}`
-  return url !== null ? <img className="eva-viewer-img" src={url} alt={alt} /> : null
-}
+const NO_IMAGE: ChatImageData = { label: '' }
 
 export interface ImageViewerProps {
   images: ChatImageData[]
@@ -27,6 +19,10 @@ export interface ImageViewerProps {
   onClose: () => void
 }
 
+/**
+ * The full-size image viewer: arrows step through the images, Download (or Cmd+S) saves the one
+ * shown, Cmd+C copies it, and a right-click opens its media menu.
+ */
 export function ImageViewer({ images, start, opened, onClose }: ImageViewerProps) {
   const [index, setIndex] = useState(start)
   useEffect(() => {
@@ -43,6 +39,11 @@ export function ImageViewer({ images, start, opened, onClose }: ImageViewerProps
     return () => document.removeEventListener('keydown', onKey)
   }, [opened, last])
   const image = images[index]
+  // Closed viewers stay mounted under every thumbnail: only an open one reads its image.
+  const url = useImageSrc(opened && image ? image : NO_IMAGE)
+  const target = mediaTarget('image', url, image?.label)
+  useViewerMediaKeys(target, opened)
+  const media = useMediaMenu()
   return (
     <EvaModal
       opened={opened}
@@ -50,6 +51,7 @@ export function ImageViewer({ images, start, opened, onClose }: ImageViewerProps
       size="90vw"
       title={`Image ${index + 1} of ${images.length}`}
       testid="image-viewer"
+      actions={<ViewerDownload target={target} testid="viewer-download" />}
     >
       <div className="eva-image-viewer">
         {images.length > 1 ? (
@@ -67,7 +69,14 @@ export function ImageViewer({ images, start, opened, onClose }: ImageViewerProps
             <IconChevronLeft size={20} stroke={1.75} />
           </ActionIcon>
         ) : null}
-        {image ? <ViewerImage image={image} index={index} total={images.length} /> : null}
+        {image && url !== null ? (
+          <img
+            className="eva-viewer-img"
+            src={url}
+            alt={`Image ${index + 1} of ${images.length}`}
+            onContextMenu={media.onContextMenu(target)}
+          />
+        ) : null}
         {images.length > 1 ? (
           <ActionIcon
             className="eva-viewer-nav"
@@ -84,6 +93,7 @@ export function ImageViewer({ images, start, opened, onClose }: ImageViewerProps
           </ActionIcon>
         ) : null}
       </div>
+      {media.menu}
     </EvaModal>
   )
 }

@@ -3,6 +3,8 @@ import { Group, Stack, Text } from '@mantine/core'
 import { ImageViewer } from '../../ImageViewer'
 import { mediaUrl } from '../media-url'
 import { LinkIcon, MediaImage, WidgetTitle } from './parts'
+import { mediaTarget } from '../../media-actions/media-actions'
+import { useMediaMenu } from '../../media-actions/MediaMenu'
 
 /** Until the image loads, and for galleries always (widgets.rs GALLERY_ASPECT). */
 export const DEFAULT_ASPECT = 4 / 3
@@ -64,6 +66,7 @@ export function FramedImage({
   const [viewing, setViewing] = useState(false)
   const shown = aspect ?? Math.max(natural ?? DEFAULT_ASPECT, 1 / MAX_HEIGHT_RATIO)
   const url_ = mediaUrl(src)
+  const media = useMediaMenu()
   return (
     <Stack gap="sm" data-testid={testid}>
       {heading !== undefined ? <WidgetTitle>{heading}</WidgetTitle> : null}
@@ -73,9 +76,11 @@ export function FramedImage({
         style={{ aspectRatio: shown }}
         aria-label={`Open ${alt}`}
         onClick={() => setViewing(true)}
+        onContextMenu={media.onContextMenu(mediaTarget('image', url_, alt))}
       >
         <MediaImage src={url_} alt={alt} onAspect={setNatural} origin={{ kind: 'image', src }} />
       </button>
+      {media.menu}
       <ImageCaption caption={caption} url={url} />
       <ImageViewer
         images={[{ label: alt, src: url_ }]}

@@ -32,6 +32,7 @@ import {
   registerWidgetSchemes,
 } from './chat/widget-protocols'
 import { registerUsageIpc } from './usage/usage-ipc'
+import { registerMediaIpc } from './media/media-ipc'
 import { apiKey, linearReader, localLinearIssue, registerLinearIpc } from './linear/linear-ipc'
 import { registerReviewsIpc } from './reviews/reviews-ipc'
 import { hostLinearIssue, hostPrFacts } from './reviews/remote-reviews'
@@ -242,7 +243,10 @@ function bootstrap(): void {
         })
         ctx.onBeforeQuit(async () => stopStatuses())
       }
-      registerWidgetMedia(ctx, () => chat.canvas.canvasOrigin())
+      registerMediaIpc(
+        ctx,
+        registerWidgetMedia(ctx, () => chat.canvas.canvasOrigin()),
+      )
       registerWidgetFrames()
       const evaWatch = startEvaWatch(ctx)
       ctx.onBeforeQuit(() => evaWatch.close())

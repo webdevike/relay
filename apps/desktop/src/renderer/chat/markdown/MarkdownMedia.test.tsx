@@ -8,6 +8,7 @@ import { RenderMessage, clearRenderReports } from '../widgets/render-report'
 import { invoke } from '../../ipc'
 import { collectMessageImages } from './collect-images'
 import { dismissTop } from '../../hotkeys/dismiss'
+import { dispatchChord } from '../../hotkeys/router'
 
 vi.mock('../../ipc', () => ({ invoke: vi.fn(), on: vi.fn() }))
 vi.mock('../widgets/rich/model-scene', () => ({ mountModel: vi.fn() }))
@@ -239,5 +240,29 @@ describe('urlIsVideo', () => {
     expect(urlIsVideo('https://x.com/watch?v=clip.mp4')).toBe(false)
     expect(urlIsVideo('/drops/a/b')).toBe(false)
     expect(urlIsVideo('~/clip.mp4')).toBe(false)
+  })
+})
+
+describe('chat video full screen', () => {
+  it("opens the app's viewer (not Chromium's) with Download, Cmd+S and the media menu", async () => {
+    const pause = vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {})
+    const src = 'https://example.com/clip.mp4'
+    show(`![Demo clip](${src})`)
+    const inline = (await screen.findByLabelText('Demo clip')) as HTMLVideoElement
+    expect(inline.getAttribute('controlslist')).toBe('nofullscreen')
+    fireEvent.click(screen.getByTestId('video-expand'))
+    expect(pause).toHaveBeenCalled()
+    const viewer = await screen.findByTestId('video-viewer-video')
+    expect(viewer.getAttribute('src')).toBe(mediaUrl(src))
+    fireEvent.click(screen.getByTestId('viewer-download'))
+    expect(invoke).toHaveBeenCalledWith('media.save', { src: mediaUrl(src), name: 'Demo clip' })
+    vi.mocked(invoke).mockClear()
+    act(() => void dispatchChord('cmd+s', { fromGuest: false }))
+    expect(invoke).toHaveBeenCalledWith('media.save', { src: mediaUrl(src), name: 'Demo clip' })
+    fireEvent.contextMenu(viewer, { clientX: 5, clientY: 5 })
+    expect(await screen.findByTestId('media-menu')).toHaveAttribute('data-kind', 'video')
+    expect(screen.queryByTestId('media-menu-copy')).toBeNull()
+    expect(screen.getByTestId('media-menu-save')).toHaveTextContent('Save Video As…')
+    pause.mockRestore()
   })
 })

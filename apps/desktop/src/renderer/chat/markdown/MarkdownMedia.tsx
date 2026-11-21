@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import type { ChatImage } from '@evaos/chat-core/message'
 import { IMAGE_DRAG_TYPE } from '../../canvas/image-drop'
 import { ImageViewer } from '../ImageViewer'
@@ -6,6 +6,9 @@ import { collectMessageImages } from './collect-images'
 import { mediaUrl } from '../widgets/media-url'
 import { mediaErrorText, useRenderFailure } from '../widgets/render-report'
 import { useMediaSlot } from '../widgets/media-slot'
+import { mediaTarget } from '../media-actions/media-actions'
+import { useMediaMenu } from '../media-actions/MediaMenu'
+import { useVideoViewer } from '../media-actions/VideoViewer'
 
 /**
  * `![caption](src)` in a reply: an image, an inline video or an audio player when `src` is one.
@@ -146,28 +149,47 @@ function MarkdownVideo({
   const [failed, setFailed] = useState(false)
   const report = useRenderFailure()
   const { ref, live, settled } = useMediaSlot('media')
+  const media = useMediaMenu()
+  const video = useRef<HTMLVideoElement>(null)
+  const url = mediaUrl(src)
+  const viewer = useVideoViewer({
+    video,
+    url,
+    caption: caption || undefined,
+    poster: poster ?? undefined,
+  })
   // Spans, not a figure: markdown puts the image inside a paragraph.
   return (
     <span ref={ref} className="eva-md-video" data-testid="md-video">
       {failed ? (
         <span className="eva-md-video-error">Couldn&apos;t load video</span>
       ) : (
-        <video
-          src={live ? mediaUrl(src) : undefined}
-          poster={poster ?? undefined}
-          controls
-          preload="metadata"
-          playsInline
-          aria-label={caption || 'Video'}
-          onLoadedMetadata={settled}
-          onError={(e) => {
-            setFailed(true)
-            settled()
-            report('video', src, mediaErrorText('video', e.currentTarget))
-          }}
-        />
+        <span className="eva-md-video-box">
+          <video
+            ref={video}
+            src={live ? url : undefined}
+            poster={poster ?? undefined}
+            controls
+            // Full screen is the app's viewer (Download, Cmd+S), not Chromium's.
+            controlsList="nofullscreen"
+            preload="metadata"
+            playsInline
+            aria-label={caption || 'Video'}
+            onLoadedMetadata={settled}
+            onError={(e) => {
+              setFailed(true)
+              settled()
+              report('video', src, mediaErrorText('video', e.currentTarget))
+            }}
+            onDoubleClick={viewer.open}
+            onContextMenu={media.onContextMenu(mediaTarget('video', url, caption))}
+          />
+          {viewer.button}
+        </span>
       )}
       {caption ? <span className="eva-md-video-caption">{caption}</span> : null}
+      {media.menu}
+      {viewer.viewer}
     </span>
   )
 }
@@ -209,8 +231,10 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
   const [failed, setFailed] = useState(false)
   const report = useRenderFailure()
   const linked = useContext(InLink)
+  const media = useMediaMenu()
   useEffect(() => setFailed(false), [src])
   const url = mediaUrl(src)
+  const onMenu = media.onContextMenu(mediaTarget('image', url, alt))
   const onError = (): void => {
     setFailed(true)
     report('image', src, 'image failed to load')
@@ -221,7 +245,20 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         Image failed to load
       </span>
     )
-  if (linked) return <img src={url} alt={alt} loading="lazy" draggable={false} onError={onError} />
+  if (linked)
+    return (
+      <>
+        <img
+          src={url}
+          alt={alt}
+          loading="lazy"
+          draggable={false}
+          onError={onError}
+          onContextMenu={onMenu}
+        />
+        {media.menu}
+      </>
+    )
   return (
     <>
       <button
@@ -229,6 +266,7 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
         className="eva-md-image"
         aria-label={`Open ${alt || 'image'}`}
         data-testid="md-image"
+        onContextMenu={onMenu}
         onClick={(e) => setViewing(collectMessageImages(e.currentTarget))}
       >
         <img
@@ -240,6 +278,7 @@ function MarkdownImage({ src, alt }: { src: string; alt: string }) {
           onError={onError}
         />
       </button>
+      {media.menu}
       {viewing ? (
         <ImageViewer
           images={viewing.images}

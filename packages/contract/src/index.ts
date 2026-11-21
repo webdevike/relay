@@ -46,6 +46,7 @@ import { contextEvents, contextInvoke } from './context'
 import { agentsBoardEvents, agentsBoardInvoke } from './agents-board'
 import { computerEvents, computerInvoke } from './computer'
 import { notificationsEvents, notificationsInvoke } from './notifications'
+import { mediaInvoke } from './media'
 import { designEvents, designInvoke } from './design'
 export * from './experiments'
 export * from './canvas'
@@ -82,6 +83,7 @@ export * from './context'
 export * from './agents-board'
 export * from './setup'
 export * from './notifications'
+export * from './media'
 export * from './skills'
 export * from './computer'
 export * from './design'
@@ -153,6 +155,7 @@ export const invokeContract = {
   ...computerInvoke,
   ...designInvoke,
   ...agentPresenceInvoke,
+  ...mediaInvoke,
 }
 export const eventContract = {
   ...linksEvents,

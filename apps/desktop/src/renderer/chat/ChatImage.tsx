@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import type { ChatImage as ChatImageData } from '@evaos/chat-core/message'
 import { invoke } from '../ipc'
 import { IMAGE_DRAG_TYPE } from '../canvas/image-drop'
+import { mediaTarget } from './media-actions/media-actions'
+import { useMediaMenu } from './media-actions/MediaMenu'
 import './images.css'
 
 export const THUMB_MAX = 240
@@ -92,23 +94,29 @@ export function ChatImage({ image, index, total, onOpen }: ChatImageProps) {
   const url = useImageSrc(image)
   const box = thumbBox(image)
   const alt = `Image ${index + 1} of ${total}`
+  const media = useMediaMenu()
   return (
-    <button
-      type="button"
-      className="eva-chat-image"
-      style={{ width: box.width, height: box.height }}
-      data-known={image.width !== undefined && image.height !== undefined}
-      aria-label={url === null ? alt : undefined}
-      onClick={onOpen}
-    >
-      {url !== null ? (
-        <img
-          src={url}
-          alt={alt}
-          draggable
-          onDragStart={(e) => e.dataTransfer.setData(IMAGE_DRAG_TYPE, url)}
-        />
-      ) : null}
-    </button>
+    <>
+      <button
+        type="button"
+        className="eva-chat-image"
+        style={{ width: box.width, height: box.height }}
+        data-known={image.width !== undefined && image.height !== undefined}
+        aria-label={url === null ? alt : undefined}
+        onClick={onOpen}
+        onContextMenu={media.onContextMenu(mediaTarget('image', url, image.label))}
+      >
+        {url !== null ? (
+          <img
+            src={url}
+            alt={alt}
+            draggable
+            onDragStart={(e) => e.dataTransfer.setData(IMAGE_DRAG_TYPE, url)}
+          />
+        ) : null}
+      </button>
+      {/* Beside the button, never in it: a click in the menu must not open the viewer. */}
+      {media.menu}
+    </>
   )
 }

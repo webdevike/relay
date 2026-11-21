@@ -1,4 +1,4 @@
-import { CloseButton, Modal } from '@mantine/core'
+import { CloseButton, Group, Modal } from '@mantine/core'
 import type { ReactNode } from 'react'
 import { DISMISS_PRIORITY, useDismissable } from '../hotkeys/dismiss'
 import { overlayTransitionDuration } from './motion'
@@ -30,6 +30,7 @@ export function EvaModal({
 }: EvaModalProps) {
   useOccludeBrowser(opened)
   useDismissable(DISMISS_PRIORITY.overlay, onClose, opened)
+  const close = <CloseButton size={28} aria-label="Close" onClick={onClose} />
   return (
     <Modal.Root
       opened={opened}
@@ -51,8 +52,14 @@ export function EvaModal({
       >
         <Modal.Header className="eva-modal-header">
           <Modal.Title className="eva-modal-title">{title}</Modal.Title>
-          {actions}
-          <CloseButton size={28} aria-label="Close" onClick={onClose} />
+          {actions ? (
+            <Group gap="xs" wrap="nowrap" ml="auto">
+              {actions}
+              {close}
+            </Group>
+          ) : (
+            close
+          )}
         </Modal.Header>
         <Modal.Body className="eva-modal-body">{children}</Modal.Body>
       </Modal.Content>

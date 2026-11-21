@@ -10,6 +10,10 @@ import {
 } from '@tabler/icons-react'
 import type { Artifact } from '@evaos/chat-core/artifacts'
 import { mediaUrl } from '../chat/widgets/media-url'
+import { mediaTarget } from '../chat/media-actions/media-actions'
+import { useMediaMenu } from '../chat/media-actions/MediaMenu'
+import { useViewerMediaKeys } from '../chat/media-actions/useViewerMediaKeys'
+import { ViewerDownload } from '../chat/media-actions/ViewerDownload'
 import { EvaModal } from '../overlay'
 import { durationText, isVideo, mediaSource, whenText } from './artifacts-model'
 
@@ -111,6 +115,13 @@ export function MediaLightbox({
   const item = items[Math.min(index, last)]
   const src = item ? mediaSource(item) : null
   const title = item ? item.caption?.trim() || item.title : ''
+  // An image or a video only: a 3D model or a PDF in the Media tab is neither.
+  const mime = item?.media?.mimeType ?? ''
+  const kind = mime.startsWith('video/') ? 'video' : mime.startsWith('image/') ? 'image' : null
+  const target = kind === null || src === null ? null : mediaTarget(kind, mediaUrl(src), title)
+  useViewerMediaKeys(target, opened)
+  const media = useMediaMenu()
+  const download = <ViewerDownload target={target} testid="artifacts-lightbox-download" />
   return (
     <EvaModal
       opened={opened}
@@ -150,8 +161,11 @@ export function MediaLightbox({
                 <IconChevronRight size={16} stroke={1.5} />
               </ActionIcon>
             </Tooltip>
+            {download}
           </>
-        ) : null
+        ) : (
+          download
+        )
       }
     >
       <div className="eva-art-lb-stage">
@@ -163,14 +177,24 @@ export function MediaLightbox({
               src={mediaUrl(src)}
               poster={item.media?.poster !== undefined ? mediaUrl(item.media.poster) : undefined}
               controls
+              // Already full screen: Chromium's own would hide Download and the menu.
+              controlsList="nofullscreen"
               autoPlay
               data-testid="artifacts-lightbox-video"
+              onContextMenu={media.onContextMenu(target)}
             />
           ) : (
-            <img key={item.id} className="eva-art-lb-media" src={mediaUrl(src)} alt={title} />
+            <img
+              key={item.id}
+              className="eva-art-lb-media"
+              src={mediaUrl(src)}
+              alt={title}
+              onContextMenu={media.onContextMenu(target)}
+            />
           )
         ) : null}
       </div>
+      {media.menu}
     </EvaModal>
   )
 }

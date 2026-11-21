@@ -121,6 +121,13 @@
   display: block;
   max-width: 100%;
 }
+/* Hugs the video, so its Full screen button sits on the video's own corner. */
+.eva-md-video-box {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+}
 .eva-md-video video {
   display: block;
   max-width: 100%;

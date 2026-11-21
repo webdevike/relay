@@ -138,19 +138,21 @@ async function fetchInto(url: string, hash: string, deps: MediaDeps): Promise<st
   }
 }
 
-/** A local file for `src`, downloading it first when it is remote. */
-export async function resolveMedia(src: string, deps: MediaDeps): Promise<string> {
-  if (/^https?:\/\//.test(src)) return download(src, deps)
-  // A meeting's screen snapshots (`/meetings/shots/<id>/<token>/<n>`): from the connected host.
+/**
+ * The http URL a host-served `src` downloads from: a meeting's screen snapshot
+ * (`/meetings/shots/<id>/<token>/<n>`, from the connected host), a drop, an image pasted into a
+ * thread (`/artifacts/media/<sha>/<token>`, the Artifacts panel) or a Studio output or upload
+ * (`/studio/<id>/<token>`, `/thumb` a JPEG preview). Null for any other src; throws when the
+ * host it needs is not running.
+ */
+export function hostMediaUrl(src: string, deps: MediaDeps): string | null {
   if (/^\/meetings\/shots\/[^/]+\/[^/]+\/\d+$/.test(src)) {
     const port = deps.servePort()
     const base = deps.hostOrigin?.() ?? (port === null ? null : `http://127.0.0.1:${port}`)
     if (base === null)
       throw new MediaError(503, "Relay Host isn't connected, so the snapshot can't load")
-    return download(new URL(src, base).toString(), deps)
+    return new URL(src, base).toString()
   }
-  // Drops, images pasted into a thread (`/artifacts/media/<sha>/<token>`, the Artifacts panel) and
-  // Studio's outputs and uploads (`/studio/<id>/<token>`, `/thumb` a JPEG preview).
   if (
     /^\/(?:drops\/[^/]+\/[^/]+(\/poster)?|artifacts\/media\/[^/]+\/[^/]+|studio\/[^/]+\/[^/]+(\/thumb)?)$/.test(
       src,
@@ -158,8 +160,25 @@ export async function resolveMedia(src: string, deps: MediaDeps): Promise<string
   ) {
     const port = deps.servePort()
     if (port === null) throw new MediaError(503, "Relay isn't running, so its drop can't load")
-    return download(`http://127.0.0.1:${port}${src}`, deps)
+    return `http://127.0.0.1:${port}${src}`
   }
+  return null
+}
+
+/** A local `src` (`~/` or absolute) as an absolute path when it names a media file; else a MediaError. */
+function localMedia(src: string, deps: MediaDeps): string {
+  const local = src.startsWith('~/') ? path.join(deps.home, src.slice(2)) : src
+  if (!path.isAbsolute(local)) throw new MediaError(400, `Not a media source: ${src}`)
+  if (!(path.extname(local).toLowerCase() in MIME))
+    throw new MediaError(403, `Not a media file: ${src}`)
+  return local
+}
+
+/** A local file for `src`, downloading it first when it is remote. */
+export async function resolveMedia(src: string, deps: MediaDeps): Promise<string> {
+  if (/^https?:\/\//.test(src)) return download(src, deps)
+  const remote = hostMediaUrl(src, deps)
+  if (remote !== null) return download(remote, deps)
   // Reviews' downloaded images (main/reviews/review-media.ts): `/reviews/media/<sha1><ext>`.
   if (src.startsWith(REVIEWS_MEDIA_PREFIX)) {
     const file = deps.reviewsDir ? reviewsMediaFile(deps.reviewsDir, src) : null
@@ -167,16 +186,34 @@ export async function resolveMedia(src: string, deps: MediaDeps): Promise<string
     if (!fs.existsSync(file)) throw new MediaError(404, `Not found: ${src}`)
     return file
   }
-  const local = src.startsWith('~/') ? path.join(deps.home, src.slice(2)) : src
-  if (!path.isAbsolute(local)) throw new MediaError(400, `Not a media source: ${src}`)
-  if (!(path.extname(local).toLowerCase() in MIME))
-    throw new MediaError(403, `Not a media file: ${src}`)
+  const local = localMedia(src, deps)
   try {
     if (fs.statSync(local).isFile()) return local
   } catch {
     // Missing: reported below.
   }
   throw new MediaError(404, `Not found: ${src}`)
+}
+
+/**
+ * Where `src` lives, for Copy Image Address: an http(s) URL as is, a host-served src as its URL on
+ * the host, a local or Reviews file as its path. Nothing is fetched.
+ */
+export function mediaAddress(src: string, deps: MediaDeps): string {
+  if (/^https?:\/\//.test(src)) return src
+  const remote = hostMediaUrl(src, deps)
+  if (remote !== null) return remote
+  if (src.startsWith(REVIEWS_MEDIA_PREFIX)) {
+    const file = deps.reviewsDir ? reviewsMediaFile(deps.reviewsDir, src) : null
+    if (!file) throw new MediaError(400, `Not a media source: ${src}`)
+    return file
+  }
+  return localMedia(src, deps)
+}
+
+/** The media type a resolved file is served as, from its extension; null for anything else. */
+export function mediaTypeOf(file: string): string | null {
+  return MIME[path.extname(file).toLowerCase()] ?? null
 }
 
 /** `bytes=a-b` against a file of `size` bytes: the inclusive span, or null when unsatisfiable. */

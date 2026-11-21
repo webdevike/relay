@@ -18,10 +18,15 @@ export const electronRescale: Rescale = (bytes, mime, edge) => {
   }
 }
 
-/** Replaces the system clipboard with this image (any type Electron decodes), as a PNG. */
-export async function copyImageToClipboard(bytes: Buffer): Promise<void> {
+/** The image a clipboard copy puts there (any type Electron decodes); throws `unsupported` when none. */
+export function clipboardImage(bytes: Buffer): Electron.NativeImage {
   const img = nativeImage.createFromBuffer(bytes)
   if (img.isEmpty()) throw coded('That image could not be copied.', 'unsupported')
-  const png = new Blob([new Uint8Array(img.toPNG())], { type: 'image/png' })
+  return img
+}
+
+/** Replaces the system clipboard with this image (any type Electron decodes), as a PNG. */
+export async function copyImageToClipboard(bytes: Buffer): Promise<void> {
+  const png = new Blob([new Uint8Array(clipboardImage(bytes).toPNG())], { type: 'image/png' })
   await clipboard.write([new ClipboardItem({ 'image/png': png })])
 }

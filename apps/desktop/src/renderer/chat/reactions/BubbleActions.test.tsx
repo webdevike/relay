@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MantineProvider } from '@mantine/core'
 import { makeMessage, type ChatMessage } from '@evaos/chat-core/message'
+import { mediaUrl } from '../widgets/media-url'
 import { QUICK_REACTIONS } from '@evaos/chat-core/reactions'
 
 const invoke = vi.hoisted(() => vi.fn())
@@ -343,5 +344,22 @@ describe('bubble context menu', () => {
     fireEvent.contextMenu(screen.getByTestId('bubble-u1'), { clientX: 1, clientY: 1 })
     fireEvent.click(await screen.findByTestId('bubble-menu-select'))
     expect(window.getSelection()?.toString()).toContain('the dock?')
+  })
+
+  it("a right-click on a reply's image opens its media menu, not the bubble's", async () => {
+    const src = 'https://example.com/sunset.png'
+    show(makeMessage('a3', 'assistant', `Look:\n\n![Sunset](${src})`, { at: 300 }))
+    const img = await screen.findByAltText('Sunset')
+    fireEvent.contextMenu(img, { clientX: 10, clientY: 10 })
+    expect(await screen.findByTestId('media-menu')).toBeInTheDocument()
+    expect(screen.queryByTestId('bubble-menu')).toBeNull()
+    expect(screen.queryByTestId('reaction-bar')).toBeNull()
+    fireEvent.click(screen.getByTestId('media-menu-address'))
+    expect(invoke).toHaveBeenCalledWith('media.copy', { src: mediaUrl(src), what: 'address' })
+    await waitFor(() => expect(screen.queryByTestId('media-menu')).toBeNull())
+    // The bubble's text still opens the bubble's menu.
+    fireEvent.contextMenu(screen.getByText('Look:'), { clientX: 1, clientY: 1 })
+    expect(await screen.findByTestId('bubble-menu')).toBeInTheDocument()
+    expect(screen.queryByTestId('media-menu')).toBeNull()
   })
 })

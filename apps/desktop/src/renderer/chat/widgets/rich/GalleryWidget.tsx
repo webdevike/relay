@@ -5,6 +5,8 @@ import { ImageViewer } from '../../ImageViewer'
 import { mediaUrl } from '../media-url'
 import { DEFAULT_ASPECT, ImageCaption } from './FramedImage'
 import { MediaImage, Pager, WidgetTitle } from './parts'
+import { mediaTarget } from '../../media-actions/media-actions'
+import { useMediaMenu } from '../../media-actions/MediaMenu'
 
 /**
  * Image carousel (widgets.rs gallery): one image per page in a 4:3 frame, chevrons and dots in
@@ -26,6 +28,7 @@ export function GalleryWidget({ spec }: { spec: GallerySpec }) {
     [spec.images],
   )
   const alt = image.title ?? `Image ${index + 1} of ${count}`
+  const media = useMediaMenu()
   return (
     <Stack gap="sm" data-testid="widget-gallery">
       {spec.title !== undefined || count > 1 ? (
@@ -40,6 +43,9 @@ export function GalleryWidget({ spec }: { spec: GallerySpec }) {
         style={{ aspectRatio: DEFAULT_ASPECT }}
         aria-label={`Open ${alt}`}
         onClick={() => setViewing(true)}
+        onContextMenu={media.onContextMenu(
+          mediaTarget('image', viewerImages[index]!.src, image.title ?? image.caption),
+        )}
       >
         <MediaImage
           key={index}
@@ -48,6 +54,7 @@ export function GalleryWidget({ spec }: { spec: GallerySpec }) {
           origin={{ kind: 'gallery', src: image.src }}
         />
       </button>
+      {media.menu}
       <ImageCaption title={image.title} caption={image.caption} url={image.url} />
       <ImageViewer
         images={viewerImages}

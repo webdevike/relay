@@ -4,7 +4,7 @@ import * as path from 'node:path'
 import type { MainContext } from '../context'
 import { relayConfigDir, servePort } from '../relay/device'
 import { FRAME_SCHEME, handleFrameRequest } from './widget-frame'
-import { handleMediaRequest } from './widget-media'
+import { handleMediaRequest, type MediaDeps } from './widget-media'
 import { REVIEWS_MEDIA_DIR } from '../reviews/review-media'
 
 const MEDIA_SCHEME = 'relay-media'
@@ -34,15 +34,16 @@ export function registerWidgetSchemes(): void {
 /**
  * Serves widget media (`relay-media://media/?src=<src>`). The cache and the port live in the config
  * dir of the Relay this app connects to (EVAOS_RELAY_DIR, live: Relay's own). Fixtures and e2e
- * without one use `<configDir>/relay` so a test never touches it.
+ * without one use `<configDir>/relay` so a test never touches it. Answers the deps it serves
+ * with, so saving and copying media (media/media-ipc.ts) resolve a src exactly as it was shown.
  */
-export function registerWidgetMedia(ctx: MainContext, hostOrigin?: () => string | null): void {
+export function registerWidgetMedia(ctx: MainContext, hostOrigin?: () => string | null): MediaDeps {
   const relayDir =
     ctx.env.relayDir ??
     (ctx.env.live
       ? relayConfigDir(process.env, os.homedir())
       : path.join(ctx.env.configDir, 'relay'))
-  const deps = {
+  const deps: MediaDeps = {
     cacheDir: path.join(relayDir, 'widget-media'),
     servePort: () => servePort(relayDir),
     home: os.homedir(),
@@ -50,6 +51,7 @@ export function registerWidgetMedia(ctx: MainContext, hostOrigin?: () => string 
     ...(hostOrigin === undefined ? {} : { hostOrigin }),
   }
   protocol.handle(MEDIA_SCHEME, (request) => handleMediaRequest(request, deps))
+  return deps
 }
 
 /** Serves agent-made widget pages (`relay-widget://frame/<runtime>?...`, see widget-frame.ts). */
