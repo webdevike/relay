@@ -1559,11 +1559,7 @@ function RowView({
       const wide = segments.some((segment) => segment.kind === "widget");
       // The whole row reports its media's failures, tiles above the bubble included (`RenderMessage`).
       return (
-        <RenderMessage
-          thread={assistantReactionThread(agent)}
-          message={reactionKey}
-          at={message.at}
-        >
+        <RenderMessage thread={assistantReactionThread(agent)} message={reactionKey}>
           <View style={styles.evaRow}>
             {signin !== undefined && (
               <View

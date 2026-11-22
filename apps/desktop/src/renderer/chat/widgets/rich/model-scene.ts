@@ -2,6 +2,7 @@
  * The model widget's three.js scene, loaded on demand so three stays out of the main chunk:
  * a GLB (or self-contained glTF) lit by a neutral room environment, framed to fit, orbiting on
  * drag. The wheel scrolls the chat; a pinch (ctrl+wheel) zooms. A drag stops the turntable.
+ * The file is downloaded first, up to `maxBytes`; only a model within the limit gets a WebGL context.
  */
 import {
   ACESFilmicToneMapping,
@@ -13,16 +14,20 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three'
-import type { Material, Mesh } from 'three'
+import type { Material, Mesh, Object3D } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 
 export interface ModelOptions {
   autoRotate: boolean
+  /** Largest file it downloads; a bigger one ends in `onTooLarge` without a WebGL context. */
+  maxBytes: number
   onLoad: () => void
   /** `message` is for the frame; `detail` is the loader's own reason, for the agent. */
   onError: (message: string, detail?: string) => void
+  /** The file is `size` bytes (at least), over `maxBytes`. */
+  onTooLarge: (size: number) => void
 }
 
 /** Tilt stops this far short of straight up or down (radians). */
@@ -31,8 +36,84 @@ const POLE_MARGIN = 0.15
 const ZOOM_MIN = 0.4
 const ZOOM_MAX = 3
 
-/** Mounts the viewer into `host` (sized by CSS) and returns its teardown. */
+class TooLarge extends Error {
+  constructor(readonly size: number) {
+    super(`${size} bytes`)
+  }
+}
+
+/** The whole file at `url`, refused as soon as its Content-Length or the bytes read pass `max`. */
+async function readCapped(url: string, max: number, signal: AbortSignal): Promise<ArrayBuffer> {
+  const res = await fetch(url, { signal })
+  if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+  const declared = Number(res.headers.get('content-length') ?? 0)
+  if (declared > max) {
+    await res.body.cancel()
+    throw new TooLarge(declared)
+  }
+  const chunks: Uint8Array[] = []
+  let size = 0
+  const reader = res.body.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > max) {
+      await reader.cancel()
+      throw new TooLarge(size)
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let at = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, at)
+    at += chunk.byteLength
+  }
+  return bytes.buffer
+}
+
+/** Frees every mesh's geometry, materials and textures under `root`. */
+function disposeTree(root: Object3D): void {
+  root.traverse((object) => {
+    const mesh = object as Mesh
+    mesh.geometry?.dispose()
+    const materials = ([] as Material[]).concat(mesh.material ?? [])
+    for (const material of materials) {
+      for (const value of Object.values(material)) {
+        if (value && typeof value === 'object' && 'isTexture' in value) value.dispose()
+      }
+      material.dispose()
+    }
+  })
+}
+
+/** Downloads the model at `url`, then mounts the viewer into `host` (sized by CSS); returns its teardown. */
 export function mountModel(host: HTMLElement, url: string, options: ModelOptions): () => void {
+  const abort = new AbortController()
+  let teardown: (() => void) | null = null
+  readCapped(url, options.maxBytes, abort.signal).then(
+    (bytes) => {
+      if (!abort.signal.aborted) teardown = showModel(host, bytes, options, abort.signal)
+    },
+    (err: unknown) => {
+      if (abort.signal.aborted) return
+      if (err instanceof TooLarge) options.onTooLarge(err.size)
+      else options.onError("Couldn't load model", err instanceof Error ? err.message : String(err))
+    },
+  )
+  return () => {
+    abort.abort()
+    teardown?.()
+  }
+}
+
+function showModel(
+  host: HTMLElement,
+  bytes: ArrayBuffer,
+  options: ModelOptions,
+  signal: AbortSignal,
+): () => void {
   let renderer: WebGLRenderer
   try {
     renderer = new WebGLRenderer({ antialias: true, alpha: true })
@@ -87,12 +168,14 @@ export function mountModel(host: HTMLElement, url: string, options: ModelOptions
   observer.observe(host)
   resize()
 
-  let disposed = false
   new GLTFLoader()
-    .loadAsync(url)
+    .parseAsync(bytes, '')
     .then((gltf) => {
-      if (disposed) return
       const model = gltf.scene
+      if (signal.aborted) {
+        disposeTree(model)
+        return
+      }
       const box = new Box3().setFromObject(model)
       const size = box.getSize(new Vector3())
       const center = box.getCenter(new Vector3())
@@ -109,7 +192,7 @@ export function mountModel(host: HTMLElement, url: string, options: ModelOptions
       options.onLoad()
     })
     .catch((err: unknown) => {
-      if (!disposed)
+      if (!signal.aborted)
         options.onError("Couldn't load model", err instanceof Error ? err.message : String(err))
     })
 
@@ -119,22 +202,11 @@ export function mountModel(host: HTMLElement, url: string, options: ModelOptions
   })
 
   return () => {
-    disposed = true
     renderer.setAnimationLoop(null)
     observer.disconnect()
     renderer.domElement.removeEventListener('wheel', onWheel)
     controls.dispose()
-    scene.traverse((object) => {
-      const mesh = object as Mesh
-      mesh.geometry?.dispose()
-      const materials = ([] as Material[]).concat(mesh.material ?? [])
-      for (const material of materials) {
-        for (const value of Object.values(material)) {
-          if (value && typeof value === 'object' && 'isTexture' in value) value.dispose()
-        }
-        material.dispose()
-      }
-    })
+    disposeTree(scene)
     environment.dispose()
     pmrem.dispose()
     renderer.dispose()

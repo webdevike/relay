@@ -21,7 +21,7 @@ export function VideoWidget({ spec }: { spec: VideoSpec }) {
   const [aspect, setAspect] = useState(DEFAULT_ASPECT)
   const [failed, setFailed] = useState(false)
   const report = useRenderFailure()
-  const { ref, live, settled } = useMediaSlot('media')
+  const { ref, live, settled } = useMediaSlot()
   const media = useMediaMenu()
   const video = useRef<HTMLVideoElement>(null)
   const url = mediaUrl(spec.src)

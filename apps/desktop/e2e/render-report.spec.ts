@@ -110,9 +110,10 @@ test('a markdown GLB reports once to the host; openui Model, png and mp4 render 
   await expect(mdGlb.locator(sel('md-file'))).toBeVisible()
   await expect(mdGlb.locator('img')).toHaveCount(0)
 
-  // The openui Model block of the same drop draws the model.
+  // The openui Model block of the same drop is a poster; a click draws the model.
   const uiGlb = shell.locator(sel('msg-r2'))
   await uiGlb.scrollIntoViewIfNeeded()
+  await uiGlb.getByRole('button', { name: /Click to view in 3D/ }).click()
   await expect(uiGlb.locator('[data-testid=widget-model] canvas')).toBeVisible()
   await expect(uiGlb.locator('.eva-w-model')).toHaveAttribute('data-state', 'ready')
 

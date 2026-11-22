@@ -142,7 +142,7 @@ export function MediaImage({
 }) {
   const [state, setState] = useState<LoadState>('loading')
   const report = useRenderFailure()
-  const { ref, live, settled } = useMediaSlot('media')
+  const { ref, live, settled } = useMediaSlot()
   useEffect(() => setState('loading'), [src])
   return (
     <div

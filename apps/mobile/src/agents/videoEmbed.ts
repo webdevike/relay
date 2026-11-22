@@ -90,6 +90,9 @@ export interface ModelEmbed {
   mimeType: string;
   /** The drop's own poster image (host drop path, or a full URL through the same origin), when the host has one. */
   poster?: string;
+  /** A drop's file name and size in bytes (a URL's are unknown until asked). */
+  name?: string;
+  size?: number;
 }
 
 const MODEL_PATH = /\.(glb|gltf)$/i;
@@ -120,5 +123,5 @@ export function modelEmbedOf(src: string, drops: readonly Drop[]): ModelEmbed | 
   }
   const file = drops.find((drop) => drop.file?.path === path)?.file;
   if (file === undefined || !(file.mimeType.startsWith("model/") || MODEL_PATH.test(file.name))) return null;
-  return { src, mimeType: file.mimeType, ...(file.poster !== undefined && { poster: `${origin}${file.poster}` }) };
+  return { src, mimeType: file.mimeType, name: file.name, size: file.size, ...(file.poster !== undefined && { poster: `${origin}${file.poster}` }) };
 }

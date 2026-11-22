@@ -4,6 +4,7 @@ import { SymbolView } from "expo-symbols";
 import { ActivityIndicator, Dimensions, Image, Keyboard, Pressable, RootTagContext, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fromPromise } from "xstate";
+import { formatBytes, modelTooLargeText } from "@evaos/chat-core/model-limit";
 import { POSTER_MIN_SHARE, settling, useLiveModel, viewportBand, visibility, type Rect } from "@/lib/liveModel";
 import { capturePoster, usePoster } from "@/lib/modelPosters";
 import { openMediaActions } from "@/media/actions";
@@ -18,6 +19,8 @@ import { NativeModelView } from "../../modules/model-view";
 
 /** A view that cannot say where it is within this long counts as off screen for that settle, ms. */
 const MEASURE_TIMEOUT_MS = 250;
+/** A size probe (HEAD) that takes longer than this gives up, ms. */
+const PROBE_TIMEOUT_MS = 8000;
 
 export interface ModelViewProps {
   /** http(s) URL of a GLB (or a glTF with embedded buffers and images). */
@@ -26,6 +29,10 @@ export interface ModelViewProps {
   posterKey: string;
   /** The drop's own poster image URL, when the host has one. */
   serverPoster?: string | null | undefined;
+  /** What the poster calls it: the drop's file name or the block's title. */
+  name: string;
+  /** The file's size in bytes when known up front (a drop); otherwise a tap asks the server. */
+  size?: number | null | undefined;
   width: number;
   height: number;
   /** Turntable spin until the first touch. */
@@ -34,16 +41,30 @@ export interface ModelViewProps {
   onError?: ((message: string) => void) | undefined;
 }
 
+/** The size the server gives `uri` (a HEAD, nothing downloaded), or null when it does not say. */
+async function headSize(uri: string): Promise<number | null> {
+  const abort = new AbortController();
+  const timer = setTimeout(() => { abort.abort(); }, PROBE_TIMEOUT_MS);
+  try {
+    const res = await fetch(uri, { method: "HEAD", signal: abort.signal });
+    const length = res.ok ? res.headers.get("content-length") : null;
+    return length === null ? null : Number(length);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Base 3D element: a rounded, sized frame around the native glTF view, framed to fit. One-finger
- * drag orbits, pinch zooms; dragging on the frame orbits instead of scrolling the page. Only the
- * views holding the app-wide slot (`lib/liveModel.ts`: the most visible model, plus one making a
- * poster) draw the native view; every other one shows its poster (a snapshot of it from when it
- * was live, or the drop's own), and a tap makes it live. A spinner shows while the model loads,
- * a corner tag marks it as 3D, and a failed load turns into the media placeholder.
+ * drag orbits, pinch zooms; dragging on the frame orbits instead of scrolling the page. It starts
+ * as a poster (its snapshot from an earlier open, or the drop's own, under the file's name, size
+ * and "Tap to view in 3D") and draws nothing native until tapped. Only one model is open in the app
+ * (`lib/liveModel.ts`): tapping another, scrolling this one away or covering its screen closes it.
+ * A file over the size limit never opens. A spinner shows while the model loads, a corner tag marks
+ * it as 3D, and a failed load turns into the media placeholder.
  * Mount with `key` naming both `uri` and `posterKey`: a new model is a new view.
  */
-export function ModelView({ uri, posterKey, serverPoster, width, height, autoRotate, onError }: ModelViewProps) {
+export function ModelView({ uri, posterKey, serverPoster, name, size, width, height, autoRotate, onError }: ModelViewProps) {
   const colors = useColors();
   const frame = useRef<View>(null);
   const rootTag = useContext(RootTagContext);
@@ -76,9 +97,12 @@ export function ModelView({ uri, posterKey, serverPoster, width, height, autoRot
     const rect = await locate();
     return rect === null ? null : visibility(rect, band.current);
   }, [locate]);
+  const claim = useRef<() => void>(() => undefined);
   const [machine] = useState(() =>
     modelViewMachine.provide({
+      actions: { claim: () => { claim.current(); } },
       actors: {
+        probe: fromPromise(() => (size === null || size === undefined ? headSize(uri) : Promise.resolve(size))),
         capture: fromPromise(() =>
           capturePoster({
             key: posterKey,
@@ -93,13 +117,14 @@ export function ModelView({ uri, posterKey, serverPoster, width, height, autoRot
       },
     }),
   );
-  const [state, send] = useMachine(machine, { input: { needsPoster } });
+  const [state, send] = useMachine(machine, { input: { needsPoster, size: size ?? null } });
   const failed = state.matches("failed");
   const [failure, setFailure] = useState("");
 
-  const { live, activate, rested } = useLiveModel({ measure, poster: !needsPoster, failed, focused });
+  const { live, open, rested } = useLiveModel({ measure, failed, focused });
+  claim.current = open;
   useEffect(() => {
-    send({ type: live ? "slot.gained" : "slot.lost" });
+    if (!live) send({ type: "slot.lost" });
   }, [live, send]);
   useEffect(() => {
     send({ type: "poster.changed", needed: needsPoster });
@@ -109,53 +134,61 @@ export function ModelView({ uri, posterKey, serverPoster, width, height, autoRot
   }, [rested, send]);
 
   if (failed) return <MediaPlaceholder label={failure} width={width} height={height} />;
+  if (state.matches("tooLarge")) {
+    return <MediaPlaceholder label={`${name}\n${modelTooLargeText(state.context.size ?? 0)}`} width={width} height={height} />;
+  }
 
   const drawing = state.matches("live");
-  const loading = state.matches({ live: "loading" });
+  const loading = state.matches({ live: "loading" }) || state.matches("checking") || state.matches("sized");
+  const known = state.context.size;
   return (
     <View ref={frame} collapsable={false} style={{ width, height, borderRadius: radii.sm, overflow: "hidden", backgroundColor: colors.surface }}>
       {poster !== null && (!drawing || loading) && (
         <Image source={{ uri: poster }} style={StyleSheet.absoluteFill} resizeMode="cover" accessibilityIgnoresInvertColors />
       )}
-      {drawing ? (
-        <>
-          <NativeModelView
-            src={uri}
-            autoRotate={autoRotate}
-            onLoad={() => {
-              send({ type: "model.loaded" });
-            }}
-            onError={(e) => {
-              setFailure(e.nativeEvent.message);
-              send({ type: "model.failed" });
-              onError?.(e.nativeEvent.message);
-            }}
-            style={{ width, height }}
-          />
-          {loading ? (
-            <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.center]}>
-              <ActivityIndicator color={colors.textMuted} />
-            </View>
-          ) : (
-            // No tag until the poster is taken: the snapshot is cut from the screen and would keep it.
-            !needsPoster && <OverlayTag icon="rotate.3d" label="3D" corner="top-left" />
-          )}
-        </>
+      {drawing && (
+        <NativeModelView
+          src={uri}
+          autoRotate={autoRotate}
+          onLoad={() => {
+            send({ type: "model.loaded" });
+          }}
+          onError={(e) => {
+            setFailure(e.nativeEvent.message);
+            send({ type: "model.failed" });
+            onError?.(e.nativeEvent.message);
+          }}
+          style={{ width, height }}
+        />
+      )}
+      {loading ? (
+        <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.center]}>
+          <ActivityIndicator color={colors.textMuted} />
+        </View>
+      ) : drawing ? (
+        // No tag until the poster is taken: the snapshot is cut from the screen and would keep it.
+        !needsPoster && <OverlayTag icon="rotate.3d" label="3D" corner="top-left" />
       ) : (
         <Holdable onHold={poster === null ? undefined : () => {
           openMediaActions({ uri: poster, kind: "image" });
         }}>
-          <Pressable onPress={activate} accessibilityRole="button" accessibilityLabel="View in 3D" style={[StyleSheet.absoluteFill, styles.center, styles.gap]}>
-            {poster !== null ? (
-              <OverlayTag icon="rotate.3d" label="3D" corner="top-left" />
-            ) : (
-              <>
-                <SymbolView name="rotate.3d" size={36} tintColor={colors.textMuted} />
-                <Text variant="caption" color="textMuted">
-                  3D model
-                </Text>
-              </>
-            )}
+          <Pressable
+            onPress={() => {
+              send({ type: "view.open" });
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`View ${name} in 3D`}
+            style={[StyleSheet.absoluteFill, poster !== null ? styles.bottom : styles.center]}
+          >
+            <View style={[styles.label, poster !== null && { backgroundColor: "rgba(0,0,0,0.6)" }]}>
+              {poster === null && <SymbolView name="rotate.3d" size={36} tintColor={colors.textMuted} />}
+              <Text variant="label" numberOfLines={1} style={poster !== null ? styles.light : undefined}>
+                {name}
+              </Text>
+              <Text variant="caption" color="textMuted" style={poster !== null ? styles.light : undefined}>
+                {known === null ? "Tap to view in 3D" : `${formatBytes(known)} · Tap to view in 3D`}
+              </Text>
+            </View>
           </Pressable>
         </Holdable>
       )}
@@ -165,5 +198,7 @@ export function ModelView({ uri, posterKey, serverPoster, width, height, autoRot
 
 const styles = StyleSheet.create({
   center: { alignItems: "center", justifyContent: "center" },
-  gap: { gap: spacing.sm },
+  bottom: { justifyContent: "flex-end" },
+  label: { alignItems: "center", gap: spacing.xs, padding: spacing.sm },
+  light: { color: "#FFFFFF" },
 });

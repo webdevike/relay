@@ -195,6 +195,42 @@ export async function resolveMedia(src: string, deps: MediaDeps): Promise<string
   throw new MediaError(404, `Not found: ${src}`)
 }
 
+export interface MediaInfo {
+  /** Bytes; null when the server did not say. */
+  size: number | null
+  /** The file's own name; null when the server did not send one. */
+  name: string | null
+}
+
+/**
+ * Size and name of `src` without downloading it, so a 3D model can show what it is before Isaac
+ * opens it: a remote src (an http(s) URL, a drop) asks its server with a HEAD, a local one is a stat.
+ */
+export async function mediaInfo(src: string, deps: MediaDeps): Promise<MediaInfo> {
+  const remote = /^https?:\/\//.test(src) ? src : hostMediaUrl(src, deps)
+  if (remote === null) {
+    const file = await resolveMedia(src, deps)
+    return { size: fs.statSync(file).size, name: path.basename(file) }
+  }
+  let res: Response
+  try {
+    res = await fetch(remote, { method: 'HEAD', signal: AbortSignal.timeout(10_000) })
+  } catch {
+    throw new MediaError(502, `Couldn't reach ${remote}`)
+  }
+  if (!res.ok) throw new MediaError(res.status === 404 ? 404 : 502, `${remote}: ${res.status}`)
+  const length = res.headers.get('content-length')
+  // The Relay host sends `filename="<encodeURIComponent(name)>"`.
+  const raw = /filename="?([^";]+)"?/i.exec(res.headers.get('content-disposition') ?? '')?.[1]
+  let name: string | null = null
+  try {
+    name = raw === undefined ? null : decodeURIComponent(raw)
+  } catch {
+    name = raw ?? null
+  }
+  return { size: length === null ? null : Number(length), name }
+}
+
 /**
  * Where `src` lives, for Copy Image Address: an http(s) URL as is, a host-served src as its URL on
  * the host, a local or Reviews file as its path. Nothing is fetched.
@@ -235,12 +271,18 @@ export function parseRange(header: string, size: number): { start: number; end: 
 /**
  * Answers one `relay-media://media/?src=<src>` request, with byte ranges for seeking. A HEAD gets
  * the headers only: chat markdown asks it whether a drop is a video (its Content-Type).
+ * `relay-media://info/?src=<src>` answers `MediaInfo` as JSON and downloads nothing.
  */
 export async function handleMediaRequest(request: Request, deps: MediaDeps): Promise<Response> {
-  const src = new URL(request.url).searchParams.get('src')
+  const url = new URL(request.url)
+  const src = url.searchParams.get('src')
   if (!src) return new Response('Missing src', { status: 400 })
   let file: string
   try {
+    if (url.host === 'info')
+      return Response.json(await mediaInfo(src, deps), {
+        headers: { 'Access-Control-Allow-Origin': '*' },
+      })
     file = await resolveMedia(src, deps)
   } catch (e) {
     const status = e instanceof MediaError ? e.status : 502

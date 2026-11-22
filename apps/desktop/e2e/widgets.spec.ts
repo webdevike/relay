@@ -318,6 +318,12 @@ test('every widget kind renders inline, media loads, and replies send the next t
         .evaluate((v: HTMLVideoElement) => v.readyState)
     })
     .toBeGreaterThan(0)
+  // A model is a poster until clicked.
+  await near('[data-testid=widget-model]')
+  await log
+    .locator('[data-testid=widget-model]')
+    .getByRole('button', { name: /Click to view in 3D/ })
+    .click()
   await expect
     .poll(
       async () => {

@@ -91,13 +91,13 @@ describe("audioEmbedOf", () => {
 
 describe("modelEmbedOf", () => {
   it("marks a model drop, bare or by its full https URL, with the type the host serves", () => {
-    expect(modelEmbedOf(path("glb"), drops)).toEqual({ src: path("glb"), mimeType: "model/gltf-binary" });
+    expect(modelEmbedOf(path("glb"), drops)).toEqual({ src: path("glb"), mimeType: "model/gltf-binary", name: "glb", size: 10 });
     const url = `https://isaacs-mac-mini.tail80fdb0.ts.net${path("glb")}`;
-    expect(modelEmbedOf(url, drops)).toEqual({ src: url, mimeType: "model/gltf-binary" });
+    expect(modelEmbedOf(url, drops)).toEqual({ src: url, mimeType: "model/gltf-binary", name: "glb", size: 10 });
   });
 
   it("marks a .glb drop the host serves as octet-stream", () => {
-    expect(modelEmbedOf(path("octet"), drops)).toEqual({ src: path("octet"), mimeType: "application/octet-stream" });
+    expect(modelEmbedOf(path("octet"), drops)).toEqual({ src: path("octet"), mimeType: "application/octet-stream", name: "robot.glb", size: 10 });
   });
 
   it("carries the drop's own poster, through the same origin for a full URL", () => {

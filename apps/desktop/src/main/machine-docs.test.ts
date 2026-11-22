@@ -13,6 +13,7 @@ import { machineDiagram, newDoc, withDiagram } from '../renderer/lib/machine-dia
 import { designModeMachine } from '../renderer/browser/design/design-mode.machine'
 import { agentFollowMachine } from '../renderer/files/markdown/agent-follow.machine'
 import { mediaSlotMachine } from '../renderer/chat/widgets/media-slot.machine'
+import { modelViewerMachine } from '../renderer/chat/widgets/rich/model-viewer.machine'
 import { protoFrameMachine } from '../renderer/canvas/cards/proto-frame.machine'
 import { cardGenMachine } from '../renderer/canvas/agent/card-gen.machine'
 import { shareSnapshotsMachine } from './meetings/share-snapshots.machine'
@@ -25,6 +26,11 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
   },
   { file: 'design-mode', title: 'Design Mode in a page tab (desktop)', machine: designModeMachine },
   { file: 'media-slot', title: 'Chat media load order (desktop)', machine: mediaSlotMachine },
+  {
+    file: 'chat-model-viewer',
+    title: 'Chat 3D model, poster until clicked (desktop)',
+    machine: modelViewerMachine,
+  },
   {
     file: 'card-gen',
     title: 'Card generation states on the canvas (desktop)',

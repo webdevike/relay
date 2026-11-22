@@ -39,6 +39,13 @@ beforeAll(async () => {
     } else if (req.url === '/meetings/shots/m1/tok/3') {
       res.writeHead(200, { 'Content-Type': 'image/jpeg' })
       res.end(POSTER)
+    } else if (req.url === '/drops/scan/tok') {
+      res.writeHead(200, {
+        'Content-Type': 'model/gltf-binary',
+        'Content-Length': '2048',
+        'Content-Disposition': `attachment; filename="${encodeURIComponent('scan one.glb')}"`,
+      })
+      res.end(req.method === 'HEAD' ? undefined : Buffer.alloc(2048))
     } else if (req.url === '/big.bin') {
       res.writeHead(200)
       res.end(Buffer.alloc(64))
@@ -175,6 +182,26 @@ describe('handleMediaRequest', () => {
     expect((await request('~/missing.png')).status).toBe(404)
     expect((await request('~/notes.txt')).status).toBe(403)
     expect((await handleMediaRequest(new Request('relay-media://media/'), deps)).status).toBe(400)
+  })
+})
+
+describe('media info', () => {
+  it("answers a drop's size and name from a HEAD and downloads nothing", async () => {
+    const res = await handleMediaRequest(
+      new Request(`relay-media://info/?src=${encodeURIComponent('/drops/scan/tok')}`),
+      deps,
+    )
+    expect(await res.json()).toEqual({ size: 2048, name: 'scan one.glb' })
+    expect(fs.existsSync(deps.cacheDir)).toBe(false)
+  })
+
+  it('stats a local file', async () => {
+    fs.writeFileSync(path.join(root, 'cube.glb'), Buffer.alloc(10))
+    const res = await handleMediaRequest(
+      new Request(`relay-media://info/?src=${encodeURIComponent('~/cube.glb')}`),
+      deps,
+    )
+    expect(await res.json()).toEqual({ size: 10, name: 'cube.glb' })
   })
 })
 

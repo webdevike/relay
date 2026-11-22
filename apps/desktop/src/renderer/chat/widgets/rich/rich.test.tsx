@@ -315,7 +315,20 @@ describe('VideoWidget', () => {
 })
 
 describe('ModelWidget', () => {
-  it('mounts the scene and tags it 3D once loaded', async () => {
+  beforeEach(() => {
+    scene.mountModel.mockReset()
+    // relay-media://info answers the file's size and name without downloading it.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(Response.json({ size: 14_800_000, name: 'scan.glb' }))),
+    )
+    return () => vi.unstubAllGlobals()
+  })
+
+  const openModel = async () =>
+    fireEvent.click(await screen.findByRole('button', { name: /Click to view in 3D/ }))
+
+  it('is a poster with name and size until clicked, then mounts and tags it 3D', async () => {
     const dispose = vi.fn()
     let loaded = (): void => {}
     scene.mountModel.mockImplementation((_host, _url, options) => {
@@ -327,6 +340,10 @@ describe('ModelWidget', () => {
         spec={{ widget: 'model', src: '/drops/m/n', caption: 'GLB', autoRotate: true }}
       />,
     )
+    expect(await screen.findByText('scan.glb')).toBeInTheDocument()
+    expect(screen.getByText('14.1 MB')).toBeInTheDocument()
+    expect(scene.mountModel).not.toHaveBeenCalled()
+    await openModel()
     await vi.waitFor(() => expect(scene.mountModel).toHaveBeenCalled())
     const [, url, options] = scene.mountModel.mock.calls[0]!
     expect(url).toBe(mediaUrl('/drops/m/n'))
@@ -339,13 +356,26 @@ describe('ModelWidget', () => {
     expect(dispose).toHaveBeenCalled()
   })
 
+  it('never opens a file over the size limit', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(Response.json({ size: 60 * 1024 * 1024, name: 'room.glb' }))),
+    )
+    show(<ModelWidget spec={{ widget: 'model', src: '/drops/m/n' }} />)
+    expect(
+      await screen.findByText('Too large to open in 3D: 60.0 MB (the limit is 40 MB).'),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
   it('shows the failure in the frame', async () => {
     scene.mountModel.mockImplementation((_host, _url, options) => {
       options.onError("Couldn't load model")
       return () => {}
     })
     show(<ModelWidget spec={{ widget: 'model', src: '/drops/m/n' }} />)
-    expect(await screen.findByText("Couldn't load model")).toBeInTheDocument()
+    await openModel()
+    expect(await screen.findByText("Couldn't load model. Click to try again.")).toBeInTheDocument()
   })
 
   it('tells the agent when it fails in an openui block of a chat bubble, with the loader reason', async () => {
@@ -360,7 +390,8 @@ describe('ModelWidget', () => {
         </RenderFormScope.Provider>
       </RenderMessage.Provider>,
     )
-    await screen.findByText("Couldn't load model")
+    await openModel()
+    await screen.findByText("Couldn't load model. Click to try again.")
     expect(window.eva.invoke).toHaveBeenCalledWith('render.failed', {
       thread: 'session:s1',
       message: 'assistant@3',
@@ -377,7 +408,8 @@ describe('ModelWidget', () => {
       return () => {}
     })
     show(<ModelWidget spec={{ widget: 'model', src: '/drops/m/n' }} />)
-    await screen.findByText("Couldn't load model")
+    await openModel()
+    await screen.findByText("Couldn't load model. Click to try again.")
     expect(window.eva.invoke).not.toHaveBeenCalledWith('render.failed', expect.anything())
   })
 })

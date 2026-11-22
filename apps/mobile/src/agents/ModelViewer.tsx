@@ -1,9 +1,9 @@
 /**
  * Interactive 3D model for the ```ui "model" widget: a 4:3 frame showing a GLB (or self-contained
  * glTF) fitted to the view, one-finger drag to orbit, pinch to zoom, optional turntable spin until
- * touched. Title above, caption below. Loads from the host drop (or an https URL) once connected;
- * while another model holds the live view it shows a poster (`ui/ModelView`), the drop's own when
- * the host has one.
+ * touched. Title above, caption below. Loads from the host drop (or an https URL) only when tapped,
+ * one model at a time; until then it is a poster (`ui/ModelView`): the drop's name and size over its
+ * own poster image when the host has one.
  */
 import { useState } from "react";
 import { View } from "react-native";
@@ -23,7 +23,8 @@ const ASPECT = 4 / 3;
 
 export function ModelViewer({ spec }: { spec: ModelSpec }) {
   const drops = useDropsStore((s) => s.drops);
-  const [uri, serverPoster] = useDropSrc([spec.src, modelEmbedOf(spec.src, drops)?.poster ?? ""]);
+  const embed = modelEmbedOf(spec.src, drops);
+  const [uri, serverPoster] = useDropSrc([spec.src, embed?.poster ?? ""]);
   const [width, setWidth] = useState(0);
   const height = width / ASPECT;
   const report = useRenderFailure();
@@ -44,6 +45,8 @@ export function ModelViewer({ spec }: { spec: ModelSpec }) {
               uri={uri}
               posterKey={spec.src}
               serverPoster={serverPoster === "" ? null : serverPoster}
+              name={embed?.name ?? spec.title ?? "3D model"}
+              size={embed?.size}
               width={width}
               height={height}
               autoRotate={spec.autoRotate}

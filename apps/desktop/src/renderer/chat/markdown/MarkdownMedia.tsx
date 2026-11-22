@@ -148,7 +148,7 @@ function MarkdownVideo({
 }) {
   const [failed, setFailed] = useState(false)
   const report = useRenderFailure()
-  const { ref, live, settled } = useMediaSlot('media')
+  const { ref, live, settled } = useMediaSlot()
   const media = useMediaMenu()
   const video = useRef<HTMLVideoElement>(null)
   const url = mediaUrl(src)

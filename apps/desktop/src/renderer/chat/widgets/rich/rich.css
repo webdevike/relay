@@ -126,18 +126,22 @@
   background: #000;
 }
 
-/* Model: the canvas takes the frame; drags orbit instead of scrolling. */
-.eva-w-model {
+/* Model: a poster button until opened; open, the canvas takes the frame and drags orbit instead of scrolling. */
+.eva-w-model[data-live] {
   touch-action: none;
   cursor: grab;
 }
-.eva-w-model:active {
+.eva-w-model[data-live]:active {
   cursor: grabbing;
 }
 .eva-w-model canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+.eva-w-model-poster {
+  padding: var(--mantine-spacing-md);
+  cursor: pointer;
 }
 
 /* Diff: one hairline frame, header over sideways-scrolling rows. */
