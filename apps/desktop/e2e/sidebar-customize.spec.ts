@@ -97,6 +97,9 @@ test('customize the sidebar: menu, dialog, hidden rows, favorites and relaunch',
     await shell.mouse.down()
     await shell.mouse.move(g.x + 20, g.y - 40, { steps: 6 })
     await shell.mouse.move(t.x + 40, t.y + t.height / 2, { steps: 12 })
+    // The drop lands on whichever row was over when the button lifts; under load the last move
+    // can still be unrendered, so wait for the target to say it is the one.
+    await expect(target).toHaveAttribute('data-over', 'true')
     await shell.mouse.up()
     await expect
       .poll(async () =>

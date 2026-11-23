@@ -102,12 +102,14 @@ test('a markdown GLB reports once to the host; openui Model, png and mp4 render 
   await expect(shell.locator(sel('msg-r4'))).toBeAttached()
   await shell.locator(sel('chat-log')).hover()
   const mdGlb = shell.locator(sel('msg-r1'))
+  // The log re-sticks to the bottom as later rows settle, which can unmount the first reply again,
+  // so the card is checked in the same attempt that mounts it.
   await expect(async () => {
     await shell.mouse.wheel(0, -2000)
     await expect(mdGlb).toBeAttached({ timeout: 500 })
-  }).toPass()
-  // Markdown can't draw 3D: a file card, never a broken image.
-  await expect(mdGlb.locator(sel('md-file'))).toBeVisible()
+    // Markdown can't draw 3D: a file card, never a broken image.
+    await expect(mdGlb.locator(sel('md-file'))).toBeVisible({ timeout: 1500 })
+  }).toPass({ timeout: 20_000 })
   await expect(mdGlb.locator('img')).toHaveCount(0)
 
   // The openui Model block of the same drop is a poster; a click draws the model.
