@@ -37,7 +37,7 @@ const log = (line: string): void => {
 const threads = new Map<string, RemoteThread>();
 const live = new LiveService({
   thread: (agent) => threads.get(agent)?.thread,
-  api: new OpenAiLive(key),
+  engines: { select: () => ({ id: "gpt-live", transport: "webrtc-sideband", api: new OpenAiLive(key) }) },
   voice: () => values.voice,
   clock: systemClock,
   log,

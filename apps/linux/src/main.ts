@@ -61,7 +61,7 @@ import { defaultAssistantPath, defaultAssistantsDir, FileAssistantStore } from "
 import { CallService } from "./call/service";
 import { EvaRealtimeVoice } from "./call/voice";
 import { readThreadMemory } from "./live/brief";
-import { openAiKey, OpenAiLive } from "./live/openai";
+import { composeVoiceEngines } from "./voice/engines";
 import { LiveService } from "./live/service";
 import { FileDeviceStore } from "./device-store";
 import { embedFor } from "./drops/embed";
@@ -650,8 +650,10 @@ function serve(
           defaultVoice: process.env["POCKET_VOICE"] ?? "stuart_bell",
           log,
         });
+  // The one seam both voice engines plug into: host.json `voice.provider` / $RELAY_VOICE_PROVIDER, default GPT-Live.
+  const engines = composeVoiceEngines(config, { agentHome, env: process.env });
   const calls =
-    assistant === null || voice === null
+    assistant === null
       ? null
       : new CallService({
           thread: (id) => {
@@ -663,13 +665,15 @@ function serve(
               ...(thread.voice === undefined ? {} : { voice: thread.voice }),
               session: () => thread.current(),
               turn: (text) => thread.turn(text),
+              rows: async () => (await thread.snapshot()).messages,
+              memory: () => readThreadMemory(agentHome, thread.id),
             };
           },
+          engines,
           voice,
           clock: systemClock,
           log,
         });
-  const liveKey = assistant === null ? null : openAiKey(agentHome);
   const live =
     assistant === null
       ? null
@@ -686,7 +690,7 @@ function serve(
               memory: () => readThreadMemory(agentHome, thread.id),
             };
           },
-          api: liveKey === null ? null : new OpenAiLive(liveKey),
+          engines,
           voice: (agent) => liveVoiceFor(assistant.threads, agent, process.env["RELAY_LIVE_VOICE"]),
           clock: systemClock,
           log,

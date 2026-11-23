@@ -6,6 +6,7 @@ import { clockLine, CLOSE_WAIT_MS, liveInstructions, LiveCall, pickFiller, TICK_
 import { openAiKey, sessionBody, type LiveApi, type LiveEvent, type LiveSessionConfig, type SidebandEvents } from "../src/live/openai";
 import { LiveService } from "../src/live/service";
 import type { FrameSink } from "../src/seams";
+import type { VoiceEngineSelector } from "../src/voice/engines";
 import type { SessionClock } from "../src/session";
 
 const VOICE_NOTE = voiceNote();
@@ -353,7 +354,7 @@ describe("live session setup", () => {
       },
       close: () => undefined,
     };
-    const service = new LiveService({ thread: () => new FakeThread(), api: null, voice: () => "marin", clock: new FakeClock(), log: () => undefined });
+    const service = new LiveService({ thread: () => new FakeThread(), engines: gptEngines(null), voice: () => "marin", clock: new FakeClock(), log: () => undefined });
     service.receive(sink, { t: "live.start", callId: "l1", agent: "nova", sdp: "v=0" });
     expect(sent).toEqual([{ t: "live.state", callId: "l1", agent: "nova", state: "ended", error: "No OpenAI key on this host", fallback: true }]);
   });
@@ -362,6 +363,10 @@ describe("live session setup", () => {
 interface FakePhone {
   readonly sink: FrameSink;
   readonly sent: ServerMessage[];
+}
+
+function gptEngines(api: LiveApi | null): VoiceEngineSelector {
+  return { select: () => ({ id: "gpt-live", transport: "webrtc-sideband", api }) };
 }
 
 describe("live call without its phone", () => {
@@ -373,7 +378,7 @@ describe("live call without its phone", () => {
   async function calling(): Promise<{ service: LiveService; api: FakeApi; clock: FakeClock; first: FakePhone }> {
     const api = new FakeApi();
     const clock = new FakeClock();
-    const service = new LiveService({ thread: () => new FakeThread(), api, voice: () => "marin", clock, log: () => undefined });
+    const service = new LiveService({ thread: () => new FakeThread(), engines: gptEngines(api), voice: () => "marin", clock, log: () => undefined });
     const first = phone();
     service.receive(first.sink, { t: "live.start", callId: "l1", agent: "nova", sdp: "v=0" });
     await settle();

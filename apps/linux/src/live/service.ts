@@ -10,13 +10,13 @@ import { LIVE_RECONNECT_GRACE_MS } from "@relay/protocol";
 import type { AgentProviderChange, FrameSink, LiveClientMessage, LiveRelaying } from "../seams";
 import type { SessionClock } from "../session";
 import { LiveCall, type LiveThread } from "./call";
-import type { LiveApi } from "./openai";
+import type { VoiceEngineSelector } from "../voice/engines";
 
 export interface LiveServiceDeps {
   /** The thread of assistant `agent`; undefined for an agent the registry does not have. */
   readonly thread: (agent: string) => LiveThread | undefined;
-  /** null when the host has no OpenAI key. */
-  readonly api: LiveApi | null;
+  /** The engines of this host; GPT-Live answers `live.start`, a PCM engine declines it. */
+  readonly engines: VoiceEngineSelector;
   /** GPT-Live voice of assistant `agent`. */
   readonly voice: (agent: string) => string;
   readonly clock: SessionClock;
@@ -41,7 +41,13 @@ export class LiveService implements LiveRelaying {
           sink.send({ t: "live.state", callId: message.callId, agent: message.agent, state: "ended", error: `No assistant named ${message.agent} on this host` });
           return;
         }
-        if (this.deps.api === null) {
+        const engine = this.deps.engines.select(message.agent);
+        if (engine.transport !== "webrtc-sideband") {
+          this.deps.log(`live ${message.callId}: this host calls over PCM; the phone falls back to a call`);
+          sink.send({ t: "live.state", callId: message.callId, agent: message.agent, state: "ended", error: "This host uses PCM calls", fallback: true });
+          return;
+        }
+        if (engine.api === null) {
           this.deps.log(`live ${message.callId}: no OpenAI key on this host; the phone falls back to a local call`);
           sink.send({ t: "live.state", callId: message.callId, agent: message.agent, state: "ended", error: "No OpenAI key on this host", fallback: true });
           return;
@@ -50,7 +56,7 @@ export class LiveService implements LiveRelaying {
         const next: LiveCall = new LiveCall({
           callId: id,
           thread,
-          api: this.deps.api,
+          api: engine.api,
           voice: this.deps.voice(message.agent),
           send: (frame) => {
             this.running.get(id)?.sink?.send(frame);

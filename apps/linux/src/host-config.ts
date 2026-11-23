@@ -4,6 +4,7 @@
 //
 //   { "agentHome": "/Users/jane/Relay", "name": "Jane's Mac Studio", "port": 7817,
 //     "human": "Jane",                       // optional; else the owner in `name`, else the macOS full name
+//     "voice": { "provider": "gpt-live" },   // the engine calls run on; $RELAY_VOICE_PROVIDER overrides
 //     "features": { "reviews": false, "voiceLocal": false, "catchup": false, "studio": false } }
 
 import { existsSync, readFileSync } from "node:fs";
@@ -11,12 +12,18 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 
+/** The voice engines a host can call on; each has a layer in voice/engines.ts `VOICE_ENGINE_LAYERS`. */
+export const ProviderId = z.enum(["gpt-live", "deepgram"]);
+export type ProviderId = z.infer<typeof ProviderId>;
+export const DEFAULT_PROVIDER: ProviderId = "gpt-live";
+
 const HostConfigFile = z.object({
   agentHome: z.string().min(1).optional(),
   name: z.string().min(1).optional(),
   port: z.number().int().min(0).max(65535).optional(),
   human: z.string().min(1).optional(),
   features: z.record(z.string(), z.unknown()).optional(),
+  voice: z.object({ provider: ProviderId }).optional(),
 });
 
 export interface HostConfig {
@@ -26,6 +33,7 @@ export interface HostConfig {
   readonly human?: string;
   /** Only the explicit booleans of `features`. */
   readonly features: Readonly<Record<string, boolean>>;
+  readonly voice?: { readonly provider: ProviderId };
 }
 
 export function relayConfigDir(): string {
@@ -94,6 +102,7 @@ export function loadHostConfig(path: string = hostConfigPath()): HostConfig | nu
     ...(parsed.port === undefined ? {} : { port: parsed.port }),
     ...(parsed.human === undefined ? {} : { human: parsed.human }),
     features,
+    ...(parsed.voice === undefined ? {} : { voice: parsed.voice }),
   };
 }
 

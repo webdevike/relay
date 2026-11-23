@@ -1,21 +1,27 @@
-// The host's calls: at most one per socket, each a `VoiceCall` with one assistant thread. The
-// session hands it the phone's `call.*` frames and the server every provider change; a socket
-// that closes hangs its call up.
+// The host's calls: at most one per socket, each with one assistant thread: a PCM engine's call when
+// the host's engine is `pcm-websocket` and opens, else the local `VoiceCall`. The session hands it
+// the phone's `call.*` frames and the server every provider change; a socket that closes hangs its
+// call up.
 
+import type { ServerMessage } from "@relay/protocol";
 import type { AgentProviderChange, CallClientMessage, CallRelaying, FrameSink } from "../seams";
 import type { SessionClock } from "../session";
-import { type CallThread, VoiceCall, type VoiceStack } from "./call";
+import type { CallLike, PcmOpen, VoiceEngineSelector } from "../voice/engines";
+import { type CallDeps, type CallThread, VoiceCall, type VoiceStack } from "./call";
 
 export interface CallServiceDeps {
   /** The thread of assistant `agent`; undefined for an agent the registry does not have. */
   readonly thread: (agent: string) => CallThread | undefined;
-  readonly voice: VoiceStack;
+  /** The engines of this host; a PCM engine's call is tried first. */
+  readonly engines: VoiceEngineSelector;
+  /** The local speech stack; null when the host has none. */
+  readonly voice: VoiceStack | null;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
 }
 
 export class CallService implements CallRelaying {
-  private readonly calls = new Map<FrameSink, VoiceCall>();
+  private readonly calls = new Map<FrameSink, CallLike>();
 
   constructor(private readonly deps: CallServiceDeps) {}
 
@@ -29,22 +35,11 @@ export class CallService implements CallRelaying {
           sink.send({ t: "call.state", callId: message.callId, agent: message.agent, state: "ended", error: `No assistant named ${message.agent} on this host` });
           return;
         }
-        const next: VoiceCall = new VoiceCall({
-          callId: message.callId,
-          thread,
-          voice: this.deps.voice,
-          send: (frame) => {
-            sink.send(frame);
-          },
-          clock: this.deps.clock,
-          log: this.deps.log,
-          onEnded: () => {
-            if (this.calls.get(sink) === next) this.calls.delete(sink);
-          },
-        });
-        this.calls.set(sink, next);
         this.deps.log(`call ${message.callId}: calling ${thread.title}`);
-        void next.start();
+        const engine = this.deps.engines.select(message.agent);
+        const open = engine.transport === "pcm-websocket" ? engine.open : null;
+        if (open === null) this.startLocal(sink, message.callId, thread);
+        else this.startPcm(sink, message.callId, thread, open);
         return;
       }
       case "call.audio":
@@ -59,8 +54,46 @@ export class CallService implements CallRelaying {
     }
   }
 
+  /** Registers the call `make` builds on `sink`; its `onEnded` frees the socket only while it is still that socket's call. */
+  private register<C extends CallLike>(sink: FrameSink, callId: string, thread: CallThread, make: (deps: Omit<CallDeps, "voice">) => C): C {
+    const next: C = make({
+      callId,
+      thread,
+      send: (frame: ServerMessage) => {
+        sink.send(frame);
+      },
+      clock: this.deps.clock,
+      log: this.deps.log,
+      onEnded: () => {
+        if (this.calls.get(sink) === next) this.calls.delete(sink);
+      },
+    });
+    this.calls.set(sink, next);
+    return next;
+  }
+
+  /** When the PCM call never connects, the local call takes its place. */
+  private startPcm(sink: FrameSink, callId: string, thread: CallThread, open: PcmOpen): void {
+    const next = this.register(sink, callId, thread, open);
+    void next.start().then((connected) => {
+      if (connected || this.calls.get(sink) !== next) return;
+      this.calls.delete(sink);
+      this.startLocal(sink, callId, thread);
+    });
+  }
+
+  private startLocal(sink: FrameSink, callId: string, thread: CallThread): void {
+    const voice = this.deps.voice;
+    if (voice === null) {
+      sink.send({ t: "call.state", callId, agent: thread.id, state: "ended", error: "This host cannot take calls" });
+      return;
+    }
+    const local = this.register(sink, callId, thread, (deps) => new VoiceCall({ ...deps, voice }));
+    void local.start();
+  }
+
   warm(): void {
-    this.deps.voice.warm();
+    this.deps.voice?.warm();
   }
 
   drop(sink: FrameSink): void {

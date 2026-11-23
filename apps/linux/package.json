@@ -27,6 +27,7 @@
     "@tiptap/pm": "3.32.2",
     "@tiptap/starter-kit": "3.32.2",
     "@tiptap/y-tiptap": "3.0.12",
+    "effect": "4.1.5",
     "lib0": "^0.2.119",
     "xstate": "5.33.0",
     "y-protocols": "^1.0.7",

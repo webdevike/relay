@@ -13,9 +13,11 @@ import {
   newDoc,
   withDiagram,
 } from "../../../packages/shell-core/src/machine-diagram";
+import { deepgramCallMachine } from "../src/call/deepgramCall.machine";
 import { keyMomentsMachine } from "../src/meetings/key-moments.machine";
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
+  { file: "deepgram-call", title: "Deepgram Voice Agent call (host)", machine: deepgramCallMachine },
   { file: "key-moments", title: "Key moments of a live call (host)", machine: keyMomentsMachine },
 ];
 

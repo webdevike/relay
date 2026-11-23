@@ -65,6 +65,10 @@ export interface CallThread {
   session(): AgentSession | undefined;
   /** Delivers `text` as Isaac's next turn, starting the agent first if needed. */
   turn(text: string): Promise<void>;
+  /** The thread's rows as the chat shows them, oldest first; a PCM engine briefs its model with them. */
+  rows?(): Promise<readonly { readonly role: string; readonly text: string }[]>;
+  /** The assistant's thread memory (`thread.md`), or null when it has none. */
+  memory?(): Promise<string | null>;
 }
 
 export interface CallDeps {
