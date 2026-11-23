@@ -52,6 +52,18 @@ tap records silence and reports no error.
 - **Health**: a minute of digital silence on the app track while the app plays audio (`silent-app`:
   the grant is missing) or a mic track that stopped growing for 10 s despite the restarts
   (`no-mic`) is reported to Relay.
+- **Capture check** (`Sources/Capture.swift`): every 30 s the call track's loudness (power per
+  500 ms) is held against the wall clock and the mic's: a call track that follows the mic (r 0.8+,
+  each with sound where the other has it: the output device's own mic recorded as the call,
+  `mic-as-call`), one under 90% or over 110% of the time since its first buffer (`drift`), one
+  silent for 3 min while the mic hears Isaac (`silent-call`), or tap buffers mostly without the
+  tap's channels (`bad-format`) is a health state like the two above. Relay shows each once per
+  call as a notification ("Relay isn't hearing the other side of this call (your AirPods mic is
+  being recorded instead).") and the host shows it as `silent-app` with that line. When the
+  recording stops the whole recording is judged (`meta.json` `capture`, `meeting.end` `capture`):
+  both sides captured, other side missing, degraded or not checked, one line that heads the notes
+  (`**Capture:**`) and the host log (`meetings: capture <id>: ...`). A spool without a verdict is
+  judged from disk when it is loaded.
 
 The stdio protocol is documented at the top of `Sources/Daemon.swift`.
 
@@ -59,6 +71,9 @@ The stdio protocol is documented at the top of `Sources/Daemon.swift`.
 sh build.sh          # build/Relay Meetings.app (ad hoc; the deploy signs it with Relay)
 sh build.sh test     # logic tests
 build/Relay\ Meetings.app/Contents/MacOS/RelayMeetingCapture list
+# The capture verdict of a spool or a host recording folder (app.pcm, mic.pcm, meta.json), with
+# the facts behind it, one JSON line each (never rewrites anything):
+build/Relay\ Meetings.app/Contents/MacOS/RelayMeetingCapture check ~/.config/relay/meetings/<id>
 # Feed two WAVs (and the window's samples, if DIR/speakers.jsonl is there) instead of the Mac's
 # audio (no privacy prompts). With DIR/share.mp4 and DIR/share.json ({"from": s, "to": s} on the
 # replay clock) someone shares between those times and share.sample takes the video's frame at

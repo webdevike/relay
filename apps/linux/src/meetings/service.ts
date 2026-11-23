@@ -20,6 +20,7 @@ import {
   MAX_SHOT_OCR,
   MEETING_SAMPLE_RATE,
   MEETING_TICKET_TTL_MS,
+  MeetingHealth,
   MeetingId,
   meetingClock,
   meetingIsLive,
@@ -75,6 +76,8 @@ import {
 } from "./route";
 import { PlatformSampleSchema, type PlatformSample } from "./speakers";
 import {
+  CaptureProblem,
+  CaptureVerdict,
   publicRecording,
   RETENTION_DAYS,
   samplesOf,
@@ -400,6 +403,7 @@ export class MeetingsService implements MeetingsRelaying {
         total: null,
         micLeadMs: null,
         globalTap: false,
+        capture: null,
         context: null,
         names: {},
         assistant: routeMeeting(
@@ -572,8 +576,14 @@ export class MeetingsService implements MeetingsRelaying {
 
   health(id: string, state: unknown, detail: unknown): void {
     const m = this.deps.store.load(id);
-    if (m === null || (state !== "ok" && state !== "silent-app" && state !== "no-mic")) return;
-    m.health = state;
+    if (m === null || typeof state !== "string") return;
+    // The Mac's capture check names what is wrong with the call track; the page shows it as
+    // silent-app with the Mac's line (MeetingHealth stays three values for older phones).
+    const health = CaptureProblem.safeParse(state).success
+      ? "silent-app"
+      : MeetingHealth.safeParse(state).data;
+    if (health === undefined) return;
+    m.health = health;
     if (typeof detail === "string") m.healthDetail = detail.slice(0, 500);
     this.update(m);
   }
@@ -587,9 +597,17 @@ export class MeetingsService implements MeetingsRelaying {
       app: Number(samples[0] ?? conn.have.app),
       mic: Number(samples[1] ?? conn.have.mic),
     };
+    // A reconnect sends `meeting.end` again: the verdict is logged once.
+    const first = m.endedAt === null;
     m.endedAt = typeof end["endedAt"] === "number" ? end["endedAt"] : this.deps.clock.now();
     if (typeof end["micLeadMs"] === "number") m.micLeadMs = end["micLeadMs"];
     if (end["globalTap"] === true) m.globalTap = true;
+    const capture = CaptureVerdict.safeParse(end["capture"]);
+    if (capture.success) m.capture = capture.data;
+    if (first)
+      this.deps.log(
+        `meetings: capture ${m.id}: ${capture.success ? capture.data.line : "not checked (the Mac sent no verdict)"}`,
+      );
     if (m.stage === "recording") m.stage = "uploading";
     m.share = "none";
     this.update(m);

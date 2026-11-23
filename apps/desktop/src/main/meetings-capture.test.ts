@@ -51,6 +51,7 @@ function setup(up = true) {
   const listeners = new Set<(f: Frame) => void>()
   const notices: Array<{ notice: CaptureNotice; answer: (i: number) => void }> = []
   const opened: string[] = []
+  const logs: string[] = []
   const timers: Array<{ fn: () => void; ms: number; live: boolean }> = []
   let now = 1_000
   const clock = new SimulatedClock()
@@ -71,7 +72,7 @@ function setup(up = true) {
     origin: () => 'http://mini.local:4100',
     notify: (notice, answer) => notices.push({ notice, answer }),
     openMeeting: (id) => opened.push(id),
-    log: () => undefined,
+    log: (m) => logs.push(m),
     spawn: () => {
       const c = new FakeChild()
       children.push(c)
@@ -100,6 +101,7 @@ function setup(up = true) {
     hear,
     notices,
     opened,
+    logs,
     runTimers,
     advance: (ms: number) => (now += ms),
     setUp: (v: boolean) => (up = v),
@@ -155,6 +157,47 @@ describe('meetings capture', () => {
     helper.say({ ev: 'connected', id: 'm1' })
     helper.say({ ev: 'uploaded', id: 'm1' })
     expect(s.capture.pending()).toEqual([])
+  })
+
+  it("tells Isaac once per problem that a call's other side is not being heard", () => {
+    const s = setup()
+    const helper = s.children[0]!
+    helper.say({ ev: 'recording', id: 'm1', app: 'Microsoft Teams', startedAt: 5 })
+    const problem = {
+      ev: 'health',
+      id: 'm1',
+      state: 'mic-as-call',
+      detail:
+        "Relay isn't hearing the other side of this call (your AirPods mic is being recorded instead).",
+    }
+    helper.say(problem)
+    expect(s.notices.at(-1)!.notice).toEqual({
+      title: 'Meeting recording problem',
+      body: problem.detail,
+      actions: [],
+    })
+    // It comes and goes as Isaac talks: still one notice for it, a new one for another problem.
+    helper.say({
+      ev: 'health',
+      id: 'm1',
+      state: 'ok',
+      detail: 'Hearing Microsoft Teams and your mic',
+    })
+    helper.say(problem)
+    helper.say({
+      ev: 'health',
+      id: 'm1',
+      state: 'no-mic',
+      detail: 'Relay stopped hearing your mic.',
+    })
+    expect(s.notices.slice(1).map((n) => n.notice.body)).toEqual([
+      problem.detail,
+      'Relay stopped hearing your mic.',
+    ])
+    s.notices.at(-1)!.answer(-1)
+    expect(s.opened).toEqual(['m1'])
+    helper.say({ ev: 'stopped', id: 'm1', capture: 'other side missing: the call track is a mic' })
+    expect(s.logs).toContain('meetings: m1: capture other side missing: the call track is a mic')
   })
 
   it('asks again after a drop, while the host is away, and on a new connection', () => {

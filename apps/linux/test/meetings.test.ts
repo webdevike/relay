@@ -256,7 +256,11 @@ describe("pipeline pieces", () => {
   it("writes notes in MeetingTranscriber's format", async () => {
     const root = tmp("relay-meet-");
     const store = new RecordingStore(join(root, "rec"));
-    const meta = baseMeta({ total: { app: 16000, mic: 16000 }, names: { R_S2: "Bill" } });
+    const meta = baseMeta({
+      total: { app: 16000, mic: 16000 },
+      names: { R_S2: "Bill" },
+      capture: { state: "missing", line: "other side missing: the call track is a mic" },
+    });
     store.save(meta);
     store.writePcm(ID, "app", 0, new Uint8Array(32000));
     store.writePcm(ID, "mic", 0, new Uint8Array(32000));
@@ -331,6 +335,10 @@ describe("pipeline pieces", () => {
         "# Meeting Protocol - Weekly Sync\n**Date:** 2026-11-02\n**Time:** 10:04\n**Attendees:** Todd, Bill, Isaac",
       ),
     ).toBe(true);
+    // The capture verdict is in the header, before the summary.
+    expect(md.split("\n---\n")[0]).toContain(
+      "\n**Capture:** other side missing: the call track is a mic\n",
+    );
     expect(md).toContain("## Questions asked during the call");
     const parsed = parseProtocol(md);
     expect(parsed.summary).toEqual(["Release on Tuesday."]);
@@ -347,8 +355,9 @@ describe("pipeline pieces", () => {
       "[0:00] Todd Barczak: Release is Tuesday.",
     );
 
-    // No window title: the calendar event names the call, else the summary's title line.
-    const untitled = { ...meta, title: null };
+    // No window title: the calendar event names the call, else the summary's title line. No
+    // capture verdict (a Mac without the check): the header says it was not checked.
+    const untitled = { ...meta, title: null, capture: null };
     const byCalendar = await pipeline.run(untitled, [], [], { stage: () => undefined });
     expect(byCalendar).toMatchObject({ title: "Sync", context: { annotation: event?.annotation } });
     expect(byCalendar?.stem).toBe(protocolStem({ ...untitled, title: "Sync" }));
@@ -359,6 +368,7 @@ describe("pipeline pieces", () => {
     const named = readFileSync(join(root, "shadow", `${bySummary?.stem ?? ""}.md`), "utf8");
     expect(named.startsWith("# Meeting Protocol - UI/UX Standup\n")).toBe(true);
     expect(named).not.toContain("Title:");
+    expect(named).toContain("\n**Capture:** not checked (recorded without the capture check)\n");
     head = "";
     expect((await pipeline.run(untitled, [], [], { stage: () => undefined }))?.title).toBeNull();
   });
@@ -401,6 +411,7 @@ function baseMeta(extra: Partial<RecordingMeta> = {}): RecordingMeta {
     total: null,
     micLeadMs: null,
     globalTap: false,
+    capture: null,
     context: null,
     names: {},
     assistant: null,
@@ -444,6 +455,7 @@ describe("meetings service", () => {
     const clock = new FakeClock();
     const sent: ServerMessage[] = [];
     const pushes: string[] = [];
+    const logs: string[] = [];
     const ran: { lines: readonly LiveLine[] } = { lines: [] };
     const afterCall: AfterCall = {
       run: (meta, lines, _qa, report) => {
@@ -481,7 +493,7 @@ describe("meetings service", () => {
       broadcast: (m) => sent.push(m),
       push: (title) => pushes.push(title),
       clock,
-      log: () => undefined,
+      log: (l) => logs.push(l),
       assistants: () => AGENTS,
       findMoments: null,
     });
@@ -581,8 +593,31 @@ describe("meetings service", () => {
     expect(opened.snapshot?.lines.map((l) => l.id)).toEqual(["app-0", "mic-3000"]);
     expect(opened.snapshot?.recording).toMatchObject({ stage: "recording", seconds: 0.2 });
 
-    // The Mac says it is done at 2400 / 2000 samples; the host still lacks 400 mic samples.
-    conn.text(JSON.stringify({ t: "meeting.end", samples: [2400, 2000], endedAt: clock.now() }));
+    // The Mac's capture check flags the call track: the page shows it with the Mac's line.
+    conn.text(
+      JSON.stringify({
+        t: "meeting.health",
+        state: "mic-as-call",
+        detail: "Relay isn't hearing the other side of this call",
+      }),
+    );
+    expect(store.load(ID)).toMatchObject({
+      health: "silent-app",
+      healthDetail: "Relay isn't hearing the other side of this call",
+    });
+    conn.text(JSON.stringify({ t: "meeting.health", state: "bogus", detail: "x" }));
+    expect(store.load(ID)?.health).toBe("silent-app");
+
+    // The Mac says it is done at 2400 / 2000 samples; the host still lacks 400 mic samples. A
+    // reconnect sends the end again: the capture verdict is logged once.
+    const capture = { state: "missing", line: "other side missing: the call track is a mic" };
+    const end = { t: "meeting.end", samples: [2400, 2000], endedAt: clock.now(), capture };
+    conn.text(JSON.stringify(end));
+    conn.text(JSON.stringify(end));
+    expect(store.load(ID)?.capture).toEqual(capture);
+    expect(logs.filter((l) => l.startsWith("meetings: capture"))).toEqual([
+      `meetings: capture ${ID}: other side missing: the call track is a mic`,
+    ]);
     expect(store.load(ID)?.stage).toBe("uploading");
     expect(out.some((f) => f["t"] === "meeting.done")).toBe(false);
     conn.binary(frame(1, 1600, 400));

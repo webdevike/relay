@@ -467,6 +467,8 @@ export class MeetingPipeline implements AfterCall {
     else if (context !== null) md += `${context.annotation}\n`;
     else if (call.roster.length > 0)
       md += `**Attendees:** ${[this.deps.human, ...call.roster].join(", ")} (from the call)\n`;
+    // Whether both sides were recorded, so notes from a broken capture never look complete.
+    md += `**Capture:** ${meta.capture?.line ?? "not checked (recorded without the capture check)"}\n`;
     const stem = protocolStem({ ...meta, title: named });
     const out = this.dirOf(meta);
     mkdirSync(out, { recursive: true });

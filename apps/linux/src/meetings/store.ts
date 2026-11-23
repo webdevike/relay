@@ -41,6 +41,20 @@ export function defaultMeetingsDir(): string {
   return join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay", "meetings");
 }
 
+/**
+ * The Mac's capture check on a whole recording (`meeting.end` `capture`, apps/meetings-capture
+ * Capture.swift): `state` good, missing (the other side), degraded or unchecked; `line` is what the
+ * notes header and the host log say.
+ */
+export const CaptureVerdict = z.object({
+  state: z.enum(["good", "missing", "degraded", "unchecked"]),
+  line: z.string().max(500),
+});
+export type CaptureVerdict = z.infer<typeof CaptureVerdict>;
+
+/** `meeting.health` states of the Mac's live capture check (the page shows them as silent-app). */
+export const CaptureProblem = z.enum(["mic-as-call", "drift", "silent-call", "bad-format"]);
+
 export const RecordingMeta = z.object({
   id: z.string(),
   app: z.string(),
@@ -59,6 +73,8 @@ export const RecordingMeta = z.object({
   total: z.object({ app: z.number(), mic: z.number() }).nullable(),
   micLeadMs: z.number().nullable(),
   globalTap: z.boolean(),
+  /** The Mac's capture verdict; null before the call ends or from a Mac without the check. */
+  capture: CaptureVerdict.nullable().default(null),
   /** The calendar or Slack context found for it (mt-autoname's `Meeting`), once looked up. */
   context: z.object({ annotation: z.string(), remoteName: z.string().optional() }).nullable(),
   /** Remote labels Isaac named by hand (`R_S2` -> name). */

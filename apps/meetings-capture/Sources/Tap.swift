@@ -84,6 +84,8 @@ final class ProcessTap {
   private var procID: AudioDeviceIOProcID?
   /// The process objects the tap mixes; empty for the global fallback.
   let scope: Set<AudioObjectID>
+  /// The IO cycles' shape since the health check last looked.
+  let shape = TapShape()
 
   /// `note` hears rate changes (for the recording's warnings), from the IO queue.
   init(track: Track, processes: [AudioProcess], note: @escaping (String) -> Void = { _ in }) throws {
@@ -144,7 +146,7 @@ final class ProcessTap {
     }
     let q = DispatchQueue(label: "tap.io", qos: .userInteractive)
     var skipNoted = false
-    err = AudioDeviceCreateIOProcIDWithBlock(&procID, aggID, q) { [track] _, inData, inTime, _, _ in
+    err = AudioDeviceCreateIOProcIDWithBlock(&procID, aggID, q) { [track, shape] _, inData, inTime, _, _ in
       let ts = inTime.pointee
       if ts.mFlags.contains(.sampleTimeValid), ts.mFlags.contains(.hostTimeValid),
         let rate = clock.observe(sampleTime: ts.mSampleTime, hostTime: ts.mHostTime), let next = format(rate)
@@ -157,7 +159,9 @@ final class ProcessTap {
         skipNoted = true
         note("call audio skips \(list.count - tapBufferCount(fmt)) input stream(s) of the output device (its own mic)")
       }
-      guard let copy = tapCopy(list, format: fmt) else { return }
+      let copy = tapCopy(list, format: fmt)
+      shape.record(list, format: fmt, ok: copy != nil)
+      guard let copy else { return }
       let host = inTime.pointee.mHostTime
       track.queue.async { track.push(copy, hostTime: host) }
     }

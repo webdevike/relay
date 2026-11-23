@@ -440,6 +440,7 @@ describe("key moments and snapshots in the notes", () => {
       total: { app: 16000, mic: 16000 },
       micLeadMs: null,
       globalTap: false,
+      capture: null,
       context: null,
       names: {},
       assistant: null,

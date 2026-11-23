@@ -32,6 +32,8 @@ final class Track {
   private var loudSeconds: [Int] = []
   private var loudInSecond = 0
   private var inSecond = 0
+  /// Loudness per 100 ms since the track opened (the capture check reads it).
+  private var level = Loudness()
 
   init(id: UInt8, name: String, url: URL) throws {
     self.id = id
@@ -59,6 +61,13 @@ final class Track {
     defer { lock.unlock() }
     guard loudSeconds.count >= seconds else { return false }
     return loudSeconds.suffix(seconds).allSatisfy { $0 == 0 }
+  }
+
+  /// Mean square per 100 ms of what this run appended.
+  var loudness: [Float] {
+    lock.lock()
+    defer { lock.unlock() }
+    return level.frames
   }
 
   /// Called on `queue` with a copy of the device buffer. A gap in delivery longer than `gapFill`
@@ -127,6 +136,7 @@ final class Track {
     handle.write(Data(bytes: p, count: n * 2))
     lock.lock()
     _samples += Int64(n)
+    level.add(p, count: n)
     loudInSecond += loud
     inSecond += n
     while inSecond >= sampleRate {
@@ -158,6 +168,8 @@ struct SpoolMeta: Codable, Equatable {
   var micLeadMs: Double?
   /// The tap could not be scoped to the app's processes and recorded everything else the Mac played.
   var globalTap: Bool?
+  /// The capture check's verdict on the whole recording (Capture.swift), set when it stops.
+  var capture: CaptureVerdict?
 
   static func read(_ dir: URL) -> SpoolMeta? {
     guard let data = try? Data(contentsOf: dir.appendingPathComponent("meta.json")) else { return nil }

@@ -303,5 +303,100 @@ micBuf.withUnsafeMutableBytes { m in
 free(io.unsafeMutablePointer)
 free(tapOnly.unsafeMutablePointer)
 
+// Capture check, generated tones only. A tone that switches on and off every 0.4 to 2 s (a seeded
+// generator), so two of them are independent like two people talking.
+func talk(seconds: Int, hz: Double, seed: UInt64, level: Double = 0.3) -> [Int16] {
+  var state = seed
+  var out = [Int16](repeating: 0, count: seconds * 16_000)
+  var i = 0
+  var on = false
+  while i < out.count {
+    state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+    let len = 6_400 + Int((state >> 33) % 25_600)
+    if on {
+      for k in i..<min(out.count, i + len) { out[k] = Int16(level * 32_767 * sin(2 * .pi * hz * Double(k) / 16_000)) }
+    }
+    on.toggle()
+    i += len
+  }
+  return out
+}
+/// Mono read as stereo and downmixed: what the tap wrote from a device mic (2026-11-23), and what a
+/// track at half the rate looks like: every pair of samples becomes one, double speed, half length.
+func doubleSpeed(_ s: [Int16]) -> [Int16] {
+  stride(from: 0, to: s.count - 1, by: 2).map { Int16((Int(s[$0]) + Int(s[$0 + 1])) / 2) }
+}
+func loudness(_ s: [Int16]) -> [Float] {
+  var l = Loudness()
+  s.withUnsafeBufferPointer { l.add($0.baseAddress!, count: $0.count) }
+  return l.frames
+}
+let isaac = talk(seconds: 180, hz: 300, seed: 1)
+let other = talk(seconds: 180, hz: 440, seed: 2)
+let isaacL = loudness(isaac)
+let otherL = loudness(other)
+func capture(_ call: [Int16], _ mic: [Float] = isaacL) -> (CaptureIssue?, CaptureVerdict) {
+  let c = loudness(call)
+  return (Capture.live(call: c, mic: mic, wall: 180), Capture.verdict(call: c, mic: mic, wall: 180).0)
+}
+
+let good = capture(other)
+check(good.0 == nil && good.1.state == "good" && good.1.line.hasPrefix("both sides captured"), "good recording: \(good)")
+
+// The call on speakers bleeds into the mic, but the call track stays quiet while Isaac talks.
+let bleed = capture(other, loudness(zip(isaac, other).map { Int16(clamping: Int($0) + Int($1) / 10) }))
+check(bleed.0 == nil && bleed.1.state == "good", "speaker bleed is no mic copy: \(bleed)")
+
+let copy = capture(doubleSpeed(isaac))
+if case .micAsCall(let r, let speed)? = copy.0 {
+  check(r >= 0.9 && abs(speed - 0.5) < 0.01, "mic copy at 2x: r \(r), speed \(speed)")
+} else {
+  check(false, "mic as call flags: \(copy)")
+}
+check(copy.1.state == "missing" && copy.1.line.contains("the call track is a mic") && copy.1.line.contains("2.0x speed"), "mic as call verdict: \(copy.1.line)")
+
+let slow = capture(doubleSpeed(other))
+if case .drift(let s, let w)? = slow.0 {
+  check(abs(s - 90) < 1 && w == 180, "half-speed call track: \(s) s for \(w) s")
+} else {
+  check(false, "half-speed call track flags drift: \(slow)")
+}
+check(slow.1.state == "degraded" && slow.1.line.contains("holds 90 s for 180 s"), "half-speed verdict: \(slow.1.line)")
+
+let silent = capture([Int16](repeating: 0, count: 180 * 16_000))
+check(silent.0 == .silentCall(seconds: 180), "silent call track flags: \(String(describing: silent.0))")
+check(silent.1.state == "missing" && silent.1.line.contains("no sound on the call track"), "silent verdict: \(silent.1.line)")
+
+// Nothing is judged in the first 30 s.
+check(Capture.live(call: [], mic: isaacL, wall: 20) == nil, "too early to judge")
+check(Capture.verdict(call: [], mic: [], wall: 20).0.state == "unchecked", "too short to judge")
+
+// A track's loudness as it records, and the same recording judged from its files and meta.json
+// (what `RelayMeetingCapture check DIR` and a leftover spool use).
+let tmp4 = FileManager.default.temporaryDirectory.appendingPathComponent("relay-meetings-test4-\(UUID().uuidString)")
+try! FileManager.default.createDirectory(at: tmp4, withIntermediateDirectories: true)
+let spooled = [("app", doubleSpeed(isaac)), ("mic", isaac)].map { name, pcm -> Track in
+  let t = try! Track(id: 0, name: name, url: tmp4.appendingPathComponent("\(name).pcm"))
+  t.queue.sync { pcm.withUnsafeBufferPointer { t.append($0.baseAddress!, count: $0.count) } }
+  t.close()
+  return t
+}
+check(spooled[1].loudness == isaacL, "a track keeps its loudness as it records")
+SpoolMeta(id: "m", app: "Microsoft Teams", startedAt: 1_700_000_000_000, ended: true, endedAt: 1_700_000_180_000).write(tmp4)
+let checked = Capture.check(dir: tmp4)
+check(checked["state"] as? String == "missing" && (checked["callSeconds"] as? Double) == 90, "check DIR: \(checked)")
+try? FileManager.default.removeItem(at: tmp4)
+
+// Tap buffers that never carry the tap's channels say what they looked like.
+let shape = TapShape()
+let monoList = AudioBufferList.allocate(maximumBuffers: 1)
+monoList[0] = AudioBuffer(mNumberChannels: 1, mDataByteSize: 2_048, mData: nil)
+for _ in 0..<20 { shape.record(monoList, format: tapFmt, ok: tapCopy(monoList, format: tapFmt) != nil) }
+let seenShape = shape.take()
+check(seenShape == "buffers of 1 ch where the tap gives 2 ch at 48000 Hz", "bad format: \(String(describing: seenShape))")
+for _ in 0..<20 { shape.record(monoList, format: tapFmt, ok: true) }
+check(shape.take() == nil, "readable buffers are no problem")
+free(monoList.unsafeMutablePointer)
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)

@@ -4,8 +4,10 @@
 //
 // Events: ready, call.start {app, browser, title}, call.end {app}, recording {id, app, title,
 // startedAt}, pending {id, app, title, startedAt} (a spool from an earlier run that the host has
-// not got yet), connected {id}, disconnected {id, error}, health {id, state, detail}, stopped {id,
-// seconds}, uploaded {id}, stop.requested {id}, warning {id?, message}, error {message},
+// not got yet), connected {id}, disconnected {id, error}, health {id, state, detail} (state: ok,
+// silent-app, no-mic, or a capture problem: mic-as-call, drift, silent-call, bad-format;
+// Capture.swift), stopped {id, seconds, capture} (the capture verdict line), uploaded {id},
+// stop.requested {id}, warning {id?, message}, error {message},
 // share {id, state: on|off, permission} (someone started or stopped sharing their screen in the
 // call, and again while on when the Screen Recording grant changes; permission is only checked,
 // never asked for), share.sampled {id, seq, hash} / share.sample.failed {id, seq, reason},
@@ -155,7 +157,9 @@ final class Daemon {
     if let permission = sharePermission.removeValue(forKey: id) {
       emit(["ev": "share", "id": id, "state": "off", "permission": permission])
     }
-    emit(["ev": "stopped", "id": id, "seconds": rec.seconds])
+    var ev: [String: Any] = ["ev": "stopped", "id": id, "seconds": rec.seconds]
+    if let c = rec.meta.capture { ev["capture"] = c.line }
+    emit(ev)
   }
 
   private func shareChanged(_ id: String, _ on: Bool) {
@@ -258,12 +262,7 @@ final class Daemon {
         emit(["ev": "share", "id": id, "state": "on", "permission": !was])
       }
       if rec.checkHealth() {
-        let detail: String
-        switch rec.health {
-        case .ok: detail = "Hearing \(rec.meta.app) and your mic"
-        case .silentApp: detail = "\(rec.meta.app) is playing but Relay hears silence. Allow System Audio Recording for Relay."
-        case .noMic: detail = "Relay stopped hearing your mic."
-        }
+        let detail = rec.healthDetail
         emit(["ev": "health", "id": id, "state": rec.health.rawValue, "detail": detail])
         uplinks[id]?.sendHealth(rec.health.rawValue, detail: detail)
       }

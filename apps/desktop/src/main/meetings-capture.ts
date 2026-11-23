@@ -64,7 +64,7 @@ const HelperEvent = z.discriminatedUnion('ev', [
   z.object({ ev: z.literal('connected'), id: z.string() }),
   z.object({ ev: z.literal('disconnected'), id: z.string(), error: z.string().optional() }),
   z.object({ ev: z.literal('health'), id: z.string(), state: z.string(), detail: z.string() }),
-  z.object({ ev: z.literal('stopped'), id: z.string() }),
+  z.object({ ev: z.literal('stopped'), id: z.string(), capture: z.string().optional() }),
   z.object({ ev: z.literal('uploaded'), id: z.string() }),
   z.object({ ev: z.literal('stop.requested'), id: z.string() }),
   z.object({ ev: z.literal('warning'), message: z.string(), id: z.string().optional() }),
@@ -169,6 +169,8 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
   let snapshotChange = deps.snapshotChange
   /** Live recordings' share-snapshot runtimes, by recording id. */
   const shares = new Map<string, ShareSnapshots>()
+  /** Health problems already shown per recording: each is told to Isaac once per call. */
+  const alerted = new Map<string, Set<string>>()
 
   const send = (cmd: Record<string, unknown>): void => {
     child?.stdin?.write(`${JSON.stringify(cmd)}\n`)
@@ -315,14 +317,21 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
         scheduleRetry()
         return
       }
-      case 'health':
-        if (ev.state !== 'ok')
-          deps.notify({ title: 'Meeting recording problem', body: ev.detail, actions: [] }, () =>
-            deps.openMeeting(ev.id),
-          )
+      case 'health': {
+        deps.log(`meetings: ${ev.id}: health ${ev.state}: ${ev.detail}`)
+        const shown = alerted.get(ev.id) ?? new Set<string>()
+        alerted.set(ev.id, shown)
+        if (ev.state === 'ok' || shown.has(ev.state)) return
+        shown.add(ev.state)
+        deps.notify({ title: 'Meeting recording problem', body: ev.detail, actions: [] }, () =>
+          deps.openMeeting(ev.id),
+        )
         return
+      }
       case 'stopped':
         endShare(ev.id)
+        alerted.delete(ev.id)
+        if (ev.capture !== undefined) deps.log(`meetings: ${ev.id}: capture ${ev.capture}`)
         return
       case 'uploaded':
         endShare(ev.id)
@@ -367,6 +376,7 @@ export function startMeetingsCapture(deps: MeetingsCaptureDeps): MeetingsCapture
       child = null
       // Its connections and calls died with it; the next run reports its spools as pending again.
       uploads.clear()
+      alerted.clear()
       for (const id of [...shares.keys()]) endShare(id)
       if (stopped) return
       if (code === 0) {

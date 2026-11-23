@@ -3,6 +3,8 @@
 //
 //   RelayMeetingCapture serve --spool DIR [--replay DIR] [--no-detect] [--start-after S] [--end-after S]
 //   RelayMeetingCapture list            audio processes and which meeting apps use the mic
+//   RelayMeetingCapture check DIR...    the capture verdict of spooled or host recordings (app.pcm,
+//                                       mic.pcm, meta.json), one JSON line each
 import Foundation
 
 setvbuf(stdout, nil, _IOLBF, 0)
@@ -21,6 +23,8 @@ case "list":
     emit(["pid": Int(p.pid), "bundle": p.bundle, "input": p.input, "output": p.output, "meeting": meetingApp(p.bundle)?.name ?? NSNull()])
   }
   emit(["calls": appsUsingMic(procs).sorted()])
+case "check":
+  for dir in args.dropFirst() { emit(Capture.check(dir: URL(fileURLWithPath: dir))) }
 case "serve":
   guard let spool = flag("--spool") else {
     emit(["ev": "error", "message": "serve needs --spool DIR"])
@@ -37,6 +41,6 @@ case "serve":
   term.resume()
   daemon.run()
 default:
-  FileHandle.standardError.write("usage: RelayMeetingCapture serve --spool DIR [--replay DIR] [--no-detect] | list\n".data(using: .utf8)!)
+  FileHandle.standardError.write("usage: RelayMeetingCapture serve --spool DIR [--replay DIR] [--no-detect] | list | check DIR...\n".data(using: .utf8)!)
   exit(2)
 }

@@ -4,7 +4,8 @@
 // Text frames out: `meeting.hello` (id, app, title, start, rate), `meeting.speakers` (from, lines:
 // the window's speaker samples from `speakers.jsonl`, line `from` on), `meeting.shot` (shot: one
 // `shots.jsonl` line, jpeg: its image in base64; one per frame, in order), `meeting.end` (sample
-// counts). Text frames in: `ack {track, upTo}` (the host holds every sample before upTo; sent right
+// counts, and `capture {state, line}`: the capture check's verdict on the recording). Text frames
+// in: `ack {track, upTo}` (the host holds every sample before upTo; sent right
 // after the hello and then every second), `ack.speakers {upTo}` and `ack.shots {upTo}` (the speaker
 // lines and shots it holds; a host that never sends one gets none of that kind), `meeting.done`
 // (it has the whole recording: the spool can go) and `meeting.stop` (Isaac stopped the recording
@@ -144,7 +145,7 @@ final class Uplink {
     queue.async { self.finish(nil, notify: false) }
   }
 
-  /// The recording's health (`ok`, `silent-app`, `no-mic`) for the host's page.
+  /// The recording's health (Recording.swift `Health`) for the host's page.
   func sendHealth(_ state: String, detail: String) {
     queue.async {
       guard !self.closed else { return }
@@ -264,6 +265,7 @@ final class Uplink {
       if let at = meta.endedAt { end["endedAt"] = at }
       if let lead = meta.micLeadMs { end["micLeadMs"] = lead }
       if meta.globalTap == true { end["globalTap"] = true }
+      if let c = meta.capture { end["capture"] = ["state": c.state, "line": c.line] }
       sendText(end)
     }
   }

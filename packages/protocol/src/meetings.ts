@@ -58,7 +58,13 @@ export const MeetingStage = z.enum([
 ]);
 export type MeetingStage = z.infer<typeof MeetingStage>;
 
-/** `silent-app`: the call plays but the tap hears silence (System Audio Recording not granted). */
+/**
+ * `silent-app`: the call track does not carry the other side: the tap hears silence (System Audio
+ * Recording not granted) or the Mac's capture check flagged it (the output device's own mic
+ * recorded instead, the wrong speed, minutes of silence while Isaac talks, unreadable tap buffers;
+ * `apps/meetings-capture/Sources/Capture.swift`). `healthDetail` says which. Kept to three values
+ * so phones on an older build still parse `meetings.state`.
+ */
 export const MeetingHealth = z.enum(["ok", "silent-app", "no-mic"]);
 export type MeetingHealth = z.infer<typeof MeetingHealth>;
 

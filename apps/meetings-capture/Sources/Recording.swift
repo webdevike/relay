@@ -14,6 +14,14 @@ enum Health: String {
   case silentApp = "silent-app"
   /// The mic track stopped growing (no grant, device gone).
   case noMic = "no-mic"
+  /// The call track follows the mic: the output device's own mic is recorded as the call.
+  case micAsCall = "mic-as-call"
+  /// The call track holds too little (or too much) audio for the time the call has run.
+  case drift
+  /// The call track has been silent for minutes while the mic heard Isaac.
+  case silentCall = "silent-call"
+  /// Most tap buffers do not carry the tap's channels, so they never reach the call track.
+  case badFormat = "bad-format"
 }
 
 final class Recording {
@@ -31,6 +39,13 @@ final class Recording {
   private var micStalledSince: Date?
   private(set) var health: Health = .ok
   private(set) var warnings: [String] = []
+  /// The capture check (Capture.swift), every `captureEvery` seconds: its last finding, the tap
+  /// buffers' shape when most were unreadable, and every problem seen for the final verdict.
+  static let captureEvery = 30.0
+  private var capturedAt = Date()
+  private var captureIssue: CaptureIssue?
+  private var tapShape: String?
+  private var problems: [String] = []
   /// Watchdog state (main queue): when each track last grew, when it was last restarted.
   private var watchTimer: DispatchSourceTimer?
   private var grew: [Int64] = [0, 0]
@@ -91,6 +106,13 @@ final class Recording {
     mic = try Track(id: 1, name: "mic", url: dir.appendingPathComponent("mic.pcm"))
     _speakerLines = Self.lineCount(speakersURL)
     _shotLines = Self.lineCount(shotsURL)
+    // Spooled by a helper without the capture check, or one that died mid-call: judged from disk.
+    if self.meta.capture == nil, let end = meta.endedAt {
+      self.meta.capture = Capture.verdict(
+        call: Loudness.of(file: app.url), mic: Loudness.of(file: mic.url), wall: (end - meta.startedAt) / 1000
+      ).0
+      self.meta.write(dir)
+    }
   }
 
   var files: [URL] { [app.url, mic.url] }
@@ -478,14 +500,69 @@ final class Recording {
       lastMicSamples = m
     }
     let appPlaying = replayTimer != nil || meetingApp.map { processes(of: $0, in: audioProcesses()).contains(where: \.output) } ?? false
+    if now.timeIntervalSince(capturedAt) >= Self.captureEvery {
+      capturedAt = now
+      captureIssue = Capture.live(call: app.loudness, mic: mic.loudness, wall: callWall())
+      tapShape = tap?.shape.take()
+    }
     if appPlaying && app.silent(forLast: 60) {
       health = .silentApp
     } else if let since = micStalledSince, now.timeIntervalSince(since) >= 10 {
       health = .noMic
+    } else if tapShape != nil {
+      health = .badFormat
+    } else if let issue = captureIssue {
+      switch issue {
+      case .micAsCall: health = .micAsCall
+      case .drift: health = .drift
+      case .silentCall: health = .silentCall
+      }
     } else {
       health = .ok
     }
+    // What the files will not show at the end.
+    let seen: String? = switch health {
+    case .noMic: "your mic dropped out"
+    case .silentApp: "the call track was digital silence while \(meta.app) played"
+    case .badFormat: "the tap's \(tapShape ?? "buffers") could not be read"
+    default: nil
+    }
+    if let seen, !problems.contains(seen) { problems.append(seen) }
     return health != before
+  }
+
+  /// The line Isaac sees for the current health (a notification while the call runs).
+  var healthDetail: String {
+    let name = meta.app
+    switch health {
+    case .ok: return "Hearing \(name) and your mic"
+    case .silentApp: return "\(name) is playing but Relay hears silence. Allow System Audio Recording for Relay."
+    case .noMic: return "Relay stopped hearing your mic."
+    case .micAsCall:
+      let who = replaying ? nil : defaultOutputName()
+      return "Relay isn't hearing the other side of this call (\(who.map { "your \($0) mic" } ?? "your own mic") is being recorded instead)."
+    case .drift:
+      guard case .drift(let s, let w) = captureIssue else { return "Relay is losing the other side of this call." }
+      return "Relay is losing the other side of this call (\(Int(s)) s of call audio in \(Int(w)) s)."
+    case .silentCall:
+      return "Relay isn't hearing the other side of this call (nothing from \(name) for 3 min while you talk)."
+    case .badFormat:
+      return "Relay can't read this call's audio (\(tapShape ?? "unreadable buffers")), so the other side may be missing."
+    }
+  }
+
+  /// Seconds since the call track's first buffer (the gap fill keeps it on the wall clock from
+  /// there); since the recording started when it has none.
+  private func callWall() -> Double {
+    let first = app.firstHostTime
+    let now = mach_absolute_time()
+    if first > 0, now > first { return AVAudioTime.seconds(forHostTime: now - first) }
+    return Date().timeIntervalSince1970 - meta.startedAt / 1000
+  }
+
+  private func defaultOutputName() -> String? {
+    let id = prop(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultOutputDevice, AudioObjectID(0)) ?? 0
+    return id == 0 ? nil : propString(id, kAudioObjectPropertyName)
   }
 
   /// Stops capture, closes the files and marks the spool ended.
@@ -526,6 +603,9 @@ final class Recording {
     }
     meta.ended = true
     meta.endedAt = (Date().timeIntervalSince1970 * 1000).rounded()
+    meta.capture = Capture.verdict(
+      call: app.loudness, mic: mic.loudness, wall: (meta.endedAt! - meta.startedAt) / 1000, problems: problems
+    ).0
     meta.write(dir)
   }
 
