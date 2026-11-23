@@ -1,33 +1,32 @@
-# Run the real smoke per provider and document the Siri scope
+# Run the real smoke per provider and document Siri scope and the next-provider recipe
 
 Status: PLANNED
 Review Mode: REVIEW_AFTER
 Depends on: 04
 Expected production LOC: 0
-Maximum production LOC: 20
+Maximum production LOC: 0
 Expected files touched: 1
 
 ## For Isaac
 
-- Outcome: Recorded real runs for GPT-Live and Deepgram, plus a short doc saying how Siri and the Action Button behave under each provider.
-- Why it matters: The unproven Deepgram behaviors (long assistant turn, barge-in, injection while speaking) can only be settled by a real call (AC9, AC10).
-- Proof: A results note lists each smoke scenario with pass/fail, and the doc states that Deepgram from Siri needs a foreground tap.
+- Outcome: Recorded real runs for GPT-Live and Deepgram, and one doc covering provider selection, Siri/Action Button under each provider, and what a next supported-transport provider changes.
+- Why it matters: Deepgram's long-turn, barge-in and injection behaviour only shows in a real call (AC10, AC11), and the recipe is the written half of the substitution claim (AC4).
+- Proof: A results note lists each scenario pass/fail; the doc states that Deepgram from Siri needs one foreground tap.
 
 ## Why
 
-Automated tests use fakes. Deepgram's function timeout and queueing behavior are undocumented, so a real run decides Q7 and Q6 and measures Q3.
+Fakes cannot settle Q6, Q7 or the declined `live.start` delay.
 
 ## Implement
 
-- Run `live-smoke.ts` for GPT-Live (default path unchanged).
-- Run the existing `call-smoke.ts` unchanged against a host started with `RELAY_VOICE_PROVIDER=deepgram` (it is a `call.*` client of a running host, so no new smoke file): normal turn, a >60 s assistant turn, barge-in (`--barge`), and no-key fallback to the local call. Edit `call-smoke.ts` only if a scenario cannot be driven. Key by path (`~/Eva/secrets/deepgram.env`) only; never print it.
-- Record outcomes, chosen aura-2 voice, measured declined `live.start` delay, and any Q7 change in the results note.
-- Add a docs page (for example `docs/relay/voice-providers.md`) covering provider selection config, key path, fallback, and Siri/Action Button: `LiveCallIntents.talk` -> `live.start` -> fallback dialog -> foreground -> `call.start`; GPT unchanged; native PCM routing deferred.
+- Run `live-smoke.ts` for GPT-Live. Run `call-smoke.ts` unchanged against a host with `RELAY_VOICE_PROVIDER=deepgram`: normal turn, a >60 s assistant turn, `--barge`, no-key fallback to the local call. Key by path only (`~/Eva/secrets/deepgram.env`), never printed. Edit `call-smoke.ts` only if a scenario cannot be driven.
+- Record outcomes, chosen aura-2 voice, measured declined `live.start` delay and any Q7 change.
+- `docs/relay/voice-providers.md`: config and key paths, fallback, engine seam, the Next provider recipe from the spec, and Siri/Action Button: `LiveCallIntents.talk` to `live.start` to fallback dialog to foreground to `call.start`; GPT unchanged; native PCM routing deferred unless Isaac decides otherwise (Q2).
+- If Isaac chooses native routing or not offering Deepgram to the intent path, this issue is replanned before 05 runs.
 
 ## Do Not
 
-- Do not build native Siri PCM routing or any Swift change.
-- Do not commit audio, keys or transcripts containing secrets.
+- No Swift or mobile change; no audio, keys or secret-bearing transcripts committed.
 
 ## Open Questions
 
@@ -36,15 +35,14 @@ Type: PRODUCT
 Importance: HIGH
 Answer Format: SINGLE_SELECT
 Options:
-- Foreground handoff, documented (no change)
+- Existing foreground fallback, documented (recommended)
 - Native PCM routing in `LiveCallEngine` (Swift, about 400-600 LOC, app rebuild)
 - Do not offer Deepgram to the intent path
-Comment: Handoff means a foreground tap instead of a hands-free lock-screen start. Native routing would be a new planned issue.
-Agent Default: Foreground handoff, documented.
-Status: OPEN
-Decision: Pending
+Comment: Recommended option costs one foreground tap and no hands-free lock-screen start; nothing else changes and GPT Siri is untouched.
+Agent Default: Existing foreground fallback, documented.
+Status: HUMAN_DECIDED
+Decision: Existing foreground fallback, documented. Isaac replied "Approve the plan" on 2026-11-23 to the Nova proposal; parent recorded this as accepting the recommended option.
 
 ## Verify
 
-- Results note shows each smoke scenario for both providers with outcomes and no secrets.
-- Docs page exists and matches the code path described.
+- Results note shows each scenario for both providers, no secrets; docs page matches the code path.

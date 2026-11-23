@@ -1,55 +1,50 @@
-# Run Deepgram calls over the existing PCM call transport
+# Run Deepgram calls over the PCM transport and provide the Deepgram engine layer
 
-Status: PLANNED
+Status: COMPLETE
 Review Mode: REVIEW_AFTER
 Depends on: 01, 02, 03
 Expected production LOC: 300
-Maximum production LOC: 400
-Expected files touched: 3
+Maximum production LOC: 380
+Expected files touched: 4
 
 ## For Isaac
 
-- Outcome: With Deepgram selected, calling Nova or Astra from the app talks to a Deepgram Voice Agent that hands requests to the assistant thread and speaks its replies; failures fall back to the local call.
-- Why it matters: This is the user-visible feature (AC2, AC4-AC7).
-- Proof: Host tests show a full call: heard words become one `voiceTurn`, the reply is spoken sentence by sentence, speaking over it flushes and drops stale replies, and every ending closes the session once.
+- Outcome: With `voice.provider = deepgram`, calling Nova or Astra talks to a Deepgram Voice Agent that hands requests to the assistant thread and speaks replies; failures fall back to the local call. Deepgram is enabled by one enum literal and one registry entry.
+- Why it matters: The user-visible feature (AC5-AC8) and the live proof of the "next provider" claim.
+- Proof: Host tests show a full call (one `voiceTurn`, reply spoken sentence by sentence, barge-in flushes and drops stale replies, every ending closes once), and the diff touches no caller.
 
 ## Why
 
-Wires the Deepgram session (02) and the machine (03) into `CallService` using the engine selection from 01, and owns the thread bridge (turn delivery, awaiting/sawWorking/`TURN_START_GRACE_MS`, observe, settled reply via `ReplySpeech`/`plainSpeech`, `SILENCE_MARKER`, `[[details]]`) inline in `deepgramCall.ts`, shaped like `VoiceCall` and not shared. No phone, protocol or Swift change.
+`deepgramLayer(env)` provides `{ id: "deepgram", transport: "pcm-websocket", open }`; 01's `CallService` already serves pcm engines and falls back when `start()` is false, so no service code changes.
 
 ## Implement
 
-- `apps/linux/src/call/deepgramCall.ts`: same shape as `VoiceCall` (`id/audio/mute/end/observe/start`). Machine actor created with `clock: deps.clock`. One `fromCallback` actor does `Effect.runFork(Effect.scoped(open ... forEach event -> send))` and `Fiber.interrupt` in cleanup (socket closes once).
-- Mic: `call.audio` base64 to binary PCM frames. While muted send silence frames (or `KeepAlive`) so Deepgram does not idle out.
-- Agent PCM binary to `call.audio{gen}`. `UserStartedSpeaking` to `bargeIn`: `gen += 1`, `call.flush{gen}`, ignore in-flight injected replies.
-- `ConversationText` finals accumulate. On `FunctionCallRequest` (`ask_assistant`): request is the user finals since the last hand-over (fallback `arguments.request`), `thread.turn(voiceTurn(text))` once, immediately answer `FunctionCallResponse` ("Working on it; say nothing until the answer arrives."), then speak the bridge's settled reply via `InjectAgentMessage`, sentence by sentence.
-- Prompt from `liveInstructions(title)`; context from `liveBrief`; short greeting.
-- State mapping to `call.state`; one terminal state for hang-up, socket loss, provider drop, failed start, cap.
-- `call/service.ts`: when provider is deepgram and a key exists build `DeepgramCall`; if the session fails to open or no key and `voice !== null`, silently build the existing `VoiceCall`. No change to the local path or default GPT path.
-- Tests in `apps/linux/test/deepgram-call.test.ts` using `FakeClock`/`FakeThread` patterns and the `layerTest` Deepgram script: Settings first, one thread turn, immediate function response, reply sentences injected, silence marker not spoken, `[[details]]`, barge-in drops late reply, each terminal path closes once and reports one state, failed start falls back to `VoiceCall`, no key falls back.
+- `apps/linux/src/call/deepgramCall.ts`: a `PcmCall` (`id/audio/mute/end/observe/start`). Machine actor with `clock: deps.clock`; one `fromCallback` actor does `Effect.runFork(Effect.scoped(open ...))` and `Fiber.interrupt` on cleanup. `start()` resolves false if the session never opens (nothing sent to the phone).
+- Mic base64 to binary PCM; while muted send silence frames (or `KeepAlive`). Agent PCM to `call.audio{gen}`. `UserStartedSpeaking` to `gen += 1`, `call.flush{gen}`, ignore in-flight injected replies.
+- `ConversationText` finals accumulate. `FunctionCallRequest` (`ask_assistant`): request = user finals since last hand-over (fallback `arguments.request`), `thread.turn(voiceTurn(text))` once, immediate `FunctionCallResponse`, then the bridge's settled reply via `InjectAgentMessage` sentence by sentence (`ReplySpeech`, `plainSpeech`, `SILENCE_MARKER`, `[[details]]`). Prompt `liveInstructions(title)`, context `liveBrief(title, memory, rows, clock)` using `CallThread.rows`/`memory` added in 01.
+- `deepgramLayer(env)` (in `deepgramCall.ts` or `deepgram.ts`); add `"deepgram"` to the `ProviderId` enum in `host-config.ts` and one entry in `VOICE_ENGINE_LAYERS` in `voice/engines.ts`.
+- `apps/linux/test/deepgram-call.test.ts` with `FakeClock`/`FakeThread` and `layerTest`: Settings first, one thread turn, immediate function response, injected sentences, silence marker unspoken, barge-in drops late reply, each terminal path closes once with one state, failed open falls back to `VoiceCall`, no key falls back, `live.start` declined with `fallback`.
 
 ## Do Not
 
-- Do not build a `VoiceStack`-shaped adapter or use ears/filler/speak.
-- Do not add reconnect or resume grace for Deepgram.
-- Do not use Effect in `CallService` or outside `deepgram.ts` and the fiber actor.
-- Do not log or send the key.
+- No change to `live/service.ts`, `call/service.ts`, `session.ts` or `main.ts` (verify with `git diff --stat`); no `if (provider === ...)` anywhere.
+- No `VoiceStack`-shaped adapter, no reconnect grace, no key logging.
 
 ## Open Questions
 
-### Q7: How are assistant replies spoken?
+### Q7: How are replies spoken?
 Type: IMPLEMENTATION
 Importance: MEDIUM
 Answer Format: SINGLE_SELECT
 Options:
-- Speak the assistant's text verbatim through the `InjectAgentMessage` queue
-- Hold the `FunctionCallResponse` and let the Deepgram model rephrase the reply
-Comment: Decided by the real smoke in issue 05 (long turn, injection during speech).
-Agent Default: Verbatim via `InjectAgentMessage` queue.
+- Verbatim through the `InjectAgentMessage` queue
+- Hold the `FunctionCallResponse` and let Deepgram rephrase
+Comment: Settled by the real smoke (05).
+Agent Default: Verbatim queue.
 Status: AGENT_DECIDED
-Decision: Verbatim queue; revisit if the smoke shows `InjectionRefused` or lost injections.
+Decision: Verbatim queue; revisit if smoke shows `InjectionRefused` or lost injections.
 
 ## Verify
 
-- `apps/linux/test/deepgram-call.test.ts` passes alongside unchanged `call.test.ts` and `live.test.ts`.
-- Typecheck of `apps/linux` passes.
+- `deepgram-call.test.ts` passes with unchanged `call.test.ts`, `live.test.ts`, `voice-engines.test.ts`; typecheck passes.
+- `git diff --stat` for this issue lists no caller file.

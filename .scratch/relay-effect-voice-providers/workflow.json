@@ -1,85 +1,46 @@
 {
   "version": 1,
-  "status": "PLANNING",
+  "status": "IN_PROGRESS",
   "reviewMode": "CHECKPOINTS",
   "questionPolicy": "AGENT_DEFAULTS",
   "baseCommit": "2a78e4a4041f823d741c3e0c5e9d6141374e90e7",
   "baselineUntracked": [],
-  "spike": {
-    "status": "COMPLETE"
-  },
-  "planReview": {
-    "status": "APPROVED"
-  },
-  "complexityPolicy": {
-    "target": 5,
-    "maximum": 13
-  },
-  "humanReview": {
-    "status": "PENDING"
-  },
+  "revision": 2,
+  "spike": { "status": "COMPLETE" },
+  "planReview": { "status": "APPROVED", "note": "Machine re-review of revision 2 clean after two line fixes; human approval pending." },
+  "complexityPolicy": { "target": 5, "maximum": 13 },
+  "humanReview": { "status": "APPROVED", "note": "Isaac replied 'Approve the plan' to the Nova proposal on 2026-11-23, recorded by the parent with Q2 accepted as the recommended foreground fallback." },
   "complexity": {
-    "score": 5,
-    "rationale": "New dependency and one new Effect module, but one machine and one engine reuse the existing PCM transport; GPT path untouched and no protocol, mobile or Swift change."
+    "score": 8,
+    "revisionNote": "Rev 2 after eva-spec re-review: PcmCall.observe, CallThread rows/memory in 01, composeVoiceEngines, deepgramCall machine rename, budgets reconciled (issue maxima sum 1000).",
+    "rationale": "Effect 4.1.5 is the injection mechanism for both engines (new dependency, new major, seam touching the default GPT wiring, four LiveService construction sites), plus a Deepgram session service, an XState machine and a PCM call. Callers branch on transport only; GPT/local lifecycles untouched; no protocol, mobile or Swift change."
   },
   "budget": {
-    "productionLoc": { "expected": 700, "hardCap": 900 },
-    "filesTouched": { "expected": 14, "hardCap": 17 },
+    "productionLoc": { "expected": 785, "hardCap": 1000 },
+    "filesTouched": { "expected": 21, "hardCap": 24 },
     "newDependencies": 1,
-    "newAbstractions": 2
+    "newAbstractions": 3
   },
   "issues": [
-    {
-      "id": "01",
-      "slug": "provider-selection-dispatch",
-      "status": "PLANNED",
-      "reviewMode": "AUTO",
-      "dependsOn": [],
-      "files": ["apps/linux/src/host-config.ts", "apps/linux/src/call/deepgram-key.ts", "apps/linux/src/main.ts", "apps/linux/src/live/service.ts", "apps/linux/src/call/service.ts", "apps/linux/test/voice-provider.test.ts"],
-      "budget": { "productionLoc": { "expected": 90, "maximum": 130 }, "filesTouched": 6 }
-    },
-    {
-      "id": "02",
-      "slug": "deepgram-agent-effect-service",
-      "status": "PLANNED",
-      "reviewMode": "REVIEW_BEFORE",
-      "dependsOn": [],
-      "files": ["apps/linux/package.json", "pnpm-lock.yaml", "nix/hashes.json", "apps/linux/src/call/deepgram.ts", "apps/linux/test/deepgram.test.ts"],
-      "budget": { "productionLoc": { "expected": 170, "maximum": 230 }, "filesTouched": 5 }
-    },
-    {
-      "id": "03",
-      "slug": "provider-call-machine-bridge",
-      "status": "PLANNED",
-      "reviewMode": "AUTO",
-      "dependsOn": [],
-      "files": ["apps/linux/src/call/providerCall.machine.ts", "apps/linux/test/providerCall.machine.test.ts", "apps/linux/test/machine-docs.test.ts", "docs/state-machines/provider-call.md"],
-      "budget": { "productionLoc": { "expected": 110, "maximum": 160 }, "filesTouched": 4 }
-    },
-    {
-      "id": "04",
-      "slug": "deepgram-call-pcm-transport",
-      "status": "PLANNED",
-      "reviewMode": "REVIEW_AFTER",
-      "dependsOn": ["01", "02", "03"],
-      "files": ["apps/linux/src/call/deepgramCall.ts", "apps/linux/src/call/service.ts", "apps/linux/test/deepgram-call.test.ts"],
-      "budget": { "productionLoc": { "expected": 300, "maximum": 400 }, "filesTouched": 3 }
-    },
-    {
-      "id": "05",
-      "slug": "real-smoke-siri-scope",
-      "status": "PLANNED",
-      "reviewMode": "REVIEW_AFTER",
-      "dependsOn": ["04"],
+    { "id": "01", "slug": "effect-engine-seam", "status": "COMPLETE", "reviewMode": "REVIEW_BEFORE", "dependsOn": [],
+      "files": ["apps/linux/package.json", "pnpm-lock.yaml", "nix/hashes.json", "apps/linux/src/voice/engines.ts", "apps/linux/src/host-config.ts", "apps/linux/src/main.ts", "apps/linux/src/live/service.ts", "apps/linux/src/call/service.ts", "apps/linux/src/call/call.ts", "apps/linux/test/live.test.ts", "apps/linux/test/live-standin.ts", "apps/linux/test/voice-engines.test.ts"],
+      "budget": { "productionLoc": { "expected": 175, "maximum": 220 }, "filesTouched": 12 } },
+    { "id": "02", "slug": "deepgram-agent-effect-service", "status": "COMPLETE", "reviewMode": "AUTO", "dependsOn": ["01"],
+      "files": ["apps/linux/src/call/deepgram.ts", "apps/linux/test/deepgram.test.ts", "apps/linux/test/deepgram-fake.ts"],
+      "budget": { "productionLoc": { "expected": 200, "maximum": 240 }, "filesTouched": 3 } },
+    { "id": "03", "slug": "deepgram-call-machine", "status": "COMPLETE", "reviewMode": "AUTO", "dependsOn": [],
+      "files": ["apps/linux/src/call/deepgramCall.machine.ts", "apps/linux/test/deepgramCall.machine.test.ts", "apps/linux/test/machine-docs.test.ts", "docs/state-machines/deepgram-call.md"],
+      "budget": { "productionLoc": { "expected": 110, "maximum": 160 }, "filesTouched": 4 } },
+    { "id": "04", "slug": "deepgram-call-pcm-transport", "status": "COMPLETE", "reviewMode": "REVIEW_AFTER", "dependsOn": ["01", "02", "03"],
+      "files": ["apps/linux/src/call/deepgramCall.ts", "apps/linux/src/host-config.ts", "apps/linux/src/voice/engines.ts", "apps/linux/test/deepgram-call.test.ts"],
+      "budget": { "productionLoc": { "expected": 300, "maximum": 380 }, "filesTouched": 4 } },
+    { "id": "05", "slug": "real-smoke-siri-scope", "status": "PLANNED", "reviewMode": "REVIEW_AFTER", "dependsOn": ["04"],
       "files": ["docs/relay/voice-providers.md"],
-      "budget": { "productionLoc": { "expected": 0, "maximum": 20 }, "filesTouched": 1 }
-    }
+      "budget": { "productionLoc": { "expected": 0, "maximum": 0 }, "filesTouched": 1 } }
   ],
   "openQuestions": [
-    { "id": "Q1", "issueId": "03", "type": "ARCHITECTURE", "importance": "HIGH", "status": "OPEN" },
-    { "id": "Q2", "issueId": "05", "type": "PRODUCT", "importance": "HIGH", "status": "OPEN" },
-    { "id": "Q3", "issueId": "01", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
-    { "id": "Q4", "issueId": "02", "type": "ARCHITECTURE", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
+    { "id": "Q1", "issueId": "03", "type": "ARCHITECTURE", "importance": "HIGH", "status": "HUMAN_DECIDED" },
+    { "id": "Q2", "issueId": "05", "type": "PRODUCT", "importance": "HIGH", "status": "HUMAN_DECIDED" },
     { "id": "Q5", "issueId": "01", "type": "ARCHITECTURE", "importance": "LOW", "status": "AGENT_DECIDED" },
     { "id": "Q6", "issueId": "02", "type": "IMPLEMENTATION", "importance": "LOW", "status": "AGENT_DECIDED" },
     { "id": "Q7", "issueId": "04", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" }

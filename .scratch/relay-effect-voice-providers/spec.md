@@ -1,60 +1,71 @@
-# Relay iPhone call: interchangeable GPT-Live and Deepgram Voice Agent providers on Effect
+# Relay iPhone call: GPT-Live and Deepgram Voice Agent as Effect-injected voice engines
 
-Status: PLANNING
+Status: IN_PROGRESS
 Review Mode: CHECKPOINTS
 Open Question Policy: AGENT_DEFAULTS
-Complexity: 5
+Complexity: 8
 
 ## For Isaac
 
 ### Outcome
 
-Isaac's iPhone call to Nova or Astra can run on GPT-Live (default, unchanged) or Deepgram Voice Agent, chosen in host config, with local-call fallback and no app change.
+Isaac's iPhone call to Nova or Astra runs on GPT-Live (default, unchanged) or Deepgram Voice Agent. Both are injected by `effect@4.1.5` `Context`/`Layer` at one host composition seam, chosen in host config, with local-call fallback and no app change. A third provider layer is swapped in at that same seam in a test, without touching the callers.
 
 ### Proposed Plan
 
-- 01 Choose the provider in host config and route `live.start`/`call.start` (GPT stays default).
-- 02 Add the Deepgram Voice Agent session on `effect@4.1.5` (only Effect use).
-- 03 Add the XState provider-call machine and its generated doc page.
-- 04 Run Deepgram calls over the existing PCM transport (turn bridge inline) with fallback, barge-in and single cleanup.
-- 05 Real smoke for both providers and Siri/Action Button documentation.
+- 01 Add `effect@4.1.5` and the seam: a transport-tagged `VoiceEngines` service, a layer registry, the GPT-Live layer (wrapping the existing `OpenAiLive`), and `LiveService`/`CallService` taking the engine instead of branching. A third test layer proves substitution.
+- 02 Deepgram Voice Agent session as an Effect service (scoped socket, typed events, key by path).
+- 03 XState machine for the new Deepgram call lifecycle only, plus its generated doc page.
+- 04 Deepgram call over the existing PCM transport, and the Deepgram engine layer registered at the seam (config value plus one registry entry, no caller change).
+- 05 Real smoke for both providers, Siri/Action Button doc, and the "next provider" recipe doc.
 
-Complexity 5 (target 5). Budget: at most 900 production LOC (expected 700) and 17 files, one new dependency (`effect`), two new abstractions (machine, Effect service).
+Complexity 8 (target 5, max 13): raised from 5 because Effect is now the injection mechanism for both engines, not one adapter. Budget: at most 1000 production LOC (expected 785), 24 files including tests, docs and lockfile (expected 21 unique files; per-issue counts sum to 23 because 01 and 04 share `host-config.ts` and `voice/engines.ts`; `call-smoke.ts` is the only possible extra), one new dependency (`effect`), three new abstractions (engine service and registry, Deepgram session service, call machine).
 
 ### Decisions Needed
 
-- Q1 (HIGH): Should the machine drive only the Deepgram call (default) or also migrate GPT/local calls?
-- Q2 (HIGH): Siri/Action Button under Deepgram: foreground handoff and document (default), native Swift routing, or not offered?
+- Q2 (HIGH, needs your answer): Siri/Action Button under Deepgram. Recommended: keep the existing foreground fallback and document it. `LiveCallIntents.talk` calls `live.start`, the host declines with `fallback`, iOS asks "Open Relay to call Nova?", you tap, the app runs `call.start` into Deepgram. Cost: one foreground tap, no hands-free lock-screen start. Alternatives: native Swift PCM routing (about 400-600 LOC [INFERENCE], app rebuild) or not offering Deepgram to the intent path. Nothing is cut silently: GPT Siri is unchanged and the Deepgram behaviour is stated in the 05 doc and verified by the 04 decline test, the unchanged native fallback path (read, not run) and the 05 smoke; on-device Siri is not exercised.
+- Q1 is settled by your instruction (new Deepgram lifecycle on XState; `LiveCall` and `VoiceCall` are not rewritten, not even for DI).
 
 ## Goal
 
-Isaac's iPhone call to an assistant (Nova, Astra) runs on one of two real, interchangeable voice providers, chosen per call at host composition/config: OpenAI GPT-Live (default, unchanged: phone WebRTC direct to OpenAI plus a host sideband) or Deepgram Voice Agent (binary PCM over a WebSocket, reusing Relay's native PCM call transport and `call.*` protocol). Both keep the existing local-call fallback, the assistant-thread semantics (delegated turns, replies, one memory thread, transcript continuity), interruption, delegate replies and cleanup. Provider keys never leave the host. Built on the latest stable Effect (`effect` 4.1.5, npm dist-tag `latest`, verified 2026-11-23) where it earns its place, with XState owning each call's lifecycle.
+Isaac's iPhone call to an assistant (Nova, Astra) runs on one of two real voice engines chosen per call at host composition: OpenAI GPT-Live (default, unchanged: phone WebRTC direct to OpenAI plus a host sideband) or Deepgram Voice Agent (binary PCM over a host WebSocket, reusing Relay's native PCM call transport and `call.*` protocol). Both are provided to the host as Effect `Layer`s of one `VoiceEngines` `Context` service at a single composition seam; the callers (`LiveService`, `CallService`) depend only on that service and on each engine's declared transport. Both keep the local-call fallback, assistant-thread semantics (delegated turns, replies, one memory thread, transcript continuity), interruption and cleanup. Provider keys never leave the host. Deepgram's new call lifecycle is an XState machine.
 
-Parent source: the request from Nova (no external ticket). Base: `origin/main` 2a78e4a4 (one commit past `work/relay-runtime` ebbfa9af, which is its ancestor).
+Parent source: the request from Nova plus Isaac's revision of 2026-11-23 (no external ticket). Base: `origin/main` 2a78e4a4.
 
 ## Acceptance Criteria
 
-- [ ] AC1 Default unchanged: with no provider configured, a phone `live.start` runs GPT-Live exactly as today (SDP offer, `live.answer`, sideband, delegation to the thread, replies as commentary, `live.state`, resume grace, 30 min cap); existing `live.test.ts` behavior holds.
-- [ ] AC2 Deepgram works for real: with the Deepgram provider selected, a phone `call.start` runs a Deepgram Voice Agent session on the host (PCM16 16 kHz in, PCM16 24 kHz out over the existing `call.audio` frames, no SDP), hears the user, delegates to the assistant thread and speaks its replies; the Deepgram key stays host-only.
-- [ ] AC3 Provider is chosen per call at host composition/config (default `gpt-live`); no mid-call swap; no mobile UI change; neither provider requires SDP of the other.
-- [ ] AC4 Fallback kept: no key or a failed provider start falls back to the existing local call (`call.*` local `VoiceCall`), for both providers; GPT's `ended`+`fallback` path still works.
-- [ ] AC5 Assistant-thread semantics preserved for both: heard words reach the thread as `voiceTurn`s (in chat and memory), only replies to the call's turns are spoken, `[[details]]` and `SILENCE_MARKER` honored, the call returns to listening when the turn ends or never starts.
-- [ ] AC6 Interruption works for both: user speech over the voice stops playback and drops stale replies (GPT: provider-native; Deepgram: `UserStartedSpeaking` -> `call.flush` generation) and a late reply to an interrupted turn is not spoken.
-- [ ] AC7 Cleanup is single-path and tested for both: hang-up, socket loss past grace, provider drop, failed start, and the cap each close the provider session and every timer exactly once and report one terminal state.
-- [ ] AC8 Call lifecycle is an XState v5 machine with a generated `docs/state-machines/` page; Effect is used for provider I/O and resource scope per the repo convention (no second convention, one dependency).
-- [ ] AC9 Siri/Action Button (non-app) path: scope documented from code evidence; whatever the plan chooses is verified (GPT path unchanged; Deepgram path behavior stated and tested or explicitly deferred by Isaac).
-- [ ] AC10 Focused automated tests per provider plus a real smoke plan and run per provider (GPT-Live with the existing `live-smoke.ts`; Deepgram with a real PCM smoke), keys by path only, never printed.
+- [ ] AC1 Default unchanged: with no provider configured, a phone `live.start` runs GPT-Live exactly as today (SDP offer, `live.answer`, sideband, delegation, commentary replies, `live.state`, resume grace, 30 min cap). `live.test.ts` assertions are unchanged; only its `LiveService` construction helper changes to the engine dependency.
+- [ ] AC2 Both engines are injected by Effect: `effect@4.1.5` `Context.Service` `VoiceEngines` is provided by a `Layer` for GPT-Live (`gptLiveLayer`) and a `Layer` for Deepgram (`deepgramLayer`), resolved once in `main.ts` from a layer registry keyed by the config provider id. Neither engine is constructed by an `if (provider === ...)` branch in `main.ts`, `LiveService`, `CallService` or `session.ts`.
+- [ ] AC3 Transport-honest boundary: `VoiceEngine` is a tagged union by transport (`webrtc-sideband` carries the `LiveApi`; `pcm-websocket` carries a PCM call opener). There is no unified SDP or PCM API. GPT keeps direct phone WebRTC plus host sideband; Deepgram keeps `call.*` PCM from the host WebSocket. Callers branch on `transport` only, never on a provider id.
+- [ ] AC4 Substitution proof: a test composes the real `LiveService` and `CallService` with a third test layer (`id: "scripted"`, transport `pcm-websocket`, scripted `PcmCall`) provided at the same seam as the real layers, and a `call.start` runs on it with no change to any caller. The test also runs a `webrtc-sideband` test layer through `live.start`. A recipe doc states exactly what a next supported-transport provider changes (see Next provider).
+- [ ] AC5 Deepgram works for real: with Deepgram selected a phone `call.start` runs a Deepgram Voice Agent session on the host (PCM16 16 kHz in, PCM16 24 kHz out over `call.audio`, no SDP), hears the user, delegates to the assistant thread and speaks its replies; the key stays host-only.
+- [ ] AC6 Fallback kept: no key or a failed start falls back to the existing local `VoiceCall` for Deepgram, and to `ended`+`fallback` for GPT-Live; with a pcm engine selected `live.start` declines with `fallback` and `call.start` is served.
+- [ ] AC7 Assistant-thread semantics and interruption hold for both: heard words reach the thread as `voiceTurn`s, only replies to the call's turns are spoken, `[[details]]` and `SILENCE_MARKER` honoured; user speech over the voice stops playback and drops stale replies (Deepgram: `UserStartedSpeaking` to `call.flush` generation).
+- [ ] AC8 Cleanup is single-path and tested for the new Deepgram call: hang-up, socket loss, provider drop, failed start and the cap each close the session and every timer once and report one terminal state.
+- [ ] AC9 Deepgram lifecycle is an XState v5 machine with a generated `docs/state-machines/` page. `LiveCall` and `VoiceCall` lifecycles are not rewritten, including not for DI. Effect appears at the composition seam, in both engine layers, and in Deepgram provider I/O; not inside `LiveCall`, `OpenAiLive` internals, `VoiceCall`, the machine file, or the service method bodies.
+- [ ] AC10 Siri/Action Button: Isaac's decision (recommended: existing foreground fallback, documented) is implemented and verified as far as the host can: the 04 decline test, the unchanged native fallback path (read in code, not run) and the 05 smoke; on-device Siri is not exercised. GPT path unchanged.
+- [ ] AC11 Focused automated tests per layer plus a real smoke per provider (GPT-Live with `live-smoke.ts`; Deepgram with `call-smoke.ts`), keys by path only, never printed.
 
 ## Constraints
 
-- Planning only until Isaac explicitly approves the plan: no production edits, no install, no publish, deploy, push, or credential use.
+- Planning only until Isaac approves: no production edits, no install, publish, deploy, push or credential use. This revision touches only `.scratch/relay-effect-voice-providers`.
 - Isolation: worktree `~/Eva/work/relay-effect-voice-providers`, branch `eva/relay-effect-voice-providers`, from `origin/main` 2a78e4a4.
-- Effect: `effect@4.1.5` exact (latest stable; dist-tags verified; `prev` is 3.22.5). The monorepo has no Effect today; adding it adds a lockfile change and a Nix fixed-output hash (`nix/hashes.json`, `nix/update-hashes.sh`).
-- XState convention (`docs/conventions/state-machines.md`): lifecycle in `<name>.machine.ts` + test + `docs/state-machines/<name>.md`, registered in `apps/linux/test/machine-docs.test.ts`.
-- GPT uses direct phone WebRTC + host sideband; do not push audio of GPT through the host. Deepgram uses binary PCM on a WebSocket from the host; do not require SDP of Deepgram.
-- Keys: `OPENAI_API_KEY` / `<agent home>/secrets/openai.env` (existing); Deepgram key in `~/Eva/secrets/deepgram.env`, referenced by path, never copied into the repo, logged, or echoed.
-- No mid-call hot swap. No mobile UI unless a mandatory finding says otherwise.
-- Phone binary compatibility: older installed apps must keep working against the new host (no protocol break; additive only).
+- Effect: `effect@4.1.5` exact (npm `latest`, verified 2026-11-23). Names in this plan (`Context.Service`, `Layer`, `Scope`, `Stream`, `ManagedRuntime`/`Effect.runSync`, `effect/testing` `TestClock`) come from notes, not an installed copy: issue 01 confirms them from `node_modules/effect` before writing code and adapts. If `Context.Service` or the Layer API differ, adapt names only; if Effect 4.1.5 cannot be installed or does not bundle under `bun build --compile`, stop and ask Isaac. The monorepo has no Effect today: lockfile change plus a Nix hash (`nix/hashes.json`, `nix/update-hashes.sh`, Linux/Nix only).
+- Engine layers must build synchronously (key read, factory). Sessions open per call in their own scope, never in layer acquisition, so the host resolves layers once with `Effect.runSync`.
+- XState convention (`docs/conventions/state-machines.md`): `<name>.machine.ts` + test + `docs/state-machines/<name>.md`, registered in `apps/linux/test/machine-docs.test.ts`.
+- Do not rewrite the existing GPT or local call lifecycles. Wrapping `OpenAiLive` in a Layer and changing what `LiveService`/`CallService` receive in their deps is allowed; changing `LiveCall`, `OpenAiLive` internals or `VoiceCall` is not.
+- Keys: `OPENAI_API_KEY` / `<agent home>/secrets/openai.env` (existing); Deepgram key `~/Eva/secrets/deepgram.env` by path only, never copied, logged or echoed.
+- No mid-call swap. No mobile or Swift change unless a mandatory finding says otherwise; older installed apps keep working (no protocol change).
+
+## Next provider
+
+A new provider on an already supported transport changes exactly:
+
+1. A new `<provider>.ts` exporting `<provider>Layer(env): Layer<VoiceEngines>` that builds a `VoiceEngine` of an existing transport (and its session code).
+2. One literal in the host-config provider enum (`host-config.ts`) and one entry in the `VOICE_ENGINE_LAYERS` registry (`voice/engines.ts`).
+3. Its own tests plus a smoke run.
+
+It does not change `LiveService`, `CallService`, `session.ts`, `main.ts`, the protocol or the phone. A provider needing a new transport adds a union variant to `VoiceEngine`, the matching wire frames and one caller case: that is a new design, not a layer swap, and this plan does not pretend otherwise. Issue 04 is the live proof: its diff may touch `voice/engines.ts` and `host-config.ts` by one line each and no caller.
 
 ## Spike
 
@@ -74,101 +85,69 @@ Parent source: the request from Nova (no external ticket). Base: `origin/main` 2
 
 ### Recommended Implementation
 
-Smallest coherent change: keep GPT exactly as is; add Deepgram as a second engine behind the existing `call.*` protocol, chosen by `call.start`; make `live.start` decline under Deepgram so the phone's existing fallback lands on `call.start`. No protocol, mobile or Swift change.
+Keep GPT and local lifecycles as they are; introduce one small Effect seam both engines plug into, then add Deepgram as the second engine behind it.
 
-1. **Provider contract (not SDP-shaped).** There is no generic provider interface and none is needed. The provider-agnostic seam already exists at the WIRE level: phone speaks `live.*` (SDP/WebRTC engine) or `call.*` (PCM engine); the host picks engine behind each. What is shared between engines is the **thread bridge**: `thread.turn(voiceTurn(text))`, `awaiting/sawWorking/TURN_START_GRACE_MS/turnDone`, `observe()` -> settled reply -> `plainSpeech`/`SILENCE_MARKER`/`[[details]]` -> say, end/cleanup-once, state reporting. Provider-specific: GPT = timeline transcript + `session.delegation.created` + `commentary.append`; Deepgram = `ConversationText` + `FunctionCallRequest` + `InjectAgentMessage` + PCM. The bridge is currently copy-pasted in `VoiceCall` and `LiveCall`; Deepgram would be the third copy. So: one new XState machine `apps/linux/src/call/providerCall.machine.ts` (pure; states `connecting`, `listening`, `hearing`, `thinking`(awaiting; guard sawWorking, delay `turnGrace` 20 s), `speaking`, `ended`; events `provider.ready`, `user.started`, `user.turn`, `thread.working`, `thread.idle`, `reply.say`, `provider.dropped`, `phone.mute`, `hangup`, `cap`; `delays` for grace/cap; one terminal `ended` entry action = close provider scope once + report once). Deepgram's call runtime drives it; `LiveCall` migration onto the same machine is the LAST, optional subissue (risk to AC1; `live.test.ts` is the oracle) — see Decisions.
-2. **Deepgram session = Effect module.** `apps/linux/src/call/deepgram.ts` exposes `DeepgramAgent` (`Context.Service`) with `open(config): Effect<AgentSession, DeepgramError, Scope>`. Inside: `Effect.acquireRelease` on the `WebSocket` (`wss://agent.deepgram.com/v1/agent/converse`, `Authorization: Token <key>`, close frame + terminate on scope close), send `Settings` first, wait for `SettingsApplied` bounded by `Effect.timeout` (start timeout ~8 s -> `DeepgramError` -> fallback). Events leave as a `Queue`/`Stream` of typed `AgentEvent` (zod-parsed JSON server messages; binary frames => audio PCM). `KeepAlive` is not needed while mic frames stream (PCM calls always stream audio, including silence; mute still sends frames of silence or nothing: see Risks). Layer: `DeepgramAgent.layer(key)` real; `layerTest(script)` fake for tests. Nothing else in the repo uses Effect.
-3. **Bridge actor <-> fiber.** The call runtime (`apps/linux/src/call/deepgramCall.ts`, same constructor shape as `VoiceCall`: `id/audio/mute/end/observe/start`) creates the machine actor with `clock: deps.clock` (like `key-moments.ts`) and invokes a `fromCallback` actor that does `Effect.runFork(Effect.scoped(open ...pipe(forEach event -> parentSend)))` and, in its cleanup, `Fiber.interrupt` (closes the Scope => socket closes exactly once). Mic frames go `audio(pcm)` -> `session.send(Buffer.from(pcm,"base64"))` (muted: drop, same as `VoiceCall.audio`). `AgentEvent.UserStartedSpeaking` -> machine `user.started` -> `bargeIn`: `gen += 1`, `call.flush{gen}`, mark in-flight injected reply ids ignored (VoiceCall semantics). Agent PCM binary -> `call.audio{gen, pcm: base64}` (24 kHz, same as `VoiceCall.pump`). `call.state` mapping: `SettingsApplied`->`listening`; `UserStartedSpeaking`->`hearing`; user `ConversationText`/`FunctionCallRequest`->`thinking{text}`; first agent audio or injected reply->`speaking`; `AgentAudioDone`/idle timer (`playEndsAt` arithmetic from `VoiceCall`)->back to rest. Terminal: one `call.state ended`.
-4. **Delegation.** Prompt: `liveInstructions(title)` text reused (rename-free) as `agent.think.prompt`, one client-side function `ask_assistant({ request })` (`defer_until_eot` on), managed `open_ai` think model (no OpenAI key), greeting short, `agent.context.messages` seeded from `liveBrief` rows (History). On `FunctionCallRequest`: request text = the user `ConversationText` finals since the last hand-over (mirrors `heard.slice(handedOver)`, exact user words) falling back to `arguments.request`; `thread.turn(voiceTurn(text))`; **immediately** reply `FunctionCallResponse{id,name,content:"Working on it; say nothing until the answer arrives."}` so no Deepgram function timeout can fire on a long assistant turn (Deepgram client-side function timeout is NOT documented: Risk R3). Replies: `observe()` -> `ReplySpeech` (reuse; sentence by sentence) -> `InjectAgentMessage{behavior:"queue"}` (literal TTS, not LLM paraphrase; `default` is refused mid-turn). Late reply after barge-in: replies already injected at barge-in are ignored (identical to `VoiceCall.bargeIn: ignored.add`); a reply that had not started speaking is still spoken (same as local). `SILENCE_MARKER` and `[[details]]` come free from `ReplySpeech`.
-5. **Selection/composition.** `main.ts` resolves `provider = hostConfig.voice?.provider ?? env RELAY_VOICE_PROVIDER ?? "gpt-live"` once (host.json `voice: { provider }` added to `HostConfigFile`/`HostConfig`; env wins like other RELAY_* overrides; "per call" = resolver `(agent) => provider` evaluated at each `call.start`/`live.start`, default constant; no per-agent registry field now). `deepgramKey(agentHome, env)` beside `openAiKey` (mirror: `$DEEPGRAM_API_KEY`, then `<agentHome>/secrets/deepgram.env` `DEEPGRAM_API_KEY=` line; null => fallback). `CallService` gets optional `deepgram` dep and nullable `voice`: on `call.start` with provider deepgram and a key it builds `DeepgramCall`; if `open` fails (or no key) and `voice !== null` it builds the existing `VoiceCall` on the same callId WITHOUT sending `ended` (phone only ever sees one connecting->listening); if no local voice either it sends `ended`+error. `main.ts` builds `CallService` when `voice !== null || deepgram !== null` (today only `voice`). `LiveService`: provider deepgram => `api: null` path (`ended`+`fallback:true`, log line reworded; phone already treats it as plain fallback).
-6. **In-app cost of the declined `live.start` (Deepgram only).** `LiveCallEngine.start` runs `activity.start` (Live Activity card), mic permission, `startAudio()` (mic engine), `makePeer`+offer (<= 3 s gather wait, normally ms), host connect, `live.start`, then fallback `finish(...)` (tear down mic/peer/activity) before returning `.fallback`; `startVoiceCallNow` then `consumePendingFallback()` + `startCall`. User-visible: a Live Activity flash, a haptic, and roughly one host round-trip + audio-session teardown (est. 0.3-1 s [INFERENCE: not measured]) before the call connects. Works with zero app change. An OTA-only, non-UI optimisation (OPTIONAL subissue): host adds a `welcome.features` string (e.g. `voice.pcm-only`) and `startVoiceCallNow` skips `native.start` when set; old apps keep the extra attempt.
-7. **Siri/Action Button.** Non-app path is `LiveCallIntents.talk` -> `LiveCallEngine.toggle` -> `live.start` -> fallback -> dialog "Live calls aren't available right now. Open Relay to call Nova?" -> foreground -> `runPendingFallback` -> `startCall` -> `call.start` -> Deepgram. Works unchanged under Deepgram but needs the foreground tap (no hands-free lock-screen start, because `VoiceCallModule`/JS `controller.ts` only run in the app); GPT path unchanged. Native routing would require `LiveCallEngine` to capture mic PCM (it already owns an AVAudioEngine in `startAudio`), a second playback/flush path, `call.*` frames in `LiveCallHostLink` (`live.*` only today), lifecycle/Live Activity states for `call.state`, interruption handling, plus Swift tests (`pnpm test:native`) and an iOS rebuild/TestFlight (not OTA): ~400-600 Swift LOC [INFERENCE]. Not mandatory for AC9 ("scope documented ... stated and tested or explicitly deferred"): recommend documenting + a JS-level test of `startVoiceCallNow`-style fallback is NOT needed (no JS change); AC9 verified by host test (`live.start` under Deepgram returns `ended`+`fallback`) and the existing native fallback path; native routing explicitly deferred for Isaac's call.
-8. **Effect dependency cost.** `apps/linux/package.json` `"effect": "4.1.5"` exact (+ `pnpm-lock.yaml`; no other app pulls it); `nix/hashes.json` `.root` changes -> run `nix/update-hashes.sh` on Linux/Nix (CI's nix workflow does it on main; cannot be run on this Mac); `bun build --compile` (`apps/mac-host/build.sh:19`) bundles it [INFERENCE: pure ESM, no native addon; verify with one local compile]. Effect boundary: ONLY the Deepgram provider I/O module (Scope/acquireRelease socket, Layer/Context.Service api, `Effect.timeout`, Stream/Queue events). Lifecycle, timers, states, barge-in, cap stay XState with `SessionClock`; no Effect in `LiveCall`, `OpenAiLive`, `VoiceCall`, `CallService`.
-9. **Tests.** Machine: `providerCall.machine.test.ts` with `SimulatedClock`/`waitFor`/`can()` (grace, cap, hangup/provider drop/failed start each ending once), registered in `apps/linux/test/machine-docs.test.ts` `MACHINES`, page `docs/state-machines/provider-call.md` generated. Call runtime: `apps/linux/test/deepgram-call.test.ts` using `FakeClock`/`FakeThread` from `call.test.ts` patterns (extract to shared helper only if copied a third time) with `layerTest` Deepgram script (Settings sent first, user ConversationText -> thread.turn exactly once, function response immediate, reply -> InjectAgentMessage queue sentence by sentence, UserStartedSpeaking -> `call.flush` + stale reply dropped, silence marker not said, ended on hang-up/socket drop/provider drop/start timeout/cap with one scope close). Provider-open Effect test with `effect/testing` `TestClock` only for the open-timeout (everything else on `SessionClock`). `CallService` test: provider deepgram + open failure => local `VoiceCall` no `ended`; no key + no voice => `ended` error. `LiveService` test: provider deepgram `live.start` => `ended`+`fallback`. `live.test.ts` unchanged (AC1). Real smokes: GPT = `bun test/live-smoke.ts --agent nova --ask "What time is it?"` (existing, aiortc phone); Deepgram = run host with `RELAY_VOICE_PROVIDER=deepgram` and the existing `bun test/call-smoke.ts --agent astra --wav question.wav --out reply.wav --barge barge.wav` (provider-agnostic `call.*` client; it may assume a filler line, `call-smoke.ts:204`, so adjust the report only if it breaks), key via `DEEPGRAM_API_KEY` loaded from `~/Eva/secrets/deepgram.env` by the shell (path only, never printed).
+1. **Engine boundary (honest, not SDP- or PCM-shaped).** New `apps/linux/src/voice/engines.ts`:
+   - `VoiceEngine = WebrtcSidebandEngine | PcmWebSocketEngine`. `WebrtcSidebandEngine { id; transport: "webrtc-sideband"; api: LiveApi | null }` (null = no key). `PcmWebSocketEngine { id; transport: "pcm-websocket"; open: PcmOpen | null }` (null = no key). `PcmOpen(deps: PcmCallDeps): PcmCall`, with `PcmCall` the `VoiceCall` shape the service already uses (`id/audio/mute/end/observe/start`; `CallService.observe` fans provider changes to every call; the map is typed `VoiceCall | PcmCall` and only the pcm branch uses the boolean) where `start(): Promise<boolean>` resolves false if the engine never connected and sent the phone nothing, so `CallService` can fall back silently.
+   - `VoiceEngines extends Context.Service<VoiceEngines, { select(agent: string): VoiceEngine }>`: the transport-tagged selection service. Per-agent selection becomes a one-line change inside a layer.
+   - `EngineEnv = { agentHome: string | null; env: NodeJS.ProcessEnv }`, `VOICE_ENGINE_LAYERS: Record<ProviderId, (env: EngineEnv) => Layer<VoiceEngines>>`, `resolveVoiceEngines(layer)` (`Effect.runSync` over the layer, returns the plain service value) and `composeVoiceEngines(config, env, registry = VOICE_ENGINE_LAYERS)`, the one function `main.ts` calls once (precedence host.json then `RELAY_VOICE_PROVIDER` then default, registry lookup, resolve), so the seam is testable without `main.ts`. `ProviderId` is the zod enum in `host-config.ts`; `Record<ProviderId, ...>` makes a missing registry entry a type error.
+2. **GPT-Live layer.** `gptLiveLayer(env)` builds `{ id: "gpt-live", transport: "webrtc-sideband", api: key === null ? null : new OpenAiLive(key) }` using the existing `openAiKey`. `OpenAiLive`, `LiveApi`, `LiveCall` untouched.
+3. **Callers.** `LiveServiceDeps.api` becomes `engines: Pick<VoiceEngine service>`. `live.start`: engine = `select(agent)`; if `transport !== "webrtc-sideband"` or `api === null`, answer `ended` + `fallback: true` (the existing `api === null` path, same log shape). `CallServiceDeps` gets `engines` and a nullable `voice`; `call.start`: a `pcm-websocket` engine with `open !== null` gets `open(...)`; if its `start()` resolves false, or the engine is not pcm or has no key, and `voice !== null`, build the existing `VoiceCall`; with neither, answer `ended` ("This host cannot take calls", today's text). `CallService` is always built when `assistant !== null`; `warm()` guards a null `voice`. No caller mentions a provider id.
+4. **Composition.** `main.ts` resolves the provider id once (`host.json voice.provider`, `RELAY_VOICE_PROVIDER` overrides, default `gpt-live`), takes `VOICE_ENGINE_LAYERS[id]`, resolves it, and passes the same `engines` to both services. This one place is the composition seam. Default composes to the same behaviour as today.
+5. **Deepgram session = Effect service.** `apps/linux/src/call/deepgram.ts`: `DeepgramAgent` `Context.Service` with `open(config): Effect<AgentSession, DeepgramError, Scope>`; `Effect.acquireRelease` socket (`wss://agent.deepgram.com/v1/agent/converse`, `Authorization: Token <key>`, close and terminate on scope close), `Settings` first, `SettingsApplied` under `Effect.timeout` (~8 s), typed `AgentEvent` stream (zod-parsed JSON; binary = PCM), sanitised `DeepgramError`, `deepgramKey(agentHome, env)` beside it, `layerTest(script)`.
+6. **Deepgram call and engine layer.** `call/deepgramCall.ts` (a `PcmCall`) runs the XState machine with `clock: deps.clock` (pattern `meetings/key-moments.ts`); one `fromCallback` actor forks the Effect session and interrupts the fiber on cleanup (socket closes once). Thread bridge inline: `ConversationText` finals, `FunctionCallRequest` (`ask_assistant`, `defer_until_eot`), exact user words to `thread.turn(voiceTurn(text))` once, immediate `FunctionCallResponse`, settled reply spoken sentence by sentence via `InjectAgentMessage`, `UserStartedSpeaking` to `call.flush`. `deepgramLayer(env)` provides `{ id: "deepgram", transport: "pcm-websocket", open }`. Prompt from `liveInstructions(title)`, context from `liveBrief`.
+7. **Siri/Action Button.** Unchanged native path: `LiveCallIntents.talk` to `LiveCallEngine.toggle` to `live.start`, declined with `fallback` under a pcm engine, then `requestToContinueInForeground("Live calls aren't available right now. Open Relay to call Nova?")`, then `runPendingFallback` to `startCall` to `call.start`. Recommended and documented in 05; the in-app path pays a declined `live.start` (Live Activity flash, about 0.3-1 s [INFERENCE, measured in smoke]). Native Swift PCM routing is deferred unless Isaac chooses it (Q2).
+8. **Effect dependency.** `apps/linux/package.json` `"effect": "4.1.5"` exact, lockfile, `nix/hashes.json` `.root` via `nix/update-hashes.sh` on Linux/Nix or CI (not runnable on this Mac); one local `bun build --compile` check that effect bundles [INFERENCE: pure ESM].
+9. **Tests.** `voice-engines.test.ts` (resolver precedence, registry total over `ProviderId`, GPT layer, `live.start`/`call.start` dispatch by transport, key missing falls back, **third-layer substitution**: `scripted` pcm layer through real `CallService`, a test webrtc layer through real `LiveService`, neither caller modified); `deepgram.test.ts`; `deepgramCall.machine.test.ts` + `machine-docs.test.ts`; `deepgram-call.test.ts`. Existing `live.test.ts` assertions and `call.test.ts` stay unchanged; only `LiveService` construction in `live.test.ts` and `live-standin.ts` moves to `engines`.
 
 ### Reuse Opportunities
 
-- `CallService` + `call.*` frames + `CallState` + `call.flush` generation + `CALL_INPUT_RATE`/`CALL_OUTPUT_RATE`: whole PCM transport on host and phone, zero phone change.
-- `ReplySpeech`, `plainSpeech`, `speakable`, `sentences` (`call/speech.ts`), `voiceTurn/spokenPartComplete/SILENCE_MARKER/DETAILS` (`assistant/voice.ts`): reply -> speech text.
-- `liveInstructions`, `liveBrief`, `clockLine`, `WAIT_FILLERS` (`live/call.ts`, `live/brief.ts`): Deepgram prompt/context text.
-- `VoiceCall` structure (gen/flush, `playEndsAt`, `MIC_REPORT_MS`, `rmsDb`) as the template for `DeepgramCall`; `key-moments.ts` (`createActor` + `clock: SessionClock` + `fromPromise`) as the host machine template; `machine-docs.test.ts` registry.
-- `openAiKey` as the template for `deepgramKey`; `RELAY_LIVE_VOICE`/`featureOn` precedent for env + host.json.
-- Phone's existing `ended`+`fallback` -> `consumePendingFallback` -> `startCall` and `runPendingFallback` for Siri: no change.
-- `call-smoke.ts` (host PCM smoke) and `live-smoke.ts` (GPT smoke) as the two real smokes.
+- `CallService` + `call.*` frames + `CallState` + `call.flush` generation + `CALL_INPUT_RATE`/`CALL_OUTPUT_RATE`: whole PCM transport, zero phone change.
+- `LiveApi`/`OpenAiLive`/`openAiKey`: wrapped, not changed, by `gptLiveLayer`.
+- `ReplySpeech`, `plainSpeech`, `speakable`, `sentences` (`call/speech.ts`), `voiceTurn/spokenPartComplete/SILENCE_MARKER/DETAILS` (`assistant/voice.ts`).
+- `liveInstructions`, `liveBrief`, `clockLine` (`live/call.ts`, `live/brief.ts`): Deepgram prompt and context text.
+- `VoiceCall` structure as the template for `DeepgramCall`; `meetings/key-moments.ts` + `.machine.ts` and `machine-docs.test.ts` registry as the machine template.
+- `RELAY_LIVE_VOICE`/`featureOn` precedent for env plus host.json.
+- Phone's `ended`+`fallback` to `consumePendingFallback` to `startCall`, and `runPendingFallback`: Siri and in-app fallback with no change.
+- `call-smoke.ts` and `live-smoke.ts` as the two real smokes.
 
 ### Things We Should NOT Build
 
-- A generic `VoiceProvider` interface/registry shared by GPT and Deepgram (they differ at the wire: SDP vs PCM); selection is a two-way branch in `main.ts`/`CallService`.
-- Any protocol change, new frame, new mobile UI, or `live.*` PCM variant; no Swift change (native Siri PCM routing deferred).
-- A `VoiceStack`-shaped Deepgram adapter (ears/filler/speak): it would discard Deepgram's own turn-taking and add latency.
-- Effect inside `LiveCall`, `OpenAiLive`, `VoiceCall` or the machine file; no Effect<->XState "bridge framework", just one `fromCallback` that forks and interrupts a fiber.
-- Mid-call provider swap, per-agent registry provider field, multi-provider failover chain beyond "Deepgram fails -> local `VoiceCall`".
-- Reconnect/resume grace for Deepgram calls (PCM calls die with the socket today; `LiveService` grace is GPT-only).
-- A bespoke Deepgram TTS/STT API client (only the Voice Agent socket); no Deepgram SDK dependency.
-- Rewriting `VoiceCall` onto the new machine (out of scope; only `LiveCall` migration is optional).
+- A unified SDP-and-PCM provider API, or an engine interface that hides transport. The union is tagged by transport on purpose.
+- An Effect rewrite of `LiveCall`, `OpenAiLive` internals, `VoiceCall` or the call lifecycles for DI.
+- Any protocol change, new frame, mobile UI or Swift change; no `live.*` PCM variant.
+- A `VoiceStack`-shaped Deepgram adapter (ears/filler/speak): it would discard Deepgram's turn-taking.
+- An Effect-to-XState framework (one `fromCallback` that forks and interrupts a fiber is enough).
+- Mid-call swap, failover chains beyond "Deepgram fails to local `VoiceCall`", reconnect or resume grace for Deepgram, a Deepgram SDK, a bespoke TTS/STT client.
+- A shared thread-bridge module with one consumer (bridge lives in `deepgramCall.ts`).
 
 ### Risks / Unknowns
 
-- R1 (HIGH, Isaac): machine scope for AC8. Agent default: new `providerCall.machine.ts` drives the Deepgram call only; `LiveCall` migration is the last optional subissue (guarded by unchanged `live.test.ts`), `VoiceCall` stays. Alternative (migrate all three) triples the diff and risks AC1.
-- R2 (HIGH, Isaac): Siri/Action Button under Deepgram needs a foreground tap (dialog says "Live calls aren't available right now"). Agent default: document and defer native PCM routing (Swift rebuild, ~400-600 LOC [INFERENCE]); the alternative is a native ticket.
-- R3 (MEDIUM): Deepgram client-side `FunctionCallRequest` timeout is not documented; mitigated by immediate `FunctionCallResponse` + literal `InjectAgentMessage` replies. Needs a real smoke with a long (60 s+) assistant turn. Also `InjectAgentMessage` while the agent is speaking (`queue` vs `InjectionRefused`) and whether queued injection survives `UserStartedSpeaking` need verification in the real smoke.
-- R4 (MEDIUM): `effect@4.1.5` API names (`Context.Service`, `Layer`, `Scope`, `Stream`, `effect/testing` `TestClock`) come from the main agent's notes; nothing installed here to confirm. First subissue must read `node_modules/effect` after install and adapt. Effect 4 is a new major (v3 docs differ).
-- R5 (MEDIUM): Nix hash (`nix/hashes.json` root) can only be recomputed on Linux with Nix; local Mac cannot, so CI must update it or the PR waits. `bun --compile` bundling of effect unverified.
-- R6 (MEDIUM): Deepgram needs continuous audio; muted PCM calls drop frames (`VoiceCall.mute` semantics) which could idle the socket past Deepgram's inactivity timeout: mute must send silence frames or `KeepAlive` every 8 s.
-- R7 (MEDIUM): `call.start` path: `CallService` today is built only with the local voice stack; changing the null conditions in `main.ts:653` must keep Isaac's default (GPT, local fallback) byte-identical.
-- R8 (LOW): UX cost of the declined `live.start` under Deepgram (Live Activity flash, ~0.3-1 s [INFERENCE]); OTA `welcome.features` skip is optional.
-- R9 (LOW): transcript continuity: `ConversationText` finals carry exact words but Deepgram's LLM may delegate on partial context; request = accumulated finals since last hand-over mirrors GPT. Whether Deepgram's managed LLM delegates reliably (vs answering directly) is only knowable by smoke; prompt reuse from `liveInstructions` is the lever.
-- R10 (LOW): secrets: key file path `~/Eva/secrets/deepgram.env` is read only by the host process; never in logs (log sanitised `DeepgramError`), settings or `welcome`.
+- R1 (MEDIUM): Effect 4.1.5 API names unverified here (new major; v3 docs differ). 01 reads `node_modules/effect` first; stop and ask if it cannot install or bundle.
+- R2 (MEDIUM): Nix hash can only be recomputed on Linux/Nix; CI or the PR waits. `bun --compile` bundling unverified.
+- R3 (MEDIUM): Deepgram client-side `FunctionCallRequest` timeout undocumented; mitigated by immediate `FunctionCallResponse` and literal `InjectAgentMessage` replies. Injection while speaking (`queue` vs `InjectionRefused`) and survival across `UserStartedSpeaking` need the real smoke (05).
+- R4 (MEDIUM): Deepgram needs continuous audio; muted PCM calls must send silence frames or `KeepAlive` every 8 s.
+- R5 (MEDIUM): moving `LiveService` and `CallService` to the engine dependency touches the default path (`main.ts` composition, four `LiveService` construction sites: `main.ts`, `live.test.ts` twice, `live-standin.ts`). Mitigation: `live.test.ts` assertions unchanged, plus a default-composition test that `live.start` still builds a `LiveCall` and `call.start` still builds a `VoiceCall`.
+- R6 (MEDIUM): `CallService` becoming always-built changes `session.ts` null-calls behaviour only in message path; the `ended` text for a host with no engine and no voice is kept identical in a test.
+- R7 (LOW): declined `live.start` cost under Deepgram (about 0.3-1 s [INFERENCE]); measured in 05; an OTA `welcome.features` skip is not planned.
+- R8 (LOW): Deepgram's managed LLM may answer without delegating; the reused `liveInstructions` prompt is the lever, settled by smoke.
+- R9 (LOW): secrets: the key is read only in the host; `DeepgramError` is sanitised; never in logs, settings or `welcome`.
 
 ### Proposed Atomic Subissues
 
-1. **Provider selection + Deepgram key + host dispatch.** `host.json voice.provider` / `RELAY_VOICE_PROVIDER` (default `gpt-live`), `deepgramKey`, `main.ts` composition (`CallService` built when voice OR Deepgram), `LiveService` declines (`ended`+`fallback`) under Deepgram; tests for resolver, key, dispatch, AC1 default unchanged. (~90 LOC, `host-config.ts`, `call/deepgram-key` or in `deepgram.ts`, `main.ts`, `live/service.ts`, `call/service.ts` shell.)
-2. **Deepgram Voice Agent session as an Effect service.** Add `effect@4.1.5` (+ lockfile, nix hash note), `call/deepgram.ts` (`DeepgramAgent` service/Layer, scoped socket, `Settings`/event schema, start timeout, test layer) + test with `TestClock`; confirm effect 4 API from `node_modules` first. (~170 LOC.)
-3. **Provider-call XState machine + docs.** `providerCall.machine.ts`, test, `docs/state-machines/provider-call.md`, `machine-docs.test.ts` registration. (~130 LOC.)
-4. **Deepgram call over the PCM transport.** `call/deepgramCall.ts` (mic -> binary, agent PCM -> `call.audio`/`call.flush`/`call.state`, ConversationText + function call -> thread turn, replies -> `InjectAgentMessage`, cleanup once) + `CallService` engine selection and silent fallback to `VoiceCall`; tests incl. interruption, late reply, every terminal path. (~260 LOC; depends on 1-3.)
-5. **Real smoke + Siri scope doc.** Run `live-smoke.ts` (GPT) and `call-smoke.ts` with Deepgram (long-turn, barge-in, no-key fallback), record results; document Siri/Action Button behaviour (`docs/`), explicitly defer native PCM routing unless Isaac approves. (docs only; ~0 prod LOC.)
-6. **OPTIONAL: migrate `LiveCall` lifecycle/timers onto the machine** (cap, grace, closing, awaiting) with `live.test.ts` as oracle; **OPTIONAL: OTA JS skip of `native.start` via a `welcome.features` flag.** Each only with Isaac's go.
+1. **Effect seam, GPT-Live layer, caller cutover, substitution proof.** `effect@4.1.5`, `voice/engines.ts`, `host-config.ts` enum (`gpt-live` only), `main.ts`, `live/service.ts`, `call/service.ts`, test construction updates, `voice-engines.test.ts` incl. third layer. (~175 LOC.)
+2. **Deepgram Voice Agent session as an Effect service.** `call/deepgram.ts` incl. `deepgramKey`, test layer, `deepgram.test.ts`. (~200 LOC; depends on 01.)
+3. **Deepgram call XState machine + docs.** (~110 LOC; independent.)
+4. **Deepgram call over PCM and `deepgramLayer`.** `deepgramCall.ts`, layer, enum literal and registry entry; no caller change. (~300 LOC; depends on 01, 02, 03.)
+5. **Real smoke, Siri scope doc, next-provider doc.** (docs only, 0 production LOC; depends on 04.)
 
-Rough total: ~650 production LOC across ~8 files, 1 dependency (`effect`), 1 machine, 1 Effect service; no protocol/mobile/Swift change.
+Rough total: ~785 production LOC (docs excluded), 1 dependency, 1 machine, 2 Effect services plus the registry.
 
 ## Plan Review
 
 Status: APPROVED
 
-Machine approval only; human approval stays PENDING.
-
-### Acceptance coverage
-
-- AC1: 01 (default composes unchanged, `live.test.ts` unchanged) and 04 (`call.test.ts`/`live.test.ts` stay green).
-- AC2: 02 (socket/Settings/PCM events) + 04 (mic/agent PCM, delegation, replies); proven for real in 05.
-- AC3: 01 (host.json/env resolver, default `gpt-live`, per-start evaluation; no UI/protocol change).
-- AC4: 01 (`live.start` declines with `fallback`, same path as `api === null`) + 04 (no key or failed open -> `VoiceCall`); 05 runs the no-key fallback.
-- AC5, AC6: 04 (turn bridge, silence marker, `[[details]]`, `UserStartedSpeaking` -> `call.flush`, stale reply dropped).
-- AC7: 02 (scope closes socket once) + 03 (one terminal state, one cleanup, cap, grace) + 04 (every terminal path tested).
-- AC8: 03 (machine, doc page, `MACHINES` registration) + 02 (Effect only for provider I/O). Wording note below.
-- AC9: 05 (Siri/Action Button doc; Q2 decides handoff vs native); GPT path untouched by 01.
-- AC10: unit tests in 01-04; 05 runs `live-smoke.ts` (GPT) and `call-smoke.ts` against a Deepgram host.
-
-### AC8 wording
-
-AC8 is kept as written; it says "the call lifecycle is an XState machine" and with default Q1 only the Deepgram call gets the machine, while GPT (`LiveCall`) and local (`VoiceCall`) calls keep their existing lifecycle code. This is not narrowed silently: Q1 (HIGH) stays OPEN and is presented to Isaac with that consequence. Choosing migration reopens planning with a new issue.
-
-### Simplification
-
-- Removed `threadBridge.ts` and its test from 03: a "shared" bridge with one consumer is an abstraction without a second user, and refactoring `VoiceCall`/`LiveCall` onto it is out of scope. The bridge now lives in `deepgramCall.ts` (04). Net: one file, one abstraction, one test file fewer.
-- 05 no longer adds `deepgram-smoke.ts`: `call-smoke.ts` is a `call.*` client of a running host, so it drives the Deepgram engine with `RELAY_VOICE_PROVIDER=deepgram` unchanged; edit it only if a scenario cannot be driven.
-- Kept separate: 01 (dispatch is independently verifiable and protects AC1 before any Deepgram code exists), 02 (the only dependency/lockfile/Nix change, reviewed first via REVIEW_BEFORE), 05 (needs real keys and an Isaac checkpoint; folding it into 04 would hide the no-prod-code gate). 02 cannot merge into 04 without a ~500 LOC issue.
-- Spot-checked against code: `CallService.receive/warm/drop` seam (`call/service.ts`), `main.ts:653-671` null `calls` when no voice stack, `session.ts:947-967` null `calls` answers "cannot take calls" without `fallback`, `LiveService` `api === null` -> `ended`+`fallback` (`live/service.ts:44-46`), `machine-docs.test.ts` `MACHINES`, `nix/hashes.json` `root`. One fix: `CallService.warm()` dereferences `voice`, so 01 guards it when `voice` is nullable.
-
-### Complexity and budget
-
-Score 5. Difficulty is a new Effect 4 major with unverified API names, one 4-state-family machine, and the Deepgram protocol unknowns (function timeout, injection while speaking) that only the real smoke settles. Coupling is low: additive engine behind the existing `call.*` seam, GPT untouched, no protocol/mobile change. Blast radius is limited to hosts with provider `deepgram`, plus a lockfile/Nix hash change. It cannot drop below 5 without removing a stated requirement (real Deepgram, Effect, XState, fallback).
-
-Budget (hard caps): production ≤900 LOC (expected 700: 01 90, 02 170, 03 110, 04 300, 05 0), ≤17 files touched (expected 14, including lockfile, Nix hash and docs; tests excluded from LOC), 1 new dependency (`effect@4.1.5`), 2 new abstractions (`providerCall` machine, `DeepgramAgent` Effect service). Order: 01, 02, 03 (independent) then 04, then 05.
-
-### Open HIGH questions
-
-Q1 (machine scope) and Q2 (Siri/Action Button) remain OPEN for Isaac; agent defaults are recorded in the issues and nothing is implemented before explicit human approval.
+Revision 2 re-reviewed twice by eva-spec-plan-reviewer. Fixes landed: `PcmCall.observe`; `CallThread` rows/memory in 01 so Deepgram can build `liveBrief`; `composeVoiceEngines`/`EngineEnv` so the seam is testable and the substitution test goes through `resolveVoiceEngines(Layer)`; Deepgram machine renamed `deepgramCall.machine`; four `LiveService` construction sites; neutral decline text under a pcm engine; Siri verification wording narrowed; budgets reconciled (785 expected, issue maxima sum to the 1000 cap, 21 unique files, cap 24). Callers branch on transport only; no scope silently cut. Machine approval only; human approval is PENDING.
 
 ## Human Feedback
 
