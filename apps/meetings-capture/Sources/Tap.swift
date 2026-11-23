@@ -49,6 +49,35 @@ final class TapClock {
   }
 }
 
+/// Buffers the tap fills in each IO cycle: one interleaved stream, or one per channel.
+func tapBufferCount(_ fmt: AVAudioFormat) -> Int {
+  fmt.isInterleaved ? 1 : Int(fmt.channelCount)
+}
+
+/// A copy of the tap's audio from the aggregate's input buffers. The aggregate lists its clock
+/// device's own input streams first (a USB headset's or AirPods' mic) and the tap's last; reading
+/// the first buffer as the tap wrote the user's mic, mono read as stereo, at double speed and half
+/// length in place of the call (2026-11-23). Nil when the trailing buffers do not carry the tap's
+/// channels.
+func tapCopy(_ list: UnsafeMutableAudioBufferListPointer, format fmt: AVAudioFormat) -> AVAudioPCMBuffer? {
+  let n = tapBufferCount(fmt)
+  let perBuffer = fmt.isInterleaved ? fmt.channelCount : 1
+  let bytesPerFrame = fmt.streamDescription.pointee.mBytesPerFrame
+  guard list.count >= n, bytesPerFrame > 0 else { return nil }
+  let src = list[(list.count - n)...]
+  guard src.allSatisfy({ $0.mNumberChannels == perBuffer && $0.mData != nil }),
+    let bytes = src.first?.mDataByteSize, bytes >= bytesPerFrame
+  else { return nil }
+  let frames = AVAudioFrameCount(bytes / bytesPerFrame)
+  guard let copy = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: frames) else { return nil }
+  copy.frameLength = frames
+  let dst = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
+  for (d, b) in zip(dst, src) {
+    memcpy(d.mData, b.mData, Int(min(b.mDataByteSize, d.mDataByteSize)))
+  }
+  return copy
+}
+
 final class ProcessTap {
   private var tapID = AudioObjectID(kAudioObjectUnknown)
   private var aggID = AudioObjectID(kAudioObjectUnknown)
@@ -114,6 +143,7 @@ final class ProcessTap {
       throw TapError(description: "tap format unusable")
     }
     let q = DispatchQueue(label: "tap.io", qos: .userInteractive)
+    var skipNoted = false
     err = AudioDeviceCreateIOProcIDWithBlock(&procID, aggID, q) { [track] _, inData, inTime, _, _ in
       let ts = inTime.pointee
       if ts.mFlags.contains(.sampleTimeValid), ts.mFlags.contains(.hostTimeValid),
@@ -123,14 +153,11 @@ final class ProcessTap {
         note("call audio now runs at \(Int(rate)) Hz")
       }
       let list = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inData))
-      guard let first = list.first, first.mDataByteSize > 0 else { return }
-      let frames = AVAudioFrameCount(first.mDataByteSize / fmt.streamDescription.pointee.mBytesPerFrame)
-      guard let copy = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: frames) else { return }
-      copy.frameLength = frames
-      let dst = UnsafeMutableAudioBufferListPointer(copy.mutableAudioBufferList)
-      for (i, b) in list.enumerated() where i < dst.count {
-        memcpy(dst[i].mData, b.mData, Int(b.mDataByteSize))
+      if !skipNoted, list.count > tapBufferCount(fmt) {
+        skipNoted = true
+        note("call audio skips \(list.count - tapBufferCount(fmt)) input stream(s) of the output device (its own mic)")
       }
+      guard let copy = tapCopy(list, format: fmt) else { return }
       let host = inTime.pointee.mHostTime
       track.queue.async { track.push(copy, hostTime: host) }
     }

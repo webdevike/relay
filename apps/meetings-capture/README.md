@@ -16,6 +16,8 @@ tap records silence and reports no error.
   `<Relay config>/meetings/spool/<id>/{app,mic}.pcm` with `meta.json`. The tap's buffers are read
   at the rate the aggregate device really runs (its nominal rate, then its sample clock against
   host time): with AirPods in call mode the tap format says 48 kHz while the device runs at 24 kHz.
+  The aggregate's clock device is the default output, and one with a mic (a USB headset, AirPods)
+  puts that mic's stream first in every IO cycle; the call is the tap's stream, the last one.
 - **Device changes**: AVAudioEngine stops for good when the default input changes (AirPods
   connecting mid-call). The mic is listened again on the new input when the engine posts its
   configuration change, when the default input changes, and when the track has not grown for 2 s;

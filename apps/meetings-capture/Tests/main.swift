@@ -248,5 +248,60 @@ check(shotNumber(shotLine) == 3 && shotNumber("nope") == nil, "shot number")
 let sf = try! JSONSerialization.jsonObject(with: Data(shotFrame(line: shotLine, jpeg: Data([1, 2, 3])).utf8)) as! [String: Any]
 check(sf["t"] as? String == "meeting.shot" && (sf["shot"] as? [String: Any])?["n"] as? Int == 3 && (sf["shot"] as? [String: Any])?["t"] as? Int == 1_700_000_000_000 && sf["jpeg"] as? String == "AQID", "shot frame \(sf)")
 
+// Call audio: an aggregate whose clock device has a mic (a USB headset, AirPods) lists that mic's
+// mono stream before the tap's stereo one. One second of synthetic IO cycles (mic 300 Hz, call
+// 1 kHz, 48 kHz, 512 frames) must land as one second of the 1 kHz call, not half a second of the
+// mic at double speed (600 Hz).
+let ioFrames = 512
+let tapFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: true)!
+let io = AudioBufferList.allocate(maximumBuffers: 2)
+var micBuf = [Float](repeating: 0, count: ioFrames)
+var callBuf = [Float](repeating: 0, count: ioFrames * 2)
+io[0] = AudioBuffer(mNumberChannels: 1, mDataByteSize: UInt32(ioFrames * 4), mData: nil)
+io[1] = AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(ioFrames * 8), mData: nil)
+let tmp3 = FileManager.default.temporaryDirectory.appendingPathComponent("relay-meetings-test3-\(UUID().uuidString)")
+try! FileManager.default.createDirectory(at: tmp3, withIntermediateDirectories: true)
+let callTrack = try! Track(id: 0, name: "call", url: tmp3.appendingPathComponent("call.pcm"))
+let cycles = 48_000 / ioFrames
+let cycleHost = AVAudioTime.hostTime(forSeconds: Double(ioFrames) / 48_000)
+for c in 0..<cycles {
+  for i in 0..<ioFrames {
+    let s = Double(c * ioFrames + i) / 48_000
+    micBuf[i] = Float(0.5 * sin(2 * .pi * 300 * s))
+    callBuf[2 * i] = Float(0.5 * sin(2 * .pi * 1_000 * s))
+    callBuf[2 * i + 1] = callBuf[2 * i]
+  }
+  micBuf.withUnsafeMutableBytes { m in
+    callBuf.withUnsafeMutableBytes { k in
+      io[0].mData = m.baseAddress
+      io[1].mData = k.baseAddress
+      let copy = tapCopy(io, format: tapFmt)!
+      check(copy.frameLength == AVAudioFrameCount(ioFrames), "a whole IO cycle: \(copy.frameLength)")
+      callTrack.queue.sync { callTrack.push(copy, hostTime: 1_000_000 + UInt64(c) * cycleHost) }
+    }
+  }
+}
+callTrack.close()
+let callPCM = try! Data(contentsOf: tmp3.appendingPathComponent("call.pcm")).withUnsafeBytes { Array($0.bindMemory(to: Int16.self)) }
+try? FileManager.default.removeItem(at: tmp3)
+let expected = cycles * ioFrames / 3
+check(abs(callPCM.count - expected) <= 64, "call track keeps the wall clock: \(callPCM.count) samples for \(expected)")
+let body = callPCM.dropFirst(800).dropLast(800)
+let crossings = zip(body, body.dropFirst()).filter { ($0 < 0) != ($1 < 0) }.count
+let hz = Double(crossings) / 2 / (Double(body.count) / 16_000)
+check(abs(hz - 1_000) < 20, "call track carries the call, not the mic: \(Int(hz)) Hz")
+// Without a device mic the tap is the only buffer; a trailing buffer of the wrong width is no tap.
+let tapOnly = AudioBufferList.allocate(maximumBuffers: 1)
+callBuf.withUnsafeMutableBytes { k in
+  tapOnly[0] = AudioBuffer(mNumberChannels: 2, mDataByteSize: UInt32(ioFrames * 8), mData: k.baseAddress)
+  check(tapCopy(tapOnly, format: tapFmt)?.frameLength == AVAudioFrameCount(ioFrames), "tap alone")
+}
+micBuf.withUnsafeMutableBytes { m in
+  tapOnly[0] = AudioBuffer(mNumberChannels: 1, mDataByteSize: UInt32(ioFrames * 4), mData: m.baseAddress)
+  check(tapCopy(tapOnly, format: tapFmt) == nil, "a mono mic buffer is never read as the stereo tap")
+}
+free(io.unsafeMutablePointer)
+free(tapOnly.unsafeMutablePointer)
+
 print(failures == 0 ? "all passed" : "\(failures) failed")
 exit(failures == 0 ? 0 : 1)
