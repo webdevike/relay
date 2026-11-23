@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "status": "IN_PROGRESS",
+  "status": "COMPLETE",
   "reviewMode": "CHECKPOINTS",
   "questionPolicy": "AGENT_DEFAULTS",
   "baseCommit": "2a78e4a4041f823d741c3e0c5e9d6141374e90e7",
@@ -16,7 +16,7 @@
     "rationale": "Effect 4.1.5 is the injection mechanism for both engines (new dependency, new major, seam touching the default GPT wiring, four LiveService construction sites), plus a Deepgram session service, an XState machine and a PCM call. Callers branch on transport only; GPT/local lifecycles untouched; no protocol, mobile or Swift change."
   },
   "budget": {
-    "productionLoc": { "expected": 785, "hardCap": 1000 },
+    "productionLoc": { "expected": 785, "hardCap": 1000, "note": "Isaac 2026-11-23: docs count toward the cap; cap unchanged; issue maxima rebalanced to sum 1000; measured 990." },
     "filesTouched": { "expected": 21, "hardCap": 24 },
     "newDependencies": 1,
     "newAbstractions": 3
@@ -24,19 +24,19 @@
   "issues": [
     { "id": "01", "slug": "effect-engine-seam", "status": "COMPLETE", "reviewMode": "REVIEW_BEFORE", "dependsOn": [],
       "files": ["apps/linux/package.json", "pnpm-lock.yaml", "nix/hashes.json", "apps/linux/src/voice/engines.ts", "apps/linux/src/host-config.ts", "apps/linux/src/main.ts", "apps/linux/src/live/service.ts", "apps/linux/src/call/service.ts", "apps/linux/src/call/call.ts", "apps/linux/test/live.test.ts", "apps/linux/test/live-standin.ts", "apps/linux/test/voice-engines.test.ts"],
-      "budget": { "productionLoc": { "expected": 175, "maximum": 220 }, "filesTouched": 12 } },
+      "budget": { "productionLoc": { "expected": 175, "maximum": 200 }, "filesTouched": 12 } },
     { "id": "02", "slug": "deepgram-agent-effect-service", "status": "COMPLETE", "reviewMode": "AUTO", "dependsOn": ["01"],
       "files": ["apps/linux/src/call/deepgram.ts", "apps/linux/test/deepgram.test.ts", "apps/linux/test/deepgram-fake.ts"],
       "budget": { "productionLoc": { "expected": 200, "maximum": 240 }, "filesTouched": 3 } },
     { "id": "03", "slug": "deepgram-call-machine", "status": "COMPLETE", "reviewMode": "AUTO", "dependsOn": [],
       "files": ["apps/linux/src/call/deepgramCall.machine.ts", "apps/linux/test/deepgramCall.machine.test.ts", "apps/linux/test/machine-docs.test.ts", "docs/state-machines/deepgram-call.md"],
-      "budget": { "productionLoc": { "expected": 110, "maximum": 160 }, "filesTouched": 4 } },
+      "budget": { "productionLoc": { "expected": 110, "maximum": 125 }, "filesTouched": 4 } },
     { "id": "04", "slug": "deepgram-call-pcm-transport", "status": "COMPLETE", "reviewMode": "REVIEW_AFTER", "dependsOn": ["01", "02", "03"],
       "files": ["apps/linux/src/call/deepgramCall.ts", "apps/linux/src/host-config.ts", "apps/linux/src/voice/engines.ts", "apps/linux/test/deepgram-call.test.ts"],
-      "budget": { "productionLoc": { "expected": 300, "maximum": 380 }, "filesTouched": 4 } },
-    { "id": "05", "slug": "real-smoke-siri-scope", "status": "PLANNED", "reviewMode": "REVIEW_AFTER", "dependsOn": ["04"],
+      "budget": { "productionLoc": { "expected": 300, "maximum": 365 }, "filesTouched": 4 } },
+    { "id": "05", "slug": "real-smoke-siri-scope", "status": "COMPLETE", "reviewMode": "REVIEW_AFTER", "dependsOn": ["04"],
       "files": ["docs/relay/voice-providers.md"],
-      "budget": { "productionLoc": { "expected": 0, "maximum": 0 }, "filesTouched": 1 } }
+      "budget": { "productionLoc": { "expected": 0, "maximum": 70 }, "filesTouched": 1 } }
   ],
   "openQuestions": [
     { "id": "Q1", "issueId": "03", "type": "ARCHITECTURE", "importance": "HIGH", "status": "HUMAN_DECIDED" },

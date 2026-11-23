@@ -18,8 +18,8 @@ Only the new lifecycle is a machine (Q1). The thread bridge stays in 04's call f
 
 ## Budget
 - Expected production LOC: 110
-- Maximum production LOC: 160
-- Actual production LOC: 84
+- Maximum production LOC: 125 (rebalanced 2026-11-23 from 160 when docs started counting; parent cap unchanged at 1000)
+- Actual production LOC: 123 (machine 84 plus the generated `docs/state-machines/deepgram-call.md` 39, which counts since Isaac's 2026-11-23 decision)
 - Expected files: 4
 - Actual files: 4
 

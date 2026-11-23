@@ -2,18 +2,15 @@
 // the `VoiceEngines` service; `main.ts` resolves the layer named by the host config once and hands
 // the service to `LiveService` and `CallService`. The union is tagged by transport on purpose: GPT-Live
 // is phone WebRTC direct to OpenAI plus a host sideband, a PCM engine takes the phone's `call.*`
-// frames over the host WebSocket. Callers branch on `transport`, never on a provider id.
-//
-// A new provider on a supported transport adds a `<provider>.ts` exporting a layer, one literal in
-// host-config.ts `ProviderId`, and one entry in `VOICE_ENGINE_LAYERS`.
+// frames over the host WebSocket. Callers branch on `transport`, never on a provider id. Adding a
+// provider: docs/relay/voice-providers.md.
 
 import { Context, Effect, Layer } from "effect";
 import type { AgentProviderChange } from "../seams";
 import type { CallDeps } from "../call/call";
 import { deepgramLayer } from "../call/deepgramCall";
 import { type HostConfig, type ProviderId, DEFAULT_PROVIDER } from "../host-config";
-import type { LiveApi } from "../live/openai";
-import { OpenAiLive, openAiKey } from "../live/openai";
+import { type LiveApi, OpenAiLive, openAiKey } from "../live/openai";
 
 /** What a call needs from any engine, whatever the transport. */
 export interface CallLike {
@@ -29,10 +26,7 @@ export type PcmCallDeps = Omit<CallDeps, "voice">;
 
 /** One call on a PCM engine. */
 export interface PcmCall extends CallLike {
-  /**
-   * Opens the engine's session. Resolves false when it never connected and sent the phone nothing
-   * (no `call.state`, no `onEnded`), so the service can fall back to the local call silently.
-   */
+  /** Opens the session; false when it never connected and sent the phone nothing, so the service falls back silently. */
   start(): Promise<boolean>;
 }
 
@@ -77,11 +71,8 @@ export function engineLayer(engine: VoiceEngine): Layer.Layer<VoiceEngines> {
 }
 
 export function gptLiveLayer(env: EngineEnv): Layer.Layer<VoiceEngines> {
-  return Layer.sync(VoiceEngines, () => {
-    const key = openAiKey(env.agentHome, env.env);
-    const engine: WebrtcSidebandEngine = { id: "gpt-live", transport: "webrtc-sideband", api: key === null ? null : new OpenAiLive(key) };
-    return { select: () => engine };
-  });
+  const key = openAiKey(env.agentHome, env.env);
+  return engineLayer({ id: "gpt-live", transport: "webrtc-sideband", api: key === null ? null : new OpenAiLive(key) });
 }
 
 /** Total over `ProviderId`: a provider without an entry is a type error. */

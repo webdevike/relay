@@ -23,8 +23,8 @@ One small service both callers read; `LiveCall`, `OpenAiLive`, `VoiceCall`, `ses
 
 ## Budget
 - Expected production LOC: 175
-- Maximum production LOC: 220
-- Actual production LOC: 206 added, 175 net
+- Maximum production LOC: 200 (rebalanced 2026-11-23 from 220 when docs started counting; parent cap unchanged at 1000)
+- Actual production LOC: 197 added after the budget pass (206 before: `voice/engines.ts` trimmed by 9)
 - Expected files: 12
 - Actual files: 11
 

@@ -3,9 +3,11 @@
 // pairs itself as a throwaway device (written straight into this machine's device store, forgotten
 // again at the end), calls the agent, streams a WAV as the microphone in real time, records the
 // reply audio, and prints a JSON report with the latencies that matter on a call.
+// `--greeting` is for a provider that speaks first (Deepgram): the question starts after the
+// greeting, and "reply audio" is audio after the question, so the greeting is neither the reply nor a barge target.
 //
 //   bun test/call-smoke.ts --agent astra --wav question.wav --out reply.wav [--barge barge.wav]
-//       [--host ws://127.0.0.1:7817/relay] [--timeout 120]
+//       [--host ws://127.0.0.1:7817/relay] [--timeout 120] [--greeting]
 //
 // "Speech end" is the last 20 ms window of the WAV louder than -45 dBFS, at the moment its frame
 // was sent; the first audio after it is the filler or the reply, whichever came first. With
@@ -67,6 +69,8 @@ const { values } = parseArgs({
     agent: { type: "string", default: "astra" },
     wav: { type: "string" },
     barge: { type: "string" },
+    greeting: { type: "boolean", default: false },
+    "barge-speaking": { type: "string", default: "1" },
     out: { type: "string", default: "call-reply.wav" },
     timeout: { type: "string", default: "120" },
   },
@@ -113,6 +117,12 @@ const send = (message: ClientMessage): void => {
 let mic: { pcm: Uint8Array; offset: number; markEnd: number | null } = { pcm: new Uint8Array(0), offset: 0, markEnd: null };
 let micOn = false;
 
+/** A speaking state has been seen: with `--greeting`, the provider's greeting is over once it listens again. */
+let greeted = false;
+let speakingAfterQuestion = 0;
+let afterQuestionBytes = 0;
+let settle: NodeJS.Timeout | undefined;
+
 /** Sends one 100 ms frame of the microphone at real time until the call ends. */
 async function microphone(): Promise<void> {
   const quiet = Buffer.alloc(FRAME_BYTES).toString("base64");
@@ -152,24 +162,33 @@ function onFrame(message: ServerMessage): void {
     audio.push(pcm);
     marks.audioBytes += pcm.byteLength;
     const line = marks.speaking ?? "";
-    if (!marks.firstAudio.some((entry) => entry.text === line)) marks.firstAudio.push({ at: at(), text: line });
-    // Barge in on the second line said: the first may be the filler, the second is the agent's.
-    if (barge !== null && !marks.bargeSent && marks.firstAudio.length >= 2) {
+    if ((!values.greeting || marks.speechEndAt !== null) && !marks.firstAudio.some((entry) => entry.text === line)) marks.firstAudio.push({ at: at(), text: line });
+    if (marks.speechEndAt !== null) afterQuestionBytes += pcm.byteLength;
+    // Barge in on the second line said (the first may be the filler); with `--greeting`, on the first audio after the question.
+    const bargeNow = values.greeting ? speakingAfterQuestion >= Number(values["barge-speaking"]) : marks.firstAudio.length >= 2;
+    if (barge !== null && !marks.bargeSent && bargeNow) {
       marks.bargeSent = true;
       talk(barge, null);
     }
   } else if (message.t === "call.state" && message.callId === callId) {
     timeline.push({ at: at(), state: message.state, ...(message.text === undefined ? {} : { text: message.text }) });
-    if (message.state === "listening" && !marks.spoke && marks.heardAt === null) talk(question, questionEnd);
+    if (message.state === "listening" && !marks.spoke && marks.heardAt === null && (!values.greeting || greeted)) talk(question, questionEnd);
     if (message.state === "thinking" && marks.heardAt === null && message.text !== undefined) {
       marks.heardAt = at();
       marks.heard = message.text;
     }
     if (message.state === "speaking") {
-      marks.spoke = true;
+      clearTimeout(settle);
+      if (marks.speechEndAt !== null) speakingAfterQuestion += 1;
+      greeted = true;
+      marks.spoke = !values.greeting || marks.speechEndAt !== null;
       marks.speaking = message.text ?? null;
     }
-    if (message.state === "listening" && marks.spoke) finish("done");
+    // A greeting provider answers with a quiet moment between "the assistant is done" and its own audio: finish once the call stays listening.
+    if (message.state === "listening" && marks.spoke) {
+      if (values.greeting) settle = setTimeout(() => { finish("done"); }, 5000);
+      else finish("done");
+    }
     if (message.state === "ended") finish(message.error === undefined ? "ended" : `ended: ${message.error}`);
   }
 }
@@ -220,6 +239,7 @@ process.stdout.write(
       },
       flushes: marks.flushes,
       audioMs: Math.round((marks.audioBytes / 2 / CALL_OUTPUT_RATE) * 1000),
+      audioAfterQuestionMs: Math.round((afterQuestionBytes / 2 / CALL_OUTPUT_RATE) * 1000),
       out: values.out,
       thread: { voiceTurn: voiceTurn?.text ?? null, reply: replyText === "" ? null : replyText },
       timeline,

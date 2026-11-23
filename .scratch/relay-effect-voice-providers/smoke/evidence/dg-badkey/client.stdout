@@ -1,0 +1,33 @@
+{
+  "outcome": "timeout",
+  "agent": "smoke",
+  "heard": null,
+  "filler": null,
+  "ms": {
+    "speechEndToTranscript": null,
+    "speechEndToFirstAudio": null,
+    "speechEndToFirstReplyAudio": null
+  },
+  "flushes": 0,
+  "audioMs": 0,
+  "audioAfterQuestionMs": 0,
+  "out": "/tmp/relay-smoke-evidence/dg-badkey/reply.wav",
+  "thread": {
+    "voiceTurn": null,
+    "reply": null
+  },
+  "timeline": [
+    {
+      "at": 242,
+      "state": "connecting"
+    },
+    {
+      "at": 242,
+      "state": "listening"
+    },
+    {
+      "at": 12002,
+      "state": "ended"
+    }
+  ]
+}

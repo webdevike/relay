@@ -1,0 +1,7 @@
++16628ms live smoke-74193d: session live_u2_EnQx0p3oNN0iDCt6YB0aKlteqsnxl3Pi for Smoke created in 1339 ms (startup context ~44 tokens, instructions ~438)
++16977ms live smoke-74193d: GPT-Live started the session at +1688 ms
++16977ms live smoke-74193d: sideband attached at +1688 ms
++26604ms live smoke-74193d: delegation item_EnQxBWTiVYXDY8XeTvpxP "You (on the call): Hey, what's up? / Isaac: Please ask my assistant to check the status of the Alpha project." (transcript wait 0 ms)
++28260ms live smoke-74193d: first reply handed to the voice at +1656 ms
++34386ms live smoke-74193d: ended after 19 s
++35104ms live smoke-74193d: session closed (close_requested), 17 s billed

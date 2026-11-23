@@ -1,23 +1,17 @@
-// One Deepgram Voice Agent call with an assistant, over the phone's PCM `call.*` transport. Deepgram
-// bundles the ears, the talking model and the voice; this call is its brain, like `LiveCall` is for
-// GPT-Live: the voice hands Isaac's words to the assistant's normal thread through one client-side
-// function (`ask_assistant`), the settled reply goes back as a line for the voice to say, and a
-// barge-in flushes the phone's playback. The lifecycle is `deepgramCall.machine.ts`; the session
-// is `deepgram.ts` (an Effect service whose scope the machine's `session` actor owns).
-//
-// Contract with `CallService`: `start()` resolves false when the session never opened and the
-// phone was sent nothing (the service falls back to the local call); otherwise the call reports its
-// states and one `ended`, then `onEnded`.
+// One Deepgram Voice Agent call over the phone's PCM `call.*` transport. Deepgram bundles ears, talking
+// model and voice; like `LiveCall` for GPT-Live, this call is its brain: `ask_assistant` hands Isaac's
+// words to the assistant thread and the settled reply goes back as a line to say. Lifecycle:
+// `deepgramCall.machine.ts`; session: `deepgram.ts`. `start()` resolves false when the session never
+// opened and the phone was sent nothing (`CallService` then falls back to the local call).
 
 import { Effect, Fiber, type Layer, Stream } from "effect";
-import { type ActorOptions, type AnyActorLogic, createActor, fromCallback, waitFor } from "xstate";
+import { createActor, fromCallback, waitFor } from "xstate";
 import type { CallState } from "@relay/protocol";
 import { z } from "zod";
 import { spokenPartComplete, voiceTurn } from "../assistant/voice";
 import { clockLine, liveInstructions } from "../live/call";
 import { memoryBrief, recentTurns } from "../live/brief";
 import type { AgentProviderChange } from "../seams";
-import type { SessionClock } from "../session";
 import { engineLayer, type EngineEnv, type PcmCall, type PcmCallDeps, type VoiceEngines } from "../voice/engines";
 import { TURN_START_GRACE_MS } from "./call";
 import { type AgentConfig, type AgentEvent, type AgentSession, DeepgramAgent, deepgramAgentLayer, deepgramKey } from "./deepgram";
@@ -41,29 +35,6 @@ export function deepgramInstructions(title: string, background: readonly string[
     `Delegate by calling the ${ASK_ASSISTANT} function with what he asked. Ignore the advice above about the time being told as the call goes on: the time and background below are what you know. The answer comes back later as a line to say; say it directly in your own words.`,
     ...background,
   ].join("\n\n");
-}
-
-type MachineClock = NonNullable<ActorOptions<AnyActorLogic>["clock"]>;
-
-/** xstate's timers on the host's session clock. */
-function machineClock(clock: SessionClock): MachineClock {
-  const cancels = new Map<number, () => void>();
-  let next = 0;
-  return {
-    setTimeout: (fn, ms) => {
-      next += 1;
-      const id = next;
-      cancels.set(id, clock.after(ms, () => {
-        cancels.delete(id);
-        fn();
-      }));
-      return id;
-    },
-    clearTimeout: (id) => {
-      cancels.get(id as number)?.();
-      cancels.delete(id as number);
-    },
-  };
 }
 
 export class DeepgramCall implements PcmCall {
@@ -111,12 +82,9 @@ export class DeepgramCall implements PcmCall {
           }),
         },
       }),
-      { clock: machineClock(deps.clock) },
+      // xstate's timers on the host's session clock; the timer id is the cancel function.
+      { clock: { setTimeout: (fn: () => void, ms: number) => deps.clock.after(ms, fn), clearTimeout: (cancel: () => void) => { cancel(); } } },
     );
-  }
-
-  get agentId(): string {
-    return this.deps.thread.id;
   }
 
   /** The session's whole life in one scope: open, report ready, feed events to the call; interrupting the fiber closes the socket. */
@@ -177,7 +145,7 @@ export class DeepgramCall implements PcmCall {
       return;
     }
     this.deps.log(`call ${this.id}: ended after ${String(Math.round((this.deps.clock.now() - this.startedAt) / 1000))} s${error === undefined ? "" : ` (${error})`}`);
-    this.deps.send({ t: "call.state", callId: this.id, agent: this.agentId, state: "ended", ...(error === undefined ? {} : { error }) });
+    this.deps.send({ t: "call.state", callId: this.id, agent: this.deps.thread.id, state: "ended", ...(error === undefined ? {} : { error }) });
     this.state = "ended";
     this.deps.onEnded();
   }
@@ -376,7 +344,7 @@ export class DeepgramCall implements PcmCall {
     const text = state === "thinking" ? this.stateText : undefined;
     if (this.ended || (state === this.state && text === this.stateText)) return;
     this.state = state;
-    this.deps.send({ t: "call.state", callId: this.id, agent: this.agentId, state, ...(text === undefined ? {} : { text }) });
+    this.deps.send({ t: "call.state", callId: this.id, agent: this.deps.thread.id, state, ...(text === undefined ? {} : { text }) });
   }
 }
 

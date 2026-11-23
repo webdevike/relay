@@ -1,0 +1,26 @@
++5633ms live.start
++5643ms live.state connecting
++6363ms live.answer (session live_u1_EnQxWp3oNJ8RyoT0yYAgMsWaXhsjnpmx)
++6590ms live.state listening
++6905ms phone: session.started; asking after the greeting
++8359ms voice: Hey,
++8501ms voice:  what's
++8681ms voice:  up?
++13641ms phone finished asking
++14452ms live.state thinking "Please ask my assistant to check the status of the Alpha project"
++15054ms voice: I'll check
++15576ms voice:  on that
++15576ms voice: .
++15956ms live.state listening
++16835ms voice: Marker
++17152ms voice:  alpha
++17381ms voice:  
++17602ms voice: 1
++17666ms voice:  received.
++18202ms voice:  The
++18345ms voice:  fixture
++18653ms voice:  reply
++19167ms voice:  is ready
++19331ms voice: .
++23971ms live.state ended
++27972ms OK: delegated and answered

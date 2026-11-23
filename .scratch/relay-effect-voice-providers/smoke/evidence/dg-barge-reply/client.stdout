@@ -1,0 +1,91 @@
+{
+  "outcome": "done",
+  "agent": "smoke",
+  "heard": "Please ask my assistant to check the status of the alpha project.",
+  "filler": null,
+  "ms": {
+    "speechEndToTranscript": 1205,
+    "speechEndToFirstAudio": 2008,
+    "speechEndToFirstReplyAudio": 2008
+  },
+  "flushes": 1,
+  "audioMs": 6440,
+  "audioAfterQuestionMs": 5280,
+  "out": "/tmp/relay-smoke-evidence/dg-barge-reply/reply.wav",
+  "thread": {
+    "voiceTurn": "Please ask my assistant to check the status of the alpha project.",
+    "reply": "Marker alpha 1 received. The fixture reply is ready. DETAILS-ONLY-1 must not be spoken."
+  },
+  "timeline": [
+    {
+      "at": 201,
+      "state": "listening"
+    },
+    {
+      "at": 223,
+      "state": "speaking"
+    },
+    {
+      "at": 551,
+      "state": "listening"
+    },
+    {
+      "at": 1809,
+      "state": "hearing"
+    },
+    {
+      "at": 5066,
+      "state": "thinking",
+      "text": "Please ask my assistant to check the status of the alpha project."
+    },
+    {
+      "at": 5869,
+      "state": "speaking"
+    },
+    {
+      "at": 6146,
+      "state": "thinking",
+      "text": "Please ask my assistant to check the status of the alpha project."
+    },
+    {
+      "at": 6571,
+      "state": "listening"
+    },
+    {
+      "at": 6776,
+      "state": "speaking"
+    },
+    {
+      "at": 7300,
+      "state": "hearing"
+    },
+    {
+      "at": 7300,
+      "state": "listening"
+    },
+    {
+      "at": 8192,
+      "state": "hearing"
+    },
+    {
+      "at": 9245,
+      "state": "hearing"
+    },
+    {
+      "at": 10081,
+      "state": "hearing"
+    },
+    {
+      "at": 11526,
+      "state": "speaking"
+    },
+    {
+      "at": 12262,
+      "state": "listening"
+    },
+    {
+      "at": 17265,
+      "state": "ended"
+    }
+  ]
+}

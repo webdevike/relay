@@ -20,8 +20,8 @@ The call is `LiveCall`'s shape on the PCM transport: same thread bridge, Deepgra
 
 ## Budget
 - Expected production LOC: 300
-- Maximum production LOC: 380
-- Actual production LOC: about 393 (over the issue maximum by about 13; 02-04 together 740 of 780; parent total 985 of 1000, no cap changed; 15 LOC of headroom remain)
+- Maximum production LOC: 365 (rebalanced 2026-11-23 from 380 when docs started counting; parent cap unchanged at 1000)
+- Actual production LOC: 361 after the 2026-11-23 budget pass (`deepgramCall.ts` 359 plus 2 registry lines; 393 before: xstate clock adapter replaced by the `meetings/service.ts` pattern, `agentId` getter and duplicated header prose removed)
 - Expected files: 4
 - Actual files: 4
 

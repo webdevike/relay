@@ -4,7 +4,7 @@ Status: COMPLETE
 Review Mode: REVIEW_BEFORE
 Depends on: None
 Expected production LOC: 175
-Maximum production LOC: 220
+Maximum production LOC: 200
 Expected files touched: 12
 
 ## For Isaac

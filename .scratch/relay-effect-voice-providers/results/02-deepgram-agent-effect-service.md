@@ -19,7 +19,7 @@ The live layer takes a socket factory, so tests drive the real parsing and scope
 ## Budget
 - Expected production LOC: 200
 - Maximum production LOC: 240
-- Actual production LOC: 263 (over the issue maximum by 23; issue 03 came in 76 under its maximum, so 02+03+04 stay inside their combined 780 and the parent stays inside 1000; no cap changed)
+- Actual production LOC: 240 after the 2026-11-23 budget pass (263 before: `DeepgramError` message field, inlined `bytes`, restating comments removed); at the maximum
 - Expected files: 2
 - Actual files: 3 (`deepgram-fake.ts`, a test helper both 02 and 04 use)
 

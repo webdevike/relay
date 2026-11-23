@@ -1,10 +1,10 @@
 # Run the real smoke per provider and document Siri scope and the next-provider recipe
 
-Status: PLANNED
+Status: COMPLETE
 Review Mode: REVIEW_AFTER
 Depends on: 04
 Expected production LOC: 0
-Maximum production LOC: 0
+Maximum production LOC: 70
 Expected files touched: 1
 
 ## For Isaac

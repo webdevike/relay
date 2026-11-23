@@ -1,10 +1,6 @@
-// Deepgram Voice Agent session, host side: one scoped WebSocket per call to
-// wss://agent.deepgram.com/v1/agent/converse, authenticated with the host's key (which never leaves
-// the host). `DeepgramAgent.open` sends `Settings` first, waits for `SettingsApplied`, then hands
-// back a session: PCM16 in via `sendAudio`, JSON commands via `sendJson`, and every server frame as a
-// typed `AgentEvent` stream (binary frames are the agent's PCM16 speech). Closing the scope closes
-// the socket once. Audio is 16 kHz in and 24 kHz out, the phone's `call.*` rates, so nothing is
-// resampled.
+// Deepgram Voice Agent session, host side: one scoped WebSocket per call, authenticated with the
+// host's key (never sent to the phone). PCM16 in at 16 kHz, typed `AgentEvent`s out (binary frames
+// are 24 kHz PCM16 speech): the phone's `call.*` rates, so nothing is resampled.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -38,11 +34,7 @@ export function deepgramKey(agentHome: string | null, env: NodeJS.ProcessEnv = p
 }
 
 /** Why a session did not open or stopped. The message is ours or Deepgram's own description: never the key or a header. */
-export class DeepgramError extends Data.TaggedError("DeepgramError")<{ readonly reason: string }> {
-  override get message(): string {
-    return this.reason;
-  }
-}
+export class DeepgramError extends Data.TaggedError("DeepgramError")<{ readonly message: string }> {}
 
 /** A function the agent may call; sent as is in `Settings` (`defer_until_eot` keeps it from firing before the turn is confirmed). */
 export interface AgentFunction {
@@ -176,13 +168,6 @@ export function parseFrame(raw: string): AgentEvent[] {
   }
 }
 
-function bytes(data: unknown): Uint8Array | null {
-  if (data instanceof Uint8Array) return data;
-  if (data instanceof ArrayBuffer) return new Uint8Array(data);
-  return null;
-}
-
-/** Opens `key`'s sessions through `connect`. */
 export function deepgramAgentLayer(key: string, connect: ConnectAgent = connectBun): Layer.Layer<DeepgramAgent> {
   return Layer.succeed(
     DeepgramAgent,
@@ -206,7 +191,7 @@ export function deepgramAgentLayer(key: string, connect: ConnectAgent = connectB
               socket.send(JSON.stringify(settingsMessage(config)));
             };
             socket.onmessage = ({ data }) => {
-              const pcm = bytes(data);
+              const pcm = data instanceof Uint8Array ? data : data instanceof ArrayBuffer ? new Uint8Array(data) : null;
               if (pcm !== null) {
                 Queue.offerUnsafe(events, { t: "audio", pcm });
                 return;
@@ -218,34 +203,26 @@ export function deepgramAgentLayer(key: string, connect: ConnectAgent = connectB
                 return;
               }
               for (const event of parseFrame(data)) {
-                if (!applied && event.t === "error") resume(Effect.fail(new DeepgramError({ reason: `Deepgram refused the session (${event.message})` })));
+                if (!applied && event.t === "error") resume(Effect.fail(new DeepgramError({ message: `Deepgram refused the session (${event.message})` })));
                 Queue.offerUnsafe(events, event);
               }
             };
             socket.onerror = () => {
-              if (!applied) resume(Effect.fail(new DeepgramError({ reason: "Deepgram connection failed" })));
+              if (!applied) resume(Effect.fail(new DeepgramError({ message: "Deepgram connection failed" })));
             };
             socket.onclose = ({ reason }) => {
-              if (!applied) resume(Effect.fail(new DeepgramError({ reason: "Deepgram closed the connection before the session started" })));
+              if (!applied) resume(Effect.fail(new DeepgramError({ message: "Deepgram closed the connection before the session started" })));
               Queue.offerUnsafe(events, { t: "closed", reason });
               Queue.endUnsafe(events);
             };
           }).pipe(
-            Effect.timeoutOrElse({ duration: SETTINGS_TIMEOUT, orElse: () => Effect.fail(new DeepgramError({ reason: "Deepgram did not start the session in time" })) }),
+            Effect.timeoutOrElse({ duration: SETTINGS_TIMEOUT, orElse: () => Effect.fail(new DeepgramError({ message: "Deepgram did not start the session in time" })) }),
           );
           let sent = true;
-          yield* Effect.forkScoped(
-            Effect.forever(
-              Effect.sleep(KEEP_ALIVE).pipe(
-                Effect.andThen(
-                  Effect.sync(() => {
-                    if (!sent) socket.send(JSON.stringify({ type: "KeepAlive" }));
-                    sent = false;
-                  }),
-                ),
-              ),
-            ),
-          );
+          yield* Effect.forkScoped(Effect.forever(Effect.sleep(KEEP_ALIVE).pipe(Effect.andThen(Effect.sync(() => {
+            if (!sent) socket.send(JSON.stringify({ type: "KeepAlive" }));
+            sent = false;
+          })))));
           return {
             sendAudio: (pcm) => {
               sent = true;

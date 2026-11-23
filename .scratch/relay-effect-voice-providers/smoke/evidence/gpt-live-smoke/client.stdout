@@ -1,0 +1,160 @@
+{
+  "agent": "smoke",
+  "ms": {
+    "pressToAnswer": 1340,
+    "pressToSessionStarted": 1967,
+    "pressToFirstAudio": 4924
+  },
+  "questions": [
+    {
+      "question": "Please ask my assistant to check the status of the alpha project.",
+      "answeredBy": "nova (delegated)",
+      "voiceSaid": "Checking on it. Marker alpha 1. The fixture reply is ready.",
+      "ms": {
+        "speechEndToFirstAudio": 1265,
+        "speechEndToDelegation": 892,
+        "speechEndToAnswerHanded": 2548,
+        "speechEndToAnswerAudio": 3471,
+        "answerHandedToAnswerAudio": 923
+      }
+    }
+  ],
+  "billedSeconds": 17,
+  "transcript": [
+    {
+      "at": 19929,
+      "who": "voice",
+      "text": " Hey, what's up?"
+    },
+    {
+      "at": 23275,
+      "who": "isaac",
+      "text": " Please ask my assistant to check the status of the Alpha project."
+    },
+    {
+      "at": 26812,
+      "who": "voice",
+      "text": " Checking on it. Marker alpha 1. The fixture reply is ready."
+    }
+  ],
+  "thread": [
+    {
+      "role": "user",
+      "voice": true,
+      "text": "You (on the call): Hey, what's up?\nIsaac: Please ask my assistant to check the status of the Alpha project."
+    },
+    {
+      "role": "assistant",
+      "voice": false,
+      "text": "Marker alpha 1 received. The fixture reply is ready.\n\nDETAILS-ONLY-1 must not be spoken."
+    }
+  ],
+  "states": [
+    {
+      "at": 15289,
+      "state": "connecting"
+    },
+    {
+      "at": 16978,
+      "state": "listening"
+    },
+    {
+      "at": 26604,
+      "state": "thinking",
+      "text": "Please ask my assistant to check the status of the Alpha project."
+    },
+    {
+      "at": 28260,
+      "state": "listening"
+    },
+    {
+      "at": 34386,
+      "state": "ended"
+    }
+  ],
+  "events": [
+    {
+      "at": 15289,
+      "what": "press (live.start)"
+    },
+    {
+      "at": 16629,
+      "what": "live.answer to the phone"
+    },
+    {
+      "at": 17256,
+      "what": "phone: session.started"
+    },
+    {
+      "at": 20213,
+      "what": "phone hears the voice"
+    },
+    {
+      "at": 21135,
+      "what": "voice went quiet"
+    },
+    {
+      "at": 25712,
+      "what": "phone finished saying q0"
+    },
+    {
+      "at": 26606,
+      "what": "turn acked by the host"
+    },
+    {
+      "at": 26977,
+      "what": "phone hears the voice"
+    },
+    {
+      "at": 28013,
+      "what": "voice went quiet"
+    },
+    {
+      "at": 29183,
+      "what": "phone hears the voice"
+    },
+    {
+      "at": 30768,
+      "what": "voice went quiet"
+    },
+    {
+      "at": 30887,
+      "what": "phone hears the voice"
+    },
+    {
+      "at": 32861,
+      "what": "voice went quiet"
+    }
+  ],
+  "callLog": [
+    {
+      "at": 16628,
+      "line": "live smoke-74193d: session live_u2_EnQx0p3oNN0iDCt6YB0aKlteqsnxl3Pi for Smoke created in 1339 ms (startup context ~44 tokens, instructions ~438)"
+    },
+    {
+      "at": 16977,
+      "line": "live smoke-74193d: GPT-Live started the session at +1688 ms"
+    },
+    {
+      "at": 16977,
+      "line": "live smoke-74193d: sideband attached at +1688 ms"
+    },
+    {
+      "at": 26604,
+      "line": "live smoke-74193d: delegation item_EnQxBWTiVYXDY8XeTvpxP \"You (on the call): Hey, what's up? / Isaac: Please ask my assistant to check the status of the Alpha project.\" (transcript wait 0 ms)"
+    },
+    {
+      "at": 28260,
+      "line": "live smoke-74193d: first reply handed to the voice at +1656 ms"
+    },
+    {
+      "at": 34386,
+      "line": "live smoke-74193d: ended after 19 s"
+    },
+    {
+      "at": 35104,
+      "line": "live smoke-74193d: session closed (close_requested), 17 s billed"
+    }
+  ],
+  "heard": "/tmp/relay-smoke-evidence/gpt-live-smoke/out/heard.wav"
+}
