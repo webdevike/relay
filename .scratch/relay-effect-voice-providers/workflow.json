@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "status": "PLANNING",
+  "reviewMode": "CHECKPOINTS",
+  "questionPolicy": "AGENT_DEFAULTS",
+  "baseCommit": "2a78e4a4041f823d741c3e0c5e9d6141374e90e7",
+  "baselineUntracked": [],
+  "spike": {
+    "status": "COMPLETE"
+  },
+  "planReview": {
+    "status": "APPROVED"
+  },
+  "complexityPolicy": {
+    "target": 5,
+    "maximum": 13
+  },
+  "humanReview": {
+    "status": "PENDING"
+  },
+  "complexity": {
+    "score": 5,
+    "rationale": "New dependency and one new Effect module, but one machine and one engine reuse the existing PCM transport; GPT path untouched and no protocol, mobile or Swift change."
+  },
+  "budget": {
+    "productionLoc": { "expected": 700, "hardCap": 900 },
+    "filesTouched": { "expected": 14, "hardCap": 17 },
+    "newDependencies": 1,
+    "newAbstractions": 2
+  },
+  "issues": [
+    {
+      "id": "01",
+      "slug": "provider-selection-dispatch",
+      "status": "PLANNED",
+      "reviewMode": "AUTO",
+      "dependsOn": [],
+      "files": ["apps/linux/src/host-config.ts", "apps/linux/src/call/deepgram-key.ts", "apps/linux/src/main.ts", "apps/linux/src/live/service.ts", "apps/linux/src/call/service.ts", "apps/linux/test/voice-provider.test.ts"],
+      "budget": { "productionLoc": { "expected": 90, "maximum": 130 }, "filesTouched": 6 }
+    },
+    {
+      "id": "02",
+      "slug": "deepgram-agent-effect-service",
+      "status": "PLANNED",
+      "reviewMode": "REVIEW_BEFORE",
+      "dependsOn": [],
+      "files": ["apps/linux/package.json", "pnpm-lock.yaml", "nix/hashes.json", "apps/linux/src/call/deepgram.ts", "apps/linux/test/deepgram.test.ts"],
+      "budget": { "productionLoc": { "expected": 170, "maximum": 230 }, "filesTouched": 5 }
+    },
+    {
+      "id": "03",
+      "slug": "provider-call-machine-bridge",
+      "status": "PLANNED",
+      "reviewMode": "AUTO",
+      "dependsOn": [],
+      "files": ["apps/linux/src/call/providerCall.machine.ts", "apps/linux/test/providerCall.machine.test.ts", "apps/linux/test/machine-docs.test.ts", "docs/state-machines/provider-call.md"],
+      "budget": { "productionLoc": { "expected": 110, "maximum": 160 }, "filesTouched": 4 }
+    },
+    {
+      "id": "04",
+      "slug": "deepgram-call-pcm-transport",
+      "status": "PLANNED",
+      "reviewMode": "REVIEW_AFTER",
+      "dependsOn": ["01", "02", "03"],
+      "files": ["apps/linux/src/call/deepgramCall.ts", "apps/linux/src/call/service.ts", "apps/linux/test/deepgram-call.test.ts"],
+      "budget": { "productionLoc": { "expected": 300, "maximum": 400 }, "filesTouched": 3 }
+    },
+    {
+      "id": "05",
+      "slug": "real-smoke-siri-scope",
+      "status": "PLANNED",
+      "reviewMode": "REVIEW_AFTER",
+      "dependsOn": ["04"],
+      "files": ["docs/relay/voice-providers.md"],
+      "budget": { "productionLoc": { "expected": 0, "maximum": 20 }, "filesTouched": 1 }
+    }
+  ],
+  "openQuestions": [
+    { "id": "Q1", "issueId": "03", "type": "ARCHITECTURE", "importance": "HIGH", "status": "OPEN" },
+    { "id": "Q2", "issueId": "05", "type": "PRODUCT", "importance": "HIGH", "status": "OPEN" },
+    { "id": "Q3", "issueId": "01", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
+    { "id": "Q4", "issueId": "02", "type": "ARCHITECTURE", "importance": "MEDIUM", "status": "AGENT_DECIDED" },
+    { "id": "Q5", "issueId": "01", "type": "ARCHITECTURE", "importance": "LOW", "status": "AGENT_DECIDED" },
+    { "id": "Q6", "issueId": "02", "type": "IMPLEMENTATION", "importance": "LOW", "status": "AGENT_DECIDED" },
+    { "id": "Q7", "issueId": "04", "type": "IMPLEMENTATION", "importance": "MEDIUM", "status": "AGENT_DECIDED" }
+  ]
+}
