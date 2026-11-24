@@ -58,6 +58,12 @@ export const ActivityItem = z.object({
   startedAt: ms,
   updatedAt: ms,
   model: z.string().max(120).optional(),
+  /** Company behind `model` ("anthropic", "openai"), when the source says. */
+  vendor: z.string().max(40).optional(),
+  /** The model's thinking level ("high"), when the source says. */
+  thinking: z.string().max(20).optional(),
+  /** An active run's latest intent lines, oldest first (at most 4); absent from older hosts. */
+  log: z.array(z.string().max(400)).max(4).optional(),
   /** Dollars spent so far, when the source says. */
   cost: z.number().finite().nonnegative().optional(),
   /** How long a working run has left, when the host can tell. */

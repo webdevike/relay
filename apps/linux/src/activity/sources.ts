@@ -33,6 +33,8 @@ export function sessionItems(sessions: readonly AgentSession[], question: (sessi
       startedAt: session.lastActivityAt,
       updatedAt: session.lastActivityAt,
       ...(session.model === undefined ? {} : { model: session.model }),
+      ...(session.modelVendor === undefined ? {} : { vendor: session.modelVendor }),
+      ...(session.thinkingLevel === undefined ? {} : { thinking: session.thinkingLevel }),
       open: { to: "chat", thread: session.assistant === undefined ? `session:${session.id}` : `assistant:${session.assistant}`, session: session.id },
     });
   }

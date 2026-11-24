@@ -69,6 +69,22 @@ describe("mergeActivity", () => {
     );
     expect(next.map((i) => i.id)).toEqual(["w2", "w1", "d"]);
   });
+
+  it("keeps an active run's last four distinct intents as its log, and drops the log when the run ends", () => {
+    const step = (intent: string, previous: ActivityItem[], at: number): ActivityItem[] => mergeActivity(previous, [item({ id: "s", kind: "session", intent })], ALL, at);
+    let list = step("Reading the diff", [], NOW);
+    expect(list[0]?.log).toEqual(["Reading the diff"]);
+    list = step("Reading the diff", list, NOW + 1);
+    expect(list[0]?.log).toEqual(["Reading the diff"]);
+    for (const [n, line] of ["Editing", "Running tests", "", "Fixing a test", "Pushing"].entries()) list = step(line, list, NOW + 2 + n);
+    expect(list[0]?.log).toEqual(["Editing", "Running tests", "Fixing a test", "Pushing"]);
+    list = mergeActivity(list, [], ALL, NOW + 10);
+    expect(list[0]).toMatchObject({ status: "done" });
+    expect(list[0]?.log).toBeUndefined();
+    // Woken again: a new run starts a new log.
+    list = step("Applying the follow-up", list, NOW + 20);
+    expect(list[0]?.log).toEqual(["Applying the follow-up"]);
+  });
 });
 
 describe("activity.snapshot", () => {
