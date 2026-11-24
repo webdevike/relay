@@ -16,8 +16,6 @@ export interface AskInlineCardProps {
   /** The bubble fill and the page colour, as the thread's bubbles use. */
   fill: string;
   page: string;
-  /** Changes when a badge tap should ring the card (`WaitingMark`). */
-  pulse: number;
   /** Tap an answer; null while offline, where the answers are left out. */
   onPick: ((reply: string) => void) | null;
 }
@@ -26,9 +24,9 @@ export interface AskInlineCardProps {
  * An open ask that has no bubble in the thread (a session's `asks add`, an `ask` card nobody
  * answered) drawn in the chat where it was asked: who asks, the question, its answers as chips (the
  * default one selected) and, for a session's ask, what it goes with unless Isaac says otherwise.
- * It wears the same `WaitingMark` as a bubble that waits, so the badge scrolls to it the same way.
+ * It wears the same `WaitingMark` as a bubble that waits.
  */
-export function AskInlineCard({ ask, source, fill, page, pulse, onPick }: AskInlineCardProps) {
+export function AskInlineCard({ ask, source, fill, page, onPick }: AskInlineCardProps) {
   const colors = useColors();
   const note = defaultNote(ask);
   return (
@@ -51,7 +49,7 @@ export function AskInlineCard({ ask, source, fill, page, pulse, onPick }: AskInl
             <ReplyChips replies={ask.replies} selected={ask.default} onPick={onPick} />
           </View>
         )}
-        <WaitingMark radius={RADIUS} pulse={pulse} page={page} />
+        <WaitingMark radius={RADIUS} page={page} />
       </View>
     </View>
   );

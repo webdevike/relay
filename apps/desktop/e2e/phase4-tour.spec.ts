@@ -73,6 +73,8 @@ test('one session: question, image, live settings and a new chat', async ({ app,
   const asked = ecard.locator('.eva-cl-pill[data-status="asked"]')
   await expect(asked).toHaveCount(1, { timeout: 500 })
   await expect(asked).toContainText('Input')
+  // The session is blocked on it: the stack on the composer opens on the question.
+  await expect(shell.locator(sel('card-stack'))).toHaveAttribute('data-state', 'expanded')
   await expect(shell.locator(sel('pending-dialog'))).toBeVisible()
   await shell.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   await proofShot(app, shell, 'tour-chat-question', PHASE)

@@ -5,25 +5,25 @@ import { ContextButton } from '../context/ContextButton'
 import { ArtifactsButton } from '../artifacts/ArtifactsButton'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChatLog } from './ChatLog'
-import { askAgentOf, useWatchedAsks } from './asks/asks-store'
-import { AsksButton } from './asks/AsksButton'
-import { turnRailFits } from './minimap/TurnMinimap'
+import { answerAsk, askAgentOf, resolveAsk, useOpenAsks, useWatchedAsks } from './asks/asks-store'
 import { useProfile } from '../pages/profile'
 import { Composer, type ComposerHandle } from './Composer'
 import { WidgetActions, type WidgetActionsValue } from './widgets/actions'
-import { PendingDialog } from './cards/PendingDialog'
+import { CardStack } from './stack/CardStack'
+import { stackCards, type RunCard } from './stack/stack-cards'
 import { JobsStrip } from './strips/JobsStrip'
 import { StatusStrip } from './strips/StatusStrip'
-import { SubagentChips } from './strips/SubagentChips'
+import { useMinute } from './strips/subagent-state'
 import { AgentWorkCards } from './strips/AgentWorkCards'
 import { MeetingCards } from './strips/MeetingCards'
 import { useFrontChatPane } from './front-chat'
 import { openActivity } from '../activity/open-activity'
+import { subagentTranscriptFile } from '../activity/eta'
 import { useActivityItems } from '../activity/activity-store'
 import { ownedActive } from '@evaos/chat-core/activity'
 import { listStore, useListStore } from './list/list-store'
 import { sessionId } from '@evaos/chat-core/session-id'
-import { chatStore, hiddenKey, useChatStore } from './chat-store'
+import { NO_EXTRAS, chatStore, useChatStore } from './chat-store'
 import { createStreamDrain } from './stream-drain'
 import { invoke, on } from '../ipc'
 import { browserScope, placeOf, type Place } from '@evaos/shell-core'
@@ -33,13 +33,7 @@ import { dropChatPane, newChatPaneId, openChatFile, openDraftPane } from './open
 import { setTabChatPane } from './front-chat'
 import { draftKeyFor, loadDrafts } from './drafts'
 import { FOLDED_LABEL, toggleSidebar, useLayout } from '../shell/layout-store'
-import {
-  frontToolTabs,
-  openSubagentTab,
-  toggleToolPanes,
-  toolsShown,
-  useTiling,
-} from '../tiling/tiling-store'
+import { openSubagentTab, toggleToolPanes, toolsShown, useTiling } from '../tiling/tiling-store'
 import { agentTitle, setChatTitle } from '../eva/names-store'
 import { AgentCrumb, OwnedCrumb } from '../assistants/AgentCrumb'
 import { DrillCrumb } from './DrillCrumb'
@@ -59,6 +53,7 @@ import {
 import { PinsScope, usePinsFor } from '../pins/pins-scope'
 import { PinsButton, PinsRail, useRailFits } from '../pins/PinsRail'
 import { PinHoverLayer } from '../pins/PinHoverLayer'
+import type { OpenAsk } from '@evaos/contract'
 
 declare global {
   interface Window {
@@ -175,11 +170,6 @@ function ChatView({
   const [evaRoot, setEvaRoot] = useState<string | null>(null)
   const sidebarState = useLayout((s) => s.state)
   const panelOpen = useTiling(toolsShown)
-  // The subagent a pane shows in front, when it is one of this chat's.
-  const viewedSubagent = useTiling((s) => {
-    const front = frontToolTabs(s).find((t) => t.kind === 'subagent' && t.session === pane?.file)
-    return front?.kind === 'subagent' ? front.name : null
-  })
   // Agents' pages in the workspace on screen get their work cards in the chat in front.
   const inFront = useFrontChatPane() === paneId
   const sidebarLabel =
@@ -200,7 +190,7 @@ function ChatView({
   // quotes a bubble into this pane's composer.
   const reactionThread = useReactionThread(pane?.file ?? '', agent)
   // The assistant thread's open asks (the host's questions Isaac has not answered), for the log
-  // and the line above the composer.
+  // and the card stack on the composer.
   const askAgent = askAgentOf(reactionThread)
   useWatchedAsks(askAgent)
   const reactionScope = useMemo<ReactionScopeValue>(
@@ -218,7 +208,7 @@ function ChatView({
   }, [shownId])
   const draftKey = draftKeyFor(pane, placeChat, browserScope(placeOf('chat'), tab))
 
-  // A chip's plain click swaps this pane to a session transcript; the trail is the way back, and
+  // An Open session click swaps this pane to a session transcript; the trail is the way back, and
   // it ends when the pane moves to another chat.
   const trail = useDrillTrail(paneId)
   const current = trail[trail.length - 1]
@@ -226,13 +216,6 @@ function ChatView({
   useEffect(() => {
     drillStore.popTo(paneId, 0)
   }, [paneId, paneFile, placeChat])
-  const hiddenDone = useChatStore((s) => s.hiddenDone)
-  const hiddenNames = useMemo(() => {
-    const names = new Set<string>()
-    for (const a of pane?.extras.subagents ?? [])
-      if (pane && hiddenDone.has(hiddenKey(pane.file, a.name))) names.add(a.name)
-    return names
-  }, [pane, hiddenDone])
 
   // A tab whose place is a session path shows that session; a draft tab shows a new chat.
   useEffect(() => {
@@ -251,7 +234,7 @@ function ChatView({
   }, [boundTo, placeChat, tab])
 
   // Everything else this chat's assistant has in progress (sessions, harnesses, canvas agents),
-  // from the host's activity list: a badge each beside the subagents'.
+  // from the host's activity list: a running card each after the subagents'.
   const activityItems = useActivityItems()
   const ownThread =
     agent !== null ? `assistant:${agent}` : pane?.file ? `session:${sessionId(pane.file)}` : null
@@ -259,6 +242,40 @@ function ChatView({
     () => ownedActive(activityItems, ownThread).filter((i) => i.kind !== 'helper'),
     [activityItems, ownThread],
   )
+
+  // The stack on the composer: the session's question, the thread's open asks, then what runs.
+  const asks = useOpenAsks(askAgent)
+  const minute = useMinute()
+  const dialog = pane?.dialog ?? null
+  const subagents = pane?.extras.subagents ?? NO_EXTRAS.subagents
+  const cards = useMemo(
+    () =>
+      stackCards({
+        dialog,
+        asks,
+        subagents,
+        sessionFile: paneFile,
+        activity: activityItems,
+        spunOff,
+        now: minute,
+      }),
+    [dialog, asks, subagents, paneFile, activityItems, spunOff, minute],
+  )
+  const answerOpenAsk = (ask: OpenAsk, reply: string): void => {
+    if (askAgent === null) return
+    void answerAsk(askAgent, ask, reply, (text) => composer.current?.sendReply(text))
+  }
+  // A plain click swaps this pane to the transcript; Cmd+click splits it beside the pane.
+  const openRun = (card: RunCard, split: boolean): void => {
+    const to = card.target
+    if (to.to === 'activity') {
+      void openActivity(to.item, 'here', split ? undefined : (e) => drillStore.push(paneId, e))
+      return
+    }
+    const file = subagentTranscriptFile(paneFile, to.subagent.file)
+    if (split) openSubagentTab({ session: paneFile, file, name: to.subagent.name })
+    else drillStore.push(paneId, { file, title: to.subagent.name })
+  }
   // A tab on this chat names it as the header does, and follows a rename or omp's auto title.
   const shownFile = pane?.file ?? ''
   const shownTitle = pane?.title ?? ''
@@ -279,8 +296,6 @@ function ChatView({
   const sectionRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const railOk = useRailFits(sectionRef)
-  // The turn rail at the log's left edge: where it would sit on the text, its open asks move to a header count.
-  const turnRailOk = useRailFits(sectionRef, turnRailFits)
   const pins = usePinsFor(paneId, pane?.file ?? '', agent, true)
 
   // An error is a banner, not a lock: the next send retries (and restarts omp if it exited).
@@ -349,9 +364,6 @@ function ChatView({
             {agent !== null ? <AgentCrumb id={agent} /> : 'New chat'}
           </h2>
         )}
-        {askAgent !== null && pane && !turnRailOk ? (
-          <AsksButton agent={askAgent} paneId={paneId} />
-        ) : null}
         {!railOk ? <PinsButton scope={pins} /> : null}
         {agent !== null ? <ArtifactsButton agent={agent} /> : <ContextButton />}
         {lead ? (
@@ -415,31 +427,21 @@ function ChatView({
         // A thread while it opens: nothing to say yet.
         <div className="eva-chat-empty" />
       )}
-      {pane ? (
-        <SubagentChips
-          subagents={pane.extras.subagents}
-          helperActivity={activityItems}
-          sessionFile={pane.file}
-          hidden={hiddenNames}
-          active={viewedSubagent}
-          activity={spunOff}
-          onOpenActivity={(item, split) => {
-            // A click swaps this pane to the transcript; Cmd+click splits it beside the pane.
-            void openActivity(item, 'here', split ? undefined : (e) => drillStore.push(paneId, e))
-          }}
-          onOpen={(s, split) => {
-            // A subagent's transcript lives in the session's folder, named like the session.
-            const file = `${pane.file.replace(/\.jsonl$/, '')}/${s.file}`
-            if (split) openSubagentTab({ session: pane.file, file, name: s.name })
-            else drillStore.push(paneId, { file, title: s.name })
-          }}
-          onClearDone={() => chatStore.getState().clearDone(paneId)}
-        />
-      ) : null}
       {inFront ? <AgentWorkCards /> : null}
       {agent !== null ? <MeetingCards agent={agent} /> : null}
-      <PendingDialog paneId={paneId} />
       {pane ? <JobsStrip running={pane.extras.running} jobs={pane.extras.jobs} /> : null}
+      {current === undefined ? (
+        <CardStack
+          key={paneFile}
+          paneId={paneId}
+          cards={cards}
+          onAnswerAsk={answerOpenAsk}
+          onDismissAsk={(ask) => {
+            if (askAgent !== null) void resolveAsk(askAgent, ask, 'dismissed')
+          }}
+          onOpenRun={openRun}
+        />
+      ) : null}
       <StatusStrip paneId={paneId} />
       {/* An assistant's failed turn (or broken sign-in) ends its thread, over the composer. */}
       {agent !== null && current === undefined ? <FailureStrip agent={agent} /> : null}

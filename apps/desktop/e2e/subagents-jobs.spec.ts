@@ -53,18 +53,20 @@ async function openChat(shell: Page, id: string): Promise<void> {
 const subFolder = (): string =>
   path.join(path.dirname(fx.file('p4-subagents')), path.basename(fx.file('p4-subagents'), '.jsonl'))
 
-const chip = (shell: Page, name: string) => shell.locator(`[data-testid="subagent-chip-${name}"]`)
+const stack = (shell: Page) => shell.locator(sel('card-stack'))
 const strip = (shell: Page) => shell.locator(sel('jobs-strip'))
 
-test('subagent chips: running and done, transcript panel, Clear done, live update', async ({
+test('a running subagent is a running card: Open session opens its transcript, and it leaves once done', async ({
   app,
   shell,
 }) => {
   await openChat(shell, 'p4-subagents')
-  await expect(chip(shell, 'a')).toHaveAttribute('data-state', 'done')
-  await expect(chip(shell, 'b')).toHaveAttribute('data-state', 'running')
+  // Only b runs; a finished, so it has no card (and one card shows no sliver behind it).
+  await expect(stack(shell)).toHaveAttribute('data-front', 'sub:b')
+  await expect(shell.locator(sel('card-stack-tab'))).toHaveText('b')
+  await expect(shell.locator(sel('card-stack-peek'))).toHaveCount(0)
 
-  // The log stays pinned to the bottom when the chips appear.
+  // The log stays pinned to the bottom when the stack appears.
   const gap = await shell.evaluate(() => {
     const el = document.querySelector('[data-testid=chat-log]') as HTMLElement
     const scroller = (el.querySelector('[style*="overflow"]') as HTMLElement | null) ?? el
@@ -72,48 +74,28 @@ test('subagent chips: running and done, transcript panel, Clear done, live updat
   })
   expect(gap).toBeLessThanOrEqual(2)
 
-  // A chip opens its transcript in a tool pane tab, read only.
-  await chip(shell, 'b').click({ modifiers: ['Meta'] })
+  // Cmd+click on the tab's Open session opens its transcript in a tool pane tab, read only.
+  await shell.locator(sel('card-stack-open-link')).click({ modifiers: ['Meta'] })
   const tab = shell.locator('[data-testid^="pane-tab-subagent:"]')
   await expect(tab).toHaveCount(1)
   await expect(tab).toContainText('b')
   await expect(tab).toHaveAttribute('data-active', 'true')
   await expect(shell.locator(sel('subagent-transcript'))).toContainText('Reading the fixtures now.')
-  await expect(chip(shell, 'b')).toHaveAttribute('aria-pressed', 'true')
-  await proofShot(app, shell, 'subagent-chips', { phase: 'phase-4' })
   await shell.locator('[data-testid^="pane-tab-close-subagent:"]').click()
   await expect(tab).toHaveCount(0)
-  await expect(shell.locator(sel('subagent-transcript'))).toHaveCount(0)
 
-  // Clear done hides only the finished chip and stays, disabled, while nothing else is done.
-  await shell.getByRole('button', { name: 'Clear done' }).click()
-  await expect(chip(shell, 'a')).toHaveCount(0)
-  await expect(shell.getByRole('button', { name: 'Clear done' })).toBeDisabled()
-  await expect(chip(shell, 'b')).toBeVisible()
+  // Open, its recent work is its last line; without its helper run there is no clock or model.
+  await shell.locator(sel('card-stack-tab')).click()
+  await expect(stack(shell)).toHaveAttribute('data-state', 'expanded')
+  await expect(shell.locator(sel('card-stack-title'))).toHaveText('b')
+  await expect(shell.locator(sel('card-stack-log'))).toContainText(/Reading the\s+fixtures now\./)
+  await expect(shell.locator(sel('card-stack-timer'))).toHaveCount(0)
+  await expect(shell.locator(sel('card-stack-open-session'))).toBeVisible()
+  await proofShot(app, shell, 'subagent-running-card', { phase: 'phase-4' })
 
-  // omp writes b.md: b becomes finished within 500 ms of the file change.
+  // omp writes b.md: b is finished within 500 ms of the file change, and its card leaves.
   fs.writeFileSync(path.join(subFolder(), 'b.md'), 'Subagent b finished.\n')
-  await expect(chip(shell, 'b')).toHaveAttribute('data-state', 'done', { timeout: 1500 })
-  await expect(shell.getByRole('button', { name: 'Clear done' })).toBeEnabled()
-})
-
-test('a finished subagent whose result is a JSON object never floats a "{" tooltip', async ({
-  app,
-  shell,
-}) => {
-  // The shape of a real structured result: a pretty-printed object, so its first line is `{`.
-  fs.writeFileSync(
-    path.join(subFolder(), 'a.md'),
-    JSON.stringify({ method: 'Slack over CDP', awaiting_isaac: [] }, null, 2) + '\n',
-  )
-  await openChat(shell, 'p4-subagents')
-  await expect(chip(shell, 'a')).toHaveAttribute('data-state', 'done')
-  await chip(shell, 'a').hover()
-  await shell.waitForTimeout(900) // past the tooltip's 400 ms open delay
-  await proofShot(app, shell, 'subagent-json-result-tooltip', { phase: 'brace-bug' })
-  const tip = shell.locator('.mantine-Tooltip-tooltip:visible')
-  const texts = await tip.allTextContents()
-  expect(texts.filter((t) => /^[\s{[]*$/.test(t))).toEqual([])
+  await expect(stack(shell)).toHaveCount(0, { timeout: 1500 })
 })
 
 test('jobs strip: only while omp runs and a job is unfinished', async ({ app, shell }) => {

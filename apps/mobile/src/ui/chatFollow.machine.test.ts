@@ -13,9 +13,6 @@ function start(initialOffset = 0) {
       scrollHome: ({ event }) => {
         effects.push(event.type === "follow.toBottom" && event.animated ? "scrollHome animated" : "scrollHome");
       },
-      centreRow: ({ event }) => {
-        if (event.type === "follow.toRow") effects.push(`centreRow ${event.index}`);
-      },
     },
   });
   const actor = createActor(machine, { clock, input: { initialOffset } }).start();
@@ -123,18 +120,5 @@ describe("chatFollow", () => {
     actor.send({ type: "follow.toBottom", animated: false });
     expect(value()).toBe("following");
     expect(effects).toEqual(["scrollHome"]);
-  });
-
-  it("centring a row stops following and remembers the row", () => {
-    const { actor, value, effects, away } = start();
-    actor.send({ type: "follow.toRow", index: 12, animated: true });
-    expect(value()).toBe("centring");
-    expect(actor.getSnapshot().context.target).toBe(12);
-    expect(away()).toBe(true);
-    expect(actor.getSnapshot().can({ type: "follow.contentChanged" })).toBe(false);
-    expect(actor.getSnapshot().can({ type: "follow.toRow", index: -1, animated: true })).toBe(false);
-    expect(effects).toEqual(["centreRow 12"]);
-    actor.send({ type: "follow.dragStart" });
-    expect(value()).toEqual({ reading: "moving" });
   });
 });

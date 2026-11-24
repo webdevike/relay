@@ -191,8 +191,11 @@ test('an outside session streams live and takes replies, stop, answers, model an
       { id: 'q1', question: 'Which animal next?', options: [{ label: 'Owls' }, { label: 'Bats' }] },
     ],
   })
-  const card = shell.locator(sel('pending-dialog'))
-  await expect(card).toContainText('Which animal next?')
+  // The session is blocked on it: the stack on the composer opens on the question, its title the
+  // question.
+  const card = shell.locator(`${sel('card-stack-card')} ${sel('pending-dialog')}`)
+  await expect(shell.locator(sel('card-stack'))).toHaveAttribute('data-state', 'expanded')
+  await expect(shell.locator(sel('card-stack-title'))).toHaveText('Which animal next?')
   await card.getByRole('radio', { name: /Bats/ }).click()
   await expect
     .poll(() => host.commands.find((c) => c.cmd.kind === 'agent.ask.answer')?.cmd)
@@ -214,7 +217,7 @@ test('an outside session streams live and takes replies, stop, answers, model an
     destructive: 'rm -rf',
     requiresBiometric: true,
   })
-  await expect(card).toContainText('bash needs approval')
+  await expect(shell.locator(sel('card-stack-title'))).toHaveText('bash needs approval')
   await expect(card).toContainText('rm -rf build')
   await proofShot(app, shell, 'shared-session-approval', { phase: 'shared-session' })
   await card.getByRole('button', { name: 'Confirm' }).click()

@@ -11,9 +11,10 @@ import { APP_DIR, EVA_FIXTURE_ROOT } from './helpers/paths'
 
 // Component cards are frames (artboards) of real Relay surfaces. This spec measures every surface
 // in the running app against FRAME_PRESETS, then designs the Assistants grid (Isaac's five real
-// assistants, their registry portraits) in a `page` frame and the session badge strip in a `chips`
-// frame, and checks each lands within 2px of the page and strip the app ships. Side-by-side
-// screenshots go to EVAOS_FRAMES_PROOF (default test-results/canvas-frames).
+// assistants, their registry portraits) in a `page` frame and the kit's session badge strip in a
+// `chips` frame, and checks each lands within 2px of the page the app ships and of the strip's
+// preset band (the app's composer shows runs as cards now, so no strip ships to measure).
+// Side-by-side screenshots go to EVAOS_FRAMES_PROOF (default test-results/canvas-frames).
 
 let fx: ChatFixture
 let host: FakeRelayHost
@@ -106,7 +107,7 @@ test('component card frames are the real surfaces, and designs in them land wher
   for (const more of await shell.locator('[data-testid^="chat-show-more-"]').all())
     await more.click()
   await shell.locator(sel('chat-row-p4-subagents')).click()
-  await expect(shell.locator(sel('subagent-chip-b'))).toBeVisible()
+  await expect(shell.locator(sel('chat-log'))).toContainText('Hello from p4-subagents')
   measured.window = await shell.evaluate(() => ({ w: innerWidth, h: innerHeight }))
   const sidebar = await box(shell.locator('.eva-sidebar'))
   measured.sidebar = { w: sidebar.w, h: sidebar.h }
@@ -114,20 +115,6 @@ test('component card frames are the real surfaces, and designs in them land wher
   const chatHead = await box(shell.locator('[data-testid=chat-pane] .eva-chat-header'))
   const column = await box(shell.locator('[data-testid=chat-pane] .eva-row-inner').first())
   measured.chat = { w: column.w, h: chatPane.y + chatPane.h - (chatHead.y + chatHead.h) }
-  // The strip's band: the strip, its gutters (native-lg each side) and its top margin.
-  const strip = await box(shell.locator(sel('subagent-chips')))
-  const band = await shell.locator(sel('subagent-chips')).evaluate((el) => {
-    const probe = document.createElement('div')
-    probe.style.width = 'var(--eva-space-native-lg)'
-    el.parentElement!.append(probe)
-    const gutter = probe.getBoundingClientRect().width
-    probe.remove()
-    return { gutter, top: Number.parseFloat(getComputedStyle(el).marginTop) }
-  })
-  measured.chips = { w: strip.w + 2 * band.gutter, h: strip.h + band.top }
-  const stripShot = await shell.screenshot({
-    clip: { x: strip.x - band.gutter, y: strip.y - band.top, width: 820, height: 43 },
-  })
   // The Add tab menu.
   await shell.locator(sel('tab-new')).first().click()
   const menu = await box(shell.locator('.eva-add-menu'))
@@ -165,6 +152,7 @@ test('component card frames are the real surfaces, and designs in them land wher
   measured['page-narrow'] = { w: narrow.w, h: viewport.h }
   fs.writeFileSync(path.join(proof, 'measured.json'), JSON.stringify(measured, null, 2))
   // `phone` is the phone app's screen (iPhone portrait points); this app has none to measure.
+  // `chips` is the kit's badge strip; the composer shows runs as cards now (step 4 checks the band).
   for (const [id, m] of Object.entries(measured)) {
     const f = FRAME_PRESETS[id as FramePreset]
     expect(Math.abs(m.w - f.w), `${id} width ${m.w} vs ${f.w}`).toBeLessThanOrEqual(1)
@@ -172,7 +160,7 @@ test('component card frames are the real surfaces, and designs in them land wher
   }
   expect(Object.keys(measured).sort()).toEqual(
     Object.keys(FRAME_PRESETS)
-      .filter((k) => k !== 'phone')
+      .filter((k) => k !== 'phone' && k !== 'chips')
       .sort(),
   )
 
@@ -330,7 +318,8 @@ test('component card frames are the real surfaces, and designs in them land wher
   fs.writeFileSync(path.join(proof, '03-assistants-designed.png'), designedShot)
   sideBySide(shippedShot, designedShot, path.join(proof, '04-assistants-side-by-side.png'))
 
-  // 4. The badge strip in its real container (`chips`): the strip lands where the chat draws it.
+  // 4. The kit's badge strip in its container (`chips`): the strip lands in the preset's band, the
+  // chat column (780 wide) between 20px gutters, 33 tall under a 10px top margin.
   const STRIP = `<ChipStrip end={<button type="button" className="eva-chips-clear eva-label">Clear done</button>}>
   <SessionChip label="b" state="done" />
   <SessionChip label="a" state="done" />
@@ -354,10 +343,10 @@ test('component card frames are the real surfaces, and designs in them land wher
     return { x: r.x, y: r.y, w: r.width, h: r.height }
   })
   for (const [k, want] of [
-    ['x', band.gutter],
-    ['y', band.top],
-    ['w', strip.w],
-    ['h', strip.h],
+    ['x', 20],
+    ['y', 10],
+    ['w', 780],
+    ['h', 33],
   ] as const)
     expect(Math.abs(stripInFrame[k] - want), `strip ${k}`).toBeLessThanOrEqual(1)
   await expect(chipsBody).not.toHaveAttribute('data-overflow', 'true')
@@ -368,10 +357,7 @@ test('component card frames are the real surfaces, and designs in them land wher
     path: path.join(proof, '05-chips-frame-card.png'),
     style: NO_CURSOR,
   })
-  const chipsShot = await chipsBody.screenshot({ style: NO_CURSOR })
-  fs.writeFileSync(path.join(proof, '06-chips-shipped.png'), stripShot)
-  fs.writeFileSync(path.join(proof, '07-chips-designed.png'), chipsShot)
-  sideBySide(stripShot, chipsShot, path.join(proof, '08-chips-side-by-side.png'))
+  await chipsBody.screenshot({ path: path.join(proof, '06-chips-designed.png'), style: NO_CURSOR })
 
   // 5. Content taller than its frame is clipped, never stretched, and says by how much.
   await ok('canvas.edit', {

@@ -9,8 +9,9 @@ import {
 } from '@tabler/icons-react'
 
 /*
- * The composer's run chips, presentational only (strips.css styles them): SubagentChips wires them
- * to runs and transcripts, and the `relay` design system's kit draws the same components.
+ * Run chips, presentational only (strips.css styles them). The composer shows runs as the card
+ * stack now (chat/stack); the `relay` design system's kit still draws these components, and the
+ * tool panel's subagent tab uses the state icon.
  */
 
 export type SubagentState = 'running' | 'done' | 'failed'

@@ -230,18 +230,18 @@ test.describe('question cards and extension UI', () => {
     await expect(card(shell)).toHaveCount(0)
   })
 
-  test('a question left when omp exits shows the dead card', async ({ app, shell }) => {
+  test('a question left when omp exits leaves no card to answer', async ({ shell }) => {
     await ask(shell, '[select] q')
     await expect(card(shell)).toBeVisible()
+    // The session is blocked on it: the stack opened on the question.
+    await expect(shell.getByTestId('card-stack')).toHaveAttribute('data-state', 'expanded')
     const r = await shell.evaluate(() =>
       (
         window as unknown as { eva: { invoke(c: string, i: unknown): Promise<{ ok: boolean }> } }
       ).eva.invoke('chat.close', { paneId: 'pane-1' }),
     )
     expect(r.ok).toBe(true)
-    await expect(card(shell)).toHaveAttribute('data-dead', 'true')
-    await expect(card(shell)).toContainText('This question can no longer be answered.')
-    await expect(card(shell).getByRole('radio').first()).toBeDisabled()
-    await proofShot(app, shell, 'question-dead', { phase: 'phase-4' })
+    await expect(card(shell)).toHaveCount(0)
+    await expect(shell.getByTestId('card-stack')).toHaveCount(0)
   })
 })

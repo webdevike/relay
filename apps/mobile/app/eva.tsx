@@ -8,15 +8,15 @@
  * opens a sheet for the camera or library photos, and the field's own Paste attaches a copied image; queued images show as
  * thumbnails above the field. Bubbles stack their images above the text, tap to open. The newest
  * settled reply may carry tap-to-answer reply chips (`lib/replyChips.ts`); a tap sends that label as
- * a turn, as the composer does, and leaves the draft alone. While the thread's omp session is
- * blocked on an `ask` or a tool approval, its card sits above the composer (the session is
- * subscribed while the thread shows, as the Agent Inbox does). Questions the assistant asked that
- * Isaac has not answered (`snapshot.asks`) are counted on the header's question button, which
- * opens `agents/OpenAsksSheet` to answer or dismiss each; what runs now shows as chips under the
- * header row (`agents/RunningChips`).
+ * a turn, as the composer does, and leaves the draft alone. What needs Isaac (the thread's omp
+ * session blocked on an `ask` or a tool approval, the session being subscribed while the thread
+ * shows as the Agent Inbox does, and the questions the assistant asked that he has not answered,
+ * `snapshot.asks`) and what runs for the thread now are one card stack (`agents/CardStack`): a tab
+ * on the composer that opens into a looping carousel of cards in the middle of the screen, where
+ * each is answered, dismissed or opened.
  *
  * Look: one compact frosted header row (`ui/FrostedBar`: back, the agent's small animated portrait
- * with name and status, which opens a menu, then questions, artifacts and call) that the
+ * with name and status, which opens a menu, then artifacts and call) that the
  * conversation scrolls under; the user's
  * words are blue bubbles on the right with a delivery receipt, the agent's replies are dark grey bubbles
  * on the left with three typing dots while she works before her reply text streams. The rounded composer keeps multiline text
@@ -71,7 +71,6 @@ import { TypingDots } from "@/ui/TypingDots";
 import { ScrollToBottom } from "@/ui/ScrollToBottom";
 import { useInvertedChatScroll } from "@/ui/useInvertedChatScroll";
 import { useMessageEntrances } from "@/ui/useMessageEntrances";
-import { useCoversContent } from "@/ui/covering";
 import { ImageViewer } from "@/agents/ImageViewer";
 import { MessageImageStack } from "@/agents/MessageImageStack";
 import { bubbleSegments, topLevelImages } from "@/agents/markdown";
@@ -82,12 +81,8 @@ import { workBrains, type WorkBrain as Brain } from "@/lib/turnWork";
 import { useSettingsStore } from "@/state/settings";
 import { useTurnWorkStore } from "@/connection/turnWork";
 import { BackgroundRow } from "@/agents/BackgroundRow";
-import { AskCard } from "@/agents/AskCard";
-import { SessionApprovalCard } from "@/agents/SessionApprovalCard";
 import { usePendingAsk } from "@/agents/usePendingAsk";
-import { ownedBy, useAgentsStore } from "@/state/agents";
-import { useActivityStore } from "@/state/activity";
-import { runningChips } from "@/lib/activity";
+import { useAgentsStore } from "@/state/agents";
 import { ReplyWidgetActions } from "@/agents/WidgetActions";
 import { backgroundOf } from "@/lib/background";
 import { guestRowKind } from "@/lib/guests";
@@ -139,9 +134,7 @@ import { CanvasEntryRow } from "@/canvas/CanvasEntryRow";
 import { draftKey, useThreadDraft } from "@/state/drafts";
 import { placeDraft, useThreadHandoff } from "@/state/threadHandoff";
 import { ArtifactsSheet } from "@/artifacts/ArtifactsSheet";
-import { OpenAsksButton } from "@/agents/OpenAsksButton";
-import { OpenAsksSheet } from "@/agents/OpenAsksSheet";
-import { RunningChips } from "@/agents/RunningChips";
+import { CardStackCarousel, CardStackProvider, CardStackTab } from "@/agents/CardStack";
 import { AskInlineCard } from "@/agents/AskInlineCard";
 import { WaitingMark } from "@/ui/WaitingMark";
 import {
@@ -193,9 +186,7 @@ const BUBBLE_DARK = "#212121";
 /** Space between rows of different senders, and between rows of one sender's run. */
 const GAP_SENDER = 16;
 const GAP_RUN = 4;
-/** After Show in chat's scroll starts, how long before the row rings: the smooth scroll has mostly landed. */
-const RING_DELAY_MS = 420;
-/** Show in chat waits for the questions sheet to start closing before it scrolls. */
+/** A menu item that opens something else waits for the sheet to start closing. */
 const SHEET_CLOSE_MS = 250;
 /** Proportion of the width a bubble may take. */
 const USER_MAX_WIDTH = "80%";
@@ -330,7 +321,7 @@ function Thread({ agent }: { agent: string }) {
   useEffect(() => {
     memory.current.drawn = drawn;
   }, [drawn]);
-  const { listRef, awayFromBottom, scrollToBottom, scrollToRow, followContent, scrollHandlers } =
+  const { listRef, awayFromBottom, scrollToBottom, followContent, scrollHandlers } =
     useInvertedChatScroll<AssistantMessage>({
       initialOffset: initialOffset.current,
       onOffset: (offset) => {
@@ -343,9 +334,8 @@ function Thread({ agent }: { agent: string }) {
   );
   const artifactsThread = assistantReactionThread(agent);
   const [artifactsOpen, setArtifactsOpen] = useState(false);
-  // The Artifacts tab the sheet opens on: the Working group when a running chip that is not a session was tapped.
+  // The Artifacts tab the sheet opens on: the Working group when a running card with no session opened it.
   const [artifactsTab, setArtifactsTab] = useState<string | null>(null);
-  const [asksOpen, setAsksOpen] = useState(false);
   // The frosted header floats over the list, so the list pads itself by however tall the header is.
   const [headerHeight, setHeaderHeight] = useState(insets.top + HEADER_ROW);
   // Follow the thread's artifacts while it shows, so the header button's dot is live.
@@ -536,8 +526,8 @@ function Thread({ agent }: { agent: string }) {
   const sessionId = snapshot === null || snapshot.sessionId === "" ? null : snapshot.sessionId;
 
   // The session the thread runs in stays subscribed while the thread shows: that is how the host
-  // hands this phone an `ask` (or a tool approval) the assistant is blocked on, as a card above
-  // the composer, and replays it after a reconnect. A rolled-over session moves the subscription.
+  // hands this phone an `ask` (or a tool approval) the assistant is blocked on, as a card in the
+  // card stack, and replays it after a reconnect. A rolled-over session moves the subscription.
   useFocusEffect(
     useCallback(() => {
       if (!connected || sessionId === null) return;
@@ -548,7 +538,7 @@ function Thread({ agent }: { agent: string }) {
     }, [sessionId, connected]),
   );
   // Open asks (`snapshot.asks`): questions the assistant is still waiting on. An older host sends
-  // none, so it gets no badges and never an `assistant.ask.resolve`. One answered or dismissed here
+  // none, so it gets no question cards and never an `assistant.ask.resolve`. One answered or dismissed here
   // hides at once (its answer record, `agents/asks.ts`, outlives this screen) until the host's next
   // snapshot drops it; a failed one shows again with the reason in the banner, to answer again.
   const openAsks = snapshot?.asks;
@@ -595,21 +585,8 @@ function Thread({ agent }: { agent: string }) {
     if (how === "answered") answerAsk(openAskKey(agent, ask), reply, sources, showAskFailure);
     else dismissAsk(openAskKey(agent, ask), reply, sources, showAskFailure);
   };
-  /** The row Show in chat last scrolled to: it rings anew each time `n` grows, so the same ask shown again rings again. */
-  const [rung, setRung] = useState({ id: "", n: 0 });
-  const ringTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(
-    () => () => {
-      clearTimeout(ringTimer.current);
-    },
-    [],
-  );
   const pendingApproval = useAgentsStore((state) =>
     sessionId === null ? undefined : state.approvals[sessionId],
-  );
-  // The approval or ask card above the composer can stand taller than the band leaves for it.
-  useCoversContent(
-    (sessionId !== null && pendingApproval !== undefined) || pendingAsk !== undefined,
   );
   // The model and thinking level of the thread's session, for the avatar menu when the registry names none: primitives, so the
   // screen redraws when they change, not on every status frame of any session the host follows.
@@ -658,7 +635,7 @@ function Thread({ agent }: { agent: string }) {
   const newestSettled = settled[settled.length - 1];
   // Tap-to-answer replies under the newest reply once it has settled; hidden while offline, where a tap could not send.
   const replies = connected ? liveReplies(snapshot, pending.length > 0) : null;
-  // Open questions, minus the one whose ask card shows above the composer: the header button's count and its sheet.
+  // Open questions, minus the one whose ask form already has its own card in the stack: the stack's question cards and the inline ask rows.
   const shownAsks = useMemo(
     () =>
       visibleAsks(
@@ -668,10 +645,6 @@ function Thread({ agent }: { agent: string }) {
       ),
     [openAsks, pendingAsk, sessionId, hiddenAsks],
   );
-  // The last question answered or dismissed closes the sheet.
-  useEffect(() => {
-    if (shownAsks.length === 0) setAsksOpen(false);
-  }, [shownAsks.length]);
   // An open ask with a bubble in the thread marks that bubble; one without (a session's, an `ask` card left open) is a card where it was asked.
   const messageIds = useMemo(() => new Set(messages.map((message) => message.id)), [messages]);
   const waitingIds = useMemo(
@@ -690,13 +663,6 @@ function Thread({ agent }: { agent: string }) {
   const loadOlder = useCallback(() => {
     setDrawn((count) => (count < total ? count + PAGE : count));
   }, [total]);
-  // Show in chat for a row older than the list holds: the list takes it in first, then scrolls once it is there.
-  const [jumpTo, setJumpTo] = useState<number | null>(null);
-  useEffect(() => {
-    if (jumpTo === null || jumpTo >= listed.length) return;
-    setJumpTo(null);
-    scrollToRow(jumpTo);
-  }, [jumpTo, listed.length, scrollToRow]);
   // Turns of the host's rows, for bookmarks: flagged by an ask nobody answered and by reactions.
   const turnRows = useMemo(
     () => assistantTurnRows(rows, notHostRow, pendingAsk !== undefined),
@@ -860,28 +826,7 @@ function Thread({ agent }: { agent: string }) {
   };
 
   /**
-   * Show in chat (the questions sheet): the chat scrolls to the bubble that asked it (or its inline
-   * card), centred, and the row rings (`WaitingMark`).
-   */
-  const jumpToAsk = (ask: OpenAsk): void => {
-    Keyboard.dismiss();
-    const target = askRowTarget(ask, messageIds);
-    const index = newestFirst.findIndex((row) => row.id === target);
-    if (index < 0) return;
-    if (index < listed.length) scrollToRow(index);
-    else {
-      setDrawn(index + PAGE);
-      setJumpTo(index);
-    }
-    // Ring once the scroll has settled; the row is on screen by then even when the list had to lay it out first.
-    clearTimeout(ringTimer.current);
-    ringTimer.current = setTimeout(() => {
-      setRung((current) => ({ id: target, n: current.n + 1 }));
-    }, RING_DELAY_MS);
-  };
-
-  /**
-   * An answer to an open ask, from an inline card or the questions sheet: a thread ask goes out as
+   * An answer to an open ask, from an inline card or a question card in the stack: a thread ask goes out as
    * Isaac's turn too (tagged with its question unless its row is the newest); a session ask's
    * answer only to the host, which hands it to the asking session.
    */
@@ -988,7 +933,7 @@ function Thread({ agent }: { agent: string }) {
                 data={listed}
                 inverted
                 keyExtractor={(message) => message.id}
-                extraData={`${latestUserId ?? ""}|${receipt ?? ""}|${String(connected)}|${rung.id}:${String(rung.n)}|${[...waitingIds].join(",")}`}
+                extraData={`${latestUserId ?? ""}|${receipt ?? ""}|${String(connected)}|${[...waitingIds].join(",")}`}
                 renderItem={({ item, index }) => {
                   const card = cardByRow.get(item.id);
                   const echo = item.id.startsWith(PENDING_ID)
@@ -1007,7 +952,6 @@ function Thread({ agent }: { agent: string }) {
                           source={card.from ?? title}
                           fill={dark ? BUBBLE_DARK : colors.surface}
                           page={bg}
-                          pulse={rung.id === item.id ? rung.n : 0}
                           onPick={
                             connected
                               ? (reply) => {
@@ -1042,7 +986,6 @@ function Thread({ agent }: { agent: string }) {
                                   : null
                             }
                             waiting={waitingIds.has(item.id)}
-                            pulse={rung.id === item.id ? rung.n : 0}
                             onReply={onRowReply}
                             onOpenImages={onOpenImages}
                             onSignIn={openSignIn}
@@ -1119,16 +1062,6 @@ function Thread({ agent }: { agent: string }) {
             >
               <AvatarTitle name={title} portrait={portrait} motion={{ signals, paused: onCall }} />
             </Pressable>
-            {shownAsks.length > 0 && (
-              <OpenAsksButton
-                count={shownAsks.length}
-                size={HEADER_BUTTON}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setAsksOpen(true);
-                }}
-              />
-            )}
             <ArtifactsButton
               thread={artifactsThread}
               size={HEADER_BUTTON}
@@ -1147,19 +1080,6 @@ function Thread({ agent }: { agent: string }) {
               accessibilityLabel={`Call ${title}`}
             />
           </View>
-          <ThreadRunning
-            agent={agent}
-            thread={artifactsThread}
-            sessionId={sessionId}
-            onOpenSession={(id) => {
-              router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
-            }}
-            onOpenWorking={() => {
-              Keyboard.dismiss();
-              setArtifactsTab("subagents");
-              setArtifactsOpen(true);
-            }}
-          />
         </FrostedBar>
         {/* No Pinned row under the header on the phone (Isaac, 2026-11-05): pins stay in the thread's Artifacts and on
             the desktop rail; `@/pins/PinnedRow` is kept for when it comes back. */}
@@ -1175,23 +1095,10 @@ function Thread({ agent }: { agent: string }) {
                 <Banner tone="danger" message={banner} />
               </View>
             )}
-            {/* What the assistant is blocked on, answered here; sending a message instead cancels the ask (the host's bridge does). */}
-            {sessionId !== null && pendingApproval !== undefined ? (
-              <View style={styles.blocked}>
-                <SessionApprovalCard sessionId={sessionId} approval={pendingApproval} />
-              </View>
-            ) : (
-              pendingAsk !== undefined && (
-                <View style={styles.blocked}>
-                  <AskCard
-                    key={pendingAsk.id}
-                    ask={pendingAsk}
-                    onSubmit={answerCard}
-                    onCancel={cancelCard}
-                  />
-                </View>
-              )
-            )}
+            {/* The card stack's tab, on the pill: what needs Isaac, then what runs. Sending a message instead of answering an ask form cancels it (the host's bridge does). */}
+            <View style={styles.tabRow}>
+              <CardStackTab />
+            </View>
           </View>
           <View style={styles.pillRow}>
             <AssistantComposer
@@ -1230,8 +1137,33 @@ function Thread({ agent }: { agent: string }) {
   );
   return (
     <BubbleMenuProvider thread={assistantReactionThread(agent)} onReply={replyWith}>
+      <CardStackProvider
+        agent={agent}
+        thread={artifactsThread}
+        sessionId={sessionId}
+        connected={connected}
+        approval={pendingApproval}
+        form={pendingAsk}
+        onFormSubmit={answerCard}
+        onFormCancel={cancelCard}
+        asks={shownAsks}
+        onAnswer={answerOpenAsk}
+        onDismiss={(ask) => {
+          resolveAsk(ask, "dismissed");
+        }}
+        onOpenSession={(id) => {
+          router.push({ pathname: "/agents/[sessionId]", params: { sessionId: id } });
+        }}
+        onOpenWorking={() => {
+          Keyboard.dismiss();
+          setArtifactsTab("subagents");
+          setArtifactsOpen(true);
+        }}
+      >
       <View style={styles.fill}>
         {screen}
+        {/* The stack opened: its cards over the thread, under the sheets. */}
+        <CardStackCarousel />
         <ArtifactsSheet
           thread={artifactsThread}
           agent={agent}
@@ -1244,25 +1176,6 @@ function Thread({ agent }: { agent: string }) {
           }}
         />
         <TurnWorkSheet actor={turnWork} />
-        <OpenAsksSheet
-          open={asksOpen}
-          asks={shownAsks}
-          assistant={title}
-          connected={connected}
-          onAnswer={answerOpenAsk}
-          onDismiss={(ask) => {
-            resolveAsk(ask, "dismissed");
-          }}
-          onShow={(ask) => {
-            setAsksOpen(false);
-            setTimeout(() => {
-              jumpToAsk(ask);
-            }, SHEET_CLOSE_MS);
-          }}
-          onClose={() => {
-            setAsksOpen(false);
-          }}
-        />
         {/* The avatar menu, last, over everything. */}
         <AssistantMenuSheet
           open={menu.open}
@@ -1278,6 +1191,7 @@ function Thread({ agent }: { agent: string }) {
           items={menu.items}
         />
       </View>
+      </CardStackProvider>
     </BubbleMenuProvider>
   );
 }
@@ -1379,8 +1293,6 @@ interface RowProps {
   onReply: (message: AssistantMessage, reply: string) => void;
   /** An open ask sits on this bubble: it keeps its accent edge and "Waiting on you" tag. */
   waiting: boolean;
-  /** Rings the bubble when it grows (`WaitingMark`); 0 until a badge was tapped. */
-  pulse: number;
   /** The echo's ack is overdue: Try again or take it away. Null for every other row. */
   onEcho: ((messageId: string, action: "retry" | "dismiss") => void) | null;
   /** The assistant's name, for the brain's VoiceOver label. */
@@ -1389,41 +1301,6 @@ interface RowProps {
   work: Brain | null;
   /** The brain was tapped: open the work behind this reply's turn. */
   onWork: (message: AssistantMessage) => void;
-}
-
-/**
- * What runs for the thread now (helpers, sessions, harnesses, rooms, and its own sessions only while
- * they work): chips under the header row. Its own component: the host publishes every session's
- * status frames, and only these chips read them, so the thread and its rows do not redraw on each.
- */
-function ThreadRunning({
-  agent,
-  thread,
-  sessionId,
-  onOpenSession,
-  onOpenWorking,
-}: {
-  agent: string;
-  thread: string;
-  sessionId: string | null;
-  onOpenSession: (id: string) => void;
-  onOpenWorking: () => void;
-}) {
-  const activityItems = useActivityStore((state) => state.items);
-  const sessions = useAgentsStore((state) => state.sessions);
-  const owned = useMemo(() => ownedBy(sessions, agent), [sessions, agent]);
-  const running = useMemo(
-    () => runningChips(activityItems, thread, { threadSession: sessionId, sessions }, owned),
-    [activityItems, thread, sessionId, sessions, owned],
-  );
-  return (
-    <RunningChips
-      chips={running}
-      style={styles.running}
-      onOpenSession={onOpenSession}
-      onOpenWorking={onOpenWorking}
-    />
-  );
 }
 
 function RowView({
@@ -1438,7 +1315,6 @@ function RowView({
   replies,
   onReply,
   waiting,
-  pulse,
   onEcho,
   title,
   work,
@@ -1621,7 +1497,7 @@ function RowView({
                     <MessageText text={text} large skipImages streaming={streaming} />
                   </View>
                 )}
-                {waiting && <WaitingMark radius={EVA_RADIUS} pulse={pulse} page={page} />}
+                {waiting && <WaitingMark radius={EVA_RADIUS} page={page} />}
               </ChatBubble>
             )}
             {roomed.rooms.map((r) => (
@@ -1703,7 +1579,6 @@ const styles = StyleSheet.create({
   },
   /** The identity takes the room the buttons leave. */
   identity: { flex: 1, minWidth: 0, paddingHorizontal: spacing.xs },
-  running: { paddingBottom: spacing.xs + 2 },
   userRow: { paddingHorizontal: spacing.lg, alignItems: "flex-end" },
   userBubbleFrame: { maxWidth: USER_MAX_WIDTH },
   userBubble: { borderRadius: USER_RADIUS, paddingVertical: 11, paddingHorizontal: 17 },
@@ -1749,8 +1624,8 @@ const styles = StyleSheet.create({
   /** A zero-height line at the list's bottom, moved up to the composer's top edge: the scroll-to-bottom button sits on it. */
   overComposer: { position: "absolute", left: 0, right: 0, bottom: 0, height: 0 },
   banner: { paddingBottom: spacing.sm },
-  /** The ask or approval card the assistant is blocked on, above the pill, as wide as the pill. */
-  blocked: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
+  /** The card stack's tab, inset on the pill (`ui/StackTab` keeps its own inset from the pill's sides). */
+  tabRow: { paddingHorizontal: spacing.lg },
   pillRow: { paddingHorizontal: spacing.lg },
   menuTitle: { textAlign: "center", paddingBottom: spacing.md },
   menuRows: { marginHorizontal: -spacing.xl },

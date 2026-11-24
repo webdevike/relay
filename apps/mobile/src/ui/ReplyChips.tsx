@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState } from "react";
 import { StyleSheet } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { Chip } from "./Chip";
@@ -13,8 +13,6 @@ export interface ReplyChipsProps {
   onPick: (reply: string) => void;
   /** The answer a session's ask goes with unless Isaac says otherwise: its chip is drawn selected. */
   selected?: string | undefined;
-  /** A last element in the same wrapping row (the open-questions sheet's "Other" chip). */
-  trailing?: ReactNode;
 }
 
 /**
@@ -23,7 +21,7 @@ export interface ReplyChipsProps {
  * one tap sends once: the tapped chip is drawn selected and the row takes no more taps (a ref, so
  * taps that queued while the JS thread was busy see it before the screen redraws).
  */
-export function ReplyChips({ replies, onPick, selected, trailing }: ReplyChipsProps) {
+export function ReplyChips({ replies, onPick, selected }: ReplyChipsProps) {
   const picked = useRef<string | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
   return (
@@ -47,7 +45,6 @@ export function ReplyChips({ replies, onPick, selected, trailing }: ReplyChipsPr
           }}
         />
       ))}
-      {trailing}
     </Animated.View>
   );
 }

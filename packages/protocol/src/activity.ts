@@ -45,7 +45,18 @@ export const ActivityItem = z.object({
   /** When this run began; a resumed helper starts a new run. */
   startedAt: ms,
   updatedAt: ms,
+  /** Display name of the model the run uses, when the source says ("Claude Opus 5.5"). */
   model: z.string().max(120).optional(),
+  /** Company behind `model` ("anthropic", "openai"), when the source says. */
+  vendor: z.string().max(40).optional(),
+  /** The model's thinking level ("high"), when the source says. */
+  thinking: z.string().max(20).optional(),
+  /**
+   * A working or waiting run's latest `intent` lines, oldest first, at most `MAX_ACTIVITY_LOG`: what
+   * a running card shows of its recent work. The host keeps it while the run is active and drops it
+   * when the run ends. Absent from older hosts: a client then shows `intent` alone.
+   */
+  log: z.array(z.string().max(400)).max(4).optional(),
   /** Dollars spent so far, when the source says (a canvas room's agent). */
   cost: z.number().finite().nonnegative().optional(),
   /** How long a working run has left, when the host can tell (`etaView` reads it). */
@@ -55,9 +66,25 @@ export const ActivityItem = z.object({
 export type ActivityItem = z.infer<typeof ActivityItem>;
 
 export const MAX_ACTIVITY = 300;
+/** Lines of recent work an active run keeps (`ActivityItem.log`). */
+export const MAX_ACTIVITY_LOG = 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const active = (item: ActivityItem): boolean => item.status === "working" || item.status === "waiting";
+
+/** `item` without its log: a finished run keeps no recent work. */
+function unlogged(item: ActivityItem): ActivityItem {
+  if (item.log === undefined) return item;
+  const { log: _, ...rest } = item;
+  return rest;
+}
+
+/** An active run's log after `intent`: the new line appended when it differs from the newest one. */
+function logged(log: readonly string[] | undefined, intent: string): string[] {
+  const lines = log ?? [];
+  if (intent === "" || lines[lines.length - 1] === intent) return [...lines];
+  return [...lines, intent].slice(-MAX_ACTIVITY_LOG);
+}
 
 /**
  * The next list from the last one and what the sources report now (`found`). `answered` names the
@@ -69,7 +96,8 @@ const active = (item: ActivityItem): boolean => item.status === "working" || ite
  * - An item that was finished and is reported working again (a helper woken by a follow-up message)
  *   is a new run: working, started now.
  * - An item still active keeps its start; `updatedAt` moves only when status, intent or the
- *   question changed.
+ *   question changed. Each new intent joins its `log` (the newest `MAX_ACTIVITY_LOG`); an item that
+ *   ends drops it.
  */
 export function mergeActivity(
   previous: readonly ActivityItem[],
@@ -82,12 +110,12 @@ export function mergeActivity(
   for (const item of found) {
     const was = before.get(item.id);
     if (was === undefined) {
-      out.set(item.id, item);
+      out.set(item.id, active(item) ? { ...item, log: logged(undefined, item.intent) } : item);
     } else if (active(item) && !active(was)) {
-      out.set(item.id, { ...item, startedAt: now, updatedAt: now });
+      out.set(item.id, { ...item, startedAt: now, updatedAt: now, log: logged(undefined, item.intent) });
     } else if (active(item)) {
       const same = was.status === item.status && was.intent === item.intent;
-      out.set(item.id, { ...item, startedAt: was.startedAt, updatedAt: same ? was.updatedAt : now });
+      out.set(item.id, { ...item, startedAt: was.startedAt, updatedAt: same ? was.updatedAt : now, log: logged(was.log, item.intent) });
     } else {
       // Finished: the source's own end time when it has one, else when this host first saw it.
       out.set(item.id, was.status === item.status ? { ...item, startedAt: was.startedAt, updatedAt: was.updatedAt } : item);
@@ -96,7 +124,7 @@ export function mergeActivity(
   for (const was of previous) {
     if (out.has(was.id)) continue;
     if (!answered.has(was.kind)) out.set(was.id, was);
-    else if (active(was)) out.set(was.id, { ...was, status: "done", updatedAt: now });
+    else if (active(was)) out.set(was.id, unlogged({ ...was, status: "done", updatedAt: now }));
     else if (now - was.updatedAt < DAY_MS) out.set(was.id, was);
   }
   return [...out.values()]

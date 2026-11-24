@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { TextInput, type KeyboardTypeOptions, type ReturnKeyTypeOptions } from "react-native";
+import { useState, type ReactNode } from "react";
+import { TextInput, View, type KeyboardTypeOptions, type ReturnKeyTypeOptions } from "react-native";
 import { radii, spacing, type, useColors, useScheme } from "@/theme";
 
 /** Room a multiline field grows to before it scrolls: about five lines. */
@@ -20,6 +20,13 @@ export interface TextFieldProps {
   returnKeyType?: ReturnKeyTypeOptions;
   /** e.g. `number-pad` for a seed. */
   keyboardType?: KeyboardTypeOptions;
+  maxLength?: number;
+  /** Overrides the default 36 pt minimum height (44 pt where it must be a touch target). */
+  minHeight?: number;
+  /** A control inside the field's right end (a send button); the border then wraps both. */
+  trailing?: ReactNode;
+  /** Fill instead of the page background, for a field on a card (a card stack card). */
+  fill?: string;
 }
 
 /** A bordered text field on the page background; the hairline darkens a step while focused. */
@@ -34,11 +41,23 @@ export function TextField({
   credential,
   returnKeyType,
   keyboardType,
+  maxLength,
+  minHeight = 36,
+  trailing,
+  fill,
 }: TextFieldProps) {
   const colors = useColors();
   const scheme = useScheme();
   const [focused, setFocused] = useState(false);
-  return (
+  const frame = {
+    minHeight,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: focused ? colors.textFaint : colors.hairline,
+    backgroundColor: fill ?? colors.bg,
+    opacity: editable ? 1 : 0.5,
+  };
+  const input = (
     <TextInput
       value={value}
       onChangeText={onChangeText}
@@ -54,6 +73,7 @@ export function TextField({
       textContentType={credential}
       keyboardType={keyboardType}
       autoComplete={credential}
+      maxLength={maxLength}
       onFocus={() => {
         setFocused(true);
       }}
@@ -63,19 +83,23 @@ export function TextField({
       keyboardAppearance={scheme}
       selectionColor={colors.accent}
       accessibilityLabel={accessibilityLabel ?? placeholder}
-      style={{
-        minHeight: 36,
-        maxHeight: multiline ? MAX_MULTILINE_HEIGHT : undefined,
-        paddingHorizontal: spacing.md,
-        paddingVertical: spacing.sm,
-        borderRadius: radii.md,
-        borderWidth: 1,
-        borderColor: focused ? colors.textFaint : colors.hairline,
-        backgroundColor: colors.bg,
-        color: colors.text,
-        fontSize: type.body.fontSize,
-        opacity: editable ? 1 : 0.5,
-      }}
+      style={[
+        {
+          maxHeight: multiline ? MAX_MULTILINE_HEIGHT : undefined,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+          color: colors.text,
+          fontSize: type.body.fontSize,
+        },
+        trailing === undefined ? frame : { flex: 1, minHeight: minHeight - 2 },
+      ]}
     />
+  );
+  if (trailing === undefined) return input;
+  return (
+    <View style={[frame, { flexDirection: "row", alignItems: "center", paddingRight: spacing.xs }]}>
+      {input}
+      {trailing}
+    </View>
   );
 }

@@ -17,6 +17,7 @@ import { modelViewerMachine } from '../renderer/chat/widgets/rich/model-viewer.m
 import { protoFrameMachine } from '../renderer/canvas/cards/proto-frame.machine'
 import { cardGenMachine } from '../renderer/canvas/agent/card-gen.machine'
 import { shareSnapshotsMachine } from './meetings/share-snapshots.machine'
+import { cardStackMachine } from '../renderer/chat/stack/card-stack.machine'
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   {
@@ -45,6 +46,11 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
     file: 'share-snapshots',
     title: 'Screen-share snapshots per recording (desktop)',
     machine: shareSnapshotsMachine,
+  },
+  {
+    file: 'card-stack-desktop',
+    title: 'Card stack on the composer: asks and running sessions (desktop)',
+    machine: cardStackMachine,
   },
 ]
 

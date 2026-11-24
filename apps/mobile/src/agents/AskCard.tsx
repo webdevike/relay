@@ -16,17 +16,25 @@ export interface AskCardProps {
   onSubmit: (results: AskAnswer[]) => void;
   /** Dismiss the ask without answering (omp's dialog resolves as cancelled). */
   onCancel: () => void;
+  /**
+   * Drawn inside a card of the thread's card stack (`agents/CardStack`), which frames it and titles
+   * it with the question's header: no card of its own, no header caption, at most `maxHeight` tall.
+   */
+  embedded?: { maxHeight: number };
 }
 
 
 function Question({
   question,
+  showHeader,
   selected,
   custom,
   onToggle,
   onCustom,
 }: {
   question: AgentAskQuestion;
+  /** False when the card around it already titles it with the header. */
+  showHeader: boolean;
   selected: string[];
   custom: string;
   onToggle: (label: string) => void;
@@ -35,7 +43,7 @@ function Question({
   const colors = useColors();
   return (
     <View style={{ gap: spacing.sm }}>
-      {question.header !== undefined && question.header.length > 0 && (
+      {showHeader && question.header !== undefined && question.header.length > 0 && (
         <Text variant="caption" color="textFaint">
           {question.header}
         </Text>
@@ -79,7 +87,7 @@ function Question({
  * also takes a typed answer, and the whole ask can be cancelled. Back keeps earlier answers; the
  * state rules live in `askState.ts`. The caller keys the card by ask id so a new ask starts fresh.
  */
-export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
+export function AskCard({ ask, onSubmit, onCancel, embedded }: AskCardProps) {
   const colors = useColors();
   const { height: windowHeight } = useWindowDimensions();
   const [draft, dispatch] = useReducer((state: AskDraft, action: AskAction) => reduceAsk(ask, state, action), initialDraft);
@@ -116,8 +124,8 @@ export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
     else onSubmit(answersOf(ask, draft));
   };
 
-  return (
-    <Card maxHeight={Math.min(400, Math.round(windowHeight * 0.55))}>
+  const content = (
+    <>
       <View style={styles.header}>
         {total > 1 ? (
           <View style={styles.progress}>
@@ -146,6 +154,7 @@ export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
       <ScrollView style={styles.body} contentContainerStyle={{ gap: spacing.lg, padding: spacing.lg, paddingTop: spacing.sm }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Question
           question={question}
+          showHeader={embedded === undefined || total > 1}
           selected={current}
           custom={draft.customs[question.id] ?? ""}
           onToggle={onToggle}
@@ -160,8 +169,9 @@ export function AskCard({ ask, onSubmit, onCancel }: AskCardProps) {
           <Button label={multi && current.length > 0 ? `Next (${String(current.length)})` : "Next"} disabled={!canAdvance} onPress={() => { dispatch({ type: "advance", from: index }); }} />
         )}
       </View>
-    </Card>
+    </>
   );
+  return embedded === undefined ? <Card maxHeight={Math.min(400, Math.round(windowHeight * 0.55))}>{content}</Card> : <View style={{ maxHeight: embedded.maxHeight }}>{content}</View>;
 }
 
 const styles = StyleSheet.create({

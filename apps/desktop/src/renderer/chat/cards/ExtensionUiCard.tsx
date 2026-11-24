@@ -4,14 +4,17 @@ import type { DialogResponse } from '@evaos/contract'
 
 type Free = Extract<Dialog, { kind: 'confirm' | 'input' | 'editor' }>
 
-/** Extension UI requests that are not a choice list: confirm, input and editor. */
+/**
+ * Extension UI requests that are not a choice list: confirm, input and editor. `titled`: the card
+ * stack's header already shows the request's title, so the body leaves it out.
+ */
 export function ExtensionUiCard({
   dialog,
-  dead = false,
+  titled = false,
   onAnswer,
 }: {
   dialog: Free
-  dead?: boolean
+  titled?: boolean
   onAnswer: (response: DialogResponse) => void | Promise<boolean>
 }) {
   const [value, setValue] = useState(dialog.kind === 'editor' ? (dialog.prefill ?? '') : '')
@@ -20,13 +23,12 @@ export function ExtensionUiCard({
   const sent = useRef(false)
 
   useEffect(() => {
-    if (dead) return
     if (dialog.kind === 'confirm') declineRef.current?.focus()
     else if (dialog.kind === 'editor') textRef.current?.focus()
-  }, [dialog.kind, dead])
+  }, [dialog.kind])
 
   const answer = (r: DialogResponse): void => {
-    if (sent.current || dead) return
+    if (sent.current) return
     sent.current = true
     // A failed or stale answer re-arms the card so the user can try again.
     void Promise.resolve(onAnswer(r)).then((ok) => {
@@ -37,12 +39,8 @@ export function ExtensionUiCard({
   const cancel = (): void => answer({ kind: 'cancel' })
 
   return (
-    <div
-      className="eva-question"
-      data-testid="pending-dialog"
-      data-dead={dead ? 'true' : undefined}
-    >
-      <div className="eva-question-text">{dialog.title}</div>
+    <div className="eva-question" data-testid="pending-dialog">
+      {titled ? null : <div className="eva-question-text">{dialog.title}</div>}
       {dialog.kind === 'confirm' && dialog.message ? (
         <div className="eva-dim eva-question-desc">{dialog.message}</div>
       ) : null}
@@ -53,7 +51,6 @@ export function ExtensionUiCard({
           type="text"
           aria-label={dialog.title}
           placeholder={dialog.placeholder}
-          disabled={dead}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
@@ -68,7 +65,6 @@ export function ExtensionUiCard({
           rows={4}
           aria-label={dialog.title}
           placeholder={dialog.placeholder}
-          disabled={dead}
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
@@ -79,39 +75,27 @@ export function ExtensionUiCard({
             <button
               type="button"
               className="eva-card-button"
-              disabled={dead}
               onClick={() => answer({ kind: 'confirm', confirmed: true })}
             >
               Confirm
             </button>
-            <button
-              ref={declineRef}
-              type="button"
-              className="eva-card-button"
-              disabled={dead}
-              onClick={cancel}
-            >
+            <button ref={declineRef} type="button" className="eva-card-button" onClick={cancel}>
               Decline
             </button>
           </>
         ) : (
           <>
-            <button type="button" className="eva-card-button" disabled={dead} onClick={sendText}>
+            <button type="button" className="eva-card-button" onClick={sendText}>
               Send answer
             </button>
             {dialog.kind === 'editor' ? (
-              <button type="button" className="eva-card-button" disabled={dead} onClick={cancel}>
+              <button type="button" className="eva-card-button" onClick={cancel}>
                 Discard input
               </button>
             ) : null}
           </>
         )}
       </div>
-      {dead ? (
-        <div className="eva-label eva-dim eva-question-caption">
-          This question can no longer be answered.
-        </div>
-      ) : null}
     </div>
   )
 }

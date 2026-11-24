@@ -1,8 +1,8 @@
 /**
  * Isaac's answer to one ask (XState v5): a session's ask card (`agent.ask`, keyed by its session and
  * ask id) and the thread's open ask that stands for the same question (`OpenAsk` with that
- * `sessionId`/`askId`) are one record, so answering it from the card, a chip or the open-questions
- * sheet sends once. An answer is allowed only while `open` or `failed`: a second tap while
+ * `sessionId`/`askId`) are one record, so answering it from the card, a chip or the card stack's
+ * question card sends once. An answer is allowed only while `open` or `failed`: a second tap while
  * `answering` is refused. A timeout or a refusal is `failed` with its reason; the card and the row
  * show again, and answering again (or `ask.retry`) sends the same unit: the same turn `clientId`
  * and the same closing command. The host dropping the ask ends the record (`gone`) from any state.

@@ -14,7 +14,6 @@ vi.mock('../../ipc', () => ({
 import { startHotkeyRouter } from '../../hotkeys/router'
 import { chatStore } from '../chat-store'
 import { ExtensionUiCard } from './ExtensionUiCard'
-import { PendingDialog } from './PendingDialog'
 import { QuestionCard } from './QuestionCard'
 
 const render = (ui: ReactElement) => rtlRender(ui, { wrapper: MantineProvider })
@@ -234,15 +233,6 @@ describe('QuestionCard', () => {
     expect(screen.getByText('First?')).toBeTruthy()
   })
 
-  it('dead renders disabled options and the caption, and answers nothing', () => {
-    const onAnswer = vi.fn()
-    render(<QuestionCard dialog={select} dead onAnswer={onAnswer} />)
-    expect((screen.getAllByRole('radio')[0] as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText('This question can no longer be answered.')).toBeTruthy()
-    press('1')
-    expect(onAnswer).not.toHaveBeenCalled()
-  })
-
   it('renders omp text as text, never as HTML', () => {
     const d: Dialog = { ...select, title: '<img src=x onerror=alert(1)>' }
     const { container } = render(<QuestionCard dialog={d} onAnswer={() => undefined} />)
@@ -301,50 +291,23 @@ describe('ExtensionUiCard', () => {
   })
 })
 
-describe('PendingDialog and the store', () => {
-  const open = () => {
+describe('the store and the session dialog', () => {
+  it('a dialog cleared by an answer or by omp exiting is gone, with nothing left to answer', () => {
     chatStore.setState({ panes: {} })
     chatStore.getState().openPane('pane-1', { file: '/f', title: 't', messages: [], meta })
-  }
-
-  it('renders nothing without a dialog and answers through chat.answerUi', async () => {
-    open()
-    const { container } = render(<PendingDialog paneId="pane-1" />)
-    expect(container.querySelector('[data-testid="pending-dialog-slot"]')).toBeNull()
     act(() => {
       chatStore.getState().applyOps('pane-1', [{ op: 'meta', patch: { dialog: select } }], 1)
     })
-    await userEvent.click(screen.getByRole('radio', { name: /B/ }))
-    expect(invoke).toHaveBeenCalledWith('chat.answerUi', {
-      paneId: 'pane-1',
-      id: 'u2',
-      response: { kind: 'select', value: 'B' },
-    })
-  })
-
-  it('a dialog cleared by an answer is gone; one cleared by exit becomes the dead card', () => {
-    open()
+    expect(chatStore.getState().panes['pane-1']!.dialog).toMatchObject({ id: 'u2' })
     act(() => {
-      chatStore.getState().applyOps('pane-1', [{ op: 'meta', patch: { dialog: select } }], 1)
-      chatStore.getState().applyOps('pane-1', [{ op: 'meta', patch: { dialog: null } }], 2)
-    })
-    expect(chatStore.getState().panes['pane-1']!.deadDialog).toBeNull()
-    act(() => {
-      chatStore.getState().applyOps('pane-1', [{ op: 'meta', patch: { dialog: select } }], 3)
       chatStore
         .getState()
         .applyOps(
           'pane-1',
           [{ op: 'meta', patch: { dialog: null, connected: false, running: false } }],
-          4,
+          2,
         )
     })
-    expect(chatStore.getState().panes['pane-1']!.deadDialog).toMatchObject({ id: 'u2' })
-    const { container } = render(<PendingDialog paneId="pane-1" />)
-    expect(container.querySelector('[data-dead="true"]')).not.toBeNull()
-    act(() => {
-      chatStore.getState().applyOps('pane-1', [{ op: 'meta', patch: { connected: true } }], 5)
-    })
-    expect(chatStore.getState().panes['pane-1']!.deadDialog).toBeNull()
+    expect(chatStore.getState().panes['pane-1']!.dialog).toBeNull()
   })
 })

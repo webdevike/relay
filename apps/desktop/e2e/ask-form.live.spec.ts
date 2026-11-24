@@ -149,7 +149,12 @@ async function startAsk(configDir: string): Promise<Live> {
     await shell.locator('[data-testid="nav-chat"]').click()
     await shell.locator(`[data-testid="chat-row-${id}"]`).click()
     const card = shell.locator('[data-testid="pending-dialog"]')
-    await expect(card).toContainText('How many steps from Blight to lush?', { timeout: 90_000 })
+    // The stack on the composer opens on the form; its header names the question.
+    await expect(shell.locator('[data-testid="card-stack"]')).toContainText(
+      'How many steps from Blight to lush?',
+      { timeout: 90_000 },
+    )
+    await expect(card).toBeVisible()
     const transcript = (): string => fs.readFileSync(path.join(fx.sessionsDir, file), 'utf8')
     const askResult = (): string => {
       for (const line of transcript().split('\n')) {
