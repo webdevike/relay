@@ -64,7 +64,7 @@ const legacyCall = createActor(
     actions: {
       sendStart: ({ context }) => {
         if (context.callId !== null && context.agent !== null)
-          sendCall({ t: "call.start", callId: context.callId, agent: context.agent });
+          sendCall({ t: "call.start", callId: context.callId, agent: context.agent, ...(context.request === null ? {} : { request: context.request }) });
       },
       sendEnd: ({ context }) => {
         if (context.callId !== null) sendCall({ t: "call.end", callId: context.callId, reason: context.endNote });
@@ -100,15 +100,16 @@ export function callsSupported(): boolean {
 /**
  * Calls `agent`. Resolves once the microphone is open and `call.start` is sent; the screen then
  * follows `useCallStore().call`. Throws with a message for the person when it cannot start. A call
- * already opening its microphone (a double tap) wins; this one is dropped.
+ * already opening its microphone (a double tap) wins; this one is dropped. `request`: the
+ * assistant's ring this call answers, so the host opens with what it called about.
  */
-export async function startCall(agent: string): Promise<void> {
+export async function startCall(agent: string, request?: string): Promise<void> {
   const native = VoiceCall;
   if (native === null) throw new Error("Calls need a newer build of Relay on this phone.");
   if (useConnectionStore.getState().status !== "connected") throw new Error("Connect to your Mac to call.");
   if (!(await native.requestPermission())) throw new Error("Allow microphone access for Relay in Settings to call.");
   const callId = randomUUID();
-  legacyCall.send({ type: "call.start", callId, agent, epoch: socketEpoch() });
+  legacyCall.send({ type: "call.start", callId, agent, epoch: socketEpoch(), ...(request === undefined ? {} : { request }) });
   if (legacyCall.getSnapshot().context.callId !== callId) return;
   await waitFor(legacyCall, (snapshot) => snapshot.context.callId !== callId || !snapshot.matches({ active: "opening_mic" }));
 }

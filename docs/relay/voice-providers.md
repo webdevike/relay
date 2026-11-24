@@ -45,6 +45,10 @@ Keys never reach the phone, the protocol or the logs. Deepgram's `think` step ru
 
 The local call needs Eva's speech stack (`eva-realtime`, `pocket-tts`); a host without it answers `This host cannot take calls`.
 
+## Assistant-initiated calls
+
+"Call me when it's done" ([call-me.md](call-me.md)): the assistant rings Isaac's phone when work he asked about settles; his tap starts the PCM call with `call.start` + `request`, and `CallService` hands the request's greeting and brief to the call (`CallDeps.opener`): Deepgram speaks it as its `greeting`, the local `VoiceCall` says it first.
+
 ## Siri, Action Button and the lock screen
 
 Decision (Isaac, 2026-11-23, Q2): keep the existing foreground fallback.

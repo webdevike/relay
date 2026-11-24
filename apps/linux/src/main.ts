@@ -59,6 +59,8 @@ import { AskStore, defaultAsksPath } from "./assistant/ask-store";
 import { ago } from "./query/tools";
 import { defaultAssistantPath, defaultAssistantsDir, FileAssistantStore } from "./assistant/store";
 import { CallService } from "./call/service";
+import { CallMeService, DEFAULT_CALL_ME_TIMING, pushToEveryPhone, type CallRequestRecord } from "./callme/service";
+import { runsDir } from "./callme/work";
 import { EvaRealtimeVoice } from "./call/voice";
 import { readThreadMemory } from "./live/brief";
 import { composeVoiceEngines } from "./voice/engines";
@@ -325,6 +327,18 @@ const USAGE = `relay-linux <command>
                                    Prints only the ask id
   asks get <id> [--json]           one ask, open or closed: its state, who asked, the question,
                                    the default, Isaac's answer and whether it reached the session
+  call-me add --about '<the work>' [--on run:<id>|session:<id>|turn|manual] [--agent <id>] [--json]
+                                   from an assistant's session, ONLY when Isaac asked to be called:
+                                   ring his phone ("<assistant> is calling") when the work settles,
+                                   with a greeting that names it. Without --on: the assistant's one
+                                   running agent-session run, else this turn (with its background
+                                   jobs and subagents). --on manual waits for "call-me settle"
+  call-me list [--agent <id>] [--all] [--json]
+                                   open call requests (--all adds ended ones)
+  call-me cancel <id> | --all [--agent <id>]
+                                   Isaac said never mind: cancel one, or every open one of the thread
+  call-me settle <id> [--failed] [--result '<what came back>']
+                                   the work of a --on manual request finished (or failed): ring now
   canvas end [<slug>]              wrap up the live session on <slug> (default: this chat's)
   skills list [--json]             the skills omp loads on this host: source, who uses them, last use
   skills show <name> [--json]      one skill: its copies, files, use in the last 30 days
@@ -634,6 +648,40 @@ function serve(
           };
           return registryAdmin.watch();
         })();
+  // "Call me when it's done": an assistant registers it when Isaac asks (`relay-host call-me add`); the
+  // phone's answer comes back as `call.start` with `request` through `calls` below.
+  const callMe =
+    assistant === null
+      ? null
+      : new CallMeService({
+          thread: (id) => {
+            const found = assistant.threads.find((candidate) => candidate.id === id);
+            if (found === undefined) return undefined;
+            return {
+              id: found.id,
+              title: found.title,
+              ...(found.color === undefined ? {} : { color: found.color }),
+              sessionId: () => found.current()?.id,
+              say: (text) => found.say(text),
+            };
+          },
+          sessions: () => agents.sessions,
+          card: (sessionId, content, entry) => agents.guest(sessionId, content, entry),
+          push: pushToEveryPhone(pushTokens, new ExpoPushSender(), log),
+          runs: agentHome === null ? null : runsDir(agentHome),
+          human: human(),
+          path: join(relayConfigDir(), "call-requests.json"),
+          timing: {
+            ringMs: config?.callMe?.ringMs ?? DEFAULT_CALL_ME_TIMING.ringMs,
+            maxWaitMs: config?.callMe?.maxWaitMs ?? DEFAULT_CALL_ME_TIMING.maxWaitMs,
+            pollMs: config?.callMe?.pollMs ?? DEFAULT_CALL_ME_TIMING.pollMs,
+          },
+          clock: systemClock,
+          log,
+        });
+  // Session targets would read as finished before the sessions that outlived a restart reconnect.
+  if (callMe !== null)
+    void agents.reconnected().then(() => callMe.resume());
   // Local voice calls run on Eva's speech stack (eva-realtime venv + pocket-tts); a host without it has none.
   const voiceRoot =
     agentHome === null
@@ -673,6 +721,7 @@ function serve(
           voice,
           clock: systemClock,
           log,
+          answer: (request, agent) => callMe?.answer(request, agent) ?? undefined,
         });
   const live =
     assistant === null
@@ -1039,6 +1088,7 @@ function serve(
       assistantAdmin: { registry: registryAdmin },
       calls,
       live,
+      callMe,
       usage,
       stats,
       catchup,
@@ -1948,6 +1998,71 @@ async function asksGet(id: string | undefined, json: boolean): Promise<void> {
   console.log(`answer: ${ask.answer ?? "none"}${delivery}`);
 }
 
+/**
+ * `call-me add|list|cancel|settle`: an assistant's session registers, lists, cancels or settles a
+ * "call me when it's done" request on the running host (`/assistant/call-me`). Only on Isaac's ask.
+ */
+async function callMeCommand(
+  verb: string | undefined,
+  rest: readonly string[],
+  options: { agent: string | undefined; about: string | undefined; on: string | undefined; result: string | undefined; failed: boolean; all: boolean; json: boolean },
+): Promise<void> {
+  const base = `${hostUrl()}/assistant/call-me`;
+  const post = (path: string, body: unknown): Promise<Response> =>
+    hostFetch(`${base}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const answer = async (response: Response): Promise<unknown> => {
+    if (response.ok) return response.json();
+    console.error(`call-me ${verb ?? ""}: ${await response.text()}`);
+    process.exit(1);
+  };
+  switch (verb) {
+    case "add": {
+      if (options.agent === undefined) throw new Error("call-me add: missing --agent <id> (or $RELAY_ASSISTANT)");
+      if (options.about === undefined) throw new Error("call-me add: missing --about '<the work, as you would say it>'");
+      let session: string | undefined;
+      try {
+        session = ownSessionRef("call-me add");
+      } catch {
+        session = undefined; // not run from omp: the assistant's own session stands in
+      }
+      const { request } = (await answer(
+        await post("", { agent: options.agent, about: options.about, ...(options.on === undefined ? {} : { on: options.on }), ...(session === undefined ? {} : { session }) }),
+      )) as { request: CallRequestRecord };
+      if (options.json) console.log(JSON.stringify(request, null, 2));
+      else {
+        const when = request.target.kind === "manual" ? `you run: call-me settle ${request.id}` : `${request.target.kind} "${request.target.title}" settles`;
+        console.log(`${request.id}: will call about "${request.about}" when ${when}`);
+      }
+      return;
+    }
+    case "list": {
+      const query = new URLSearchParams({ ...(options.agent === undefined ? {} : { agent: options.agent }), ...(options.all ? { all: "1" } : {}) });
+      const { requests } = (await answer(await hostFetch(`${base}?${query.toString()}`))) as { requests: CallRequestRecord[] };
+      if (options.json) console.log(JSON.stringify(requests, null, 2));
+      else if (requests.length === 0) console.log("no call requests");
+      else for (const request of requests) console.log(`${request.id}  ${request.agent}  ${request.state}  ${request.about}`);
+      return;
+    }
+    case "cancel": {
+      const id = rest[0];
+      if (id === undefined && (!options.all || options.agent === undefined))
+        throw new Error("call-me cancel: expected <id>, or --all for every open request of --agent (default $RELAY_ASSISTANT)");
+      const { cancelled } = (await answer(await post("/cancel", id === undefined ? { agent: options.agent } : { id }))) as { cancelled: string[] };
+      console.log(cancelled.length === 0 ? "nothing to cancel" : `cancelled ${cancelled.join(", ")}`);
+      return;
+    }
+    case "settle": {
+      const id = rest[0];
+      if (id === undefined) throw new Error("call-me settle: expected <id>");
+      await answer(await post("/settle", { id, status: options.failed ? "failed" : "done", result: options.result ?? "" }));
+      console.log(`${id}: settled (${options.failed ? "failed" : "done"}); ringing`);
+      return;
+    }
+    default:
+      throw new Error("call-me: try `call-me add --about '...'`, `call-me list`, `call-me cancel <id>|--all` or `call-me settle <id>`");
+  }
+}
+
 /** The host's JSON answer, or exit 1 with its `{error}` (or body). */
 async function hostJson(response: Response, what: string): Promise<unknown> {
   const text = await response.text();
@@ -2630,6 +2745,10 @@ async function main(argv: string[]): Promise<void> {
       default: { type: "string" },
       answer: { type: "string" },
       all: { type: "boolean", default: false },
+      about: { type: "string" },
+      on: { type: "string" },
+      result: { type: "string" },
+      failed: { type: "boolean", default: false },
       help: { type: "boolean", short: "h", default: false },
       device: { type: "string" },
     },
@@ -2672,6 +2791,17 @@ async function main(argv: string[]): Promise<void> {
       await catchupBounce(values.agent ?? process.env["RELAY_ASSISTANT"], positionals.slice(2));
       return;
     }
+    case "call-me":
+      await callMeCommand(positionals[1], positionals.slice(2), {
+        agent: values.agent ?? process.env["RELAY_ASSISTANT"],
+        about: values.about,
+        on: values.on,
+        result: values.result,
+        failed: values.failed,
+        all: values.all,
+        json: values.json,
+      });
+      return;
     case "asks": {
       const verb = positionals[1];
       const agent = values.agent ?? process.env["RELAY_ASSISTANT"];

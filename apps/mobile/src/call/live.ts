@@ -89,6 +89,32 @@ export function setLiveCallMuted(muted: boolean): void {
   LiveCall?.setMuted(muted);
 }
 
+/** Rings already answered: a tap reaches both the launch check and the listener. */
+const answered = new Set<string>();
+
+/**
+ * Isaac tapped an assistant's ring ("Nova is calling", `call me when it's done`): opens that
+ * assistant's thread and starts the call that answers it. The PCM call carries `request`, which
+ * tells the host to open with what it called about; a host on GPT-Live serves it as its local call.
+ */
+export function answerCallRequest(agent: string, request: string): void {
+  if (answered.has(request)) return;
+  answered.add(request);
+  if (!callStart.getSnapshot().can({ type: "call.start", agent })) return;
+  callStart.send({ type: "call.start", agent });
+  useLiveCallStore.getState().setFailure(null);
+  router.navigate({ pathname: "/eva", params: { agent } });
+  whenConnected(CONNECT_WAIT_MS)
+    .then(() => startCall(agent, request))
+    .catch((error: unknown) => {
+      const message = error instanceof Error && error.message !== "" ? error.message : "Couldn't answer the call.";
+      useLiveCallStore.getState().setFailure({ agent, message });
+    })
+    .finally(() => {
+      callStart.send({ type: "call.settled" });
+    });
+}
+
 function runPendingFallback(): void {
   if (LiveCall === null || AppState.currentState !== "active") return;
   const pending = LiveCall.consumePendingFallback();

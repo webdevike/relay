@@ -108,10 +108,11 @@ export class DeepgramCall implements PcmCall {
     const { thread } = this.deps;
     const [rows, memory] = await Promise.all([thread.rows?.().catch(() => []) ?? [], thread.memory?.().catch(() => null) ?? null]);
     const history = recentTurns(rows).flatMap((turn) => (turn.role === "developer" ? [] : [{ role: turn.role, content: turn.text }]));
-    const background = [memoryBrief(thread.title, memory), clockLine(this.deps.clock.now())].flatMap((line) => (line === null ? [] : [line]));
+    const { opener } = this.deps;
+    const background = [opener?.brief ?? null, memoryBrief(thread.title, memory), clockLine(this.deps.clock.now())].flatMap((line) => (line === null ? [] : [line]));
     return {
       prompt: deepgramInstructions(thread.title, background),
-      greeting: GREETING,
+      greeting: opener?.greeting ?? GREETING,
       history,
       functions: [{
         name: ASK_ASSISTANT,
@@ -198,6 +199,9 @@ export class DeepgramCall implements PcmCall {
         if (event.role === "user" && event.content.trim() !== "") {
           this.hearing = false;
           this.heardSince.push(event.content.trim());
+        } else if (event.role === "assistant" && !this.talking) {
+          // What the voice said before Isaac asked anything: the greeting, as Deepgram transcribed its own speech.
+          this.deps.log(`call ${this.id}: said "${event.content.trim().slice(0, 300)}"`);
         }
         return;
       case "function":

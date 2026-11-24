@@ -81,6 +81,8 @@ export interface CallDeps {
   readonly log: (line: string) => void;
   /** Called once, after the call has ended. */
   readonly onEnded: () => void;
+  /** The assistant is calling Isaac back about work he asked about (`callme/service.ts`): what it opens with. */
+  readonly opener?: { readonly greeting: string; readonly brief: string };
 }
 
 /** Ears output that is no words: empty, punctuation, or a bracketed noise tag like `[BLANK_AUDIO]`. */
@@ -179,6 +181,8 @@ export class VoiceCall {
     this.deps.log(`call ${this.id}: ${this.deps.thread.title} is listening (ears ready in ${String(this.deps.clock.now() - asked)} ms)`);
     this.setState("listening");
     this.reportMic();
+    // A call the assistant placed opens with its greeting; the agent's answers come from the thread as usual.
+    if (this.deps.opener !== undefined) this.enqueue(this.deps.opener.greeting);
   }
 
   /**
