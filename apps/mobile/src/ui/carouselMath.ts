@@ -51,6 +51,25 @@ export function sideness(offset: number, step: number): number {
   return Math.min(1, Math.abs(offset) / step);
 }
 
+export interface SlotFrame {
+  position: "absolute";
+  left: number;
+  width: number;
+  top: number;
+}
+
+/**
+ * Where a card's slot sits in the strip (`stripHeight` tall, the tallest card's measured height): left
+ * at `left`, `width` wide, its top so the card (`cardHeight` tall, 0 before it is measured) is centred.
+ * Its height is the card's own, never the strip's (no `bottom`): on the phone, Yoga lays out a box
+ * whose height is capped at 0 as 0 tall without measuring its children, so a slot pinned to a strip
+ * that starts at 0 measured its card at 0 and the strip stayed 0 (the empty thin bar, 2026-11-24).
+ * The browser measures it fine, so only native layout (`carouselLayout.test.ts`, on Yoga) catches it.
+ */
+export function slotFrame(left: number, width: number, stripHeight: number, cardHeight: number): SlotFrame {
+  return { position: "absolute", left, width, top: Math.max(0, (stripHeight - cardHeight) / 2) };
+}
+
 /**
  * Who takes a swipe that has travelled `dx`, `dy`: `undecided` until it has gone `CAROUSEL_SLOP`;
  * `carousel` when it runs more sideways than vertically, or mostly down (to collapse); `none` when it

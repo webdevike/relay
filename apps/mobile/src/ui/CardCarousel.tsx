@@ -30,7 +30,7 @@ import Animated, {
 import { scheduleOnRN, scheduleOnUI } from "react-native-worklets";
 import { keyboardHeight } from "@/lib/keyboardMotion";
 import { useCoversContent } from "./covering";
-import { CARD_GAP, carouselCardWidth, carouselOwner, carouselRelease, loopSlot, sideness, SIDE_OPACITY, SIDE_SCALE } from "./carouselMath";
+import { CARD_GAP, carouselCardWidth, carouselOwner, carouselRelease, loopSlot, sideness, SIDE_OPACITY, SIDE_SCALE, slotFrame, type SlotFrame } from "./carouselMath";
 
 const SPRING = { stiffness: 380, damping: 38, mass: 1, reduceMotion: ReduceMotion.System } as const;
 /** Room the open card leaves above and below it (the prototype's `100dvh - 190px`). */
@@ -226,9 +226,8 @@ export function CardCarousel({ cards, front, onStep, onShow, onCollapse }: CardC
                       card={card}
                       index={index}
                       count={count}
-                      width={width}
                       step={step}
-                      left={(window.width - width) / 2}
+                      frame={slotFrame((window.width - width) / 2, width, tallest, heights[card.key] ?? 0)}
                       maxHeight={maxHeight}
                       isFront={index === front}
                       frontAt={frontAt}
@@ -253,9 +252,8 @@ function Slot({
   card,
   index,
   count,
-  width,
   step,
-  left,
+  frame,
   maxHeight,
   isFront,
   frontAt,
@@ -266,9 +264,8 @@ function Slot({
   card: CarouselCard;
   index: number;
   count: number;
-  width: number;
   step: number;
-  left: number;
+  frame: SlotFrame;
   maxHeight: number;
   isFront: boolean;
   frontAt: SharedValue<number>;
@@ -285,7 +282,7 @@ function Slot({
     };
   });
   return (
-    <Animated.View exiting={card.exit === "lift" ? lift : fade} pointerEvents="box-none" style={[styles.slot, { left, width }]}>
+    <Animated.View exiting={card.exit === "lift" ? lift : fade} pointerEvents="box-none" style={frame}>
       <Animated.View style={place}>
         <View
           onLayout={(event) => {
@@ -317,5 +314,4 @@ const styles = StyleSheet.create({
   center: { ...StyleSheet.absoluteFillObject, justifyContent: "center" },
   stageWrap: { width: "100%" },
   strip: { width: "100%" },
-  slot: { position: "absolute", top: 0, bottom: 0, justifyContent: "center" },
 });

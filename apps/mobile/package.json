@@ -79,6 +79,7 @@
     "@novnc/novnc": "1.7.0",
     "@relay/eslint-config": "workspace:*",
     "@types/react": "~19.1.10",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "yoga-layout": "^3.2.1"
   }
 }
