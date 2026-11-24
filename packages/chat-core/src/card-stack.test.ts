@@ -38,7 +38,12 @@ describe('card stack', () => {
   })
 
   it("shows the host's last four lines of work, else the latest line alone", () => {
-    expect(recentWork({ log: ['a', 'b', 'c', 'd', 'e'], intent: 'e' })).toEqual(['b', 'c', 'd', 'e'])
+    expect(recentWork({ log: ['a', 'b', 'c', 'd', 'e'], intent: 'e' })).toEqual([
+      'b',
+      'c',
+      'd',
+      'e',
+    ])
     expect(recentWork({ intent: 'Reading the diff' })).toEqual(['Reading the diff'])
     expect(recentWork({ log: [], intent: '' })).toEqual([])
   })
