@@ -17,7 +17,7 @@ export interface RunningChip {
    * for a helper with no transcript of its own the session it runs under. Absent only when there is none.
    */
   sessionId?: string;
-  /** How long the run has left, when the host can tell: the chip draws it as a fill and a tap explains it first. */
+  /** How long the run has left, when the host can tell: a tap explains it first. */
   eta?: ActivityEta;
 }
 

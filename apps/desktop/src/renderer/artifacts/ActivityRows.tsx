@@ -13,7 +13,7 @@ import {
   type ActivityItem,
   type ActivityKind,
 } from '@evaos/chat-core/activity'
-import { etaProps, etaTrailing, useEtaFill, type EtaFill } from '../activity/eta'
+import { etaTrailing, useEtaView } from '../activity/eta'
 import { ListRow, ListTime, rowTip } from '../ui/list'
 import { ageText, whenText } from './artifacts-model'
 
@@ -61,11 +61,6 @@ export function KindMeta({ kind, intent }: { kind: ActivityKind; intent: string 
   )
 }
 
-/** What a running row with an estimate adds: the fill's class, attributes and custom properties. */
-export function etaRowProps(fill: EtaFill | null, color?: string) {
-  return fill === null ? {} : { className: 'eva-eta', ...etaProps(fill, color) }
-}
-
 /**
  * One row of the Working tab for anything the host's activity list holds: kind icon and label,
  * the title, the live intent line, the time running (or when it ended). Model and cost are only in
@@ -74,18 +69,15 @@ export function etaRowProps(fill: EtaFill | null, color?: string) {
 export function ActivityRow({
   item,
   now,
-  color,
   onOpen,
 }: {
   item: ActivityItem
   now: number
-  /** The owning assistant's color for the fill; the accent when unset. */
-  color?: string
   onOpen: (item: ActivityItem) => void
 }) {
   const live = item.status === 'working' || item.status === 'waiting'
-  const fill = useEtaFill(item)
-  const left = fill === null ? null : etaTrailing(fill.view)
+  const view = useEtaView(item)
+  const left = view === null ? null : etaTrailing(view)
   return (
     <ListRow
       data-testid={`activity-row-${item.id}`}
@@ -99,14 +91,13 @@ export function ActivityRow({
         item.intent,
         item.model !== undefined && `Model: ${item.model}`,
         item.cost !== undefined && `Spent: ${costText(item.cost)}`,
-        ...(fill === null ? [] : [fill.view.label, fill.view.detail]),
+        ...(view === null ? [] : [view.label, view.detail]),
       )}
       trailing={
         <ListTime>
           {left ?? (live ? ageText(item.startedAt, now) : whenText(item.updatedAt, now))}
         </ListTime>
       }
-      {...etaRowProps(fill, color)}
       onActivate={() => onOpen(item)}
     />
   )

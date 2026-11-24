@@ -410,7 +410,7 @@ const etaOf = (elapsedMin: number, over: Partial<NonNullable<ActivityItem['eta']
   ...over,
 })
 
-describe('SubagentChips progress fill', () => {
+describe('SubagentChips estimate text', () => {
   const session = (id: string, eta?: ActivityItem['eta']): ActivityItem => ({
     ...work(`session:${id}`, 'session', 'working', {
       to: 'chat',
@@ -435,42 +435,35 @@ describe('SubagentChips progress fill', () => {
     </MantineProvider>
   )
 
-  it('a badge with an estimate fills by how far along it is and says the time left; one without draws as before', () => {
+  it('a badge with an estimate says the time left and draws no fill; one without draws as before', () => {
     wrap(
       <SubagentChips
         subagents={[]}
         hidden={new Set()}
         onOpen={() => undefined}
         onClearDone={() => undefined}
-        agentColor="#3366ff"
         activity={[session('sure', etaOf(10)), session('none')]}
       />,
     )
     const sure = screen.getByTestId('activity-chip-session:sure')
-    expect(sure).toHaveAttribute('data-eta', 'solid')
-    expect(sure).toHaveClass('eva-eta')
-    expect(Number(sure.style.getPropertyValue('--eta-fraction'))).toBeCloseTo(0.5, 1)
-    expect(sure.style.getPropertyValue('--eva-eta-agent-c')).toBe('#3366ff')
+    expect(sure).not.toHaveAttribute('data-eta')
+    expect(sure.style.getPropertyValue('--eta-fraction')).toBe('')
     expect(sure.querySelector('[data-testid="eta-short"]')).toHaveTextContent('10m')
     const none = screen.getByTestId('activity-chip-session:none')
-    expect(none).not.toHaveAttribute('data-eta')
-    expect(none).not.toHaveClass('eva-eta')
     expect(none.querySelector('[data-testid="eta-short"]')).toBeNull()
   })
 
-  it('a rough guess is striped, and a run past its usual time is amber with no time text', () => {
+  it('a run past its usual time shows no time text', () => {
     wrap(
       <SubagentChips
         subagents={[]}
         hidden={new Set()}
         onOpen={() => undefined}
         onClearDone={() => undefined}
-        activity={[session('rough', etaOf(5, { confidence: 'rough' })), session('late', etaOf(45))]}
+        activity={[session('late', etaOf(45))]}
       />,
     )
-    expect(screen.getByTestId('activity-chip-session:rough')).toHaveAttribute('data-eta', 'striped')
     const late = screen.getByTestId('activity-chip-session:late')
-    expect(late).toHaveAttribute('data-eta', 'overrunning')
     expect(late.querySelector('[data-testid="eta-short"]')).toBeNull()
   })
 
@@ -519,30 +512,17 @@ describe('SubagentChips progress fill', () => {
       />,
     )
     const b = screen.getByTestId('subagent-chip-b')
-    expect(b).toHaveAttribute('data-eta', 'striped')
     expect(b.querySelector('[data-testid="eta-short"]')).toHaveTextContent('15m')
-    // Another file's estimate is not this one's, and a helper with none draws as before.
-    expect(screen.getByTestId('subagent-chip-c')).not.toHaveAttribute('data-eta')
+    // Another file's estimate is not this one's, and a helper with none shows no time.
+    expect(
+      screen.getByTestId('subagent-chip-c').querySelector('[data-testid="eta-short"]'),
+    ).toBeNull()
   })
-
-  it('a finished run fills up and fades out of the strip instead of vanishing', () => {
-    vi.useFakeTimers()
-    try {
-      const run = session('fin', etaOf(10))
-      const { rerender } = render(chips([run]))
-      expect(screen.getByTestId('activity-chip-session:fin')).not.toHaveAttribute(
-        'data-eta-leaving',
-      )
-      rerender(chips([]))
-      const leaving = screen.getByTestId('activity-chip-session:fin')
-      expect(leaving).toHaveAttribute('data-eta-leaving', 'chip')
-      expect(leaving.style.getPropertyValue('--eta-fraction')).toBe('1')
-      act(() => {
-        vi.advanceTimersByTime(1_500)
-      })
-      expect(screen.queryByTestId('activity-chip-session:fin')).toBeNull()
-    } finally {
-      vi.useRealTimers()
-    }
+  it('a finished run leaves the strip at once', () => {
+    const run = session('fin', etaOf(10))
+    const { rerender } = render(chips([run]))
+    expect(screen.getByTestId('activity-chip-session:fin')).toBeInTheDocument()
+    rerender(chips([]))
+    expect(screen.queryByTestId('activity-chip-session:fin')).toBeNull()
   })
 })
