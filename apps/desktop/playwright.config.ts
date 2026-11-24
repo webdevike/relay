@@ -42,6 +42,9 @@ const SERIAL_SPECS = [
   // Needs the composer to hold real focus after a reply action; with several Electron apps
   // starting at once the hidden window comes up 'inactive'.
   '**/shared-session.spec.ts',
+  // A single Escape must blur the composer: same cause, the hidden window started alongside
+  // other Electron launches does not keep focus.
+  '**/chat-control.spec.ts',
   // A real popup that must open within 5 s of a guest click; popups queue behind sibling launches.
   '**/browser-auth.spec.ts',
   // The agent's cursor glides sampled frame by frame, with glide-time floors.
