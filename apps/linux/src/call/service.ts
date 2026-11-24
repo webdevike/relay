@@ -18,6 +18,11 @@ export interface CallServiceDeps {
   readonly voice: VoiceStack | null;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
+  /**
+   * The phone answered the ring of "call me when it's done" request `request` (`call.start` with
+   * `request`): that call's opener, or undefined when the request is not ringing (an ordinary call).
+   */
+  readonly answer?: (request: string, agent: string) => CallDeps["opener"];
 }
 
 export class CallService implements CallRelaying {
@@ -36,10 +41,13 @@ export class CallService implements CallRelaying {
           return;
         }
         this.deps.log(`call ${message.callId}: calling ${thread.title}`);
+        const opener = message.request === undefined ? undefined : this.deps.answer?.(message.request, thread.id);
+        if (message.request !== undefined)
+          this.deps.log(`call ${message.callId}: ${opener === undefined ? `${message.request} is not ringing; an ordinary call` : `opens with "${opener.greeting}"`}`);
         const engine = this.deps.engines.select(message.agent);
         const open = engine.transport === "pcm-websocket" ? engine.open : null;
-        if (open === null) this.startLocal(sink, message.callId, thread);
-        else this.startPcm(sink, message.callId, thread, open);
+        if (open === null) this.startLocal(sink, message.callId, thread, opener);
+        else this.startPcm(sink, message.callId, thread, open, opener);
         return;
       }
       case "call.audio":
@@ -55,10 +63,11 @@ export class CallService implements CallRelaying {
   }
 
   /** Registers the call `make` builds on `sink`; its `onEnded` frees the socket only while it is still that socket's call. */
-  private register<C extends CallLike>(sink: FrameSink, callId: string, thread: CallThread, make: (deps: Omit<CallDeps, "voice">) => C): C {
+  private register<C extends CallLike>(sink: FrameSink, callId: string, thread: CallThread, opener: CallDeps["opener"], make: (deps: Omit<CallDeps, "voice">) => C): C {
     const next: C = make({
       callId,
       thread,
+      ...(opener === undefined ? {} : { opener }),
       send: (frame: ServerMessage) => {
         sink.send(frame);
       },
@@ -73,22 +82,22 @@ export class CallService implements CallRelaying {
   }
 
   /** When the PCM call never connects, the local call takes its place. */
-  private startPcm(sink: FrameSink, callId: string, thread: CallThread, open: PcmOpen): void {
-    const next = this.register(sink, callId, thread, open);
+  private startPcm(sink: FrameSink, callId: string, thread: CallThread, open: PcmOpen, opener: CallDeps["opener"]): void {
+    const next = this.register(sink, callId, thread, opener, open);
     void next.start().then((connected) => {
       if (connected || this.calls.get(sink) !== next) return;
       this.calls.delete(sink);
-      this.startLocal(sink, callId, thread);
+      this.startLocal(sink, callId, thread, opener);
     });
   }
 
-  private startLocal(sink: FrameSink, callId: string, thread: CallThread): void {
+  private startLocal(sink: FrameSink, callId: string, thread: CallThread, opener: CallDeps["opener"]): void {
     const voice = this.deps.voice;
     if (voice === null) {
       sink.send({ t: "call.state", callId, agent: thread.id, state: "ended", error: "This host cannot take calls" });
       return;
     }
-    const local = this.register(sink, callId, thread, (deps) => new VoiceCall({ ...deps, voice }));
+    const local = this.register(sink, callId, thread, opener, (deps) => new VoiceCall({ ...deps, voice }));
     void local.start();
   }
 

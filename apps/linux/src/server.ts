@@ -26,6 +26,8 @@ import {
   type AssistantAdmin,
 } from "./assistant/http";
 import { handleCatchUpBounce } from "./catchup/http";
+import { handleCallMe, isCallMePath } from "./callme/http";
+import type { CallMeService } from "./callme/service";
 import { FEED_MEDIA_PREFIX, handleFeedMedia, type FeedDeck } from "./feed/service";
 import { handleBoardRequest, isLoopback } from "./boards/http";
 import { handleShareRequest, SHARE_PREFIX } from "./boards/share-page";
@@ -143,6 +145,8 @@ export interface ServerDeps {
   readonly calls: CallRelaying | null;
   /** GPT-Live calls with the assistant threads; null answers `live.start` with `fallback`. */
   readonly live: LiveRelaying | null;
+  /** "Call me when it's done" requests behind `/assistant/call-me`; absent or null answers it 404. */
+  readonly callMe?: CallMeService | null;
   /** Plan usage of the host's omp accounts; null answers `usage.*` with an empty snapshot. */
   readonly usage: UsageService | null;
   /** omp usage stats for Settings > Usage; null answers `stats.get` empty and leaves "stats" out of `welcome.features`. */
@@ -203,6 +207,7 @@ export function loopbackWriteBody(path: string): WriteBody | null {
   if (path === "/assistant/say") return "text";
   if (
     isAssistantAsksPath(path) ||
+    isCallMePath(path) ||
     isAssistantAdminPath(path) ||
     path === "/assistant/consult" ||
     path === "/catchup/bounce" ||
@@ -486,6 +491,7 @@ export class RelayServer {
         }
         if (isAssistantAsksPath(path))
           return handleAssistantAsks(this.deps.assistant, request, remote, path);
+        if (isCallMePath(path)) return handleCallMe(this.deps.callMe ?? null, request, remote, path);
         if (isAssistantAdminPath(path))
           return handleAssistantAdmin(
             { registry: null, ...this.deps.assistantAdmin, assistant: this.deps.assistant },
@@ -704,6 +710,7 @@ export class RelayServer {
       const delta = this.agentsTracker.apply(sessions);
       for (const ws of this.sockets) ws.data.session?.broadcast(delta);
       this.deps.notifier?.observe(sessions);
+      this.deps.callMe?.observeSessions();
       return;
     }
     if (change.kind === "message") {

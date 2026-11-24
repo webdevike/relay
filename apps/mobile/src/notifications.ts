@@ -17,7 +17,8 @@ import { useSettingsStore } from "@/state/settings";
 import { registerWithdrawTask } from "@/inbox/background";
 import { registerInboxCategories } from "@/inbox/categories";
 import { respondToInbox } from "@/inbox/respond";
-import { notificationTarget } from "@/notification-target";
+import { notificationCall, notificationTarget } from "@/notification-target";
+import { answerCallRequest } from "@/call/live";
 
 Notifications.setNotificationHandler({
   handleNotification: () => Promise.resolve({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: true, shouldSetBadge: false }),
@@ -80,9 +81,18 @@ export async function setNotificationsEnabled(enabled: boolean): Promise<boolean
   return true;
 }
 
-/** Opens what a tapped notification points at (`notificationTarget`); anything else is ignored. */
+/**
+ * Opens what a tapped notification points at (`notificationTarget`); an assistant's ring is answered
+ * with a call (`notificationCall`); anything else is ignored.
+ */
 function openTarget(notification: Notifications.Notification): void {
-  const target = notificationTarget(notification.request.content.data);
+  const { data } = notification.request.content;
+  const ring = notificationCall(data);
+  if (ring !== null) {
+    answerCallRequest(ring.agent, ring.request);
+    return;
+  }
+  const target = notificationTarget(data);
   if (target !== null) router.navigate(target);
 }
 

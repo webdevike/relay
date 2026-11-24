@@ -2170,8 +2170,12 @@ export const ClientMessage = z.discriminatedUnion("t", [
    * `agent.ask.answer` it carries out.
    */
   z.object({ t: z.literal("inbox.resolve"), ...InboxResolveFields }),
-  /** Call assistant `agent` on this socket; ends any call already on it. Answered by `call.state`. */
-  z.object({ t: z.literal("call.start"), callId: CallId, agent: AssistantAgentId }),
+  /**
+   * Call assistant `agent` on this socket; ends any call already on it. Answered by `call.state`.
+   * `request`: the "call me when it's done" request whose ring the phone answered (the "<assistant> is
+   * calling" push); the host opens the call with that request's greeting. Older hosts drop it.
+   */
+  z.object({ t: z.literal("call.start"), callId: CallId, agent: AssistantAgentId, request: z.string().min(1).max(100).optional() }),
   /** About 100 ms of microphone, PCM16 LE mono at CALL_INPUT_RATE, base64. Ignored for any other call. */
   z.object({ t: z.literal("call.audio"), callId: CallId, pcm: CallAudio }),
   /** The phone stopped (or resumed) sending its microphone; the host drops any half-heard utterance. */

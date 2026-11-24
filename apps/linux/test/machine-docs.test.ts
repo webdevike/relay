@@ -13,10 +13,12 @@ import {
   newDoc,
   withDiagram,
 } from "../../../packages/shell-core/src/machine-diagram";
+import { callRequestMachine } from "../src/callme/callRequest.machine";
 import { deepgramCallMachine } from "../src/call/deepgramCall.machine";
 import { keyMomentsMachine } from "../src/meetings/key-moments.machine";
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
+  { file: "call-request", title: "Call me when it's done (host)", machine: callRequestMachine },
   { file: "deepgram-call", title: "Deepgram Voice Agent call (host)", machine: deepgramCallMachine },
   { file: "key-moments", title: "Key moments of a live call (host)", machine: keyMomentsMachine },
 ];

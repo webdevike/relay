@@ -12,7 +12,8 @@ export const REMINDER_MS = 30 * 60_000;
 /**
  * Tap routing on the phone: a session opens the inbox card, a drop opens the Drops list, an
  * inbox push carries what the phone needs to answer it (`InboxPushData`) or, for a withdraw, the id
- * of the notification to remove, an assistant reply opens that agent's thread, and a canvas invitation opens that board's room.
+ * of the notification to remove, an assistant reply opens that agent's thread, a canvas invitation opens that board's room,
+ * and an assistant's ring (`callRequest`, "Nova is calling") starts a call that answers it (`id` is what a withdraw names).
  */
 export type PushData =
   | { readonly sessionId: string }
@@ -20,6 +21,7 @@ export type PushData =
   | { readonly id: string; readonly kind: string; readonly sessionId?: string }
   | { readonly withdraw: string }
   | { readonly assistant: true; readonly agent: string }
+  | { readonly id: string; readonly callRequest: string; readonly assistant: true; readonly agent: string }
   | { readonly meeting: string }
   | { readonly canvas: string };
 

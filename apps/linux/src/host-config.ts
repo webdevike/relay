@@ -24,6 +24,14 @@ const HostConfigFile = z.object({
   human: z.string().min(1).optional(),
   features: z.record(z.string(), z.unknown()).optional(),
   voice: z.object({ provider: ProviderId }).optional(),
+  /** Timing of "call me when it's done" requests (`callme/service.ts` DEFAULT_CALL_ME_TIMING fills what is absent). */
+  callMe: z
+    .object({
+      ringMs: z.number().int().positive().optional(),
+      maxWaitMs: z.number().int().positive().optional(),
+      pollMs: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 
 export interface HostConfig {
@@ -34,6 +42,7 @@ export interface HostConfig {
   /** Only the explicit booleans of `features`. */
   readonly features: Readonly<Record<string, boolean>>;
   readonly voice?: { readonly provider: ProviderId };
+  readonly callMe?: { readonly ringMs?: number | undefined; readonly maxWaitMs?: number | undefined; readonly pollMs?: number | undefined };
 }
 
 export function relayConfigDir(): string {
@@ -103,6 +112,7 @@ export function loadHostConfig(path: string = hostConfigPath()): HostConfig | nu
     ...(parsed.human === undefined ? {} : { human: parsed.human }),
     features,
     ...(parsed.voice === undefined ? {} : { voice: parsed.voice }),
+    ...(parsed.callMe === undefined ? {} : { callMe: parsed.callMe }),
   };
 }
 

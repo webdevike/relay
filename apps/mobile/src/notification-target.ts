@@ -7,6 +7,16 @@
  */
 import type { Href } from "expo-router";
 
+/**
+ * An assistant's ring ("Nova is calling": `callRequest` + `agent`, the host's "call me when it's
+ * done"), which a tap answers with a call rather than opening the thread; null for anything else.
+ */
+export function notificationCall(data: Record<string, unknown>): { agent: string; request: string } | null {
+  const request = data["callRequest"];
+  const agent = data["agent"];
+  return typeof request === "string" && request !== "" && typeof agent === "string" && agent !== "" ? { agent, request } : null;
+}
+
 export function notificationTarget(data: Record<string, unknown>): Href | null {
   if (data["assistant"] === true) {
     const agent = data["agent"];

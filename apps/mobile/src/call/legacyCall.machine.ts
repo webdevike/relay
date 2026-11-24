@@ -14,8 +14,11 @@ import { assertEvent, assign, fromCallback, fromPromise, setup, type SnapshotFro
 import type { CallState } from "@relay/protocol";
 
 export type LegacyCallEvent =
-  /** Start a call with `agent` on socket epoch `epoch`; ignored while one is opening its microphone. */
-  | { type: "call.start"; callId: string; agent: string; epoch: number }
+  /**
+   * Start a call with `agent` on socket epoch `epoch`; ignored while one is opening its microphone.
+   * `request`: the assistant's ring this call answers ("Nova is calling"), sent along on `call.start`.
+   */
+  | { type: "call.start"; callId: string; agent: string; epoch: number; request?: string }
   | { type: "call.hangUp" }
   /** iOS took the audio session (a phone call, Siri). */
   | { type: "call.interrupted" }
@@ -29,6 +32,8 @@ export type LegacyCallEvent =
 export interface LegacyCallContext {
   callId: string | null;
   agent: string | null;
+  /** The ring this call answers (an assistant's "call me when it's done"); null for a call Isaac placed. */
+  request: string | null;
   /** The socket epoch the call runs on. */
   epoch: number;
   /** What the host last said the call is doing. */
@@ -80,6 +85,7 @@ export const legacyCallMachine = setup({
       return {
         callId: event.callId,
         agent: event.agent,
+        request: event.request ?? null,
         epoch: event.epoch,
         phase: "connecting" as const,
         text: null,
@@ -119,6 +125,7 @@ export const legacyCallMachine = setup({
   context: ({ input }) => ({
     callId: null,
     agent: null,
+    request: null,
     epoch: 0,
     phase: "connecting",
     text: null,
