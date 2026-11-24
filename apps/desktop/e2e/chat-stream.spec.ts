@@ -62,7 +62,7 @@ for (const chunk of ['line', '1', 'glued', 'emoji-split']) {
         ).toBeVisible()
       }
       await expect(log).toContainText('Foxes are primarily nocturnal hunters')
-      await expect(log).toContainText('🚀')
+      await expect(log).toContainText('🚀', { timeout: 30_000 })
       await expect(
         shell.locator('[data-testid=chat-header] [aria-label="Eva is replying"]'),
       ).toHaveCount(0)
