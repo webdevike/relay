@@ -376,11 +376,7 @@ function SubagentRow({
       }
       title={item.title}
       meta={<KindMeta kind="helper" intent={line} />}
-      tooltip={rowTip(
-        item.title,
-        line,
-        ...(view === null ? [] : [view.label, view.detail]),
-      )}
+      tooltip={rowTip(item.title, line, ...(view === null ? [] : [view.label, view.detail]))}
       trailing={<ListTime>{right}</ListTime>}
       onActivate={() => actions.open(item)}
       actions={

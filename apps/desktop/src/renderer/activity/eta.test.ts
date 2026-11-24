@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { etaView, type ActivityEta } from '@relay/protocol'
 import type { ActivityItem } from '@evaos/chat-core/activity'
-import {
-  etaItem,
-  etaTrailing,
-  helperActivityId,
-  subagentTranscriptFile,
-} from './eta'
+import { etaItem, etaTrailing, helperActivityId, subagentTranscriptFile } from './eta'
 
 const MIN = 60_000
 const NOW = 1_000_000_000

@@ -514,7 +514,9 @@ describe('SubagentChips estimate text', () => {
     const b = screen.getByTestId('subagent-chip-b')
     expect(b.querySelector('[data-testid="eta-short"]')).toHaveTextContent('15m')
     // Another file's estimate is not this one's, and a helper with none shows no time.
-    expect(screen.getByTestId('subagent-chip-c').querySelector('[data-testid="eta-short"]')).toBeNull()
+    expect(
+      screen.getByTestId('subagent-chip-c').querySelector('[data-testid="eta-short"]'),
+    ).toBeNull()
   })
   it('a finished run leaves the strip at once', () => {
     const run = session('fin', etaOf(10))
