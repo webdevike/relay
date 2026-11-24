@@ -69,7 +69,7 @@ import { ListEmpty, ListRow, ListTime, ListView, rowTip, type ListGroup } from '
 import { ArtifactRow, RowButton, type RowActions } from './ArtifactRow'
 import { MediaGrid, MediaLightbox } from './ArtifactsMedia'
 import { ActivityRow, KindMeta } from './ActivityRows'
-import { etaItem, etaProps, etaTrailing, helperActivityId, useEtaFill } from '../activity/eta'
+import { etaItem, etaTrailing, helperActivityId, useEtaView } from '../activity/eta'
 import {
   actorName,
   ageText,
@@ -334,21 +334,19 @@ function SubagentRow({
   now,
   actions,
   run,
-  color,
 }: {
   row: TreeRow
   now: number
   actions: RowActions
   /** This helper's run in the host's activity list, when it has an estimate. */
   run?: ActivityItem
-  color?: string
 }) {
   const { item, depth } = row
   const sub = item.subagent
   const state = subagentView(item, now)
   const running = state === 'running'
-  const fill = useEtaFill(running ? run : undefined)
-  const left = fill === null ? null : etaTrailing(fill.view)
+  const view = useEtaView(running ? run : undefined)
+  const left = view === null ? null : etaTrailing(view)
   const line = sub?.line ?? (sub ? `Started ${whenText(sub.startedAt, now)}` : '')
   const right =
     left ??
@@ -357,15 +355,11 @@ function SubagentRow({
       : sub?.endedAt !== undefined
         ? whenText(sub.endedAt, now)
         : '')
-  const fx = fill === null ? null : etaProps(fill, color)
   return (
     <ListRow
-      className={fx === null ? undefined : 'eva-eta'}
-      data-eta={fx?.['data-eta']}
       data-testid={`artifact-row-${item.id}`}
       data-state={state ?? undefined}
       style={{
-        ...fx?.style,
         // A child subagent sits under its parent, one step in per level.
         ...(depth > 0
           ? { paddingLeft: `calc(var(--mantine-spacing-xs) * 0.8 + ${depth} * 24px)` }
@@ -385,7 +379,7 @@ function SubagentRow({
       tooltip={rowTip(
         item.title,
         line,
-        ...(fill === null ? [] : [fill.view.label, fill.view.detail]),
+        ...(view === null ? [] : [view.label, view.detail]),
       )}
       trailing={<ListTime>{right}</ListTime>}
       onActivate={() => actions.open(item)}
@@ -417,12 +411,6 @@ type WorkRow = { type: 'helper'; row: TreeRow } | { type: 'activity'; item: Acti
  */
 function WorkingView({ thread, rows, now, actions }: ViewProps) {
   const activity = useActivity((s) => s.items)
-  // The thread's assistant tints the fills with its portrait color; a chat's rows use the accent.
-  const color = useAssistants((s) =>
-    thread.startsWith('assistant:')
-      ? agentOf(s, thread.slice('assistant:'.length))?.avatar.colors?.accent
-      : undefined,
-  )
   const { running, finished } = subagentTree(rows, now)
   const sections = activitySections(activity, thread, now)
   const open = (item: ActivityItem): void => {
@@ -463,14 +451,13 @@ function WorkingView({ thread, rows, now, actions }: ViewProps) {
               row={r.row}
               now={now}
               actions={actions}
-              color={color}
               run={etaItem(
                 activity,
                 helperActivityId(r.row.item.path ?? r.row.item.id.slice('subagent:'.length)),
               )}
             />
           ) : (
-            <ActivityRow key={r.item.id} item={r.item} now={now} color={color} onOpen={open} />
+            <ActivityRow key={r.item.id} item={r.item} now={now} onOpen={open} />
           )
         }
         empty={

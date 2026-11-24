@@ -1416,7 +1416,6 @@ function ThreadRunning({
     () => runningChips(activityItems, thread, { threadSession: sessionId, sessions }, owned),
     [activityItems, thread, sessionId, sessions, owned],
   );
-  // Stays mounted with nothing running: a finished chip fills up and fades out before the row goes.
   return (
     <RunningChips
       chips={running}
