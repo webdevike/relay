@@ -251,7 +251,8 @@ export class CallMeService {
    */
   private resolve(thread: CallMeThread, on: string | undefined, session: string | undefined): WorkTarget {
     const own = (): WorkTarget => {
-      const id = session !== undefined && session !== "" ? this.sessionRef(session)?.id ?? session : thread.sessionId();
+      // A caller the host does not list (an id it cannot match) would read as finished at once: use the assistant's own session.
+      const id = (session === undefined || session === "" ? undefined : this.sessionRef(session)?.id) ?? thread.sessionId();
       if (id === undefined) throw new CallMeError(`${thread.title} has no live session to watch`);
       const title = this.deps.sessions().find((candidate) => candidate.id === id)?.title ?? `${thread.title}'s turn`;
       return { kind: "session", id, title };
