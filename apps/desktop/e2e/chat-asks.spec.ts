@@ -4,8 +4,9 @@
 // jumps to the bubble (it flashes, then keeps a thin accent edge and a "Waiting on you" tag with a
 // dismiss x), the filter's Open asks keeps only those turns, asks with no bubble sit in one entry
 // at the end of the rail, and answering or dismissing (or the host resolving it) clears it live.
-// No badge line above the composer. A chat too narrow for the rail beside its text hides it and
-// shows a header count that opens the same asks. Saves screenshots to proof/asks-rail/ (EVAOS_PROOF=1).
+// No badge line above the composer: the open asks are the question cards on the composer (the
+// card stack), which stay when a chat too narrow for the rail beside its text hides the rail.
+// Saves screenshots to proof/asks-rail/ (EVAOS_PROOF=1).
 //
 //   source scripts/env.sh
 //   pnpm -C apps/desktop exec electron-vite build
@@ -147,9 +148,11 @@ test('open asks live in the rail: ring, filter, tick click jumps, dismiss from c
   test.setTimeout(180_000)
   await openChat(app, shell)
   const total = await ticks(shell).count()
-  // The badge line above the composer is gone.
+  // The badge line above the composer is gone; the asks are the stack's cards, oldest in front.
   await expect(shell.locator(sel('ask-badges'))).toHaveCount(0)
   await expect(shell.locator(sel('ask-badge'))).toHaveCount(0)
+  await expect(shell.locator(sel('card-stack'))).toHaveAttribute('data-front', 'ask:a1b2c3d4')
+  await expect(shell.locator(sel('card-stack-tab'))).toHaveText('Push to prod?')
 
   // 1. Each turn holding an open ask wears a ring on its tick; the card tells the question.
   await expect(waitingTicks(shell)).toHaveCount(2)
@@ -273,53 +276,82 @@ const railAndText = (shell: Page) =>
     return { rail: Math.max(...drawn.map((el) => el.getBoundingClientRect().right)), text: left }
   }, LOG)
 
-test('the rail never sits on the text: a narrow chat hides it and the header counts its open asks', async ({
+test('the rail never sits on the text: a narrow chat hides it, and the asks stay cards on the composer', async ({
   app,
   shell,
 }) => {
   test.setTimeout(180_000)
   await openChat(app, shell)
-  const button = shell.locator(sel('asks-button'))
+  const stack = shell.locator(sel('card-stack'))
+  const tab = shell.locator(sel('card-stack-tab'))
 
-  // Wide: the rail is beside the text, nothing in the header.
+  // Wide: the rail is beside the text.
   await expect(waitingTicks(shell)).toHaveCount(2)
-  await expect(button).toHaveCount(0)
   const wide = await railAndText(shell)
   expect(wide.rail).not.toBeNull()
   expect(wide.rail!).toBeLessThan(wide.text)
 
-  // Every width down to a narrow window: either the rail clears the text or it is gone and the
-  // header carries the count.
+  // Every width down to a narrow window: either the rail clears the text or it is gone.
   for (const w of [1500, 1300, 1150, 1050, 950, 850, 760]) {
     await resize(app, w, 1000)
     await shell.waitForTimeout(150)
     const at = await railAndText(shell)
-    if (at.rail === null) {
-      await expect(button).toBeVisible()
-      await expect(button).toHaveAttribute('aria-label', 'Waiting on you, 2 open asks')
-    } else {
-      expect(at.rail, `rail overlaps the text at ${w}px`).toBeLessThan(at.text)
-      await expect(button).toHaveCount(0)
-    }
+    if (at.rail !== null) expect(at.rail, `rail overlaps the text at ${w}px`).toBeLessThan(at.text)
   }
   await expect(shell.locator(sel('turn-minimap'))).toHaveCount(0)
-  await shot(app, shell, 'narrow-header-count')
 
-  // The count opens the same asks: a question jumps to its bubble, Dismiss closes one on the host.
-  await button.click()
-  await expect(shell.locator(sel('asks-popover'))).toContainText(FIRST_Q)
-  await shot(app, shell, 'narrow-asks-popover')
-  await shell.locator(sel('asks-popover')).getByRole('button', { name: FIRST_Q }).click()
-  await expect(row(shell, 'ask1a')).toBeVisible()
-  await expect(shell.locator(sel('asks-popover'))).toHaveCount(0)
-  await button.click()
-  await shell.locator(sel('asks-popover')).getByRole('button', { name: 'Dismiss' }).last().click()
-  await expect(button).toHaveAttribute('aria-label', 'Waiting on you, 1 open ask')
-  await expect.poll(() => host.openAsks(AGENT).map((a) => a.id)).toEqual(['a1b2c3d4'])
+  // The asks are still the cards on the composer: the oldest in front, a sliver for the next one,
+  // no count.
+  await expect(stack).toHaveAttribute('data-front', 'ask:a1b2c3d4')
+  await expect(tab).toHaveText('Push to prod?')
+  await expect(shell.locator(sel('card-stack-peek'))).toBeVisible()
+  await shot(app, shell, 'narrow-ask-tab')
 
-  // Wide again: the rail is back and the header count gone.
-  await shell.keyboard.press('Escape')
+  // Open: the question under its label, its two answers side by side, a typed answer, two dots.
+  await tab.click()
+  await expect(stack).toHaveAttribute('data-state', 'expanded')
+  const card = shell.locator(sel('card-stack-card'))
+  await expect(card).toContainText(FIRST_Q)
+  await expect(card.getByRole('button', { name: 'Yes, push it' })).toBeVisible()
+  await expect(card.getByRole('textbox', { name: 'Or type an answer' })).toBeVisible()
+  await expect(shell.locator(sel('card-stack-dot'))).toHaveCount(2)
+  await shot(app, shell, 'narrow-ask-card-open')
+
+  // Answering sends Isaac's turn naming the question and resolves the ask; the next card shows.
+  await card.getByRole('button', { name: 'Not yet' }).click()
+  await expect.poll(() => host.openAsks(AGENT).map((a) => a.id)).toEqual(['e5f6a7b8'])
+  expect(
+    host.commands.find((c) => c.cmd.kind === 'assistant.ask.resolve' && c.cmd.id === 'a1b2c3d4')
+      ?.cmd,
+  ).toMatchObject({ how: 'answered', answer: 'Not yet' })
+  // Isaac's turn goes out through Relay, tagged with the question it answers.
+  await expect
+    .poll(() =>
+      host.commands.some(
+        (c) =>
+          c.cmd.kind !== 'assistant.ask.resolve' &&
+          JSON.stringify(c.cmd).includes('[answer to: \\"') &&
+          JSON.stringify(c.cmd).includes('] Not yet'),
+      ),
+    )
+    .toBe(true)
+  await expect(stack).toHaveAttribute('data-front', 'ask:e5f6a7b8')
+
+  // Collapsed, the tab's x dismisses the last one: no answer, the host's resolve, no tab.
+  await shell.locator(sel('card-stack-collapse')).click()
+  await expect(stack).toHaveAttribute('data-state', 'collapsed')
+  await tab.hover()
+  await shell.locator(sel('card-stack-dismiss')).click()
+  await expect.poll(() => host.openAsks(AGENT)).toEqual([])
+  expect(host.commands.at(-1)?.cmd).toMatchObject({
+    kind: 'assistant.ask.resolve',
+    id: 'e5f6a7b8',
+    how: 'dismissed',
+  })
+  await expect(stack).toHaveCount(0)
+
+  // Wide again: the rail is back, with no ring left.
   await resize(app, 1900, 1000)
-  await expect(waitingTicks(shell)).toHaveCount(1)
-  await expect(button).toHaveCount(0)
+  await expect(shell.locator(sel('turn-minimap'))).toBeVisible()
+  await expect(waitingTicks(shell)).toHaveCount(0)
 })

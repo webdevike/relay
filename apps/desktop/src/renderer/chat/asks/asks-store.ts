@@ -3,6 +3,7 @@ import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { AsksView, OpenAsk } from '@evaos/contract'
 import { invoke, on } from '../../ipc'
+import { answerText, MAX_ASK_ANSWER } from '@relay/protocol'
 import { openAsks } from './open-asks'
 
 /**
@@ -98,4 +99,19 @@ export async function resolveAsk(
   })
   if (r.ok && r.value.sent) return
   asksStore.setState((s) => ({ closed: new Set([...s.closed].filter((k) => k !== key)) }))
+}
+
+/**
+ * Isaac answers `ask` with `reply`: a reply's or ask card's answer goes into the thread as his turn
+ * too (`sendTurn`, naming the question it answers), then the ask closes as answered; a session's
+ * ask only closes, and the host hands the answer to the asking session.
+ */
+export function answerAsk(
+  agent: string,
+  ask: OpenAsk,
+  reply: string,
+  sendTurn: (text: string) => void,
+): Promise<void> {
+  if (ask.source !== 'session') sendTurn(answerText(reply, ask.question, true))
+  return resolveAsk(agent, ask, 'answered', reply.slice(0, MAX_ASK_ANSWER))
 }

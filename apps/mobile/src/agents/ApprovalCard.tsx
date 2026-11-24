@@ -15,6 +15,11 @@ export interface ApprovalCardProps {
   error: string | null;
   onApprove: () => void;
   onDeny: () => void;
+  /**
+   * Drawn inside a card of the thread's card stack (`agents/CardStack`), which frames and titles it:
+   * no card or title of its own (the Face ID flag stays), at most `maxHeight` tall.
+   */
+  embedded?: { maxHeight: number };
 }
 
 /**
@@ -22,16 +27,21 @@ export interface ApprovalCardProps {
  * `rm -rf`, deploy, prod write) is flagged and its Approve says it needs Face ID; there is no
  * "always allow".
  */
-export function ApprovalCard({ approval, busy, error, onApprove, onDeny }: ApprovalCardProps) {
+export function ApprovalCard({ approval, busy, error, onApprove, onDeny, embedded }: ApprovalCardProps) {
   const colors = useColors();
   const flagged = approval.destructive !== undefined || approval.requiresBiometric;
-  return (
-    <Card maxHeight={360}>
-      <View style={styles.header}>
-        <Text variant="title">Needs approval</Text>
-        {flagged && <Pill tone="warn" label={approval.destructive === undefined ? "Face ID" : `Face ID · ${approval.destructive}`} />}
-      </View>
-      <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+  const flag = flagged && <Pill tone="warn" label={approval.destructive === undefined ? "Face ID" : `Face ID · ${approval.destructive}`} />;
+  const content = (
+    <>
+      {embedded === undefined ? (
+        <View style={styles.header}>
+          <Text variant="title">Needs approval</Text>
+          {flag}
+        </View>
+      ) : (
+        flagged && <View style={styles.flag}>{flag}</View>
+      )}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
         {approval.reason !== undefined && <Text color="textMuted">{approval.reason}</Text>}
         <View style={[styles.command, { backgroundColor: colors.bg, borderColor: colors.hairline }]}>
           <Text variant="caption" color="textFaint">
@@ -51,8 +61,9 @@ export function ApprovalCard({ approval, busy, error, onApprove, onDeny }: Appro
         <Button label="Deny" variant="danger" disabled={busy} onPress={onDeny} />
         <Button label={approval.requiresBiometric ? "Approve with Face ID" : "Approve"} loading={busy} onPress={onApprove} />
       </View>
-    </Card>
+    </>
   );
+  return embedded === undefined ? <Card maxHeight={360}>{content}</Card> : <View style={{ maxHeight: embedded.maxHeight }}>{content}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -64,6 +75,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.lg,
   },
+  /** In the card stack: the Face ID flag alone, left, over the reason. */
+  flag: { flexDirection: "row", paddingHorizontal: spacing.lg, paddingTop: spacing.sm },
+  /** Takes the room the footer leaves in a height-capped card, so Deny and Approve stay on screen. */
+  scroll: { flexGrow: 0, flexShrink: 1 },
   body: {
     gap: spacing.md,
     padding: spacing.lg,

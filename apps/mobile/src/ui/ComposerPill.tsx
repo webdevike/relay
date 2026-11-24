@@ -35,6 +35,12 @@ const RADIUS = PILL_INNER / 2 + BORDER;
 /** Opaque fill in dark mode, so the chat never reads through it. */
 const FILL_DARK = "#262626";
 
+/** The composer's fill: opaque in dark mode, the surface in light. The card stack's tab and cards share it. */
+export function useComposerFill(): string {
+  const colors = useColors();
+  return useScheme() === "dark" ? FILL_DARK : colors.surface;
+}
+
 /**
  * The text field's metrics. The field uses them in both shapes, so its text never changes size or
  * padding when the pill opens; only where the field sits moves.
@@ -114,8 +120,7 @@ export function ComposerPill({
   height,
 }: ComposerPillProps) {
   const colors = useColors();
-  const dark = useScheme() === "dark";
-  const fill = dark ? FILL_DARK : colors.surface;
+  const fill = useComposerFill();
   const inert = useMemo(() => Gesture.Tap().enabled(false), []);
 
   // The row's open middle (between the leading and trailing groups): where the idle field sits.

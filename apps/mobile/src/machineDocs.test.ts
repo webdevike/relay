@@ -32,7 +32,7 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
   { file: "call-start", title: "Call button start guard", machine: callStartMachine },
   { file: "command", title: "Reliable command lifecycle (phone to host)", machine: commandMachine },
   { file: "turn", title: "Sent assistant turn (echo bubble)", machine: turnMachine },
-  { file: "ask", title: "Answering an ask (card, chip, sheet)", machine: askMachine },
+  { file: "ask", title: "Answering an ask (card, chip, stack)", machine: askMachine },
   { file: "rooms-request", title: "Rooms request and card busy state", machine: roomsRequestMachine },
   { file: "ota-gate", title: "OTA reload gate", machine: otaGateMachine },
   { file: "composer-shape", title: "Composer shape (pill, card, dictation, hold)", machine: composerShapeMachine },

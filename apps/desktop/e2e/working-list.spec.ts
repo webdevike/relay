@@ -11,8 +11,8 @@ import { EVA_FIXTURE_ROOT } from './helpers/paths'
 // out), sessions, harnesses and canvas agents carry their kind and live intent line, what waits on
 // Isaac is pinned on top with its question, and what finished sits under "Finished today". The
 // popover on an assistant's page lists only that assistant's work (no other owner's rows, no owner
-// groups). The composer chips show the in-progress work this chat's assistant
-// spun off, with the kind icon. EVAOS_WORKING_SHOTS=<dir> also writes dark and light screenshots.
+// groups). The composer's running cards show the in-progress work this chat's assistant spun off.
+// EVAOS_WORKING_SHOTS=<dir> also writes dark and light screenshots.
 const SHOTS = process.env.EVAOS_WORKING_SHOTS ?? ''
 
 let fx: ChatFixture
@@ -149,7 +149,7 @@ async function scheme(shell: Page, s: 'light' | 'dark'): Promise<void> {
   await expect(shell.locator('html')).toHaveAttribute('data-resolved', s)
 }
 
-test("an assistant's Working tab lists everything its agents run, and the composer chips follow", async ({
+test("an assistant's Working tab lists everything its agents run, and the running cards follow", async ({
   shell,
 }) => {
   await shell.locator(sel('nav-assistants')).click()
@@ -184,16 +184,15 @@ test("an assistant's Working tab lists everything its agents run, and the compos
   ])
   host.setActivity(items('working'))
 
-  // The composer chips follow the same owner: this assistant's in-progress sessions (the one
-  // waiting on Isaac too) and canvas agents, kind icon each. Not the harness nobody owns, not
-  // anything of another assistant's, not finished work.
-  const chip = (id: string) => shell.locator(sel(`activity-chip-${id}`))
-  await expect(chip('session:aw1')).toHaveAttribute('data-kind', 'session')
-  await expect(chip('canvas:roadmap')).toHaveAttribute('data-kind', 'canvas')
-  await expect(chip('session:aw1').locator('svg')).toHaveCount(1)
-  await expect(shell.locator('[data-testid^="activity-chip-"]')).toHaveCount(3)
-  await expect(chip('session:nova-ask')).toHaveCount(1)
-  await expect(chip('session:astra-run')).toHaveCount(0)
+  // The running cards follow the same owner: this assistant's in-progress sessions (the one
+  // waiting on Isaac too) and canvas agents. Not the harness nobody owns, not anything of another
+  // assistant's, not finished work.
+  const runIds = () =>
+    shell.locator(sel('card-stack-dot')).evaluateAll((els) => els.map((e) => e.dataset['cardId']))
+  await shell.locator(sel('card-stack-tab')).click()
+  await expect
+    .poll(async () => (await runIds()).sort())
+    .toEqual(['run:canvas:roadmap', 'run:session:aw1', 'run:session:nova-ask'])
 
   // The popover: the tab is called Working, and what waits on Isaac is on top with its question.
   await shell.locator(sel('artifacts-button')).click()
@@ -265,8 +264,12 @@ test("an assistant's Working tab lists everything its agents run, and the compos
     }
   }
 
-  // The run ends on the host: the chip goes and the row moves to Finished today.
+  // The run ends on the host: the row moves to Finished today and its card goes.
   host.setActivity(items('done'))
-  await expect(chip('session:aw1')).toHaveCount(0)
   await expect(session).toHaveAttribute('data-state', 'done')
+  await shell.keyboard.press('Escape')
+  await shell.locator(sel('card-stack-tab')).click()
+  await expect
+    .poll(async () => (await runIds()).sort())
+    .toEqual(['run:canvas:roadmap', 'run:session:nova-ask'])
 })

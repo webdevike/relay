@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { popoverLeft, popoverWidth, stepAt, stepX } from "./sliderMath";
+import { stepAt, stepX } from "./sliderMath";
 
 describe("stepAt", () => {
   it("clamps outside the track", () => {
@@ -33,24 +33,5 @@ describe("stepX", () => {
     expect(stepX(0, 250, 6)).toBe(0);
     expect(stepX(1, 250, 6)).toBe(50);
     expect(stepX(5, 250, 6)).toBe(250);
-  });
-});
-
-describe("popover placement", () => {
-  it("aligns to the anchor when it fits", () => {
-    expect(popoverLeft(40, 300, 390, 12)).toBe(40);
-  });
-
-  it("clamps to the left margin", () => {
-    expect(popoverLeft(-20, 300, 390, 12)).toBe(12);
-  });
-
-  it("clamps to the right margin", () => {
-    expect(popoverLeft(200, 300, 390, 12)).toBe(78);
-  });
-
-  it("caps the width and keeps the margins on a narrow window", () => {
-    expect(popoverWidth(430, 12, 340)).toBe(340);
-    expect(popoverWidth(320, 12, 340)).toBe(296);
   });
 });

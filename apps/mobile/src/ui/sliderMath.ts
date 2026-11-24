@@ -1,5 +1,5 @@
 /**
- * Pure math for `DotSlider` and `ChipEtaPopover`. Each function is also called from a worklet,
+ * Pure math for `DotSlider`. Each function is also called from a worklet,
  * so they take every input as a plain argument (no defaults, no module constants).
  */
 
@@ -16,15 +16,4 @@ export function stepX(index: number, width: number, count: number): number {
   "worklet";
   if (count <= 1) return 0;
   return (index / (count - 1)) * width;
-}
-
-/** Left edge of a card of `cardWidth` aligned to `anchorX`, kept `margin` inside a window of `windowWidth`. */
-export function popoverLeft(anchorX: number, cardWidth: number, windowWidth: number, margin: number): number {
-  const max = windowWidth - margin - cardWidth;
-  return Math.max(margin, Math.min(anchorX, max));
-}
-
-/** Card width: the window minus its margins, capped at `cap`. */
-export function popoverWidth(windowWidth: number, margin: number, cap: number): number {
-  return Math.max(0, Math.min(windowWidth - 2 * margin, cap));
 }

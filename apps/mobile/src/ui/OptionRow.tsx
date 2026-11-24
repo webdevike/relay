@@ -16,11 +16,15 @@ export interface OptionRowProps {
   trailing?: ReactNode;
   /** Dimmed and not selectable (the description says why). */
   disabled?: boolean;
+  /** A taller row where it must be a 44 pt touch target (the card stack's answers). */
+  minHeight?: number;
+  /** Fill while not selected, when it sits on another surface than the default (a card stack card). */
+  fill?: string;
   onPress: () => void;
 }
 
 /** One selectable choice in a list: bordered row, accent-tinted while selected. */
-export function OptionRow({ label, description, selected, badge, leading, trailing, disabled = false, onPress }: OptionRowProps) {
+export function OptionRow({ label, description, selected, badge, leading, trailing, disabled = false, minHeight, fill, onPress }: OptionRowProps) {
   const colors = useColors();
   const content = (
     <>
@@ -44,6 +48,7 @@ export function OptionRow({ label, description, selected, badge, leading, traili
   );
   return (
     <Pressable
+      accessibilityRole="button"
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
       onPress={() => {
@@ -55,9 +60,11 @@ export function OptionRow({ label, description, selected, badge, leading, traili
         borderWidth: 1,
         borderColor: selected ? colors.accent : colors.hairline,
         // Selected: the accent at 0.12 opacity.
-        backgroundColor: selected ? `${colors.accent}1F` : colors.surface,
+        backgroundColor: selected ? `${colors.accent}1F` : (fill ?? colors.surface),
         paddingVertical: spacing.sm,
         paddingHorizontal: spacing.md,
+        minHeight,
+        justifyContent: "center",
         opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
       })}
     >

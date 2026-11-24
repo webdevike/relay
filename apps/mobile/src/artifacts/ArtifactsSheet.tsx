@@ -9,8 +9,8 @@
  * pinned first with who pinned it, quiet status pills, a short "48x, last 10:50 PM"; swipe left for
  * Open and Pin. Media is a two-column grid; hold a tile to save or share it. Subagents shows the
  * thread's tasks by state (Needs input, Ready for review, Working, then Resolved folded), the
- * phone's twin of the desktop's running popover. What runs now shows as chips in the thread's
- * header (`agents/RunningChips`);
+ * phone's twin of the desktop's running popover. What runs now shows as running cards in the
+ * thread's card stack (`agents/CardStack`);
  * one that is not a session opens this sheet on the Subagents tab (`tab`). The rows are drawn only
  * while the sheet shows: a closed sheet sits under every thread, and a long thread holds thousands
  * of artifacts (Nova's: 2,000, 700 of them pictures), which kept every row, and after a look at
@@ -115,7 +115,7 @@ export interface ArtifactsSheetProps {
   /** The omp session the thread runs in, or null while it is not running. */
   session: string | null;
   open: boolean;
-  /** The tab to open on ("subagents" from a running chip); null keeps the last one shown. */
+  /** The tab to open on ("subagents" from a running card); null keeps the last one shown. */
   tab?: string | null;
   onClose: () => void;
 }

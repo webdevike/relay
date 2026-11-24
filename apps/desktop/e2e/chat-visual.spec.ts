@@ -509,21 +509,38 @@ for (const s of SCHEMES) {
     )
     await pane.locator('[data-testid=pill-new-reply]').click()
 
-    // The jobs strip shows while this app's omp runs; the chips come from the session folder.
+    // The jobs strip shows while this app's omp runs; the running cards come from the session folder.
     await pane.locator('[data-testid=jobs-strip] button').first().click()
     await expect(pane.locator('[data-testid=jobs-row]')).toHaveCount(1)
     await shot(app, shell, `live-${s}-jobs-strip-open`, `Jobs strip expanded while omp runs, ${s}`)
-    await pane.locator('[data-testid=subagent-chip-ReviewCsvWriter]').click({ modifiers: ['Meta'] })
-    await expect(shell.locator('[data-testid=subagent-transcript]')).toBeVisible()
-    await shot(
-      app,
-      shell,
-      `live-${s}-subagent-panel`,
-      `Running subagent transcript in a tool pane tab, ${s}`,
-    )
-    // Closing its tab drops the transcript; the tool panes hide again for the next shots.
-    await shell.locator('[data-testid^="pane-tab-close-subagent:"]').click()
-    await expect(shell.locator('[data-testid=subagent-transcript]')).toHaveCount(0)
+    // A running subagent is a running card; its Open session (Cmd) opens the transcript beside.
+    const runTab = pane.locator('[data-testid=card-stack-tab]')
+    if ((await runTab.count()) > 0) {
+      await runTab.click()
+      const subDot = pane.locator('[data-testid=card-stack-dot][data-card-id^="sub:"]').first()
+      if ((await subDot.count()) > 0) await subDot.click()
+      await expect(pane.locator('[data-testid=card-stack-card]')).toHaveAttribute(
+        'data-card-id',
+        /^sub:/,
+      )
+      await shot(
+        app,
+        shell,
+        `live-${s}-running-card`,
+        `Running subagent card open on the composer, ${s}`,
+      )
+      await pane.locator('[data-testid=card-stack-open-session]').click({ modifiers: ['Meta'] })
+      await expect(shell.locator('[data-testid=subagent-transcript]')).toBeVisible()
+      await shot(
+        app,
+        shell,
+        `live-${s}-subagent-panel`,
+        `Running subagent transcript in a tool pane tab, ${s}`,
+      )
+      // Closing its tab drops the transcript; the tool panes hide again for the next shots.
+      await shell.locator('[data-testid^="pane-tab-close-subagent:"]').click()
+      await expect(shell.locator('[data-testid=subagent-transcript]')).toHaveCount(0)
+    }
     await panel(shell, false)
     await settled(shell)
     await shot(
@@ -533,8 +550,8 @@ for (const s of SCHEMES) {
       `Reply finished, omp still running (no Saved session pill), ${s}`,
     )
 
-    // Cards above the composer.
-    const card = pane.locator('[data-testid=pending-dialog]')
+    // Cards on the composer: the stack opens on each question the session asks.
+    const card = pane.locator('[data-testid=card-stack-card] [data-testid=pending-dialog]')
     const cards: Array<{ kw: string; what: string; answer: () => Promise<void> }> = [
       {
         kw: '[ask]',
@@ -580,7 +597,7 @@ for (const s of SCHEMES) {
       await settled(shell)
     }
 
-    // An editor card, then omp dies: the card is dimmed and the error banner shows.
+    // An editor card, then omp dies: the card goes (nothing left to answer) and the error banner shows.
     await send(shell, '[editor] notes')
     await expect(card).toBeVisible()
     await blur(shell)
@@ -591,12 +608,12 @@ for (const s of SCHEMES) {
     expect(pid).not.toBeNull()
     process.kill(pid!, 'SIGKILL')
     await expect(pane.locator('[data-testid=chat-error]')).toBeVisible()
-    await expect(card).toHaveAttribute('data-dead', 'true')
+    await expect(card).toHaveCount(0)
     await shot(
       app,
       shell,
-      `card-${s}-dead-and-error-banner`,
-      `omp exited unexpectedly: dead question card and the error banner, ${s}`,
+      `card-${s}-gone-and-error-banner`,
+      `omp exited unexpectedly: the question card is gone and the error banner shows, ${s}`,
     )
 
     // A lost batch: Reconnecting to the stream.

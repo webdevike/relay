@@ -214,6 +214,7 @@ test("an assistant's portrait thinks, researches and works with its thread; its 
   await expect(side).toHaveAttribute('data-state', 'idle')
   await expect(crumb).toHaveAttribute('data-state', 'idle')
   await expect(words).toHaveText('needs you')
+  await expect(shell.locator(sel('card-stack-title'))).toHaveText('Move the dentist to Friday?')
   await shell.locator(sel('pending-dialog')).getByRole('radio', { name: /Yes/ }).click()
   await expect(shell.locator(sel('pending-dialog'))).toHaveCount(0)
 

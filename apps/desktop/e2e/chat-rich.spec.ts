@@ -219,7 +219,8 @@ test('the same rich reply works in an assistant thread, a chat and a subagent tr
   for (const more of await shell.locator('[data-testid^="chat-show-more-"]').all())
     await more.click()
   await shell.locator('[data-testid="chat-row-p4-subagents"]').click()
-  await shell.locator('[data-testid="subagent-chip-b"]').click()
+  // b's running card: its Open session link shows the transcript in place.
+  await shell.locator('[data-testid="card-stack-open-link"]').click()
   await expectRich(shell.locator('[data-testid=subagent-transcript]'))
   await shot(app, shell, 'subagent-transcript')
 })

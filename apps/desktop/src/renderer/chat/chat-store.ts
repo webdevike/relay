@@ -1,7 +1,6 @@
 import { useStore } from 'zustand'
 import { createStore } from 'zustand/vanilla'
 import type { AwayView } from '@evaos/chat-core/batcher'
-import { subagentFinished } from '@evaos/chat-core/jobs'
 import type {
   BgJob,
   ChatMessage,
@@ -20,8 +19,6 @@ export interface PaneExtras {
 }
 
 export const NO_EXTRAS: PaneExtras = { subagents: [], jobs: [], running: false }
-
-export const hiddenKey = (file: string, name: string): string => `${file}\0${name}`
 
 export interface PaneState {
   /** Empty for a draft chat until omp reports the session file it created. */
@@ -44,8 +41,6 @@ export interface PaneState {
   dismissedError: string | null
   /** The open question omp is asking, if any. */
   dialog: Dialog | null
-  /** A question that was open when omp exited unanswered: shown dimmed until a new one or a restart. */
-  deadDialog: Dialog | null
   /** omp's goal while active or paused, shown in the strip over the composer. */
   goal: Goal | null
   /** A `/handoff` is generating. */
@@ -73,13 +68,9 @@ export interface OpenData {
 
 export interface ChatState {
   panes: Record<string, PaneState>
-  /** Finished subagent chips cleared by the user, as `hiddenKey`s, for this app run. */
-  hiddenDone: ReadonlySet<string>
   /** Extras that arrived before their pane was opened (main emits during `chat.open`). */
   pendingExtras: Record<string, PaneExtras>
   setExtras(e: Extras): void
-  /** Hides the pane's finished subagent chips. */
-  clearDone(paneId: string): void
   openPane(paneId: string, data: OpenData): void
   /** Forgets a pane that went away (a tool pane's chat tab closed). */
   dropPane(paneId: string): void
@@ -137,7 +128,6 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     stopped,
     dismissedError,
     dialog,
-    deadDialog,
     goal,
     handingOff,
     contextWindow,
@@ -166,12 +156,8 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
         error = p.error
         dismissedError = null
       }
-      if (p.connected !== undefined) {
-        stopped = !p.connected
-        if (p.connected) deadDialog = null
-      }
+      if (p.connected !== undefined) stopped = !p.connected
       if (p.dialog !== undefined) dialog = p.dialog
-      if (dialog !== null) deadDialog = null
       if (p.goal !== undefined) goal = p.goal
       if (p.handingOff !== undefined) handingOff = p.handingOff
       if (p.contextWindow !== undefined) contextWindow = p.contextWindow
@@ -191,8 +177,6 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
       }
     }
   }
-  // The dialog cleared because omp exited, not because it was answered: keep it as a dead card.
-  if (pane.dialog !== null && dialog === null && stopped) deadDialog = pane.dialog
   return {
     ...pane,
     file,
@@ -203,7 +187,6 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
     stopped,
     dismissedError,
     dialog,
-    deadDialog,
     goal,
     handingOff,
     contextWindow,
@@ -218,7 +201,6 @@ export function applyOpsToPane(pane: PaneState, ops: Op[], seq: number): PaneSta
 /** Lives outside React so the streaming drain (plan 01-05) can `setState` without a render. */
 export const chatStore = createStore<ChatState>((set) => ({
   panes: {},
-  hiddenDone: new Set<string>(),
   pendingExtras: {},
   setExtras: (e) =>
     set((s) => {
@@ -226,16 +208,6 @@ export const chatStore = createStore<ChatState>((set) => ({
       return s.panes[e.paneId]
         ? patchPane(s, e.paneId, (p) => ({ ...p, extras }))
         : { pendingExtras: { ...s.pendingExtras, [e.paneId]: extras } }
-    }),
-  clearDone: (paneId) =>
-    set((s) => {
-      const pane = s.panes[paneId]
-      if (!pane) return s
-      const next = new Set(s.hiddenDone)
-      for (const a of pane.extras.subagents) {
-        if (subagentFinished(a, Date.now())) next.add(hiddenKey(pane.file, a.name))
-      }
-      return { hiddenDone: next }
     }),
   openPane: (paneId, data) =>
     set((s) => ({
@@ -252,7 +224,6 @@ export const chatStore = createStore<ChatState>((set) => ({
           error: null,
           dismissedError: null,
           dialog: null,
-          deadDialog: null,
           goal: null,
           handingOff: false,
           contextWindow: null,
@@ -287,8 +258,6 @@ export const chatStore = createStore<ChatState>((set) => ({
         // Main still reports the error the user dismissed by typing: keep it hidden.
         const dismissed = snap.error !== null && snap.error === p.dismissedError
         const dialog = snap.dialog !== undefined ? snap.dialog : p.dialog
-        const deadDialog =
-          dialog !== null || snap.connected ? null : p.dialog !== null ? p.dialog : p.deadDialog
         return {
           ...p,
           messages: snap.messages,
@@ -298,7 +267,6 @@ export const chatStore = createStore<ChatState>((set) => ({
           error: dismissed ? null : snap.error,
           dismissedError: dismissed ? p.dismissedError : null,
           dialog,
-          deadDialog,
           goal: snap.goal !== undefined ? snap.goal : p.goal,
           handingOff: snap.handingOff ?? p.handingOff,
           thinking: snap.meta.thinking ?? p.thinking,

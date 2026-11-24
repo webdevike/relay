@@ -54,9 +54,6 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
         scrollHome: ({ event }) => {
           if (event.type === "follow.toBottom") listRef.current?.scrollToOffset({ offset: 0, animated: event.animated });
         },
-        centreRow: ({ event }) => {
-          if (event.type === "follow.toRow") listRef.current?.scrollToIndex({ index: event.index, viewPosition: 0.5, animated: event.animated });
-        },
       },
     }),
     { input: { initialOffset } },
@@ -75,19 +72,6 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
     follow.send({ type: "follow.toBottom", animated: !reducedMotion });
   }, [follow, reducedMotion]);
 
-  /** Scrolls row `index` to the middle of the list, smoothly, and stops following the newest row. */
-  const scrollToRow = useCallback((index: number) => {
-    follow.send({ type: "follow.toRow", index, animated: !reducedMotion });
-  }, [follow, reducedMotion]);
-
-  const onScrollToIndexFailed = useCallback((info: { index: number; averageItemLength: number }) => {
-    listRef.current?.scrollToOffset({ offset: info.index * info.averageItemLength, animated: false });
-    const centred = follow.getSnapshot().context.target === info.index;
-    setTimeout(() => {
-      listRef.current?.scrollToIndex({ index: info.index, viewPosition: centred ? 0.5 : 1, animated: false });
-    }, 80);
-  }, [follow]);
-
   const observe = (event: ScrollEvent): number => {
     const offset = Math.max(0, event.nativeEvent.contentOffset.y);
     offsetRef.current = offset;
@@ -96,9 +80,8 @@ export function useInvertedChatScroll<T>({ initialOffset = 0, onOffset }: { init
   };
 
   return {
-    listRef, offsetRef, awayFromBottom, scrollToBottom, scrollToRow, followContent,
+    listRef, offsetRef, awayFromBottom, scrollToBottom, followContent,
     scrollHandlers: {
-      onScrollToIndexFailed,
       onContentSizeChange: () => { followContent(); requestSettle(); },
       // Each scroll event pushes the 3D live slot's settle back; it follows the viewport once the list rests.
       onScroll: (event: ScrollEvent) => { follow.send({ type: "follow.scroll", offset: observe(event) }); requestSettle(); },

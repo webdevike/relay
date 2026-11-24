@@ -12,7 +12,7 @@ import { closeTab, openPlaceBeside, useTiling } from '../../tiling/tiling-store'
 import { focusWebTab, webPanelId } from '../../tiling/web-tabs'
 import { useDismissedIds } from '../status-card/dismissed-cards'
 import { StatusCard } from '../status-card/StatusCard'
-import { useMinute } from './SubagentChips'
+import { useMinute } from './subagent-state'
 
 /** The card's one line for each state of the agent's run. */
 function cardLine(a: AgentRun): string {

@@ -39,15 +39,16 @@ function respond(d: Choice, qs: AskQuestion[], picks: string[][], typed: string[
 
 /**
  * Blocked `ask` and extension `select` requests: one page per question, numbered single or multi
- * choice options, and (for `ask`) a free-form answer that replaces the options.
+ * choice options, and (for `ask`) a free-form answer that replaces the options. `titled`: the card
+ * stack's header already shows a lone question, so the body leaves it out.
  */
 export function QuestionCard({
   dialog,
-  dead = false,
+  titled = false,
   onAnswer,
 }: {
   dialog: Choice
-  dead?: boolean
+  titled?: boolean
   onAnswer: (response: DialogResponse) => void | Promise<boolean>
 }) {
   const qs = questionsOf(dialog)
@@ -66,7 +67,7 @@ export function QuestionCard({
   const text = typed[page]!
 
   const submit = (nextPicks: string[][], nextTyped = typed): void => {
-    if (sent.current || dead) return
+    if (sent.current) return
     sent.current = true
     // A failed or stale answer re-arms the card so the user can try again.
     void Promise.resolve(onAnswer(respond(dialog, qs, nextPicks, nextTyped))).then((ok) => {
@@ -76,7 +77,7 @@ export function QuestionCard({
 
   // Skipping tells the agent the question was dismissed, so it carries on instead of waiting.
   const skip = (): void => {
-    if (sent.current || dead) return
+    if (sent.current) return
     sent.current = true
     void Promise.resolve(onAnswer({ kind: 'cancel' })).then((ok) => {
       if (ok === false) sent.current = false
@@ -84,10 +85,10 @@ export function QuestionCard({
   }
   // Escape cancels only while focus is inside the card; the composer's own Escape (blur, then a
   // second press to stop) is unchanged because it is active only while the composer has focus.
-  useDismissable(DISMISS_PRIORITY.subPageBack + 1, skip, focusIn && !dead)
+  useDismissable(DISMISS_PRIORITY.subPageBack + 1, skip, focusIn)
 
   const choose = (qi: number, label: string): void => {
-    if (dead || sent.current) return
+    if (sent.current) return
     const cur = picks[qi]!
     const nextQ = qs[qi]!.multi
       ? cur.includes(label)
@@ -114,7 +115,7 @@ export function QuestionCard({
     else if (complete) submit(picks)
   }
 
-  useQuestionHotkeys(!dead, (index) => {
+  useQuestionHotkeys((index) => {
     if (sent.current) return false
     const label = q.options[index]?.label
     if (label === undefined) return false
@@ -134,7 +135,7 @@ export function QuestionCard({
     items[to]?.focus()
   }
 
-  const showActions = !dead && (!immediate || text.trim() !== '')
+  const showActions = !immediate || text.trim() !== ''
 
   return (
     <Paper
@@ -143,7 +144,6 @@ export function QuestionCard({
       p="md"
       className="eva-question"
       data-testid="pending-dialog"
-      data-dead={dead ? 'true' : undefined}
       onFocus={() => setFocusIn(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusIn(false)
@@ -162,9 +162,11 @@ export function QuestionCard({
             ) : null}
           </Group>
         ) : null}
-        <Text fw={500} style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-          {q.question}
-        </Text>
+        {titled && qs.length === 1 ? null : (
+          <Text fw={500} style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+            {q.question}
+          </Text>
+        )}
         <Stack
           key={q.id}
           gap="xs"
@@ -179,13 +181,12 @@ export function QuestionCard({
                 key={`${oi}-${o.label}`}
                 role={q.multi ? 'checkbox' : 'radio'}
                 aria-checked={on}
-                disabled={dead}
                 className="eva-question-option"
                 data-selected={on ? 'true' : undefined}
                 onClick={() => choose(page, o.label)}
               >
                 <Group gap="sm" wrap="nowrap" align="flex-start">
-                  {oi < HOTKEYS && !dead ? (
+                  {oi < HOTKEYS ? (
                     <Kbd size="xs">{oi + 1}</Kbd>
                   ) : (
                     <Box w={20} style={{ flex: 'none' }} />
@@ -205,7 +206,7 @@ export function QuestionCard({
               </UnstyledButton>
             )
           })}
-          {freeForm && !dead ? (
+          {freeForm ? (
             <TextInput
               key={`typed-${q.id}`}
               aria-label="Your own answer"
@@ -221,66 +222,59 @@ export function QuestionCard({
             />
           ) : null}
         </Stack>
-        {!dead ? (
-          <Group gap="xs" justify="flex-end">
-            <Button variant="subtle" color="gray" size="xs" onClick={skip}>
-              Skip
+        <Group gap="xs" justify="flex-end">
+          <Button variant="subtle" color="gray" size="xs" onClick={skip}>
+            Skip
+          </Button>
+          {qs.length > 1 ? (
+            <Group gap={6} mr="auto" aria-hidden>
+              {qs.map((x, i) => (
+                <Box
+                  key={x.id}
+                  h={6}
+                  w={i === page ? 16 : 6}
+                  bg={
+                    i === page
+                      ? 'var(--mantine-primary-color-filled)'
+                      : answered(i)
+                        ? 'var(--mantine-color-dimmed)'
+                        : 'var(--mantine-color-default-border)'
+                  }
+                  style={{ borderRadius: 3 }}
+                />
+              ))}
+            </Group>
+          ) : (
+            <Box mr="auto" />
+          )}
+          {page > 0 ? (
+            <Button
+              variant="subtle"
+              color="gray"
+              size="xs"
+              leftSection={<IconArrowLeft size={14} />}
+              onClick={() => setPage(page - 1)}
+            >
+              Back
             </Button>
-            {qs.length > 1 ? (
-              <Group gap={6} mr="auto" aria-hidden>
-                {qs.map((x, i) => (
-                  <Box
-                    key={x.id}
-                    h={6}
-                    w={i === page ? 16 : 6}
-                    bg={
-                      i === page
-                        ? 'var(--mantine-primary-color-filled)'
-                        : answered(i)
-                          ? 'var(--mantine-color-dimmed)'
-                          : 'var(--mantine-color-default-border)'
-                    }
-                    style={{ borderRadius: 3 }}
-                  />
-                ))}
-              </Group>
-            ) : (
-              <Box mr="auto" />
-            )}
-            {page > 0 ? (
-              <Button
-                variant="subtle"
-                color="gray"
-                size="xs"
-                leftSection={<IconArrowLeft size={14} />}
-                onClick={() => setPage(page - 1)}
-              >
-                Back
+          ) : null}
+          {showActions ? (
+            last ? (
+              <Button size="xs" disabled={!complete} onClick={() => submit(picks)}>
+                Send answer
               </Button>
-            ) : null}
-            {showActions ? (
-              last ? (
-                <Button size="xs" disabled={!complete} onClick={() => submit(picks)}>
-                  Send answer
-                </Button>
-              ) : (
-                <Button
-                  size="xs"
-                  disabled={!answered(page)}
-                  rightSection={<IconArrowRight size={14} />}
-                  onClick={() => setPage(page + 1)}
-                >
-                  Next
-                </Button>
-              )
-            ) : null}
-          </Group>
-        ) : null}
-        {dead ? (
-          <Text size="xs" c="dimmed">
-            This question can no longer be answered.
-          </Text>
-        ) : null}
+            ) : (
+              <Button
+                size="xs"
+                disabled={!answered(page)}
+                rightSection={<IconArrowRight size={14} />}
+                onClick={() => setPage(page + 1)}
+              >
+                Next
+              </Button>
+            )
+          ) : null}
+        </Group>
       </Stack>
     </Paper>
   )

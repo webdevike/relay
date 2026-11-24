@@ -1,6 +1,6 @@
-# Answering an ask (card, chip, sheet)
+# Answering an ask (card, chip, stack)
 
-Isaac's answer to one ask (`apps/mobile/src/agents/ask.machine.ts`, run by `agents/asks.ts`, records in `useAgentsStore().askRecords`). A session's ask card and the thread's open ask that stands for it are one record, so the card, a reply chip and the open-questions sheet answer it once, and the record outlives the screen.
+Isaac's answer to one ask (`apps/mobile/src/agents/ask.machine.ts`, run by `agents/asks.ts`, records in `useAgentsStore().askRecords`). A session's ask card and the thread's open ask that stands for it are one record, so the ask form, a reply chip and the card stack's question card answer it once, and the record outlives the screen.
 
 - `open`: nothing sent yet.
 - `answering` / `dismissing`: the answer (a turn of Isaac's plus `assistant.ask.resolve`, or `agent.ask.answer`) or the dismissal is on its way. The card stays until the ack; the thread's row hides. Another answer meanwhile is refused.

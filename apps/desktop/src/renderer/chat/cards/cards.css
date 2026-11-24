@@ -1,13 +1,3 @@
-.eva-pending-dialog {
-  flex: none;
-  box-sizing: border-box;
-  width: calc(100% - var(--eva-space-native-lg) * 2);
-  max-width: var(--eva-chat-column-w);
-  margin: var(--eva-space-native-xs) auto 0;
-  max-height: 60vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
 .eva-question {
   display: flex;
   flex-direction: column;
@@ -16,9 +6,6 @@
   background: var(--eva-surface);
   border: 1px solid var(--eva-border);
   border-radius: var(--eva-radius-xl);
-}
-.eva-question[data-dead='true'] {
-  opacity: 0.6;
 }
 .eva-question-text {
   color: var(--eva-text);
@@ -93,9 +80,6 @@
   border-radius: var(--eva-radius);
   font: inherit;
   resize: vertical;
-}
-.eva-question-caption {
-  margin-top: var(--eva-space-xs);
 }
 .eva-card-input.eva-mono {
   font-family: var(--eva-font-mono);

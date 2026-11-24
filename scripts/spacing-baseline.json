@@ -43,8 +43,6 @@
   "apps/desktop/src/renderer/chat/cards/cards.css": {
     "gap: var(--eva-space-native-sm)": 1,
     "gap: var(--eva-space-sm)": 1,
-    "margin-top: var(--eva-space-xs)": 1,
-    "margin: var(--eva-space-native-xs) auto 0": 1,
     "padding: 0 var(--eva-space-md)": 1,
     "padding: 0 var(--eva-space-xs)": 1,
     "padding: var(--eva-space-md)": 1,

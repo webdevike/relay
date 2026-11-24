@@ -6,10 +6,10 @@ import { FakeRelayHost, type HostSession } from './helpers/fake-relay-host'
 import { EVA_FIXTURE_ROOT } from './helpers/paths'
 
 // A session an assistant started with its own omp (agent-session.ts: RELAY_OWNER=nova, cwd a project
-// folder) shows as a chip above the composer on the assistant's page. Its transcript sits in that
-// folder's own sessions dir, which the chat list does not span, so the chip had no row to open and
-// fell back to the assistant page it was already on: a click did nothing. Now it opens the live
-// transcript beside the chat, and the tab follows the file while the session runs.
+// folder) shows as a running card on the composer of the assistant's page. Its transcript sits in
+// that folder's own sessions dir, which the chat list does not span, so it has no row to open:
+// Open session opens the live transcript in place (or beside the chat with Cmd), and the view
+// follows the file while the session runs.
 //
 // PROOF_DIR=<dir> PROOF_STAGE=before|after writes the screenshots; with `before` the spec records
 // what a click did on a build without the fix instead of asserting the transcript opens.
@@ -91,7 +91,7 @@ const NOVA_THREAD: HostSession = {
 }
 const startedAt = Date.now() - 7 * 60_000
 
-test('a session chip opens in place under a crumb, Cmd+click splits it beside', async ({
+test("a session's running card opens it in place under a crumb, Cmd+click splits it beside", async ({
   shell,
 }) => {
   const shot = async (name: string): Promise<void> => {
@@ -133,23 +133,27 @@ test('a session chip opens in place under a crumb, Cmd+click splits it beside', 
       open: { to: 'chat', thread: `session:${SESSION_ID}`, session: SESSION_ID },
     },
   ])
-  const chip = shell.locator(sel(`activity-chip-${chipId}`))
-  await expect(chip).toBeVisible()
-  await shot('1-chip-above-composer')
+  const stack = shell.locator(sel('card-stack'))
+  await expect(stack).toHaveAttribute('data-front', `run:${chipId}`)
+  await expect(shell.locator(sel('card-stack-tab'))).toHaveText('Per-chat isolated pane layouts')
+  const openLink = shell.locator(sel('card-stack-open-link'))
+  await expect(openLink).toBeVisible()
+  await shot('1-running-tab-on-composer')
 
-  // Hover: the session's title, its model and how long it has run.
-  await chip.hover()
-  const tip = shell.locator(sel(`activity-chip-tip-${chipId}`))
-  if (STAGE === 'after') {
-    await expect(tip).toContainText('Per-chat isolated pane layouts')
-    await expect(tip).toContainText('claude-opus-5-5')
-    await expect(tip).toContainText('running 7m')
-    await expect(tip).toContainText('Reading the dock store')
-    await shot('2-hover-title-model-elapsed')
-  }
+  // Open: how long it has run, the model with its logo, and its recent work (the intent, as the
+  // host sends no log yet).
+  await shell.locator(sel('card-stack-tab')).click()
+  await expect(stack).toHaveAttribute('data-state', 'expanded')
+  await expect(shell.locator(sel('card-stack-timer'))).toHaveText(/^7m \d\ds$/)
+  await expect(shell.locator(sel('card-stack-model'))).toHaveText('opus-5-5')
+  await expect(
+    shell.locator(sel('card-stack-model')).locator('img[data-vendor="anthropic"]'),
+  ).toHaveCount(1)
+  await expect(shell.locator(sel('card-stack-log'))).toHaveText('Reading the dock store')
+  await shot('2-running-card-open')
 
   // A plain click swaps this pane in place to the transcript, under a "Nova / <title>" crumb.
-  await chip.click()
+  await shell.locator(sel('card-stack-open-session')).click()
   const transcriptView = shell.locator(sel('subagent-transcript'))
   await expect(transcriptView).toBeVisible()
   await expect(transcriptView).toContainText('Isolate layouts per chat')
@@ -187,13 +191,13 @@ test('a session chip opens in place under a crumb, Cmd+click splits it beside', 
   await expect(shell.locator(sel('drill-crumb'))).toHaveCount(0)
   await expect(shell.getByText('Hi Nova')).toBeVisible()
   await shot('5-back-on-thread')
-  await chip.click()
+  await openLink.click()
   await expect(transcriptView).toBeVisible()
   await shell.locator(sel('drill-root')).click()
   await expect(shell.getByText('Hi Nova')).toBeVisible()
 
   // Cmd+click splits it beside the pane, in this workspace; the thread stays where it is.
-  await chip.click({ modifiers: ['Meta'] })
+  await openLink.click({ modifiers: ['Meta'] })
   await expect(shell.locator('[data-testid^="pane-tab-subagent:"]')).toHaveCount(1)
   await expect(transcriptView).toContainText('Isolate layouts per chat')
   await expect(shell.locator(sel('drill-crumb'))).toHaveCount(0)

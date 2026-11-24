@@ -5,6 +5,11 @@ export const DISMISS_PRIORITY = {
   overlay: 100,
   /** A canvas selection clears before the sidebar sub-page closes. */
   selection: 50,
+  /**
+   * The open card stack folds after a focused composer or question card had Esc (they sit at
+   * subPageBack + 1), and before the sidebar sub-page closes.
+   */
+  cardStack: 10.5,
   subPageBack: 10,
 } as const
 

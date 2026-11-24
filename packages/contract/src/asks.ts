@@ -20,6 +20,12 @@ export const OpenAskSchema = z.object({
   messageId: z.string().optional(),
   /** "session": who asks. */
   from: z.string().optional(),
+  /** The omp session of an "ask" card (with the bridge's `askId`), or the session a "session" ask answers to. */
+  sessionId: z.string().optional(),
+  /** An "ask" card's id in the bridge: the session's live dialog shows it as `ask:<askId>`. */
+  askId: z.string().optional(),
+  /** "session": the answer the asking session goes with unless Isaac says otherwise (one of `replies`). */
+  default: z.string().optional(),
 })
 export type OpenAsk = z.infer<typeof OpenAskSchema>
 

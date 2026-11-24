@@ -1,8 +1,8 @@
 /**
  * Pure rules for an assistant thread's open asks (`AssistantSnapshot.asks`: questions the
- * assistant asked that Isaac has not answered), listed by the header's open-questions button and
- * sheet. Which show and in what order, which ask a reply chip or ask card stands for, and which
- * thread row Show in chat scrolls to (a bubble, or an inline card for an ask without one). No React
+ * assistant asked that Isaac has not answered), shown as question cards in the thread's card stack
+ * (`lib/stackCards.ts`). Which show and in what order, which ask a reply chip or ask card stands
+ * for, and which thread row asked it (a bubble, or an inline card for an ask without one). No React
  * Native imports.
  */
 import type { AssistantMessage, OpenAsk } from "@relay/protocol";
@@ -45,7 +45,7 @@ export function cardAskKey(sessionId: string, askId: string): string {
 
 /**
  * The answer record of open ask `ask` in `agent`'s thread: its ask card's when it stands for one, so
- * the card, a chip and the open-questions sheet answer the same question once.
+ * the card, a chip and the stack's question card answer the same question once.
  */
 export function openAskKey(agent: string, ask: OpenAsk): string {
   return ask.sessionId !== undefined && ask.askId !== undefined
@@ -83,7 +83,7 @@ export function isAskRow(id: string): boolean {
   return id.startsWith(ASK_ROW_PREFIX);
 }
 
-/** The row Show in chat scrolls to: the ask's own bubble while it is in `messageIds`, else its inline card. */
+/** The row that asked `ask`: its own bubble while it is in `messageIds`, else its inline card. */
 export function askRowTarget(ask: OpenAsk, messageIds: ReadonlySet<string>): string {
   return ask.messageId !== undefined && messageIds.has(ask.messageId)
     ? ask.messageId

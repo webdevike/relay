@@ -3,7 +3,6 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MantineProvider } from '@mantine/core'
 import type { BgJob, Subagent } from '@evaos/chat-core/message'
-import type { ActivityItem } from '@evaos/chat-core/activity'
 const { invoke, stat } = vi.hoisted(() => {
   const stat = { size: 10 }
   return {
@@ -28,241 +27,20 @@ vi.mock('../../ipc', () => ({
 
 import { chatStore } from '../chat-store'
 import { SubagentTranscript } from '../SubagentTranscript'
-import { SubagentChips } from './SubagentChips'
 import { JobsStrip, elapsed } from './JobsStrip'
 import { StatusStrip } from './StatusStrip'
 
-const sub = (
-  name: string,
-  done: boolean,
-  lastLine = '',
-  mtimeMs = done ? 1 : Date.now(),
-): Subagent => ({
+const sub = (name: string): Subagent => ({
   name,
   file: `${name}.jsonl`,
-  done,
+  done: true,
   failed: false,
-  mtimeMs,
-  lastLine,
+  mtimeMs: 1,
+  lastLine: '',
   tool: null,
 })
 const job = (id: string): BgJob => ({ id, label: `cmd ${id}`, kind: 'bash', startedAt: 1000 })
 const wrap = (ui: React.ReactElement) => render(<MantineProvider>{ui}</MantineProvider>)
-
-const work = (
-  id: string,
-  kind: ActivityItem['kind'],
-  status: ActivityItem['status'],
-  open: ActivityItem['open'],
-): ActivityItem => ({
-  id,
-  kind,
-  owner: 'assistant:nova',
-  title: id,
-  status,
-  intent: 'Running the tests',
-  startedAt: 1,
-  updatedAt: 1,
-  open,
-})
-
-describe('SubagentChips activity badges', () => {
-  it('a badge per in-progress session, harness or canvas agent, with its kind icon, opened through the same call', async () => {
-    const user = userEvent.setup()
-    const opened = vi.fn()
-    const session = work('session:aw1', 'session', 'working', {
-      to: 'chat',
-      thread: 'session:aw1',
-      session: 'aw1',
-    })
-    const harness = work('harness:w1:p3', 'harness', 'waiting', { to: 'terminal', pane: 'w1:p3' })
-    const canvas = work('canvas:roadmap', 'canvas', 'working', { to: 'canvas', slug: 'roadmap' })
-    wrap(
-      <SubagentChips
-        subagents={[sub('b', false)]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-        activity={[session, harness, canvas]}
-        onOpenActivity={opened}
-      />,
-    )
-    // The helper's badge stays, and carries the helper icon beside its state.
-    expect(screen.getByTestId('subagent-chip-b').querySelectorAll('svg')).toHaveLength(1)
-    for (const [item, kind, state] of [
-      [session, 'session', 'running'],
-      [harness, 'harness', 'waiting'],
-      [canvas, 'canvas', 'running'],
-    ] as const) {
-      const chip = screen.getByTestId(`activity-chip-${item.id}`)
-      expect(chip).toHaveAttribute('data-kind', kind)
-      expect(chip).toHaveAttribute('data-state', state)
-      expect(chip.querySelectorAll('svg').length).toBeGreaterThanOrEqual(1)
-    }
-    await user.click(screen.getByTestId('activity-chip-harness:w1:p3'))
-    expect(opened).toHaveBeenCalledWith(harness, false)
-  })
-
-  it("an activity chip's hover says the session's title, model and how long it has run", async () => {
-    const user = userEvent.setup()
-    const session: ActivityItem = {
-      ...work('session:abc', 'session', 'working', {
-        to: 'chat',
-        thread: 'session:abc',
-        session: 'abc',
-      }),
-      title: 'Per-chat isolated pane layouts',
-      model: 'claude-opus-5-5',
-      startedAt: Date.now() - 7 * 60_000,
-    }
-    wrap(
-      <SubagentChips
-        subagents={[]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-        activity={[session]}
-      />,
-    )
-    await user.hover(screen.getByTestId('activity-chip-session:abc'))
-    const tip = await screen.findByTestId('activity-chip-tip-session:abc')
-    expect(tip).toHaveTextContent('Per-chat isolated pane layouts')
-    expect(tip).toHaveTextContent('claude-opus-5-5 · running 7m')
-    expect(tip).toHaveTextContent('Running the tests')
-  })
-
-  it('shows the strip for activity alone, and nothing when there is neither', () => {
-    const { container, rerender } = wrap(
-      <SubagentChips
-        subagents={[]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-        activity={[work('canvas:r', 'canvas', 'working', { to: 'canvas', slug: 'r' })]}
-      />,
-    )
-    expect(screen.getByTestId('activity-chip-canvas:r')).toBeInTheDocument()
-    rerender(
-      <MantineProvider>
-        <SubagentChips
-          subagents={[]}
-          hidden={new Set()}
-          onOpen={() => undefined}
-          onClearDone={() => undefined}
-        />
-      </MantineProvider>,
-    )
-    expect(container.querySelector('[data-testid=subagent-chips]')).toBeNull()
-  })
-})
-describe('SubagentChips', () => {
-  it('Clear done is always there, disabled until a chip is done, and clearing calls back', async () => {
-    const user = userEvent.setup()
-    const clear = vi.fn()
-    const { rerender } = wrap(
-      <SubagentChips
-        subagents={[sub('b', false)]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={clear}
-      />,
-    )
-    expect(screen.getByTestId('subagent-chip-b')).toHaveAttribute('data-state', 'running')
-    expect(screen.getByText('Clear done')).toBeDisabled()
-    rerender(
-      <MantineProvider>
-        <SubagentChips
-          subagents={[sub('b', false), sub('a', true)]}
-          hidden={new Set()}
-          onOpen={() => undefined}
-          onClearDone={clear}
-        />
-      </MantineProvider>,
-    )
-    expect(screen.getByTestId('subagent-chip-a')).toHaveAttribute('data-state', 'done')
-    expect(screen.getByText('Clear done')).toBeEnabled()
-    await user.click(screen.getByText('Clear done'))
-    expect(clear).toHaveBeenCalled()
-  })
-
-  it('a chip whose transcript went quiet for 30 minutes without a result reads as done, not running', () => {
-    wrap(
-      <SubagentChips
-        subagents={[sub('dead', false, '', Date.now() - 31 * 60_000), sub('live', false)]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-      />,
-    )
-    expect(screen.getByTestId('subagent-chip-dead')).toHaveAttribute('data-state', 'done')
-    expect(screen.getByTestId('subagent-chip-live')).toHaveAttribute('data-state', 'running')
-    expect(screen.getByText('Clear done')).toBeEnabled()
-  })
-
-  it('Clear done sits outside the scrolling chips', () => {
-    wrap(
-      <SubagentChips
-        subagents={[sub('b', false), sub('a', true)]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-      />,
-    )
-    const clear = screen.getByTestId('subagent-clear-done')
-    expect(clear.closest('.eva-chips-scroller')).toBeNull()
-    expect(screen.getByTestId('subagent-chip-a').closest('.eva-chips-scroller')).not.toBeNull()
-  })
-
-  it('hidden finished chips are left out; Clear done stays, disabled', () => {
-    wrap(
-      <SubagentChips
-        subagents={[sub('b', false), sub('a', true)]}
-        hidden={new Set(['a'])}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-      />,
-    )
-    expect(screen.queryByTestId('subagent-chip-a')).toBeNull()
-    expect(screen.getByText('Clear done')).toBeDisabled()
-  })
-
-  it('clicking a chip opens that subagent and marks the shown one', async () => {
-    const user = userEvent.setup()
-    const open = vi.fn()
-    const b = sub('b', false, '<b>hi</b>')
-    wrap(
-      <SubagentChips
-        subagents={[b, sub('a', true)]}
-        hidden={new Set()}
-        active="a"
-        onOpen={open}
-        onClearDone={() => undefined}
-      />,
-    )
-    await user.click(screen.getByTestId('subagent-chip-b'))
-    expect(open).toHaveBeenCalledWith(b, false)
-    expect(screen.getByTestId('subagent-chip-a')).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByTestId('subagent-chip-b')).toHaveAttribute('aria-pressed', 'false')
-  })
-
-  it('Cmd+click on a chip asks for a split', async () => {
-    const user = userEvent.setup()
-    const open = vi.fn()
-    const b = sub('b', false)
-    wrap(
-      <SubagentChips
-        subagents={[b]}
-        hidden={new Set()}
-        onOpen={open}
-        onClearDone={() => undefined}
-      />,
-    )
-    await user.keyboard('{Meta>}')
-    await user.click(screen.getByTestId('subagent-chip-b'))
-    await user.keyboard('{/Meta}')
-    expect(open).toHaveBeenCalledWith(b, true)
-  })
-})
 
 describe('SubagentTranscript', () => {
   it('reads the transcript read only and re-reads when the subagent file changes', async () => {
@@ -345,26 +123,23 @@ describe('JobsStrip', () => {
 
 describe('chat-store extras', () => {
   const meta = { model: null, thinking: null, contextTokens: null }
-  it('stores extras per pane and keeps hiddenDone across updates', () => {
+  it('stores extras per pane, and holds them for a pane that is not open yet', () => {
     const s = chatStore.getState()
     s.openPane('pane-1', { file: '/s/x.jsonl', title: 't', messages: [], meta })
     chatStore.getState().setExtras({
       paneId: 'pane-1',
       running: true,
-      subagents: [sub('a', true)],
+      subagents: [sub('a')],
       jobs: [job('1')],
     })
     expect(chatStore.getState().panes['pane-1']!.extras.jobs).toHaveLength(1)
-    chatStore.getState().clearDone('pane-1')
     chatStore.getState().setExtras({
-      paneId: 'pane-1',
-      running: true,
-      subagents: [sub('a', true), sub('c', true)],
+      paneId: 'pane-2',
+      running: false,
+      subagents: [sub('c')],
       jobs: [],
     })
-    const hidden = chatStore.getState().hiddenDone
-    expect(hidden.has('/s/x.jsonl\0a')).toBe(true)
-    expect(hidden.has('/s/x.jsonl\0c')).toBe(false)
+    expect(chatStore.getState().pendingExtras['pane-2']!.subagents[0]!.name).toBe('c')
   })
 })
 
@@ -394,135 +169,5 @@ describe('StatusStrip', () => {
     expect(screen.queryByRole('button', { name: 'Drop' })).toBeNull()
     patch({ handingOff: false, goal: null }, 4)
     expect(container.querySelector('[data-testid="status-strip"]')).toBeNull()
-  })
-})
-
-const MIN = 60_000
-const etaOf = (elapsedMin: number, over: Partial<NonNullable<ActivityItem['eta']>> = {}) => ({
-  from: Date.now() - elapsedMin * MIN,
-  totalMs: 20 * MIN,
-  lowMs: 15 * MIN,
-  highMs: 30 * MIN,
-  typicalMs: 18 * MIN,
-  runs: 34,
-  confidence: 'confident' as const,
-  overrunning: false,
-  ...over,
-})
-
-describe('SubagentChips estimate text', () => {
-  const session = (id: string, eta?: ActivityItem['eta']): ActivityItem => ({
-    ...work(`session:${id}`, 'session', 'working', {
-      to: 'chat',
-      thread: `session:${id}`,
-      session: id,
-    }),
-    ...(eta === undefined ? {} : { eta }),
-  })
-  const chips = (
-    activity: ActivityItem[],
-    extra: Partial<Parameters<typeof SubagentChips>[0]> = {},
-  ) => (
-    <MantineProvider>
-      <SubagentChips
-        subagents={[]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-        activity={activity}
-        {...extra}
-      />
-    </MantineProvider>
-  )
-
-  it('a badge with an estimate says the time left and draws no fill; one without draws as before', () => {
-    wrap(
-      <SubagentChips
-        subagents={[]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-        activity={[session('sure', etaOf(10)), session('none')]}
-      />,
-    )
-    const sure = screen.getByTestId('activity-chip-session:sure')
-    expect(sure).not.toHaveAttribute('data-eta')
-    expect(sure.style.getPropertyValue('--eta-fraction')).toBe('')
-    expect(sure.querySelector('[data-testid="eta-short"]')).toHaveTextContent('10m')
-    const none = screen.getByTestId('activity-chip-session:none')
-    expect(none.querySelector('[data-testid="eta-short"]')).toBeNull()
-  })
-
-  it('a run past its usual time shows no time text', () => {
-    wrap(
-      <SubagentChips
-        subagents={[]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-        activity={[session('late', etaOf(45))]}
-      />,
-    )
-    const late = screen.getByTestId('activity-chip-session:late')
-    expect(late.querySelector('[data-testid="eta-short"]')).toBeNull()
-  })
-
-  it('the hover adds what is left and how sure the estimate is', async () => {
-    const user = userEvent.setup()
-    wrap(
-      <SubagentChips
-        subagents={[]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-        activity={[session('tip', etaOf(10, { runs: 3 }))]}
-      />,
-    )
-    await user.hover(screen.getByTestId('activity-chip-session:tip'))
-    const tip = await screen.findByTestId('eta-tip-session:tip')
-    expect(tip).toHaveTextContent('About 10 min left')
-    expect(tip).toHaveTextContent('Fairly sure · 3 similar runs')
-  })
-
-  it("a helper chip finds its run by its transcript's path in the host's list", () => {
-    const mine = {
-      ...work('helper:/s/chat1/b.jsonl', 'helper', 'working', {
-        to: 'subagent',
-        file: '/s/chat1/b.jsonl',
-        name: 'b',
-      }),
-      eta: etaOf(5, { confidence: 'rough' }),
-    }
-    const other = {
-      ...work('helper:/s/chat1/other.jsonl', 'helper', 'working', {
-        to: 'subagent',
-        file: '/s/chat1/other.jsonl',
-        name: 'o',
-      }),
-      eta: etaOf(5),
-    }
-    wrap(
-      <SubagentChips
-        subagents={[sub('b', false), sub('c', false)]}
-        hidden={new Set()}
-        onOpen={() => undefined}
-        onClearDone={() => undefined}
-        sessionFile="/s/chat1.jsonl"
-        helperActivity={[mine, other]}
-      />,
-    )
-    const b = screen.getByTestId('subagent-chip-b')
-    expect(b.querySelector('[data-testid="eta-short"]')).toHaveTextContent('15m')
-    // Another file's estimate is not this one's, and a helper with none shows no time.
-    expect(
-      screen.getByTestId('subagent-chip-c').querySelector('[data-testid="eta-short"]'),
-    ).toBeNull()
-  })
-  it('a finished run leaves the strip at once', () => {
-    const run = session('fin', etaOf(10))
-    const { rerender } = render(chips([run]))
-    expect(screen.getByTestId('activity-chip-session:fin')).toBeInTheDocument()
-    rerender(chips([]))
-    expect(screen.queryByTestId('activity-chip-session:fin')).toBeNull()
   })
 })

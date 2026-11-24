@@ -1,0 +1,310 @@
+/*
+ * The card stack on the composer (CardStack.tsx): an inset tab like the goal strip that grows up
+ * into the front card. The card's bottom hangs behind the composer (or the strip under it), so the
+ * tab and the frame read as one shape. Pixel values follow the ask-cards prototype.
+ */
+.eva-stack {
+  position: relative;
+  /* Over the frame's top border, as the goal strip's -1px margin does. */
+  top: 1px;
+  z-index: 2;
+  flex: none;
+  box-sizing: border-box;
+  width: calc(100% - var(--eva-space-native-lg) * 2 - var(--eva-radius-xl) * 2);
+  max-width: calc(var(--eva-chat-column-w) - var(--eva-radius-xl) * 2);
+  margin: var(--mantine-spacing-xs) auto 0;
+  font-family: var(--eva-font-ui);
+  font-size: var(--eva-fz-body);
+  color: var(--eva-text);
+}
+.eva-stack + .eva-composer {
+  padding-top: 0;
+}
+/* What the card's bottom tucks behind: the composer's frame, or a strip between them. */
+.eva-stack + .eva-composer .eva-composer-frame {
+  z-index: 3;
+}
+.eva-stack + .eva-status-strip.eva-status-strip,
+.eva-stack + .eva-signin-strip.eva-signin-strip {
+  position: relative;
+  z-index: 3;
+  margin-top: 0;
+}
+
+/* One sliver above the tab while another card waits behind the front one. */
+.eva-stack-peek {
+  position: absolute;
+  top: -6px;
+  left: 32px;
+  right: 32px;
+  z-index: 1;
+  height: 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--eva-border);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  background: var(--eva-surface);
+  pointer-events: none;
+}
+.eva-stack-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -18px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--eva-surface);
+  border: 1px solid var(--eva-border);
+  border-bottom: none;
+  border-radius: var(--eva-radius-xl) var(--eva-radius-xl) 0 0;
+}
+
+/* The closed tab. */
+.eva-stack-face {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 18px;
+  height: 50px;
+}
+.eva-stack-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  width: 100%;
+  height: 50px;
+  padding: 0 calc(var(--mantine-spacing-md) * 0.875) 0 var(--mantine-spacing-sm);
+  border: 0;
+  background: var(--eva-surface);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+.eva-stack-row:hover {
+  background: var(--eva-hover);
+}
+.eva-stack-row[data-run='true'] {
+  padding-right: calc(var(--mantine-spacing-xl) * 3.4375);
+}
+.eva-stack-row:focus-visible,
+.eva-stack-dismiss:focus-visible,
+.eva-stack-open-link:focus-visible,
+.eva-stack-opt:focus-visible,
+.eva-stack-dot:focus-visible {
+  outline: 2px solid var(--eva-c-ring);
+  outline-offset: -2px;
+}
+.eva-stack-t1,
+.eva-stack-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.eva-stack-chev {
+  flex: none;
+  margin-left: calc(var(--mantine-spacing-xs) * 3);
+  color: var(--eva-text-dim);
+}
+.eva-stack-dismiss {
+  position: absolute;
+  right: 36px;
+  top: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--eva-text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.eva-stack-face:hover .eva-stack-dismiss,
+.eva-stack-dismiss:focus-visible {
+  opacity: 1;
+}
+.eva-stack-dismiss:hover {
+  background: var(--eva-hover);
+  color: var(--eva-text);
+}
+@media (hover: none) {
+  .eva-stack-dismiss {
+    opacity: 1;
+  }
+}
+.eva-stack-open-link {
+  position: absolute;
+  right: 14px;
+  top: 0;
+  display: flex;
+  align-items: center;
+  height: 50px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--eva-text-dim);
+  cursor: pointer;
+}
+.eva-stack-open-link:hover {
+  color: var(--eva-text);
+  text-decoration: underline;
+}
+
+/* The open card. */
+.eva-stack-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.eva-stack-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.125);
+  height: 32px;
+  margin-top: calc(var(--mantine-spacing-md) * 0.25);
+  padding: 0 calc(var(--mantine-spacing-md) * 0.5) 0 var(--mantine-spacing-md);
+}
+.eva-stack-view {
+  position: relative;
+  overflow: hidden;
+}
+.eva-stack-slide {
+  position: relative;
+}
+.eva-stack-dots {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-sm) * 0.5);
+  padding: var(--mantine-spacing-xs) 0 calc(var(--mantine-spacing-xs) * 2.2);
+}
+.eva-stack-dot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--eva-text);
+  opacity: 0.3;
+  cursor: pointer;
+  transition:
+    opacity 0.15s,
+    width 0.15s;
+}
+.eva-stack-dot[data-on='true'] {
+  width: 16px;
+  opacity: 0.9;
+}
+
+/* A card's body under its title. */
+.eva-stack-ask {
+  position: relative;
+  padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-md);
+}
+.eva-stack-detail {
+  margin: calc(var(--mantine-spacing-md) * 0.25) 0 var(--mantine-spacing-sm);
+  color: var(--eva-text-dim);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.eva-stack-ask[data-kind='ask'] > :first-child:not(.eva-stack-detail) {
+  margin-top: calc(var(--mantine-spacing-md) * 0.25);
+}
+.eva-stack-opts {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-sm) * 0.5);
+}
+.eva-stack-opt {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: calc(var(--mantine-spacing-sm) * 0.75) var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-surface);
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.eva-stack-opt:hover {
+  border-color: var(--eva-text-dim);
+}
+.eva-stack-opt-label {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.eva-stack-yn {
+  display: flex;
+  gap: calc(var(--mantine-spacing-md) * 0.5);
+}
+
+/* A running card: clock and model, the recent work, Open session. */
+.eva-stack-run-head {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.5);
+}
+.eva-stack-run-timer,
+.eva-stack-run-model {
+  font-size: 12px;
+  color: var(--eva-text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.eva-stack-run-model {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mantine-spacing-md) * 0.25);
+}
+.eva-stack-run-logo {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+[data-mantine-color-scheme='light'] .eva-stack-run-logo[data-mono='true'] {
+  filter: invert(1) brightness(0.55);
+}
+.eva-stack-run-log {
+  margin-top: var(--mantine-spacing-xs);
+  padding: calc(var(--mantine-spacing-md) * 0.5) var(--mantine-spacing-sm);
+  border: 1px solid var(--eva-border);
+  border-radius: var(--eva-radius);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--eva-text-dim);
+  overflow-wrap: anywhere;
+}
+.eva-stack-run-log > div:last-child {
+  color: var(--eva-text);
+}
+
+/* The session's own question or approval, drawn by QuestionCard / ExtensionUiCard without their frame. */
+.eva-stack-dialog {
+  padding: 0 var(--mantine-spacing-md) var(--mantine-spacing-md);
+}
+.eva-stack-dialog .eva-question.eva-question {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.eva-stack-dialog .eva-error-banner {
+  margin-top: var(--mantine-spacing-xs);
+}
