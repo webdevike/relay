@@ -310,6 +310,31 @@ importers:
         specifier: ^20.0.0
         version: 20.19.43
 
+  apps/windows:
+    dependencies:
+      '@relay/linux':
+        specifier: workspace:*
+        version: link:../linux
+      '@relay/protocol':
+        specifier: workspace:*
+        version: link:../../packages/protocol
+      xstate:
+        specifier: 5.33.0
+        version: 5.33.0
+      zod:
+        specifier: ^3.25.0
+        version: 3.25.76
+    devDependencies:
+      '@relay/eslint-config':
+        specifier: workspace:*
+        version: link:../../tooling/eslint-config
+      '@types/bun':
+        specifier: ^1.2.0
+        version: 1.4.2
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.43
+
   packages/canvas-live:
     dependencies:
       lib0:

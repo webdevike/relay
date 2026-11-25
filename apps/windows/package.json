@@ -1,0 +1,24 @@
+{
+  "name": "@relay/windows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "serve": "bun run src/main.ts serve",
+    "lint": "eslint src test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "build": "echo 'scripts/build.sh compiles relay-host.exe; nothing to build for tests'"
+  },
+  "dependencies": {
+    "@relay/linux": "workspace:*",
+    "@relay/protocol": "workspace:*",
+    "xstate": "5.33.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@relay/eslint-config": "workspace:*",
+    "@types/bun": "^1.2.0",
+    "@types/node": "^20.0.0"
+  }
+}
