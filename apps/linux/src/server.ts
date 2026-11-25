@@ -107,6 +107,8 @@ export interface ServerConfig {
   readonly version: string;
   /** The Mac's VNC server (Screen Sharing) on 127.0.0.1; the live view's `VNC_PATH` bridges to it. */
   readonly vncPort: number;
+  /** Address to listen on; every interface (`0.0.0.0`) when absent. The Windows host binds its tailnet address only. */
+  readonly listenAddress?: string;
 }
 
 export interface ServerDeps {
@@ -326,7 +328,7 @@ export class RelayServer {
     }
     const server = Bun.serve<SocketData>({
       port: this.config.port,
-      hostname: "0.0.0.0",
+      hostname: this.config.listenAddress ?? "0.0.0.0",
       // Blob uploads from the CLI go through the body limit below.
       maxRequestBodySize: MAX_DROP_BYTES + 1024,
       fetch: (request, srv) => {
