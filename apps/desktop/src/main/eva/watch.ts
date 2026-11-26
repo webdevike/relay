@@ -75,9 +75,18 @@ export function startEvaWatchWith(
   }
 }
 
+/**
+ * `EVAOS_E2E_EVA_WATCH_DEBOUNCE_MS` (EVAOS_E2E=1 only) stretches the debounce so a spec can
+ * change a file under an open view and have it stay stale for as long as the spec needs; the
+ * default 250 ms is shorter than a loaded Mac takes between two steps of a spec.
+ */
 export function startEvaWatch(
   ctx: MainContext,
   opts?: { debounceMs?: number },
 ): { close(): Promise<void> } {
-  return startEvaWatchWith(ctx.env.evaRoot, (areas) => emit(ctx, 'eva.changed', { areas }), opts)
+  const override = Number(process.env.EVAOS_E2E_EVA_WATCH_DEBOUNCE_MS)
+  const debounceMs = ctx.env.e2e && override > 0 ? override : opts?.debounceMs
+  return startEvaWatchWith(ctx.env.evaRoot, (areas) => emit(ctx, 'eva.changed', { areas }), {
+    ...(debounceMs !== undefined ? { debounceMs } : {}),
+  })
 }
