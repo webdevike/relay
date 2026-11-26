@@ -12,7 +12,8 @@ const test = base.extend<{ evaFx: EvaFixture }>({
     fx.cleanup()
   },
   launchEnv: async ({ evaFx }, use) => {
-    await use(evaFx.env)
+    // The watcher would refresh the view that the stale-view spec needs to stay stale.
+    await use({ ...evaFx.env, EVAOS_E2E_EVA_WATCH_DEBOUNCE_MS: '600000' })
   },
 })
 
