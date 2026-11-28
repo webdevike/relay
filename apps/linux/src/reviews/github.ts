@@ -5,6 +5,7 @@
 import { homedir } from "node:os";
 import { MAX_REVIEW_DIFF, PR_VIEW_FIELDS, type ReviewItem, type ReviewPr } from "@relay/protocol";
 import { z } from "zod";
+import type { Budget } from "../tickets/budget";
 import type { ToolRun } from "./exec";
 import type { Fetch, ReviewMedia } from "./linear";
 import { isGithubUpload, isLinearUpload, localizeImages } from "./media";
@@ -175,22 +176,99 @@ const GuidePr = z.object({
 });
 export type GuidePr = z.infer<typeof GuidePr> & { diff: string };
 
+/** gh's text for a spent primary or secondary limit. */
+const GH_LIMIT = /rate limit|secondary rate|abuse detection/i;
+
+/**
+ * `gh <args>` through the GitHub budget when given: a spent budget throws `RateLimited` before gh
+ * runs, and gh's rate-limit failure backs the budget off.
+ */
+export async function ghCall(run: ToolRun, gh: string, budget: Budget | null, args: readonly string[]): Promise<string> {
+  budget?.take();
+  const res = await run([gh, ...args], { cwd: homedir(), timeoutMs: GH_TIMEOUT_MS });
+  if (res.timedOut) throw new Error(`gh ${args.slice(0, 2).join(" ")} took too long`);
+  if (res.code !== 0) {
+    const why = res.stderr.trim().split("\n")[0] ?? "";
+    if (budget !== null && GH_LIMIT.test(res.stderr)) budget.limited();
+    throw new Error(`gh ${args.slice(0, 2).join(" ")} failed${why === "" ? "" : `: ${why.slice(0, 200)}`}`);
+  }
+  return res.stdout;
+}
+
+/** `gh api --include` output: status line, headers, blank line, body. */
+export function splitIncluded(out: string): { status: number; headers: Map<string, string>; body: string } {
+  const cut = /\r?\n\r?\n/.exec(out);
+  const head = cut === null ? "" : out.slice(0, cut.index);
+  const status = Number(/^HTTP\/[\d.]+ (\d{3})/.exec(head)?.[1] ?? "0");
+  const headers = new Map<string, string>();
+  for (const line of head.split(/\r?\n/).slice(1)) {
+    const colon = line.indexOf(":");
+    if (colon > 0) headers.set(line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim());
+  }
+  return { status, headers, body: cut === null ? out : out.slice(cut.index + cut[0].length) };
+}
+
+/** A GraphQL answer: partial `data` stays usable when some aliases failed (no access). */
+export interface GhGraphqlAnswer {
+  readonly data: Record<string, unknown>;
+  readonly errors: readonly { readonly message: string }[];
+}
+export type GhGraphql = (query: string) => Promise<GhGraphqlAnswer>;
+
+const GhAnswer = z.object({
+  data: z.record(z.string(), z.unknown()).nullable().optional(),
+  errors: z.array(z.object({ message: z.string() })).optional(),
+});
+
+/** The body as JSON, or null when it is not JSON. */
+function jsonOf(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+/** The body's data and errors; throws when there is no data (gh or GitHub failed outright). */
+function graphqlAnswer(body: string, stderr: string, budget: Budget | null): GhGraphqlAnswer {
+  const parsed = GhAnswer.safeParse(jsonOf(body));
+  const answer = parsed.success ? parsed.data : {};
+  const errors: GhGraphqlAnswer["errors"] = answer.errors ?? [];
+  if (budget !== null && errors.some((e) => GH_LIMIT.test(e.message))) budget.limited();
+  if (answer.data === undefined || answer.data === null) {
+    const why = errors[0]?.message ?? (stderr.trim().split("\n")[0] || "no answer");
+    throw new Error(`gh api graphql failed: ${why.slice(0, 200)}`);
+  }
+  return { data: answer.data, errors };
+}
+
+/**
+ * GitHub GraphQL through `gh api graphql --include`, so the budget sees GitHub's limit headers. An
+ * answer with partial data and errors (an alias without access) is returned, not thrown.
+ */
+export function ghGraphql(run: ToolRun, gh: string, budget: Budget | null): GhGraphql {
+  return async (query) => {
+    budget?.take();
+    const res = await run([gh, "api", "graphql", "--include", "-f", `query=${query}`], { cwd: homedir(), timeoutMs: GH_TIMEOUT_MS });
+    if (res.timedOut) throw new Error("gh api graphql took too long");
+    const { status, headers, body } = splitIncluded(res.stdout);
+    budget?.observe(status, { get: (name) => headers.get(name) ?? null });
+    return graphqlAnswer(body, res.stderr, budget);
+  };
+}
+
 export class GitHub {
   constructor(
     private readonly run: ToolRun,
     private readonly gh: string,
     /** Where PR images are kept and how they are fetched; without it bodies stay as GitHub wrote them. */
     private readonly images?: { media: ReviewMedia; fetchFn: Fetch; linearKey: () => string | null },
+    /** The GitHub budget shared with the tickets sync; null: unpaced. */
+    private readonly budget: Budget | null = null,
   ) {}
 
-  private async call(args: readonly string[]): Promise<string> {
-    const res = await this.run([this.gh, ...args], { cwd: homedir(), timeoutMs: GH_TIMEOUT_MS });
-    if (res.timedOut) throw new Error(`gh ${args.slice(0, 2).join(" ")} took too long`);
-    if (res.code !== 0) {
-      const why = res.stderr.trim().split("\n")[0] ?? "";
-      throw new Error(`gh ${args.slice(0, 2).join(" ")} failed${why === "" ? "" : `: ${why.slice(0, 200)}`}`);
-    }
-    return res.stdout;
+  private call(args: readonly string[]): Promise<string> {
+    return ghCall(this.run, this.gh, this.budget, args);
   }
 
   private async search(q: string, perPage: number): Promise<{ total: number; items: SearchItem[] }> {

@@ -13,6 +13,7 @@ import { join } from "node:path";
 import type { LinearTicket, ReviewApprove, ReviewItem, ReviewPr, ReviewQueue, ReviewRef, ReviewSource, ReviewSourceState, ReviewsOp, ReviewsResult, ServerMessage } from "@relay/protocol";
 import { z } from "zod";
 import type { AgentProvider, AgentProviderChange, DropBlob, ReviewsRelaying } from "../seams";
+import type { Budgets } from "../tickets/budget";
 import type { SessionClock } from "../session";
 import { approvableKey, approveLine, approveState, readLedgers, readLoop, readTicketWork, workOf } from "./approve";
 import { AstraSessions, type AstraSessionsDeps } from "./astra";
@@ -52,6 +53,8 @@ export interface ReviewsServiceDeps {
   readonly broadcast: (message: ReviewsMessage) => void;
   readonly clock: SessionClock;
   readonly log: (line: string) => void;
+  /** The per-provider budgets the tickets sync shares (only with host.json features.tickets); absent or null: unpaced. */
+  readonly budgets?: Budgets | null;
 }
 
 /** url -> epoch ms: done.json (the item's updatedAt when Done), snooze.json (until), read.json (the updatedAt seen). */
@@ -106,8 +109,8 @@ export class ReviewsService implements ReviewsRelaying {
 
   constructor(private readonly deps: ReviewsServiceDeps) {
     this.media = new ReviewMedia(join(deps.dir, "media"));
-    this.github = new GitHub(deps.run, deps.gh, { media: this.media, fetchFn: deps.fetch, linearKey: () => linearKey(deps.agentHome) });
-    this.linear = new Linear(() => linearKey(deps.agentHome), this.media, deps.fetch);
+    this.github = new GitHub(deps.run, deps.gh, { media: this.media, fetchFn: deps.fetch, linearKey: () => linearKey(deps.agentHome) }, deps.budgets?.github ?? null);
+    this.linear = new Linear(() => linearKey(deps.agentHome), this.media, deps.fetch, deps.budgets?.linear ?? null);
     this.slack = new Slack(deps.run, deps.claude, join(deps.dir, "slack.json"), this.media);
     this.guide = guideCache(join(deps.dir, "guides.json"), claudeWriter(deps.run, deps.claude));
     this.astra = new AstraSessions({

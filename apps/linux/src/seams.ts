@@ -34,6 +34,8 @@ import type {
   OpenAsk,
   ReviewsOp,
   ReviewsResult,
+  TicketsOp,
+  TicketsResult,
   ServerMessage,
   StudioOp,
   StudioResult,
@@ -397,6 +399,19 @@ export interface ReviewsRelaying {
   /** A downloaded image iff `token` is its token; null otherwise. */
   openMedia(name: string, token: string): DropBlob | null;
   observe(change: AgentProviderChange): void;
+}
+
+/**
+ * Isaac's synced Linear tickets (`tickets/service.ts`): answers every `tickets.req` for the device
+ * that sent it. `onPush` (set by the server) carries `tickets.snapshot`/`delta`/`status` frames,
+ * sent only to sockets that subscribed.
+ */
+export interface TicketsRelaying {
+  /** Never rejects: a failure is `{ ok: false, error }`. */
+  handle(deviceId: string, op: TicketsOp): Promise<Omit<TicketsResult, "rid">>;
+  /** The MutationGate is open (TICKETS_WRITES_FEATURE). */
+  readonly writes: boolean;
+  onPush: ((message: Extract<ServerMessage, { t: "tickets.snapshot" | "tickets.delta" | "tickets.status" }>) => void) | null;
 }
 
 /** The text frames a recording's ingest socket carries out (`ack`, `meeting.done`, `meeting.stop`). */

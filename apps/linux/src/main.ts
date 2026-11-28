@@ -174,6 +174,7 @@ import { liveRender } from "./query/openui";
 import { QueryService } from "./query/service";
 import { queryTools } from "./query/tools";
 import { ReviewsService } from "./reviews/service";
+import { hostTickets } from "./tickets/service";
 import { FilePresence } from "./files/presence";
 import { ControlRelay } from "./control/relay";
 import { roomsControlRequest, roomsOutput } from "./control/rooms-cli";
@@ -945,6 +946,18 @@ function serve(
   // Reviews is Isaac's eCard queue, answered by his assistant Astra; a host without that assistant
   // (and without features.reviews) has no Reviews.
   const reviewsWrites = process.env["RELAY_REVIEWS_DRY_RUN"] !== "1";
+  // Synced Linear tickets for the Board: explicit opt-in (host.json features.tickets, ticketsWrites).
+  // Only then do Reviews' clients share the sync's per-provider budgets; otherwise they stay unpaced.
+  const ticketsDir = join(relayConfigDir(), "tickets");
+  const ticketsWiring = hostTickets(config, process.env, {
+    dir: ticketsDir,
+    linearKey: () => linearKey(agentHome),
+    gh: resolveGh(),
+    run: bunRun,
+    fetch: globalThis.fetch,
+    log,
+  });
+  const tickets = ticketsWiring.tickets;
   const reviews = !featureOn(config, "reviews", assistant?.thread("astra") !== undefined)
     ? null
     : new ReviewsService({
@@ -970,6 +983,7 @@ function serve(
         },
         clock: systemClock,
         log,
+        budgets: ticketsWiring.reviewsBudgets,
       });
   const meetings = meetingsService({
     agentHome,
@@ -1102,6 +1116,7 @@ function serve(
       sessionFiles: new SessionFiles(),
       studio,
       reviews,
+      tickets,
       query,
       files,
       meetings,
@@ -1189,6 +1204,12 @@ function serve(
   catchup?.start();
   studio?.start();
   meetings?.start();
+  tickets?.start();
+  log(
+    tickets === null
+      ? "tickets sync off (host.json features.tickets is not true)"
+      : `tickets in ${ticketsDir}${tickets.writes ? ", writes on" : " (read-only: features.ticketsWrites off or RELAY_REVIEWS_DRY_RUN=1)"}`,
+  );
   log(
     reviews === null
       ? "reviews disabled (no astra assistant and no features.reviews)"
@@ -1220,6 +1241,7 @@ function serve(
     subagentMirrors.stop();
     studio?.stop();
     reviews?.stop();
+    tickets?.stop();
     meetings?.stop();
     skills.stop();
     server.stop();

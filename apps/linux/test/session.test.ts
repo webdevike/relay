@@ -66,6 +66,7 @@ import {
   type PairingUI,
   type PushRegistry,
   type ReviewsRelaying,
+  type TicketsRelaying,
   type StudioRelaying,
   type TextInjecting,
   type VncAccess,
@@ -196,6 +197,7 @@ interface HarnessOptions {
   workspace?: WorkspaceRelaying;
   shareWorkspace?: (message: ServerMessage, from: ClientSession) => void;
   canvasFiles?: CanvasFilesRelaying;
+  tickets?: TicketsRelaying;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -264,6 +266,7 @@ function harness(options: HarnessOptions = {}): Harness {
     workspace: options.workspace ?? null,
     ...(options.shareWorkspace ? { shareWorkspace: options.shareWorkspace } : {}),
     canvasFiles: options.canvasFiles ?? null,
+    tickets: options.tickets ?? null,
   };
   const sink = new RecordingSink();
   const clock = new FakeClock();
@@ -2219,6 +2222,58 @@ describe("query", () => {
       ok: false,
       error: "This host runs no queries.",
     });
+  });
+});
+
+describe("tickets", () => {
+  const fakeTickets = (writes: boolean) => {
+    const asked: [string, string][] = [];
+    const tickets: TicketsRelaying = {
+      writes,
+      onPush: null,
+      handle: (deviceId, op) => {
+        asked.push([deviceId, op.kind]);
+        return Promise.resolve({ ok: true, rev: 3 });
+      },
+    };
+    return { tickets, asked };
+  };
+
+  it("advertises tickets (and tickets.writes only when the gate is open) and answers tickets.req as this device", async () => {
+    const read = fakeTickets(false);
+    const h = harness({ tickets: read.tickets });
+    pair(h);
+    expect(h.sink.last()).toMatchObject({ t: "welcome", features: ["tickets"] });
+    h.session.receive({ t: "tickets.req", rid: "t1", op: { kind: "board" } });
+    await Promise.resolve();
+    expect(read.asked).toEqual([["phone-1", "board"]]);
+    expect(h.sink.last()).toEqual({ t: "tickets.res", rid: "t1", ok: true, rev: 3 });
+    const writes = harness({ tickets: fakeTickets(true).tickets });
+    pair(writes);
+    expect(writes.sink.last()).toMatchObject({ t: "welcome", features: ["tickets", "tickets.writes"] });
+  });
+
+  it("only a socket that subscribed wants pushes, until it unsubscribes", async () => {
+    const { tickets } = fakeTickets(false);
+    const subscribed = harness({ tickets });
+    const other = harness({ tickets });
+    pair(subscribed);
+    pair(other, "desk-2");
+    subscribed.session.receive({ t: "tickets.req", rid: "s1", op: { kind: "subscribe", on: true } });
+    other.session.receive({ t: "tickets.req", rid: "b1", op: { kind: "board" } });
+    await Promise.resolve();
+    expect(subscribed.session.wantsTickets()).toBe(true);
+    expect(other.session.wantsTickets()).toBe(false);
+    subscribed.session.receive({ t: "tickets.req", rid: "s2", op: { kind: "subscribe", on: false } });
+    expect(subscribed.session.wantsTickets()).toBe(false);
+  });
+
+  it("a host without tickets leaves the feature out and refuses tickets.req", () => {
+    const h = harness();
+    pair(h);
+    expect(h.sink.last()).not.toHaveProperty("features");
+    h.session.receive({ t: "tickets.req", rid: "t2", op: { kind: "board" } });
+    expect(h.sink.last()).toEqual({ t: "tickets.res", rid: "t2", ok: false, error: "This host does not sync tickets." });
   });
 });
 

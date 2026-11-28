@@ -43,6 +43,7 @@ import { MeetingsClientFrames, MeetingsServerFrames } from "./meetings";
 import { RoomsClientFrames, RoomsServerFrames } from "./rooms";
 import { WorkspaceClientFrames, WorkspaceServerFrames } from "./workspace";
 import { CanvasFilesClientFrames, CanvasFilesServerFrames } from "./canvas-files";
+import { TicketsClientFrames, TicketsServerFrames } from "./tickets";
 import { AstraItem, ReviewQueue, ReviewsOp, ReviewsResult, ReviewsRid } from "./reviews";
 import { ActivityItem, MAX_ACTIVITY } from "./activity";
 import { StatsSnapshot } from "./stats";
@@ -2175,7 +2176,12 @@ export const ClientMessage = z.discriminatedUnion("t", [
    * `request`: the "call me when it's done" request whose ring the phone answered (the "<assistant> is
    * calling" push); the host opens the call with that request's greeting. Older hosts drop it.
    */
-  z.object({ t: z.literal("call.start"), callId: CallId, agent: AssistantAgentId, request: z.string().min(1).max(100).optional() }),
+  z.object({
+    t: z.literal("call.start"),
+    callId: CallId,
+    agent: AssistantAgentId,
+    request: z.string().min(1).max(100).optional(),
+  }),
   /** About 100 ms of microphone, PCM16 LE mono at CALL_INPUT_RATE, base64. Ignored for any other call. */
   z.object({ t: z.literal("call.audio"), callId: CallId, pcm: CallAudio }),
   /** The phone stopped (or resumed) sending its microphone; the host drops any half-heard utterance. */
@@ -2234,6 +2240,7 @@ export const ClientMessage = z.discriminatedUnion("t", [
   ControlPresence,
   ...WorkspaceClientFrames,
   ...CanvasFilesClientFrames,
+  ...TicketsClientFrames,
   /** The answer to `control.req` with the same rid. */
   z.object({ t: z.literal("control.res"), rid: ControlRid, result: ControlResult }),
 ]);
@@ -2536,6 +2543,7 @@ export const ServerMessage = z.discriminatedUnion("t", [
   ...RoomsServerFrames,
   ...WorkspaceServerFrames,
   ...CanvasFilesServerFrames,
+  ...TicketsServerFrames,
 ]);
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
@@ -2593,3 +2601,4 @@ export * from "./answer-context";
 export * from "./signin";
 export * from "./room-card";
 export * from "./turn-work";
+export * from "./tickets";
