@@ -43,6 +43,8 @@ const OpRecord = z.object({
   deviceId: z.string().default(""),
   /** check()'s revision the write was approved at (`approval.revision` for a confirmed kind). */
   revision: z.string().default(""),
+  /** A non-secret fingerprint of the key it was written with; a resend under another key is refused. */
+  credential: z.string().default(""),
 });
 export type OpRecord = z.infer<typeof OpRecord>;
 

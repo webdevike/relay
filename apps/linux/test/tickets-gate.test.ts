@@ -76,7 +76,7 @@ function fakeExecutor(): Fake {
   return fake;
 }
 
-function setup(over: { dir?: string; fake?: Fake; writes?: boolean; viewerId?: string | null } = {}) {
+function setup(over: { dir?: string; fake?: Fake; writes?: boolean; viewerId?: string | null; credential?: string } = {}) {
   const clock = { t: T0 };
   const fake = over.fake ?? fakeExecutor();
   /** The host's verified account and key generation (a rotation moves `generation`). */
@@ -86,7 +86,7 @@ function setup(over: { dir?: string; fake?: Fake; writes?: boolean; viewerId?: s
   const gate = new MutationGate({
     dir,
     writesEnabled: () => state.writes,
-    pin: (): GatePin | null => (state.viewerId === null ? null : { viewerId: state.viewerId, generation: state.generation, linear: fake.exec }),
+    pin: (): GatePin | null => (state.viewerId === null ? null : { viewerId: state.viewerId, generation: state.generation, credential: over.credential ?? "key-1", linear: fake.exec }),
     current: (pin) => pin.viewerId === state.viewerId && pin.generation === state.generation,
     now: () => clock.t,
     log: (l) => lines.push(l),
@@ -354,6 +354,14 @@ describe("MutationGate after a restart", () => {
     expect(fake.calls.run).toEqual([OP1, OP1]);
   });
 
+  it("refuses a stable-create resend after a restart under a rotated key, sending nothing", async () => {
+    const { dir, fake } = await crashMidWrite(COMMENT);
+    fake.reconcileAnswer = "notDone";
+    const { gate } = setup({ dir, fake, credential: "key-2" });
+    expect((await gate.commit(DEVICE, { opId: OP1, mutation: COMMENT }, ME)).refused?.code).toBe("identity");
+    expect(fake.calls.run).toEqual([OP1]);
+  });
+
   it("refuses a retry as another account or from another device, with no provider call", async () => {
     const { dir, fake } = await crashMidWrite(COMMENT);
     const reconciles = fake.calls.reconcile;
@@ -377,7 +385,7 @@ describe("MutationGate after a restart", () => {
 describe("OpsStore", () => {
   it("drops records older than 14 days and keeps the newest 2000", () => {
     const dir = mkdtempSync(join(tmpdir(), "tickets-ops-"));
-    const rec = { state: "done", kind: "react", hash: "h", viewerId: ME, deviceId: DEVICE.deviceId, revision: "r" } as const;
+    const rec = { state: "done", kind: "react", hash: "h", viewerId: ME, deviceId: DEVICE.deviceId, revision: "r", credential: "key-1" } as const;
     const ops = Object.fromEntries(Array.from({ length: MAX_OPS + 1 }, (_, i) => [`op-${String(i)}`, { ...rec, at: T0 + i }]));
     writeFileSync(join(dir, "ops.json"), JSON.stringify({ v: 1, ops: { ...ops, stale: { ...rec, at: T0 - OPS_TTL_MS - 1 } } }));
     const store = new OpsStore(dir, () => T0);

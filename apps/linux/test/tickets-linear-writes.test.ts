@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { MAX_TICKET_PLAN_ROWS, MAX_TICKET_TEXT, type TicketMutation } from "@relay/protocol";
 import { linearGql } from "../src/reviews/linear";
+import { StaleCredential } from "../src/tickets/errors";
 import { MutationGate } from "../src/tickets/gate";
 import { linearExecutor } from "../src/tickets/linear-writes";
 
@@ -23,6 +24,7 @@ interface FIssue {
   title: string;
   /** The description's document content (inline comments sit on it). */
   docId: string;
+  description?: string;
   stateId: string;
   teamId: string;
   subscribers: string[];
@@ -57,9 +59,9 @@ class FakeLinear {
   readonly calls: { op: string; vars: Vars }[] = [];
   readonly teams = [{ id: "t-1", key: "ENG", states: STATES }];
   readonly templates = new Map([
-    ["tpl-bug", { id: "tpl-bug", name: "Bug", type: "issue", team: { id: "t-1" } }],
-    ["tpl-other", { id: "tpl-other", name: "Ops bug", type: "issue", team: { id: "t-2" } }],
-    ["tpl-doc", { id: "tpl-doc", name: "Spec", type: "document", team: null }],
+    ["tpl-bug", { id: "tpl-bug", name: "Bug", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: { subIssues: [{ title: "Repro" }, { title: "Fix" }] }, team: { id: "t-1" } }],
+    ["tpl-other", { id: "tpl-other", name: "Ops bug", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: {}, team: { id: "t-2" } }],
+    ["tpl-doc", { id: "tpl-doc", name: "Spec", type: "document", updatedAt: "2026-11-01T00:00:00.000Z", templateData: {}, team: null }],
   ]);
   readonly projects = new Map([
     ["p-1", { id: "p-1", name: "Board", teams: { nodes: [{ id: "t-1" }] } }],
@@ -69,12 +71,14 @@ class FakeLinear {
   readonly comments = new Map<string, FComment>();
   /** A write that fails: `lost` applies it and then loses the response; `reject` answers success false. */
   fault: (op: string, vars: Vars) => Fault | undefined = () => undefined;
+  /** Comments whose replies run past one page (`pageInfo.hasNextPage`). */
+  readonly truncated = new Set<string>();
   private tick = 0;
 
   constructor() {
     for (const n of [1, 2, 3]) {
       const id = `issue-${String(n)}`;
-      const fields = { title: `Ticket ${String(n)}`, docId: `doc-${String(n)}`, stateId: "s-todo", teamId: "t-1", subscribers: [ME], updatedAt: new Date(T0).toISOString(), dueDate: null, priority: 0, prioritySortOrder: n };
+      const fields = { title: `Ticket ${String(n)}`, docId: `doc-${String(n)}`, description: `Ticket ${String(n)} calls the API.`, stateId: "s-todo", teamId: "t-1", subscribers: [ME], updatedAt: new Date(T0).toISOString(), dueDate: null, priority: 0, prioritySortOrder: n };
       this.issues.set(id, { id, identifier: `ENG-${String(n)}`, ...fields });
     }
     this.addComment({ id: "c-root", issueId: "issue-1", parentId: null, userId: "viewer-nova", body: "Can you look?" });
@@ -127,7 +131,7 @@ class FakeLinear {
       // Linear: a comment on document content has no issue, and the other way round.
       issue: c.docId === undefined && issue ? { id: issue.id, identifier: issue.identifier } : null,
       documentContent: c.docId === undefined ? null : { id: c.docId },
-      children: { nodes: [...this.comments.values()].filter((x) => x.parentId === c.id).map((x) => ({ id: x.id })) },
+      children: { nodes: [...this.comments.values()].filter((x) => x.parentId === c.id).map((x) => ({ id: x.id })), pageInfo: { hasNextPage: this.truncated.has(c.id) } },
       reactions: c.reactions.map((r) => ({ id: r.id, emoji: r.emoji, user: { id: r.userId } })),
     };
   }
@@ -232,12 +236,17 @@ function httpOver(linear: FakeLinear, serverError: (op: string) => boolean) {
   };
 }
 
+/** `pinned.current` false: the pinned key rotated, so the executor's guard stops every later mutation. */
 function setup(writes = true, serverError?: (op: string) => boolean) {
   const linear = new FakeLinear();
-  const exec = linearExecutor(serverError === undefined ? linear.gql : linearGql(() => "lin_api_test", httpOver(linear, serverError)), () => ME);
+  const pinned = { current: true };
+  const guard = (): void => {
+    if (!pinned.current) throw new StaleCredential();
+  };
+  const exec = linearExecutor(serverError === undefined ? linear.gql : linearGql(() => "lin_api_test", httpOver(linear, serverError)), () => ME, guard);
   const dir = mkdtempSync(join(tmpdir(), "tickets-linear-"));
-  const gate = new MutationGate({ dir, writesEnabled: () => writes, pin: () => ({ viewerId: ME, generation: 1, linear: exec }), current: () => true, now: () => T0, log: () => undefined });
-  return { linear, exec, gate, dir };
+  const gate = new MutationGate({ dir, writesEnabled: () => writes, pin: () => ({ viewerId: ME, generation: 1, credential: "key-1", linear: exec }), current: () => pinned.current, now: () => T0, log: () => undefined });
+  return { linear, exec, gate, dir, pinned };
 }
 
 /** prepare + commit, as the confirm does. */
@@ -287,13 +296,77 @@ describe("linearExecutor checks", () => {
     const { exec, linear } = setup();
     linear.addComment({ id: "c-reply", issueId: "issue-1", parentId: "c-own-root", userId: "viewer-nova", body: "?" });
     expect(await exec.check({ kind: "deleteComment", commentId: "c-own-root", replyCount: 0 })).toMatchObject({ ok: false, code: "conflict" });
-    expect(await exec.check({ kind: "deleteComment", commentId: "c-own-root", replyCount: 1 })).toMatchObject({ ok: true, summary: "Delete your comment on ENG-1 and its 1 replies" });
+    expect(await exec.check({ kind: "deleteComment", commentId: "c-own-root", replyCount: 1 })).toMatchObject({ ok: true, summary: 'Delete your comment on ENG-1 "Note" and its 1 replies' });
   });
 
   it("refuses a new issue in a state outside the team, or in an unknown team", async () => {
     const { exec } = setup();
     expect(await exec.check({ ...CREATE_ISSUE, stateId: "s-x" } as TicketMutation)).toMatchObject({ ok: false, code: "invalid" });
     expect(await exec.check({ ...CREATE_ISSUE, teamId: "t-x" } as TicketMutation)).toMatchObject({ ok: false, code: "invalid" });
+  });
+
+  it("refuses deleting a thread whose replies run past one page (the count can't be proven)", async () => {
+    const { linear, exec } = setup();
+    linear.truncated.add("c-own-root");
+    expect(await exec.check({ kind: "deleteComment", commentId: "c-own-root", replyCount: 0 })).toEqual({ ok: false, code: "invalid", message: "It has more replies than Relay can count; delete it in Linear" });
+  });
+
+  it("names which inline comment a delete takes", async () => {
+    const { exec, linear } = setup();
+    linear.addComment({ id: "c-my-inline", issueId: "issue-1", docId: "doc-1", parentId: null, userId: ME, body: "Is this the v2 API?" });
+    expect(await exec.check({ kind: "deleteComment", commentId: "c-my-inline", replyCount: 0 })).toMatchObject({ ok: true, summary: 'Delete your inline comment on the description "Is this the v2 API?"' });
+  });
+});
+
+describe("confirms bind the live revision", () => {
+  it("refuses an inline comment after its description changed in place, and a reply after its thread root changed", async () => {
+    const { gate, linear } = setup();
+    const inline: TicketMutation = { kind: "comment", issueId: "issue-1", documentContentId: "doc-1", quotedText: "the API", body: "Which one?" };
+    const a1 = (await gate.prepare(DEVICE, inline, ACTOR)).approval?.id ?? "";
+    linear.issues.get("issue-1")!.description = "Ticket 1 calls the API twice.";
+    expect((await gate.commit(DEVICE, { approvalId: a1, opId: OP1, mutation: inline }, ACTOR)).refused?.code).toBe("conflict");
+    const reply: TicketMutation = { kind: "comment", issueId: "issue-1", documentContentId: "doc-1", parentId: "c-inline", body: "This one" };
+    const a2 = (await gate.prepare(DEVICE, reply, ACTOR)).approval?.id ?? "";
+    linear.comments.get("c-inline")!.updatedAt = new Date(T0 + 60_000).toISOString();
+    expect((await gate.commit(DEVICE, { approvalId: a2, opId: OP2, mutation: reply }, ACTOR)).refused?.code).toBe("conflict");
+    expect(linear.mutations()).toEqual([]);
+  });
+
+  it("discloses a template's sub-issues and refuses after the template changed", async () => {
+    const { gate, linear } = setup();
+    const create: TicketMutation = { ...(CREATE_ISSUE as Extract<TicketMutation, { kind: "createIssue" }>), templateId: "tpl-bug" };
+    const prepared = await gate.prepare(DEVICE, create, ACTOR);
+    expect(prepared.approval?.summary).toContain("template Bug with 2 sub-issues: Repro, Fix");
+    linear.templates.get("tpl-bug")!.updatedAt = "2026-11-27T12:30:00.000Z";
+    expect((await gate.commit(DEVICE, { approvalId: prepared.approval?.id ?? "", opId: OP1, mutation: create }, ACTOR)).refused?.code).toBe("conflict");
+    expect(linear.mutations()).toEqual([]);
+  });
+});
+
+describe("the pinned key is checked before every mutation", () => {
+  it("stops a plan between rows when the key rotates, sending no later row", async () => {
+    const { gate, linear, pinned } = setup();
+    linear.fault = (op) => {
+      if (op === "TicketIssueUpdate") pinned.current = false;
+      return undefined;
+    };
+    const rows = [1, 2, 3].map((n, i) => ({ key: `ENG-${String(n)}`, issueId: `issue-${String(n)}`, opId: [ROW_A, ROW_B, ROW_C][i]!, baseUpdatedAt: T0, priority: n }));
+    const res = await confirmAndCommit(gate, { kind: "applyPlan", rows }, OP1);
+    expect(res.outcome?.result?.rows?.map((r) => r.state)).toEqual(["done", "failed", "failed"]);
+    expect(linear.mutations("TicketIssueUpdate")).toHaveLength(1);
+  });
+
+  it("stops a write when the key rotates during the executor's own read before it", async () => {
+    const { gate, linear, pinned } = setup();
+    let reads = 0;
+    linear.fault = (op) => {
+      // The first read is check(); the second is run()'s own read before it subscribes.
+      if (op === "TicketIssueSubscribers" && ++reads === 2) pinned.current = false;
+      return undefined;
+    };
+    const res = await gate.commit(DEVICE, { opId: OP1, mutation: { kind: "subscribe", issueId: "issue-1", on: false } }, ACTOR);
+    expect(res.outcome?.state).toBe("failed");
+    expect(linear.mutations()).toEqual([]);
   });
 
   it("binds an inline comment to the issue's own description, and a reply to where its thread is", async () => {
@@ -317,7 +390,7 @@ describe("linearExecutor checks", () => {
     expect(await exec.check(create({ referenceCommentId: "c-gone" }))).toMatchObject({ ok: false, message: "The comment it links back to is gone from Linear" });
     for (const templateId of ["tpl-other", "tpl-doc", "tpl-gone"]) expect(await exec.check(create({ templateId }))).toMatchObject({ ok: false, message: "That template isn't an issue template of team ENG" });
     for (const projectId of ["p-2", "p-gone"]) expect(await exec.check(create({ projectId }))).toMatchObject({ ok: false, message: "That project isn't in team ENG" });
-    expect(await exec.check(create({ templateId: "tpl-bug" }))).toMatchObject({ ok: true, summary: "New issue in ENG (Todo, template Bug, project Board) from a comment on ENG-1: Follow up", text: "From a comment" });
+    expect(await exec.check(create({ templateId: "tpl-bug" }))).toMatchObject({ ok: true, summary: "New issue in ENG (Todo, template Bug with 2 sub-issues: Repro, Fix, project Board) from a comment on ENG-1: Follow up", text: "From a comment" });
   });
 
   it("resolves plan rows to the live issues and confirms every row by its live key and title", async () => {

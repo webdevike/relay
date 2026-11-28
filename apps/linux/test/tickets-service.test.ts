@@ -209,6 +209,18 @@ describe("TicketsService writes as the account the device saw", () => {
     expect(writes(h)).toEqual([{ op: "TicketIssueSubscribe", key: "lin_api_rotated" }]);
   });
 
+  it("sends nothing when the key rotates during the executor's own read, after the gate's last check", async () => {
+    let reads = 0;
+    const h = writing(() => {
+      // Read 1 is check(); read 2 is run()'s own read right before it subscribes.
+      if (++reads === 2) h.key.value = "lin_api_rotated";
+    });
+    await h.settled();
+    const res = await h.service.handle("desk", { kind: "commit", viewerId: "user-me", opId: OPS[0], mutation: SUBSCRIBE });
+    expect(res.outcome?.state).toBe("failed");
+    expect(writes(h)).toEqual([]);
+  });
+
   it("drops an approval prepared before the key changed", async () => {
     const h = writing();
     await h.settled();

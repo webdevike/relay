@@ -16,7 +16,7 @@ import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
 import { applyHandled, attentionOf, type AttentionMe } from "./attention";
 import { providerBudgets, RateLimited, type Budgets } from "./budget";
-import { HostError, ProviderRejected, publicError } from "./errors";
+import { HostError, ProviderRejected, publicError, StaleCredential } from "./errors";
 import { MutationGate, type GatePin } from "./gate";
 import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
@@ -325,7 +325,12 @@ export class TicketsService implements TicketsRelaying {
       this.actor.send({ type: "sync.now" });
       return null;
     }
-    return { viewerId, generation: this.generation, linear: linearExecutor(this.deps.keyedGql(key), () => viewerId) };
+    // The guard runs right before each mutation request: a key or account change after any read stops it.
+    const guard = (): void => {
+      if (!this.current(pin)) throw new StaleCredential();
+    };
+    const pin: GatePin = { viewerId, generation: this.generation, credential: sha256(`relay tickets credential ${key}`).slice(0, 16), linear: linearExecutor(this.deps.keyedGql(key), () => viewerId, guard) };
+    return pin;
   }
 
   /** Whether a pinned write may still go out: same generation, account still verified, same key on disk. */

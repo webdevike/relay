@@ -12,7 +12,7 @@
 import { createHash } from "node:crypto";
 import { TicketConfirm, ticketMutationConfirmed, type TicketMutation, type TicketOutcome, type TicketsRefusalCode, type TicketsResult, type TicketStateType } from "@relay/protocol";
 import { Approvals } from "./approvals";
-import { ProviderRejected, publicError } from "./errors";
+import { ProviderRejected, publicError, StaleCredential } from "./errors";
 import { OpResult, OpsStore, type OpRecord } from "./ops-store";
 
 export interface GateContext {
@@ -44,6 +44,8 @@ export interface GatePin {
   readonly viewerId: string;
   /** Moves on every account or key change: approvals and ops pinned to an older one never write. */
   readonly generation: number;
+  /** A non-secret, restart-stable fingerprint of the pinned key (kept with each op). */
+  readonly credential: string;
   /** The executor bound to exactly the pinned key (check, run and reconcile all use it). */
   readonly linear: MutationExecutor<TicketMutation>;
 }
@@ -231,6 +233,7 @@ export class MutationGate {
 
   /** A stable-id create Linear doesn't have: sent again with the same id, only at the approved revision. */
   private async recreate(req: CommitRequest, rec: OpRecord, pin: GatePin): Promise<GateAnswer> {
+    if (rec.credential !== pin.credential) return refuse("identity", "The host's Linear key changed since this was sent; not sent again. Check Linear and confirm again.");
     const checked = await this.check(pin, req.mutation);
     if (!checked.ok) return checked.answer;
     if (checked.revision !== rec.revision) return refuse("conflict", "Changed in Linear since you confirmed; not sent again. Check it and confirm again.");
@@ -244,7 +247,7 @@ export class MutationGate {
   private async write(pin: GatePin, req: CommitRequest, base: { hash: string; deviceId: string; revision: string }, again: boolean): Promise<GateAnswer> {
     if (!this.deps.current(pin)) return refuse("identity", STALE_PIN);
     const m = req.mutation;
-    const rec0 = { kind: m.kind, hash: base.hash, at: this.deps.now(), viewerId: pin.viewerId, deviceId: base.deviceId, revision: base.revision };
+    const rec0 = { kind: m.kind, hash: base.hash, at: this.deps.now(), viewerId: pin.viewerId, deviceId: base.deviceId, revision: base.revision, credential: pin.credential };
     this.ops.put(req.opId, { ...rec0, state: "running" });
     let rec: OpRecord;
     try {
@@ -252,7 +255,9 @@ export class MutationGate {
       const result = parsed.success ? parsed.data : undefined;
       rec = { ...rec0, state: stateOf(result), ...(result === undefined ? {} : { result }) };
     } catch (e) {
-      rec = { ...rec0, state: e instanceof ProviderRejected && !again ? "failed" : "unknown", error: errorText(e) };
+      // A guard refusal (StaleCredential) means that mutation never went out, even on a resend.
+      const definite = e instanceof StaleCredential || (e instanceof ProviderRejected && !again);
+      rec = { ...rec0, state: definite ? "failed" : "unknown", error: errorText(e) };
     }
     this.ops.put(req.opId, rec);
     this.deps.log(`tickets gate: ${m.kind} ${req.opId}: ${rec.state}`);

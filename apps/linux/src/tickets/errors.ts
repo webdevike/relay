@@ -17,6 +17,13 @@ export class ProviderRejected extends Error {
   }
 }
 
+/** The pinned key or account changed before a mutation went out: that mutation was not sent. */
+export class StaleCredential extends ProviderRejected {
+  constructor() {
+    super("tickets: credential changed before the write", "The host's Linear key or account changed while writing. Reload and try again.");
+  }
+}
+
 /** A failure in the host's own words, safe to show as it is. */
 export class HostError extends Error {
   override readonly name = "HostError";
