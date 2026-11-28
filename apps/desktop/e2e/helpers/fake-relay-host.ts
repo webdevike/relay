@@ -890,8 +890,8 @@ export class FakeRelayHost {
   /** Every `reviews.req` op the app sent, in order. */
   readonly reviewOps: Json[] = []
   /**
-   * Fixture answers per op kind (the `reviews.res` fields after `ok`), filled by `serveReviews`;
-   * they win over the built-in `pr` answer.
+   * Fixture answers per op kind, or per `<kind>:<key>` for one key's read (the `reviews.res`
+   * fields after `ok`), filled by `serveReviews`; they win over the built-in `pr` answer.
    */
   readonly reviews = new Map<string, Json>()
 
@@ -942,7 +942,10 @@ export class FakeRelayHost {
   }
 
   private reviewsAnswer(op: Json): Json | null {
-    const served = this.reviews.get(String(op.kind))
+    // `<kind>:<key>` (e.g. `linear:ENG-9001`) answers one key's read before the kind's own answer.
+    const keyed =
+      op.key === undefined ? undefined : this.reviews.get(`${String(op.kind)}:${String(op.key)}`)
+    const served = keyed ?? this.reviews.get(String(op.kind))
     if (served) return { ok: true, ...served }
     if (this.reviews.size > 0 && op.kind !== 'prPrepare' && op.kind !== 'prCommit')
       return { ok: false, error: 'Not in this fake' }
