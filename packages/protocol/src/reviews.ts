@@ -456,7 +456,7 @@ export type PrReactionTarget = z.infer<typeof PrReactionTarget>;
 /** Every GitHub write Isaac can make on a PR from Relay (PLAN §5); never `--admin`. */
 export const PrMutation = z.discriminatedUnion("kind", [
   /**
-   * Merge now, exactly `expectHead` into `expectBase` (`--match-head-commit`): never auto-merge or a
+   * Merge now, exactly `expectHead` into `expectBase` (REST merge with `sha`): never auto-merge or a
    * merge queue, which merge later at whatever head the PR has then. Fields older clients sent
    * (`intent`, `expectOutcome`) are dropped on parse.
    */

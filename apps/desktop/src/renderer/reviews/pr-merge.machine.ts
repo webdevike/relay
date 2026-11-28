@@ -3,8 +3,8 @@ import { assign, fromPromise, setup } from 'xstate'
 /**
  * Merging a PR from its page (docs/state-machines/pr-merge.md): Isaac picks Merge now, confirms it
  * with the repo, head short SHA, base and method in view, and the host's write gate approves it
- * (`prepare`) and merges exactly that head at once (`commit`, `--match-head-commit`, never
- * `--admin`, never auto-merge or a merge queue). A newer read with another head, or one GitHub
+ * (`prepare`) and merges exactly that head at once (`commit`: GitHub's REST merge at that `sha`,
+ * never `--admin`, never auto-merge or a merge queue). A newer read with another head, or one GitHub
  * would no longer merge right now, before the write goes out or as the host's `conflict` refusal,
  * makes the confirm `stale`: Isaac confirms again. The opId is minted at the confirm and reused by
  * retry, so a lost answer never merges twice. The runtime (MergeBox.tsx) provides `prepare` and

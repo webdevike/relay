@@ -5,9 +5,10 @@
 // no permission, a method the repo turned off, a comment on another PR); its revision binds the
 // approval to head and base, and its confirm shows the exact text. run() is one exact `gh` argv per
 // kind and never the admin override, and every one of them asks `guard` (is the pinned credential
-// still the host's?) immediately before it goes out, after any read the op made first. Merges are
-// immediate and bound to the reviewed head (`--match-head-commit`): Relay never arms auto-merge or
-// joins a merge queue, since GitHub merges those later at whatever head the PR has then.
+// still the host's?) immediately before it goes out, after any read the op made first. A merge is
+// REST `PUT /repos/{repo}/pulls/{n}/merge` with the reviewed head as `sha`: GitHub merges exactly
+// that head at once or refuses (a push, a merge queue, not mergeable), and REST has no auto-merge or
+// queue to fall back to. Never `gh pr merge`, which turns auto-merge on by itself on a queue branch.
 // reconcile() only reads GitHub back after a lost response (the gate never sends a GitHub write
 // twice on its own). A refusal reaches clients in the host's words, never gh's stderr.
 
@@ -66,14 +67,17 @@ export interface GithubWritesDeps {
 
 /** What a refused write says to clients, per gh command (never gh's own stderr). */
 const REFUSED: Record<string, string> = {
-  "pr merge": "GitHub refused the merge; nothing was merged. Check the PR on GitHub.",
   "pr edit": "GitHub refused the review request; nothing was changed.",
   "pr comment": "GitHub refused the comment; nothing was posted.",
   "run rerun": "GitHub refused the re-run; nothing was started.",
 };
+const MERGE_REFUSED = "GitHub refused the merge; nothing was merged. Check the PR on GitHub.";
 
-/** One write, after the pin check; a refusal GitHub answered is ProviderRejected (nothing written), anything else a lost response. */
-async function ghWrite(d: GithubWritesDeps, args: readonly string[]): Promise<string> {
+/**
+ * One write, after the pin check; a refusal GitHub answered is ProviderRejected (nothing written,
+ * `refused` or the command's line for clients), anything else a lost response.
+ */
+async function ghWrite(d: GithubWritesDeps, args: readonly string[], refused?: string): Promise<string> {
   await d.guard();
   const res = await d.run([d.gh, ...args], { cwd: homedir(), timeoutMs: GH_WRITE_TIMEOUT_MS });
   const what = args.slice(0, 2).join(" ");
@@ -82,7 +86,7 @@ async function ghWrite(d: GithubWritesDeps, args: readonly string[]): Promise<st
   const why = (res.stderr.trim().split("\n")[0] ?? "").slice(0, 300);
   const message = `gh ${what} failed${why === "" ? "" : `: ${why}`}`;
   if (LOST.test(res.stderr)) throw new Error(message);
-  throw new ProviderRejected(message, REFUSED[what] ?? "GitHub refused the change; nothing was written.");
+  throw new ProviderRejected(message, refused ?? REFUSED[what] ?? "GitHub refused the change; nothing was written.");
 }
 
 const read = (d: GithubWritesDeps, args: readonly string[]): Promise<string> => ghCall(d.run, d.gh, d.budget, args);
@@ -122,7 +126,7 @@ const MERGE_RULES: readonly MergeRule[] = [
   (pr) => (pr.draft ? invalid("This PR is a draft. Mark it ready for review first.") : null),
   (pr, m) => (WRITERS.has(pr.actions.viewerPermission ?? "") ? null : invalid(`Your GitHub account can't merge in ${m.repo}`)),
   (pr) => (pr.actions.mergeQueue.inQueue ? conflict("This PR is already in the merge queue") : null),
-  // gh would turn auto-merge on to join a queue, which merges later at whatever head the PR has then.
+  // A queue merges later at whatever head the PR has then; Relay only merges at once (GitHub refuses that on a queue branch too).
   (pr) => (pr.actions.mergeQueue.required ? invalid("This branch merges through a merge queue. Add it to the queue on GitHub.") : null),
   (pr, m) => (pr.actions.methods[m.method] ? null : invalid(`${m.method} merges are off in ${m.repo}`)),
   (pr) => (pr.actions.mergeable === "CONFLICTING" ? invalid("It has merge conflicts") : null),
@@ -138,11 +142,16 @@ function checkMerge(pr: PrLive, m: Of<"merge">): CheckResult {
   return { ok: true, revision: `${pr.headSha}|${pr.base}`, summary: `Merge now: ${named(m, pr)} at ${short(pr.headSha)} into ${pr.base} (${m.method})` };
 }
 
-/** An immediate merge of exactly the head Isaac confirmed (`--match-head-commit`; never --auto or --admin). */
+const Merged = z.object({ merged: z.boolean() });
+
+/**
+ * An immediate merge of exactly the head Isaac confirmed (REST `sha`; never --auto or --admin). A
+ * queue added, a push or anything else since the check is GitHub's refusal; nothing waits to merge later.
+ */
 async function runMerge(d: GithubWritesDeps, m: Of<"merge">): Promise<OpResult> {
-  await ghWrite(d, ["pr", "merge", String(m.number), "--repo", m.repo, `--${m.method}`, "--match-head-commit", m.expectHead]);
-  const pr = await readPrLive(d.graphql, m.repo, m.number);
-  if (pr?.state !== "MERGED") throw new Error("GitHub doesn't show the merge yet");
+  const args = ["api", "-X", "PUT", `repos/${m.repo}/pulls/${String(m.number)}/merge`, "-f", `sha=${m.expectHead}`, "-f", `merge_method=${m.method}`];
+  const answer = Merged.safeParse(JSON.parse(await ghWrite(d, args, MERGE_REFUSED)));
+  if (!answer.success || !answer.data.merged) throw new Error("GitHub didn't say it merged");
   return { merge: "merged" };
 }
 

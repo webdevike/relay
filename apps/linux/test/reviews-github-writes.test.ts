@@ -91,7 +91,7 @@ class FakeGh {
 
   /** Writes only (no reads). */
   writes(): string[][] {
-    return this.calls.filter((a) => a[0] === "pr" || a[0] === "run" || (a[0] === "api" && a[1] !== "graphql" && (a.includes("POST") || a.includes("DELETE") || a.includes("-F") || a.some((x) => x.endsWith("/replies")))));
+    return this.calls.filter((a) => a[0] === "pr" || a[0] === "run" || (a[0] === "api" && a[1] !== "graphql" && (a.includes("POST") || a.includes("PUT") || a.includes("DELETE") || a.includes("-F") || a.some((x) => x.endsWith("/replies")))));
   }
 
   private graphql(): ToolResult {
@@ -134,13 +134,14 @@ class FakeGh {
   }
 
   private rest(a: string[]): ToolResult {
-    const writing = a[0] === "pr" || a[0] === "run" || a.includes("POST") || a.includes("DELETE") || a.includes("-F") || a.some((x) => x.endsWith("/replies"));
+    const writing = a[0] === "pr" || a[0] === "run" || a.includes("POST") || a.includes("PUT") || a.includes("DELETE") || a.includes("-F") || a.some((x) => x.endsWith("/replies"));
     if (writing && this.dropNext) {
       this.dropNext = false;
       return no("read tcp: connection reset by peer");
     }
     if (a[0] === "pr" || a[0] === "run") return this.ghWrite(a);
     const path = a.find((x) => x.startsWith("repos/")) ?? "";
+    if (a.includes("PUT") && path.endsWith("/merge")) return this.lost(this.merge(a));
     const run = /actions\/runs\/(\d+)$/.exec(path);
     if (run !== null) {
       const facts = this.runs.get(Number(run[1]));
@@ -187,13 +188,17 @@ class FakeGh {
       this.issueComments.push({ id, login: "webdevike", body, created_at: new Date(T0).toISOString(), url: `https://github.com/${REPO}/pull/${String(N)}#issuecomment-${String(id)}`, path: null, reply: null });
       return this.lost(ok(`https://github.com/${REPO}/pull/${String(N)}#issuecomment-${String(id)}\n`));
     }
-    return this.lost(this.merge(a));
+    return no(`gh: unknown command ${a.join(" ")}`);
   }
 
+  /** GitHub's REST merge: at once at `sha`, or refused (it has no auto-merge or queue to fall back to). */
   private merge(a: string[]): ToolResult {
-    if (a[a.indexOf("--match-head-commit") + 1] !== this.pr.head) return no("GraphQL: Head branch was modified. Review and try the merge again. (mergePullRequest)");
+    const field = (k: string): string => (a.find((x) => x.startsWith(`${k}=`)) ?? "").slice(k.length + 1);
+    if (this.pr.queue) return no("gh: Repository rule violations found\n\nChanges must be made through the merge queue (HTTP 405)");
+    if (field("sha") !== this.pr.head) return no("gh: Head branch was modified. Review and try the merge again. (HTTP 409)");
+    if (!["CLEAN", "HAS_HOOKS", "UNSTABLE"].includes(this.pr.mergeStateStatus)) return no("gh: Pull Request is not mergeable (HTTP 405)");
     this.pr.state = "MERGED";
-    return ok();
+    return ok(JSON.stringify({ sha: "m".repeat(40), merged: true, message: "Pull Request successfully merged" }));
   }
 
   private react(a: string[], path: string): ToolResult {
@@ -263,13 +268,18 @@ function setup(o: { writes?: boolean; dir?: string; gh?: FakeGh } = {}) {
 
 const merge = (over: Partial<Extract<PrMutation, { kind: "merge" }>> = {}): PrMutation => ({ kind: "merge", repo: REPO, number: N, method: "squash", expectHead: H1, expectBase: "main", ...over });
 const STALE = "The host's GitHub sign-in or account changed while writing. Reload and try again.";
+/** The one provider operation a merge sends: REST's immediate merge at the reviewed head. */
+const MERGE_PUT = ["api", "-X", "PUT", `repos/${REPO}/pulls/42/merge`, "-f", `sha=${H1}`, "-f", "merge_method=squash"];
+/** Any way of merging later: gh's own merge command (auto-merge on a queue branch), auto-merge or the queue. */
+const deferredCalls = (gh: FakeGh): string[][] => gh.calls.filter((a) => (a[0] === "pr" && a[1] === "merge") || a.some((x) => /enablePullRequestAutoMerge|enqueuePullRequest|--auto\b/.test(x)));
 
 describe("GitHub PR writes: argv per op", () => {
-  it("merges with the method and the head it saw, never --admin", async () => {
+  it("merges at once through REST at the head it saw, with the method; never gh pr merge, --auto or --admin", async () => {
     const { gh, write } = setup();
     const answer = await write(merge());
     expect(answer).toMatchObject({ ok: true, outcome: { state: "done", result: { merge: "merged" } } });
-    expect(gh.writes()).toEqual([["pr", "merge", "42", "--repo", REPO, "--squash", "--match-head-commit", H1]]);
+    expect(gh.writes()).toEqual([MERGE_PUT]);
+    expect(deferredCalls(gh)).toEqual([]);
   });
 
   it("re-runs a failed run of the head at its attempt", async () => {
@@ -316,6 +326,26 @@ describe("GitHub PR writes: argv per op", () => {
       ["api", "-X", "POST", `repos/${REPO}/pulls/comments/12/reactions`, "-f", "content=+1"],
       ["api", "-X", "DELETE", `repos/${REPO}/issues/42/reactions/100`],
     ]);
+  });
+});
+
+describe("GitHub PR writes: a merge is immediate or nothing", () => {
+  it.each([
+    ["a merge queue was required", (pr: FakePr) => Object.assign(pr, { queue: true })],
+    ["the PR was retargeted to a queue branch", (pr: FakePr) => Object.assign(pr, { base: "release", queue: true })],
+    ["new commits were pushed", (pr: FakePr) => Object.assign(pr, { head: H2 })],
+    ["it stopped being mergeable", (pr: FakePr) => Object.assign(pr, { mergeStateStatus: "BLOCKED" })],
+  ])("%s after the executor's last read: GitHub refuses the merge, failed, nothing left to merge later", async (_name, change) => {
+    const { gh, write } = setup();
+    // GitHub sees the change between Relay's last read and the merge request.
+    gh.onCall = (a) => {
+      if (a.includes("PUT")) change(gh.pr);
+    };
+    const answer = await write(merge());
+    expect(answer).toMatchObject({ ok: false, error: "GitHub refused the merge; nothing was merged. Check the PR on GitHub.", outcome: { state: "failed" } });
+    expect(gh.writes()).toEqual([MERGE_PUT]);
+    expect([gh.pr.state, gh.pr.inQueue]).toEqual(["OPEN", false]);
+    expect(deferredCalls(gh)).toEqual([]);
   });
 });
 
@@ -758,11 +788,12 @@ describe("Reviews prPrepare/prCommit", () => {
   });
 });
 
-describe("never --admin, never auto-merge", () => {
-  it("no host source passes --admin, --auto or --disable-auto to gh", () => {
+describe("never --admin, never a deferred merge", () => {
+  it("no host source passes --admin, --auto or --disable-auto, runs gh pr merge, or asks for auto-merge or the queue", () => {
     const src = join(import.meta.dirname, "..", "src");
     const files = readdirSync(src, { recursive: true, encoding: "utf8" }).filter((f) => f.endsWith(".ts"));
-    const offenders = files.filter((f) => /["'`]--(admin|auto|disable-auto)["'`]/.test(readFileSync(join(src, f), "utf8")));
+    const deferred = /["'`]--(admin|auto|disable-auto)["'`]|["'`]pr["'`],\s*["'`]merge["'`]|enablePullRequestAutoMerge|enqueuePullRequest/;
+    const offenders = files.filter((f) => deferred.test(readFileSync(join(src, f), "utf8")));
     expect(offenders).toEqual([]);
   });
 });
