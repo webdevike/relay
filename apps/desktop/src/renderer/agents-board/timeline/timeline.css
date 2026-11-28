@@ -99,7 +99,8 @@
   --wx-gantt-holiday-background: var(--eva-color-surface);
 }
 
-/* Milestone targets and today, portaled into SVAR's .wx-area by DateLines. */
+/* Milestone targets and today, portaled into SVAR's .wx-area by DateLines; their labels go on
+   the sticky .wx-scale (the time scale), centered on the line in the day row, over the dates. */
 .rb-line {
   position: absolute;
   top: 0;
@@ -119,20 +120,24 @@
 
 .rb-line-label {
   position: absolute;
-  top: 2px;
-  left: 4px;
+  bottom: 2px;
+  z-index: 1;
+  transform: translateX(-50%);
   padding: 0 var(--mantine-spacing-xs);
   white-space: nowrap;
   font-size: var(--eva-fz-caption);
+  line-height: 18px;
+  border: 1px solid currentColor;
   border-radius: var(--mantine-radius-sm);
   background: var(--mantine-color-body);
+  pointer-events: none;
 }
 
-.rb-line-release .rb-line-label {
+.rb-line-label-release {
   color: var(--mantine-color-violet-text);
 }
 
-.rb-line-today .rb-line-label {
+.rb-line-label-today {
   color: var(--mantine-color-red-text);
 }
 
