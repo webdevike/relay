@@ -4,8 +4,8 @@ import signedImages from "../fixtures/signed-images.json";
 
 const SIGNED = "https://private-user-images.githubusercontent.com/1/x.png?jwt=SECRETJWT";
 const LOCAL = "/reviews/media/local.png";
-/** The private URL to its local copy; everything else kept. */
-const map = (url: string): string | undefined => (url === SIGNED ? LOCAL : undefined);
+/** A private upload (any GitHub private image) to its local copy; everything else kept. */
+const map = (url: string): string | undefined => (url.startsWith("https://private-user-images.githubusercontent.com/") ? LOCAL : undefined);
 const noSecret = (out: string): void => {
   for (const secret of signedImages.secrets) expect(out).not.toContain(secret);
 };
@@ -66,6 +66,11 @@ describe("markdown images", () => {
     ["entity-escaped signed URL as link text", "see (private link)"],
     ["signed URL as the text of a public link", "[(private link)](https://example.com/pr)"],
     ["unused duplicate definition behind a link", "[the run][run]\n\n[run]: https://example.com/run\n"],
+    ["signed URL with parentheses as the text and destination of a link", "(private link)"],
+    ["signed URL in a public image's title", '![a](https://example.com/a.png "(private link)")'],
+    ["signed URL in a public link's title", "[go](https://example.com/pr 'see (private link)')"],
+    ["backslash-escaped signed URL as link text", "[(private link)](https://example.com/pr)"],
+    ["signed URL in a code span", "`curl (private link)`"],
   ] as const)("keeps no signature in the shared fixture's %s", (name, expected) => {
     const out = rewriteImages(signedImages.links[name], map);
     expect(out).toBe(expected);
@@ -95,7 +100,7 @@ describe("markdown images", () => {
     expect(out).toBe(`<details>\n<video src="${LOCAL}"></video>\n</details>`);
   });
 
-  it("leaves everything else exactly as written: public images' references, links, definitions and code", () => {
+  it("leaves everything else exactly as written: public images' references, links, definitions and code (a signed URL in code still goes)", () => {
     const md = [
       "Intro *with* `code ![a](" + SIGNED + ")` and __bold__.",
       "![wide](https://example.com/a_(b).png)",
@@ -108,7 +113,7 @@ describe("markdown images", () => {
       "```\n![a](" + SIGNED + ")\n```",
     ].join("\n\n");
     expect(rewriteImages(md, map).split("\n\n")).toEqual([
-      "Intro *with* `code ![a](" + SIGNED + ")` and __bold__.",
+      "Intro *with* `code ![a]((private link))` and __bold__.",
       "![wide](<https://example.com/a_(b).png>)",
       "![sp](<https://example.com/a b.png>)",
       "[a link](https://example.com/page)",
@@ -116,7 +121,7 @@ describe("markdown images", () => {
       "[r]: https://example.com/r.png",
       '<img alt="none">',
       "![esc 1](https://example.com/e.png)",
-      "```\n![a](" + SIGNED + ")\n```",
+      "```\n![a]((private link))\n```",
     ]);
     expect(imageSources(md)).toEqual([
       "https://example.com/a_(b).png",

@@ -12,10 +12,12 @@
 //   holds an image or its URL carries a query (a signature), and such a bare autolink is replaced;
 // - raw HTML: an `<img>` becomes a markdown image (its width as the title `w=N`, `w=N Title` with a
 //   title), an `<a href>` around one becomes a markdown link or is dropped like a link, and any other
-//   signed URL `map` maps inside raw HTML is replaced by `map`'s answer.
+//   signed URL `map` maps inside raw HTML is replaced by `map`'s answer;
+// - last, over the whole output with no grammar (`redactUrls`): every private URL left anywhere (a
+//   link label, alt or title, a code span, a destination the AST kept) becomes "(private link)".
 
 import { decodeNamedCharacterReference } from "decode-named-character-reference";
-import type { Definition, Html, Image, ImageReference, Link, LinkReference, Nodes, Parent, Root, Text } from "mdast";
+import type { Definition, Html, Image, ImageReference, Link, LinkReference, Nodes, Parent, Root } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
@@ -111,6 +113,46 @@ const A_CLOSE_ONLY = /^<\/a\s*>$/i;
 /** Runs that may hold a URL in raw HTML (plain or entity-escaped); scanned once, no backtracking. */
 const URL_RUN = /[^\s"'<>()[\]`]+/g;
 
+// ---- The final pass: whole private URLs, wherever they sit ----
+
+/** What a private URL left in text reads as. */
+export const PRIVATE_LINK = "(private link)";
+/** A `<...>` destination or autolink (spaces and parentheses allowed). */
+const ANGLE_URL = /<(https?:\/\/[^<>\n]*)>/gi;
+/** A bare URL, parentheses included (its unbalanced closing ones go back to the text). */
+const BARE_URL = /https?:\/\/[^\s<>"'[\]`]+/gi;
+/** A run between spaces, quotes, brackets and backticks: where an escaped URL (`https&#58;//`, `https\://`) can sit. */
+const TOKEN = /[^\s<>"'[\]`]+/g;
+
+/** Text as markdown shows it: HTML character references and backslash escapes decoded. */
+const unescape = (s: string): string => decodeEntities(s).replace(/\\([!-/:-@[-`{-~])/g, "$1");
+
+/** A bare URL as PRIVATE_LINK when private, keeping the `)`s that close text around it. */
+function bareUrl(url: string, isPrivate: (url: string) => boolean): string {
+  const extra = url.split(")").length - url.split("(").length;
+  const tail = /\)*$/.exec(url)?.[0].length ?? 0;
+  const closing = Math.max(0, Math.min(extra, tail));
+  return isPrivate(unescape(url.slice(0, url.length - closing))) ? PRIVATE_LINK + ")".repeat(closing) : url;
+}
+
+/** A token holding an escaped private URL (`https&#58;//...`, `&#x3a;`, `&colon;`, `https\://`) as PRIVATE_LINK. */
+function escapedUrl(token: string, isPrivate: (url: string) => boolean): string {
+  if (!token.includes("&") && !token.includes("\\")) return token;
+  return (unescape(token).match(BARE_URL) ?? []).some(isPrivate) ? PRIVATE_LINK : token;
+}
+
+/**
+ * `text` with every http(s) URL `isPrivate` flags replaced by PRIVATE_LINK wherever it sits: a whole
+ * `<...>` destination, a bare URL with parentheses in its path, or one hidden behind HTML entities or
+ * backslash escapes. No markdown grammar, so no label, alt, title, code span or destination keeps one.
+ * Each step is one linear scan.
+ */
+export function redactUrls(text: string, isPrivate: (url: string) => boolean): string {
+  const angled = text.replace(ANGLE_URL, (whole, url: string) => (isPrivate(unescape(url)) ? PRIVATE_LINK : whole));
+  const bare = angled.replace(BARE_URL, (url) => bareUrl(url, isPrivate));
+  return bare.replace(TOKEN, (token) => escapedUrl(token, isPrivate));
+}
+
 class Rewriter {
   readonly edits: Edit[] = [];
   private readonly defs = new Map<string, Definition>();
@@ -134,18 +176,9 @@ class Rewriter {
     this.edits.push({ start, end, text });
   }
 
-  /** An image as canonical markdown; a signed private URL in its alt text goes too. */
+  /** An image as canonical markdown. */
   private image(i: MarkdownImage): string {
-    return markdownImage({ ...i, alt: this.scrub(i.alt) }, this.map(i.url) ?? i.url);
-  }
-
-  /** `text` with every signed URL `map` maps (plain, entity- or backslash-escaped) replaced by "(private link)". */
-  private scrub(text: string): string {
-    return text.replace(URL_RUN, (run) => {
-      if (!run.includes("/") && !run.includes("&")) return run;
-      const url = decodeEntities(run).replace(/\\([!-/:-@[-`{-~])/g, "$1");
-      return url.includes("://") && signed(url) && this.map(url) !== undefined ? "(private link)" : run;
-    });
+    return markdownImage(i, this.map(i.url) ?? i.url);
   }
 
   /** Whether a link to `url` must go: `map` maps it and it holds an image or a signature. */
@@ -251,13 +284,6 @@ class Rewriter {
     if (text !== node.value) this.edit(startOf(node), endOf(node), text);
   }
 
-  /** Visible text (an unwrapped link's label, say) without signed private URLs. */
-  private text(node: Text): void {
-    const source = this.md.slice(startOf(node), endOf(node));
-    const out = this.scrub(source);
-    if (out !== source) this.edit(startOf(node), endOf(node), out);
-  }
-
   /** The image-side nodes; false for any other. */
   private imageSide(node: Nodes): boolean {
     if (node.type === "image") this.imageNode(node);
@@ -272,7 +298,6 @@ class Rewriter {
     if (node.type === "link") this.link(node, node.url);
     else if (node.type === "linkReference") this.link(node, this.defs.get(node.identifier)?.url ?? "");
     else if (node.type === "html") this.htmlNode(node);
-    else if (node.type === "text") this.text(node);
     else if ("children" in node) this.children(node);
   }
 }
@@ -322,14 +347,15 @@ function mayChange(md: string): boolean {
  * `md` with every image as canonical markdown `![alt](src "title")` pointing at `map(src)` (its own
  * `src` when `map` keeps it), image references `map` maps made inline (their definitions dropped),
  * private links around images and signed private links unwrapped, and raw HTML `<img>`/`<a>` handled
- * the same way. Text no rule touches stays exactly as written; text no rule can touch is not parsed.
+ * the same way. Then, over the whole result, `redactUrls` with `isPrivate` (by default: a signed URL
+ * `map` maps). Text no rule touches stays exactly as written; text no rule can touch is not parsed.
  */
-export function rewriteImages(md: string, map: MapUrl): string {
-  if (!mayChange(md)) return md;
+export function rewriteImages(md: string, map: MapUrl, isPrivate: (url: string) => boolean = (url) => signed(url) && map(url) !== undefined): string {
+  if (!mayChange(md)) return redactUrls(md, isPrivate);
   const root = parse(md);
   const rewriter = new Rewriter(md, map, root);
   rewriter.node(root);
-  return apply(md, rewriter.edits);
+  return redactUrls(apply(md, rewriter.edits), isPrivate);
 }
 
 /** An HTML node's `<img>` sources, and the markdown images an HTML block holds as raw text (markdown once the tags around it go). */
