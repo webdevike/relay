@@ -675,4 +675,41 @@ describe("Timeline plan through the real gate: Relay starts and per-row retries"
     expect(planFile(h)).toBe(saved);
     expect(await starts(h)).toMatchObject({ "ENG-2": "2026-11-25" });
   });
+
+  /** A start-only Dec 5 row the gate records done while plan.json can't be written; the host then stops. */
+  async function doneButUnsaved(ctl: PlanLinear) {
+    const h = await host(ctl);
+    const rows = [row("ENG-2", 1, { plannedStart: "2026-12-05", basePlannedStart: null })];
+    mkdirSync(join(h.dir, "plan.json"));
+    const first = await apply(h, rows, BATCH(1));
+    expect(first.outcome?.result?.rows?.[0]).toMatchObject({ state: "failed", error: expect.stringMatching(/^Not saved: Relay couldn't save its start/) });
+    rmSync(join(h.dir, "plan.json"), { recursive: true });
+    h.service.stop();
+    return { again: await host(ctl, { dir: h.dir }), rows };
+  }
+  const planReads = (ctl: PlanLinear): number => ctl.linear.gateCalls.filter((c) => c.op === "TicketPlanIssues").length;
+  const check = (h: TicketsHarness, rows: Row[]) => h.service.handle("desk", { kind: "commit", viewerId: ME, opId: BATCH(1), mutation: plan(rows) });
+
+  it("a gate-done row whose start was never saved is checked against a fresh Linear read before Check saves it: stale, nothing saved", async () => {
+    const ctl = planLinear();
+    const { again, rows } = await doneButUnsaved(ctl);
+    // Linear moves ENG-2's due to Dec 3 with a newer revision; the gate still holds the row done.
+    moveEng2(ctl);
+    const reads = planReads(ctl);
+    const res = await check(again, rows);
+    expect(planReads(ctl)).toBeGreaterThan(reads);
+    expect(res.outcome?.result?.rows).toEqual([{ key: "ENG-2", opId: ROW(1), state: "failed", error: "Not saved: Changed in Linear since the plan was made" }]);
+    expect(await starts(again)).toEqual({ "ENG-1": null, "ENG-2": null });
+    expect(existsSync(join(again.dir, "plan.json"))).toBe(false);
+  });
+
+  it("with Linear unchanged, Check saves that start once, and a second Check saves nothing more", async () => {
+    const ctl = planLinear();
+    const { again, rows } = await doneButUnsaved(ctl);
+    expect((await check(again, rows)).outcome?.result?.rows).toEqual([{ key: "ENG-2", opId: ROW(1), state: "done" }]);
+    expect(await starts(again)).toMatchObject({ "ENG-2": "2026-12-05" });
+    const saved = planFile(again);
+    expect((await check(again, rows)).outcome?.state).toBe("done");
+    expect(planFile(again)).toBe(saved);
+  });
 });

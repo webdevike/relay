@@ -27,7 +27,7 @@ import { MutationGate, type GatePin } from "./gate";
 import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
-import { linearExecutor } from "./linear-writes";
+import { linearExecutor, startsSaveCheck } from "./linear-writes";
 import { planFreshness, PlanStore, START_MOVED, type LiveIssue, type StartRow } from "./plan";
 import { Replanner, timelineSeed } from "./replan";
 import { boundComments, boundTeams, clipBytes, fitLists, HandledStore, jsonBytes, newestFitting, SeenStore, TicketsStore, WORST_CLIPPED, type IssueEntry } from "./store";
@@ -353,7 +353,7 @@ export class TicketsService implements TicketsRelaying {
     if (moved !== undefined) return { ok: false, refused: { code: "conflict", message: `${moved.key}: ${START_MOVED}` } };
     for (const s of starts) this.startHolds.set(s.hold, op.opId);
     try {
-      return this.saveStarts(op.viewerId, rows, this.savedStarts(op.viewerId, rows, await this.gateCommit(deviceId, op)));
+      return await this.saveStarts(op.viewerId, rows, this.savedStarts(op.viewerId, rows, await this.gateCommit(deviceId, op)));
     } finally {
       for (const s of starts) if (this.startHolds.get(s.hold) === op.opId) this.startHolds.delete(s.hold);
     }
@@ -393,21 +393,23 @@ export class TicketsService implements TicketsRelaying {
 
   /**
    * applyPlan's Relay starts, under the same approved op: saved for each row the gate reports done
-   * (a start-only row is done without a Linear write) while its start is still the one the draft was
-   * made from; failed and unknown rows leave starts untouched. A start that can't be saved turns its
-   * row failed with why, so the device never shows it applied.
+   * (a start-only row is done without a Linear write) that isn't already in plan.json's saved-start
+   * record, only after a fresh Linear read still holds it up (a gate-done replay included) and while
+   * its start is still the one the draft was made from; failed and unknown rows leave starts
+   * untouched. A start that can't be saved turns its row failed with why, so the device never shows
+   * it applied.
    */
-  private saveStarts(viewerId: string, rows: readonly TicketPlanRow[], answer: Answer): Answer {
+  private async saveStarts(viewerId: string, rows: readonly TicketPlanRow[], answer: Answer): Promise<Answer> {
     const outcome = answer.outcome;
     const results = outcome?.result?.rows;
     if (outcome === undefined || results === undefined) return answer;
     const byOp = new Map(rows.map((r) => [r.opId, r]));
-    const starts = results.flatMap((o): StartRow[] => {
+    const starts = results.flatMap((o): (TicketPlanRow & StartRow)[] => {
       const row = byOp.get(o.opId);
       const start = row?.plannedStart;
       return row !== undefined && start !== undefined && o.state === "done" && !this.plan.applied(viewerId, o.opId) ? [{ ...row, plannedStart: start }] : [];
     });
-    const problems = this.storeStarts(viewerId, starts);
+    const problems = await this.storeStarts(viewerId, starts);
     if (problems.size === 0) return answer;
     const next = results.map((o) => {
       const problem = problems.get(o.opId);
@@ -419,11 +421,18 @@ export class TicketsService implements TicketsRelaying {
     return { ok: false, error: "Not every change was saved", outcome: { ...outcome, state, result: { ...outcome.result, rows: next } } };
   }
 
-  /** Saves the starts that are still the draft's base in one write; why each other one wasn't. */
-  private storeStarts(viewerId: string, rows: readonly StartRow[]): Map<string, string> {
+  /**
+   * The one place a Relay start is saved: each start is checked against a fresh Linear read (its
+   * issue still at the draft's revision, or still showing what the row wrote, with a valid
+   * start/due pair), then against plan.json (still the draft's base), then all are saved in one
+   * write; why each other one wasn't.
+   */
+  private async storeStarts(viewerId: string, rows: readonly (TicketPlanRow & StartRow)[]): Promise<Map<string, string>> {
     const problems = new Map<string, string>();
+    if (rows.length === 0) return problems;
+    const linear = await this.startsInLinear(rows);
     const ok = rows.filter((r) => {
-      const problem = this.plan.startProblem(viewerId, r);
+      const problem = linear.get(r.opId) ?? this.plan.startProblem(viewerId, r);
       if (problem !== null) problems.set(r.opId, problem);
       return problem === null;
     });
@@ -435,6 +444,17 @@ export class TicketsService implements TicketsRelaying {
       for (const r of ok) problems.set(r.opId, `Relay couldn't save its start (${text(error)})`);
     }
     return problems;
+  }
+
+  /** Linear's verdict on each start before it is saved (one read with the host's own key); a failed read refuses them all. */
+  private async startsInLinear(rows: readonly TicketPlanRow[]): Promise<ReadonlyMap<string, string | null>> {
+    const key = this.deps.linearKey();
+    try {
+      if (key === null) throw new HostError("No Linear key on the host");
+      return await startsSaveCheck(this.deps.keyedGql(key), rows);
+    } catch (error) {
+      return new Map(rows.map((r) => [r.opId, `Relay couldn't check Linear before saving its start (${publicError(error, "Linear")})`]));
+    }
   }
 
   /** Linear now for a re-plan's freshness check: one read with the host's own key (interactive lane). */

@@ -604,6 +604,27 @@ function planOps(gql: LinearGql): KindOps<Of<"applyPlan">> {
   };
 }
 
+/** Why a done row's Relay start can't be saved against Linear as it is now; null: it can. */
+function startNowProblem(row: TicketPlanRow, live: PlanIssue | undefined): string | null {
+  if (live === undefined) return GONE;
+  if (live.identifier !== row.key) return `It is ${live.identifier} in Linear now. Make the plan again.`;
+  // A start-only row wrote nothing: its issue must still be at the draft's revision. A mixed row
+  // moved the revision itself: Linear must still show what it wrote.
+  if (startOnly(row) ? Date.parse(live.updatedAt) !== row.baseUpdatedAt : Object.keys(rowChanges(row, live)).length > 0) return CHANGED_SINCE_PLAN;
+  const problem = datesProblem(row, live);
+  return problem === null || problem.ok ? null : problem.message;
+}
+
+/**
+ * The last check before Relay starts are saved (one fresh read, outside any gate state): for each
+ * row, why its start can't be saved now, or null. Every unsaved start goes through it, a gate-done
+ * replay included, so a start is never saved against a due date or revision Linear no longer has.
+ */
+export async function startsSaveCheck(gql: LinearGql, rows: readonly TicketPlanRow[]): Promise<ReadonlyMap<string, string | null>> {
+  const live = await planIssues(gql, rows);
+  return new Map(rows.map((r) => [r.opId, startNowProblem(r, live.get(r.issueId))]));
+}
+
 /**
  * The Linear family's executor; `viewerId` is the Linear account the host acts as. `guard` runs
  * immediately before every mutation request (each plan row, after every awaited read) and throws
