@@ -384,7 +384,7 @@ describe("linearExecutor writes through the gate", () => {
     const { gate, linear } = setup();
     const reply: TicketMutation = { kind: "comment", issueId: "issue-1", parentId: "c-root", body: "Done, see PR" };
     linear.fault = (op) => (op === "TicketCommentCreate" ? "lost" : undefined);
-    expect((await confirmAndCommit(gate, reply, OP1)).outcome).toEqual({ opId: OP1, state: "unknown", result: { error: "socket hang up" } });
+    expect((await confirmAndCommit(gate, reply, OP1)).outcome).toEqual({ opId: OP1, state: "unknown", result: { error: "Couldn't reach Linear. Try again in a moment." } });
     linear.fault = () => undefined;
     expect((await gate.commit(DEVICE, { opId: OP1, mutation: reply }, ACTOR)).outcome).toEqual({ opId: OP1, state: "done" });
     expect(linear.mutations()).toEqual([{ op: "TicketCommentCreate", vars: { input: { id: OP1, issueId: "issue-1", parentId: "c-root", quotedText: undefined, body: "Done, see PR" } } }]);

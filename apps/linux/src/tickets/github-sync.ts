@@ -8,6 +8,7 @@
 import type { TicketPrFacts, TicketPrRef } from "@relay/protocol";
 import type { GhGraphql } from "../reviews/github";
 import type { PrAttentionInput, PrThreadComment } from "./attention";
+import { HostError } from "./errors";
 import type { TicketsStore } from "./store";
 
 export const PROBES_PER_CALL = 20;
@@ -164,7 +165,7 @@ export function toAttentionInput(ref: TicketPrRef, raw: RawFacts, login: string)
 }
 
 const abortIf = (signal: AbortSignal | undefined): void => {
-  if (signal?.aborted === true) throw new Error("Sync stopped");
+  if (signal?.aborted === true) throw new HostError("Sync stopped");
 };
 
 export class GithubSync {

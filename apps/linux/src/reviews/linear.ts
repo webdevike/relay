@@ -13,7 +13,7 @@ import { z } from "zod";
 import { sameToken } from "../drops/serve";
 import type { DropBlob } from "../seams";
 import type { Budget } from "../tickets/budget";
-import { ProviderRejected } from "../tickets/gate";
+import { HostError, ProviderRejected } from "../tickets/errors";
 import { isLinearUpload, localizeImages, MEDIA_LIMITS, type MediaLimits } from "./media";
 
 const ms = (iso: string | null | undefined): number => {
@@ -352,8 +352,8 @@ type GqlError = NonNullable<z.infer<typeof GqlAnswer>["errors"]>[number];
 function throwGqlError(status: number, first: GqlError, budget: Budget | null): never {
   const code = first.extensions?.code;
   if (code === "RATELIMITED" && budget !== null) budget.limited();
-  if (status === 401 || code === "AUTHENTICATION_ERROR") throw new LinearUnauthorized(first.message);
-  throw new ProviderRejected(first.message);
+  if (status === 401 || code === "AUTHENTICATION_ERROR") throw new LinearUnauthorized(first.message, "Linear did not take the host's key");
+  throw new ProviderRejected(first.message, "Linear refused the request");
 }
 
 /**
@@ -362,13 +362,13 @@ function throwGqlError(status: number, first: GqlError, budget: Budget | null): 
  * GraphQL `errors` body, a plain Error (a write may or may not have happened).
  */
 function dataOf(status: number, body: unknown, budget: Budget | null): unknown {
-  if (status >= 500) throw new Error(`Linear answered ${String(status)}`);
+  if (status >= 500) throw new HostError(`Linear answered ${String(status)}`);
   const parsed = GqlAnswer.safeParse(body);
   const first = parsed.success ? parsed.data.errors?.[0] : undefined;
   if (first !== undefined) throwGqlError(status, first, budget);
   if (status === 401) throw new LinearUnauthorized("Linear did not take the key");
   if (status >= 400 && status < 500) throw new ProviderRejected(`Linear answered ${String(status)}`);
-  if (status >= 300 || !parsed.success) throw new Error(`Linear answered ${String(status)}`);
+  if (status >= 300 || !parsed.success) throw new HostError(`Linear answered ${String(status)}`);
   return parsed.data.data;
 }
 

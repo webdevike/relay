@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { TicketMutation } from "@relay/protocol";
-import { canonicalJson, MutationGate, mutationHash, ProviderRejected, type CheckResult, type GatePin, type MutationExecutor } from "../src/tickets/gate";
+import { ProviderRejected } from "../src/tickets/errors";
+import { canonicalJson, MutationGate, mutationHash, type CheckResult, type GatePin, type MutationExecutor } from "../src/tickets/gate";
 import { MAX_OPS, OPS_TTL_MS, OpsStore } from "../src/tickets/ops-store";
 
 const T0 = Date.parse("2026-11-27T12:00:00Z");
@@ -249,6 +250,15 @@ describe("MutationGate idempotency", () => {
     expect((await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME)).outcome?.state).toBe("done");
     expect(fake.calls.run).toEqual([OP1]);
     expect(fake.calls.reconcile).toBe(2);
+  });
+
+  it("answers a failure in the host's words, never the provider's error text", async () => {
+    const { gate, fake } = setup();
+    fake.exec.run = () => Promise.reject(new Error("upstream db7 timeout for lin_api_secret"));
+    const res = await gate.commit(DEVICE, { opId: OP1, mutation: MOVE }, ME);
+    expect(res.outcome).toEqual({ opId: OP1, state: "unknown", result: { error: "Couldn't reach Linear. Try again in a moment." } });
+    fake.exec.check = () => Promise.reject(new ProviderRejected("Forbidden: issue 1234 in workspace acme-secret", "Linear refused the request"));
+    expect(await gate.prepare(DEVICE, COMMENT, ME)).toEqual({ ok: false, error: "Linear refused the request" });
   });
 });
 

@@ -16,7 +16,8 @@ import type { TicketsRelaying } from "../seams";
 import { ticketsSyncActor, type TicketsSyncActor, type TicketsSyncOptions } from "./actor";
 import { applyHandled, attentionOf, type AttentionMe } from "./attention";
 import { providerBudgets, RateLimited, type Budgets } from "./budget";
-import { MutationGate, ProviderRejected, type GatePin } from "./gate";
+import { HostError, ProviderRejected, publicError } from "./errors";
+import { MutationGate, type GatePin } from "./gate";
 import { GithubSync, prInputs } from "./github-sync";
 import { identityChanged, NO_IDENTITY, resolveIdentity, type HostIdentity } from "./identity";
 import { LinearSync, type LinearViewer } from "./linear-sync";
@@ -138,7 +139,7 @@ export class TicketsService implements TicketsRelaying {
     try {
       return await this.run(deviceId, op);
     } catch (error) {
-      return { ok: false, error: text(error).slice(0, 2000) };
+      return { ok: false, error: publicError(error).slice(0, 2000) };
     }
   }
 
@@ -362,7 +363,7 @@ export class TicketsService implements TicketsRelaying {
 
   private viewer(): LinearViewer {
     const linear = this.store.sync.identity?.linear;
-    if (!linear) throw new Error("No Linear account resolved");
+    if (!linear) throw new HostError("No Linear account resolved");
     return { id: linear.viewerId, url: this.linearNames.find((n) => n.startsWith("https://")) ?? null };
   }
 
@@ -382,8 +383,8 @@ export class TicketsService implements TicketsRelaying {
       await this.github.pass(login, signal);
       this.errors = { ...this.errors, github: null };
     } catch (error) {
-      this.errors = { ...this.errors, github: text(error) };
-      this.deps.log(`tickets: github sync failed: ${text(error)}`);
+      this.errors = { ...this.errors, github: publicError(error, "GitHub") };
+      this.deps.log(`tickets: github sync failed: ${publicError(error, "GitHub")}`);
       if (error instanceof RateLimited) throw error;
     } finally {
       this.publish();

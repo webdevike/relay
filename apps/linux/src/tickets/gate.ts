@@ -12,6 +12,7 @@
 import { createHash } from "node:crypto";
 import { TicketConfirm, ticketMutationConfirmed, type TicketMutation, type TicketOutcome, type TicketsRefusalCode, type TicketsResult, type TicketStateType } from "@relay/protocol";
 import { Approvals } from "./approvals";
+import { ProviderRejected, publicError } from "./errors";
 import { OpResult, OpsStore, type OpRecord } from "./ops-store";
 
 export interface GateContext {
@@ -35,11 +36,6 @@ export interface MutationExecutor<M> {
   run(m: M, opId: string): Promise<unknown>;
   /** After a lost response or a restart: whether the write took effect. */
   reconcile(m: M, opId: string, startedAt: number): Promise<"done" | "notDone" | "unknown">;
-}
-
-/** The provider answered and refused the write: nothing was written (any other throw is a lost response). */
-export class ProviderRejected extends Error {
-  override readonly name = "ProviderRejected";
 }
 
 /** The account and credential one op runs as, from the host's last identity resolution. */
@@ -86,7 +82,7 @@ const STABLE_ID_CREATES: ReadonlySet<TicketMutation["kind"]> = new Set(["comment
 const MAX_LINE = 2000;
 const line = (text: string): string => (text.length > MAX_LINE ? `${text.slice(0, MAX_LINE - 3)}...` : text);
 const refuse = (code: TicketsRefusalCode, message: string): GateAnswer => ({ ok: false, refused: { code, message: line(message) } });
-const errorText = (e: unknown): string => line(e instanceof Error ? e.message : String(e));
+const errorText = (e: unknown): string => line(publicError(e, "Linear"));
 const STALE_PIN = "The host's Linear key or account changed while checking. Reload and try again.";
 const sameAuthority = (a: Authority, b: Authority): boolean => a.viewerId === b.viewerId && a.deviceId === b.deviceId;
 
@@ -192,7 +188,7 @@ export class MutationGate {
       const checked = await pin.linear.check(m);
       return checked.ok ? checked : { ok: false, answer: refuse(checked.code, checked.message) };
     } catch (e) {
-      return { ok: false, answer: { ok: false, error: `Couldn't check Linear: ${errorText(e)}` } };
+      return { ok: false, answer: { ok: false, error: errorText(e) } };
     }
   }
 

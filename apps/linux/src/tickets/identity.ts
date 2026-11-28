@@ -5,6 +5,7 @@
 import type { TicketsStatus } from "@relay/protocol";
 import { z } from "zod";
 import { LinearUnauthorized, type LinearGql } from "../reviews/linear";
+import { publicError } from "./errors";
 
 export type HostIdentity = TicketsStatus["identity"];
 
@@ -31,8 +32,6 @@ export interface ResolvedIdentity {
 
 const VIEWER_QUERY = `{ viewer { id name displayName email url organization { name } } }`;
 
-const text = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
 /** The Linear viewer, null when Linear does not take the key; other failures throw (try again later). */
 async function linearViewer(gql: LinearGql): Promise<{ id: HostIdentity["linear"]; names: string[]; error: string | null }> {
   try {
@@ -40,7 +39,7 @@ async function linearViewer(gql: LinearGql): Promise<{ id: HostIdentity["linear"
     const names = [v.name, v.displayName, v.url].filter((n): n is string => n !== undefined && n !== "");
     return { id: { viewerId: v.id, name: v.name, email: v.email, org: v.organization.name }, names, error: null };
   } catch (error) {
-    if (error instanceof LinearUnauthorized) return { id: null, names: [], error: text(error) };
+    if (error instanceof LinearUnauthorized) return { id: null, names: [], error: publicError(error, "Linear") };
     throw error;
   }
 }
@@ -59,7 +58,7 @@ export async function resolveIdentity(gql: LinearGql, ghLogin: () => Promise<str
     if (login === null) ghError = "gh is not signed in on the host";
   } catch (error) {
     github = prev?.github ?? null;
-    ghError = text(error);
+    ghError = publicError(error, "GitHub");
   }
   return { identity: { linear: linear.id, github }, linearNames: linear.names, errors: { linear: linear.error, github: ghError } };
 }

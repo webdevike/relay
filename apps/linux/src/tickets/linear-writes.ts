@@ -12,7 +12,8 @@
 import { createHash } from "node:crypto";
 import { TicketStateType, type TicketMutation, type TicketPlanRow } from "@relay/protocol";
 import { z } from "zod";
-import { ProviderRejected, type CheckResult, type MutationExecutor } from "./gate";
+import { HostError, ProviderRejected, publicError } from "./errors";
+import type { CheckResult, MutationExecutor } from "./gate";
 import type { OpResult } from "./ops-store";
 
 export type LinearGql = (query: string, variables: Record<string, unknown>) => Promise<unknown>;
@@ -105,7 +106,7 @@ const GONE = "It's gone from Linear or you can't see it";
 
 async function ask<T extends z.ZodTypeAny>(gql: LinearGql, query: string, variables: Record<string, unknown>, schema: T): Promise<z.infer<T>> {
   const parsed = schema.safeParse(await gql(query, variables));
-  if (!parsed.success) throw new Error("Linear answered in an unexpected shape");
+  if (!parsed.success) throw new HostError("Linear answered in an unexpected shape");
   return parsed.data as z.infer<T>;
 }
 
@@ -151,8 +152,7 @@ async function applyRow(gql: LinearGql, row: TicketPlanRow, live: PlanIssue | un
     await mutate(gql, ISSUE_UPDATE, { id: row.issueId, input });
     return { ...base, state: "done" };
   } catch (e) {
-    const error = e instanceof Error ? e.message : String(e);
-    return { ...base, state: e instanceof ProviderRejected ? "failed" : "unknown", error };
+    return { ...base, state: e instanceof ProviderRejected ? "failed" : "unknown", error: publicError(e, "Linear") };
   }
 }
 

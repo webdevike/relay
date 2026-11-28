@@ -1,4 +1,4 @@
-import { existsSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { ticketsFeatures, type HostConfig } from "../src/host-config";
@@ -69,6 +69,22 @@ describe("TicketsService bounds and reads", () => {
     await h.service.handle("desk", { kind: "ticket", key: "ENG-1" });
     expect(existsSync(join(h.dir, "tickets.json"))).toBe(false);
     expect((await h.service.handle("desk", { kind: "board" })).rev).toBe(rev);
+  });
+
+  it("keeps signed attachment links' credentials out of ticket pages and the cache", async () => {
+    const linear = new FakeLinear();
+    linear.add("ENG-1", T0 - MIN);
+    const signed = "https://storage.example.com/u/shot.png?X-Amz-Signature=deadbeef&X-Amz-Credential=AKIA1";
+    const plain = "https://example.com/docs?page=2";
+    linear.members.set("ENG-1", { ...linear.members.get("ENG-1"), description: `![shot](${signed}) see ${plain}` });
+    const h = ticketsHarness({ linear });
+    h.service.start();
+    await h.settled();
+    const page = (await h.service.handle("desk", { kind: "ticket", key: "ENG-1" })).ticket;
+    expect(page?.description).toBe(`![shot](https://storage.example.com/u/shot.png) see ${plain}`);
+    const stored = readFileSync(join(h.dir, "tickets.json"), "utf8");
+    expect(stored).not.toContain("deadbeef");
+    expect(stored).toContain(plain);
   });
 });
 

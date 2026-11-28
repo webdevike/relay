@@ -13,6 +13,7 @@ import { TERMINAL_TICKET_STATE_TYPES, type Ticket, type TicketComment, type Tick
 import { z } from "zod";
 import type { LinearGql } from "../reviews/linear";
 import { MENTION_NOTICES, type LinearNotice } from "./attention";
+import { HostError } from "./errors";
 import type { IssueEntry, TicketsStore } from "./store";
 
 export const LINEAR_PAGE = 25;
@@ -195,14 +196,29 @@ function reactionsOf(data: unknown): TicketComment["reactions"] {
   }));
 }
 
+/** A query parameter that carries a credential (a signed storage or CDN link). */
+const SIGNED_PARAM = /[?&](x-amz-(signature|credential|security-token)|x-goog-(signature|credential)|signature|sig|token|access_token|expires)=/i;
+const URL_IN_TEXT = /https?:\/\/[^\s<>"'()[\]]+/g;
+
+/**
+ * Text with every signed link cut before its query: the credential never leaves the host and the
+ * link stays (Linear's own uploads need the host's key, which never leaves it either).
+ */
+export function withoutSignedUrls(text: string): string {
+  return text.replace(URL_IN_TEXT, (url) => {
+    const q = url.indexOf("?");
+    return q !== -1 && SIGNED_PARAM.test(url.slice(q)) ? url.slice(0, q) : url;
+  });
+}
+
 export function toComment(c: CommentNode): TicketComment {
   return {
     id: c.id,
     parentId: c.parent?.id ?? null,
     documentContentId: c.documentContentId ?? null,
-    quotedText: c.quotedText ?? null,
+    quotedText: c.quotedText === null || c.quotedText === undefined ? null : withoutSignedUrls(c.quotedText).slice(0, 20_000),
     author: actor(c.user),
-    body: c.body.slice(0, 20_000),
+    body: withoutSignedUrls(c.body).slice(0, 20_000),
     at: ms(c.createdAt) ?? 0,
     editedAt: ms(c.editedAt),
     resolvedAt: ms(c.resolvedAt),
@@ -222,7 +238,7 @@ export function toEntry(i: IssueNode, viewerId: string | null): IssueEntry {
     id: i.id,
     documentContentId: i.documentContent?.id ?? null,
     title: i.title,
-    description: (i.description ?? "").slice(0, 100_000),
+    description: withoutSignedUrls(i.description ?? "").slice(0, 100_000),
     url: i.url,
     state: { ...i.state, type },
     team: i.team,
@@ -280,7 +296,7 @@ function keysFilter(keys: readonly string[]): Record<string, unknown> {
 }
 
 const abortIf = (signal: AbortSignal | undefined): void => {
-  if (signal?.aborted === true) throw new Error("Sync stopped");
+  if (signal?.aborted === true) throw new HostError("Sync stopped");
 };
 
 export interface LinearSyncDeps {
