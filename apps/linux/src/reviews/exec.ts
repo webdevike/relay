@@ -13,8 +13,8 @@ export interface ToolResult {
   readonly timedOut: boolean;
 }
 
-/** Runs `argv` in `cwd` with extra env; SIGKILL at the deadline. Never rejects for a non-zero exit. */
-export type ToolRun = (argv: readonly string[], options: { readonly cwd: string; readonly timeoutMs: number; readonly env?: Readonly<Record<string, string>> }) => Promise<ToolResult>;
+/** Runs `argv` in `cwd` with extra env and `stdin` as its input (else none); SIGKILL at the deadline. Never rejects for a non-zero exit. */
+export type ToolRun = (argv: readonly string[], options: { readonly cwd: string; readonly timeoutMs: number; readonly env?: Readonly<Record<string, string>>; readonly stdin?: string }) => Promise<ToolResult>;
 
 export function defaultReviewsDir(): string {
   return join(process.env["XDG_CONFIG_HOME"] ?? join(homedir(), ".config"), "relay", "reviews");
@@ -36,13 +36,13 @@ export function resolveClaude(): string {
 }
 
 export const bunRun: ToolRun = async (argv, options) => {
-  let proc: Bun.Subprocess<"ignore", "pipe", "pipe">;
+  let proc: Bun.Subprocess<"ignore" | Blob, "pipe", "pipe">;
   try {
     proc = Bun.spawn([...argv], {
       cwd: options.cwd,
       // launchd starts the host with a bare PATH: add Homebrew's and user installs.
       env: { ...process.env, PATH: [join(homedir(), ".local", "bin"), "/opt/homebrew/bin", "/usr/local/bin", process.env["PATH"] ?? "/usr/bin:/bin"].join(":"), ...options.env },
-      stdin: "ignore",
+      stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
       stdout: "pipe",
       stderr: "pipe",
     });

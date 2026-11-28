@@ -49,6 +49,10 @@ export const ReviewPrSchema = z.object({
   body: z.string(),
   base: z.string(),
   head: z.string(),
+  /** The head commit the PR was read at (the Guide is asked for this head); absent from older hosts. */
+  headSha: z.string().optional(),
+  /** The base commit the diff was read against (`base...head`); absent from older hosts. */
+  baseSha: z.string().optional(),
   additions: z.number(),
   deletions: z.number(),
   reviewers: z.array(z.object({ login: z.string(), state: z.string() })),
@@ -85,14 +89,34 @@ export const ReviewPrSchema = z.object({
       change: z.string(),
     }),
   ),
-  /** `gh pr diff` output (unified, every file). */
+  /** The unified diff (every file) at exactly `baseSha...headSha`. */
   diff: z.string(),
 })
 export type ReviewPr = z.infer<typeof ReviewPrSchema>
 
 const PrRef = z.object({ repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/), number: z.number().int() })
 
-/** The Guide: the PR's changed files grouped into sections a reviewer reads top to bottom. */
+const GuideSide = z.enum(['old', 'new'])
+
+/** One hunk a v2 section shows (`id` is `path#oldStart,newStart`), with notes on its lines. */
+export const ReviewGuideHunkSchema = z.object({
+  id: z.string(),
+  path: z.string(),
+  side: GuideSide,
+  /** Lines of `side` inside the hunk the reviewer should read. */
+  start: z.number().int(),
+  end: z.number().int(),
+  callouts: z.array(z.object({ line: z.number().int(), side: GuideSide, note: z.string() })),
+})
+export type ReviewGuideHunk = z.infer<typeof ReviewGuideHunkSchema>
+
+/**
+ * The Guide: the PR as sections a reviewer reads top to bottom. Mirrors `@relay/protocol`'s
+ * `ReviewGuide` (contract has no protocol dependency; a parity test keeps them equal). v1 has
+ * `title/why/files` per section; a v2 Guide (`version: 2`) adds an overview, risk, per-section
+ * explanation, checks, risks and selected hunks, the files it does not show, follow-ups and a
+ * checklist, and still fills `why/files`. Every v2 field is optional so a v1 record parses.
+ */
 export const ReviewGuideSchema = z.object({
   /** The head commit the Guide was written for (it is cached per head). */
   headSha: z.string(),
@@ -103,12 +127,25 @@ export const ReviewGuideSchema = z.object({
   sections: z.array(
     z.object({
       title: z.string(),
-      /** One to three plain sentences: what this part changes and why. */
+      /** One to three plain sentences: what this part changes and why (v2: the explanation). */
       why: z.string(),
-      /** PR file paths, in reading order. */
+      /** PR file paths, in reading order (v2: the paths it shows first; each file in one section). */
       files: z.array(z.string()),
+      explanation: z.string().optional(),
+      check: z.array(z.string()).optional(),
+      risks: z.array(z.string()).optional(),
+      hunks: z.array(ReviewGuideHunkSchema).optional(),
     }),
   ),
+  version: z.literal(2).optional(),
+  overview: z.string().optional(),
+  risk: z.enum(['low', 'medium', 'high']).optional(),
+  riskWhy: z.string().optional(),
+  notCovered: z.array(z.object({ path: z.string(), why: z.string() })).optional(),
+  followUps: z.array(z.string()).optional(),
+  checklist: z.array(z.string()).optional(),
+  /** The model read only part of the PR (the prompt was cut for size). */
+  partial: z.boolean().optional(),
 })
 export type ReviewGuide = z.infer<typeof ReviewGuideSchema>
 
@@ -356,7 +393,11 @@ export const reviewsInvoke = {
   },
   /** The Guide for the PR's current head: written by a model, or grouped by folder when that fails. */
   'reviews.guide': {
-    input: PrRef.strict(),
+    /** `headSha`/`baseSha`: the commits the renderer shows; a Guide read at others is refused. */
+    input: PrRef.extend({
+      headSha: z.string().optional(),
+      baseSha: z.string().optional(),
+    }).strict(),
     output: ReviewGuideSchema,
   },
   /** Posts a comment on GitHub. The renderer only calls this after Isaac confirms the exact text. */

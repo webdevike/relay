@@ -126,6 +126,8 @@ export const ReviewPr = z.object({
   base: z.string(),
   head: z.string(),
   headSha: z.string(),
+  /** The base commit the diff was read against (`base...head`); absent from older hosts. */
+  baseSha: z.string().optional(),
   additions: z.number(),
   deletions: z.number(),
   reviewers: z.array(z.object({ login: z.string(), state: z.string() })),
@@ -157,21 +159,60 @@ export const ReviewPr = z.object({
       change: z.string(),
     }),
   ),
-  /** `gh pr diff` (unified, every file), cut at `MAX_REVIEW_DIFF`. */
+  /** The unified diff (every file) at exactly `baseSha...headSha`, cut at `MAX_REVIEW_DIFF` (the Guide reads the same cut). */
   diff: z.string(),
   diffTruncated: z.boolean(),
 });
 export type ReviewPr = z.infer<typeof ReviewPr>;
 
-/** The Guide: the PR's changed files grouped into sections a reviewer reads top to bottom. */
+const GuideSide = z.enum(["old", "new"]);
+
+/** One hunk a v2 section shows (`id` is `path#oldStart,newStart`), with notes on its lines. */
+export const ReviewGuideHunk = z.object({
+  id: z.string(),
+  path: z.string(),
+  side: GuideSide,
+  /** Lines of `side` inside the hunk the reviewer should read. */
+  start: z.number().int(),
+  end: z.number().int(),
+  callouts: z.array(z.object({ line: z.number().int(), side: GuideSide, note: z.string() })),
+});
+export type ReviewGuideHunk = z.infer<typeof ReviewGuideHunk>;
+
+/**
+ * The Guide: the PR as sections a reviewer reads top to bottom. v1 has `title/why/files` per
+ * section; a v2 Guide (`version: 2`, written by `@relay/protocol/review-guide`) adds an overview,
+ * risk, per-section explanation, checks, risks and selected hunks, the files it does not show,
+ * follow-ups and a checklist, and still fills `why/files` for older clients. Every v2 field is
+ * optional so a v1 record parses.
+ */
 export const ReviewGuide = z.object({
-  /** The head commit the Guide was written for (kept per head). */
+  /** The head commit the Guide was written for (kept per base and head). */
   headSha: z.string(),
   /** `model`: written from the title, body and diff; `folders`: the fallback grouping. */
   source: z.enum(["model", "folders"]),
   /** Why the written walkthrough is missing, when `source` is `folders`. */
   error: z.string().nullable(),
-  sections: z.array(z.object({ title: z.string(), why: z.string(), files: z.array(z.string()) })),
+  sections: z.array(
+    z.object({
+      title: z.string(),
+      why: z.string(),
+      files: z.array(z.string()),
+      explanation: z.string().optional(),
+      check: z.array(z.string()).optional(),
+      risks: z.array(z.string()).optional(),
+      hunks: z.array(ReviewGuideHunk).optional(),
+    }),
+  ),
+  version: z.literal(2).optional(),
+  overview: z.string().optional(),
+  risk: z.enum(["low", "medium", "high"]).optional(),
+  riskWhy: z.string().optional(),
+  notCovered: z.array(z.object({ path: z.string(), why: z.string() })).optional(),
+  followUps: z.array(z.string()).optional(),
+  checklist: z.array(z.string()).optional(),
+  /** The model read only part of the PR (the prompt was cut for size). */
+  partial: z.boolean().optional(),
 });
 export type ReviewGuide = z.infer<typeof ReviewGuide>;
 
@@ -328,8 +369,8 @@ export const ReviewsOp = z.discriminatedUnion("kind", [
   /** The queue; `refresh` reads every source again (Slack in the background, pushed when done). */
   z.object({ kind: z.literal("queue"), refresh: z.boolean() }),
   z.object({ kind: z.literal("pr"), repo: RepoName, number: z.number().int().positive() }),
-  /** Slow the first time per head commit (a model writes it). */
-  z.object({ kind: z.literal("guide"), repo: RepoName, number: z.number().int().positive() }),
+  /** Slow the first time per base and head commit (a model writes it). `headSha`/`baseSha`: the commits the client shows; a Guide read at others is refused. */
+  z.object({ kind: z.literal("guide"), repo: RepoName, number: z.number().int().positive(), headSha: z.string().optional(), baseSha: z.string().optional() }),
   z.object({ kind: z.literal("linear"), key: LinearKey }),
   /** The last read thread at once, or (`refresh`) a fresh read, which takes a minute or more. */
   z.object({

@@ -1,6 +1,7 @@
-import { Fragment } from 'react'
-import { splitRows, type DiffLine, type Hunk } from './diff'
+import { Fragment, type ReactNode } from 'react'
+import { splitRows, type DiffLine, type Hunk } from '@relay/protocol/unified-diff'
 import { highlightHunks, isTooLarge, languageForPath, type HunkHtml } from './diff-highlight'
+import { rowLines } from './guide-hunks'
 import '../chat/markdown/markdown.css'
 
 /** A line's text: highlight.js markup when the file has it (it escapes the source), else plain. */
@@ -51,15 +52,34 @@ function Skipped({ count, cols }: { count: number; cols: number }) {
   )
 }
 
-/** One file's hunks, side by side (old left, new right) or unified with +/- gutters. */
+/** Rows a caller puts under a line (the Guide's callouts); nothing when it has none. */
+export type DiffAnnotate = (lines: readonly DiffLine[]) => ReactNode
+
+function Annotation({ node, cols }: { node: ReactNode; cols: number }) {
+  if (node === null || node === undefined || node === false) return null
+  return (
+    <tr data-testid="review-diff-annotation">
+      <td colSpan={cols} className="eva-rv-annot">
+        {node}
+      </td>
+    </tr>
+  )
+}
+
+/**
+ * One file's hunks, side by side (old left, new right) or unified with +/- gutters. `annotate`
+ * adds a row under a unified line, or under a split row for the lines it shows.
+ */
 export function DiffView({
   hunks,
   mode,
   path,
+  annotate,
 }: {
   hunks: readonly Hunk[]
   mode: 'split' | 'unified'
   path: string
+  annotate?: DiffAnnotate
 }) {
   const html = highlightHunks(path, hunks)
   const large = html === null && languageForPath(path) !== null && isTooLarge(hunks)
@@ -84,10 +104,13 @@ export function DiffView({
               <Fragment key={hi}>
                 <Skipped count={h.skipped} cols={4} />
                 {splitRows(h.lines).map((r, i) => (
-                  <tr key={i}>
-                    <Cell line={r.left} side="left" html={html} />
-                    <Cell line={r.right} side="right" html={html} />
-                  </tr>
+                  <Fragment key={i}>
+                    <tr>
+                      <Cell line={r.left} side="left" html={html} />
+                      <Cell line={r.right} side="right" html={html} />
+                    </tr>
+                    {annotate ? <Annotation node={annotate(rowLines(r))} cols={4} /> : null}
+                  </Fragment>
                 ))}
               </Fragment>
             ))}
@@ -111,20 +134,23 @@ export function DiffView({
             <Fragment key={hi}>
               <Skipped count={h.skipped} cols={4} />
               {h.lines.map((l, i) => (
-                <tr key={i}>
-                  <td className="eva-rv-num" data-kind={l.kind}>
-                    {l.old}
-                  </td>
-                  <td className="eva-rv-num" data-kind={l.kind}>
-                    {l.new}
-                  </td>
-                  <td className="eva-rv-sign" data-kind={l.kind}>
-                    {l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ''}
-                  </td>
-                  <td className="eva-rv-code" data-kind={l.kind}>
-                    <Code line={l} html={html} />
-                  </td>
-                </tr>
+                <Fragment key={i}>
+                  <tr>
+                    <td className="eva-rv-num" data-kind={l.kind}>
+                      {l.old}
+                    </td>
+                    <td className="eva-rv-num" data-kind={l.kind}>
+                      {l.new}
+                    </td>
+                    <td className="eva-rv-sign" data-kind={l.kind}>
+                      {l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ''}
+                    </td>
+                    <td className="eva-rv-code" data-kind={l.kind}>
+                      <Code line={l} html={html} />
+                    </td>
+                  </tr>
+                  {annotate ? <Annotation node={annotate([l])} cols={4} /> : null}
+                </Fragment>
               ))}
             </Fragment>
           ))}

@@ -57,6 +57,7 @@ export interface RawPr {
   baseRefName: string;
   headRefName: string;
   headRefOid: string;
+  baseRefOid: string;
   additions: number;
   deletions: number;
   commits: {
@@ -92,7 +93,7 @@ export interface RawPr {
 }
 
 export const PR_JSON_FIELDS =
-  "number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup";
+  "number,title,url,state,isDraft,author,createdAt,updatedAt,body,baseRefName,headRefName,headRefOid,baseRefOid,additions,deletions,commits,files,reviewRequests,latestReviews,reviews,comments,assignees,labels,milestone,projectItems,statusCheckRollup";
 
 const PASSED = ["SUCCESS", "NEUTRAL"];
 const FAILED = ["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"];
@@ -107,7 +108,7 @@ function checkState(c: RawPr["statusCheckRollup"][number]): ReviewPr["checks"][n
 
 const CHECK_ORDER = ["fail", "pending", "pass", "skipped"];
 
-/** `gh pr view --json PR_JSON_FIELDS` plus `gh pr diff` as the protocol's PR; pushed commits join the timeline. */
+/** `gh pr view --json PR_JSON_FIELDS` plus its diff at `baseRefOid...headRefOid` as the protocol's PR; pushed commits join the timeline. */
 export function toPr(repo: string, raw: RawPr, diff: string): ReviewPr {
   const login = (a: { login: string } | null): string => a?.login ?? "ghost";
   const requested = raw.reviewRequests.map((r) => r.login ?? r.slug ?? r.name ?? "?");
@@ -139,6 +140,7 @@ export function toPr(repo: string, raw: RawPr, diff: string): ReviewPr {
     base: raw.baseRefName,
     head: raw.headRefName,
     headSha: raw.headRefOid,
+    baseSha: raw.baseRefOid,
     additions: raw.additions,
     deletions: raw.deletions,
     reviewers: [...requested.map((l) => ({ login: l, state: "PENDING" })), ...reviewed],
@@ -151,16 +153,24 @@ export function toPr(repo: string, raw: RawPr, diff: string): ReviewPr {
       .map((c) => ({ name: c.name ?? c.context ?? "check", state: checkState(c), url: c.detailsUrl ?? c.targetUrl ?? null }))
       .sort((a, b) => CHECK_ORDER.indexOf(a.state) - CHECK_ORDER.indexOf(b.state)),
     files: raw.files.map((f) => ({ path: f.path, additions: f.additions, deletions: f.deletions, change: f.changeType ?? "MODIFIED" })),
-    diff: diff.length > MAX_REVIEW_DIFF ? diff.slice(0, MAX_REVIEW_DIFF) : diff,
+    diff: snapshotDiff(diff),
     diffTruncated: diff.length > MAX_REVIEW_DIFF,
   };
 }
+
+/** The diff a PR detail and its Guide both read: cut at `MAX_REVIEW_DIFF`, so a Guide cites only what the Diff tab has. */
+export function snapshotDiff(diff: string): string {
+  return diff.length > MAX_REVIEW_DIFF ? diff.slice(0, MAX_REVIEW_DIFF) : diff;
+}
+
+const SHA = /^[0-9a-f]{40}$/;
 
 /** What the Guide is written from. */
 const GuidePr = z.object({
   title: z.string(),
   body: z.string(),
   headRefOid: z.string(),
+  baseRefOid: z.string(),
   files: z.array(z.object({ path: z.string(), additions: z.number(), deletions: z.number() })),
 });
 export type GuidePr = z.infer<typeof GuidePr> & { diff: string };
@@ -212,12 +222,18 @@ export class GitHub {
     return parsed as Record<string, unknown>;
   }
 
+  /**
+   * The PR's unified diff at exactly `base...head` (what its Files tab shows for those commits), so
+   * the metadata read with the two commits and the diff can't come from different pushes.
+   */
+  private diffAt(repo: string, base: string, head: string): Promise<string> {
+    if (!SHA.test(base) || !SHA.test(head)) return Promise.reject(new Error("gh pr view answered no base or head commit"));
+    return this.call(["api", `repos/${repo}/compare/${base}...${head}`, "-H", "Accept: application/vnd.github.diff"]);
+  }
+
   async pr(repo: string, number: number): Promise<ReviewPr> {
-    const [view, diff] = await Promise.all([
-      this.call(["pr", "view", String(number), "-R", repo, "--json", PR_JSON_FIELDS]),
-      this.call(["pr", "diff", String(number), "-R", repo, "--color=never"]),
-    ]);
-    const pr = toPr(repo, JSON.parse(view) as RawPr, diff);
+    const raw = JSON.parse(await this.call(["pr", "view", String(number), "-R", repo, "--json", PR_JSON_FIELDS])) as RawPr;
+    const pr = toPr(repo, raw, await this.diffAt(repo, raw.baseRefOid, raw.headRefOid));
     if (this.images === undefined) return pr;
     // GitHub's attachments open only signed in, and its `<img>` tags become markdown; PR bodies
     // carry Linear proof screenshots too.
@@ -247,12 +263,10 @@ export class GitHub {
     return t === null ? {} : { authorization: `token ${t}` };
   }
 
+  /** The Guide's input from one snapshot: title, body and files with the two commits, then the diff at exactly those. */
   async guideInput(repo: string, number: number): Promise<GuidePr> {
-    const [view, diff] = await Promise.all([
-      this.call(["pr", "view", String(number), "-R", repo, "--json", "title,body,files,headRefOid"]),
-      this.call(["pr", "diff", String(number), "-R", repo, "--color=never"]),
-    ]);
-    return { ...GuidePr.parse(JSON.parse(view)), diff };
+    const view = GuidePr.parse(JSON.parse(await this.call(["pr", "view", String(number), "-R", repo, "--json", "title,body,files,headRefOid,baseRefOid"])));
+    return { ...view, diff: snapshotDiff(await this.diffAt(repo, view.baseRefOid, view.headRefOid)) };
   }
 
   /** Posts exactly `body`; answers where it landed. */

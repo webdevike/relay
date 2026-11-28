@@ -30,7 +30,7 @@ import { emit, handle } from '../ipc/handle'
 import { cmdFrame } from '../relay/commands'
 import type { RelayFrames } from '../relay/client'
 import { OLD_HOST, type HostReviews } from '../relay/host-reviews'
-import { REVIEWS_MEDIA_DIR, localizeImages } from './review-media'
+import { REVIEWS_MEDIA_DIR, UNAVAILABLE_MEDIA, localizeImages } from './review-media'
 import { rowStatusOf } from './row-status'
 
 const fail = (code: string, message: string): Error => Object.assign(new Error(message), { code })
@@ -98,6 +98,9 @@ const HostPr = z.object({
   body: z.string(),
   base: z.string(),
   head: z.string(),
+  /** Absent from older hosts. */
+  headSha: z.string().optional(),
+  baseSha: z.string().optional(),
   additions: z.number(),
   deletions: z.number(),
   reviewers: z.array(z.object({ login: z.string(), state: z.string() })),
@@ -275,9 +278,12 @@ export function refOf(url: string, items: readonly Item[]): Ref | null {
   return null
 }
 
-/** Host-relative `/reviews/media/...` image links made absolute on the host's origin. */
+/** Host-relative `/reviews/media/...` image links made absolute on the host's origin; the host's unavailable placeholder stays as it is. */
 export function absoluteMedia(md: string, origin: string): string {
-  return md.replace(/(!\[[^\]\n]*\]\(\s*<?)(\/reviews\/media\/)/g, `$1${origin}$2`)
+  return md.replace(
+    /(!\[[^\]\n]*\]\(\s*<?)(\/reviews\/media\/)(?!unavailable[\s)>])/g,
+    `$1${origin}$2`,
+  )
 }
 
 /** The host's PR as the page's PR: commits move out of the timeline, which keeps comments and reviews. */
@@ -305,6 +311,8 @@ export function toPr(pr: z.infer<typeof HostPr>): ReviewPr {
     body: pr.body,
     base: pr.base,
     head: pr.head,
+    headSha: pr.headSha,
+    baseSha: pr.baseSha,
     additions: pr.additions,
     deletions: pr.deletions,
     reviewers: pr.reviewers,
@@ -398,7 +406,9 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
   const localSrc = async (src: string): Promise<string | null> => {
     const out = /^!\[\]\((.*)\)$/.exec(await local(`![](${src})`))?.[1] ?? null
     // A local copy is `/reviews/media/<file>`; the host's own `<file>/<token>` path means it was not fetched.
-    return out?.startsWith('/reviews/media/') && !out.includes('/', '/reviews/media/'.length)
+    return out?.startsWith('/reviews/media/') &&
+      out !== UNAVAILABLE_MEDIA &&
+      !out.includes('/', '/reviews/media/'.length)
       ? out
       : null
   }
@@ -503,8 +513,10 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
     return { ...pr, body, timeline }
   })
 
-  handle(ctx, 'reviews.guide', async ({ repo, number }) =>
-    ReviewGuideSchema.parse((await host.req({ kind: 'guide', repo, number })).guide),
+  handle(ctx, 'reviews.guide', async ({ repo, number, headSha, baseSha }) =>
+    ReviewGuideSchema.parse(
+      (await host.req({ kind: 'guide', repo, number, headSha, baseSha })).guide,
+    ),
   )
 
   handle(ctx, 'reviews.comment', async ({ repo, number, body }) => {

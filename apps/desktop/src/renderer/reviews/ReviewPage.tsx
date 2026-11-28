@@ -76,11 +76,12 @@ export function ReviewPage({ place }: { place: Place }) {
   }, [id, pr])
 
   const prRef = ref?.kind === 'pr' ? ref : null
-  const loadPr = useCallback(async (r: { repo: string; number: number }) => {
+  const loadPr = useCallback(async (r: { repo: string; number: number }): Promise<boolean> => {
     setPrError(null)
     const res = await invoke('reviews.pr', { repo: r.repo, number: r.number })
     if (res.ok) setPr({ pr: res.value, at: Date.now() })
     else setPrError(res.error.message)
+    return res.ok
   }, [])
   const prRepo = prRef?.repo
   const prNumber = prRef?.number
@@ -149,6 +150,7 @@ export function ReviewPage({ place }: { place: Place }) {
           void loadPr(row)
           void loadQueue(true)
         }}
+        onReload={() => loadPr(row)}
         onDone={() => void donePr(row, pr.pr)}
       />
     )
