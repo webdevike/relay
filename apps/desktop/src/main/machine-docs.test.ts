@@ -19,6 +19,7 @@ import { cardGenMachine } from '../renderer/canvas/agent/card-gen.machine'
 import { shareSnapshotsMachine } from './meetings/share-snapshots.machine'
 import { cardStackMachine } from '../renderer/chat/stack/card-stack.machine'
 import { cardMoveMachine } from '../renderer/agents-board/card-move.machine'
+import { timelinePlanMachine } from '../renderer/agents-board/timeline/plan.machine'
 
 const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine }[] = [
   {
@@ -57,6 +58,11 @@ const MACHINES: readonly { file: string; title: string; machine: AnyStateMachine
     file: 'card-move',
     title: 'Dragging a Board card to another column (desktop)',
     machine: cardMoveMachine,
+  },
+  {
+    file: 'timeline-plan',
+    title: 'Timeline drafts, Astra re-plan and Apply (desktop)',
+    machine: timelinePlanMachine,
   },
 ]
 
