@@ -106,12 +106,18 @@
   border-right-color: transparent;
 }
 
+/* Date lines and the draft's ghosts run beneath the bars: SVAR's bar layer is lifted above them,
+   so a bar and its label always cover a line or ghost that crosses it. */
+.rb-timeline-chart .wx-area > .wx-bars {
+  z-index: 2;
+}
+
 .rb-line {
   position: absolute;
   top: 0;
   bottom: 0;
   width: 0;
-  z-index: 4;
+  z-index: 1;
   pointer-events: none;
 }
 
@@ -146,10 +152,10 @@
   color: var(--mantine-color-red-text);
 }
 
-/* The draft's ghost bars at their new dates. */
+/* The draft's ghost bars at their new dates, under the bars (over the date lines). */
 .rb-ghost {
   position: absolute;
-  z-index: 3;
+  z-index: 1;
   box-sizing: border-box;
   border: 1px dashed var(--mantine-color-violet-filled);
   border-radius: var(--mantine-radius-sm);

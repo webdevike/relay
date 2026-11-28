@@ -17,6 +17,7 @@ import { test as base, expect } from './fixtures'
 import { FakeRelayHost } from './helpers/fake-relay-host'
 import { makeEvaFixture } from './helpers/eva-fixture'
 import { pickScheme } from './helpers/appearance'
+import { hostProposal, hostViewerId } from './helpers/timeline-proposal'
 
 const SHOTS = path.join(__dirname, '..', 'test-results', 'timeline-shots')
 const DAY_MS = 86_400_000
@@ -50,33 +51,6 @@ function timelineTickets(): Record<string, unknown>[] {
   })
 }
 
-/**
- * Astra's fixture answer as the host sends it: with its baseline (the tickets as the host has them)
- * and the account it read them as; ENG-9001 also gets a Relay start (a mixed row).
- */
-function hostProposal(
-  tickets: Record<string, unknown>[],
-  viewerId: string,
-): Record<string, unknown> {
-  const file = path.join(__dirname, 'fixtures', 'tickets', 'replan-proposal.json')
-  const answer = JSON.parse(fs.readFileSync(file, 'utf8')) as { changes: { key: string }[] }
-  const changes = answer.changes.map((c) =>
-    c.key === 'ENG-9001' ? { ...c, start: dayFromNow(1) } : c,
-  )
-  const baseline = tickets
-    .filter((t) => changes.some((c) => c.key === t.key))
-    .map((t) => ({
-      key: t.key,
-      issueId: t.id,
-      updatedAt: t.updatedAt,
-      dueDate: t.dueDate,
-      priority: t.priority,
-      prioritySortOrder: t.prioritySortOrder,
-      plannedStart: t.plannedStart ?? null,
-    }))
-  return { ...answer, changes, viewerId, baseline }
-}
-
 const test = base.extend({
   launchEnv: async ({}, use) => {
     const fx = makeEvaFixture()
@@ -85,8 +59,12 @@ const test = base.extend({
     host = await FakeRelayHost.start(relayDir)
     host.features = ['render.report', TICKETS_FEATURE, TICKETS_WRITES_FEATURE]
     host.tickets.board.tickets = timelineTickets()
-    const status = host.tickets.status as { identity: { linear: { viewerId: string } } }
-    host.replanProposal = hostProposal(host.tickets.board.tickets, status.identity.linear.viewerId)
+    // ENG-9001 also gets a Relay start: a mixed row.
+    host.replanProposal = hostProposal(
+      host.tickets.board.tickets,
+      hostViewerId(host.tickets.status),
+      { 'ENG-9001': dayFromNow(1) },
+    )
     await use({ ...fx.env, EVAOS_RELAY_DIR: relayDir })
     await host.close()
     fs.rmSync(root, { recursive: true, force: true })
@@ -136,6 +114,38 @@ async function labelsClearOfScale(shell: Page): Promise<void> {
   }
 }
 
+/**
+ * Where a date line crosses a bar, the bar (and its label) is on top. The lines take no pointer
+ * events, so for the hit test only they are made hittable: whatever is topmost at the crossing
+ * must be the bar, not the line.
+ */
+async function linesUnderBars(shell: Page): Promise<number> {
+  const misses = await shell.evaluate(() => {
+    const lines = [
+      ...document.querySelectorAll<HTMLElement>('[data-testid="timeline"] [data-line]'),
+    ]
+    const bars = [...document.querySelectorAll('[data-testid="timeline"] .wx-bar')]
+    const out: string[] = []
+    let crossings = 0
+    for (const line of lines) {
+      line.style.pointerEvents = 'auto'
+      const x = line.getBoundingClientRect().left + 1
+      for (const bar of bars) {
+        const b = bar.getBoundingClientRect()
+        if (x <= b.left || x >= b.right) continue
+        crossings += 1
+        const top = document.elementFromPoint(x, b.top + b.height / 2)
+        if (top?.closest('.wx-bar') !== bar)
+          out.push(`${line.dataset.line} over ${bar.getAttribute('data-id')}`)
+      }
+      line.style.pointerEvents = ''
+    }
+    return { out, crossings }
+  })
+  expect(misses.out).toEqual([])
+  return misses.crossings
+}
+
 async function openBoard(shell: Page): Promise<void> {
   await shell.waitForFunction(() => '__evaosShell' in window)
   await shell.evaluate(() => (window as unknown as Shell).__evaosShell.openPlace('board'))
@@ -167,6 +177,8 @@ test('the Timeline: switch, zoom, open a ticket, re-plan with Astra, apply and d
   // Zoom buttons; at every zoom the date-line labels stay clear of the scale's ticks and dates.
   await expect(timeline).toHaveAttribute('data-zoom', 'week')
   await labelsClearOfScale(shell)
+  // Today crosses ENG-9001 and the summary bars in this view; each bar stays on top of it.
+  expect(await linesUnderBars(shell)).toBeGreaterThan(0)
   const zoomBar = shell.locator('.rb-timeline-bar')
   await zoomBar.getByText('Month', { exact: true }).click()
   await expect(timeline).toHaveAttribute('data-zoom', 'month')
