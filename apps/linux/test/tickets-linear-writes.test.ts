@@ -64,6 +64,9 @@ class FakeLinear {
     ["tpl-other", { id: "tpl-other", name: "Ops bug", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: "{}", team: { id: "t-2" } }],
     ["tpl-doc", { id: "tpl-doc", name: "Spec", type: "document", updatedAt: "2026-11-01T00:00:00.000Z", templateData: "{}", team: null }],
     ["tpl-odd", { id: "tpl-odd", name: "Odd", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: "{not json", team: { id: "t-1" } }],
+    ["tpl-nested", { id: "tpl-nested", name: "Epic", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: JSON.stringify({ title: "Epic", subIssues: [{ title: "Design", subIssues: [{ title: "Mocks" }] }, { title: "Build" }] }), team: { id: "t-1" } }],
+    ["tpl-child-list", { id: "tpl-child-list", name: "Child list", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: JSON.stringify({ subIssues: [{ title: "Design", children: [{ title: "Hidden" }] }] }), team: { id: "t-1" } }],
+    ["tpl-config-list", { id: "tpl-config-list", name: "Config list", type: "issue", updatedAt: "2026-11-01T00:00:00.000Z", templateData: JSON.stringify({ title: "Root", configuration: { issues: [{ title: "Hidden" }] } }), team: { id: "t-1" } }],
   ]);
   readonly projects = new Map([
     ["p-1", { id: "p-1", name: "Board", teams: { nodes: [{ id: "t-1" }] } }],
@@ -330,6 +333,33 @@ describe("template effects", () => {
     for (const data of ["{not json", '"just a string"', "[]", "null", JSON.stringify({ children: [{ title: "Hidden" }] }), JSON.stringify({ subIssues: [{ description: "no title" }] }), JSON.stringify({ subIssues: "two" })]) {
       expect(templateEffects(data).ok).toBe(false);
     }
+  });
+
+  it("discloses nested sub-issues at every level", () => {
+    const data = JSON.stringify({ subIssues: [{ title: "A", subIssues: [{ title: "A1", subIssues: [{ title: "A1x" }] }] }, { title: "B" }] });
+    expect(templateEffects(data)).toEqual({ ok: true, text: " with 4 sub-issues: A, A > A1, A > A1 > A1x, B" });
+  });
+
+  it("refuses an issue definition anywhere outside a titled subIssues list, at any depth", () => {
+    const probes = [
+      { subIssues: [{ title: "A", children: [{ title: "Hidden" }] }] },
+      { configuration: { issues: [{ title: "Hidden" }] } },
+      { settings: { deep: { list: [{ description: "no title" }] } } },
+      { subIssues: [{ title: "A", meta: { next: { assigneeId: "u-1" } } }] },
+    ];
+    for (const probe of probes) expect(templateEffects(JSON.stringify(probe)).ok, JSON.stringify(probe)).toBe(false);
+  });
+
+  it("names every level in the confirm, and refuses nested lists it can't verify with zero writes", async () => {
+    const { gate, linear } = setup();
+    const create = (templateId: string): TicketMutation => ({ ...(CREATE_ISSUE as Extract<TicketMutation, { kind: "createIssue" }>), templateId });
+    expect((await gate.prepare(DEVICE, create("tpl-nested"), ACTOR)).approval?.summary).toContain("template Epic with 3 sub-issues: Design, Design > Mocks, Build");
+    for (const templateId of ["tpl-child-list", "tpl-config-list"]) {
+      const res = await gate.prepare(DEVICE, create(templateId), ACTOR);
+      expect(res.refused?.code).toBe("invalid");
+      expect(await gate.commit(DEVICE, { opId: OP1, mutation: create(templateId) }, ACTOR)).toMatchObject({ ok: false });
+    }
+    expect(linear.mutations()).toEqual([]);
   });
 
   it("refuses to prepare a new issue whose template effects can't be told, writing nothing", async () => {

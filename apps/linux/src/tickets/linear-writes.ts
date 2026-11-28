@@ -80,11 +80,6 @@ const TeamStates = z.object({ team: z.object({ id: z.string(), key: z.string(), 
 const Template = z.object({
   template: z.object({ id: z.string(), name: z.string(), type: z.string(), updatedAt: z.string(), templateData: z.unknown(), team: Ref.nullable().optional() }).nullable(),
 });
-/**
- * A template's issue data as Linear documents it (`templateData`, JSON-encoded): sub-issues it also
- * creates are listed under `subIssues`, each with its title.
- */
-const TemplateIssueData = z.object({ subIssues: z.array(z.object({ title: z.string() }).passthrough()).optional() }).passthrough();
 const Project = z.object({ project: z.object({ id: z.string(), name: z.string(), teams: Nodes(Ref) }).nullable() });
 const CommentRef = z.object({
   comment: z
@@ -386,13 +381,47 @@ function subscribeOps(gql: LinearGql, viewerId: () => string | null): KindOps<Of
 type Team = { readonly id: string; readonly key: string };
 type Named = { problem: string } | { name: string | null; rev: string };
 
-/** An array that looks like issues (objects with a title): what a template would create besides the root. */
-const issueList = (v: unknown): boolean => Array.isArray(v) && v.some((x) => typeof x === "object" && x !== null && "title" in x);
+/** Keys that make an object an issue definition (Linear's issue attributes). */
+const ISSUE_KEYS = ["title", "description", "stateId", "assigneeId", "priority", "estimate", "teamId", "dueDate", "subIssues"];
+/** How deep sub-issues may nest before Relay stops vouching for what a template creates. */
+const MAX_TEMPLATE_DEPTH = 8;
+
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const issueLike = (v: unknown): boolean => isRecord(v) && ISSUE_KEYS.some((k) => k in v);
+
+/** Whether `v` holds an issue definition anywhere below it (too deep counts as yes). */
+function holdsIssue(v: unknown, depth = 0): boolean {
+  if (depth > 32) return true;
+  const children = Array.isArray(v) ? v : isRecord(v) ? Object.values(v) : [];
+  return children.some((x) => issueLike(x) || holdsIssue(x, depth + 1));
+}
 
 /**
- * What else a template creates, for the confirm: its sub-issues by title, or why that can't be told
- * (data that isn't JSON or an object, sub-issues without titles, or issue lists under another key).
- * Unknown effects refuse the change rather than confirming less than Linear will do.
+ * The sub-issues one template issue creates, every level (`Parent > Child`), into `out`; false when
+ * any issue definition sits anywhere but in a titled `subIssues` list, or nesting goes too deep.
+ */
+function collectSubIssues(node: Record<string, unknown>, prefix: string, out: string[], depth: number): boolean {
+  for (const [key, value] of Object.entries(node)) {
+    if (key !== "subIssues") {
+      if (issueLike(value) || holdsIssue(value)) return false;
+      continue;
+    }
+    if (!Array.isArray(value) || depth >= MAX_TEMPLATE_DEPTH) return false;
+    for (const sub of value) {
+      if (!isRecord(sub) || typeof sub["title"] !== "string") return false;
+      const name = prefix === "" ? sub["title"] : `${prefix} > ${sub["title"]}`;
+      out.push(name);
+      if (!collectSubIssues(sub, name, out, depth + 1)) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * What else a template creates, for the confirm: every sub-issue at every level by title, or why
+ * that can't be told (data that isn't JSON or an object, untitled sub-issues, too deep, or an issue
+ * definition anywhere outside a `subIssues` list). Unknown effects refuse the change rather than
+ * confirming less than Linear will do.
  */
 export function templateEffects(data: unknown): { ok: true; text: string } | { ok: false; why: string } {
   let decoded: unknown = data;
@@ -403,11 +432,8 @@ export function templateEffects(data: unknown): { ok: true; text: string } | { o
       return { ok: false, why: "Relay can't read what this template creates" };
     }
   }
-  const parsed = TemplateIssueData.safeParse(decoded);
-  if (!parsed.success) return { ok: false, why: "Relay can't tell what this template creates" };
-  const { subIssues = [], ...rest } = parsed.data;
-  if (Object.values(rest).some(issueList)) return { ok: false, why: "Relay can't tell what this template creates" };
-  const titles = subIssues.map((s) => s.title);
+  const titles: string[] = [];
+  if (!isRecord(decoded) || !collectSubIssues(decoded, "", titles, 0)) return { ok: false, why: "Relay can't tell what this template creates" };
   return { ok: true, text: titles.length === 0 ? "" : ` with ${String(titles.length)} sub-issues: ${titles.join(", ")}` };
 }
 
