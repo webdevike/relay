@@ -737,6 +737,74 @@
   background: var(--eva-c-background);
 }
 
+/* Guide v2: overview card, per-section checks and risks, callouts under diff lines, end blocks. */
+.eva-rv-goverview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--eva-c-border);
+  border-radius: var(--eva-radius);
+  background: var(--eva-c-secondary-background);
+}
+.eva-rv-goverview-risk {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  flex-wrap: wrap;
+}
+.eva-rv-gsec-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-xs);
+}
+.eva-rv-gbullets ul {
+  margin: 0;
+  padding: 0 0 0 var(--mantine-spacing-md);
+  font-size: var(--eva-fz-body);
+  line-height: 1.5;
+}
+.eva-rv-annot {
+  padding: 0;
+  background: var(--eva-c-secondary-background);
+}
+.eva-rv-callouts {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.4);
+  padding: calc(var(--mantine-spacing-xs) * 0.5) var(--mantine-spacing-xs);
+  font-family: var(--eva-font-sans, inherit);
+  font-size: var(--eva-fz-label);
+  border-left: 2px solid var(--eva-c-accent);
+}
+.eva-rv-callout {
+  display: flex;
+  gap: var(--mantine-spacing-xs);
+  white-space: normal;
+}
+.eva-rv-gend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-lg);
+}
+.eva-rv-gblock {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mantine-spacing-xs) * 0.8);
+}
+.eva-rv-gnot {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+  min-width: 0;
+  font-size: var(--eva-fz-label);
+}
+.eva-rv-gnot-why {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Linear tickets */
 .eva-rv-ldot {
   display: inline-block;

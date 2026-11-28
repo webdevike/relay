@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { AstraItem, AstraTurn, LinearComment, ReviewGuide, ReviewPr, SlackMessage } from "@relay/protocol";
+import { parseServerMessage, type AstraItem, type AstraTurn, type LinearComment, type ReviewGuide, type ReviewPr, type SlackMessage } from "@relay/protocol";
+import guideV2 from "@relay/protocol/fixtures/review-guide.json";
+import { z } from "zod";
 import {
   astraAnswer,
   composerIntent,
@@ -148,6 +150,29 @@ describe("guide and badges", () => {
   it("counts ticked files of the Guide only", () => {
     const guide: ReviewGuide = { headSha: "h", source: "model", error: null, sections: [{ title: "", why: "", files: ["a", "b"] }, { title: "", why: "", files: ["c"] }] };
     expect(guideProgress(guide, ["a", "c", "stale"])).toEqual({ done: 2, total: 3 });
+  });
+
+  it("reads a v2 Guide from a host frame through the phone's decoder, as v1 sections and files", () => {
+    const frame = JSON.stringify({ t: "reviews.res", rid: "g", ok: true, guide: guideV2.expected });
+    const parsed = parseServerMessage(frame);
+    if (!parsed.ok || parsed.value.t !== "reviews.res" || parsed.value.guide === undefined) throw new Error("frame did not decode");
+    const guide = parsed.value.guide;
+    expect(guide.sections.map((s) => [s.title, s.files])).toEqual([
+      ["Lock rule", ["src/policy.ts"]],
+      ["Endpoint guard", ["src/route.ts"]],
+      ["Cleanup", ["src/old.ts", "src/new-name.ts"]],
+      ["Tests", ["tests/policy.test.ts"]],
+    ]);
+    expect(guide.sections[0]?.why).toBe("The lock compares minutes instead of raw milliseconds. Owners may edit too.");
+    expect(guideProgress(guide, ["src/policy.ts"])).toEqual({ done: 1, total: 5 });
+    // The Guide schema phones already shipped with (v1 only) reads the same record.
+    const shipped = z.object({
+      headSha: z.string(),
+      source: z.enum(["model", "folders"]),
+      error: z.string().nullable(),
+      sections: z.array(z.object({ title: z.string(), why: z.string(), files: z.array(z.string()) })),
+    });
+    expect(shipped.parse(guideV2.expected).sections[2]).toEqual({ title: "Cleanup", why: "The legacy lock goes away and the name file is renamed.", files: ["src/old.ts", "src/new-name.ts"] });
   });
 
   it("labels a PR's state", () => {

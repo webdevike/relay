@@ -98,6 +98,8 @@ const HostPr = z.object({
   body: z.string(),
   base: z.string(),
   head: z.string(),
+  /** Absent from older hosts. */
+  headSha: z.string().optional(),
   additions: z.number(),
   deletions: z.number(),
   reviewers: z.array(z.object({ login: z.string(), state: z.string() })),
@@ -305,6 +307,7 @@ export function toPr(pr: z.infer<typeof HostPr>): ReviewPr {
     body: pr.body,
     base: pr.base,
     head: pr.head,
+    headSha: pr.headSha,
     additions: pr.additions,
     deletions: pr.deletions,
     reviewers: pr.reviewers,
@@ -503,8 +506,8 @@ export function registerRemoteReviews(ctx: MainContext, d: RemoteReviewsDeps): v
     return { ...pr, body, timeline }
   })
 
-  handle(ctx, 'reviews.guide', async ({ repo, number }) =>
-    ReviewGuideSchema.parse((await host.req({ kind: 'guide', repo, number })).guide),
+  handle(ctx, 'reviews.guide', async ({ repo, number, headSha }) =>
+    ReviewGuideSchema.parse((await host.req({ kind: 'guide', repo, number, headSha })).guide),
   )
 
   handle(ctx, 'reviews.comment', async ({ repo, number, body }) => {

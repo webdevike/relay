@@ -1,71 +1,94 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { describe, expect, it, vi } from 'vitest'
-import { createConfigStore } from '../config-store'
-import { folderSections, guideCache, parseGuide, promptDiff } from './guide'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ReviewGuideSchema } from '@evaos/contract'
+import { ReviewGuide as ProtocolReviewGuide } from '@relay/protocol'
+import { folderSections } from '@relay/protocol/review-guide'
+import fixture from '@relay/protocol/fixtures/review-guide.json'
+import { createConfigStore, type ConfigStore } from '../config-store'
+import { GUIDES_FILE, HEAD_CHANGED, guideCache } from './guide'
 
-const PATHS = ['src/a/policy.ts', 'src/a/route.ts', 'tests/a.test.ts', 'README.md']
+const input = { ...fixture.input, headRefOid: fixture.headSha }
+const PATHS = input.files.map((f) => f.path)
 
-describe('reviews guide', () => {
-  it('keeps the model sections over exactly the PR files', () => {
-    const text = `Here it is: {"sections":[
-      {"title":"Policy","why":"Edits lock at 30 minutes.","files":["src/a/policy.ts","nope.ts"]},
-      {"title":"Endpoint","files":["src/a/route.ts","src/a/policy.ts"]},
-      {"title":"Empty","why":"x","files":["ghost.ts"]},
-      {"why":"no title","files":["README.md"]}
-    ]}`
-    expect(parseGuide(text, PATHS)).toEqual([
-      { title: 'Policy', why: 'Edits lock at 30 minutes.', files: ['src/a/policy.ts'] },
-      { title: 'Endpoint', why: '', files: ['src/a/route.ts'] },
-      { title: 'Other changes', why: '', files: ['tests/a.test.ts', 'README.md'] },
-    ])
-    expect(parseGuide('no json here', PATHS)).toBeNull()
-    expect(parseGuide('{"sections":[{"title":"x","files":["ghost.ts"]}]}', PATHS)).toBeNull()
-  })
+let dir: string
+let config: ConfigStore
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guide-'))
+  config = createConfigStore(dir)
+})
+afterEach(() => {
+  fs.rmSync(dir, { recursive: true, force: true })
+})
 
-  it('falls back to folders, source first', () => {
-    expect(folderSections(PATHS).map((s) => [s.title, s.files])).toEqual([
-      ['src/a', ['src/a/policy.ts', 'src/a/route.ts']],
-      ['tests', ['tests/a.test.ts']],
-      ['Top-level files', ['README.md']],
-    ])
-  })
-
-  it('cuts a long file diff', () => {
-    const big = `diff --git a/x b/x\n${'+y\n'.repeat(10_000)}diff --git a/z b/z\n+z\n`
-    const out = promptDiff(big)
-    expect(out).toContain("[... rest of this file's diff cut]")
-    expect(out).toContain('diff --git a/z b/z')
-  })
-
-  it('writes once per head, keeps only written guides, and falls back on failure', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'guide-'))
-    const config = createConfigStore(dir)
-    const input = {
-      title: 't',
-      body: '',
-      diff: '',
-      files: PATHS.map((p) => ({ path: p, additions: 1, deletions: 0 })),
-    }
-    const write = vi.fn(
-      async () => '{"sections":[{"title":"All","why":"w","files":["src/a/policy.ts"]}]}',
-    )
+describe('reviews guide runner', () => {
+  it("writes the shared fixture's v2 Guide (same as the host's) once per head", async () => {
+    const write = vi.fn<(prompt: string) => Promise<string>>(async () => fixture.answer)
     const read = guideCache(config, write)
-    const [a, b] = await Promise.all([read('o/r#1', 'sha1', input), read('o/r#1', 'sha1', input)])
-    expect(a).toEqual(b)
-    expect(a.source).toBe('model')
-    expect((await read('o/r#1', 'sha1', input)).sections[0]!.title).toBe('All')
+    const [a, b] = await Promise.all([
+      read(fixture.key, fixture.headSha, input),
+      read(fixture.key, fixture.headSha, input),
+    ])
+    expect(a).toEqual(fixture.expected)
+    expect(b).toEqual(a)
+    expect(await read(fixture.key, fixture.headSha, input)).toEqual(fixture.expected)
     expect(write).toHaveBeenCalledTimes(1)
+    expect(write.mock.calls[0]?.[0]).toContain('HUNK src/policy.ts#3,3')
+    expect(Object.keys(config.readJson<Record<string, unknown>>(GUIDES_FILE, {}))).toEqual([
+      'o/r#7@head1@v2',
+    ])
+  })
 
+  it('refuses a snapshot read for another head without asking the model', async () => {
+    const write = vi.fn(async () => fixture.answer)
+    await expect(guideCache(config, write)(fixture.key, 'head2', input)).rejects.toThrow(
+      HEAD_CHANGED,
+    )
+    expect(write).not.toHaveBeenCalled()
+  })
+
+  it('falls back to folders with the reason and keeps nothing', async () => {
     const failing = guideCache(config, async () => {
       throw new Error('Claude took too long')
     })
-    const fb = await failing('o/r#1', 'sha2', input)
-    expect(fb).toMatchObject({ source: 'folders', error: 'Claude took too long' })
-    expect(
-      Object.keys(config.readJson<Record<string, unknown>>('reviews-guides.json', {})),
-    ).toEqual(['o/r#1@sha1'])
-    fs.rmSync(dir, { recursive: true, force: true })
+    expect(await failing(fixture.key, fixture.headSha, input)).toEqual({
+      headSha: 'head1',
+      source: 'folders',
+      error: 'Claude took too long',
+      sections: folderSections(PATHS),
+    })
+    expect(config.readJson<Record<string, unknown>>(GUIDES_FILE, {})).toEqual({})
+  })
+})
+
+describe('review guide schema parity', () => {
+  const v1 = {
+    headSha: 'h',
+    source: 'folders',
+    error: 'Claude took too long',
+    sections: [{ title: 'src', why: '', files: ['src/a.ts'] }],
+  }
+
+  it('accepts the same v1 and v2 records in contract and protocol', () => {
+    for (const record of [v1, fixture.expected]) {
+      expect(ReviewGuideSchema.parse(record)).toEqual(record)
+      expect(ProtocolReviewGuide.parse(record)).toEqual(record)
+    }
+  })
+
+  it('rejects the same broken records in both', () => {
+    const bad = [
+      { ...fixture.expected, version: 3 },
+      { ...fixture.expected, risk: 'huge' },
+      {
+        ...fixture.expected,
+        sections: [{ ...fixture.expected.sections[0], hunks: [{ id: 'x', side: 'both' }] }],
+      },
+    ]
+    for (const record of bad) {
+      expect(ReviewGuideSchema.safeParse(record).success).toBe(false)
+      expect(ProtocolReviewGuide.safeParse(record).success).toBe(false)
+    }
   })
 })
