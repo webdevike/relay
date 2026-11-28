@@ -816,19 +816,33 @@ from here. A test host with its own `XDG_CONFIG_HOME` also moves `gh`'s login (`
 Isaac's Linear issues and their PRs for Relay Desktop's Board, synced by the host (`src/tickets/`, wire spec
 `packages/protocol/src/tickets.ts`). Off unless host.json opts in: `"features": { "tickets": true }` starts the sync
 and advertises `tickets` in `welcome.features`; `"ticketsWrites": true` as well (and no `RELAY_REVIEWS_DRY_RUN=1`)
-opens the MutationGate and advertises `tickets.writes`. Without either nothing changes for any device.
+opens the MutationGate and advertises `tickets.writes`. Without either nothing changes for any device, and Reviews
+calls Linear and GitHub unpaced, exactly as before.
+
+This slice adds the sync and Linear mutations only: `summary`, `plan` and `replan` answer "Not available yet", and
+the gate for GitHub actions (merge, rerun, review) comes in a later slice.
 
 - Accounts: the host's own Linear key (`LINEAR_API_KEY` or `secrets/linear.env`) and `gh`'s login, resolved each
   cycle and published in `tickets.status`. Another account wipes `tickets/`'s cache, drops pending approvals and
   refuses writes until a full cycle as the new one.
+- Writes: `prepare`/`commit` carry the `viewerId` the device showed; the gate refuses another account, pins the
+  verified key for the whole op and checks it again right before the write (a key rotation drops approvals and
+  stops in-flight writes). `ops.json` keeps the account, device and approved revision per op; an unknown outcome
+  is reconciled and never reapplied, except a stable-id create (comment, new issue) at its approved revision.
+  Confirms name the live target and show the full text and every plan row; a change too large to show is refused.
 - Sync (`docs/state-machines/tickets-sync.md`): every 120 s +-10%; Linear issues assigned to, followed by or
   mentioning Isaac, 25 per page and at most 8 pages a cycle (30 days back on the first pass), watched keys, the
-  last 100 notifications and team states; a membership pass every 30 minutes tombstones what left. GitHub: one
-  batched probe per 20 linked PRs, full facts only when a PR's fingerprint changed.
-- Budget: one token bucket per provider shared with Reviews; 429/`Retry-After`, Linear's rate-limit headers and
-  GitHub's primary and secondary limits back off.
-- Store: `$XDG_CONFIG_HOME/relay/tickets/` (`tickets.json` v1, capped at 500 issues and 200 PRs; `handled.json`,
-  `seen.json`, `ops.json`). Pushes go only to sockets that sent `subscribe {on: true}`.
+  last 100 notifications (their issues read before the checkpoint moves) and team states; every 30 minutes the
+  stored keys are checked against membership 50 per call and what left is tombstoned. A ticket Linear refuses to
+  show is evicted; only outages serve the stored copy. GitHub: one batched probe per 20 linked PRs, full facts
+  only when a PR's fingerprint changed.
+- Budget (tickets on only): one token bucket per provider shared with Reviews, a quarter of each kept for Reviews
+  and writes; 429/`Retry-After`, Linear's rate-limit headers and GitHub's primary and secondary limits back off.
+- Store: `$XDG_CONFIG_HOME/relay/tickets/` (`tickets.json` v1, capped at 500 issues and 200 PRs, 8 KiB per
+  description and 32 KiB of comments per issue, written only when it changed; `handled.json`, `seen.json`,
+  `ops.json`). Ticket pages stay near 1 MiB (`clipped` says what was left out); signed links lose their query.
+  Errors reach clients in the host's words, never a provider's text. Pushes go only to sockets that sent
+  `subscribe {on: true}`.
 
 ## Differences from the Mac app
 
